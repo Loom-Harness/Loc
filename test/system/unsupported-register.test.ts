@@ -190,8 +190,19 @@ const REGISTER_FILE = path.join(srcRoot, "diagnostics", "unsupported-register.ts
  *  `--warnings-as-errors` and then silently does nothing.  The statement ships
  *  on the other four backends; refusing it on the fifth is the honest half.
  *  Draining it is M-T6.59 (value-producing branches in every vanilla body
- *  renderer), which deletes the row and lowers this back to 47. */
-const MAX_OPEN_GAPS = 48;
+ *  renderer), which deletes the row and lowers this back to 47.
+ *
+ *  48 → 49: `loom.page-form-locals-unsupported`.  The same trade this register
+ *  exists to record — the gap is not new (two forms on one page have always
+ *  redeclared the bare `create` / `form` / `register` / `handleSubmit` the
+ *  design packs emit), only the honesty is.  It was a TS2300 in the GENERATED
+ *  project on react/svelte and, on vue, no error at all: the shell deduped the
+ *  declarations, so the second form silently posted the first form's mutation
+ *  with the first form's schema.  Angular is the existence proof of the fix —
+ *  its locals are already aggregate-scoped — so draining this means
+ *  generalising that to a per-FORM prefix through the ~68 pack templates that
+ *  hardcode the names, which deletes the row and lowers this back to 48. */
+const MAX_OPEN_GAPS = 49;
 
 function walk(dir: string, out: string[] = []): string[] {
   for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
