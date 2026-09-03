@@ -221,8 +221,10 @@ describe("a label with no catalog key stays raw", () => {
     // The section this ui's own pages land in (M-FT.6 merges them into the
     // shell's defaults; this ui scaffolds nothing, so the empty "Aggregates"
     // heading it used to print over zero links is gone) and the page label
-    // itself are both emitter-DERIVED — raw attributes, no key.
-    expect(shell).toContain('label="Pages"');
-    expect(shell).toContain('label="DocList"');
+    // itself are both emitter-DERIVED — raw attributes, no key.  The section
+    // heading's SPELLING is M-FT.21's: one `loom-nav-section` element across
+    // the packs instead of each library's own divider component.
+    expect(shell).toContain("Pages");
+    expect(shell).toContain("DocList");
   });
 });
