@@ -80,7 +80,6 @@ import {
   validateHeexComponentHostState,
   validateInheritanceStorage,
   validateJavaReservedIdentifiers,
-  validateMikroOrmSupport,
   validateNeedCapabilities,
   validatePagedQueryHandlerBackend,
   validatePermissions,
@@ -179,7 +178,6 @@ export function validateLoomModel(loom: EnrichedLoomModel): LoomDiagnostic[] {
     validateGuardPrincipalWithoutAuth(sys, diags);
     validateDapperSupport(sys, diags);
     validateTphFilterExpressibility(sys, diags);
-    validateMikroOrmSupport(sys, diags);
     validateFindPredicateAdapterSupport(sys, diags);
     validateNeedCapabilities(sys, diags);
     validateResourceConfig(sys, diags);
