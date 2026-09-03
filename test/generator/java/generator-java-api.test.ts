@@ -159,7 +159,10 @@ system S {
     // The request record is plain wire types (money/datetime as String);
     // validation lives in a Spring Validator, not on the DTO.
     expect(req).toContain(
-      "public record CreateOrderRequest(String code, Status status, AddressRequest shipTo, String notes, String total, String placedAt) {",
+      // Required members carry `@NotNull`, and a nested record `@Valid` so the
+      // Bean Validation walk descends into it (F23). `notes` is optional and
+      // stays bare; the invariant bounds still live in the Spring Validator.
+      "public record CreateOrderRequest(@NotNull String code, @NotNull Status status, @NotNull @Valid AddressRequest shipTo, String notes, @NotNull String total, @NotNull String placedAt) {",
     );
     const svc = files_.get(`${ROOT}/features/orders/OrderService.java`)!;
     // Since M-T6.48 the money parse is guarded and carries its RFC 6901
@@ -245,7 +248,9 @@ describe("java generator — wire validators + advice (S5)", () => {
     expect(v).toContain("public final class CreateOrderValidator implements Validator {");
     expect(v).toContain("return CreateOrderRequest.class.equals(clazz);");
     expect(v).toContain(
-      'if (!(((int) code.codePoints().count()) >= 1)) errors.rejectValue("code", "loom.invariant", "Invariant violated: code.length > 0");',
+      // `code == null ||` skips a NULL rather than dereferencing it (F23): this
+      // Validator runs ALONGSIDE the record's @NotNull, not after it.
+      'if (!(code == null || ((int) code.codePoints().count()) >= 1)) errors.rejectValue("code", "loom.invariant", "Invariant violated: code.length > 0");',
     );
     const ctrl = files_.get(`${ROOT}/features/orders/OrdersController.java`)!;
     expect(ctrl).toContain("@Valid @RequestBody CreateOrderRequest request");
@@ -287,7 +292,7 @@ system Demo {
 `;
     const out = await generateSystemFiles(src);
     const check =
-      'if (!(((int) handle.codePoints().count()) >= 1)) errors.rejectValue("handle", "loom.invariant", "Invariant violated: handle.length > 0");';
+      'if (!(handle == null || ((int) handle.codePoints().count()) >= 1)) errors.rejectValue("handle", "loom.invariant", "Invariant violated: handle.length > 0");';
     const create = [...out.entries()].find(([k]) => /CreateAccountValidator\.java$/.test(k))?.[1];
     const update = [...out.entries()].find(([k]) => /UpdateAccountValidator\.java$/.test(k))?.[1];
     expect(create).toContain(check);

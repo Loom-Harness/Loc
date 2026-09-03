@@ -240,6 +240,24 @@ export function wireToDomain(t: TypeIR, expr: string, pointer: string): string {
   }
 }
 
+/** True when converting this type at the WIRE BOUNDARY emits a guarded parse —
+ *  i.e. the type tree carries a `money` or `datetime`, the two primitives that
+ *  cross as strings and are parsed rather than bound. Call sites use it to add
+ *  the `WireFormatException` import only where the guard is actually emitted,
+ *  so a file with no such field keeps its import block byte-identical. */
+export function wireToDomainGuards(t: TypeIR): boolean {
+  switch (t.kind) {
+    case "primitive":
+      return t.name === "money" || t.name === "datetime";
+    case "array":
+      return wireToDomainGuards(t.element);
+    case "optional":
+      return wireToDomainGuards(t.inner);
+    default:
+      return false;
+  }
+}
+
 /** Imports the inbound conversion needs. */
 export function collectWireToDomainImports(
   t: TypeIR,
