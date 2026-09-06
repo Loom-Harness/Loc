@@ -526,6 +526,13 @@ export const DIAGNOSTIC_MESSAGES = {
     "still committing the dataset's ship-once marker, and java/.NET emit a create call " +
     "that does not match the declared `create` signature. Seed a state-persisted " +
     "aggregate, or drive the stream through the aggregate's own create at runtime.",
+  "loom.locator-matcher-receiver": (p: { matcher: unknown; actual: unknown }) =>
+    `'${p.matcher}' asserts against a DOM element, so 'expect(...)' must be given a field ` +
+    "read on a row the test has on screen — bind one with `let <row> = " +
+    "ui.<aggregate>.getById(...)` or `ui.<aggregate>.create(...)`, then assert " +
+    `\`expect(<row>.<field>).${p.matcher}(...)\`. Got \`${p.actual}\`, which resolves to no ` +
+    "locator (a plain value, an `id`, or a nested path the page object does not expose); " +
+    "compare a plain value with `toBe` instead.",
   "loom.seed-abstract-aggregate": (p: { name: unknown }) =>
     `Seed row on abstract aggregate '${p.name}': an inheritance base has no create ` +
     "factory and no repository, so every backend drops the row — and elixir still commits " +
