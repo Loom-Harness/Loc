@@ -1138,6 +1138,16 @@ system P {
     }
     repository Accounts for Account { }
     seed default { Account { owner: "seeded-alice" } }`),
+  // A locator matcher (`toHaveText` / `toHaveCount` / `toBeVisible`) reads a
+  // DOM node, so its receiver has to be a field read on a row the test has on
+  // screen.  Anything else used to validate clean and then kill
+  // `generate system` from `renderExpectStmt` (audit 2026-09-03 F6); a plain
+  // string literal is the smallest receiver that can never be a locator.
+  "loom.locator-matcher-receiver": repoOnly(`    aggregate Thing with crudish { name: string }
+    repository Things for Thing { }
+    test "a locator matcher needs a page read" for Thing {
+      expect("x").toHaveText("x")
+    }`),
   "loom.seed-abstract-aggregate": repoOnly(`    abstract aggregate Base { name: string }
     aggregate Child extends Base with crudish { extra: int }
     repository Children for Child { }
