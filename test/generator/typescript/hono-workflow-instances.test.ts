@@ -151,7 +151,7 @@ describe("Hono event-sourced workflow instance routes", () => {
     const wf = await workflowsFromSrc(ES_SRC);
     expect(wf).toContain("const TallyInstanceResponse = z.object({");
     expect(wf).toContain("orderId: z.string(),");
-    expect(wf).toContain("total: z.number().int(),");
+    expect(wf).toContain('total: z.number().int().openapi({ format: "int32" }),');
     expect(wf).toContain("const TallyInstanceListResponse = z.array(TallyInstanceResponse)");
   });
 });

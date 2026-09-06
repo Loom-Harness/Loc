@@ -48,7 +48,10 @@ describe("python VO invariant → 422 at the wire", () => {
     const wm = await wireModels();
     // `value > 0` on an int folds to the sound inclusive `ge=1`.
     expect(wm).toContain("class Quantity(BaseModel):");
-    expect(wm).toContain("    value: int = Field(ge=1)");
+    // The declared invariant's `Field(ge=1)` rides ON TOP of the `Int32`
+    // annotation the type itself now carries (F11): the invariant bound and
+    // the column bound are different facts and both are stated.
+    expect(wm).toContain("    value: Int32 = Field(ge=1)");
     // Two length invariants on one field merge into a single Field(...).
     expect(wm).toContain("class Sku(BaseModel):");
     expect(wm).toContain("    code: str = Field(min_length=3, max_length=12)");
@@ -88,9 +91,18 @@ describe("python VO invariant → 422 at the wire", () => {
     const wm = generateSystems(model).files.get("d/app/http/wire_models.py")!;
     // `StringConstraints`/`WithJsonSchema` ride the always-emitted `UuidStr`
     // alias (schemathesis F2); the VO-driven names stay demand-gated.
-    expect(wm).toContain("from pydantic import BaseModel, StringConstraints, WithJsonSchema\n");
-    expect(wm).not.toContain("Field");
+    // `Field` is now unconditional: the `Int32` alias uses it, and that alias
+    // is emitted into every wire_models.py exactly as `UuidStr` is.
+    expect(wm).toContain(
+      "from pydantic import BaseModel, Field, StringConstraints, WithJsonSchema\n",
+    );
+    // Scoped to the VO's own class body: `Field` now appears at module level
+    // unconditionally, because the shared `Int32` alias uses it (F11). What
+    // this case is about is that a VO with no invariants gets no per-field
+    // constraint — so that is what it reads.
+    const voBody = wm.slice(wm.indexOf("class Plain(BaseModel):"));
+    expect(voBody).not.toContain("Field(");
     expect(wm).not.toContain("model_validator");
-    expect(wm).toContain("class Plain(BaseModel):\n    a: int\n    b: str");
+    expect(wm).toContain("class Plain(BaseModel):\n    a: Int32\n    b: str");
   });
 });

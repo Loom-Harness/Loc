@@ -538,45 +538,89 @@ places a non-optional read happens without a path id: a non-optional `find`
 route, and a workflow body that reads.
 
 ### F11 — an `int` field declares no range, and a value inside the declared range overflows the column
-**Waiver:** W11 (server error) + W12 (its status-conformance consequence), both
-`intermittent` · **Severity: high** — any body carrying an `int`.
-
-Intermittent because reaching the column needs two things in one run: an
-out-of-int32 `qty` *and* a path `{id}` that resolves to a row the fuzzer made
-earlier (a random uuid 404s first). It reproduced on the discovery run and not
-on the next, which is why the two rules are exempt from the staleness half of
-the ratchet — same shape as W6, and it graduates the same way (a pinned
-deterministic case).
+**Waiver:** W11/W12, **narrowed to java** · **Severity: high** · **Status: still
+OPEN on java (the rules are kept there); fixed on node and python 2026-09-06;
+.NET and java were already correct on the input; elixir not measured.**
 
 ```
 curl -X POST -H 'Content-Type: application/json' \
-  -d '{"productId":"<uuid>","qty":9543751572142}' http://host/api/orders/<id>/add_line
+  -d '{"sku":"A","qty":9543751572142,…}' http://host/api/orders
 → 500   # value out of range for type integer
 ```
 
-The wire validator says `z.number().int()` and the spec says
-`{"type":"integer"}` — neither carries a bound — while the column behind it is
-Postgres `int4`. So the fuzzer obeys the published contract exactly and still
-reaches a server error. Same family as F7 (declared vs enforced), one level
-down: F7 was the declared TYPE not being honoured, this is the declared RANGE
-not existing. The fix is to declare and enforce int32 for `int` (int64 for
-`long`) — a spec change, so all five backends together, and `.NET`/`Java`
-already type-bound their side while python/elixir do not.
+The wire validator said `z.number().int()` and the spec said
+`{"type":"integer"}` — neither carrying a bound — while the column behind it is
+Postgres `int4`. The fuzzer obeyed the published contract exactly and still
+reached a server error.
 
-**Re-verified 2026-08-31 (Wave 1b `wire-openapi` packet) and deliberately NOT
-taken there — with the size measured rather than asserted.** The premise holds:
-`int` still publishes an unbounded `{"type":"integer"}`. What the re-check adds
-is why this keeps being deferred (#2648, #2664, and now a third time), so the
-next agent does not re-discover it: **there is no shared choke point.** Each
-backend derives its integer schema separately — elixir from its own literal
-table (`elixir/vanilla/openapi-emit.ts:849/865`), .NET/java/python by
-REFLECTION over the annotated wire types (Swashbuckle / springdoc / FastAPI, so
-the bound has to come from a `[Range]` / `@Min@Max` / `Field(ge=,le=)` the
-validator emitters attach), node from zod via `_frontend/zod-schemas.ts`. So
-"declare int32" is five emitter changes plus the shared zod one, and the two
-waivers can only be DELETED once a booted schemathesis leg passes — a runtime
-tier, not a unit one. That is a mission, and it should be claimed as one rather
-than ridden along with a contract-shaped packet.
+**The "five emitter changes" estimate was wrong, and that is why this kept being
+deferred (#2648, #2664, and a third time in Wave 1b).** The prior re-check
+reasoned that each backend derives its integer schema separately, so declaring
+int32 meant touching all of them. Measured instead of reasoned — four booted
+apps, the same body:
+
+| | published `qty` | `qty: 9543751572142` |
+|---|---|---|
+| node | `{"type":"integer"}` | **500** |
+| python | `{"type":"integer"}` | **500** |
+| dotnet | `{"type":"integer","format":"int32"}` | 400 |
+| java | `{"type":"integer","format":"int32"}` | 400 |
+
+.NET and java had **already** published the format and rejected the overflow at
+the binder. Only two backends were wrong, so this was two edits, not six — and
+it was a PARITY fix (bring the other two up to what these already do), not the
+spec change across five backends the estimate assumed.
+
+**node** — the `int` entry in the three `*_PRIMITIVE` maps in the hono
+routes-builder, which is where a wire primitive becomes a zod chain, so the
+bound and the published format ride together. `.min`/`.max` make the rejection
+the shared 422 `defaultHook` already answers.
+
+**python** — an `Int32` alias in `wire_models.py`, the exact twin of the
+`UuidStr` alias already there for the same reason: `Field(ge=…, le=…)` supplies
+the validation (an ordinary pydantic error → FastAPI's standard 422),
+`WithJsonSchema` supplies the published shape, so the spec reads `format: int32`
+rather than pydantic's own `minimum`/`maximum` pair.
+
+After: node and python both answer **422**, and both publish the int32 format.
+node additionally publishes `minimum`/`maximum` on the REQUEST (zod emits them
+from `.min`/`.max`) — a superset of what .NET and java say, not a divergence
+from it. A valid body still answers 201 on all four, and so does the boundary
+value `-2147483648`, so the bound is not off by one.
+
+Two narrowings the first cut did not have, both found by the emitted output
+rather than by reasoning:
+
+- **The RESPONSE carries the format WITHOUT the bound.** A response value came
+  out of the very `int4` column the bound describes, so re-validating it buys
+  nothing; the published shape still has to match, so the format stays.
+- **A DECLARED bound wins outright.** With `invariant rating >= 1 && rating <= 5`
+  the chain first read
+  `z.number().int().min(-2147483648).max(2147483647).min(1).max(5)` — the wider
+  structural pair stacked in front of the real one, leaving the published
+  `minimum`/`maximum` dependent on which of two `.min` calls the OpenAPI emitter
+  read last. The structural range is now dropped whenever the field declares its
+  own numeric bound, and only the format remains: the invariant states the
+  bound, the format states the column.
+
+**`long` deliberately gets no twin.** It is a `bigint` column, and the int64
+range it would declare is wider than a JSON number carries exactly on either
+runtime — publishing a bound nothing enforces is F21's mistake, one type over.
+
+**Elixir was NOT measured and is NOT claimed.** The prior re-check notes it
+derives its integer schema from its own literal table
+(`elixir/vanilla/openapi-emit.ts`); nothing here touched it, and the elixir leg
+carries no waiver rules, so its state on this input is simply unknown.
+
+Gated by `test/generator/int32-wire-bound.test.ts`; four mutations each fail
+exactly the assertion that names them (node unbounded again, node over-applying
+to `long`, python's `WithJsonSchema` dropped, python's `int` mapped back to
+bare `int`).
+
+**W11/W12 are narrowed to java, not retired.** java does not 500 on this input —
+it answered 400 before and after — so if `not_a_server_error` still fires there
+it is firing on something else. That needs a nightly to say, and deleting a rule
+on a guess is how W31 came back four-fold.
 
 ---
 

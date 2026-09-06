@@ -85,6 +85,36 @@ const PY_MONEY_STR_DEF = [
   "    str,",
   "    AfterValidator(_money_str),",
   '    WithJsonSchema({"type": "string", "format": "decimal"}),',
+/** Name of the shared int32-constrained alias emitted into
+ *  `app/http/wire_models.py`.  The twin of `UuidStr`, for the same reason: a
+ *  declared `int` is an `int4` COLUMN, and both the bound and the published
+ *  `format: int32` should be stated in exactly one place. */
+export const PY_INT32 = "Int32";
+
+/** Python source of the `Int32` alias.
+ *
+ *  A declared `int` lands in a Postgres `int4`. python published
+ *  `{"type": "integer"}` with no bound and enforced none, so a value the
+ *  contract permitted — measured, `qty: 9543751572142` — reached the column
+ *  and answered **500** (schemathesis F11). .NET and java have always
+ *  published `format: int32` and rejected the overflow at the binder; this is
+ *  python catching up to them, not a new rule.
+ *
+ *  `Field(ge=…, le=…)` supplies the VALIDATION (an out-of-range value is an
+ *  ordinary pydantic error, so FastAPI answers its standard 422 — the same
+ *  envelope every other bad field gets), `WithJsonSchema` supplies the
+ *  published SCHEMA, so the spec reads `{"type": "integer", "format":
+ *  "int32"}` exactly as .NET's and java's do instead of pydantic's
+ *  `exclusiveMinimum`/`maximum` pair.
+ *
+ *  `long` is deliberately NOT given a twin: it is a `bigint` column, and the
+ *  int64 range it would declare is wider than the JSON numbers either python
+ *  or node can carry exactly — a bound nothing enforces is the F21 mistake. */
+const PY_INT32_DEF = [
+  `${PY_INT32} = Annotated[`,
+  "    int,",
+  "    Field(ge=-2147483648, le=2147483647),",
+  '    WithJsonSchema({"type": "integer", "format": "int32"}),',
   "]",
 ];
 
@@ -103,6 +133,7 @@ export function wireModelImport(
     ...(refersTo(PY_PROVENANCED) ? [PY_PROVENANCED] : []),
     ...(refersTo(PY_UUID_STR) ? [PY_UUID_STR] : []),
     ...(refersTo(PY_MONEY_STR) ? [PY_MONEY_STR] : []),
+    ...(refersTo(PY_INT32) ? [PY_INT32] : []),
   ];
   return names.length > 0 ? `from app.http.wire_models import ${names.join(", ")}` : null;
 }
@@ -129,7 +160,12 @@ function wireFieldType(
   switch (t.kind) {
     case "primitive":
       switch (t.name) {
+        // The declared `int` carries its int4 bound + `format: int32` through
+        // the shared alias, in BOTH directions: the request needs the
+        // validation, and the response needs the same published shape .NET and
+        // java emit. `long` is a bigint and stays a bare `int` (see PY_INT32).
         case "int":
+          return PY_INT32;
         case "long":
           return "int";
         case "decimal":
@@ -322,7 +358,9 @@ export function renderPyWireModels(ctx: BoundedContextIR): string {
   const enumNames = ctx.enums.map((e) => e.name).filter(uses);
   const pydanticNames = [
     ctx.valueObjects.length > 0 || hasProv ? "BaseModel" : null,
-    uses("Field") ? "Field" : null,
+    // `Field` is unconditional because `Int32` uses it, and `Int32` — like
+    // `UuidStr` — is emitted unconditionally.
+    "Field",
     // `UuidStr` is emitted unconditionally (every routes module imports it for
     // its reference-typed request annotations), so its two pydantic pieces are
     // always in the import list.
@@ -365,6 +403,8 @@ export function renderPyWireModels(ctx: BoundedContextIR): string {
     "",
     PY_UUID_STR_DEF,
     needsMoney ? PY_MONEY_STR_DEF : null,
+    "",
+    PY_INT32_DEF,
     models.join(""),
     hasProv ? provenancedModel() : null,
     "",

@@ -2298,8 +2298,32 @@ const BODY_DATETIME =
 export const QUERY_BOOL =
   'z.preprocess((v) => (v === "true" || v === "1" ? true : v === "false" || v === "0" ? false : v), z.boolean())';
 
+/** A declared `int` is an `int4` COLUMN, so its wire form carries that bound and
+ *  publishes `format: int32` — what .NET and java have always emitted.
+ *
+ *  node published `{"type": "integer"}` with no bound and enforced none, so a
+ *  value the contract permitted — measured, `qty: 9543751572142` — reached the
+ *  column and answered **500** (schemathesis F11). `.min`/`.max` make the
+ *  rejection the shared 422 `defaultHook` answers, and `.openapi({format})`
+ *  makes the published shape match the two backends that were already right.
+ *
+ *  `long` is deliberately left bare: it is a `bigint` column, and the int64
+ *  range it would declare is wider than a JS number carries exactly — a bound
+ *  nothing enforces is worse than none. */
+/** The int4 range an `int` column has, as a zod chain fragment. Split out from
+ *  the published format so a field that declares its OWN, tighter bound can
+ *  drop the range and keep the format (see `INT32_RANGE` use below). */
+const INT32_RANGE = ".min(-2147483648).max(2147483647)";
+/** The published `format`, WITHOUT the bound.  This is the whole RESPONSE
+ *  half: a response value came out of the very `int4` column the bound
+ *  describes, so validating it again buys nothing — but the published shape
+ *  still has to match .NET's and java's, which carry `format: int32` in both
+ *  directions. */
+const INT32_FORMAT = '.openapi({ format: "int32" })';
+const INT32 = `${INT32_RANGE}${INT32_FORMAT}`;
+
 const QUERY_PRIMITIVE: Record<WirePrimitive, string> = {
-  int: "z.coerce.number().int()",
+  int: `z.coerce.number().int()${INT32}`,
   long: "z.coerce.number().int()",
   decimal: "z.coerce.number()",
   money: "moneySchema",
@@ -2312,7 +2336,7 @@ const QUERY_PRIMITIVE: Record<WirePrimitive, string> = {
 };
 
 const BODY_PRIMITIVE: Record<WirePrimitive, string> = {
-  int: "z.number().int()",
+  int: `z.number().int()${INT32}`,
   long: "z.number().int()",
   decimal: "z.number()",
   money: "moneySchema",
@@ -2325,7 +2349,7 @@ const BODY_PRIMITIVE: Record<WirePrimitive, string> = {
 };
 
 const RESPONSE_PRIMITIVE: Record<WirePrimitive, string> = {
-  int: "z.number().int()",
+  int: `z.number().int()${INT32_FORMAT}`,
   long: "z.number().int()",
   decimal: "z.number()",
   money: "z.string()",
@@ -2593,6 +2617,15 @@ export function emitWireSchema(
     let schema = f.base;
     const patterns = chainByField.get(f.name);
     if (patterns) {
+      // A DECLARED numeric bound is authoritative and lies inside int32, so the
+      // structural int4 range would only stack a wider, redundant pair in front
+      // of it — `.min(-2147483648).max(2147483647).min(1).max(5)` — and leave
+      // the published `minimum`/`maximum` depending on which of two `.min`
+      // calls the OpenAPI emitter reads last. Drop the range and keep the
+      // format: the invariant states the bound, the format states the column.
+      if (patterns.some((p) => p.kind === "min" || p.kind === "max" || p.kind === "between")) {
+        schema = schema.replace(INT32_RANGE, "");
+      }
       for (const p of orderSingleFieldPatterns(patterns))
         schema = chainSingleFieldNative(schema, p);
       // A `len-*` bound is CHECKED as a code-point refine, which zod cannot

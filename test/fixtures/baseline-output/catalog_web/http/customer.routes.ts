@@ -12,14 +12,14 @@ import { DomainError, AggregateNotFoundError, DisallowedError, ForbiddenError, E
 const CreateCustomerRequest = z.object({
   username: z.string().refine((s) => [...s].length >= 3 && [...s].length <= 32).openapi({ minLength: 3, maxLength: 32 }),
   email: z.string(),
-  age: z.number().int().min(18).max(150),
+  age: z.number().int().openapi({ format: "int32" }).min(18).max(150),
 }).openapi("CreateCustomerRequest").refine((data: any) => data.username !== data.email, { path: ["username"], message: "Invariant violated: username != email" }).refine((data: any) => /^[^@]+@[^@]+\.[^@]+$/.test(data.email) && [...data.email].length <= 120, { path: ["email"], message: "Invariant violated: email check email.matches(\"^[^@]+@[^@]+\\\\.[^@]+$\") && email.length <= 120" });
 const CreateCustomerResponse = z.object({ id: z.string() }).openapi("CreateCustomerResponse");
 
 const UpdateCustomerRequest = z.object({
   username: z.string().refine((s) => [...s].length >= 3 && [...s].length <= 32).openapi({ minLength: 3, maxLength: 32 }),
   email: z.string(),
-  age: z.number().int().min(18).max(150),
+  age: z.number().int().openapi({ format: "int32" }).min(18).max(150),
 }).openapi("UpdateCustomerRequest").refine((data: any) => data.username !== data.email, { path: ["username"], message: "Invariant violated: username != email" }).refine((data: any) => /^[^@]+@[^@]+\.[^@]+$/.test(data.email) && [...data.email].length <= 120, { path: ["email"], message: "Invariant violated: email check email.matches(\"^[^@]+@[^@]+\\\\.[^@]+$\") && email.length <= 120" });
 
 const AllQuery = z.object({
@@ -35,8 +35,8 @@ export const CustomerResponse = z.object({
   id: z.string(),
   username: z.string(),
   email: z.string(),
-  age: z.number().int(),
-  version: z.number().int(),
+  age: z.number().int().openapi({ format: "int32" }),
+  version: z.number().int().openapi({ format: "int32" }),
   display: z.string(),
 }).openapi("CustomerResponse");
 export const CustomerListResponse = z.array(CustomerResponse).openapi("CustomerListResponse");
