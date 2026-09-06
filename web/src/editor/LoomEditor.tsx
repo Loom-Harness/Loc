@@ -7,6 +7,7 @@ import { modelUriFor } from "../lsp/workspace-lsp-sync";
 import { installMonacoEnvironment } from "./monaco-env";
 import type { EditorHandle, EditorRange } from "./editor-handle";
 import { loomQuickFixes, quickFixesAt } from "./fix-hint-actions";
+import { queueReveal, takeQueuedReveal } from "./pending-reveal";
 import { applyTextEdits } from "./apply-edits";
 
 export type { EditorHandle };
@@ -144,9 +145,6 @@ export function LoomEditor(props: LoomEditorProps): JSX.Element {
   // mount seed: it is a real user edit, whereas the prop can still be the
   // pre-edit content when the write hasn't round-tripped the workspace store.
   const pendingSourceRef = useRef<string | null>(null);
-  // A `revealRange` that arrived before Monaco existed (M-T8.18) — replayed
-  // once the editor is created, so the reveal + focus is deferred, not lost.
-  const pendingRevealRef = useRef<EditorRange | null>(null);
   const clientRef = useRef(props.client);
   clientRef.current = props.client;
   const onChangeRef = useRef(props.onChange);
@@ -206,7 +204,7 @@ export function LoomEditor(props: LoomEditorProps): JSX.Element {
         // fires before Monaco has finished loading (it is a 9.5 MB chunk),
         // and dropping the reveal there left the click doing nothing at all.
         revealRange: (range) => {
-          pendingRevealRef.current = range;
+          queueReveal(range);
         },
         // No model yet, so no stack: the chrome renders Undo / Redo disabled
         // rather than swallowing a click.
@@ -307,12 +305,11 @@ export function LoomEditor(props: LoomEditorProps): JSX.Element {
       };
     }
 
-    // Replay a reveal that arrived while the stand-in handle was in place.
-    if (pendingRevealRef.current) {
-      const queued = pendingRevealRef.current;
-      pendingRevealRef.current = null;
-      revealRange(queued);
-    }
+    // Replay a reveal that arrived before this editor could show it — either
+    // while the stand-in handle was in place, or before this component mounted
+    // at all (it is behind a lazy chunk).  Both queue into the same slot.
+    const queued = takeQueuedReveal();
+    if (queued) revealRange(queued);
 
     // Automation seam: lets e2e set/read the document text directly (set
     // dispatches onChange like a normal edit), without depending on clipboard,
