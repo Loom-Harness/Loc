@@ -1,5 +1,6 @@
 import { Button, Card, Group, Stack, Text, UnstyledButton } from "@mantine/core";
 import type { LayoutCtx } from "./ctx";
+import { queueReveal } from "../editor/pending-reveal";
 import { FIRST_RUN } from "./vocabulary";
 
 // The first-run card (M-T8.18 slice 3, audit H5): three doors on a workspace
@@ -31,12 +32,13 @@ export function FirstRunCard({ ctx }: Props): JSX.Element {
   };
   const write = (): void => {
     dismissFirstRun();
-    editorHandleRef.current?.revealRange({
-      startLineNumber: 1,
-      startColumn: 1,
-      endLineNumber: 1,
-      endColumn: 1,
-    });
+    // The card is on screen at first paint; the editor is behind a lazy chunk.
+    // `?.` alone made this door a no-op whenever the click won that race, so an
+    // absent handle QUEUES the reveal for whenever an editor mounts.
+    const range = { startLineNumber: 1, startColumn: 1, endLineNumber: 1, endColumn: 1 };
+    const handle = editorHandleRef.current;
+    if (handle) handle.revealRange(range);
+    else queueReveal(range);
   };
   const card = (
     <Card
