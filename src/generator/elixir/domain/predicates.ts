@@ -136,9 +136,7 @@ function walkExpr(e: ExprIR, pred: (sub: ExprIR | undefined) => boolean): boolea
       // Boolean-arm and variant forms both: every arm condition and value, the
       // `else` value, and the scrutinee.
       return (
-        pred(e.subject) ||
-        e.arms.some((a) => pred(a.cond) || pred(a.value)) ||
-        pred(e.otherwise)
+        pred(e.subject) || e.arms.some((a) => pred(a.cond) || pred(a.value)) || pred(e.otherwise)
       );
     // Leaves — no child expression to descend into.
     case "literal":
