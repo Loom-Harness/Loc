@@ -17,7 +17,14 @@
 // trivial monaco-shaped hop (wrap in `{ resource, textEdit }`) and nothing else.
 // ---------------------------------------------------------------------------
 
-import { fixHintCodeActions, validate } from "../../../src/api/index.js";
+// The toolkit is reached through `await import(...)`, NOT a static import.
+// `src/api` value-imports `src/language` + `src/ir`, so a static edge here puts
+// Langium, chevrotain and the whole grammar on the EAGER path — and this module
+// is imported by `layout/ProblemsPanel.tsx`, which is part of the always-mounted
+// dock.  That is the exact regression `web/scripts/check-eager-chunks.mjs`
+// exists to catch (it took eager JS from 1.63 MB to 12.96 MB); see M-T8.15 for
+// why it matters on iOS.  `loomQuickFixes` is already async, so the dynamic
+// import costs it nothing.
 
 /** The part of an LSP `CodeAction` this boundary actually consumes.
  *
@@ -138,6 +145,7 @@ export function loomQuickFixes(source: string, uri: string): Promise<LoomQuickFi
   if (cache?.key === key) return cache.fixes;
   const fixes = (async () => {
     try {
+      const { fixHintCodeActions, validate } = await import("../../../src/api/index.js");
       const report = await validate(source);
       return toQuickFixes(await fixHintCodeActions(report, source, uri));
     } catch {
