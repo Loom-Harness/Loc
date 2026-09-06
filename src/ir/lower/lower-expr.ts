@@ -414,16 +414,58 @@ function lowerPostfixChain(chain: PostfixChain, env: Env): ExprIR {
   return recv;
 }
 
+/** GUARDED OPTIONAL RECEIVER — unwrap one `optional` level for an INTRINSIC call.
+ *
+ *  `loom.intrinsic-nullable-receiver` tells the author to guard the deref —
+ *  `x != null ? x.trim() : …` — and `checkIntrinsicCalls` unwraps a `T?`
+ *  receiver before consulting the intrinsic catalogue for exactly that reason.
+ *  The LOWERER did not.  It stamped the `method-call`'s `receiverType` as the
+ *  `optional` WRAPPER, and every backend's intrinsic dispatch keys off
+ *  `receiverType.kind === "primitive"` — so the guarded call missed the
+ *  intrinsic snippet table and fell out of the bottom of `renderMethodCall` as
+ *  a verbatim `.<member>(…)`:  `this._note2.toUpper()` (node),
+ *  `this.note2.toUpper()` (java), `self._note2.to_upper()` (python),
+ *  `record.note2.to_upper()` (elixir) — none of which compile — and on .NET the
+ *  fallback's `upperFirst` spelling `ToUpper()`, culture-sensitive where the
+ *  table's contract is the invariant `ToUpperInvariant()`.  The validator was
+ *  recommending a form that does not work (2026-09-03 language-docs audit, F2).
+ *
+ *  Unwrapping restores the whole intrinsic path — snippet table, catalogue
+ *  RESULT type (`memberType` fell to its `string` default on an `optional`),
+ *  and the `isCollectionOp` disambiguation, which without it read a guarded
+ *  `s.contains(x)` on a `string?` as a COLLECTION op rather than the string
+ *  intrinsic.
+ *
+ *  Narrow on purpose — the same three conditions `checkIntrinsicCalls` uses:
+ *  a single `optional` level over a PRIMITIVE, in CALL form, whose member is a
+ *  catalogue row (plus `string.matches`, which is not a catalogue row but derefs
+ *  its receiver identically and is rendered off the very same `primitive`
+ *  check).  Anything else keeps the wrapper, so no other member access changes
+ *  shape.  Whether the deref is SAFE stays the author's problem and the
+ *  validator's: an UNGUARDED `note2.toUpper()` is still rejected by
+ *  `loom.intrinsic-nullable-receiver` before it can reach here.  This decides
+ *  only how the deref renders once it is allowed through. */
+function unwrapGuardedIntrinsicReceiver(recvType: TypeIR, suffix: PostfixSuffix): TypeIR {
+  if (recvType.kind !== "optional" || isCallSuffix(suffix)) return recvType;
+  const inner = recvType.inner;
+  if (inner.kind !== "primitive") return recvType;
+  const ms = suffix as MemberSuffix;
+  if (!ms.call) return recvType;
+  const isStringMatches = inner.name === "string" && ms.member === "matches";
+  return intrinsicFor(inner.name, ms.member) !== undefined || isStringMatches ? inner : recvType;
+}
+
 /** Apply one postfix suffix to a receiver IR + type — `MemberSuffix`
  *  becomes either a `member` (no call) or `method-call` IR; `CallSuffix`
  *  collapses the receiver into a free / function / VO-ctor `call` IR
  *  when the receiver is a bare `NameRef`, otherwise a `<expr>` call. */
 function applySuffixToRecv(
   recv: ExprIR,
-  recvType: TypeIR,
+  declaredRecvType: TypeIR,
   suffix: PostfixSuffix,
   env: Env,
 ): { recv: ExprIR; recvType: TypeIR } {
+  const recvType = unwrapGuardedIntrinsicReceiver(declaredRecvType, suffix);
   if (isCallSuffix(suffix)) {
     // Hoist `style:` named arg the same way builder-call form does, so
     // both `Container { style: {...}, ... }` and `Container(style: {...}, ...)`
@@ -2595,12 +2637,19 @@ function memberType(t: TypeIR, name: string, env: Env): TypeIR {
  *  Mirrors `applySuffixToRecv` in the lowering layer, but on TypeIR
  *  only.  For `CallSuffix` on a non-NameRef receiver the result is a
  *  string-typed placeholder (matches the legacy CallExpr typing). */
-function inferSuffixType(t: TypeIR, suffix: PostfixSuffix, env: Env): TypeIR {
+function inferSuffixType(declared: TypeIR, suffix: PostfixSuffix, env: Env): TypeIR {
   if (isCallSuffix(suffix)) {
     // Invoking the receiver — without knowing the callee's signature
     // we fall back to string (matches legacy CallExpr typing).
     return { kind: "primitive", name: "string" };
   }
+  // Same guarded-optional unwrap the lowering call site applies, for the same
+  // reason the λ-body refinement below is duplicated here: a `let` binding
+  // (typed through `inferExprType` → here) and the inline expression (typed
+  // through `applySuffixToRecv`) must agree.  Without it `let d = ts.startOfDay()`
+  // inside a null-guard bound `string` — `memberType`'s default — while the
+  // inline form bound `datetime`.
+  const t = unwrapGuardedIntrinsicReceiver(declared, suffix);
   const ms = suffix as MemberSuffix;
   const base = memberType(t, ms.member, env);
   // Apply the SAME λ-body refinement the lowering call site applies, so a
