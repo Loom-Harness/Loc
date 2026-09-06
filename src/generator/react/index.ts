@@ -57,6 +57,7 @@ import {
 import { buildRealtimeHandlers } from "./realtime-handlers-builder.js";
 import { renderZustandStoreModule } from "./store-builder.js";
 import { renderAppShell, renderMain, renderShellFile, renderTheme } from "./templating/render.js";
+import { REACT_LIB_TOAST, REACT_LIB_TOAST_PATH, uiUsesToastEffect } from "./toast-runtime.js";
 
 // ---------------------------------------------------------------------------
 // React + React Query + Zod + Mantine generator.
@@ -304,6 +305,15 @@ export function generateReactForContexts(
   const hasRealtimeHandlers = realtimeTypes.length > 0 && (ui.notifications?.length ?? 0) > 0;
   if (hasRealtimeHandlers) {
     out.set("src/components/RealtimeHandlers.tsx", buildRealtimeHandlers(ui, pack));
+  }
+  // The `toast(<msg>)` page effect (docs/page-metamodel.md §15) — an `action`
+  // body or an `Action { …, then: … }` slot.  The walker renders it as a bare
+  // `toast(...)` call, so the project has to declare the symbol or the page
+  // does not type-check (F3).  Emitted only when a page/component actually
+  // reaches it: the realtime `on <chan>.<Event>` path has its own pack-shaped
+  // toast and does not want this module.
+  if (uiUsesToastEffect(ui)) {
+    out.set(REACT_LIB_TOAST_PATH, REACT_LIB_TOAST);
   }
   // Frontend observability: a namespaced loglevel logger + a top-level
   // error boundary.  Both are pack-agnostic shared shell files; main.tsx
