@@ -1320,12 +1320,6 @@ function findRepoFor(ctx: BoundedContextIR, name: string): RepositoryIR | undefi
 export interface BackendPins {
   dependencies: Record<string, string>;
   devDependencies: Record<string, string>;
-  /** npm `overrides` the package declares on the generated project — a
-   *  resolution pin the caret ranges alone cannot express (see the v5
-   *  pins for the one live entry and why it exists). Omitted from the
-   *  emitted package.json when the package declares none, so v4 output
-   *  stays byte-identical. */
-  overrides?: Record<string, string>;
 }
 
 function projectPackageJson(
@@ -1449,7 +1443,6 @@ function projectPackageJson(
           ...(opts.resourceDeps ?? {}),
         },
         devDependencies,
-        ...(pins.overrides ? { overrides: pins.overrides } : {}),
       },
       null,
       2,
