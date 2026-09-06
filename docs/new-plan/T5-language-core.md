@@ -1,5 +1,7 @@
 # T5 — Language core & type system
 
+> **Completed missions for this track live in [`archive/T5-done.md`](archive/T5-done.md)** (6 closed as of 2026-09-02). This file lists only the live missions.
+
 *The expression language is deliberately small; these missions finish the in-flight type-system families (errors-as-data, criteria, payloads), close audited correctness bugs, and keep the surface honest.*
 
 ## M-T5.1 — Exception-less completion (A4/A5/A6 + VO→422) — `partial` · **L** · P1 ⚠ coordinated
@@ -22,9 +24,6 @@ Sources: [criterion](../old/proposals/criterion.md), [reified-criteria](../old/p
 A4 reductions verified complete 2026-07-13 (`src/util/collection-ops.ts:18-34` — count/sum/min/max/avg all registered). Remaining: block-form top-level functions (`loom.function-toplevel-block`), storable `duration`/PG interval columns, externalising the prelude to `std/*.ddd`.
 Sources: [stdlib plan](../old/plans/stdlib.md), completeness-audit Tier 1.
 
-## M-T5.6 — Strict decimal/money bounds bug — `done` (verified 2026-07-14) · **S** · P1 ⭐ correctness
-Sources: [full-code-review-2026-07](../audits/full-code-review-2026-07.md) #6.
-
 ## M-T5.7 — Inheritance tail — `partial` · **M** · P3
 I4 per-concrete storage override / mixed strategy (gated; UNION-ALL variant was dropped — re-justify before building); `<Concrete>Id → <Base>Id` threading across ~49 .NET application-layer sites (mechanical, `/warnaserror`-gated); polymorphic `<Base> id` refs.
 Sources: [aggregate-inheritance](../old/proposals/aggregate-inheritance.md), [dotnet-tph-emission](../old/proposals/dotnet-tph-emission.md) follow-on.
@@ -45,8 +44,6 @@ Sources: [reserved-surface-signposting](../old/proposals/reserved-surface-signpo
 - **Spun off:** the `wireShape` retirement (proposal steps 6–8) — 179 refs / 49+45 files, gated on the contract layer + entangled with the still-active auto-derivation mainstream; XL, deserves its own mission (not this M). Extern handler LSP/scaffold polish is a separate tail.
 Sources: [unfoldable-api-derivation](../old/proposals/unfoldable-api-derivation.md) + [coordination note](../old/proposals/unfoldable-api-derivation-coordination-note.md).
 
-## M-T5.11 — Extern domain extension — `done` (verified 2026-07-13) · —
-
 ## M-T5.12 — Typed-capabilities tail — `partial` · **M** · P3
 Phase 5 remainder: LSP tooling (go-to-capability, find-implementors, completion) + marker-interface emission `I<Capability>`; then the [capability-emission-dedup](../old/proposals/capability-emission-dedup.md) stamp-dedup ladder (deferred until a second stamping capability exists). Also the persist-time auditing simulations (node awaiting §7 sign-off; Java §5-vs-§6-ALT fork).
 Sources: [typed-capabilities-implementation](../old/plans/typed-capabilities-implementation.md) Phase 5, [node-persist-time-auditing-simulation](../old/plans/node-persist-time-auditing-simulation.md), [capability-stamp-dedup-simulation](../old/plans/capability-stamp-dedup-simulation.md).
@@ -59,18 +56,9 @@ Sources: [multi-file-source](../old/plans/multi-file-source.md), [implicit-syste
 The coordinator shape (Phase 2); Shape C stays deferred. Plus shipped-tier refinements (read-port shape, `audited` on service ops).
 Sources: [domain-services](../old/proposals/domain-services.md).
 
-## M-T5.15 — Scalar-return operation HTTP-contract convergence (BUG-003) — `done` (2026-07-27) · **S–M** · P2 ⭐ parity break
-Sources: [showcase-coverage-bugs](../audits/showcase-coverage-bugs.md) BUG-003.
-
 ## M-T5.16 — Compiler-internal fragility guards — `open` · **M** · P2
 From the weak-spot review §7: (a) exhaustiveness-check the type-system's parallel walkers (`stepInto` + `typeAfterSuffix`) so a new bindable type can't silently miss one; (b) revisit the `unknown`-cascade suppression (a placeholder type silently disables ALL downstream operand checks) — at minimum a lint that counts suppressed sites; (c) full-code-review #22: macro expansion under LSP incremental rebuilds (C5).
 Sources: [weak-spots §7](../audits/architecture-weak-spots-2026-07.md), `experience_gathered.md` §unknown, full-code-review #22.
-
-## M-T5.17 — Surface normalization: aggregate-header modifiers + `httpStatus` — `done` · **S–M** · P3
-Sources: language-surface review 2026-07-14, `src/language/ddd.langium` (`Aggregate`/`ApiStatus`), D-DOCUMENT-AXIS §4.
-
-## M-T5.18 — Soft-keyword sprawl: dedup, gate, root-cause reduction — `done` (Tracks B + A + C landed) · **M** · P3
-Sources: language-surface review 2026-07-14 #5, `src/language/ddd.langium` (the six identifier rules), M-T5.15 BUG-004.
 
 ## M-T5.19 — Test-placement & test-authoring DSL — `partial` (placement largely shipped; authoring unbuilt) · **M–L** · P2
 The back-fill of a feature that shipped **three phases with no mission tracking it** — flagged as a coverage bug in [`coverage.md`](coverage.md) on 2026-07-21 and resolved here 2026-07-30. Two source proposals: [`test-placement.md`](../old/proposals/test-placement.md) (where a `test` block may live) and [`test-authoring-language.md`](../old/proposals/test-authoring-language.md) (what may be written inside one).
@@ -87,32 +75,6 @@ The back-fill of a feature that shipped **three phases with no mission tracking 
 **Ordering:** (a) before (b) — the anchor is a one-PR completion of a shipped phase, while the authoring surface is a new grammar family that should not land half-built across five backends.
 
 Sources: [`test-placement.md`](../old/proposals/test-placement.md) (incl. its runtime-grounded Phase 3 design), [`test-authoring-language.md`](../old/proposals/test-authoring-language.md), PRs #2163 / #2179 / #2188. Related: M-T9.3 (per-PR boot gates — the integration rung runs there), `docs/testing.md` (tier placement guide).
-## M-T5.20 — Route the whole denial ladder through `resolveErrorStatus` — `done` · **M** · P2 ⭐ drift-prone
-**DONE (2026-08-18) — every rung of the ladder resolves on all five backends.** `DomainError` is in `STDLIB_ERROR_STATUS` at 422, and both rungs now resolve through `resolveErrorStatus` at the runtime arm *and* the declared OpenAPI response on node/.NET/java/python/elixir. Two shared seams had to move with them: the app-wide `structuralErrorStatuses` fold in `enrichments.ts` only iterated `STRUCTURAL_CONFLICT_ERRORS`, so an override could never reach a ladder rung; and `errorStatuses()` in `openapi-errors.ts` handed back the literals. Proven by `test/conformance/denial-ladder-override-parity.test.ts` — one `httpStatus DomainError -> 418` moves **all five**, asserted as a single cross-backend equality so a backend that silently ignores the clause fails even while its own per-leg suite is green.
-
-**A deliberate deviation from this mission's text, reached independently by both halves of the work.** The brief said to take the RFC 7807 `title` from `errorTitle`. That is wrong here: `errorTitle("DomainError")` is `"Domain Error"`, which breaks RS-15's pinned `"Unprocessable Entity"` *and* the committed `wire-contract` golden. The title instead derives from the **resolved status's IANA reason phrase**, which is strictly stronger against the drift this mission exists to remove — a title and a status read off the same number cannot disagree, which is exactly the elixir `"Precondition Failed"`-against-422 bug class #2300 had to fix by hand.
-
-**`NotFound` — the last rung — closed 2026-08-18.** It was parked because the aggregate-not-found 404 had **two producers, and which fired was backend-dependent**: hono's `getById` threw `AggregateNotFoundError` into `onError`, while .NET returned a bare `NotFound()`, java a `ResponseEntity.notFound()`, python a `None` check — and that bare-return pattern repeated across projection/workflow/find paths. Resolving only the declaration would then have published a status those paths never answered. **M-T6.31 removed the second producer** (every bare framework return became the shared not-found carrier — they were bypassing the app's problem filter and answering an empty-bodied 404 anyway), leaving ONE producer per backend, so `errorStatuses()` now resolves `NotFound` like its four siblings and each backend's handler arm plus its hand-rolled declared sets read the resolved value.
-
-Landing it also drained an intra-function split the `Forbidden` rung had had: `deriveContextOperations` spelled the `httpStatus` resolver inline at two call sites and **omitted it at both `errorStatuses("getById")` calls**, so an override moved a find's declared 404 while `GET /<aggs>/{id}` and its `can_<op>` probe kept publishing 404. Same shape on java's `openapi-customizer.ts`, which passed no resolver at three hand-rolled sites.
-
-Two 404s stay literal **on all five, elixir included**: the framework routing 404 (`no route for <verb> <path>`) and the objectStore blob-absence 404. Neither is the domain rung. Gated by `test/conformance/override-status-census.test.ts`, whose four ratcheting `NotFound` waivers were deleted in the same PR and whose sites now cover both the runtime arm and the declared set per backend.
-
-Original brief follows.
-**The ladder is half-routed today, and RS-15 is the proof.** `src/util/error-defaults.ts` already owns a status table plus the `httpStatus <Error> -> <Code>` per-api override path — and the table already names four of the five rungs (`NotFound` 404, `Forbidden` 403, `Disallowed` 409, `ValidationError` 422). But only the **structural-conflict** rung actually reads it: `resolveErrorStatus("Disallowed", …)` / `"UniquenessConflict"` / `"ConcurrencyConflict"` / `"ReferencedInUse"` resolve through the table on every backend, so a user can remap them and the runtime response + the OpenAPI declaration move together by construction. The other rungs — the **domain floor**, `Forbidden`, `NotFound` — are **hardcoded integer literals** at each backend's exception-handler arm (`problem(403, "Forbidden", …)`, `Problem(context, 404, …)`, `problem_response(conn, 422, …)`, …), and `DomainError` is not in the table at all.
-
-Two costs, both now measured rather than hypothetical:
-1. **Changing a rung is an N-place edit.** RS-15 moved the domain floor 400 → 422; that was five hardcoded runtime literals across five backends, plus four docs, plus a fixture rebaseline — and the only thing keeping the five in agreement afterwards is a test that asserts the same literal five times. The `Disallowed` rung would have been a one-line table edit.
-2. **A user cannot remap it.** `httpStatus DomainError -> 400` (say, for a client that can't handle 422) is inexpressible, even though the identical clause works for `Disallowed`. That asymmetry is invisible from the DSL — nothing tells an author which rungs are overridable.
-
-**The work:** add `DomainError` to `STDLIB_ERROR_STATUS` (422, post-RS-15), then convert each backend's exception-handler arm from a literal to `resolveErrorStatus(<name>, ctx.structuralErrorStatuses)` — the same call shape the conflict rung already uses, so the pattern is copy-paste per backend rather than invention. The RFC 7807 `title` should come from the existing `errorTitle` derivation at the same time (it is hardcoded next to each literal, so it drifts identically — elixir shipped a `"Precondition Failed"` title against a 422 status until #2300 fixed it). Also confirm the **OpenAPI declaration** side reads the resolved value: today the declared `responses` map is built separately from the runtime arm, which is exactly the runtime/declaration drift the override mechanism exists to prevent.
-
-**Verification:** `test/generator/domain-denial-detail-parity.test.ts` already pins the resolved default on all five, so a regression is caught; add one case per backend asserting an `httpStatus DomainError -> 400` override moves BOTH the runtime arm and the declared response. `conformance-parity` guards the cross-backend spec.
-
-Sources: found 2026-07-29 while landing RS-15 (#2300) — the five-place edit *was* the evidence. `src/util/error-defaults.ts`, `docs/old/proposals/exception-less.md` (A1, the table's origin), `docs/conformance-semantics.md` RS-15. Relates to M-T5.17 (which added the `httpStatus` surface this mission finishes wiring).
-
-**Regression + restoration (#2462 → #2340, recorded 2026-08-10):** main's route-derivation unification (#2462) re-derived the DECLARED response set but never re-threaded the `DomainError`/`Forbidden` `httpStatus` override into the four backends' runtime handlers — **silently reverting this mission's own feature** on four backends and elixir's per-op controller; #2340's rebase restored it. `denial-ladder-override-parity.test.ts` did not catch the revert — a default-emission census cannot distinguish "resolved to the default" from "hardcoded", which is exactly M-T9.25 round-2 item 1 (re-run the census UNDER AN OVERRIDE). Those bare returns were M-T6.30/M-T6.31's read-path envelope split, and draining them is what made the `NotFound` rung convertible (see above) — the mission is `done` as of 2026-08-18.
-
 ## M-T5.21 — Callable unification: one production for "a named body runs here" — `open` · **L** · P2 ⭐ cost-of-growth
 **Fifteen grammar rules mean the same thing.** `Operation`, `Create`, `Destroy`, `Apply`, `FunctionDecl`, `CommandHandler`, `QueryHandler`, `DomainServiceOperation`, `WorkflowCreateDecl`, `HandleDecl`, `OnDecl`, `ActionDecl`, `UiFunction`, `Component`, `Criterion` — each is "a name, params, an optional return type, a body", forked by *where it lives* and carrying an arbitrary modifier subset. The grammar records the arbitrariness itself: `DomainServiceOperation` "does NOT carry `private`/`extern`/`audited`/`when` — those are aggregate-operation-only" (no reason given, because it is where the rule was forked), and workflow `function` is validator-restricted to the expression form one layer away from the grammar that states it. `extern` has **four** spellings (prefix on handlers, infix on `operation`, suffix-with-path on `component`, and *as the body* on ui `function`); `function` means three different things depending on scope.
 
@@ -178,3 +140,43 @@ Same model, same intent, opposite data — decided by where in the clause list t
 **Verification when it lands.** A negative parse/validate test per admissible-but-illegal position; mutation-proved by deleting the gate and watching the fixture above go quiet again. Add the legal-position witness to the projection fixture so the *working* spelling is pinned too.
 
 Sources: [generator-code-review-2026-08-24](../audits/generator-code-review-2026-08-24.md) §Follow-up register (2026-08-30) row 13. Relates to M-T4.2 (query-time projections), `named-filter-bypass.md` §11.
+
+## M-T5.26 — The guarded-optional form the validator itself recommends compiles on one of five backends — `open` · **M** · P1 ⚠ verify-first
+
+Found 2026-09-03 by the language-docs audit ([F2](../audits/2026-09-03-language-docs-audit-findings.md), P0). `src/language/validators/types.ts:281` sanctions `x != null ? x.trim() : …` as *the fix* for `loom.intrinsic-nullable-receiver` — and then the guarded call is emitted verbatim rather than through the host idiom. From `note2: string?`, `derived safeNote = note2 != null ? note2.toUpper() : "none"` emits `this._note2.toUpper()` (node), `this.note2.toUpper()` (java), `self._note2.to_upper()` (python), `record.note2.to_upper()` (elixir) — none compile; .NET emits culture-sensitive `ToUpper()` where an unguarded receiver gets `ToUpperInvariant()`. The intrinsic arms of `src/ir/lower/lower-expr.ts` never unwrap the optional receiver the way `checkIntrinsicCalls` does.
+
+**The fix:** unwrap the guarded receiver in the intrinsic lowering arms so the recommended form lowers to each host's idiom, and settle the .NET `ToUpper`/`ToUpperInvariant` inconsistency in the same PR.
+
+**Verification when it lands.** The validator's own recommended form compiles on all five backends; the new lowering arm mutation-proved by file-copy revert.
+
+Sources: [language-docs-audit-2026-09-03](../audits/2026-09-03-language-docs-audit-findings.md) F2, [wave plan](../audits/2026-09-03-language-docs-audit-findings.waves.md) packet **W1.1** (`src/ir/lower/lower-expr.ts`, `src/generator/dotnet/render-expr.ts`, `test/ir/**`). Shares `src/ir/lower/` with M-T5.27 — different files, do not let either widen.
+
+## M-T5.27 — Two valid inputs throw instead of diagnosing: a bare abstract `seed` and a ui-e2e `expect` over a create result — `open` · **M** · P1 ⚠ verify-first
+
+Found 2026-09-03 by the language-docs audit ([F5](../audits/2026-09-03-language-docs-audit-findings.md), [F6](../audits/2026-09-03-language-docs-audit-findings.md), both P0). `seed Party { name: "x" }` on an abstract base dies with `TypeError: Cannot read properties of undefined (reading 'fields')` in `lowerSeed` (`src/ir/lower/lower.ts`) *before* `loom.seed-abstract-aggregate` can fire — the same model as `seed default { Party { … } }` reports the diagnostic correctly. And `expect(<create-result>.<field>).toHaveText("…")` inside `test e2e … against <frontend>` validates clean, then throws `expect requires a matcher` from `renderExpectStmt` (`src/system/expect-stmt.ts:21`, via `src/system/ui-e2e-render.ts:217`); binding the read with `getById` first works.
+
+**The fix:** F5 is ordering — the abstract-seed gate must run before the lowerer dereferences `fields`. F6 is a fork with two acceptable ends: the matcher survives the ui-e2e path, or a `loom.*` code rejects the shape. An internal throw is neither.
+
+**Verification when it lands.** Both inputs produce a diagnostic (or output) rather than a stack trace; each gate mutation-proved by file-copy revert.
+
+Sources: [language-docs-audit-2026-09-03](../audits/2026-09-03-language-docs-audit-findings.md) F5/F6, [wave plan](../audits/2026-09-03-language-docs-audit-findings.waves.md) packet **W1.4** (`src/ir/lower/lower.ts`, `src/system/expect-stmt.ts`, `src/system/ui-e2e-render.ts`).
+
+## M-T5.28 — `variant-match` off a page crashes all five backends; `for`/`if let` off a workflow emits `this.<unknown>()` — neither is gated — `open` · **M** · P1 ⚠ verify-first, carries a design fork
+
+Found 2026-09-03 by the language-docs audit ([F1](../audits/2026-09-03-language-docs-audit-findings.md), [F4](../audits/2026-09-03-language-docs-audit-findings.md), both P0). A `match` over a union in a domain body reports `0 error(s)` and then throws `variant-match statement is frontend-only; it must not reach the <X> backend` from `src/generator/_stmt/target.ts:160` on node, dotnet, java, python and elixir alike — no IR check covers `variant-match` outside a page (`src/ir/validate/checks/store-checks.ts` handles only the page case), and non-exhaustive arms are unchecked too. Symmetrically, `src/ir/lower/lower-stmt.ts` has no arm for `ForStmt`/`IfLetStmt` outside a workflow and no validator rejects them: `operation touch() { for n in notes { owner := n } }` reports `0 error(s), 0 warning(s)` and emits `this.<unknown>();`.
+
+**Resolve the fork before coding.** Each shape can be *gated* or *lowered*. The default is **gate** — both are frontend/workflow-only by design per the source comments, and a gate is S where lowering is L. If the design pass concludes lowering is right, that is a `language-feature-developer` mission: split it out and say so rather than widening this one. Mints codes in `src/diagnostics/messages.ts` — the only Wave-3 packet that may.
+
+**Verification when it lands.** Both shapes raise a `loom.*` code with the offending span; each gate mutation-proved by file-copy revert, reading *which* assertion fails.
+
+Sources: [language-docs-audit-2026-09-03](../audits/2026-09-03-language-docs-audit-findings.md) F1/F4 + "Cross-cutting reading" §2, [wave plan](../audits/2026-09-03-language-docs-audit-findings.waves.md) packet **W3.1**.
+
+## M-T5.29 — Two `system` blocks with no top-level members pass validation — `open` · **S** · P2 ⚠ verify-first
+
+Found 2026-09-03 by the language-docs audit ([F36](../audits/2026-09-03-language-docs-audit-findings.md), P3). `composition.ts:120-137` only fires when a top-level member must fold into a system, so a source declaring two member-less `system` blocks validates clean; `generate system` then writes only the root artefacts. There is no direct "exactly one `system`" gate.
+
+**The fix:** a direct arity check in `src/language/validators/composition.ts`, independent of whether anything needs folding.
+
+**Verification when it lands.** A negative validator test for the two-system source; mutation-proved by file-copy revert of the check.
+
+Sources: [language-docs-audit-2026-09-03](../audits/2026-09-03-language-docs-audit-findings.md) F36, [wave plan](../audits/2026-09-03-language-docs-audit-findings.waves.md) packet **W3.2**. Relates to M-T5.13 (the zero-system synthesis decision — the other end of the same arity question).
