@@ -15,12 +15,12 @@
 system AbsentOptional {
   subdomain Work {
     context Tracking {
-      aggregate Task with crudish {
+      aggregate Ticket with crudish {
         title: string
         estimate: int?
         invariant estimate == null || estimate >= 0 message "Estimate cannot be negative"
       }
-      repository Tasks for Task { }
+      repository Tickets for Ticket { }
     }
   }
   api TrackingApi from Work
@@ -36,37 +36,37 @@ system AbsentOptional {
 
   test e2e "a null-guard rule admits a create that omits the optional field" against d {
     // THE ROW THIS FIXTURE EXISTS FOR: no `estimate` key in the body.
-    let t = api.tasks.create({ title: "Ship it" })
-    let read = api.tasks.getById(t)
+    let t = api.tickets.create({ title: "Ship it" })
+    let read = api.tickets.getById(t)
     expect(read.title).toBe("Ship it")
     // …and the absent value round-trips as the wire's null, not as 0.
     expect(read.estimate).toBe(null)
 
     // Present and satisfying the guarded half: unchanged behaviour.
-    let sized = api.tasks.create({ title: "Sized", estimate: 3 })
-    let readSized = api.tasks.getById(sized)
+    let sized = api.tickets.create({ title: "Sized", estimate: 3 })
+    let readSized = api.tickets.getById(sized)
     expect(readSized.estimate).toBe(3)
 
     // Present and violating it: still denied, with the authored text — the
     // rule is loosened for ABSENCE only, not switched off.
-    expect(api.tasks.create({ title: "Bad", estimate: -1 })).toThrow(422)
+    expect(api.tickets.create({ title: "Bad", estimate: -1 })).toThrow(422)
 
     // The same rule on the UPDATE carrier, with the same omission.
-    api.tasks.update(t, { title: "Shipped" })
-    let updated = api.tasks.getById(t)
+    api.tickets.update(t, { title: "Shipped" })
+    let updated = api.tickets.getById(t)
     expect(updated.title).toBe("Shipped")
     expect(updated.estimate).toBe(null)
 
-    let listed = api.tasks.all()
+    let listed = api.tickets.all()
     expect(listed.items.length).toBe(2)
 
     // The last derived route (`api-caller-census`): DELETE, on the row whose
     // guarded optional was never sent — the shape a backend that read the
     // absent cell on the way to the delete would trip on — and the 404 the
     // by-id read then answers.
-    api.tasks.destroy(t)
-    expect(api.tasks.getById(t)).toThrow(404)
-    let remaining = api.tasks.all()
+    api.tickets.destroy(t)
+    expect(api.tickets.getById(t)).toThrow(404)
+    let remaining = api.tickets.all()
     expect(remaining.items.length).toBe(1)
   }
 }
