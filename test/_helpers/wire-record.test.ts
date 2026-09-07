@@ -89,6 +89,37 @@ describe("toWireEntry", () => {
     });
   });
 
+  // -------------------------------------------------------------------------
+  // The FORMAT dimension (M-T9.37).  Every assertion below is on a body whose
+  // parsed VALUES are identical — the point is that the old comparator saw
+  // nothing here, by construction, which is how 34-digit decimals shipped
+  // through a green wire gate for four PRs running.
+  // -------------------------------------------------------------------------
+
+  it("records nothing for ordinary numbers, so no golden churns", () => {
+    const e = toWireEntry(0, "GET", "/x", 200, JSON.stringify({ qty: 2, rate: 9.99 }));
+    // Absent, not empty: the serialized entry is byte-identical to one written
+    // before this field existed.
+    expect(e.numberFormats).toBeUndefined();
+    expect(JSON.stringify(e)).not.toContain("numberFormats");
+  });
+
+  it("records the wire spelling when a number is not the canonical form", () => {
+    // Java's un-narrowed BigDecimal — the exact shape M-T6.46 shipped. It parses
+    // to the same double as 9.99, which is precisely why nothing caught it.
+    const raw = '{"price":9.9900000000000000000000000000000000}';
+    const e = toWireEntry(0, "GET", "/x", 200, raw);
+    expect(e.body).toEqual({ price: 9.99 });
+    expect(e.numberFormats).toEqual(["9.9900000000000000000000000000000000"]);
+  });
+
+  it("counts a trailing-zero scale as off-contract too", () => {
+    // `1.0` and `1` are the same float64; RS-24 makes the shortest round-trip
+    // spelling the contract, so a padded scale is a real wire difference.
+    expect(toWireEntry(0, "GET", "/x", 200, '{"a":1.0}').numberFormats).toEqual(["1.0"]);
+    expect(toWireEntry(0, "GET", "/x", 200, '{"a":1}').numberFormats).toBeUndefined();
+  });
+
   it("keeps a non-JSON body as text and an empty body as the empty string", () => {
     expect(toWireEntry(0, "GET", "/x", 500, "Internal Server Error").body).toBe(
       "Internal Server Error",
@@ -132,6 +163,38 @@ describe("diffRecording", () => {
     expect(d.map((x) => x.kind).sort()).toEqual(["enum-casing", "null-vs-empty"]);
     expect(d[0].seq).toBe(0);
     expect(d[0].request).toBe("GET /api/products");
+  });
+});
+
+describe("diffRecording — the format dimension (M-T9.37)", () => {
+  const entry = (bodyText: string) => toWireEntry(0, "GET", "/api/products", 200, bodyText);
+
+  it("FAILS on excess precision the value comparison cannot see", () => {
+    // The regression this gate exists for, end to end: oracle vs Java.
+    const golden = [entry('{"price":9.99}')];
+    const actual = [entry('{"price":9.9900000000000000000000000000000000}')];
+
+    // The premise — the values really are equal, so every value-level check
+    // passes and only the format check can fire.
+    expect(golden[0].body).toEqual(actual[0].body);
+
+    const d = diffRecording(golden, actual);
+    expect(d).toHaveLength(1);
+    expect(d[0].kind).toBe("number-format");
+    expect(d[0].actual).toBe("9.9900000000000000000000000000000000");
+    expect(d[0].golden).toBe("");
+  });
+
+  it("stays silent when both sides spell numbers canonically", () => {
+    const d = diffRecording([entry('{"price":9.99}')], [entry('{"price":9.99}')]);
+    expect(d).toEqual([]);
+  });
+
+  it("treats an absent field and an empty list alike, so old goldens still pass", () => {
+    // A golden written before `numberFormats` existed has no such key at all.
+    const stale = { ...entry('{"price":9.99}') } as Record<string, unknown>;
+    delete stale.numberFormats;
+    expect(diffRecording([stale as never], [entry('{"price":9.99}')])).toEqual([]);
   });
 });
 

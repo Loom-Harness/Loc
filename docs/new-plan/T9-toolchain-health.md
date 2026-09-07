@@ -258,7 +258,7 @@ Minted 2026-08-23 by the numeric-types audit (the [root cause](../audits/numeric
 
 Sources: [numeric-types-audit-2026-08-23](../audits/numeric-types-audit-2026-08-23.md), plan.json N15, #2545/#2560/#2575/#2631. Relates to M-T9.25 (intra-backend consistency gates).
 
-## M-T9.37 — The wire-golden comparator can never fail on excess precision — `open` · **S–M** · P1 ⭐ the gate that was blind to M-T6.46, by construction
+## M-T9.37 — The wire-golden comparator can never fail on excess precision — `done` (Wave 1 follow-up, 2026-09-07) · **S–M** · P1 ⭐ the gate that was blind to M-T6.46, by construction
 
 Found 2026-08-23 by the numeric-types audit ([F16](../audits/numeric-types-audit-2026-08-23.md)). `toWireEntry` (`test/_helpers/wire-record.ts`) JSON-parses each body before diffing, collapsing every JSON number to a JS double: **deficient** precision (dapper's 15 digits, #2631) changes the parsed double and fails; **excess** precision (Java's 34-digit BigDecimals, M-T6.46) parses to the *identical* double and cannot fail — one-sided by construction. The direction that is currently broken on `main` is exactly the invisible one.
 

@@ -51,6 +51,32 @@ export interface WireEntry {
   readonly path: string;
   readonly status: number;
   readonly body: Json;
+  /** Sorted wire SPELLINGS of every number in this body whose source text is
+   *  not the canonical shortest round-trip form (`String(value)`) — omitted
+   *  entirely when there are none, which is the overwhelmingly common case, so
+   *  existing goldens stay byte-identical.
+   *
+   *  WHY THIS FIELD EXISTS.  `body` is the JSON.parse'd value, and parsing is
+   *  where the evidence dies: RS-24 says a `decimal` is a float64 JSON number,
+   *  and `9.99`, `9.990`, and Java's un-narrowed
+   *  `9.9900000000000000000000000000000000` (34 significant digits) all parse
+   *  to the SAME double.  So the differ compared them as equal and the gate
+   *  could not fail on excess precision **by construction** — which is exactly
+   *  how the #2545→#2631 money/decimal series ran green through this tier, and
+   *  why M-T6.46 shipped 34 digits with every wire gate passing.
+   *
+   *  Capturing the spelling puts the discarded half back in front of the
+   *  comparator.  Scope is deliberately the FORMAT dimension only: the value
+   *  dimension is already covered, at full JSON-path precision, by `diffBodies`.
+   *
+   *  KNOWN LIMIT, stated rather than hidden: this is a multiset of spellings
+   *  with no JSON path attached, so a non-canonical number MOVING between two
+   *  fields of one body reads as no change. Path-carrying would mean threading
+   *  a path through `JSON.parse`'s bottom-up reviver, which has no path to
+   *  give; the multiset catches the class this exists for (a backend that
+   *  formats numbers differently from the oracle) and the offending spelling is
+   *  greppable in `body`. */
+  readonly numberFormats?: readonly string[];
 }
 
 /** One backend's full recording for one case. */
@@ -185,17 +211,45 @@ export function toWireEntry(
   opts: NormalizeOpts = WIRE_NORMALIZE,
 ): WireEntry {
   let body: Json;
+  const spellings: string[] = [];
   const trimmed = bodyText.trim();
   if (trimmed === "") {
     body = "";
   } else {
     try {
-      body = normalizeBody(JSON.parse(trimmed) as Json, opts);
+      // The reviver's third argument carries the RAW SOURCE TEXT of a primitive
+      // (Node >= 21 / V8 >= 11.9).  A number whose source differs from
+      // `String(value)` is spelled on the wire in a way the parsed double does
+      // not preserve — trailing zeros, a padded scale, digits past float64's
+      // ~17 — and that difference is invisible to every value-level comparison
+      // downstream.  `String(value)` is the right canonical form precisely
+      // because RS-24 defines the wire type as a float64 JSON number, so the
+      // shortest round-trip spelling IS the contract.
+      body = normalizeBody(
+        JSON.parse(trimmed, function (_key, value, context) {
+          const src = (context as { source?: string } | undefined)?.source;
+          if (typeof value === "number" && typeof src === "string" && src !== String(value)) {
+            spellings.push(src);
+          }
+          return value;
+        }) as Json,
+        opts,
+      );
     } catch {
       body = trimmed;
     }
   }
-  return { seq, method: method.toUpperCase(), path: templatePath(url, opts), status, body };
+  const entry: WireEntry = {
+    seq,
+    method: method.toUpperCase(),
+    path: templatePath(url, opts),
+    status,
+    body,
+  };
+  // Omitted when empty so a body of ordinary numbers serializes exactly as it
+  // did before this field existed — no golden churn, and the field's presence
+  // in a golden is itself the signal that something spells numbers unusually.
+  return spellings.length > 0 ? { ...entry, numberFormats: [...spellings].sort() } : entry;
 }
 
 // ── the differ ─────────────────────────────────────────────────────────────
@@ -203,7 +257,18 @@ export function toWireEntry(
 /** Divergence kinds beyond the body-level ones `response-diff` classifies:
  *  the recording can also disagree on HOW MANY requests were made, on WHICH
  *  request was made at an ordinal, or on the response STATUS. */
-export type RecordDivergenceKind = "request-count" | "request" | "status" | DivergenceKind;
+export type RecordDivergenceKind =
+  | "request-count"
+  | "request"
+  | "status"
+  /** The bodies carry the same VALUES but one side spells a number in a form
+   *  the other does not — excess scale, trailing zeros, digits past what a
+   *  float64 keeps.  Its own kind because it is invisible to every value-level
+   *  comparison (see `WireEntry.numberFormats`) and because it names a
+   *  different defect: not "this backend computed something else" but "this
+   *  backend serializes numbers off-contract". */
+  | "number-format"
+  | DivergenceKind;
 
 export interface RecordDivergence {
   readonly seq: number;
@@ -267,6 +332,23 @@ export function diffRecording(
     }
     for (const d of diffBodies(g.body, a.body)) {
       out.push({ seq: i, request: label, kind: d.kind, path: d.path, golden: d.a, actual: d.b });
+    }
+    // The format dimension, which `diffBodies` cannot see: both sides already
+    // parsed to equal doubles or the loop above would have said so.  Absent and
+    // empty mean the same thing (every number canonical), so a golden written
+    // before this field existed compares clean against a still-canonical
+    // backend and nothing has to be rebaselined.
+    const gFmt = g.numberFormats ?? [];
+    const aFmt = a.numberFormats ?? [];
+    if (gFmt.length !== aFmt.length || gFmt.some((v, k) => v !== aFmt[k])) {
+      out.push({
+        seq: i,
+        request: label,
+        kind: "number-format",
+        path: "$",
+        golden: gFmt.join(", "),
+        actual: aFmt.join(", "),
+      });
     }
   }
   return out;
