@@ -5,8 +5,10 @@ import type { LoomLspClient } from "../lsp/client";
 import type { Diagnostic } from "../lsp/protocol";
 import { modelUriFor } from "../lsp/workspace-lsp-sync";
 import { installMonacoEnvironment } from "./monaco-env";
-import type { EditorHandle } from "./editor-handle";
+import type { EditorHandle, EditorRange } from "./editor-handle";
 import { loomQuickFixes, quickFixesAt } from "./fix-hint-actions";
+import { queueReveal, takeQueuedReveal } from "./pending-reveal";
+import { applyTextEdits } from "./apply-edits";
 
 export type { EditorHandle };
 
@@ -97,6 +99,10 @@ function markersToDiagnostics(markers: monaco.editor.IMarker[]): Diagnostic[] {
             : "hint",
     message: m.message,
     source: m.source ?? "loom",
+    // Monaco carries the LSP `code` either bare or as `{ value, target }`
+    // (when the server attached a codeDescription); the Problems rows key
+    // their chip / docs link / Fix on the bare string.
+    code: typeof m.code === "string" ? m.code : m.code?.value,
   }));
 }
 
@@ -178,6 +184,20 @@ export function LoomEditor(props: LoomEditorProps): JSX.Element {
         setSource: (text: string) => {
           pendingSourceRef.current = text;
         },
+        // No model yet: apply against the queued / seed text so a fix that
+        // lands before Monaco exists is not dropped either.
+        applyEdits: (edits) => {
+          pendingSourceRef.current = applyTextEdits(
+            pendingSourceRef.current ?? initialValueRef.current,
+            edits,
+          );
+        },
+        // No editor yet — queue it.  The first-run card's *Write .ddd* door
+        // fires before Monaco has finished loading (it is a 9.5 MB chunk),
+        // and dropping the reveal there left the click doing nothing at all.
+        revealRange: (range) => {
+          queueReveal(range);
+        },
         // No model yet, so no stack: the chrome renders Undo / Redo disabled
         // rather than swallowing a click.
         undo: () => {},
@@ -234,6 +254,13 @@ export function LoomEditor(props: LoomEditorProps): JSX.Element {
       revealLatestEdit(editor, model, e.changes);
     });
 
+    const revealRange = (r: EditorRange): void => {
+      const range = new monaco.Range(r.startLineNumber, r.startColumn, r.endLineNumber, r.endColumn);
+      editor.setSelection(range);
+      editor.revealRangeInCenter(range, monaco.editor.ScrollType.Smooth);
+      editor.focus();
+    };
+
     if (handleRef.current) {
       handleRef.current.current = {
         setSource: (text: string) => {
@@ -242,6 +269,18 @@ export function LoomEditor(props: LoomEditorProps): JSX.Element {
           model.pushEditOperations(null, [{ range: model.getFullModelRange(), text }], () => null);
           suppressDispatch = false;
         },
+        // One undoable batch, NOT suppressed: a Fix from the Problems panel
+        // must reach the app like a keystroke (the LSP re-validates, the
+        // error count drops) — the same path the lightbulb's edit takes.
+        applyEdits: (edits) => {
+          if (edits.length === 0) return;
+          model.pushEditOperations(
+            null,
+            edits.map((e) => ({ range: e.range, text: e.text })),
+            () => null,
+          );
+        },
+        revealRange,
         // The model's own stack — `pushEditOperations` above already put every
         // pane write on it.  Undo/redo are NOT suppressed: the resulting
         // content change is dispatched like a keystroke, which is how the app
@@ -256,6 +295,12 @@ export function LoomEditor(props: LoomEditorProps): JSX.Element {
         canRedo: () => model.canRedo(),
       };
     }
+
+    // Replay a reveal that arrived before this editor could show it — either
+    // while the stand-in handle was in place, or before this component mounted
+    // at all (it is behind a lazy chunk).  Both queue into the same slot.
+    const queued = takeQueuedReveal();
+    if (queued) revealRange(queued);
 
     // Automation seam: lets e2e set/read the document text directly (set
     // dispatches onChange like a normal edit), without depending on clipboard,
