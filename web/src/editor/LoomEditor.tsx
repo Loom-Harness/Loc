@@ -5,12 +5,19 @@ import type { LoomLspClient } from "../lsp/client";
 import type { Diagnostic } from "../lsp/protocol";
 import { modelUriFor } from "../lsp/workspace-lsp-sync";
 import { installMonacoEnvironment } from "./monaco-env";
+import {
+  bandClass,
+  FLASH_CLASS,
+  installCorrespondenceStyles,
+  type SourceHighlight,
+} from "./correspondence-decorations";
 import type { EditorHandle, EditorRange } from "./editor-handle";
 import { loomQuickFixes, quickFixesAt } from "./fix-hint-actions";
 import { queueReveal, takeQueuedReveal } from "./pending-reveal";
 import { applyTextEdits } from "./apply-edits";
 
 export type { EditorHandle };
+export type { SourceHighlight };
 
 // Monaco spawns workers by LABEL, and with no `MonacoEnvironment` it throws
 // the moment tokenization starts ("You must define a function
@@ -123,6 +130,14 @@ export interface LoomEditorProps {
    *  writes through `handleRef` still land — read-only is about the USER not
    *  editing, not about the app being unable to reseed the model. */
   readOnly?: boolean;
+  /** Report the 1-based source line under the pointer, `null` on leave —
+   *  the forward half of the source ↔ output correspondence (M-T8.20).
+   *  Reported only when the line CHANGES, so a mouse dragged along one line
+   *  does not re-run the mapping on every pixel. */
+  onHoverLine?: (line: number | null) => void;
+  /** Line ranges to tint.  `band` is the subtle colour-map overlay, `flash`
+   *  the reverse direction's "this generated line came from here". */
+  highlights?: readonly SourceHighlight[];
 }
 
 export function LoomEditor(props: LoomEditorProps): JSX.Element {
@@ -153,6 +168,15 @@ export function LoomEditor(props: LoomEditorProps): JSX.Element {
   onDiagnosticsRef.current = props.onDiagnosticsChange;
   const handleRef = useRef(props.handleRef);
   handleRef.current = props.handleRef;
+  // M-T8.20 — the correspondence seams.  The hover callback is read through a
+  // ref so the create effect (which runs once) always calls the latest one;
+  // the editor + decorations refs let the tinting effect reach an editor the
+  // create effect owns.
+  const onHoverLineRef = useRef(props.onHoverLine);
+  onHoverLineRef.current = props.onHoverLine;
+  const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
+  const decorationsRef = useRef<monaco.editor.IEditorDecorationsCollection | null>(null);
+  installCorrespondenceStyles();
   const isMobileRef = useRef(props.isMobile ?? false);
   // Frozen-at-mount activePath — Phase 2b1 keeps it constant; Phase
   // 2b2 will lift this to a state-driven model swap.
@@ -255,6 +279,22 @@ export function LoomEditor(props: LoomEditorProps): JSX.Element {
           }
         : {}),
     });
+
+    editorRef.current = editor;
+    // Source ↔ output correspondence, forward direction.  Monaco's own
+    // mouse events carry a resolved `position`, so no DOM hit-testing is
+    // needed; the last-line guard keeps a mouse dragged along one line from
+    // re-running the region walk on every pixel.
+    let lastHoverLine: number | null = null;
+    const reportHover = (line: number | null): void => {
+      if (line === lastHoverLine) return;
+      lastHoverLine = line;
+      onHoverLineRef.current?.(line);
+    };
+    const mouseMoveSub = editor.onMouseMove((e) => {
+      reportHover(e.target.position?.lineNumber ?? null);
+    });
+    const mouseLeaveSub = editor.onMouseLeave(() => reportHover(null));
 
     let suppressDispatch = false;
     const changeSub = model.onDidChangeContent((e) => {
@@ -378,11 +418,36 @@ export function LoomEditor(props: LoomEditorProps): JSX.Element {
       delete (window as unknown as { __loomGetSource?: unknown }).__loomGetSource;
       changeSub.dispose();
       markerSub.dispose();
+      mouseMoveSub.dispose();
+      mouseLeaveSub.dispose();
+      decorationsRef.current = null;
+      editorRef.current = null;
       editor.dispose();
       // Keep the model alive: the language client stays attached to it
       // across example-switch remounts.
     };
   }, [status]);
+
+  // Correspondence tinting.  A decorations COLLECTION (not `deltaDecorations`)
+  // so the set is replaced atomically and disposes with the editor; the effect
+  // runs after the create effect above has published `editorRef`.
+  useEffect(() => {
+    const editor = editorRef.current;
+    if (!editor) return;
+    const monacoDecorations = (props.highlights ?? []).map((h) => ({
+      range: new monaco.Range(h.startLine, 1, h.endLine, 1),
+      options: {
+        isWholeLine: true,
+        className:
+          h.kind === "flash" ? FLASH_CLASS : bandClass(h.band ?? 0),
+      },
+    }));
+    if (!decorationsRef.current) {
+      decorationsRef.current = editor.createDecorationsCollection(monacoDecorations);
+    } else {
+      decorationsRef.current.set(monacoDecorations);
+    }
+  }, [props.highlights, status]);
 
   if (status !== "ready") {
     return (
