@@ -66,6 +66,15 @@ const REGISTERED: Ratchet[] = [
     // a missing emitter.  Draining them means adding them to `showcase.ddd`
     // and accepting the fan-out across every generator matrix — not waiting on
     // a port.
+    //
+    // Still 14 after M-FT.11: +IfStmt (the `if` statement is refused in any
+    // context an elixir deployable emits, and all three showcase contexts are
+    // — so it is unreachable in this fixture BY CONSTRUCTION; M-T6.59 drains
+    // it) and -QueryHandler (stale: `scaffoldHandlers` synthesises one into
+    // the expanded model, which is what that gate measures).  The removal was
+    // found by the new "allowlisted kinds are genuinely absent" ratchet in
+    // `showcase-completeness.test.ts` — a per-ENTRY ratchet, where this one is
+    // a per-COUNT ratchet; they backstop different failures.
     max: 14,
   },
   // Walker primitives with a TSX renderer but no HEEx one.  Empty: the last
@@ -77,11 +86,21 @@ const REGISTERED: Ratchet[] = [
     file: "test/generator/elixir/heex-parity.test.ts",
     name: "KNOWN_HEEX_GAPS",
     kind: "record",
-    // 1 = `DataGrid`.  It is TanStack-backed and holds a CLIENT row model,
-    // which LiveView has no analogue for (every interaction would be a server
-    // round-trip, and multi-column ORDER BY has no backend support); `Table`
-    // is the fallback, server-driven on HEEx, so Phoenix is not silently
-    // degraded.  Lowered 2→1 as the drain (M-T9.8): `Chart` shipped its HEEx
+    // 1 = `DataGrid`, and this one does NOT drain: it is a SETTLED refusal
+    // under D-DATAGRID-TARGETS ("a frontend ships DataGrid iff it can run
+    // TanStack itself"), the same rule that permanently excludes Flutter.
+    // HEEx's two roads — a hand-rolled Elixir row model, or a `phx-hook`
+    // island LiveView must not patch — both FORK the semantics the
+    // `renderDataGridChild` seam exists to share.  `Table` is the fallback,
+    // server-driven on HEEx, so Phoenix is not silently degraded.
+    //
+    // The earlier version of this note repeated the pin's own false blocker
+    // ("multi-column ORDER BY has no backend support").  `DataGrid` drives no
+    // server read on any target — it grids the array it was handed — so
+    // `list/4`'s sort/dir pair was never on its path.  See the corrected
+    // reason in `heex-parity.test.ts`.
+    //
+    // Lowered 2→1 as the drain (M-T9.8): `Chart` shipped its HEEx
     // renderer.  Its pinned reason — "no JS-free LiveView charting" — was
     // false: the rows a chart plots are a grouped projection's, already
     // server-side in an assign, so the geometry is arithmetic and the output

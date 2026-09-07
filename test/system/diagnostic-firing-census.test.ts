@@ -174,6 +174,40 @@ ${uiBody}
 }`;
 
 const FIRING_FIXTURES: Record<string, string> = {
+  // --- phase ① parse ------------------------------------------------------
+  // A mistyped design pack.  `loom.parse-error` is the code `src/api/report.ts`
+  // stamps on Langium's `parsing-error`, and the wording it carries is
+  // `src/language/parse-errors.ts`'s — the closed-set "did you mean" that
+  // replaced chevrotain's numbered token-sequence dump.
+  "loom.parse-error": `
+system S {
+  subdomain Sub { context C {
+    aggregate Thing with crudish { name: string }
+    repository Things for Thing { }
+  } }
+  ui WebApp with scaffold(subdomains: [Sub]) { }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable api { platform: node, contexts: [C], dataSources: [st], port: 3000 }
+  deployable web { platform: react, targets: api, ui: WebApp, port: 3001, design: mantinee }
+}`,
+
+  // A criterion that shadows an enum case of the same name, so `status == Open`
+  // compares the enum against the criterion's BOOLEAN.  The hint half of
+  // `loom.compare-type-mismatch` (finding F13) — the bare mismatch text is the
+  // same code without a shadow in scope.
+  "loom.compare-type-mismatch": repoOnly(`    enum Status { Open, Done }
+    aggregate Task with crudish {
+      title: string
+      status: Status
+      operation finish() {
+        precondition status == Open
+        status := Done
+      }
+    }
+    criterion Open() of Task = this.status != Done
+    repository Tasks for Task { }`),
+
   // --- structural ---------------------------------------------------------
   "loom.duplicate-find": repoOnly(`    aggregate Thing with crudish { name: string }
     repository Things for Thing {
@@ -999,6 +1033,56 @@ system P {
   storage pg { type: postgres }
   resource st { for: Orders, kind: state, use: pg }
   deployable api { platform: node contexts: [Orders] dataSources: [st] ui: WebApp port: 3000 }
+}`,
+
+  // An `if` STATEMENT in an operation body, on a context an elixir deployable
+  // emits.  The four spine backends render it; Phoenix would silently drop an
+  // assigning branch (its bodies thread a REBOUND `record`, and an Elixir `if`
+  // block's bindings do not escape the block).
+  "loom.elixir-if-stmt-unsupported": `
+system P {
+  subdomain D { context C {
+    aggregate Order with crudish {
+      customerId: string
+      count: int
+      operation bump(n: int) {
+        if n > 0 {
+          count := 1
+        } else {
+          count := 2
+        }
+      }
+    }
+  } }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable api { platform: elixir contexts: [C] dataSources: [st] port: 4000 }
+}`,
+
+  // The same statement in a PAGE action.  A page body is an expression tree —
+  // a condition is a VALUE there — and no frontend emitter has a
+  // statement-position conditional.
+  "loom.if-stmt-page-body-unsupported": `
+system P {
+  subdomain D { context C {
+    aggregate Order with crudish { customerId: string }
+  } }
+  ui WebApp {
+    page Home {
+      route: "/"
+      state { n: int = 0 }
+      action bump() {
+        if n == 0 {
+          n := 1
+        }
+      }
+      body: Button { "Go", onClick: bump }
+    }
+  }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable api { platform: node contexts: [C] dataSources: [st] port: 3000 }
+  deployable app { platform: react targets: api ui: WebApp port: 3001 }
 }`,
 
   // A `match await` in a COMPONENT action, on a Flutter-hosted ui: the Flutter
