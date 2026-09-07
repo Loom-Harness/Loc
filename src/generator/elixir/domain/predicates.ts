@@ -35,6 +35,12 @@ export function stmtUsesCurrentUser(s: StmtIR): boolean {
         s.arms.some((a) => a.body.some(stmtUsesCurrentUser)) ||
         (s.elseBody ?? []).some(stmtUsesCurrentUser)
       );
+    case "if":
+      return (
+        exprUsesCurrentUser(s.cond) ||
+        s.thenBody.some(stmtUsesCurrentUser) ||
+        (s.elseBody ?? []).some(stmtUsesCurrentUser)
+      );
     default: {
       // Wave 2 packet 2.3 — every `StmtIR` kind is already listed above;
       // this turns that into a compile-time guarantee.
@@ -112,11 +118,83 @@ export function stmtUsesParam(s: StmtIR, name: string): boolean {
         s.arms.some((a) => a.body.some((st) => stmtUsesParam(st, name))) ||
         (s.elseBody ?? []).some((st) => stmtUsesParam(st, name))
       );
+    case "if":
+      return (
+        exprUsesParam(s.cond, name) ||
+        s.thenBody.some((st) => stmtUsesParam(st, name)) ||
+        (s.elseBody ?? []).some((st) => stmtUsesParam(st, name))
+      );
     default: {
       // Wave 2 packet 2.3 — every `StmtIR` kind is already listed above;
       // this turns that into a compile-time guarantee.
       const _exhaustive: never = s;
       return _exhaustive;
+    }
+  }
+}
+
+/** Walk one level into `e` and return true if `pred` matches any child.
+ *
+ *  EXHAUSTIVE over `ExprIR.kind` on purpose: a missing arm is not a missing
+ *  feature, it is a WRONG ANSWER — the probes above are how the emitters decide
+ *  whether to bind a parameter or underscore it, so a kind this walk does not
+ *  descend into makes the generated Elixir read a binding the head never made
+ *  (`def fee(%Order{} = record, _q)` over a body that says `q`), and `mix
+ *  compile` fails.  The `never` check at the bottom turns a newly added
+ *  `ExprIR` kind into a typecheck error rather than a silent under-report. */
+function walkExpr(e: ExprIR, pred: (sub: ExprIR | undefined) => boolean): boolean {
+  switch (e.kind) {
+    case "method-call":
+      return pred(e.receiver) || e.args.some((a) => pred(a));
+    case "member":
+      return pred(e.receiver);
+    case "binary":
+      return pred(e.left) || pred(e.right);
+    case "ternary":
+      return pred(e.cond) || pred(e.then) || pred(e.otherwise);
+    case "unary":
+      return pred(e.operand);
+    case "paren":
+      return pred(e.inner);
+    case "duration":
+      // A5 temporal — `days(n)` etc.; the amount may reference a param
+      // (`days(graceDays)`), so the usage probes must descend into it or the
+      // param's binding line is dropped and the generated body doesn't compile.
+      return pred(e.amount);
+    case "call":
+      return e.args.some((a) => pred(a));
+    case "lambda":
+      return pred(e.body);
+    case "new":
+    case "object":
+      return e.fields.some((f) => pred(f.value));
+    case "list":
+      // `[q, 2, 3]` — a bracketed list literal renders its elements verbatim.
+      return e.elements.some((x) => pred(x));
+    case "convert":
+      // Lowering wraps an implicit coercion (`"x" + q` → `to_string(q)`), so the
+      // read sits one level down and is invisible without this arm.
+      return pred(e.value);
+    case "i18nFormat":
+      return pred(e.inner);
+    case "match":
+      // Boolean-arm and variant forms both: every arm condition and value, the
+      // `else` value, and the scrutinee.
+      return (
+        pred(e.subject) || e.arms.some((a) => pred(a.cond) || pred(a.value)) || pred(e.otherwise)
+      );
+    // Leaves — no child expression to descend into.
+    case "literal":
+    case "this":
+    case "id":
+    case "ref":
+    case "action-ref":
+    case "authz-filter":
+      return false;
+    default: {
+      const never: never = e;
+      void never;
+      return false;
     }
   }
 }

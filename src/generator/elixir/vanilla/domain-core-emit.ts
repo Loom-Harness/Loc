@@ -11,7 +11,7 @@ import { opUsesCurrentUser, stmtUsesParam } from "../domain/predicates.js";
 import { type RenderCtx, renderExpr } from "../render-expr.js";
 import { isVanillaDocAgg } from "./document-emit.js";
 import { isEventSourced } from "./eventsourced-emit.js";
-import { bodyUsesParam, renderFunctionBodyLines } from "./function-emit.js";
+import { bodyUsesParam, bodyUsesReceiver, renderFunctionBodyLines } from "./function-emit.js";
 import { isReturningOperation, renderReturningStmt } from "./operation-returns-emit.js";
 
 // ---------------------------------------------------------------------------
@@ -182,8 +182,14 @@ function renderPureFunction(facadeMod: string, fn: FunctionIR): string[] {
   const params = fn.params.map((p) =>
     bodyUsesParam(fn.body, p.name) ? snake(p.name) : `_${snake(p.name)}`,
   );
+  // Same rule the facade copy applies to its receiver: a body that never reads
+  // the struct (`function inList(q: int): int { let xs = [q, 2, 3] … }`) must
+  // not bind `record`, or `mix compile --warnings-as-errors` fails on the
+  // unused variable.  Only the pure-core copy was missing it, so the shape
+  // compiled on the facade module and failed here.
+  const recv = bodyUsesReceiver(fn.body) ? "record" : "_record";
   const sig =
-    params.length > 0 ? `%__MODULE__{} = record, ${params.join(", ")}` : `%__MODULE__{} = record`;
+    params.length > 0 ? `%__MODULE__{} = ${recv}, ${params.join(", ")}` : `%__MODULE__{} = ${recv}`;
   return [
     `  @doc "Pure domain function \`${fn.name}\`."`,
     `  def ${fnSnake}(${sig}) do`,

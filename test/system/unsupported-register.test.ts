@@ -201,8 +201,22 @@ const REGISTER_FILE = path.join(srcRoot, "diagnostics", "unsupported-register.ts
  *  `loom.seed-eventsourced-no-create` (zero `create` actions is a legitimate
  *  event-sourced shape, but then there is no creation event for a seed row to
  *  append — the same silent-shrink hazard the mission closed for every other
- *  crossing). */
-const MAX_OPEN_GAPS = 46;
+ *  crossing).
+ *
+ *  RAISED by M-FT.11 (`loom.elixir-if-stmt-unsupported`), the slice
+ *  that added the `if` statement.  A raise taken deliberately, because the
+ *  alternative was worse than a gap: elixir's body renderers thread their
+ *  result through a REBOUND `record`, and an Elixir `if` block's bindings do
+ *  not escape the block, so the naive rendering compiles clean under
+ *  `--warnings-as-errors` and then silently does nothing.  The statement ships
+ *  on the other four backends; refusing it on the fifth is the honest half.
+ *  Draining it is M-T6.59 (value-producing branches in every vanilla body
+ *  renderer), which deletes the row and lowers this back to 47.
+ *
+ *  BOTH moves land together in this merge: the 2.5 drain (-1) and the
+ *  M-FT.11 raise (+1) net out, so the pin returns to 47 rather than to
+ *  either side's number. */
+const MAX_OPEN_GAPS = 47;
 
 function walk(dir: string, out: string[] = []): string[] {
   for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
