@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import {
   ActionIcon,
   Box,
@@ -20,7 +20,7 @@ import { HelpMenu, HelpMenuItems } from "./HelpMenu";
 import { PipelineDots, PipelineStrip } from "./PipelineStrip";
 import { ReadOnlyBadge } from "./ReadOnlyBadge";
 import { ShareDialog } from "./ShareDialog";
-import { TargetsDrawer } from "./TargetsDrawer";
+import { LazyTargetsDrawer } from "./lazy-panels";
 import { AUTO_RUN, AUTO_RUN_HINT, RUN, SHARE, TARGETS } from "./vocabulary";
 
 interface Props {
@@ -98,7 +98,11 @@ export function DesktopHeader({ ctx }: Props): JSX.Element {
         >
           {TARGETS.label}
         </Button>
-        <TargetsDrawer ctx={ctx} opened={targetsOpen} onClose={() => setTargetsOpen(false)} />
+        {targetsOpen && (
+          <Suspense fallback={null}>
+            <LazyTargetsDrawer ctx={ctx} opened onClose={() => setTargetsOpen(false)} />
+          </Suspense>
+        )}
         <ShareDialog ctx={ctx} opened={shareOpen} onClose={() => setShareOpen(false)} />
         {/* Share link, Import design pack and the imported-pack tree live
             under one ⋯ menu so the header never needs a second row (audit
@@ -308,7 +312,11 @@ export function MobileHeader({ ctx }: Props): JSX.Element {
         examples={augmentedExamplesList}
         onCreateFromExample={createWorkspaceFromExample}
       />
-      <TargetsDrawer ctx={ctx} opened={targetsOpen} onClose={() => setTargetsOpen(false)} />
+      {targetsOpen && (
+          <Suspense fallback={null}>
+            <LazyTargetsDrawer ctx={ctx} opened onClose={() => setTargetsOpen(false)} />
+          </Suspense>
+        )}
       <ShareDialog ctx={ctx} opened={shareOpen} onClose={() => setShareOpen(false)} />
     </Group>
     <PipelineDots ctx={ctx} />
