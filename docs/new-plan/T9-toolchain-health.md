@@ -451,6 +451,7 @@ Found 2026-09-03 by the language-docs audit ([F47](../audits/2026-09-03-language
 **Verification when it lands.** `node docs/build.mjs` exits 0 and a rendered chapter's in-page links resolve against the ids actually emitted — assert the ids, not just that the build ran; mutation-proved by removing the extension.
 
 Sources: [language-docs-audit-2026-09-03](../audits/2026-09-03-language-docs-audit-findings.md) F47, [wave plan](../audits/2026-09-03-language-docs-audit-findings.waves.md) packet **W7.2**. Touches the same file as the archived-docs fence (`test/system/archived-docs-fence.test.ts` imports `docs/build.mjs`) — keep that gate green.
+
 ## M-T9.48 — The legacy single-context `generate` path asserted nothing — `partial` (Route 1, slice 2 and the ratchet landed; the residue is named below) · **M** · P1 ⭐
 
 Minted 2026-09-03 by Wave G2 packet 2.1 of [verification-waves-2026-09](verification-waves-2026-09.md), and mostly closed in the same PR.
@@ -462,7 +463,7 @@ Minted 2026-09-03 by Wave G2 packet 2.1 of [verification-waves-2026-09](verifica
 **The finding that cost the most to establish, and is the reason four files left the path rather than being repaired on it:** the legacy path CANNOT host a capability. `generateTypeScript` emits from `loom.contexts` — the LOOSE top-level contexts — and declaring a `system` re-parents every loose context into a `_default` subdomain, emptying that list. So a fixture on this path has, by construction, no backend deployable, and every hosted-capability check refuses it (`loom.tph-backend-unsupported`, `loom.audited-backend-unsupported`, and their siblings). Any future fixture for a hosted capability belongs on `generateSystemFiles`, and the ratchet's header says so.
 
 **The residue.**
-- ~~`generateDotnet` is the same hole on the .NET legacy path~~ — **closed by [M-T9.45](#m-t945--the-net-half-of-the-same-hole-generatedotnet-was-a-bare-re-export-so-136-of-its-150-call-sites-never-reached-the-helper-at-all) below**, which found the .NET hole was materially *larger* than this row assumed: the re-export meant 30 of the 39 caller files imported the generator straight from `src/`, outside the helper entirely, and the `parseString` column was 17 files rather than the two named here.
+- ~~`generateDotnet` is the same hole on the .NET legacy path~~ — **closed by [M-T9.49](#m-t949--the-net-half-of-the-same-hole-generatedotnet-was-a-bare-re-export-so-136-of-its-150-call-sites-never-reached-the-helper-at-all) below**, which found the .NET hole was materially *larger* than this row assumed: the re-export meant 30 of the 39 caller files imported the generator straight from `src/`, outside the helper entirely, and the `parseString` column was 17 files rather than the two named here.
 - `test/ir/collection-op-lambda-element-type.test.ts` and `test/ir/collection-op-let-type.test.ts` still feed `generateHono` from a bare `parseString`; they were fenced to another packet in the wave and carry a reason in `PARSE_STRING_ALONGSIDE`.
 - `loom.retrieval-loads-unsupported` is refused on every path, so `test/generator/typescript/retrieval-emit.test.ts`'s `loads:` case stays on `generateSystemFilesUnchecked` with its reason — emitting from the refused model IS that test's subject, and the pin is the before-picture for whenever `loads:` ships.
 
@@ -496,3 +497,57 @@ Minted 2026-09-03 by Wave G2 packet 2.2 of [verification-waves-2026-09](verifica
 > Minted as `M-T9.45` on its branch; renumbered to **M-T9.49** on rebase because #2771's language-docs audit landed `M-T9.44`–`M-T9.47` first. The wave's PR body and commit messages may still say `M-T9.45` — this row is that work.
 
 Sources: [verification-waves-2026-09](verification-waves-2026-09.md) Wave G2 packet 2.2. Relates to M-T9.48 (the Hono half this mirrors exactly), M-T9.40 (the verifier), M-T9.35 (the direct-orchestrator ratchet both are modelled on).
+
+## M-T9.50 — Nothing typechecks `test/`, and a bare `--noEmit` step cannot land — `open` · **L** · P1 ⭐ ⚠ verify-first
+
+Minted 2026-09-07 from [verification-waves-2026-09](verification-waves-2026-09.md) **§7.1**, which was handed to that wave as "a small follow-up" and turned out to be mission-sized on measurement.
+
+**The hole.** `tsconfig.json` carries `"exclude": ["node_modules", "out", "test"]` and no other config covers `test/`. `npm run build` compiles `src/**`; `biome ci .` is a linter. So none of the ~1,993 `.ts` files under `test/` are typechecked by anything — which means a `Record<SomeUnion, …>` written in a test to prove exhaustiveness proves nothing, because no compiler ever reads it. Three Wave G3 packets hit this independently.
+
+**Two measurements, and why they differ — re-measure, do not inherit.** §7.1 measured **811 errors over 327 files** under a vitest-shaped config (`vitest/globals` + DOM lib, `test/fixtures` in scope). Re-measured 2026-09-07 on the wave's head under the *root* config's shape (`types: ["node"]`, `test/fixtures` excluded, `src/**` + `test/**` in one program): **764 errors over 216 files, and 0 under `src/`**. Both are honest; the gap is entirely config shape, and that is the first thing this mission has to settle — the baseline is only meaningful against a pinned `tsconfig.test.json`. Recipe for either number: write a throwaway config **at the repo root** (so `typeRoots` resolve — a config outside the tree fails with `TS2688: Cannot find type definition file for 'node'`), extending `./tsconfig.json` with `composite: false`, `declaration: false`, `noEmit: true`, `rootDir: "."`, `include: ["test/**/*.ts", "src/**/*.ts"]`, `exclude: ["node_modules", "out", "test/fixtures"]`; run `npx tsc -p … --noEmit`; delete it.
+
+**The class, not just the count.** 391 × TS2345 + 111 × TS2322 is **66%** of the 764 and names one shape: partial fixture objects handed to full IR types through loose casts. The tail is small and different — 33 × TS2584, 31 × TS2352, 30 × TS2353, 23 × TS2339. So the drain is mostly *one* refactor (typed fixture builders) repeated, not 216 individual puzzles.
+
+**Why it is not landable as one change.** A `--noEmit` step added to the fast lane before the errors are fixed makes every PR red. The landable shape is the one this repo already uses for waivers: a checked-in `tsconfig.test.json` plus a **per-file baseline that can only shrink**, gated in the shape of `test/system/unsupported-register.test.ts` — a file that drops to zero errors gets deleted from the baseline in the same PR that fixed it, and a clean file that gains an error fails the gate. That buys the invariant on day one (no new untypechecked test file, no new error in a clean one) and lets the rest drain packet by packet.
+
+**Verification when it lands.** Mutation-prove *both* directions, because a baseline gate that only ratchets one way is the failure shape this repo keeps finding: (a) introduce a fresh type error in a file the baseline lists as clean → the gate fails; (b) fix a file's last error without deleting its baseline row → the gate fails as stale. A green first run proves neither.
+
+Sources: [verification-waves-2026-09](verification-waves-2026-09.md) §7.1. Relates to M-T9.8 (the hollow-work class this belongs to — an assertion the compiler never reads is the purest form of it) and M-T9.35 / M-T9.48 / M-T9.49 (the same "the instrument was never wired to anything" shape, on the generator entry points).
+
+## M-T9.51 — Most of `examples/` is parsed by no gate, and `sales-ui.ddd` has not compiled for an unknown length of time — `open` · **S** · P2 ⚠ verify-first
+
+Minted 2026-09-07 from [verification-waves-2026-09](verification-waves-2026-09.md)'s hand-off list; the non-parsing file is already fenced by a two-way ratcheting `NON_PARSING_SOURCES`, so this row is the *drain plus the missing gate*, not the discovery.
+
+**What is unwatched.** `generated-react-build.yml` iterates `examples/acme.ddd` plus everything under `web/src/examples/**`. The rest of `examples/` is parsed by nothing. `ddd parse examples/sales-ui.ddd` re-confirmed on 2026-09-07 fails with **7 syntax errors from line 133** (`Expecting token of type ')' but found ':'`, cascading to `EOF` confusion through line 160) and then link errors for names the file never declares — `Order`, `Customer`, `PlaceOrderRequest` — plus `scaffold` arguments naming aggregates that are not in the file. It is not a near-miss; the file is stale against a grammar that moved under it.
+
+**A second, quieter instance in the same class:** `web/src/examples/auth-capabilities.ddd` carries two `requires` gates and no runner boots it — so the example that demonstrates the authorization surface is the one nothing executes.
+
+**The fix, in the order that keeps the gate honest.** Repair `sales-ui.ddd` against the current grammar *first*, then delete its `NON_PARSING_SOURCES` entry in the same PR (the waiver ratchets — a stale row fails the gate), then extend the parse gate's iteration from `examples/acme.ddd` to `examples/**/*.ddd` so the next stale example fails on the push that strands it rather than on a later audit.
+
+**Verification when it lands.** `ddd parse` exits 0 on every file the widened gate iterates, proved by running the gate — not by reading the glob. Mutation-prove the widening by seeding a syntax error into a second `examples/*.ddd` file and confirming the gate reaches it; the failure shape to avoid is a glob that matches and a runner that silently continues, which is `experience_gathered.md` §59 verbatim.
+
+Sources: [verification-waves-2026-09](verification-waves-2026-09.md), "Findings handed off, not fixed here". Relates to M-T9.3 (corpus/example coverage) and M-T9.8 (a fixture nothing executes is hollow).
+
+## M-T9.52 — `generateDotnetForContexts` is the remaining unwatched .NET entry point — `open` · **S** · P2
+
+Minted 2026-09-07 as the explicit residue of [M-T9.49](#m-t949--the-net-half-of-the-same-hole-generatedotnet-was-a-bare-re-export-so-136-of-its-150-call-sites-never-reached-the-helper-at-all), which closed the *wrapper* and deliberately left the rung below it out of scope.
+
+**What is left.** `generateDotnetForContexts` — the system-mode entry the orchestrator itself calls — is still imported straight from `src/` by **six `test/` files** (re-counted 2026-09-07: `dotnet-find-gate`, `dotnet-schema-id-collisions`, `dotnet-tph-capability-filter`, `dotnet-tph`, `field-mask-dotnet`, `generator-dotnet`; a seventh hit is the ratchet naming it). Those call sites bypass `assertModelVerifies` exactly as the 136 wrapper-bypassing sites did before M-T9.49. The boundary was drawn on purpose and symmetrically — the Hono ratchet gates `generateHono`, not `generateTypeScriptForContexts` — so **this row's first job is to decide whether the boundary is still right**, not to assume it is wrong: the `ForContexts` entry is what `src/system/` calls in production, so a helper wrapper there is a different argument from the legacy-CLI-path one.
+
+**Note the overlap before picking a route.** `generator-dotnet.test.ts` alone is **66 of the 150 pinned .NET call sites** and is also M-T9.42's largest corpus-promotion candidate. Promoting it first shrinks this mission's surface by nearly half and shrinks the ratchet's pins in the same move; doing this mission first makes that promotion a bigger diff. Sequence accordingly.
+
+**Verification when it lands.** Whichever route: re-seed M-T9.40's `enumName: undefined` mutation at the enum-value lowering site and measure **both sides** — with the new assertion and with it stripped — reporting the count of *previously-silent* tests that now fail, the way M-T9.48 (5) and M-T9.49 (60) both did. A one-sided "N tests fail" number does not distinguish a working instrument from an unrelated string assertion.
+
+Sources: [verification-waves-2026-09](verification-waves-2026-09.md) Wave G2 packet 2.2 residue. Relates to M-T9.49 (the wrapper this sits below), M-T9.42 (the promotion that shrinks it), M-T9.40 (the verifier).
+
+## M-T9.53 — Three `src/` files carry a raw NUL byte, so the tools treat them as binary — `open` · **XS** · P3
+
+Minted 2026-09-07 from [verification-waves-2026-09](verification-waves-2026-09.md)'s hand-off list. Pre-existing on `main`, not introduced by that wave.
+
+**The finding.** `src/system/migrations-builder.ts`, `src/ir/util/policy-decision-id.ts` and `src/ir/validate/checks/structural-checks.ts` each contain **exactly one literal NUL byte**, used as a composite-key name separator. Consequence: `grep -qI` classifies all three as binary, so a plain `grep -r` over `src/` **silently skips them** — including greps an audit or a refactor depends on. The measurement itself demonstrates it: `git grep -lI --perl-regexp` for the byte returns only two of the three, while a `perl -0777` count returns 1 for each.
+
+**The fix is a one-character-class change with no behavioural difference:** write the separator as a two-character escape in source rather than embedding the byte. The emitted string is byte-identical, so every key, hash and snapshot that depends on it is unchanged — which is precisely what makes this safe and why it has been easy to leave alone.
+
+**Verification when it lands.** Assert the *runtime value* is unchanged (the composite keys these three build must be byte-identical before and after — snapshot them across the corpus, do not eyeball the diff), and assert the *files* are no longer binary: `git grep -I` must now reach all three, and a repo-wide check for an embedded NUL in tracked `src/**` text must return empty. The second half is the gate worth keeping — a one-line meta-test in the shape of `test/platform/assertion-free-tests.test.ts` stops the next one from landing.
+
+Sources: [verification-waves-2026-09](verification-waves-2026-09.md), "Findings handed off, not fixed here". Relates to M-T9.8 (a grep that silently skips files is how hollow work stays hidden).

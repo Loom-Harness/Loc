@@ -183,7 +183,7 @@ The second row is the honest number, and its shape says what the mission is: **3
 
 **Why it is not landable as one change.** 811 errors over 327 files is a wave, not a commit, and a `--noEmit` step added to the fast lane before they are fixed makes every PR red. The landable shape is the one this repo already uses for waivers: a `tsconfig.test.json` plus a **per-file baseline that can only shrink**, gated like `test/system/unsupported-register.test.ts` — a file that drops to zero errors gets deleted from the baseline in the same PR, and a file that gains one fails the gate. That buys the invariant immediately (no *new* untypechecked test file, no new error in a clean one) and lets the 327 drain packet by packet.
 
-Mint as a T9 row when the wave has a coordinator free; the numbers above are the denominator, so it does not need re-measuring first. Do not re-open it as "add `--noEmit` to the lint lane" — that was the original framing and it is wrong by 811.
+**Minted 2026-09-07 as [M-T9.50](T9-toolchain-health.md)** — and the minting corrected the paragraph that used to close this section. It said "the numbers above are the denominator, so it does not need re-measuring first." That was wrong. Re-measured on the wave's own head under the *root* config's shape (`types: ["node"]`, `test/fixtures` excluded, `src/**` + `test/**` in one program): **764 errors over 216 files**, with **391 × TS2345 + 111 × TS2322 = 66%**. Nothing regressed and nothing was fixed in between — the entire 811/327 → 764/216 gap is config shape. So the *class* is stable and re-confirmed (the same two codes, the same two thirds), and the *count* is a function of the config, which means the baseline is meaningless until `tsconfig.test.json` is checked in and pinned. That is now M-T9.50's first task rather than an assumption it inherits. What does not change: this is not "add `--noEmit` to the lint lane", which was the original framing and is wrong by three orders of magnitude of PR pain.
 
 ### 7.2 `pull_request` path filters see the PR's cumulative diff, not the push — the §4 cost budget is written for the wrong denominator
 
@@ -199,3 +199,23 @@ So the rule is: once a PR's cumulative diff touches a listed path, **every subse
 - **Batch prose-only follow-ups.** A one-line doc fix on a wave PR costs a full promoted fan-out. Fold corrections into the next code push instead of pushing them alone; this section was itself held back for that reason and rode in with the next commit.
 
 The `push: main` blocks are unaffected — those are per-commit, so the post-merge net keeps its original cost.
+
+### 7.3 `examples/sales-ui.ddd` has not parsed for an unknown length of time, and no gate would have noticed — **minted as M-T9.51**
+
+Found by a G2 packet reaching for a second example fixture. `ddd parse examples/sales-ui.ddd` fails with **7 syntax errors from line 133** — `Expecting token of type ')' but found ':'` at 133:26, cascading into `EOF` confusion through 160:3 — then link errors for `Order`, `Customer` and `PlaceOrderRequest`, names the file never declares, plus `scaffold` arguments naming aggregates it does not contain. Re-confirmed 2026-09-07 on the wave head.
+
+The measurement that makes it a mission rather than a fixture repair: **no CI gate parses it.** `generated-react-build.yml` iterates `examples/acme.ddd` and everything under `web/src/examples/**` — the rest of `examples/` is watched by nothing, so the grammar moved and the file was stranded silently. A sibling instance is `web/src/examples/auth-capabilities.ddd`, which carries two `requires` gates and no runner boots.
+
+Fenced here in a two-way ratcheting `NON_PARSING_SOURCES` so the state is at least declared. The drain and the widened gate are [M-T9.51](T9-toolchain-health.md); the ordering matters (repair, then delete the waiver in the same PR, then widen the glob), because a waiver that outlives its fix is the failure shape this repo keeps re-finding.
+
+### 7.4 `generateDotnetForContexts` is the rung below the wrapper M-T9.49 closed — **minted as M-T9.52**
+
+M-T9.49 routed 30 files back through the `generateDotnet` helper and pinned 150 call sites. The entry one rung down — `generateDotnetForContexts`, what `src/system/` itself calls — is still imported straight from `src/` by **six `test/` files** (re-counted 2026-09-07; a seventh grep hit is the ratchet naming it). Those sites bypass `assertModelVerifies` exactly as the 136 did.
+
+This was left out **deliberately and symmetrically**: the Hono ratchet gates `generateHono`, not `generateTypeScriptForContexts`, on the argument that the wrapper is the legacy CLI path while the `ForContexts` entry is production orchestration. [M-T9.52](T9-toolchain-health.md) records the boundary as a decision to re-examine, not a defect to assume — and notes the sequencing that halves it: `generator-dotnet.test.ts` alone is 66 of the 150 pinned sites and is also M-T9.42's largest promotion candidate.
+
+### 7.5 Three `src/` files are binary to the tools — **minted as M-T9.53**
+
+`src/system/migrations-builder.ts`, `src/ir/util/policy-decision-id.ts` and `src/ir/validate/checks/structural-checks.ts` each embed **exactly one literal NUL byte** as a composite-key separator, so `grep -qI` calls all three binary and a plain `grep -r` over `src/` skips them without saying so. The finding demonstrates itself: `git grep -lI --perl-regexp` for the byte returns two of the three; a `perl -0777` count returns 1 for each.
+
+Pre-existing on `main`, behaviourally identical to the two-character escape that would replace it, and therefore easy to keep not-fixing — which is the argument for [M-T9.53](T9-toolchain-health.md) being worth its XS: the value is not the three files, it is the repo-wide check that stops the fourth, in a repo where audits are greps.
