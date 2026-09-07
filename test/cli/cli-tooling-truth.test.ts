@@ -294,7 +294,7 @@ const I18N_DDL = `
       }
     }
     ui Web {
-      page Home { route: "/"  Text("Hello") }
+      page Home { route: "/"  body: Text { "Hello" } }
     }
     storage pg { type: postgres }
     resource oState { for: Orders, kind: state, use: pg }
@@ -311,7 +311,11 @@ describe("ddd i18n — model-relative defaults", () => {
     const elsewhere = project("i18n-cwd", {});
     const r = run(["i18n", "extract", path.join(dir, "shop.ddd")], { cwd: elsewhere });
     expect(r.status).toBe(0);
-    expect(fs.existsSync(path.join(dir, ".loom", "messages.en.json"))).toBe(true);
+    const catalog = path.join(dir, ".loom", "messages.en.json");
+    expect(fs.existsSync(catalog)).toBe(true);
+    // …and it carries THIS model's string, so a fixture whose page body stopped
+    // parsing fails here instead of writing an empty catalog to the right place.
+    expect(Object.values(JSON.parse(fs.readFileSync(catalog, "utf8")))).toContain("Hello");
     expect(fs.existsSync(path.join(elsewhere, "out"))).toBe(false);
   });
 
@@ -320,7 +324,9 @@ describe("ddd i18n — model-relative defaults", () => {
     const elsewhere = project("i18n-init-cwd", {});
     const r = run(["i18n", "init", path.join(dir, "shop.ddd"), "fr"], { cwd: elsewhere });
     expect(r.status).toBe(0);
-    expect(fs.existsSync(path.join(dir, "locales", "fr.json"))).toBe(true);
+    const fr = path.join(dir, "locales", "fr.json");
+    expect(fs.existsSync(fr)).toBe(true);
+    expect(Object.values(JSON.parse(fs.readFileSync(fr, "utf8")))).toContain("TODO: Hello");
     expect(fs.existsSync(path.join(elsewhere, "locales"))).toBe(false);
   });
 
