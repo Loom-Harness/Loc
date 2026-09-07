@@ -49,6 +49,21 @@ This adds, alongside the normal output:
 - **`out/.vscode/launch.json`** — one launch configuration per debuggable
   deployable (node / .NET / Java), pre-wired to the metadata above.
 
+The `.ts.map` sidecars name their `.ddd` by **absolute path** in `sources`,
+and a debugger reads the file from there — so by default they do **not**
+inline the source text. Inlining it would repeat the whole `.ddd` once per
+generated file (112 sidecars, 763 KB, on the ERP example — versus 95 KB
+without, and a 201 KB `.loom/sourcemap.json` that covers more files). Add
+`--inline-sources` when the maps will be read somewhere the `.ddd` files are
+not, and each sidecar carries its own `sourcesContent`:
+
+```bash
+node bin/cli.js generate system app.ddd -o out --sourcemap --inline-sources
+```
+
+The browser playground always inlines — its VFS has no filesystem behind
+`sources` for devtools to read.
+
 ## 2. Native editor debugging (recommended)
 
 **In the browser playground:** the Run/boot path always bundles the
@@ -161,6 +176,23 @@ with the `.ddd` construct + source location it maps to. Unrecognized frames
 node bin/cli.js trace crash.log --map out/.loom/sourcemap.json
 ```
 
+The annotated log goes to **stdout** (pipeable, byte-identical for anything
+that didn't resolve); a one-line coverage verdict goes to **stderr** —
+`annotated 3 of 7 stack frame(s)`. When NOTHING matched, that verdict names
+the frame files it saw, what the map covers, and the usual cause:
+
+```
+ddd trace: no frame matched the sourcemap (0 of 3 stack frame(s)).
+  frame files: /app/dist/index.js
+  out/.loom/sourcemap.json covers 19 generated file(s), e.g. api/domain/issue.ts, …
+  A BUNDLED frame (dist/…, *.min.js, a single-file build) names the bundle, not the
+  generated file the map is keyed by. Run the process from the generated sources, or
+  resolve the bundle's own source map first (`node --enable-source-maps`), …
+```
+
+A bundled production stack is the common case: the map is keyed by the
+generated source paths, so a `dist/index.js` frame can never match one.
+
 This is the path for **Python and Elixir** (no native `#line`), and for any
 production stack trace you have as text but not a live process.
 
@@ -175,9 +207,17 @@ node bin/cli.js breakpoints app.ddd --line 42 --map out/.loom/sourcemap.json
 # hono_api/domain/order.ts:55:12
 ```
 
-A `.ddd` line that fans out to several generated files lists them all; a
-line with no mapping is reported as such (exit 0 — a valid answer, not a
-failure).
+A `.ddd` line that fans out to several generated files lists them all,
+narrowest mapping first; a line with no mapping is reported as such (exit 0 —
+a valid answer, not a failure).
+
+**Enclosing regions are dropped when the line maps something of its own.** A
+statement inside an operation is *also* covered by its aggregate's whole-file
+regions, so the raw fan-out answered `label := note` with the real
+`domain/order.ts:29:18` plus `order.test.ts:1`, `order.ts:1` and
+`order.routes.ts:1` — breakpoint sites on an import statement. Those coarse
+targets are listed only for a line that has no finer mapping (an
+`aggregate Order {` header, a plain property), where they are the answer.
 
 ## 4. The `ddd-dap` debug adapter
 

@@ -57,6 +57,7 @@ import {
   positionalArgs,
   stringNamed,
 } from "../shared/args.js";
+import { isDecimalLikeField } from "../shared/row-field-type.js";
 import type { DataGridColumn } from "../target.js";
 import type { WalkContext } from "../walker-core.js";
 import { emitExpr, extendLambdaParams, propagateChildFlags, walk } from "../walker-core.js";
@@ -72,6 +73,39 @@ const GRID_COLUMN_HEADER = "String(h.column.columnDef.header ?? h.id)";
  *  pack's own string coercion, so the concatenation it lands in stays exactly
  *  the sentence that pack spelled by hand. */
 const FELIZ_COLUMN_HEADER = "loomText (h?column?columnDef?header)";
+
+/** The column-visibility toggle's LABEL, for the `columnVisibility: true`
+ *  checkbox list — one expression for every pack, the same way the per-column
+ *  ARIA above is one expression.
+ *
+ *  Not `String(col.columnDef.header ?? col.id)`, which every pack had spelled
+ *  by hand: a TanStack `header` is `string | (ctx) => rendered`, and the
+ *  SELECTION column's header is the second form — so `String()` serialised the
+ *  compiled checkbox JSX and shipped it as a checkbox label in all fifteen
+ *  packs (a grid with `selection:` + `columnVisibility:` is the trigger).  A
+ *  render function is not a label, so only a string header is used and anything
+ *  else falls back to the column id.
+ *
+ *  `typeof … === 'string'`, SINGLE-quoted, is the one spelling that survives
+ *  all four template dialects this is spliced into:
+ *
+ *    - not `instanceof Function` — a Vue template resolves free identifiers
+ *      against the render context, and `Function` is not in Vue's allowed-globals
+ *      list (`Math`/`Date`/`String`/`Number`/`JSON`/… are), so `vue-tsc` reads it
+ *      as `_ctx.Function` and fails the SFC: `Property 'Function' does not exist
+ *      on type '{ table: Table<T>; … }'`;
+ *    - not `col.columnDef.header.charAt`-style duck-typing — the declared type is
+ *      the `string | ColumnDefTemplate` union, so a property probe does not
+ *      type-check at all;
+ *    - single quotes because vuetify splices this into a DOUBLE-quoted attribute
+ *      (`:label="…"`), which a double-quoted literal would close early;
+ *    - `typeof` itself reaches the Angular packs because Angular's template
+ *      parser has supported it since v20 and the Angular stack pins `^22`
+ *      (verified with `ngc -p tsconfig.app.json` under `strictTemplates`).
+ *
+ *  `String(…)` accepts the whole union, so no narrowing is required anywhere. */
+const GRID_VISIBILITY_LABEL =
+  "String(typeof col.columnDef.header === 'string' ? col.columnDef.header : col.id)";
 
 export function emitDataGrid(
   call: ExprIR & { kind: "call" },
@@ -110,7 +144,8 @@ export function emitDataGrid(
   // is therefore NOT attributed to the cells.
   const importsBefore = snapshotImports(ctx);
   // The aggregate the bound rows are, when the enclosing `QueryView` recorded
-  // one — the only source of FIELD TYPES for the columns (see `isDecimalLike`).
+  // one — the only source of FIELD TYPES for the columns (see
+  // `isDecimalLikeField`, shared with `Table`'s client-side sort).
   const rowAgg = rowsArg?.kind === "ref" ? ctx.listRowAggregates?.get(rowsArg.name) : undefined;
   const columns = gridColumns(call).map((c, i) => resolveColumn(c, ctx, i, depth, rowAgg));
   const cellImports = importsAddedSince(ctx, importsBefore);
@@ -209,6 +244,10 @@ export function emitDataGrid(
           filterByAria: localizedChromeIcuAria(ctx, "filterBy", [
             { name: "column", expr: GRID_COLUMN_HEADER },
           ]),
+          // The visibility toggles' labels — the one per-column string that is
+          // NOT chrome (it is the author's own column header), and the one the
+          // packs had each spelled by hand.
+          visibilityLabel: GRID_VISIBILITY_LABEL,
           // …and as VALUES, for the procedural pack (Feliz reaches the same
           // header through Fable's dynamic access, so it passes its own hole).
           sortByAriaValue: localizedChromeIcuExpr(ctx, "sortBy", [
@@ -337,31 +376,8 @@ function resolveColumn(
     // `money`/`decimal` reach the row as an object wrapper whose `valueOf()` is
     // a string, so the default `a < b` comparator orders them lexicographically
     // — see `DataGridColumn.numericSort`.
-    numericSort: sortable && isDecimalLike(accessorKey, rowAggregate, ctx) ? true : undefined,
+    numericSort: sortable && isDecimalLikeField(accessorKey, rowAggregate, ctx) ? true : undefined,
   };
-}
-
-/** True when a column reads a `money`/`decimal` field — the two primitives every
- *  frontend represents as a decimal OBJECT at runtime.
- *
- *  Resolved from the ROW AGGREGATE rather than the accessor's `memberType`,
- *  because a page body carries no `receiverType`: `o.amount` inside a
- *  `data: rows => …` lambda types as `string` for every field, money included.
- *  The enclosing `QueryView` records which aggregate the rows are
- *  (`ctx.listRowAggregates`), and its declared fields carry the real types.
- *  Unresolvable (no recorded aggregate, an unknown field) → false, which keeps
- *  TanStack's default comparator, i.e. the pre-existing behaviour. */
-function isDecimalLike(
-  field: string | undefined,
-  rowAggregate: string | undefined,
-  ctx: WalkContext,
-): boolean {
-  if (!field || !rowAggregate) return false;
-  const agg = ctx.aggregatesByName.get(rowAggregate);
-  const f = agg?.fields.find((x) => x.name === field);
-  const t = f?.type;
-  const base = t?.kind === "optional" ? t.inner : t;
-  return base?.kind === "primitive" && (base.name === "money" || base.name === "decimal");
 }
 
 /** A unique, stable component name for this grid within the emitted module.

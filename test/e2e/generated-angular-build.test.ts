@@ -104,6 +104,11 @@ const SCAFFOLD: Case = {
 const SHOWCASE: Case = {
   name: "showcase",
   angularDir: "web",
+  // The required-money form control is the surface this case exists to compile
+  // for M-T1.24: a `FormControl(0)` behind the `price: string` request field is
+  // exactly the TS2345 `ng build` catches.  Pinning both halves (the string seed
+  // and the non-numeric input) keeps a green build honest.
+  mustEmit: ['price: new FormControl("0"', 'inputmode="decimal"'],
   source: `
     system Shop {
       api SalesApi from Sales
@@ -116,6 +121,11 @@ const SHOWCASE: Case = {
             priority: int
             rush: bool
             placedAt: datetime
+            // REQUIRED money — the only shape that reaches a non-null money
+            // FormControl (M-T1.24 / audit F6).  \`total: money?\` below stays
+            // because the optional arm seeds \`null\` and compiled either way;
+            // it never proved the string seed.
+            price: money
             total: money?
             operation confirm() { }
           }
@@ -386,7 +396,14 @@ const FILE: Case = {
  *  (`react-build-cases.ts`); Vue, Svelte and Angular never did.  Filterable +
  *  computed-cell + selection on purpose: those switch on the branches
  *  (`hasFilters`, the `@if` cell branch, the `selectionChange` output) a bare
- *  grid leaves unemitted. */
+ *  grid leaves unemitted.
+ *
+ *  It also carries the ZERO-PARAMETER find (`gold`) and a hand-written page
+ *  reading it — that page's component field is `useGoldCustomer()` with no
+ *  argument, so the emitted factory must not require one ("Expected 1
+ *  arguments, but got 0" under `ng build` otherwise).  Folded into this case
+ *  rather than given its own so the shape gets pack-matrix coverage without
+ *  adding a matrix cell. */
 const GRID: Case = {
   name: "grid",
   angularDir: "web",
@@ -400,11 +417,31 @@ const GRID: Case = {
           sequence: int
           spend: money
         }
-        repository Customers for Customer { }
+        repository Customers for Customer {
+          find gold(): Customer[] where this.tier == Gold
+        }
       } }
       api SalesApi from Sales
       ui WebApp {
         api Sales: SalesApi
+        page GoldCustomers {
+          route: "/gold"
+          title: "Gold customers"
+          body: Stack {
+            Heading { "Gold customers", level: 1 },
+            QueryView {
+              of: Sales.Customer.gold,
+              loading: Skeleton { count: 3 },
+              error: Alert { "Couldn't load customers" },
+              empty: Empty { "No gold customers yet." },
+              data: rows => Table {
+                rows: rows,
+                Column { "Name", o => Text { o.name } },
+                Column { "Tier", o => EnumBadge { o.tier } }
+              }
+            }
+          }
+        }
         page CustomerGrid {
           route: "/customers"
           title: "Customers"
@@ -499,6 +536,72 @@ const HISTORY: Case = {
   `,
 };
 
+/** Optional fields (M-FT.22) — every optionality shape a scaffolded page has
+ *  to render, on one aggregate: nullable scalars, an optional VALUE OBJECT
+ *  (read as flattened leaf rows on the detail page, bound as a nested field
+ *  group in the `fund` op-form), and an optional `File`.
+ *
+ *  Angular is where these fail LOUDLY.  `ng build` type-checks the template
+ *  under `strictTemplates`, so `p.budget.amount` on a `Budget?` is TS2531
+ *  rather than a runtime throw nobody sees; and a `File?` used to miss the
+ *  `fieldInput` File arm entirely (which matched the RAW type), so the emitted
+ *  `FormControl<FileRef | null>` referenced an unimported `FileRef` and an
+ *  unimported `api` — TS2304, twice, on a page the other frontends bundled
+ *  green because their build never type-checked it.
+ *
+ *  `mustEmit` pins both halves: the File control's generic (the emitter still
+ *  reaches the File arm) and the null-safe read (the guard is still applied). */
+const OPTIONAL: Case = {
+  name: "optional",
+  angularDir: "web",
+  mustEmit: ["FormControl<FileRef | null>", "budget?.amount", "attachment: FileRef | null"],
+  source: `
+    system AOptFields {
+      subdomain Core {
+        context Tracking {
+          valueobject Budget {
+            amount: decimal
+            currency: string
+          }
+          aggregate Project with crudish {
+            name: string
+            note: string?
+            estimate: int?
+            dueAt: datetime?
+            budget: Budget?
+            attachment: File?
+            derived display: string = name
+            operation fund(amount: decimal, currency: string) {
+              budget := Budget { amount: amount, currency: currency }
+            }
+          }
+        }
+      }
+      api TrackingApi from Core
+      ui WebApp with scaffold(subdomains: [Core]) {
+        api Tracking: TrackingApi
+      }
+      storage primary { type: postgres }
+      storage blobs { type: localDisk }
+      resource trackingState { for: Tracking, kind: state, use: primary }
+      resource trackingFiles { for: Tracking, kind: objectStore, use: blobs }
+      deployable api {
+        platform: node
+        contexts: [Tracking]
+        dataSources: [trackingState, trackingFiles]
+        serves: TrackingApi
+        port: 3000
+      }
+      deployable web {
+        platform: angular
+        targets: api
+        ui: WebApp { Tracking: api }
+        port: 3004
+      }
+    }
+  `,
+};
+
 const PACKS = ["angularMaterial@v1", "primeng@v1", "spartanNg@v1"] as const;
 
 interface MatrixCase extends Case {
@@ -506,9 +609,16 @@ interface MatrixCase extends Case {
   label: string;
 }
 
-const allCases: MatrixCase[] = [MINIMAL, SCAFFOLD, SHOWCASE, STORE, FILE, GRID, HISTORY].flatMap(
-  (c) => PACKS.map((pack) => ({ ...c, pack, label: `${c.name}:${pack}` })),
-);
+const allCases: MatrixCase[] = [
+  MINIMAL,
+  SCAFFOLD,
+  SHOWCASE,
+  STORE,
+  FILE,
+  GRID,
+  HISTORY,
+  OPTIONAL,
+].flatMap((c) => PACKS.map((pack) => ({ ...c, pack, label: `${c.name}:${pack}` })));
 
 /** Inject `design: "<pack>"` into the angular deployable (single-line or
  *  multi-line `platform: angular` block). */
