@@ -179,22 +179,8 @@ const packId = (p: PackUnderTest) => `${p.family}@${p.version}`;
 /** Structural concerns a sibling mission owns, same ratchet as the numeric
  *  ones: the entry asserts the pack still FAILS, so the fix deletes it. */
 const KNOWN_STRUCTURAL_DEVIATIONS: readonly { pack: string; concern: string; owner: string }[] = [
-  { pack: "mui@v5", concern: "toolbar.alignment", owner: "M-FT.20 (#2748)" },
-  { pack: "mui@v7", concern: "toolbar.alignment", owner: "M-FT.20 (#2748)" },
-  { pack: "mui@v5", concern: "navSection.label", owner: "M-FT.20 (#2748)" },
-  { pack: "mui@v7", concern: "navSection.label", owner: "M-FT.20 (#2748)" },
-  { pack: "chakra@v2", concern: "navSection.label", owner: "M-FT.18 (#2745)" },
-  { pack: "chakra@v3", concern: "navSection.label", owner: "M-FT.18 (#2745)" },
   { pack: "flowbite@v1", concern: "container.size", owner: "M-FT.19 (#2750)" },
-  { pack: "mui@v5", concern: "main.padding", owner: "M-FT.20 (#2748)" },
-  { pack: "mui@v7", concern: "main.padding", owner: "M-FT.20 (#2748)" },
-  { pack: "chakra@v2", concern: "main.padding", owner: "M-FT.18 (#2745)" },
-  { pack: "chakra@v3", concern: "main.padding", owner: "M-FT.18 (#2745)" },
   { pack: "flowbite@v1", concern: "main.padding", owner: "M-FT.19 (#2750)" },
-  { pack: "mui@v5", concern: "main.contained", owner: "M-FT.20 (#2748)" },
-  { pack: "mui@v7", concern: "main.contained", owner: "M-FT.20 (#2748)" },
-  { pack: "chakra@v2", concern: "main.contained", owner: "M-FT.18 (#2745)" },
-  { pack: "chakra@v3", concern: "main.contained", owner: "M-FT.18 (#2745)" },
   { pack: "flowbite@v1", concern: "main.contained", owner: "M-FT.19 (#2750)" },
 ];
 
@@ -210,14 +196,9 @@ interface KnownDeviation {
 }
 
 const KNOWN_DEVIATIONS: readonly KnownDeviation[] = [
-  // M-FT.20 (#2748) owns the MUI Stack and toolbar; M-FT.18 (#2745) owns the
-  // Chakra VStack; M-FT.19 (#2750) owns designs/flowbite/** entire.
-  { pack: "mui@v5", concern: "stack.gap", actualPx: null, owner: "M-FT.20 (#2748)" },
-  { pack: "mui@v7", concern: "stack.gap", actualPx: null, owner: "M-FT.20 (#2748)" },
-  { pack: "mui@v5", concern: "toolbar.gap", actualPx: null, owner: "M-FT.20 (#2748)" },
-  { pack: "mui@v7", concern: "toolbar.gap", actualPx: null, owner: "M-FT.20 (#2748)" },
-  { pack: "chakra@v2", concern: "stack.gap", actualPx: null, owner: "M-FT.18 (#2745)" },
-  { pack: "chakra@v3", concern: "stack.gap", actualPx: null, owner: "M-FT.18 (#2745)" },
+  // M-FT.19 (#2750) owns designs/flowbite/** entire and is still in flight.
+  // (M-FT.20 #2748 and M-FT.18 #2745 have LANDED — the entries that named them
+  // came true and this ratchet failed on each, which is what deleted them.)
   { pack: "flowbite@v1", concern: "group.gap", actualPx: 16, owner: "M-FT.19 (#2750)" },
   { pack: "flowbite@v1", concern: "keyValueRow.gap", actualPx: 16, owner: "M-FT.19 (#2750)" },
   {
@@ -611,6 +592,8 @@ describe("cross-pack spacing contract", () => {
           /\bp-4\b[^"]*\blg:p-6\b/.test(shell) || // tailwind
           /\bpa-4\b[^"]*\bpa-lg-6\b/.test(shell) || // vuetify
           /padding=\\?\{\{\s*base:\s*"md",\s*lg:\s*"lg"\s*\}\}/.test(shell) || // mantine
+          /p:\s*\{\s*xs:\s*2,\s*lg:\s*3\s*\}/.test(shell) || // mui `sx`
+          /p=\{\s*\{\s*base:\s*4,\s*lg:\s*6\s*\}\s*\}/.test(shell) || // chakra
           /@media\s*\(min-width:\s*1024px\)[^}]*\{[^}]*padding:\s*(?:24px|1\.5rem)/.test(shell); // the loom-* CSS packs
         if (deviates) {
           expect(
@@ -636,7 +619,10 @@ describe("cross-pack spacing contract", () => {
         // Without this a <main> that is a flex child keeps `min-width: auto`,
         // so a wide table widens the FLEX ITEM and the document scrolls
         // sideways — the scroll container inside it never gets to do its job.
-        const contained = /\bmin-w-0\b/.test(shell) || /min-?[wW]idth:\s*0/.test(shell);
+        const contained =
+          /\bmin-w-0\b/.test(shell) || // tailwind
+          /min-?[wW]idth:\s*0/.test(shell) || // mantine style / mui sx / the CSS packs
+          /minW=\{0\}/.test(shell); // chakra
         if (deviates) {
           expect(
             contained,
@@ -659,10 +645,20 @@ describe("cross-pack spacing contract", () => {
       it(deviates ? `${id} still deviates` : id, () => {
         const shell = source(p, "app-shell");
         const css = `${shell}\n${packCss(p)}`;
-        const uppercase = /uppercase/.test(shell) || /text-transform:\s*uppercase/.test(css);
-        const small = /text-xs\b/.test(shell) || /font-size:\s*0\.75rem/.test(css);
+        const uppercase =
+          /uppercase/.test(shell) || // tailwind class, or chakra/mui `textTransform`
+          /text-transform:\s*uppercase/.test(css);
+        const small =
+          /text-xs\b/.test(shell) || // tailwind
+          /fontSize="xs"/.test(shell) || // chakra
+          /size="xs"/.test(shell) || // mantine
+          /fontSize:\s*"0\.75rem"/.test(shell) || // mui `sx`
+          /font-size:\s*0\.75rem/.test(css); // the loom-* CSS packs
         const semibold =
-          /font-semibold/.test(shell) || /font-weight:\s*600/.test(css) || /fw=\{600\}/.test(shell);
+          /font-semibold/.test(shell) || // tailwind
+          /fontWeight[=:]\s*\{?600\}?/.test(shell) || // chakra / mui sx
+          /fw=\{600\}/.test(shell) || // mantine
+          /font-weight:\s*600/.test(css);
         if (deviates) {
           expect(
             uppercase && small && semibold,

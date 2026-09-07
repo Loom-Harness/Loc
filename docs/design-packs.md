@@ -791,6 +791,13 @@ The 8-vs-4 unit split is exactly what produced the `gap={1}` divergence:
 copying a literal between two of these dialects silently halves or
 doubles it.  Copy the TOKEN, never the number.
 
+A pack whose scale is NAMED rather than numeric takes its nearest step, and
+the tolerance band is what admits it: Mantine has no 8px entry (`xs` is 10,
+`sm` is 12), so `Group` and `KeyValueRow` — both `sm` = 8px in the contract —
+spell `gap="xs"` and resolve to 10px, two inside the band.  Reaching for
+`gap={8}` instead would hit the number exactly and take the pack off its own
+scale, which is the trade the band exists to refuse.
+
 ### The typography half
 
 One `heading level: 2` measured 14px on chakra, 24px on shadcn, 26px on
