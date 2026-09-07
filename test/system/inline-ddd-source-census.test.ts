@@ -190,6 +190,23 @@ const DELIBERATELY_UNPARSEABLE: readonly { file: string; contains?: string; why:
     contains: "count = 0",
     why: "asserts the macro reports the field's syntax error instead of throwing on it; a parseable fixture would test nothing",
   },
+  // The two below are the INTENDED-ERROR fixtures of M-FT.4, not rot.  That
+  // mission is this census's own bug class one level up: it found ten fixtures
+  // across nine files whose syntax error nobody had seen, passing only because
+  // the validators ran over the recovered tree — and made "a document that does
+  // not parse is not validated" the default.  Its own gates therefore need
+  // sources that genuinely do not parse, and they are pinned by `contains` so
+  // every OTHER fixture in both files stays gated.
+  {
+    file: "test/language/parsing/parse-error-reporting.test.ts",
+    contains: "string = =",
+    why: "the syntax error whose reporting is under test — that only the FIRST parse error is reported, and that no linking/validator diagnostic is invented over the recovered tree (F3/F4)",
+  },
+  {
+    file: "test/system/diagnostic-firing-census.test.ts",
+    contains: "design: mantinee",
+    why: "the mistyped design pack that makes `loom.parse-error` fire, proving the closed-set 'did you mean mantine?' message replaced chevrotain's token-sequence dump (F6)",
+  },
 ];
 
 /** The pins that match a given document. */

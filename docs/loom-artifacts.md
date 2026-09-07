@@ -14,6 +14,7 @@ consumption.
 ├── <deployable-2>/
 ├── ...
 └── .loom/
+    ├── manifest.json            # what this run emitted — the next run prunes against it
     ├── wire-spec.json
     ├── messages.en.json
     ├── domain.mmd
@@ -42,11 +43,17 @@ tooling output.  Check them into the project alongside the generated
 code if you want pull-request-time diff visibility on wire contracts,
 traceability coverage, or migration baselines.
 
+## Regeneration bookkeeping
+
+| File | Producer | What it is |
+|---|---|---|
+| `manifest.json` | `src/system/manifest.ts`, written by the CLI write phase (`src/cli/main.ts`, phase ⑩) | Every path this run emitted, sorted, with a `scaffoldOnce` flag on the files the user takes ownership of.  **This is how regeneration deletes.**  On the next run, a path the previous manifest lists and the current run does not emit is stale and is removed — so renaming an `operation` or a `page` no longer leaves a dead `CommentHandler.cs` / `board.tsx` behind to break the build.  The prune is deliberately narrow: a file with no manifest entry (every hand-written file) is structurally unreachable, and `.loomignore`d paths, scaffold-once files, migration files, and `.loom/snapshots/` are all spared.  An absent or unreadable manifest degrades to "prune nothing".  Check it in — that is what makes the prune work on a teammate's clone. |
+
 ## Wire contract
 
 | File | Producer | What it is |
 |---|---|---|
-| `wire-spec.json` | `src/system/wire-spec.ts` (phase ⑨) | JSON-Schema-shaped derivation from every aggregate / part / value object's `wireShape`.  Language-agnostic; the canonical source of truth for what the JSON over the wire looks like.  Diffable — wire-contract drift between regens shows up as a clean JSON diff. |
+| `wire-spec.json` | `src/system/wire-spec.ts` (phase ⑨) | JSON-Schema-shaped derivation from every aggregate / part / value object's `wireShape`.  Language-agnostic; the canonical source of truth for what the JSON over the wire looks like.  Diffable — wire-contract drift between regens shows up as a clean JSON diff.  Carries the CONSTRAINTS the drift check needs, not just carrier types: an `enum` field publishes its declared members (`{"type":"string","enum":["New","Qualified"]}`, in declaration order, resolved in the referring context), so removing an enum value — a breaking change — moves the file instead of leaving it byte-identical. |
 
 ## i18n catalog
 
@@ -112,6 +119,15 @@ Its consumer is `ddd trace <logfile>`: given a runtime stack-trace from a genera
 backend, it rewrites each frame to point at the originating `.ddd` source line, so a
 failure in the generated code reads against the model the author actually wrote.  See
 [`tools.md`](tools.md) for the CLI.
+
+Note that "opt-in" is about the **artifact**, not the recorder.  The web playground
+records the map on every system generate and reads it in memory — that is what powers
+its source ↔ output correspondence ([`playground.md`](playground.md)) — while still
+passing the flag off, so the emitted tree it shows and downloads stays byte-identical.
+The distinction is possible because the Source Map v3 / JSR-45 sidecars (and the
+trailing `sourceMappingURL` directives they add to the emitted `.ts`) are gated on
+`sourceTexts`, not on the recorder: with a recorder and no `sourceTexts`, the only
+addition to the emission is `sourcemap.json` itself.
 
 ## What `.loom/` is NOT
 

@@ -40,7 +40,12 @@ to the source map. For Node/V8 frames (the only dialect whose frames carry a col
 the column selects the expression-level `targetCol` region containing it and the
 annotation prints the exact `.ddd` `path:line:col` of that sub-expression; every other
 format (and any column matching no region) keeps the line-granular `path:line`.
-See [`loom-artifacts.md`](loom-artifacts.md).
+The Source Map v3 `.ts.map` sidecars it also writes name their `.ddd` by absolute
+path and do not inline its text; pass `--inline-sources` alongside `--sourcemap`
+to embed a copy in each sidecar (only worth it when the maps will be read where
+the `.ddd` files are not — on the ERP example it takes the sidecars from 95 KB to
+763 KB). See [`loom-artifacts.md`](loom-artifacts.md) and
+[`debugging.md`](debugging.md).
 
 `ddd breakpoints <file.ddd> --line <n>` is the reverse lookup: given a
 `.ddd` source line, it prints every generated `file:line` that line produced
@@ -94,7 +99,7 @@ ddd new acme --platform python                 # FastAPI backend + React (mantin
 | --- | --- | --- |
 | `--platform <node\|dotnet\|elixir\|java\|python>` | `node` | Backend platform (ports: node 3000, dotnet 8080, elixir 4000, java 8081, python 8000). Prints a hint listing the alternatives when defaulted. |
 | `--template <blank\|crud>` | `crud` | `blank` = one aggregate; `crud` = two aggregates with a repository `find`. |
-| `--design <mantine\|shadcn\|mui\|chakra\|coreComponents\|shadcnSvelte\|flowbite\|vuetify\|shadcnVue>` | `mantine` (`coreComponents` for elixir) | Frontend. A React pack scaffolds a separate React deployable; a Svelte pack (`shadcnSvelte`/`flowbite`) a `platform: svelte` frontend, a Vue pack (`vuetify`/`shadcnVue`) a `platform: vue` frontend; `coreComponents` makes Phoenix a single LiveView fullstack. `coreComponents` is only valid with `--platform elixir`. |
+| `--design <pack>` | `mantine` (`coreComponents` for elixir) | Frontend design pack — **every** built-in family (the list is derived from the pack registry, `src/util/builtin-formats.ts`, so `ddd new --help` and `designs/` cannot disagree): React `mantine`/`shadcn`/`mui`/`chakra`, Vue `vuetify`/`shadcnVue`, Svelte `shadcnSvelte`/`flowbite`, Angular `angularMaterial`/`primeng`/`spartanNg`, Phoenix LiveView `coreComponents`/`daisyui`. The pack's FORMAT picks the frontend deployable: a Vue pack scaffolds `platform: vue`, an Angular pack `platform: angular`, and a HEEx pack makes Phoenix a single LiveView fullstack (so it requires `--platform elixir`). |
 | `-o, --out <dir>` | `./<name>` | Output directory. |
 | `--force` | off | Scaffold into an existing, non-empty directory. |
 
@@ -582,6 +587,36 @@ JAVA_HOME=/opt/jdk25 PATH=/opt/gradle-9.6.1/bin:$PATH node run-java.mjs [case…
 is its own workflow, but two of them on one host produce spurious 404/401
 failures that look like wire divergences.  Override the port when running
 them concurrently.
+
+**The DATABASE collides too, and it fails differently.** `run-java.mjs` and
+`run-dotnet.mjs` both default to the **`app`** database, and each resets it
+(drop every schema, recreate `public`) at the START of its own case — so
+whichever leg boots second wipes the schema the first one is using, and
+whichever boots while the other has already migrated finds a `public` that
+is not its own.  On the Java leg that surfaces as a Flyway refusal that
+names neither the other backend nor the database:
+
+```
+FlywayException: Found non-empty schema(s) "public" but no schema history
+table.  Use baseline() or set baselineOnMigrate to true …
+```
+
+The giveaway is `\dt public.*` showing the OTHER backend's bookkeeping
+table — `__EFMigrationsHistory` (EF Core) under a Flyway error, or
+`flyway_schema_history` under an EF one.  Neither is a product bug and
+neither is a wire divergence: it is two legs sharing one database.  Run the
+legs SEQUENTIALLY, or give each its own database the way the port note
+above says to give each its own port — there is no dedicated knob, so
+override the whole connection setting:
+
+```bash
+SPRING_DATASOURCE_URL=jdbc:postgresql://127.0.0.1:5432/app_java \
+  node run-java.mjs [case…]
+ConnectionStrings__Default='Host=127.0.0.1;Port=5432;Database=app_dotnet;Username=postgres;Password=postgres' \
+  node run-dotnet.mjs [case…]
+```
+
+CI never sees this: every leg is its own workflow with its own sidecar.
 
 ### `LOOM_HEX_MIRROR` — Elixir builds behind a fingerprinting proxy
 
