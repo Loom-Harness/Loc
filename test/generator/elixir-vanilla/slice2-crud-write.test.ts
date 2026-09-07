@@ -84,7 +84,7 @@ describe("vanilla — Slice 2 CRUD write path + Changeset", () => {
     expect(repo).toContain("def delete(%Api.Tracker.Task{} = record)");
     expect(repo).toContain("Api.Tracker.TaskChangeset.base_changeset");
     expect(repo).toContain("|> Repo.insert()");
-    expect(repo).toContain("|> Repo.update()");
+    expect(repo).toContain("|> Repo.update(force: true)");
     expect(repo).toContain("Repo.delete(record)");
     expect(repo).toContain("{:error, Ecto.Changeset.t()}");
   });

@@ -5683,3 +5683,59 @@ the identical latent shape and had simply never been unlucky. Fixed as well:
 when you find one order-dependent global assertion, **the others in that file
 are the same bug waiting for a different schedule**, and fixing only the ones
 that turned red today just resets the timer.
+
+## 98. A helper that defers its change is invisible to the caller's "is there anything to do?" check (2026-09-07)
+
+Loom's Elixir named-operation write is `change(%{}) |> optimistic_lock(:version)
+|> Repo.update(changeset)`. It has been shipping with a hole: an operation that
+assigns **no field** — `Crate.release()`, which only `emit`s an event — never
+advanced the row's `version`, and never applied its CAS filter either. The other
+four backends issue the guarded UPDATE unconditionally, so the same `.ddd` read
+back `version: 2` on node and `version: 1` on Elixir.
+
+The mechanism is one line of Ecto (`ecto/lib/ecto/repo/schema.ex`):
+
+```elixir
+if changeset.changes != %{} or force? do        # ← decided HERE
+  wrap_in_transaction(..., fn ->
+    user_changeset = run_prepare(changeset, prepare)   # ← lock's bump happens HERE
+```
+
+`optimistic_lock/2` does not put the increment in `changes`. It registers a
+`prepare_changes` hook — and the emptiness check runs *before* the hooks. So the
+one call whose entire purpose is to guarantee a write is the call the write-skip
+cannot see. `Repo.update(changeset, force: true)` fixes it: prepare runs, the
+lock's own `%{version: n + 1}` lands, and the inner non-empty check clears.
+
+Three things worth keeping:
+
+**A deferred effect is not a visible effect.** Any API that takes a callback to
+run "later, inside the operation" is invisible to every decision the operation
+makes *before* that point. Before relying on one, ask what the framework decides
+between your call and your callback. This is the same shape as §15's stamped
+classification and §96's silent deadlock: the code reads as though the intent has
+been expressed, and nothing between the intent and the effect is checked.
+
+**A refactor that preserved the observable value can still drop a guarantee.**
+The code comments record the history honestly: RS-14 first shipped a plain
+`change(%{version: version + 1})`, and M-T6.27 replaced it with `optimistic_lock`
+because a plain bump carries no CAS filter. The replacement is better on the
+axis it was chosen for and *silently worse* on the axis nobody re-checked —
+because the plain bump was a change in `changes`, and the lock is not. "The wire
+values are unchanged" was true for every shape a fixture then had.
+
+**Only the shape no fixture had was broken.** Every operation that assigns a
+field has non-empty `changes`, so the trap is invisible until an
+assignment-free operation exists. The divergence appeared the moment
+`lifecycle-guard.ddd` grew `api.crates.release(crate, { })` — added for an
+entirely different reason (a node dispatch deadlock). The generic PATCH seam has
+the identical hole for a no-op update and is fixed in the same commit, still
+with no fixture that reaches it: **when you find one instance of a
+framework-contract bug, fix its siblings by inspection rather than waiting for
+each to be observed.**
+
+Proved both ways against a real Phoenix boot and a real Postgres, using the host
+toolchain recipe in `docs/tools.md`: unfixed → the exact CI divergence
+(`#11 GET /api/crates at $.items[0].version — golden 2 ≠ elixir 1`), fixed →
+`wire: matches golden`. Reading Ecto's source told me what to change; only the
+run told me it was the whole cause.
