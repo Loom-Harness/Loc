@@ -22,8 +22,10 @@ import {
   currentGateState,
   evaluate,
   existingGateRunId,
+  fetchCheckRuns,
   isRetryableStatus,
   latestPerName,
+  liveRuns,
   publishCheck,
   retryDelayMs,
   SELF_NAMES,
@@ -40,6 +42,7 @@ interface CheckRun {
   name: string;
   status: string;
   conclusion: string | null;
+  suite?: number;
 }
 
 const run = (name: string, status: string, conclusion: string | null = null): CheckRun => ({
@@ -169,6 +172,126 @@ describe("latestPerName — a SHA can carry more than one check suite", () => {
         { id: 2, name: "pr-gate", status: "completed", conclusion: "success" },
       ]),
     ).toBe("success");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// #2787 — the corpse that `latestPerName` could not reach.
+//
+// `latestPerName` collapses by NAME, so it rescues a SHA only once the live
+// suite has materialised a run of that name.  The four `*-passed` rollups sit
+// behind a dynamic matrix (`configure` emits it, the rollup `needs:` it), and
+// GitHub does not create the rollup job until `configure` runs.  On a saturated
+// pool nothing on the live suite had started in ~3h, so the superseded suite's
+// cancelled corpse was the ONLY bearer of each name and the fail-closed rule
+// condemned a SHA on which nothing had failed:
+//
+//   pr-gate: check(s) failed: corpus-elixir-build-passed, pages-passed,
+//            elixir-vanilla-build-passed, corpus-build-passed
+//   ...against 12 queued / 11 skipped / 4 cancelled / 2 pending / 0 failure.
+//
+// The MUTATION PROOF the fix owes: reverting `liveRuns` (or its call in
+// `evaluate`) turns the first case below back into `failed: [rollup]`.  The
+// three that follow are the controls — each one is a way the narrow rule could
+// have been written too wide, and each must still fail closed.
+// ---------------------------------------------------------------------------
+describe("liveRuns — a superseded suite's corpse is not a verdict", () => {
+  /** The motivating SHA, minimised: suite 1 cancelled, suite 2 live, and the
+   *  rollup name exists ONLY in the dead suite. */
+  const supersededSHA: CheckRun[] = [
+    { id: 1, suite: 1, name: "corpus-build-passed", status: "completed", conclusion: "cancelled" },
+    { id: 2, suite: 1, name: "test", status: "completed", conclusion: "cancelled" },
+    { id: 3, suite: 2, name: "test", status: "queued", conclusion: null },
+  ];
+
+  it("a corpse-only name goes PENDING, not FAILED", () => {
+    const { failed, pending, total } = evalRuns(supersededSHA);
+    expect(failed).toEqual([]);
+    // The rollup stops reporting entirely — the live suite owns that answer,
+    // whether or not it has created a job of that name yet.
+    expect(total).toBe(1);
+    expect(pending).toEqual(["test"]);
+    expect(verdict({ total, pending, failed }).state).toBe("pending");
+  });
+
+  it("CONTROL — a genuinely failed check still fails, corpses or not", () => {
+    const { failed } = evalRuns([
+      ...supersededSHA,
+      { id: 4, suite: 2, name: "lint", status: "completed", conclusion: "failure" },
+    ]);
+    expect(failed).toEqual(["lint"]);
+  });
+
+  it("CONTROL — a superseded suite's genuine FAILURE is not laundered", () => {
+    // It ran and it failed before its suite was cancelled.  Only `cancelled`
+    // is a non-verdict; a `failure` is a verdict whatever happened next.
+    const { failed } = evalRuns([
+      { id: 1, suite: 1, name: "build", status: "completed", conclusion: "failure" },
+      { id: 2, suite: 2, name: "test", status: "queued", conclusion: null },
+    ]);
+    expect(failed).toEqual(["build"]);
+  });
+
+  it("CONTROL — a cancelled run in the NEWEST suite still fails", () => {
+    const { failed } = evalRuns([
+      { id: 1, suite: 1, name: "build", status: "completed", conclusion: "success" },
+      { id: 2, suite: 2, name: "build", status: "completed", conclusion: "cancelled" },
+    ]);
+    expect(failed).toEqual(["build"]);
+  });
+
+  it("CONTROL — corpses with NO newer suite present still fail", () => {
+    // Nothing to defer to: deferring here would be inventing a live suite.
+    const { failed } = evalRuns([
+      { id: 1, suite: 1, name: "build", status: "completed", conclusion: "cancelled" },
+      { id: 2, suite: 1, name: "test", status: "completed", conclusion: "cancelled" },
+    ]);
+    expect(failed).toEqual(["build", "test"]);
+  });
+
+  it("a suiteless snapshot is untouched — every pre-existing case is byte-identical", () => {
+    // Only the tests hand-build runs without a suite; the API always sends one.
+    const runs: CheckRun[] = [
+      { id: 1, name: "build", status: "completed", conclusion: "cancelled" },
+      { id: 2, name: "test", status: "completed", conclusion: "success" },
+    ];
+    expect(liveRuns(runs)).toEqual(runs);
+  });
+
+  it("is empty-safe (Math.max of nothing is -Infinity, not a verdict)", () => {
+    expect(liveRuns([])).toEqual([]);
+  });
+
+  it("the FETCH carries the suite through — otherwise liveRuns is a no-op in prod", () => {
+    // The hole this closes: every test above hand-builds runs WITH a `suite`,
+    // so dropping `check_suite.id` from `fetchCheckRuns`' projection would keep
+    // all of them green while the real gate went on condemning corpses.  Drive
+    // the production mapping against an API-shaped payload instead.
+    const apiPayload = {
+      total_count: 1,
+      check_runs: [
+        {
+          id: 7,
+          name: "corpus-build-passed",
+          status: "completed",
+          conclusion: "cancelled",
+          check_suite: { id: 42 },
+        },
+      ],
+    };
+    const fetchImpl = async () =>
+      ({ ok: true, status: 200, json: async () => apiPayload }) as unknown as Response;
+    return fetchCheckRuns("o/r", "sha", "t", { fetchImpl }).then((runs: unknown[]) => {
+      expect(runs).toEqual([
+        {
+          id: 7,
+          name: "corpus-build-passed",
+          status: "completed",
+          conclusion: "cancelled",
+          suite: 42,
+        },
+      ]);
+    });
   });
 });
 
