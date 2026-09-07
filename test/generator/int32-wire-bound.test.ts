@@ -117,7 +117,10 @@ describe("python — the Int32 alias carries the bound and the published format"
   it("an int request field is annotated with it, a long is not", async () => {
     const routes = await file("python", "app/http/order_routes.py");
     expect(routes).toContain("qty: Int32");
-    expect(routes).toContain("big: int");
+    // `long` is a `bigint` column and takes no int4 bound — but it does take the
+    // F17 numeric-type guard, so it is `WireInt`, not a bare `int`.  The point
+    // this case makes is unchanged: `long` must NOT get `Int32`'s range.
+    expect(routes).toContain("big: WireInt");
     expect(routes).not.toContain("big: Int32");
   });
 

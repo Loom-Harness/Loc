@@ -26,7 +26,9 @@ describe("python wire DTOs", () => {
     const files = await build("shell.ddd");
     const models = files.get("api/app/http/wire_models.py")!;
     expect(models).toContain("class Price(BaseModel):");
-    expect(models).toContain("    amount: float");
+    // `WireNum`, not a bare `float` — the F17 numeric-type guard (a JSON boolean
+    // or string is not a number, whatever python's `bool <: int` says).
+    expect(models).toContain("    amount: WireNum");
     expect(models).toContain("    currency: WireStr");
   });
 

@@ -85,6 +85,50 @@ const PY_MONEY_STR_DEF = [
   "    str,",
   "    AfterValidator(_money_str),",
   '    WithJsonSchema({"type": "string", "format": "decimal"}),',
+/** Name of the shared "this is a JSON number" guard emitted into
+ *  `app/http/wire_models.py`, and the aliases that carry it. */
+export const PY_WIRE_NUM = "WireNum";
+export const PY_WIRE_INT = "WireInt";
+
+/** Python source of the numeric-type guard + its two aliases.
+ *
+ *  pydantic's default LAX mode coerces across JSON types, so a body the
+ *  published contract rejects was accepted: `{"amount": false}` for a field
+ *  declared `{"type": "number"}` answered **201** — python's `bool` is an `int`
+ *  subclass — and `{"amount": "1.5"}` went through for the same reason
+ *  (schemathesis F17, F7's python half). The other four backends refuse both:
+ *  zod, System.Text.Json, Jackson and Ecto all read the JSON type. Measured on a
+ *  booted app before and after.
+ *
+ *  A `BeforeValidator` over the two offending python types, NOT
+ *  `ConfigDict(strict=True)`. Strict mode is the obvious fix and it is wrong
+ *  here — measured, not reasoned. Against `model_validate_json` it does exactly
+ *  the right thing (refusing bool/str → number while still accepting an integer
+ *  literal for a `number` and an ISO string for a `datetime`), but FastAPI does
+ *  not validate the JSON: it parses the body first and validates the resulting
+ *  DICT, i.e. in pydantic's PYTHON mode, where strict also refuses
+ *  `str → datetime` and `str → Enum`. Turning it on made every create carrying a
+ *  date-time or an enum answer 422 — `"Input should be an instance of
+ *  OrderStatus"` — on input that is perfectly valid JSON.
+ *
+ *  The guard publishes NOTHING, exactly like `WireStr`: it tightens the server
+ *  onto the schema it already emits rather than changing the schema.
+ *
+ *  `bool` is checked before `str` only for readability — the two are disjoint.
+ *  `Decimal` and `int` pass straight through, which is what keeps this safe on
+ *  the RESPONSE side of the shared value-object models: `to_wire` yields those,
+ *  never a bool or a string, for a field the schema calls a number. */
+const PY_WIRE_NUM_DEF = [
+  "def _reject_non_number(value: object) -> object:",
+  "    if isinstance(value, (bool, str)):",
+  `        raise ValueError("Input should be a valid number")`,
+  "    return value",
+  "",
+  "",
+  `${PY_WIRE_NUM} = Annotated[float, BeforeValidator(_reject_non_number)]`,
+  `${PY_WIRE_INT} = Annotated[int, BeforeValidator(_reject_non_number)]`,
+];
+
 /** Name of the shared int32-constrained alias emitted into
  *  `app/http/wire_models.py`.  The twin of `UuidStr`, for the same reason: a
  *  declared `int` is an `int4` COLUMN, and both the bound and the published
@@ -113,6 +157,11 @@ export const PY_INT32 = "Int32";
 const PY_INT32_DEF = [
   `${PY_INT32} = Annotated[`,
   "    int,",
+  // The F17 guard rides here too: a declared `int` publishes
+  // `{"type": "integer"}`, and `true` is not an integer however python spells
+  // it.  Placed FIRST so it runs before the int coercion that would have
+  // silently turned the bool into 0/1.
+  `    BeforeValidator(_reject_non_number),`,
   "    Field(ge=-2147483648, le=2147483647),",
   '    WithJsonSchema({"type": "integer", "format": "int32"}),',
   "]",
@@ -166,6 +215,8 @@ export function wireModelImport(
     ...(refersTo(PY_MONEY_STR) ? [PY_MONEY_STR] : []),
     ...(refersTo(PY_INT32) ? [PY_INT32] : []),
     ...(refersTo(PY_WIRE_STR) ? [PY_WIRE_STR] : []),
+    ...(refersTo(PY_WIRE_NUM) ? [PY_WIRE_NUM] : []),
+    ...(refersTo(PY_WIRE_INT) ? [PY_WIRE_INT] : []),
   ];
   return names.length > 0 ? `from app.http.wire_models import ${names.join(", ")}` : null;
 }
@@ -199,9 +250,9 @@ function wireFieldType(
         case "int":
           return PY_INT32;
         case "long":
-          return "int";
+          return PY_WIRE_INT;
         case "decimal":
-          return "float";
+          return PY_WIRE_NUM;
         case "money":
           // Money crosses the wire as its canonical decimal STRING in both
           // directions on every backend (Hono/.NET/Java/Phoenix) — the route
@@ -398,6 +449,9 @@ export function renderPyWireModels(ctx: BoundedContextIR): string {
     "Field",
     // `AfterValidator` likewise: the always-emitted `WireStr` alias uses it.
     "AfterValidator",
+    // `BeforeValidator` likewise: the always-emitted `WireNum`/`WireInt` aliases
+    // and `Int32` all carry the F17 numeric-type guard.
+    "BeforeValidator",
     // `UuidStr` is emitted unconditionally (every routes module imports it for
     // its reference-typed request annotations), so its two pydantic pieces are
     // always in the import list.
@@ -440,6 +494,8 @@ export function renderPyWireModels(ctx: BoundedContextIR): string {
     "",
     PY_UUID_STR_DEF,
     needsMoney ? PY_MONEY_STR_DEF : null,
+    "",
+    PY_WIRE_NUM_DEF,
     "",
     PY_INT32_DEF,
     "",

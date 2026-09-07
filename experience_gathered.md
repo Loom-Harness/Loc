@@ -5835,3 +5835,43 @@ CS0246 was invisible. The replacement asserts over the whole emitted project —
 no `.cs` may name the attribute without resolving it — plus a case pinning that
 the workflow file really is one that emits it, so the sweep cannot pass by
 having nothing to check.
+
+## 101. pydantic has two strictness modes and FastAPI uses the stricter one — the probe that said "ship it" was validating the wrong one (2026-09-07)
+
+F17 is python accepting `{"amount": false}` for a field its own OpenAPI declares
+`{"type": "number"}` — `bool` is an `int` subclass and pydantic's lax mode
+coerces it. `ConfigDict(strict=True)` is the textbook fix, and a probe said it
+was perfect: it refused `false` and `"1.5"` for a number while still accepting
+an integer literal for a `number`, an ISO string for a `datetime`, and a string
+for a string-valued enum. Exactly the JSON semantics wanted, one line per model.
+
+Switched on, every create carrying a date-time or an enum answered **422** —
+`"Input should be an instance of OrderStatus"` — for input that is valid JSON.
+
+The probe called `model_validate_json`. **FastAPI does not.** It parses the body
+and validates the resulting *dict*, which is pydantic's PYTHON mode, and strict
+there additionally refuses `str → datetime` and `str → Enum`. The library has
+two conversion tables, they differ precisely on the cases that mattered, and the
+probe exercised the one the framework never uses.
+
+- **When a probe stands in for the runtime, name the entry point the runtime
+  actually calls.** "Does pydantic strict do the right thing?" has two answers.
+  The question worth asking was "does it do the right thing *through FastAPI*",
+  and that is one `curl` against a booted app — which is where the truth came
+  from, ten minutes later.
+- **The narrow fix survived the wide one.** What shipped is a `BeforeValidator`
+  rejecting `bool`/`str` on the numeric aliases only: it publishes nothing, it
+  cannot touch datetimes or enums because it is not attached to them, and it
+  behaves identically in both modes. A guard that only knows about the thing it
+  guards has no second conversion table to be wrong about.
+- **Pin the rejected approach, not just the chosen one.** The gate carries a
+  sweep asserting *no* emitted module turns strict mode on. The reasoning for
+  rejecting it lives three files away from where someone would re-add it, and
+  "obvious fix that is wrong" is exactly the shape that comes back.
+
+Two other numbers from the same slice, both settled by measurement rather than
+by reading docs: strictness does **not** propagate from a parent model into a
+nested one (a strict parent with a lax `Money` still took `price.amount:
+false`), and a strict model validating *python* values accepts `int`, `float`
+and `Decimal` alike for a `float` field — which is what made it safe to put the
+guard on value-object models shared with the response direction.

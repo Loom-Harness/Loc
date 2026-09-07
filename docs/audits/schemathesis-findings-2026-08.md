@@ -657,7 +657,7 @@ that into a visible per-backend answer sheet:
 | Leg | Findings | Root causes | Verdict with the new rules |
 |---|---|---|---|
 | node | 11 | (F9, F10, F11) | clean |
-| python | 22 | ~~F16~~ (fixed), F17 (=F7 unfixed here), F18 (=F8 unfixed here), F9, F10 | clean |
+| python | 22 | ~~F16~~, ~~F17~~ (both fixed), F18 (=F8 unfixed here), F9, F10 | clean |
 | dotnet | 10 + 1 case unfuzzable | F14, F19, F20, F21, F22, F9 | clean |
 | java | 103 | F19, F21, F23, F24, F25, F26, F18, F9, F10, F11 | clean |
 | elixir | — | F15 | discovery cell (see below) |
@@ -818,7 +818,7 @@ resolving it — plus a case asserting the workflow file really is one that emit
 it, so the sweep cannot go vacuous.
 
 ### F17 — python: F7 (declared `type` not honoured) is still open
-**Waiver:** W22 · **Severity: medium**
+**Waiver:** none — fixed · **Severity: medium** · **Status: FIXED (2026-09-07).**
 
 ```
 curl -X POST http://host/api/products \
@@ -827,8 +827,49 @@ curl -X POST http://host/api/products \
 
 `Money.amount` publishes `{"type":"number","minimum":0}`. Python's `bool` is an
 `int` subclass and pydantic's lax mode coerces it, so a body the published
-contract rejects is accepted. F7's fix landed on the Hono emitter only
-(2026-08-16) — same defect, same declared schema, different answer.
+contract rejects was accepted. A JSON **string** went through for the same
+reason. F7's fix landed on the Hono emitter only (2026-08-16) — same declared
+schema, different answer.
+
+**Measured on a booted app, `POST /api/products`:**
+
+| body | before | after |
+|---|---|---|
+| `{"amount": false}` | 201 | **422** `/price/amount` |
+| `{"amount": "1.5"}` | 201 | **422** `/price/amount` |
+| `{"amount": 1}` (integer literal) | 201 | 201 — JSON says this *is* a number |
+| `{"amount": 1.5}` | 201 | 201 |
+
+node, same body: 422 *"expected number, received boolean"*. The published
+schema does not move (`{"type":"number","minimum":0}` before and after) — a
+`BeforeValidator` contributes nothing to the JSON schema, exactly like the
+`WireStr` NUL guard. The server is now strictly inside the contract it already
+had.
+
+**`ConfigDict(strict=True)` is the obvious fix, and it is wrong — measured, not
+reasoned.** Against `model_validate_json` strict mode does exactly the right
+thing: it refuses bool/str → number while still accepting an integer literal
+for a `number`, an ISO string for a `datetime`, and a string for a
+string-valued enum. But **FastAPI does not validate the JSON.** It parses the
+body and validates the resulting dict — pydantic's PYTHON mode, where strict
+*also* refuses `str → datetime` and `str → Enum`. Switched on, every create
+carrying a date-time or an enum answered 422 with *"Input should be an instance
+of OrderStatus"* for input that is perfectly valid JSON. Two modes, FastAPI
+picks the stricter one, and only a booted app said so.
+
+What ships instead is a `BeforeValidator` over the two offending python types,
+carried by `WireNum` (`decimal`), `WireInt` (`long`) and `Int32` (`int`) — the
+guard placed FIRST on `Int32`, before the int coercion that would otherwise have
+turned the bool into 0/1.
+
+**Gate:** `test/generator/python/wire-number-type.test.ts` — 7 cases, including
+a sweep asserting no emitted module turns strict mode on, so the trap cannot
+come back without a booted app having to find it again. Mutation-proved four
+ways (drop the guard, move it after the bound, revert `decimal` to a bare
+`float`, re-introduce `strict=True`).
+
+The emitted project still passes `ruff check` and `mypy --strict`, and a full
+read/write/operation/workflow sweep against the booted app is unchanged.
 
 ### F18 — python + java + dotnet: a wrong verb on a static sub-path answers 422
 **Waiver:** none — fixed · **Severity: low** · **Status: FIXED (2026-09-03).**

@@ -95,8 +95,10 @@ describe("python VO invariant → 422 at the wire", () => {
     // is emitted into every wire_models.py exactly as `UuidStr` is.
     expect(wm).toContain(
       // `AfterValidator` joins the unconditional set: the always-emitted `WireStr`
-      // alias uses it, exactly as `Int32` uses `Field` (F20).
-      "from pydantic import BaseModel, Field, AfterValidator, StringConstraints, WithJsonSchema\n",
+      // alias uses it, exactly as `Int32` uses `Field` (F20).  `BeforeValidator`
+      // joins it for the same reason — the always-emitted `WireNum`/`WireInt`
+      // aliases and `Int32` all carry the F17 numeric-type guard.
+      "from pydantic import BaseModel, Field, AfterValidator, BeforeValidator, StringConstraints, WithJsonSchema\n",
     );
     // Scoped to the VO's own class body: `Field` now appears at module level
     // unconditionally, because the shared `Int32` alias uses it (F11). What
