@@ -633,8 +633,8 @@ oracles are where the axes paid.
 | **F11** | `shape: embedded` × TPH | node (+ python, .NET differently) | drizzle repository targets `schema.things`; the schema module only exports `thingBases` → 19 × TS2339 | compile | **registered** |
 | **F12** | `paged` × `document` / `eventLog` | python **and .NET** | the caller expects the envelope, the non-relational repository builders drop the carrier → mypy `call-arg` + 5 × `attr-defined`; CS0535 | compile | **registered** |
 | **F13** | `shape: embedded` × TPH, and `shape: embedded` × `paged` | python | `ThingBaseRow` and `PagedResult` used but never imported → ruff F821 | compile | **registered** (one-line import gate) |
-| **F14** | `paged` × `document` / `eventLog` | elixir | the context delegate declares arity 5; the document repository defines `by_label/3` and the event-sourced one `by_label/1` | compile | **fixed (#2801)** |
-| **F16** | forced-`ownTable` concrete under a TPH base | java (+ .NET, latently) | the entity minted the base's `<Base>Id` while every service/repository signature named `<Agg>Id` → `incompatible types: ThingBaseId cannot be converted to ThingId` | compile | **fixed (#2801)** |
+| **F14** | `paged` × `document` / `eventLog` | elixir | the context delegate declares arity 5; the document repository defines `by_label/3` and the event-sourced one `by_label/1` | compile | **fixed (#2804)** |
+| **F16** | forced-`ownTable` concrete under a TPH base | java (+ .NET, latently) | the entity minted the base's `<Base>Id` while every service/repository signature named `<Agg>Id` → `incompatible types: ThingBaseId cannot be converted to ThingId` | compile | **fixed (#2804)** |
 | **F15** | `softDeletable` × TPH | python | TPH makes the subtype's `is_deleted` column nullable, so `not_(...)` fails mypy --strict → 4 × `arg-type` | compile | **registered** |
 
 Nothing is fixed in this PR, and the reason is the same for all five: every one lives in a
@@ -776,7 +776,7 @@ import gate** — registered rather than fixed only because this slice's tree is
 **Registered in:** `waivers-compile.ts` (`platform: python`, `shape: embedded`,
 `inheritance: tph`).
 
-### F14 — `paged` × a non-relational shape on Phoenix: the delegate and the function disagree on arity — **fixed (#2801)**
+### F14 — `paged` × a non-relational shape on Phoenix: the delegate and the function disagree on arity — **fixed (#2804)**
 
 Read off the emitted source in this slice; **confirmed by the leg on `main` @ `123d30e7`**
 (`compile oracle (elixir)`, the first scheduled run after slice 2 merged — #2797), which is
@@ -807,7 +807,7 @@ so the missing function was the CONTEXT one (`Main.by_label_thing/5`). Same defe
 further out; found while fixing F14 because the fix was written as an oracle over the emitted
 arities rather than as a string pin.
 
-**Fix (#2801).** `document-emit.ts` declares the carrier's full `page`/`page_size`/`sort`/`dir`
+**Fix (#2804).** `document-emit.ts` declares the carrier's full `page`/`page_size`/`sort`/`dir`
 arity and orders the in-memory page through the same `sortableFields` whitelist the relational
 builder orders by; `eventsourced-emit.ts` grows the paged branch (both the repository function
 and the ES context defdelegate). Gated by `test/generator/elixir/paged-find-arity.test.ts`,
@@ -816,7 +816,7 @@ which derives (module, function, arity) from the emitted Elixir and asserts ever
 not. That gate fails on both halves when either emitter is reverted, and costs ~1s against the
 elixir leg's 78 minutes.
 
-### F16 — a forced-`ownTable` concrete under a TPH base minted the base's id class — **fixed (#2801)**
+### F16 — a forced-`ownTable` concrete under a TPH base minted the base's id class — **fixed (#2804)**
 
 Not one of slice 2's five: it came out of the same `main` @ `123d30e7` run, on the leg
 (`compile oracle (java)`) whose crossing only the new `inheritance` axis reaches.
@@ -839,7 +839,7 @@ The two agree for every hierarchy whose members agree, and diverge for exactly t
 carried the identical construction and the identical latent defect; its cover's crossing
 happened to compile anyway.
 
-**Fix (#2801).** Both `index.ts` files route the "does this concrete share the base's
+**Fix (#2804).** Both `index.ts` files route the "does this concrete share the base's
 identity" question through `isTphConcrete(agg, pool)` — the same predicate `tableOwnerName`
 uses — so a diverging concrete emits standalone (its own `<Agg>Id`, no `extends`) and every
 genuine TPH/TPC hierarchy is byte-identical. Gated by
@@ -875,14 +875,14 @@ crossing is unsupportable and says so, another emits code for it that does not b
    (W3). Still open: unions / payload carriers, containment / part-in-part, `ignoring`
    filter-bypass, channels × broker.
 3. ~~**Fix F1 and F2**~~ — closed by #2527 / #2528.
-4. **Drain F11–F15.** ~~F14~~ closed by #2801 (with F16, which the same run turned up). F13
+4. **Drain F11–F15.** ~~F14~~ closed by #2804 (with F16, which the same run turned up). F13
    is minutes (two import-gate lines). F12 and F15 are one emitter each. F11 is a
    cross-emitter mission — the embedded jsonb shape and the TPH shared table are not composed
    anywhere, on any backend.
 5. ~~**Run the elixir compile leg on the widened cover**~~ — the scheduled run did it (#2797),
    and confirmed F14 exactly as read from source. The lesson kept: a finding recorded from
    source rather than from a compiler gets no waiver, so it is the one that reaches `main`
-   red. #2801's answer is a per-PR arity oracle over the emitted Elixir, not a longer leg.
+   red. #2804's answer is a per-PR arity oracle over the emitted Elixir, not a longer leg.
 6. **A cheap static cross-reference oracle.** F11's true extent (50 of 600) was measured in
    ~34 seconds by scanning every emitted `.ts` for a `schema.<name>` the emitted `db/schema.ts`
    does not export — no `npm install`, no compiler. The compile tier samples 25 of 600 and pays
