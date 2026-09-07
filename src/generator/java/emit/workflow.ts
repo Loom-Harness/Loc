@@ -448,7 +448,7 @@ function workflowVoMappers(
   return [...voNames].sort().flatMap((vo) => {
     const fields: readonly FieldIR[] = voLookup.get(vo) ?? [];
     const args = fields
-      .map((f) => wireToDomain(effType(f.type, !!f.optional), `request.${f.name}()`))
+      .map((f) => wireToDomain(effType(f.type, !!f.optional), `request.${f.name}()`, `/${f.name}`))
       .join(", ");
     for (const f of fields) collectWireToDomainImports(f.type, imports);
     return [
@@ -670,7 +670,7 @@ export function renderJavaWorkflows(
     }
     const paramLets = wf.params.map((p) => {
       collectWireToDomainImports(p.type, imports);
-      return `            var ${p.name} = ${wireToDomain(p.type, `request.${p.name}()`)};`;
+      return `            var ${p.name} = ${wireToDomain(p.type, `request.${p.name}()`, `/${p.name}`)};`;
     });
     // Chunked (one lines-array per top-level statement) rather than the
     // pre-flattened `renderWorkflowStmts` — byte-identical either way

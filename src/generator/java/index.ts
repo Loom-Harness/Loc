@@ -102,6 +102,7 @@ import {
   renderForbiddenException,
   renderPackageMarker,
   renderPagedRecord,
+  renderWireFormatException,
 } from "./emit/common.js";
 import { criterionEligible, renderJavaCriteriaClasses } from "./emit/criteria.js";
 import { renderJavaDispatcher } from "./emit/dispatch.js";
@@ -438,6 +439,9 @@ function emitProjectFromContexts(
   // Shared domain types + the package markers that keep the entity files'
   // wildcard imports valid even when a package would otherwise be empty.
   place("DomainException.java", "domain-common", renderDomainException(basePkg));
+  // The wire-format tier (M-T6.48): a malformed money string is a 422 with a
+  // pointer, not the 500 a bare `new BigDecimal` produced.
+  place("WireFormatException.java", "domain-common", renderWireFormatException(basePkg));
   place("ForbiddenException.java", "domain-common", renderForbiddenException(basePkg));
   place("DisallowedException.java", "domain-common", renderDisallowedException(basePkg));
   place(

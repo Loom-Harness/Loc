@@ -333,8 +333,11 @@ function renderValidatorClass(spec: CommandSpec, pkg: string, basePkg: string): 
  *  their domain value (`wireToDomain`); a value-object-bearing field keeps its
  *  wire record (its `to<VO>` parser is service-private, and nested accessors
  *  read the same shape) so member predicates resolve without it. */
-function validatorLocal(type: TypeIR, expr: string): string {
-  return bearsValueObject(type) ? expr : wireToDomain(type, expr);
+function validatorLocal(type: TypeIR, expr: string, pointer = ""): string {
+  // The validator evaluates member predicates over an already-parsed local; a
+  // money conversion here would have been refused at the service seam first,
+  // so the pointer is informational and defaults to the document root.
+  return bearsValueObject(type) ? expr : wireToDomain(type, expr, pointer);
 }
 
 function bearsValueObject(type: TypeIR): boolean {

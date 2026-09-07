@@ -130,7 +130,7 @@ export function renderJavaService(
     // are — it is not a construction rule the domain could apply.
     if (dflt && isServerSourcedDefault(dflt)) {
       collectJavaExprImports(dflt, imports);
-      return `        var ${f.name} = ${raw} != null ? ${wireToDomain(f.type, raw)} : ${renderJavaExpr(dflt)};`;
+      return `        var ${f.name} = ${raw} != null ? ${wireToDomain(f.type, raw, `/${f.name}`)} : ${renderJavaExpr(dflt)};`;
     }
     // Every OTHER default belongs to the factory (`javaFactoryDefault` in
     // emit/entity.ts), which reads `null` as "the caller omitted this".  The
@@ -138,9 +138,9 @@ export function renderJavaService(
     // places is what produces cross-backend default drift.  So an omittable
     // input passes straight through, null and all.
     if (!ctx.esCreateParams && !isRequiredCreateInput(f as FieldIR)) {
-      return `        var ${f.name} = ${wireToDomain(eff(f.type, true), raw)};`;
+      return `        var ${f.name} = ${wireToDomain(eff(f.type, true), raw, `/${f.name}`)};`;
     }
-    return `        var ${f.name} = ${wireToDomain(eff(f.type, !!f.optional), raw)};`;
+    return `        var ${f.name} = ${wireToDomain(eff(f.type, !!f.optional), raw, `/${f.name}`)};`;
   });
   const createArgs = createParams.map((f) => f.name).join(", ");
   // A `currentUser.*` create-field default coalesces to the ambient principal
@@ -447,7 +447,8 @@ export function renderJavaService(
       const paramSig =
         (hasParams ? `${idClass} id, ${reqType} request` : `${idClass} id`) + ifMatchParam;
       const lets = op.params.map(
-        (p) => `        var ${p.name} = ${wireToDomain(p.type, `request.${p.name}()`)};`,
+        (p) =>
+          `        var ${p.name} = ${wireToDomain(p.type, `request.${p.name}()`, `/${p.name}`)};`,
       );
       for (const p of op.params) collectWireToDomainImports(p.type, imports);
       const usesUser =
@@ -595,7 +596,7 @@ export function renderJavaService(
   const voMappers = [...voNames].sort().flatMap((vo) => {
     const fields = voLookup.get(vo) ?? [];
     const args = fields
-      .map((f) => wireToDomain(eff(f.type, f.optional), `request.${f.name}()`))
+      .map((f) => wireToDomain(eff(f.type, f.optional), `request.${f.name}()`, `/${f.name}`))
       .join(", ");
     for (const f of fields) collectWireToDomainImports(f.type, imports);
     return [

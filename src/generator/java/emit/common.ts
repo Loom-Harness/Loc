@@ -47,6 +47,74 @@ export function renderDomainException(basePkg: string): string {
   );
 }
 
+/** `WireFormatException` + the total parse helpers that raise it — the java arm
+ *  of M-T6.48.
+ *
+ *  `wireToDomain` converted a money request field with a bare
+ *  `new BigDecimal(expr)`, so `{"price": "12,50"}` threw `NumberFormatException`
+ *  out of the service, fell past the 4xx branch of `onUnhandled`, and answered
+ *  **500** — a client error reported as a server fault, the same recurring bug
+ *  `api.ts` documents three other instances of. node, .NET, python and elixir
+ *  all answer a typed 4xx.
+ *
+ *  The exception carries its own RFC 6901 POINTER so the advice can render the
+ *  `errors: [{pointer, message}]` entry the other four backends send, rather
+ *  than a bare detail string. The message text is node's and .NET's verbatim
+ *  (`Invalid decimal: "12,50"`), because the wire-golden differential compares
+ *  bodies across backends. */
+export function renderWireFormatException(basePkg: string): string {
+  return lines(
+    `package ${basePkg}.domain.common;`,
+    ``,
+    `import java.math.BigDecimal;`,
+    `import java.util.regex.Pattern;`,
+    ``,
+    `/**`,
+    ` * A request field whose WIRE FORM is malformed — maps to HTTP 422 with an`,
+    ` * {@code errors[]} entry pointing at the offending field.  Distinct from`,
+    ` * DomainException: nothing about the DOMAIN was violated, the bytes never`,
+    ` * parsed.`,
+    ` */`,
+    `public class WireFormatException extends RuntimeException {`,
+    `    private final String pointer;`,
+    ``,
+    `    public WireFormatException(String pointer, String message) {`,
+    `        super(message);`,
+    `        this.pointer = pointer;`,
+    `    }`,
+    ``,
+    `    public String getPointer() {`,
+    `        return pointer;`,
+    `    }`,
+    ``,
+    `    /** node's money grammar, character for character — no exponent, no`,
+    `     *  grouping, no leading '+', which is what the NUMERIC(19,4) column and`,
+    `     *  every other backend's parser accept. */`,
+    `    private static final Pattern MONEY = Pattern.compile("^-?\\\\d+(\\\\.\\\\d+)?$");`,
+    ``,
+    `    /** Parse a money wire string, or refuse with a pointer.  Total: the`,
+    `     *  bare {@code new BigDecimal(s)} it replaces threw on anything the`,
+    `     *  grammar rejects. */`,
+    `    public static BigDecimal money(String value, String pointer) {`,
+    `        if (value == null || !MONEY.matcher(value).matches()) {`,
+    `            throw new WireFormatException(pointer, "Invalid decimal: " + quote(value));`,
+    `        }`,
+    `        return new BigDecimal(value);`,
+    `    }`,
+    ``,
+    `    /** JSON-quotes the offending value for the message, matching`,
+    `     *  JSON.stringify / json.dumps on the other backends. */`,
+    `    private static String quote(String value) {`,
+    `        if (value == null) {`,
+    `            return "null";`,
+    `        }`,
+    `        return "\\"" + value.replace("\\\\", "\\\\\\\\").replace("\\"", "\\\\\\"") + "\\"";`,
+    `    }`,
+    `}`,
+    ``,
+  );
+}
+
 export function renderForbiddenException(basePkg: string): string {
   return lines(
     `package ${basePkg}.domain.common;`,
