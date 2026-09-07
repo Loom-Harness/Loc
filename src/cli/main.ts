@@ -11,7 +11,7 @@ import { generateDotnet } from "../generator/dotnet/index.js";
 import { enrichLoomModel } from "../ir/enrich/enrichments.js";
 import { lowerModel, lowerProject } from "../ir/lower/lower.js";
 import type { EnrichedLoomModel, TestOutcome } from "../ir/types/loom-ir.js";
-import { validateLoomModel } from "../ir/validate/validate.js";
+import { type LoomDiagnostic, validateLoomModel } from "../ir/validate/validate.js";
 import { createDddServices } from "../language/ddd-module.js";
 import type { Model } from "../language/generated/ast.js";
 import { applyPatches, type ModelPatch } from "../language/model-patch.js";
@@ -24,6 +24,16 @@ import { generateTypeScript } from "../platform/hono/v4/emit.js";
 import { BACKEND_PINS as HONO_V4_PINS } from "../platform/hono/v4/pins.js";
 import { generateSystemsFromLoom } from "../system/index.js";
 import { captureSnapshots } from "../system/loomsnap.js";
+import {
+  buildManifest,
+  carriedOverEntries,
+  MANIFEST_REL_PATH,
+  type ManifestEntry,
+  type OutputManifest,
+  parseManifest,
+  planPrune,
+  serializeManifest,
+} from "../system/manifest.js";
 import { fsMigrationArtifactIndex, MigrationBaselineError } from "../system/migration-artifacts.js";
 import {
   MigrationDestructiveError,
@@ -195,6 +205,54 @@ function printDiagnostics(result: {
   console.error(`${result.errorCount} error(s), ${result.warningCount} warning(s).`);
 }
 
+/** The phase-⑦ (IR) diagnostic report, printed IDENTICALLY by `parse` and by
+ *  `generate system`.
+ *
+ *  It was not: `generate` had its own copy that printed every non-error
+ *  diagnostic under one `N warning(s).` footer — so the 12 advisory
+ *  `loom.index-suggestion` hints, which `parse` prints under their own
+ *  `Suggestions (N):` heading and deliberately does NOT count as warnings,
+ *  came out of `generate` labelled `warning`.  The two commands then disagreed
+ *  about the same file (`3 warning(s).` + `Suggestions (12):` vs
+ *  `15 warning(s).`), which is exactly the pre-flight-disagrees-with-the-real-
+ *  command failure `runParse`'s own doc comment exists to prevent.  One
+ *  printer, one wording, both callers.
+ *
+ *  Returns the split so the caller can decide about exit codes (errors gate;
+ *  warnings and suggestions never do). */
+function printIrDiagnostics(diagnostics: readonly LoomDiagnostic[]): {
+  errors: LoomDiagnostic[];
+  warnings: LoomDiagnostic[];
+  hints: LoomDiagnostic[];
+} {
+  const errors = diagnostics.filter((d) => d.severity === "error");
+  if (errors.length > 0) {
+    for (const d of errors) console.error(`${d.code} ${d.source}: ${d.message}`);
+    console.error(`${errors.length} error(s).`);
+  }
+
+  // Phase ⑦ computes 18 warning codes (datasource-knob-unwired, findall-no-page,
+  // cross-tenant-without-tenancy, …).  A warning never affects the exit code;
+  // it just has to be VISIBLE.  (`loom.index-suggestion` is excluded here — it
+  // keeps its own `Suggestions:` footer below, and would otherwise print twice.)
+  const warnings = diagnostics.filter(
+    (d) => d.severity === "warning" && d.code !== "loom.index-suggestion",
+  );
+  if (warnings.length > 0) {
+    for (const d of warnings) console.error(`${d.code} ${d.source} warning: ${d.message}`);
+    console.error(`${warnings.length} warning(s).`);
+  }
+
+  // Advisory only — the index-suggestion lint (uniqueness-and-indexes.md §11)
+  // keeps its own footer and never fails the command.
+  const hints = diagnostics.filter((d) => d.code === "loom.index-suggestion");
+  if (hints.length > 0) {
+    console.error(`\nSuggestions (${hints.length}):`);
+    for (const d of hints) console.error(`  ${d.source}: ${d.message}`);
+  }
+  return { errors, warnings, hints };
+}
+
 /**
  * `ddd parse <file>` — "parse + validate, exit non-zero on errors".
  *
@@ -231,36 +289,14 @@ async function runParse(file: string) {
     // Lowering/enrichment threw — nothing further to report at IR level.
   }
 
-  const irErrors = irDiagnostics.filter((d) => d.severity === "error");
-  if (irErrors.length > 0) {
-    for (const d of irErrors) console.error(`${d.code} ${d.source}: ${d.message}`);
-    console.error(`${irErrors.length} error(s).`);
-  }
-
-  // The WARNING half of the same defect.  Phase ⑦ computes 18 warning codes
-  // (datasource-knob-unwired, findall-no-page, cross-tenant-without-tenancy,
-  // …) and `parse` used to filter them down to the single allow-listed
-  // `loom.index-suggestion` — so `--json` reported `warnings: 2` while the
-  // human command printed `0 error(s), 0 warning(s).  OK:` for the same file.
-  // A warning never affects the exit code; it just has to be VISIBLE.
-  // (`loom.index-suggestion` is excluded here — it keeps its own
-  // `Suggestions:` footer below, and would otherwise print twice.)
-  const irWarnings = irDiagnostics.filter(
-    (d) => d.severity === "warning" && d.code !== "loom.index-suggestion",
-  );
-  if (irWarnings.length > 0) {
-    for (const d of irWarnings) console.error(`${d.code} ${d.source} warning: ${d.message}`);
-    console.error(`${irWarnings.length} warning(s).`);
-  }
+  // `--json` used to report `warnings: 2` while the human command printed
+  // `0 error(s), 0 warning(s).  OK:` for the same file, because this half was
+  // filtered down to the single allow-listed `loom.index-suggestion`.  The
+  // shared printer is now the only thing that decides what a phase-⑦
+  // diagnostic looks like on either command's stderr.
+  const { errors: irErrors } = printIrDiagnostics(irDiagnostics);
   if (irErrors.length > 0) process.exit(1);
 
-  // Advisory only — the index-suggestion lint (uniqueness-and-indexes.md §11)
-  // keeps its own footer and never fails the parse.
-  const hints = irDiagnostics.filter((d) => d.code === "loom.index-suggestion");
-  if (hints.length > 0) {
-    console.error(`\nSuggestions (${hints.length}):`);
-    for (const d of hints) console.error(`  ${d.source}: ${d.message}`);
-  }
   console.log(`OK: ${file}`);
 }
 
@@ -427,6 +463,13 @@ interface RunOptions {
    * `generate dotnet` paths don't accept this flag.
    * See docs/old/plans/source-map-debug-kickoff.md. */
   sourcemap?: boolean;
+  /** `--inline-sources` switch — inline each `.ddd`'s full text into every
+   * Source Map v3 sidecar.  Off by default: the sidecars name the `.ddd` by
+   * ABSOLUTE path and a debugger reads it from there, so inlining it once per
+   * generated file (763 KB across 112 sidecars on the ERP example) buys
+   * nothing on a local tree.  Turn it on to make the emitted tree
+   * self-contained.  Only meaningful with `--sourcemap`. */
+  inlineSources?: boolean;
 }
 
 interface RunResult {
@@ -442,6 +485,9 @@ interface RunResult {
   /** Files preserved on regen because they are scaffold-once and already
    * existed on disk (user-owned extern impls, etc.). */
   preservedScaffold?: number;
+  /** Stale files deleted on regen: listed in the previous `.loom/manifest.json`
+   * but no longer emitted.  See `src/system/manifest.ts`. */
+  removed?: number;
 }
 
 type GenerateTarget = "ts" | "dotnet" | "system";
@@ -473,11 +519,14 @@ async function runGenerate(
       if (!options.continueOnError) process.exit(1);
       return { hadError: true };
     }
+    // ALWAYS, not just on the failing runs.  This print lived inside an
+    // `errorCount > 0` branch, so a successful `generate system` dropped every
+    // AST-layer (phase ④) warning it had just computed — 20 of them on the ERP
+    // example, all of which `ddd parse` prints for the same file.  A user who
+    // only runs `generate` never saw them.  Same call `parse` makes, so the
+    // wording and the footer match by construction.
+    printDiagnostics(projectResult);
     if (projectResult.errorCount > 0) {
-      for (const d of projectResult.diagnostics) console.error(d);
-      console.error(
-        `${projectResult.errorCount} error(s), ${projectResult.warningCount} warning(s).`,
-      );
       if (!options.continueOnError) process.exit(1);
       return { hadError: true };
     }
@@ -498,23 +547,24 @@ async function runGenerate(
   // `ui.<unknown>.<verb>` references in `test e2e` bodies before
   // generators are called, rather than throwing mid-generation with a less
   // helpful trace.
+  //
+  // Printed by the SAME function `parse` uses, so the two commands report an
+  // identical diagnostic set for identical input.  `generate` used to have its
+  // own copy that lumped the 12 advisory `loom.index-suggestion` hints in with
+  // the real warnings under one count — `parse` reports those separately, and
+  // never as warnings — so the two commands' footers didn't even add up to the
+  // same number for the same file.
   const loomDiags = validateLoomModel(loom);
-  const loomErrors = loomDiags.filter((d) => d.severity === "error");
+  const { errors: loomErrors } = printIrDiagnostics(loomDiags);
   if (loomErrors.length > 0) {
-    for (const d of loomDiags) {
-      console.error(`${d.source} ${d.severity}: ${d.message}`);
-    }
-    console.error(
-      `${loomErrors.length} error(s), ${loomDiags.length - loomErrors.length} warning(s).`,
-    );
     if (!options.continueOnError) process.exit(1);
     return { hadError: true };
   }
-  // A clean-but-WARNED model used to print nothing at all: the warning print
-  // lived inside the `loomErrors.length > 0` branch above, so every phase-⑦
-  // warning was computed and then dropped on exactly the runs that succeed.
-  // Warnings never gate generation — they just have to reach the author.
-  printLoomWarnings(loomDiags);
+  // No `printLoomWarnings(loomDiags)` here: `printIrDiagnostics` above already
+  // printed the warnings — and printed the index-suggestions SEPARATELY, which
+  // is the half `printLoomWarnings` still gets wrong (it lumps them in with the
+  // real warnings under one count, so `generate`'s footer disagreed with
+  // `parse`'s for the same file).  Calling both would double-print.
   // Directory creation is deferred to the write loop below (and guarded by
   // `!options.dryRun`) so a `--dry-run` touches nothing on disk — not even
   // `mkdir`-ing the output dir.
@@ -540,6 +590,7 @@ async function runGenerate(
         existingMigrations: fsMigrationArtifactIndex(outDir, loom),
         allowRebaseline: options.allowRebaseline,
         sourcemap: options.sourcemap,
+        inlineSources: options.inlineSources,
         // Harmless to pass unconditionally — v3 sidecar emission is still
         // gated on `sourcemap` inside `generateSystemsFromLoom`.
         sourceTexts,
@@ -588,6 +639,47 @@ async function runGenerate(
   let skippedByIgnore = 0;
   let preservedScaffold = 0;
   const resolvedOut = path.resolve(outDir);
+  // The manifest the LAST run wrote (`.loom/manifest.json`) — the only
+  // authority for what this generator owns on disk, and therefore for what it
+  // may delete when it stops emitting a path.  Missing/unreadable ⇒ null ⇒
+  // this run prunes nothing and simply re-establishes the manifest.
+  const previousManifest = readOutputManifest(outDir);
+  // The manifest the NEXT run diffs against, computed BEFORE the write loop
+  // and then handed to that loop as an ordinary emitted file.  Everything the
+  // writer already guarantees therefore applies to it for free: `--dry-run`
+  // lists it (so the preview still predicts exactly the set a real run
+  // writes), and an unchanged manifest is not rewritten (so a no-op regen
+  // still touches no mtime — the reload signal watchers depend on).  Both are
+  // gated by `test/cli/regeneration.test.ts`, and special-casing the manifest
+  // broke both; nothing here may reintroduce a bespoke write path for it.
+  //
+  // `.loomignore`d paths are excluded from the entries: the run did not write
+  // them, so it must not claim ownership of them.  The manifest lists itself,
+  // which keeps it out of its own successor's prune set (belt to
+  // `isProtectedFromPrune`'s braces).
+  const manifestEntries: ManifestEntry[] = [{ path: MANIFEST_REL_PATH }];
+  for (const relPath of [...files.keys()].sort()) {
+    const normalised = relPath.split(path.sep).join("/");
+    if (ig.ignores(normalised)) continue;
+    manifestEntries.push(
+      isScaffoldOnce(files.get(relPath)!)
+        ? { path: normalised, scaffoldOnce: true }
+        : { path: normalised },
+    );
+  }
+  // Paths a past run emitted and this one does not, but that the generator
+  // still owns — the protected families, chiefly the earlier migrations no
+  // backend re-emits.  Carried over so the manifest does not churn; see
+  // `carriedOverEntries`.
+  manifestEntries.push(
+    ...carriedOverEntries(
+      previousManifest,
+      manifestEntries.map((e) => e.path),
+      (p) => fs.existsSync(path.join(outDir, p)),
+    ),
+  );
+  files.set(MANIFEST_REL_PATH, serializeManifest(buildManifest(manifestEntries)));
+
   const sortedPaths = [...files.keys()].sort();
   for (const relPath of sortedPaths) {
     const content = files.get(relPath)!;
@@ -653,13 +745,95 @@ async function runGenerate(
     fs.writeFileSync(full, content, "utf8");
     written++;
   }
+  // ── Prune (finding G1) ────────────────────────────────────────────────
+  // Regeneration used to only ever ADD: rename an operation and the old
+  // handler stayed behind, calling a method the aggregate no longer has, so
+  // the generated project stopped compiling.  A path is deleted only when the
+  // PREVIOUS manifest lists it (⇒ a past run of this generator wrote it) and
+  // this run does not emit it.  `planPrune` additionally spares scaffold-once
+  // files, `.loomignore`d paths, and the protected families (migration files,
+  // `.loom/snapshots/`) — see `src/system/manifest.ts` for why each is on the
+  // list.  Anything with no manifest entry — every hand-written file — is
+  // structurally out of reach.
+  //
+  // Runs AFTER the write loop, so the new manifest is already on disk.  A run
+  // killed between the two therefore leaves a stale file that no manifest
+  // lists any more — it survives forever instead of being deleted.  That is
+  // the direction to fail in: this code's only irreversible act is a delete.
+  const prune = planPrune(
+    previousManifest,
+    manifestEntries.map((e) => e.path),
+    {
+      isIgnored: (p) => ig.ignores(p),
+      exists: (p) => fs.existsSync(path.join(outDir, p)),
+    },
+  );
+  let removed = 0;
+  for (const relPath of prune.remove) {
+    // A manifest is a file on disk and can be hand-edited; re-apply the same
+    // containment check the write loop uses so a doctored entry can never
+    // make a regen delete outside the output tree.
+    if (escapesOutDir(resolvedOut, relPath)) {
+      console.error(
+        `Refusing to remove '${relPath}': path escapes the output directory ${outDir}.`,
+      );
+      continue;
+    }
+    const full = path.join(outDir, relPath);
+    if (options.dryRun) {
+      console.log(`  remove (stale)      ${relPath}`);
+      removed++;
+      continue;
+    }
+    try {
+      fs.rmSync(full);
+    } catch (err) {
+      console.error(`Could not remove stale file '${relPath}': ${(err as Error).message}`);
+      continue;
+    }
+    console.log(`  removed             ${relPath}`);
+    removed++;
+    pruneEmptyDirs(resolvedOut, path.dirname(full));
+  }
+
   const verb = options.dryRun ? "Would write" : "Wrote";
   const parts: string[] = [`${verb} ${written} file(s) in ${outDir}`];
   if (unchanged > 0) parts.push(`unchanged: ${unchanged}`);
   if (preservedScaffold > 0) parts.push(`preserved (scaffold-once): ${preservedScaffold}`);
   if (skippedByIgnore > 0) parts.push(`skipped (.loomignore): ${skippedByIgnore}`);
+  if (removed > 0) parts.push(`${options.dryRun ? "would remove" : "removed"} (stale): ${removed}`);
   console.log(parts.join(", "));
-  return { hadError: false, written, unchanged, skippedByIgnore, preservedScaffold };
+  return { hadError: false, written, unchanged, skippedByIgnore, preservedScaffold, removed };
+}
+
+/** Read `.loom/manifest.json` from a previous run.  Any failure — absent,
+ *  unreadable, truncated, or a newer schema version — degrades to `null`,
+ *  i.e. "prune nothing this run". */
+function readOutputManifest(outDir: string): OutputManifest | null {
+  const file = path.join(outDir, MANIFEST_REL_PATH);
+  let text: string;
+  try {
+    text = fs.readFileSync(file, "utf8");
+  } catch {
+    return null;
+  }
+  return parseManifest(text);
+}
+
+/** After deleting a stale file, walk its parent chain up to (but never
+ *  including) the output dir and drop directories the deletion emptied — a
+ *  renamed page should not leave an empty `pages/` husk behind.  `rmdirSync`
+ *  fails on a non-empty directory, which is exactly the stop condition. */
+function pruneEmptyDirs(resolvedOut: string, startDir: string): void {
+  let dir = path.resolve(startDir);
+  while (dir.startsWith(resolvedOut + path.sep)) {
+    try {
+      fs.rmdirSync(dir);
+    } catch {
+      return; // non-empty (or gone) — stop climbing
+    }
+    dir = path.dirname(dir);
+  }
 }
 
 /** Resolve the current git commit (short) for the snapshot envelope, or
@@ -1170,6 +1344,10 @@ generate
     "--sourcemap",
     "emit .loom/sourcemap.json mapping generated code back to .ddd spans; off by default. See docs/old/plans/source-map-debug-kickoff.md.",
   )
+  .option(
+    "--inline-sources",
+    "with --sourcemap, inline each .ddd's full text into every Source Map v3 sidecar. Off by default — the sidecars name the .ddd by absolute path and a debugger reads it from there, so inlining it once per generated file costs ~4x the map bytes for nothing. Turn it on when the maps will be read where the .ddd files are not.",
+  )
   .action(
     async (
       file: string,
@@ -1183,6 +1361,7 @@ generate
         allowDestructive?: boolean;
         allowRebaseline?: boolean;
         sourcemap?: boolean;
+        inlineSources?: boolean;
       },
     ) => {
       if (options.json) {
@@ -1200,6 +1379,7 @@ generate
         allowDestructive: !!options.allowDestructive,
         allowRebaseline: !!options.allowRebaseline,
         sourcemap: !!options.sourcemap,
+        inlineSources: !!options.inlineSources,
       };
       await runGenerate("system", file, options.out, runOpts);
       if (options.watch) {

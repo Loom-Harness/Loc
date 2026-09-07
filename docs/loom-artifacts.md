@@ -14,6 +14,7 @@ consumption.
 ├── <deployable-2>/
 ├── ...
 └── .loom/
+    ├── manifest.json            # what this run emitted — the next run prunes against it
     ├── wire-spec.json
     ├── messages.en.json
     ├── domain.mmd
@@ -42,11 +43,17 @@ tooling output.  Check them into the project alongside the generated
 code if you want pull-request-time diff visibility on wire contracts,
 traceability coverage, or migration baselines.
 
+## Regeneration bookkeeping
+
+| File | Producer | What it is |
+|---|---|---|
+| `manifest.json` | `src/system/manifest.ts`, written by the CLI write phase (`src/cli/main.ts`, phase ⑩) | Every path this run emitted, sorted, with a `scaffoldOnce` flag on the files the user takes ownership of.  **This is how regeneration deletes.**  On the next run, a path the previous manifest lists and the current run does not emit is stale and is removed — so renaming an `operation` or a `page` no longer leaves a dead `CommentHandler.cs` / `board.tsx` behind to break the build.  The prune is deliberately narrow: a file with no manifest entry (every hand-written file) is structurally unreachable, and `.loomignore`d paths, scaffold-once files, migration files, and `.loom/snapshots/` are all spared.  An absent or unreadable manifest degrades to "prune nothing".  Check it in — that is what makes the prune work on a teammate's clone. |
+
 ## Wire contract
 
 | File | Producer | What it is |
 |---|---|---|
-| `wire-spec.json` | `src/system/wire-spec.ts` (phase ⑨) | JSON-Schema-shaped derivation from every aggregate / part / value object's `wireShape`.  Language-agnostic; the canonical source of truth for what the JSON over the wire looks like.  Diffable — wire-contract drift between regens shows up as a clean JSON diff. |
+| `wire-spec.json` | `src/system/wire-spec.ts` (phase ⑨) | JSON-Schema-shaped derivation from every aggregate / part / value object's `wireShape`.  Language-agnostic; the canonical source of truth for what the JSON over the wire looks like.  Diffable — wire-contract drift between regens shows up as a clean JSON diff.  Carries the CONSTRAINTS the drift check needs, not just carrier types: an `enum` field publishes its declared members (`{"type":"string","enum":["New","Qualified"]}`, in declaration order, resolved in the referring context), so removing an enum value — a breaking change — moves the file instead of leaving it byte-identical. |
 
 ## i18n catalog
 
