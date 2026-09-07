@@ -1,7 +1,10 @@
 name: PR gate
 
-# The personal-account substitute for a merge queue — see docs/ci-gating.md →
-# "No merge queue on a personal account: the pr-gate check".
+# The per-PR aggregate verdict — see docs/ci-gating.md → "The `pr-gate` check".
+# Built when this repo was under a personal account and a merge queue was not
+# available; the queue is on now, and this stays as the ENTRY bar: it gates
+# your branch in seconds so a red PR never spends a queue slot and a full
+# heavy run before being ejected.
 #
 # v2 — EVENT-DRIVEN.  v1 was one long-polling job that waited (up to 80min)
 # for every other check while itself holding a runner slot; under load the
