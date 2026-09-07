@@ -171,39 +171,19 @@ describe("F6 — an alternation names what was meant, not every path", () => {
   });
 
   it("offers no did-you-mean for a punctuation token", async () => {
-    // `,` is one edit from `!`, `-`, `{` and `(` — all four of which ARE legal
-    // where this one sits, so `nearestName` would happily answer "did you mean
-    // '!'?".  That is noise, so the suggestion is word-shaped only.
+    // `?` is one character from `!`, `-`, `{` and a dozen other operators.
+    // "Did you mean '!'?" is noise, so the suggestion is word-shaped only.
     //
-    // The splice has to land where an OPERAND is expected: that is the
-    // alternation whose candidate set holds the one-character punctuation the
-    // suppression exists to reject.  A token that merely fails to parse is not
-    // enough — put it where a BINARY operator goes and the candidates are all
-    // word-shaped keywords, nothing is within typo distance of it, and the
-    // `not.toMatch(/Did you mean/)` below passes for the wrong reason.
-    //
-    // It was `??` until `??` became the null-coalescing operator (M-FT.11) and
-    // this fixture silently stopped expressing anything: the source parsed
-    // clean, `errors[0]` was `undefined`, and the failure read `.toMatch()
-    // expects to receive a string`, naming neither cause nor fix.  Hence the
-    // guard — if `+ ,` is ever given a meaning, the next reader is told so.
-    const source = pageWith(`Text { (1 + , 2) }`);
+    // The vehicle was `(1 ?? 2)` until #2739 (M-FT.11) added `??` to the
+    // grammar, at which point this source PARSED and `errors[0]` was
+    // undefined.  `?` in operand position hits the same alternation with the
+    // same token, so what this freezes is unchanged.
+    const source = pageWith(`Text { (1 + ?) }`);
     const { errors } = await parseString(source);
-    expect(
-      errors[0],
-      "the splice parsed clean, so this test no longer exercises the " +
-        "punctuation-suggestion path — the grammar has given this token a " +
-        "meaning in operand position.  Pick another token the lexer knows " +
-        "and the expression grammar refuses where an operand is expected.",
-    ).toBeDefined();
-    expect(errors[0]).toMatch(/Unexpected ','\./);
-    // The candidates really do include the one-character punctuation a
-    // distance-1 suggester would reach for — without this, the assertion
-    // below could pass on an alternation that never had a near miss to reject.
-    expect(errors[0]).toMatch(/'!'/);
+    expect(errors[0]).toMatch(/Unexpected '\?'\./);
     expect(errors[0]).not.toMatch(/Did you mean/);
     // …and it is still reported at the operator, not at `Stack {`.
-    expect(errors[0]).toMatch(new RegExp(`^${lineOf(source, "+ ,")}:`));
+    expect(errors[0]).toMatch(new RegExp(`^${lineOf(source, "?")}:`));
   });
 });
 
