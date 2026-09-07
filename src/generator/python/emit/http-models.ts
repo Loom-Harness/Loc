@@ -118,6 +118,37 @@ const PY_INT32_DEF = [
   "]",
 ];
 
+/** Name of the shared NUL-rejecting string alias emitted into
+ *  `app/http/wire_models.py`. */
+export const PY_WIRE_STR = "WireStr";
+
+/** Python source of the `WireStr` alias.
+ *
+ *  A declared `string` lands in a Postgres `text` column, which cannot hold
+ *  U+0000: asyncpg raises `CharacterNotInRepertoireError` (22021) and the error
+ *  escapes as a **500** (schemathesis F20). NUL is a legal JSON string
+ *  character, so nothing upstream refuses it.
+ *
+ *  `AfterValidator` over an explicit predicate rather than
+ *  `StringConstraints(pattern=…)`: a failed validator is an ordinary pydantic
+ *  error (FastAPI's standard 422, with the field's own `loc`), and — unlike a
+ *  pattern — it publishes NOTHING. That is deliberate: putting
+ *  `pattern: "^[^\u0000]*$"` on every string in every schema would be a large,
+ *  noisy contract change for a character no real client sends, and a server
+ *  stricter than its contract is safe where the reverse (F21) is not.
+ *
+ *  REQUEST direction only. A response string came out of the very column that
+ *  cannot hold a NUL, so re-checking it buys nothing. */
+const PY_WIRE_STR_DEF = [
+  "def _reject_nul(value: str) -> str:",
+  '    if "\\x00" in value:',
+  `        raise ValueError("must not contain a NUL character")`,
+  "    return value",
+  "",
+  "",
+  `${PY_WIRE_STR} = Annotated[str, AfterValidator(_reject_nul)]`,
+];
+
 /** The `from app.http.wire_models import …` line a routes-shaped module needs:
  *  its aliased value-object models plus `UuidStr` when the module annotates a
  *  reference-typed request field.  One import line (ruff F401 forbids the
@@ -134,6 +165,7 @@ export function wireModelImport(
     ...(refersTo(PY_UUID_STR) ? [PY_UUID_STR] : []),
     ...(refersTo(PY_MONEY_STR) ? [PY_MONEY_STR] : []),
     ...(refersTo(PY_INT32) ? [PY_INT32] : []),
+    ...(refersTo(PY_WIRE_STR) ? [PY_WIRE_STR] : []),
   ];
   return names.length > 0 ? `from app.http.wire_models import ${names.join(", ")}` : null;
 }
@@ -183,7 +215,10 @@ function wireFieldType(
           // constraint would never fire, and narrowing it would only publish a
           // needless schema restriction on a field clients read.
           return dir === "request" ? PY_MONEY_STR : "str";
+        // REQUEST only: the alias rejects a NUL the `text` column cannot hold
+        // (F20). A response string came out of that same column.
         case "string":
+          return dir === "request" ? PY_WIRE_STR : "str";
         case "guid":
           return "str";
         case "bool":
@@ -359,8 +394,10 @@ export function renderPyWireModels(ctx: BoundedContextIR): string {
   const pydanticNames = [
     ctx.valueObjects.length > 0 || hasProv ? "BaseModel" : null,
     // `Field` is unconditional because `Int32` uses it, and `Int32` — like
-    // `UuidStr` — is emitted unconditionally.
+    // `UuidStr` and `WireStr` — is emitted unconditionally.
     "Field",
+    // `AfterValidator` likewise: the always-emitted `WireStr` alias uses it.
+    "AfterValidator",
     // `UuidStr` is emitted unconditionally (every routes module imports it for
     // its reference-typed request annotations), so its two pydantic pieces are
     // always in the import list.
@@ -405,6 +442,8 @@ export function renderPyWireModels(ctx: BoundedContextIR): string {
     needsMoney ? PY_MONEY_STR_DEF : null,
     "",
     PY_INT32_DEF,
+    "",
+    PY_WIRE_STR_DEF,
     models.join(""),
     hasProv ? provenancedModel() : null,
     "",

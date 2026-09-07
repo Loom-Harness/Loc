@@ -27,7 +27,7 @@ describe("python wire DTOs", () => {
     const models = files.get("api/app/http/wire_models.py")!;
     expect(models).toContain("class Price(BaseModel):");
     expect(models).toContain("    amount: float");
-    expect(models).toContain("    currency: str");
+    expect(models).toContain("    currency: WireStr");
   });
 
   it("response models mirror the wire shape (camelCase keys, ISO datetimes as str)", async () => {
@@ -82,7 +82,7 @@ system Demo {
     expect(routes).toBeDefined();
     if (!routes) throw new Error("account_routes.py not emitted");
     // Single-field invariant → Pydantic Field constraint (FastAPI 422 on bad input).
-    expect(routes).toContain("handle: str = Field(min_length=1)");
+    expect(routes).toContain("handle: WireStr = Field(min_length=1)");
     // Cross-field invariant → @model_validator that raises ValueError → 422,
     // instead of falling through to the domain's DomainError → 400.
     expect(routes).toMatch(/from pydantic import .*\bField\b.*\bmodel_validator\b/);
@@ -95,7 +95,7 @@ system Demo {
     // not left to the domain floor.
     const updateBlock = routes.slice(routes.indexOf("class UpdateAccountRequest(BaseModel):"));
     expect(routes).toContain("class UpdateAccountRequest(BaseModel):");
-    expect(updateBlock).toContain("handle: str = Field(min_length=1)");
+    expect(updateBlock).toContain("handle: WireStr = Field(min_length=1)");
     expect(updateBlock).toContain("if not (self.handle != self.email):");
   });
 });

@@ -59,7 +59,7 @@ describe("python — messaged rule → wire refine + domain floor text", () => {
 
   it("keeps a message-LESS single-field rule as a native Field() constraint", async () => {
     const { routes } = await gen();
-    expect(routes).toContain("sku: str = Field(min_length=1)");
+    expect(routes).toContain("sku: WireStr = Field(min_length=1)");
     // the message-less rule never becomes a refine ValueError
     expect(routes).not.toContain('raise ValueError("Invariant violated: sku.length > 0")');
   });

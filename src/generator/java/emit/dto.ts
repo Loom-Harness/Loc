@@ -209,7 +209,11 @@ export function renderDtoFiles(
       // this is where that decision shows up.
       const guardable = !isOptionalType(f.type) && !JAVA_PRIMITIVES.has(javaType);
       if (guardable) imports.add("jakarta.validation.constraints.NotNull");
-      const marks = `${guardable ? "@NotNull " : ""}${nested ? "@Valid " : ""}`;
+      // The NUL guard rides every wire string, required or not: null passes it,
+      // so an optional component is not made required by carrying it (F20).
+      const noNul = bearsWireString(f.type);
+      if (noNul) imports.add(`${basePkg}.api.NoNulChar`);
+      const marks = `${guardable ? "@NotNull " : ""}${noNul ? "@NoNulChar " : ""}${nested ? "@Valid " : ""}`;
       return `${marks}${javaType} ${f.name}`;
     });
     out.push({
@@ -240,7 +244,9 @@ export function renderDtoFiles(
       // a value object is caught too rather than NPE-ing in the mapper.
       const nested = bearsNestedRecord(p.type);
       if (nested) imports.add("jakarta.validation.Valid");
-      return `@NotNull ${nested ? "@Valid " : ""}${wireJavaType(boxed, "Request")} ${p.name}`;
+      const noNul = bearsWireString(p.type);
+      if (noNul) imports.add(`${basePkg}.api.NoNulChar`);
+      return `@NotNull ${noNul ? "@NoNulChar " : ""}${nested ? "@Valid " : ""}${wireJavaType(boxed, "Request")} ${p.name}`;
     });
     out.push({
       name: `${upperFirst(op.name)}${agg.name}Request.java`,
@@ -328,6 +334,23 @@ export function renderDtoFiles(
   return out;
 }
 
+/** True when the wire form of this type is a bare STRING — the one that lands
+ *  in a `text` column and so carries the NUL guard (F20). `guid`, `datetime`
+ *  and `money` cross as strings too, but each already has a parse or pattern a
+ *  NUL cannot pass, so they are deliberately not matched. */
+function bearsWireString(t: TypeIR): boolean {
+  switch (t.kind) {
+    case "primitive":
+      return t.name === "string";
+    case "array":
+      return bearsWireString(t.element);
+    case "optional":
+      return bearsWireString(t.inner);
+    default:
+      return false;
+  }
+}
+
 /** The Java primitives a wire component can be. `@NotNull` on one of these is
  *  inert — a primitive is never null — so the emitter skips it rather than
  *  shipping an annotation that reads as a guard and is not one. */
@@ -369,13 +392,16 @@ function voRecord(
     // NPE-ing in `toMoney` (F23). A RESPONSE record is serialized, never
     // validated — annotating it would only add noise to the published schema.
     const javaType = wireJavaType(t, dir);
+    const noNul = dir === "Request" && bearsWireString(t);
+    if (noNul) imports.add(`${basePkg}.api.NoNulChar`);
+    const nulGuard = noNul ? "@NoNulChar " : "";
     if (dir === "Response" || f.optional || JAVA_PRIMITIVES.has(javaType)) {
-      return `${javaType} ${f.name}`;
+      return `${nulGuard}${javaType} ${f.name}`;
     }
     imports.add("jakarta.validation.constraints.NotNull");
     const nested = bearsNestedRecord(t);
     if (nested) imports.add("jakarta.validation.Valid");
-    return `@NotNull ${nested ? "@Valid " : ""}${javaType} ${f.name}`;
+    return `@NotNull ${nulGuard}${nested ? "@Valid " : ""}${javaType} ${f.name}`;
   });
   const body =
     dir === "Response"

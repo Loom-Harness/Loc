@@ -287,12 +287,21 @@ export function dtoParam(
    *  just `operation` — see below. */
   wireValueType = false,
 ): string {
+  // A request STRING — required, optional or defaulted alike — carries the NUL
+  // guard: U+0000 is a legal JSON character and an illegal Postgres `text`
+  // byte, so without it the driver's refusal escapes as a 500 (schemathesis
+  // F20). A CUSTOM attribute, so it enforces without publishing a `pattern` on
+  // every string in every schema; null passes, so it never makes an optional
+  // member required. Response DTOs are serialized, never validated, and their
+  // value came out of the very column that cannot hold a NUL.
+  const noNul = dir === "request" && (csType === "string" || csType === "string?");
+  const nulGuard = noNul ? "[NoNulChar] " : "";
   if (defaultLiteral !== undefined && dir === "request") {
-    return `${csType} ${name} = ${defaultLiteral}`;
+    return `${nulGuard}${csType} ${name} = ${defaultLiteral}`;
   }
   const optionalBoolRequest = dir === "request" && csType === "bool" && slot === "create";
   const required = !csType.endsWith("?") && !optionalBoolRequest;
-  if (!required) return `${csType} ${name}`;
+  if (!required) return `${nulGuard}${csType} ${name}`;
   // RS-26 on an OPERATION body: `[Required]` alone cannot reject an omitted
   // VALUE TYPE.  RequiredAttribute tests for null, and a missing `int qty` /
   // `bool active` binds to the CLR default (0/false) — non-null, so validation
@@ -369,6 +378,7 @@ export function dtoParam(
   // bound is defined in (src/generator/_expr/code-point.ts).
   const attr =
     jsonRequired +
+    nulGuard +
     (csType === "string"
       ? dir === "request"
         ? "[Required(AllowEmptyStrings = true)] "

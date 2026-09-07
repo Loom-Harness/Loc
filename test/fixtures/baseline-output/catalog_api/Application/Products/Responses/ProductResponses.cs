@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
 using CatalogApi.Domain.Enums;
 
+
 namespace CatalogApi.Application.Products.Responses;
 
 public sealed record MoneyResponse([property: Required] double Amount, [property: Required(AllowEmptyStrings = true)] string Currency);

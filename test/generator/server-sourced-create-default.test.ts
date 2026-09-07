@@ -59,7 +59,9 @@ describe("server-sourced create-path defaults — Hono", () => {
         HONO("ownerId: string = currentUser.tenantId", "user { tenantId: string }"),
       ),
     );
-    expect(routes).toMatch(/ownerId:\s*z\.string\(\)\.optional\(\)/);
+    expect(routes).toMatch(
+      /ownerId:\s*z\.string\(\)\.refine\(\(s: string\) => !s\.includes\("\\u0000"\)\)\.optional\(\)/,
+    );
     // The create handler binds the principal (same accessor the /prepare route uses).
     expect(routes).toMatch(/const currentUser = .*get\("currentUser"\)/);
     expect(routes).toMatch(
@@ -69,7 +71,9 @@ describe("server-sourced create-path defaults — Hono", () => {
 
   it("a CONSTANT default is unchanged — still a wire `.default(...)`", async () => {
     const routes = routesOf(await generateSystemFiles(HONO(`status: string = "draft"`)));
-    expect(routes).toMatch(/status:\s*z\.string\(\)\.default\("draft"\)/);
+    expect(routes).toMatch(
+      /status:\s*z\.string\(\)\.refine\(\(s: string\) => !s\.includes\("\\u0000"\)\)\.default\("draft"\)/,
+    );
     expect(routes).not.toMatch(/status:[^\n]*\.optional\(\)/);
   });
 });
@@ -175,7 +179,7 @@ describe("server-sourced create-path defaults — Python", () => {
     );
     const routes = fileEndingWith(files, "http/order_routes.py");
     // NOT `ownerId: str = current_user.tenant_id` (that AttributeErrors at import).
-    expect(routes).toMatch(/ownerId:\s*str \| None = None/);
+    expect(routes).toMatch(/ownerId:\s*WireStr \| None = None/);
     expect(routes).toMatch(/current_user: User = request\.state\.current_user/);
     expect(routes).toMatch(
       /owner_id=body\.ownerId if body\.ownerId is not None else current_user\.tenant_id/,
@@ -185,7 +189,7 @@ describe("server-sourced create-path defaults — Python", () => {
   it("a CONSTANT default is unchanged — still a Pydantic field default", async () => {
     const files = await generateSystemFiles(PYTHON(`status: string = "draft"`));
     const routes = fileEndingWith(files, "http/order_routes.py");
-    expect(routes).toMatch(/status:\s*str = "draft"/);
+    expect(routes).toMatch(/status:\s*WireStr = "draft"/);
   });
 });
 

@@ -43,6 +43,12 @@ function renderDtoFile(
   // it precisely — an unconditional one would trip CS8019 (unnecessary using)
   // under /warnaserror on every JsonRequired-free DTO file.
   const usesJsonRequired = args.records.some((r) => /\bJsonRequired\b/.test(r.params));
+  // `[NoNulChar]` (F20) lives in the project's own `Api` namespace, and is
+  // gated the same way and for the same reason: an unconditional using would
+  // trip CS8019 (unnecessary using) under /warnaserror on every DTO file
+  // without a string — which is every RESPONSE file, since the guard is
+  // request-only.
+  const usesNoNulChar = args.records.some((r) => /\bNoNulChar\b/.test(r.params));
   // `using …Domain.Enums` lets a DTO field carry the enum TYPE (paired
   // with a global JsonStringEnumConverter for string-on-the-wire) so
   // Swashbuckle emits a named enum schema.  The `Domain/Enums/_namespace.cs`
@@ -52,6 +58,7 @@ using System;
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
 ${usesJsonRequired ? "using System.Text.Json.Serialization;\n" : ""}using ${args.ns}.Domain.Enums;
+${usesNoNulChar ? `using ${args.ns}.Api;\n` : ""}
 ${extra}
 namespace ${args.ns}.Application.${plural(args.aggName)}.${group};
 

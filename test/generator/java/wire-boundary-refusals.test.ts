@@ -122,7 +122,9 @@ describe("java — F19: a malformed wire string is refused, not parsed into a 50
 describe("java — F23: a required member arriving as null is refused", () => {
   it("required create-body members carry @NotNull", async () => {
     const req = await file("orders/CreateOrderRequest.java");
-    expect(req).toContain("@NotNull String sku");
+    expect(req).toContain("@NotNull @NoNulChar String sku");
+    // `placedAt` is a datetime: it crosses as a string but its own parse
+    // rejects a NUL, so it carries no @NoNulChar (F20 narrowness).
     expect(req).toContain("@NotNull String placedAt");
   });
 
@@ -133,7 +135,7 @@ describe("java — F23: a required member arriving as null is refused", () => {
     expect(req).toContain("@NotNull @Valid MoneyRequest price");
     const money = await file("orders/MoneyRequest.java");
     expect(money).toContain("@NotNull BigDecimal amount");
-    expect(money).toContain("@NotNull String currency");
+    expect(money).toContain("@NotNull @NoNulChar String currency");
   });
 
   it("a PRIMITIVE component gets no @NotNull — it would be inert", async () => {
@@ -147,7 +149,7 @@ describe("java — F23: a required member arriving as null is refused", () => {
 
   it("an OPTIONAL member is not made required by this", async () => {
     const req = await file("orders/CreateOrderRequest.java");
-    expect(req).toMatch(/(?<!@NotNull )String note/);
+    expect(req).toMatch(/(?<!@NotNull )@NoNulChar String note/);
   });
 
   it("a RESPONSE record is not annotated — it is serialized, never validated", async () => {

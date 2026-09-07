@@ -54,7 +54,7 @@ describe("python VO invariant → 422 at the wire", () => {
     expect(wm).toContain("    value: Int32 = Field(ge=1)");
     // Two length invariants on one field merge into a single Field(...).
     expect(wm).toContain("class Sku(BaseModel):");
-    expect(wm).toContain("    code: str = Field(min_length=3, max_length=12)");
+    expect(wm).toContain("    code: WireStr = Field(min_length=3, max_length=12)");
     expect(wm).toContain("from pydantic import BaseModel, Field");
   });
 
@@ -94,7 +94,9 @@ describe("python VO invariant → 422 at the wire", () => {
     // `Field` is now unconditional: the `Int32` alias uses it, and that alias
     // is emitted into every wire_models.py exactly as `UuidStr` is.
     expect(wm).toContain(
-      "from pydantic import BaseModel, Field, StringConstraints, WithJsonSchema\n",
+      // `AfterValidator` joins the unconditional set: the always-emitted `WireStr`
+      // alias uses it, exactly as `Int32` uses `Field` (F20).
+      "from pydantic import BaseModel, Field, AfterValidator, StringConstraints, WithJsonSchema\n",
     );
     // Scoped to the VO's own class body: `Field` now appears at module level
     // unconditionally, because the shared `Int32` alias uses it (F11). What
@@ -103,6 +105,6 @@ describe("python VO invariant → 422 at the wire", () => {
     const voBody = wm.slice(wm.indexOf("class Plain(BaseModel):"));
     expect(voBody).not.toContain("Field(");
     expect(wm).not.toContain("model_validator");
-    expect(wm).toContain("class Plain(BaseModel):\n    a: Int32\n    b: str");
+    expect(wm).toContain("class Plain(BaseModel):\n    a: Int32\n    b: WireStr");
   });
 });

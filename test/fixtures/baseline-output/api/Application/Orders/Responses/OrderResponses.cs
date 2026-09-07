@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
 using Api.Domain.Enums;
 
+
 namespace Api.Application.Orders.Responses;
 
 public sealed record OrderLineResponse([property: Required] Guid Id, [property: Required] Guid ProductId, [property: Required] int Quantity);

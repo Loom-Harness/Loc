@@ -867,8 +867,8 @@ answered `500 "internal"` — a server fault for input the server itself refused
 **.NET was already fixed.** Measured on a booted app before touching anything:
 `placedAt: ""` and `placedAt: "not-a-date"` both answer **422** there, through
 the `WireFormatException` arm M-T6.48 landed. The finding's `dotnet + java`
-framing was stale; W24/W25 have been narrowed to their F20 half rather than
-retired.
+framing was stale; W24/W25 were narrowed to their F20 half rather than retired
+at the time, and have since been retired with F20 itself.
 
 **Java now mirrors it exactly.** `WireFormatException` (`domain/common`) carries
 the pointer plus the guarded parses — `instant`, `decimal`, `uuid` — each
@@ -891,31 +891,65 @@ with `/placedAt`; a valid body still 201. Gated by
 `test/generator/java/wire-boundary-refusals.test.ts`; five mutations each fail
 exactly the assertion that names them.
 
-### F20 — dotnet AND java: a NUL character in a declared string reaches Postgres
-**Waiver:** W24/W25 (narrowed to this finding on 2026-09-03) · **Severity: medium**
-· **Status: OPEN — the last 500 on the create path.**
+### F20 — a NUL character in a declared string reaches Postgres (all four)
+**Waiver:** none — fixed · **Severity: medium** · **Status: FIXED (2026-09-07).**
 
 ```
-curl -X POST http://host/api/customers -d '{"email":"\u0000","name":""}' → 500
-asyncpg/Npgsql: CharacterNotInRepertoireError (22021) — invalid byte sequence
+POST /api/orders -d '{"sku":"A\u0000B", …}' → 500
+asyncpg / Npgsql / pgjdbc: CharacterNotInRepertoireError (22021) — invalid byte sequence
 ```
 
 NUL is a legal JSON string character and an illegal Postgres `text` byte.
-Nothing on the write path refuses it, so the driver's error escapes as a 500.
+Nothing on the write path refused it, so the driver's error escaped as a 500.
 
-**It reproduces on java too**, measured on a booted app while fixing F19/F23:
-with those two closed, a NUL in `sku` is the ONLY body on the create path still
-answering 500 there. The original entry named only .NET because that is the leg
-that reported it.
+**Universal, not dotnet-only.** The register named .NET because that is the leg
+that reported it. Measured on four booted apps with the same body:
 
-This is a STORAGE-layer refusal, not a parse — the value is a well-formed string
-of the declared type, and it is the column that cannot hold it. That makes it a
-different fix from F19's wire guard (a shared rule over every declared string
-bound for a `text` column, on every backend with postgres) and its own slice.
+| | before | after | pointer | message |
+|---|---|---|---|---|
+| node | **500** | **422** | `/sku` | `Invalid input` |
+| python | **500** | **422** | `/sku` | `Value error, must not contain a NUL character` |
+| dotnet | **500** | **422** | `/sku` | `The Sku field must not contain a NUL character.` |
+| java | **500** | **422** | `/sku` | `must not contain a NUL character` |
 
-The same generated body also reproduced F21 when the NUL half happened not to be
-generated, which is why W27 is marked `intermittent` (W28 was too, and is now
-retired).
+A valid body still answers 201 on all four. **With this closed, no body on the
+create path answers 500 on any backend** — F19, F23, F11 and F20 were the four,
+and they are all now the declared 422.
+
+**Enforced, deliberately NOT published.** Each backend's seam is one the OpenAPI
+emitter cannot see:
+
+| | seam | why it publishes nothing |
+|---|---|---|
+| node | zod `.refine` | refines are invisible to zod-to-openapi |
+| python | `Annotated[str, AfterValidator(…)]` | an `AfterValidator` contributes no schema |
+| dotnet | a custom `ValidationAttribute` | the schema generator only knows the built-ins |
+| java | a custom Bean Validation constraint | springdoc only reads the standard ones |
+
+The alternative — a `pattern` excluding U+0000 on every string in every schema —
+is a large, noisy contract change for a character no real client sends. A server
+STRICTER than its published contract is safe; the reverse (F21, a published
+`minLength` nothing enforced) is not. Each seam also lands in the 422 envelope
+its backend already had, so none needed a new status arm.
+
+**Narrowness.** REQUEST only (a response string came out of the very column that
+cannot hold a NUL); null passes on all four, so an optional member is not made
+required by carrying the guard; and only plain `string` where the type is known
+— `guid`, `datetime` and `money` cross as strings too but each has a parse or
+pattern a NUL cannot pass. .NET's `dtoParam` sees only the C# type, so its guard
+also lands on those; inert, since their own parse rejects first.
+
+**The zod-3 ordering trap.** On node the guard is appended AFTER the invariant
+chain, not folded into the base. Under zod 3 — which the `node@v4` lane still
+pins — `.refine()` returns a `ZodEffects` wrapper that no longer exposes
+`.regex`/`.min`, so a guard in the base would make
+`z.string().refine(…).regex(/…/)` a type error in every generated project on
+that lane. Same reasoning as `orderSingleFieldPatterns`, and the gate has a case
+pinning the order.
+
+W24/W25 retired. Gated by `test/generator/nul-char-wire-guard.test.ts`; six
+mutations each fail exactly the assertion that names them, including one that
+moves the node guard into the base to prove the ordering case is not vacuous.
 
 ### F21 — dotnet: the response schema claims a `minLength` nothing declared
 **Waiver:** W28 retired — fixed · W27 / W34 re-diagnosed, kept ·

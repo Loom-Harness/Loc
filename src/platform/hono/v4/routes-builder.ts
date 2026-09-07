@@ -2313,6 +2313,27 @@ export const QUERY_BOOL =
 /** The int4 range an `int` column has, as a zod chain fragment. Split out from
  *  the published format so a field that declares its OWN, tighter bound can
  *  drop the range and keep the format (see `INT32_RANGE` use below). */
+/** A declared `string` lands in a Postgres `text` column, which cannot hold
+ *  U+0000: the driver rejects the row with `CharacterNotInRepertoireError`
+ *  (22021) and the error escapes as a **500** on every backend (schemathesis
+ *  F20). NUL is a legal JSON string character, so nothing upstream refuses it.
+ *
+ *  A `.refine` rather than a `.regex`: a refine is invisible to the OpenAPI
+ *  emitter, and this is deliberately ENFORCED WITHOUT BEING PUBLISHED. Putting
+ *  `pattern: "^[^\u0000]*$"` on every string in every schema would be a large,
+ *  noisy contract change for a character no real client sends — and the server
+ *  being stricter than its contract is safe, where the reverse (F21) is not.
+ *
+ *  Only plain `string` needs it: `guid`, `datetime` and `money` cross as
+ *  strings too, but each already has a parse or pattern a NUL cannot pass. */
+const NO_NUL = '.refine((s: string) => !s.includes("\\u0000"))';
+
+/** The base a plain `string` field starts from — the marker for "this field is
+ *  a bare string and wants the NUL guard".  `guid`/`datetime`/`money` cross as
+ *  strings too but each carries a parse or pattern a NUL cannot pass, so they
+ *  are deliberately not matched here. */
+const PLAIN_STRING_BASE = "z.string()";
+
 const INT32_RANGE = ".min(-2147483648).max(2147483647)";
 /** The published `format`, WITHOUT the bound.  This is the whole RESPONSE
  *  half: a response value came out of the very `int4` column the bound
@@ -2615,6 +2636,7 @@ export function emitWireSchema(
   out.push(`${declPrefix} = z.object({`);
   for (const f of fields) {
     let schema = f.base;
+    const isPlainString = f.base === PLAIN_STRING_BASE;
     const patterns = chainByField.get(f.name);
     if (patterns) {
       // A DECLARED numeric bound is authoritative and lies inside int32, so the
@@ -2638,6 +2660,15 @@ export function emitWireSchema(
         schema = `${schema}.openapi({ ${entries.join(", ")} })`;
       }
     }
+    // The NUL guard goes on LAST of the checks, after any declared regex or
+    // length bound.  Under zod 3 — which the `node@v4` lane still pins —
+    // `.refine()` returns a `ZodEffects` WRAPPER that no longer exposes
+    // `.regex`/`.min`/`.max`, so a guard in the BASE would make
+    // `z.string().refine(…).regex(/…/)` a type error in every generated project
+    // on that lane. (zod 4 keeps the `ZodString` type through `.refine`, so on
+    // v5 the position is a no-op — the emitter orders for the stricter of the
+    // two, exactly as `orderSingleFieldPatterns` already does.)
+    if (isPlainString) schema = `${schema}${NO_NUL}`;
     // `.default(...)` / `.optional()` last: each wraps the (now constrained)
     // schema in a ZodDefault / ZodOptional, so any `.min`/`.max` must already
     // be applied above.  A server-sourced default (`now()`/`currentUser.*`) is

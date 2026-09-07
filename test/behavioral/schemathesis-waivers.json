@@ -88,32 +88,6 @@
       "reason": "F17 — F7 (declared `type` not honoured: the wire validators coerce) is still OPEN on python. `Money.amount` publishes `{\"type\":\"number\",\"minimum\":0}`, and a JSON boolean is accepted for it: pydantic's lax mode treats `false` as `0.0` (bool is an int subclass in Python), so the create answers 201 for a body the published contract rejects. F7's fix landed on the Hono emitter only (2026-08-16) — the node leg is clean here and python is not, which is precisely the per-backend divergence this matrix exists to surface."
     },
     {
-      "id": "W24",
-      "findings": [
-        "F20"
-      ],
-      "check": "not_a_server_error",
-      "operations": "^POST /api/",
-      "backends": [
-        "dotnet"
-      ],
-      "kind": "bug",
-      "reason": "F20 — a NUL character inside a declared `string` reaches Postgres, which rejects it with `CharacterNotInRepertoireError (22021)`, and the driver's error escapes as a 500. NUL is a legal JSON string character and an illegal Postgres `text` byte, so nothing on the write path refuses it. NARROWED 2026-09-03: this rule also carried F19 (a declared `date-time` the wire layer did not parse reaching `DateTime.Parse` in the domain). F19 is FIXED on .NET — measured on a booted app, `placedAt: \"\"` and `placedAt: \"not-a-date\"` both answer 422 through the WireFormatException arm (M-T6.48), not 500 — so the rule now claims only the NUL half. That half reproduces on java too and is a storage-layer refusal rather than a parse, which is why it is its own slice."
-    },
-    {
-      "id": "W25",
-      "findings": [
-        "F20"
-      ],
-      "check": "status_code_conformance",
-      "operations": "^POST /api/",
-      "backends": [
-        "dotnet"
-      ],
-      "kind": "bug",
-      "reason": "The consequence half of W24: 500 is not a declared response on any route, so F20's NUL escape also trips status_code_conformance. Clears with W24. Narrowed with it on 2026-09-03 — F19 no longer reproduces on .NET."
-    },
-    {
       "id": "W26",
       "findings": [
         "F22"

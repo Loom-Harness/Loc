@@ -127,7 +127,9 @@ describe("defaulted aggregate — parameterized create (invariant gate)", () => 
     // default (F11), so the assertion pins the two ends rather than the whole
     // chain — what matters here is that the DEFAULT is still applied.
     expect(routes).toMatch(/count:\s*z\.number\(\)\.int\(\)[^\n]*\.default\(0\)/);
-    expect(routes).toMatch(/label:\s*z\.string\(\)\.default\("untitled"\)/);
+    expect(routes).toMatch(
+      /label:\s*z\.string\(\)\.refine\(\(s: string\) => !s\.includes\("\\u0000"\)\)\.default\("untitled"\)/,
+    );
     // The route still names every field — the wire has a value for each.
     expect(routes).toMatch(/Counter\.create\(\{ count: body\.count, label: body\.label \}\)/);
     // The DOMAIN factory now owns the default too: an omittable input is `?` and
@@ -147,7 +149,7 @@ describe("defaulted aggregate — parameterized create (invariant gate)", () => 
     // Each `= default` becomes a record default value (dropping `[Required]`),
     // so STJ applies it when the field is omitted from the request.
     expect(dto).toMatch(
-      /record CreateCounterRequest\(\s*int Count = 0,\s*string Label = "untitled"\s*\)/,
+      /record CreateCounterRequest\(\s*int Count = 0,\s*\[NoNulChar\] string Label = "untitled"\s*\)/,
     );
     // The DOMAIN factory owns the default too — omittable params are nullable
     // with `= null` and the body applies the declared value, so an in-process

@@ -1092,6 +1092,46 @@ public sealed class DomainExceptionFilter : IExceptionFilter
  *  those keep 400 (matching hono's `HTTPException` arm and Spring's
  *  `HttpMessageNotReadableException`), detected by the `JsonException` MVC
  *  hangs on the model-state entry. */
+/** `Api/NoNulCharAttribute.cs` — the NUL guard every request STRING carries.
+ *
+ *  A declared `string` lands in a Postgres `text` column, which cannot hold
+ *  U+0000: Npgsql rejects the row with `CharacterNotInRepertoireError` (22021)
+ *  and the error escapes as a **500** (schemathesis F20). NUL is a legal JSON
+ *  string character, so nothing upstream refuses it.
+ *
+ *  A CUSTOM `ValidationAttribute` rather than `[RegularExpression]`, for two
+ *  reasons. It runs through ordinary model validation, so the failure lands in
+ *  `ValidationProblem.FromModelState` and answers the same 422 + pointer every
+ *  other bad field gets — no new status arm. And the schema generator does not
+ *  know it, so the constraint is ENFORCED WITHOUT BEING PUBLISHED: putting
+ *  `pattern` on every string in every schema would be a large, noisy contract
+ *  change for a character no real client sends, and a server stricter than its
+ *  contract is safe where the reverse (F21) is not.
+ *
+ *  Null passes: absence is `[Required]`'s question, not this one, and an
+ *  OPTIONAL string must not be made required by carrying the guard. */
+export function renderNoNulCharAttribute(ns: string): string {
+  return lines(
+    `// Auto-generated.`,
+    `using System;`,
+    `using System.ComponentModel.DataAnnotations;`,
+    ``,
+    `namespace ${ns}.Api;`,
+    ``,
+    `/// <summary>Refuses a U+0000 the Postgres <c>text</c> type cannot store.</summary>`,
+    `[AttributeUsage(AttributeTargets.Property | AttributeTargets.Parameter, AllowMultiple = false)]`,
+    `public sealed class NoNulCharAttribute : ValidationAttribute`,
+    `{`,
+    `    public override bool IsValid(object? value) =>`,
+    `        value is not string s || !s.Contains('\\0');`,
+    ``,
+    `    public override string FormatErrorMessage(string name) =>`,
+    `        $"The {name} field must not contain a NUL character.";`,
+    `}`,
+    ``,
+  );
+}
+
 export function renderValidationProblem(ns: string): string {
   return `// Auto-generated.
 using System.Text.Json;

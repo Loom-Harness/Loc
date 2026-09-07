@@ -579,6 +579,65 @@ function initBinderLines(
 /** RFC 7807 problem+json advice — the DomainExceptionFilter / Hono
  *  onError analog: same statuses, same envelope, same 422 `errors[]`
  *  extension shape, so the frontend ACL works against any backend. */
+/** `api/NoNulChar.java` — the NUL guard every request STRING carries.
+ *
+ *  A declared `string` lands in a Postgres `text` column, which cannot hold
+ *  U+0000: the driver rejects the row and the error escapes as a **500**
+ *  (schemathesis F20). NUL is a legal JSON string character, so nothing
+ *  upstream refuses it.
+ *
+ *  A CUSTOM Bean Validation constraint rather than `@Pattern`, for two reasons.
+ *  It rides the `@Valid @RequestBody` walk the request records already carry,
+ *  so the failure lands in `ApiExceptionAdvice.onValidation` and answers the
+ *  same 422 + pointer every other bad field gets — no new arm. And springdoc
+ *  does not know it, so the constraint is ENFORCED WITHOUT BEING PUBLISHED:
+ *  `@Pattern` would put a `pattern` on every string in every schema, a large
+ *  noisy contract change for a character no real client sends, and a server
+ *  stricter than its contract is safe where the reverse (F21) is not.
+ *
+ *  Null passes: absence is `@NotNull`'s question, not this one, so an OPTIONAL
+ *  component is not made required by carrying the guard. */
+export function renderNoNulCharConstraint(basePkg: string): string {
+  return lines(
+    `package ${basePkg}.api;`,
+    ``,
+    `import java.lang.annotation.Documented;`,
+    `import java.lang.annotation.ElementType;`,
+    `import java.lang.annotation.Retention;`,
+    `import java.lang.annotation.RetentionPolicy;`,
+    `import java.lang.annotation.Target;`,
+    ``,
+    `import jakarta.validation.Constraint;`,
+    `import jakarta.validation.ConstraintValidator;`,
+    `import jakarta.validation.ConstraintValidatorContext;`,
+    `import jakarta.validation.Payload;`,
+    ``,
+    `/** Refuses a U+0000 the Postgres {@code text} type cannot store. */`,
+    `@Documented`,
+    `@Constraint(validatedBy = NoNulChar.Validator.class)`,
+    // RECORD_COMPONENT is the one that matters (the DTOs are records); FIELD
+    // and PARAMETER are where javac propagates a record component's
+    // annotations, and the walk reads them there.
+    `@Target({ ElementType.RECORD_COMPONENT, ElementType.FIELD, ElementType.PARAMETER })`,
+    `@Retention(RetentionPolicy.RUNTIME)`,
+    `public @interface NoNulChar {`,
+    `    String message() default "must not contain a NUL character";`,
+    ``,
+    `    Class<?>[] groups() default {};`,
+    ``,
+    `    Class<? extends Payload>[] payload() default {};`,
+    ``,
+    `    class Validator implements ConstraintValidator<NoNulChar, String> {`,
+    `        @Override`,
+    `        public boolean isValid(String value, ConstraintValidatorContext context) {`,
+    `            return value == null || value.indexOf('\\0') < 0;`,
+    `        }`,
+    `    }`,
+    `}`,
+    ``,
+  );
+}
+
 /** The servlet filter that turns a wrong verb on a STATIC sub-path into the
  *  honest 405 + `Allow`, instead of the `{id}` route's `422`.
  *

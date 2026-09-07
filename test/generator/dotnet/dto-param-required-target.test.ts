@@ -18,8 +18,9 @@ describe("dtoParam — required-ness attribute target", () => {
     // Required STRINGS carry `AllowEmptyStrings = true` so an empty string
     // passes the structural layer and is rejected by the domain invariant
     // as 422 (matching Hono/Phoenix) instead of a 400 model-validation error.
+    // `[NoNulChar]` leads: a request string also carries the NUL guard (F20).
     expect(dtoParam("string", "Name", "request")).toBe(
-      "[Required(AllowEmptyStrings = true)] string Name",
+      "[NoNulChar] [Required(AllowEmptyStrings = true)] string Name",
     );
     // Non-string required fields keep the bare `[Required]` (AllowEmptyStrings
     // is string-only; null/omitted still 400s).
@@ -46,7 +47,9 @@ describe("dtoParam — required-ness attribute target", () => {
   });
 
   it("nullable types are not marked required in either direction", () => {
-    expect(dtoParam("string?", "Description", "request")).toBe("string? Description");
+    // Still not REQUIRED — but it does carry the NUL guard, which passes null
+    // and so cannot make an optional member required (F20).
+    expect(dtoParam("string?", "Description", "request")).toBe("[NoNulChar] string? Description");
     expect(dtoParam("Guid?", "ExternalId", "response")).toBe("Guid? ExternalId");
   });
 

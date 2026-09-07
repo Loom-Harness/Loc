@@ -68,6 +68,7 @@ import { inlineRunBypassesByRetrieval, promotedCapabilities } from "./capability
 import {
   renderApiExceptionAdvice,
   renderJavaController,
+  renderNoNulCharConstraint,
   renderStaticSubpathMethodFilter,
 } from "./emit/api.js";
 import {
@@ -455,6 +456,10 @@ function emitProjectFromContexts(
   // carries the guarded parses AND the exception they raise; the advice's own
   // arm renders it as the 422 + errors[] envelope the other backends send.
   place("WireFormatException.java", "domain-common", renderWireFormatException(basePkg));
+  // F20 — a NUL is a legal JSON string character and an illegal Postgres `text`
+  // byte, so without a guard the driver's refusal escapes as a 500. Emitted
+  // unconditionally: every project has request DTOs with strings.
+  place("NoNulChar.java", "api-common", renderNoNulCharConstraint(basePkg));
   place("Paged.java", "domain-common", renderPagedRecord(basePkg));
   // File upload/download (M-T1.2): a hosted File field ⇒ emit the shared FileRef
   // record; the bound objectStore ⇒ mount root POST /files / GET /files/{key}

@@ -168,6 +168,7 @@ import {
   renderJoinEntity,
   renderJoinEntityConfiguration,
   renderListWrapperFilter,
+  renderNoNulCharAttribute,
   renderOrdinalGenerator,
   renderProblemDetailsFilter,
   renderProgram,
@@ -979,6 +980,7 @@ function emitProjectFromContexts(
   // Shared RFC 6901 pointer helper + the replacement for MVC's built-in
   // invalid-model-state response (see renderValidationProblem).
   out.set("Api/ValidationProblem.cs", renderValidationProblem(ns));
+  out.set("Api/NoNulCharAttribute.cs", renderNoNulCharAttribute(ns));
   out.set("Api/ProblemDetailsResponsesFilter.cs", renderProblemDetailsFilter(ns));
   out.set(
     "Api/ListResponseWrapperFilter.cs",
@@ -1829,6 +1831,7 @@ function emitInfrastructure(
   // Shared RFC 6901 pointer helper + the replacement for MVC's built-in
   // invalid-model-state response (see renderValidationProblem).
   out.set("Api/ValidationProblem.cs", renderValidationProblem(ns));
+  out.set("Api/NoNulCharAttribute.cs", renderNoNulCharAttribute(ns));
   out.set("Api/ProblemDetailsResponsesFilter.cs", renderProblemDetailsFilter(ns));
   out.set("Api/ListResponseWrapperFilter.cs", renderListWrapperFilter(ns, listWrapperPairs([ctx])));
   out.set("Api/RequiredFromCtorParamFilter.cs", renderRequiredFromCtorParamFilter(ns));

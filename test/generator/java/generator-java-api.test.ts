@@ -162,7 +162,12 @@ system S {
       // Required members carry `@NotNull`, and a nested record `@Valid` so the
       // Bean Validation walk descends into it (F23). `notes` is optional and
       // stays bare; the invariant bounds still live in the Spring Validator.
-      "public record CreateOrderRequest(@NotNull String code, @NotNull Status status, @NotNull @Valid AddressRequest shipTo, String notes, @NotNull String total, @NotNull String placedAt) {",
+      // `@NoNulChar` rides every wire STRING, required or optional (F20): NUL is
+      // a legal JSON character and an illegal Postgres `text` byte.
+      // `@NoNulChar` rides a wire STRING only. `total` (money) and `placedAt`
+      // (datetime) cross as strings too, but each already has a parse a NUL
+      // cannot pass, so neither carries the guard (F20 narrowness).
+      "public record CreateOrderRequest(@NotNull @NoNulChar String code, @NotNull Status status, @NotNull @Valid AddressRequest shipTo, @NoNulChar String notes, @NotNull String total, @NotNull String placedAt) {",
     );
     const svc = files_.get(`${ROOT}/features/orders/OrderService.java`)!;
     // Since M-T6.48 the money parse is guarded and carries its RFC 6901
