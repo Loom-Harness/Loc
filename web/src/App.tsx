@@ -11,7 +11,8 @@ import type { LoomLspClient } from "./lsp/client";
 import type { Diagnostic } from "./lsp/protocol";
 import { syncWorkspaceToLsp } from "./lsp/workspace-lsp-sync";
 import { buildDiagnosticsToLsp } from "./lsp/build-diagnostics";
-// `agent/demo`, `agent/live` and `agent/system-prompt` are imported TYPE-ONLY
+// `agent/demo`, `agent/live`, `agent/system-prompt` and `agent/openai-transport`
+// are imported TYPE-ONLY
 // on purpose, and their functions are reached through `await import(...)` at
 // the call sites below.  Each of them has a VALUE import of `src/tools`, which
 // re-exports `src/api`, which pulls `src/language` + `src/ir` — i.e. Langium,
@@ -46,7 +47,6 @@ import {
 } from "./agent/turn";
 // Type-only from `src/tools` too (`Complete` etc.) — no runtime edge; this
 // module's own body is small and provider-shaped.
-import { createOpenAiCompatibleComplete } from "./agent/openai-transport";
 import {
   type AgentSettings,
   loadAgentSettings,
@@ -2232,15 +2232,6 @@ export default function App(): JSX.Element {
       preset.id === "openrouter"
         ? { "HTTP-Referer": "https://loom.build", "X-Title": "Loom playground" }
         : {};
-    const complete =
-      injected ??
-      createOpenAiCompatibleComplete({
-        baseUrl: agentSettings.baseUrl,
-        apiKey: agentSettings.apiKey,
-        model: agentSettings.model,
-        headers,
-        stream: true,
-      });
     // Both sides of the receipt, captured BEFORE the turn can move anything.
     const turn = agentTurnRef.current;
     const sourceBefore = sourceRef.current;
@@ -2248,10 +2239,24 @@ export default function App(): JSX.Element {
     let generatePromise: Promise<void> | null = null;
     let usage: TokenUsage | undefined;
     try {
-      const [{ runLiveAgent }, { buildSystemPrompt }] = await Promise.all([
-        import("./agent/live"),
-        import("./agent/system-prompt"),
-      ]);
+      const [{ runLiveAgent }, { buildSystemPrompt }, { createOpenAiCompatibleComplete }] =
+        await Promise.all([
+          import("./agent/live"),
+          import("./agent/system-prompt"),
+          import("./agent/openai-transport"),
+        ]);
+      // Built here rather than above the `try` so the transport module joins
+      // its siblings behind the dynamic boundary: it too has a value import of
+      // `src/tools`, and a static one put the compiler back in the entry chunk.
+      const complete =
+        injected ??
+        createOpenAiCompatibleComplete({
+          baseUrl: agentSettings.baseUrl,
+          apiKey: agentSettings.apiKey,
+          model: agentSettings.model,
+          headers,
+          stream: true,
+        });
       agentTranscriptRef.current = await runLiveAgent({
         complete,
         prompt,
