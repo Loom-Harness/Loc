@@ -68,6 +68,33 @@ system S {
 }
 `;
 
+/** A workflow taking a value-object parameter — the shape that drives
+ *  `Application/Workflows/WorkflowRequests.cs`, the file the aggregate-DTO gate
+ *  never looks at. */
+const withWorkflow = `
+system S {
+  subdomain D {
+    context C {
+      valueobject Money { amount: decimal  currency: string }
+      aggregate Order with crudish {
+        sku: string
+        placedAt: datetime
+      }
+      repository Orders for Order { }
+      workflow Pay {
+        create(total: Money) {
+          let o = Order.create({ sku: "x", placedAt: now() })
+        }
+      }
+    }
+  }
+  api A from D
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable d { platform: dotnet, contexts: [C], dataSources: [st], serves: A, port: 4000 }
+}
+`;
+
 async function file(platform: string, suffix: string): Promise<string> {
   const files = await generateSystemFiles(src(platform));
   const key = [...files.keys()].find((k) => k.endsWith(suffix));
@@ -117,6 +144,40 @@ describe("python — a pydantic AfterValidator alias, the twin of UuidStr/Int32"
     expect(create.split("\n\n")[0]).toContain("sku: WireStr");
     const response = routes.slice(routes.indexOf("class OrderResponse(BaseModel):"));
     expect(response.split("\n\n")[0]).toContain("sku: str");
+  });
+});
+
+describe("dotnet — every file that EMITS [NoNulChar] also carries its using", () => {
+  // The gate above checked the aggregate DTO file, which is where the demand-
+  // gated `using <ns>.Api;` was written.  The workflow request emitters call the
+  // same `dtoParam` from their OWN file templates and had no such line, so a
+  // model with a workflow taking a value-object parameter emitted
+  // `Application/Workflows/WorkflowRequests.cs` with `[NoNulChar]` and no using
+  // — CS0246, the whole project failing to compile.  Nothing said so until a
+  // real `dotnet build` ran, because every assertion here reads ONE file.
+  //
+  // So the invariant is stated over the WHOLE emitted project instead of one
+  // path: the attribute is unqualified, so any file naming it needs the using.
+  it("no emitted .cs names the attribute without importing its namespace", async () => {
+    const files = await generateSystemFiles(withWorkflow);
+    const offenders = [...files.entries()]
+      .filter(([k]) => k.endsWith(".cs"))
+      .filter(([, v]) => /\[NoNulChar\]/.test(v))
+      .filter(([, v]) => !/^using D\.Api;$/m.test(v) && !/namespace D\.Api;/.test(v))
+      .map(([k]) => k);
+    expect(offenders, "these files emit [NoNulChar] but cannot resolve it").toEqual([]);
+  });
+
+  it("and the workflow request file is genuinely one of the files that emits it", async () => {
+    // Guards the assertion above against going vacuous: if the workflow fixture
+    // ever stops producing a wire string, the sweep passes by having nothing to
+    // check.
+    const files = await generateSystemFiles(withWorkflow);
+    const key = [...files.keys()].find((k) =>
+      k.endsWith("Application/Workflows/WorkflowRequests.cs"),
+    );
+    expect(key, "the workflow request DTO file is not emitted").toBeDefined();
+    expect(files.get(key as string) as string).toContain("[NoNulChar]");
   });
 });
 

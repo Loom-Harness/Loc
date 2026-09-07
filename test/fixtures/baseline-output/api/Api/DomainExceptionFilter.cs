@@ -130,6 +130,16 @@ public sealed class DomainExceptionFilter : IExceptionFilter
             context.ExceptionHandled = true;
             return;
         }
+        if (context.Exception is Npgsql.PostgresException { SqlState: "23503" }
+            || (context.Exception is Microsoft.EntityFrameworkCore.DbUpdateException dre
+                && dre.InnerException is Npgsql.PostgresException { SqlState: "23503" }))
+        {
+            _log.LogWarning("{Event} message={Message} status={Status}", "domain_error", "The request references a record that does not exist.", 422);
+            global::Api.Observability.HttpMetrics.RecordDomainFault("domain_error");
+            context.Result = Problem(context, 422, "Unprocessable Entity", "The request references a record that does not exist.", trace_id);
+            context.ExceptionHandled = true;
+            return;
+        }
         if (context.Exception is Microsoft.EntityFrameworkCore.DbUpdateConcurrencyException)
         {
             _log.LogWarning("{Event} message={Message} status={Status}", "conflict", "The resource was modified by another request; reload and retry.", 409);

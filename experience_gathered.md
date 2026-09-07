@@ -5782,3 +5782,56 @@ toolchain recipe in `docs/tools.md`: unfixed → the exact CI divergence
 (`#11 GET /api/crates at $.items[0].version — golden 2 ≠ elixir 1`), fixed →
 `wire: matches golden`. Reading Ecto's source told me what to change; only the
 run told me it was the whole cause.
+
+## 100. The whole cross-backend arm keyed on the wrong SQLSTATE — because every test that pinned it pinned the same wrong constant (2026-09-07)
+
+Fixing F16 (a create naming a well-formed uuid for a row that does not exist
+answers **500**) turned up a bigger one on the way. A cross-aggregate `X id` FK
+is emitted `ON DELETE RESTRICT`, and a Postgres RESTRICT check raises
+`restrict_violation` — **23001** — not `foreign_key_violation` (23503), which is
+what an *insert* raises. Every backend's "still referenced, cannot be deleted"
+arm keyed on 23503. On Hono the arm therefore never fired and a still-referenced
+delete answered **500** against the 409 its own OpenAPI declares; on Spring it
+fell through to the *unique-violation* arm and answered 409 *"A resource with
+these values already exists."*
+
+Two tests pinned that arm — `hono-destroy-route`, `lifecycle-audit-route` — and
+both asserted the emitted expression **verbatim, including `=== "23503"`**. They
+were green the whole time. A gate that pins the string an emitter produces can
+only catch a change to the string; it cannot catch the string being wrong,
+because it was written by reading the emitter. Both tests, both comments, the
+shared helper's docstring and four separate code comments all said
+"foreign_key_violation", and every one of them was copied from the first.
+
+What actually found it: booting the generated app against a **real Postgres**
+and issuing the delete. The node behavioral leg cannot — its PGlite harness
+synthesises a DDL with no foreign keys at all, so the constraint under test does
+not exist there, and the leg's clean result was an artefact, not a verdict.
+python and dotnet were correct by accident: their delete arms catch the exception
+*class* (`IntegrityError` / `DbUpdateException`), never a code.
+
+- **A constant copied from the code it verifies is not a verification.** When a
+  gate's expected value came from reading the implementation, the gate pins
+  consistency, not correctness. Something outside both — here the database's own
+  error — has to supply the value at least once.
+- **"Backend X is clean" is a claim about the harness first.** Before reading a
+  clean leg as evidence, check the leg can *reach* the thing: the FK never
+  existed in the node harness, so it could not have reported this in any run.
+  §90 again, one layer down.
+- **Codes that look adjacent are a discriminator, not a duplicate.** 23001 can
+  only come from a delete and 23503 only from a write naming an absent row, so
+  the two halves of one constraint are told apart by the code alone — no request
+  method, no route inspection. Conflating them was what made the dangling-
+  reference case answer "still referenced" on Spring. They now live in one
+  named home (`src/generator/_persistence/pg-sqlstate.ts`) instead of as eight
+  string literals.
+
+A separate one from the same session, same root: the .NET project **did not
+compile**, and only `dotnet build` said so. F20's `[NoNulChar]` guard needs a
+`using <ns>.Api;`, gated on demand — written at the aggregate-DTO emitter, and
+the two workflow request emitters call the same `dtoParam` from their own file
+templates without it. Every assertion in that gate read **one** file, so the
+CS0246 was invisible. The replacement asserts over the whole emitted project —
+no `.cs` may name the attribute without resolving it — plus a case pinning that
+the workflow file really is one that emits it, so the sweep cannot pass by
+having nothing to check.

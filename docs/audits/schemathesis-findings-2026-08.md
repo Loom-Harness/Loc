@@ -657,7 +657,7 @@ that into a visible per-backend answer sheet:
 | Leg | Findings | Root causes | Verdict with the new rules |
 |---|---|---|---|
 | node | 11 | (F9, F10, F11) | clean |
-| python | 22 | F16, F17 (=F7 unfixed here), F18 (=F8 unfixed here), F9, F10 | clean |
+| python | 22 | ~~F16~~ (fixed), F17 (=F7 unfixed here), F18 (=F8 unfixed here), F9, F10 | clean |
 | dotnet | 10 + 1 case unfuzzable | F14, F19, F20, F21, F22, F9 | clean |
 | java | 103 | F19, F21, F23, F24, F25, F26, F18, F9, F10, F11 | clean |
 | elixir | — | F15 | discovery cell (see below) |
@@ -732,12 +732,13 @@ fixtures declare `contexts:` only, so on elixir there was literally nothing to
 fuzz them against; the leg therefore runs
 `web/src/examples/storefront-elixir.ddd`, which does declare an `api`.
 
-### F16 — python: a create referencing a well-formed uuid that does not exist 500s
-**Waiver:** W20 (+ W21) · **Severity: high**
+### F16 — a create referencing a well-formed uuid that does not exist 500s
+**Waiver:** none — fixed · **Severity: high** · **Status: FIXED (2026-09-07).**
+**Recorded as python-only; measured as all five, and it had a twin.**
 
 ```
 curl -X POST http://host/api/orders \
-  -d '{"customerId":"e3e70682-c209-1cac-a29f-6fbed82c07cd","placedAt":0,"status":"Draft"}'
+  -d '{"customerId":"e3e70682-c209-1cac-a29f-6fbed82c07cd", …}'
 → 500
 asyncpg.exceptions.ForeignKeyViolationError: insert or update on table "orders"
   violates foreign key constraint "orders_customer_id_fkey"
@@ -746,12 +747,75 @@ asyncpg.exceptions.ForeignKeyViolationError: insert or update on table "orders"
 F2's successor. F2 was the *malformed* reference, fixed on all five in #2555 by
 publishing and enforcing `format: uuid`; this is the well-formed one, which no
 amount of wire validation can catch — a uuid is only wrong because the row is
-absent. Nothing between the SQLAlchemy repository and the router maps
-`IntegrityError`, so it escapes as 500 and, being undeclared, also trips
-`status_code_conformance`. The node leg does not reproduce it: the PGlite DDL the
-behavioral harness synthesises carries no foreign keys, so node's clean result
-here is an artefact of the harness, not of the emitter — worth fixing in
-`synthDDL` so the two legs ask the same question.
+absent, which nothing above the database knows.
+
+**Measured on booted apps against a real Postgres**, same body on every backend:
+
+| | before | after |
+|---|---|---|
+| node | 500 `internal` | 422 `The request references a record that does not exist.` |
+| python | 500 `internal` | 422 (same) |
+| dotnet | 500 `internal` | 422 (same) |
+| java | **409** `…is still referenced and cannot be deleted.` | 422 (same) |
+| elixir | 500 `internal` | 422, `errors[{pointer: "/customerId", message: "does not exist"}]` |
+
+422 is already declared on every write route on every backend, so nothing in the
+published contract moves. The domain floor is where a well-formed request refused
+on *semantic* grounds belongs (RFC 9110 §15.5.21), and it resolves through the
+same `httpStatus DomainError -> <Code>` map as every other rung. Elixir answers
+in its own existing changeset-error envelope, which is why it gets a field
+pointer the other four do not: `foreign_key_constraint/2` turns the raise into
+`{:error, changeset}`, and the controller's existing 422 arm renders it.
+
+**Why only python reported it.** The node leg runs on PGlite against a DDL the
+harness synthesises, and that DDL carries no foreign keys at all — node's clean
+result was an artefact of the harness, not of the emitter. java did not 500: it
+answered an undeclared 409, which `not_a_server_error` does not report. That 409
+is very likely what W12 has been absorbing on `POST /api/orders/{id}/add_line`,
+whose `productId` is a cross-aggregate reference (measured: that body now answers
+the declared 422). The register said *python*; the defect was universal.
+
+**The SQLSTATE four backends had wrong.** A cross-aggregate `X id` FK is emitted
+`ON DELETE RESTRICT`, and a RESTRICT check raises `restrict_violation` (**23001**)
+— *not* `foreign_key_violation` (23503), which is what an INSERT raises. Every
+"still referenced, cannot be deleted" arm keyed on 23503, so it never fired:
+
+- **node** answered **500** on a still-referenced delete, against the 409 its own
+  OpenAPI declares. Measured, fixed, and invisible to the node leg for the same
+  reason as above — its PGlite DDL has no FKs, so the delete never conflicted.
+- **java** fell through to the *unique-violation* arm and answered 409 *"A
+  resource with these values already exists."*
+
+python and dotnet were unaffected: their delete-path arms catch the exception
+CLASS (`IntegrityError` / `DbUpdateException`), not a SQLSTATE. Elixir rescues
+`Ecto.ConstraintError` and Ecto does classify a restrict violation as
+`:foreign_key`, so it was correct too (measured: 409).
+
+The two codes are now the **discriminator**, named once in
+`src/generator/_persistence/pg-sqlstate.ts`: 23001 can only come from a delete,
+23503 only from a write naming an absent row, so no backend has to inspect the
+request method to tell the two halves of one constraint apart. A local
+delete-path arm may absorb both (nothing else reaches it); an app-global arm must
+not, and java's does not.
+
+**Gate:** `test/generator/dangling-reference-status.test.ts` — 13 cases across
+five backends, covering both arms, a contained part's reference
+(`OrderLine.productId`, the add_line route), and byte-identity for a
+reference-free project. Mutation-proved with seven separate reverts (node arm,
+node delete SQLSTATE, python gate, the parts walk in
+`aggregatesCanTripDanglingReference`, the java SQLSTATE split, the dotnet arm,
+the elixir `foreign_key_constraint`); each failed the case that names it.
+
+**Found on the way: the .NET project did not compile.** Booting dotnet for this
+measurement failed at `dotnet build` with CS0246 — `Application/Workflows/
+WorkflowRequests.cs` emitted `[NoNulChar]` (F20's guard) without
+`using <ns>.Api;`. The demand-gated using had been written at the aggregate-DTO
+emitter only, and the two workflow request emitters call the same `dtoParam` from
+their own file templates. Every existing assertion read one file, so nothing
+caught it. Fixed by sharing the gate (`noNulCharUsing`), and pinned by a sweep
+over the WHOLE emitted project — no `.cs` may name the attribute without
+resolving it — plus a case asserting the workflow file really is one that emits
+it, so the sweep cannot go vacuous.
 
 ### F17 — python: F7 (declared `type` not honoured) is still open
 **Waiver:** W22 · **Severity: medium**

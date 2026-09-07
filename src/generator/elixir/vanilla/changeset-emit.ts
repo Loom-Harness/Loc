@@ -24,6 +24,7 @@ import type {
   OperationIR,
   SystemIR,
 } from "../../../ir/types/loom-ir.js";
+import { outboundReferenceFields } from "../../../ir/util/aggregate-flags.js";
 import { baseOf, ownFieldsOf } from "../../../ir/util/inheritance.js";
 import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { singleFieldConstraints } from "../../../ir/validate/invariant-classify.js";
@@ -450,6 +451,30 @@ ${keyAliasPairs.join(",\n")}
   });
   const uniqueBlock = uniqueLines.length > 0 ? `\n${uniqueLines.join("\n")}` : "";
 
+  // Cross-aggregate `X id` references (F16) — one `foreign_key_constraint/2` per
+  // reference column, tied to the FK the migration emits.  Without it a write
+  // naming a WELL-FORMED uuid for a row that does not exist raises
+  // `Ecto.ConstraintError` out of `Repo.insert` and leaks as a 500; with it Ecto
+  // returns `{:error, changeset}` and the controller's existing changeset arm
+  // renders the declared 422, carrying `{"pointer":"/<field>"}` — the same
+  // status the other four backends answer, with a field pointer this backend
+  // gets for free.  Exactly the shape `unique_constraint` above uses for 23505.
+  //
+  // The name is Postgres's own: `migrations-builder` emits the FK as an UNNAMED
+  // table constraint, which Postgres names `<table>_<column>_fkey` — which is
+  // also Ecto's default, so this is belt-and-braces rather than a correction.
+  // Spelled out anyway, for the same reason the unique names are: an implicit
+  // name that stops matching fails by RAISING, i.e. by turning the 422 back into
+  // the 500 this closes.
+  const fkLines = outboundReferenceFields(
+    agg.fields,
+    new Set(ctx.aggregates.map((a) => a.name)),
+  ).map((f) => {
+    const col = snake(f.name);
+    return `    |> foreign_key_constraint(:${col}, name: ${JSON.stringify(`${uniqueTable}_${col}_fkey`)})`;
+  });
+  const fkBlock = fkLines.length > 0 ? `\n${fkLines.join("\n")}` : "";
+
   // Cross-field aggregate invariants (`handle != email`) — no single-field
   // native chain fits, so they run through a custom `validate_invariants/1`
   // (changeset-invariant-emit).  Piped onto BOTH the create (`base_changeset`)
@@ -528,7 +553,7 @@ ${keyAliasPairs.join(",\n")}
     attrs = __normalize_keys(attrs)
     ${voKeyNormalizeLine}${updateVcPrep}struct
     |> cast(attrs, ${updateColsList})${presenceLine}
-    |> validate_required(${updateReqList})${validatorBlock}${castAssocBlock}${voBlock}${uniqueBlock}${invBlock}${optimisticLine}
+    |> validate_required(${updateReqList})${validatorBlock}${castAssocBlock}${voBlock}${uniqueBlock}${fkBlock}${invBlock}${optimisticLine}
   end`
     : "";
 
@@ -577,7 +602,7 @@ defmodule ${changesetMod} do
     attrs = __normalize_keys(attrs)
     ${voKeyNormalizeLine}${valueCollections.length > 0 ? "attrs = prepare_vc_attrs(attrs)\n\n    " : ""}struct
     |> cast(attrs, @all_fields)${defaultBlock}
-    |> validate_required(@required_fields)${validatorBlock}${castEmbedBlock}${castAssocBlock}${voBlock}${uniqueBlock}${invBlock}
+    |> validate_required(@required_fields)${validatorBlock}${castEmbedBlock}${castAssocBlock}${voBlock}${uniqueBlock}${fkBlock}${invBlock}
   end${updateChangesetBlock}${invariantFnBlock}${keyNormalizeHelper}${presenceHelper}${defaultHelper}${voHelper}${normalizeHelper}${ordinalHelper}
 
 ${actionHelpers}

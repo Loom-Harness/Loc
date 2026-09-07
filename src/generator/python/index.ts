@@ -12,6 +12,7 @@ import type {
 import { isMaterializedProjection, isQueryTimeProjection } from "../../ir/types/loom-ir.js";
 import type { MigrationsIR } from "../../ir/types/migrations-ir.js";
 import {
+  aggregatesCanTripDanglingReference,
   aggregatesHaveUniqueKeys,
   aggregatesNeedConcurrency,
 } from "../../ir/util/aggregate-flags.js";
@@ -21,7 +22,7 @@ import { durableEventTypes, realtimeEventTypes } from "../../ir/util/channels.js
 import { aggregateHasFileField } from "../../ir/util/file-field.js";
 import { foreignIdBrandNames, workflowIdTypeSources } from "../../ir/util/foreign-ids.js";
 import { mergeContexts } from "../../ir/util/merge-contexts.js";
-import { problemTitle } from "../../ir/util/openapi-errors.js";
+import { DANGLING_REFERENCE_DETAIL, problemTitle } from "../../ir/util/openapi-errors.js";
 import {
   effectiveSavingShape,
   resolveContextSchema,
@@ -651,6 +652,9 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
       collectOpUnions([merged]),
       aggregatesHaveUniqueKeys(merged.aggregates),
       hasConcurrency,
+      // The dangling-reference arm's own gate — a project with no cross-aggregate
+      // `X id` field cannot trip 23503 on a write, so it stays byte-identical.
+      aggregatesCanTripDanglingReference(merged.aggregates),
       // App-wide structural-conflict statuses (M-T3.4a): the enriched system
       // carries the map folded across every api's `httpStatus`. The global
       // exception handlers have no per-context tag, so they read it here.
@@ -1565,6 +1569,10 @@ function renderProblemPy(
   opUnions: PyOpUnion[],
   hasUniqueKeys = false,
   hasVersioned = false,
+  /** True when a write here can name a reference row that does not exist — the
+   *  integrity handler then carries the 23503 → domain-floor arm.  See
+   *  `aggregatesCanTripDanglingReference`. */
+  hasDanglingRef = false,
   /** App-wide resolved HTTP status per structural-conflict built-in
    *  (M-T3.4a). The global exception handlers have no per-context tag, so
    *  their hardcoded 409s resolve through this map (`httpStatus <Conflict>
@@ -1600,26 +1608,48 @@ function renderProblemPy(
   const componentsDict = JSON.stringify(
     Object.fromEntries(opUnions.map((u) => [u.name, u.schema])),
   );
-  // The 23505 → 409 IntegrityError handler (+ its import) is emitted only when
-  // some aggregate declares a `unique (...)` key, so a unique-free app stays
-  // byte-identical (the proposal's strict-additivity guarantee).
-  const integrityImport = hasUniqueKeys ? "\nfrom sqlalchemy.exc import IntegrityError" : "";
-  const integrityHandler = hasUniqueKeys
-    ? `    @app.exception_handler(IntegrityError)
-    async def _integrity(request: Request, err: IntegrityError) -> JSONResponse:
-        # A Postgres unique_violation (SQLSTATE 23505) — e.g. a \`unique (...)\`
-        # domain invariant breaching its derived DB unique index — maps to a
-        # friendly 409 Conflict instead of a raw 500.  Other integrity breaches
-        # (FK/check) are conflicts too, so they share the 409.  asyncpg exposes
-        # \`.sqlstate\` on the driver error SQLAlchemy wraps in \`.orig\`.
-        sqlstate = getattr(getattr(err, "orig", None), "sqlstate", None)
-        if sqlstate == "23505":
+  // One IntegrityError handler, two SQLSTATE arms — emitted when EITHER can
+  // fire, so an app that can trip neither stays byte-identical (the proposal's
+  // strict-additivity guarantee).  Each arm carries its own gate, so a
+  // unique-only app's handler is byte-identical to the pre-23503 one.
+  const hasIntegrityHandler = hasUniqueKeys || hasDanglingRef;
+  const integrityImport = hasIntegrityHandler ? "\nfrom sqlalchemy.exc import IntegrityError" : "";
+  // 23503 foreign_key_violation reaching the APP-WIDE handler is the
+  // dangling-reference case: a write named a well-formed id for a row that is
+  // not there.  The still-referenced DELETE trips the same SQLSTATE but is
+  // caught and answered locally on the destroy route, so it never arrives here.
+  // A reference that is absent is a well-formed request refused on semantic
+  // grounds — the domain floor (422 by default), which every write route already
+  // declares — not a conflict with state that exists.
+  const danglingRefArm = hasDanglingRef
+    ? `        if sqlstate == "23503":
+            log("warn", "domain_error", message=str(err), status=${domainStatus})
+            record_domain_fault("domain_error")
+            return problem(
+                request, ${domainStatus}, ${JSON.stringify(problemTitle(domainStatus))}, ${JSON.stringify(DANGLING_REFERENCE_DETAIL)}
+            )
+`
+    : "";
+  const uniqueArm = hasUniqueKeys
+    ? `        if sqlstate == "23505":
             log("warn", "disallowed", message=str(err), status=${uniquenessStatus})
             record_domain_fault("disallowed")
             return problem(
                 request, ${uniquenessStatus}, "Conflict", "A resource with these values already exists."
             )
-        log("warn", "disallowed", message=str(err), status=${uniquenessStatus})
+`
+    : "";
+  const integrityHandler = hasIntegrityHandler
+    ? `    @app.exception_handler(IntegrityError)
+    async def _integrity(request: Request, err: IntegrityError) -> JSONResponse:
+        # A DB constraint tripped.  Discriminate by Postgres SQLSTATE so a
+        # dangling cross-aggregate reference (23503 foreign_key_violation) is not
+        # conflated with a \`unique (...)\` breach (23505 unique_violation), which
+        # is a conflict with state that DOES exist.  Anything else is a conflict
+        # too, so it shares the 409.  asyncpg exposes \`.sqlstate\` on the driver
+        # error SQLAlchemy wraps in \`.orig\`.
+        sqlstate = getattr(getattr(err, "orig", None), "sqlstate", None)
+${danglingRefArm}${uniqueArm}        log("warn", "disallowed", message=str(err), status=${uniquenessStatus})
         record_domain_fault("disallowed")
         return problem(request, ${uniquenessStatus}, "Conflict", "The request conflicts with the current state.")
 

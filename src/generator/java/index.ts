@@ -24,6 +24,7 @@ import {
 import type { MigrationsIR } from "../../ir/types/migrations-ir.js";
 import type { OriginRef } from "../../ir/types/origin.js";
 import {
+  aggregatesCanTripDanglingReference,
   aggregatesCanTripReferencedDelete,
   aggregatesHaveUniqueKeys,
   aggregatesNeedConcurrency,
@@ -518,6 +519,9 @@ function emitProjectFromContexts(
       structuralErrorStatuses,
       validationMessages.length > 0,
       hasReferencedDelete,
+      // The 23503 → domain-floor arm's own gate: a write can name a reference row
+      // that does not exist.  A reference-free project stays byte-identical.
+      contexts.some((c) => aggregatesCanTripDanglingReference(c.aggregates)),
     ),
   );
   // F18 — a wrong verb on a static sub-path (`DELETE /api/customers/by_email`)

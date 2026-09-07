@@ -14,6 +14,11 @@ import {
   unionMemberObjects,
   unionMembers,
 } from "../../../generator/_payload/union-wire.js";
+import {
+  PG_FOREIGN_KEY_VIOLATION,
+  PG_REFERENCED_IN_USE_SQLSTATES,
+  PG_UNIQUE_VIOLATION,
+} from "../../../generator/_persistence/pg-sqlstate.js";
 import { MONEY_WIRE_SCALE } from "../../../generator/money-scale.js";
 import {
   historyMapperArgs,
@@ -72,6 +77,7 @@ import {
   type WirePrimitive,
   wireTypeInfo,
 } from "../../../ir/types/wire-types.js";
+import { aggregateCanTripDanglingReference } from "../../../ir/util/aggregate-flags.js";
 import {
   type ApiOperationIR,
   apiStatusContext,
@@ -90,7 +96,11 @@ import {
   operationGates,
   operationGatesUseCurrentUser,
 } from "../../../ir/util/op-gates.js";
-import { problemTitle, UNPROCESSABLE_ENTITY } from "../../../ir/util/openapi-errors.js";
+import {
+  DANGLING_REFERENCE_DETAIL,
+  problemTitle,
+  UNPROCESSABLE_ENTITY,
+} from "../../../ir/util/openapi-errors.js";
 import {
   camelId,
   opCreate,
@@ -1226,14 +1236,22 @@ export function buildRoutesFile(
       lines.push(`        await repo.delete(Ids.${agg.name}Id(id));`);
     }
     lines.push(`      } catch (err) {`);
-    // PG foreign_key_violation (SQLSTATE 23503) — the row is still
-    // referenced.  Map to a 409 problem locally so the shared onError
-    // (and every other route's behaviour) stays untouched.  drizzle-orm
+    // The row is still referenced.  Map to a 409 problem locally so the shared
+    // onError (and every other route's behaviour) stays untouched.  drizzle-orm
     // (>= the DrizzleQueryError era, e.g. the v5 zod-4 stack) wraps the driver
     // error, so the pg SQLSTATE rides `err.cause.code`, not `err.code`; read
     // both so the map works on the wrapped and the raw (older-drizzle) shapes.
+    //
+    // The SQLSTATE is `restrict_violation` (23001), NOT `foreign_key_violation`
+    // (23503): the FK this trips is emitted `ON DELETE RESTRICT`, and a RESTRICT
+    // check raises its own code.  Keying on 23503 alone is why this arm never
+    // fired and the declared 409 leaked as a 500 — measured on a booted app
+    // against a real Postgres, which the node behavioral leg cannot see because
+    // its PGlite DDL synthesises no foreign keys at all.  23503 stays in the set
+    // for a NO ACTION FK; on the delete path nothing else can raise it.
+    const referencedSqlstates = `[${PG_REFERENCED_IN_USE_SQLSTATES.map((c) => JSON.stringify(c)).join(", ")}]`;
     lines.push(
-      `        if (err && typeof err === "object" && (((err as { code?: string }).code ?? (err as { cause?: { code?: string } }).cause?.code) === "23503")) {`,
+      `        if (err && typeof err === "object" && ${referencedSqlstates}.includes(((err as { code?: string }).code ?? (err as { cause?: { code?: string } }).cause?.code) as string)) {`,
     );
     lines.push(
       `          return c.body(JSON.stringify({ type: "about:blank", title: ${JSON.stringify(httpStatusText(referencedInUseStatus))}, status: ${referencedInUseStatus}, detail: "${agg.name} is still referenced and cannot be deleted.", instance: c.req.path }), ${referencedInUseStatus}, { "content-type": "application/problem+json" });`,
@@ -1386,6 +1404,33 @@ export function buildRoutesFile(
     `      return problem(${notFoundStatus}, ${JSON.stringify(problemTitle(notFoundStatus))}, err.message);`,
   );
   lines.push(`    }`);
+  // PG foreign_key_violation (SQLSTATE 23503) reaching the SHARED onError is the
+  // DANGLING-reference case: a write named a well-formed id for a row that is
+  // not there.  The still-referenced DELETE trips the same SQLSTATE but is
+  // caught and answered locally on the destroy route above, so it never arrives
+  // here.  A reference that is absent is a well-formed request refused on
+  // SEMANTIC grounds — the domain floor (422 by default), which every write
+  // route already declares — not a conflict with state that exists, and not the
+  // 500 it leaked as before.  Wire validation cannot catch it: a uuid is only
+  // wrong because the row is missing.  Gated on this aggregate carrying a
+  // cross-aggregate `X id` (its own or a contained part's), so a
+  // reference-free aggregate's router emits byte-identically.
+  if (aggregateCanTripDanglingReference(agg, new Set(ctx.aggregates.map((a) => a.name)))) {
+    // drizzle-orm wraps the driver error (DrizzleQueryError), so the pg SQLSTATE
+    // rides `err.cause.code`, not `err.code`; read both, exactly as the local
+    // delete-path arm and the 23505 arm below do.
+    lines.push(
+      `    if (err && typeof err === "object" && (((err as { code?: string }).code ?? (err as { cause?: { code?: string } }).cause?.code) === ${JSON.stringify(PG_FOREIGN_KEY_VIOLATION)})) {`,
+    );
+    lines.push(
+      `      ${renderHonoLogCall("domainError", `aggregate: "${agg.name}", message: ${JSON.stringify(DANGLING_REFERENCE_DETAIL)}, status: ${domainStatus}`)}`,
+    );
+    lines.push(`      recordDomainFault("domain_error");`);
+    lines.push(
+      `      return problem(${domainStatus}, ${JSON.stringify(problemTitle(domainStatus))}, ${JSON.stringify(DANGLING_REFERENCE_DETAIL)});`,
+    );
+    lines.push(`    }`);
+  }
   // PG unique_violation (SQLSTATE 23505) — a `unique (...)` domain invariant
   // was breached (the DB unique index is the enforcement contract,
   // uniqueness-and-indexes.md D-UNIQUE-DB-AUTHORITATIVE).  Map to 409 Conflict
@@ -1399,7 +1444,7 @@ export function buildRoutesFile(
     // a genuine unique breach maps to 409 under the wrapped (v5) and raw
     // (older-drizzle) shapes alike, instead of falling through to a 500.
     lines.push(
-      `    if (err && typeof err === "object" && (((err as { code?: string }).code ?? (err as { cause?: { code?: string } }).cause?.code) === "23505")) {`,
+      `    if (err && typeof err === "object" && (((err as { code?: string }).code ?? (err as { cause?: { code?: string } }).cause?.code) === ${JSON.stringify(PG_UNIQUE_VIOLATION)})) {`,
     );
     lines.push(
       `      ${renderHonoLogCall("disallowed", `aggregate: "${agg.name}", message: (err as { constraint?: string }).constraint ?? (err as { cause?: { constraint?: string } }).cause?.constraint ?? "unique_violation", status: ${uniquenessStatus}`)}`,

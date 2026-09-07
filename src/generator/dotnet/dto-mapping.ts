@@ -270,6 +270,20 @@ export function wireType(
  *  operation body an omitted bool is a client error (RS-26), which is why
  *  Hono's body slot is an UNCOERCED `z.boolean()` — `z.coerce.boolean()`
  *  is `Boolean(input)` and would accept `undefined` as `false`. */
+/** The `using <ns>.Api;` line a DTO file needs IFF one of its record parameter
+ *  lists actually carries `[NoNulChar]` (the wire-string guard `dtoParam`
+ *  attaches on request DTOs).  The attribute lives in the project's own `Api`
+ *  namespace, so a file that emits it without the using is a CS0246 — and an
+ *  UNCONDITIONAL using is a CS8019 (unnecessary using) under `/warnaserror` on
+ *  every file whose records carry no wire string, which is every response file.
+ *
+ *  Shared because the gate was first written inline at the aggregate-DTO emitter
+ *  and the workflow request emitters call the same `dtoParam` without it — the
+ *  emitted project stopped compiling, and only a real `dotnet build` said so. */
+export function noNulCharUsing(ns: string, ...paramLists: readonly string[]): string {
+  return paramLists.some((p) => /\bNoNulChar\b/.test(p)) ? `using ${ns}.Api;\n` : "";
+}
+
 export function dtoParam(
   csType: string,
   name: string,

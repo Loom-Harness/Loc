@@ -16,6 +16,7 @@ import { isMaterializedProjection, isQueryTimeProjection } from "../../ir/types/
 import type { MigrationsIR } from "../../ir/types/migrations-ir.js";
 import type { OriginRef } from "../../ir/types/origin.js";
 import {
+  aggregatesCanTripDanglingReference,
   aggregatesHaveUniqueKeys,
   aggregatesNeedConcurrency,
 } from "../../ir/util/aggregate-flags.js";
@@ -970,6 +971,10 @@ function emitProjectFromContexts(
       usingDapper,
       hasUniqueKeys,
       hasVersioned: hasConcurrency,
+      // Only emit the 23503 → domain-floor arm when some aggregate carries a
+      // cross-aggregate `X id` field — a reference-free project cannot trip a
+      // foreign-key violation on a write, so it stays byte-identical.
+      hasDanglingRef: aggregatesCanTripDanglingReference(merged.aggregates),
       localizeMessages: validationMessages.length > 0,
       // App-wide structural-conflict `httpStatus` overrides (M-T3.4a) — the
       // resolved statuses are identical across every hosted context (folded

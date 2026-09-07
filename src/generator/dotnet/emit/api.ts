@@ -1,7 +1,12 @@
 import { emitsRestCreate } from "../../../ir/enrich/wire-projection.js";
 import type { AggregateIR, RepositoryIR } from "../../../ir/types/loom-ir.js";
 import { type ApiOperationIR, relativeOpPath } from "../../../ir/util/api-surface.js";
-import { errorStatuses, type OpErrorKind, problemTitle } from "../../../ir/util/openapi-errors.js";
+import {
+  DANGLING_REFERENCE_DETAIL,
+  errorStatuses,
+  type OpErrorKind,
+  problemTitle,
+} from "../../../ir/util/openapi-errors.js";
 import {
   camelId,
   type OpIdTokens,
@@ -15,6 +20,7 @@ import { lines } from "../../../util/code-builder.js";
 import { resolveErrorStatus } from "../../../util/error-defaults.js";
 import { plural, snake, upperFirst } from "../../../util/naming.js";
 import { renderDotnetLogCall, renderDotnetLogCallWithException } from "../../_obs/render-dotnet.js";
+import { PG_FOREIGN_KEY_VIOLATION, PG_UNIQUE_VIOLATION } from "../../_persistence/pg-sqlstate.js";
 import type { ReturnUnionSpec } from "../cqrs/controller.js";
 import { dotnetFindAbsenceThrow } from "./common.js";
 
@@ -696,6 +702,10 @@ export function renderExceptionFilter(
     usingDapper?: boolean;
     hasUniqueKeys?: boolean;
     hasVersioned?: boolean;
+    /** True when a write here can name a reference row that does not exist — the
+     *  filter then carries the dangling-reference arm.  See
+     *  `aggregatesCanTripDanglingReference`. */
+    hasDanglingRef?: boolean;
     /** App-wide resolved structural-conflict statuses (M-T3.4a) — the api's
      *  `httpStatus` override map, each defaulting to 409. Routes this global
      *  filter's hardcoded 409 arms (Disallowed / UniquenessConflict /
@@ -735,6 +745,9 @@ export function renderExceptionFilter(
   // A project with no `versioned` aggregate emits no concurrency-conflict
   // arm.
   const hasVersioned = !!options?.hasVersioned;
+  // A project with no cross-aggregate `X id` field emits no dangling-reference
+  // arm — only such a write can raise 23503.
+  const hasDanglingRef = !!options?.hasDanglingRef;
   // Persistence selection (D-REALIZATION-AXES): the EF adapter surfaces a
   // Postgres unique-violation wrapped in `Microsoft.EntityFrameworkCore.
   // DbUpdateException`; the Dapper adapter throws the bare
@@ -754,14 +767,44 @@ export function renderExceptionFilter(
   // domain invariant's DB index rejected the write.  The bare
   // `Npgsql.PostgresException` is the Dapper path; the EF adapter wraps it in a
   // `DbUpdateException`.  Emitted only when the project declares a `unique` key.
+  // Postgres foreign_key_violation (SQLSTATE 23503) reaching this APP-WIDE filter
+  // is the DANGLING-reference case: a write named a well-formed id for a row that
+  // is not there.  The still-referenced DELETE trips `restrict_violation` (23001)
+  // instead — the FK is `ON DELETE RESTRICT` — and is caught and answered locally
+  // on the destroy action anyway, so the two never collide here.  A reference that
+  // is absent is a well-formed request refused on SEMANTIC grounds: the domain
+  // floor (422 by default), which every write route already declares — not the
+  // 500 it leaked as before.  Wire validation cannot catch it, because a uuid is
+  // only wrong when the row is missing.  Both driver levels are read for the same
+  // reason as the 23505 arm: EF wraps the Npgsql error, Dapper throws it bare.
+  const danglingRefArm = hasDanglingRef
+    ? `
+        if (context.Exception is Npgsql.PostgresException { SqlState: ${JSON.stringify(PG_FOREIGN_KEY_VIOLATION)} }${
+          usingDapper
+            ? ""
+            : `
+            || (context.Exception is Microsoft.EntityFrameworkCore.DbUpdateException dre
+                && dre.InnerException is Npgsql.PostgresException { SqlState: ${JSON.stringify(PG_FOREIGN_KEY_VIOLATION)} })`
+        })
+        {
+            ${renderDotnetLogCall("domainError", [
+              { name: "message", valueExpr: JSON.stringify(DANGLING_REFERENCE_DETAIL) },
+              { name: "status", valueExpr: `${domainStatus}` },
+            ])}
+            global::${ns}.Observability.HttpMetrics.RecordDomainFault("domain_error");
+            context.Result = Problem(context, ${domainStatus}, "${problemTitle(domainStatus)}", ${JSON.stringify(DANGLING_REFERENCE_DETAIL)}, trace_id);
+            context.ExceptionHandled = true;
+            return;
+        }`
+    : "";
   const uniqueConflictArm = hasUniqueKeys
     ? `
-        if (context.Exception is Npgsql.PostgresException { SqlState: "23505" }${
+        if (context.Exception is Npgsql.PostgresException { SqlState: ${JSON.stringify(PG_UNIQUE_VIOLATION)} }${
           usingDapper
             ? ""
             : `
             || (context.Exception is Microsoft.EntityFrameworkCore.DbUpdateException due
-                && due.InnerException is Npgsql.PostgresException { SqlState: "23505" })`
+                && due.InnerException is Npgsql.PostgresException { SqlState: ${JSON.stringify(PG_UNIQUE_VIOLATION)} })`
         })
         {
             ${renderDotnetLogCall("disallowed", [
@@ -957,7 +1000,7 @@ public sealed class DomainExceptionFilter : IExceptionFilter
             context.Result = Problem(context, ${disallowedStatus}, "Disallowed", dx.Message, trace_id);
             context.ExceptionHandled = true;
             return;
-        }${uniqueConflictArm}${concurrencyConflictArm}
+        }${danglingRefArm}${uniqueConflictArm}${concurrencyConflictArm}
         // A domain-floor rejection (precondition / invariant) is 422 —
         // the request is well-formed, the domain refuses it on semantic
         // grounds.  400 stays for a malformed request.

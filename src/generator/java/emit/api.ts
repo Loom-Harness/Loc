@@ -11,7 +11,11 @@ import {
   isAllFind,
   relativeOpPath,
 } from "../../../ir/util/api-surface.js";
-import { problemTitle, UNPROCESSABLE_ENTITY } from "../../../ir/util/openapi-errors.js";
+import {
+  DANGLING_REFERENCE_DETAIL,
+  problemTitle,
+  UNPROCESSABLE_ENTITY,
+} from "../../../ir/util/openapi-errors.js";
 import { listReadFind } from "../../../ir/util/read-gates.js";
 import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { lines } from "../../../util/code-builder.js";
@@ -24,6 +28,7 @@ import {
 import { plural, snake, upperFirst } from "../../../util/naming.js";
 import { javaLogEvent } from "../../_obs/render-java.js";
 import { findUnionSpec } from "../../_payload/union-wire.js";
+import { PG_FOREIGN_KEY_VIOLATION, PG_RESTRICT_VIOLATION } from "../../_persistence/pg-sqlstate.js";
 import {
   collectJavaExprImports,
   javaValueTypeForId,
@@ -739,14 +744,19 @@ export function renderApiExceptionAdvice(
    *  422 handler then resolves each field error through `MessageSource` for the
    *  request locale.  False ⇒ byte-identical to pre-catalog output (M-T1.11). */
   localizeMessages = false,
-  /** True when a hard delete in this project can trip a Postgres
-   *  `foreign_key_violation` (a cross-aggregate `X id` FK is `ON DELETE
-   *  RESTRICT`).  The integrity handler below carries BOTH the 23503 and the
-   *  23505 arm, so it must be emitted when either can fire: gating it on
-   *  `hasUniqueKeys` alone left a reference-carrying, unique-free project
-   *  answering 500 on a still-referenced delete, where the other four backends
-   *  — and this project's own OpenAPI declaration — say `ReferencedInUse`. */
+  /** True when a hard delete in this project can trip Postgres
+   *  `restrict_violation` (a cross-aggregate `X id` FK is `ON DELETE RESTRICT`).
+   *  The integrity handler below carries every SQLSTATE arm, so it is emitted
+   *  when any of them can fire: gating it on `hasUniqueKeys` alone left a
+   *  reference-carrying, unique-free project answering 500 on a
+   *  still-referenced delete, where the other four backends — and this project's
+   *  own OpenAPI declaration — say `ReferencedInUse`. */
   hasReferencedDelete = false,
+  /** True when a write here can name a reference row that does not exist (a
+   *  cross-aggregate `X id` on the aggregate or on a contained part).  The
+   *  integrity handler then carries the 23503 → domain-floor arm.  See
+   *  `aggregatesCanTripDanglingReference`. */
+  hasDanglingRef = false,
 ): string {
   // Structural-conflict statuses resolved through the `httpStatus` mapper
   // (expressible-builtins.md §3 / M-T3.4a): a literal 409 by default, or the
@@ -765,8 +775,12 @@ export function renderApiExceptionAdvice(
   // arm further down (`no route for <verb> <path>`) is a different concern and
   // stays literal, on this backend and on the other four.
   const notFoundStatus = resolveErrorStatus("NotFound", structuralErrorStatuses);
-  // One handler, two integrity arms — emitted when EITHER can fire.
-  const hasIntegrityHandler = hasUniqueKeys || hasReferencedDelete;
+  // One handler, three integrity arms — emitted when ANY can fire.  Note
+  // `hasReferencedDelete` implies `hasDanglingRef` (it requires that something
+  // holds a reference, which is the whole of the dangling gate), so this is
+  // `hasUniqueKeys || hasDanglingRef` in practice; both are named so the reason
+  // each arm exists stays readable.
+  const hasIntegrityHandler = hasUniqueKeys || hasReferencedDelete || hasDanglingRef;
   const domainTitle = problemTitle(domainStatus);
   const forbiddenTitle = problemTitle(forbiddenStatus);
   const notFoundTitle = problemTitle(notFoundStatus);
@@ -924,15 +938,33 @@ export function renderApiExceptionAdvice(
       `    @ExceptionHandler(DataIntegrityViolationException.class)`,
       `    public ResponseEntity<ProblemDetail> onConflict(DataIntegrityViolationException e, WebRequest request) {`,
       `        // A DB constraint tripped; Spring translates it to DataIntegrityViolationException.`,
-      `        // Discriminate by Postgres SQLState so a still-referenced delete (23503`,
-      `        // foreign_key_violation → \`ReferencedInUse\`) is not conflated with a`,
-      `        // \`unique (...)\` breach (23505 unique_violation → \`UniquenessConflict\`).`,
-      `        // Either way return a friendly conflict instead of leaking a 500.`,
-      `        if ("23503".equals(sqlState(e))) {`,
-      `            CatalogLog.event(${javaLogEvent("conflict")}, "message", "This resource is still referenced and cannot be deleted.", "status", ${referencedInUseStatus});`,
-      `            httpMetrics.recordDomainFault("conflict");`,
-      `            return respond(problem(${referencedInUseStatus}, "Conflict", "This resource is still referenced and cannot be deleted.", request), ${referencedInUseStatus});`,
-      `        }`,
+      `        // Discriminate by Postgres SQLState.  The two FK arms are told apart by`,
+      `        // the code alone: a cross-aggregate \`X id\` FK is \`ON DELETE RESTRICT\`, so`,
+      `        // a still-referenced DELETE raises \`restrict_violation\` (23001) while a`,
+      `        // write naming a reference row that is ABSENT raises`,
+      `        // \`foreign_key_violation\` (23503).  Keying the still-referenced arm on`,
+      `        // 23503 is why it never fired here and a delete fell through to the`,
+      `        // unique-violation arm, answering a conflict about values that already`,
+      `        // exist.  \`unique (...)\` is 23505.  Anything else is a conflict too.`,
+      hasReferencedDelete &&
+        `        if (${JSON.stringify(PG_RESTRICT_VIOLATION)}.equals(sqlState(e))) {`,
+      hasReferencedDelete &&
+        `            CatalogLog.event(${javaLogEvent("conflict")}, "message", "This resource is still referenced and cannot be deleted.", "status", ${referencedInUseStatus});`,
+      hasReferencedDelete && `            httpMetrics.recordDomainFault("conflict");`,
+      hasReferencedDelete &&
+        `            return respond(problem(${referencedInUseStatus}, "Conflict", "This resource is still referenced and cannot be deleted.", request), ${referencedInUseStatus});`,
+      hasReferencedDelete && `        }`,
+      // A reference that is absent is a well-formed request refused on SEMANTIC
+      // grounds — the domain floor (422 by default), which every write route
+      // already declares — not a conflict with state that exists.
+      hasDanglingRef &&
+        `        if (${JSON.stringify(PG_FOREIGN_KEY_VIOLATION)}.equals(sqlState(e))) {`,
+      hasDanglingRef &&
+        `            CatalogLog.event(${javaLogEvent("domainError")}, "message", ${JSON.stringify(DANGLING_REFERENCE_DETAIL)}, "status", ${domainStatus});`,
+      hasDanglingRef && `            httpMetrics.recordDomainFault("domain_error");`,
+      hasDanglingRef &&
+        `            return respond(problem(${domainStatus}, ${JSON.stringify(domainTitle)}, ${JSON.stringify(DANGLING_REFERENCE_DETAIL)}, request), ${domainStatus});`,
+      hasDanglingRef && `        }`,
       `        CatalogLog.event(${javaLogEvent("disallowed")}, "message", "A resource with these values already exists.", "status", ${uniquenessStatus});`,
       `        httpMetrics.recordDomainFault("disallowed");`,
       `        return respond(problem(${uniquenessStatus}, "Conflict", "A resource with these values already exists.", request), ${uniquenessStatus});`,
@@ -1218,7 +1250,8 @@ export function renderApiExceptionAdvice(
     hasIntegrityHandler && [
       ``,
       `    /** First Postgres SQLState in a DataAccessException's cause chain, or null`,
-      `     *  — 23503 = foreign_key_violation (still referenced), 23505 = unique. */`,
+      `     *  — 23001 = restrict_violation (still referenced), 23503 =
+     *  foreign_key_violation (dangling reference), 23505 = unique. */`,
       `    private static String sqlState(Throwable e) {`,
       `        for (Throwable t = e; t != null; t = t.getCause()) {`,
       `            if (t instanceof java.sql.SQLException sql) return sql.getSQLState();`,
