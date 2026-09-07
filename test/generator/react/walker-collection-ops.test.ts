@@ -74,15 +74,23 @@ describe("walker — inline collection-op lambdas in expression position", () =>
   });
 
   it("renders a `map` callback as a param-arrow (no unsupported stub)", async () => {
-    // NB: a collection lambda param is untyped in the page's neutral
-    // lowering env, so arithmetic against a literal lowers as the
-    // documented implicit-string-concat (`n + String(1)`).  That's an
-    // orthogonal `convert` behaviour — here we only pin the callback
-    // structure the lambda arm produces.
+    // NB the PARENTHESISED receiver — `([1, 2]).map(…)`, not `[1, 2].map(…)`.
+    // `map` is in `FRONTEND_RENDERED_COLLECTION_OPS`, so it routes through the
+    // shared `renderJsCollectionOp` table rather than the walker's verbatim
+    // `<recv>.<member>(<args>)` fall-through, and that table wraps the receiver
+    // exactly as `typescript/render-expr.ts` does before calling the SAME
+    // table.  That is the point of sharing it: `[1, 2].map(n => n + 1)` in a
+    // page body and in an aggregate `derived` emit the same string.  The paren
+    // is redundant on a list literal and load-bearing on a binary receiver;
+    // the table does not try to tell them apart.
+    //
+    // `filter` is NOT in the catalogue (Loom spells it `where`), which is why
+    // the sibling cases below still read `[1, 2, 3].filter(` unparenthesised —
+    // they take the verbatim path.
     const tsx = await reactPage(
       `Stack { For { each: [1, 2].map(n => n + 1), n => Heading { "x" } } }`,
     );
-    expect(tsx).toContain("[1, 2].map((n) =>");
+    expect(tsx).toContain("([1, 2]).map((n) => (n + 1))");
     expect(tsx).not.toContain("unsupported expr");
   });
 
