@@ -288,7 +288,7 @@ Found 2026-08-23 by the numeric-types audit ([F2](../audits/numeric-types-audit-
 
 Sources: [numeric-types-audit-2026-08-23](../audits/numeric-types-audit-2026-08-23.md) F2, plan.json N2. Relates to M-T1.16 (Feliz polish), M-T9.38 (runtime leg).
 
-## M-T1.23 — A money form input makes the generated React/Svelte app fail to build — `in-flight` (PR [#2672](https://github.com/lemmit/Loc/pull/2672), ready for review since 2026-08-30 — unmerged as of 2026-09-02) · **S–M** · P1 ⭐ duplicate `Decimal` import, hidden by a witness gap
+## M-T1.23 — A money form input makes the generated React/Svelte app fail to build — `done` (Wave 1, [#2671](https://github.com/lemmit/Loc/pull/2671)) · **S–M** · P1 ⭐ duplicate `Decimal` import, hidden by a witness gap
 
 Found 2026-08-23 by the numeric-types audit ([F3](../audits/numeric-types-audit-2026-08-23.md)). The page shell emits `import Decimal from "decimal.js"` when a page binds Decimal (`src/generator/react/walker/page-shell.ts`, Svelte twin), while every pack's `field-input-money` template *also* declares `{from: "decimal.js", named: ["Decimal"]}` — both land in the emitted page: `TS2300: Duplicate identifier 'Decimal'`, reproduced with tsc on emitted output. The generated app does not build.
 
@@ -297,6 +297,10 @@ Found 2026-08-23 by the numeric-types audit ([F3](../audits/numeric-types-audit-
 **The fix:** one import owner — the shell's import collector absorbs (or skips) what the active pack already declares. Add a money-primitive create form to a build-matrix example in the same PR (the F18 witness), so the gate reaches the shape forever.
 
 **Verification when it lands.** A walker test pins single-import on a money-form page; the matrix example compiles; mutation-proved by re-duplicating the import.
+
+**Landed 2026-08-30.** `takeDecimalImport` in `src/generator/_walker/render-primitive.ts` (beside the `takeReactSpecifiers` precedent) drains the pack's declaration; the React and Svelte page shells stay the single emitter and OR the drained flag into their own fallback. Packs keep declaring, so an out-of-tree pack still works. The React **component** shell's dead `_decimalImport` (computed, never spliced — TS2304 on a `component` with a money `state {}`) was wired in the same change, because the drain removes the accident that was covering it. Witness: `page BuildDesk` in `examples/showcase.ddd`'s `ui Console` — the PR-time React build slice, red with TS2300 before / green after on `mantine@v9` + `shadcn@v4`. `test/generator/_walker/money-decimal-import.test.ts` now COUNTS the import lines per framework (presence is what passed while the app didn't build); seven mutation proofs recorded in the PR.
+
+**Three adjacent findings, all fixed here.** `CreateForm` renders `createInputFields(agg).filter(f => !f.optional)`, so an OPTIONAL money field never reaches a create form — the witness rides the crudish `update` `OperationForm` instead. The Svelte api module (`src/generator/svelte/api-builder.ts`) never emitted the dual `FormState`/`Payload` aliases its own form emitter imports (fixed, tested + mutation-proved). And the walker registered `<Action>FormState` as a VALUE import, which SvelteKit's `verbatimModuleSyntax` rejects (TS1484) — `addTypeImport` in `_walker/render-primitive.ts` now stores the inline `type X` import specifier, valid TS on every frontend, so the four FormState registrations in `_walker/primitives/forms.ts` ride it. That unblocked the Svelte matrix witness: `creditLimit: money?` on `examples/svelte-shop.ddd`'s crudish `Customer` puts `field-input-money` on the scaffolded Detail page's update form — red before the fixes / green after on `shadcnSvelte@v1` + `flowbite@v1`, so both PR-time Svelte packs now reach the shape.
 
 Sources: [numeric-types-audit-2026-08-23](../audits/numeric-types-audit-2026-08-23.md) F3/F18, plan.json N3. Conflicts with M-T1.24 in the shared walker tree — sequence or stack.
 
@@ -383,7 +387,7 @@ Sources: ledger `G2646-open-heex-in-component-degradation`
 ([targets-completeness-2026-08-30](../audits/targets-completeness-2026-08-30.md)),
 PR #2704. Builds directly on #2646.
 
-## M-T1.28 — `toast()` emits an undefined symbol on React, and a `derived` reading a store field emits an unbound identifier on React and Flutter — `open` · **M** · P1 ⚠ verify-first
+## M-T1.28 — `toast()` emits an undefined symbol on React, and a `derived` reading a store field emits an unbound identifier on React and Flutter — `in-flight` · **M** · P1
 
 Found 2026-09-03 by the language-docs audit ([F3](../audits/2026-09-03-language-docs-audit-findings.md), [F9](../audits/2026-09-03-language-docs-audit-findings.md), both P0). An action body or `Action { …, then: toast("x") }` renders `toast("Draft saved");` into the page or component TSX with no import and no definition anywhere in the generated project — Svelte emits `src/lib/toast.svelte.ts` and elixir maps to `put_flash`, but `src/generator/react/**` has no handling, so the generated app does not type-check. Separately, a `derived` that reads a store field drops the receiver: `store Cart persist: local { state { count: int = 0 } }` + `derived count: int = Cart.count` emits `const count = useMemo(() => count, []);` (`src/generator/react/walker/page-shell.ts:248`, component twin at `:979`), and renaming the derived proves it is a drop rather than shadowing (`derived itemCount = Cart.count` → `useMemo(() => count, [])` with `count` undeclared). Flutter interpolates the same bare identifier. `loom.unresolved-page-ref` covers rendered slots only, not `derived` initialisers.
 
@@ -391,7 +395,11 @@ Found 2026-09-03 by the language-docs audit ([F3](../audits/2026-09-03-language-
 
 **Verification when it lands.** The generated web project type-checks with a toast action and a store-reading `derived`; per-target walker tests mutation-proved by file-copy revert. Prefer a build-matrix example carrying both shapes, so the gate reaches them forever.
 
-Sources: [language-docs-audit-2026-09-03](../audits/2026-09-03-language-docs-audit-findings.md) F3/F9, [wave plan](../audits/2026-09-03-language-docs-audit-findings.waves.md) packet **W1.2** (`src/generator/react/**`, `src/generator/flutter/**`).
+**Landed 2026-09-06 as [#2786](https://github.com/lemmit/Loc/pull/2786)** (open for review), with two corrections to the finding. **F3 is narrower:** React already handles toast on the **realtime-handler** path (and #2732 widens *that* path, not this one); only the **action-body / `then:`** path was broken, where `toast(...)` falls through walker-core's generic call arm. Fixed by emitting `src/lib/toast.ts` and importing it where the IR says the effect is used — chakra v2 binds its own `useToast` in the same page and an `extern function toast(...)` owns the name, so the gate is IR-based, not a text scan. **F9 is misattributed on Flutter:** it does not interpolate a bare identifier — `derivedResolvableOnPage` refused the store-field ref, so the derived was dropped *whole* and the body read rendered the give-up comment. It compiles; it is a silent drop, and it belongs to the Wave-2 fail-open-predicate family. Fixed on both targets anyway (on Flutter the store bindings also move above the derived `final`s, since Dart is not hoisted); `store-showcase.ddd` and `action-showcase.ddd` now carry both shapes into the React build matrix permanently.
+
+**Two follow-ups this opened, neither owned yet:** routing toast through each pack's native notification widget needs a **`renderToast` seam on `WalkerTarget`** plus a walker-core arm (Wave 2's tree — M-T1.29/M-T1.30/M-T1.31 territory); and **[F50](../audits/2026-09-03-language-docs-audit-findings.md) — Svelte has both defects too** (emits `toast.svelte.ts` and never imports it; `const itemCount = $derived(count);` with `count` unbound) and no packet claims it.
+
+Sources: [language-docs-audit-2026-09-03](../audits/2026-09-03-language-docs-audit-findings.md) F3/F9 (+ F50, unowned), [wave plan](../audits/2026-09-03-language-docs-audit-findings.waves.md) packet **W1.2** (`src/generator/react/**`, `src/generator/flutter/**`).
 
 ## M-T1.29 — A page whose `body:` is a bare `match` is dropped entirely on React and Svelte, while Vue renders it — `open` · **M** · P1 ⚠ verify-first
 

@@ -96,6 +96,13 @@ const CASES: Array<[fixture: string, project: string, flags?: string]> = [
   // The first File-bearing python project to compile — domain/schema/repository
   // never type-checked with a File field before (FileRef was undefined).
   ["test/e2e/fixtures/python-build/file-upload.ddd", "api"],
+  // Typed in-system api client (M-T4.8) whose CALLEE carries `spec: File?`
+  // (audit F7).  The caller declares no File field of its own, so this is the
+  // one path where `FileRef` reaches a project through the client's response
+  // model alone — it used to render `FileRef | None | None` with no import and
+  // no `app/domain/file_ref.py`, which ruff F821 + mypy name-defined both
+  // reject.  No python-build fixture reached the typed api client before.
+  ["test/e2e/fixtures/python-build/api-client-file.ddd", "shipping_svc"],
   // shape: document: one jsonb (id, data, version) blob + in-memory finds.
   ["test/e2e/fixtures/python-build/document.ddd", "api"],
   // shape: document + capability filter (DEBT-02 tail complete): non-principal
