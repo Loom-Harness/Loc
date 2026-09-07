@@ -111,6 +111,9 @@ try {
   process.exit(0);
 } catch (e) {
   console.error("AUTH-GATE SMOKE FAILED:", e.message);
+  // The page's own errors, which the end-of-run check never reaches when
+  // the failure is a timeout — the normal shape when nothing rendered.
+  if (errors.length > 0) console.error("  page errors:\n   ", errors.join("\n    "));
   await browser.close();
   process.exit(1);
 }
