@@ -1005,10 +1005,17 @@ export function tryRenderNavigateCall(
 ): string | undefined {
   if (name !== "navigate") return undefined;
   const pageRef = args[0];
+  // A STRING first argument is a literal route path (`navigate("/orders")`).
+  // `pageRoutes` is keyed by the page's bare name, and the scaffold names every
+  // aggregate's list page `List` inside its own `area` — so a page REF cannot
+  // address one list unambiguously, and a body that must reach a specific route
+  // spells the path.  Before this arm such a call silently resolved to `"/"`.
   const route =
-    pageRef && pageRef.kind === "ref"
-      ? (ctx.pageRoutes?.get(pageRef.name) ?? `/${snake(pageRef.name)}`)
-      : "/";
+    pageRef && pageRef.kind === "literal" && pageRef.lit === "string"
+      ? pageRef.value
+      : pageRef && pageRef.kind === "ref"
+        ? (ctx.pageRoutes?.get(pageRef.name) ?? `/${snake(pageRef.name)}`)
+        : "/";
   ctx.usesNavigate = true;
   // A second arg is an opaque route-state expression (`navigate(Page, sel)`);
   // the contract's `stateExpr` escape hatch embeds it verbatim.
@@ -1537,6 +1544,8 @@ function emitMemberAccess(
     member: expr.member,
     receiverType: expr.receiverType,
     memberType: expr.memberType,
+    receiverExpr: expr.receiver,
+    ctx,
   });
   const plain = spelled ?? `${recv}.${expr.member}`;
   return unwrapProvenanced && isProvenancedCarrierRead(expr, ctx)
@@ -1682,6 +1691,14 @@ export function emitExpr(expr: ExprIR, ctx: WalkContext): string {
       if (expr.op === "+" || expr.op === "-") {
         const temporal = ctx.target.exprTemporalBinary?.(left, right, expr);
         if (temporal !== undefined && temporal !== null) return temporal;
+      }
+      // Money next, for EVERY operator (not just `+`/`-`): on a target whose
+      // money is not a numeric type, the comparisons are as wrong as the
+      // arithmetic — a string `<` orders '10' before '9'.  Same null-means-
+      // fall-through contract, so a target that omits the seam is byte-identical.
+      {
+        const money = ctx.target.exprMoneyBinary?.(left, right, expr);
+        if (money !== undefined && money !== null) return money;
       }
       // Operator-spelling + strict-equality mapping lives in the target's leaf
       // (JS `===`/`!==`; F# `=`/`<>`).
