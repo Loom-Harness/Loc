@@ -93,8 +93,15 @@ describe("seed — parse-error recovery does not crash the lowerer", () => {
   // lowerer a `SeedRow` the AST type says cannot exist.  `lowerSeed`
   // dereferenced `row.value.fields` and threw
   // `TypeError: Cannot read properties of undefined (reading 'fields')`,
-  // which replaced the parse + linking errors that describe the mistake with
-  // a stack trace (audit 2026-09-03 F5, packet W1.4 / M-T5.27).
+  // which replaced the parse error that describes the mistake with a stack
+  // trace (audit 2026-09-03 F5, packet W1.4 / M-T5.27).
+  //
+  // The linking error this originally also asserted is gone by DESIGN since
+  // M-FT.4 (#2761): a document that does not parse is no longer validated, so
+  // no linking/validator diagnostic is invented over the recovered tree.  That
+  // strengthens F5's point rather than weakening it — the parse error is now
+  // the ONLY thing standing between the user and a stack trace, so the
+  // lowerer discarding it is the whole defect.
   const SRC = `
     system S { subdomain M {
       context Parties {
@@ -106,10 +113,12 @@ describe("seed — parse-error recovery does not crash the lowerer", () => {
     }}
   `;
 
-  it("reports the parse and linking errors instead of throwing", async () => {
+  it("reports the parse error instead of throwing", async () => {
     const { errors } = await parseString(SRC);
     expect(errors.some((e) => e.includes("Expecting token of type '{'"))).toBe(true);
-    expect(errors.some((e) => e.includes("Could not resolve reference to Aggregate"))).toBe(true);
+    // Post-M-FT.4 the recovered tree is NOT validated, so the linking error
+    // that used to accompany this is deliberately absent.
+    expect(errors.some((e) => e.includes("Could not resolve reference to Aggregate"))).toBe(false);
   });
 
   it("lowers the recovered row to zero fields rather than crashing", async () => {
