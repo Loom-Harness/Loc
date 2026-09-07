@@ -425,9 +425,16 @@ function emitSystem(
 // harness (`_frontend/e2e-harness.ts`) already carried it.
 //
 // `vitest` is pinned to the SAME major the default node backend package pins
-// (`platform/hono/v5/pins.ts`) rather than one two majors behind it: a single
-// generated tree shipping vitest 2 here and vitest 4 in the backend means the
+// (`platform/hono/v5/pins.ts`) rather than two majors behind it: a single
+// generated tree shipping vitest 2 here and vitest 3 in the backend means the
 // runner a developer already has installed is the wrong one for half the tree.
+//
+// That pin is 3.x, NOT 4.x, and deliberately so — see the long note beside it:
+// `npm install vitest@4` dies in arborist's `#loadPeerSet` (npm 10.9.7) and a
+// generated project ships no lockfile, so every fresh install resolves the
+// graph and hits it.  This project is installed for real by the
+// `generated-build` gate below, so a 4.x pin here does not merely look wrong,
+// it fails.
 const E2E_PACKAGE_JSON =
   JSON.stringify(
     {
@@ -439,7 +446,7 @@ const E2E_PACKAGE_JSON =
       devDependencies: {
         "@types/node": "^22.0.0",
         typescript: "^6.0.0",
-        vitest: "^4.0.0",
+        vitest: "^3.2.0",
       },
     },
     null,

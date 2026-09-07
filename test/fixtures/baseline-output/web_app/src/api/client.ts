@@ -122,8 +122,17 @@ async function rawUpload(path: string, form: FormData): Promise<unknown> {
  * already been concatenated into one string and are indistinguishable from the
  * separators.  Encoding has to happen at the interpolation site, which is why
  * this is exported.
+ *
+ * `undefined` is in the parameter type because it is in the CALL SITES' type:
+ * a by-id read hook takes `id: string | undefined` (it is `enabled: !!id`
+ * guarded, so the URL is built but never fetched on the undefined pass).  The
+ * interpolation this replaced was a bare `${id}`, and a template literal
+ * accepts anything -- so narrowing the parameter to `string | number` did not
+ * make those call sites safer, it just failed to compile them.  `String(...)`
+ * reproduces the old spelling exactly, `"undefined"` included.
  */
-export const seg = (value: string | number): string => encodeURIComponent(String(value));
+export const seg = (value: string | number | undefined): string =>
+  encodeURIComponent(String(value));
 
 // The wire shape a `File` field / FileUpload primitive round-trips (the
 // object-store reference the upload endpoint returns).

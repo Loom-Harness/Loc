@@ -177,9 +177,13 @@ describe("path parameters are percent-encoded in the generated client", () => {
   it("every id interpolated into a client URL goes through seg()", async () => {
     const files = await emit(SRC(""));
     const client = fileEndingWith(files, "src/api/client.ts");
-    expect(client).toContain(
-      "export const seg = (value: string | number): string => encodeURIComponent(String(value));",
-    );
+    // `undefined` is in the parameter type because it is in the CALL SITES'
+    // type — a by-id hook takes `id: string | undefined`.  Narrowing it broke
+    // `tsc --noEmit` on every generated frontend (the string tests and the
+    // byte-for-byte baseline are both blind to that; `generated-react-build`
+    // is what caught it).
+    expect(client).toContain("export const seg = (value: string | number | undefined): string =>");
+    expect(client).toContain("encodeURIComponent(String(value));");
 
     const mod = fileEndingWith(files, "src/api/order.ts");
     expect(mod).toContain('import { api, seg } from "./client";');
