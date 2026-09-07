@@ -87,10 +87,14 @@ export const COMPILE_WAIVERS: readonly Waiver[] = [
     // entirely.  One construct, three behaviours, one backend — the pairwise
     // thesis stated as a bug.
     //
-    // Node and Java both get every shape right; Phoenix gets it wrong a THIRD
-    // way that no compile leg here proves (see F14 in the register: the
-    // document-shape repository defines `by_label/3` while the context
-    // delegate declares arity 5).
+    // Node gets every shape right.  Phoenix got it wrong a THIRD way — the
+    // document-shape repository defined `by_label/3` while the context
+    // delegate declared arity 5 (F14) — which is FIXED in this PR
+    // (`document-emit.ts` now emits `sort`/`dir` on the paged head and sorts
+    // in memory); the elixir compile leg proves it, so F14 has no waiver.
+    // Java gets the SHAPE right but trips over identity under `tph` — see
+    // F15 below, which is a different defect that happens to share the
+    // `document` crossing.
     platform: "python|dotnet",
     persistence: "*",
     capability: "*",
@@ -102,6 +106,77 @@ export const COMPILE_WAIVERS: readonly Waiver[] = [
       "F12 — paged × document/eventLog on python + dotnet: the caller expects the " +
       "envelope, the non-relational repository builders drop the carrier " +
       "(mypy call-arg/attr-defined; CS0535)",
+  },
+  {
+    // ---- F15 (W3) ------------------------------------------------------
+    // `inheritance: tph` × `shape: document` on JAVA.  The emitted service
+    // does not compile:
+    //
+    //   ThingService.java:36: error: incompatible types:
+    //   ThingBaseId cannot be converted to ThingId
+    //           return aggregate.id();
+    //
+    // ROOT CAUSE — two emitters disagree about what "TPH" means when the BASE
+    // says `sharedTable` but the CONCRETE says `ownTable`.  That pairing is
+    // not exotic: `compose.ts` forces it, because `loom.es-tph-forced-own-table`
+    // REQUIRES a document/eventLog concrete of a shared-table base to declare
+    // `inheritanceUsing: ownTable`.  So the base is a TPH base with zero
+    // concretes that actually share its table.  The two sides then answer
+    // different questions about the same aggregate:
+    //
+    //   entity  (java/index.ts → renderEntity)  asks "is my BASE a TPH base?"
+    //           `sharesIdentity: !!tphBase` → true → the concrete declares no
+    //           id of its own and inherits `ThingBaseId`.
+    //   id class (java/index.ts:1691)          asks "am I a TPH CONCRETE?"
+    //           `tableOwnerName` → `isTphConcrete` → false (ownTable) →
+    //           `ThingId`, which the repository, service and controller all use.
+    //
+    // Only `return aggregate.id()` actually fails to compile; every other id
+    // surface is a type parameter that happens to typecheck. That is what makes
+    // it worth a register row rather than a one-line patch — the emitted slice
+    // is split-brained throughout, and the compiler only notices in one place.
+    //
+    // NOT fixed here, deliberately.  The coherent fix is that a `sharedTable`
+    // base with no sharing concretes is not a TPH base — i.e. `isTphBase`
+    // gains a `tphConcretesOf(...).length > 0` clause — and that predicate is
+    // read by java, dotnet, elixir, hono/v4, the phase-⑨ migrations builder and
+    // a structural validator.  Changing it moves the emitted DDL as well as the
+    // JPA mapping, which is precisely the class of change only the heavy tier
+    // can clear; `main` is red and the queue is not passing anything through
+    // right now, so landing it blind would be the wrong order.  A java-local
+    // patch is not an option either: flipping `sharesIdentity` alone makes the
+    // concrete declare `ThingId id()` over a base that still declares
+    // `ThingBaseId id()` — an invalid override, i.e. the same build failure
+    // one line further down.
+    //
+    // .NET carries the SAME latent defect (`dotnet/index.ts:1412-1420` is the
+    // identical pairing, and the emitted `CreateThingHandler` returns
+    // `aggregate.Id` from a `ValueTask<ThingId>`), but its cover does not reach
+    // this crossing, so it stays green and takes no waiver.  Recorded in the
+    // issue rather than guessed at here.
+    //
+    // SCOPE — MEASURED, one gradle run per case, not inferred from the shape:
+    //   none-document-deny-tph-paged-default        FAILS (ThingService:36)
+    //   none-document-requires-tph-paged-default    FAILS (ThingService:40)
+    //   tenantOwned-document-none-tph-paged-default FAILS (ThingService:37)
+    //   audited-eventLog-policyAllow-tph-default    PASSES
+    // So `eventLog` is NOT in scope even though it is forced to `ownTable` by
+    // the same validator — the event-sourced service never returns the
+    // aggregate's id from `create`.  `read: "*"` is written for intent; the
+    // java cover only reaches `paged` on this crossing today, so it is
+    // equivalent to `"paged"` and will not silently widen.
+    platform: "java",
+    persistence: "*",
+    capability: "*",
+    shape: "document",
+    authz: "*",
+    inheritance: "tph",
+    read: "*",
+    reason:
+      "F15 — tph × document on java: the entity inherits `<Base>Id` because its " +
+      "BASE is a TPH base, while every other id surface uses `<Agg>Id` because " +
+      "the CONCRETE is not a TPH concrete (forced `ownTable`); " +
+      "`return aggregate.id()` does not compile",
   },
   {
     // ---- F13 (W3) ------------------------------------------------------

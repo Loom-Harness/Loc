@@ -58,6 +58,7 @@ import type {
 } from "../../../ir/types/loom-ir.js";
 import { exprUsesCurrentUser } from "../../../ir/types/loom-ir.js";
 import { isDocumentShaped, resolveDataSourceConfig } from "../../../ir/util/resolve-datasource.js";
+import { sortableFields } from "../../../ir/util/sortable-fields.js";
 import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { singleFieldConstraints } from "../../../ir/validate/invariant-classify.js";
 import { plural, snake, upperFirst } from "../../../util/naming.js";
@@ -718,24 +719,58 @@ function renderDocFindFn(
     // paged find action maps `serialize/1` over `items` (the loaded `%<Agg>{}`
     // rows), so the envelope carries rows, not wire maps — parity with the
     // relational `Repo.aggregate(:count)` + `limit/offset` paged shape.
+    // `sort`/`dir` are NOT optional decoration: `context-emit.ts` emits the
+    // defdelegate head with the paged arity `(…, page, page_size, sort, dir)`
+    // for EVERY paged find, whatever the saving shape.  Emitting the head with
+    // only `page`/`page_size` here made the delegate name a function that does
+    // not exist — `D.Main.ThingRepository.by_label/5 is undefined or private.
+    // Did you mean by_label/1, /2, /3` — which `--warnings-as-errors` turns
+    // into a failed `mix compile`.  The arity is a CONTRACT between the two
+    // emitters; F14 in the pairwise findings register is this defect.
     const pageArgs = [
       `page \\\\ ${PAGED_DEFAULT_PAGE}`,
       `page_size \\\\ ${PAGED_DEFAULT_PAGE_SIZE}`,
+      `sort \\\\ "id"`,
+      `dir \\\\ "asc"`,
     ];
     const argList = [...argNames, ...pageArgs, ...actorArgs].join(", ");
     const specArgs = [
       ...argNames.map(() => "term()"),
       "pos_integer()",
       "pos_integer()",
+      "String.t()",
+      "String.t()",
       ...actorSpec,
     ].join(", ");
+    // The relational path sorts in the Ecto query (`order_by`); a document find
+    // has already materialised its rows, so the same whitelist becomes an
+    // in-memory key function.  `matched` holds `%<Agg>{}` ROWS — `id` is a real
+    // column, every domain field lives inside the `data` embed — so the two
+    // cases read from different places.  Anything outside the whitelist falls
+    // back to `id`, exactly as the relational arms do.
+    const docSortArms = sortableFields(agg)
+      .filter((wf) => wf !== "id")
+      .map((wf) => `            "${wf}" -> row.data.${snake(wf)}`)
+      .join("\n");
     return `  @spec ${fnName}(${specArgs}) :: {:ok, map()} | {:error, term()}
   def ${fnName}(${argList}) do
     matched =${filter}
 
-    total = length(matched)
+    sorted =
+      Enum.sort_by(
+        matched,
+        fn row ->
+          case sort do
+${docSortArms}
+            _ -> row.id
+          end
+        end,
+        if(dir == "desc", do: :desc, else: :asc)
+      )
+
+    total = length(sorted)
     offset = (page - 1) * page_size
-    items = Enum.slice(matched, offset, page_size)
+    items = Enum.slice(sorted, offset, page_size)
 
     {:ok,
      %{

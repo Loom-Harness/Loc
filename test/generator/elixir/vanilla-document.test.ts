@@ -444,13 +444,23 @@ system Shop {
 
   it("builds the paged envelope in-memory (filter → slice → %{items,page,…})", async () => {
     const repo = file(await generateSystemFiles(DOC_PAGED), "/shop/ticket_repository.ex");
-    // Page controls with the shared defaults.
-    expect(repo).toContain("def recent(page \\\\ 1, page_size \\\\ 20) do");
-    expect(repo).toContain("def by_status(status, page \\\\ 1, page_size \\\\ 20) do");
-    // Filter the whole table, then slice the page in memory.
+    // Page controls with the shared defaults.  `sort`/`dir` are part of the
+    // head because `context-emit.ts` emits the defdelegate at that arity for
+    // EVERY paged find — this used to stop at `page_size`, and the delegate
+    // then named a `by_status/5` the repository did not define (F14; see
+    // `vanilla-document-paged-arity.test.ts`, which pins the two halves
+    // against each other).
+    expect(repo).toContain(
+      'def recent(page \\\\ 1, page_size \\\\ 20, sort \\\\ "id", dir \\\\ "asc") do',
+    );
+    expect(repo).toContain(
+      'def by_status(status, page \\\\ 1, page_size \\\\ 20, sort \\\\ "id", dir \\\\ "asc") do',
+    );
+    // Filter the whole table, sort it, then slice the page in memory.
     expect(repo).toContain("|> Repo.all()");
-    expect(repo).toContain("total = length(matched)");
-    expect(repo).toContain("items = Enum.slice(matched, offset, page_size)");
+    expect(repo).toContain("Enum.sort_by(");
+    expect(repo).toContain("total = length(sorted)");
+    expect(repo).toContain("items = Enum.slice(sorted, offset, page_size)");
     // camelCase envelope keys (Jason serialises the atoms verbatim).
     expect(repo).toContain("pageSize: page_size");
     expect(repo).toContain("totalPages: if(page_size > 0, do: ceil(total / page_size), else: 0)");
