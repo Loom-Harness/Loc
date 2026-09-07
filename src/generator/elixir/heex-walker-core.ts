@@ -65,6 +65,7 @@ import { DURATION_UNIT_MS, type DurationUnit } from "../../util/temporal.js";
 import { USER_VISIBLE_SLOTS } from "../../util/user-visible-slots.js";
 import { tryRenderGate } from "../_frontend/gate-expr.js";
 import { PROVENANCE_VALUE_FIELD, provenancedFieldNames } from "../_payload/provenanced-wire.js";
+import { GIVE_UP_SENTINEL } from "../_walker/give-up.js";
 import { icuFromConcat, messageKey } from "../_walker/i18n-extract.js";
 import { WALKER_PRIMITIVES } from "../_walker/registry.js";
 import { heexTarget, renderHeexStoreActionCall, renderHeexStoreFieldRead } from "./heex-target.js";
@@ -990,7 +991,12 @@ export function renderAction(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkC
     const eff = expr.args[i]!;
     if (eff.kind === "call" && eff.name === "navigate") {
       const target = eff.args[0];
-      if (target && target.kind === "ref") thenRoute = `/${snake(target.name)}`;
+      // A STRING argument is a literal route path — the shape a body uses when a
+      // page REF can't address the route unambiguously (every scaffolded
+      // aggregate names its list page `List`).  Twin of the JSX-side arm in
+      // `walker-core.ts`'s `tryRenderNavigateCall`.
+      if (target && target.kind === "literal" && target.lit === "string") thenRoute = target.value;
+      else if (target && target.kind === "ref") thenRoute = `/${snake(target.name)}`;
     }
   }
   if (!ctx.actionBindings.some((b) => b.eventName === eventName)) {
@@ -1122,7 +1128,7 @@ function renderCall(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkContext): 
   // positions (`isHEExCall` also keeps every registered primitive in markup
   // position, so the wrap does not arise).
   if (def) {
-    return `<%!-- ${expr.name}: not supported by Phoenix LiveView target --%>`;
+    return `<%!-- ${GIVE_UP_SENTINEL} ${expr.name}: not supported by Phoenix LiveView target --%>`;
   }
   // Helper function call.
   if (expr.callKind === "function" || expr.callKind === "free") {
@@ -2140,6 +2146,18 @@ function renderStmt(stmt: StmtIR, ctx: WalkContext): string {
       // returning-op controller action produces (operation-returns-emit), here
       // re-shaped to a socket-piped `then/2` step so each arm threads assigns.
       return renderVariantMatchStmt(stmt, ctx);
+    case "if":
+      // A plain `if` statement is a BACKEND-body form (node/.NET/java/python).
+      // A LiveView handler is a socket pipe-chain, and a page body expresses a
+      // condition with `match` or a ternary, so the statement is refused for
+      // every frontend by `loom.if-stmt-page-body-unsupported`
+      // (ir/validate/checks/if-stmt-checks.ts).  Defensive fail-fast, not a
+      // silent drop — unreachable on validated `.ddd`.
+      throw new Error(
+        `platform: elixir — an \`if\` statement reached the LiveView handler emitter on page ` +
+          `'${ctx.page.name}'; it is refused at validation ` +
+          `(loom.if-stmt-page-body-unsupported).`,
+      );
   }
 }
 
