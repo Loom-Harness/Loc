@@ -84,7 +84,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.audited-backend-unsupported",
     kind: "gap",
-    site: "src/ir/validate/checks/system-checks.ts:4077",
+    site: "src/ir/validate/checks/system-checks.ts:4243",
     what:
       "audit-record emission (`operation … audited`, `audited create|destroy`) ships on all five " +
       "backends (AUDIT_OP_BACKENDS / AUDIT_LIFECYCLE_BACKENDS) — fires only when NO backend " +
@@ -94,7 +94,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.audited-returning-operation-unsupported",
     kind: "gap",
-    site: "src/ir/validate/checks/system-checks.ts:4152",
+    site: "src/ir/validate/checks/system-checks.ts:4318",
     what: "`audited`/`provenanced` × a RETURNING operation falls into node's void-204 handler",
     mission: "M-T6.32",
   },
@@ -117,7 +117,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.context-filter-unsupported",
     kind: "gap",
-    site: "src/ir/validate/checks/system-checks.ts:2658",
+    site: "src/ir/validate/checks/system-checks.ts:2824",
     what:
       "a `currentUser`-referencing `filter` capability on a deployable with no `auth: required` " +
       "+ system `user {}` — there is no principal to scope by.  The backend×shape half is gone: " +
@@ -136,7 +136,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.dapper-unsupported",
     kind: "gap",
-    site: "src/ir/validate/checks/system-checks.ts:2901",
+    site: "src/ir/validate/checks/system-checks.ts:3067",
     what:
       "the .NET Dapper residue after full EF parity: an AGGREGATING query-time projection over a " +
       "document/event-sourced source, a hierarchical (deep/global) tenancy scope filter, and the " +
@@ -169,7 +169,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.event-sourced-workflow-unsupported",
     kind: "gap",
-    site: "src/ir/validate/checks/system-checks.ts:3781",
+    site: "src/ir/validate/checks/system-checks.ts:3947",
     what:
       "`workflow … eventSourced` runtime ships on all five backends " +
       "(EVENT_SOURCING_WORKFLOW_BACKENDS) — latent seam for a NEW backend",
@@ -178,7 +178,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.event-sourcing-backend-unsupported",
     kind: "gap",
-    site: "src/ir/validate/checks/system-checks.ts:3741",
+    site: "src/ir/validate/checks/system-checks.ts:3907",
     what:
       "`persistedAs: eventLog` storage ships on all five backends (EVENT_SOURCING_BACKENDS) — " +
       "fires only when no backend deployable hosts the context",
@@ -196,7 +196,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.field-mask-unsupported",
     kind: "gap",
-    site: "src/ir/validate/checks/system-checks.ts:3969",
+    site: "src/ir/validate/checks/system-checks.ts:4135",
     what:
       "`mask unless` read redaction ships on all five backends (FIELD_MASK_BACKENDS) — fires " +
       "only when no backend deployable hosts the context",
@@ -205,7 +205,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.filter-bypass-unsupported",
     kind: "gap",
-    site: "src/ir/validate/checks/system-checks.ts:2827",
+    site: "src/ir/validate/checks/system-checks.ts:2993",
     what:
       "`ignoring` is honored by every backend family (FILTER_BYPASS_FAMILIES) — latent: it can " +
       "only fire for a backend deployable with no DB read path, which carries no `ignoring`",
@@ -214,7 +214,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.find-predicate-unsupported",
     kind: "gap",
-    site: "src/ir/validate/checks/system-checks.ts:3133",
+    site: "src/ir/validate/checks/system-checks.ts:3299",
     what:
       "a find / retrieval / query-time-projection / capability-filter predicate outside the " +
       "opt-in `persistence: dapper|mikroorm` SQL subset (EF Core + Drizzle lower it in full)",
@@ -372,7 +372,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.provenanced-backend-unsupported",
     kind: "gap",
-    site: "src/ir/validate/checks/system-checks.ts:3813",
+    site: "src/ir/validate/checks/system-checks.ts:3979",
     what:
       "the provenance runtime (lineage column + history flush) ships on all five backends " +
       "(PROVENANCE_BACKENDS) — fires only when no backend deployable hosts the context",
@@ -381,7 +381,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.remote-api-op-unsupported",
     kind: "gap",
-    site: "src/ir/validate/checks/system-checks.ts:3270",
+    site: "src/ir/validate/checks/system-checks.ts:3436",
     what:
       "every backend emits the typed in-system api client — REMOTE_API_OP_UNSUPPORTED is an " +
       "EMPTY set, kept as the honest-gap net for a sixth backend added before its client",
@@ -463,7 +463,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.tph-backend-unsupported",
     kind: "gap",
-    site: "src/ir/validate/checks/system-checks.ts:3650",
+    site: "src/ir/validate/checks/system-checks.ts:3816",
     what:
       "sharedTable (TPH) storage ships on all five backends (TPH_CAPABLE) — fires only when no " +
       "backend deployable hosts the context",
@@ -472,7 +472,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.tph-filter-unsupported",
     kind: "gap",
-    site: "src/ir/validate/checks/system-checks.ts:3699",
+    site: "src/ir/validate/checks/system-checks.ts:3865",
     what:
       "a TPH SUBTYPE's capability `filter` reading a column the hierarchy ROOT does not declare, " +
       "on the .NET EF adapter only — Dapper splices the same predicate into raw SQL, where a " +
