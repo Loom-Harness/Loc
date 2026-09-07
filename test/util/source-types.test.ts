@@ -4,9 +4,10 @@
 // compatibility matrix in `validators/datasource.ts` (the matrix
 // Step 1.5 replaces), so the swap-in is provably behaviour-preserving.
 
-import { describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it } from "vitest";
 import type { DataSourceKind } from "../../src/ir/types/loom-ir.js";
 import {
+  _unregisterSourceTypeForTests,
   configSchemaFor,
   interfacesFor,
   isCacheStore,
@@ -115,6 +116,16 @@ describe("sourceType registry — descriptors & lookups", () => {
     expect(supportsSurfaceKind("postgres", "mailer")).toBe(false);
     expect(sourceTypesForSurfaceKind("mailer")).toEqual(["sendgrid", "ses", "smtp"]);
   });
+
+  // The registry is module-global and the unit project runs `isolate: false`,
+  // so this registration outlives the file unless it is dropped.  It is benign
+  // today only by accident — `__test_objstore` declares an `objectStore`
+  // surface and nothing else, so the matrix-equivalence assertion above (which
+  // iterates EVERY registered sourceType) sees false on both sides.  Give it a
+  // `state` surface and this file breaks itself, order-independently.  That
+  // assertion is also the one a foreign leak trips: it is what failed on the
+  // `clickhouseCloud` entry another file left behind.
+  afterAll(() => _unregisterSourceTypeForTests("__test_objstore"));
 
   it("registerSourceType adds a descriptor that resolves through the lookups", () => {
     registerSourceType({
