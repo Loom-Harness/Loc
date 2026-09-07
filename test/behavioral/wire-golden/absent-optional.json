@@ -111,6 +111,46 @@
     },
     {
       "seq": 8,
+      "method": "DELETE",
+      "path": "/api/tasks/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 9,
+      "method": "GET",
+      "path": "/api/tasks/{id}",
+      "status": 404,
+      "body": {
+        "detail": "Task {id} not found",
+        "instance": "/api/tasks/{id}",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 10,
+      "method": "GET",
+      "path": "/api/tasks",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "estimate": 3,
+            "id": "<volatile:key>",
+            "title": "Sized",
+            "version": 1
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 1,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 11,
       "method": "PATCH",
       "path": "/api/tasks",
       "status": 405,
@@ -123,7 +163,7 @@
       }
     },
     {
-      "seq": 9,
+      "seq": 12,
       "method": "GET",
       "path": "/__loom_no_such_path",
       "status": 404,
@@ -136,7 +176,7 @@
       }
     },
     {
-      "seq": 10,
+      "seq": 13,
       "method": "POST",
       "path": "/api/tasks",
       "status": 400,

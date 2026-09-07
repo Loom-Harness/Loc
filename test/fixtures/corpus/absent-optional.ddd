@@ -59,5 +59,14 @@ system AbsentOptional {
 
     let listed = api.tasks.all()
     expect(listed.items.length).toBe(2)
+
+    // The last derived route (`api-caller-census`): DELETE, on the row whose
+    // guarded optional was never sent — the shape a backend that read the
+    // absent cell on the way to the delete would trip on — and the 404 the
+    // by-id read then answers.
+    api.tasks.destroy(t)
+    expect(api.tasks.getById(t)).toThrow(404)
+    let remaining = api.tasks.all()
+    expect(remaining.items.length).toBe(1)
   }
 }
