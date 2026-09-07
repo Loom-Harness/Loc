@@ -66,6 +66,15 @@ const REGISTERED: Ratchet[] = [
     // a missing emitter.  Draining them means adding them to `showcase.ddd`
     // and accepting the fan-out across every generator matrix — not waiting on
     // a port.
+    //
+    // Still 14 after M-FT.11: +IfStmt (the `if` statement is refused in any
+    // context an elixir deployable emits, and all three showcase contexts are
+    // — so it is unreachable in this fixture BY CONSTRUCTION; M-T6.59 drains
+    // it) and -QueryHandler (stale: `scaffoldHandlers` synthesises one into
+    // the expanded model, which is what that gate measures).  The removal was
+    // found by the new "allowlisted kinds are genuinely absent" ratchet in
+    // `showcase-completeness.test.ts` — a per-ENTRY ratchet, where this one is
+    // a per-COUNT ratchet; they backstop different failures.
     max: 14,
   },
   // Walker primitives with a TSX renderer but no HEEx one.  Empty: the last
