@@ -138,10 +138,24 @@ describe("vanilla — guarded NAMED op denies 403/422 (not raise → 500)", () =
     const body = ctx.slice(ctx.indexOf("def withdraw_account(%"));
     const fn = body.slice(0, body.indexOf("\n  end"));
     // `requires` → 403 (`:forbidden`); `precondition` → 422 (`:precondition_failed`).
-    expect(fn).toContain("with :ok <- ensure(record.balance >= amount, {:forbidden, ");
+    // The chain now OPENS with the wire-format guard for the `int` param
+    // (M-T6.48) and the domain guards follow. That order is deliberate and
+    // matches the other four backends, where zod / the DTO binder / pydantic
+    // all validate the wire before the handler runs — and it is required for
+    // correctness here: `ensure(amount > 0)` on an unvalidated binary would not
+    // raise in Elixir, it would compare by term order and silently answer the
+    // wrong thing.
+    expect(fn).toContain(
+      'with {:ok, amount} <- __loom_int_param(record, :amount, Map.get(params, "amount"))',
+    );
+    expect(fn).toContain(":ok <- ensure(record.balance >= amount, {:forbidden, ");
     expect(fn).toContain(":ok <- ensure(amount > 0, {:precondition_failed, ");
     // Guards precede the mutation + persist.
-    const withAt = fn.indexOf("with :ok <- ensure");
+    // Anchored on the chain's OPENING token rather than on `with :ok <- ensure`:
+    // the wire-format guard now leads it (M-T6.48), so the `ensure` clauses no
+    // longer sit directly after `with`. What this row is about — guards before
+    // mutation before persist — is unchanged.
+    const withAt = fn.indexOf("with {:ok, amount} <- __loom_int_param");
     const mutAt = fn.indexOf("record = %{record | balance:");
     const persistAt = fn.indexOf("persist_change");
     expect(withAt).toBeGreaterThan(-1);
