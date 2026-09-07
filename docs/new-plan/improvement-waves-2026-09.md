@@ -36,7 +36,7 @@ The match is by id, so a row a PR *mentions but defers* counts as landed above; 
 1. **One contract, N independent implementations, no gate that they agree** (§89 addresses, §92 the dev-claims stub on four backends, the numeric wire contract re-decided at five read paths → M-T9.36, the `#{`/attr/apostrophe escape funnels, `propagateSinkFlags` vs `propagateChildFlags`). The fix that holds is one classifier with N readers plus a census that a new reader cannot bypass.
 2. **A hand-rolled walk over `ExprIR`/`StmtIR` kinds that stops early** (#2720's `collectExprRefs`, python's `collectStmtExprImports` missing `variant-match`, the projection fold running one statement kind in nine — #2705). `src/ir/util/walk.ts` exists precisely so these cannot happen; the residue is the callers that never migrated.
 3. **A gate that never reached the thing it names** (§59/§63/§85/§90): mechanism exists, target unreached. The 08-31 verification audit measured it structurally — 69 of 289 feature×backend cells are compile-only, and two of those cells exist *because* of a cross-tenant COUNT leak that only a runtime value can show.
-4. **Both-green-separately merge pairs** (§86, 4× in five days) — the one class no per-PR gate can see; the merge queue is built but inert (personal-account repo).
+4. **Both-green-separately merge pairs** (§86, 4× in five days) — the one class no per-PR gate can see; the merge queue is built and **available** (the repo is public and org-owned, which qualifies on any plan), just never switched on.
 5. **Hotspot files that every packet touches.** `ui-checks.ts` (3.0k LOC) is edited by #2723 and #2729 at once; `system-checks.ts` is 4.3k LOC with 9 commits since mid-July; `mikroorm.ts` 3.5k, `walker-core.ts` 2.7k, `heex-walker-core.ts` 2.5k. Packet fences work by tree, and these files are where trees overlap.
 
 The waves below are ordered so that (a) the P0/P1 residue closes first, (b) the class-level fixes land as seams with byte-identical gates rather than as more instances, and (c) the verification tier gains the ability to see runtime values, which is what would have caught most of (a) before an audit did.
@@ -182,7 +182,7 @@ Exit: gate-ledger compile-only cells 69 → ≤ 40 with the two leak cells and `
 - **4.2 F6 fix-scope rule for remediation fleets** into the RUNBOOK (the W1b/W2 hand-off format becomes the written norm).
 - **4.3 §93 unresolved mechanism** — the pr-gate "expected" block with a successful check on the head: an owner compares the ruleset's required-check app identity with the check run's `app`. Until then the remedy stays empirical (fresh SHA + fresh evaluation); write nothing else down as cause.
 - **4.4 M-T9.6 status hygiene** after each wave: README "last refreshed", the T9 `M-T9.36`/`M-T9.38` lines, `coverage.md` rows for drained audits. A count that appears in prose becomes code (§91).
-- **4.5 Merge queue**: still the structural fix for §86 and still inert on a personal-account repo. Recorded, not scheduled.
+- **4.5 Merge queue**: still the structural fix for §86, and **unblocked** — the "personal-account repo" premise was false; `Loom-Harness/Loc` is public and organization-owned, which GitHub qualifies for merge queue on every plan. All that remains is the repo-settings flip (runbook: `docs/ci-gating.md`). Should be scheduled, not just recorded.
 
 ---
 

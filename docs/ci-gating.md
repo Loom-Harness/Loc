@@ -86,18 +86,25 @@ network-free subset (workspace, history, builder, requirements, editor) on
 every PR touching `web/**` or `src/**`, so file-management and builder
 regressions are caught before merge.
 
-## No merge queue on a personal account: the `pr-gate` check
+## Until the merge queue is switched on: the `pr-gate` check
 
 GitHub offers merge queues only on **organization-owned** repositories
-(public on any plan; private on Enterprise Cloud). While this repo lives
-under a personal account, the queue below cannot be switched on — and plain
-required-status-checks can't substitute for it, because **every PR workflow
-here is path-filtered**: a required check that gets path-skipped never
-reports, and the PR blocks on "Expected — waiting for status" forever. A
-docs-only PR would strand on all of them.
+(public on any plan; private on Enterprise Cloud). This repo is
+`Loom-Harness/Loc` — **public, and owned by the `Loom-Harness`
+organization** — so it meets that bar on any plan, including Free, and the
+queue in the runbook below can be switched on whenever someone with admin
+rights flips the setting. (An earlier version of this section claimed the
+repo lived under a personal account and that the queue was therefore
+unavailable. That was wrong, and it kept the queue parked for months; see
+the runbook's activation note.)
 
-`pr-gate.yml` is the personal-account answer — one aggregate check that
-branch protection can require safely. It is **event-driven** (v2): the v1
+Plain required-status-checks still can't substitute for the queue, because
+**every PR workflow here is path-filtered**: a required check that gets
+path-skipped never reports, and the PR blocks on "Expected — waiting for
+status" forever. A docs-only PR would strand on all of them.
+
+`pr-gate.yml` is the answer while the queue is off — one aggregate check
+that branch protection can require safely. It is **event-driven** (v2): the v1
 design was a single long-polling job, and under real load it fed on itself —
 each open PR's gate parked a runner slot while polling (six parked gates ≈ a
 third of the ~20-slot pool), starving the very jobs it waited for until its
@@ -182,14 +189,17 @@ timeout fired and needed a manual label re-arm. v2 never waits:
   component check; fixed in #2481. If a PR is ever red with a culprit list of
   `*-passed` rollups that all show green, this is the shape to check first.
 
-**Branch protection on a personal account should require exactly two
-checks: `tests passed` and `pr-gate`.** Everything else stays non-required
-by name but becomes *binding through pr-gate* the moment it triggers.
+**While the merge queue is off, branch protection should require exactly
+two checks: `tests passed` and `pr-gate`.** Everything else stays
+non-required by name but becomes *binding through pr-gate* the moment it
+triggers.
 
-If the repo ever moves to an organization, drop `pr-gate` from the required
-list and follow the merge-queue runbook below instead — the queue subsumes
-it and adds what pr-gate cannot: gating the *rebased combination* of
-concurrent PRs.
+When the queue is switched on, drop `pr-gate` from the required list and
+follow the merge-queue runbook below instead — the queue subsumes it and
+adds what pr-gate cannot: gating the *rebased combination* of concurrent
+PRs. That combination is the one failure class no per-PR gate can see, and
+it is the documented cause of the repeated "both green separately, red once
+merged" incidents.
 
 ## Draft PRs and the runner queue
 
@@ -245,6 +255,12 @@ trigger, (b) exposes exactly **one stable check name** suitable for
 branch-protection "required status checks", and (c) behaves correctly on a
 `merge_group` event. **The triggers are inert until the queue is turned on** —
 all that remains is the repo-settings flip below.
+
+**Nothing but that flip is outstanding.** The repo is public and
+organization-owned, which is exactly the combination GitHub offers merge
+queues to on every plan, Free included. No plan purchase unlocks this and
+none is needed — in particular GitHub Pro is a *personal-account* plan and
+has no bearing on an organization-owned repo.
 
 The set is written down once, in
 [`test/system/merge-queue-required-checks.ts`](../test/system/merge-queue-required-checks.ts),
