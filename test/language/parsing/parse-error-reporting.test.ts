@@ -171,14 +171,42 @@ describe("F6 — an alternation names what was meant, not every path", () => {
   });
 
   it("offers no did-you-mean for a punctuation token", async () => {
-    // `?` is one character from `!`, `-`, `{` and a dozen other operators.
-    // "Did you mean '!'?" is noise, so the suggestion is word-shaped only.
-    const source = pageWith(`Text { (1 ?? 2) }`);
+    // `?` is one edit from `!`, `-`, `{` and `(` — all four of which ARE legal
+    // where this one sits, so `nearestName` would happily answer "did you mean
+    // '!'?".  That is noise, so the suggestion is word-shaped only.
+    //
+    // The vehicle was `(1 ?? 2)` until #2739 (M-FT.11) added `??` to the
+    // grammar, at which point this source PARSED and `errors[0]` was
+    // undefined.  `?` in operand position hits the same alternation with the
+    // same token, so what this freezes is unchanged.
+    //
+    // Operand position is load-bearing, not incidental: it is the alternation
+    // whose candidate set holds the one-character punctuation the suppression
+    // exists to reject.  Put the splice where a BINARY operator goes instead
+    // and every candidate is a word-shaped keyword, nothing is within typo
+    // distance, and `not.toMatch(/Did you mean/)` below passes for the wrong
+    // reason — measured on `(1 .. 2)`, which is byte-identical with the
+    // suppression removed.
+    const source = pageWith(`Text { (1 + ?) }`);
     const { errors } = await parseString(source);
+    // Guard 1 — the silent-rot mode this fixture already suffered once.
+    // Without it, a token that gains a meaning fails as `.toMatch() expects to
+    // receive a string, but got undefined`, naming neither cause nor fix.
+    expect(
+      errors[0],
+      "the splice parsed clean, so this test no longer exercises the " +
+        "punctuation-suggestion path — the grammar has given this token a " +
+        "meaning in operand position.  Pick another token the lexer knows " +
+        "and the expression grammar refuses where an operand is expected.",
+    ).toBeDefined();
     expect(errors[0]).toMatch(/Unexpected '\?'\./);
+    // Guard 2 — the candidates really do contain the near miss a distance-1
+    // suggester would reach for, so the negative assertion below cannot pass
+    // on an alternation that never had one to reject.
+    expect(errors[0]).toMatch(/'!'/);
     expect(errors[0]).not.toMatch(/Did you mean/);
     // …and it is still reported at the operator, not at `Stack {`.
-    expect(errors[0]).toMatch(new RegExp(`^${lineOf(source, "??")}:`));
+    expect(errors[0]).toMatch(new RegExp(`^${lineOf(source, "?")}:`));
   });
 });
 
