@@ -58,6 +58,7 @@ import type {
 } from "../../../ir/types/loom-ir.js";
 import { exprUsesCurrentUser } from "../../../ir/types/loom-ir.js";
 import { isDocumentShaped, resolveDataSourceConfig } from "../../../ir/util/resolve-datasource.js";
+import { sortableFields } from "../../../ir/util/sortable-fields.js";
 import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { singleFieldConstraints } from "../../../ir/validate/invariant-classify.js";
 import { plural, snake, upperFirst } from "../../../util/naming.js";
@@ -718,24 +719,56 @@ function renderDocFindFn(
     // paged find action maps `serialize/1` over `items` (the loaded `%<Agg>{}`
     // rows), so the envelope carries rows, not wire maps — parity with the
     // relational `Repo.aggregate(:count)` + `limit/offset` paged shape.
+    // `sort` / `dir` are part of the paged CARRIER's arity, not of the
+    // relational shape: the context defdelegate and the controller's paged
+    // action thread all four (`context-emit.ts` findArgs / `find-controller.ts`),
+    // so a document repository that declared only `page`/`page_size` left the
+    // delegate pointing at an arity this module never defined — `by_label/5 is
+    // undefined or private`, which `--warnings-as-errors` turns into a failed
+    // build (pairwise F14).  The whitelist is the same `sortableFields` one the
+    // relational builder orders by, applied in memory over the loaded rows.
     const pageArgs = [
       `page \\\\ ${PAGED_DEFAULT_PAGE}`,
       `page_size \\\\ ${PAGED_DEFAULT_PAGE_SIZE}`,
+      `sort \\\\ "id"`,
+      `dir \\\\ "asc"`,
     ];
     const argList = [...argNames, ...pageArgs, ...actorArgs].join(", ");
     const specArgs = [
       ...argNames.map(() => "term()"),
       "pos_integer()",
       "pos_integer()",
+      "String.t()",
+      "String.t()",
       ...actorSpec,
     ].join(", ");
+    // A document row keys on `row.id` and carries the aggregate's fields inside
+    // the `row.data` embed, so the sort key reads the embed for every whitelisted
+    // property and falls back to the row's own id (the relational builder's
+    // `_ -> :id` default).
+    const sortArms = sortableFields(agg)
+      .filter((wf) => wf !== "id")
+      .map((wf) => `            "${wf}" -> Map.get(row.data, :${snake(wf)})`)
+      .join("\n");
     return `  @spec ${fnName}(${specArgs}) :: {:ok, map()} | {:error, term()}
   def ${fnName}(${argList}) do
     matched =${filter}
 
     total = length(matched)
     offset = (page - 1) * page_size
-    items = Enum.slice(matched, offset, page_size)
+
+    sorted =
+      Enum.sort_by(
+        matched,
+        fn row ->
+          case sort do
+${sortArms}${sortArms ? "\n" : ""}            _ -> row.id
+          end
+        end,
+        if(dir == "desc", do: :desc, else: :asc)
+      )
+
+    items = Enum.slice(sorted, offset, page_size)
 
     {:ok,
      %{
