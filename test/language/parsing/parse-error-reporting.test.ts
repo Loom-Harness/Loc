@@ -22,6 +22,7 @@ import { URI } from "langium";
 import { NodeFileSystem } from "langium/node";
 import { describe, expect, it, vi } from "vitest";
 import { createDddServices } from "../../../src/language/ddd-module.js";
+import { unexpectedTokenMessage } from "../../../src/language/parse-errors.js";
 import { loadProject } from "../../../src/language/project-loader.js";
 import { parseString } from "../../_helpers/parse.js";
 
@@ -172,13 +173,43 @@ describe("F6 — an alternation names what was meant, not every path", () => {
 
   it("offers no did-you-mean for a punctuation token", async () => {
     // `?` is one character from `!`, `-`, `{` and a dozen other operators.
-    // "Did you mean '!'?" is noise, so the suggestion is word-shaped only.
-    const source = pageWith(`Text { (1 ?? 2) }`);
+    // "Did you mean '!'?" is noise, so `isWordLike` (src/language/parse-errors.ts)
+    // gates the suggestion to word-shaped images and candidates.
+    //
+    // The case used to be `Text { (1 ?? 2) }`, where `??` lexed as a stray `?`.
+    // M-FT.11 (#2739) added `??` as a real coalescing operator, so that source
+    // now PARSES and the assertion silently had no error to read. It moved to
+    // the `design:` slot — the same closed-keyword alternation the two
+    // did-you-mean cases above use, so the punctuation arm and the word arm are
+    // exercised through one code path — and a design-pack name can never gain
+    // `?` as a member, which is what keeps the premise from dying twice.
+    const source = pageWith(`Text { "x" }`).replace("design: mantine", "design: ?");
     const { errors } = await parseString(source);
     expect(errors[0]).toMatch(/Unexpected '\?'\./);
     expect(errors[0]).not.toMatch(/Did you mean/);
-    // …and it is still reported at the operator, not at `Stack {`.
-    expect(errors[0]).toMatch(new RegExp(`^${lineOf(source, "??")}:`));
+    // …and it is still reported at the offending token, not at `Stack {`.
+    expect(errors[0]).toMatch(new RegExp(`^${lineOf(source, "design: ?")}:`));
+  });
+
+  it("the punctuation gate is what suppresses it, not the distance budget", async () => {
+    // The case above pins the MESSAGE for a lone `?`, but it cannot prove the
+    // `isWordLike(actual.image)` guard: `nearestName` scores `?` against
+    // `mantine` at distance 7, far outside `withinTypoDistance`'s
+    // length-relative budget, so the suggestion is absent either way. Deleting
+    // the guard leaves that test green — it is a shape pin, not a gate proof.
+    //
+    // No lexer produces a token that is BOTH punctuation-shaped and one edit
+    // from a keyword, so the guard is only observable below the parser. Called
+    // directly, `mantine?` is exactly that token: `isWordLike` rejects it,
+    // while `nearestName` would score it at distance 1 and suggest `mantine`.
+    // This is the case that fails when the guard is removed.
+    const kw = { name: "mantine", PATTERN: "mantine" } as unknown as Parameters<
+      typeof unexpectedTokenMessage
+    >[1][number][number];
+    const actual = { image: "mantine?" } as unknown as Parameters<typeof unexpectedTokenMessage>[0];
+    const msg = unexpectedTokenMessage(actual, [[kw]]);
+    expect(msg).toMatch(/Unexpected 'mantine\?'\./);
+    expect(msg).not.toMatch(/Did you mean/);
   });
 });
 
