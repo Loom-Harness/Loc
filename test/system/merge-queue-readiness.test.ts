@@ -239,6 +239,52 @@ describe("merge-queue readiness", () => {
     });
   });
 
+  describe("discovery oracles stay OUT of the queue", () => {
+    // The mirror image of the ratchet above, and the reason it needs its own
+    // test rather than a comment in the workflow.
+    //
+    // `pairwise.yml`'s `compile` and `schema-load` legs are a DISCOVERY
+    // instrument: an all-pairs cover whose job is to reach crossings nobody
+    // has generated before. A new failure there is almost never a regression
+    // in the PR under test — it is a latent bug the cover has just now
+    // reached. Wire that into the merge queue and the instrument's success
+    // condition becomes a repo-wide freeze: on 2026-09-07, #2728 added two
+    // axes at 06:38 UTC, they found two real latent bugs (TPH × java, paged ×
+    // document × elixir), and nothing merged for nine hours because every
+    // queue entry ran these legs and failed on findings unrelated to itself.
+    //
+    // These legs were never in REQUIRED_CHECKS, so the ratchet above never
+    // covered them — the `merge_group` arm arrived by a queue-readiness sweep
+    // that read "add the trigger everywhere" and did not ask about tier. This
+    // test is what makes the next such sweep stop here.
+    const DISCOVERY_JOBS = [
+      { workflow: "pairwise.yml", jobs: ["compile", "schema-load"] },
+    ] as const;
+
+    it.each(
+      DISCOVERY_JOBS.flatMap((w) => w.jobs.map((j) => [w.workflow, j] as const)),
+    )("%s → `%s` is not reachable from merge_group", (workflow, jobId) => {
+      const job = load(workflow).jobs.find((j) => j.id === jobId);
+      expect(job, `no job \`${jobId}\` in ${workflow}`).toBeDefined();
+      const expr = job?.ifExpr ?? "";
+      // The job must be event-gated at all (an absent `if:` would run it on
+      // every trigger the workflow declares, merge_group included)…
+      expect(expr, `\`${jobId}\` has no if: — it would run in the queue`).not.toBe("");
+      // …and must not name merge_group as one of the events it runs on.
+      expect(
+        /merge_group/.test(expr),
+        `\`${jobId}\` if: "${expr}" — a discovery oracle must not gate the merge queue`,
+      ).toBe(false);
+    });
+
+    it("is not listed in REQUIRED_CHECKS either", () => {
+      const listed = REQUIRED_CHECKS.filter((c) =>
+        DISCOVERY_JOBS.some((w) => w.workflow === c.workflow),
+      );
+      expect(listed, "a discovery oracle was promoted into the required set").toEqual([]);
+    });
+  });
+
   it("keeps test.yml's pre-existing `tests passed` rollup intact", () => {
     // Branch protection already requires this one; renaming the job would
     // silently drop the only required check the repo has today.
