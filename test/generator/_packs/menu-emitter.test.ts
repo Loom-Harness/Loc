@@ -255,7 +255,10 @@ describe("menu emitter", () => {
             }
           }
           ui WebApp with scaffold(aggregates: [Order]) {
-            page Board { route: "/board", body: Stack { Heading { "Board" } } }
+            page Board {
+              route: "/board"
+              body: Stack { Heading { "Board" } }
+            }
           }
         }
       `);
@@ -330,8 +333,16 @@ describe("menu emitter", () => {
       const loom = await buildLoom(`
         system S {
           ui WebApp {
-            page B { route: "/b", menu { section: "Work", order: 2 }, body: Stack { } }
-            page A { route: "/a", menu { section: "Work", order: 1 }, body: Stack { } }
+            page B {
+              route: "/b"
+              menu { section: "Work", order: 2 }
+              body: Stack { Heading { "B" } }
+            }
+            page A {
+              route: "/a"
+              menu { section: "Work", order: 1 }
+              body: Stack { Heading { "A" } }
+            }
           }
         }
       `);
