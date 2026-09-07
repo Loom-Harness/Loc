@@ -16,8 +16,10 @@ import {
 import { plural, snake, upperFirst } from "../../util/naming.js";
 import {
   aggregateHasProvenanced,
+  dualTypeAliases,
   emitOperationUnionResponse,
   historyHookName,
+  typeReachesMoney,
 } from "../_frontend/api-module.js";
 import {
   AUDIT_ENTRY_LIST_TYPE,
@@ -88,6 +90,17 @@ export function buildSvelteApiModule(
     ),
   );
   lines.push(`export type Create${agg.name}Request = z.infer<typeof Create${agg.name}Request>;`);
+  // Dual FormState/Payload aliases — emitted only where the schema carries a
+  // real transform (`moneySchema`: decimal string in, `Decimal` out), so
+  // `z.input` genuinely differs from `z.output`.  The Svelte form emitter
+  // imports `Create<Agg>FormState` whenever it renders a money field, so
+  // without this the generated app fails svelte-check with "Module
+  // '$lib/api/<agg>' has no exported member 'Create<Agg>FormState'" — a break
+  // that stayed invisible for exactly the same reason as M-T1.23's duplicate
+  // import: no Svelte build-matrix example had a money field in a form.
+  if (requiredFields.some((f) => typeReachesMoney(f.type, ctx))) {
+    lines.push(...dualTypeAliases(`Create${agg.name}`));
+  }
   lines.push("");
 
   for (const op of agg.operations.filter((o) => o.visibility === "public")) {
@@ -106,6 +119,9 @@ export function buildSvelteApiModule(
     lines.push(
       `export type ${upperFirst(op.name)}${agg.name}Request = z.infer<typeof ${upperFirst(op.name)}${agg.name}Request>;`,
     );
+    if (op.params.some((p) => typeReachesMoney(p.type, ctx))) {
+      lines.push(...dualTypeAliases(`${upperFirst(op.name)}${agg.name}`));
+    }
   }
   lines.push("");
 
@@ -313,8 +329,16 @@ export function buildSvelteApiModule(
             : find.returnType.kind === "optional"
               ? `${agg.name}Response.nullable()`
               : `${agg.name}Response`;
+      // Zero-parameter find → an EMPTY query object, and the walker's call
+      // site passes nothing (`useOpenIssuesIssue()`), which svelte-check
+      // reports as "Expected 1 arguments, but got 0".  Default the accessor so
+      // the zero-arg call is legal.  Gated on `!paged`: a paged find's query
+      // type is the `z.infer` shape whose page/pageSize/sort/dir are REQUIRED
+      // (svelte does not emit the `z.input` alias the react/vue module uses),
+      // so `() => ({})` would not satisfy it.
+      const queryDefault = find.params.length === 0 && !paged ? " = () => ({})" : "";
       lines.push(
-        `export function use${upperFirst(find.name)}${agg.name}(query: () => ${upperFirst(find.name)}Query) {`,
+        `export function use${upperFirst(find.name)}${agg.name}(query: () => ${upperFirst(find.name)}Query${queryDefault}) {`,
       );
       lines.push(`  return createQuery(() => ({`);
       lines.push(`    queryKey: ["${tag}", "find", "${findSnake}", query()],`);

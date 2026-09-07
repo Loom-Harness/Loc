@@ -5550,7 +5550,50 @@ Three things worth keeping:
    itself has merged. A static reverse-import scanner (seconds, not 90 s)
    would lift the first cost but not the registry-hub one.
 
-## 95. A log line is a claim about the code, and nothing type-checks it (2026-09-01)
+## 95. A pinned gap's reason must name the LAYER that blocks it — mine named a backend the feature never calls (2026-09-02)
+
+`KNOWN_HEEX_GAPS.DataGrid` was the last entry in the HEEx parity pin, and its
+reason ended with a concrete, checkable blocker: *"needs backend support for
+multi-column ORDER BY, which `list/4`'s single sort/dir pair does not have."*
+Every clause of that sentence is individually true — `list/4` really does take
+one `sort`/`dir` pair (`elixir/vanilla/repository-emit.ts`) — and the sentence
+as a whole is false, because **`DataGrid` never calls `list/4`, or any server
+read, on any of the five targets that ship it.** It grids the array it was
+handed: `getSortedRowModel` / `getFilteredRowModel` / `getPaginationRowModel`
+over `data: rows`, with `pageSize:` a *client* page size. The pin had reached
+for the nearest plausible-sounding limit one layer down and welded it to a
+decision it had no bearing on.
+
+The cost of that shape is specific: a blocker names a **drain path**. Anyone
+picking this up would have gone and threaded a multi-column `ORDER BY` through
+the Elixir paged read — real work, correctly executed, on a layer that was never
+in the way — and only then discovered the actual objection. This is §90's
+failure ("verifying a mechanism exists is not verifying it reaches the thing you
+named") pointed at prose instead of a gate.
+
+Three habits fall out.
+
+- **When a pin names a blocker in another layer, trace the call.** Not "is
+  `list/4` single-sort?" (yes) but "does this feature reach `list/4` at all?"
+  (no). One grep for `manualSorting|serverPaged` in the grid's own emitter
+  answered it. The plausible half of a compound claim is what makes the whole
+  thing survive review.
+- **Say whether the missing thing is DERIVABLE or a BEHAVIOURAL CONTRACT.**
+  `Chart`'s pin died because its subject was derivable — an SVG polyline from
+  numbers is arithmetic, one right answer, so "LiveView can't" was just wrong.
+  `DataGrid`'s survives because its subject is a *library's semantics* —
+  multi-sort tie-breaks, `includesString`, pagination edges — where a feasible
+  re-implementation is a **fork**, which is worse than an honest gap. Those two
+  live one line apart in the same file and read identically ("target X has no
+  analogue"); only naming the category tells them apart, and it is the category,
+  not the target, that decides whether to drain or settle.
+- **Feasibility is not the question a refusal answers.** The corrected reason is
+  *harder* on the target than the false one was: HEEx **can** do this (the rows
+  are already in a socket assign; column visibility touches no row model at
+  all), and it is declined anyway. A pin that argues impossibility invites
+  exactly one rebuttal — a proof of possibility — and then has nothing left.
+
+## 96. A log line is a claim about the code, and nothing type-checks it (2026-09-01)
 
 Every node repository logged `"event_type":"Object"` on every domain event it
 dispatched. The emitter read `(event as object).constructor.name`, under a
@@ -5597,7 +5640,7 @@ Two rules out of it:
   or never existed. When a comment argues for a technique, check it against the
   emitter's actual output, not against the comment's own confidence.
 
-## 96. A deadlock leaves no evidence, so instrument for SILENCE — and the fix was already written down in the same repo (2026-09-03)
+## 97. A deadlock leaves no evidence, so instrument for SILENCE — and the fix was already written down in the same repo (2026-09-03)
 
 `Crate.release` killed the node backend: the log stopped at `event_dispatched`,
 the process exited 99, and there was no error, no `request_end`, no stack. I
@@ -5645,7 +5688,7 @@ Two rules:
   swallows every event silently — strictly worse than the deadlock, which at
   least announced itself by stopping.
 
-## 97. A test that asserts equality on a GLOBAL registry is order-dependent by construction (2026-09-03)
+## 98. A test that asserts equality on a GLOBAL registry is order-dependent by construction (2026-09-03)
 
 Fixing the dispatch deadlock added one test file, and three assertions in an
 unrelated file — `test/util/source-types.test.ts` — started failing. They passed
@@ -5684,7 +5727,7 @@ when you find one order-dependent global assertion, **the others in that file
 are the same bug waiting for a different schedule**, and fixing only the ones
 that turned red today just resets the timer.
 
-## 98. A helper that defers its change is invisible to the caller's "is there anything to do?" check (2026-09-07)
+## 99. A helper that defers its change is invisible to the caller's "is there anything to do?" check (2026-09-07)
 
 Loom's Elixir named-operation write is `change(%{}) |> optimistic_lock(:version)
 |> Repo.update(changeset)`. It has been shipping with a hole: an operation that

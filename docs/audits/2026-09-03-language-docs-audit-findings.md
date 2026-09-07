@@ -2,8 +2,20 @@
 
 *Scope: the defects surfaced while re-verifying every claim in the language surface docs
 (`docs/language.md`, `docs/page-metamodel.md`, `docs/language-reference/**`) against the code
-on `main` @ `651388d`. The audit itself was docs-only, so **nothing here is fixed** — this is
-the hand-off list. Snapshot-in-time; re-verify on fresh `main` before picking one up.*
+on `main` @ `651388d`. The audit itself was docs-only, so nothing here was fixed *by the audit* —
+this is the hand-off list. Snapshot-in-time; re-verify on fresh `main` before picking one up.*
+
+> **Status 2026-09-06 — Wave 1 is drained, and it corrected this register in six places.**
+> Four packets landed as PRs [#2786](https://github.com/lemmit/Loc/pull/2786),
+> [#2787](https://github.com/lemmit/Loc/pull/2787), [#2788](https://github.com/lemmit/Loc/pull/2788),
+> [#2789](https://github.com/lemmit/Loc/pull/2789). **Every one of them re-verified its findings on
+> fresh `main` (`59d283b3`) before writing code, and five of the seven turned out to differ
+> materially from what was written here** — wrong diagnosis (F5), wrong anchor (F8), wrong target
+> (F9 on Flutter), too broad (F3 on React), or larger than recorded (F7). Those corrections are
+> folded into the rows below, marked **Corrected**, and three new findings (F48–F50) came out of the
+> same work. The lesson is the one the register's own preamble already carried, now with evidence:
+> **⚠ verify-first is not ceremony.** A finding written from a symptom is a lead, not a diagnosis.
+> Waves 2–7 remain unstarted.
 
 Twelve auditors each walked one doc packet, tracing every claim to the file that proves it.
 When a doc and the code disagreed, the doc was corrected — **unless the code was the thing
@@ -19,13 +31,16 @@ fixture writes them.
 
 ## The shape of the list
 
-| Class | Count | What it means |
-|---|---|---|
-| **P0 — silent miscompile or crash** | 9 | Valid `.ddd`, zero diagnostics, then a crash or output that cannot compile. |
-| **P1 — silent drop** | 8 | Valid `.ddd`, zero diagnostics, and a declared thing is missing from the output. |
-| **P2 — cross-backend divergence** | 7 | The same source means different things on different targets, undeclared. |
-| **P3 — diagnostic-catalog hygiene** | 11 | Codes raised but uncatalogued, messages that contradict the gate, dead gates. |
-| **P4 — per-feature doc drift** | 12 | Docs outside this audit's scope that contradict the code. |
+| Class | Count | Drained | What it means |
+|---|---|---|---|
+| **P0 — silent miscompile or crash** | 12 | 9 | Valid `.ddd`, zero diagnostics, then a crash or output that cannot compile. |
+| **P1 — silent drop** | 8 | — | Valid `.ddd`, zero diagnostics, and a declared thing is missing from the output. |
+| **P2 — cross-backend divergence** | 7 | — | The same source means different things on different targets, undeclared. |
+| **P3 — diagnostic-catalog hygiene** | 11 | — | Codes raised but uncatalogued, messages that contradict the gate, dead gates. |
+| **P4 — per-feature doc drift** | 12 | — | Docs outside this audit's scope that contradict the code. |
+
+*50 findings now, not 47: Wave 1's compile gates turned up three more of the same shapes
+(F48–F50). P0 is 12 because F48 and F49 joined it already fixed, and F50 joined it open.*
 
 The dividing line that matters is P0/P1 versus P2. A P2 is a *decision the docs can carry*:
 Phoenix maps a value object to a `:map` column, and the reference can say so. A P0/P1 is not
@@ -54,12 +69,41 @@ emits `ToUpper()`, which compiles but is culture-sensitive where an unguarded re
 `ToUpperInvariant()`. The optional receiver is not unwrapped in the intrinsic arms of
 `src/ir/lower/lower-expr.ts` the way `checkIntrinsicCalls` unwraps it. *The validator
 recommends a form that does not work.*
+> **Drained — [#2788](https://github.com/lemmit/Loc/pull/2788) (W1.1 / M-T5.26).** Reproduced
+> exactly as written, on all five. Cause: `applySuffixToRecv` stamped the `method-call`'s
+> `receiverType` as the **`optional` wrapper**, and every backend's intrinsic dispatch keys off
+> `receiverType.kind === "primitive"`, so the guarded call never reached the snippet table and fell
+> out of the bottom of `renderMethodCall` verbatim. `unwrapGuardedIntrinsicReceiver` now unwraps one
+> level under exactly the validator's three conditions, applied at **both** typing paths
+> (`applySuffixToRecv` and `inferSuffixType`) so a `let` bound inside a guard types like the inline
+> expression. **Two consequences the register missed:** the catalogue **result type** also fell back
+> to its `string` default on an `optional` (`let d = ts.startOfDay()` in a guard bound `string`), and
+> the `isCollectionOp` disambiguation broke (a guarded `s.contains(x)` on a `string?` read as a
+> *collection* op). **The .NET half was misread here as a second opinion about culture:** the
+> `ToUpper()` was just `renderMethodCall`'s `${recv}.${upperFirst(member)}(…)` fallback firing
+> because the table had not been consulted at all. `ToUpperInvariant()` is the only domain-position
+> spelling; `ToUpper()` survives only in `CS_INTRINSIC_QUERY_RENDERERS`, where EF Core cannot
+> translate the Invariant form and the SQL `upper()` it maps to is culture-free anyway. No .NET
+> behaviour change was needed.
 
 **F3. `toast(...)` emits an undefined symbol on React.** An action body or `Action { …, then:
 toast("x") }` renders `toast("Draft saved");` into the page or component TSX with no import and
 no definition anywhere in the generated project. Svelte emits `src/lib/toast.svelte.ts`;
 elixir maps to `put_flash`; React has no handling in `src/generator/react/**`. The generated
 app does not type-check.
+> **Corrected + drained — [#2786](https://github.com/lemmit/Loc/pull/2786) (W1.2 / M-T1.28).**
+> **Narrower than recorded.** React *does* handle toast on the **realtime-handler** path
+> (`realtime-handlers-builder.ts` + each pack's `realtime-toast` micro-template) — that half of the
+> finding is misattributed, and #2732 widens exactly that path, not this one. What is genuinely
+> broken and untouched by #2732 is the **action-body / `Action { …, then: … }`** path, where
+> `toast(...)` falls through walker-core's generic call arm (`${stmt.name}(${args});`) the way
+> `navigate(...)` did before it got its own arm → TS2304. Fixed by emitting `src/lib/toast.ts` and
+> importing it where the IR (not a text scan) says the effect is used — chakra v2's form templates
+> bind their own `const toast = useToast()` in the same page, and a ui declaring an `extern function
+> toast(...)` owns the name. The module self-mounts, because React's `App.tsx`/`main.tsx` are
+> design-pack templates under `designs/**`. **Follow-up:** routing the effect through each pack's
+> native notification widget needs a `renderToast` seam on `WalkerTarget` plus a walker-core arm —
+> Wave 2's tree. **And see F50: Svelte has the identical defect**, on a target this packet excluded.
 
 **F4. `for` / `if let` in an aggregate body is ungated and emits garbage.**
 `src/ir/lower/lower-stmt.ts` has no arm for `ForStmt`/`IfLetStmt` outside a workflow and no
@@ -71,21 +115,72 @@ validator rejects them: `operation touch() { for n in notes { owner := n } }` re
 'fields')` in `lowerSeed` (`src/ir/lower/lower.ts`) before `loom.seed-abstract-aggregate` can
 fire. The same model written as `seed default { Party { … } }` reports the diagnostic
 correctly.
+> **Corrected + drained — [#2789](https://github.com/lemmit/Loc/pull/2789) (W1.4 / M-T5.27).**
+> **The diagnosis above is wrong, and the correction matters.** This is not an ordering problem and
+> `loom.seed-abstract-aggregate` is not involved at all. The grammar is
+> `Seed: 'seed' (dataset=ID)? (raw?='raw')? '{' rows+=SeedRow* '}'` — so `Party` is consumed as the
+> **dataset name**, and `name` becomes a *row's* aggregate reference with no `value=ObjectLit` at the
+> `:`. The pipeline had **already produced the two correct diagnostics** for this source
+> (`loom.parse-error` "Expecting token of type '{' but found `:`" and `loom.linking-error` "Could not
+> resolve reference to Aggregate named 'name'") — and `lowerSeed`, dereferencing the error-recovered
+> row, threw them away and printed a stack trace over them. `lowerSeed` was **the one lowerer that
+> trusted the AST type over parse recovery**; every other parse-error shape in the language lowers
+> fine. Fixed by lowering a recovered row to zero fields. That reframes the finding from "a gate runs
+> too late" to "a lowerer discards diagnostics the pipeline already had" — a different class, and one
+> worth grepping for elsewhere.
 
 **F6. `generate system` crashes on a valid ui-e2e body.**
 `expect(<create-result>.<field>).toHaveText("…")` inside `test e2e … against <frontend>`
 validates clean, then throws `expect requires a matcher` from `renderExpectStmt`
 (`src/system/expect-stmt.ts:21`, via `src/system/ui-e2e-render.ts:217`). Binding the read with
 `getById` first works.
+> **Drained — [#2789](https://github.com/lemmit/Loc/pull/2789) (W1.4 / M-T5.27).** The fork
+> ("lower it, or gate it") resolved as **both**, because either alone leaves the finding half-drained.
+> *Make it work:* the lowering does have the information — `let ord = ui.orders.create({…})` binds
+> `{ id }` and the aggregate is known at the create call — so a create-result local now reads exactly
+> like a `getById` one, re-navigating via `.goto()` for the same reason `getById` does. The plain-value
+> fallback used to emit a property read against an object with no such property, silently; it reads the
+> DOM now too. *Gate the residual:* a locator matcher can still be handed something that is not a page
+> read (`expect(ord.id).toHaveText(…)`, a literal, an api-test matcher), so new code
+> **`loom.locator-matcher-receiver`** raises at the source span, via `diagMessage`.
+> **Consolidation debt, recorded deliberately:** the gate re-derives the renderer's handle rule at the
+> AST layer (`checkExpectMatcher` in `src/language/validators/match.ts`) rather than sharing it. Its
+> proper home is `validateE2ETest` in `src/ir/validate/checks/test-checks.ts`, which already walks
+> these statements with resolved IR — **W3.1 / W4.1's tree**; widening into it would have been the
+> exact collision the wave protocol exists to prevent. The mutation proof makes the case for
+> consolidating: under the *renderer* mutation the validator still passed the source and the renderer
+> crashed — gate and renderer are independent, and neither alone covers this finding.
 
 **F7. The python typed api-client emits an invalid annotation for a `File?` field.**
 `src/generator/python/api-client.ts:88` appends `| None` to an already-optional rendered type
 and never imports `FileRef`: the generated `app/resources/api_clients.py` contains
 `spec: FileRef | None | None` inside a `pydantic.BaseModel` — an undefined name at import time.
+> **Corrected + drained — [#2787](https://github.com/lemmit/Loc/pull/2787) (W1.3 / M-T6.53).**
+> **Bigger than recorded — the missing import had nothing to import.** `app/domain/file_ref.py` is
+> not even *emitted* into the caller project, because that emission was gated on the deployable's
+> **own** contexts declaring a File field; a `FileRef` import would have dangled. The fix is
+> therefore two-part: render the annotation from the unwrapped type and apply `| None` once from
+> either channel (`WireField.optional` or an `optional`-wrapped `TypeIR`), *and* emit the shared
+> `file_ref.py` when the api client needs it (`/files` routes stay gated on `hasFileField`, so the
+> caller gets the TypedDict without upload endpoints it has no object store for). **Why this
+> shipped:** *no python-build fixture reached the typed in-system api client at all.* The new
+> `api-client-file.ddd` closes that hole — `ruff` and `mypy --strict` now walk this path forever.
 
 **F8. A block-form Elixir function whose parameter is used only inside a `let` does not
 compile.** `bodyUsesParam` (`src/generator/elixir/vanilla/function-emit.ts:162`) underscores
 the head parameter (`def fee(%Order{} = record, _q)`) while the body reads `q`.
+> **Corrected + drained — [#2787](https://github.com/lemmit/Loc/pull/2787) (W1.3 / M-T6.53).**
+> **The anchor is one level off, and the `let` framing is wrong.** `bodyExprs` *does* have a `let`
+> arm — a param read directly in a `let` is fine, and the existing `shippingFor` test pins exactly
+> that and passes on `main`. The real hole is **`walkExpr` in
+> `src/generator/elixir/domain/predicates.ts`**, which had no arm for `list`, `match` or `convert`,
+> so a read *nested inside one of those* is invisible to `exprUsesParam`: `xs = [q, 2, 3]`,
+> `cond do q > 1 -> …`, and `"x" <> to_string(q)` (from `"x" + q`, which lowers to `convert`) all
+> produce `** (CompileError) undefined variable "q"`. `function-emit.ts:162` is only the call site.
+> Fixed by adding the three arms and making `walkExpr` **exhaustive with a `never` check**, so the
+> next `ExprIR` kind is a typecheck error rather than a silent under-report — which caught a fourth
+> missing arm (`i18nFormat`) on the spot. **And see F49**, a third instance of the same class that
+> the new compile fixture found immediately.
 
 **F9. A `derived` that reads a store field emits an unbound identifier on React and Flutter.**
 `store Cart persist: local { state { count: int = 0 } }` + `derived count: int = Cart.count`
@@ -95,6 +190,50 @@ hoisted. Renaming the derived proves it is a drop, not shadowing: `derived itemC
 emits `const itemCount = useMemo(() => count, []);` with `count` undeclared. Flutter interpolates
 the same bare identifier. `loom.unresolved-page-ref` covers refs in rendered slots only, not
 `derived` initialisers.
+> **Corrected + drained — [#2786](https://github.com/lemmit/Loc/pull/2786) (W1.2 / M-T1.28).**
+> **React is exactly as reported. Flutter is not.** Flutter does *not* "interpolate the same bare
+> identifier" — `derivedResolvableOnPage` refused a store-field ref outright, so the derived was
+> dropped **whole** and the body read rendered the walker's give-up comment
+> (`const SizedBox.shrink() /* ref: itemCount */`). It compiles: a silent drop, not a build break —
+> a P1 shape wearing a P0 label, and it belongs to the same fail-open dispatch-predicate family
+> Wave 2 exists to fix (see "Cross-cutting reading" §1), not to this one. On React the cause is as
+> written: the derived's `WalkContext` carried no `usedStores` map, so `recordStoreUse` no-oped and
+> the shell never hoisted the selector — **and it hides whenever the body happens to read the same
+> member, which is why every existing store test passed over it.** Fixed on both, page shell and
+> component twin; on Flutter the store bindings also had to move **above** the derived `final`s,
+> because Dart is not hoisted. Two Flutter tests had been using a store-reading `derived` as their
+> *guaranteed-to-degrade* vehicle — they move to the magic route `id`, the remaining page-shell-only
+> binding. **And see F50: Svelte drops the store receiver in the same breath.**
+
+**F48. An Elixir ternary in non-terminal position is a syntax error.** *(Found 2026-09-06 by W1.1's
+compile gate; drained in the same PR, [#2788](https://github.com/lemmit/Loc/pull/2788).)*
+`ELIXIR_TARGET.ternary` rendered the bare keyword-list form, and Elixir's `if` swallows everything up
+to the enclosing terminator — so a ternary that is not the last entry of its container does not
+parse: `"safeNote" => if not is_nil(record.note2), do: …, else: "none",` →
+`** (SyntaxError) unexpected expression after keyword list`. It has **nothing to do with optionals**;
+reproduced from a model with no optional type anywhere (`derived pick: string = title.length > 3 ?
+title : "x"` followed by any second `derived`). It hit every wire map whose ternary-valued `derived`
+is not last, and every ternary passed as a non-final argument, and stayed invisible because the
+fixtures that exercised it happened to put the ternary last. The leaf now self-parenthesizes, as the
+Python leaf already did. *A fixture that only ever exercises a construct in terminal position is not
+covering it.*
+
+**F49. The Elixir pure-core function emitter hardcodes its receiver binding while its facade twin
+underscores an unused one.** *(Found 2026-09-06 by W1.3's new compile fixture; drained in the same
+PR, [#2787](https://github.com/lemmit/Loc/pull/2787).)* `renderPureFunction`
+(`src/generator/elixir/vanilla/domain-core-emit.ts`) always emitted `record`, so a function reading
+only its params compiled on the context module and failed on the schema module:
+`warning: variable "record" is unused` ×3 → `Compilation failed due to warnings while using the
+--warnings-as-errors option`. Third instance of F8's class — **two copies of one rule, one of them
+updated** — which is the argument for the exhaustiveness check F8's fix introduced.
+
+**F50. Svelte has the F3 and F9 defects too, and neither is drained.** *(Found 2026-09-06 by W1.2,
+out of its declared tree — [#2786](https://github.com/lemmit/Loc/pull/2786) fixes React and Flutter
+only.)* Svelte emits `src/lib/toast.svelte.ts` and then **never imports it into the page** — the
+mirror image of React's F3, which had the import site and no module. And its `derived` drops the
+store receiver in the same breath: `const itemCount = $derived(count);`, with `count` unbound. Same
+two shapes, third frontend, no gate on either. **Unowned — no wave packet claims it**; the natural
+home is alongside M-T1.28's siblings once Wave 2's `renderToast` seam exists.
 
 ---
 
@@ -248,7 +387,18 @@ individual fixes:
 2. **Lowering has arms the validators assume exist.** `variant-match` off a page (F1),
    `for`/`if let` off a workflow (F4), the optional-receiver unwrap (F2), the store receiver in
    a `derived` (F9). The IR admits a node the emitters cannot consume, and the layering means
-   nobody owns the check.
+   nobody owns the check. *Wave 1 drained F2 and F9 and found the pattern is broader than
+   "a missing arm": F2 was a **type stamped one wrapper too wide**, so the arm existed and was
+   never reached, and it silently took the result type and the collection-op disambiguation with
+   it. F5 turned out to be a fourth variant again — **a lowerer that discards diagnostics the
+   pipeline already produced**. The unifying defect is that a lowering pass trusts a shape
+   (an AST type, a `receiverType`) instead of checking it, and has no way to say so.*
+
+   A concrete, cheap generalisation came out of F8: **make the walk exhaustive with a `never`
+   check.** Doing that to one Elixir predicate walker turned the next missing arm into a
+   typecheck error and immediately surfaced a fourth (F49 is the same rule's un-updated second
+   copy). Every hand-rolled `ExprIR`/`StmtIR` walk outside the shared `_expr`/`_stmt` dispatchers
+   is a candidate.
 
 3. **The catalog gate does not reach the IR check leaves.** F25 and F26 are exactly the
    defect class `test/system/diagnostic-catalog.test.ts` was written to prevent, surviving
@@ -257,3 +407,28 @@ individual fixes:
 
 Per `CLAUDE.md`: mutation-prove each gate before trusting it — revert the fix with a file copy,
 never `git checkout -- <path>`, and confirm the assertion that fails is the one under test.
+
+---
+
+## Wave 1 postscript (2026-09-06) — what draining seven findings taught
+
+- **⚠ verify-first earned its label.** Five of seven findings differed from what is written above:
+  F5's diagnosis was wrong outright, F8's anchor pointed at the call site rather than the defect,
+  F9 was misattributed on Flutter, F3 was too broad on React, F7 was larger than recorded. Every
+  packet re-verified on fresh `main` before writing code, and every one of those corrections came
+  out of that step. A finding written from a symptom is a lead; the anchor in the row is where the
+  auditor stopped looking, not necessarily where the bug lives.
+- **The compile gate finds what the assertion cannot.** F48 and F49 were found by *running the
+  target toolchain over generated output* (`mix compile --warnings-as-errors`, `mypy --strict`) —
+  neither would have been caught by any string assertion, because both are shapes that render
+  plausibly and fail one layer out. F7's whole existence traces to the absence of one fixture: **no
+  python-build fixture reached the typed in-system api client at all.**
+- **Follow-ups Wave 1 opened, none of them yet owned:** the `renderToast` seam on `WalkerTarget`
+  (F3's proper fix, Wave 2's tree); consolidating `loom.locator-matcher-receiver` into
+  `validateE2ETest` (F6, W3.1/W4.1's tree); **F50** (Svelte's F3+F9 twins, unclaimed by any packet).
+- **Process:** the four packets ran in one container against one working tree and committed onto
+  each other's branches until they rescued themselves into separate worktrees. Wave packets that
+  run in one container need **a worktree per packet, not just a branch per packet** — and, on this
+  box, no more than two concurrent packets, because five parallel vitest runs OOM the cgroup and
+  turn every timing assertion into a coin flip (Wave 1 lost roughly an hour to reading contention
+  timeouts as real failures).

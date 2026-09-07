@@ -274,9 +274,18 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
     const hasFileField = args.contexts.some((ctx) =>
       ctx.aggregates.some((agg) => aggregateHasFileField(agg)),
     );
-    if (hasFileField) {
+    // A CALLEE's `File` field crosses into this project through the typed
+    // api-client's response model, which annotates it `FileRef` — so the shared
+    // TypedDict has to exist even when no LOCAL aggregate declares a File
+    // field.  Only the MODULE is shared: `/files` routes stay gated on
+    // `hasFileField`, since this deployable hosts no File-bearing aggregate and
+    // binds no object store for one.
+    const clientNeedsFileRef = apiClients?.includes("FileRef") === true;
+    if (hasFileField || clientNeedsFileRef) {
       // The shared FileRef TypedDict the domain / schema / wire layers import.
       out.set("app/domain/file_ref.py", renderPyFileRefModel());
+    }
+    if (hasFileField) {
       const wired = new Set(args.deployable.dataSourceNames);
       const storeType = new Map(args.sys.storages.map((s) => [s.name, s.type] as const));
       const objStore = args.sys.dataSources.find(

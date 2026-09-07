@@ -22,6 +22,24 @@ system Shop {
         function passed(): bool = total > 100
         function bonus(extra: int): int = total + extra
 
+        // F8 (2026-09-03 language-docs audit): a param read NESTED inside a
+        // list literal / match expression / implicit convert was invisible to
+        // the elixir usage walk, so the clause head underscored the param while
+        // the body read it and `mix compile` failed on the undefined variable.
+        // Block-bodied, because that is the form whose head binds params.
+        function inList(q: int): int {
+          let xs = [q, 2, 3]
+          return xs.length
+        }
+        function inMatch(q: int): int {
+          let picked = match { q > 1 => 2, else => 3 }
+          return picked
+        }
+        function inConvert(q: int): string {
+          let label = "x" + q
+          return label
+        }
+
         operation approve() {
           precondition passed()
           status := "approved"
