@@ -1544,6 +1544,8 @@ function emitMemberAccess(
     member: expr.member,
     receiverType: expr.receiverType,
     memberType: expr.memberType,
+    receiverExpr: expr.receiver,
+    ctx,
   });
   const plain = spelled ?? `${recv}.${expr.member}`;
   return unwrapProvenanced && isProvenancedCarrierRead(expr, ctx)
