@@ -100,7 +100,15 @@ export function stmtUsesParam(s: StmtIR, name: string): boolean {
   }
 }
 
-/** Walk one level into `e` and return true if `pred` matches any child. */
+/** Walk one level into `e` and return true if `pred` matches any child.
+ *
+ *  EXHAUSTIVE over `ExprIR.kind` on purpose: a missing arm is not a missing
+ *  feature, it is a WRONG ANSWER — the probes above are how the emitters decide
+ *  whether to bind a parameter or underscore it, so a kind this walk does not
+ *  descend into makes the generated Elixir read a binding the head never made
+ *  (`def fee(%Order{} = record, _q)` over a body that says `q`), and `mix
+ *  compile` fails.  The `never` check at the bottom turns a newly added
+ *  `ExprIR` kind into a typecheck error rather than a silent under-report. */
 function walkExpr(e: ExprIR, pred: (sub: ExprIR | undefined) => boolean): boolean {
   switch (e.kind) {
     case "method-call":
@@ -127,6 +135,33 @@ function walkExpr(e: ExprIR, pred: (sub: ExprIR | undefined) => boolean): boolea
     case "new":
     case "object":
       return e.fields.some((f) => pred(f.value));
+    case "list":
+      // `[q, 2, 3]` — a bracketed list literal renders its elements verbatim.
+      return e.elements.some((x) => pred(x));
+    case "convert":
+      // Lowering wraps an implicit coercion (`"x" + q` → `to_string(q)`), so the
+      // read sits one level down and is invisible without this arm.
+      return pred(e.value);
+    case "i18nFormat":
+      return pred(e.inner);
+    case "match":
+      // Boolean-arm and variant forms both: every arm condition and value, the
+      // `else` value, and the scrutinee.
+      return (
+        pred(e.subject) || e.arms.some((a) => pred(a.cond) || pred(a.value)) || pred(e.otherwise)
+      );
+    // Leaves — no child expression to descend into.
+    case "literal":
+    case "this":
+    case "id":
+    case "ref":
+    case "action-ref":
+    case "authz-filter":
+      return false;
+    default: {
+      const never: never = e;
+      void never;
+      return false;
+    }
   }
-  return false;
 }
