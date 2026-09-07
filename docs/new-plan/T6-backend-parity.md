@@ -234,7 +234,7 @@ Found 2026-08-30 by the targets-completeness audit (`F2-SEED-EVENTSOURCED`), gat
 
 Sources: [targets-completeness-2026-08-30](../audits/targets-completeness-2026-08-30.md) `F2-SEED-EVENTSOURCED`, ledger.json. Touches the seed emitters only — sequence against any other seed-path work.
 
-## M-T6.53 — Two single-backend emitter bugs: non-importable python api-clients, non-compiling elixir block functions — `open` · **S** · P1 ⚠ verify-first
+## M-T6.53 — Two single-backend emitter bugs: non-importable python api-clients, non-compiling elixir block functions — `in-flight` · **S** · P1
 
 Found 2026-09-03 by the language-docs audit ([F7](../audits/2026-09-03-language-docs-audit-findings.md), [F8](../audits/2026-09-03-language-docs-audit-findings.md), both P0). `src/generator/python/api-client.ts:88` appends `| None` to an already-optional rendered type and never imports `FileRef`, so a `File?` field through an api resource emits `spec: FileRef | None | None` inside a `pydantic.BaseModel` in `app/resources/api_clients.py` — an undefined name at import time. And `bodyUsesParam` (`src/generator/elixir/vanilla/function-emit.ts:162`) misses a parameter read only inside a `let`, underscoring the head (`def fee(%Order{} = record, _q)`) while the body reads `q`.
 
@@ -242,7 +242,9 @@ Found 2026-09-03 by the language-docs audit ([F7](../audits/2026-09-03-language-
 
 **Verification when it lands.** Both generated projects compile (`ruff`/`mypy` and `mix compile --warnings-as-errors`); each fix mutation-proved by file-copy revert.
 
-Sources: [language-docs-audit-2026-09-03](../audits/2026-09-03-language-docs-audit-findings.md) F7/F8, [wave plan](../audits/2026-09-03-language-docs-audit-findings.waves.md) packet **W1.3**.
+**Landed 2026-09-06 as [#2787](https://github.com/lemmit/Loc/pull/2787)** (open for review); both findings grew on contact. **F7 was bigger:** the missing `FileRef` import had nothing to import — `app/domain/file_ref.py` is not emitted into a caller project at all, because emission was gated on the deployable's *own* contexts declaring a File field. So the fix is the annotation *and* the module (with `/files` routes still gated on `hasFileField`). It shipped because **no python-build fixture reached the typed in-system api client**; `api-client-file.ddd` closes that. **F8's anchor was one level off:** `bodyExprs` does have a `let` arm and the existing `shippingFor` test proves it — the real hole is `walkExpr` in `src/generator/elixir/domain/predicates.ts` missing `list`/`match`/`convert` arms, so a read *nested inside one* is invisible. Making that walk **exhaustive with a `never` check** caught a fourth missing arm (`i18nFormat`) immediately, and the new compile fixture caught a third instance of the same class ([F49](../audits/2026-09-03-language-docs-audit-findings.md) — `renderPureFunction` in `domain-core-emit.ts` hardcoding its receiver binding while the facade twin underscores an unused one). *Generalisation worth spending: every hand-rolled `ExprIR`/`StmtIR` walk outside the shared `_expr`/`_stmt` dispatchers should carry the same `never` check.*
+
+Sources: [language-docs-audit-2026-09-03](../audits/2026-09-03-language-docs-audit-findings.md) F7/F8 (+ F49), [wave plan](../audits/2026-09-03-language-docs-audit-findings.waves.md) packet **W1.3**.
 
 ## M-T6.54 — Java ignores `ignoring` for principal filters, and renders a guarded invariant on the wire without its guard — `open` · **M** · P1 ⚠ verify-first
 
