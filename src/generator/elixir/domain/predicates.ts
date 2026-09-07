@@ -6,6 +6,7 @@
 // -------------------------------------------------------------------------
 
 import { type ExprIR, exprUsesCurrentUser, type StmtIR } from "../../../ir/types/loom-ir.js";
+import { walkExprDeep } from "../../../ir/util/walk.js";
 
 /** True when statement `s` references `currentUser` anywhere in its expr(s) —
  *  e.g. a `requires currentUser.role == "admin"` guard or a `field :=
@@ -40,6 +41,12 @@ export function stmtUsesCurrentUser(s: StmtIR): boolean {
         s.thenBody.some(stmtUsesCurrentUser) ||
         (s.elseBody ?? []).some(stmtUsesCurrentUser)
       );
+    default: {
+      // Wave 2 packet 2.3 — every `StmtIR` kind is already listed above;
+      // this turns that into a compile-time guarantee.
+      const _exhaustive: never = s;
+      return _exhaustive;
+    }
   }
 }
 
@@ -48,10 +55,24 @@ export function opUsesCurrentUser(op: { statements: readonly StmtIR[] }): boolea
   return op.statements.some(stmtUsesCurrentUser);
 }
 
+/** True when `e` references param `name` anywhere in its reachable
+ *  sub-expressions.
+ *
+ *  Rides `walkExprDeep` (M-T6.50 class, wave-2 packet 2.3): the hand-rolled
+ *  ONE-LEVEL child walker this replaced (`walkExpr` below, now deleted) had
+ *  no arm for `list`, `convert`, `match`, `i18nFormat` or `authz-filter`, and
+ *  a block-body lambda's statements were never reached at all (`pred(e.body)`
+ *  on an `undefined` body) — so a param reference nested in any of those
+ *  (`[a, param.id]`, a `match` arm, …) was silently invisible, and the
+ *  context function the emitter builds from this predicate would omit the
+ *  parameter it needs, or the LiveView `assign` it depends on. */
 export function exprUsesParam(e: ExprIR | undefined, name: string): boolean {
   if (!e) return false;
-  if (e.kind === "ref" && e.refKind === "param" && e.name === name) return true;
-  return walkExpr(e, (sub) => exprUsesParam(sub, name));
+  let found = false;
+  walkExprDeep(e, (x) => {
+    if (x.kind === "ref" && x.refKind === "param" && x.name === name) found = true;
+  });
+  return found;
 }
 
 /** True when `e` references the aggregate receiver — a `this`/`this-prop`
@@ -59,14 +80,20 @@ export function exprUsesParam(e: ExprIR | undefined, name: string): boolean {
  *  `private-operation` call (all of which render the `thisName` binding).
  *  The vanilla function emitter uses this to underscore-prefix an unused
  *  receiver, so a body that never touches the struct (e.g. `function noop()`)
- *  doesn't trip `mix compile --warnings-as-errors` on an unused `record`. */
+ *  doesn't trip `mix compile --warnings-as-errors` on an unused `record`.
+ *
+ *  Rides `walkExprDeep` — same M-T6.50 class fix as `exprUsesParam` above
+ *  (its former shared shallow walker had the identical gaps). */
 export function exprUsesReceiver(e: ExprIR | undefined): boolean {
   if (!e) return false;
-  if (e.kind === "this" || e.kind === "id") return true;
-  if (e.kind === "ref" && e.refKind === "this-prop") return true;
-  if (e.kind === "call" && (e.callKind === "function" || e.callKind === "private-operation"))
-    return true;
-  return walkExpr(e, exprUsesReceiver);
+  let found = false;
+  walkExprDeep(e, (x) => {
+    if (x.kind === "this" || x.kind === "id") found = true;
+    if (x.kind === "ref" && x.refKind === "this-prop") found = true;
+    if (x.kind === "call" && (x.callKind === "function" || x.callKind === "private-operation"))
+      found = true;
+  });
+  return found;
 }
 
 export function stmtUsesParam(s: StmtIR, name: string): boolean {
@@ -97,6 +124,12 @@ export function stmtUsesParam(s: StmtIR, name: string): boolean {
         s.thenBody.some((st) => stmtUsesParam(st, name)) ||
         (s.elseBody ?? []).some((st) => stmtUsesParam(st, name))
       );
+    default: {
+      // Wave 2 packet 2.3 — every `StmtIR` kind is already listed above;
+      // this turns that into a compile-time guarantee.
+      const _exhaustive: never = s;
+      return _exhaustive;
+    }
   }
 }
 

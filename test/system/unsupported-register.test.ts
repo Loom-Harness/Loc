@@ -182,7 +182,28 @@ const REGISTER_FILE = path.join(srcRoot, "diagnostics", "unsupported-register.ts
  *  five backends -- which deletes the row, the check module, and lowers this
  *  back to 46.
  *
- *  RAISED 47 -> 48 by M-FT.11 (`loom.elixir-if-stmt-unsupported`), the slice
+ *  47 → 46: `loom.seed-event-sourced-unsupported` DRAINS (M-T6.52, Wave 2
+ *  packet 2.5).  A shared seeder model (`src/generator/_persistence/
+ *  seed-datasets.ts`'s `seederAggregate`/`seederAggregates`) now derives one
+ *  aggregate's create-call shape ONCE — the event-sourced `create` action's
+ *  OWN declared params, not `forCreateInput(agg.fields)` — and all five
+ *  backends read it: elixir appends the creation event through the SAME
+ *  `create_<agg>/1` command seam an ordinary create request uses (not a
+ *  repository `insert/1`, which an event-sourced aggregate never had); java
+ *  and .NET build the `create(...)` call from that shared param list instead
+ *  of the full field set, closing the param-count/name mismatch
+ *  (`Account.create("seeded-alice", null)` against `create(String owner)`).
+ *  The row does not merely drain to zero — it SPLITS into two permanent,
+ *  non-gap validation rules (sibling to `loom.seed-raw-document-shape` /
+ *  `loom.seed-abstract-aggregate`, so neither carries a register row of its
+ *  own): `loom.seed-raw-eventsourced` (an event-sourced aggregate's table is
+ *  its `<agg>_events` stream, which a raw column INSERT cannot target) and
+ *  `loom.seed-eventsourced-no-create` (zero `create` actions is a legitimate
+ *  event-sourced shape, but then there is no creation event for a seed row to
+ *  append — the same silent-shrink hazard the mission closed for every other
+ *  crossing).
+ *
+ *  RAISED by M-FT.11 (`loom.elixir-if-stmt-unsupported`), the slice
  *  that added the `if` statement.  A raise taken deliberately, because the
  *  alternative was worse than a gap: elixir's body renderers thread their
  *  result through a REBOUND `record`, and an Elixir `if` block's bindings do
@@ -190,8 +211,12 @@ const REGISTER_FILE = path.join(srcRoot, "diagnostics", "unsupported-register.ts
  *  `--warnings-as-errors` and then silently does nothing.  The statement ships
  *  on the other four backends; refusing it on the fifth is the honest half.
  *  Draining it is M-T6.59 (value-producing branches in every vanilla body
- *  renderer), which deletes the row and lowers this back to 47. */
-const MAX_OPEN_GAPS = 48;
+ *  renderer), which deletes the row and lowers this back to 47.
+ *
+ *  BOTH moves land together in this merge: the 2.5 drain (-1) and the
+ *  M-FT.11 raise (+1) net out, so the pin returns to 47 rather than to
+ *  either side's number. */
+const MAX_OPEN_GAPS = 47;
 
 function walk(dir: string, out: string[] = []): string[] {
   for (const e of fs.readdirSync(dir, { withFileTypes: true })) {

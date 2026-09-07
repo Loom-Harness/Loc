@@ -59,20 +59,20 @@ premise was only ever true of one target. Re-verify per target, not per row.
 
 | metric | value |
 |---|---|
-| open rows | **156** |
+| open rows | **153** |
 | P0 | 0 |
 | P1 | 7 |
-| P2 | 14 |
+| P2 | 13 |
 | P3 | 32 |
-| P4 | 91 |
+| P4 | 89 |
 | P5 | 12 |
-| kind: silent / honest / breadth / mission / stale-prose | 21 / 32 / 26 / 65 / 12 |
-| confidence: proven / likely / suspected | 29 / 126 / 1 |
+| kind: silent / honest / breadth / mission / stale-prose | 20 / 32 / 26 / 63 / 12 |
+| confidence: proven / likely / suspected | 29 / 123 / 1 |
 | class: faulty-fix / regression | 1 / 0 |
-| size S / M / L | 42 / 67 / 47 |
-| provenance: fleet1-only / fleet2-only / corroborated by both | 140 / 14 / 1 |
-| claimed by an open PR | 64 |
-| done / merged | 134 |
+| size S / M / L | 41 / 66 / 46 |
+| provenance: fleet1-only / fleet2-only / corroborated by both | 137 / 14 / 1 |
+| claimed by an open PR | 61 |
+| done / merged | 140 |
 | conflicts | 10 |
 | checkedOk entries | 146 |
 | rows scheduled into waves | 134 across 13 packets |
@@ -96,7 +96,6 @@ Sorted P0 (security / data-integrity, silent, proven) → P1 (other silent prove
 | P2 ! | `M-T3.8-sensitivity-phases-2-4` | silent | like | node, dotnet, java, python, elixir | L | `sensitive(...)` reaches exactly one emitter — no wire masking, no sink classification, and no diagnostic saying so |
 | P2 ! | `dapper-no-schema-evolution` | silent | like | dotnet | L | `persistence: dapper` has no ALTER path at all — every post-first-boot model change is silently unapplied (migrations-on-adapters slice 2) |
 | P2 | `F2-W-06` | silent | like | elixir | S | elixir persists `datetime` at SECOND precision (`:utc_datetime`) where the other four use TIMESTAMPTZ(µs) |
-| P2 | `G2667-D3-projection-join-unguarded-index` | silent | like | dotnet, node | S | Debt: query-time projection `join` indexes the joined dictionary unguarded — 500 from ordinary data |
 | P2 | `G2646-open-heex-layout-inert` | silent | like | elixir | M | #2646 documented, NOT fixed: HEEx layout primitives semantically inert (Grid ≡ Stack, bare divs); non-server-paged Table gets no pager; i18nFormat wrapper dropped |
 | P2 | `M-T1.16-invariant-validation-feliz-flutter` | silent | like | feliz, flutter | M | Invariant-derived client-side form validation is missing on BOTH self-hosting frontends — Feliz and Flutter enforce "Required" only |
 | P2 | `M-T5.14-reading-service-readport-not-threaded` | silent | like | node, python, dotnet, java, elixir | M | A `reading` domain service called from a command/query handler emits a port-less call — the generated module does not compile |
@@ -161,7 +160,6 @@ Sorted P0 (security / data-integrity, silent, proven) → P1 (other silent prove
 | P4 | `G2667-C-looseends` | breadth | like | react, vue, svelte, angular, test harness, ci | M | 08-17 loose ends still open: Card variant/shadow honoured by 3 of 15 packs (C9); branch-protection up-to-date rule (B4/M-T9.7); no emitter ever produces a node@v4 project (C10 CI half); API versioning golden count rising (D5); runtime-gate parity manifest (E7) |
 | P4 | `G2667-C10-stmttarget-normalizations` | breadth | like | node, dotnet, java, python, elixir | M | 08-17 register #10: StmtTarget's three preserved inconsistencies stay un-normalized |
 | P4 | `G2667-D5-handler-atomicity-asymmetry` | mission | like | java, dotnet, node | M | Debt: handler atomicity asymmetry — java handlers are class-@Transactional, .NET/node commit per SaveAsync |
-| P4 | `G2667-F2-render-mode-in-seam` | mission | like | java, dotnet, node, python, elixir | M | Architecture: make emission MODE part of the shared seam and refuse out-of-vocabulary constructs loudly (root cause of A1 + A8) |
 | P4 | `G2667-F3-one-ref-walker-per-ir-family` | mission | like | elixir, python, java, dotnet | M | Architecture: one ref-walker per IR family, never hand-enumerated switches (root cause of A16 ×3 and A17) |
 | P4 | `G2667-F4-realtime-plan-contract` | mission | like | node, dotnet, java, python, elixir | M | Architecture: give realtime a plan-level contract (streams inherit deployable auth; durable events tee at write-time) |
 | P4 | `M-T1.10-phoenix-sse-no-rooms` | mission | like | elixir | M | M-T1.10 — the Phoenix SSE relay implements no tenant ROOMS: every tenant-scoped event degrades to a broadcast refetch ticket |
@@ -198,7 +196,6 @@ Sorted P0 (security / data-integrity, silent, proven) → P1 (other silent prove
 | P4 | `override-parity-non-node-routers` | breadth | like | node, dotnet, java, python, elixir | M | M-T9.25 round-2 probe 5: 'one override moves EVERY router' is asserted per-file on node only; the workflow/extern/projection routers are uncensused on all five |
 | P4 | `timers-e2e-leg-missing` | breadth | like | node, dotnet, elixir, python, java | M | No standing runtime gate for timers — every fire / single-fire / catch-up proof to date is a per-PR hand-run (M-T4.1) |
 | P4 | `G2644-M-T5.22-decimal-arithmetic-rule` | mission | prov | node, dotnet, java, python, elixir | L | #2644 F11 / M-T5.22 — decimal arithmetic has no governing rule: 0.1+0.2 diverges on the wire AND in storage across backends |
-| P4 | `G2644-M-T9.36-wire-codec-seam` | mission | like | node, dotnet, java, python, elixir | L | #2644 root cause / M-T9.36 — the numeric wire-codec seam: one per-backend codec contract + a boundary-enumeration completeness gate |
 | P4 | `G2646-open-python-no-realization-axes` | mission | like | python | L | #2646 documented, NOT fixed: python has no realization axes (no directoryLayout: menu, no second persistence adapter) |
 | P4 | `G2667-C5-outbox-insert-outside-tx` | mission | like | node, dotnet | L | 08-17 register #5: workflow/extern/timer outbox inserts sit outside any transaction (node AND .NET) |
 | P4 | `M-T1.10-realtime-no-runtime-e2e` | breadth | prov | node, dotnet, java, python, elixir | L | M-T1.10 — the realtime SSE wire (incl. the security-relevant tenant-room routing) has NO runtime e2e on any backend; no cross-tenant isolation test exists |

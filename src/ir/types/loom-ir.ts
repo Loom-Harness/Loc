@@ -4282,6 +4282,13 @@ function stmtUsesMoney(s: StmtIR): boolean {
         s.thenBody.some(stmtUsesMoney) ||
         (s.elseBody ?? []).some(stmtUsesMoney)
       );
+    default: {
+      // Wave 2 packet 2.3 — the switch above already lists every `StmtIR`
+      // kind; this arm turns that into a compile-time guarantee (a future
+      // kind fails `tsc` here, not silently under-reports money usage).
+      const _exhaustive: never = s;
+      return _exhaustive;
+    }
   }
 }
 
