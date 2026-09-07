@@ -256,7 +256,7 @@ export function DesktopShell({ ctx }: Props): JSX.Element {
                   <Box
                     px={4}
                     py={4}
-                    style={{ borderBottom: "1px solid var(--mantine-color-dark-4)" }}
+                    style={{ borderBottom: "1px solid var(--loom-border)" }}
                     data-testid="explorer-mode"
                   >
                     <Box style={{ display: "flex", flexWrap: "wrap", gap: 2 }}>
@@ -272,7 +272,7 @@ export function DesktopShell({ ctx }: Props): JSX.Element {
                             borderRadius: 4,
                             background:
                               explorerMode === tab
-                                ? "var(--mantine-color-dark-5)"
+                                ? "var(--loom-bg-active)"
                                 : "transparent",
                           }}
                         >
@@ -531,7 +531,7 @@ function ExplorerBanner({ ctx }: { ctx: LayoutCtx }): JSX.Element | null {
   const hasDiff = outputDiff.any;
   if (!correspondence && !hasDiff) {
     return (
-      <Box px="xs" py={2} style={{ borderBottom: "1px solid var(--mantine-color-dark-4)" }}>
+      <Box px="xs" py={2} style={{ borderBottom: "1px solid var(--loom-border)" }}>
         <ColourMapSwitch on={colourMap} onChange={setColourMap} />
       </Box>
     );
@@ -540,7 +540,7 @@ function ExplorerBanner({ ctx }: { ctx: LayoutCtx }): JSX.Element | null {
     <Box
       px="xs"
       py={2}
-      style={{ borderBottom: "1px solid var(--mantine-color-dark-4)" }}
+      style={{ borderBottom: "1px solid var(--loom-border)" }}
       data-testid="explorer-banner"
     >
       {correspondence ? (

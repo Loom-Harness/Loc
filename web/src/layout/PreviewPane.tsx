@@ -125,8 +125,10 @@ function SelectResultBar({ ctx }: { ctx: LayoutCtx }): JSX.Element | null {
     <Box
       px="sm"
       py={4}
-      bg="dark.6"
-      style={{ borderTop: "1px solid var(--mantine-color-dark-4)" }}
+      style={{
+        background: "var(--loom-bg-raised)",
+        borderTop: "1px solid var(--loom-border)",
+      }}
       data-testid="select-result"
       data-kind={result.kind}
     >
