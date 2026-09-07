@@ -152,8 +152,11 @@ export const COMPILE_WAIVERS: readonly Waiver[] = [
     // .NET carries the SAME latent defect (`dotnet/index.ts:1412-1420` is the
     // identical pairing, and the emitted `CreateThingHandler` returns
     // `aggregate.Id` from a `ValueTask<ThingId>`), but its cover does not reach
-    // this crossing, so it stays green and takes no waiver.  Recorded in the
-    // issue rather than guessed at here.
+    // this crossing, so it stays green and takes no waiver.  Recorded in
+    // issue #2806 rather than guessed at here.
+    //
+    // Tracked by #2806 — that issue carries the predicate change, the
+    // definition of done, and the ratchet note that deletes this entry.
     //
     // SCOPE — MEASURED, one gradle run per case, not inferred from the shape:
     //   none-document-deny-tph-paged-default        FAILS (ThingService:36)
