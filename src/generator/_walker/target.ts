@@ -154,6 +154,16 @@ export interface SortedRowsSpec {
    *  set of values `sortKey` can hold.  A target that indexes at runtime (all
    *  four JSX targets) ignores it. */
   columns: readonly string[];
+  /** The subset of `columns` whose field is `money` — the one primitive a
+   *  target may not hold as a comparable number.  On Flutter money is the wire
+   *  STRING (M-T1.21), so a text comparison there sorts `'10.0000'` BEFORE
+   *  `'9.0000'`; that target compares these columns through its money runtime
+   *  instead.  Resolved from the row aggregate the enclosing `QueryView`
+   *  recorded — the same lookup `DataGrid`'s `numericSort` makes
+   *  (`shared/row-field-type.ts`), since a page body carries no member types.
+   *  A target whose sort is already value-correct ignores it, so the JSX family
+   *  and Feliz stay byte-identical. */
+  moneyColumns: readonly string[];
 }
 
 /** What a target needs to filter a `Table`'s rows client-side (M-T1.1 — the
@@ -178,6 +188,28 @@ export interface FilteredRowsSpec {
 
 /** A member read off a paged query's `data:` binding (`rows.items`,
  *  `rows.totalPages`) — the input to `renderPagedEnvelopeMember`. */
+/** The one member READ the walker is about to emit, handed to
+ *  {@link WalkerTarget.renderMemberRead}.
+ *
+ *  `receiverExpr` + `ctx` are the ESCAPE HATCH for a receiver the IR failed to
+ *  type: an aggregate-rooted api read (`Project.byId(id)`) falls through
+ *  `memberType`'s default, so `receiverType` on the next member reads `string`
+ *  rather than the record.  A target that needs the truth (Angular and Svelte
+ *  null-guard an optional field's read) re-resolves the field off the walk
+ *  context; every other target ignores both and behaves exactly as before. */
+export interface MemberReadSpec {
+  /** The already-rendered receiver. */
+  receiver: string;
+  member: string;
+  receiverType: TypeIR | undefined;
+  memberType: TypeIR | undefined;
+  /** The un-rendered receiver node — lets a target resolve what the IR's
+   *  placeholder type hides. */
+  receiverExpr?: ExprIR;
+  /** The active walk context (aggregate / api-param / workflow registries). */
+  ctx?: WalkContext;
+}
+
 export interface PagedEnvelopeMemberSpec {
   /** The member being read (`"items"` / `"totalPages"`). */
   member: string;
@@ -1039,13 +1071,7 @@ export interface WalkerTarget {
    *
    *  Reads only.  Member CALLS (`xs.contains(y)`) already route through
    *  `emitMethodCall`, and Feliz maps those in `fs-expr.ts`. */
-  renderMemberRead?(spec: {
-    /** The already-rendered receiver. */
-    receiver: string;
-    member: string;
-    receiverType: TypeIR | undefined;
-    memberType: TypeIR | undefined;
-  }): string | undefined;
+  renderMemberRead?(spec: MemberReadSpec): string | undefined;
 
   /** OPTIONAL — the in-scope accessor for the magic route `id` identifier
    *  (`{ kind: "id" }`, e.g. `Order.byId(id)` on a `/orders/:id` page).  The
@@ -1452,6 +1478,28 @@ export interface WalkerTarget {
    *  it partially, and a target that omits it keeps today's behaviour
    *  byte-for-byte. */
   exprTemporalBinary?(
+    left: string,
+    right: string,
+    e: Extract<ExprIR, { kind: "binary" }>,
+  ): string | null;
+
+  /** Money-involving binary (`total + shipping`, `price > limit`) — the same
+   *  shape as `exprTemporalBinary` above and for a sharper version of the same
+   *  reason: `money` is not the host language's numeric type on every target.
+   *
+   *  Where money IS a numeric-ish object (a `decimal.js` `Decimal` on the four
+   *  JSX targets, an F# `decimal` on Feliz) the host's operators already mean
+   *  the right thing and those targets leave this seam undefined — byte-identical
+   *  output.  Where money is a STRING (Flutter, whose Dart has no decimal type
+   *  and holds the wire's digits verbatim — M-T1.21), the host's operators are
+   *  not merely unavailable, they are SILENTLY WRONG: `+` concatenates and `==`
+   *  compares text, so `'1.5'` and `'1.5000'` — the same amount — differ.
+   *
+   *  Consulted by `emitExpr` for EVERY operator, after `exprTemporalBinary` and
+   *  before `exprBinary`, with the lowered node's `leftType`/`rightType` stamps
+   *  for the dispatch.  Return `null` for a pair this target has no special form
+   *  for and the walker falls through to `exprBinary`. */
+  exprMoneyBinary?(
     left: string,
     right: string,
     e: Extract<ExprIR, { kind: "binary" }>,

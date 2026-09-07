@@ -106,6 +106,48 @@ system Acme {
 `;
 }
 
+/** A callee whose aggregate carries an OPTIONAL `File` field (F7).  The field
+ *  crosses into the CALLER as a `FileRef` annotation in the response model —
+ *  a name the caller neither spelled once nor imported.  The object-store
+ *  wiring is the callee's (`loom.file-field-needs-object-storage` demands it);
+ *  the caller binds none, which is exactly the case that used to leave
+ *  `app/domain/file_ref.py` unemitted. */
+function fileSystem(): string {
+  return `
+system Acme {
+  subdomain Core {
+    context Orders {
+      aggregate Order with crudish { code: string  status: string  spec: File? }
+      repository Orders for Order { }
+    }
+    context Shipping {
+      aggregate Shipment with crudish { orderCode: string  status: string }
+      repository Shipments for Shipment { }
+      workflow fulfil {
+        create(orderId: string) {
+          let o = orders.getOrderById(orderId)
+          let s = Shipment.create({ orderCode: o.code, status: "Pending" })
+        }
+      }
+    }
+  }
+  api OrdersApi from Core
+  storage primary { type: postgres }
+  storage blobs   { type: localDisk }
+  resource ordersState   { for: Orders,   kind: state, use: primary }
+  resource ordersFiles   { for: Orders,   kind: objectStore, use: blobs }
+  resource shippingState { for: Shipping, kind: state, use: primary }
+  resource orders        { for: Shipping, kind: api,   use: OrdersApi }
+  deployable ordersSvc {
+    platform: node   contexts: [Orders]   dataSources: [ordersState, ordersFiles] serves: OrdersApi port: 3000
+  }
+  deployable shippingSvc {
+    platform: python contexts: [Shipping] dataSources: [shippingState, orders] port: 3001
+  }
+}
+`;
+}
+
 describe("Python typed in-system api client", () => {
   it("reads its base URL from the same env seam compose injects", async () => {
     expect(await client()).toContain(`os.environ.get("${resourceEnvUrlVar("orders")}"`);
@@ -187,6 +229,46 @@ describe("Python typed in-system api client", () => {
     const src = files.get("shipping_svc/app/resources/api_clients.py") ?? "";
     expect(src).toContain("async def orders_by_code_order(code: str) -> OrderResponse | None:");
     expect(src).toContain("if res.status_code == 404:");
+  });
+
+  it("spells an optional `File` field's annotation ONCE (F7)", async () => {
+    // Optionality arrives on two channels — `WireField.optional` AND an
+    // `optional`-wrapped `TypeIR` that `renderPyType` already suffixes — and
+    // the model used to apply both: `spec: FileRef | None | None`, which
+    // pydantic cannot build.  Asserting the ABSENCE of the doubled suffix is
+    // the half that can see a regression; a `toContain` on the good spelling
+    // matches the bad one too.
+    const files = await emit(fileSystem());
+    const src = files.get("shipping_svc/app/resources/api_clients.py") ?? "";
+    expect(src).toContain("    spec: FileRef | None\n");
+    expect(src).not.toContain("| None | None");
+  });
+
+  it("IMPORTS FileRef, and emits the module the import resolves to (F7)", async () => {
+    // `FileRef` is an undefined name at import time without both halves: the
+    // `from app.domain.file_ref import FileRef` line, and the module itself —
+    // which was previously emitted only when a LOCAL aggregate declared a File
+    // field, and this caller declares none.
+    const files = await emit(fileSystem());
+    const src = files.get("shipping_svc/app/resources/api_clients.py") ?? "";
+    expect(src).toContain("from app.domain.file_ref import FileRef");
+    expect(files.get("shipping_svc/app/domain/file_ref.py") ?? "").toContain(
+      "class FileRef(TypedDict):",
+    );
+  });
+
+  it("does NOT give the caller /files routes it has no object store for (F7)", async () => {
+    // The shared TypedDict is all the caller needs.  Mounting the upload
+    // endpoints would need an objectStore dataSource it never binds.
+    const files = await emit(fileSystem());
+    expect(files.has("shipping_svc/app/http/files_routes.py")).toBe(false);
+    expect(files.get("shipping_svc/pyproject.toml") ?? "").not.toContain("python-multipart");
+  });
+
+  it("leaves a File-free client's imports untouched", async () => {
+    // The import rides a predicate over what the module actually wrote, so a
+    // client with no File-typed wire field stays byte-identical.
+    expect(await client()).not.toContain("file_ref");
   });
 
   it("emits no client module for a deployable that binds no api", async () => {

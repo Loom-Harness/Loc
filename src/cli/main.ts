@@ -11,7 +11,7 @@ import { generateDotnet } from "../generator/dotnet/index.js";
 import { enrichLoomModel } from "../ir/enrich/enrichments.js";
 import { lowerModel, lowerProject } from "../ir/lower/lower.js";
 import type { EnrichedLoomModel, TestOutcome } from "../ir/types/loom-ir.js";
-import { validateLoomModel } from "../ir/validate/validate.js";
+import { type LoomDiagnostic, validateLoomModel } from "../ir/validate/validate.js";
 import { createDddServices } from "../language/ddd-module.js";
 import type { Model } from "../language/generated/ast.js";
 import { applyPatches, type ModelPatch } from "../language/model-patch.js";
@@ -24,6 +24,16 @@ import { generateTypeScript } from "../platform/hono/v4/emit.js";
 import { BACKEND_PINS as HONO_V4_PINS } from "../platform/hono/v4/pins.js";
 import { generateSystemsFromLoom } from "../system/index.js";
 import { captureSnapshots } from "../system/loomsnap.js";
+import {
+  buildManifest,
+  carriedOverEntries,
+  MANIFEST_REL_PATH,
+  type ManifestEntry,
+  type OutputManifest,
+  parseManifest,
+  planPrune,
+  serializeManifest,
+} from "../system/manifest.js";
 import { fsMigrationArtifactIndex, MigrationBaselineError } from "../system/migration-artifacts.js";
 import {
   MigrationDestructiveError,
@@ -31,7 +41,7 @@ import {
   MigrationSqlScopeError,
 } from "../system/migrations-builder.js";
 import { fsSnapshotStore, SnapshotReadError } from "../system/snapshot.js";
-import { annotateTrace, type SourceMap } from "../trace/index.js";
+import { annotateTrace, type SourceMap, traceCoverage } from "../trace/index.js";
 import { isScaffoldOnce } from "../util/scaffold-once.js";
 import {
   renderVerdictGraph,
@@ -50,6 +60,8 @@ import {
 import {
   DESIGN_PACKS,
   type DesignPack,
+  designPacksForFormat,
+  packFormatOf,
   renderLoomignore,
   renderReadme,
   renderStarter,
@@ -195,6 +207,54 @@ function printDiagnostics(result: {
   console.error(`${result.errorCount} error(s), ${result.warningCount} warning(s).`);
 }
 
+/** The phase-⑦ (IR) diagnostic report, printed IDENTICALLY by `parse` and by
+ *  `generate system`.
+ *
+ *  It was not: `generate` had its own copy that printed every non-error
+ *  diagnostic under one `N warning(s).` footer — so the 12 advisory
+ *  `loom.index-suggestion` hints, which `parse` prints under their own
+ *  `Suggestions (N):` heading and deliberately does NOT count as warnings,
+ *  came out of `generate` labelled `warning`.  The two commands then disagreed
+ *  about the same file (`3 warning(s).` + `Suggestions (12):` vs
+ *  `15 warning(s).`), which is exactly the pre-flight-disagrees-with-the-real-
+ *  command failure `runParse`'s own doc comment exists to prevent.  One
+ *  printer, one wording, both callers.
+ *
+ *  Returns the split so the caller can decide about exit codes (errors gate;
+ *  warnings and suggestions never do). */
+function printIrDiagnostics(diagnostics: readonly LoomDiagnostic[]): {
+  errors: LoomDiagnostic[];
+  warnings: LoomDiagnostic[];
+  hints: LoomDiagnostic[];
+} {
+  const errors = diagnostics.filter((d) => d.severity === "error");
+  if (errors.length > 0) {
+    for (const d of errors) console.error(`${d.code} ${d.source}: ${d.message}`);
+    console.error(`${errors.length} error(s).`);
+  }
+
+  // Phase ⑦ computes 18 warning codes (datasource-knob-unwired, findall-no-page,
+  // cross-tenant-without-tenancy, …).  A warning never affects the exit code;
+  // it just has to be VISIBLE.  (`loom.index-suggestion` is excluded here — it
+  // keeps its own `Suggestions:` footer below, and would otherwise print twice.)
+  const warnings = diagnostics.filter(
+    (d) => d.severity === "warning" && d.code !== "loom.index-suggestion",
+  );
+  if (warnings.length > 0) {
+    for (const d of warnings) console.error(`${d.code} ${d.source} warning: ${d.message}`);
+    console.error(`${warnings.length} warning(s).`);
+  }
+
+  // Advisory only — the index-suggestion lint (uniqueness-and-indexes.md §11)
+  // keeps its own footer and never fails the command.
+  const hints = diagnostics.filter((d) => d.code === "loom.index-suggestion");
+  if (hints.length > 0) {
+    console.error(`\nSuggestions (${hints.length}):`);
+    for (const d of hints) console.error(`  ${d.source}: ${d.message}`);
+  }
+  return { errors, warnings, hints };
+}
+
 /**
  * `ddd parse <file>` — "parse + validate, exit non-zero on errors".
  *
@@ -231,36 +291,14 @@ async function runParse(file: string) {
     // Lowering/enrichment threw — nothing further to report at IR level.
   }
 
-  const irErrors = irDiagnostics.filter((d) => d.severity === "error");
-  if (irErrors.length > 0) {
-    for (const d of irErrors) console.error(`${d.code} ${d.source}: ${d.message}`);
-    console.error(`${irErrors.length} error(s).`);
-  }
-
-  // The WARNING half of the same defect.  Phase ⑦ computes 18 warning codes
-  // (datasource-knob-unwired, findall-no-page, cross-tenant-without-tenancy,
-  // …) and `parse` used to filter them down to the single allow-listed
-  // `loom.index-suggestion` — so `--json` reported `warnings: 2` while the
-  // human command printed `0 error(s), 0 warning(s).  OK:` for the same file.
-  // A warning never affects the exit code; it just has to be VISIBLE.
-  // (`loom.index-suggestion` is excluded here — it keeps its own
-  // `Suggestions:` footer below, and would otherwise print twice.)
-  const irWarnings = irDiagnostics.filter(
-    (d) => d.severity === "warning" && d.code !== "loom.index-suggestion",
-  );
-  if (irWarnings.length > 0) {
-    for (const d of irWarnings) console.error(`${d.code} ${d.source} warning: ${d.message}`);
-    console.error(`${irWarnings.length} warning(s).`);
-  }
+  // `--json` used to report `warnings: 2` while the human command printed
+  // `0 error(s), 0 warning(s).  OK:` for the same file, because this half was
+  // filtered down to the single allow-listed `loom.index-suggestion`.  The
+  // shared printer is now the only thing that decides what a phase-⑦
+  // diagnostic looks like on either command's stderr.
+  const { errors: irErrors } = printIrDiagnostics(irDiagnostics);
   if (irErrors.length > 0) process.exit(1);
 
-  // Advisory only — the index-suggestion lint (uniqueness-and-indexes.md §11)
-  // keeps its own footer and never fails the parse.
-  const hints = irDiagnostics.filter((d) => d.code === "loom.index-suggestion");
-  if (hints.length > 0) {
-    console.error(`\nSuggestions (${hints.length}):`);
-    for (const d of hints) console.error(`  ${d.source}: ${d.message}`);
-  }
   console.log(`OK: ${file}`);
 }
 
@@ -283,7 +321,10 @@ async function runPatch(file: string, patchesFile: string, options: { json?: boo
   const parsed = JSON.parse(raw) as ModelPatch[] | { patches: ModelPatch[] };
   const patches = Array.isArray(parsed) ? parsed : parsed.patches;
 
-  const result = await applyPatches(source, patches);
+  // Both output modes own stdout byte-for-byte — the JSON PatchResult, and
+  // the patched source `ddd patch … > m2.ddd` redirects — so the parse runs
+  // under the stray-stdout guard either way (see `withJsonStdout`).
+  const result = await withJsonStdout(() => applyPatches(source, patches));
   if (options.json) {
     process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
   } else if (result.ok) {
@@ -309,13 +350,48 @@ function readSource(file: string): { absolute: string; source: string } {
 }
 
 /**
+ * Run `work` with everything it writes to STDOUT diverted to stderr, and
+ * return its result — the guard that keeps a `--json` verb's stdout a single
+ * parseable document.
+ *
+ * A machine-readable stream is a contract with a consumer that will
+ * `JSON.parse` it, and that contract is only as strong as the noisiest thing
+ * in the process.  It was broken by a source containing `money(`: Chevrotain's
+ * ALL(*) lookahead reports the (known, documented — see `MoneyLit` /
+ * `PrimitiveConversion` in `ddd.langium`) prefix ambiguity through
+ * `console.log`, LAZILY, on the first input that reaches that alternation —
+ * so `generate system --json` printed four lines of grammar advice ahead of
+ * the payload and `jq` refused the output.  Nothing in the JSON verbs
+ * themselves was wrong, which is the point: the fix has to hold for whatever
+ * a dependency decides to print next, not just for this one warning.
+ *
+ * The diverted text is not swallowed — it lands on stderr, where a human
+ * still sees it and `2>/dev/null` still silences it.
+ */
+async function withJsonStdout<T>(work: () => Promise<T>): Promise<T> {
+  const original = process.stdout.write.bind(process.stdout);
+  const divert = ((chunk: unknown, encoding?: unknown, callback?: unknown) =>
+    (process.stderr.write as (...a: unknown[]) => boolean)(
+      chunk,
+      encoding,
+      callback,
+    )) as typeof process.stdout.write;
+  process.stdout.write = divert;
+  try {
+    return await work();
+  } finally {
+    process.stdout.write = original;
+  }
+}
+
+/**
  * `ddd parse --json` — the structured-diagnostics contract
  * (docs/old/proposals/ai-diagnostics-contract.md).  Thin wrapper over the toolkit
  * `validate()`: prints the `ValidateReport` to stdout, exits 1 when not `ok`.
  */
 async function runParseJson(file: string): Promise<void> {
   const { absolute, source } = readSource(file);
-  const report = await validate(source, { path: absolute });
+  const report = await withJsonStdout(() => validate(source, { path: absolute }));
   process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
   if (!report.ok) process.exit(1);
 }
@@ -328,7 +404,7 @@ async function runParseJson(file: string): Promise<void> {
  */
 async function runGenerateJson(file: string): Promise<void> {
   const { absolute, source } = readSource(file);
-  const report = await generateModel(source, { path: absolute });
+  const report = await withJsonStdout(() => generateModel(source, { path: absolute }));
   process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
   if (!report.ok) process.exit(1);
 }
@@ -427,6 +503,13 @@ interface RunOptions {
    * `generate dotnet` paths don't accept this flag.
    * See docs/old/plans/source-map-debug-kickoff.md. */
   sourcemap?: boolean;
+  /** `--inline-sources` switch — inline each `.ddd`'s full text into every
+   * Source Map v3 sidecar.  Off by default: the sidecars name the `.ddd` by
+   * ABSOLUTE path and a debugger reads it from there, so inlining it once per
+   * generated file (763 KB across 112 sidecars on the ERP example) buys
+   * nothing on a local tree.  Turn it on to make the emitted tree
+   * self-contained.  Only meaningful with `--sourcemap`. */
+  inlineSources?: boolean;
 }
 
 interface RunResult {
@@ -442,6 +525,9 @@ interface RunResult {
   /** Files preserved on regen because they are scaffold-once and already
    * existed on disk (user-owned extern impls, etc.). */
   preservedScaffold?: number;
+  /** Stale files deleted on regen: listed in the previous `.loom/manifest.json`
+   * but no longer emitted.  See `src/system/manifest.ts`. */
+  removed?: number;
 }
 
 type GenerateTarget = "ts" | "dotnet" | "system";
@@ -473,11 +559,14 @@ async function runGenerate(
       if (!options.continueOnError) process.exit(1);
       return { hadError: true };
     }
+    // ALWAYS, not just on the failing runs.  This print lived inside an
+    // `errorCount > 0` branch, so a successful `generate system` dropped every
+    // AST-layer (phase ④) warning it had just computed — 20 of them on the ERP
+    // example, all of which `ddd parse` prints for the same file.  A user who
+    // only runs `generate` never saw them.  Same call `parse` makes, so the
+    // wording and the footer match by construction.
+    printDiagnostics(projectResult);
     if (projectResult.errorCount > 0) {
-      for (const d of projectResult.diagnostics) console.error(d);
-      console.error(
-        `${projectResult.errorCount} error(s), ${projectResult.warningCount} warning(s).`,
-      );
       if (!options.continueOnError) process.exit(1);
       return { hadError: true };
     }
@@ -498,23 +587,24 @@ async function runGenerate(
   // `ui.<unknown>.<verb>` references in `test e2e` bodies before
   // generators are called, rather than throwing mid-generation with a less
   // helpful trace.
+  //
+  // Printed by the SAME function `parse` uses, so the two commands report an
+  // identical diagnostic set for identical input.  `generate` used to have its
+  // own copy that lumped the 12 advisory `loom.index-suggestion` hints in with
+  // the real warnings under one count — `parse` reports those separately, and
+  // never as warnings — so the two commands' footers didn't even add up to the
+  // same number for the same file.
   const loomDiags = validateLoomModel(loom);
-  const loomErrors = loomDiags.filter((d) => d.severity === "error");
+  const { errors: loomErrors } = printIrDiagnostics(loomDiags);
   if (loomErrors.length > 0) {
-    for (const d of loomDiags) {
-      console.error(`${d.source} ${d.severity}: ${d.message}`);
-    }
-    console.error(
-      `${loomErrors.length} error(s), ${loomDiags.length - loomErrors.length} warning(s).`,
-    );
     if (!options.continueOnError) process.exit(1);
     return { hadError: true };
   }
-  // A clean-but-WARNED model used to print nothing at all: the warning print
-  // lived inside the `loomErrors.length > 0` branch above, so every phase-⑦
-  // warning was computed and then dropped on exactly the runs that succeed.
-  // Warnings never gate generation — they just have to reach the author.
-  printLoomWarnings(loomDiags);
+  // No `printLoomWarnings(loomDiags)` here: `printIrDiagnostics` above already
+  // printed the warnings — and printed the index-suggestions SEPARATELY, which
+  // is the half `printLoomWarnings` still gets wrong (it lumps them in with the
+  // real warnings under one count, so `generate`'s footer disagreed with
+  // `parse`'s for the same file).  Calling both would double-print.
   // Directory creation is deferred to the write loop below (and guarded by
   // `!options.dryRun`) so a `--dry-run` touches nothing on disk — not even
   // `mkdir`-ing the output dir.
@@ -540,6 +630,7 @@ async function runGenerate(
         existingMigrations: fsMigrationArtifactIndex(outDir, loom),
         allowRebaseline: options.allowRebaseline,
         sourcemap: options.sourcemap,
+        inlineSources: options.inlineSources,
         // Harmless to pass unconditionally — v3 sidecar emission is still
         // gated on `sourcemap` inside `generateSystemsFromLoom`.
         sourceTexts,
@@ -588,6 +679,47 @@ async function runGenerate(
   let skippedByIgnore = 0;
   let preservedScaffold = 0;
   const resolvedOut = path.resolve(outDir);
+  // The manifest the LAST run wrote (`.loom/manifest.json`) — the only
+  // authority for what this generator owns on disk, and therefore for what it
+  // may delete when it stops emitting a path.  Missing/unreadable ⇒ null ⇒
+  // this run prunes nothing and simply re-establishes the manifest.
+  const previousManifest = readOutputManifest(outDir);
+  // The manifest the NEXT run diffs against, computed BEFORE the write loop
+  // and then handed to that loop as an ordinary emitted file.  Everything the
+  // writer already guarantees therefore applies to it for free: `--dry-run`
+  // lists it (so the preview still predicts exactly the set a real run
+  // writes), and an unchanged manifest is not rewritten (so a no-op regen
+  // still touches no mtime — the reload signal watchers depend on).  Both are
+  // gated by `test/cli/regeneration.test.ts`, and special-casing the manifest
+  // broke both; nothing here may reintroduce a bespoke write path for it.
+  //
+  // `.loomignore`d paths are excluded from the entries: the run did not write
+  // them, so it must not claim ownership of them.  The manifest lists itself,
+  // which keeps it out of its own successor's prune set (belt to
+  // `isProtectedFromPrune`'s braces).
+  const manifestEntries: ManifestEntry[] = [{ path: MANIFEST_REL_PATH }];
+  for (const relPath of [...files.keys()].sort()) {
+    const normalised = relPath.split(path.sep).join("/");
+    if (ig.ignores(normalised)) continue;
+    manifestEntries.push(
+      isScaffoldOnce(files.get(relPath)!)
+        ? { path: normalised, scaffoldOnce: true }
+        : { path: normalised },
+    );
+  }
+  // Paths a past run emitted and this one does not, but that the generator
+  // still owns — the protected families, chiefly the earlier migrations no
+  // backend re-emits.  Carried over so the manifest does not churn; see
+  // `carriedOverEntries`.
+  manifestEntries.push(
+    ...carriedOverEntries(
+      previousManifest,
+      manifestEntries.map((e) => e.path),
+      (p) => fs.existsSync(path.join(outDir, p)),
+    ),
+  );
+  files.set(MANIFEST_REL_PATH, serializeManifest(buildManifest(manifestEntries)));
+
   const sortedPaths = [...files.keys()].sort();
   for (const relPath of sortedPaths) {
     const content = files.get(relPath)!;
@@ -653,13 +785,95 @@ async function runGenerate(
     fs.writeFileSync(full, content, "utf8");
     written++;
   }
+  // ── Prune (finding G1) ────────────────────────────────────────────────
+  // Regeneration used to only ever ADD: rename an operation and the old
+  // handler stayed behind, calling a method the aggregate no longer has, so
+  // the generated project stopped compiling.  A path is deleted only when the
+  // PREVIOUS manifest lists it (⇒ a past run of this generator wrote it) and
+  // this run does not emit it.  `planPrune` additionally spares scaffold-once
+  // files, `.loomignore`d paths, and the protected families (migration files,
+  // `.loom/snapshots/`) — see `src/system/manifest.ts` for why each is on the
+  // list.  Anything with no manifest entry — every hand-written file — is
+  // structurally out of reach.
+  //
+  // Runs AFTER the write loop, so the new manifest is already on disk.  A run
+  // killed between the two therefore leaves a stale file that no manifest
+  // lists any more — it survives forever instead of being deleted.  That is
+  // the direction to fail in: this code's only irreversible act is a delete.
+  const prune = planPrune(
+    previousManifest,
+    manifestEntries.map((e) => e.path),
+    {
+      isIgnored: (p) => ig.ignores(p),
+      exists: (p) => fs.existsSync(path.join(outDir, p)),
+    },
+  );
+  let removed = 0;
+  for (const relPath of prune.remove) {
+    // A manifest is a file on disk and can be hand-edited; re-apply the same
+    // containment check the write loop uses so a doctored entry can never
+    // make a regen delete outside the output tree.
+    if (escapesOutDir(resolvedOut, relPath)) {
+      console.error(
+        `Refusing to remove '${relPath}': path escapes the output directory ${outDir}.`,
+      );
+      continue;
+    }
+    const full = path.join(outDir, relPath);
+    if (options.dryRun) {
+      console.log(`  remove (stale)      ${relPath}`);
+      removed++;
+      continue;
+    }
+    try {
+      fs.rmSync(full);
+    } catch (err) {
+      console.error(`Could not remove stale file '${relPath}': ${(err as Error).message}`);
+      continue;
+    }
+    console.log(`  removed             ${relPath}`);
+    removed++;
+    pruneEmptyDirs(resolvedOut, path.dirname(full));
+  }
+
   const verb = options.dryRun ? "Would write" : "Wrote";
   const parts: string[] = [`${verb} ${written} file(s) in ${outDir}`];
   if (unchanged > 0) parts.push(`unchanged: ${unchanged}`);
   if (preservedScaffold > 0) parts.push(`preserved (scaffold-once): ${preservedScaffold}`);
   if (skippedByIgnore > 0) parts.push(`skipped (.loomignore): ${skippedByIgnore}`);
+  if (removed > 0) parts.push(`${options.dryRun ? "would remove" : "removed"} (stale): ${removed}`);
   console.log(parts.join(", "));
-  return { hadError: false, written, unchanged, skippedByIgnore, preservedScaffold };
+  return { hadError: false, written, unchanged, skippedByIgnore, preservedScaffold, removed };
+}
+
+/** Read `.loom/manifest.json` from a previous run.  Any failure — absent,
+ *  unreadable, truncated, or a newer schema version — degrades to `null`,
+ *  i.e. "prune nothing this run". */
+function readOutputManifest(outDir: string): OutputManifest | null {
+  const file = path.join(outDir, MANIFEST_REL_PATH);
+  let text: string;
+  try {
+    text = fs.readFileSync(file, "utf8");
+  } catch {
+    return null;
+  }
+  return parseManifest(text);
+}
+
+/** After deleting a stale file, walk its parent chain up to (but never
+ *  including) the output dir and drop directories the deletion emptied — a
+ *  renamed page should not leave an empty `pages/` husk behind.  `rmdirSync`
+ *  fails on a non-empty directory, which is exactly the stop condition. */
+function pruneEmptyDirs(resolvedOut: string, startDir: string): void {
+  let dir = path.resolve(startDir);
+  while (dir.startsWith(resolvedOut + path.sep)) {
+    try {
+      fs.rmdirSync(dir);
+    } catch {
+      return; // non-empty (or gone) — stop climbing
+    }
+    dir = path.dirname(dir);
+  }
 }
 
 /** Resolve the current git commit (short) for the snapshot envelope, or
@@ -682,18 +896,24 @@ function gitCommitHash(): string | undefined {
  * `dotnet ef migrations add`: run it deliberately when rules change so the
  * deployed runtime's trace records can be explained against a captured
  * version of the code.
+ *
+ * Multi-file aware — `parseProject`, the same import-graph walk `generate
+ * system` and `parse` do.  On the single-document `parseFile` this verb
+ * reported a model split across `import "./shared.ddd"` as broken (a page
+ * body naming a component declared in the sibling file resolved to
+ * nothing), so a project that GENERATES could not be snapshotted.
  */
 async function runSnapshot(
   file: string,
   outDir: string,
   options: { dryRun?: boolean } = {},
 ): Promise<RunResult> {
-  const result = await parseFile(file);
+  const result = await parseProject(file);
   if (result.errorCount > 0) {
     printDiagnostics(result);
     process.exit(1);
   }
-  const loom = enrichLoomModel(lowerModel(result.model));
+  const loom = result.loom;
   const loomDiags = validateLoomModel(loom);
   const loomErrors = loomDiags.filter((d) => d.severity === "error");
   if (loomErrors.length > 0) {
@@ -777,8 +997,14 @@ async function runNew(name: string, options: NewOptions): Promise<void> {
   if (!DESIGN_PACKS.includes(design)) {
     fail(`unknown --design "${options.design}". Valid: ${DESIGN_PACKS.join(" | ")}.`);
   }
-  if (design === "coreComponents" && platform !== "elixir") {
-    fail("--design coreComponents requires --platform elixir (it is the Phoenix LiveView UI).");
+  // A HEEx pack renders Phoenix LiveView markup, so it can only mount on the
+  // elixir backend.  Keyed on the pack's format, not on one pack's name —
+  // `daisyui` is as much a LiveView pack as `coreComponents`.
+  if (packFormatOf(design) === "heex" && platform !== "elixir") {
+    fail(
+      `--design ${design} requires --platform elixir (it is a Phoenix LiveView pack). ` +
+        `For ${platform}, pick one of: ${DESIGN_PACKS.filter((d) => packFormatOf(d) !== "heex").join(" | ")}.`,
+    );
   }
 
   const outDir = path.resolve(options.out ?? name);
@@ -843,7 +1069,12 @@ interface VerifyOptions {
 }
 
 /** `ddd verify` — join a test-results file onto the requirements graph,
- *  emit the verification artifacts, and gate the exit code. */
+ *  emit the verification artifacts, and gate the exit code.
+ *
+ *  Multi-file aware for the same reason `runSnapshot` is: a requirements
+ *  graph split across `import "./shared.ddd"` has to be READ the way
+ *  `generate system` reads it, or the verb rejects a model that generates
+ *  fine. */
 async function runVerify(file: string, options: VerifyOptions): Promise<void> {
   // Validate `--min` up front: `Number("90%")` / `Number("abc")` is NaN and
   // `actual < NaN` is always false, so a typo'd threshold would silently pass
@@ -859,12 +1090,12 @@ async function runVerify(file: string, options: VerifyOptions): Promise<void> {
     }
   }
 
-  const result = await parseFile(file);
+  const result = await parseProject(file);
   if (result.errorCount > 0) {
     printDiagnostics(result);
     process.exit(2);
   }
-  const loom = enrichLoomModel(lowerModel(result.model));
+  const loom = result.loom;
   const loomDiags = validateLoomModel(loom);
   const loomErrors = loomDiags.filter((d) => d.severity === "error");
   if (loomErrors.length > 0) {
@@ -917,11 +1148,19 @@ async function runVerify(file: string, options: VerifyOptions): Promise<void> {
   fs.writeFileSync(path.join(outDir, "verification.mmd"), renderVerdictGraph(loom, verification));
 
   const s = verification.summary;
-  console.log(
+  // Under `--json` the human summary goes to stderr: stdout then carries the
+  // verification document and nothing else, so `ddd verify --json | jq` works
+  // the way `parse --json` / `generate system --json` do.  Without `--json`
+  // the summary IS the output and stays on stdout.
+  const summaryLine =
     `Verified ${s.verified}/${s.total} requirements ` +
-      `(${s.failing} failing, ${s.unverified} unverified, ${s.untested} untested).`,
-  );
-  if (options.json) console.log(renderVerificationJson(verification));
+    `(${s.failing} failing, ${s.unverified} unverified, ${s.untested} untested).`;
+  if (options.json) {
+    console.error(summaryLine);
+    console.log(renderVerificationJson(verification));
+  } else {
+    console.log(summaryLine);
+  }
 
   // Gate.
   let failed = s.failing > 0;
@@ -997,6 +1236,55 @@ async function runTrace(file: string, options: TraceOptions): Promise<void> {
     }
   };
   console.log(annotateTrace(logText, map, readSource));
+  reportTraceCoverage(logText, map, mapPath);
+}
+
+/** Say what the annotation run actually did — on stderr, so the annotated log
+ *  stays pipeable.
+ *
+ *  `annotateTrace` echoes an unresolvable frame unchanged, which made a total
+ *  miss look like a successful no-op: a production stack whose every frame is
+ *  `dist/index.js` came back byte-identical with no count, no reason and no
+ *  next step.  The command HAS all three — it parsed the frames, it knows what
+ *  the map covers, and it knows a bundle path can't match a generated source
+ *  path. */
+function reportTraceCoverage(logText: string, map: SourceMap, mapPath: string): void {
+  const cov = traceCoverage(logText, map);
+  const covered = Object.keys(map.files);
+  if (cov.frames === 0) {
+    console.error(
+      "ddd trace: no stack frames recognized in this log (supported dialects: V8/Node, " +
+        ".NET, Java, Python, Elixir) — nothing to annotate.",
+    );
+    return;
+  }
+  if (cov.resolved > 0) {
+    console.error(`ddd trace: annotated ${cov.resolved} of ${cov.frames} stack frame(s).`);
+    return;
+  }
+
+  const lines = [`ddd trace: no frame matched the sourcemap (0 of ${cov.frames} stack frame(s)).`];
+  if (cov.unknownFiles.length > 0) {
+    lines.push(`  frame files: ${cov.unknownFiles.slice(0, 4).join(", ")}`);
+  }
+  if (cov.lineMisses > 0) {
+    lines.push(
+      `  ${cov.lineMisses} frame(s) named a mapped file but no region covered their line — ` +
+        "the map is likely older than the output; re-run `generate system … --sourcemap`.",
+    );
+  }
+  lines.push(
+    `  ${mapPath} covers ${covered.length} generated file(s)` +
+      (covered.length > 0 ? `, e.g. ${covered.slice(0, 3).join(", ")}` : ""),
+  );
+  lines.push(
+    "  A BUNDLED frame (dist/…, *.min.js, a single-file build) names the bundle, not the " +
+      "generated file the map is keyed by. Run the process from the generated sources, or " +
+      "resolve the bundle's own source map first (`node --enable-source-maps`), then re-run " +
+      "`ddd trace`. If the log is from a different project tree, point at its map with --map " +
+      "or -o.",
+  );
+  console.error(lines.join("\n"));
 }
 
 interface BreakpointOptions {
@@ -1170,6 +1458,10 @@ generate
     "--sourcemap",
     "emit .loom/sourcemap.json mapping generated code back to .ddd spans; off by default. See docs/old/plans/source-map-debug-kickoff.md.",
   )
+  .option(
+    "--inline-sources",
+    "with --sourcemap, inline each .ddd's full text into every Source Map v3 sidecar. Off by default — the sidecars name the .ddd by absolute path and a debugger reads it from there, so inlining it once per generated file costs ~4x the map bytes for nothing. Turn it on when the maps will be read where the .ddd files are not.",
+  )
   .action(
     async (
       file: string,
@@ -1183,6 +1475,7 @@ generate
         allowDestructive?: boolean;
         allowRebaseline?: boolean;
         sourcemap?: boolean;
+        inlineSources?: boolean;
       },
     ) => {
       if (options.json) {
@@ -1200,6 +1493,7 @@ generate
         allowDestructive: !!options.allowDestructive,
         allowRebaseline: !!options.allowRebaseline,
         sourcemap: !!options.sourcemap,
+        inlineSources: !!options.inlineSources,
       };
       await runGenerate("system", file, options.out, runOpts);
       if (options.watch) {
@@ -1275,20 +1569,38 @@ program
   .description(
     "Scaffold a starter .ddd project (main.ddd + README + .loomignore), validated before writing. Pick the backend with --platform and the frontend with --design.",
   )
+  .option("--platform <platform>", `backend: ${STARTER_PLATFORMS.join(" | ")} (default: node)`)
   .option(
-    "--platform <platform>",
-    "backend: node | dotnet | elixir | java | python (default: node)",
+    "--template <template>",
+    `starter model: ${STARTER_TEMPLATES.join(" | ")} (default: crud)`,
   )
-  .option("--template <template>", "starter model: blank | crud (default: crud)")
-  .option(
-    "--design <pack>",
-    "frontend: mantine | shadcn | mui | chakra (React), shadcnSvelte | flowbite (Svelte), or coreComponents (Phoenix LiveView)",
-  )
+  .option("--design <pack>", designHelp())
   .option("-o, --out <dir>", "output directory (default: ./<name>)")
   .option("--force", "scaffold into an existing, non-empty directory")
   .action(async (name: string, options: NewOptions) => {
     await runNew(name, options);
   });
+
+/** The `--design` help line, DERIVED from the pack registry.
+ *
+ *  It was a prose list, and it named seven of the thirteen registered pack
+ *  families — so `--design vuetify` worked while `--help` said no such pack
+ *  existed, and the three Angular packs were invisible.  Deriving it means
+ *  `--help` cannot disagree with what `--design` accepts. */
+function designHelp(): string {
+  const groups: [string, readonly DesignPack[]][] = [
+    ["React", designPacksForFormat("tsx")],
+    ["Vue", designPacksForFormat("vue")],
+    ["Svelte", designPacksForFormat("svelte")],
+    ["Angular", designPacksForFormat("angular")],
+    ["Phoenix LiveView, --platform elixir", designPacksForFormat("heex")],
+  ];
+  const rendered = groups
+    .filter(([, packs]) => packs.length > 0)
+    .map(([label, packs]) => `${packs.join(" | ")} (${label})`)
+    .join("; ");
+  return `frontend design pack — ${rendered} (default: mantine, or coreComponents on elixir)`;
+}
 
 const i18n = program
   .command("i18n")
@@ -1301,7 +1613,7 @@ i18n
   .description(
     "Write the fresh source catalog to <out>/.loom/messages.en.json (phases ①–⑥, no codegen).",
   )
-  .option("-o, --out <dir>", "output directory (default: ./out)")
+  .option("-o, --out <dir>", "output directory (default: the .ddd file's dir)")
   .action(async (file: string, options: { out?: string }) => {
     await runI18nExtract(file, options);
   });
@@ -1309,7 +1621,7 @@ i18n
 i18n
   .command("init <file> <locale>")
   .description("Scaffold locales/<locale>.json (all keys as TODO) and the source lock if absent.")
-  .option("--dir <dir>", "translator tree root (default: ./locales)")
+  .option("--dir <dir>", "translator tree root (default: <.ddd file's dir>/locales)")
   .action(async (file: string, locale: string, options: { dir?: string }) => {
     await runI18nInit(file, locale, options);
   });
@@ -1319,7 +1631,7 @@ i18n
   .description(
     "Three-way merge (lock=BASE, locale=OURS, fresh extraction=THEIRS) for every locale; bump the lock.",
   )
-  .option("--dir <dir>", "translator tree root (default: ./locales)")
+  .option("--dir <dir>", "translator tree root (default: <.ddd file's dir>/locales)")
   .option("--locale <locale>", "sync only this locale")
   .option("--keep-stale", "keep source-deleted keys under `_stale.<key>` instead of dropping them")
   .action(async (file: string, options: { dir?: string; locale?: string; keepStale?: boolean }) => {
@@ -1329,7 +1641,7 @@ i18n
 i18n
   .command("status <file>")
   .description("Report what `sync` would do; exit non-zero if any locale has pending changes.")
-  .option("--dir <dir>", "translator tree root (default: ./locales)")
+  .option("--dir <dir>", "translator tree root (default: <.ddd file's dir>/locales)")
   .option("--locale <locale>", "check only this locale")
   .action(async (file: string, options: { dir?: string; locale?: string }) => {
     await runI18nStatus(file, options);
@@ -1338,7 +1650,7 @@ i18n
 i18n
   .command("check <file>")
   .description("CI gate: report TODO markers, unresolved conflicts, and missing keys per locale.")
-  .option("--dir <dir>", "translator tree root (default: ./locales)")
+  .option("--dir <dir>", "translator tree root (default: <.ddd file's dir>/locales)")
   .option("--locale <locale>", "check only this locale")
   .option("--strict", "exit non-zero if any finding is present")
   .action(async (file: string, options: { dir?: string; locale?: string; strict?: boolean }) => {
@@ -1350,7 +1662,7 @@ i18n
   .description(
     "Delete keys the source no longer emits from every locale file (off by default; run deliberately).",
   )
-  .option("--dir <dir>", "translator tree root (default: ./locales)")
+  .option("--dir <dir>", "translator tree root (default: <.ddd file's dir>/locales)")
   .option("--locale <locale>", "prune only this locale")
   .action(async (file: string, options: { dir?: string; locale?: string }) => {
     await runI18nPrune(file, options);

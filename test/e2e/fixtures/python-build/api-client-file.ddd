@@ -1,0 +1,62 @@
+// Typed in-system api client (M-T4.8) over a callee whose wire shape carries an
+// OPTIONAL `File` field — the shape behind F7 of the 2026-09-03 language-docs
+// audit.  `spec: File?` reaches the python CALLER only through the generated
+// `app/resources/api_clients.py` response model, where it annotates as
+// `FileRef`: a name the emitter neither spelled once (`FileRef | None | None`)
+// nor imported, and whose module `app/domain/file_ref.py` was not emitted into
+// a caller that declares no File field of its own.  ruff F821 + mypy
+// name-defined both catch it, and no python-build fixture reached the typed
+// api client before this one.
+system ApiClientFile {
+  subdomain Core {
+    context Orders {
+      aggregate Order with crudish {
+        code: string
+        status: string
+        spec: File?
+      }
+      repository Orders for Order { }
+    }
+    context Shipping {
+      aggregate Shipment with crudish {
+        orderCode: string
+        status: string
+      }
+      repository Shipments for Shipment { }
+      workflow fulfil {
+        create(orderId: string) {
+          let o = orders.getOrderById(orderId)
+          let s = Shipment.create({ orderCode: o.code, status: "Pending" })
+        }
+      }
+    }
+  }
+
+  api OrdersApi from Core
+
+  storage primary { type: postgres }
+  storage blobs   { type: localDisk }
+
+  resource ordersState   { for: Orders,   kind: state,       use: primary }
+  resource ordersFiles   { for: Orders,   kind: objectStore, use: blobs }
+  resource shippingState { for: Shipping, kind: state,       use: primary }
+  resource orders        { for: Shipping, kind: api,         use: OrdersApi }
+
+  // The CALLEE hosts the File-bearing aggregate and binds the object store.
+  deployable ordersSvc {
+    platform: node
+    contexts: [Orders]
+    dataSources: [ordersState, ordersFiles]
+    serves: OrdersApi
+    port: 3000
+  }
+
+  // The CALLER is the gated project: it declares no File field, and still has
+  // to be able to name the `FileRef` its client model annotates.
+  deployable shippingSvc {
+    platform: python
+    contexts: [Shipping]
+    dataSources: [shippingState, orders]
+    port: 8000
+  }
+}
