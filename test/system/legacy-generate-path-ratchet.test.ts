@@ -104,7 +104,6 @@ const PINNED_HONO: Readonly<Record<string, number>> = {
   "test/generator/typescript/retrieval-for-loop-emit.test.ts": 2,
   "test/generator/typescript/single-find-hydrate.test.ts": 1,
   "test/generator/typescript/stdlib.test.ts": 1,
-  "test/generator/typescript/temporal.test.ts": 4,
   "test/generator/typescript/toplevel-function.test.ts": 1,
   "test/generator/typescript/typescript-access-modifiers.test.ts": 1,
   "test/ir/collection-op-lambda-element-type.test.ts": 1,
@@ -153,7 +152,6 @@ const PINNED_DOTNET: Readonly<Record<string, number>> = {
   "test/generator/dotnet/required-value-type-members.test.ts": 2,
   "test/generator/dotnet/retrieval-emit.test.ts": 2,
   "test/generator/dotnet/single-containment.test.ts": 1,
-  "test/generator/dotnet/temporal.test.ts": 5,
   "test/generator/dotnet/union-emit.test.ts": 3,
   "test/generator/dotnet/validation-error-extension.test.ts": 6,
   "test/generator/dotnet/when-emit.test.ts": 1,
@@ -182,7 +180,6 @@ const PARSE_STRING_ALONGSIDE_HONO: Readonly<Record<string, string>> = {
   "test/generator/typescript/interpolation.test.ts": "same — the phase-④ assertion IS the test",
   "test/generator/typescript/intrinsic-trim.test.ts": "same — the phase-④ assertion IS the test",
   "test/generator/typescript/stdlib.test.ts": "same — the phase-④ assertion IS the test",
-  "test/generator/typescript/temporal.test.ts": "same — the phase-④ assertion IS the test",
   "test/generator/typescript/toplevel-function.test.ts": "same — the phase-④ assertion IS the test",
   "test/ir/collection-op-lambda-element-type.test.ts":
     "OWNED BY ANOTHER PACKET (test/ir/** fence) — a real `parseString` → legacy-generate hop, still to migrate",
@@ -195,7 +192,6 @@ const PARSE_STRING_ALONGSIDE_DOTNET: Readonly<Record<string, string>> = {
     "a dedicated `parses + validates cleanly` case that asserts `errors` is empty itself; the five generate calls use `parseValid`",
   "test/generator/dotnet/intrinsic-strings.test.ts": "same — the phase-④ assertion IS the test",
   "test/generator/dotnet/intrinsic-trim.test.ts": "same — the phase-④ assertion IS the test",
-  "test/generator/dotnet/temporal.test.ts": "same — the phase-④ assertion IS the test",
   "test/ir/collection-op-lambda-element-type.test.ts":
     "OWNED BY ANOTHER PACKET (test/ir/** fence) — a real `parseString` → `generateDotnet` hop, still to migrate",
 };
