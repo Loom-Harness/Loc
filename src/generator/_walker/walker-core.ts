@@ -1005,10 +1005,17 @@ export function tryRenderNavigateCall(
 ): string | undefined {
   if (name !== "navigate") return undefined;
   const pageRef = args[0];
+  // A STRING first argument is a literal route path (`navigate("/orders")`).
+  // `pageRoutes` is keyed by the page's bare name, and the scaffold names every
+  // aggregate's list page `List` inside its own `area` — so a page REF cannot
+  // address one list unambiguously, and a body that must reach a specific route
+  // spells the path.  Before this arm such a call silently resolved to `"/"`.
   const route =
-    pageRef && pageRef.kind === "ref"
-      ? (ctx.pageRoutes?.get(pageRef.name) ?? `/${snake(pageRef.name)}`)
-      : "/";
+    pageRef && pageRef.kind === "literal" && pageRef.lit === "string"
+      ? pageRef.value
+      : pageRef && pageRef.kind === "ref"
+        ? (ctx.pageRoutes?.get(pageRef.name) ?? `/${snake(pageRef.name)}`)
+        : "/";
   ctx.usesNavigate = true;
   // A second arg is an opaque route-state expression (`navigate(Page, sel)`);
   // the contract's `stateExpr` escape hatch embeds it verbatim.
@@ -1537,6 +1544,8 @@ function emitMemberAccess(
     member: expr.member,
     receiverType: expr.receiverType,
     memberType: expr.memberType,
+    receiverExpr: expr.receiver,
+    ctx,
   });
   const plain = spelled ?? `${recv}.${expr.member}`;
   return unwrapProvenanced && isProvenancedCarrierRead(expr, ctx)
@@ -1683,11 +1692,26 @@ export function emitExpr(expr: ExprIR, ctx: WalkContext): string {
         const temporal = ctx.target.exprTemporalBinary?.(left, right, expr);
         if (temporal !== undefined && temporal !== null) return temporal;
       }
-      // Numeric operand adaptation: integer division widened to `decimal`
+      // Money first, for EVERY operator (not just `+`/`-`): on a target whose
+      // money is not a numeric type, the comparisons are as wrong as the
+      // arithmetic — a string `<` orders '10' before '9'.  Same null-means-
+      // fall-through contract, so a target that omits the seam is byte-identical.
+      {
+        const money = ctx.target.exprMoneyBinary?.(left, right, expr);
+        if (money !== undefined && money !== null) return money;
+      }
+      // Then numeric operand adaptation: integer division widened to `decimal`
       // (`5 / 2` is `2.5` in Loom's type system) and mixed-width operands
       // (`int + long`, `int * decimal` — Loom widens implicitly, F# does not).
       // JS and Dart get both from their host numeric tower, so they omit the
       // seam and stay byte-identical.
+      //
+      // Money is consulted BEFORE this one because it is the narrower claim: a
+      // money operand is numeric too, so a target defining both would want its
+      // money form to win.  No target defines both today (Flutter omits the
+      // numeric seam, Feliz omits the money one — its money IS an F# decimal),
+      // so the order is not observable yet; it is fixed here so that it cannot
+      // be decided by accident later.
       const numeric = ctx.target.exprNumericBinary?.(left, right, expr);
       if (numeric !== undefined && numeric !== null) return numeric;
       // Operator-spelling + strict-equality mapping lives in the target's leaf

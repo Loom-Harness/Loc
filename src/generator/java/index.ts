@@ -24,6 +24,7 @@ import {
 import type { MigrationsIR } from "../../ir/types/migrations-ir.js";
 import type { OriginRef } from "../../ir/types/origin.js";
 import {
+  aggregatesCanTripReferencedDelete,
   aggregatesHaveUniqueKeys,
   aggregatesNeedConcurrency,
 } from "../../ir/util/aggregate-flags.js";
@@ -469,9 +470,15 @@ function emitProjectFromContexts(
   place("_Namespace.java", "enum", renderPackageMarker(pkgFor("enum")));
   place("_Namespace.java", "valueobject", renderPackageMarker(pkgFor("valueobject")));
   place("_Namespace.java", "id", renderPackageMarker(pkgFor("id")));
-  // 23505 → 409 arm is emitted only when some aggregate declares a `unique (...)`
-  // key, so a unique-free project's advice stays byte-identical (strict additivity).
+  // The `DataIntegrityViolationException` advice carries BOTH integrity arms —
+  // 23503 (still referenced → `ReferencedInUse`) and 23505 (unique breach →
+  // `UniquenessConflict`) — so it must be emitted when EITHER can fire.  Gating
+  // the whole handler on `unique (...)` keys alone is what made a model with a
+  // cross-aggregate reference and no unique key answer 500 on a still-referenced
+  // delete, against the 409 the other four backends (and this project's own
+  // OpenAPI) declare.  A project that can trip neither stays byte-identical.
   const hasUniqueKeys = contexts.some((c) => aggregatesHaveUniqueKeys(c.aggregates));
+  const hasReferencedDelete = contexts.some((c) => aggregatesCanTripReferencedDelete(c.aggregates));
   // The optimistic-lock → 409 arm is emitted when some aggregate is `versioned`
   // OR event-sourced: the `versioned` service raises
   // ObjectOptimisticLockingFailureException on a stale write, and an
@@ -495,6 +502,7 @@ function emitProjectFromContexts(
       hasConcurrency,
       structuralErrorStatuses,
       validationMessages.length > 0,
+      hasReferencedDelete,
     ),
   );
   // F18 — a wrong verb on a static sub-path (`DELETE /api/customers/by_email`)
@@ -1432,7 +1440,7 @@ function emitProjectFromContexts(
   const spaFw = system?.deployable.uiFramework;
   const spaOutDir = spaFw === "svelte" ? "build" : spaFw === "angular" ? "dist/browser" : "dist";
   // Feliz (F#/Fable) builds via `dotnet fable` + `vite build`, so its spa-build
-  // stage needs a .NET SDK + Node image, not `node:22-alpine`.  Every other
+  // stage needs a .NET SDK + Node image, not `node:24-alpine`.  Every other
   // hosted frontend is npm-only ("vite").  Its vite output is still flat `dist/`.
   const spaBuildKind = spaFw === "feliz" ? "feliz" : "vite";
   out.set("Dockerfile", renderDockerfile({ embeddedSpa: hasEmbeddedSpa, spaOutDir, spaBuildKind }));
