@@ -65,25 +65,18 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.unmapped-error-status":
     "09-payloads-and-unions.md#error--httpstatus--exception-less-problemdetails",
   "loom.criterion-impure": "10-repositories-and-queries.md#criterion",
-  "loom.projection-aggregate-arg-not-columnar":
-    "10-repositories-and-queries.md#grouped-projection--group-by",
-  "loom.projection-groupby-join-invalid":
-    "10-repositories-and-queries.md#grouped-projection--group-by",
-  "loom.projection-groupby-key-not-columnar":
-    "10-repositories-and-queries.md#grouped-projection--group-by",
-  "loom.projection-groupby-keyed-invalid":
-    "10-repositories-and-queries.md#grouped-projection--group-by",
-  "loom.projection-groupby-missing": "10-repositories-and-queries.md#grouped-projection--group-by",
-  "loom.projection-groupby-no-aggregate":
-    "10-repositories-and-queries.md#grouped-projection--group-by",
-  "loom.projection-groupby-select-not-grouped":
-    "10-repositories-and-queries.md#grouped-projection--group-by",
-  "loom.projection-groupby-source-invalid":
-    "10-repositories-and-queries.md#grouped-projection--group-by",
+  "loom.projection-aggregate-arg-not-columnar": "10-repositories-and-queries.md#grouped--group-by",
+  "loom.projection-groupby-join-invalid": "10-repositories-and-queries.md#grouped--group-by",
+  "loom.projection-groupby-key-not-columnar": "10-repositories-and-queries.md#grouped--group-by",
+  "loom.projection-groupby-keyed-invalid": "10-repositories-and-queries.md#grouped--group-by",
+  "loom.projection-groupby-missing": "10-repositories-and-queries.md#grouped--group-by",
+  "loom.projection-groupby-no-aggregate": "10-repositories-and-queries.md#grouped--group-by",
+  "loom.projection-groupby-select-not-grouped": "10-repositories-and-queries.md#grouped--group-by",
+  "loom.projection-groupby-source-invalid": "10-repositories-and-queries.md#grouped--group-by",
   "loom.projection-fields-without-select":
-    "10-repositories-and-queries.md#shorthand-projection--the-select-less-form",
+    "10-repositories-and-queries.md#shorthand--the-select-less-form",
   "loom.projection-shorthand-nonaggregate":
-    "10-repositories-and-queries.md#shorthand-projection--the-select-less-form",
+    "10-repositories-and-queries.md#shorthand--the-select-less-form",
   "loom.find-where-column-column": "10-repositories-and-queries.md#the-queryable-subset",
   "loom.find-where-not-queryable": "10-repositories-and-queries.md#the-queryable-subset",
   "loom.find-where-unknown-field": "10-repositories-and-queries.md#the-queryable-subset",
@@ -97,7 +90,7 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.projection-whole-table-aggregation-unsupported":
     "10-repositories-and-queries.md#the-source-has-to-have-columns",
   "loom.ignoring-clause-placement":
-    "10-repositories-and-queries.md#where-the-clause-may-be-written",
+    "10-repositories-and-queries.md#ignoring--capability-filter-bypass",
   "loom.context-filter-unsupported":
     "11-capabilities-filters-stamps.md#filter-expr--a-predicate-and-ed-into-every-read",
   "loom.self-outside-capability":
@@ -141,19 +134,20 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
     "16-ui-walker-primitives.md#chart--grouped-projection-series-every-frontend",
   "loom.chart-unsupported-target":
     "16-ui-walker-primitives.md#chart--grouped-projection-series-every-frontend",
-  "loom.bindable-input-value-arg": "16-ui-walker-primitives.md#createform--the-form-family",
+  "loom.bindable-input-value-arg":
+    "16-ui-walker-primitives.md#the-form-family--createform-operationform-workflowform-destroyform",
   "loom.auth-missing-issuer": "17-auth.md#auth-----oidc-config",
   "loom.auth-unknown-claim-field": "17-auth.md#auth-----oidc-config",
   "loom.auth-without-user": "17-auth.md#auth-required--per-deployable-middleware--verifier-seam",
   "loom.currentuser-not-in-request-scope": "17-auth.md#currentuser--claim-access-in-domain-logic",
   "loom.workflow-currentuser-find": "17-auth.md#currentuser--claim-access-in-domain-logic",
   "loom.auth-unknown-provider": "17-auth.md#errors",
-  "loom.duplicate-permission": "17-auth.md#permissions--a-typed-catalogue",
-  "loom.unknown-permission": "17-auth.md#permissions--a-typed-catalogue",
+  "loom.duplicate-permission": "17-auth.md#permissions--a-typed-catalogue-with-implies",
+  "loom.unknown-permission": "17-auth.md#permissions--a-typed-catalogue-with-implies",
   "loom.default-deny-ungated": "17-auth.md#requires--the-authorization-gate-http-403",
   "loom.sensitive-wire-unsupported": "17-auth.md#sensitive--field-tagging",
-  "loom.duplicate-user-block": "17-auth.md#user--the-jwt-claim-shape",
-  "loom.user-duplicate-field": "17-auth.md#user--the-jwt-claim-shape",
+  "loom.duplicate-user-block": "17-auth.md#user--the-principal-claim-shape",
+  "loom.user-duplicate-field": "17-auth.md#user--the-principal-claim-shape",
   "loom.aggregate-test-context": "18-testing.md#test---an-in-process-unit-test",
   "loom.test-redundant-for": "18-testing.md#test---an-in-process-unit-test",
   "loom.e2e-unsupported-statement":
