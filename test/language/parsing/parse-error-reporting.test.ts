@@ -171,21 +171,19 @@ describe("F6 — an alternation names what was meant, not every path", () => {
   });
 
   it("offers no did-you-mean for a punctuation token", async () => {
-    // `.` is one character from `,`, `-`, `{` and a dozen other operators.
-    // "Did you mean ','?" is noise, so the suggestion is word-shaped only.
+    // `?` is one character from `!`, `-`, `{` and a dozen other operators.
+    // "Did you mean '!'?" is noise, so the suggestion is word-shaped only.
     //
-    // The probe was `??` until M-FT.11 (#2739) added nullish coalescing to the
-    // grammar, at which point the fixture parsed clean and this test asserted
-    // against `errors[0] === undefined`.  Any punctuation the LEXER accepts and
-    // the PARSER rejects proves the same thing; `..` is the current one (a bare
-    // `?` now opens a ternary and asks for its `:`, and `@`/`#`/`&` fail in the
-    // lexer instead, which is a different message path).
-    const source = pageWith(`Text { (1 .. 2) }`);
+    // The vehicle was `(1 ?? 2)` until #2739 (M-FT.11) added `??` to the
+    // grammar, at which point this source PARSED and `errors[0]` was
+    // undefined.  `?` in operand position hits the same alternation with the
+    // same token, so what this freezes is unchanged.
+    const source = pageWith(`Text { (1 + ?) }`);
     const { errors } = await parseString(source);
-    expect(errors[0]).toMatch(/Unexpected '\.'\./);
+    expect(errors[0]).toMatch(/Unexpected '\?'\./);
     expect(errors[0]).not.toMatch(/Did you mean/);
     // …and it is still reported at the operator, not at `Stack {`.
-    expect(errors[0]).toMatch(new RegExp(`^${lineOf(source, "..")}:`));
+    expect(errors[0]).toMatch(new RegExp(`^${lineOf(source, "?")}:`));
   });
 });
 
