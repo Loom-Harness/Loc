@@ -256,10 +256,15 @@ async function generateFromAst(input: {
 function systemOptions(input: { sourcemap?: boolean; sourceTexts?: Map<string, string> }): {
   sourcemap: true;
   sourceTexts?: ReadonlyMap<string, string>;
+  inlineSources: true;
 } {
   return {
     sourcemap: true,
     sourceTexts: input.sourcemap ? input.sourceTexts : undefined,
+    // The playground has no filesystem behind `sources`, so the sidecars must
+    // carry the `.ddd` text itself or devtools has nothing to show.  The CLI
+    // leaves this off (see GenerateSystemOptions.inlineSources).
+    inlineSources: true,
   };
 }
 

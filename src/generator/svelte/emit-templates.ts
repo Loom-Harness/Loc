@@ -13,8 +13,39 @@ export const SVELTE_LIB_FORMS = `// Auto-generated.  Do not edit by hand.
 import type { z } from "zod";
 import { ApiError } from "./api/client";
 
+/** The wire shape of an uploaded file — the \`File\` request field's schema
+ *  (\`_frontend/zod-schemas.ts\`) is this object, \`.nullable()\`. */
+type FileRefValue = { url: string; key: string; contentType: string; size: number };
+
+/** The value shape a form BINDS.
+ *
+ *  A request field's optionality is a WIRE fact — "the client may omit it" —
+ *  and types as \`T | null | undefined\`.  It is not a fact about the bound
+ *  value: \`createForm\` SEEDS every field the form renders, and a scalar's seed
+ *  is its type's zero (\`""\` / \`0\` / \`false\`), a value object's seed a whole
+ *  object.  Typing \`values\` straight off the schema therefore handed every
+ *  \`bind:value\` a \`T | null | undefined\` that a typed pack input rejects
+ *  (flowbite's \`InputValue\`), and made an optional value object unreadable
+ *  without the null check the seed has already ruled out
+ *  (\`'form.values.budget' is possibly 'null' or 'undefined'\`).
+ *
+ *  So: strip the outer \`null | undefined\` off each field.  ONE level — the
+ *  member type itself is left alone, which keeps a \`money\` \`Decimal\` (and any
+ *  other class instance) intact, and needs no recursion because a value
+ *  object's own sub-fields are already required.  A \`File\` field is the one
+ *  exception: "nothing uploaded yet" is a real state the form seeds as
+ *  \`null\` and the upload handler assigns back, so it stays nullable.
+ *
+ *  The SCHEMA type is untouched — \`submit\`'s \`onValid\` still receives exactly
+ *  what the wire declares. */
+export type FormValues<T> = {
+  [K in keyof T]-?: NonNullable<T[K]> extends FileRefValue
+    ? NonNullable<T[K]> | null
+    : NonNullable<T[K]>;
+};
+
 export interface LoomForm<T> {
-  values: T;
+  values: FormValues<T>;
   readonly errors: Record<string, string>;
   readonly submitting: boolean;
   reset(): void;
@@ -27,11 +58,39 @@ export interface LoomForm<T> {
   applyServerErrors(e: unknown): { kind: "fields" } | { kind: "global"; title: string } | { kind: "unhandled" };
 }
 
+/** Deep-copy the defaults while PRESERVING prototypes.
+ *
+ *  \`structuredClone\` cannot be used here: it drops the prototype off class
+ *  instances, so a \`money\` seed (a \`Decimal\`) came back as a prototype-less
+ *  bag — the input rendered \`[object Object]\` and an untouched default could
+ *  never satisfy the money schema.  Only ARRAYS and PLAIN objects are copied
+ *  (a fresh form must not share mutable structure with the seed); everything
+ *  else — class instances, dates, primitives, null — is carried by reference,
+ *  which is safe because those values are only ever REPLACED by the inputs,
+ *  never mutated in place.
+ */
+function cloneDefaults<T>(v: T): T {
+  if (Array.isArray(v)) return v.map(cloneDefaults) as unknown as T;
+  if (typeof v === "object" && v !== null && Object.getPrototypeOf(v) === Object.prototype) {
+    const out: Record<string, unknown> = {};
+    for (const [k, val] of Object.entries(v as Record<string, unknown>)) {
+      out[k] = cloneDefaults(val);
+    }
+    return out as T;
+  }
+  return v;
+}
+
+/** \`defaults\` is \`Partial\` because a form seeds exactly the fields it
+ *  RENDERS, and a create form renders only the aggregate's create input — the
+ *  optional fields it leaves out are neither seeded nor bound.  Every field the
+ *  form does render is seeded, which is what makes \`FormValues\` sound for
+ *  \`values\`. */
 export function createForm<S extends z.ZodType>(
   schema: S,
-  defaults: z.infer<S>,
+  defaults: Partial<FormValues<z.infer<S>>>,
 ): LoomForm<z.infer<S>> {
-  let values = $state(structuredClone(defaults) as z.infer<S>);
+  let values = $state(cloneDefaults(defaults) as FormValues<z.infer<S>>);
   let errors = $state<Record<string, string>>({});
   let submitting = $state(false);
 
@@ -39,7 +98,7 @@ export function createForm<S extends z.ZodType>(
     get values() {
       return values;
     },
-    set values(v: z.infer<S>) {
+    set values(v: FormValues<z.infer<S>>) {
       values = v;
     },
     get errors() {
@@ -49,7 +108,7 @@ export function createForm<S extends z.ZodType>(
       return submitting;
     },
     reset() {
-      values = structuredClone(defaults) as z.infer<S>;
+      values = cloneDefaults(defaults) as FormValues<z.infer<S>>;
       errors = {};
     },
     async submit(onValid: (vals: z.infer<S>) => Promise<void> | void) {
@@ -74,7 +133,7 @@ export function createForm<S extends z.ZodType>(
     applyServerErrors(e: unknown) {
       const body = e instanceof ApiError ? e.body : e;
       if (body && typeof body === "object") {
-        const rec = body as { errors?: Record<string, string | string[]>; title?: string };
+        const rec = body as { errors?: Record<string, string | string[]>; title?: string; detail?: string };
         if (rec.errors && typeof rec.errors === "object") {
           const next: Record<string, string> = { ...errors };
           let any = false;
@@ -93,8 +152,16 @@ export function createForm<S extends z.ZodType>(
             return { kind: "fields" as const };
           }
         }
-        if (typeof rec.title === "string") {
-          return { kind: "global" as const, title: rec.title };
+        // RFC 7807 \`detail\` carries the domain sentence; \`title\` is only the
+        // reason phrase ("Unprocessable Entity"), so prefer the former.
+        const globalMessage =
+          typeof rec.detail === "string" && rec.detail.length > 0
+            ? rec.detail
+            : typeof rec.title === "string" && rec.title.length > 0
+              ? rec.title
+              : undefined;
+        if (globalMessage !== undefined) {
+          return { kind: "global" as const, title: globalMessage };
         }
       }
       return { kind: "unhandled" as const };
