@@ -31,6 +31,7 @@ import { renderFormField } from "../render-form-field.js";
 import {
   addImport,
   addImportsForPrimitive,
+  addTypeImport,
   registerFormFieldImports,
   renderPrimitive,
 } from "../render-primitive.js";
@@ -316,7 +317,7 @@ function emitFormOfOperationByName(
   ctx.collectedTestids.add(`${testidNamespace}-form`);
   ctx.collectedTestids.add(`${testidNamespace}-submit`);
   const opFormStateType = formStateTypeFor(`${upperFirst(op.name)}${agg.name}`, fields, bc);
-  if (opFormStateType) addImport(ctx, `../api/${lowerFirst(agg.name)}`, opFormStateType);
+  if (opFormStateType) addTypeImport(ctx, `../api/${lowerFirst(agg.name)}`, opFormStateType);
   ctx.formOfs.push({
     kind: "operation",
     // Pack chrome the op-module TEMPLATE bakes in — resolved HERE because this
@@ -624,7 +625,7 @@ function emitFormOfAggregate(
   // the original F1b TS2322/TS2345, one case narrower.
   const createFormStateType = formStateTypeFor(`Create${agg.name}`, createInputFields(agg), bc);
   if (createFormStateType) {
-    addImport(ctx, `../api/${lowerFirst(agg.name)}`, createFormStateType);
+    addTypeImport(ctx, `../api/${lowerFirst(agg.name)}`, createFormStateType);
   }
   ctx.formOfs.push({
     kind: "aggregate",
@@ -697,7 +698,7 @@ function emitFormRuns(
   ctx.collectedTestids.add(`${testidNamespace}-submit`);
   const onSubmitJs = emitFormOnSubmit(ctx, call, prepared.idTargets, "run");
   const wfFormStateType = formStateTypeFor(wfPascalForImport, fields, bc);
-  if (wfFormStateType) addImport(ctx, "../api/workflows", wfFormStateType);
+  if (wfFormStateType) addTypeImport(ctx, "../api/workflows", wfFormStateType);
   ctx.formOfs.push({
     kind: "workflow",
     workflow,
@@ -803,7 +804,7 @@ function emitFormOfOperation(
   ctx.collectedTestids.add(`${testidNamespace}-form`);
   ctx.collectedTestids.add(`${testidNamespace}-submit`);
   const opFormStateType = formStateTypeFor(`${upperFirst(op.name)}${agg.name}`, fields, bc);
-  if (opFormStateType) addImport(ctx, `../api/${lowerFirst(agg.name)}`, opFormStateType);
+  if (opFormStateType) addTypeImport(ctx, `../api/${lowerFirst(agg.name)}`, opFormStateType);
   ctx.formOfs.push({
     kind: "operation",
     // Pack chrome the op-module TEMPLATE bakes in — resolved HERE because this
