@@ -81,7 +81,7 @@ gets attributed to a later, innocent commit.
 |---|---|---|
 | **Per-PR, every push** (required) | `test.yml` (fast vitest ×4 shards + the corpus-census job; coverage is nightly-only) + lint + web-tsc → `tests-passed` (unfiltered on PRs); `langium-generated`; `workflow-lint`; the typecheck/compile gates (`hono/dotnet/java/python-build`, `generated-*-build`, `corpus-build`); `behavioral-e2e` (Hono on PGlite, daemonless) as the runtime canary; `pr-gate` (the aggregate verdict over everything that triggered) | Cheap, parallel, no docker/db. Catches most regressions with fast feedback. |
 | **Per-PR, path-scoped** (binding via `pr-gate`) | The cross-backend runtime legs `behavioral-e2e-{dotnet,java,python,elixir,dapper,mikroorm}` + `behavioral-ui-e2e` + `behavioral-heex-ui-e2e` (each fires when the PR touches its backend's emitters, the shared IR, or the harness); the five `{hono,python,java,dotnet,elixir-vanilla}-obs-e2e` legs; the four *native* `{hono,python,java,dotnet}-oidc-e2e` legs; the four `generated-{react,vue,svelte,angular}-e2e` SPA smokes; `elixir-vanilla-vo-e2e`; `pairwise`'s generation sweep; the `pages` build (docs/web/src) | Docker/boot cost paid only by the PRs that can break them; when they fire, `pr-gate` makes them blocking. Each file's `paths:` block is the authority on *when* — deliberately narrower than its own `push: main` block, so a typical PR fires one or two siblings, not the whole family. |
-| **Merge queue** (`merge_group`, runs once on the final candidate — inert until the repo lives in an org) | The same cross-backend runtime matrix unconditionally, `tenancy-e2e` (10 legs), `*-obs-e2e`, `*-oidc-e2e`, `auth-oidc-compose-e2e`; the full `generated-react-build` Cartesian; `pages` build | What actually breaks `main` **and** the expensive ones. Runs once per landing, not per push. A PR revised 10× pays this once. |
+| **Merge queue** (`merge_group`, runs once on the final candidate — **LIVE since 2026-09-07**) | The 22 required names: the cheap broad set over the combined tree (`tests passed`, langium drift, the five `build-generated-*`, both `corpus-*`, the six frontend builds, `parity`, headless `behavioral`) plus the four gates the queue is the ONLY run for (`tenancy-e2e`, `migration-evolution-e2e`, `elixir-oidc-compose-e2e`, `auth-oidc-compose-e2e`) | Catches what per-PR CI structurally cannot: two PRs green apart, red together. Everything already binding per-PR is deliberately NOT required here — see "What the queue requires, and what it does not". |
 | **Nightly / label** (unchanged) | `conformance-full`, `generated-a11y`, `frontend-fullstack-e2e`, `k8s-e2e` | Broad, slow, low churn — post-hoc is fine. |
 
 Note: `generated-react-build`, `generated-vue-build` and
@@ -99,15 +99,22 @@ network-free subset (workspace, history, builder, requirements, editor) on
 every PR touching `web/**` or `src/**`, so file-management and builder
 regressions are caught before merge.
 
-## No merge queue on a personal account: the `pr-gate` check
+## The `pr-gate` check — still the per-PR aggregate
 
-GitHub offers merge queues only on **organization-owned** repositories
-(public on any plan; private on Enterprise Cloud). While this repo lives
-under a personal account, the queue below cannot be switched on — and plain
-required-status-checks can't substitute for it, because **every PR workflow
-here is path-filtered**: a required check that gets path-skipped never
-reports, and the PR blocks on "Expected — waiting for status" forever. A
-docs-only PR would strand on all of them.
+> **Superseded premise, 2026-09-07.** This section used to open with "GitHub
+> offers merge queues only on organization-owned repositories, so while this
+> repo lives under a personal account the queue cannot be switched on." The
+> repo was transferred to the **Loom-Harness** organization that day and the
+> merge queue is now enforced (a direct merge is refused with
+> *"405 — Changes must be made through the merge queue"*). `pr-gate` is not
+> obsolete: it is what makes each PR's own head green, which is what the
+> queue's "Require all queue entries to pass required checks" setting then
+> relies on.
+
+Plain required-status-checks still can't substitute for `pr-gate` per-PR,
+because **every PR workflow here is path-filtered**: a required check that
+gets path-skipped never reports, and the PR blocks on "Expected — waiting for
+status" forever. A docs-only PR would strand on all of them.
 
 `pr-gate.yml` is the personal-account answer — one aggregate check that
 branch protection can require safely. It is **event-driven** (v2): the v1
@@ -255,13 +262,49 @@ before it lands, so the exact combination that will be on `main` is what gets
 gated — this is what closes the "never ran on the PR" hole for the push-only
 gates without charging every push.
 
-### Readiness: done. The workflow side is complete.
+### What the queue requires, and what it does not
 
-Every workflow in the intended required set now (a) carries a `merge_group:`
-trigger, (b) exposes exactly **one stable check name** suitable for
-branch-protection "required status checks", and (c) behaves correctly on a
-`merge_group` event. **The triggers are inert until the queue is turned on** —
-all that remains is the repo-settings flip below.
+The required set is **22 of the 40 wired gates**, not all of them, and the
+split is read off the workflows rather than judged.
+
+The queue exists to catch one thing per-PR CI structurally cannot: two PRs
+each green against their own base and red combined. The live instance is
+#2739 adding `??` to the grammar while #2761 pinned `??` as a parse error —
+each green alone, `main` red on the merge. **`tests passed` caught it.** No
+per-backend docker boot could have.
+
+Every gate here carries `pull_request:`, so the trigger says nothing. The
+`if:` guard on the required job decides it, and there are exactly two idioms:
+
+| guard | meaning | in the required set? |
+|---|---|---|
+| `github.event_name != 'pull_request' \|\| draft == false` | runs on every non-draft PR **and** again in the queue | **no** — the queue run is a re-run, and "Require all queue entries to pass required checks" means the entry's own run was green |
+| `github.event_name != 'pull_request' \|\| <run-* label>` | needs a label on a PR; `merge_group` is not `pull_request`, so **the queue is its only run** | **yes** — dropping one deletes the coverage rather than saving cost |
+
+So the 18 excluded are every docker-booting per-backend leg (8 `behavioral-*`,
+5 `*-obs-e2e`, 4 native `*-oidc-e2e`) plus the `pages` build. The four kept on
+the second row are `tenancy-e2e`, `migration-evolution-e2e`,
+`elixir-oidc-compose-e2e` and `auth-oidc-compose-e2e` — the post-merge blind
+spot named at the top of this file. **Trimming for cost must never reach
+them**, and `merge-queue-readiness.test.ts` enforces that: it reads each job's
+guard (following `needs` for rollups, whose own `if:` is `!cancelled()`) and
+fails if a `runs-on-every-pr` waiver is really label-guarded, or a
+`queueIsOnlyRun` row is really draft-guarded.
+
+**The cost being accepted:** a PR-interaction bug that manifests *only* in a
+booted per-backend stack can now reach `main`. Judged unlikely — an emitter
+collision bad enough to break a booted backend would almost certainly break
+`corpus-build-passed` (corpus × 5 backends) or headless `behavioral` first —
+but not zero. If it happens, the fix is to promote that one gate back, not to
+restore all 18.
+
+### Status: LIVE since 2026-09-07.
+
+Every workflow in the required set (a) carries a `merge_group:` trigger,
+(b) exposes exactly **one stable check name** suitable for branch-protection
+"required status checks", and (c) behaves correctly on a `merge_group` event.
+The queue is switched on and enforced; the runbook below is kept as the
+record of how it was configured and how to change it.
 
 The set is written down once, in
 [`test/system/merge-queue-required-checks.ts`](../test/system/merge-queue-required-checks.ts),
@@ -365,18 +408,25 @@ Nothing below is code; it is an admin action on `github.com/lemmit/Loc`.
 2. **Settings → Rules → Rulesets** (or **Settings → Branches → branch
    protection rule for `main`**, if the repo is still on classic protection).
    Target branch: `main`.
-3. Enable **Require merge queue**. Recommended starting configuration:
+3. Enable **Require merge queue**. Configuration in force, and why:
    - merge method: **Squash** (matches how `main` lands today);
-   - build concurrency: **5** (the queue-heavy lane is docker/boot-bound);
-   - only merge non-failing pull requests: **on**;
-   - "Merge candidates should require all checks to pass": **on**.
-4. Enable **Require status checks to pass** and add **exactly** the 40 check
-   names from the two tables above. Add them by pasting the name — the search
-   box only offers checks GitHub has seen recently, and several of these have
-   never reported on a PR (they are `push:main`-only today), so they must be
-   typed in.
+   - build concurrency: **1**. Started at 5; lowered the same day. With a
+     saturated pool, five speculative groups compete with every open PR's own
+     run for the same runners and nothing finishes.
+   - minimum group size **3**, maximum **5**, wait **10 min**. Batching is not
+     just throughput here: a group RE-FORMS whenever the PRs ahead of it
+     change, restarting its whole gate set, and this repo lands PRs from
+     parallel agents continuously. On day one a single PR went through four
+     successive entries in three hours, two of which had already passed
+     `tests passed` when they were discarded. Grouping PRs into one entry is
+     what stops that churn.
+   - "Require all queue entries to pass required checks": **on** — this is
+     what makes the trim below sound.
+4. Enable **Require status checks to pass** and add **exactly** the 22 names
+   marked `queueRequired: true` in the manifest. Add them by pasting the name —
+   the search box only offers checks GitHub has seen recently.
 5. Save. From then on, PRs merge via the queue: GitHub builds a rebased
-   candidate, runs all 40 checks on it, and lands it only if they are green.
+   candidate, runs the 22 required checks on it, and lands it only if they are green.
 6. **Watch the first day.** A check that never reports leaves candidates
    pending — if that happens, the cause is a missing `merge_group:` trigger or
    a mistyped check name. `npx vitest run test/system/merge-queue-readiness.test.ts`
