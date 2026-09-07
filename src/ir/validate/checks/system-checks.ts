@@ -11,6 +11,7 @@ export {
   validatePermissions,
 } from "./auth-permission-checks.js";
 export {
+  validateDotnetNameCollisions,
   validateElixirOpSelfCallPosition,
   validateJavaReservedIdentifiers,
 } from "./backend-syntax-checks.js";

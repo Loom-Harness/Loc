@@ -146,10 +146,38 @@ const ALLOWLIST = new Set<string>([
   // `Projection` above (a `route` adds a parity-checked endpoint to the one
   // shared system).  Dedicated compile-tier coverage on all five backends is
   // test/fixtures/corpus/extern-handlers.ddd (backends: ALL).
+  //
+  // `QueryHandler` LEFT this list the way an entry is supposed to — the ratchet
+  // below caught it as stale on its first run.  The hand-authored member is
+  // indeed absent, but `scaffoldHandlers` SYNTHESISES a `queryHandler` into the
+  // expanded model, and this gate measures the BUILT model (macros run), so the
+  // kind is covered.  `CommandHandler` / `Route` / `HandlerRef` genuinely are
+  // not, and stay.
   "CommandHandler",
-  "QueryHandler",
   "Route",
   "HandlerRef",
+  // The `if <cond> { … } else { … }` STATEMENT (M-FT.11).  UNREACHABLE in this
+  // fixture BY CONSTRUCTION, not by omission: showcase.ddd's three contexts
+  // (Catalog / Builds / People) are each hosted by `phoenixApi`
+  // (`platform: elixir`), and `loom.elixir-if-stmt-unsupported` refuses the
+  // statement in any context an elixir deployable emits — a Phoenix body
+  // threads its result through a rebound `record`, and an Elixir `if` block's
+  // bindings do not escape the block, so an assigning branch would compile and
+  // silently do nothing.  Writing one into any showcase operation makes the
+  // fixture FAIL VALIDATION (verified: the gate fires on
+  // `Catalog/operation 'Project.archive'`), which every conformance dimension
+  // reads.  Adding a node-only fourth context to dodge the gate would perturb
+  // the strict cross-backend OpenAPI-parity gate — the same blast-radius
+  // reason `Projection` / `TenancyDecl` / `Route` are excluded above.
+  //
+  // Corpus coverage instead: `examples/banking.ddd` hand-authors the statement
+  // (and `??`), and that fixture is in the node + .NET compile gates, so the
+  // emitted conditional is COMPILED, not merely parsed.  Per-backend rendering
+  // is pinned by test/generator/if-statement-render.test.ts.
+  //
+  // DELETE THIS ENTRY when M-T6.59 lands (elixir renders the statement) — the
+  // ratchet below fails on a stale entry, so it cannot be forgotten.
+  "IfStmt",
 ]);
 
 async function buildShowcase(): Promise<LangiumDocument<Model>> {
@@ -288,6 +316,26 @@ describe("conformance: showcase.ddd completeness", () => {
     if (HARD_GATE) {
       expect(missing, "AST node kinds not exercised by showcase.ddd").toEqual([]);
     }
+  });
+
+  // The ALLOWLIST ratchets, like every other waiver in this repo: an entry
+  // earns its place by being genuinely uncovered.  Without this, an entry
+  // added for a real reason survives the fix that makes it wrong — the
+  // showcase grows the construct, the waiver keeps saying it cannot, and the
+  // next reader trusts a stale claim.  (`IfStmt` is the live example: it is
+  // allowlisted only while elixir cannot render the statement, and M-T6.59
+  // deleting that limit must delete the entry.)
+  it("allowlisted AST kinds are genuinely absent from showcase.ddd", async () => {
+    const doc = await buildShowcase();
+    const seen = new Set<string>([doc.parseResult.value.$type]);
+    for (const node of AstUtils.streamAst(doc.parseResult.value)) seen.add(node.$type);
+
+    const stale = [...ALLOWLIST].filter((t) => seen.has(t)).sort();
+    expect(
+      stale,
+      "ALLOWLIST entries that showcase.ddd now DOES exercise — delete each entry " +
+        "(the waiver ratchets; a stale one is a false claim about the fixture).",
+    ).toEqual([]);
   });
 
   it("reports walker-primitive coverage", async () => {

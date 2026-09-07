@@ -150,9 +150,16 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
     kind: "gap",
     site: "src/ir/validate/checks/system-checks.ts:353",
     what:
-      "`DataGrid` (a TanStack row model) outside DATA_GRID_FRAMEWORKS — phoenixLiveView is the " +
-      "open leg; flutter is a settled never (native build, no JS runtime — D-DATAGRID-TARGETS)",
+      "`DataGrid` (a TanStack row model) outside DATA_GRID_FRAMEWORKS.  LATENT seam for a NEW " +
+      "frontend: both non-members are settled nevers under D-DATAGRID-TARGETS' one rule (ships " +
+      "iff it can run TanStack itself) — flutter because its native build has no JS runtime, " +
+      "phoenixLiveView because both roads open to it (a hand-rolled Elixir row model, or a " +
+      "phx-hook island LiveView must not patch) FORK the semantics the renderDataGridChild seam " +
+      "shares.  It was carried as 'the open leg' until the pin was re-examined; the blocker that " +
+      "framing rested on (multi-column ORDER BY in `list/4`) was never on DataGrid's path — it " +
+      "drives no server read on any target",
     mission: "M-T1.1",
+    verified: true,
   },
   {
     code: "loom.heex-component-host-state-unsupported",
@@ -183,6 +190,21 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
       "`persistedAs: eventLog` storage ships on all five backends (EVENT_SOURCING_BACKENDS) — " +
       "fires only when no backend deployable hosts the context",
     mission: "M-T6.34",
+  },
+  {
+    code: "loom.elixir-if-stmt-unsupported",
+    kind: "gap",
+    site: "src/ir/validate/checks/if-stmt-checks.ts:74",
+    what:
+      "the `if` STATEMENT in a domain body an elixir deployable emits — every Phoenix body renderer " +
+      "threads its result through a rebound `record`, and an Elixir `if` block's bindings do not " +
+      "escape the block, so an assigning branch would compile and silently do nothing.  Closing it " +
+      "means making each branch value-producing (`record = if … do … record else record end`) in " +
+      "every vanilla body renderer; the other four backends render the statement today.  " +
+      "raised by the M-FT.11 field-test slice, which shipped the statement on the four spine " +
+      "backends and gated elixir rather than half-render it",
+    mission: "M-T6.59",
+    verified: true,
   },
   {
     code: "loom.feliz-async-effect-unsupported",
@@ -253,6 +275,18 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
       "`paged`/`envelope` generic carriers ship on all five backends " +
       "(SUPPORTED_PAGED_BACKENDS) — latent seam for a NEW backend",
     mission: "M-T5.3",
+  },
+  {
+    code: "loom.if-stmt-page-body-unsupported",
+    kind: "scope",
+    site: "src/ir/validate/checks/if-stmt-checks.ts:109",
+    what:
+      "the `if` STATEMENT in a `ui` page / component / store body, on EVERY frontend.  A page body " +
+      "is an expression tree — a condition is a VALUE there (`cond ? a : b`, `match`) — and no " +
+      "frontend emitter (JS walker / Feliz update / Flutter notifier / HEEx handler) has a " +
+      "statement-position conditional.  A declared limit of the page surface, not a per-target gap: " +
+      "it would be lifted by a decision to give page bodies statement-form control flow",
+    verified: true,
   },
   {
     code: "loom.java-reserved-identifier-unsupported",
