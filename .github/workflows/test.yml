@@ -181,6 +181,14 @@ jobs:
       - name: Generated-code Biome gate
         run: npm run test:biome-gen
 
+      # `tsconfig.json` excludes test/, so none of it is typechecked by `npm run
+      # build`.  This is the shrink-only ratchet over that: no new bad file, no
+      # new error in an already-dirty one, and a fix must land with its baseline
+      # edit.  ~36s.  It lives here rather than in the unit suite because it is a
+      # single tsc invocation, not a per-file test.
+      - name: test/ typecheck ratchet
+        run: npm run test:typecheck
+
       # accessibility.md — static per-pack WCAG-AA design-token contrast gate.
       - name: Design-token contrast gate
         run: npm run test:contrast

@@ -498,7 +498,7 @@ Minted 2026-09-03 by Wave G2 packet 2.2 of [verification-waves-2026-09](verifica
 
 Sources: [verification-waves-2026-09](verification-waves-2026-09.md) Wave G2 packet 2.2. Relates to M-T9.48 (the Hono half this mirrors exactly), M-T9.40 (the verifier), M-T9.35 (the direct-orchestrator ratchet both are modelled on).
 
-## M-T9.50 — Nothing typechecks `test/`, and a bare `--noEmit` step cannot land — `open` · **L** · P1 ⭐ ⚠ verify-first
+## M-T9.50 — Nothing typechecks `test/`, and a bare `--noEmit` step cannot land — `partial` (the config, the baseline and the ratchet landed; the 768-error drain is open) · **L** · P1 ⭐
 
 Minted 2026-09-07 from [verification-waves-2026-09](verification-waves-2026-09.md) **§7.1**, which was handed to that wave as "a small follow-up" and turned out to be mission-sized on measurement.
 
@@ -511,6 +511,10 @@ Minted 2026-09-07 from [verification-waves-2026-09](verification-waves-2026-09.m
 **Why it is not landable as one change.** A `--noEmit` step added to the fast lane before the errors are fixed makes every PR red. The landable shape is the one this repo already uses for waivers: a checked-in `tsconfig.test.json` plus a **per-file baseline that can only shrink**, gated in the shape of `test/system/unsupported-register.test.ts` — a file that drops to zero errors gets deleted from the baseline in the same PR that fixed it, and a clean file that gains an error fails the gate. That buys the invariant on day one (no new untypechecked test file, no new error in a clean one) and lets the rest drain packet by packet.
 
 **Verification when it lands.** Mutation-prove *both* directions, because a baseline gate that only ratchets one way is the failure shape this repo keeps finding: (a) introduce a fresh type error in a file the baseline lists as clean → the gate fails; (b) fix a file's last error without deleting its baseline row → the gate fails as stale. A green first run proves neither.
+
+**Slice 1 landed 2026-09-07.** `tsconfig.test.json` is checked in and pinned — which was this row's stated first task, because the count is a function of the config and means nothing until one is fixed. Measured under it on that head: **768 errors over 219 files, and `src/` clean**. `test-typecheck-baseline.json` records the per-file count and `scripts/test-typecheck.mjs` (`npm run test:typecheck`, ~36s, wired into the `lint + web-tsc` job) gates it in both directions: a file not in the baseline must be at zero, a file in it may not exceed its pin, and a file that IMPROVED fails until the baseline is updated — so a fix and its baseline edit land together and the ratchet records progress rather than merely permitting it. `src/` is checked separately, because the test project pulls it in under different options and a regression there would otherwise be blamed on a test file. Five seeded defects, five distinct failures, each reverted by file copy.
+
+**What is left is the drain itself** — 768 errors, of which 391 × TS2345 + 113 × TS2322 is 66% and one shape: partial fixture objects handed to full IR types through loose casts. Mostly one refactor (typed fixture builders) repeated, not 219 puzzles. The four worst files are `test/ir/migrations-builder.test.ts` (89), `test/language/validation/validation.test.ts` (59), `test/playground/playground-dom-page.test.ts` (26) and `test/generator/typescript/render-expr-kinds.test.ts` (15) — 189 between them, a quarter of the total in four files.
 
 Sources: [verification-waves-2026-09](verification-waves-2026-09.md) §7.1. Relates to M-T9.8 (the hollow-work class this belongs to — an assertion the compiler never reads is the purest form of it) and M-T9.35 / M-T9.48 / M-T9.49 (the same "the instrument was never wired to anything" shape, on the generator entry points).
 
