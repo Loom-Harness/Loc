@@ -5,12 +5,23 @@ could have caught, because the gates that *would* have caught them don't gate
 PRs. This documents the tiers and the merge queue that closes it without
 making every push slower.
 
-> **Status (2026-09-07): the merge queue is LIVE.** The repo moved to an
-> organization (`Loom-Harness/Loc`), which is what GitHub gates merge queues
-> on, and it is switched on for `main`. `merge_group` runs now fire the heavy
-> tier against the rebased candidate. The sections below that were written for
-> the personal-account era are kept as the design record and marked
-> **[historical]**.
+> **Status (2026-09-07): the merge queue is LIVE.** The repo is public and
+> organization-owned (`Loom-Harness/Loc`), which is what GitHub gates merge
+> queues on — public org repos qualify on every plan, Free included — and the
+> queue is switched on for `main`. `merge_group` runs now fire the heavy tier
+> against the rebased candidate. **What changed on this date was the repo
+> SETTING, not the ownership:** the oldest `merge_group` runs the Actions API
+> will page to are all one burst created `2026-09-07T11:59:41Z` (#2786's first
+> group), with nothing older — measure it again with
+> `list_workflow_runs --event merge_group` and walk to the last page. When the repo became
+> org-owned is NOT established here.  A transfer demonstrably happened at some
+> point — `git push` still prints `remote: This repository moved` and redirects
+> `lemmit/Loc` → `Loom-Harness/Loc` — but that redirect is permanent and
+> carries no date, and `created_at` survives a transfer, so neither "it moved
+> on 2026-09-07" nor "it was org-owned all along" is supportable from here.
+> An earlier draft of this doc asserted the former; it is withdrawn rather
+> than restated in the opposite direction. The sections below that were written while
+> the queue was off are kept as the design record and marked **[historical]**.
 
 ## The failure mode
 
@@ -120,12 +131,13 @@ regressions are caught before merge.
 ## The `pr-gate` check
 
 GitHub offers merge queues only on **organization-owned** repositories
-(public on any plan; private on Enterprise Cloud). This repo was under a
-personal account until 2026-09-07, so the queue could not be switched on —
-and plain required-status-checks can't substitute for it, because **every PR
-workflow here is path-filtered**: a required check that gets path-skipped
-never reports, and the PR blocks on "Expected — waiting for status" forever.
-A docs-only PR would strand on all of them.
+(public on any plan; private on Enterprise Cloud). This one was built while
+the queue was off — it was not switched on for `main` until 2026-09-07 (see
+the status banner; the reason it sat off before then is not recorded here).
+Plain required-status-checks can't substitute for a queue anyway, because
+**every PR workflow here is path-filtered**: a required check that gets
+path-skipped never reports, and the PR blocks on "Expected — waiting for
+status" forever. A docs-only PR would strand on all of them.
 
 `pr-gate.yml` was the answer to that, and it still earns its place now that
 the queue is on: it is the **per-PR** verdict, computed in seconds, over
