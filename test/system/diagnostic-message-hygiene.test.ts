@@ -187,6 +187,11 @@ const PROSE_SAYS_UNDEFINED = [
   "loom.current-user-needs-auth-ui",
   "loom.e2e-unresolved-call",
   "loom.e2e-unresolved-ref",
+  // Explains why `first`/`firstOrNull` are refused across the frontends: the
+  // JS four answer `undefined` on an empty collection where F#/Dart raise.
+  // That divergence IS the refusal's reason, so the word is the message's
+  // content, not an interpolation reaching one hop too far.
+  "loom.frontend-collection-op-unsupported",
   "loom.match-non-exhaustive",
 ];
 
