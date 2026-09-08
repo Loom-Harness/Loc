@@ -453,18 +453,30 @@ Nothing below is code; it is an admin action on `github.com/lemmit/Loc`.
      successive entries in three hours, two of which had already passed
      `tests passed` when they were discarded. Grouping PRs into one entry is
      what stops that churn.
-   - "Require all queue entries to pass required checks": **currently off.**
-     Worth turning ON, but it is NOT what makes the trim below sound — that
-     was this doc's claim and it was wrong. What makes the trim sound is
-     `pr-gate`: a PR reaches the queue through auto-merge, auto-merge waits on
-     the required checks, `pr-gate` is one of them, and `pr-gate` is green
-     only when every check that ran on the PR's head passed — the 18 trimmed
-     gates included. So the entry's own head is verified either way.
-     The reason to enable it is FAILURE ISOLATION, which matters more now that
-     batching can actually fire (minimum group size 3): with it off, only the
+   - "Require all queue entries to pass required checks": **off, and leave it
+     off for now.** It is NOT what makes the trim below sound — that was this
+     doc's claim and it was wrong. What makes the trim sound is `pr-gate`: a
+     PR reaches the queue through auto-merge, auto-merge waits on the required
+     checks, `pr-gate` is one of them, and `pr-gate` is green only when every
+     check that ran on the PR's head passed — the 18 trimmed gates included.
+     So the entry's own head is verified either way.
+
+     What enabling it would buy is FAILURE ISOLATION: with it off, only the
      group's head commit must pass, so one bad entry fails the whole batch and
-     GitHub has to bisect to find it. With it on, each entry is validated in
-     its own right and the culprit is ejected instead.
+     GitHub bisects to find it. What it COSTS is the part that decides the
+     question, and it is easy to get wrong because `pr-gate` looks cheap: each
+     *evaluation* takes seconds, but as a REQUIRED CHECK it does not go green
+     until everything else on that SHA has finished — it reports `in_progress`
+     until then, so its wall-clock is the slowest gate in the set. Requiring
+     it per entry therefore means running the WHOLE merge_group gate set on
+     every entry's intermediate commit — up to 5× per group at maximum size,
+     not one extra fast-suite run — which cancels most of the reason to batch.
+
+     The cheap version of the same protection is a smaller **maximum group
+     size** (3 rather than 5): still one gate-set run per batch, but a failure
+     implicates three PRs instead of five. Revisit enabling the setting once
+     the queue set is 22 rather than 40 and the docker behavioural legs — the
+     long pole — are out of it; per-entry validation is affordable then.
 4. Enable **Require status checks to pass**. The repo requires **two** names
    today (`tests passed`, `pr-gate`), which is sufficient because `pr-gate`
    aggregates everything that ran. Requiring the 22 by name instead is the
