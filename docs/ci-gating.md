@@ -277,8 +277,15 @@ gates without charging every push.
 
 ### What the queue requires, and what it does not
 
-The required set is **22 of the 40 wired gates**, not all of them, and the
-split is read off the workflows rather than judged.
+The required set is **22 gates**, and since the trigger trim those 22 are
+also the only ones WIRED into the queue — the other 18 no longer carry a
+`merge_group:` trigger at all, so they neither run nor cost a runner slot
+there.  "Not required" would not have been enough on its own: GitHub runs
+every workflow carrying the trigger, and `pr-gate` counts every check run
+present on the SHA, so an unrequired-but-wired gate stayed both expensive and
+effectively binding.  The split is read off the workflows rather than
+judged, and `merge-queue-readiness.test.ts` ratchets it BOTH ways: a required
+row must carry the trigger, a not-required row must not.
 
 The queue exists to catch one thing per-PR CI structurally cannot: two PRs
 each green against their own base and red combined. The live instance is
@@ -454,7 +461,7 @@ the required-checks list in settings.
 **Scriptable alternative.** The same configuration can be applied as a repo
 ruleset via `gh api --method POST /repos/lemmit/Loc/rulesets` with a
 `merge_queue` rule plus a `required_status_checks` rule whose
-`required_status_checks[]` are the 40 names above. It is the reproducible path
+`required_status_checks[]` are the 22 required names above. It is the reproducible path
 and worth capturing once the settings are stable, but the UI path is primary:
 ruleset JSON silently accepts check names that do not exist, which is the one
 mistake that stalls the queue.

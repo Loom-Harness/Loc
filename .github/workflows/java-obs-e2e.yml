@@ -41,7 +41,6 @@ on:
       - '.github/workflows/java-obs-e2e.yml'
       - 'test/e2e/observability-events-java.test.ts'
   workflow_dispatch:
-  merge_group:
   # Per-PR, path-scoped: fires on this gate's real blast radius (below), and
   # is binding because `pr-gate` fails on any non-passing check run present on
   # the head SHA.  The `run-obs` label opt-in is gone -- a labeled trigger is
