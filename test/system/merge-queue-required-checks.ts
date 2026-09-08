@@ -1,6 +1,17 @@
-// The merge-queue required-checks manifest — the single source of truth for
-// which GitHub Actions checks branch protection requires on `main` (see
-// docs/ci-gating.md → "Enabling the merge queue").
+// The merge-queue gate manifest — which GitHub Actions checks are WIRED into
+// the merge queue (see docs/ci-gating.md → "Enabling the merge queue").
+//
+// NOT the branch-protection required list.  That list is two names today,
+// `tests passed` and `pr-gate` (verified against the repo's settings
+// 2026-09-08), and this file has never described it.  The name `queueRequired`
+// is about whether a gate is worth RUNNING on the merge candidate, not about
+// whether GitHub waits on it by name.
+//
+// The distinction does not change what is binding, which is why it was easy to
+// lose: `pr-gate` fails on any non-passing check run present on the head SHA,
+// so every gate that runs in a group gates it either way.  It changes what is
+// worth paying for — hence the lever is the `merge_group:` trigger, and the
+// rows here are what decides which workflows carry one.
 //
 // `workflow` is the file under `.github/workflows/`; `check` is the *check-run
 // name* GitHub reports, which is the job's `name:` when it has one and the job

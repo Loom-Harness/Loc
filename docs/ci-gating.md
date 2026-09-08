@@ -277,15 +277,23 @@ gates without charging every push.
 
 ### What the queue requires, and what it does not
 
-The required set is **22 gates**, and since the trigger trim those 22 are
-also the only ones WIRED into the queue — the other 18 no longer carry a
-`merge_group:` trigger at all, so they neither run nor cost a runner slot
-there.  "Not required" would not have been enough on its own: GitHub runs
-every workflow carrying the trigger, and `pr-gate` counts every check run
-present on the SHA, so an unrequired-but-wired gate stayed both expensive and
-effectively binding.  The split is read off the workflows rather than
-judged, and `merge-queue-readiness.test.ts` ratchets it BOTH ways: a required
-row must carry the trigger, a not-required row must not.
+**Branch protection requires exactly two names — `tests passed` and
+`pr-gate`** (verified against the repo's settings, 2026-09-08).  There is no
+22-name required list configured, and nothing here should be read as saying
+there is: `merge-queue-required-checks.ts` describes which gates are WIRED
+into the queue, not which names branch protection waits on.
+
+That distinction is easy to lose because it does not change what is binding.
+`pr-gate` fails on any non-passing check run present on the head SHA, so
+every gate that RUNS in a merge group gates it, required by name or not.
+Which is exactly why the lever is the trigger and not the manifest: 22 gates
+now carry `merge_group:` and the other 18 do not, so those 18 neither run nor
+cost a runner slot in the queue.  Marking them "not required" would have
+changed nothing on its own.
+
+The split is read off the workflows rather than judged, and
+`merge-queue-readiness.test.ts` ratchets it BOTH ways: a `queueRequired: true`
+row must carry the trigger, a `queueRequired: false` row must not.
 
 The queue exists to catch one thing per-PR CI structurally cannot: two PRs
 each green against their own base and red combined. The live instance is
@@ -442,7 +450,11 @@ Nothing below is code; it is an admin action on `github.com/lemmit/Loc`.
      what stops that churn.
    - "Require all queue entries to pass required checks": **on** — this is
      what makes the trim below sound.
-4. Enable **Require status checks to pass** and add **exactly** the 22 names
+4. Enable **Require status checks to pass**. The repo requires **two** names
+   today (`tests passed`, `pr-gate`), which is sufficient because `pr-gate`
+   aggregates everything that ran. Requiring the 22 by name instead is the
+   stricter alternative — it stops a dropped/renamed workflow from going
+   unnoticed — and if you take it, add **exactly** the 22 names
    marked `queueRequired: true` in the manifest. Add them by pasting the name —
    the search box only offers checks GitHub has seen recently.
 5. Save. From then on, PRs merge via the queue: GitHub builds a rebased
