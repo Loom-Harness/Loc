@@ -45,6 +45,20 @@
 // `merge-queue-readiness.test.ts` asserts that correspondence both ways, so a
 // future trim cannot cut a label-guarded gate by mistake — which is the one
 // error in this area that silently loses testing rather than costing money.
+//
+// This file is NOT a test — it is imported by the test and quoted verbatim in
+// docs/ci-gating.md's activation runbook.  Adding a gate to the required set
+// means adding a row here, wiring `merge_group:` into its `on:` block, and
+// giving it one stable check name.
+//
+// ONE required check is deliberately absent: `pr-gate`.  Invariant 2 wants the
+// check name to resolve to a real job, and `pr-gate` is posted through the
+// Checks API by the `pr-gate-eval` job rather than being a job itself, so it
+// cannot be a row here.  It is required on `main` all the same — which means
+// invariant 1 applies to it and nothing here enforced that, the gap that let
+// it reach the queue with no `merge_group:` trigger and stall every entry.
+// Its equivalent of invariant 1 lives in the "pr-gate stays IN the queue"
+// block of `merge-queue-readiness.test.ts`.
 
 export interface RequiredCheck {
   /** Workflow file name under `.github/workflows/`. */

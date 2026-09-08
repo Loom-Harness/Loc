@@ -324,6 +324,103 @@ describe("merge-queue readiness", () => {
     });
   });
 
+  describe("discovery oracles stay OUT of the queue", () => {
+    // The mirror image of the ratchet above, and the reason it needs its own
+    // test rather than a comment in the workflow.
+    //
+    // `pairwise.yml`'s `compile` and `schema-load` legs are a DISCOVERY
+    // instrument: an all-pairs cover whose job is to reach crossings nobody
+    // has generated before. A new failure there is almost never a regression
+    // in the PR under test — it is a latent bug the cover has just now
+    // reached. Wire that into the merge queue and the instrument's success
+    // condition becomes a repo-wide freeze: on 2026-09-07, #2728 added two
+    // axes at 06:38 UTC, they found two real latent bugs (TPH × java, paged ×
+    // document × elixir), and nothing merged for nine hours because every
+    // queue entry ran these legs and failed on findings unrelated to itself.
+    //
+    // These legs were never in REQUIRED_CHECKS, so the ratchet above never
+    // covered them — the `merge_group` arm arrived by a queue-readiness sweep
+    // that read "add the trigger everywhere" and did not ask about tier. This
+    // test is what makes the next such sweep stop here.
+    const DISCOVERY_JOBS = [
+      { workflow: "pairwise.yml", jobs: ["compile", "schema-load"] },
+    ] as const;
+
+    it.each(
+      DISCOVERY_JOBS.flatMap((w) => w.jobs.map((j) => [w.workflow, j] as const)),
+    )("%s → `%s` is not reachable from merge_group", (workflow, jobId) => {
+      const job = load(workflow).jobs.find((j) => j.id === jobId);
+      expect(job, `no job \`${jobId}\` in ${workflow}`).toBeDefined();
+      const expr = job?.ifExpr ?? "";
+      // The job must be event-gated at all (an absent `if:` would run it on
+      // every trigger the workflow declares, merge_group included)…
+      expect(expr, `\`${jobId}\` has no if: — it would run in the queue`).not.toBe("");
+      // …and must not name merge_group as one of the events it runs on.
+      expect(
+        /merge_group/.test(expr),
+        `\`${jobId}\` if: "${expr}" — a discovery oracle must not gate the merge queue`,
+      ).toBe(false);
+    });
+
+    it("is not listed in REQUIRED_CHECKS either", () => {
+      const listed = REQUIRED_CHECKS.filter((c) =>
+        DISCOVERY_JOBS.some((w) => w.workflow === c.workflow),
+      );
+      expect(listed, "a discovery oracle was promoted into the required set").toEqual([]);
+    });
+  });
+
+  describe("pr-gate stays IN the queue", () => {
+    // The one required check that REQUIRED_CHECKS cannot cover, and therefore
+    // the one the `merge_group:` ratchet above never reached.
+    //
+    // Every other required check is a job, so its name resolves in the manifest
+    // (invariant 2). `pr-gate` is posted through the Checks API by the
+    // `pr-gate-eval` job, so it has no job of that name and cannot be a row
+    // there — and it fell through the gap: required on `main`, never checked
+    // for the trigger that makes it reportable in a merge group.
+    //
+    // The consequence is the manifest's own invariant 1, live: GitHub applies
+    // ONE required-checks list to a pull request and to a merge group, so there
+    // is no per-context list to leave `pr-gate` out of. Without `merge_group:`
+    // it is never posted inside the queue and the entry waits forever. On
+    // 2026-09-07 that is exactly what happened — an entry formed, ran its whole
+    // sweep green, and sat with zero runs left; `PUT /merge` answered
+    // `Required status check "pr-gate" is expected`.
+    const evaluatedContexts = () => {
+      const src = readFileSync(path.join(workflowsDir, "pr-gate.yml"), "utf8");
+      return { onKeys: load("pr-gate.yml").onKeys, src };
+    };
+
+    it("declares a `merge_group:` trigger", () => {
+      expect(
+        evaluatedContexts().onKeys,
+        "pr-gate is a required check; without merge_group: every queue entry stalls on it",
+      ).toContain("merge_group");
+    });
+
+    it("reads the merge-group SHA, so the evaluation is of the group and not of nothing", () => {
+      // The trigger alone is not enough: the eval script is SHA-driven
+      // (`scripts/pr-gate.mjs` reads HEAD_SHA), and on a merge_group payload
+      // both `pull_request` and `workflow_run` are empty.
+      expect(evaluatedContexts().src).toContain("github.event.merge_group.head_sha");
+    });
+
+    it("lets completions from inside the group re-evaluate it", () => {
+      // The merge_group arm fires once, when the group forms and everything
+      // else is still pending. If queue refs are filtered out of the
+      // `workflow_run` arm, nothing ever moves that verdict off `in_progress`
+      // and the trigger buys nothing.
+      const { src } = evaluatedContexts();
+      const ignore = src.slice(src.indexOf("branches-ignore:"));
+      const block = ignore.slice(0, ignore.indexOf("workflows:"));
+      expect(
+        /gh-readonly-queue/.test(block),
+        "pr-gate ignores merge-queue refs again — its verdict can never leave in_progress",
+      ).toBe(false);
+    });
+  });
+
   it("keeps test.yml's pre-existing `tests passed` rollup intact", () => {
     // Branch protection already requires this one; renaming the job would
     // silently drop the only required check the repo has today.

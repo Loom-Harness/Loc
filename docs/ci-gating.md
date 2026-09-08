@@ -165,11 +165,24 @@ timeout fired and needed a manual label re-arm. v2 never waits:
   it alone.** Under completion storms GitHub drops dispatches — observed
   live: a fully-green PR parked at `in_progress` because the events for its
   final two completions never arrived. Two defenses: the trigger carries
-  `branches-ignore: [main, gh-readonly-queue/**]`, so the ~60 push-to-main
-  completions per merge stop creating (skipped) eval runs at all — the storm
-  source; and a **scheduled sweep** re-derives the verdict for every open PR
-  and posts only where it differs from what's published. Both are pinned by
+  `branches-ignore: [main]`, so the ~60 push-to-main completions per merge
+  stop creating (skipped) eval runs at all — the storm source; and a
+  **scheduled sweep** re-derives the verdict for every open PR and posts only
+  where it differs from what's published. Both are pinned by
   `test/system/pr-gate.test.ts`.
+
+  `gh-readonly-queue/**` was ignored alongside `main` and no longer is.
+  `pr-gate` is a **required** check, and GitHub applies one required-checks
+  list to a pull request and to a merge group alike — there is no per-context
+  list to leave it out of, so it has to be able to report inside the queue.
+  Its `merge_group:` arm posts one evaluation when the group forms, when every
+  other check is still pending; ignoring completions from inside the group
+  would leave nothing to move that verdict off `in_progress`, and the entry
+  waits forever. That is the stall observed on 2026-09-07: entries formed, ran
+  their whole sweep green, and sat with zero runs left, `PUT /merge` answering
+  `Required status check "pr-gate" is expected`. Pinned by the
+  "pr-gate stays IN the queue" block in
+  `test/system/merge-queue-readiness.test.ts`.
 - **The sweep is an hours-scale backstop, not the 15-minute cap the cron
   suggests.** The workflow asks for `*/15`, and this doc, `pr-gate.yml` and
   `scripts/pr-gate.mjs` all used to claim it therefore capped a dropped-event
