@@ -483,7 +483,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.toast-message-unsupported",
     kind: "gap",
-    site: "src/ir/validate/checks/ui-checks.ts:2975",
+    site: "src/ir/validate/checks/ui-checks.ts:3183",
     what:
       "an `on <chan>.<Event> { toast(<expr>) }` message outside the v1 subset all three realtime " +
       "renderers implement (literal / the event binding / single-level member off it / paren / " +
