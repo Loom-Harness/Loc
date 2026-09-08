@@ -1328,33 +1328,56 @@ pointer (`/pageSize`, `/page`); `pageSize=467`, no params, and `sort=bogus`
 still answer 200. Gated by `test/generator/java/paged-bounds-422.test.ts`.
 
 ### F28 — java: an UNPARSEABLE query string answers an undeclared 400
-**Waiver:** W35 (intermittent) · **Severity: low** · **Status: OPEN, by
-constraint rather than by choice.**
+**Waiver:** W35 (intermittent) · **Severity: low** · **Status: BY DESIGN
+(reclassified 2026-09-08).** Previously recorded as an open bug "by constraint
+rather than by choice"; re-measured, it is the same shape as F9/W8 — a
+divergence between *containers*, deliberately not papered over.
 
 The residue of F24's fix, and narrower than the F25 it replaces in W32's slot.
 `GET /api/customers?=%C3%A0` now answers 400 instead of 500 — correct, and
 Tomcat's own `getErrorCode()` — but no read route declares a 400, so the
 `status_code_conformance` check still reports it.
 
-Three ways out, and none is free:
+**Re-measured 2026-09-08, three things this time.**
 
-1. **Answer 200, like the other four.** They ignore the junk parameter, which
-   W8 records as the deliberate cross-backend decision. Java cannot: Tomcat
-   refuses the malformed chunk in the container's own parser, before any
-   handler runs, and Tomcat 11.0.22 exposes no leniency knob — there is no
-   `parameterParsing*` attribute on `Connector` or on `Parameters` (checked
-   against the shipped jar, not the docs). It would take replacing the parser.
-2. **Answer 422.** Contradicts this repo's own split, stated in both the java
-   advice and the python handler: 422 is for a well-formed request that is
-   invalid, 400 for one that cannot be parsed. This one genuinely cannot.
-3. **Declare the 400.** On the SHARED read contract that publishes a status the
-   other four backends never produce — the exact failure the `errorStatuses`
-   table warns about. A java-only declaration would break spec parity instead.
+1. **All four backends, same request, booted against a real Postgres:**
 
-So it stays waived with an honest reason, and W35 carries `intermittent: true`:
-the case appeared ×4 on run 33382822525 and ×0 on the two runs before it. That
-low rate is what made W31 look permanently stale and got it wrongly retired —
-flagging it now is that lesson applied rather than repeated.
+   | | `?=%C3%A0` (empty parameter name) | `?junk` (unrecognised) |
+   |---|---|---|
+   | node | 200 | 200 |
+   | python | 200 | 200 |
+   | dotnet | 200 | 200 |
+   | java | **400** | 200 |
+
+   The `?junk` column is the control that was missing before: java is lenient
+   about an *unrecognised* parameter exactly like the other three. Its
+   strictness is specific to a chunk that is not valid query syntax.
+
+2. **It is not configurable away.** `org.apache.tomcat.util.http.Parameters`, as
+   shipped in `tomcat-embed-core 11.0.22` (read off the jar the build resolves,
+   not off the docs), exposes only `setLimit`, `setCharset`,
+   `setQueryStringCharset` and `setURLDecoder` — no strict/lenient flag, no
+   parse-failure action, nothing the Spring Boot `server.tomcat.*` namespace
+   could reach. Joining the other four would mean wrapping every request and
+   **re-implementing query parsing inside each emitted Spring app**, which buys
+   parity by making java silently accept malformed input.
+
+3. **400 is the right answer.** A syntactically invalid query string is the same
+   class of refusal as an over-long URI or unparseable headers — transport-level,
+   which is precisely why no route on any backend declares it.
+
+**The declaration alternative, considered and declined.** Adding 400 to the read
+arms of `errorStatuses` would make java conformant in one line. It would also
+publish, on every read route of every generated API on five backends, a status
+four of them never produce — for a refusal about HTTP syntax rather than about
+the operation. Every *write* arm already declares 400 because a body can be
+malformed; extending that to reads on the strength of one container's parser is
+a worse trade than carrying the waiver.
+
+W35 keeps `intermittent: true`: the case appeared ×4 on run 33382822525 and ×0
+on the two runs before it. That low rate is what made W31 look permanently stale
+and got it wrongly retired — flagging it is that lesson applied rather than
+repeated.
 
 ### F26 — java: every 405 omits the `Allow` header
 **Waiver:** none — fixed · **Severity: medium** · **Status: FIXED (2026-09-03).**

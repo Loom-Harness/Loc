@@ -5917,3 +5917,40 @@ patterns anywhere, static sub-paths handled by having already been routed.
   and the test written for it failed on a fixture the grammar rejects. The gate
   came out; the narrowing moved into the emitted C# as a runtime check, where it
   is both testable and still correct if the identity axis ever opens up.
+
+## 103. The missing case was the CONTROL — "backend X is strict" was true and useless without it (2026-09-08)
+
+F28: java answers 400 for `GET /api/orders?=%C3%A0` where node, python and
+dotnet answer 200. It had sat open for weeks as a bug "by constraint rather than
+by choice", with a real reason attached and a real cost implied — someone would
+eventually go and try to make java lenient.
+
+Re-measuring took two extra requests and changed the classification.
+
+- **The control.** Sending `?junk` — an *unrecognised* parameter with no `=` at
+  all — java answers **200**, exactly like the other three. So the earlier
+  framing ("java is strict about query parameters") was true of one input and
+  false of the class. What java actually refuses is a chunk that is not valid
+  query syntax, which is a different and much narrower claim — and one that made
+  the 400 look correct rather than divergent.
+- **The artifact, not the docs.** The waiver said Tomcat "exposes no leniency
+  knob". Reading `Parameters` out of the `tomcat-embed-core` jar the build
+  actually resolves confirmed it: `setLimit`, two charsets, a URL decoder, and
+  nothing else. That took one `unzip` and one `javap`, and it is the difference
+  between "we believe there is no knob" and "there is no knob in 11.0.22".
+
+Together they flipped the disposition from *open bug* to *by design*: a
+divergence between CONTAINERS, in the shape W8 already records for F9, rather
+than a defect in any emitter. The alternative — declaring 400 on every read
+route of every generated API so one container's parser stops being undeclared —
+was written down as considered and declined, with the reason, so the next person
+does not rediscover the trade and pick differently by accident.
+
+- **A finding's KIND is a claim too, and it rots like any other.** "Bug" on a
+  register means someone should fix it; leaving a correct behaviour classified
+  that way spends future attention indefinitely. Re-deriving the kind is part of
+  re-triage, not a separate exercise.
+- **When a measurement supports a general statement, take the second sample that
+  would refute it.** One input showed java refusing where others accept. The
+  control showed the refusal was about syntax, not about parameters — and that
+  is the whole finding.
