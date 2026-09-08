@@ -196,6 +196,13 @@ jobs:
 
       - name: Upload schemathesis reports
         if: always()
+        # A diagnostic upload must never gate.  Nothing in CI consumes these
+        # artifacts (there is no `download-artifact` anywhere in this repo), so a
+        # transient failure from the artifact service is not a finding about the
+        # code -- and with `if: always()` it lands on a job that otherwise PASSED.
+        # Observed 2026-09-08: `Failed to FinalizeArtifact: (403) Forbidden` ejected
+        # a merge-queue entry whose graded step had already reported success.
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: schemathesis-reports-${{ matrix.backend }}
