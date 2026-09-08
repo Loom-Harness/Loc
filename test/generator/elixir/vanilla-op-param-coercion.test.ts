@@ -70,10 +70,13 @@ describe("vanilla Phoenix — operation params are coerced to their declared typ
     expect(ctxMod).toContain("def reprice_item(%D.Catalog.Item{} = record, params)");
     expect(ctxMod).toContain("def rename_item(%D.Catalog.Item{} = record, params)");
 
-    // The money param is coerced — `to_string` first so a JSON number and a JSON
-    // string both land on the same Decimal.
+    // The money param is coerced AND format-guarded (M-T6.48): the bare
+    // `Decimal.new(to_string(...))` this used to assert raises on `"12,50"`, so
+    // the coercion moved into a with-clause that can refuse. A JSON number and
+    // a JSON string still both land on the same Decimal — that half is
+    // unchanged, it just cannot throw any more.
     expect(ctxMod).toContain(
-      'amount = (if is_nil(Map.get(params, "amount")), do: nil, else: Decimal.new(to_string(Map.get(params, "amount"))))',
+      'with {:ok, amount} <- __loom_decimal_param(record, :amount, Map.get(params, "amount"))',
     );
     // The string param is NOT — a coercion there would be gratuitous output
     // churn, and is what a fix that stringified everything would produce.

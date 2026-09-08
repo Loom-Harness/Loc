@@ -84,7 +84,13 @@ describe("vanilla extern seam", () => {
     expect(ctx).toContain("|> Ecto.Changeset.force_change(:status, record.status)");
     expect(ctx).toContain("|> Ecto.Changeset.force_change(:risk_score, record.risk_score)");
     // A param the precondition reads is bound before the `with`.
-    expect(ctx).toContain('score = Map.get(params, "score")');
+    // `score` is an `int` param, so since M-T6.48 it is bound by a wire-format
+    // GUARD in the with-chain rather than raw ahead of it — a malformed value
+    // is a 422 instead of reaching `force_change` and raising `Ecto.ChangeError`
+    // (500). Binding it raw as well would shadow the validated value.
+    expect(ctx).toContain(
+      'with {:ok, score} <- __loom_int_param(record, :score, Map.get(params, "score"))',
+    );
   });
 
   it("no longer emits the empty-changeset no-op for the extern op (regression pin)", async () => {
