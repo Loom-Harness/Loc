@@ -31,6 +31,18 @@ name: PR gate
 on:
   pull_request:
     types: [opened, synchronize, reopened, labeled, ready_for_review]
+  # The queue needs this arm for the same reason branch protection needs the
+  # check.  `pr-gate` is REQUIRED on `main`, and GitHub applies ONE required-
+  # checks list to a pull request and to a merge group alike — there is no
+  # per-context list to leave it out of.  A required check with no
+  # `merge_group:` trigger is therefore never posted inside the queue, and
+  # GitHub waits for it forever: exactly the failure
+  # `merge-queue-required-checks.ts` names in its invariants ("a required check
+  # that never runs there leaves the queue pending forever").  That is what
+  # stalled the first entries once the queue went live — they formed, ran their
+  # whole sweep, and then sat with zero runs left, waiting on this check.
+  merge_group:
+    types: [checks_requested]
   # The safety net: `workflow_run` delivery is BEST-EFFORT — under completion
   # storms (post-merge heavy sets, label spawns) GitHub drops dispatches, and
   # a dropped final event parked a green PR at in_progress (#2464, 08:42Z).
@@ -55,14 +67,21 @@ on:
   workflow_dispatch:
   workflow_run:
     types: [completed]
-    # Only PR-branch completions re-evaluate the gate.  push:main completions
-    # (a ~60-workflow heavy set per merge) and merge-queue refs used to create
-    # a skipped eval run EACH — the dispatch storm that got real events
+    # `push: main` completions (a ~60-workflow heavy set per merge) used to
+    # create a skipped eval run EACH — the dispatch storm that got real events
     # dropped.  Filtering by the triggering run's head branch stops those runs
-    # from being created at all.
+    # from being created at all, and that is why `main` is still ignored.
+    #
+    # Merge-queue refs are NOT ignored, and must not be.  The `merge_group:`
+    # arm above posts one evaluation when the group FORMS, at which point every
+    # other check is still pending — so without completions from inside the
+    # group there is nothing to move that verdict off `in_progress`, and the
+    # gate parks precisely where it parked before.  The cost is bounded in a way
+    # the `main` case was not: the queue runs one group at a time, each
+    # evaluation is seconds long, and the SHA-keyed concurrency below collapses
+    # a burst of completions to the newest.
     branches-ignore:
       - main
-      - 'gh-readonly-queue/**'
     workflows:
       - 'API call (typed in-system call runtime e2e)'
       - 'OIDC auth (full-compose runtime e2e)'
@@ -166,15 +185,19 @@ permissions:
 #     most one pending behind it (a newer pending replaces an older pending) —
 #     never lose the newest, never kill the in-flight one.
 concurrency:
-  group: pr-gate-${{ github.event.pull_request.head.sha || github.event.workflow_run.head_sha || 'sweep' }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' || github.event_name == 'workflow_run' }}
+  group: pr-gate-${{ github.event.pull_request.head.sha || github.event.workflow_run.head_sha || github.event.merge_group.head_sha || 'sweep' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' || github.event_name == 'workflow_run' || github.event_name == 'merge_group' }}
 
 jobs:
   pr-gate-eval:
     name: pr-gate-eval
-    # Everything runs except non-PR workflow_run completions: pull_request
-    # events evaluate one SHA, schedule/workflow_dispatch run the sweep.
-    if: github.event_name != 'workflow_run' || github.event.workflow_run.event == 'pull_request'
+    # Everything runs except workflow_run completions from a context this gate
+    # does not evaluate: `pull_request` and `merge_group` each evaluate one
+    # SHA, schedule/workflow_dispatch run the sweep.
+    if: >-
+      github.event_name != 'workflow_run'
+      || github.event.workflow_run.event == 'pull_request'
+      || github.event.workflow_run.event == 'merge_group'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -187,5 +210,5 @@ jobs:
       - name: Evaluate all checks on this SHA and post the pr-gate verdict
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.event.workflow_run.head_sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.event.workflow_run.head_sha || github.event.merge_group.head_sha }}
         run: node scripts/pr-gate.mjs
