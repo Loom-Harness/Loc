@@ -5,6 +5,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { requireDocker } from "./support/docker-probe.js";
 
 // ---------------------------------------------------------------------------
 // Observability events on the .NET backend — end-to-end regression guard.
@@ -37,15 +38,6 @@ const repoRoot = path.resolve(here, "..", "..");
 const cli = path.join(repoRoot, "bin", "cli.js");
 
 const ENABLED = process.env.LOOM_OBS_E2E_DOTNET === "1";
-
-function hasDocker(): boolean {
-  try {
-    execSync('docker version --format "{{.Server.Version}}"', { stdio: "pipe", timeout: 15_000 });
-    return true;
-  } catch {
-    return false;
-  }
-}
 
 function hasDotnet(): boolean {
   try {
@@ -134,13 +126,7 @@ describe.skipIf(!ENABLED)(
       // LOOM_OBS_E2E_DOTNET=1 with missing docker / dotnet fails
       // loudly rather than passing silently — silent-skip would hide
       // CI environment drift.
-      if (!hasDocker()) {
-        throw new Error(
-          "LOOM_OBS_E2E_DOTNET=1 set but docker daemon is unreachable. " +
-            "The suite needs docker for the postgres sidecar. " +
-            "Check the runner has docker enabled (GitHub-hosted ubuntu runners do by default).",
-        );
-      }
+      requireDocker("LOOM_OBS_E2E_DOTNET=1");
       if (!hasDotnet()) {
         throw new Error(
           "LOOM_OBS_E2E_DOTNET=1 set but `dotnet` is not on PATH. " +

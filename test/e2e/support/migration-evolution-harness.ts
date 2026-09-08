@@ -43,14 +43,10 @@ export function readFixture(name: "base" | "evolved"): string {
   return fs.readFileSync(path.join(fixtureDir, `${name}.ddd`), "utf8");
 }
 
-export function hasDocker(): boolean {
-  try {
-    execSync("docker info", { stdio: "pipe", timeout: 5_000 });
-    return true;
-  } catch {
-    return false;
-  }
-}
+// Re-exported so the sibling suites importing it from this harness keep working.
+// See `docker-probe.ts` for why the old inline `docker info` probe reported a
+// busy daemon as a missing one.
+export { hasDocker, requireDocker } from "./docker-probe.js";
 
 export async function freePort(): Promise<number> {
   return await new Promise<number>((resolve, reject) => {

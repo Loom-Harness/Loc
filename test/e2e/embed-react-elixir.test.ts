@@ -5,6 +5,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { requireDocker } from "./support/docker-probe.js";
 import { mixDepsGet, mixLocalInstall } from "./support/mix-retry.js";
 
 // ---------------------------------------------------------------------------
@@ -34,15 +35,6 @@ const cli = path.join(repoRoot, "bin", "cli.js");
 const fixture = path.join(here, "fixtures", "elixir-vanilla-build", "vanilla-embed-react.ddd");
 
 const ENABLED = process.env.LOOM_EMBED_E2E_PHOENIX === "1";
-
-function hasDocker(): boolean {
-  try {
-    execSync('docker version --format "{{.Server.Version}}"', { stdio: "pipe", timeout: 15_000 });
-    return true;
-  } catch {
-    return false;
-  }
-}
 
 function hasElixir(): boolean {
   try {
@@ -75,12 +67,8 @@ describe.skipIf(!ENABLED)("Phoenix embeds React — runtime e2e (LOOM_EMBED_E2E_
   it("serves the SPA at /app and the Ash JSON API at /api from one origin", async () => {
     // Prereqs checked in-test (not skipIf) so a misconfigured CI fails
     // loudly rather than silently passing.
-    if (!process.env.LOOM_OBS_PG_URL && !hasDocker()) {
-      throw new Error(
-        "LOOM_EMBED_E2E_PHOENIX=1 set but no LOOM_OBS_PG_URL was provided and " +
-          "the docker daemon is unreachable. Supply LOOM_OBS_PG_URL=postgres://… " +
-          "(CI service container) or ensure docker is available for a local sidecar.",
-      );
+    if (!process.env.LOOM_OBS_PG_URL) {
+      requireDocker("LOOM_EMBED_E2E_PHOENIX=1", "LOOM_OBS_PG_URL");
     }
     if (!hasElixir()) {
       throw new Error(
