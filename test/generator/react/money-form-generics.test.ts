@@ -22,7 +22,7 @@ import { parseString } from "../../_helpers/index.js";
 // single generic, so nothing else in the emitted output moves.
 // ---------------------------------------------------------------------------
 
-const system = (totalType: string) => `
+const system = (totalType: string, design?: string) => `
 system MoneyForm {
   subdomain Ops {
     context Ops {
@@ -59,13 +59,13 @@ system MoneyForm {
     platform: react
     targets: svc
     ui: Web { ops: svc }
-    port: 3000
+    port: 3000${design ? `\n    design: "${design}"` : ""}
   }
 }
 `;
 
-async function build(totalType: string): Promise<Map<string, string>> {
-  const { model, errors } = await parseString(system(totalType));
+async function build(totalType: string, design?: string): Promise<Map<string, string>> {
+  const { model, errors } = await parseString(system(totalType, design));
   if (errors.length) throw new Error(`fixture has validation errors:\n${errors.join("\n")}`);
   return generateSystems(model).files;
 }
@@ -136,5 +136,58 @@ describe("the create-form generic follows the SCHEMA's field set, not the render
     const page = files.get("web/src/pages/invoices/new.tsx")!;
     expect(page).toContain("useForm<CreateInvoiceRequest>(");
     expect(page).not.toContain("FormState");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// …and the generic is only SPELLABLE on a stack whose resolver models the
+// split.  The three-generic `Resolver<TInput, TContext, TOutput>` arrived in
+// `@hookform/resolvers` v5; stack `v1` pins ^3 (`stacks/v1/
+// stack-package-deps.hbs`), whose `zodResolver` returns the two-generic
+// `Resolver<TFieldValues, TContext>`.  Emitting three generics there asks for
+// a type `zodResolver` cannot supply — the SAME TS2322 the three-generic form
+// exists to fix, now in the other direction:
+//
+//   error TS2322: Type '…=> Promise<ResolverResult<{…cost?: string | Decimal}>>'
+//     is not assignable to type 'Resolver<{…cost?: string | Decimal}, unknown,
+//     {…cost?: Decimal}>'
+//
+// This is not a type nicety.  Every merge-queue run of
+// `generated-react-build` on 2026-09-07 failed here, on the four stack-v1
+// packs (mantine@v7, mui@v5, shadcn@v3, chakra@v2) — and the per-PR slice
+// does not run that cell, so it reached `main` and ejected every queue entry
+// for a day.  The four stack-v3 packs passed the same sweep untouched, which
+// is what identifies the axis as the STACK and not the pack.
+// ---------------------------------------------------------------------------
+
+describe("the three-generic form is gated on the pack's stack", () => {
+  it("a stack-v1 pack keeps the single generic on the very same money form", async () => {
+    const files = await build("money", "mantine@v7");
+    const page = files.get("web/src/pages/invoices/new.tsx")!;
+    expect(page).toContain("useForm<CreateInvoiceRequest>(");
+    expect(page).not.toContain("useForm<CreateInvoiceFormState");
+  });
+
+  it("a stack-v3 pack still takes all three", async () => {
+    const files = await build("money", "mantine@v9");
+    const page = files.get("web/src/pages/invoices/new.tsx")!;
+    expect(page).toContain("useForm<CreateInvoiceFormState, unknown, CreateInvoiceRequest>(");
+  });
+
+  it("the split is the STACK, not the family — mui and shadcn divide the same way", async () => {
+    for (const [design, threeGenerics] of [
+      ["mui@v5", false],
+      ["mui@v7", true],
+      ["shadcn@v3", false],
+      ["shadcn@v4", true],
+      ["chakra@v2", false],
+      ["chakra@v3", true],
+    ] as const) {
+      const page = (await build("money", design)).get("web/src/pages/invoices/new.tsx")!;
+      expect(
+        page.includes("useForm<CreateInvoiceFormState, unknown, CreateInvoiceRequest>("),
+        `${design}: expected threeGenerics=${threeGenerics}`,
+      ).toBe(threeGenerics);
+    }
   });
 });
