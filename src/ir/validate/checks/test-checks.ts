@@ -276,6 +276,31 @@ function checkMagicCall(
 ): void {
   // Match `<magicId>.<aggregateSlug>.<method>(...)`.
   if (e.kind !== "method-call") return;
+  // …and REFUSE the one-level `<magicId>.<name>(...)`, which has no shape at
+  // all: every call this harness can address is two-level, resolved against
+  // the aggregate / projection / workflow slug sets below.  Falling through
+  // silently is what made it dangerous — `e2e-render.ts`'s `matchApiCall`
+  // mirrors this same match and returns null, so the call was rendered as an
+  // ordinary expression against a bare `api` identifier the emitted file never
+  // binds (`api is not defined` at run time), and when the name happened to
+  // collide with a collection intrinsic it MIS-COMPILED instead:
+  // `api.sum({ a: 2, b: 3 })` became
+  // `(api).reduce((__acc, __x) => __acc + __num((({ a: 2, b: 3 }))(__x)), 0)`.
+  // Both shapes validated with 0 errors before this arm.
+  //
+  // Explicit `route … -> <Handler>` routes are the shape that reaches for this
+  // form, and the harness genuinely cannot address them yet — that gap is
+  // tracked separately; this makes it an honest refusal rather than a silent
+  // miscompile.
+  if (e.receiver.kind === "ref" && e.receiver.name === magicId) {
+    diags.push({
+      severity: "error",
+      code: "loom.e2e-unaddressable-call",
+      message: diagMessage("loom.e2e-unaddressable-call", { magicId, method: e.member }),
+      source,
+    });
+    return;
+  }
   if (e.receiver.kind !== "member") return;
   const r = e.receiver;
   if (r.receiver.kind !== "ref" || r.receiver.name !== magicId) return;

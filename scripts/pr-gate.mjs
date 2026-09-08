@@ -1,5 +1,5 @@
-// The `pr-gate` aggregate check, v2 — EVENT-DRIVEN (docs/ci-gating.md → "No
-// merge queue on a personal account").
+// The `pr-gate` aggregate check, v2 — EVENT-DRIVEN (docs/ci-gating.md → "The
+// `pr-gate` check").
 //
 // v1 was a single long-polling job: it waited up to 80 minutes for every other
 // check on the head SHA. Under real load that design fed on itself — each open

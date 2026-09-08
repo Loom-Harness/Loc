@@ -1035,6 +1035,27 @@ system P {
   deployable api { platform: node contexts: [Orders] dataSources: [st] ui: WebApp port: 3000 }
 }`,
 
+  // The one-level `api.<name>(…)` call shape in a `test e2e` body.  Every call
+  // the harness can address is TWO-level (`api.<slug>.<method>(…)`), so this
+  // resolves to nothing — and before the refusal it was rendered against a bare
+  // `api` identifier the emitted file never binds.  `sum` on purpose: it
+  // collides with the collection intrinsic, which is the arm that MIS-COMPILED
+  // (to a `.reduce(…)` fold) rather than merely failing at run time.
+  "loom.e2e-unaddressable-call": `
+system S {
+  subdomain D { context C {
+    aggregate Order with crudish { code: string }
+  } }
+  api A from D { }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable d { platform: node, contexts: [C], dataSources: [st], serves: A, port: 4000 }
+  test e2e "t" against d {
+    let summed = api.sum({ a: 1, b: 2 })
+    expect(summed).toBe(3)
+  }
+}`,
+
   // An `if` STATEMENT in an operation body, on a context an elixir deployable
   // emits.  The four spine backends render it; Phoenix would silently drop an
   // assigning branch (its bodies thread a REBOUND `record`, and an Elixir `if`

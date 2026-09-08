@@ -2773,6 +2773,8 @@ export const DIAGNOSTIC_MESSAGES = {
   "loom.e2e-unsupported-statement": (p: { name: unknown; badKind: unknown; magicId: unknown }) =>
     `e2e test '${p.name}': '${p.badKind}' is not supported in an e2e test body. ` +
     `Only expect, expect-throws, let, expression, and ${p.magicId}.<...> calls are allowed.`,
+  "loom.e2e-unaddressable-call": (p: { magicId: unknown; method: unknown }) =>
+    `\`${p.magicId}.${p.method}(…)\` is not a shape the e2e harness can address. Every call it emits is two-level — \`${p.magicId}.<aggregate>.<method>(…)\`, \`${p.magicId}.<projection>.{byKey,list}(…)\` or \`${p.magicId}.workflows.<name>(…)\`. An explicit \`route … -> <Handler>\` route has no such slug and cannot be called from a test body yet.`,
   "loom.e2e-unresolved-ref": (p: { testName: unknown; name: unknown }) =>
     `e2e test '${p.testName}': '${p.name}' is not a 'let' binding or a magic receiver ('api'/'ui'). ` +
     `An e2e body drives the deployable over HTTP, so it resolves no domain names — ` +
