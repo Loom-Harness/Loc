@@ -468,6 +468,34 @@ and worth capturing once the settings are stable, but the UI path is primary:
 ruleset JSON silently accepts check names that do not exist, which is the one
 mistake that stalls the queue.
 
+### The wait window has to cover the SLOWEST check, not the average
+
+**Measured 2026-09-08.** With the window at GitHub's 60-minute default, `main`
+sat at one commit for roughly four hours: entries for #2786, #2804, #2792 and
+#2766 each formed, ran the ~40-check heavy set, and were removed without
+merging — then the next entry re-formed on the *same* base and re-rolled the
+same dice. Two independent causes, and it takes both to explain the rotation:
+
+1. **A required check went red.** `java-obs-e2e` failed on two candidates — a
+   docker probe that read its own timeout as "docker is missing" (fixed in
+   #2816). `scripts/pr-gate.mjs` also fail-closes a `cancelled` run into red,
+   which took a third candidate whose every step had concluded `success`.
+2. **A fully green group ran out of window.** On a saturated pool the queue
+   times are not the job times: measured on one group,
+   `generated-angular-build` was queued 86 min and `elixir-vanilla-build`
+   51 min, both against a 60-minute limit. Nothing was failing; the candidate
+   simply could not finish being checked in time.
+
+Raising the window to **120 minutes** cleared it — the very next entry merged.
+So size the window against the slowest check's *queued + run* time under load,
+not its runtime on an idle pool, and re-measure it whenever the required set
+grows. Trimming that set is the other half of the same lever.
+
+Symptom to recognise: the `gh-readonly-queue/main/pr-*` ref keeps changing PR
+number while `main`'s SHA does not move. Enumerate the `merge_group` runs on
+each departed ref — if their conclusions are all `success`, it was the window,
+not a gate.
+
 ### Two merge-group behaviours worth knowing
 
 - **`pages.yml` builds in the queue but never deploys.** The workflow is split
