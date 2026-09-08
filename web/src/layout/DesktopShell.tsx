@@ -41,6 +41,7 @@ import {
   CHAT,
   CORRESPONDENCE,
   EXPLORER_VIEW,
+  EXPORT,
   nextStep,
   nextStepMid,
   OUTPUT_DIFF,
@@ -245,7 +246,7 @@ export function DesktopShell({ ctx }: Props): JSX.Element {
                 minSize="10%"
                 onResize={(s) => setLeftCollapsed(s.asPercentage < 1)}
               >
-                <Box style={{ height: "100%", display: "flex", flexDirection: "column", background: "var(--mantine-color-dark-7)" }}>
+                <Box style={{ height: "100%", display: "flex", flexDirection: "column", background: "var(--loom-bg)" }}>
                   <RegionHeader
                     label={PANE.explorer}
                     collapsed={leftCollapsed}
@@ -266,7 +267,7 @@ export function DesktopShell({ ctx }: Props): JSX.Element {
                   <Box
                     px={4}
                     py={4}
-                    style={{ borderBottom: "1px solid var(--mantine-color-dark-4)" }}
+                    style={{ borderBottom: "1px solid var(--loom-border)" }}
                     data-testid="explorer-mode"
                   >
                     <Box style={{ display: "flex", flexWrap: "wrap", gap: 2 }}>
@@ -282,7 +283,7 @@ export function DesktopShell({ ctx }: Props): JSX.Element {
                             borderRadius: 4,
                             background:
                               explorerMode === tab
-                                ? "var(--mantine-color-dark-5)"
+                                ? "var(--loom-bg-active)"
                                 : "transparent",
                           }}
                         >
@@ -320,7 +321,7 @@ export function DesktopShell({ ctx }: Props): JSX.Element {
                   ) : explorerMode === "generated" ? (
                     <Box style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
                       {files.length > 0 && (
-                        <Box px="xs" py={4} style={{ borderBottom: "1px solid var(--mantine-color-dark-4)" }}>
+                        <Box px="xs" py={4} style={{ borderBottom: "1px solid var(--loom-border)" }}>
                           <Button
                             size="compact-xs"
                             variant="light"
@@ -328,6 +329,7 @@ export function DesktopShell({ ctx }: Props): JSX.Element {
                             leftSection={<span aria-hidden>↓</span>}
                             onClick={() => ctx.runDownloadZip()}
                             data-testid="download-zip"
+                            title={EXPORT.hint}
                           >
                             Download .zip
                           </Button>
@@ -379,7 +381,7 @@ export function DesktopShell({ ctx }: Props): JSX.Element {
               {/* CENTER — Editor / Viewer */}
               <Panel minSize="25%">
                 <Box style={{ height: "100%", display: "flex", flexDirection: "column" }}>
-                  <MGroup px={4} py={2} bg="dark.6" gap={2} wrap="nowrap" style={{ borderBottom: "1px solid var(--mantine-color-dark-4)" }}>
+                  <MGroup px={4} py={2} bg="var(--loom-bg-raised)" gap={2} wrap="nowrap" style={{ borderBottom: "1px solid var(--loom-border)" }}>
                     <SegmentedControl
                       size="xs"
                       value={centerView === "secondary" ? "" : centerView}
@@ -545,9 +547,14 @@ export function DesktopShell({ ctx }: Props): JSX.Element {
         </Box>
       </Panel>
 
-      <Handle orientation="horizontal" />
+      {/* An `#embed=1` link drops the dock entirely (M-T8.23 slice 2): an
+          iframe-sized playground has no room for Problems / Tests / History,
+          and a collapsed-but-present dock would eat the little height there
+          is.  `#view=1` keeps it — a read-only reader still wants Problems. */}
+      {!ctx.embedMode && <Handle orientation="horizontal" />}
 
       {/* BOTTOM — Dev Tools dock */}
+      {!ctx.embedMode && (
       <Panel
         panelRef={bottomRef}
         collapsible
@@ -557,7 +564,7 @@ export function DesktopShell({ ctx }: Props): JSX.Element {
         onResize={(s) => setBottomCollapsed(s.asPercentage < 8)}
       >
         {bottomCollapsed ? (
-          <MGroup px="sm" py={4} bg="dark.6" gap="xs" justify="space-between" style={{ height: "100%" }}>
+          <MGroup px="sm" py={4} bg="var(--loom-bg-raised)" gap="xs" justify="space-between" style={{ height: "100%" }}>
             <Text size="xs" fw={600} tt="uppercase" c="dimmed">
               {PANE.devTools}
             </Text>
@@ -569,6 +576,7 @@ export function DesktopShell({ ctx }: Props): JSX.Element {
           <DevToolsDock ctx={ctx} tab={dockTab} setTab={setDockTab} />
         )}
       </Panel>
+      )}
     </Group>
   );
 }
@@ -586,7 +594,7 @@ function ExplorerBanner({ ctx }: { ctx: LayoutCtx }): JSX.Element | null {
   const hasDiff = outputDiff.any;
   if (!correspondence && !hasDiff) {
     return (
-      <Box px="xs" py={2} style={{ borderBottom: "1px solid var(--mantine-color-dark-4)" }}>
+      <Box px="xs" py={2} style={{ borderBottom: "1px solid var(--loom-border)" }}>
         <ColourMapSwitch on={colourMap} onChange={setColourMap} />
       </Box>
     );
@@ -595,7 +603,7 @@ function ExplorerBanner({ ctx }: { ctx: LayoutCtx }): JSX.Element | null {
     <Box
       px="xs"
       py={2}
-      style={{ borderBottom: "1px solid var(--mantine-color-dark-4)" }}
+      style={{ borderBottom: "1px solid var(--loom-border)" }}
       data-testid="explorer-banner"
     >
       {correspondence ? (
@@ -651,7 +659,7 @@ function Handle({ orientation }: { orientation: "vertical" | "horizontal" }): JS
   return (
     <Separator
       style={{
-        background: "var(--mantine-color-dark-4)",
+        background: "var(--loom-border)",
         ...(vertical ? { width: 1 } : { height: 1 }),
       }}
     />
@@ -678,9 +686,9 @@ function CollapsedRail({
       style={{
         width: 26,
         flex: "0 0 26px",
-        background: "var(--mantine-color-dark-6)",
-        borderRight: side === "left" ? "1px solid var(--mantine-color-dark-4)" : undefined,
-        borderLeft: side === "right" ? "1px solid var(--mantine-color-dark-4)" : undefined,
+        background: "var(--loom-bg-raised)",
+        borderRight: side === "left" ? "1px solid var(--loom-border)" : undefined,
+        borderLeft: side === "right" ? "1px solid var(--loom-border)" : undefined,
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
@@ -716,7 +724,7 @@ function RegionHeader({
   const collapseGlyph = side === "left" ? "‹" : "›";
   const expandGlyph = side === "left" ? "›" : "‹";
   return (
-    <MGroup px="sm" py={4} bg="dark.6" gap="xs" justify="space-between" wrap="nowrap" style={{ borderBottom: "1px solid var(--mantine-color-dark-4)" }}>
+    <MGroup px="sm" py={4} bg="var(--loom-bg-raised)" gap="xs" justify="space-between" wrap="nowrap" style={{ borderBottom: "1px solid var(--loom-border)" }}>
       <MGroup gap="xs" wrap="nowrap">
         <Text size="xs" fw={600} tt="uppercase" c="dimmed">
           {label}
@@ -751,7 +759,7 @@ function DocTab({
       style={{
         borderRadius: 4,
         maxWidth: 280,
-        background: active ? "var(--mantine-color-dark-5)" : "transparent",
+        background: active ? "var(--loom-bg-active)" : "transparent",
       }}
     >
       <Text size="xs" ff="monospace" truncate c={active ? undefined : "dimmed"}>

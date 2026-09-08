@@ -126,6 +126,10 @@ export interface LoomEditorProps {
    *  tearing the editor down.  Defaults to `/workspace/main.ddd`
    *  (today's behaviour, byte-identical Monaco URI). */
   activePath?: string;
+  /** A `#view=1` render: Monaco refuses typing (M-T8.23 slice 2).  Imperative
+   *  writes through `handleRef` still land — read-only is about the USER not
+   *  editing, not about the app being unable to reseed the model. */
+  readOnly?: boolean;
   /** Report the 1-based source line under the pointer, `null` on leave —
    *  the forward half of the source ↔ output correspondence (M-T8.20).
    *  Reported only when the line CHANGES, so a mouse dragged along one line
@@ -147,6 +151,10 @@ export function LoomEditor(props: LoomEditorProps): JSX.Element {
   // "whatever the active file's content is when the editor actually exists".
   const initialValueRef = useRef(props.initialValue);
   initialValueRef.current = props.initialValue;
+  // Read through a ref for the same reason as the seed: the editor is created
+  // long after first render, and the mount effect must see the CURRENT value.
+  const readOnlyRef = useRef(props.readOnly ?? false);
+  readOnlyRef.current = props.readOnly ?? false;
   // Text pushed through `handleRef.setSource` while Monaco did not yet exist
   // (see the pre-mount handle below).  Wins over `initialValueRef` as the
   // mount seed: it is a real user edit, whereas the prop can still be the
@@ -253,6 +261,7 @@ export function LoomEditor(props: LoomEditorProps): JSX.Element {
       fontSize: isMobile ? 16 : 13,
       scrollBeyondLastLine: false,
       tabSize: 2,
+      readOnly: readOnlyRef.current,
       "semanticHighlighting.enabled": true,
       ...(isMobile
         ? {

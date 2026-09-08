@@ -50,6 +50,7 @@ export function EditorPane({ ctx, border = "none" }: Props): JSX.Element | null 
     sourceError,
     clearSourceError,
     workspace,
+    viewMode,
   } = ctx;
   // Warm the editor chunk the moment a desktop pane exists, rather than when
   // the language client finally resolves — the two would otherwise serialize.
@@ -137,6 +138,7 @@ export function EditorPane({ ctx, border = "none" }: Props): JSX.Element | null 
             onChange={(v) => onSourceChange(v, "editor")}
             onDiagnosticsChange={onDiagnosticsChange}
             activePath={activeSourcePath}
+            readOnly={viewMode}
             // Sticky on leave: the correspondence has to survive the mouse
             // travelling to the Explorer or the open generated file, which is
             // the whole point of it (godbolt keeps its mapping while you read
@@ -157,6 +159,7 @@ export function EditorPane({ ctx, border = "none" }: Props): JSX.Element | null 
           initialValue={initialSource}
           handleRef={editorHandleRef}
           onChange={(v) => onSourceChange(v, "editor")}
+          readOnly={viewMode}
         />
       )}
     </Box>
@@ -173,8 +176,8 @@ export function EditorPane({ ctx, border = "none" }: Props): JSX.Element | null 
         // has no in-pane explorer (it's the left panel), so this is just
         // the editor.
         flexDirection: "column",
-        borderRight: border === "right" ? "1px solid var(--mantine-color-dark-4)" : undefined,
-        borderBottom: border === "bottom" ? "1px solid var(--mantine-color-dark-4)" : undefined,
+        borderRight: border === "right" ? "1px solid var(--loom-border)" : undefined,
+        borderBottom: border === "bottom" ? "1px solid var(--loom-border)" : undefined,
       }}
     >
       {explorer}
