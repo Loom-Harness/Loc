@@ -470,10 +470,21 @@ describe("pr-gate survives dropped workflow_run events", () => {
 
   it("the job runs on schedule/dispatch events, not only pull_request paths", () => {
     // The old guard `event_name == 'pull_request' || …` silently skips the
-    // sweep.  The inverted form runs everything except non-PR workflow_run.
-    expect(src).toContain(
-      "if: github.event_name != 'workflow_run' || github.event.workflow_run.event == 'pull_request'",
-    );
+    // sweep.  The inverted form runs everything except workflow_run
+    // completions from a context this gate does not evaluate.
+    //
+    // Asserted by SHAPE rather than as one literal string: the guard grew a
+    // `merge_group` arm (a required check with no merge_group trigger stalls
+    // every queue entry — see merge-queue-readiness), and a literal pin would
+    // have forced that edit to look like a regression.  What must not rot is
+    // the inversion itself, so that is what is pinned.
+    const guard = src.slice(src.indexOf("if:"), src.indexOf("runs-on:"));
+    expect(
+      /github\.event_name\s*!=\s*'workflow_run'/.test(guard),
+      `guard must be the INVERTED form or the sweep is skipped, got: ${guard}`,
+    ).toBe(true);
+    expect(guard).toContain("github.event.workflow_run.event == 'pull_request'");
+    expect(guard).toContain("github.event.workflow_run.event == 'merge_group'");
   });
 
   it("sweep may list open PRs", () => {
