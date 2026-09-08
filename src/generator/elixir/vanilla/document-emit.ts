@@ -603,13 +603,15 @@ ${
     # \`optimistic_lock\` guards the UPDATE on that value and bumps it by one.
     # A stale write matches no row → \`Ecto.StaleEntryError\`, rescued into
     # \`{:error, :conflict}\` (→ 409).  Absent → the loaded row's own version
-    # (write-time CAS).
+    # (write-time CAS).  \`force: true\` because the lock's increment rides
+    # \`prepare_changes\`, which Ecto runs only AFTER deciding the update is
+    # non-empty — see repository-emit.ts's \`updateForce\`.
     record = %{record | version: expected_version || record.version}
 
     record
     |> ${changesetMod}.document_update_changeset(attrs, record.version)
     |> Ecto.Changeset.optimistic_lock(:version)
-    |> Repo.update()
+    |> Repo.update(force: true)
   rescue
     Ecto.StaleEntryError -> {:error, :conflict}
   end`
@@ -628,7 +630,7 @@ ${
   @spec persist_change(Ecto.Changeset.t()) ::
           {:ok, ${aggModule}.t()} | {:error, Ecto.Changeset.t()${versioned ? " | :conflict" : ""}}
   def persist_change(%Ecto.Changeset{data: %${aggModule}{}} = changeset) do
-    Repo.update(changeset)${versioned ? "\n  rescue\n    Ecto.StaleEntryError -> {:error, :conflict}" : ""}
+    Repo.update(changeset${versioned ? ", force: true" : ""})${versioned ? "\n  rescue\n    Ecto.StaleEntryError -> {:error, :conflict}" : ""}
   end${findBlock}${denyHelperBlock}
 end
 `;

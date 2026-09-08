@@ -158,7 +158,7 @@ describe("vanilla — custom find functions on the repository module", () => {
     // (M-T6.27: `persist_change` on a versioned aggregate now carries the
     // stale-write rescue between the update and the two `end`s.)
     expect(task).toMatch(
-      /Repo\.update\(changeset\)\n {2}rescue\n {4}Ecto\.StaleEntryError -> \{:error, :conflict\}\n {2}end\nend\n?$/,
+      /Repo\.update\(changeset, force: true\)\n {2}rescue\n {4}Ecto\.StaleEntryError -> \{:error, :conflict\}\n {2}end\nend\n?$/,
     );
 
     // Regression: the per-aggregate context block must end with `\n` so the
