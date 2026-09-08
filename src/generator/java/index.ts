@@ -34,7 +34,7 @@ import { durableEventTypes } from "../../ir/util/channels.js";
 import { directParentOf } from "../../ir/util/containment-parent.js";
 import { aggregateHasFileField } from "../../ir/util/file-field.js";
 import { foreignIdBrandNames, workflowIdTypeSources } from "../../ir/util/foreign-ids.js";
-import { isTpcBase, isTphBase, tableOwnerName } from "../../ir/util/inheritance.js";
+import { isTpcBase, isTphBase, isTphConcrete, tableOwnerName } from "../../ir/util/inheritance.js";
 import { mergeContexts } from "../../ir/util/merge-contexts.js";
 import {
   effectiveSavingShape,
@@ -1562,9 +1562,21 @@ function emitAggregate(
   const tpcBase = agg.extendsAggregate
     ? ctx.aggregates.find((a) => a.name === agg.extendsAggregate && isTpcBase(a, ctx.aggregates))
     : undefined;
-  const tphBase = agg.extendsAggregate
-    ? ctx.aggregates.find((a) => a.name === agg.extendsAggregate && isTphBase(a, ctx.aggregates))
-    : undefined;
+  // TPH identity is a property of THIS concrete, not of the base alone: a
+  // `shape: document` / `persistedAs: eventLog` concrete is forced to
+  // `inheritanceUsing: ownTable` under a `sharedTable` base (the sanctioned
+  // mixed hierarchy, `loom.es-tph-forced-own-table`), so the base stays a TPH
+  // base while this subtype owns its own table AND its own `<Agg>Id`.  Asking
+  // `isTphBase(base)` alone answered "shares identity" for such a concrete
+  // while `tableOwnerName(agg)` — which asks `isTphConcrete(agg)` — resolved
+  // the id class to `<Agg>Id`, so the entity minted a `<Base>Id` the service
+  // and repository refused (java: "incompatible types: ThingBaseId cannot be
+  // converted to ThingId").  Both questions now route through the same
+  // predicate; byte-identical for every hierarchy whose members agree.
+  const tphBase =
+    agg.extendsAggregate && isTphConcrete(agg, ctx.aggregates)
+      ? ctx.aggregates.find((a) => a.name === agg.extendsAggregate && isTphBase(a, ctx.aggregates))
+      : undefined;
   const inheritedBase = tpcBase ?? tphBase;
   const superType = inheritedBase
     ? {
