@@ -24,7 +24,13 @@ import { readOnlyMessage } from "../workspace/workspace-sources";
 import { InlineConfirm, confirmSites } from "../util/confirm";
 import type { LayoutCtx } from "./ctx";
 import { ReadOnlyBadge } from "./ReadOnlyBadge";
-import { classifyCommit, formatRelativeTime, shortOid } from "./history-format";
+import {
+  classifyCommit,
+  COMMIT_KIND_COLOR,
+  COMMIT_KIND_LABEL,
+  formatRelativeTime,
+  shortOid,
+} from "./history-format";
 import { OUTPUT_DIFF } from "./vocabulary";
 
 // "History" dock tab — a visible timeline of the git-backed workspace.
@@ -257,9 +263,10 @@ export function HistoryBody({
                     <Badge
                       size="xs"
                       variant="light"
-                      color={kind === "autosave" ? "gray" : "blue"}
+                      color={COMMIT_KIND_COLOR[kind]}
+                      data-testid={`history-kind-${kind}`}
                     >
-                      {kind === "autosave" ? "autosave" : "milestone"}
+                      {COMMIT_KIND_LABEL[kind]}
                     </Badge>
                     <Text size="sm" style={{ flex: 1 }} truncate>
                       {c.message}
