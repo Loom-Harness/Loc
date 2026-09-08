@@ -24,7 +24,10 @@ import { coerceMoneyStateInit, usesDecimalBinding } from "../../_expr/js-intrins
 import { componentPropTsType } from "../../_frontend/component-prop-type.js";
 import { renderGateExpr } from "../../_frontend/gate-expr.js";
 import type { LoadedPack } from "../../_packs/loader.js";
-import { routerPackageForStack } from "../../_packs/stack-runtime.js";
+import {
+  resolverModelsTransformForStack,
+  routerPackageForStack,
+} from "../../_packs/stack-runtime.js";
 import { storeHookName, storeMemberLocal } from "../../_walker/js-target-helpers.js";
 import {
   addImportToMap,
@@ -670,9 +673,24 @@ function renderStoreWiring(
  *  types the resolver's INPUT as `z.input`, so a money-bearing form under the
  *  single generic asks for `Resolver<Request, …>` and gets
  *  `Resolver<FormState, …>`: TS2322 in the emitted page, plus a TS2345 where
- *  `handleSubmit`'s callback value flows into the mutation. */
-function formGenericsFor(requestType: string, formStateType: string | undefined): string {
-  return formStateType ? `${formStateType}, unknown, ${requestType}` : requestType;
+ *  `handleSubmit`'s callback value flows into the mutation.
+ *
+ *  The three-generic spelling is only available where the pack's STACK ships
+ *  `@hookform/resolvers` v5 — its `zodResolver` returns the three-generic
+ *  `Resolver`.  Stack `v1` pins v3, whose two-generic `Resolver` is not
+ *  assignable to it, so the transform split is invisible there in BOTH
+ *  directions and the single generic is both necessary and sufficient.
+ *  Getting this wrong is not a type nicety: it is a `tsc --noEmit` failure in
+ *  every generated project on the older stack (mantine@v7, mui@v5,
+ *  shadcn@v3, chakra@v2). */
+function formGenericsFor(
+  requestType: string,
+  formStateType: string | undefined,
+  pack: LoadedPack,
+): string {
+  return formStateType && resolverModelsTransformForStack(pack.manifest.stack)
+    ? `${formStateType}, unknown, ${requestType}`
+    : requestType;
 }
 
 type FormWiring = {
@@ -706,7 +724,7 @@ function renderFormOfWiring(
   }
   const { agg, idTargets, useController, defaultValuesTs, fieldArrays, onSubmitJs } = state;
   const tplCtx = {
-    formGenerics: formGenericsFor(`Create${agg.name}Request`, state.formStateType),
+    formGenerics: formGenericsFor(`Create${agg.name}Request`, state.formStateType, pack),
     aggregateName: agg.name,
     aggregateNameCamel: lowerFirst(agg.name),
     pluralAggregateName: plural(agg.name),
@@ -752,7 +770,7 @@ function renderFormOpWiring(
     state;
   const opPascal = upperFirst(op.name);
   const tplCtx = {
-    formGenerics: formGenericsFor(`${opPascal}${agg.name}Request`, state.formStateType),
+    formGenerics: formGenericsFor(`${opPascal}${agg.name}Request`, state.formStateType, pack),
     // Present iff a this-relative default seeded from the loaded record: the
     // component takes a `record: <recordType>` prop and its `defaultValues`
     // reads it (`record.<field>`).  Absent → no record prop (default path).
@@ -834,7 +852,7 @@ function renderFormRunsWiring(
   const { workflow, idTargets, useController, defaultValuesTs, onSubmitJs, fieldArrays } = state;
   const wfPascal = upperFirst(workflow.name);
   const tplCtx = {
-    formGenerics: formGenericsFor(`${wfPascal}Request`, state.formStateType),
+    formGenerics: formGenericsFor(`${wfPascal}Request`, state.formStateType, pack),
     workflowName: workflow.name,
     workflowPascal: wfPascal,
     humanWorkflow: humanize(workflow.name),
