@@ -439,13 +439,25 @@ Nothing below is code; it is an admin action on `github.com/lemmit/Loc`.
    Target branch: `main`.
 3. Enable **Require merge queue**. Configuration in force, and why:
    - merge method: **Squash** (matches how `main` lands today);
-   - build concurrency: **3** (as configured 2026-09-08). Started at 5 and was
-     lowered the same day: with a saturated pool, five speculative groups
-     compete with every open PR's own run for the same runners and nothing
-     finishes. 3 is the current compromise — re-measure before changing it,
-     and note the pool itself is the variable (it fell to ~1-2 concurrent
-     jobs for about an hour on 2026-09-08, during which no group of any size
-     could finish inside the queue's timeout).
+   - build concurrency: **1** (2026-09-08, after 5 → 3 → 1 in one day).
+     Speculative groups are only worth their cost when the pool has slack, and
+     this pool does not.  Each extra concurrent group runs the WHOLE
+     merge_group gate set, so at 3 a three-PR batch costs ~120 jobs on top of
+     every open PR's own checks — and one open PR here routinely spawns 200+.
+
+     Measured, not inferred: at concurrency 3 on 2026-09-08 the queue built
+     three speculative prefixes ([A], [A,B], [A,B,C]) for 93 minutes and
+     merged nothing; **300 workflow runs were queued against 13 running**, and
+     23 of the batch's own jobs had not STARTED 93 minutes after creation.
+     Every group that succeeded earlier the same day, at lower load, finished
+     in 35-45 minutes.  Starvation, not slow tests — and a starved group
+     eventually ejects on the queue's timeout having merged nothing, which is
+     how #2786 and #2804 were lost that afternoon.
+
+     Raise it again once the queue set is 22 rather than 40 (the trim in this
+     PR): three prefixes then cost ~66 jobs instead of ~120, and the
+     arithmetic changes.  Re-measure the queued-vs-running ratio before and
+     after rather than assuming.
    - minimum group size **3**, maximum **3**, wait **10 min**. Batching is not
      just throughput here: a group RE-FORMS whenever the PRs ahead of it
      change, restarting its whole gate set, and this repo lands PRs from
