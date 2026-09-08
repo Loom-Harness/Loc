@@ -265,6 +265,7 @@ export function stepTable(step: MigrationStep): string | undefined {
     case "renameColumn":
     case "alterColumnNullable":
     case "alterColumnType":
+    case "alterColumnDefault":
     case "dropIndex":
     case "backfillColumn":
       return step.table;
