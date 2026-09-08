@@ -181,7 +181,6 @@ const packId = (p: PackUnderTest) => `${p.family}@${p.version}`;
 const KNOWN_STRUCTURAL_DEVIATIONS: readonly { pack: string; concern: string; owner: string }[] = [
   { pack: "flowbite@v1", concern: "container.size", owner: "M-FT.19 (#2750)" },
   { pack: "flowbite@v1", concern: "main.padding", owner: "M-FT.19 (#2750)" },
-  { pack: "flowbite@v1", concern: "main.contained", owner: "M-FT.19 (#2750)" },
 ];
 
 function structuralDeviation(pack: string, concern: string): boolean {
@@ -196,9 +195,12 @@ interface KnownDeviation {
 }
 
 const KNOWN_DEVIATIONS: readonly KnownDeviation[] = [
-  // M-FT.19 (#2750) owns designs/flowbite/** entire and is still in flight.
-  // (M-FT.20 #2748 and M-FT.18 #2745 have LANDED — the entries that named them
-  // came true and this ratchet failed on each, which is what deleted them.)
+  // M-FT.19 (#2750) owns designs/flowbite/** entire.  It has since LANDED, and
+  // the ratchet fired on rebase for the two concerns it actually paid —
+  // `card.padding` (now `p-4`) and the structural `main.contained` — so both
+  // entries are gone.  What remains is what #2750 did NOT address.
+  // (M-FT.20 #2748 and M-FT.18 #2745 landed earlier and emptied their entries
+  // the same way: the entry asserts the pack still FAILS, so a fix deletes it.)
   { pack: "flowbite@v1", concern: "group.gap", actualPx: 16, owner: "M-FT.19 (#2750)" },
   { pack: "flowbite@v1", concern: "keyValueRow.gap", actualPx: 16, owner: "M-FT.19 (#2750)" },
   {
@@ -207,7 +209,6 @@ const KNOWN_DEVIATIONS: readonly KnownDeviation[] = [
     actualPx: null,
     owner: "M-FT.19 (#2750)",
   },
-  { pack: "flowbite@v1", concern: "card.padding", actualPx: null, owner: "M-FT.19 (#2750)" },
 ];
 
 function deviationFor(pack: string, concern: SpacingConcern): KnownDeviation | undefined {
