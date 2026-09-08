@@ -52,6 +52,29 @@ name: Pairwise combination corpus
 # free.  Cover completeness is asserted, not assumed — `test/pairwise/
 # axes.test.ts` re-derives every 2-way combination from the axis constants.
 #
+# A DISCOVERY INSTRUMENT IS NOT A MERGE GATE.  The `compile` and `schema-load`
+# legs deliberately do NOT run on `merge_group`, and that is not an oversight to
+# be tidied up the next time someone sweeps the workflows for queue readiness.
+#
+# This corpus succeeds by finding crossings nobody has generated before.  A new
+# failure here is almost never "the PR under test broke something" — it is "this
+# combination was always broken and the cover has just now reached it".  Both
+# failures on 2026-09-07 were exactly that: TPH × java (`ThingBaseId` where the
+# service wants `ThingId`) and paged × document × elixir (`by_label/5` declared,
+# `by_label/3` defined) were broken long before #2728 added the `inheritance`
+# and `read` axes that made the corpus emit them.
+#
+# Wire that into the merge queue and the instrument's success condition becomes
+# a repo-wide freeze: #2728 landed at 06:38 UTC, the two new axes discovered two
+# real bugs, and NOTHING merged for the next nine hours — every queue entry ran
+# these legs and failed on findings that had nothing to do with the PR being
+# merged.  The waiver registers (`test/pairwise/waivers{,-compile,-schema}.ts`)
+# are the intended home for a discovery, and they ratchet; an unwaived finding
+# should be a loud nightly failure that opens an issue, not a merge embargo.
+#
+# The `generation` leg is different and DOES gate every PR: ~95s, and a
+# `crashed` verdict is a real regression signal rather than a discovery.
+#
 # All five compile legs shipped in #2690; the matrix below is one cell each.
 #
 # Local: `npm run test:pairwise-corpus` / `-tsc` / `-schema-load` /
@@ -169,11 +192,13 @@ jobs:
   # ---------------------------------------------------------------------------
   compile:
     name: compile oracle (${{ matrix.backend }})
+    # NOT on `merge_group` — see "A DISCOVERY INSTRUMENT IS NOT A MERGE GATE"
+    # in the header.  Nightly + push + label + dispatch, exactly as the TIERS
+    # block above has always described this leg.
     if: >
       github.event_name == 'schedule' ||
       github.event_name == 'workflow_dispatch' ||
       github.event_name == 'push' ||
-      github.event_name == 'merge_group' ||
       (github.event_name == 'pull_request' &&
        contains(github.event.pull_request.labels.*.name, 'run-pairwise'))
     runs-on: ubuntu-latest
@@ -232,11 +257,12 @@ jobs:
   # ---------------------------------------------------------------------------
   schema-load:
     name: schema-load oracle (psql the emitted chain)
+    # NOT on `merge_group`, same reasoning as `compile` above — this section's
+    # own heading has always said NIGHTLY / label / dispatch.
     if: >
       github.event_name == 'schedule' ||
       github.event_name == 'workflow_dispatch' ||
       github.event_name == 'push' ||
-      github.event_name == 'merge_group' ||
       (github.event_name == 'pull_request' &&
        contains(github.event.pull_request.labels.*.name, 'run-pairwise'))
     runs-on: ubuntu-latest
