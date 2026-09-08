@@ -49,19 +49,6 @@
       "reason": "The consequence half of W11, narrowed with it on 2026-09-06 and RE-DIAGNOSED on 2026-09-07. A very likely explanation has now been measured: this route's `productId` is a cross-aggregate `Product id`, so a generated uuid for a product that does not exist tripped the FK, and java's integrity advice answered it with the `ReferencedInUse` 409 — a status the add_line route does NOT declare, which is exactly what status_code_conformance reports. Measured on a booted Spring app: that body now answers the declared 422 (F16's fix — the advice tells `restrict_violation` 23001, the still-referenced delete, apart from `foreign_key_violation` 23503, the dangling reference, and only the former is a conflict). Kept rather than retired because the leg is what has to confirm it: W31 came back after being retired on exactly this kind of reasoning. Re-triage against a nightly."
     },
     {
-      "id": "W26",
-      "findings": [
-        "F22"
-      ],
-      "check": "negative_data_rejection",
-      "operations": "^POST /api/[a-z_]+/\\{id\\}/[a-z_]+$",
-      "backends": [
-        "dotnet"
-      ],
-      "kind": "bug",
-      "reason": "F22 — a bodyless operation POST answers 415 before the path parameter is looked at. ASP.NET's media-type check fires before model binding, so a request with a malformed `{id}` AND no body is answered by the one thing the contract says least about; 415 is not in the set of statuses the fuzzer counts as a rejection. The honest answer is the declared 422 for the unparseable identifier. PATTERN WIDENED 2026-09-01: it was written from the two `orders` routes of the discovery run and matched only those, so the SAME finding on `POST /api/customers/{id}/update` and `POST /api/wallets/{id}/freeze` arrived unwaived on a later run. Measured on a booted app, the 415 does not depend on the id being malformed at all — a VALID uuid with no Content-Type answers 415 too — so the shape is every operation POST, which is what the pattern now says. node, python and java are clean on this check, so the 415 is a .NET-only divergence rather than a shared decision."
-    },
-    {
       "id": "W27",
       "findings": [
         "F21"

@@ -5875,3 +5875,45 @@ nested one (a strict parent with a lax `Money` still took `price.amount:
 false`), and a strict model validating *python* values accepts `int`, `float`
 and `Decimal` alike for a `float` field — which is what made it safe to put the
 guard on value-object models shared with the response direction.
+
+## 102. The framework has a pipeline, and "which stage do I need" was the whole design question (2026-09-08)
+
+F22: on .NET a malformed path `{id}` answered **415** instead of the declared
+422, but *only* on routes carrying a body. With no `Content-Type`,
+`BodyModelBinder` short-circuits the entire binding pass before the path
+parameter is looked at — so the request is refused for the one thing the
+contract says least about, while its actual defect (an identifier that can never
+parse) goes unmentioned. Bodyless routes were correct all along, which is why
+the four-backend contract test never saw it.
+
+Three fixes were available and the difference between them is *where in the MVC
+pipeline they sit*, nothing else:
+
+- a **`{id:guid}` route constraint** — rejected once already for F18, and still
+  wrong for the same reason: it makes the route not match, so the declared 422
+  becomes a framework 404;
+- **middleware** — runs before routing, so it knows no route shapes and would
+  have to carry a table of them (and re-exclude every static sub-path), which is
+  the duplication F18's shared derivation exists to prevent;
+- a **resource filter** — runs after routing and before model binding. That gap
+  is the only place the route value exists *and* the 415 has not happened yet.
+
+Once the stage was right the implementation had no design left in it: read the
+matched action's own `id` parameter, act only if it is a `Guid`. No route
+patterns anywhere, static sub-paths handled by having already been routed.
+
+- **When a framework answers the wrong thing, ask which stage answered — not
+  what to add.** The 415 was not a missing check; it was a check that ran too
+  early. Adding validation would not have moved it. Choosing a stage did.
+- **Match the envelope of the path you are pre-empting, verbatim.** The filter
+  now produces the same body the Guid binder produces for the same defect on a
+  bodyless route, MVC's own `The value 'x' is not valid.` wording included. Two
+  producers of one answer is a drift risk; a mutation that reworded it to
+  something "nicer" is one of the four proofs, precisely because nicer-and-
+  different is the tempting mistake.
+- **An always-true emit gate is worse than no gate.** The first draft gated
+  emission on `idValueType === "guid"` — and every aggregate's identity is a
+  guid (`lower.ts` stamps the literal), so the false arm could not be exercised,
+  and the test written for it failed on a fixture the grammar rejects. The gate
+  came out; the narrowing moved into the emitted C# as a runtime check, where it
+  is both testable and still correct if the identity axis ever opens up.

@@ -658,7 +658,7 @@ that into a visible per-backend answer sheet:
 |---|---|---|---|
 | node | 11 | (F9, F10, F11) | clean |
 | python | 22 | ~~F16~~, ~~F17~~ (both fixed), F18 (=F8 unfixed here), F9, F10 | clean |
-| dotnet | 10 + 1 case unfuzzable | F14, F19, F20, F21, F22, F9 | clean |
+| dotnet | 10 + 1 case unfuzzable | F14, F19, F20, F21, ~~F22~~ (fixed), F9 | clean |
 | java | 103 | F19, F21, F23, F24, F25, F26, F18, F9, F10, F11 | clean |
 | elixir | — | F15 | discovery cell (see below) |
 
@@ -1120,28 +1120,67 @@ leg, and retiring a rule on a guess is exactly how W31 came back four-fold on th
 next nightly. Their reasons now record the measurement and say "re-triage against
 a nightly".
 
-### F22 — dotnet: a bodyless operation POST answers 415 before the path parameter is looked at
-**Waiver:** W26 (widened 2026-09-01) · **Severity: low**
+### F22 — dotnet: a body-carrying route answers 415 before the path parameter is looked at
+**Waiver:** none — fixed · **Severity: low** · **Status: FIXED (2026-09-08).**
 
 ```
-curl -X POST 'http://host/api/orders/%C2%A8/confirm'   → 415
+curl -X POST 'http://host/api/orders/not-a-uuid/confirm'    → 415   (honest answer: 422)
 ```
 
-ASP.NET's media-type check fires before model binding, so a request with a
-malformed `{id}` AND no body is answered by the one thing the contract says least
-about. 415 is not in the set of statuses that count as a rejection, so the fuzzer
-reads it as "schema-violating request accepted". The honest answer is the
-declared 422 for the unparseable identifier (or 400 for the absent body).
+A malformed path `{id}` answers the declared 422 on every backend — the contract
+`malformed-path-id-status.test.ts` pins across four of them. On .NET it held only
+for routes that carry no body: add a `[FromBody]` parameter and send no
+`Content-Type`, and `BodyModelBinder` short-circuits the whole binding pass with
+a 415 before the path parameter is ever looked at. 415 is the one status the
+contract says least about, and it is not a rejection the caller can act on — the
+request's real defect is the identifier, which no media type would have fixed.
+The fuzzer does not count 415 as a rejection either, which is what made this a
+`negative_data_rejection` finding rather than a silent divergence.
 
-**The rule was too narrow, and a later run proved it.** W26's pattern was written
-from the two `orders` routes of the discovery run, so the identical finding on
-`POST /api/customers/{id}/update` and `POST /api/wallets/{id}/freeze` arrived
-unwaived. Measured on a booted app, the 415 does not depend on the id being
-malformed at all — a VALID uuid with no `Content-Type` answers 415 too — so the
-shape is *every* operation POST, and the pattern now says that
-(`^POST /api/[a-z_]+/\{id\}/[a-z_]+$`). node, python and java are clean on this
-check in the same run, which is what makes the 415 a .NET divergence rather than
-a shared decision.
+**Measured on a booted app:**
+
+| request | before | after |
+|---|---|---|
+| `POST /api/orders/not-a-uuid/confirm` (no `Content-Type`) | **415** | **422** |
+| `POST /api/orders/not-a-uuid/add_line` (no `Content-Type`) | **415** | **422** |
+| `POST /api/orders/not-a-uuid/confirm` (+ `Content-Type`) | 422 | 422 |
+| `GET /api/orders/not-a-uuid` | 422 | 422 |
+| `DELETE /api/orders/not-a-uuid` | 422 | 422 |
+| node, every one of them | 422 | 422 |
+
+**A resource filter, because of where it sits.** MVC runs resource filters after
+routing but BEFORE model binding — the only window in which the route value can
+be judged ahead of the media-type check. The two obvious alternatives are both
+worse:
+
+- a **`{id:guid}` route constraint** was rejected for F18 and is still wrong: it
+  makes the route not match at all, turning the declared 422 into a framework
+  404 and breaking the four-backend contract;
+- **middleware** runs before routing, so it would have to re-derive every route
+  shape (and re-exclude every static sub-path) from a table — the duplication
+  F18's `staticSubpathRoutes` exists to avoid, for a check that needs no table.
+
+The filter reads the **action's own `id` parameter type** instead, so it needs no
+route knowledge at all: an aggregate keyed by `int`/`string` has no Guid
+parameter, and a static sub-path like `/api/customers/by_email` has already been
+routed to its own action by the time it runs (measured: still 200/404, never
+422). Its 422 envelope is byte-identical to the one the Guid binder produces for
+the same defect on a bodyless route — MVC's own `The value 'x' is not valid.`
+wording included — so the answer stops depending on whether a `Content-Type`
+happened to be present.
+
+**No emit-time gate.** An aggregate's identity is always a guid today
+(`lower.ts` stamps `idValueType` as the literal `"guid"`; there is no `ids`
+clause), so gating emission on it would be an always-true branch nothing could
+exercise — and a test for its false arm could not be written without a fixture
+the grammar rejects. The narrowing lives inside the filter and is checked per
+action at request time, which keeps it correct if the identity axis opens up.
+
+**Gate:** `test/generator/dotnet/malformed-path-id-before-media-type.test.ts` —
+7 cases, including the rejected route-constraint alternative pinned as a
+negative. Mutation-proved four ways (make it an action filter instead of a
+resource filter, register it after `DomainExceptionFilter`, drop the runtime
+Guid-parameter narrowing, drift the message off MVC's wording).
 
 ### F23 — java: a required body field arriving as JSON `null` NPEs in the domain layer
 **Waiver:** none — fixed · **Severity: high** · **Status: FIXED (2026-09-03).**

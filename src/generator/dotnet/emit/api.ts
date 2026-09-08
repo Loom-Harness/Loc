@@ -695,6 +695,102 @@ function renderCmdConstructorBody(args: string[], indent: string): string[] {
   return args.map((a, i) => `${indent}${a}${i < args.length - 1 ? "," : ""}`);
 }
 
+/** `Api/MalformedPathIdFilter.cs` — a RESOURCE filter that answers the declared
+ *  422 for an unparseable Guid `{id}` BEFORE model binding runs.
+ *
+ *  A malformed `{id}` already answered 422 on every bodyless route
+ *  (`GET`/`DELETE /api/orders/not-a-uuid`), from the Guid route binder through
+ *  `ApiBehaviorOptions.InvalidModelStateResponseFactory`. On a route that also
+ *  takes a `[FromBody]` parameter it did not: with no `Content-Type` on the
+ *  request, `BodyModelBinder` short-circuits the whole binding pass with a 415,
+ *  and the path parameter is never looked at (schemathesis F22). Measured on a
+ *  booted app:
+ *
+ *      POST /api/orders/not-a-uuid/confirm    (no Content-Type)  ->  415
+ *      POST /api/orders/not-a-uuid/confirm    (+ Content-Type)   ->  422
+ *      GET  /api/orders/not-a-uuid                               ->  422
+ *      node, all three                                           ->  422
+ *
+ *  415 is the one status the contract says least about, and it is not a
+ *  rejection the caller can act on: the request's actual defect is the
+ *  identifier, which no media type would have fixed.
+ *
+ *  A RESOURCE filter is the seam because of WHERE it sits: MVC runs resource
+ *  filters after routing but BEFORE model binding, so the route values are
+ *  already available and the 415 has not happened yet. The alternative that
+ *  suggests itself — a `{id:guid}` route constraint — was rejected for F18 and
+ *  is still wrong here: it makes the route not match at all, which turns the
+ *  declared 422 into a framework 404 and breaks the four-backend contract
+ *  `malformed-path-id-status.test.ts` pins.
+ *
+ *  It reads the ACTION's own `id` parameter rather than a table of route
+ *  shapes: an aggregate keyed by `int`/`string` has no Guid parameter, so its
+ *  routes are untouched, and a static sub-path like `/api/customers/by_email`
+ *  has already been routed to its own action by the time this runs. No route
+ *  patterns are duplicated anywhere.
+ *
+ *  The envelope is byte-identical to what the binder produces for the SAME
+ *  defect on a bodyless route — including MVC's own
+ *  `The value 'x' is not valid.` wording — so the answer stops depending on
+ *  whether a `Content-Type` happened to be present. */
+export function renderMalformedPathIdFilter(ns: string): string {
+  return `// Auto-generated.
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.Filters;
+
+namespace ${ns}.Api;
+
+/// <summary>
+/// Answers the declared 422 for an unparseable Guid route \`{id}\` before model
+/// binding runs — so a body-carrying route rejects the identifier instead of
+/// the media type (schemathesis F22).
+/// </summary>
+public sealed class MalformedPathIdFilter : IResourceFilter
+{
+    public void OnResourceExecuting(ResourceExecutingContext context)
+    {
+        // Only for an action that actually binds a Guid \`id\`. An aggregate keyed
+        // by int/string has no such parameter, and a static sub-path action has
+        // already been matched by routing, so neither is touched.
+        var takesGuidId = context.ActionDescriptor.Parameters.Any(p =>
+            string.Equals(p.Name, "id", StringComparison.OrdinalIgnoreCase)
+            && (p.ParameterType == typeof(Guid) || p.ParameterType == typeof(Guid?)));
+        if (!takesGuidId) return;
+        if (!context.RouteData.Values.TryGetValue("id", out var raw)) return;
+        var text = raw?.ToString();
+        if (text is null || Guid.TryParse(text, out _)) return;
+
+        var problem = new ProblemDetails
+        {
+            Type = "about:blank",
+            Title = "Validation failed",
+            Status = 422,
+            Detail = "One or more fields are invalid.",
+            Instance = context.HttpContext.Request.Path,
+        };
+        // MVC's own ModelBindingMessageProvider wording, so this answer is
+        // byte-identical to the one the Guid binder gives for the same defect on
+        // a route that carries no body.
+        problem.Extensions["errors"] = new[]
+        {
+            new Dictionary<string, object>
+            {
+                ["pointer"] = "/id",
+                ["message"] = $"The value '{text}' is not valid.",
+            },
+        };
+        context.Result = new ObjectResult(problem)
+        {
+            StatusCode = 422,
+            ContentTypes = { "application/problem+json" },
+        };
+    }
+
+    public void OnResourceExecuted(ResourceExecutedContext context) { }
+}
+`;
+}
+
 export function renderExceptionFilter(
   ns: string,
   options?: {

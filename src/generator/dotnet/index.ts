@@ -169,6 +169,7 @@ import {
   renderJoinEntity,
   renderJoinEntityConfiguration,
   renderListWrapperFilter,
+  renderMalformedPathIdFilter,
   renderNoNulCharAttribute,
   renderOrdinalGenerator,
   renderProblemDetailsFilter,
@@ -986,6 +987,14 @@ function emitProjectFromContexts(
   // invalid-model-state response (see renderValidationProblem).
   out.set("Api/ValidationProblem.cs", renderValidationProblem(ns));
   out.set("Api/NoNulCharAttribute.cs", renderNoNulCharAttribute(ns));
+  // The unparseable-`{id}` guard (F22).  Unconditional, like every other file
+  // in this block: an aggregate's identity is ALWAYS a guid today (`lower.ts`
+  // stamps `idValueType` as the literal `"guid"`; there is no `ids` clause), so
+  // an emit-time gate on it would be an always-true branch nothing could
+  // exercise.  The narrowing that matters is inside the filter and is a RUNTIME
+  // one — it acts only on an action that actually binds a `Guid id` — which
+  // keeps it correct if the identity axis ever opens up.
+  out.set("Api/MalformedPathIdFilter.cs", renderMalformedPathIdFilter(ns));
   out.set("Api/ProblemDetailsResponsesFilter.cs", renderProblemDetailsFilter(ns));
   out.set(
     "Api/ListResponseWrapperFilter.cs",
@@ -1837,6 +1846,14 @@ function emitInfrastructure(
   // invalid-model-state response (see renderValidationProblem).
   out.set("Api/ValidationProblem.cs", renderValidationProblem(ns));
   out.set("Api/NoNulCharAttribute.cs", renderNoNulCharAttribute(ns));
+  // The unparseable-`{id}` guard (F22).  Unconditional, like every other file
+  // in this block: an aggregate's identity is ALWAYS a guid today (`lower.ts`
+  // stamps `idValueType` as the literal `"guid"`; there is no `ids` clause), so
+  // an emit-time gate on it would be an always-true branch nothing could
+  // exercise.  The narrowing that matters is inside the filter and is a RUNTIME
+  // one — it acts only on an action that actually binds a `Guid id` — which
+  // keeps it correct if the identity axis ever opens up.
+  out.set("Api/MalformedPathIdFilter.cs", renderMalformedPathIdFilter(ns));
   out.set("Api/ProblemDetailsResponsesFilter.cs", renderProblemDetailsFilter(ns));
   out.set("Api/ListResponseWrapperFilter.cs", renderListWrapperFilter(ns, listWrapperPairs([ctx])));
   out.set("Api/RequiredFromCtorParamFilter.cs", renderRequiredFromCtorParamFilter(ns));

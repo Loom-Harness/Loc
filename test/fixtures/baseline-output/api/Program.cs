@@ -123,6 +123,13 @@ builder.Services.AddScoped(typeof(Api.Domain.Common.IReadModelStore<>), typeof(A
 
 builder.Services.AddControllers(opts =>
 {
+    // The unparseable-`{id}` guard (F22) — a RESOURCE filter, so it runs after
+    // routing but BEFORE model binding, which is the only window in which the
+    // path parameter can be judged ahead of the media-type check that otherwise
+    // answers 415 and never looks at it.  FIRST, ahead of DomainExceptionFilter:
+    // an identifier that cannot be parsed is not a domain outcome, and there is
+    // nothing for the later filter to map.
+    opts.Filters.Add<MalformedPathIdFilter>();
     opts.Filters.Add<DomainExceptionFilter>();
 }).AddJsonOptions(opts =>
 {
