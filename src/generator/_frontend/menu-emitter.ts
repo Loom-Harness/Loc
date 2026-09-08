@@ -107,7 +107,7 @@ export interface NavSectionVM {
   entries: NavEntryVM[];
 }
 
-/** The section a custom page with no `menu { section: … }` of its own
+/** The section a custom page with NO `menu { … }` block of its own
  *  lands in.  Emitter-derived (no catalog key), like the default
  *  aggregate/workflow headings. */
 const UNSECTIONED_LABEL = "Pages";
@@ -199,7 +199,12 @@ export function deriveSidebarFromUi(
   // Group pages by section name (the unsectioned bucket if none declared).
   const bySection = new Map<string, PageIR[]>();
   for (const p of eligible) {
-    const section = readMenuMetaString(p, "section") ?? UNSECTIONED_LABEL;
+    // A page that WROTE a `menu { … }` block without a `section` has opted
+    // into menu control and keeps the heading-less group it has always had
+    // (pinned by G3 FE-1).  `UNSECTIONED_LABEL` is for the other half of
+    // M-FT.6 only: a page with NO block at all, which previously got no
+    // link whatsoever and would otherwise be unreachable from the shell.
+    const section = readMenuMetaString(p, "section") ?? (p.menuMeta ? "" : UNSECTIONED_LABEL);
     let arr = bySection.get(section);
     if (!arr) {
       arr = [];
