@@ -5,6 +5,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { requireDocker } from "./support/docker-probe.js";
 import { mixDepsGet, mixLocalInstall } from "./support/mix-retry.js";
 
 // ---------------------------------------------------------------------------
@@ -30,15 +31,6 @@ const repoRoot = path.resolve(here, "..", "..");
 const cli = path.join(repoRoot, "bin", "cli.js");
 
 const ENABLED = process.env.LOOM_OBS_E2E_PHOENIX_VANILLA === "1";
-
-function hasDocker(): boolean {
-  try {
-    execSync('docker version --format "{{.Server.Version}}"', { stdio: "pipe", timeout: 15_000 });
-    return true;
-  } catch {
-    return false;
-  }
-}
 
 function hasElixir(): boolean {
   try {
@@ -123,13 +115,8 @@ describe.skipIf(!ENABLED)(
       // LOOM_OBS_E2E_PHOENIX_VANILLA=1 with missing docker / mix fails
       // loudly rather than passing silently.  Docker is only required
       // when no external postgres URL is supplied.
-      if (!process.env.LOOM_OBS_PG_URL && !hasDocker()) {
-        throw new Error(
-          "LOOM_OBS_E2E_PHOENIX_VANILLA=1 set but no LOOM_OBS_PG_URL was provided and " +
-            "the docker daemon is unreachable. " +
-            "Either supply LOOM_OBS_PG_URL=postgres://… (CI service container) " +
-            "or ensure docker is available for the local postgres sidecar.",
-        );
+      if (!process.env.LOOM_OBS_PG_URL) {
+        requireDocker("LOOM_OBS_E2E_PHOENIX_VANILLA=1", "LOOM_OBS_PG_URL");
       }
       if (!hasElixir()) {
         throw new Error(
