@@ -107,9 +107,10 @@ regressions are caught before merge.
 > repo was transferred to the **Loom-Harness** organization that day and the
 > merge queue is now enforced (a direct merge is refused with
 > *"405 — Changes must be made through the merge queue"*). `pr-gate` is not
-> obsolete: it is what makes each PR's own head green, which is what the
-> queue's "Require all queue entries to pass required checks" setting then
-> relies on.
+> obsolete — it is the thing that makes each PR's own head green, and that is
+> what the trim below actually rests on (NOT on the queue's "Require all queue
+> entries to pass required checks" setting, which is currently **off**; see
+> the runbook).
 
 Plain required-status-checks still can't substitute for `pr-gate` per-PR,
 because **every PR workflow here is path-filtered**: a required check that
@@ -306,7 +307,7 @@ Every gate here carries `pull_request:`, so the trigger says nothing. The
 
 | guard | meaning | in the required set? |
 |---|---|---|
-| `github.event_name != 'pull_request' \|\| draft == false` | runs on every non-draft PR **and** again in the queue | **no** — the queue run is a re-run, and "Require all queue entries to pass required checks" means the entry's own run was green |
+| `github.event_name != 'pull_request' \|\| draft == false` | runs on every non-draft PR **and** again in the queue | **no** — the queue run is a re-run; the entry's own head already ran it, and `pr-gate` (a required check) is green only if it passed |
 | `github.event_name != 'pull_request' \|\| <run-* label>` | needs a label on a PR; `merge_group` is not `pull_request`, so **the queue is its only run** | **yes** — dropping one deletes the coverage rather than saving cost |
 
 So the 18 excluded are every docker-booting per-backend leg (8 `behavioral-*`,
@@ -438,9 +439,13 @@ Nothing below is code; it is an admin action on `github.com/lemmit/Loc`.
    Target branch: `main`.
 3. Enable **Require merge queue**. Configuration in force, and why:
    - merge method: **Squash** (matches how `main` lands today);
-   - build concurrency: **1**. Started at 5; lowered the same day. With a
-     saturated pool, five speculative groups compete with every open PR's own
-     run for the same runners and nothing finishes.
+   - build concurrency: **3** (as configured 2026-09-08). Started at 5 and was
+     lowered the same day: with a saturated pool, five speculative groups
+     compete with every open PR's own run for the same runners and nothing
+     finishes. 3 is the current compromise — re-measure before changing it,
+     and note the pool itself is the variable (it fell to ~1-2 concurrent
+     jobs for about an hour on 2026-09-08, during which no group of any size
+     could finish inside the queue's timeout).
    - minimum group size **3**, maximum **5**, wait **10 min**. Batching is not
      just throughput here: a group RE-FORMS whenever the PRs ahead of it
      change, restarting its whole gate set, and this repo lands PRs from
@@ -448,8 +453,18 @@ Nothing below is code; it is an admin action on `github.com/lemmit/Loc`.
      successive entries in three hours, two of which had already passed
      `tests passed` when they were discarded. Grouping PRs into one entry is
      what stops that churn.
-   - "Require all queue entries to pass required checks": **on** — this is
-     what makes the trim below sound.
+   - "Require all queue entries to pass required checks": **currently off.**
+     Worth turning ON, but it is NOT what makes the trim below sound — that
+     was this doc's claim and it was wrong. What makes the trim sound is
+     `pr-gate`: a PR reaches the queue through auto-merge, auto-merge waits on
+     the required checks, `pr-gate` is one of them, and `pr-gate` is green
+     only when every check that ran on the PR's head passed — the 18 trimmed
+     gates included. So the entry's own head is verified either way.
+     The reason to enable it is FAILURE ISOLATION, which matters more now that
+     batching can actually fire (minimum group size 3): with it off, only the
+     group's head commit must pass, so one bad entry fails the whole batch and
+     GitHub has to bisect to find it. With it on, each entry is validated in
+     its own right and the culprit is ejected instead.
 4. Enable **Require status checks to pass**. The repo requires **two** names
    today (`tests passed`, `pr-gate`), which is sufficient because `pr-gate`
    aggregates everything that ran. Requiring the 22 by name instead is the

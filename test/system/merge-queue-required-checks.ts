@@ -33,9 +33,9 @@
 //
 // So a gate earns a required slot when it reads the COMBINED tree broadly and
 // cheaply.  A gate that already ran on the PR's own head is a re-run, and the
-// ruleset's "Require all queue entries to pass required checks" makes that
-// re-run provably redundant: an entry cannot be in the group unless its own
-// checks were green.
+// `pr-gate` makes that re-run redundant: it is a required check, auto-merge
+// waits on the required checks before queueing, and `pr-gate` is green only
+// when every check that ran on the PR's own head passed.
 //
 // ── Why the split is measured, not judged ───────────────────────────────────
 //
@@ -218,8 +218,11 @@ export const REQUIRED_CHECKS: readonly RequiredCheck[] = [
 
   // ── Not required: already binding on every non-draft PR ───────────────
   // Each carries the draft guard, so it has already run on the entry's own
-  // head — and "Require all queue entries to pass required checks" means an
-  // entry cannot be in the group unless that run was green.  Requiring them
+  // head — and `pr-gate` (one of the two required checks) is green only when
+  // every check that ran on that head passed, these included, so a PR cannot
+  // reach the queue through auto-merge without them.  NOTE: the queue's
+  // "Require all queue entries to pass required checks" setting is OFF; an
+  // earlier version of this comment leaned on it, which was wrong.  Requiring them
   // again multiplies the queue's cost by the count of PRs in flight, which is
   // what stalled the queue on its first day: entries re-formed as neighbours
   // changed faster than a 41-gate set could finish.
