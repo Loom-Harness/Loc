@@ -117,7 +117,7 @@ export function renderJavaService(
   // action's params (the command shape) instead of the field set.
   const createParams: readonly { name: string; type: TypeIR; optional?: boolean }[] =
     ctx.esCreateParams ?? createInputs;
-  for (const f of createParams) collectWireToDomainImports(f.type, imports);
+  for (const f of createParams) collectWireToDomainImports(f.type, imports, ctx.basePkg);
   const createLets = createParams.map((f) => {
     const raw = `request.${f.name}()`;
     // A create-input field with a declared default (`field: T = <expr>`) is
@@ -450,7 +450,7 @@ export function renderJavaService(
         (p) =>
           `        var ${p.name} = ${wireToDomain(p.type, `request.${p.name}()`, `/${p.name}`)};`,
       );
-      for (const p of op.params) collectWireToDomainImports(p.type, imports);
+      for (const p of op.params) collectWireToDomainImports(p.type, imports, ctx.basePkg);
       const usesUser =
         !!ctx.authed && (operationBodyUsesCurrentUser(op) || operationGatesUseCurrentUser(op));
       // Only what REMAINS of the body still takes the trailing argument.
@@ -598,7 +598,7 @@ export function renderJavaService(
     const args = fields
       .map((f) => wireToDomain(eff(f.type, f.optional), `request.${f.name}()`, `/${f.name}`))
       .join(", ");
-    for (const f of fields) collectWireToDomainImports(f.type, imports);
+    for (const f of fields) collectWireToDomainImports(f.type, imports, ctx.basePkg);
     return [
       `    private static ${vo} to${vo}(${vo}Request request) {`,
       `        return new ${vo}(${args});`,

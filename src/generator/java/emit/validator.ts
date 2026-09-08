@@ -285,7 +285,7 @@ function renderValidatorClass(spec: CommandSpec, pkg: string, basePkg: string): 
     new RegExp(`\\b${p.name}\\b`).test(checks.join("\n")),
   );
   const lets = referenced.map((p) => {
-    collectWireToDomainImports(eff(p.type, !!p.optional), imports);
+    collectWireToDomainImports(eff(p.type, !!p.optional), imports, basePkg);
     return `        var ${p.name} = ${validatorLocal(eff(p.type, !!p.optional), `request.${p.name}()`)};`;
   });
 

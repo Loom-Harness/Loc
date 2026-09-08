@@ -83,6 +83,20 @@ describe("java money ingress (M-T6.48)", () => {
     expect(advice).toContain('problem.setProperty("errors", java.util.List.of(entry));');
   });
 
+  it("makes numeric request fields strict — no float→int truncation, no stringified numbers", async () => {
+    const files = await generateSystemFiles(SRC);
+    const cfg = [...files.entries()].find(([p]) =>
+      p.endsWith("config/WireNumberStrictness.java"),
+    )?.[1] as string;
+    expect(cfg).toBeDefined();
+    // MEASURED on the generated project before this existed, with the app's own
+    // mapper: `{"qty": 1.5}` deserialized to `qty=1` (silent truncation) and
+    // `{"qty": "7"}` to `7`. Both now refuse; a real `7` still parses.
+    expect(cfg).toContain("builder.disable(DeserializationFeature.ACCEPT_FLOAT_AS_INT);");
+    expect(cfg).toContain("cfg.setCoercion(CoercionInputShape.String, CoercionAction.Fail)");
+    expect(cfg).toContain("LogicalType.Integer,");
+  });
+
   it("leaves non-money conversions alone — `int` and `string` are the control", async () => {
     const { service } = await filesFor();
     // `qty` is an int: a JSON number already, so it needs no wire parse and

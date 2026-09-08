@@ -241,16 +241,27 @@ export function wireToDomain(t: TypeIR, expr: string, pointer: string): string {
 }
 
 /** Imports the inbound conversion needs. */
-export function collectWireToDomainImports(t: TypeIR, into: Set<string>): Set<string> {
+export function collectWireToDomainImports(
+  t: TypeIR,
+  into: Set<string>,
+  basePkg: string,
+): Set<string> {
   switch (t.kind) {
     case "primitive":
-      if (t.name === "money") into.add("java.math.BigDecimal");
+      if (t.name === "money") {
+        into.add("java.math.BigDecimal");
+        // The guarded parse `wireToDomain` emits (M-T6.48).  REQUIRED, and
+        // `basePkg` is required with it: emitting the call without the import
+        // is a `cannot find symbol` that no string-level test sees — the
+        // generated-java compile caught exactly that here.
+        into.add(`${basePkg}.domain.common.WireFormatException`);
+      }
       if (t.name === "datetime") into.add("java.time.Instant");
       return into;
     case "array":
-      return collectWireToDomainImports(t.element, into);
+      return collectWireToDomainImports(t.element, into, basePkg);
     case "optional":
-      return collectWireToDomainImports(t.inner, into);
+      return collectWireToDomainImports(t.inner, into, basePkg);
     default:
       return into;
   }

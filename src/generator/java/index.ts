@@ -103,6 +103,7 @@ import {
   renderPackageMarker,
   renderPagedRecord,
   renderWireFormatException,
+  renderWireNumberStrictness,
 } from "./emit/common.js";
 import { criterionEligible, renderJavaCriteriaClasses } from "./emit/criteria.js";
 import { renderJavaDispatcher } from "./emit/dispatch.js";
@@ -530,6 +531,9 @@ function emitProjectFromContexts(
   // Prometheus HTTP metrics — catalog-driven Micrometer meters, served at
   // /metrics (Actuator), recorded from RequestCatalogFilter's request_end seam.
   place("HttpMetrics.java", "config", renderHttpMetrics(basePkg));
+  // Numeric request fields are strict (M-T6.48): no silent float→int
+  // truncation, no stringified numbers — both MEASURED as accepted before.
+  place("WireNumberStrictness.java", "config", renderWireNumberStrictness(basePkg));
   // Ambient execution-context carrier (correlation_id / scope_id / actor_id in
   // MDC) — always-on, the cross-backend RequestContext (docs/architecture/
   // request-context.md).  The principal's actor_id is stamped by UserFilter.

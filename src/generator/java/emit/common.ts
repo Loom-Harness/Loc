@@ -287,3 +287,63 @@ export function renderPackageMarker(pkg: string): string {
     ``,
   );
 }
+
+/** `WireNumberStrictness` — the Jackson coercion config for numeric request
+ *  fields (M-T6.48, java arm, second half).
+ *
+ *  MEASURED on the generated project, not assumed — the register only
+ *  suspected this, so it was probed with the app's own `ObjectMapper` before
+ *  anything was written:
+ *
+ *      {"qty": 1.5}  → ACCEPTED, qty=1     (silent truncation)
+ *      {"qty": "7"}  → ACCEPTED, qty=7     (stringified number)
+ *
+ *  Both are wrong in the same direction: java quietly ACCEPTS an out-of-contract
+ *  request that node's `z.number()` body slot and .NET's binder both refuse. A
+ *  truncation is the worse of the two — the caller is told nothing and the
+ *  aggregate stores a value the client never sent.
+ *
+ *  Disabling `ACCEPT_FLOAT_AS_INT` and failing the String→Integer coercion makes
+ *  both a deserialization failure, which Spring surfaces as
+ *  `HttpMessageNotReadableException` — the arm the advice already answers as a
+ *  malformed body, the same rung the other backends put it on. */
+export function renderWireNumberStrictness(basePkg: string): string {
+  return lines(
+    `package ${basePkg}.config;`,
+    ``,
+    `import org.springframework.boot.jackson.autoconfigure.JsonMapperBuilderCustomizer;`,
+    `import org.springframework.context.annotation.Bean;`,
+    `import org.springframework.context.annotation.Configuration;`,
+    ``,
+    `import tools.jackson.databind.DeserializationFeature;`,
+    `import tools.jackson.databind.cfg.CoercionAction;`,
+    `import tools.jackson.databind.cfg.CoercionInputShape;`,
+    `import tools.jackson.databind.type.LogicalType;`,
+    ``,
+    `/**`,
+    ` * Numeric request fields are STRICT: a fractional value for an int field is`,
+    ` * refused rather than truncated, and a stringified number is refused rather`,
+    ` * than parsed.`,
+    ` *`,
+    ` * <p>Measured before this existed: {@code {"qty": 1.5}} deserialized to`,
+    ` * {@code qty=1} — the caller was told nothing and the aggregate stored a`,
+    ` * value nobody sent — and {@code {"qty": "7"}} deserialized to {@code 7},`,
+    ` * where node's {@code z.number()} body slot and .NET's binder both refuse.`,
+    ` * Loom's wire contract is one contract on every backend, so java refuses`,
+    ` * too.`,
+    ` */`,
+    `@Configuration`,
+    `public class WireNumberStrictness {`,
+    `    @Bean`,
+    `    JsonMapperBuilderCustomizer loomStrictNumbers() {`,
+    `        return builder -> {`,
+    `            builder.disable(DeserializationFeature.ACCEPT_FLOAT_AS_INT);`,
+    `            builder.withCoercionConfig(`,
+    `                LogicalType.Integer,`,
+    `                cfg -> cfg.setCoercion(CoercionInputShape.String, CoercionAction.Fail));`,
+    `        };`,
+    `    }`,
+    `}`,
+    ``,
+  );
+}
