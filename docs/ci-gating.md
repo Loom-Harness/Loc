@@ -446,7 +446,7 @@ Nothing below is code; it is an admin action on `github.com/lemmit/Loc`.
      and note the pool itself is the variable (it fell to ~1-2 concurrent
      jobs for about an hour on 2026-09-08, during which no group of any size
      could finish inside the queue's timeout).
-   - minimum group size **3**, maximum **5**, wait **10 min**. Batching is not
+   - minimum group size **3**, maximum **3**, wait **10 min**. Batching is not
      just throughput here: a group RE-FORMS whenever the PRs ahead of it
      change, restarting its whole gate set, and this repo lands PRs from
      parallel agents continuously. On day one a single PR went through four
@@ -473,10 +473,14 @@ Nothing below is code; it is an admin action on `github.com/lemmit/Loc`.
      not one extra fast-suite run — which cancels most of the reason to batch.
 
      The cheap version of the same protection is a smaller **maximum group
-     size** (3 rather than 5): still one gate-set run per batch, but a failure
-     implicates three PRs instead of five. Revisit enabling the setting once
-     the queue set is 22 rather than 40 and the docker behavioural legs — the
-     long pole — are out of it; per-entry validation is affordable then.
+     size**, and that is what is configured: max **3**, lowered from 5 on
+     2026-09-08. Still one gate-set run per batch, but a failure implicates
+     three PRs rather than five — which matters here, because the common batch
+     failure in this repo is not a bad PR but two PRs that conflict with each
+     OTHER, and today produced four such pairs in a day. Revisit enabling the
+     setting once the queue set is 22 rather than 40 and the docker
+     behavioural legs — the long pole — are out of it; per-entry validation is
+     affordable then.
 4. Enable **Require status checks to pass**. The repo requires **two** names
    today (`tests passed`, `pr-gate`), which is sufficient because `pr-gate`
    aggregates everything that ran. Requiring the 22 by name instead is the
