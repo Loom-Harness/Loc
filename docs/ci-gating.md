@@ -209,11 +209,29 @@ timeout fired and needed a manual label re-arm. v2 never waits:
   is heavily deprioritised. Re-measure before relying on either figure: list
   the workflow's runs filtered to `event=schedule` and diff `created_at`.
   Practical consequence: a dropped dispatch parks a green PR for **hours**. If
-  you are waiting on one, don't wait for the sweep — force a fresh evaluation
-  (a new SHA, or a re-run of any workflow on the branch; both fire
-  `workflow_run: completed`). Note that `workflow_dispatch` on `pr-gate.yml`
-  and `rerun_workflow_run` both return **403** to a GitHub-App token, so from
-  an agent session the only lever may be a genuine push.
+  you are waiting on one, don't wait for the sweep — but **the two obvious
+  levers are not equivalent**, and this passage used to say they were:
+
+  | lever | works? | evidence |
+  |---|---|---|
+  | a new SHA | **yes** | #2812 was parked on `5e0995d` and unparked the moment `027454e` was pushed |
+  | a re-run of a workflow on the branch | **no** | measured twice — #2812 and #2792. `rerun_workflow_run` returns 201, the dispatch fires, no verdict reaches the head SHA, and the merge stays refused with `Required status check "pr-gate" is expected` |
+
+  The re-run is the expensive mistake: it looks like it worked, so you wait,
+  and the PR is still unmergeable. Reach for the SHA.
+
+  **Suspected cause, not proven.** `concurrency` in `pr-gate.yml` is SHA-keyed
+  with `cancel-in-progress: true` for `workflow_run`. Both `pr-gate` runs that
+  fired for #2792's re-run (`34211962880`, `34212476487`) concluded
+  **`cancelled`**, never `success`, so neither reached the Checks-API publish
+  step. A burst is meant to collapse to the newest evaluation; if the newest is
+  itself cancelled by the next dispatch, it collapses to nothing. Before
+  changing the group key, list the workflow's `event=workflow_run` runs and
+  count `success` versus `cancelled` — that ratio is the actual measurement.
+
+  Separately: `workflow_dispatch` on `pr-gate.yml` can return **403** to a
+  GitHub-App token (`rerun_workflow_run` did **not** here — it returned 201),
+  so from an agent session a genuine push may be the only lever available.
 - The decision core is pure and pinned by `test/system/pr-gate.test.ts` —
   including the fail-closed arms (unknown conclusions, cancelled runs,
   pending-never-green) and the `workflow_run.workflows` list's completeness

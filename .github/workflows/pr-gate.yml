@@ -62,9 +62,30 @@ on:
   # this workflow's runs filtered to `event=schedule` and diff `created_at`.)
   #
   # So a dropped dispatch parks a green PR for HOURS, not minutes.  If you are
-  # waiting on a parked `pr-gate`, do not wait for the sweep — get a fresh
-  # evaluation (a new SHA, or a re-run of any workflow on the branch, both of
-  # which fire `workflow_run: completed`).
+  # waiting on a parked `pr-gate`, do not wait for the sweep — but note that
+  # only ONE of the two obvious levers actually works.
+  #
+  #   a new SHA        WORKS.  Measured on #2812 (2026-09-08): parked on
+  #                    `5e0995d`, unparked the moment `027454e` was pushed.
+  #   a workflow re-run DOES NOT.  Measured twice — on #2812 and again on
+  #                    #2792 — `rerun_workflow_run` returns 201 and the
+  #                    dispatch does fire, but no verdict reaches the head
+  #                    SHA and the merge stays refused with
+  #                    `Required status check "pr-gate" is expected`.
+  #
+  # This comment used to offer the two as interchangeable.  They are not, and
+  # the difference costs hours: on a re-run you wait, conclude it worked, and
+  # find the PR still unmergeable.
+  #
+  # SUSPECTED cause, not yet proven — the `concurrency` block at the bottom of
+  # this file is SHA-keyed with `cancel-in-progress: true` for `workflow_run`.
+  # The two `pr-gate` runs that fired for #2792's re-run (34211962880 at
+  # 09:47Z, 34212476487 at 09:53Z) both concluded `cancelled`, never `success`,
+  # so neither reached the Checks-API publish step.  A burst of completions is
+  # supposed to collapse to the NEWEST evaluation; if the newest is itself
+  # cancelled by the next dispatch, the burst collapses to nothing.  Verify by
+  # listing this workflow's `event=workflow_run` runs and counting how many
+  # conclude `success` versus `cancelled` before changing the group key.
   schedule:
     - cron: '*/15 * * * *'
   workflow_dispatch:
