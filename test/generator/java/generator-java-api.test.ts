@@ -162,7 +162,12 @@ system S {
       "public record CreateOrderRequest(String code, Status status, AddressRequest shipTo, String notes, String total, String placedAt) {",
     );
     const svc = files_.get(`${ROOT}/features/orders/OrderService.java`)!;
-    expect(svc).toContain("var total = new BigDecimal(request.total());");
+    // Since M-T6.48 the money parse is guarded and carries its RFC 6901
+    // pointer: the bare `new BigDecimal(...)` this pinned threw
+    // NumberFormatException on `"12,50"` and answered 500. `Instant.parse`
+    // below is deliberately untouched — datetime's own arm is a separate
+    // finding, not this one.
+    expect(svc).toContain('var total = WireFormatException.money(request.total(), "/total");');
     expect(svc).toContain("var placedAt = Instant.parse(request.placedAt());");
     expect(svc).toContain("var shipTo = toAddress(request.shipTo());");
   });
