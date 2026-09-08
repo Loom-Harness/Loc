@@ -254,9 +254,10 @@ describe("vanilla provenance — the crudish UPDATE re-captures lineage (RS-18)"
 
   it("is gated: a provenanced aggregate with no crudish update keeps the plain pipe", async () => {
     // SOURCE declares no `update` operation, so nothing to re-capture — the
-    // update pipe stays byte-identical (`|> Repo.update()`), with no helper.
+    // update pipe stays byte-identical (`|> Repo.update(force: true)`), with no
+    // helper.
     const repo = file(await generateSystemFiles(SOURCE), "/orders/order_repository.ex");
     expect(repo).not.toContain("__capture_provenance");
-    expect(repo).toContain("|> Repo.update()");
+    expect(repo).toContain("|> Repo.update(force: true)");
   });
 });
