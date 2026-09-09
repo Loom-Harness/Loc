@@ -176,7 +176,12 @@ system S {
     // below is deliberately untouched — datetime's own arm is a separate
     // finding, not this one.
     expect(svc).toContain('var total = WireFormatException.money(request.total(), "/total");');
-    expect(svc).toContain("var placedAt = Instant.parse(request.placedAt());");
+    // The datetime parse is guarded now, exactly as `money` above: the bare
+    // `Instant.parse` this used to pin threw DateTimeParseException on `""`
+    // and answered 500 (F19's second half — money's landed with M-T6.48).
+    expect(svc).toContain(
+      'var placedAt = WireFormatException.instant(request.placedAt(), "/placedAt");',
+    );
     expect(svc).toContain("var shipTo = toAddress(request.shipTo());");
   });
 });

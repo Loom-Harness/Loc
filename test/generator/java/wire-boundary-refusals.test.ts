@@ -86,7 +86,7 @@ async function file(suffix: string): Promise<string> {
 describe("java — F19: a malformed wire string is refused, not parsed into a 500", () => {
   it("the service parses datetime through the guard, with the field's pointer", async () => {
     const service = await file("orders/OrderService.java");
-    expect(service).toContain('WireFormatException.instant("/placedAt", request.placedAt())');
+    expect(service).toContain('WireFormatException.instant(request.placedAt(), "/placedAt")');
     // The bare parse is what threw past every advice arm.
     expect(service).not.toContain("Instant.parse(request.placedAt())");
   });
@@ -98,18 +98,22 @@ describe("java — F19: a malformed wire string is refused, not parsed into a 50
 
   it("WireFormatException carries the pointer and wraps both string parses", async () => {
     const ex = await file("domain/common/WireFormatException.java");
-    expect(ex).toContain("public String fieldPointer()");
-    expect(ex).toContain("public static java.time.Instant instant(String pointer, String raw)");
-    expect(ex).toContain("public static java.math.BigDecimal decimal(String pointer, String raw)");
+    expect(ex).toContain("public String getPointer()");
+    // Both string-crossing primitives are guarded, and by ONE class: `money`
+    // landed with M-T6.48 (which validates against node's grammar before
+    // parsing), `instant` with F19's second half. Same arg order, so a call
+    // site cannot silently pass them the wrong way round.
+    expect(ex).toContain("public static java.time.Instant instant(String value, String pointer)");
+    expect(ex).toContain("public static BigDecimal money(String value, String pointer)");
     // Wrapping, not re-implementing: the parse itself must stay the same one.
-    expect(ex).toContain("java.time.Instant.parse(raw)");
-    expect(ex).toContain("new java.math.BigDecimal(raw)");
+    expect(ex).toContain("java.time.Instant.parse(value)");
+    expect(ex).toContain("return new BigDecimal(value);");
   });
 
   it("the advice answers 422 with the field's own pointer", async () => {
     const advice = await file("api/ApiExceptionAdvice.java");
     expect(advice).toContain("@ExceptionHandler(WireFormatException.class)");
-    expect(advice).toContain('entry.put("pointer", e.fieldPointer());');
+    expect(advice).toContain('entry.put("pointer", e.getPointer());');
     // Ahead of the catch-all, or the catch-all's 500 answers first.
     const arm = advice.indexOf("@ExceptionHandler(WireFormatException.class)");
     const catchAll = advice.indexOf("@ExceptionHandler(Exception.class)");

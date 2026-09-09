@@ -992,26 +992,6 @@ export function renderApiExceptionAdvice(
     `        return respond(problem(${notFoundStatus}, "${notFoundTitle}", e.getMessage(), request), ${notFoundStatus});`,
     `    }`,
     ``,
-    // F19 — money and datetime cross the wire as STRINGS, so a price of
-    // "12,50" or a `placedAt` of "" is a malformed REQUEST, not a domain-rule
-    // failure. The service used to parse them bare (`Instant.parse`,
-    // `new BigDecimal`), and the resulting DateTimeParseException /
-    // NumberFormatException matched no arm here: the caller got 500 for input
-    // the server itself refused. Same 422 + errors[] envelope the body tier and
-    // .NET's WireFormatException arm emit, with the field's own RFC-6901
-    // pointer rather than the whole document.
-    `    @ExceptionHandler(WireFormatException.class)`,
-    `    public ResponseEntity<ProblemDetail> onWireFormat(WireFormatException e, WebRequest request) {`,
-    `        CatalogLog.event("domain_error", "warn", "message", "Validation failed", "status", ${UNPROCESSABLE_ENTITY});`,
-    `        httpMetrics.recordDomainFault("domain_error");`,
-    `        var problem = problem(${UNPROCESSABLE_ENTITY}, "Validation failed", "One or more fields are invalid.", request);`,
-    `        var entry = new java.util.LinkedHashMap<String, Object>();`,
-    `        entry.put("pointer", e.fieldPointer());`,
-    `        entry.put("message", e.getMessage());`,
-    `        problem.setProperty("errors", java.util.List.of(entry));`,
-    `        return respond(problem, ${UNPROCESSABLE_ENTITY});`,
-    `    }`,
-    ``,
     `    @ExceptionHandler(HttpMessageNotReadableException.class)`,
     `    public ResponseEntity<ProblemDetail> onUnreadable(HttpMessageNotReadableException e, WebRequest request) {`,
     `        return respond(problem(400, "Bad Request", "Malformed JSON in request body", request), 400);`,

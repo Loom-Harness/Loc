@@ -64,8 +64,16 @@ describe("python money ingress (M-T6.48)", () => {
     expect(wire).toContain(
       '"money_format", "Invalid decimal: {value}", {"value": json.dumps(value)}',
     );
-    // A bare `ValueError` would prefix the text with "Value error, ".
-    expect(wire).not.toContain("raise ValueError");
+    // A bare `ValueError` would prefix the text with "Value error, ".  Scoped
+    // to `_money_str`'s OWN body: the file also carries the NUL guard (F20) and
+    // the numeric-type guard (F17), which DO raise `ValueError` deliberately —
+    // neither has a cross-backend message to match, and a whole-file assertion
+    // made this case police two rules it has no opinion about.
+    const moneyFn = wire.slice(
+      wire.indexOf("def _money_str"),
+      wire.indexOf("MoneyStr = Annotated["),
+    );
+    expect(moneyFn).not.toContain("raise ValueError");
   });
 
   it("constrains every REQUEST money field — create, update, operation param and VO", async () => {
@@ -84,9 +92,14 @@ describe("python money ingress (M-T6.48)", () => {
     // Our own digits going out — the constraint could never fire, and
     // narrowing it would publish a needless restriction to clients.
     expect(routes).toMatch(/price: str/);
-    // `decimal` is the control: a JSON number (RS-24), not a string, so it is
-    // not this guard's business and must not have moved.
-    expect(routes).toMatch(/rate: float/);
+    // `decimal` is the control: a JSON number (RS-24), not a string, so the
+    // MONEY guard is not its business and must not have reached it.  Its
+    // annotation is the float-backed `WireNum` alias since F17 (a JSON boolean
+    // or string is not a number), which is a different rule with its own gate —
+    // so the control asserts what it is about: `rate` is float-typed, and is
+    // NOT money-guarded.
+    expect(routes).toMatch(/rate: (float|WireNum)/);
+    expect(routes).not.toMatch(/rate: MoneyStr/);
     expect(routes).not.toContain("rate: MoneyStr");
   });
 });

@@ -85,6 +85,9 @@ const PY_MONEY_STR_DEF = [
   "    str,",
   "    AfterValidator(_money_str),",
   '    WithJsonSchema({"type": "string", "format": "decimal"}),',
+  "]",
+];
+
 /** Name of the shared "this is a JSON number" guard emitted into
  *  `app/http/wire_models.py`, and the aliases that carry it. */
 export const PY_WIRE_NUM = "WireNum";
@@ -456,11 +459,11 @@ export function renderPyWireModels(ctx: BoundedContextIR): string {
     // its reference-typed request annotations), so its two pydantic pieces are
     // always in the import list.
     "StringConstraints",
-    // Appended AFTER `StringConstraints` rather than sorted in: two suites pin
-    // the `from pydantic import BaseModel, Field` / `…, StringConstraints`
-    // prefix, and a name inserted ahead of those splits a line they read as a
-    // contiguous string.  The names are validation-related and adjacent here.
-    ...(needsMoney ? ["AfterValidator"] : []),
+    // `MoneyStr` (M-T6.48) also needs `AfterValidator`, and used to add its own
+    // conditional entry here — but the name became UNCONDITIONAL above when the
+    // always-emitted `WireStr` alias started using it (F20), so a second entry
+    // is now a duplicate import.  Removed rather than re-ordered: the position
+    // that note was defending is the one the name already occupies.
     // A messaged single-field rule raises through `ValidationError.
     // from_exception_data` so the error carries the field's `loc` (M-T1.11).
     uses("ValidationError") ? "ValidationError" : null,
