@@ -152,6 +152,8 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.test-redundant-for": "18-testing.md#test---an-in-process-unit-test",
   "loom.e2e-unsupported-statement":
     "18-testing.md#test-e2e--against-deployable--a-live-end-to-end-test",
+  "loom.locator-matcher-receiver":
+    "18-testing.md#test-e2e--against-deployable--a-live-end-to-end-test",
   "loom.extern-component-has-body": "21-externs.md#extern-component",
   "loom.extern-function-shadows-stdlib": "21-externs.md#extern-function",
   "loom.seed-duplicate-field": "23-domain-services-and-seeds.md#seed--declarative-first-boot-data",

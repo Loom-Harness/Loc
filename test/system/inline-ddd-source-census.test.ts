@@ -190,6 +190,11 @@ const DELIBERATELY_UNPARSEABLE: readonly { file: string; contains?: string; why:
     contains: "count = 0",
     why: "asserts the macro reports the field's syntax error instead of throwing on it; a parseable fixture would test nothing",
   },
+  {
+    file: "test/ir/seed-lowering.test.ts",
+    contains: 'seed Party { name: "x" }',
+    why: "the one negative in a file of valid fixtures — `seed Party { … }` is the shape whose error recovery used to crash `lowerSeed` (audit 2026-09-03 F5); a parseable fixture would not reach the recovered `SeedRow` under test",
+  },
   // The two below are the INTENDED-ERROR fixtures of M-FT.4, not rot.  That
   // mission is this census's own bug class one level up: it found ten fixtures
   // across nine files whose syntax error nobody had seen, passing only because
