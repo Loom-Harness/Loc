@@ -548,6 +548,11 @@ export const DIAGNOSTIC_MESSAGES = {
   // ----------------------------------------------------------------------
   // src/language/validators/statements.ts
   // ----------------------------------------------------------------------
+  "loom.when-references-op-param": (p: { name: unknown; param: unknown }) =>
+    `'when' on operation '${p.name}' references parameter '${p.param}' — a 'when' gate ` +
+    `is a predicate over the aggregate's state only (its can-${p.name} query has no ` +
+    `arguments). Move argument-aware checks into a 'precondition' in the body, or ` +
+    `express them as 'from <Criterion>(args)'.`,
   "loom.this-id-in-create": (p: { name: unknown }) =>
     `Cannot read 'this.id' inside the create action on aggregate '${p.name}' — the id is not assigned until persistence, after the body runs.`,
   "loom.construction-field-type": (p: {
@@ -693,6 +698,29 @@ export const DIAGNOSTIC_MESSAGES = {
     `values, and 'money' is a Decimal object on React/Vue/Svelte/Angular and Phoenix ` +
     `but a native scalar on Feliz and Flutter. Do the transformation server-side ` +
     `instead — a view, a 'derived', or a 'projection' read model.`,
+  // A block-bodied `function` is a PURE helper over its parameters.  The five
+  // variants below are the five ways a body reaches past that.  None leads with
+  // a location: the site's `source` is already `Ctx/Owner.function[name]`, which
+  // says the kind and the name both.
+  "loom.function-block-impure#mutation": (p: { target: unknown }) =>
+    `'${p.target}' is mutated, but a 'function' is a PURE helper over its parameters — ` +
+    `it may not write aggregate state.  Move the mutation into an 'operation' (which ` +
+    `owns 'this'), or return a value instead.`,
+  "loom.function-block-impure#emit": (p: { eventName: unknown }) =>
+    `'emit ${p.eventName}' is not allowed — a 'function' is pure (no side effects).  ` +
+    `Emit the event from the 'operation' that decides it.`,
+  "loom.function-block-impure#call-stmt": (p: { name: unknown; target: unknown }) =>
+    `call to '${p.name}' (${p.target}) is not allowed in a pure block-body 'function' — ` +
+    `it invokes a mutating operation/action.  Call a pure 'function', or move the logic ` +
+    `into an 'operation'.`,
+  "loom.function-block-impure#call-expr": (p: { name: unknown; callKind: unknown }) =>
+    `call to '${p.name}' (${p.callKind}) reaches beyond the pure subset — a block-body ` +
+    `'function' may only call other pure 'function's (no operations, repository reads, ` +
+    `domain services, externs, or workflow starts).  Move the side-effecting logic into ` +
+    `an 'operation' or a 'domainService'.`,
+  "loom.function-block-impure#method-call": (p: { member: unknown }) =>
+    `method call '${p.member}(…)' on a receiver is not allowed in a pure block-body ` +
+    `'function' — call a pure 'function' instead, or move the logic into an 'operation'.`,
   "loom.duplicate-valueobject": (p: { name: unknown }) =>
     `duplicate root-level value object '${p.name}' — declare it once in the workspace.`,
   "loom.duplicate-enum": (p: { name: unknown }) =>
@@ -1302,7 +1330,7 @@ export const DIAGNOSTIC_MESSAGES = {
   "loom.projection-duplicate-on": (p: { name: unknown; param: unknown; event: unknown }) =>
     `projection '${p.name}' declares more than one 'on(${p.param}: ${p.event})' handler. ` +
     `Fold each event type in a single handler.`,
-  "loom.projection-event-unkeyed": (p: {
+  "loom.projection-event-unkeyed#no-key-field": (p: {
     name: unknown;
     event: unknown;
     correlationField: unknown;
@@ -1311,6 +1339,18 @@ export const DIAGNOSTIC_MESSAGES = {
     `projection '${p.name}' folds '${p.event}', but that event has no ` +
     `'${p.correlationField}' field to route by.  Add the field to the event, ` +
     `or supply an explicit 'by <expr>' that extracts the key from '${p.param}'.`,
+  // The SINGLETON case — the projection declares no `keyed by` at all, so
+  // `correlationField` is absent.  The variant above used to be rendered here
+  // too, interpolating the missing field as the literal text `undefined`
+  // ("has no 'undefined' field to route by") and asking for a field no one can
+  // name (audit finding F30).  A keyless fold has no key by construction; the
+  // fix is the `keyed by` clause, not a field on the event.
+  "loom.projection-event-unkeyed#singleton": (p: { name: unknown; event: unknown }) =>
+    `projection '${p.name}' folds '${p.event}' but declares no 'keyed by' — a fold ` +
+    `writes one row per key, and there is no key to route to.  Add 'keyed by ` +
+    `<id field>', or drop the 'on(...)' handlers and make it a query-time ` +
+    `projection (a 'from'/'where'/'select' comprehension), which is what a keyless ` +
+    `projection means.`,
   "loom.projection-fold-impure": (p: {
     name: unknown;
     param: unknown;

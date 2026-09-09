@@ -424,7 +424,7 @@ Minted 2026-09-03 to stop [M-T9.42](#m-t942--promote-the-duplicated-per-target-s
 
 Sources: [verification-architecture-2026-08-31](../audits/verification-architecture-2026-08-31.md) §1, §5 (the duplication ranking). Relates to M-T9.42 (the promotion campaign this unblocks for one of its six candidates), M-T9.13 (the behavioural matrix that owns the deep cases).
 
-## M-T9.44 — The diagnostic-catalog gate does not reach the IR check leaves — `open` · **M** · P1 ⭐ the leverage packet ⚠ verify-first
+## M-T9.44 — The diagnostic-catalog gate's two blind spots: shorthand syntax and a blanket forwarding exemption — `done` · **M** · P1 ⭐ the leverage packet
 
 Found 2026-09-03 by the language-docs audit ([F25](../audits/2026-09-03-language-docs-audit-findings.md), [F26](../audits/2026-09-03-language-docs-audit-findings.md), [F30](../audits/2026-09-03-language-docs-audit-findings.md), P3). `test/system/diagnostic-catalog.test.ts` fails on an inline literal, a mis-keyed message and an orphan entry — but it evidently does not walk `src/ir/validate/checks/**` or the AST validators, which is how two textbook instances survive: `loom.function-block-impure` is raised live with an inline message and **no catalog entry** (`src/ir/validate/checks/structural-checks.ts:1243`; referenced from `validators/structural.ts:327` and `types.ts:809`), and the `when`-gate-references-op-param check raises an inline message with **no `code` at all** (`src/language/validators/statements.ts:110-118`). A third rides along: `loom.projection-event-unkeyed` interpolates `proj.correlationField`, which is `undefined` for exactly the keyless case it fires on — *"…has no 'undefined' field to route by."* (`projection-checks.ts`, `validateHandlers` ~:90).
 
@@ -433,6 +433,29 @@ Found 2026-09-03 by the language-docs audit ([F25](../audits/2026-09-03-language
 **The fix:** extend the walk, then repair everything it newly catches — mint `loom.function-block-impure`, give the `when`-gate check a code, stop the projection message interpolating `undefined`.
 
 Sources: [language-docs-audit-2026-09-03](../audits/2026-09-03-language-docs-audit-findings.md) F25/F26/F30 + "Cross-cutting reading" §3, [wave plan](../audits/2026-09-03-language-docs-audit-findings.waves.md) packet **W4.1**. M-T9.45 stacks on this branch rather than waiting for merge.
+
+> **Landed 2026-09-09. The premise in this row's title was wrong, and the correction is the
+> finding.** The gate has walked `src/ir/validate/checks/**` and the AST validators all along.
+> F25 and F26 survive for two unrelated reasons, both in the scanner rather than its reach:
+> `sitesIn` read only `ts.isPropertyAssignment`, so a diagnostic literal using **shorthand**
+> `message` was never recorded as a site (exactly two in the scanned surface — F25's, and
+> `loweringDiag`'s); and `isForwardedParam` **blanket-exempted** any site whose message is a
+> parameter of the enclosing function, a predicate that fired on **zero** sites and so had
+> never been exercised. It now retargets to the helper's own in-file call sites, which is what
+> makes F25's five inline template literals visible. Extended gate mutation-proved: with the
+> defect re-seeded it names all five sites by line under "has no inline wording".
+>
+> F26's row understates its finding. A site with **no `code:` at all** is invisible to the
+> catalog's three invariants too, and that is not one site: **119 errors and 11 warnings**
+> against 195 coded sites across the Langium validator surface. Fixing the one site the
+> register names would have hidden a class 130 times larger, so the class is filed as audit
+> finding **F55** and wants its own mission; the IR check leaves are clean.
+>
+> Shipped: the two scanner fixes; `loom.function-block-impure` as five `#`-slug variants (with
+> the `where` lead dropped — it duplicated `source`, which the gate's own invariant refuses);
+> `loom.when-references-op-param`; `loom.projection-event-unkeyed#singleton`, which asks for
+> `keyed by` instead of interpolating `undefined`. Refusing a keyless fold is intentional and
+> documented, so F30 was message-only exactly as recorded.
 
 ## M-T9.45 — Messages that contradict their own gate, comments naming codes that do not exist, one dead gate, one orphan catalog entry — `open` · **M** · P3 ⚠ verify-first
 

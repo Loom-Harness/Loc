@@ -1244,7 +1244,6 @@ const PURE_FUNCTION_CALL_KINDS: ReadonlySet<string> = new Set([
 export function validateFunctionBlockBodies(ctx: BoundedContextIR, diags: LoomDiagnostic[]): void {
   const check = (owner: string, fn: FunctionIR): void => {
     if ("expr" in fn.body) return; // expression form is pure by construction
-    const where = `function '${fn.name}' on ${owner}`;
     const source = `${ctx.name}/${owner}.function[${fn.name}]`;
     const push = (message: string): void => {
       diags.push({ severity: "error", code: "loom.function-block-impure", message, source });
@@ -1257,20 +1256,23 @@ export function validateFunctionBlockBodies(ctx: BoundedContextIR, diags: LoomDi
         case "add":
         case "remove":
           push(
-            `${where}: '${stmt.target.segments.join(".")}' is mutated, but a 'function' is a PURE helper over its parameters — it may not write aggregate state.  Move the mutation into an 'operation' (which owns 'this'), or return a value instead.`,
+            diagMessage("loom.function-block-impure#mutation", {
+              target: stmt.target.segments.join("."),
+            }),
           );
           break;
         case "emit":
-          push(
-            `${where}: 'emit ${stmt.eventName}' is not allowed — a 'function' is pure (no side effects).  Emit the event from the 'operation' that decides it.`,
-          );
+          push(diagMessage("loom.function-block-impure#emit", { eventName: stmt.eventName }));
           break;
         case "call":
           // A bare call STATEMENT (`bump()`) — only a pure `function` call is
           // allowed; an operation / action / store-action call mutates.
           if (stmt.target !== "function") {
             push(
-              `${where}: call to '${stmt.name}' (${stmt.target}) is not allowed in a pure block-body 'function' — it invokes a mutating operation/action.  Call a pure 'function', or move the logic into an 'operation'.`,
+              diagMessage("loom.function-block-impure#call-stmt", {
+                name: stmt.name,
+                target: stmt.target,
+              }),
             );
           }
           break;
@@ -1281,13 +1283,14 @@ export function validateFunctionBlockBodies(ctx: BoundedContextIR, diags: LoomDi
       walkExprsInStmt(stmt, (e) => {
         if (e.kind === "call" && !PURE_FUNCTION_CALL_KINDS.has(e.callKind)) {
           push(
-            `${where}: call to '${e.name}' (${e.callKind}) reaches beyond the pure subset — a block-body 'function' may only call other pure 'function's (no operations, repository reads, domain services, externs, or workflow starts).  Move the side-effecting logic into an 'operation' or a 'domainService'.`,
+            diagMessage("loom.function-block-impure#call-expr", {
+              name: e.name,
+              callKind: e.callKind,
+            }),
           );
         }
         if (e.kind === "method-call") {
-          push(
-            `${where}: method call '${e.member}(…)' on a receiver is not allowed in a pure block-body 'function' — call a pure 'function' instead, or move the logic into an 'operation'.`,
-          );
+          push(diagMessage("loom.function-block-impure#method-call", { member: e.member }));
         }
       });
     }

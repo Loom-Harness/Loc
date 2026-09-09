@@ -333,17 +333,30 @@ which is how F25 and F26 survive.
 
 | # | Finding | Anchor |
 |---|---|---|
-| **F25** | `loom.function-block-impure` is raised live with an inline message and has **no catalog entry**. | `src/ir/validate/checks/structural-checks.ts:1243`; referenced from `validators/structural.ts:327`, `types.ts:809` |
-| **F26** | The `when`-gate-references-op-param check raises an inline message with **no `code` at all**. | `src/language/validators/statements.ts:110-118` |
+| **F25** ✅ | `loom.function-block-impure` is raised live with an inline message and has **no catalog entry**. Confirmed: FIVE inline template literals. Hidden from the gate by shorthand `message` syntax, not by the gate's reach — see analysis item 3. Fixed in W4.1 as five `#`-slug variants; the `where` lead was dropped too (it duplicated `source`, which the gate's own invariant refuses). | `src/ir/validate/checks/structural-checks.ts:1243`; referenced from `validators/structural.ts:327`, `types.ts:809` |
+| **F26** ✅ | The `when`-gate-references-op-param check raises an inline message with **no `code` at all**. Fixed in W4.1 as `loom.when-references-op-param`. The row understates it: this is one instance of a 130-site class — see F55. | `src/language/validators/statements.ts:110-118` |
 | **F27** | `loom.scaffold-filter-param-unsupported`'s text contradicts its own gate: it says the bar renders `string`, `int`, `long`, `<X> id` and that `bool`/`datetime`/`guid` "have no input at all". Since #2699 all three render. The gate reads the correct set; only the message lies — and its stale twin sits in a comment. | `messages.ts:2308-2315`; `ui-checks.ts:1097-1099` |
 | **F28** | `loom.flutter-primitive-unsupported`'s text names FileUpload as "the one deferred primitive", but `FLUTTER_UNRENDERED_PRIMITIVES` is now **empty**, so the gate can never fire and the message names a primitive that renders. | `messages.ts:1624`; `src/util/flutter-deferred-primitives.ts` |
 | **F29** | `loom.filter-bypass-unsupported` is unreachable — `FILTER_BYPASS_FAMILIES` holds all five families — and its text still names three backends as "the honoring backends". Dead gate or a missing family; the wording is wrong either way. | `system-checks.ts:2712`; `messages.ts:1832-1842` |
-| **F30** | `loom.projection-event-unkeyed` interpolates `proj.correlationField`, which is `undefined` for the keyless case it fires on: *"…has no 'undefined' field to route by."* | `projection-checks.ts` `validateHandlers` ~:90 |
+| **F30** ✅ | `loom.projection-event-unkeyed` interpolates `proj.correlationField`, which is `undefined` for the keyless case it fires on: *"…has no 'undefined' field to route by."* Confirmed verbatim. **Message-only, as recorded** — refusing a keyless fold is intentional and documented (`10-repositories-and-queries.md`: a keyless projection is the query-time aggregation, not a fold), so the fix is a `#singleton` variant that asks for `keyed by` rather than for a field nobody can name. | `projection-checks.ts` `validateHandlers` ~:90 |
 | **F31** | `loom.scaffold-unexpanded`'s message blames "walker-primitive-expander", a pass that no longer exists, and names `view` as a resolvable target. | `messages.ts:783` |
 | **F32** | Grammar and IR comments name `loom.workflow-function-block-body` as the gate for block-bodied workflow functions. The code does not exist, nothing raises it, and such helpers generate correctly on all five backends. | `ddd.langium:1456`; `loom-ir.ts:1311` |
 | **F33** | A comment cites `loom.intrinsic-not-queryable`, which does not exist. | `src/util/intrinsics.ts:57` |
 | **F34** | A comment says `loom.spurious-effect-marker` is raised by the validator. No such code exists; a stray `await` is a parse error instead. | `src/ir/lower/lower-expr.ts:1080` |
 | **F35** | `extern_handlers_registered` is in the observability catalog but no backend emits it — an orphan entry. | `src/generator/_obs/log-events.ts` |
+
+**F55 (found while fixing W4.1). 119 validator errors carry no `loom.*` code at all.**
+The catalog's three invariants only see a site that attaches a code, so an
+`accept("error", "<inline literal>", { node, property })` with no `code:` key is invisible to
+all of them — that is F26's real shape, and F26 is not one site but a class. Counted on
+`9f89a009d` across `src/language/validators/**` + `ddd-validator.ts`: **195** `accept` sites
+carry a code, **119 errors and 11 warnings** do not. Those 130 diagnostics cannot be looked up
+in the reference, linked from the playground's Problems pane, asserted on by a test, or
+referred to in a bug report — the user sees prose and nothing else. The IR check leaves are
+clean (every one of their diagnostic literals carries a code), so this is purely the Langium
+`accept` surface. Too large for a ratcheting waiver inside W4.1; it wants its own mission,
+which should decide per site whether the diagnostic deserves a code or the check deserves
+deleting.
 
 **F36. Two `system` blocks with no top-level members pass validation.**
 `composition.ts:120-137` only fires when a top-level member must fold; there is no direct
@@ -400,10 +413,25 @@ individual fixes:
    copy). Every hand-rolled `ExprIR`/`StmtIR` walk outside the shared `_expr`/`_stmt` dispatchers
    is a candidate.
 
-3. **The catalog gate does not reach the IR check leaves.** F25 and F26 are exactly the
-   defect class `test/system/diagnostic-catalog.test.ts` was written to prevent, surviving
-   because the test does not walk `src/ir/validate/checks/`. Extending its reach retires
-   F25–F35 as a class and prevents the next one.
+3. **The catalog gate has two blind spots — neither of them the IR leaves.** F25 and F26 are
+   exactly the defect class `test/system/diagnostic-catalog.test.ts` was written to prevent.
+   This item originally blamed the gate's *reach*, which is wrong: it has walked
+   `src/ir/validate/checks/` all along. **Corrected on `main` @ `9f89a009d`** — the two
+   survivals have two different causes, both of them in the scanner:
+
+   * **Shorthand property syntax.** `sitesIn` collected only `ts.isPropertyAssignment`, so
+     `diags.push({ severity: "error", code: "…", message, source })` — `message` shorthand —
+     was never recorded as a site at all, and all three invariants passed vacuously over it
+     (F25). Exactly two sites in the whole scanned surface were hidden this way.
+   * **A blanket forwarding exemption.** `isForwardedParam` skipped any site whose message is
+     a parameter of the enclosing function, on the assumption that its call sites are
+     themselves scanned. That holds for `loweringDiag` in `src/api/evolve.ts`; it does not
+     hold for a *local* helper, whose callers word the message inline. The predicate fired on
+     **zero** sites, so it had never been exercised. It now retargets to the helper's own
+     in-file call sites instead of exempting.
+
+   Both were fixed in W4.1, and the extended gate fails on unmodified `main` naming all five
+   `loom.function-block-impure` sites by line.
 
 Per `CLAUDE.md`: mutation-prove each gate before trusting it — revert the fix with a file copy,
 never `git checkout -- <path>`, and confirm the assertion that fails is the one under test.
