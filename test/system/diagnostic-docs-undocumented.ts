@@ -242,6 +242,7 @@ export const UNDOCUMENTED_CODES: readonly string[] = [
   "loom.projection-workflow-source-unsupported-backend",
   "loom.provenanced-backend-unsupported",
   "loom.provenanced-never-written",
+  "loom.query-emission-invalid",
   "loom.query-handler-saves",
   "loom.reactor-channel-ambiguous",
   "loom.read-context-repo-write",

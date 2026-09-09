@@ -172,8 +172,8 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
     "23-domain-services-and-seeds.md#the-no-infra-contract-phase-⑦-ir-validator",
   "loom.seed-abstract-aggregate": "23-domain-services-and-seeds.md#what-a-seed-row-may-not-be",
   "loom.seed-dataset-name-collision": "23-domain-services-and-seeds.md#what-a-seed-row-may-not-be",
-  "loom.seed-event-sourced-unsupported":
-    "23-domain-services-and-seeds.md#what-a-seed-row-may-not-be",
+  "loom.seed-eventsourced-no-create": "23-domain-services-and-seeds.md#what-a-seed-row-may-not-be",
+  "loom.seed-raw-eventsourced": "23-domain-services-and-seeds.md#what-a-seed-row-may-not-be",
   "loom.seed-raw-document-shape": "23-domain-services-and-seeds.md#what-a-seed-row-may-not-be",
   "loom.seed-tenant-owned-needs-raw": "23-domain-services-and-seeds.md#what-a-seed-row-may-not-be",
 };
