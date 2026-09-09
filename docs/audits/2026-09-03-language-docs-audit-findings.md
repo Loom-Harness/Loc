@@ -373,15 +373,46 @@ which is how F25 and F26 survive.
 |---|---|---|
 | **F25** ✅ | `loom.function-block-impure` is raised live with an inline message and has **no catalog entry**. Confirmed: FIVE inline template literals. Hidden from the gate by shorthand `message` syntax, not by the gate's reach — see analysis item 3. Fixed in W4.1 as five `#`-slug variants; the `where` lead was dropped too (it duplicated `source`, which the gate's own invariant refuses). | `src/ir/validate/checks/structural-checks.ts:1243`; referenced from `validators/structural.ts:327`, `types.ts:809` |
 | **F26** ✅ | The `when`-gate-references-op-param check raises an inline message with **no `code` at all**. Fixed in W4.1 as `loom.when-references-op-param`. The row understates it: this is one instance of a 130-site class — see F55. | `src/language/validators/statements.ts:110-118` |
-| **F27** | `loom.scaffold-filter-param-unsupported`'s text contradicts its own gate: it says the bar renders `string`, `int`, `long`, `<X> id` and that `bool`/`datetime`/`guid` "have no input at all". Since #2699 all three render. The gate reads the correct set; only the message lies — and its stale twin sits in a comment. | `messages.ts:2308-2315`; `ui-checks.ts:1097-1099` |
-| **F28** | `loom.flutter-primitive-unsupported`'s text names FileUpload as "the one deferred primitive", but `FLUTTER_UNRENDERED_PRIMITIVES` is now **empty**, so the gate can never fire and the message names a primitive that renders. | `messages.ts:1624`; `src/util/flutter-deferred-primitives.ts` |
-| **F29** | `loom.filter-bypass-unsupported` is unreachable — `FILTER_BYPASS_FAMILIES` holds all five families — and its text still names three backends as "the honoring backends". Dead gate or a missing family; the wording is wrong either way. | `system-checks.ts:2712`; `messages.ts:1832-1842` |
+| **F27** ✅ | `loom.scaffold-filter-param-unsupported`'s text contradicts its own gate… **Half of this was already fixed on `main`** — the message now names the correct set (`string`, `guid`, `datetime`, `int`, `long`, `bool`, `<X> id`) and correctly holds back `decimal`/`money` and `enum`. The comment twin in `ui-checks.ts` was still stale and is fixed in W4.2. | `messages.ts:2308-2315`; `ui-checks.ts:1097-1099` |
+| **F28** ✅ | `loom.flutter-primitive-unsupported`'s text names FileUpload as "the one deferred primitive", but `FLUTTER_UNRENDERED_PRIMITIVES` is now **empty**… Confirmed. The gate is a **deliberate dormant safety net**, not dead code — its own source comment says so, and re-arming it takes one line. So the fix is the wording, not a deletion: the FileUpload claim is dropped and the message reads correctly for whatever primitive re-arms it. | `messages.ts:1624`; `src/util/flutter-deferred-primitives.ts` |
+| **F29** ✅ | `loom.filter-bypass-unsupported` is unreachable… **The "dead gate or missing family" question is already answered in the code**, which the row did not check: it is a pinned `LATENT_GATES` entry in `diagnostic-firing-census.test.ts` (*"`FILTER_BYPASS_FAMILIES` covers every backend-owning platform… no deployable can reach the `!supported` push"*) — the same dormant-safety-net shape as F28. Wording only: all five families honor `ignoring`, and the message now says reaching it means a backend was added without a bypass arm. | `system-checks.ts:2712`; `messages.ts:1832-1842` |
 | **F30** ✅ | `loom.projection-event-unkeyed` interpolates `proj.correlationField`, which is `undefined` for the keyless case it fires on: *"…has no 'undefined' field to route by."* Confirmed verbatim. **Message-only, as recorded** — refusing a keyless fold is intentional and documented (`10-repositories-and-queries.md`: a keyless projection is the query-time aggregation, not a fold), so the fix is a `#singleton` variant that asks for `keyed by` rather than for a field nobody can name. | `projection-checks.ts` `validateHandlers` ~:90 |
-| **F31** | `loom.scaffold-unexpanded`'s message blames "walker-primitive-expander", a pass that no longer exists, and names `view` as a resolvable target. | `messages.ts:783` |
-| **F32** | Grammar and IR comments name `loom.workflow-function-block-body` as the gate for block-bodied workflow functions. The code does not exist, nothing raises it, and such helpers generate correctly on all five backends. | `ddd.langium:1456`; `loom-ir.ts:1311` |
-| **F33** | A comment cites `loom.intrinsic-not-queryable`, which does not exist. | `src/util/intrinsics.ts:57` |
-| **F34** | A comment says `loom.spurious-effect-marker` is raised by the validator. No such code exists; a stray `await` is a parse error instead. | `src/ir/lower/lower-expr.ts:1080` |
-| **F35** | `extern_handlers_registered` is in the observability catalog but no backend emits it — an orphan entry. | `src/generator/_obs/log-events.ts` |
+| **F31** ✅ | `loom.scaffold-unexpanded`'s message blames "walker-primitive-expander", a pass that no longer exists, and names `view` as a resolvable target. Confirmed; both dropped in W4.2. | `messages.ts:783` |
+| **F32** ✅ | Grammar and IR comments name `loom.workflow-function-block-body`… Confirmed by running it: a block-bodied workflow `function` parses `0 error(s), 0 warning(s)` and `generate system` emits it as a real workflow-scoped helper on **all five backends** (`opsSlaDays` / `SlaDays` / `opsSlaDays` / `ops_sla_days` / `sla_days`) — never inlined. The grammar comment was doubly wrong: it also claimed the helper is *inlined at each call site*, which the IR comment two files away correctly contradicts. Both fixed in W4.2. | `ddd.langium:1456`; `loom-ir.ts:1311` |
+| **F33** ✅ | A comment cites `loom.intrinsic-not-queryable`, which does not exist. Confirmed; the real codes are the position-specific family (`loom.find-where-not-queryable` / `-projection-where-` / `-retrieval-where-`), with `firstNonQueryableNode` naming the offending intrinsic. | `src/util/intrinsics.ts:57` |
+| **F34** ⚠️ | A comment says `loom.spurious-effect-marker` is raised by the validator. **The code does not exist — but "a stray `await` is a parse error instead" is wrong, and the truth is much worse.** See F56. | `src/ir/lower/lower-expr.ts:1080` |
+| **F35** ✅ | `extern_handlers_registered` is in the observability catalog but no backend emits it — an orphan entry. Confirmed: Python **deliberately deleted** its producer (`python-extern.test.ts`, "deleted apparatus") and no other backend ever had one. Deleted in W4.2, together with the reverse invariant that would have caught it — `catalog-parity.test.ts` only ever checked *emitted ⊆ catalogued*, never the other direction. The new gate found three more unemitted entries, all documented-reserved, now held in a ratcheting `RESERVED_UNEMITTED` waiver. | `src/generator/_obs/log-events.ts` |
+
+**F56 (found while fixing W4.2, replacing F34's symptom). `match await <non-call>` validates
+clean and ships a guaranteed runtime crash on four frontends.**
+F34 records that a stray `await` is "a parse error instead". It is not. The grammar admits
+`await <MatchScrutinee>` (`ddd.langium` `MatchSubject`), and a `MatchScrutinee` is a plain
+`NameRef` with an optional postfix chain — so `match await <plain state field>` parses. Run on
+`9f89a009d`, a page action containing `match await message { string s => { message := s } }`
+over `state { message: string = "" }` reports **`0 error(s), 0 warning(s)`**, and the generated
+React page contains:
+
+```tsx
+const submit = async () => {
+  const result = await Promise.reject(new Error("no remote op for variant-match"));
+  switch (result.type) { case "string": { const s = result; setMessage(s); break; } }
+};
+```
+
+An unhandled rejection on every click, plus an undefined `setMessage`. The same
+`Promise.reject` fallback is in all four SPA walker targets (`tsx-target.ts:490`,
+`vue-target.ts:555`, `svelte-target.ts:477`, `angular-target.ts:714`), each commented as a
+"typed placeholder await… so the statement is never dropped" — the intent was to avoid a
+silent drop, and the result is a runtime bomb instead, still with no diagnostic.
+
+**Root cause, and it is a one-line reach problem:** `loom.match-non-union-subject` lives in
+`validateVariantMatch` (`structural-checks.ts:1114`), which visits `ExprIR` nodes with
+`kind === "match"`. A `match` in an action body lowers to a **`StmtIR` `variant-match`**, which
+that visitor never sees. The ui-side checks that *do* walk `variant-match` statements
+(`forEachVariantMatch`, `ui-checks.ts:1436`) check the route-id and effect-marker rules but
+never that the subject resolves to a union or to a remote op. This is Wave 2's invariant
+again — a walker declining to render correctly without saying so — so it belongs with W2.3
+rather than in a text packet.
 
 **F55 (found while fixing W4.1). 119 validator errors carry no `loom.*` code at all.**
 The catalog's three invariants only see a site that attaches a code, so an

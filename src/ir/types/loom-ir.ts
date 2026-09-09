@@ -1302,13 +1302,14 @@ export interface WorkflowIR {
    *  Each carries its own params + saves, lowered like the legacy paren-form
    *  body.  Omitted when the workflow declares none. */
   handlers?: HandleIR[];
-  /** Private, expression-bodied pure helpers declared via `function f(...): T =
-   *  expr` members — the aggregate-parity helper (a workflow is a state-bearing
-   *  entity, so it factors shared expressions the same way).  A workflow body is
-   *  not a class, so each backend emits these as per-workflow-scoped module
-   *  helpers (`<wf><fn>`), and a call to one lowers to `callKind: "workflow-fn"`.
-   *  Block-bodied helpers are rejected by the AST validator
-   *  (`loom.workflow-function-block-body`).  Omitted when the workflow declares none. */
+  /** Private pure helpers declared via `function f(...): T = expr` or the block
+   *  form `function f(...): T { let … return … }` — the aggregate-parity helper
+   *  (a workflow is a state-bearing entity, so it factors shared expressions the
+   *  same way).  A workflow body is not a class, so each backend emits these as
+   *  per-workflow-scoped module helpers (`<wf><fn>`), and a call to one lowers to
+   *  `callKind: "workflow-fn"`.  BOTH body forms are accepted — this comment used
+   *  to say the block form is rejected by `loom.workflow-function-block-body`, a
+   *  code that has never existed.  Omitted when the workflow declares none. */
   functions?: FunctionIR[];
   /** Tail-position success type of the primary `run` body, derived once in
    *  enrichment (`enrichWorkflowReturnType`).  The value the workflow returns

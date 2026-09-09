@@ -52,9 +52,12 @@ export interface IntrinsicSignature {
   params: ReadonlyArray<IntrinsicParam>;
   returns: IntrinsicReturn;
   /** May this intrinsic appear in a queryable position (`find ... where`,
-   *  criterion, capability filter)?  Non-queryable intrinsics
-   *  in a where-position fail IR validation with
-   *  `loom.intrinsic-not-queryable` rather than silently degrading. */
+   *  criterion, capability filter)?  A non-queryable intrinsic in a
+   *  where-position fails IR validation rather than silently degrading — under
+   *  the code for the POSITION it appears in (`loom.find-where-not-queryable`,
+   *  `loom.projection-where-not-queryable`, `loom.retrieval-where-not-queryable`),
+   *  with `firstNonQueryableNode` naming the offending intrinsic.  There is no
+   *  single `loom.intrinsic-*` code. */
   queryable: boolean;
   /** Free-form display signature for completion-item details
    *  (e.g. `"(): string"`).  Not parsed; purely informational. */
