@@ -50,6 +50,7 @@ export function readFixture(name: "base" | "evolved"): string {
 // names locally, so the `hasDocker()` call below was an unresolved identifier
 // (TS2304, and a ReferenceError on the docker-absent path).
 import { hasDocker, requireDocker } from "./docker-probe.js";
+
 export { hasDocker, requireDocker };
 
 export async function freePort(): Promise<number> {
