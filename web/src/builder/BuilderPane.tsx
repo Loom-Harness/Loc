@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Box, Button, Checkbox, Divider, Group, Popover, Select, Text, TextInput } from "@mantine/core";
+import { Badge, Box, Button, Checkbox, Divider, Group, Popover, Select, Stack, Text, TextInput } from "@mantine/core";
 import { AstUtils } from "langium";
+import { NO_PAGES, SCAFFOLD } from "../layout/vocabulary";
+import { listScaffoldedPages, mayHaveScaffoldedPages, unfoldScaffoldedPage, type ScaffoldedPage } from "./page/scaffold";
+import { IconX } from "./icons";
 import type { SerializedNodes } from "@craftjs/core";
 import type { LayoutCtx } from "../layout/ctx";
 import type { BodyProp, Component, EnumDecl, Expression, Page } from "../../../src/language/generated/ast.js";
@@ -8,7 +11,11 @@ import { isAggregate, isOperation, isPage, isUi, isWorkflow } from "../../../src
 import { parseDdd } from "./parse";
 import { spliceNodeIfParses } from "./edit-engine";
 import { RefusalLine } from "./refusal";
+import { ParseErrorState } from "./ParseErrorState";
+import { PARSE_ERROR } from "../layout/vocabulary";
 import { usePaneHarness } from "./pane-harness";
+import { ConfirmAction, confirmSites, type ConfirmSpec } from "../util/confirm";
+import { UndoRedo, paneUndoKeyHandler } from "./undo-redo";
 import { collectBodies } from "./page/bodies";
 import { seedFromBody, emitBody, enumStateFields, type BuilderNode } from "./page/model";
 import { toCraft, fromCraft } from "./page/serialize";
@@ -29,6 +36,7 @@ import {
   addArea,
   addMenuLink,
   addMenuSection,
+  addPage,
   addStore,
   addStoreField,
   deleteMenuLink,
@@ -174,6 +182,45 @@ export default function BuilderPane({ ctx }: { ctx: LayoutCtx }): JSX.Element {
   const [pageName, setPageName] = useState<string>("");
   const current = pages.find((p) => p.name === pageName) ?? pages[0];
 
+  // Scaffold awareness (M-T8.21, audit H6).  The raw parse above never sees a
+  // page a `ui … with scaffold(...)` synthesises, so the list is derived from
+  // a BUILT document — async, off the render path, and only when some `ui`
+  // actually carries a macro call (the cheap pre-check), so a hand-written
+  // system never pays for a build.  Keyed on the parse revision; a stale
+  // result (the source moved while the build ran) is dropped.
+  const [scaffolded, setScaffolded] = useState<ScaffoldedPage[]>([]);
+  const scaffoldSeq = useRef(0);
+  useEffect(() => {
+    const seq = ++scaffoldSeq.current;
+    if (!harness.parseOk || !mayHaveScaffoldedPages(parsed.ast)) {
+      setScaffolded([]);
+      return;
+    }
+    void listScaffoldedPages(ctx.getSource()).then((list) => {
+      if (scaffoldSeq.current === seq) setScaffolded(list);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `parsed` is the change signal; getSource reads a ref.
+  }, [parsed, harness.parseOk]);
+
+  // Eject one scaffolded page into real source, then select it.  The edits
+  // are recomputed against the LIVE source at click time (the listed ones
+  // were computed on the debounced parse and may be stale), and the write
+  // goes through the harness so it is gated, named, and undoable.
+  const unfold = async (page: ScaffoldedPage): Promise<void> => {
+    const source = ctx.getSource();
+    const fresh = (await listScaffoldedPages(source)).find((p) => p.key === page.key) ?? page;
+    harness.on(`unfold page ${page.label}`).applyOrRefuse(unfoldScaffoldedPage(source, fresh));
+    setPageName(fresh.pageName);
+  };
+
+  // "Add a page" for a system with no page at all — the model builder's `+ UI`
+  // entry declares the `ui` when none exists, then a minimal page goes in.
+  const addFirstPage = (): void => {
+    const r = addPage(ctx.getSource());
+    harness.on(NO_PAGES.addPage).applyOrRefuse(r?.source ?? null);
+    if (r) setPageName(r.page);
+  };
+
   // Local enum-type inference for assignment values: { stateFieldName → enumName }
   // for the current page's enum-typed state fields. Empty when the body is a
   // `component` (no `state {}` block) or no state field is enum-typed.
@@ -283,10 +330,34 @@ export default function BuilderPane({ ctx }: { ctx: LayoutCtx }): JSX.Element {
   const liveNodes = harness.liveTick > 0 ? seedNodes : initialNodes;
 
   if (!harness.parseOk) {
-    return <Message>Source has syntax errors — fix them in the editor to use the builder.</Message>;
+    return <ParseErrorState ctx={ctx} purpose={PARSE_ERROR.purpose.builder} testid="builder" />;
   }
   if (!current || !initialNodes) {
-    return <Message>No <code>page</code> or <code>component</code> with a <code>body:</code> found. Add a <code>ui {"{ page { … } }"}</code> block.</Message>;
+    // No editable body.  Scaffolded pages exist → list them with Unfold (the
+    // customisation gradient made visible); none at all → one click to a
+    // real page.  Never the old "write a `ui { page }` block" dead-end.
+    return (
+      <Box p="md" data-testid="c4builder-empty">
+        <RefusalLine refusal={refusal} />
+        {scaffolded.length > 0 ? (
+          <Stack gap="xs" data-testid="c4builder-scaffolded" style={{ maxWidth: 520 }}>
+            <Text size="sm" fw={600}>{SCAFFOLD.title}</Text>
+            <Text size="xs" c="dimmed">{SCAFFOLD.hint}</Text>
+            <ScaffoldedPagesList pages={scaffolded} onUnfold={(p) => void unfold(p)} />
+          </Stack>
+        ) : (
+          <Stack gap="xs" data-testid="c4builder-no-pages" style={{ maxWidth: 520 }}>
+            <Text size="sm" fw={600}>{NO_PAGES.title}</Text>
+            <Text size="xs" c="dimmed">{NO_PAGES.hint}</Text>
+            <Box>
+              <Button size="xs" data-testid="c4builder-add-page" onClick={addFirstPage}>
+                {NO_PAGES.addPage}
+              </Button>
+            </Box>
+          </Stack>
+        )}
+      </Box>
+    );
   }
 
   // `source` is read ONCE and everything downstream — the parse that locates
@@ -300,34 +371,65 @@ export default function BuilderPane({ ctx }: { ctx: LayoutCtx }): JSX.Element {
     const page = collectBodies(fresh.ast).find((p) => p.name === current.name);
     if (!page) return;
     const emitted = emitBody(fromCraft(nodes));
-    harness.applyOrRefuse(spliceNodeIfParses(source, page.expr, emitted));
+    harness.on(`page ${current.name} body`).applyOrRefuse(spliceNodeIfParses(source, page.expr, emitted));
   };
 
   return (
-    <Box style={{ display: "flex", flexDirection: "column", height: "100%" }}>
-      {ctx.isDesktop && current.page && (
-        <Group px="xs" py={4} bg="dark.7" gap="xs" style={{ borderBottom: "1px solid var(--mantine-color-dark-4)" }}>
-          <StatePanel page={current.page} getSource={() => ctx.getSource()} types={stateTypes} enumCases={enumCases} onApply={applyState} />
-          {pagePropsInfo && (
-            <PagePropsPanel
-              pageName={current.name}
-              info={pagePropsInfo}
-              layouts={layouts}
-              getSource={() => ctx.getSource()}
-              onApply={applyState}
-            />
-          )}
-          {uiName !== undefined && uiStructure && (
-            <UiStructurePanel
-              uiName={uiName}
-              structure={uiStructure}
-              getSource={() => ctx.getSource()}
-              onApply={applyState}
-            />
-          )}
-        </Group>
-      )}
-      <RefusalLine refused={refusal.refused} />
+    // `tabIndex={-1}` + the key handler: a click anywhere on the canvas
+    // focuses the pane, so ⌘Z / ⌘⇧Z route to the editor's undo stack from
+    // here (text controls keep their own — see `undo-keys.ts`).
+    <Box
+      style={{ display: "flex", flexDirection: "column", height: "100%", outline: "none" }}
+      tabIndex={-1}
+      onKeyDown={paneUndoKeyHandler(ctx.editorHandleRef)}
+      data-testid="c4builder-pane"
+    >
+      <Group px="xs" py={4} bg="var(--loom-bg)" gap="xs" style={{ borderBottom: "1px solid var(--loom-border)" }}>
+        <UndoRedo handleRef={ctx.editorHandleRef} testidPrefix="c4builder" />
+        {scaffolded.length > 0 && (
+          // Real pages AND scaffolded ones: the generated pages sit behind one
+          // button so the gradient stays one click away without crowding the
+          // page select.
+          // `trapFocus` like every other Popover in the builder: without it
+          // focus stays on the trigger, Mantine's Escape handler (bound on the
+          // DROPDOWN) never sees the key, and the portal is left open over the
+          // canvas swallowing clicks — keyboard users had no way to dismiss it.
+          <Popover position="bottom-start" withArrow shadow="md" trapFocus>
+            <Popover.Target>
+              <Button size="compact-xs" variant="default" data-testid="c4builder-scaffold-list">
+                {SCAFFOLD.listButton} ({scaffolded.length})
+              </Button>
+            </Popover.Target>
+            <Popover.Dropdown p="xs" style={{ width: 360 }}>
+              <Text size="xs" c="dimmed" mb={6}>{SCAFFOLD.hint}</Text>
+              <ScaffoldedPagesList pages={scaffolded} onUnfold={(p) => void unfold(p)} />
+            </Popover.Dropdown>
+          </Popover>
+        )}
+        {ctx.isDesktop && current.page && (
+          <>
+            <StatePanel page={current.page} getSource={() => ctx.getSource()} types={stateTypes} enumCases={enumCases} onApply={applyState} />
+            {pagePropsInfo && (
+              <PagePropsPanel
+                pageName={current.name}
+                info={pagePropsInfo}
+                layouts={layouts}
+                getSource={() => ctx.getSource()}
+                onApply={applyState}
+              />
+            )}
+            {uiName !== undefined && uiStructure && (
+              <UiStructurePanel
+                uiName={uiName}
+                structure={uiStructure}
+                getSource={() => ctx.getSource()}
+                onApply={applyState}
+              />
+            )}
+          </>
+        )}
+      </Group>
+      <RefusalLine refusal={refusal} />
       <Box style={{ flex: 1, minHeight: 0 }}>
         <PageBuilder
           // `mountKey` (page : Apply-rev : annotation-set) — remounting the
@@ -517,15 +619,11 @@ function UiStructurePanel({ uiName, structure, getSource, onApply }: {
             >
               + field
             </Button>
-            <Button
-              size="compact-xs"
-              variant="subtle"
-              color="red"
-              data-testid={`uidecl-store-delete-${s.name}`}
-              onClick={() => onApply(deleteStore(getSource(), uiName, s.name))}
-            >
-              ×
-            </Button>
+            <DeleteButton
+              spec={confirmSites.uiMemberDelete("store", s.name)}
+              testid={`uidecl-store-delete-${s.name}`}
+              onConfirm={() => onApply(deleteStore(getSource(), uiName, s.name))}
+            />
           </Group>
         ))}
         <Button
@@ -601,29 +699,22 @@ function UiStructurePanel({ uiName, structure, getSource, onApply }: {
                 data-testid={`uidecl-menu-addlink-${s.label}`}
                 onChange={(v) => v && onApply(addMenuLink(getSource(), uiName, s.label, { page: v }))}
               />
-              <Button
-                size="compact-xs"
-                variant="subtle"
-                color="red"
-                data-testid={`uidecl-menu-delsection-${s.label}`}
-                onClick={() => onApply(deleteMenuSection(getSource(), uiName, s.label))}
-              >
-                ×
-              </Button>
+              <DeleteButton
+                spec={confirmSites.uiMemberDelete("menu section", s.label)}
+                testid={`uidecl-menu-delsection-${s.label}`}
+                onConfirm={() => onApply(deleteMenuSection(getSource(), uiName, s.label))}
+              />
             </Group>
             {s.entries.map((e, i) => (
               <Group key={`${s.label}:${i}:${e.kind === "page" ? e.page : e.url}`} gap={6} pl={14} wrap="nowrap">
                 <Text size="xs" c="dimmed" style={{ flex: 1, fontFamily: "monospace" }} truncate>
                   {e.kind === "page" ? e.page : `${e.label} → ${e.url}`}
                 </Text>
-                <Button
-                  size="compact-xs"
-                  variant="subtle"
-                  color="red"
-                  onClick={() => onApply(deleteMenuLink(getSource(), uiName, s.label, i))}
-                >
-                  ×
-                </Button>
+                <DeleteButton
+                  spec={confirmSites.uiMemberDelete("menu link", e.kind === "page" ? e.page : e.label)}
+                  testid={`uidecl-menu-dellink-${s.label}-${i}`}
+                  onConfirm={() => onApply(deleteMenuLink(getSource(), uiName, s.label, i))}
+                />
               </Group>
             ))}
           </Box>
@@ -651,6 +742,26 @@ function UiStructurePanel({ uiName, structure, getSource, onApply }: {
         </Group>
       </Popover.Dropdown>
     </Popover>
+  );
+}
+
+// A red `×` that arms the shared inline confirm in place (M-T8.17): the row's
+// splice only runs from the confirm's Yes.  `testid` stays on the trigger so
+// the existing selectors still find it; the row derives `${testid}-yes` /
+// `${testid}-cancel`.
+function DeleteButton({ spec, testid, onConfirm }: { spec: ConfirmSpec; testid: string; onConfirm: () => void }): JSX.Element {
+  return (
+    <ConfirmAction
+      spec={spec}
+      onConfirm={onConfirm}
+      testids={{ base: testid }}
+      size="compact-xs"
+      trigger={(arm) => (
+        <Button size="compact-xs" variant="subtle" color="red" data-testid={testid} aria-label={spec.consequence} title={spec.consequence} onClick={arm}>
+          <IconX />
+        </Button>
+      )}
+    />
   );
 }
 
@@ -711,6 +822,43 @@ function PropRow({ label, value, placeholder, testid, onCommit }: {
         onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
       />
     </Group>
+  );
+}
+
+// The scaffolded-page rows: `Orders / List` + the *scaffolded* badge + Unfold.
+// Read-only by construction — a page with no source range has nothing the
+// canvas could edit; Unfold is the one action.  Row ids use the key with the
+// `/` replaced (`c4builder-scaffold-row-Orders-List`) so a spec can address
+// one page.
+function ScaffoldedPagesList({ pages, onUnfold }: {
+  pages: readonly ScaffoldedPage[];
+  onUnfold: (page: ScaffoldedPage) => void;
+}): JSX.Element {
+  return (
+    <Stack gap={2}>
+      {pages.map((p) => {
+        const id = p.key.replace(/\//g, "-");
+        return (
+          <Group key={p.key} gap={6} wrap="nowrap" data-testid={`c4builder-scaffold-row-${id}`}>
+            <Text size="xs" style={{ flex: 1, minWidth: 0, fontFamily: "monospace" }} truncate title={`${p.uiName} · with ${p.macroName}`}>
+              {p.label}
+            </Text>
+            <Badge size="xs" variant="light" color="gray" style={{ flexShrink: 0 }} title={`Synthesised by with ${p.macroName} on ui ${p.uiName}`}>
+              {SCAFFOLD.badge}
+            </Badge>
+            <Button
+              size="compact-xs"
+              variant="light"
+              data-testid={`c4builder-unfold-${id}`}
+              aria-label={`${SCAFFOLD.unfold} page ${p.label}`}
+              onClick={() => onUnfold(p)}
+            >
+              {SCAFFOLD.unfold}
+            </Button>
+          </Group>
+        );
+      })}
+    </Stack>
   );
 }
 

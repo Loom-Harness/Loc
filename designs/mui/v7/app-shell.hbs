@@ -93,7 +93,7 @@ function AppShellLayout() {
       <Toolbar />
       <Divider />
       <List dense>
-{{#each navSections}}        <ListSubheader sx=\{{ lineHeight: "32px", fontWeight: 600, color: "text.secondary" }}>{{{labelText}}}</ListSubheader>
+{{#each navSections}}        <ListSubheader sx=\{{ lineHeight: "32px", fontSize: "0.75rem", fontWeight: 600, letterSpacing: "0.05em", textTransform: "uppercase", color: "text.secondary" }}>{{{labelText}}}</ListSubheader>
 {{#each entries}}{{#if requiresJs}}        {({{{requiresJs}}}) ? (
           <ListItem disablePadding>
             <ListItemButton selected={isActive({{{activeArgs}}})} onClick={() => navigate("{{to}}")} data-testid="{{testId}}">
@@ -162,7 +162,7 @@ function AppShellLayout() {
       <Box
         component="main"
         id="main-content"
-        sx=\{{ flexGrow: 1, p: 3, width: { sm: `calc(100% - ${DRAWER_WIDTH}px)` } }}
+        sx=\{{ flexGrow: 1, minWidth: 0, p: { xs: 2, lg: 3 }, width: { sm: `calc(100% - ${DRAWER_WIDTH}px)` } }}
       >
         <Toolbar />
         <AppErrorBoundary>

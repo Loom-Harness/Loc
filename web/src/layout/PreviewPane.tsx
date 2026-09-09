@@ -1,6 +1,8 @@
-import { Box, Text } from "@mantine/core";
+import { Box, Button, Group, Text } from "@mantine/core";
+import { selectNodePath } from "../build/select-target";
 import { Preview } from "../preview/Preview";
 import { formatUnsupportedDeployables, type LayoutCtx } from "./ctx";
+import { nextStepMid, SELECT_MODE, STAGE } from "./vocabulary";
 
 interface Props {
   ctx: LayoutCtx;
@@ -20,7 +22,13 @@ export function PreviewPane({ ctx }: Props): JSX.Element {
     generateSuccess,
     reactBundleStatus,
     unsupportedDeployables,
+    isDesktop,
+    pipeline,
   } = ctx;
+  // Mobile has one "Run" button that spans Generate → Bundle → Boot;
+  // desktop exposes the three steps separately.  Name the control the
+  // user can actually see.
+  const runVerb = nextStepMid("generate", isDesktop);
 
   // When the only deployables in the generated output are runtimes
   // the browser can't host (.NET, Phoenix LiveView), explain why
@@ -43,7 +51,9 @@ export function PreviewPane({ ctx }: Props): JSX.Element {
             vendorCssUrl={previewBundle.vendorCssUrl}
             runtime={authedRuntime}
             onAppLog={ctx.appendAppLog}
+            onSelectElement={ctx.resolveSelectedElement}
           />
+          <SelectResultBar ctx={ctx} />
           {previewProblem && (
             <Box
               style={{
@@ -72,20 +82,90 @@ export function PreviewPane({ ctx }: Props): JSX.Element {
       ) : (
         <Box p="md">
           <Text size="sm" c="dimmed">
-            {!generateSuccess
-              ? "Generate a system-mode source first (the Sales System example has both Hono + React deployables)."
-              : reactBundleStatus.kind === "absent"
-                ? absentHint
-                : reactBundleStatus.kind === "fail"
-                  ? "React bundling failed — switch to Files for details."
-                  : reactBundleStatus.kind === "pending"
-                    ? "Click Bundle to compile the React frontend (~10 s on first run)."
-                    : !ddl
-                      ? "Boot the backend first — the React app calls into PGlite via the runtime worker."
-                      : "Loading…"}
+            {pipeline.generating
+              ? "Generating…"
+              : pipeline.bundling
+                ? "Bundling the frontend and backend — about 10 s on first run…"
+                : pipeline.booting
+                  ? "Starting the in-browser backend…"
+                  : !generateSuccess
+                    ? `Nothing generated yet — ${runVerb} to build the project from your source.`
+                    : reactBundleStatus.kind === "absent"
+                      ? absentHint
+                      : reactBundleStatus.kind === "fail"
+                        ? "The bundle failed, so there is nothing to preview. Open Output → Bundler for the error."
+                        : reactBundleStatus.kind === "pending"
+                          ? `${nextStepMid("bundle", isDesktop)} to compile the frontend and backend (~10 s on first run)${isDesktop ? `, then ${STAGE.boot}` : ""}.`
+                          : !ddl
+                            ? `Bundled. ${isDesktop ? `Click ${STAGE.boot}` : nextStepMid("boot", false)} to start the in-browser backend and database.`
+                            : "Loading…"}
           </Text>
         </Box>
       )}
+    </Box>
+  );
+}
+
+/** What the last preview select-mode click resolved to (M-T8.20 slice 4).
+ *
+ *  A one-line result under the preview rather than a modal: the resolution
+ *  already REVEALED the declaration in the editor, so this says what was
+ *  found and offers the two follow-ups the mission names — open it in the
+ *  Builder, or hand the node path to the agent. */
+function SelectResultBar({ ctx }: { ctx: LayoutCtx }): JSX.Element | null {
+  const result = ctx.selectResult;
+  if (!result) return null;
+  const message =
+    result.kind === "unidentified"
+      ? SELECT_MODE.unidentified
+      : result.kind === "unresolved"
+        ? SELECT_MODE.unresolved(result.testid)
+        : SELECT_MODE.found(selectNodePath(result.target));
+  return (
+    <Box
+      px="sm"
+      py={4}
+      style={{
+        background: "var(--loom-bg-raised)",
+        borderTop: "1px solid var(--loom-border)",
+      }}
+      data-testid="select-result"
+      data-kind={result.kind}
+    >
+      <Group gap={8} wrap="nowrap" justify="space-between">
+        <Text size="xs" truncate style={{ flex: 1, minWidth: 0 }}>
+          {message}
+        </Text>
+        {result.kind === "found" && (
+          <Group gap={4} wrap="nowrap">
+            <Button
+              size="compact-xs"
+              variant="light"
+              onClick={() => ctx.setCenterView("builder")}
+              data-testid="select-open-builder"
+            >
+              {SELECT_MODE.openBuilder}
+            </Button>
+            <Button
+              size="compact-xs"
+              variant="subtle"
+              onClick={() => ctx.askAgent(`Change ${selectNodePath(result.target)}: `)}
+              data-testid="select-ask-agent"
+            >
+              {SELECT_MODE.askAgent}
+            </Button>
+          </Group>
+        )}
+        <Button
+          size="compact-xs"
+          variant="subtle"
+          color="gray"
+          onClick={ctx.dismissSelectResult}
+          data-testid="select-result-dismiss"
+        >
+          Dismiss
+        </Button>
+      </Group>
     </Box>
   );
 }

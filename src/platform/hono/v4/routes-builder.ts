@@ -2694,7 +2694,7 @@ export function emitWireSchema(
         schema = schema.replace(INT32_RANGE, "");
       }
       for (const p of orderSingleFieldPatterns(patterns))
-        schema = chainSingleFieldNative(schema, p);
+        schema = chainSingleFieldNative(schema, p, f.name);
       // A `len-*` bound is CHECKED as a code-point refine, which zod cannot
       // describe to the OpenAPI emitter — re-declare it so `/openapi.json`
       // still publishes the `minLength`/`maxLength` it always did (and now
