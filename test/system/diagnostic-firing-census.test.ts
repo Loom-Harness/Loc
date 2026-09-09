@@ -1241,6 +1241,20 @@ system P {
     }`,
   ),
 
+  // A `menu` link naming a page that does not exist.  The linker already
+  // reports the bare unresolved reference; this check is the one that names
+  // what IS linkable — and a scaffolded page is named by ROLE inside a
+  // per-aggregate area (`Orders.List`), so the unqualified name an author
+  // reaches for is almost never the one that resolves.
+  "loom.menu-link-unresolved": uiPages(
+    " with scaffold(aggregates: [Order])",
+    `    menu {
+      section "Sales" {
+        link OrderList
+      }
+    }`,
+  ),
+
   // --- seed crossings (F2-SEED-*, validators/seed.ts rules 5-8) -------------
   // Each of these parsed 0 errors / 0 warnings before the rule existed and
   // then produced a DIFFERENT wrong artefact per backend.
