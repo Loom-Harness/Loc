@@ -21,7 +21,7 @@ on:
   # docs-only PR costs a few minutes; stranding the PR costs an admin bypass.
   # It is also pr-gate's floor: at least one check reports on EVERY PR, so
   # pr-gate's "nothing reported" arm stays a real failure signal
-  # (docs/ci-gating.md → "No merge queue on a personal account").
+  # (docs/ci-gating.md → "The `pr-gate` check").
   pull_request:
   merge_group:
   # Nightly: the coverage run.  Coverage is collected ONLY here — it taxed

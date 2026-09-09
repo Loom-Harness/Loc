@@ -2,13 +2,36 @@
 
 Why this exists: agents landed several breakages on `main` that no PR check
 could have caught, because the gates that *would* have caught them don't gate
-PRs. This documents the tiers and the merge-queue path that fixes it without
+PRs. This documents the tiers and the merge queue that closes it without
 making every push slower.
+
+> **Status (2026-09-07): the merge queue is LIVE.** The repo is public and
+> organization-owned (`Loom-Harness/Loc`), which is what GitHub gates merge
+> queues on — public org repos qualify on every plan, Free included — and the
+> queue is switched on for `main`. `merge_group` runs now fire the heavy tier
+> against the rebased candidate. **What changed on this date was the repo
+> SETTING, not the ownership:** the oldest `merge_group` runs the Actions API
+> will page to are all one burst created `2026-09-07T11:59:41Z` (#2786's first
+> group), with nothing older — measure it again with
+> `list_workflow_runs --event merge_group` and walk to the last page. When the repo became
+> org-owned is NOT established here.  A transfer demonstrably happened at some
+> point — `git push` still prints `remote: This repository moved` and redirects
+> `lemmit/Loc` → `Loom-Harness/Loc` — but that redirect is permanent and
+> carries no date, and `created_at` survives a transfer, so neither "it moved
+> on 2026-09-07" nor "it was org-owned all along" is supportable from here.
+> An earlier draft of this doc asserted the former; it is withdrawn rather
+> than restated in the opposite direction. The sections below that were written while
+> the queue was off are kept as the design record and marked **[historical]**.
 
 ## The failure mode
 
-Branch protection requires only **`tests-passed`** (the fast vitest rollup).
-Every heavy gate — the runtime/boot e2e suites, the deploy build — is a
+This section is the **original problem statement** — the shape of the hole the
+tiers, `pr-gate` and the merge queue were built to close. It is kept because
+the reasoning still explains why each mechanism exists; see the per-point notes
+for where it stands today.
+
+Branch protection required only **`tests-passed`** (the fast vitest rollup).
+Every heavy gate — the runtime/boot e2e suites, the deploy build — was a
 *non-required* check. Three consequences:
 
 1. **Some heavy gates still don't run on a PR by default.** `tenancy-e2e`,
@@ -33,6 +56,12 @@ Every heavy gate — the runtime/boot e2e suites, the deploy build — is a
    head SHA, so a gate becomes binding the moment it can produce one. Read the
    trigger block in the workflow file for the exact paths — this doc does not
    restate them, and it does not restate job counts.
+
+   **Closed by the queue, for this bucket:** every one of them also fires
+   on `merge_group`, so they gate the rebased candidate *before* it lands
+   rather than reporting on a `main` that is already red. What remains is
+   that they stay invisible on the PR itself — you find out at the queue,
+   not at the push.
 2. **A red heavy gate doesn't block anything.** A gate can be broken (even
    unparseable) and still merge green. `behavioral-e2e-dapper.yml` had an
    unquoted colon in its `name:`, was a permanent `startup_failure`, and stayed
@@ -81,7 +110,7 @@ gets attributed to a later, innocent commit.
 |---|---|---|
 | **Per-PR, every push** (required) | `test.yml` (fast vitest ×4 shards + the corpus-census job; coverage is nightly-only) + lint + web-tsc → `tests-passed` (unfiltered on PRs); `langium-generated`; `workflow-lint`; the typecheck/compile gates (`hono/dotnet/java/python-build`, `generated-*-build`, `corpus-build`); `behavioral-e2e` (Hono on PGlite, daemonless) as the runtime canary; `pr-gate` (the aggregate verdict over everything that triggered) | Cheap, parallel, no docker/db. Catches most regressions with fast feedback. |
 | **Per-PR, path-scoped** (binding via `pr-gate`) | The cross-backend runtime legs `behavioral-e2e-{dotnet,java,python,elixir,dapper,mikroorm}` + `behavioral-ui-e2e` + `behavioral-heex-ui-e2e` (each fires when the PR touches its backend's emitters, the shared IR, or the harness); the five `{hono,python,java,dotnet,elixir-vanilla}-obs-e2e` legs; the four *native* `{hono,python,java,dotnet}-oidc-e2e` legs; the four `generated-{react,vue,svelte,angular}-e2e` SPA smokes; `elixir-vanilla-vo-e2e`; `pairwise`'s generation sweep; the `pages` build (docs/web/src) | Docker/boot cost paid only by the PRs that can break them; when they fire, `pr-gate` makes them blocking. Each file's `paths:` block is the authority on *when* — deliberately narrower than its own `push: main` block, so a typical PR fires one or two siblings, not the whole family. |
-| **Merge queue** (`merge_group`, runs once on the final candidate — inert until the repo lives in an org) | The same cross-backend runtime matrix unconditionally, `tenancy-e2e` (10 legs), `*-obs-e2e`, `*-oidc-e2e`, `auth-oidc-compose-e2e`; the full `generated-react-build` Cartesian; `pages` build | What actually breaks `main` **and** the expensive ones. Runs once per landing, not per push. A PR revised 10× pays this once. |
+| **Merge queue** (`merge_group`, runs once on the final candidate — **live**) | The same cross-backend runtime matrix unconditionally, `tenancy-e2e` (10 legs), `*-obs-e2e`, `*-oidc-e2e`, `auth-oidc-compose-e2e`; the full `generated-react-build` Cartesian; `pages` build | What actually breaks `main` **and** the expensive ones. Runs once per landing, not per push. A PR revised 10× pays this once. |
 | **Nightly / label** (unchanged) | `conformance-full`, `generated-a11y`, `frontend-fullstack-e2e`, `k8s-e2e` | Broad, slow, low churn — post-hoc is fine. |
 
 Note: `generated-react-build`, `generated-vue-build` and
@@ -99,19 +128,24 @@ network-free subset (workspace, history, builder, requirements, editor) on
 every PR touching `web/**` or `src/**`, so file-management and builder
 regressions are caught before merge.
 
-## No merge queue on a personal account: the `pr-gate` check
+## The `pr-gate` check
 
 GitHub offers merge queues only on **organization-owned** repositories
-(public on any plan; private on Enterprise Cloud). While this repo lives
-under a personal account, the queue below cannot be switched on — and plain
-required-status-checks can't substitute for it, because **every PR workflow
-here is path-filtered**: a required check that gets path-skipped never
-reports, and the PR blocks on "Expected — waiting for status" forever. A
-docs-only PR would strand on all of them.
+(public on any plan; private on Enterprise Cloud). This one was built while
+the queue was off — it was not switched on for `main` until 2026-09-07 (see
+the status banner; the reason it sat off before then is not recorded here).
+Plain required-status-checks can't substitute for a queue anyway, because
+**every PR workflow here is path-filtered**: a required check that gets
+path-skipped never reports, and the PR blocks on "Expected — waiting for
+status" forever. A docs-only PR would strand on all of them.
 
-`pr-gate.yml` is the personal-account answer — one aggregate check that
-branch protection can require safely. It is **event-driven** (v2): the v1
-design was a single long-polling job, and under real load it fed on itself —
+`pr-gate.yml` was the answer to that, and it still earns its place now that
+the queue is on: it is the **per-PR** verdict, computed in seconds, over
+whatever actually triggered on your head SHA. The queue gates the *rebased
+combination*; `pr-gate` gates *your branch* before you get there, so you
+learn about a red check without spending a queue slot on it. One aggregate
+check that branch protection can require safely. It is **event-driven** (v2):
+the v1 design was a single long-polling job, and under real load it fed on itself —
 each open PR's gate parked a runner slot while polling (six parked gates ≈ a
 third of the ~20-slot pool), starving the very jobs it waited for until its
 timeout fired and needed a manual label re-arm. v2 never waits:
@@ -187,11 +221,29 @@ timeout fired and needed a manual label re-arm. v2 never waits:
   is heavily deprioritised. Re-measure before relying on either figure: list
   the workflow's runs filtered to `event=schedule` and diff `created_at`.
   Practical consequence: a dropped dispatch parks a green PR for **hours**. If
-  you are waiting on one, don't wait for the sweep — force a fresh evaluation
-  (a new SHA, or a re-run of any workflow on the branch; both fire
-  `workflow_run: completed`). Note that `workflow_dispatch` on `pr-gate.yml`
-  and `rerun_workflow_run` both return **403** to a GitHub-App token, so from
-  an agent session the only lever may be a genuine push.
+  you are waiting on one, don't wait for the sweep — but **the two obvious
+  levers are not equivalent**, and this passage used to say they were:
+
+  | lever | works? | evidence |
+  |---|---|---|
+  | a new SHA | **yes** | #2812 was parked on `5e0995d` and unparked the moment `027454e` was pushed |
+  | a re-run of a workflow on the branch | **no** | measured twice — #2812 and #2792. `rerun_workflow_run` returns 201, the dispatch fires, no verdict reaches the head SHA, and the merge stays refused with `Required status check "pr-gate" is expected` |
+
+  The re-run is the expensive mistake: it looks like it worked, so you wait,
+  and the PR is still unmergeable. Reach for the SHA.
+
+  **Suspected cause, not proven.** `concurrency` in `pr-gate.yml` is SHA-keyed
+  with `cancel-in-progress: true` for `workflow_run`. Both `pr-gate` runs that
+  fired for #2792's re-run (`34211962880`, `34212476487`) concluded
+  **`cancelled`**, never `success`, so neither reached the Checks-API publish
+  step. A burst is meant to collapse to the newest evaluation; if the newest is
+  itself cancelled by the next dispatch, it collapses to nothing. Before
+  changing the group key, list the workflow's `event=workflow_run` runs and
+  count `success` versus `cancelled` — that ratio is the actual measurement.
+
+  Separately: `workflow_dispatch` on `pr-gate.yml` can return **403** to a
+  GitHub-App token (`rerun_workflow_run` did **not** here — it returned 201),
+  so from an agent session a genuine push may be the only lever available.
 - The decision core is pure and pinned by `test/system/pr-gate.test.ts` —
   including the fail-closed arms (unknown conclusions, cancelled runs,
   pending-never-green) and the `workflow_run.workflows` list's completeness
@@ -208,14 +260,20 @@ timeout fired and needed a manual label re-arm. v2 never waits:
   component check; fixed in #2481. If a PR is ever red with a culprit list of
   `*-passed` rollups that all show green, this is the shape to check first.
 
-**Branch protection on a personal account should require exactly two
-checks: `tests passed` and `pr-gate`.** Everything else stays non-required
-by name but becomes *binding through pr-gate* the moment it triggers.
+**Branch protection requires exactly two checks: `tests passed` and
+`pr-gate`.** Everything else stays non-required by name but becomes *binding
+through pr-gate* the moment it triggers.
 
-If the repo ever moves to an organization, drop `pr-gate` from the required
-list and follow the merge-queue runbook below instead — the queue subsumes
-it and adds what pr-gate cannot: gating the *rebased combination* of
-concurrent PRs.
+Now that the queue is on, these two are the **entry** bar — what a PR must
+clear to be enqueued — and the queue's own required set (the manifest below)
+is the **landing** bar, evaluated on the rebased candidate. Keeping `pr-gate`
+required is deliberate: dropping it would let a PR that is red on its own
+branch consume a queue slot and a full heavy run before being ejected.
+
+> **Unverified from here:** the *contents* of the branch-protection required
+> list are repo settings, not something any file in this repo can assert.
+> If you are auditing, read them in Settings → Rules and reconcile against
+> [`test/system/merge-queue-required-checks.ts`](../test/system/merge-queue-required-checks.ts).
 
 ## Draft PRs and the runner queue
 
@@ -268,13 +326,14 @@ before it lands, so the exact combination that will be on `main` is what gets
 gated — this is what closes the "never ran on the PR" hole for the push-only
 gates without charging every push.
 
-### Readiness: done. The workflow side is complete.
+### Readiness: done, and the queue is on.
 
 Every workflow in the intended required set now (a) carries a `merge_group:`
 trigger, (b) exposes exactly **one stable check name** suitable for
 branch-protection "required status checks", and (c) behaves correctly on a
-`merge_group` event. **The triggers are inert until the queue is turned on** —
-all that remains is the repo-settings flip below.
+`merge_group` event. **The queue is switched on** — these triggers are live,
+and the runbook below is now a description of the running configuration
+rather than a plan.
 
 The set is written down once, in
 [`test/system/merge-queue-required-checks.ts`](../test/system/merge-queue-required-checks.ts),
@@ -409,6 +468,34 @@ and worth capturing once the settings are stable, but the UI path is primary:
 ruleset JSON silently accepts check names that do not exist, which is the one
 mistake that stalls the queue.
 
+### The wait window has to cover the SLOWEST check, not the average
+
+**Measured 2026-09-08.** With the window at GitHub's 60-minute default, `main`
+sat at one commit for roughly four hours: entries for #2786, #2804, #2792 and
+#2766 each formed, ran the ~40-check heavy set, and were removed without
+merging — then the next entry re-formed on the *same* base and re-rolled the
+same dice. Two independent causes, and it takes both to explain the rotation:
+
+1. **A required check went red.** `java-obs-e2e` failed on two candidates — a
+   docker probe that read its own timeout as "docker is missing" (fixed in
+   #2816). `scripts/pr-gate.mjs` also fail-closes a `cancelled` run into red,
+   which took a third candidate whose every step had concluded `success`.
+2. **A fully green group ran out of window.** On a saturated pool the queue
+   times are not the job times: measured on one group,
+   `generated-angular-build` was queued 86 min and `elixir-vanilla-build`
+   51 min, both against a 60-minute limit. Nothing was failing; the candidate
+   simply could not finish being checked in time.
+
+Raising the window to **120 minutes** cleared it — the very next entry merged.
+So size the window against the slowest check's *queued + run* time under load,
+not its runtime on an idle pool, and re-measure it whenever the required set
+grows. Trimming that set is the other half of the same lever.
+
+Symptom to recognise: the `gh-readonly-queue/main/pr-*` ref keeps changing PR
+number while `main`'s SHA does not move. Enumerate the `merge_group` runs on
+each departed ref — if their conclusions are all `success`, it was the window,
+not a gate.
+
 ### Two merge-group behaviours worth knowing
 
 - **`pages.yml` builds in the queue but never deploys.** The workflow is split
@@ -426,11 +513,12 @@ mistake that stalls the queue.
   that: a required job whose `if:` reads `github.event.pull_request` or
   compares `event_name` must use this idiom.
 
-## The interim escape hatch: force a post-merge gate with a label
+## Force a post-merge gate with a label
 
-Until the queue is on, the gates that are still push-only are invisible on a PR
-— you land, then find out. The manual workaround is a **label trigger**: each of
-those gates carries a `pull_request: types: [labeled]` trigger plus a job-level `if`
+The push-only gates are invisible on a PR — the queue catches them on the
+candidate, but only *after* you enqueue, so a surprise there costs a full
+heavy run and an ejection. To see one before that, use a **label trigger**:
+each of those gates carries a `pull_request: types: [labeled]` trigger plus a job-level `if`
 that runs the job *only* when a specific label is present. Add the label to a
 PR and the otherwise-post-merge gate runs against that branch before merge.
 
@@ -494,7 +582,10 @@ label (or mint a new one) and add a row here + in `CLAUDE.md`.**
   failure is attributed to the commit that caused it instead of being masked
   by the next merge.
 
-## If the merge queue is too big a lift right now — the 80/20, and where it got to
+## [historical] If the merge queue is too big a lift right now — the 80/20, and where it got to
+
+Superseded — the queue is on. Kept because the reasoning still applies to any
+gate you are deciding whether to promote into the per-PR lane.
 
 The 80/20 without a queue is to give a post-merge gate a `pull_request:`
 trigger scoped to its real blast radius (not the full matrix), so the common
