@@ -180,6 +180,10 @@ export const DIAGNOSTIC_MESSAGES = {
   "loom.top-level-domain-needs-single-system": (p: { kw: unknown; reason: unknown }) =>
     `A top-level '${p.kw}' composes into the project's single 'system', but ${p.reason}. ` +
     "Declare exactly one 'system { ... }' across the import graph (it may hold just the name, theme, user and deployment), or nest this declaration inside it.",
+  "loom.multiple-systems": (p: { count: unknown }) =>
+    `The project declares ${p.count} 'system { ... }' blocks across the import graph, but a project has exactly one. ` +
+    "The system is what composition folds into and what 'generate system' emits as one deployment, so a second one has no resolution — both are merged into a single tree and a single docker-compose.yml. " +
+    "Keep one 'system { ... }' and move the other's members into it, or split them into separate projects.",
   "loom.duplicate-user-block": (p: { userCount: unknown }) =>
     `The project declares ${p.userCount} 'user { ... }' blocks, but a system admits at most one. ` +
     "Keep a single user block (it may live in any file that composes into the system).",

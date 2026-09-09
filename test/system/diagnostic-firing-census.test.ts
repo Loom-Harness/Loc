@@ -174,6 +174,25 @@ ${uiBody}
 }`;
 
 const FIRING_FIXTURES: Record<string, string> = {
+  // --- phase ④ AST validate -----------------------------------------------
+  // Two complete `system { }` blocks and NO top-level members — the shape that
+  // slipped past the fold-triggered composition check, because with nothing to
+  // fold it returned before ever counting systems (F36).  The smallest system
+  // pair that parses; the diagnostic lands on the SECOND one.
+  "loom.multiple-systems": `
+system Alpha {
+  subdomain S { context Ops {
+    aggregate Job { name: string }
+    repository Jobs for Job { }
+  } }
+}
+
+system Beta {
+  subdomain T { context Other {
+    aggregate Task { title: string }
+    repository Tasks for Task { }
+  } }
+}`,
   // --- phase ① parse ------------------------------------------------------
   // A mistyped design pack.  `loom.parse-error` is the code `src/api/report.ts`
   // stamps on Langium's `parsing-error`, and the wording it carries is
