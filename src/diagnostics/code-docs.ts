@@ -37,6 +37,7 @@ const CHAPTER_DIR = "language-reference";
  *  construct has a documented section; extend it as the reference grows (the
  *  ratchet test then asks you to drop the code from its undocumented list). */
 export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
+  "loom.multiple-systems": "02-systems-and-topology.md#system",
   "loom.duplicate-theme-block": "02-systems-and-topology.md#theme",
   "loom.entity-field-modifier": "03-domain-modeling.md#entity-parts--contains",
   "loom.entity-field-optional-collection": "04-type-system.md#collections--t",
