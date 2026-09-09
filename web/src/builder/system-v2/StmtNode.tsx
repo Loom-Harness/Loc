@@ -6,6 +6,7 @@
 import { Box, Button, Group, Text } from "@mantine/core";
 import { useState } from "react";
 import { Handle, Position, type NodeProps } from "@xyflow/react";
+import { IconArrowDown, IconArrowUp, IconX } from "../icons";
 import { StmtRow, type NestedExprEditors } from "../system/BodyEditor";
 import type { StmtView } from "../system/body";
 import type { ReactNode } from "react";
@@ -75,7 +76,7 @@ const KIND_TINT: Record<StmtView["kind"], string> = {
   for: "var(--mantine-color-indigo-9)",
   ifLet: "var(--mantine-color-violet-9)",
   match: "var(--mantine-color-pink-9)",
-  other: "var(--mantine-color-dark-5)",
+  other: "var(--loom-bg-active)",
 };
 
 export default function StmtNode({ data }: NodeProps): JSX.Element {
@@ -116,7 +117,7 @@ export default function StmtNode({ data }: NodeProps): JSX.Element {
       // node drag (selection, text-input clicks, dropdowns).
       className="nodrag nopan"
       style={{
-        background: "var(--mantine-color-dark-6)",
+        background: "var(--loom-bg-raised)",
         border: `1px solid ${KIND_TINT[kind]}`,
         borderLeft: `4px solid ${KIND_TINT[kind]}`,
         borderRadius: 6,
@@ -127,7 +128,7 @@ export default function StmtNode({ data }: NodeProps): JSX.Element {
       data-stmt-kind={kind}
       data-stmt-subkind={kind}
     >
-      <Handle type="target" position={Position.Top} style={{ background: "var(--mantine-color-dark-3)" }} />
+      <Handle type="target" position={Position.Top} style={{ background: "var(--loom-border-strong)" }} />
       <Group gap={2} justify="space-between" wrap="nowrap" mb={4}>
         <Text size="xs" tt="uppercase" c="dimmed">
           {KIND_LABEL[kind]}
@@ -140,19 +141,23 @@ export default function StmtNode({ data }: NodeProps): JSX.Element {
                   size="compact-xs"
                   variant="subtle"
                   data-testid="c4system-v2-stmt-up"
+                  aria-label="move statement up"
+                  title="move statement up"
                   disabled={d.canMoveUp === false}
                   onClick={() => d.onMove?.(-1)}
                 >
-                  ↑
+                  <IconArrowUp />
                 </Button>
                 <Button
                   size="compact-xs"
                   variant="subtle"
                   data-testid="c4system-v2-stmt-down"
+                  aria-label="move statement down"
+                  title="move statement down"
                   disabled={d.canMoveDown === false}
                   onClick={() => d.onMove?.(1)}
                 >
-                  ↓
+                  <IconArrowDown />
                 </Button>
               </>
             )}
@@ -162,16 +167,18 @@ export default function StmtNode({ data }: NodeProps): JSX.Element {
                 variant="subtle"
                 color="red"
                 data-testid="c4system-v2-stmt-delete"
+                aria-label="remove statement"
+                title="remove statement"
                 onClick={() => d.onDelete?.()}
               >
-                ×
+                <IconX />
               </Button>
             )}
           </Group>
         )}
       </Group>
       {body}
-      <Handle type="source" position={Position.Bottom} style={{ background: "var(--mantine-color-dark-3)" }} />
+      <Handle type="source" position={Position.Bottom} style={{ background: "var(--loom-border-strong)" }} />
     </Box>
   );
 }

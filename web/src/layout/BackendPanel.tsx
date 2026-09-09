@@ -16,6 +16,21 @@ import { PlainJsonBody } from "../backend/PlainJsonBody";
 import { LazyJsonBodyEditor } from "./lazy-panels";
 import { SqlConsole } from "../backend/SqlConsole";
 import { CUSTOM_ENDPOINT, groupEndpointsByTag } from "../backend/openapi";
+import { RequestsView } from "../backend/RequestsView";
+import { TablesView } from "../backend/TablesView";
+import {
+  DISPATCH_FAILED,
+  interpretBootError,
+  interpretStatus,
+  nextStepMid,
+  RUNTIME_STATUS,
+  RUNTIME_VIEW,
+  seeStream,
+  STAGE,
+  STREAM,
+} from "./vocabulary";
+import { ConfirmAction, confirmSites } from "../util/confirm";
+import { OutputStreamLink } from "./OutputStreamLink";
 
 interface Props {
   ctx: LayoutCtx;
@@ -29,28 +44,41 @@ interface Props {
 // Lifted out so both shells can reuse it: desktop renders it inside
 // a Group beside the "Runtime" label, mobile renders it in a banner
 // above the form body (Mantine Tabs.List only holds the labels).
+// On desktop the Boot button lives on the header's pipeline strip
+// (`btn-boot` there — M-T8.16); mobile has no strip buttons, so the
+// banner keeps it.
 export function BackendHeader({ ctx }: Props): JSX.Element {
-  const { pipeline, ddl, honoBundle, runBoot } = ctx;
+  const { isDesktop, pipeline, ddl, honoBundle, runBoot } = ctx;
   return (
     <Group gap="xs" wrap="wrap" justify="flex-end">
       {ddl ? (
-        <Badge size="xs" color="green" variant="light" data-testid="backend-status">booted</Badge>
+        <Badge size="xs" color="green" variant="light" data-testid="backend-status">
+          {RUNTIME_STATUS.booted}
+        </Badge>
       ) : (
-        <Badge size="xs" color="gray" variant="light" data-testid="backend-status">offline</Badge>
+        <Badge size="xs" color="gray" variant="light" data-testid="backend-status">
+          {RUNTIME_STATUS.offline}
+        </Badge>
       )}
-      <Button
-        size="xs"
-        onClick={runBoot}
-        loading={pipeline.booting}
-        disabled={!honoBundle}
-        variant="default"
-        data-testid="btn-boot"
-      >
-        {ddl ? "Reboot" : "Boot"}
-      </Button>
+      {!isDesktop && (
+        <Button
+          size="xs"
+          onClick={runBoot}
+          loading={pipeline.booting}
+          disabled={!honoBundle}
+          variant="default"
+          data-testid="btn-boot"
+        >
+          {ddl ? "Reboot" : STAGE.boot}
+        </Button>
+      )}
     </Group>
   );
 }
+
+type Subview = "api" | "db" | "tables" | "requests";
+const SUBVIEWS: readonly Subview[] = ["api", "db", "tables", "requests"];
+const isSubview = (v: string): v is Subview => (SUBVIEWS as readonly string[]).includes(v);
 
 // The form body: method + path + body + send + response.  No
 // resize/scroll wrapper — the shell decides the surrounding box.
@@ -83,11 +111,13 @@ export function BackendBody({ ctx }: Props): JSX.Element {
     queryParamValues,
     setQueryParam,
     runGenerateExample,
+    requestTraces,
   } = ctx;
 
-  // Which sub-view of the Runtime tab is showing — the API console or
-  // the Database console.  Local UI state; not worth persisting.
-  const [subview, setSubview] = useState<"api" | "db">("api");
+  // Which sub-view of the Runtime tab is showing — the API console, the
+  // Database console, the read-only Tables view, or the Requests traces
+  // (M-T8.22).  Local UI state; not worth persisting.
+  const [subview, setSubview] = useState<Subview>("api");
 
   // iOS Safari auto-zooms on input focus when the input's font is
   // < 16 px.  Bumping mobile to 16 px keeps zoom away without
@@ -112,21 +142,36 @@ export function BackendBody({ ctx }: Props): JSX.Element {
     <Box style={{ flex: 1, minHeight: 0, overflow: "auto" }} p="xs">
       {bootErrorMessage && (
         <Stack gap={6} mb="xs">
+          {/* One line of interpretation + the stream that holds the stack,
+              ABOVE the raw text (audit M19). */}
+          <Group gap={6} wrap="wrap" align="baseline">
+            <Text size="xs" c="red" data-testid="boot-error-hint" style={{ flex: 1, minWidth: 200 }}>
+              {interpretBootError(bootErrorMessage)}
+            </Text>
+            <OutputStreamLink ctx={ctx} stream="backend" label={seeStream(STREAM.runtimeLogs)} />
+          </Group>
           <Code block c="red" style={{ whiteSpace: "pre-wrap", fontSize: 11 }} data-testid="boot-error">
             {bootErrorMessage}
           </Code>
           {honoBundle && (
             <Group gap={6} align="center">
-              <Button
-                size="xs"
-                variant="default"
-                color="red"
-                onClick={runResetData}
-                loading={pipeline.booting}
-                data-testid="btn-reset-data"
-              >
-                Clear stored data &amp; retry
-              </Button>
+              <ConfirmAction
+                spec={confirmSites.clearStoredData()}
+                onConfirm={runResetData}
+                testids={{ base: "btn-reset-data", yes: "btn-reset-data-confirm" }}
+                trigger={(arm) => (
+                  <Button
+                    size="xs"
+                    variant="default"
+                    color="red"
+                    onClick={arm}
+                    loading={pipeline.booting}
+                    data-testid="btn-reset-data"
+                  >
+                    Clear stored data &amp; retry…
+                  </Button>
+                )}
+              />
               <Text size="xs" c="dimmed">
                 If the boot fails on stale persisted data, this drops the saved database and reboots clean.
               </Text>
@@ -140,10 +185,18 @@ export function BackendBody({ ctx }: Props): JSX.Element {
             size="xs"
             fullWidth
             value={subview}
-            onChange={(v) => setSubview(v as "api" | "db")}
+            onChange={(v) => isSubview(v) && setSubview(v)}
             data={[
-              { label: "API", value: "api" },
-              { label: "Database", value: "db" },
+              { label: RUNTIME_VIEW.api, value: "api" },
+              { label: RUNTIME_VIEW.db, value: "db" },
+              { label: RUNTIME_VIEW.tables, value: "tables" },
+              {
+                label:
+                  requestTraces.total > 0
+                    ? `${RUNTIME_VIEW.requests} (${requestTraces.total})`
+                    : RUNTIME_VIEW.requests,
+                value: "requests",
+              },
             ]}
             data-testid="runtime-subview"
           />
@@ -155,6 +208,10 @@ export function BackendBody({ ctx }: Props): JSX.Element {
               runQuery={runQuery}
               isDesktop={isDesktop}
             />
+          ) : subview === "tables" ? (
+            <TablesView ctx={ctx} />
+          ) : subview === "requests" ? (
+            <RequestsView ctx={ctx} />
           ) : (
           <Stack gap={6}>
           {endpointData.length > 0 && (
@@ -281,6 +338,23 @@ export function BackendBody({ ctx }: Props): JSX.Element {
                     {dispatchSlot.durationMs} ms
                   </Text>
                 </Group>
+                {/* An error status gets one line of interpretation + the
+                    stream that explains it, ABOVE the raw body (audit M19). */}
+                {dispatchSlot.response.status >= 400 && (
+                  <Group gap={6} wrap="wrap" align="baseline" mb={4}>
+                    <Text size="xs" c="red" data-testid="resp-hint" style={{ flex: 1, minWidth: 200 }}>
+                      {interpretStatus(dispatchSlot.response.status)}
+                    </Text>
+                    {dispatchSlot.response.status >= 500 && (
+                      <OutputStreamLink ctx={ctx} stream="backend" label={seeStream(STREAM.runtimeLogs)} />
+                    )}
+                    {dispatchSlot.response.status === 404 && (
+                      <Button size="compact-xs" variant="subtle" onClick={() => setSubview("requests")} data-testid="resp-see-404s">
+                        See 404s →
+                      </Button>
+                    )}
+                  </Group>
+                )}
                 <Code
                   block
                   style={{
@@ -299,9 +373,17 @@ export function BackendBody({ ctx }: Props): JSX.Element {
                 </Code>
               </Box>
             ) : (
-              <Code block c="red" style={{ whiteSpace: "pre-wrap", fontSize: 11 }} data-testid="resp-err">
-                {dispatchSlot.message}
-              </Code>
+              <Stack gap={4}>
+                <Group gap={6} wrap="wrap" align="baseline">
+                  <Text size="xs" c="red" data-testid="resp-err-hint" style={{ flex: 1, minWidth: 200 }}>
+                    {DISPATCH_FAILED}
+                  </Text>
+                  <OutputStreamLink ctx={ctx} stream="backend" label={seeStream(STREAM.runtimeLogs)} />
+                </Group>
+                <Code block c="red" style={{ whiteSpace: "pre-wrap", fontSize: 11 }} data-testid="resp-err">
+                  {dispatchSlot.message}
+                </Code>
+              </Stack>
             )
           )}
           </Stack>
@@ -310,8 +392,8 @@ export function BackendBody({ ctx }: Props): JSX.Element {
       ) : (
         <Text size="xs" c="dimmed">
           {honoBundle
-            ? "Click Boot to spin up PGlite + the generated Hono app."
-            : "Generate and Bundle first to enable the runtime."}
+            ? `${isDesktop ? `Click ${STAGE.boot}` : nextStepMid("boot", false)} to start the generated API and an in-browser Postgres. You can then call endpoints and run SQL here.`
+            : `${nextStepMid("boot", isDesktop)} to start the generated API and an in-browser Postgres.`}
         </Text>
       )}
     </Box>
@@ -367,21 +449,39 @@ function DatabaseView({
 
       <SqlConsole runQuery={runQuery} isDesktop={isDesktop} />
 
-      <Stack gap={4}>
-        <Button
-          size="xs"
-          variant="default"
-          color="red"
-          onClick={runWipe}
-          style={{ alignSelf: "flex-start" }}
-          data-testid="btn-wipe"
-        >
-          Reset database
-        </Button>
-        <Text size="xs" c="dimmed">
-          Drops every row and re-applies the schema. The table structure stays — only your data is cleared.
-        </Text>
-      </Stack>
+      <ResetDatabase runWipe={runWipe} />
+    </Stack>
+  );
+}
+
+// Two-step reset: the first click reveals the consequence and a confirm,
+// so one stray click can't drop every row.  The explanation sits ABOVE
+// the button so it is read before, not after, the action.  The two-step
+// itself is the shared `ConfirmAction` (inline shape) — the same control
+// every other destructive action in the playground uses.
+function ResetDatabase({ runWipe }: { runWipe: () => void }): JSX.Element {
+  return (
+    <Stack gap={4}>
+      <Text size="xs" c="dimmed">
+        Reset drops every row and re-applies the schema. The table structure stays — only your data is cleared.
+      </Text>
+      <ConfirmAction
+        spec={confirmSites.resetDatabase()}
+        onConfirm={runWipe}
+        testids={{ base: "btn-wipe", yes: "btn-wipe-confirm" }}
+        trigger={(arm) => (
+          <Button
+            size="xs"
+            variant="default"
+            color="red"
+            onClick={arm}
+            style={{ alignSelf: "flex-start" }}
+            data-testid="btn-wipe"
+          >
+            Reset database…
+          </Button>
+        )}
+      />
     </Stack>
   );
 }

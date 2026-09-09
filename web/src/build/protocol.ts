@@ -16,21 +16,93 @@ export interface BuildDiagnostic {
   line?: number;
   column?: number;
   source?: string;
+  /** The stable `loom.*` code, when the diagnostic carries one. */
+  code?: string;
 }
 
 export interface VirtualFile {
   path: string;
   content: string;
   size: number;
+  /** Content hash (FNV-1a 32-bit, hex) — what the generated tree diffs
+   *  against the PREVIOUS generate to mark a file added / changed
+   *  (M-T8.20 slice 2).  Computed once in the worker, where the content
+   *  already sits in hand, so the main thread never re-walks 100+ file
+   *  bodies on every keystroke-driven regenerate.  Optional: files
+   *  synthesised on the main thread (the workspace merge in
+   *  `App.persistGeneratedTree`) carry none, and `output-diff.ts` falls
+   *  back to comparing content for those. */
+  hash?: string;
 }
 
 export type GenerateMode = "system" | "ts" | "none";
+
+/** One HTTP operation the generated API exposes, as platform-neutral data.
+ *  Derived in the worker from `deriveContextOperations`
+ *  (`src/ir/util/api-surface.ts`) — the SAME derivation all five backend
+ *  route builders render from — so the playground's API view describes the
+ *  operations the generated backend actually serves, whichever platform
+ *  emitted it, and without parsing generated source or booting anything. */
+export interface ApiOperationView {
+  /** Owning bounded context. */
+  context: string;
+  /** Owning aggregate — the grouping key of the API view. */
+  aggregate: string;
+  /** Upper-case HTTP verb (`GET`, `POST`, …). */
+  method: string;
+  /** Absolute path template, e.g. `/api/products/{id}`. */
+  path: string;
+  /** Canonical camelCase operation id (`getProductById`). */
+  id: string;
+  /** Which shipped route arm emitted it — `create` / `getById` /
+   *  `destroy` / `operation` / `gateProbe` / `find`. */
+  kind: string;
+}
+
+/** One `channel` declaration, as the AsyncAPI view renders it. */
+export interface ChannelView {
+  context: string;
+  name: string;
+  carries: string[];
+  delivery: string;
+  retention: string;
+  key?: string;
+}
+
+/** The API view's payload — operations plus the channels the system's
+ *  `.loom/asyncapi.yaml` describes. */
+export interface ApiSurfaceView {
+  operations: ApiOperationView[];
+  channels: ChannelView[];
+}
+
+/** The parsed `.loom/sourcemap.json` — re-exported from `src/trace/`, the
+ *  one place the published wire shape is declared for consumers.  The
+ *  worker now records it on EVERY system generate (see
+ *  `GenerateParams.sourcemap` for why that does not change `files`). */
+export type { SourceMap as LoomSourceMap } from "../../../src/trace/index.js";
+import type { SourceMap as LoomSourceMapType } from "../../../src/trace/index.js";
 
 export interface GenerateOk {
   ok: true;
   mode: GenerateMode;
   files: VirtualFile[];
   diagnostics: BuildDiagnostic[];
+  /** The construct-granular `.ddd` ↔ generated-file map, ALWAYS recorded
+   *  for a system-mode generate (M-T8.20 slice 3) — the correspondence
+   *  view, not just the `--sourcemap` boot bundle, depends on it.
+   *
+   *  Returning it BESIDE `files` (rather than leaving
+   *  `.loom/sourcemap.json` in the tree) is what keeps "always on" free of
+   *  side effects: the emitted tree, the download `.zip` and every
+   *  byte-identity fixture stay exactly as they were, because the artifact
+   *  is only ADDED to `files` when the caller actually asked for
+   *  `sourcemap: true`.  Absent for `mode: "ts"` / `"none"`, which record
+   *  no regions. */
+  sourcemap?: LoomSourceMapType;
+  /** Platform-neutral operation + channel inventory for the API view
+   *  (M-T8.20 slice 1).  Absent when the source declares no system. */
+  api?: ApiSurfaceView;
 }
 
 export interface GenerateFail {
@@ -79,9 +151,24 @@ export interface MigrationView {
    *  name (`"AddOrderStatus"`). */
   name: string;
   version: string;
-  steps: { op: string; sql: string }[];
+  /** Each step carries the bare table name it targets (when the op has one —
+   *  `sqlComment` / `sqlExec` / `renameIndex` don't), so the Migrations tab
+   *  can tint the schema diagram per table without re-parsing the SQL. */
+  steps: { op: string; sql: string; table?: string }[];
   destructive: boolean;
   destructiveMessage?: string;
+}
+
+/** One table of the CURRENT schema (the `next` snapshot every module's
+ *  migration is derived towards) — the nodes of the Migrations tab's
+ *  schema diagram.  `refs` are the bare names of the tables this one's
+ *  foreign keys point at. */
+export interface SchemaTableView {
+  module: string;
+  name: string;
+  schema?: string;
+  columns: string[];
+  refs: string[];
 }
 
 /** One wire-contract change, classified breaking vs additive by
@@ -102,6 +189,11 @@ export interface EvolutionOk {
    *  migration reads `"Initial"`. */
   hasBaseline: boolean;
   migrations: MigrationView[];
+  /** Every table the current source describes, across modules — including
+   *  the untouched ones, which is what lets the diagram dim them (audit
+   *  M8 / M-T8.22).  Tables the change DROPS are not here; the tint map
+   *  recovers them from the `dropTable` steps. */
+  tables: SchemaTableView[];
   wireChanges: WireChangeView[];
   /** Any breaking wire change OR any destructive migration. */
   breaking: boolean;
@@ -174,11 +266,18 @@ export type VfsDeleteResult = VfsDeleteOk;
 export interface GenerateParams {
   text?: string;
   entryPath?: string;
-  /** Opt-in Source Map v3 sidecars — threads into `generateSystems` /
-   *  `generateSystemsFromLoom`'s `GenerateSystemOptions.sourcemap`.
-   *  Off (undefined/false) by default so the "generated code" view and
-   *  the download-zip stay byte-identical; only a caller that wants a
-   *  `.ddd`-debuggable run bundle sets this.  See `client.ts`. */
+  /** Opt-in Source Map v3 sidecars + the `.loom/sourcemap.json` ARTIFACT.
+   *
+   *  The recorder itself is no longer opt-in — since M-T8.20 the worker
+   *  always records it and returns the parsed map on
+   *  `GenerateOk.sourcemap`, because the correspondence view needs it on
+   *  every generate.  What this flag still switches is what lands in
+   *  `files`: the `.ts.map` / `.java.smap` sidecars, the trailing
+   *  `sourceMappingURL` directives and `.loom/sourcemap.json` itself,
+   *  none of which a caller wants in the "generated code" view or the
+   *  download-zip.  Off (undefined/false) by default, so that output
+   *  stays byte-identical; only a caller that wants a `.ddd`-debuggable
+   *  run bundle sets this.  See `client.ts`. */
   sourcemap?: boolean;
 }
 
