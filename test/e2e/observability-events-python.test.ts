@@ -5,6 +5,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { requireDocker } from "./support/docker-probe.js";
 
 // ---------------------------------------------------------------------------
 // Observability events on the Python backend — end-to-end regression
@@ -32,18 +33,9 @@ const cli = path.join(repoRoot, "bin", "cli.js");
 const ENABLED = process.env.LOOM_OBS_E2E_PYTHON === "1";
 const PG_URL_OVERRIDE = process.env.LOOM_OBS_PG_URL;
 
-function hasDocker(): boolean {
-  try {
-    execSync("docker info", { stdio: "pipe", timeout: 5_000 });
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 function hasUv(): boolean {
   try {
-    execSync("uv --version", { stdio: "pipe", timeout: 5_000 });
+    execSync("uv --version", { stdio: "pipe", timeout: 15_000 });
     return true;
   } catch {
     return false;
@@ -100,12 +92,7 @@ describe.skipIf(!ENABLED)(
   () => {
     it("boot + /health round-trip emits the catalog lifecycle + request bracket", async () => {
       // Loud prerequisite failures (not silent skips) so CI drift surfaces.
-      if (!PG_URL_OVERRIDE && !hasDocker()) {
-        throw new Error(
-          "LOOM_OBS_E2E_PYTHON=1 set but docker is unreachable and no LOOM_OBS_PG_URL " +
-            "override was given.  The suite needs postgres from one of the two.",
-        );
-      }
+      if (!PG_URL_OVERRIDE) requireDocker("LOOM_OBS_E2E_PYTHON=1", "LOOM_OBS_PG_URL");
       if (!hasUv()) {
         throw new Error("LOOM_OBS_E2E_PYTHON=1 set but `uv` is not on PATH.");
       }

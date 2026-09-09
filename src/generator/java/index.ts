@@ -34,7 +34,7 @@ import { durableEventTypes } from "../../ir/util/channels.js";
 import { directParentOf } from "../../ir/util/containment-parent.js";
 import { aggregateHasFileField } from "../../ir/util/file-field.js";
 import { foreignIdBrandNames, workflowIdTypeSources } from "../../ir/util/foreign-ids.js";
-import { isTpcBase, isTphBase, tableOwnerName } from "../../ir/util/inheritance.js";
+import { isTpcBase, isTphBase, isTphConcrete, tableOwnerName } from "../../ir/util/inheritance.js";
 import { mergeContexts } from "../../ir/util/merge-contexts.js";
 import {
   effectiveSavingShape,
@@ -102,6 +102,8 @@ import {
   renderForbiddenException,
   renderPackageMarker,
   renderPagedRecord,
+  renderWireFormatException,
+  renderWireNumberStrictness,
 } from "./emit/common.js";
 import { criterionEligible, renderJavaCriteriaClasses } from "./emit/criteria.js";
 import { renderJavaDispatcher } from "./emit/dispatch.js";
@@ -438,6 +440,9 @@ function emitProjectFromContexts(
   // Shared domain types + the package markers that keep the entity files'
   // wildcard imports valid even when a package would otherwise be empty.
   place("DomainException.java", "domain-common", renderDomainException(basePkg));
+  // The wire-format tier (M-T6.48): a malformed money string is a 422 with a
+  // pointer, not the 500 a bare `new BigDecimal` produced.
+  place("WireFormatException.java", "domain-common", renderWireFormatException(basePkg));
   place("ForbiddenException.java", "domain-common", renderForbiddenException(basePkg));
   place("DisallowedException.java", "domain-common", renderDisallowedException(basePkg));
   place(
@@ -526,6 +531,9 @@ function emitProjectFromContexts(
   // Prometheus HTTP metrics — catalog-driven Micrometer meters, served at
   // /metrics (Actuator), recorded from RequestCatalogFilter's request_end seam.
   place("HttpMetrics.java", "config", renderHttpMetrics(basePkg));
+  // Numeric request fields are strict (M-T6.48): no silent float→int
+  // truncation, no stringified numbers — both MEASURED as accepted before.
+  place("WireNumberStrictness.java", "config", renderWireNumberStrictness(basePkg));
   // Ambient execution-context carrier (correlation_id / scope_id / actor_id in
   // MDC) — always-on, the cross-backend RequestContext (docs/architecture/
   // request-context.md).  The principal's actor_id is stamped by UserFilter.
@@ -1562,9 +1570,21 @@ function emitAggregate(
   const tpcBase = agg.extendsAggregate
     ? ctx.aggregates.find((a) => a.name === agg.extendsAggregate && isTpcBase(a, ctx.aggregates))
     : undefined;
-  const tphBase = agg.extendsAggregate
-    ? ctx.aggregates.find((a) => a.name === agg.extendsAggregate && isTphBase(a, ctx.aggregates))
-    : undefined;
+  // TPH identity is a property of THIS concrete, not of the base alone: a
+  // `shape: document` / `persistedAs: eventLog` concrete is forced to
+  // `inheritanceUsing: ownTable` under a `sharedTable` base (the sanctioned
+  // mixed hierarchy, `loom.es-tph-forced-own-table`), so the base stays a TPH
+  // base while this subtype owns its own table AND its own `<Agg>Id`.  Asking
+  // `isTphBase(base)` alone answered "shares identity" for such a concrete
+  // while `tableOwnerName(agg)` — which asks `isTphConcrete(agg)` — resolved
+  // the id class to `<Agg>Id`, so the entity minted a `<Base>Id` the service
+  // and repository refused (java: "incompatible types: ThingBaseId cannot be
+  // converted to ThingId").  Both questions now route through the same
+  // predicate; byte-identical for every hierarchy whose members agree.
+  const tphBase =
+    agg.extendsAggregate && isTphConcrete(agg, ctx.aggregates)
+      ? ctx.aggregates.find((a) => a.name === agg.extendsAggregate && isTphBase(a, ctx.aggregates))
+      : undefined;
   const inheritedBase = tpcBase ?? tphBase;
   const superType = inheritedBase
     ? {

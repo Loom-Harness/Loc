@@ -14,10 +14,15 @@
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../../_helpers/generate.js";
 
-// `viaStore` is a page `derived` over a STORE field — a binding only the page
-// shell can name, so the derived stays deferred and every read of it degrades
-// to the sentinel.  That gives one deterministic degraded value to feed into a
-// table cell, a tab body and a Card child at once.
+// `viaId` is a page `derived` over the magic route `id` — a binding the shell
+// only binds when a READ keys on it, so the derived stays deferred and every
+// read of it degrades to the sentinel.  That gives one deterministic degraded
+// value to feed into a table cell, a tab body and a Card child at once.
+//
+// (It used to be a derived over a STORE field.  W1.2 / M-T1.28 taught the page
+// shell to hoist the store binding for one of those, so that shape RENDERS now
+// — see `derived-store-read.test.ts`.  The route id is the remaining
+// page-shell-only binding, and it degrades identically.)
 const SRC = `
 system Shop {
   subdomain Sales { context Orders {
@@ -29,16 +34,15 @@ system Shop {
   ui App {
     framework: flutter
     api Shop: ShopApi
-    store Cart { state { count: int = 0 } }
     page List {
       route: "/products"
-      derived viaStore: int = Cart.count + 1
+      derived viaId: string = id
       body: Stack {
         QueryView { of: Shop.Product.all,
           loading: Text { "…" }, error: Text { "e" }, empty: Text { "none" },
-          data: rows => Table(Column("Name", p => p.name), Column("Extra", p => Text { viaStore }), rows: rows) },
-        Tabs { Tab { "One", Text { viaStore } } },
-        Card { Text { viaStore } }
+          data: rows => Table(Column("Name", p => p.name), Column("Extra", p => Text { viaId }), rows: rows) },
+        Tabs { Tab { "One", Text { viaId } } },
+        Card { Text { viaId } }
       }
     }
   }
@@ -52,7 +56,7 @@ const page = async (): Promise<string> =>
 describe("flutter degradation sentinels stay widgets", () => {
   it("emits a degraded table cell as a widget, not as Dart source inside Text(…)", async () => {
     const dart = await page();
-    expect(dart).toContain("DataCell(const SizedBox.shrink() /* ref: viaStore */)");
+    expect(dart).toContain("DataCell(const SizedBox.shrink() /* ref: viaId */)");
     expect(dart).not.toContain("DataCell(Text('const SizedBox");
   });
 
@@ -60,9 +64,9 @@ describe("flutter degradation sentinels stay widgets", () => {
     const dart = await page();
     // Tab body (`TabBarView` children) and Card content ride the same probe.
     expect(dart).toContain(
-      "TabBarView(children: <Widget>[ const SizedBox.shrink() /* ref: viaStore */ ])",
+      "TabBarView(children: <Widget>[ const SizedBox.shrink() /* ref: viaId */ ])",
     );
-    expect(dart).toContain("children: <Widget>[const SizedBox.shrink() /* ref: viaStore */]");
+    expect(dart).toContain("children: <Widget>[const SizedBox.shrink() /* ref: viaId */]");
     // Nowhere in the page is a `const `-leading widget stringified.
     expect(dart).not.toContain("Text('const SizedBox");
     expect(dart).not.toMatch(/Text\('const\s/);

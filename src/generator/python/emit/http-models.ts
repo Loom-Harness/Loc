@@ -37,6 +37,57 @@ const PY_UUID_STR_DEF = [
   "]",
 ];
 
+/** Name of the shared money-format string alias emitted into
+ *  `app/http/wire_models.py`.  Referenced by every REQUEST-side `money`
+ *  annotation, so the wire grammar is declared in exactly one place. */
+export const PY_MONEY_STR = "MoneyStr";
+
+/** Python source of the `MoneyStr` alias — the python arm of M-T6.48.
+ *
+ *  A `money` request field is a STRING on the wire and the route re-parses it
+ *  with `Decimal(...)` (`pyWireToDomain`).  That parse was bare, so
+ *  `{"price": "12,50"}` raised `decimal.InvalidOperation` out of the handler
+ *  and FastAPI answered **500** — a client error reported as a server fault,
+ *  where node answers a typed 4xx and .NET (whose arm landed first) answers
+ *  422 with `{pointer, message}`.  Validating at the MODEL puts the refusal
+ *  where pydantic already builds that envelope: the error carries the field's
+ *  own `loc`, so `errors[].pointer` is `/price` — and `/best/offer` for a
+ *  value-object field — with no pointer plumbing at the raise site.
+ *
+ *  `AfterValidator` rather than `StringConstraints(pattern=…)` (which is what
+ *  `UuidStr` above uses) for ONE reason: the message.  A pattern failure reads
+ *  "String should match pattern '…'", while node's `moneySchema` and .NET's
+ *  `WireFormatException` both say `Invalid decimal: "12,50"`.  The wire-golden
+ *  differential compares bodies across backends, so a divergent message is a
+ *  real divergence — and as of M-T9.37 that gate can finally see the numbers
+ *  it compares.  `PydanticCustomError` carries the text verbatim; a bare
+ *  `ValueError` would prefix it with "Value error, ".
+ *
+ *  The regex is node's, character for character (`^-?\d+(\.\d+)?$`) — no
+ *  exponent, no grouping, no leading `+`, which is exactly the grammar the
+ *  `NUMERIC(19,4)` column and every other backend's parser accept. */
+const PY_MONEY_STR_DEF = [
+  "",
+  '_MONEY_RE = re.compile(r"^-?\\d+(\\.\\d+)?$")',
+  "",
+  "",
+  "def _money_str(value: str) -> str:",
+  "    if _MONEY_RE.match(value) is None:",
+  "        # The context form, not an f-string: the message is a TEMPLATE, and a",
+  "        # value containing braces would otherwise be re-interpreted as one.",
+  "        raise PydanticCustomError(",
+  '            "money_format", "Invalid decimal: {value}", {"value": json.dumps(value)}',
+  "        )",
+  "    return value",
+  "",
+  "",
+  `${PY_MONEY_STR} = Annotated[`,
+  "    str,",
+  "    AfterValidator(_money_str),",
+  '    WithJsonSchema({"type": "string", "format": "decimal"}),',
+  "]",
+];
+
 /** The `from app.http.wire_models import …` line a routes-shaped module needs:
  *  its aliased value-object models plus `UuidStr` when the module annotates a
  *  reference-typed request field.  One import line (ruff F401 forbids the
@@ -51,6 +102,7 @@ export function wireModelImport(
     // provenanced response field (M-T6.12).
     ...(refersTo(PY_PROVENANCED) ? [PY_PROVENANCED] : []),
     ...(refersTo(PY_UUID_STR) ? [PY_UUID_STR] : []),
+    ...(refersTo(PY_MONEY_STR) ? [PY_MONEY_STR] : []),
   ];
   return names.length > 0 ? `from app.http.wire_models import ${names.join(", ")}` : null;
 }
@@ -87,7 +139,14 @@ function wireFieldType(
           // directions on every backend (Hono/.NET/Java/Phoenix) — the route
           // handler re-parses it into Decimal for the domain
           // (`pyWireToDomain`), and `to_wire` stringifies on the way out.
-          return "str";
+          //
+          // The REQUEST side carries the format constraint (M-T6.48): the
+          // downstream `Decimal(...)` is total only for strings this alias
+          // admits, so validating here is what turns a 500 into a 422.  The
+          // RESPONSE side stays a bare `str` — it is OUR digits going out, the
+          // constraint would never fire, and narrowing it would only publish a
+          // needless schema restriction on a field clients read.
+          return dir === "request" ? PY_MONEY_STR : "str";
         case "string":
         case "guid":
           return "str";
@@ -186,7 +245,46 @@ function provenancedModel(): string[] {
   ];
 }
 
+/** Does anything this context puts on the REQUEST side carry a `money`?
+ *
+ *  Decides whether `MoneyStr` (and its `json` / `re` / `PydanticCustomError`
+ *  imports) is emitted at all.  Demand-driven on purpose: a context with no
+ *  money keeps byte-identical wire models, and ruff's F401 would flag the dead
+ *  imports otherwise.  Scans the three request-side surfaces — an aggregate's
+ *  own fields (create/update bodies), its operation parameters, and value-object
+ *  fields (nested in either) — through the optional/array wrappers. */
+function typeHasMoney(t: TypeIR): boolean {
+  switch (t.kind) {
+    case "primitive":
+      return t.name === "money";
+    case "optional":
+      return typeHasMoney(t.inner);
+    case "array":
+      return typeHasMoney(t.element);
+    default:
+      return false;
+  }
+}
+
+function contextHasRequestMoney(ctx: BoundedContextIR): boolean {
+  const inVo = ctx.valueObjects.some((vo) => vo.fields.some((f) => typeHasMoney(f.type)));
+  const inAgg = ctx.aggregates.some(
+    (a) =>
+      a.fields.some((f) => typeHasMoney(f.type)) ||
+      (a.operations ?? []).some((op) => (op.params ?? []).some((p) => typeHasMoney(p.type))),
+  );
+  // Repository FINDS too — a `find cheaperThan(limit: money)` renders a query
+  // parameter annotated `MoneyStr`, and it is the one surface that can carry
+  // money with none on the aggregate itself.  Omitting it here would emit a
+  // routes module referencing an alias its wire_models never defined.
+  const inFind = ctx.repositories.some((r) =>
+    (r.finds ?? []).some((f) => (f.params ?? []).some((p) => typeHasMoney(p.type))),
+  );
+  return inVo || inAgg || inFind;
+}
+
 export function renderPyWireModels(ctx: BoundedContextIR): string {
+  const needsMoney = contextHasRequestMoney(ctx);
   const models = ctx.valueObjects.map((vo) => {
     // A VO's own `invariant`s ride the SAME wire carriers the aggregate
     // command DTOs use (`Field(...)` + `@model_validator`).  Pydantic
@@ -229,6 +327,11 @@ export function renderPyWireModels(ctx: BoundedContextIR): string {
     // its reference-typed request annotations), so its two pydantic pieces are
     // always in the import list.
     "StringConstraints",
+    // Appended AFTER `StringConstraints` rather than sorted in: two suites pin
+    // the `from pydantic import BaseModel, Field` / `…, StringConstraints`
+    // prefix, and a name inserted ahead of those splits a line they read as a
+    // contiguous string.  The names are validation-related and adjacent here.
+    ...(needsMoney ? ["AfterValidator"] : []),
     // A messaged single-field rule raises through `ValidationError.
     // from_exception_data` so the error carries the field's `loc` (M-T1.11).
     uses("ValidationError") ? "ValidationError" : null,
@@ -238,18 +341,30 @@ export function renderPyWireModels(ctx: BoundedContextIR): string {
   return lines(
     `"""Pydantic wire models for value objects.  Auto-generated."""`,
     "",
+    // Demand-driven, unlike `UuidStr` below: every routes module annotates a
+    // reference id, but plenty of contexts carry no money at all, and ruff F401
+    // would flag the dead `json` / `re` imports in those.  Keeping it
+    // conditional also means a money-free project's wire models are
+    // byte-identical to before this alias existed — which
+    // `vo-invariant-422.test.ts` pins deliberately.
+    needsMoney ? "import json" : null,
+    needsMoney ? "import re" : null,
+    needsMoney ? "" : null,
     uses("datetime") ? "from datetime import datetime" : null,
     uses("Decimal") ? "from decimal import Decimal" : null,
     hasProv ? "from typing import Annotated, Generic, TypeVar" : "from typing import Annotated",
     "",
     `from pydantic import ${pydanticNames.join(", ")}`,
-    uses("PydanticCustomError")
+    // `_money_str` raises one too, so the money alias pulls it in even when no
+    // messaged invariant does.
+    uses("PydanticCustomError") || needsMoney
       ? `from pydantic_core import ${uses("InitErrorDetails") ? "InitErrorDetails, PydanticCustomError" : "PydanticCustomError"}`
       : null,
     enumNames.length > 0 ? "" : null,
     enumNames.length > 0 ? `from app.domain.value_objects import ${enumNames.join(", ")}` : null,
     "",
     PY_UUID_STR_DEF,
+    needsMoney ? PY_MONEY_STR_DEF : null,
     models.join(""),
     hasProv ? provenancedModel() : null,
     "",

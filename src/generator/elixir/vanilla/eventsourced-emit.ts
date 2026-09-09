@@ -27,6 +27,11 @@
 // ---------------------------------------------------------------------------
 
 import { wireFieldsForAggregate } from "../../../ir/enrich/wire-projection.js";
+import {
+  PAGED_DEFAULT_PAGE,
+  PAGED_DEFAULT_PAGE_SIZE,
+  pagedReturn,
+} from "../../../ir/stdlib/generics.js";
 import type {
   AggregateIR,
   BoundedContextIR,
@@ -37,6 +42,7 @@ import type {
   OperationIR,
   TypeIR,
 } from "../../../ir/types/loom-ir.js";
+import { sortableFields } from "../../../ir/util/sortable-fields.js";
 import { escapeElixirIdent, snake, upperFirst } from "../../../util/naming.js";
 import { type ElixirChannelsCfg, elixirDispatchCall } from "../channels-emit.js";
 import { contextHasDispatcher } from "../dispatch-emit.js";
@@ -296,7 +302,7 @@ function renderEsRepository(
     })
     .join("\n");
 
-  const findFns = finds.map((f) => renderEsFind(f, aggModule));
+  const findFns = finds.map((f) => renderEsFind(f, agg, aggModule));
   const findBlock = findFns.length > 0 ? `\n\n${findFns.join("\n\n")}` : "";
   // Short aliases used throughout the body — declaring an alias and then
   // referencing the fully-qualified name is an *unused alias*, which fails
@@ -406,8 +412,17 @@ end
 }
 
 /** One in-memory custom find — load all + filter the folded aggregates.
- *  ES streams have no queryable state columns, so finds run client-side. */
-function renderEsFind(f: FindIR, aggModule: string): string {
+ *  ES streams have no queryable state columns, so finds run client-side.
+ *
+ *  A `paged` find returns the same wire ENVELOPE every other shape does
+ *  (`%{items, page, pageSize, total, totalPages}`) over the same
+ *  `page`/`page_size`/`sort`/`dir` arity.  Dropping the carrier here did not
+ *  merely lose paging: the controller's paged action calls
+ *  `<find>_<agg>/5` unconditionally (`find-controller.ts`), so an ES aggregate
+ *  with a `paged` find emitted a call to a function neither this module nor the
+ *  context defdelegate defined — a `--warnings-as-errors` build failure, not a
+ *  silent degradation. */
+function renderEsFind(f: FindIR, agg: AggregateIR, aggModule: string): string {
   const fnName = snake(f.name);
   const argNames = f.params.map((p) => snake(p.name));
   const single = isSingleReturn(f.returnType);
@@ -415,6 +430,49 @@ function renderEsFind(f: FindIR, aggModule: string): string {
   const pred = f.filter
     ? renderExpr(f.filter, ctx)
     : argNames.map((n) => `a.${n} == ${n}`).join(" and ");
+  if (pagedReturn(f.returnType)) {
+    // Same whitelist the relational/document builders order by; the folded
+    // aggregate is a struct, so a whitelisted property reads off it directly
+    // and anything else falls back to the stable `id` order.
+    const sortArms = sortableFields(agg)
+      .filter((wf) => wf !== "id")
+      .map((wf) => `            "${wf}" -> Map.get(a, :${snake(wf)})`)
+      .join("\n");
+    const argList = [
+      ...argNames,
+      `page \\\\ ${PAGED_DEFAULT_PAGE}`,
+      `page_size \\\\ ${PAGED_DEFAULT_PAGE_SIZE}`,
+      `sort \\\\ "id"`,
+      `dir \\\\ "asc"`,
+    ].join(", ");
+    return `  def ${fnName}(${argList}) do
+    {:ok, all} = list()
+    matched = Enum.filter(all, fn a -> ${pred} end)
+
+    total = length(matched)
+    offset = (page - 1) * page_size
+
+    sorted =
+      Enum.sort_by(
+        matched,
+        fn a ->
+          case sort do
+${sortArms}${sortArms ? "\n" : ""}            _ -> a.id
+          end
+        end,
+        if(dir == "desc", do: :desc, else: :asc)
+      )
+
+    {:ok,
+     %{
+       items: Enum.slice(sorted, offset, page_size),
+       page: page,
+       pageSize: page_size,
+       total: total,
+       totalPages: if(page_size > 0, do: ceil(total / page_size), else: 0)
+     }}
+  end`;
+  }
   const reduce = single
     ? `{:ok, Enum.find(all, fn a -> ${pred} end)}`
     : `{:ok, Enum.filter(all, fn a -> ${pred} end)}`;
@@ -487,7 +545,18 @@ export function renderEsContextBlock(
     .filter((f) => f.name !== "all")
     .map((f) => {
       const findSnake = snake(f.name);
-      const args = f.params.map((p) => snake(p.name)).join(", ");
+      // Mirrors the non-ES delegate (`context-emit.ts`): a `paged` find carries
+      // the carrier's `page`/`page_size`/`sort`/`dir` arity, which is the arity
+      // the controller's paged action calls through.
+      const pageArgs = pagedReturn(f.returnType)
+        ? [
+            `page \\\\ ${PAGED_DEFAULT_PAGE}`,
+            `page_size \\\\ ${PAGED_DEFAULT_PAGE_SIZE}`,
+            `sort \\\\ "id"`,
+            `dir \\\\ "asc"`,
+          ]
+        : [];
+      const args = [...f.params.map((p) => snake(p.name)), ...pageArgs].join(", ");
       return `  defdelegate ${findSnake}_${aggSnake}(${args}), to: ${repoMod}, as: :${findSnake}`;
     });
 

@@ -88,7 +88,7 @@ describe("vanilla — Slice 5c workflow execution", () => {
       [...files.keys()].find((k) => k.endsWith("/tracker/task_repository.ex"))!,
     )!;
     expect(repo).toContain("def persist_change(%Ecto.Changeset{data: %Api.Tracker.Task{}}");
-    expect(repo).toContain("Repo.update(changeset)");
+    expect(repo).toContain("Repo.update(changeset, force: true)");
   });
 
   it("emits a workflow module with run/1 returning {:ok, _} | {:error, _}", async () => {

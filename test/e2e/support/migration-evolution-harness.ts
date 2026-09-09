@@ -43,14 +43,15 @@ export function readFixture(name: "base" | "evolved"): string {
   return fs.readFileSync(path.join(fixtureDir, `${name}.ddd`), "utf8");
 }
 
-export function hasDocker(): boolean {
-  try {
-    execSync("docker info", { stdio: "pipe", timeout: 5_000 });
-    return true;
-  } catch {
-    return false;
-  }
-}
+// Re-exported so the sibling suites importing it from this harness keep working.
+// See `docker-probe.ts` for why the old inline `docker info` probe reported a
+// busy daemon as a missing one.
+// Imported as well as re-exported: a bare `export … from` does NOT bind the
+// names locally, so the `hasDocker()` call below was an unresolved identifier
+// (TS2304, and a ReferenceError on the docker-absent path).
+import { hasDocker, requireDocker } from "./docker-probe.js";
+
+export { hasDocker, requireDocker };
 
 export async function freePort(): Promise<number> {
   return await new Promise<number>((resolve, reject) => {

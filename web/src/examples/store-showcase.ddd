@@ -5,7 +5,10 @@
 //     container with in-memory state + named actions that `:=`/`+=` it;
 //   - a page that READS store state by dotted name (`Cart.lines`, `Cart.count`)
 //     and CALLS a store action from a page action (`discard() { Cart.clear() }`);
-//   - a component that adds to the store (`Cart.add(...)` via a store action).
+//   - a component that adds to the store (`Cart.add(...)` via a store action);
+//   - a `derived` whose initialiser reads a store field, and a `toast(...)`
+//     page effect in an action body (2026-09-03 audit F3/F9 — both emitted
+//     identifiers the generated project never declared).
 //
 // The store lowers to a Zustand module at `src/stores/cart.ts`; the page/
 // component shells import the `useCart` hook + bind one selector per used
@@ -85,12 +88,24 @@ system StoreShowcase {
     page CartPage {
       route: "/cart"
       state { confirming: bool = false }
+      // A `derived` whose initialiser reads a STORE field.  Nothing in the
+      // body mentions `Cart.count`, so the selector binding exists ONLY
+      // because the derived asked for it — the shape that used to emit
+      // `const itemCount = useMemo(() => count, [])` against an undeclared
+      // `count` (2026-09-03 audit F3/F9, packet W1.2).
+      derived itemCount: int = Cart.count
       action discard() { Cart.clear() }
+      // The `toast(<msg>)` page effect in a named action body — the OTHER
+      // half of that packet.  It renders as a bare `toast(...)` call, so the
+      // project has to declare the symbol.
+      action save() { toast("Draft saved") }
       body: Stack {
         Heading { "Your cart", level: 1 },
         CartSummary(),
+        Heading { itemCount, level: 3 },
         For { each: Cart.lines, line => Card { line } },
-        Button { "Discard", onClick: discard }
+        Button { "Discard", onClick: discard },
+        Button { "Save", onClick: save }
       }
     }
 

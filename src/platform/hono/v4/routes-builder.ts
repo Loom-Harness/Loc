@@ -530,12 +530,16 @@ export function buildRoutesFile(
       ];
       lines.push(`import { ${histRows.join(", ")} } from "../db/entities";`);
       lines.push(`import { requestContext } from "../obs/als";`);
-      lines.push(`import { type DomainEventDispatcher } from "../domain/events";`);
+      lines.push(
+        `import { deferredDispatcher, type DomainEventDispatcher } from "../domain/events";`,
+      );
       lines.push(`import type { EntityManager } from "@mikro-orm/postgresql";`);
     } else {
       lines.push(`import * as schema from "../db/schema";`);
       lines.push(`import { requestContext } from "../obs/als";`);
-      lines.push(`import { type DomainEventDispatcher } from "../domain/events";`);
+      lines.push(
+        `import { deferredDispatcher, type DomainEventDispatcher } from "../domain/events";`,
+      );
       lines.push(`import type { NodePgDatabase } from "drizzle-orm/node-postgres";`);
       // The history read filters `audit_records` by (target_type, target_id) —
       // the pair the write side indexes.  Only the read needs these operators;
@@ -949,8 +953,9 @@ export function buildRoutesFile(
       const actorExpr = `(c as unknown as { get(k: "currentUser"): unknown }).get("currentUser") ?? null`;
       lines.push(`      const actor = ${actorExpr};`);
       lines.push(`      const reqCtx = requestContext();`);
+      lines.push(`      const __deferred = deferredDispatcher(events);`);
       lines.push(`      await ${txWrapperCall(usingMikro)}`);
-      lines.push(`        const repoTx = new ${agg.name}Repository(tx, events);`);
+      lines.push(`        const repoTx = new ${agg.name}Repository(tx, __deferred);`);
       lines.push(`        await repoTx.save(created);`);
       lines.push(`        await ${historyInsertCall(usingMikro, "auditRecords")}`);
       lines.push(`          auditId: randomUUID(),`);
@@ -971,6 +976,7 @@ export function buildRoutesFile(
         `        ${renderHonoLogCall("auditRecorded", `action: "create", target: "${agg.name}", actor`)}`,
       );
       lines.push(`      });`);
+      lines.push(`      await __deferred.flush();`);
     } else {
       lines.push(`      await repo.save(created);`);
     }
@@ -1190,8 +1196,9 @@ export function buildRoutesFile(
         `        const actor = (c as unknown as { get(k: "currentUser"): unknown }).get("currentUser") ?? null;`,
       );
       lines.push(`        const reqCtx = requestContext();`);
+      lines.push(`        const __deferred = deferredDispatcher(events);`);
       lines.push(`        await ${txWrapperCall(usingMikro)}`);
-      lines.push(`          const repoTx = new ${agg.name}Repository(tx, events);`);
+      lines.push(`          const repoTx = new ${agg.name}Repository(tx, __deferred);`);
       // getById throws AggregateNotFoundError (→ 404) when absent.
       lines.push(`          const loaded = await repoTx.getById(Ids.${agg.name}Id(id));`);
       lines.push(`          const before = repoTx.toWire(loaded);`);
@@ -1215,6 +1222,7 @@ export function buildRoutesFile(
       );
       lines.push(`          await repoTx.delete(Ids.${agg.name}Id(id));`);
       lines.push(`        });`);
+      lines.push(`        await __deferred.flush();`);
     } else {
       lines.push(`        await repo.delete(Ids.${agg.name}Id(id));`);
     }
@@ -1774,8 +1782,9 @@ function emitOperationRoute(
     // that produced it.  Read from the ambient RequestContext opened by the
     // request-id middleware.
     out.push(`    const reqCtx = requestContext();`);
+    out.push(`    const __deferred = deferredDispatcher(events);`);
     out.push(`    await ${txWrapperCall(usingMikro)}`);
-    out.push(`      const repoTx = new ${agg.name}Repository(tx, events);`);
+    out.push(`      const repoTx = new ${agg.name}Repository(tx, __deferred);`);
     out.push(`      const aggregate = await repoTx.getById(Ids.${agg.name}Id(id));`);
     if (isVersionedUpdate) {
       out.push(`      const ifMatch = c.req.header("if-match");`);
@@ -1839,6 +1848,7 @@ function emitOperationRoute(
       out.push(`      }`);
     }
     out.push(`    });`);
+    out.push(`    await __deferred.flush();`);
   }
   out.push(`    return c.body(null, 204);`);
   out.push(`  },`);
