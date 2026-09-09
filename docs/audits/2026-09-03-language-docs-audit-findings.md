@@ -383,6 +383,79 @@ which is how F25 and F26 survive.
 | **F34** ⚠️ | A comment says `loom.spurious-effect-marker` is raised by the validator. **The code does not exist — but "a stray `await` is a parse error instead" is wrong, and the truth is much worse.** See F56. | `src/ir/lower/lower-expr.ts:1080` |
 | **F35** ✅ | `extern_handlers_registered` is in the observability catalog but no backend emits it — an orphan entry. Confirmed: Python **deliberately deleted** its producer (`python-extern.test.ts`, "deleted apparatus") and no other backend ever had one. Deleted in W4.2, together with the reverse invariant that would have caught it — `catalog-parity.test.ts` only ever checked *emitted ⊆ catalogued*, never the other direction. The new gate found three more unemitted entries, all documented-reserved, now held in a ratcheting `RESERVED_UNEMITTED` waiver. | `src/generator/_obs/log-events.ts` |
 
+## P0 — codegen that does not compile or crashes at runtime (found 2026-09-09 by a verification fleet)
+
+Eight agents re-verified 30 rows of this register against `main @ adb6b54c0`, generating and reading
+output rather than reading source. **Six rows were already fixed, five understated their finding, and
+two named the wrong symptom.** They also found six defects that emit non-compiling or crashing code
+from `.ddd` that reports `0 error(s), 0 warning(s)` — none of which this register ranked above P2.
+
+Every row below was reproduced by generating. The shared lesson is in the last column: **each one
+survived because no corpus fixture exercises the shape**, so no compile gate could ever have seen it.
+
+| # | Defect | Blast radius | Why it survived |
+|---|---|---|---|
+| **F57** | The `envelope` generic carrier emits **non-compiling** Java and .NET. Java references `Envelope<T>` in three files and declares it in none; .NET's method body returns a bare `T` from a signature typed `Task<Envelope<T>>` (CS0029). | java, dotnet | **No `.ddd` anywhere in the repo uses the carrier.** `grep -rnE "\b[A-Z][A-Za-z0-9_]*\s+envelope\b" --include=*.ddd .` → zero syntactic hits; every textual match is a comment about `paged`. |
+| **F58** | A command-triggered `create` on a **state-bearing** workflow emits an unbound receiver on **all five** backends — `this.status =` inside an arrow function (TS2683), `this.Status` on a handler with no such member, `self._status` in a module-level `async def`, unbound `state` in Elixir. It also never loads or saves the correlation row, so a later `on` reactor logs `event_unrouted` forever. | all 5 | No fixture pairs `create(params)` with workflow `state {}`. |
+| **F59** | A `match` **expression** whose union carries an `error` variant drops that arm's binding on .NET and Java — the arm collapses to `_ =>` / `case null ->` and the bound name is unresolved. Node is correct; two non-error variants are correct. | dotnet, java | This is the form W3.1 wants to recommend as the substitute for the statement form, so the sequencing matters. |
+| **F60** | Elixir's `serialize/1` drops a `derived` that reads another `derived`, while the emitted OpenAPI schema **declares it and lists it in `required:`**. The generated app violates its own published contract on every response. | elixir | `LOOM_SCHEMATHESIS=1 npm run test:schemathesis-elixir` would catch it; the leg exists and does not run per-PR. |
+| **F61** | HEEx `WorkflowForm` emits `phx-submit="run_<wf>"` with **zero** matching `handle_event/3` clauses. Submitting raises `FunctionClauseError` and kills the LiveView process. Recorded in the reference as a "placeholder"; it is a crash. | elixir/heex | Its only proving leg, `phoenix-ui-e2e`, is in neither the per-PR set nor the merge queue — a standing blind spot this register should name. |
+| **F62** | `DestroyForm { of: <non-aggregate> }` interpolates the raw reference name into a Feliz dispatch, emitting a `Msg` case that does not exist and an unbound `id` (FS0039). Angular emits a give-up with **no sentinel**. This is F11's real severity. | feliz (miscompile), angular (invisible) | The showcase corpus has no unresolvable `DestroyForm`. |
+
+**F63. The give-up routing gate scans 40 of 140 walker files and reports green.**
+`test/system/walker-give-up-routing.test.ts` enumerates via `git ls-files 'src/generator/<target>/**/*.ts'`.
+That pathspec matches **subdirectories only**, so every top-level file of every walker tree is unscanned —
+`src/generator/flutter/**/*.ts` and `src/generator/feliz/**/*.ts` each return **zero** files. Twenty-eight
+direct `renderComment` give-ups sit in the blind spot, including six in the shared `walker-core.ts`, five in
+`flutter-target.ts` and the whole Angular destroy-form fork. **Any conformance gate built on the
+`loom:unrendered` sentinel is a no-op until this one line is fixed**, which makes it the highest-leverage
+item in the whole register.
+
+**F64. 130 validator conditions reach the user as one non-catalog code.**
+The sharp half of F55. `src/api/report.ts` stamps `loom.unknown` on any diagnostic with no `code`, and
+`loom.unknown` is **not a catalog key** — no docs anchor, no fix hint, no census bucket. So the 130
+code-less `accept` sites are not merely unsearchable, they are actively mislabelled as one meaningless
+string. `docs/architecture/diagnostic-catalog.md:16` states the opposite rule normatively, and the two
+places the reference calls a message "uncoded" are receipts of the gap, not a carve-out — the boundary is
+incoherent either way (seven type-mismatch codes already exist, and the coded `loom.unknown-name` sits
+700 lines from six identical uncoded resolution errors).
+
+**F65. The "dropped `workflow_run` dispatch" premise is a measurement artifact.**
+`workflow_run`-triggered runs are attributed to the repository's **default branch**, so
+`list_workflow_runs(branch=<pr-branch>)` structurally cannot return a `pr-gate` evaluation — it returns only
+the one `pull_request`-event run. Every "the dispatch was dropped" conclusion in `pr-gate.yml`'s comments,
+in `docs/ci-gating.md`, in PR #2835 and in this session's own notes traces to that call. Of the last 100
+`event=workflow_run` runs of `pr-gate.yml`, **all 100** carry `head_branch: main`. Re-measure without the
+filter before building anything on the premise. The better-fitting explanation for a stuck verdict is a
+read-after-write race: the final evaluation is dispatched by the last check's completion, sits queued 6-14
+minutes under runner starvation, reads a snapshot in which that check still looks pending, publishes a
+non-terminal verdict and exits — with no further event coming.
+
+**F66. Feliz already has the gate the four SPA frontends lack, and it is fenced behind a platform check.**
+`classifyFelizAsyncEffect` (`src/ir/util/feliz-async-effect.ts`) is an IR-pure, target-neutral classifier of
+exactly the predicate the SPA walkers need (`tryDetectApiHook` must resolve, or `mutationVar` stays empty
+and the walker emits `Promise.reject`). It is invoked behind `if (dep.platform !== "feliz") continue`. The
+identical model, differing only in host:
+
+```
+feliz  → loom.feliz-async-effect-unsupported … the awaited subject is not an
+         aggregate instance operation (`<api>.<Agg>.<op>(…)`)
+react  → 0 error(s), 0 warning(s)
+```
+
+So **F56's fix is a promotion, not a type-resolution mission** — small, IR-layer, with zero effect on the
+good path. Resolving `subjectType` is the optional second half, and it carries a real trap: fixing it on the
+expression form un-blocks that form into walkers that cannot render it (a variant match with `variantArms`
+and no `arms` falls through to `otherwise ?? "/* empty match */ undefined"`), trading a false-positive error
+for a silent `undefined`.
+
+**F56 correction.** F56's own root-cause paragraph says a union-returning subject and a plain `string`
+subject carry byte-identical `subjectType`. That holds **only for the awaited-call shape**: a `let`-bound
+subject resolves to the real union. The awaited api call is the canonical page form, so the finding stands,
+but the claim as written generalises past the evidence.
+
+---
+
 **F56 (found while fixing W4.2, replacing F34's symptom). `match await <non-call>` validates
 clean and ships a guaranteed runtime crash on four frontends.**
 F34 records that a stray `await` is "a parse error instead". It is not. The grammar admits

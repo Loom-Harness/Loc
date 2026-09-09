@@ -480,6 +480,20 @@ Found 2026-09-03 by the language-docs audit (F27–F29, F31–F35, P3). Eight ro
 >   action body lowers to a `StmtIR` `variant-match` that its visitor never sees. Filed as
 >   audit finding **F56** and routed to W2.3, since it is Wave 2's invariant rather than text.
 >
+> **F56 re-scoped 2026-09-09 (fleet), twice.** (1) "A union-returning subject and a plain `string` one
+> carry byte-identical `subjectType`" holds only for the **awaited-call** shape — a `let`-bound subject
+> is a `ref`, takes `lowerMatchStmt`'s `subject.type` branch, and resolves to the real union. The
+> awaited api-handle call is the only shape Stage 2 `match await` exists for, so the canonical page form
+> is exactly the one that cannot be discriminated; the finding stands, the sentence generalised past it.
+> (2) **The fix is a promotion, not a type-resolution mission (audit F66).**
+> `classifyFelizAsyncEffect` (`src/ir/util/feliz-async-effect.ts`) is already an IR-pure, target-neutral
+> classifier of exactly the predicate the SPA walkers need, invoked behind
+> `if (dep.platform !== "feliz") continue` — the identical model is refused on a Feliz host and reports
+> `0 error(s), 0 warning(s)` on React. Resolving `subjectType` is an optional second half with a real
+> trap: fixing it on the EXPRESSION form un-blocks that form into walkers that cannot render it (a
+> variant match with `variantArms` and no `arms` falls through to
+> `otherwise ?? "/* empty match */ undefined"`), trading a false-positive error for a silent `undefined`.
+>
 > **F32 was verified by running it, not by reading:** a block-bodied workflow `function`
 > parses clean and emits as a real workflow-scoped helper on all five backends, never inlined
 > — which also exposed the grammar comment's *second* false claim (that such helpers are
@@ -641,3 +655,77 @@ Minted 2026-09-07, from the isolation leak [#2766](https://github.com/Loom-Harne
 - The scan covers `src/` only. `test/_helpers/` has its own module state and is not yet censused.
 
 Sources: [verification-waves-2026-09](verification-waves-2026-09.md) — the isolation-leak section. Relates to M-T9.8 (hollow work: a test asserting against leaked state is green for the wrong reason), M-T9.50 (the `test/` typecheck baseline, the other shrink-only census).
+
+## M-T9.55 — The give-up routing gate scans 40 of 140 walker files and reports green — `open` · **S** to fix, **L** to drain · P0 ⭐
+
+Found 2026-09-09 by the verification fleet ([F63](../audits/2026-09-03-language-docs-audit-findings.md)).
+`test/system/walker-give-up-routing.test.ts` enumerates its files by shelling
+`git ls-files 'src/generator/<target>/**/*.ts'`. **That pathspec matches subdirectories only.** Measured:
+
+| tree | `<t>/*.ts` | `<t>/**/*.ts` |
+|---|---:|---:|
+| `_walker` | 39 | 19 |
+| react | 22 | 9 |
+| flutter | 22 | **0** |
+| feliz | 13 | **0** |
+
+40 of 140 files are scanned. The unscanned 100 contain **28 direct `renderComment` / `renderNotice`
+give-ups** — six in the shared `walker-core.ts`, five in `flutter-target.ts`, three each in
+`feliz-target.ts` and the Angular destroy-form fork. The test passes.
+
+This is the repo's own recurring failure shape (`experience_gathered.md` §59, §63): a check that never
+reaches the thing it names. **Land it first** — any conformance gate built on the `loom:unrendered`
+sentinel is a no-op until it does, including the "a walker never declines without a diagnostic" gate
+W2.3 is meant to produce.
+
+**Two slices.** (1) Fix `WALKER_GLOBS` to carry two entries per tree — `git ls-files` will not do it
+with one — and watch the 28 sites appear. (2) Drain them: route each through `giveUp()` or add a
+reasoned `NOT_A_GIVE_UP` row. Mutation-prove by reverting the globs from a file copy and confirming the
+28 disappear again.
+
+## M-T9.56 — 130 validator conditions reach the user as one non-catalog code — `open` · **S/M** for the ratchet, ~**70-78 h** for the drain · P1
+
+Found 2026-09-09 ([F55](../audits/2026-09-03-language-docs-audit-findings.md), extended as F64). Across
+`src/language/validators/**` + `ddd-validator.ts`: **196 `accept` sites carry a code, 119 errors and 11
+warnings do not.** The IR check leaves are clean.
+
+The sharp half: `src/api/report.ts` stamps **`loom.unknown`** on any diagnostic with no code, and
+`loom.unknown` is not a catalog key — no docs anchor, no fix hint, no census bucket. 123 distinct
+conditions collapse onto one meaningless string on the wire.
+
+**Not a convention.** `docs/architecture/diagnostic-catalog.md:16` states the opposite rule normatively;
+the two places the reference calls a message "uncoded" are receipts of the gap. The boundary is
+incoherent regardless — seven type-mismatch codes already exist, and the coded `loom.unknown-name` sits
+700 lines from six identical uncoded resolution errors.
+
+**A 130-entry waiver is the wrong instrument** (a code-less site has no stable key to waive; line
+numbers churn, message text rewords). Use a **12-row per-file EXACT count**, shrink-only, following
+`test/system/legacy-generate-path-ratchet.test.ts`, as a fifth invariant inside
+`diagnostic-catalog.test.ts` — it already owns the scanners. Add, in the same slice, an assertion that
+no `FIRING_FIXTURES` fixture raises `loom.unknown`, and a length baseline for `UNDOCUMENTED_CODES`
+(368 entries, currently unpinned, so new codes can land wholly undocumented).
+
+Then ~10 drain slices; the triage, per-site cost and ordering are in the fleet plan.
+
+## M-T9.57 — Every "dropped `workflow_run` dispatch" claim rests on a measurement artifact — `open` · **S** · P1 ⚠ verify-first
+
+Found 2026-09-09 ([F65](../audits/2026-09-03-language-docs-audit-findings.md)).
+`workflow_run`-triggered runs are attributed to the repository's **default branch**, so
+`list_workflow_runs(branch=<pr-branch>)` structurally cannot return a `pr-gate` evaluation — it returns
+only the one `pull_request`-event run. Of the last 100 `event=workflow_run` runs of `pr-gate.yml`, **all
+100** carry `head_branch: main`.
+
+That call is the sole evidence behind the dropped-dispatch premise in `pr-gate.yml`'s header comments,
+in `docs/ci-gating.md`, in PR #2835, and in this session's own notes. **Re-measure without the filter
+before building anything on it.**
+
+Better-fitting explanation for a stuck verdict: a read-after-write race. The final evaluation is
+dispatched by the last check's completion, sits queued 6-14 minutes under measured runner starvation,
+reads a check-runs snapshot in which that check still looks `in_progress`, publishes a non-terminal
+verdict and exits — with no further event coming. Fix is a bounded tail re-read on the near-green
+pending path (~25 lines), capped well under the queue's 180-min checks timeout.
+
+Two further gaps found alongside: the sweep enumerates open PRs only, so **inside the merge queue there
+is no backstop at all** (a stalled group head's only bound is the timeout, which ejects rather than
+heals); and the cron re-measures at a **3.3 h median** against its `*/15` schedule. Honest bounds to
+document: ~30 min active, ~3.3 h idle, unbounded in-queue today.

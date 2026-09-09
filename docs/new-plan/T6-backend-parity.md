@@ -267,6 +267,16 @@ Found 2026-09-03 by the language-docs audit ([F18](../audits/2026-09-03-language
 
 Sources: [language-docs-audit-2026-09-03](../audits/2026-09-03-language-docs-audit-findings.md) F18/F19, [wave plan](../audits/2026-09-03-language-docs-audit-findings.waves.md) packet **W5.1** (first in its wave — the one row there with a behavioural consequence). Sibling of M-T6.51 (the node document-find twin of the same "bypass silently retained" shape).
 
+> **Verified 2026-09-09 (fleet). Both rows hold; F18 is TWO surfaces, not one.** The relational
+> `@Query` path AND the document-shape `findAll()` path both keep the principal conjunct under
+> `ignoring`. Java already contains the CORRECT implementation for the aggregation path
+> (`emit/query-projection-reads.ts:161-166`), so this is a missed surface, not an undesigned feature —
+> and `capability-filter.ts:29-32` asserts the behaviour exists. **`FILTER_BYPASS_FAMILIES` includes
+> `java`, so `loom.filter-bypass-unsupported` certifies Java as honouring `ignoring` while two of its
+> four read surfaces do not.** Fail direction is safe (over-restricts). F19 is S: one arm of
+> `buildChecks`, with `dotnet/validator-emit.ts:167-171` as a line-for-line template. The
+> document-store half is the awkward one — the conjunct lives inside the SHARED `findAll()`, so a
+> per-read bypass needs it hoisted into each read's filter chain.
 ## M-T6.55 — Phoenix drops a part-level `check`, a guarded single-field invariant, and a private-operation call — `open` · **M** · P1 ⚠ verify-first
 
 Found 2026-09-03 by the language-docs audit ([F14](../audits/2026-09-03-language-docs-audit-findings.md), [F15](../audits/2026-09-03-language-docs-audit-findings.md), [F24](../audits/2026-09-03-language-docs-audit-findings.md); P1/P1/P2). Three silent under-enforcements on one backend: `entity Line { qty: int check qty > 0 }` produces a `changeset/2` that only `cast`s `[:sku, :qty]` with no `validate_number` (root-level `check`/`invariant` do emit one, and node/dotnet/java/python all enforce the part-level form); a guarded single-field invariant is excluded by both `residualInvariants` (`src/generator/elixir/vanilla/changeset-invariant-emit.ts`) and the native path in `changeset-emit.ts`, so nothing enforces it; and a private-operation call renders `_ = nil  # vanilla: bare call to 'recompute' (no callable target); record unchanged` — compile-clean, behaviourally absent, signalled only by a comment in generated code.
@@ -277,6 +287,14 @@ Found 2026-09-03 by the language-docs audit ([F14](../audits/2026-09-03-language
 
 Sources: [language-docs-audit-2026-09-03](../audits/2026-09-03-language-docs-audit-findings.md) F14/F15/F24, [wave plan](../audits/2026-09-03-language-docs-audit-findings.waves.md) packet **W5.2**. Relates to M-T6.2 (the vanilla-Phoenix gap register — the same "silent fallthrough vs honest gate" discipline).
 
+> **Verified 2026-09-09 (fleet). All three hold, two undercount, and F24's stated reason is false.**
+> F14 also drops part-level `invariant`, not just `check`. F15 also drops the MESSAGED guarded
+> invariant, so its `loom_code` wire key vanishes — contradicting `messagedRoutesToResidual`'s own
+> docblock. **F24's emitter comment says "no callable target" while `def recompute/2` is defined SIX
+> LINES ABOVE in the same module.** Fork resolved: **EMIT the call, do not mint a refusal** — a
+> validator gate is platform-independent and would reject a construct the other four backends have
+> shipped for months. The fix has TWO halves: `persistPutBodies` walks only `op.statements`, so
+> emitting the call alone computes the mutation and silently drops it at persist.
 ## M-T6.56 — Phoenix wire and HEEx divergences: a dropped `derived`, a `:map` value-object column, `Image`/`Icon`/`WorkflowForm` — `open` · **M** · P2 ⚠ verify-first
 
 Found 2026-09-03 by the language-docs audit ([F16](../audits/2026-09-03-language-docs-audit-findings.md), [F20](../audits/2026-09-03-language-docs-audit-findings.md), [F22](../audits/2026-09-03-language-docs-audit-findings.md), [F23](../audits/2026-09-03-language-docs-audit-findings.md); P1/P2). `derivedRenderable` (`src/generator/elixir/vanilla/wire-serialize.ts`) omits a `derived` that reads another `derived` from `serialize/1` while the other four backends ship it — a wire-shape divergence with no gate. On the HEEx side, `renderImage` (`src/generator/elixir/heex-primitives.ts:1510`) and `renderIcon` (`:2151`) read only a named `src:` / a `svg:` literal, ignoring the positional spelling every other target renders (`Image { "/logo.png", alt: … }` emits `<img alt>` with no `src`; `Icon { name: "check" }` an empty span), and the HEEx `WorkflowForm` emits a single `<.input field={@form[:_placeholder]}>` (`heex-primitives.ts:388`) where React emits the real field set.
@@ -287,6 +305,18 @@ Found 2026-09-03 by the language-docs audit ([F16](../audits/2026-09-03-language
 
 Sources: [language-docs-audit-2026-09-03](../audits/2026-09-03-language-docs-audit-findings.md) F16/F20/F22/F23, [wave plan](../audits/2026-09-03-language-docs-audit-findings.waves.md) packet **W5.3**. Relates to M-T1.26 (the `Image`/`Avatar` `src:`/`alt:` slots on the JSX targets — same primitives, other side).
 
+> **Verified 2026-09-09 (fleet). F20 is a DECISION — do not touch the Ecto migration emitter.**
+> The wire is byte-identical (`serialize_money/1` emits nested `{amount, currency}`), each backend owns
+> its own database, and `03-domain-modeling.md:184` already documents the `:map` column. The real docs
+> defect is elsewhere: **`docs/generators.md:996` and `:1031` claim `embedded_schema` / a custom
+> `Ecto.Type` for value objects and both are false** — the emitter returns `":map"` unconditionally.
+>
+> **F16 and F23 are both worse than recorded.** F16: the emitted OpenAPI schema declares the dropped
+> `derived` AND lists it in `required:`, so the app violates its own published contract on every
+> response (audit F60). F23 is not a placeholder but a RUNTIME CRASH — `phx-submit="run_<wf>"` with
+> zero `handle_event/3` clauses raises `FunctionClauseError` and kills the LiveView (audit F61).
+> **Split F23 out**: shipping the field set without the handler looks correct and still 500s, and its
+> only proving leg (`phoenix-ui-e2e`) is in neither the per-PR set nor the merge queue.
 ## M-T6.57 — `envelope` means something different on each of the five backends — scope it before fixing it — `open` (scoping only) · **S** · P2 ⚠ verify-first
 
 Found 2026-09-03 by the language-docs audit ([F21](../audits/2026-09-03-language-docs-audit-findings.md), P2). The repository layer carries `Envelope<T>` on dotnet and java; node/dotnet/java/python routes return the bare response; elixir's controller returns a JSON array. Five targets, no agreed meaning.
@@ -297,6 +327,15 @@ Found 2026-09-03 by the language-docs audit ([F21](../audits/2026-09-03-language
 
 Sources: [language-docs-audit-2026-09-03](../audits/2026-09-03-language-docs-audit-findings.md) F21, [wave plan](../audits/2026-09-03-language-docs-audit-findings.waves.md) packet **W5.4** (`fileTrees: []` — scoping only). Relates to M-T6.14 (DEBT-08 `envelope` carrier, deferred there for "no live use" — this is the evidence that the carrier is not inert).
 
+> **Verified 2026-09-09 (fleet). ESCALATE — this is a P0, not a P2 parity nit (audit F57).**
+> `find audit(): Order envelope` reports `0 error(s), 0 warning(s)` and emits **non-compiling** output
+> on two backends: Java references `Envelope<T>` in three files and declares it in none; .NET's body
+> returns a bare `T` from a signature typed `Task<Envelope<T>>` (CS0029). It is four-way, not five.
+> **It survived because NO `.ddd` in the repo uses the carrier** — zero syntactic hits across corpus,
+> examples, build fixtures and playground — so every compile gate is blind by construction.
+> `docs/generators.md:66` gives generic carriers five ticks; two sit on output that does not build.
+> Scoping is done (see the fleet plan); the A/B/C fork needs user sign-off before any emitter change.
+> The docs correction is true under every option.
 ## M-T6.58 — `handle` and named `create` are lowered, test-pinned and promised by a diagnostic — but no backend emits an entry point — `open` · **L** · P1 ⚠ verify-first, route to `language-feature-developer`
 
 Found 2026-09-03 by the language-docs audit ([F13](../audits/2026-09-03-language-docs-audit-findings.md), P1) — the only finding in the register that is a *missing feature* rather than a defect. `src/ir/lower/lower-workflow.ts:124-174` fills `WorkflowIR.handlers`/`.creates`, `test/ir/workflow-handle.test.ts` pins the lowering, and `loom.duplicate-handler` (`src/diagnostics/messages.ts:310`) promises that a `route -> Ctx.<handle>` is meaningful — yet no emitter reads `wf.handlers`. A workflow with `handle retry(...)` plus `api { route POST "/fulfil/retry" -> C.retry }` produces no route on node or dotnet, and no routes file at all.
@@ -307,6 +346,16 @@ Found 2026-09-03 by the language-docs audit ([F13](../audits/2026-09-03-language
 
 Sources: [language-docs-audit-2026-09-03](../audits/2026-09-03-language-docs-audit-findings.md) F13, [wave plan](../audits/2026-09-03-language-docs-audit-findings.waves.md) packet **W6.1** (`route: language-feature-developer`). Relates to M-T5.8 (lifecycle-operation route emission — the same "declared entry point, no route" axis).
 
+> **Verified 2026-09-09 (fleet). Recommendation: option (b), and the packet's real content is a third
+> thing.** `handle` is NOT entangled with channels — an entry point here is an HTTP route on all five,
+> which removes a whole design axis. But **`HandleDecl` has no `by` clause in the grammar**, and
+> `HandleIR` carries no correlation, so nothing says which saga instance to run against. That missing
+> ADDRESSING surface, not the emitter work, is the real question — and `commandHandler` already covers
+> the use case with a full emitter on all five. Named `create` is dropped too, by a different
+> mechanism (`lowerWorkflow` picks one primary). The route drop is one identical fail-open five times
+> (`if (!h) continue;`) while `api-checks.ts:217-220` actively models the handler name as "the WRITE
+> face" — three places promise routing works, zero deliver. **Blocked on M-T6.60**, which must land
+> first: option (a) would be built on a create path that miscompiles on all five.
 ## M-T6.59 — Phoenix cannot render the `if` statement: an assigning branch would compile and do nothing — `open` · **M** · P2
 
 Raised 2026-09-03 by the M-FT.11 field-test slice, which added the `if <cond> { … } else { … }` statement to operation bodies. It renders on node / dotnet / java / python through the shared `_stmt/target.ts` spine; elixir is refused up front by `loom.elixir-if-stmt-unsupported` (`src/ir/validate/checks/if-stmt-checks.ts`) rather than half-rendered.
@@ -318,3 +367,36 @@ Raised 2026-09-03 by the M-FT.11 field-test slice, which added the `if <cond> { 
 **Verification when it lands.** A `render-stmt`-level test per touched renderer, an elixir compile leg (`mix compile --warnings-as-errors`) over a model whose `if` branch ASSIGNS, and a behavioural check that the assignment is observable after the call — a compile-only gate cannot see this bug. Delete the `loom.elixir-if-stmt-unsupported` row from `src/diagnostics/unsupported-register.ts` and its arm in `if-stmt-checks.ts` in the same PR, and lower the gap pin.
 
 Sources: M-FT.11 (grammar slice: `key` / `if` / `??`). Relates to [`vanilla-phoenix-gaps.md`](../old/plans/vanilla-phoenix-gaps.md).
+
+## M-T6.60 — A command-triggered `create` on a state-bearing workflow miscompiles on all five backends — `open` · **M** · P0
+
+Found 2026-09-09 by the verification fleet ([F58](../audits/2026-09-03-language-docs-audit-findings.md)).
+`workflow Fulfillment { orderId: Order id  status: string  create(orderId: Order id) { status := "Pending" } }`
+parses `0 error(s), 0 warning(s)` and emits an **unbound receiver** everywhere: `this.status = "Pending"`
+inside an arrow function on node (TS2683, confirmed with `tsc --strict`), `this.Status` on a .NET handler
+with no such member, `this.setStatus(...)` on a Java class without it, `self._status` in a module-level
+`async def` on python, and an unbound `state` in the Elixir `with`. The create also never loads or saves
+the correlation row, so a later `on` reactor logs `event_unrouted` forever.
+
+**Why it survived:** no fixture pairs a workflow `create(params)` with a `state {}` block.
+
+**Blocks [M-T6.58](#m-t658).** Do not build workflow entry points on a create path that does not compile.
+
+## M-T6.61 — A `match` expression drops an `error` variant's binding on .NET and Java — `open` · **M** · P0
+
+Found 2026-09-09 by the verification fleet ([F59](../audits/2026-09-03-language-docs-audit-findings.md)),
+as bycatch while resolving W3.1's gate-vs-lower fork. For a union carrying an `error` variant, the arm
+collapses to `_ =>` (C#) / `case null ->` (Java) and the arm's bound name is left unresolved:
+
+```csharp
+Owner = r switch { Hit h => h.Code, _ => n.Resource, };            // `n` unbound
+```
+```java
+this.owner = switch (r) { case null -> n.resource(); case Hit h -> h.code(); };  // `n` unbound
+```
+
+Node is correct, and two non-error variants are correct on all three — it is specifically the
+error-variant arm. Sites: `src/generator/dotnet/render-expr.ts:324`, `src/generator/java/render-expr.ts:420`.
+
+**Sequencing:** the W3.1 placement gate's message would tell users to switch to exactly this form. Either
+this lands first, or that message must not recommend it on .NET and Java.
