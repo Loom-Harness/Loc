@@ -5,6 +5,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { hasDocker as dockerAvailable } from "./support/docker-probe.js";
 import { type HexMirror, startHexMirror } from "./support/hex-mirror";
 import { mixDepsGet, mixLocalInstall } from "./support/mix-retry";
 
@@ -240,15 +241,6 @@ describe.skipIf(!ENABLED)("auth UI-gate runtime smoke", () => {
 
 const phoenixFixture = path.join(here, "fixtures", "auth-gate-e2e", "auth-gate-phoenix.ddd");
 const ELIXIR_IMAGE = "hexpm/elixir:1.17.2-erlang-27.0.1-debian-bookworm-20240722-slim";
-
-function dockerAvailable(): boolean {
-  try {
-    execSync('docker version --format "{{.Server.Version}}"', { stdio: "ignore" });
-    return true;
-  } catch {
-    return false;
-  }
-}
 
 // The native-mix boot needs hex.pm reachable from the container.  In this
 // sandbox that means LOOM_HEX_MIRROR=1 (the loopback TLS mirror) — without it

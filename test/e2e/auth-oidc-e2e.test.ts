@@ -5,6 +5,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { hasDocker } from "./support/docker-probe.js";
 
 // ---------------------------------------------------------------------------
 // OIDC runtime e2e (D-AUTH-OIDC).  Boots a REAL Keycloak (the bundled dev
@@ -27,15 +28,6 @@ const cli = path.join(repoRoot, "bin", "cli.js");
 const fixture = path.join(here, "fixtures", "auth-oidc-e2e.ddd");
 
 const ENABLED = process.env.LOOM_AUTH_E2E === "1";
-
-function hasDocker(): boolean {
-  try {
-    execSync("docker ps", { stdio: "ignore" });
-    return true;
-  } catch {
-    return false;
-  }
-}
 
 const RUN = ENABLED && hasDocker();
 
