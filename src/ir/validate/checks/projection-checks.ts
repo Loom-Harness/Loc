@@ -578,12 +578,18 @@ function validateHandlers(
         diags.push({
           severity: "error",
           code: "loom.projection-event-unkeyed",
-          message: diagMessage("loom.projection-event-unkeyed", {
-            name: proj.name,
-            event: h.event,
-            correlationField: proj.correlationField,
-            param: h.param,
-          }),
+          message:
+            proj.correlationField === undefined
+              ? diagMessage("loom.projection-event-unkeyed#singleton", {
+                  name: proj.name,
+                  event: h.event,
+                })
+              : diagMessage("loom.projection-event-unkeyed#no-key-field", {
+                  name: proj.name,
+                  event: h.event,
+                  correlationField: proj.correlationField,
+                  param: h.param,
+                }),
           source: `${ctx.name}/${proj.name}`,
         });
       }

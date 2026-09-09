@@ -86,11 +86,6 @@ export const LogEvents = {
   migrationFailed: { event: "migration_failed", level: "error", fields: ["id", "name", "error"] },
   healthOk: { event: "health_ok", level: "debug", fields: ["checks"] },
   healthDegraded: { event: "health_degraded", level: "debug", fields: ["checks"] },
-  externHandlersRegistered: {
-    event: "extern_handlers_registered",
-    level: "debug",
-    fields: ["aggregate", "count", "ops"],
-  },
   authEnabled: { event: "auth_enabled", level: "info", fields: ["required"] },
   // Verifier-registration lifecycle (auth.md).  Emitted once at boot by the
   // backends that wire a token verifier: `auth_oidc_verifier_registered`
