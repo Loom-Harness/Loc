@@ -35,6 +35,7 @@ import type {
 } from "../../ir/types/loom-ir.js";
 import { backendServesRealtime } from "../../ir/util/channels.js";
 import { type PageNameCtx, pageEmitName } from "../../ir/util/page-kind.js";
+import { walkExprDeep } from "../../ir/util/walk.js";
 import { lines } from "../../util/code-builder.js";
 import { humanize, snake, upperFirst } from "../../util/naming.js";
 import { pageFileBase } from "../_frontend/page-identity.js";
@@ -403,6 +404,10 @@ interface DerivedBind {
   /** The expression read `state.<field>`, so the page shell has to bind
    *  `final state = ref.watch(<page>Provider)` ABOVE this local. */
   usesState: boolean;
+  /** `<Store>` → members this derived read.  Merged into the page's
+   *  `usedStores` once the bind survives `keepUsedDerived`, so the shell
+   *  hoists a `ref.watch(<store>Provider.select(...))` local for it. */
+  stores: ReadonlyMap<string, ReadonlySet<string>>;
 }
 
 /** True when a page `derived` expression resolves entirely against bindings the
@@ -411,13 +416,20 @@ interface DerivedBind {
  *  EARLIER derived (a `final` above), a lambda / match binding (bound by the
  *  construct itself), or an enum value.
  *
- *  Everything else is bound CONDITIONALLY or not at all: a store member local
- *  exists only when the BODY reads that store, the magic route `id` only when
- *  the body keys a read by it, and `currentUser` / a resource handle never.  A
- *  `final` naming one of those is `Undefined name` Dart, so such a derived keeps
- *  its pre-existing behaviour (no local; the body read stays the `ref: <name>`
- *  give-up comment) rather than turning a silent drop into a build break.  This
- *  is the PAGE twin of `component-emit.ts`'s `derivedNeedsShell`. */
+ *  A `<Store>.<field>` read counts too: the store binding is hoisted from the
+ *  page's `usedStores`, which this pass now CONTRIBUTES to — a derived that
+ *  reads a store no body slot mentions still gets its `ref.watch(...)` local,
+ *  bound above the derived `final`s (F9 of the 2026-09-03 audit: the derived
+ *  used to be dropped whole, and its body read fell through to the
+ *  walker's give-up comment, tagged with the ref name).
+ *
+ *  Everything else is bound CONDITIONALLY or not at all: the magic route `id`
+ *  only when the body keys a read by it, and `currentUser` / a resource handle
+ *  never.  A `final` naming one of those is `Undefined name` Dart, so such a
+ *  derived keeps its pre-existing behaviour (no local; the body read stays the
+ *  `ref: <name>` give-up comment) rather than turning a silent drop into a
+ *  build break.  This is the PAGE twin of `component-emit.ts`'s
+ *  `derivedNeedsShell`. */
 function derivedResolvableOnPage(
   e: ExprIR,
   stateNames: ReadonlySet<string>,
@@ -429,6 +441,8 @@ function derivedResolvableOnPage(
     if (e.refKind === "lambda" || e.refKind === "enum-value" || e.refKind === "match-binding") {
       return true;
     }
+    // A store read hoists its own `ref.watch` local — see the doc comment.
+    if (e.refKind === "store-field" && e.storeName) return true;
     return locals.has(e.name) || stateNames.has(e.name) || paramNames.has(e.name);
   }
   for (const v of Object.values(e)) {
@@ -482,14 +496,22 @@ function pageDerivedBinds(
   // duplicate declaration, so a derived that collides keeps its pre-existing
   // drop instead.
   const shellBound = new Set(["state", "notifier", "ref", "context", "routeArgs", ...paramNames]);
+  const allDerived = new Set(page.derived.map((d) => d.name));
   for (const d of page.derived) {
     if (shellBound.has(d.name)) continue;
     if (!derivedResolvableOnPage(d.expr, stateNames, paramNames, locals)) continue;
     // The scope grows left-to-right: an earlier derived is already a `final`
-    // above, so it resolves BARE (`flutterTarget.renderDerivedRead`).
+    // above, so it resolves BARE (`flutterTarget.renderDerivedRead`).  A store
+    // member whose name matches a LATER derived is folded in as well: it is not
+    // in scope as a read, but `storeLocalFor` reserves the same names the
+    // shell's `storeBindings` reserves, so both sides must see it or they name
+    // the local differently and the `final` and its use site diverge.
+    const collidingDerived = storeMemberNames(d.expr).filter(
+      (m) => allDerived.has(m) && !locals.has(m),
+    );
     const ctx = stateCtx({
       stateNames,
-      derivedNames: new Set(locals),
+      derivedNames: new Set([...locals, ...collidingDerived]),
       aggregatesByName,
       locals: new Map(),
       paramNames,
@@ -505,8 +527,23 @@ function pageDerivedBinds(
       continue;
     }
     locals.add(d.name);
-    out.push({ name: d.name, dart, usesState: ctx.usesState });
+    out.push({
+      name: d.name,
+      dart,
+      usesState: ctx.usesState,
+      stores: ctx.usedStores ?? new Map(),
+    });
   }
+  return out;
+}
+
+/** The store member NAMES a `derived` initialiser reads (`Cart.count` →
+ *  `count`), for the reserved-name agreement above. */
+function storeMemberNames(e: ExprIR): string[] {
+  const out: string[] = [];
+  walkExprDeep(e, (x) => {
+    if (x.kind === "ref" && x.refKind === "store-field" && x.storeName) out.push(x.name);
+  });
   return out;
 }
 
@@ -649,6 +686,21 @@ function renderPage(
     // alone may never have touched a state cell.
     derivedBinds = keepUsedDerived(derivedCandidates, bodyWidget);
     if (derivedBinds.some((d) => d.usesState)) usesState = true;
+    // A KEPT derived's store reads join the page's — the shell binds one
+    // `ref.watch(<store>Provider.select(...))` local per member, above the
+    // derived `final`s.  Merged after `keepUsedDerived` so a derived the body
+    // never reads does not drag a store binding (and an `unused_local` warning)
+    // in with it.
+    for (const b of derivedBinds) {
+      for (const [store, members] of b.stores) {
+        let known = usedStores.get(store);
+        if (!known) {
+          known = new Set();
+          usedStores.set(store, known);
+        }
+        for (const m of members) known.add(m);
+      }
+    }
   }
   const derivedLines = derivedBinds.map((d) => `    final ${d.name} = ${d.dart};`);
 
@@ -915,14 +967,13 @@ function renderConsumerPage(
   if (b.stateful && b.usesState) {
     bindings.push(`    final state = ref.watch(${providerName});`);
   }
-  // `derived` locals right after `state` — each is a pure function of the route
-  // args, the watched `state` and the earlier derived, all bound above — and
-  // BEFORE the read hoists, since a read's family key may be a derived value.
-  bindings.push(...b.derivedLines);
-  // Store locals next — a store field can key a read the same way page state
-  // can, and the body references the bare local either way.  Reserved against
-  // the page's own bindings so a `Cart.items` read beside a `items` state cell
-  // binds `cartItems`, exactly as walker-core resolved the use site.
+  // Store locals before the `derived` block — a store field can key a read the
+  // same way page state can, the body references the bare local either way, AND
+  // a `derived` may read one (`derived n = Cart.count`).  Dart is not hoisted,
+  // so the derived `final` reading `count` has to come after the `final count`
+  // that binds it.  Reserved against the page's own bindings so a `Cart.items`
+  // read beside an `items` state cell binds `cartItems`, exactly as walker-core
+  // resolved the use site.
   bindings.push(
     ...storeBindings(
       b.usedStores,
@@ -934,6 +985,11 @@ function renderConsumerPage(
       ]),
     ),
   );
+  // `derived` locals next — each is a pure function of the route args, the
+  // watched `state`, the store locals and the earlier derived, all bound above
+  // — and BEFORE the read hoists, since a read's family key may be a derived
+  // value.
+  bindings.push(...b.derivedLines);
   // QueryView read hoists (`final <var> = ref.watch(<var>Provider…);`).
   if (b.usedApiHooks.size > 0) {
     const uses: ApiCallSite[] = [...b.usedApiHooks.values()].map((h) => ({
