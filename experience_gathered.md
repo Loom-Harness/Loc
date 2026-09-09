@@ -6108,3 +6108,33 @@ append the collected errors to the thrown error's message before rethrowing.
 The general rule — **a diagnostic you only report on success is not a
 diagnostic** — applies to any harness that accumulates context and checks it at
 the end.
+
+## 110. `tsc -b` does not typecheck `test/`, and the gate that does is not the one you ran (2026-09-09)
+
+`npx tsc -b` came back clean, `biome ci` came back clean, the touched suites
+came back green — and CI's `lint + web-tsc` still went red:
+
+```
+test/ typecheck ratchet FAILED
+1 file(s) gained type errors.  Fix them — do NOT raise the baseline; it only shrinks:
+    test/_helpers/wire-record.ts: 0 → 4
+```
+
+`tsconfig.json` **excludes `test/`**. Nothing in the build covers it; the
+coverage lives in a separate shrink-only ratchet, `scripts/test-typecheck.mjs`
+over `tsconfig.test.json`, which is a different invocation from anything the
+normal loop runs. So a file under `test/` can be simultaneously "compiles
+clean" and "four type errors", and only the second one is a merge blocker.
+
+The errors were real, and they had been there since the file's first commit —
+a three-argument `JSON.parse` reviver (V8's source-text reviver, Node >= 21)
+that the shipped `JSON.parse` type does not describe, so all three parameters
+fell to implicit `any`. Two days of local runs never saw them because none of
+those runs was the one that looks.
+
+**The general shape:** "I ran the typechecker" is a claim about a *project*,
+not about a *directory*. Before trusting a clean typecheck on a file, check
+which `tsconfig` actually includes it — a repo with more than one project has
+more than one answer, and the excluded tree is exactly where nobody notices.
+`docs/testing.md` → "Running any CI gate locally" is the reverse index for
+this; `test/system/local-run-mapping.test.ts` pins that it stays complete.

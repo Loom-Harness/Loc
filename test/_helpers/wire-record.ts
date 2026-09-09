@@ -224,16 +224,22 @@ export function toWireEntry(
     body = "";
   } else {
     try {
-      // The reviver's third argument carries the RAW SOURCE TEXT of a primitive
-      // (Node >= 21 / V8 >= 11.9).  `String(value)` is the canonical form
-      // precisely because RS-24 defines the wire type as a float64 JSON
+      // The reviver's third argument carries the RAW SOURCE TEXT of a
+      // primitive (Node >= 21 / V8 >= 11.9).  `String(value)` is the canonical
+      // form precisely because RS-24 defines the wire type as a float64 JSON
       // number, so the shortest round-trip spelling IS the contract — and a
-      // source that is not DECIMAL-EQUAL to it is publishing digits the
-      // contract does not carry.  That inequality, not textual inequality, is
-      // the test (see `numberFormats`).
+      // source that is off-contract against it is publishing digits the
+      // contract does not carry (see `offContractNumber`).
+      //
+      // The three-argument reviver is not in this TypeScript lib's
+      // `JSON.parse` signature yet, so the call is typed through
+      // `SourceTextParse` rather than left implicitly `any` — which is what
+      // `tsconfig.test.json` (the `test/` typecheck ratchet, `npm run build`
+      // does not cover this tree) reports as four errors otherwise.
+      const parseWithSource = JSON.parse as unknown as SourceTextParse;
       body = normalizeBody(
-        JSON.parse(trimmed, (_key, value, context) => {
-          const src = (context as { source?: string } | undefined)?.source;
+        parseWithSource(trimmed, (_key, value, context) => {
+          const src = context?.source;
           if (typeof value === "number" && typeof src === "string" && src !== String(value)) {
             if (offContractNumber(src, String(value))) spellings.push(src);
           }
@@ -257,6 +263,15 @@ export function toWireEntry(
   // in a golden is itself the signal that something spells numbers unusually.
   return spellings.length > 0 ? { ...entry, numberFormats: [...spellings].sort() } : entry;
 }
+
+/** `JSON.parse` with V8's source-text reviver (Node >= 21).  Declared here
+ *  because the shipped `JSON.parse` type still has the two-argument reviver;
+ *  narrowing to exactly what this file reads (`context.source`) keeps the cast
+ *  honest instead of widening the whole call to `any`. */
+type SourceTextParse = (
+  text: string,
+  reviver: (key: string, value: unknown, context?: { source?: string }) => unknown,
+) => unknown;
 
 /** Exact decimal value of a JSON number literal, as a canonical
  *  `sign|digits|exponent` triple with trailing fractional zeros removed — so
