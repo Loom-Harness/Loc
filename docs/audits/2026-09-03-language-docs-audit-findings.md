@@ -17,6 +17,35 @@ this is the hand-off list. Snapshot-in-time; re-verify on fresh `main` before pi
 > **⚠ verify-first is not ceremony.** A finding written from a symptom is a lead, not a diagnosis.
 > Waves 2–7 remain unstarted.
 
+> **Status 2026-09-09 — Wave 1 is MERGED, and two more rows are corrected.**
+> All four packets are on `main`: W1.3 `f182aa74b`, W1.2 `ca731d498`, W1.1 `4970ee7ef`,
+> W1.4 `adaa4f6e8`. Seven findings closed — F2, F3, F5, F6, F7, F8, F9.
+>
+> Two rows below were re-verified against fresh `main` while closing the wave, and **both were
+> written down more optimistically than the code deserves**:
+>
+> * **F11 is half-fixed.** [#2774](https://github.com/lemmit/Loc/pull/2774) routed the
+>   `DestroyForm` fallback through `giveUp()` (`_walker/primitives/forms.ts:145`), so the
+>   degradation now carries the `loom:unrendered` sentinel and the cross-frontend matrix can
+>   see it. It still emits **no `loom.*` diagnostic** — the half the row actually asks for.
+> * **F17 is NOT fixed, and is not even discoverable.** [#2723](https://github.com/lemmit/Loc/pull/2723)
+>   merged (`2b0c0457b`) and does touch `flutter/component-emit.ts`, but it did not close this.
+>   Re-run on `main` @ `adaa4f6e8` — a `platform: flutter` deployable whose ui declares
+>   `component Fancy(label: string) extern from "./components/Fancy"` and renders it:
+>   `ddd parse` reports **`0 error(s), 0 warning(s)`**, and the emitted
+>   `lib/pages/extra_page.dart` carries
+>   `const SizedBox.shrink() /* unknown layout component: Fancy */` — a bare `renderComment`
+>   with **no `loom:unrendered` sentinel**. So Flutter's component-drop path is outside
+>   `giveUp()` entirely: no diagnostic *and* invisible to the matrix `#2774` built to catch
+>   exactly this.
+>
+> **The correction that generalises:** `#2774` delivered only the DISCOVERABILITY half of Wave 2's
+> shared invariant (*"the walker must never decline to render a declared element without a
+> diagnostic"*). Every give-up that reaches `giveUp()` is now findable — but a predicate that
+> declines UPSTREAM of any `giveUp()` call still vanishes silently. F10 (dropped at
+> `isWalkableLayoutBody`) and F17 (dropped at the Flutter component filter) are both that shape,
+> which is why the sentinel cannot see either. Wave 2's real deliverable is still open.
+
 Twelve auditors each walked one doc packet, tracing every claim to the file that proves it.
 When a doc and the code disagreed, the doc was corrected — **unless the code was the thing
 that was wrong**, in which case the behaviour was documented honestly and the defect landed

@@ -5782,3 +5782,60 @@ toolchain recipe in `docs/tools.md`: unfixed → the exact CI divergence
 (`#11 GET /api/crates at $.items[0].version — golden 2 ≠ elixir 1`), fixed →
 `wire: matches golden`. Reading Ecto's source told me what to change; only the
 run told me it was the whole cause.
+
+## 100. The merge queue lies in three different ways, and I believed all three
+
+Landing four small PRs took two days, and almost none of it was the code. Four
+separate wrong diagnoses, each cheap to avoid:
+
+**A missing `gh-readonly-queue/…/pr-<n>-<base>` ref does NOT mean un-enqueued.**
+Only the entry at the FRONT of the queue gets a ref; everything waiting behind it
+is enqueued with no ref at all. I read ref-absence as "not queued" and built two
+confident theories on it — that auto-merge had been dropped, then that a
+required-set change had left a check permanently "expected". Both were fiction.
+To tell "waiting" from "not queued", watch whether the queue *advances past* you:
+if other PRs enter and merge while yours never forms a group, it is not queued.
+
+**`pull_request_read` method `get_status` is useless here.** It reads the legacy
+commit-status API; this repo reports everything through check runs, so it returns
+`total_count: 0` forever. That reads exactly like "no results yet". Use
+`actions_list list_workflow_runs` filtered by branch, or `get_check_runs`.
+
+**`pr-gate` can leave a required check with no PUBLISHED verdict.** It evaluates
+on `workflow_run: completed`; if the LAST check finishes after the final
+evaluation and no further completion event fires, the posted `pr-gate` check
+never reaches `success` and auto-merge has nothing to fire on. Symptom: the PR is
+green, `tests passed` succeeded at T+18, and the only `PR gate` run on that head
+finished at T+13. Remedy (pr-gate.yml documents it): re-run any cheap completed
+workflow on that head to fire a fresh evaluation. That unstuck three PRs. #2822
+diagnosed the bug ("94 of the last 100 evaluations, 0 published") without closing
+it.
+
+**Each push dispatches the workflow set TWICE, a second apart.** The earlier set
+shows `cancelled`/`skipped`. Those are superseded duplicates, not failures — the
+same corpse shape that produced three wrong `pr-gate` reports the day before.
+
+## 101. A green local suite goes stale in hours — the ratchet you'll hit is the one that landed after your sync
+
+`main` here moves ~150 commits/day. #2789 passed a full local suite (1897 files,
+0 failures) at 07:36, merged cleanly, and was still ejected from the queue at
+10:05 by `test/system/diagnostic-docs-anchors.test.ts`:
+
+    new catalog codes: add a docs anchor in src/diagnostics/code-docs.ts or
+    list them in diagnostic-docs-undocumented.ts:
+    expected [ 'loom.locator-matcher-receiver' ] to deeply equal []
+
+That ratchet landed on `main` AFTER the branch's last sync, so the local run
+genuinely predated the gate. **A new ratchet meeting your new code is the classic
+queue-ejection shape** — not a flake, not infrastructure. It is also the one
+failure mode the merge queue exists for, and it worked exactly as designed.
+
+Two habits that follow. First, when a PR mints a new `loom.*` code, add its
+`code-docs.ts` anchor in the same commit — the anchor is checked against the
+headings actually in `docs/`, so a plausible-looking slug fails (proved: swapping
+in `#no-such-heading-xyz` fails with *"is a heading in 18-testing.md: expected
+false to be true"*). Second, when a queue entry is ejected, read the failing JOB,
+never guess: `list_workflow_runs` on the `gh-readonly-queue/…` branch with
+`status: completed` → scan `conclusion` for `failure` → `list_workflow_jobs` →
+`get_job_logs` with `return_content` and `tail_lines`. That path found this in
+one pass after a day of theorising found nothing.
