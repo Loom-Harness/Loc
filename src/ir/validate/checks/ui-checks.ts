@@ -1075,10 +1075,11 @@ function acceptedArgsSentence(name: string): string {
 // `filterFindsForAggregate` (src/macros/stdlib/scaffold/_body-builders.ts)
 // wires one filter input per param of every array-returning `find`, and the
 // arm is ALL-OR-NOTHING: a find with a single unrenderable param is skipped
-// whole.  It renders `string`, `int`, `long` and `<X> id`; `decimal`/`money`,
-// `enum`, `bool`, `datetime` and `guid` are held back for reasons that live in
-// the FRONTEND emitters, not in the macro (see
-// `src/util/filter-param-kinds.ts`).  Until this gate the skip was silent: the
+// whole.  It renders `string`, `guid`, `datetime`, `int`, `long`, `bool` and
+// `<X> id` — the exact contents of `RENDERABLE_FILTER_PRIMITIVES` plus the id
+// arm.  Only `decimal`/`money` and `enum` are held back, for reasons that live
+// in the FRONTEND emitters rather than in the macro (see
+// `src/util/filter-param-kinds.ts`, which carries both).  Until this gate the skip was silent: the
 // author declared `find byStatus(s: Status): Order[]`, the scaffolded list
 // page came out with no `Status` filter, and nothing anywhere said why.
 //

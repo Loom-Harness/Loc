@@ -457,11 +457,41 @@ Sources: [language-docs-audit-2026-09-03](../audits/2026-09-03-language-docs-aud
 > `keyed by` instead of interpolating `undefined`. Refusing a keyless fold is intentional and
 > documented, so F30 was message-only exactly as recorded.
 
-## M-T9.45 — Messages that contradict their own gate, comments naming codes that do not exist, one dead gate, one orphan catalog entry — `open` · **M** · P3 ⚠ verify-first
+## M-T9.45 — Messages that contradict their own gate, comments naming codes that do not exist, one dead gate, one orphan catalog entry — `done` · **M** · P3
 
 Found 2026-09-03 by the language-docs audit (F27–F29, F31–F35, P3). Eight rows, all text, each with a grep behind it: `loom.scaffold-filter-param-unsupported` says `bool`/`datetime`/`guid` "have no input at all" when since #2699 all three render — the gate reads the correct set, only the message (and its stale twin in a comment) lies (`messages.ts:2308-2315`; `ui-checks.ts:1097-1099`); `loom.flutter-primitive-unsupported` names `FileUpload` as "the one deferred primitive" while `FLUTTER_UNRENDERED_PRIMITIVES` is now empty (`messages.ts:1624`; `src/util/flutter-deferred-primitives.ts`); `loom.filter-bypass-unsupported` is unreachable — `FILTER_BYPASS_FAMILIES` holds all five families — and still names three backends as "the honoring backends" (`system-checks.ts:2712`; `messages.ts:1832-1842`); `loom.scaffold-unexpanded` blames "walker-primitive-expander", a pass that no longer exists, and names `view` as a resolvable target (`messages.ts:783`); three comments cite codes that do not exist at all — `loom.workflow-function-block-body` (`ddd.langium:1456`, `loom-ir.ts:1311`), `loom.intrinsic-not-queryable` (`src/util/intrinsics.ts:57`), `loom.spurious-effect-marker` (`src/ir/lower/lower-expr.ts:1080`); and `extern_handlers_registered` sits in the observability catalog with no backend emitting it (`src/generator/_obs/log-events.ts`).
 
 **The fix:** mostly text, but every edit carries the grep that proves the claim it replaces. **F29 needs a decision** — delete the dead gate or add the missing family; the wording is wrong either way.
+
+> **Landed 2026-09-09 (W4.2, stacked on M-T9.44's branch). Three of the eight rows were not
+> what they said.**
+>
+> * **F27 was already half-fixed on `main`.** The message names the correct renderable set
+>   today; only its comment twin in `ui-checks.ts` was still stale.
+> * **F29 needed no decision — the code had already made it.** The gate is a pinned
+>   `LATENT_GATES` entry in the firing census (*"no deployable can reach the `!supported`
+>   push"*), i.e. a deliberate dormant safety net, the same shape as F28's Flutter gate. Both
+>   are reworded, neither deleted.
+> * **F34's symptom was wrong and the truth is much worse.** A stray `await` is not a parse
+>   error: `match await <plain state field>` validates with **zero diagnostics** and the four
+>   SPA walkers emit `await Promise.reject(new Error("no remote op for variant-match"))` — a
+>   guaranteed runtime rejection on every invocation, plus an undefined setter. Root cause:
+>   `loom.match-non-union-subject` guards the **expression** `match` only; a `match` in an
+>   action body lowers to a `StmtIR` `variant-match` that its visitor never sees. Filed as
+>   audit finding **F56** and routed to W2.3, since it is Wave 2's invariant rather than text.
+>
+> **F32 was verified by running it, not by reading:** a block-bodied workflow `function`
+> parses clean and emits as a real workflow-scoped helper on all five backends, never inlined
+> — which also exposed the grammar comment's *second* false claim (that such helpers are
+> inlined at each call site), contradicted by the IR comment two files away.
+>
+> **F35 shipped the class, not the instance.** `catalog-parity.test.ts` only ever checked
+> *emitted ⊆ catalogued*; the reverse — a catalog entry no backend emits — had no gate, which
+> is how `extern_handlers_registered` outlived its producer. The new orphan invariant scans
+> `src/` for each entry's key and event string (every emitter reaches the catalog by key, so
+> one grep covers all five backends with no generate and no docker), and holds the three
+> documented-reserved entries in a ratcheting `RESERVED_UNEMITTED` waiver that fails both ways.
+> Mutation-proved by restoring the deleted entry.
 
 **Verification when it lands.** The extended catalog gate from M-T9.44 stays green; the register-backed claims (`FLUTTER_UNRENDERED_PRIMITIVES`, `FILTER_BYPASS_FAMILIES`) are re-derived from code in the PR body rather than restated.
 

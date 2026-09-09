@@ -826,7 +826,9 @@ export const DIAGNOSTIC_MESSAGES = {
     `aggregate '${p.name}' apply(${p.event}) contains a '${p.kind}' statement. ` +
     `Guards belong in the command that decides the event; by the time it is applied the decision is already made.`,
   "loom.scaffold-unexpanded": (p: { name: unknown }) =>
-    `un-expanded scaffold primitive '${p.name}' — walker-primitive-expander could not resolve its target aggregate/workflow/view; check that the referenced symbol exists in the surrounding context.`,
+    `un-expanded scaffold primitive '${p.name}' — the scaffold macro could not resolve its ` +
+    `target aggregate or workflow; check that the referenced symbol exists in the ` +
+    `surrounding context.`,
   "loom.distinct-non-scalar":
     "`.distinct` requires a scalar or value-object element — it can't dedupe a collection of entities or id references.",
   "loom.join-non-string": "`.join` requires a string collection.",
@@ -1733,8 +1735,7 @@ export const DIAGNOSTIC_MESSAGES = {
     `ui '${p.ui}': ${p.first} and ${p.second} both claim ${p.slot}. Exactly one page can fill a scaffold archetype slot — the router imports one of them and the other becomes an unreachable file. To replace a scaffolded page, declare yours in the SAME scope as the scaffold's area (override-by-name displaces it); to add a second page, give it its own name and route.`,
   "loom.flutter-primitive-unsupported": (p: { where: unknown; name: unknown; dName: unknown }) =>
     `uses the '${p.name}' primitive, but the Flutter frontend has no renderer ` +
-    `for it yet (FileUpload is the one deferred primitive — a standalone multipart upload ` +
-    `needs the File-type-on-Flutter foundation) — so hosting deployable '${p.dName}' ` +
+    `for it yet — so hosting deployable '${p.dName}' ` +
     `(platform 'flutter') would emit a \`// flutter pack: no renderer\` comment where the ` +
     `widget should be and the element would silently vanish.  Host this page on an SPA ` +
     `frontend (react / vue / svelte / angular) or a Feliz/Phoenix deployable, or use the ` +
@@ -1962,9 +1963,11 @@ export const DIAGNOSTIC_MESSAGES = {
   }) =>
     `Deployable '${p.name}' (platform ${p.platform}) serves ${p.site} on ` +
     `aggregate '${p.ctxName}.${p.aggName}' with an 'ignoring' filter-bypass clause, but ` +
-    `this backend does not honor capability-filter bypass yet — the honoring backends are ` +
-    `dotnet (EF 'IgnoreQueryFilters'), node (Drizzle), and elixir (Ecto). Host this read ` +
-    `on a supported backend, or remove the 'ignoring' clause.`,
+    `this backend does not honor capability-filter bypass — every shipping backend does ` +
+    `(dotnet via EF 'IgnoreQueryFilters', node via Drizzle, elixir via Ecto, plus java and ` +
+    `python), so reaching this message means '${p.platform}' is a backend added without a ` +
+    `filter-bypass arm. Give its emitter one, host this read on another backend, or remove ` +
+    `the 'ignoring' clause.`,
   "loom.filter-bypass-unknown-capability": (p: {
     site: unknown;
     ctxName: unknown;
