@@ -385,6 +385,18 @@ export function isWalkableLayoutBody(
       isWalkableLayoutBody(body.otherwise, userComponents)
     );
   }
+  // A bare `match` body is the documented wizard pattern
+  // (page-metamodel.md §7/§12) and the walker has full `match` arms —
+  // only THIS predicate did not admit it, so react and svelte (the two
+  // emitters that gate on it) dropped the page with no file and no
+  // diagnostic, while vue and angular — which walk unconditionally —
+  // rendered it.  Same rule as `ternary`: walkable when any arm is.
+  if (body.kind === "match") {
+    return (
+      body.arms.some((a) => isWalkableLayoutBody(a.value, userComponents)) ||
+      isWalkableLayoutBody(body.otherwise, userComponents)
+    );
+  }
   return false;
 }
 
