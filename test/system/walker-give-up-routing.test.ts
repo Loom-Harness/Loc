@@ -35,15 +35,22 @@ const REPO = resolve(import.meta.dirname, "..", "..");
 /** The trees whose comments are page-body rendering output.  `src/generator/
  *  elixir/` is in scope for its walker core only — the rest of the Phoenix
  *  emitter writes ordinary source comments. */
-const WALKER_GLOBS = [
-  "src/generator/_walker/**/*.ts",
-  "src/generator/react/**/*.ts",
-  "src/generator/vue/**/*.ts",
-  "src/generator/svelte/**/*.ts",
-  "src/generator/angular/**/*.ts",
-  "src/generator/feliz/**/*.ts",
-  "src/generator/flutter/**/*.ts",
-];
+const WALKER_TREES = ["_walker", "react", "vue", "svelte", "angular", "feliz", "flutter"] as const;
+
+/** TWO entries per tree, and that is not redundancy (audit finding F63).
+ *  `git ls-files 'src/generator/react/**' + '/*.ts'` matches files in
+ *  SUBDIRECTORIES ONLY — a top-level `src/generator/react/x.ts` does not match,
+ *  because git's `**` requires the slash it spans to be present. So the single
+ *  glob this list used to carry scanned **40 of 140** files: 19 of `_walker`'s
+ *  39, 9 of react's 22, and **zero** of flutter's 22 and feliz's 13. Twenty-eight
+ *  direct seam calls sat in that blind spot — including six in the shared
+ *  `walker-core.ts` and the whole Angular destroy-form fork — while this test
+ *  reported green. A gate that never reaches what it names is the repo's own
+ *  recurring failure shape (`experience_gathered.md` §59, §63). */
+const WALKER_GLOBS = WALKER_TREES.flatMap((t) => [
+  `src/generator/${t}/*.ts`,
+  `src/generator/${t}/**/*.ts`,
+]);
 
 /** Files allowed to call `renderComment` / `renderNotice` directly, each with
  *  the reason the call is not a degradation.  A file that stops calling it fails

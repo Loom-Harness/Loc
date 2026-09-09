@@ -39,6 +39,7 @@ import { isConstructible } from "../../ir/enrich/wire-projection.js";
 import type { AggregateIR, ExprIR, LiteralKind, TypeIR } from "../../ir/types/loom-ir.js";
 import { humanize, lowerFirst, plural, snake, upperFirst } from "../../util/naming.js";
 import { PROVENANCE_LINEAGE_FIELD } from "../_payload/provenanced-wire.js";
+import { giveUp } from "../_walker/give-up.js";
 import { localizedNamedValue, localizedPositionalTranslation } from "../_walker/i18n-emit.js";
 import type { ApiCallSite, RenderPosition, StateRef, WalkerTarget } from "../_walker/target.js";
 import type { WalkContext } from "../_walker/walker-core.js";
@@ -559,7 +560,8 @@ export const flutterTarget: WalkerTarget = {
       // and visible.
       const inst = (call.args ?? []).find((_, i) => !(call.argNames ?? [])[i]);
       if (inst?.kind === "member") {
-        return flutterTarget.renderComment(
+        return giveUp(
+          flutterTarget,
           `OperationForm(${inst.receiver.kind === "ref" ? inst.receiver.name : "?"}.${inst.member}): ` +
             "'" +
             (inst.receiver.kind === "ref" ? inst.receiver.name : "?") +
@@ -596,7 +598,7 @@ export const flutterTarget: WalkerTarget = {
     const argNames = call.argNames ?? [];
     const opRef = (call.args ?? []).find((_, i) => !argNames[i]);
     if (opRef?.kind !== "member" || opRef.receiver.kind !== "ref") {
-      return flutterTarget.renderComment("Action: first argument must be <instance>.<operation>");
+      return giveUp(flutterTarget, "Action: first argument must be <instance>.<operation>");
     }
     const aggName = ctx.paramTypes?.get(opRef.receiver.name);
     const agg = aggName ? ctx.aggregatesByName.get(aggName) : undefined;
@@ -604,7 +606,8 @@ export const flutterTarget: WalkerTarget = {
       (o) => o.name === opRef.member && o.visibility === "public" && o.params.length === 0,
     );
     if (!agg || !op) {
-      return flutterTarget.renderComment(
+      return giveUp(
+        flutterTarget,
         `Action(${opRef.receiver.name}.${opRef.member}): no parameter-less public operation in scope (use OperationForm for an op with parameters)`,
       );
     }
@@ -678,7 +681,8 @@ export const flutterTarget: WalkerTarget = {
         : undefined;
     const resolved = byName ?? instanceOperation(formChild, ctx);
     if (!resolved) {
-      return flutterTarget.renderComment(
+      return giveUp(
+        flutterTarget,
         "Modal: OperationForm child must name of: <Agg> and op: <public op>",
       );
     }
@@ -760,7 +764,7 @@ export const flutterTarget: WalkerTarget = {
     const fieldIdx = argNames.indexOf("field");
     const fieldArg = fieldIdx >= 0 ? call.args[fieldIdx] : undefined;
     if (!ofArg || fieldArg?.kind !== "literal") {
-      return flutterTarget.renderComment("ProvenanceInfo: missing record or field");
+      return giveUp(flutterTarget, "ProvenanceInfo: missing record or field");
     }
     const lineage = `${emitExpr(ofArg, ctx)}.${String(fieldArg.value)}.${PROVENANCE_LINEAGE_FIELD}`;
     const row = (label: string, value: string) =>
