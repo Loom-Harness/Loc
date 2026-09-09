@@ -112,22 +112,22 @@ describe("flutter page-level derived bindings", () => {
   ui App {
     framework: flutter
     api Shop: A
-    store Cart { state { count: int = 0 } }
     page Home {
       route: "/"
-      derived viaStore: int = Cart.count + 1
-      body: Card { Text { viaStore } }
+      derived viaId: string = id
+      body: Card { Text { viaId } }
     }
   }
 `),
       "home_page.dart",
     );
-    // A store member local exists only when the BODY reads that store, so a
-    // derived over one keeps its pre-existing drop rather than emitting Dart
-    // that names nothing.
-    expect(source).not.toContain("final viaStore");
+    // The magic route `id` is bound only when a READ keys on it, so a derived
+    // over one keeps its pre-existing drop rather than emitting Dart that names
+    // nothing.  (A derived over a STORE field used to sit here too; W1.2 /
+    // M-T1.28 taught the shell to hoist that binding — `derived-store-read.test.ts`.)
+    expect(source).not.toContain("final viaId");
     // …and the give-up sentinel stays a WIDGET — never Dart source printed as text.
-    expect(source).toContain("const SizedBox.shrink() /* ref: viaStore */");
+    expect(source).toContain("const SizedBox.shrink() /* ref: viaId */");
     expect(source).not.toContain("Text('const SizedBox");
   });
 });

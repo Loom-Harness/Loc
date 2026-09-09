@@ -5,6 +5,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { requireDocker } from "./support/docker-probe.js";
 import { mixDepsGet, mixLocalInstall } from "./support/mix-retry.js";
 
 // ---------------------------------------------------------------------------
@@ -36,18 +37,9 @@ const EXAMPLE = path.join(repoRoot, "web", "src", "examples", "storefront-elixir
 
 const ENABLED = process.env.LOOM_PHOENIX_UI_E2E === "1";
 
-function hasDocker(): boolean {
-  try {
-    execSync("docker info", { stdio: "pipe", timeout: 5_000 });
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 function hasElixir(): boolean {
   try {
-    execSync("mix --version", { stdio: "pipe", timeout: 5_000 });
+    execSync("mix --version", { stdio: "pipe", timeout: 15_000 });
     return true;
   } catch {
     return false;
@@ -74,12 +66,8 @@ async function freePort(): Promise<number> {
 
 describe.skipIf(!ENABLED)("Phoenix LiveView UI smoke — runtime e2e (LOOM_PHOENIX_UI_E2E=1)", () => {
   it("every param-less LiveView route navigates + loads", async () => {
-    if (!process.env.LOOM_OBS_PG_URL && !hasDocker()) {
-      throw new Error(
-        "LOOM_PHOENIX_UI_E2E=1 set but no LOOM_OBS_PG_URL was provided and the " +
-          "docker daemon is unreachable. Supply LOOM_OBS_PG_URL=postgres://… or " +
-          "ensure docker is available for a local sidecar.",
-      );
+    if (!process.env.LOOM_OBS_PG_URL) {
+      requireDocker("LOOM_PHOENIX_UI_E2E=1", "LOOM_OBS_PG_URL");
     }
     if (!hasElixir()) {
       throw new Error(

@@ -87,10 +87,13 @@ export const COMPILE_WAIVERS: readonly Waiver[] = [
     // entirely.  One construct, three behaviours, one backend — the pairwise
     // thesis stated as a bug.
     //
-    // Node and Java both get every shape right; Phoenix gets it wrong a THIRD
-    // way that no compile leg here proves (see F14 in the register: the
-    // document-shape repository defines `by_label/3` while the context
-    // delegate declares arity 5).
+    // Node and Java both get every shape right; Phoenix got it wrong a THIRD
+    // way (F14: the document-shape repository defined `by_label/3` while the
+    // context delegate declared arity 5, and the event-sourced one dropped the
+    // carrier entirely) — recorded from source here because the elixir leg was
+    // not run, confirmed red on `main` by the first scheduled run (#2797), and
+    // FIXED rather than waived.  `test/generator/elixir/paged-find-arity.test.ts`
+    // is the per-PR oracle that now stands in for the 78-minute leg.
     platform: "python|dotnet",
     persistence: "*",
     capability: "*",

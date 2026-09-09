@@ -186,7 +186,9 @@ describe("python repository emission", () => {
     // (the money-typed find param crosses as `str` and converts at the call).
     const routes = files.get("api/app/http/order_routes.py")!;
     expect(routes).toContain("unitBudget: str");
-    expect(routes).toContain("async def cheaper_than_orders(limit: str, session: SessionDep)");
+    // `MoneyStr` since M-T6.48 — the wire-format guard that makes the
+    // downstream `Decimal(limit)` total (was a bare `str`, and a 500).
+    expect(routes).toContain("async def cheaper_than_orders(limit: MoneyStr, session: SessionDep)");
     expect(routes).toContain("await repo.cheaper_than(Decimal(limit))");
   });
 });

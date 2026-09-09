@@ -743,6 +743,7 @@ export function renderApiExceptionAdvice(
     `import ${basePkg}.domain.common.AggregateNotFoundException;`,
     `import ${basePkg}.domain.common.DisallowedException;`,
     `import ${basePkg}.domain.common.DomainException;`,
+    `import ${basePkg}.domain.common.WireFormatException;`,
     `import ${basePkg}.domain.common.ForbiddenException;`,
     `import ${basePkg}.config.CatalogLog;`,
     `import ${basePkg}.config.HttpMetrics;`,
@@ -816,6 +817,26 @@ export function renderApiExceptionAdvice(
     `        CatalogLog.event(${javaLogEvent("forbidden")}, "message", e.getMessage(), "status", ${forbiddenStatus});`,
     `        httpMetrics.recordDomainFault("forbidden");`,
     `        return respond(problem(${forbiddenStatus}, "${forbiddenTitle}", e.getMessage(), request), ${forbiddenStatus});`,
+    `    }`,
+    ``,
+    // The WIRE-FORMAT tier (M-T6.48): the bytes never parsed, so nothing about
+    // the DOMAIN was violated — it is the same tier as a rejected body field
+    // (`MethodArgumentNotValidException`) and answers the same 422 with the
+    // same `errors[]` shape, carrying the pointer the exception brought with
+    // it. Before this arm a malformed money string threw `NumberFormatException`
+    // out of the service, fell past the 4xx branch of `onUnhandled`, and
+    // answered 500 — the fourth instance of this file's recurring bug, a CLIENT
+    // fault reported as a server fault.
+    `    @ExceptionHandler(WireFormatException.class)`,
+    `    public ResponseEntity<ProblemDetail> onWireFormat(WireFormatException e, WebRequest request) {`,
+    `        CatalogLog.event("domain_error", "warn", "message", e.getMessage(), "status", ${UNPROCESSABLE_ENTITY});`,
+    `        httpMetrics.recordDomainFault("domain_error");`,
+    `        var problem = problem(${UNPROCESSABLE_ENTITY}, "Validation failed", "One or more fields are invalid.", request);`,
+    `        var entry = new java.util.LinkedHashMap<String, Object>();`,
+    `        entry.put("pointer", e.getPointer());`,
+    `        entry.put("message", e.getMessage());`,
+    `        problem.setProperty("errors", java.util.List.of(entry));`,
+    `        return respond(problem, ${UNPROCESSABLE_ENTITY});`,
     `    }`,
     ``,
     `    @ExceptionHandler(DomainException.class)`,

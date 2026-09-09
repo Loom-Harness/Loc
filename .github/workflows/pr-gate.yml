@@ -1,7 +1,10 @@
 name: PR gate
 
-# The personal-account substitute for a merge queue — see docs/ci-gating.md →
-# "No merge queue on a personal account: the pr-gate check".
+# The per-PR aggregate verdict — see docs/ci-gating.md → "The `pr-gate` check".
+# Built when this repo was under a personal account and a merge queue was not
+# available; the queue is on now, and this stays as the ENTRY bar: it gates
+# your branch in seconds so a red PR never spends a queue slot and a full
+# heavy run before being ejected.
 #
 # v2 — EVENT-DRIVEN.  v1 was one long-polling job that waited (up to 80min)
 # for every other check while itself holding a runner slot; under load the
@@ -59,9 +62,30 @@ on:
   # this workflow's runs filtered to `event=schedule` and diff `created_at`.)
   #
   # So a dropped dispatch parks a green PR for HOURS, not minutes.  If you are
-  # waiting on a parked `pr-gate`, do not wait for the sweep — get a fresh
-  # evaluation (a new SHA, or a re-run of any workflow on the branch, both of
-  # which fire `workflow_run: completed`).
+  # waiting on a parked `pr-gate`, do not wait for the sweep — but note that
+  # only ONE of the two obvious levers actually works.
+  #
+  #   a new SHA        WORKS.  Measured on #2812 (2026-09-08): parked on
+  #                    `5e0995d`, unparked the moment `027454e` was pushed.
+  #   a workflow re-run DOES NOT.  Measured twice — on #2812 and again on
+  #                    #2792 — `rerun_workflow_run` returns 201 and the
+  #                    dispatch does fire, but no verdict reaches the head
+  #                    SHA and the merge stays refused with
+  #                    `Required status check "pr-gate" is expected`.
+  #
+  # This comment used to offer the two as interchangeable.  They are not, and
+  # the difference costs hours: on a re-run you wait, conclude it worked, and
+  # find the PR still unmergeable.
+  #
+  # SUSPECTED cause, not yet proven — the `concurrency` block at the bottom of
+  # this file is SHA-keyed with `cancel-in-progress: true` for `workflow_run`.
+  # The two `pr-gate` runs that fired for #2792's re-run (34211962880 at
+  # 09:47Z, 34212476487 at 09:53Z) both concluded `cancelled`, never `success`,
+  # so neither reached the Checks-API publish step.  A burst of completions is
+  # supposed to collapse to the NEWEST evaluation; if the newest is itself
+  # cancelled by the next dispatch, the burst collapses to nothing.  Verify by
+  # listing this workflow's `event=workflow_run` runs and counting how many
+  # conclude `success` versus `cancelled` before changing the group key.
   schedule:
     - cron: '*/15 * * * *'
   workflow_dispatch:
@@ -159,34 +183,47 @@ permissions:
   # Sweep mode lists open PRs to reconcile their verdicts.
   pull-requests: read
 
-# One evaluation per SHA at a time; a burst of completions collapses to the
-# newest evaluation (cancelled `pr-gate-eval` runs are excluded from the
-# verdict by SELF_NAMES).
+# NOTHING here cancels.  Runs are grouped per evaluated SHA (and all sweeps
+# share one key), and GitHub serialises each group at one running + one pending
+# — which is the property this gate needs on EVERY path, not just the sweep's.
 #
-# The SWEEP needs different handling on BOTH lines, and getting either wrong
-# re-breaks the safety net:
+# This block used to read `cancel-in-progress: <true for the SHA-keyed events>`,
+# on the theory that a burst of completions should "collapse to the newest
+# evaluation".  Measured 2026-09-08, it collapsed to NOTHING: of the last 100
+# `workflow_run`-triggered runs, 94 were `cancelled`, 4 queued, 2 pending, and
+# ZERO succeeded.  An evaluation takes ~2m20s but sits QUEUED far longer while
+# the pool is busy, so the next completing check superseded it before it ever
+# reached `publishCheck`.  With ~40 checks feeding one SHA-keyed group — and
+# three such groups at once while a merge queue batch runs — the stream never
+# ended and no verdict was ever published.  Every parked gate that day traces
+# here: PR heads stuck at `in_progress`, merge-queue entries ejected green, and
+# the two "recoveries" that did work (a NEW SHA, a RE-RUN) working only because
+# each is a single event with no burst behind it to cancel it.
+#
+# Cancellation buys nothing anyway.  A pending run costs no runner; it is the
+# CANCELLED ones that waste the slot they had already claimed.  Serialising
+# keeps at most two evaluations per SHA, the in-flight one always publishes, and
+# the newest queued one always runs after it.
+#
+# The two properties this block must keep, both pinned by
+# `test/system/pr-gate.test.ts`:
 #
 #   * `group` — a `schedule` / `workflow_dispatch` payload has neither
-#     `pull_request` nor `workflow_run`, so both expressions resolved to empty
-#     and the key degenerated to the literal `pr-gate-`.  Every sweep shared one
-#     group, and with `cancel-in-progress: true` each cron tick killed the
-#     previous tick.  Under the runner starvation the sweep exists to survive,
-#     a queued sweep was reliably cancelled by the next one and the verdict
-#     never got posted — observed on #2443: checks all green at 22:07Z, sweeps
-#     at 21:20Z and 22:08Z both cancelled, gate parked at `in_progress`.
-#     A literal `sweep` key keeps sweeps in their own group, clear of the
-#     SHA-keyed evaluations.
+#     `pull_request` nor `workflow_run`, so without the literal fallback the key
+#     degenerates to `pr-gate-` and every sweep shares one group.  The `sweep`
+#     literal keeps sweeps in their own group, clear of the SHA-keyed ones —
+#     and, now that nothing cancels, serialises them rather than killing them.
+#     (Observed on #2443 under the old setting: checks green at 22:07Z, sweeps
+#     at 21:20Z and 22:08Z both cancelled, gate parked at `in_progress`.)
 #
-#   * `cancel-in-progress` — must be FALSE for the sweep.  Making each sweep
-#     unique (e.g. falling back to `github.run_id`) would stop the cancelling
-#     but let sweeps OVERLAP, and two concurrent sweeps race: the slower one
-#     posts its older verdict last and can re-park a PR it already greened.
-#     With cancellation off, GitHub keeps the running sweep alive and holds at
-#     most one pending behind it (a newer pending replaces an older pending) —
-#     never lose the newest, never kill the in-flight one.
+#   * `cancel-in-progress` — FALSE, unconditionally.  Making the key unique per
+#     run would also stop the cancelling, but it lets runs OVERLAP, and two
+#     concurrent evaluations of one SHA race: the slower one posts its older
+#     verdict last and can re-park a PR it already greened.  Never lose the
+#     newest, never kill the in-flight one.
 concurrency:
   group: pr-gate-${{ github.event.pull_request.head.sha || github.event.workflow_run.head_sha || github.event.merge_group.head_sha || 'sweep' }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' || github.event_name == 'workflow_run' || github.event_name == 'merge_group' }}
+  cancel-in-progress: false
 
 jobs:
   pr-gate-eval:
