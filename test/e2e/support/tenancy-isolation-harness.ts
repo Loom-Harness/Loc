@@ -36,7 +36,11 @@ export function claims(tenantId: string): Record<string, string> {
 // Re-exported so the sibling suites importing it from this harness keep working.
 // See `docker-probe.ts` for why the old inline `docker info` probe reported a
 // busy daemon as a missing one.
-export { hasDocker, requireDocker } from "./docker-probe.js";
+// Imported as well as re-exported: a bare `export … from` does NOT bind the
+// names locally, so the `hasDocker()` call below was an unresolved identifier
+// (TS2304, and a ReferenceError on the docker-absent path).
+import { hasDocker, requireDocker } from "./docker-probe.js";
+export { hasDocker, requireDocker };
 
 export async function freePort(): Promise<number> {
   return await new Promise<number>((resolve, reject) => {

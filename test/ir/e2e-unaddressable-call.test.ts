@@ -55,9 +55,14 @@ const sys = (body: string) => `
 async function errorsFor(body: string): Promise<string[]> {
   const { model, errors } = await parseString(sys(body));
   expect(errors).toEqual([]);
-  return validateLoomModel(toLoomModel(model))
-    .filter((d) => d.severity === "error")
-    .map((d) => d.code);
+  return (
+    validateLoomModel(toLoomModel(model))
+      .filter((d) => d.severity === "error")
+      // A diagnostic with no `code` is surfaced rather than dropped: filtering
+      // undefined away would let an uncoded error silently satisfy a
+      // `toEqual([])` assertion below.
+      .map((d) => d.code ?? "<uncoded>")
+  );
 }
 
 describe("e2e — the one-level `api.<name>(…)` shape is refused", () => {
