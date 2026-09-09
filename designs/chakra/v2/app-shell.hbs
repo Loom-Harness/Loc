@@ -225,7 +225,7 @@ function AppShellLayout() {
             table would stretch this flex item past the viewport and
             scroll the whole document sideways instead of scrolling
             inside its own container. */}
-        <Box as="main" id="main-content" flex={1} minW={0} p={6}>
+        <Box as="main" id="main-content" flex={1} minW={0} p={ { base: 4, lg: 6 } }>
           <AppErrorBoundary>
             <Outlet />
           </AppErrorBoundary>
