@@ -11,9 +11,9 @@
 // affordance the user asked for): on a file → Rename / Delete; on a
 // folder → New file / New folder / Delete folder; on empty space →
 // New file / New folder.  A header "+" menu is kept for discoverability
-// and for touch, where a right-click isn't natural.  Deletes confirm
-// first so a misclick can't silently destroy a file — the old tab "×"
-// deleted with no confirmation.
+// and for touch, where a right-click isn't natural.  Deletes arm an inline
+// confirm row first so a misclick can't silently destroy a file — the old
+// tab "×" deleted with no confirmation.
 //
 // The tree itself reuses `preview/FileTree.tsx`; this module owns the
 // workspace-relative projection, the create/rename inline form, and the
@@ -35,12 +35,14 @@ import {
 } from "@mantine/core";
 import { buildTree, type TreeFolder } from "../preview/file-tree";
 import { FileTree } from "../preview/FileTree";
+import { InlineConfirm, confirmSites } from "../util/confirm";
 import {
   DEFAULT_PATH,
   readOnlyMessage,
   type WorkspaceReadOnlyReason,
   type WorkspaceSourcesError,
 } from "../workspace/workspace-sources";
+import { ReadOnlyBadge } from "./ReadOnlyBadge";
 import {
   fileInFolderPath,
   joinRel,
@@ -241,21 +243,38 @@ export function SourceFilesTree(props: SourceFilesTreeProps): JSX.Element {
     setMenu({ x: e.clientX, y: e.clientY, target: null });
   }, []);
 
-  const confirmDeleteFile = useCallback(
-    (fullPath: string) => {
-      const rel = fullPath.slice(WORKSPACE_PREFIX.length);
-      if (window.confirm(`Delete "${rel}"? This can't be undone.`)) props.onDelete(fullPath);
-    },
-    [props],
-  );
-  const confirmDeleteFolder = useCallback(
-    (folderRel: string) => {
-      if (window.confirm(`Delete folder "${folderRel}" and everything in it?`)) {
-        props.onDeleteFolder?.(folderRel);
-      }
-    },
-    [props],
-  );
+  // Deletes arm an INLINE confirm row above the tree (the shared
+  // `InlineConfirm`, M-T8.17) instead of a native dialog; the row names the
+  // file — or the folder and how many files it holds — and Cancel keeps it.
+  const [pendingDelete, setPendingDelete] = useState<
+    { kind: "file"; fullPath: string } | { kind: "folder"; folderRel: string } | null
+  >(null);
+  const confirmDeleteFile = useCallback((fullPath: string) => {
+    setMenu(null);
+    setPendingDelete({ kind: "file", fullPath });
+  }, []);
+  const confirmDeleteFolder = useCallback((folderRel: string) => {
+    setMenu(null);
+    setPendingDelete({ kind: "folder", folderRel });
+  }, []);
+  const deleteSpec =
+    pendingDelete === null
+      ? null
+      : pendingDelete.kind === "file"
+        ? confirmSites.sourceFileDelete(pendingDelete.fullPath.slice(WORKSPACE_PREFIX.length))
+        : confirmSites.sourceFolderDelete(
+            pendingDelete.folderRel,
+            [...props.files.keys()].filter((p) =>
+              p.startsWith(`${WORKSPACE_PREFIX}${pendingDelete.folderRel}/`),
+            ).length,
+          );
+  const runPendingDelete = (): void => {
+    const target = pendingDelete;
+    setPendingDelete(null);
+    if (!target) return;
+    if (target.kind === "file") props.onDelete(target.fullPath);
+    else props.onDeleteFolder?.(target.folderRel);
+  };
 
   // The action menu for a target row (`null` = empty-area / root).
   // Shared by the right-click context menu AND the per-row `⋮` kebab so
@@ -347,9 +366,24 @@ export function SourceFilesTree(props: SourceFilesTreeProps): JSX.Element {
   // right-click.  This is the primary affordance on touch (long-press →
   // contextmenu is unreliable there, especially iOS Safari), and gives
   // folders an explicit action surface they otherwise lacked.
+  //
+  // CONTROLLED, for the same reason the header "+" menu is (see `addMenu`
+  // below): `Menu.Target` injects its toggle as the child's `onClick`, but the
+  // child is a `Tooltip`, which re-spreads the grandchild's own props AFTER
+  // the injected ones — so the `ActionIcon`'s stop-propagation `onClick`
+  // silently REPLACED the toggle and the kebab never opened (found by the
+  // M-T8.17 destructive-actions spec, which drives the delete through it).
+  const [openRowMenu, setOpenRowMenu] = useState<string | null>(null);
   const rowActions = useCallback(
     (relPath: string, kind: "file" | "folder") => (
-      <Menu position="bottom-end" shadow="md" width={190} withinPortal>
+      <Menu
+        position="bottom-end"
+        shadow="md"
+        width={190}
+        withinPortal
+        opened={openRowMenu === relPath}
+        onChange={(o) => setOpenRowMenu(o ? relPath : null)}
+      >
         <Menu.Target>
           <Tooltip label="File actions" withArrow openDelay={400}>
             <ActionIcon
@@ -357,10 +391,21 @@ export function SourceFilesTree(props: SourceFilesTreeProps): JSX.Element {
               size="sm"
               variant="subtle"
               color="gray"
+              role="button"
+              tabIndex={0}
               aria-label={`Actions for ${relPath}`}
+              data-testid={`source-files-actions-${relPath}`}
               onClick={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
+                setOpenRowMenu((cur) => (cur === relPath ? null : relPath));
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setOpenRowMenu((cur) => (cur === relPath ? null : relPath));
+                }
               }}
             >
               ⋮
@@ -377,7 +422,7 @@ export function SourceFilesTree(props: SourceFilesTreeProps): JSX.Element {
         </Menu.Dropdown>
       </Menu>
     ),
-    [actionItems],
+    [actionItems, openRowMenu],
   );
 
   // Opening the "+" menu is DRIVEN BY US, not by Mantine's uncontrolled
@@ -458,13 +503,14 @@ export function SourceFilesTree(props: SourceFilesTreeProps): JSX.Element {
     </Menu>
   );
 
-  // Why nothing the user does here will stick.  Same condition (and the
-  // same explanation) the History panel already shows for its own
-  // unavailability — before this the file UI just silently no-op'd.
+  // Why nothing the user does here will stick.  ONE component, one sentence,
+  // one shape — the audit found read-only explained three ways by three
+  // surfaces (L1); this and the History panel now render the same badge the
+  // header does, and only the header adds an action.
   const readOnlyNotice = !writable && (
-    <Text size="xs" c="dimmed" px="sm" py={6} data-testid="source-files-readonly">
-      {readOnlyNote}
-    </Text>
+    <Group px="sm" py={6} gap={6} data-testid="source-files-readonly">
+      <ReadOnlyBadge reason={props.readOnlyReason ?? "ephemeral"} />
+    </Group>
   );
 
   const errorAlert = props.error && (
@@ -522,6 +568,18 @@ export function SourceFilesTree(props: SourceFilesTreeProps): JSX.Element {
     </Box>
   );
 
+  const deleteConfirm = deleteSpec !== null && (
+    <Box px="sm" py={6}>
+      <InlineConfirm
+        spec={deleteSpec}
+        stacked
+        onConfirm={runPendingDelete}
+        onCancel={() => setPendingDelete(null)}
+        testids={{ base: "source-files-delete" }}
+      />
+    </Box>
+  );
+
   // The positioned context menu — a zero-size fixed target at the cursor
   // that Mantine's floating dropdown anchors to.
   const contextMenu = (
@@ -561,6 +619,7 @@ export function SourceFilesTree(props: SourceFilesTreeProps): JSX.Element {
       {errorAlert}
       {readOnlyNotice}
       {inlineForm}
+      {deleteConfirm}
       <FileTree
         root={root}
         selectedPath={activeRelPath}
@@ -602,8 +661,8 @@ export function SourceFilesTree(props: SourceFilesTreeProps): JSX.Element {
           flexShrink: 0,
           display: "flex",
           flexDirection: "column",
-          borderRight: "1px solid var(--mantine-color-dark-4)",
-          background: "var(--mantine-color-dark-7)",
+          borderRight: "1px solid var(--loom-border)",
+          background: "var(--loom-bg)",
         }}
       >
         <Group
@@ -611,7 +670,7 @@ export function SourceFilesTree(props: SourceFilesTreeProps): JSX.Element {
           wrap="nowrap"
           px="sm"
           py={6}
-          style={{ borderBottom: "1px solid var(--mantine-color-dark-4)" }}
+          style={{ borderBottom: "1px solid var(--loom-border)" }}
         >
           <Text size="xs" c="dimmed" fw={600} tt="uppercase">
             Files
@@ -629,8 +688,8 @@ export function SourceFilesTree(props: SourceFilesTreeProps): JSX.Element {
       ref={detailsRef as React.Ref<HTMLDetailsElement>}
       data-testid="source-files-tree"
       style={{
-        borderBottom: "1px solid var(--mantine-color-dark-4)",
-        background: "var(--mantine-color-dark-7)",
+        borderBottom: "1px solid var(--loom-border)",
+        background: "var(--loom-bg)",
         flexShrink: 0,
       }}
     >

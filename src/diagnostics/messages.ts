@@ -530,6 +530,13 @@ export const DIAGNOSTIC_MESSAGES = {
     `Seed row on event-sourced aggregate '${p.name}': it declares no \`create\` action, ` +
     "so there is no creation event for a seed row to append — it is constructed only " +
     "out-of-band. Add a canonical `create(...)` to seed it, or drop the row.",
+  "loom.locator-matcher-receiver": (p: { matcher: unknown; actual: unknown }) =>
+    `'${p.matcher}' asserts against a DOM element, so 'expect(...)' must be given a field ` +
+    "read on a row the test has on screen — bind one with `let <row> = " +
+    "ui.<aggregate>.getById(...)` or `ui.<aggregate>.create(...)`, then assert " +
+    `\`expect(<row>.<field>).${p.matcher}(...)\`. Got \`${p.actual}\`, which resolves to no ` +
+    "locator (a plain value, an `id`, or a nested path the page object does not expose); " +
+    "compare a plain value with `toBe` instead.",
   "loom.seed-abstract-aggregate": (p: { name: unknown }) =>
     `Seed row on abstract aggregate '${p.name}': an inheritance base has no create ` +
     "factory and no repository, so every backend drops the row — and elixir still commits " +
@@ -1602,6 +1609,37 @@ export const DIAGNOSTIC_MESSAGES = {
     `'state { … }' and named 'action's are lifted there today. The emitted project compiles, ` +
     `then fails at request time on the assign that was never made. Move '${p.primitive}' into ` +
     `the page body; the component can keep its layout, display, 'state' and 'action's.`,
+  "loom.page-form-locals-unsupported": (p: {
+    what: unknown;
+    dName: unknown;
+    fw: unknown;
+    labels: unknown;
+    hint: unknown;
+  }) =>
+    `${p.what} declares two forms that would emit the SAME page-local bindings on ` +
+    `deployable '${p.dName}' (frontend '${p.fw}'): ${p.labels}. Every JS frontend splices a ` +
+    `form's mutation hook and form handle in as page-scope consts ('const create = …', ` +
+    `'const { register, handleSubmit, … } = useForm(…)'), and those names come from the design ` +
+    `pack's form templates, so a second form redeclares them. ${p.hint} Split the forms across ` +
+    `two pages, or move one into its own 'component'. (Angular emits this shape correctly — its ` +
+    `locals are aggregate-scoped and a second same-aggregate form takes an ordinal suffix — so ` +
+    `the fix here is that same per-form ordinal, threaded through the ~68 pack templates that ` +
+    `hardcode 'create'/'register'/'handleSubmit'.)`,
+  "loom.component-children-unsupported": (p: {
+    what: unknown;
+    component: unknown;
+    dName: unknown;
+  }) =>
+    `${p.what} invokes component '${p.component}' with CHILDREN, which deployable '${p.dName}' ` +
+    `(frontend 'angular') drops. Angular has no PascalCase component tag, so a user component is ` +
+    `invoked through '<ng-container [ngComponentOutlet]=…>', and 'ngComponentOutlet' cannot ` +
+    `project content from a template — the extra positional argument has nowhere to go, so the ` +
+    `children vanish from the emitted project with no other symptom. Every other frontend ` +
+    `renders them into the component's 'Slot { }'. Pass the content as a declared parameter, or ` +
+    `host this page on another frontend. (The fix is Angular-local: a WALKED component already ` +
+    `has a kebab selector and its 'Slot { }' already emits '<ng-content>', so the call site can ` +
+    `switch from the outlet to '<app-x …>children</app-x>'; an extern component has no ` +
+    `Loom-known selector and keeps the outlet.)`,
   "loom.chart-unsupported-target": (p: { what: unknown; name: unknown; uiFramework: unknown }) =>
     `${p.what} uses 'Chart', which deployable '${p.name}' can't render ` +
     `(frontend '${p.uiFramework}'). Chart ships on every shipping frontend — react, vue, ` +

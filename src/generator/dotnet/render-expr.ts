@@ -746,6 +746,18 @@ export const CS_INTRINSIC_RENDERERS: Record<string, (recv: string, args: string[
   // the generated project's /warnaserror.  EF Core (≥9) translates the
   // Invariant forms to SQL upper()/lower(), so the query position keeps
   // working through the same LINQ path (verified via ToQueryString).
+  //
+  // This table is the SINGLE domain-position spelling, and there is exactly one
+  // other place `ToUpper()` may legitimately appear: the EF-query override
+  // below.  A `ToUpper()` in a DOMAIN body was never a second opinion — it was
+  // the fallback at the bottom of `renderMethodCall` (`upperFirst(e.member)`)
+  // firing because the intrinsic table had not been consulted at all.  That is
+  // what a guarded optional receiver used to do (2026-09-03 audit F2): the
+  // lowerer stamped `receiverType` as `optional`, the `kind === "primitive"`
+  // check below said no, and `x != null ? x.toUpper() : …` silently became
+  // culture-sensitive while the unguarded `x.toUpper()` stayed invariant.
+  // `unwrapGuardedIntrinsicReceiver` in `src/ir/lower/lower-expr.ts` closes it;
+  // both forms now land here.
   "string.toUpper": (recv) => `${recv}.ToUpperInvariant()`,
   "string.toLower": (recv) => `${recv}.ToLowerInvariant()`,
   // 0-based CLAMPING semantics (JS `slice` — see the catalogue contract):

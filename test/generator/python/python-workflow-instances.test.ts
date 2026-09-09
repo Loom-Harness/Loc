@@ -71,7 +71,9 @@ describe("python workflow-instance endpoints", () => {
     const wf = (await build()).get("api/app/http/workflows_routes.py")!;
     expect(wf).toContain("class OrderFulfillmentInstanceResponse(BaseModel):");
     expect(wf).toContain("    orderId: str");
-    expect(wf).toContain("    attempts: int");
+    // `Int32`, not a bare `int` — a declared `int` carries its int4 bound and
+    // published format through the shared alias (F11).
+    expect(wf).toContain("    attempts: Int32");
     expect(wf).toContain(
       "class OrderFulfillmentInstanceListResponse(RootModel[list[OrderFulfillmentInstanceResponse]]):",
     );

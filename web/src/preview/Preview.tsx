@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ActionIcon, Box, Group, Text, Tooltip } from "@mantine/core";
+import { ActionIcon, Box, Group, Text, Tooltip, UnstyledButton } from "@mantine/core";
+import { useMediaQuery } from "@mantine/hooks";
 import type { RuntimeDispatcher } from "../engine";
 import { SandboxBridge } from "./bridge/parent-bridge";
 import {
@@ -12,6 +13,7 @@ import { makePreviewHtml } from "./iframe-html";
 import { setActiveDriverPort } from "./active-driver-port";
 import { fnv1a32 } from "../util/hash";
 import type { LogLine } from "../util/log-line";
+import { SELECT_MODE } from "../layout/vocabulary";
 
 interface PreviewProps {
   /** React bundle JS — output of `bundle.worker.ts` for kind: "react". */
@@ -34,6 +36,10 @@ interface PreviewProps {
   /** Sink for the preview app's `console.*` + uncaught errors,
    *  forwarded over the sandbox bridge — feeds the "App" log stream. */
   onAppLog?: (line: LogLine) => void;
+  /** Element-select mode (M-T8.20 slice 4): called with the clicked
+   *  element's nearest `data-testid`, or `null` when nothing up the tree
+   *  carried one.  Absent → the footer renders no Select toggle. */
+  onSelectElement?: (testid: string | null) => void;
 }
 
 // Fullscreen target — wraps the iframe (not the header bar) so the
@@ -104,7 +110,11 @@ export function Preview({
   vendorCssUrl,
   runtime,
   onAppLog,
+  onSelectElement,
 }: PreviewProps): JSX.Element {
+  // Does this device have a pointer that HOVERS — i.e. a mouse, and by
+  // implication a keyboard with an Esc key?  Used only for copy (audit L3).
+  const hasKeyboard = useMediaQuery("(hover: hover)", true) ?? true;
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   // Current route the preview app is showing (the path under the
   // sandbox basename, e.g. "/" or "/products").  Polled from the iframe
@@ -115,6 +125,12 @@ export function Preview({
   // bridge handshake effect (its deps are deliberately narrow).
   const onAppLogRef = useRef(onAppLog);
   onAppLogRef.current = onAppLog;
+  const onSelectElementRef = useRef(onSelectElement);
+  onSelectElementRef.current = onSelectElement;
+  // Element-select mode (M-T8.20 slice 4).  Parent-side state only — the
+  // arming itself lives in the preview document, reached over the bridge's
+  // existing port.
+  const [selectMode, setSelectMode] = useState(false);
   const fullscreenTargetRef = useRef<HTMLDivElement | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
   // CSS-based fallback for platforms where `Element.requestFullscreen`
@@ -274,6 +290,12 @@ export function Preview({
       (req) => runtime.dispatch(req),
       setActiveDriverPort,
       (line) => onAppLogRef.current?.(line),
+      (testid) => {
+        // The in-frame controller disarms itself on the click, so the toggle
+        // has to follow or it would lie about being armed.
+        setSelectMode(false);
+        onSelectElementRef.current?.(testid);
+      },
     );
     bridgeRef.current = bridge;
     startedCodeKeyRef.current = codeKey;
@@ -333,8 +355,8 @@ export function Preview({
       <Box
         px="sm"
         py={4}
-        bg="dark.6"
-        style={{ borderBottom: "1px solid var(--mantine-color-dark-4)" }}
+        bg="var(--loom-bg-raised)"
+        style={{ borderBottom: "1px solid var(--loom-border)" }}
       >
         <Group justify="space-between" wrap="nowrap" gap="xs">
           {/* The app's current route — more useful than repeating the
@@ -352,8 +374,41 @@ export function Preview({
           >
             {route}
           </Text>
+          {onSelectElement && (
+            <Tooltip label={SELECT_MODE.hint} withArrow position="left" openDelay={300}>
+              <UnstyledButton
+                onClick={() => {
+                  const next = !selectMode;
+                  setSelectMode(next);
+                  bridgeRef.current?.setSelectMode(next);
+                }}
+                data-testid="preview-select-toggle"
+                data-active={selectMode || undefined}
+                px={6}
+                py={2}
+                style={{
+                  borderRadius: 4,
+                  flex: "0 0 auto",
+                  background: selectMode ? "var(--mantine-color-yellow-8)" : "transparent",
+                }}
+              >
+                <Text size="xs" c={selectMode ? "white" : "dimmed"}>
+                  {selectMode ? SELECT_MODE.active : SELECT_MODE.label}
+                </Text>
+              </UnstyledButton>
+            </Tooltip>
+          )}
           <Tooltip
-            label={isMaximized ? "Exit full screen (Esc)" : "Open full screen"}
+            // "(Esc)" only where there IS an Esc key (audit L3): on a touch
+            // device the hint named a key the user does not have, and the
+            // button itself is the exit.  `hover: none` is the media query
+            // that actually separates the two — not viewport width, which a
+            // tablet and a small window share.
+            label={
+              isMaximized
+                ? `Exit full screen${hasKeyboard ? " (Esc)" : ""}`
+                : "Open full screen"
+            }
             withArrow
             position="left"
             openDelay={300}

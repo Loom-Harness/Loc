@@ -52,15 +52,17 @@ describe("CLI", () => {
     // Real run first, so the tree is up to date.
     const real = runCli(["generate", "ts", example, "-o", tmp]);
     expect(real.status).toBe(0);
-    // 32 project files + `LICENSE` + `.loom/manifest.json` (the emitted-path
-    // record the next run prunes against — see `src/system/manifest.ts`).
-    expect(real.stdout).toMatch(/Wrote 34 file\(s\)/);
+    // 32 project files + `.loom/manifest.json` (the emitted-path record the
+    // next run prunes against — see `src/system/manifest.ts`).  No `LICENSE`:
+    // the licence moved to `ddd new`, the command that OWNS the project shell
+    // (see test/system/generation-defaults.test.ts § G9).
+    expect(real.stdout).toMatch(/Wrote 33 file\(s\)/);
 
     // A dry run over the up-to-date tree must classify everything as
     // unchanged — 0 would-writes, matching what a real re-run does.
     const dry = runCli(["generate", "ts", example, "-o", tmp, "--dry-run"]);
     expect(dry.status).toBe(0);
-    expect(dry.stdout).toMatch(/Would write 0 file\(s\) in [^,]+, unchanged: 34/);
+    expect(dry.stdout).toMatch(/Would write 0 file\(s\) in [^,]+, unchanged: 33/);
     fs.rmSync(tmp, { recursive: true });
   });
 
@@ -78,22 +80,25 @@ describe("CLI", () => {
     fs.rmSync(tmp, { recursive: true });
   });
 
-  it("emits a MIT LICENSE at the output root declaring generated code is unencumbered", () => {
+  // `generate` used to inject a MIT LICENSE into whatever directory it was
+  // pointed at — including a directory that was already someone else's
+  // project.  It now emits none: the licence belongs to `ddd new`, which is
+  // the command that creates a project (test/system/generation-defaults.test.ts
+  // § G9 owns both halves).  Pinning it via `.loomignore` is therefore no
+  // longer needed, so the assertion that used to prove the pin works now
+  // proves the stronger property directly: a licence the generator never
+  // wrote is a licence the generator cannot touch.
+  it("emits no LICENSE, and leaves a licence the user put there alone", () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "loom-license-"));
-    runCli(["generate", "ts", example, "-o", tmp]);
-    const license = fs.readFileSync(path.join(tmp, "LICENSE"), "utf8");
-    expect(license).toMatch(/MIT License/);
-    expect(license).toMatch(/scaffolded by Loom/);
-    expect(license).toMatch(/license-faq/);
-    fs.rmSync(tmp, { recursive: true });
-  });
+    const first = runCli(["generate", "ts", example, "-o", tmp]);
+    expect(first.status).toBe(0);
+    expect(fs.existsSync(path.join(tmp, "LICENSE"))).toBe(false);
 
-  it("`.loomignore` can pin LICENSE so the user keeps their own", () => {
-    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "loom-license-pin-"));
-    fs.writeFileSync(path.join(tmp, ".loomignore"), "/LICENSE\n", "utf8");
+    // The user drops in their own terms — no `.loomignore`, no ceremony — and
+    // regenerates.  Their legal document survives verbatim.
     fs.writeFileSync(path.join(tmp, "LICENSE"), "Custom LICENSE\n", "utf8");
-    const result = runCli(["generate", "ts", example, "-o", tmp]);
-    expect(result.status).toBe(0);
+    const second = runCli(["generate", "ts", example, "-o", tmp]);
+    expect(second.status).toBe(0);
     expect(fs.readFileSync(path.join(tmp, "LICENSE"), "utf8")).toBe("Custom LICENSE\n");
     fs.rmSync(tmp, { recursive: true });
   });
@@ -111,7 +116,7 @@ describe("CLI", () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "loom-inc-"));
     const first = runCli(["generate", "ts", example, "-o", tmp]);
     expect(first.status).toBe(0);
-    expect(first.stdout).toMatch(/Wrote 34 file\(s\)/);
+    expect(first.stdout).toMatch(/Wrote 33 file\(s\)/);
     // Capture mtimes after the first run so we can verify the second
     // run doesn't re-touch anything.
     const sample = path.join(tmp, "domain", "order.ts");
@@ -119,7 +124,7 @@ describe("CLI", () => {
 
     const second = runCli(["generate", "ts", example, "-o", tmp]);
     expect(second.status).toBe(0);
-    expect(second.stdout).toMatch(/Wrote 0 file\(s\) in [^,]+, unchanged: 34/);
+    expect(second.stdout).toMatch(/Wrote 0 file\(s\) in [^,]+, unchanged: 33/);
     const mtimeAfter = fs.statSync(sample).mtimeMs;
     expect(mtimeAfter).toBe(mtimeBefore);
     fs.rmSync(tmp, { recursive: true });
@@ -146,7 +151,7 @@ describe("CLI", () => {
 
     const result = runCli(["generate", "ts", example, "-o", tmp]);
     expect(result.status).toBe(0);
-    expect(result.stdout).toMatch(/Wrote 1 file\(s\) in [^,]+, unchanged: 33/);
+    expect(result.stdout).toMatch(/Wrote 1 file\(s\) in [^,]+, unchanged: 32/);
     expect(fs.statSync(idsPath).mtimeMs).toBeGreaterThan(idsMtimeBefore);
     expect(fs.statSync(orderPath).mtimeMs).toBe(orderMtimeBefore);
     fs.rmSync(tmp, { recursive: true });

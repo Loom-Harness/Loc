@@ -90,7 +90,9 @@ describe("Hono/Drizzle event-sourced creation (persistedAs: eventLog + create)",
     const routes = routesFile(await generate());
     // Request schema is the command params: owner only, no balance.
     expect(routes).toContain("const CreateAccountRequest = z.object({");
-    expect(routes).toMatch(/CreateAccountRequest = z\.object\(\{\s*owner: z\.string\(\),\s*\}\)/);
+    expect(routes).toMatch(
+      /CreateAccountRequest = z\.object\(\{\s*owner: z\.string\(\)[^\n]*,\s*\}\)/,
+    );
     // Handler calls the factory with the command params, then saves (append).
     expect(routes).toContain("const created = Account.create({ owner: body.owner });");
     expect(routes).toContain("await repo.save(created);");

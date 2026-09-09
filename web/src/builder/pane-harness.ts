@@ -27,7 +27,7 @@
 import { useMemo, useState } from "react";
 import { ifParses } from "./edit-engine";
 import { type DddParse, parseDdd } from "./parse";
-import { type Refusal, useRefusal } from "./refusal";
+import { REFUSAL_WHY, type Refusal, useRefusal } from "./refusal";
 import { isParseOk, writeDecision } from "./pane-write";
 import { useExternalSourceTick, useLiveSourceTick } from "./use-live-source-tick";
 
@@ -37,7 +37,7 @@ import { useExternalSourceTick, useLiveSourceTick } from "./use-live-source-tick
 export interface PaneSourceCtx {
   /** The live editor source (reflects unsaved edits). */
   getSource: () => string;
-  onSourceChange: (text: string, origin?: "editor" | "builder") => void;
+  onSourceChange: (text: string, origin?: "editor" | "builder", label?: string) => void;
   /** Bumped on every editor keystroke; debounced into `liveTick`. */
   editorSourceTick: number;
   initialSource: string;
@@ -88,7 +88,22 @@ export interface PaneHarness<A extends unknown[]> {
   /** Commit an ALREADY-gated candidate (v1's staged-preview confirm).  Bypasses
    *  the write gate — only for text that came out of `apply`. */
   commit: (next: string) => void;
+  /** The same three writers, NAMED: a refusal from one of them says
+   *  "`what`: why" (and offers the rejected candidate) instead of the generic
+   *  line.  `what` is the construct or action the user touched — "aggregate
+   *  Order", "field total", "+ Repository".  Every mutation site should write
+   *  through one of these (M-T8.17, audit H10). */
+  on: (what: string) => PaneWriter<A>;
 }
+
+export interface PaneWriter<A extends unknown[]> {
+  apply: (next: string, ...args: A) => void;
+  applyOrRefuse: (next: string | null, ...args: A) => void;
+  applyOrSkip: (next: string | null, ...args: A) => void;
+}
+
+/** The unnamed writers' label — a pane that hasn't said what it is editing. */
+const UNNAMED = "Apply";
 
 /** Frozen stand-in for the external-reseed inputs when a pane opts out.  The
  *  hook still runs (rules of hooks) but never observes a change, so it never
@@ -132,15 +147,25 @@ export function usePaneHarness<A extends unknown[] = []>(
 
   /** Hand a candidate to the editor and re-derive.  No gate — callers reach it
    *  through `apply` (or knowingly, via the returned `commit`). */
-  const commit = (next: string): void => {
-    ctx.onSourceChange(next, "builder");
+  const commit = (next: string, label: string = UNNAMED): void => {
+    // `label` names WHAT was applied ("page Board body", "unfold page Board").
+    // M-T8.19 slice 4 turns it into the commit message, so a visual Apply is a
+    // labelled checkpoint in History rather than an anonymous autosave.
+    ctx.onSourceChange(next, "builder", label);
     bumpRev();
   };
 
-  const decide = (next: string | null, nullMeans: "refuse" | "skip", args: A): void => {
+  const decide = (next: string | null, nullMeans: "refuse" | "skip", args: A, what: string): void => {
     switch (writeDecision(next, ifParses, nullMeans)) {
       case "refuse":
-        refusal.refuse();
+        // A null candidate means the helper had nothing it could splice; a
+        // non-null one that reached here failed the parse gate — and THAT one
+        // is worth showing, so the line can offer the diff.
+        refusal.refuse(
+          next == null
+            ? { what, why: REFUSAL_WHY.noEdit }
+            : { what, why: REFUSAL_WHY.noParse, before: ctx.getSource(), candidate: next },
+        );
         return;
       case "skip":
         return;
@@ -148,11 +173,18 @@ export function usePaneHarness<A extends unknown[] = []>(
         refusal.clear();
         // `next` is non-null on a "commit" decision by construction.
         const text = next as string;
-        if (options.onCommit) options.onCommit(text, commit, ...args);
-        else commit(text);
+        const labelled = (t: string): void => commit(t, what);
+        if (options.onCommit) options.onCommit(text, labelled, ...args);
+        else commit(text, what);
       }
     }
   };
+
+  const on = (what: string): PaneWriter<A> => ({
+    apply: (next: string, ...args: A): void => decide(next, "refuse", args, what),
+    applyOrRefuse: (next: string | null, ...args: A): void => decide(next, "refuse", args, what),
+    applyOrSkip: (next: string | null, ...args: A): void => decide(next, "skip", args, what),
+  });
 
   return {
     parsed,
@@ -162,9 +194,8 @@ export function usePaneHarness<A extends unknown[] = []>(
     liveTick,
     externalTick,
     refusal,
-    apply: (next: string, ...args: A): void => decide(next, "refuse", args),
-    applyOrRefuse: (next: string | null, ...args: A): void => decide(next, "refuse", args),
-    applyOrSkip: (next: string | null, ...args: A): void => decide(next, "skip", args),
+    ...on(UNNAMED),
     commit,
+    on,
   };
 }

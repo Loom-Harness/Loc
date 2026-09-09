@@ -21,7 +21,7 @@ import { lines } from "../../util/code-builder.js";
 import { snake } from "../../util/naming.js";
 import { refuseOutOfVocabulary } from "../_expr/target.js";
 import { numericEncode } from "../_numeric/target.js";
-import { responsePyType } from "./emit/http-models.js";
+import { responsePyType, wireModelImport } from "./emit/http-models.js";
 import {
   contextFilterPredicate,
   lowerProjectionFilterToSqlAlchemy,
@@ -253,6 +253,12 @@ export function buildPyQueryProjectionsFile(
     wireHelpers.length > 0 ? `from app.db.wire import ${wireHelpers.join(", ")}` : null,
     ...repoAggs.map((n) => `from app.db.repositories.${snake(n)}_repository import ${n}Repository`),
     schemaRows.length > 0 ? `from app.db.schema import ${schemaRows.join(", ")}` : null,
+    // A projection row field is annotated through `responsePyType`, which returns
+    // the SHARED wire aliases for the primitives carrying a guard or a published
+    // format (`Int32`, `WireNum`, `WireInt`, `MoneyStr`, `UuidStr`).  Without
+    // this line those names are undefined here — ruff F821 on the generated
+    // project, which only the corpus tier sees.
+    wireModelImport([], refersTo),
     refersTo("ForbiddenError") ? "from app.domain.errors import ForbiddenError" : null,
     hasDispatch && refersTo("make_dispatcher") ? "from app.dispatch import make_dispatcher" : null,
     !hasDispatch && refersTo("NoopDomainEventDispatcher")

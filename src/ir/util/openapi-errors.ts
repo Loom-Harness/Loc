@@ -267,6 +267,19 @@ export function errorStatuses(
  *  identical across backends so the (compared) ProblemDetails examples /
  *  descriptions don't drift.  Titles are the IANA HTTP status reason
  *  phrases. */
+/** The one detail string every backend serves for a DANGLING cross-aggregate
+ *  reference — a write named a well-formed id for a row that is not there, and
+ *  Postgres refused the insert with a `foreign_key_violation` (SQLSTATE 23503).
+ *
+ *  Shared rather than five literals because the whole point of the finding it
+ *  closes (F16) is that the five backends answered a well-formed request five
+ *  different ways.  Deliberately says nothing about WHICH reference: naming the
+ *  field would mean reading it back out of the Postgres constraint name, which
+ *  is auto-generated (`<table>_<column>_fkey`) rather than something the
+ *  migration emitter declares, and out of a `detail` line whose wording follows
+ *  the server's `lc_messages`. */
+export const DANGLING_REFERENCE_DETAIL = "The request references a record that does not exist.";
+
 export function problemTitle(status: number): string {
   switch (status) {
     case 400:

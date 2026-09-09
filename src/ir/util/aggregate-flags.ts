@@ -67,3 +67,57 @@ export function aggregatesCanTripReferencedDelete(aggregates: readonly Aggregate
     }),
   );
 }
+
+/** True when a WRITE against one of these aggregates can trip a Postgres
+ *  `foreign_key_violation` (SQLSTATE 23503) by naming a reference row that
+ *  does not exist — i.e. the project needs the dangling-reference → domain-floor
+ *  (422 by default) arm.
+ *
+ *  The twin of `aggregatesCanTripReferencedDelete`, on the OTHER side of the same
+ *  constraint.  A cross-aggregate `X id` field becomes a FK column, so a create
+ *  (or an operation) that carries a WELL-FORMED uuid for a row that is absent
+ *  fails at the database — and every backend leaked that as a 500, because each
+ *  one's 23503 handling was written for the still-referenced DELETE and lives on
+ *  the delete path only.  Wire validation cannot catch it: a uuid is only wrong
+ *  because the row is missing, which nothing above the database knows.
+ *
+ *  Parts count: a contained entity's `X id` field (`OrderLine.productId`) is a
+ *  FK column on the part's own table, reachable from the operation that appends
+ *  it.  `aggregatesCanTripReferencedDelete` looks at aggregate fields alone
+ *  because it only needs SOME reference to exist for a restrict-delete to be
+ *  possible; this one gates the arm that answers for the reference itself. */
+export function aggregatesCanTripDanglingReference(aggregates: readonly AggregateIR[]): boolean {
+  const names = new Set(aggregates.map((a) => a.name));
+  return aggregates.some((a) => aggregateCanTripDanglingReference(a, names));
+}
+
+/** The per-aggregate leaf of `aggregatesCanTripDanglingReference`, for the
+ *  backends whose error mapper is per-aggregate (the Hono router's `onError`)
+ *  rather than app-global.  `inScope` is the set of aggregate names whose tables
+ *  exist in the same schema — the caller's context, exactly as the app-global
+ *  form derives it from the merged aggregate list. */
+export function aggregateCanTripDanglingReference(
+  agg: AggregateIR,
+  inScope: ReadonlySet<string>,
+): boolean {
+  return (
+    outboundReferenceFields(agg.fields, inScope).length > 0 ||
+    agg.parts.some((p) => outboundReferenceFields(p.fields, inScope).length > 0)
+  );
+}
+
+/** The fields in `fields` that carry a cross-aggregate `X id` pointing at an
+ *  in-scope aggregate — i.e. the ones that become FK columns.  A SELF reference
+ *  (`parent: Self id?`, the `tenantRegistry` tree) counts: its FK can dangle
+ *  exactly like any other.  The list form is for backends that need the field
+ *  NAMES, not just the boolean (the Ecto changeset's per-column
+ *  `foreign_key_constraint`). */
+export function outboundReferenceFields<F extends { type: TypeIR }>(
+  fields: readonly F[],
+  inScope: ReadonlySet<string>,
+): F[] {
+  return fields.filter((f) => {
+    const t = unwrapType(f.type);
+    return t.kind === "id" && inScope.has(t.targetName);
+  });
+}

@@ -1425,9 +1425,21 @@ function lowerSeed(s: Seed, env: Env): SeedIR {
     // instead of an unassignable plain object.
     const fieldTypes = new Map<string, TypeRef | undefined>();
     if (agg) for (const m of agg.members) if (isProperty(m)) fieldTypes.set(m.name, m.type);
+    // `SeedRow: aggregate=[Aggregate:ID] value=ObjectLit` — so the AST type
+    // says `value` is always present, and on a CLEAN parse it is.  Error
+    // recovery is the exception: `seed Party { name: "x" }` reads `Party` as
+    // the DATASET name (the grammar's optional `dataset=ID`) and then `name`
+    // as a row's aggregate reference, leaving that row with no `value` at the
+    // `:` which follows.  The parser and the linker BOTH describe that source
+    // correctly (`loom.parse-error` + `loom.linking-error`); dereferencing
+    // `row.value.fields` threw a `TypeError` that replaced both of them with a
+    // stack trace.  The lowerer must not out-shout the diagnostics that
+    // already explain the mistake — a recovered row lowers to zero fields, and
+    // the errors stop the pipeline long before anything consumes it.
+    const rowFields = (row.value as ObjectLit | undefined)?.fields ?? [];
     return {
       aggregate: agg?.name ?? "Unknown",
-      fields: row.value.fields.map((f) => ({
+      fields: rowFields.map((f) => ({
         name: f.name,
         value: lowerSeedValue(f.value, fieldTypes.get(f.name), env),
       })),

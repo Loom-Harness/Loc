@@ -201,8 +201,19 @@ const ELIXIR_TARGET: ExprTarget<RenderCtx> = {
   object: (fields) => `%{${fields.map((f) => `${snake(f.name)}: ${f.value}`).join(", ")}}`,
   unary: (op, operand, e) => renderUnary(op, operand, e),
   binary: renderBinary,
-  // Lower to `if … do … else … end`
-  ternary: (cond, then, otherwise) => `if ${cond}, do: ${then}, else: ${otherwise}`,
+  // Lower to the keyword `if cond, do: …, else: …` form — SELF-PARENTHESIZED,
+  // like the Python leaf and for the same reason.  Elixir's keyword-list `if`
+  // swallows everything after it up to the enclosing terminator, so a bare one
+  // in a NON-terminal position is a syntax error, not a precedence wart:
+  //
+  //   %{"a" => if c, do: x, else: y, "b" => z}
+  //   ** (SyntaxError) unexpected expression after keyword list
+  //
+  // which is every wire map whose ternary-valued `derived` is not the last
+  // entry, and every ternary passed as a non-final argument.  Wrapping closes
+  // the keyword list at the value boundary where it belongs.  Cheap: the pair
+  // of parens is inert wherever the bare form already parsed.
+  ternary: (cond, then, otherwise) => `(if ${cond}, do: ${then}, else: ${otherwise})`,
   convert: (value, e) => renderElixirConvert(e.target, e.from, value),
   // Transparent i18n wrapper (M-T1.11) — drop the format, emit the operand.
   i18nFormat: (inner) => inner,

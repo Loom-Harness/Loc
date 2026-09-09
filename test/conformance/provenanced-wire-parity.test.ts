@@ -92,7 +92,7 @@ describe("Provenanced<T> — the value+lineage carrier is one shape on all five 
   it("node (Hono) — zod object on the response schema, folded in `toWire`", async () => {
     const out = await emit("node");
     expect(out).toContain(
-      `total: z.object({ ${VALUE}: z.number().int(), ${LINEAGE}: ProvenanceLineage.nullable() }),`,
+      `total: z.object({ ${VALUE}: z.number().int().openapi({ format: "int32" }), ${LINEAGE}: ProvenanceLineage.nullable() }),`,
     );
     expect(out).toContain(
       `total: { ${VALUE}: root.total, ${LINEAGE}: root.total_provenance ?? null }`,
@@ -126,7 +126,10 @@ describe("Provenanced<T> — the value+lineage carrier is one shape on all five 
     expect(out).toContain("class Provenanced(BaseModel, Generic[_ProvT]):");
     expect(out).toContain(`    ${VALUE}: _ProvT`);
     expect(out).toContain(`    ${LINEAGE}: dict[str, object] | None = None`);
-    expect(out).toContain("total: Provenanced[int]");
+    // `Int32`, not a bare `int`: a declared `int` is an `int4` column and its
+    // wire annotation carries that alias in both directions (F11), inside the
+    // provenance carrier as anywhere else.
+    expect(out).toContain("total: Provenanced[Int32]");
     expect(out).toContain(`"total": {"${VALUE}": root.total, "${LINEAGE}": (`);
   });
 

@@ -14,6 +14,8 @@ import {
   supportsSurfaceKind,
 } from "../../src/util/source-types.js";
 
+/** Every sourceType name this suite can register, removed after each test. */
+
 let dir: string;
 /** The registry is module-global and the unit project runs `isolate: false`,
  *  so a sourceType registered here outlives this file and leaks into whatever
