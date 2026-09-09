@@ -75,11 +75,19 @@ describe("variant-match subjectType (F56)", () => {
     expect(t).toEqual({ kind: "primitive", name: "string" });
   });
 
-  it("so a union-returning subject is indistinguishable from a plain string one", async () => {
+  it("so an AWAITED-CALL subject is indistinguishable from a plain string one", async () => {
     // The exact reason `checkVariantMatchShape` cannot be wired to the
     // statement form yet: this subject and a `state { message: string }` one
     // carry byte-identical `subjectType`, so any type-grounded gate would
     // either miss both or reject both.
+    //
+    // SCOPED DELIBERATELY.  The collapse is NOT universal — a `let`-bound
+    // subject (`let r = Svc.probe(k)` then `match r`) is a `ref`, takes the
+    // `subject.type` branch of `lowerMatchStmt`, and resolves to the real
+    // union.  It is the METHOD-CALL branch that falls through to
+    // `inferExprType`'s `string` catch-all, and an awaited api-handle call is
+    // the only subject shape Stage 2 `match await` exists for — so the
+    // canonical page form is exactly the one that cannot be discriminated.
     const t = await subjectTypeOfFirstAction();
     expect(t?.kind).not.toBe("union");
   });
