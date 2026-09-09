@@ -173,8 +173,16 @@ timeout fired and needed a manual label re-arm. v2 never waits:
   on the SHA, so it's OK by construction.
 - Zero other checks reporting **blocks** — `test.yml` runs unfiltered on PRs
   precisely so at least one check always comes; pending is *never* green.
-- Re-running a red check to green fires `workflow_run: completed` again, so
-  the gate re-evaluates **automatically** — no manual pr-gate re-run.
+- **Re-running a red check to green does NOT reliably re-evaluate the gate.**
+  It fires `workflow_run: completed`, and this bullet used to conclude that
+  recovery is therefore automatic. Measured three times it is not — #2812,
+  #2792, and #2773 (2026-09-09) after the cancellation fix in #2822: the last
+  red checks went green at 14:33Z and 14:41Z, every check on the head was then
+  success or skipped, and `pr-gate` was still blocking at 15:57Z. The mechanism
+  is undiagnosed. What is established is the remedy: **re-run the
+  `pull_request`-event `PR gate` run for that head** (it re-evaluates the same
+  SHA and costs no other CI — #2773 entered the merge queue ~3 minutes later),
+  or push a new SHA. See the lever table in `.github/workflows/pr-gate.yml`.
 - **A `pr-gate` success you read a minute ago is not a licence to merge.**
   Observed twice on 2026-08-16 (#2561, #2576): every check on the head SHA
   read `success`, `pr-gate` included, and the merge API still refused with

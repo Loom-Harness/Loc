@@ -24,8 +24,9 @@ name: PR gate
 # jobs don't surface in the PR checks UI, so the job is `pr-gate-eval` and
 # the canonical `pr-gate` name comes from the posted check on every path.
 #
-# No polling, no timeout to tune, no parked slot — and a re-run of a red
-# check fires `workflow_run: completed` again, so recovery is automatic.
+# No polling, no timeout to tune, no parked slot.  A re-run of a red check does
+# fire `workflow_run: completed` again — but that is NOT enough to recover a
+# parked gate; see the lever table under `schedule:` below.
 #
 # The `workflows:` list below must name every other workflow (else a gate's
 # completion stops re-evaluating and a PR can stick at in_progress until the
@@ -62,30 +63,38 @@ on:
   # this workflow's runs filtered to `event=schedule` and diff `created_at`.)
   #
   # So a dropped dispatch parks a green PR for HOURS, not minutes.  If you are
-  # waiting on a parked `pr-gate`, do not wait for the sweep — but note that
-  # only ONE of the two obvious levers actually works.
+  # waiting on a parked `pr-gate`, do not wait for the sweep.  THREE levers have
+  # been measured, and they do not all work:
   #
   #   a new SHA        WORKS.  Measured on #2812 (2026-09-08): parked on
   #                    `5e0995d`, unparked the moment `027454e` was pushed.
-  #   a workflow re-run DOES NOT.  Measured twice — on #2812 and again on
-  #                    #2792 — `rerun_workflow_run` returns 201 and the
-  #                    dispatch does fire, but no verdict reaches the head
-  #                    SHA and the merge stays refused with
+  #   re-run THIS      WORKS.  Measured on #2773 (2026-09-09, 15:57Z): the
+  #   workflow's own   `pull_request`-event `PR gate` run for the parked head
+  #   run              (34356460700) re-run by hand; the PR entered the merge
+  #                    queue ~3 minutes later.  This is the cheap one — it
+  #                    re-evaluates the same SHA and costs no other CI.
+  #   re-run the RED   DOES NOT.  Measured three times — #2812, #2792, and
+  #   check's workflow #2773 after the cancellation fix below.
+  #                    `rerun_workflow_run` returns 201 and the dispatch does
+  #                    fire, but no verdict reaches the head SHA and the merge
+  #                    stays refused with
   #                    `Required status check "pr-gate" is expected`.
   #
-  # This comment used to offer the two as interchangeable.  They are not, and
-  # the difference costs hours: on a re-run you wait, conclude it worked, and
-  # find the PR still unmergeable.
+  # This comment used to offer the first two as interchangeable, and then to
+  # know only the first.  The difference costs hours: on a red-check re-run you
+  # wait, conclude it worked, and find the PR still unmergeable.
   #
-  # SUSPECTED cause, not yet proven — the `concurrency` block at the bottom of
-  # this file is SHA-keyed with `cancel-in-progress: true` for `workflow_run`.
-  # The two `pr-gate` runs that fired for #2792's re-run (34211962880 at
-  # 09:47Z, 34212476487 at 09:53Z) both concluded `cancelled`, never `success`,
-  # so neither reached the Checks-API publish step.  A burst of completions is
-  # supposed to collapse to the NEWEST evaluation; if the newest is itself
-  # cancelled by the next dispatch, the burst collapses to nothing.  Verify by
-  # listing this workflow's `event=workflow_run` runs and counting how many
-  # conclude `success` versus `cancelled` before changing the group key.
+  # The suspected cause used to be named here as the SHA-keyed
+  # `cancel-in-progress: true` on the `concurrency` block at the bottom of this
+  # file.  It was verified (94 of 100 `workflow_run` evaluations cancelled, zero
+  # published) and FIXED in #2822 — nothing cancels now; see that block.
+  #
+  # The red-check re-run hole SURVIVED that fix, and is NOT explained by it.
+  # Measured on #2773: the last two red checks were re-run to green at 14:33Z
+  # and 14:41Z, every check on the head was then success or skipped, and the
+  # gate was still blocking at 15:57Z — 76 minutes with no verdict and no sweep.
+  # Re-running this workflow's own run cleared it immediately.  So the mechanism
+  # is still undiagnosed; what is established is which lever to reach for.
   schedule:
     - cron: '*/15 * * * *'
   workflow_dispatch:
