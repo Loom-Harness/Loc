@@ -213,9 +213,12 @@ const REGISTER_FILE = path.join(srcRoot, "diagnostics", "unsupported-register.ts
  *  Draining it is M-T6.59 (value-producing branches in every vanilla body
  *  renderer), which deletes the row and lowers this back to 47.
  *
- *  BOTH moves land together in this merge: the 2.5 drain (-1) and the
- *  M-FT.11 raise (+1) net out, so the pin returns to 47 rather than to
- *  either side's number. */
+ *  The arithmetic reaching 47 has changed since that raise, and this comment
+ *  states the CURRENT sum rather than the one that first produced the number:
+ *  `main` stands at 48 with the M-FT.11 row counted, and packet 2.5's drain
+ *  (-1) takes it to 47.  The pin is exact (`toBe`, not just an upper bound),
+ *  so this is measured, not asserted -- if the count and the pin disagree the
+ *  test names both numbers. */
 const MAX_OPEN_GAPS = 47;
 
 function walk(dir: string, out: string[] = []): string[] {
