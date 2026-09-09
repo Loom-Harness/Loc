@@ -5954,3 +5954,42 @@ does not rediscover the trade and pick differently by accident.
   would refute it.** One input showed java refusing where others accept. The
   control showed the refusal was about syntax, not about parameters — and that
   is the whole finding.
+
+## 104. The fast suite asserts on emitted TEXT, so a name that does not resolve is invisible to it (2026-09-09)
+
+`corpus × python` went red on four projection fixtures with `ruff` reporting
+**F821 Undefined name `Int32`**. The generated projection module read
+`orders: Int32` and imported nothing called `Int32`.
+
+`responsePyType` returns a NAME, not a builtin, for every primitive carrying a
+guard or a published format (`Int32`, `WireNum`, `WireInt`, `WireStr`,
+`MoneyStr`, `UuidStr`). Two emitters call it and assemble their own import
+blocks — and neither routed through `wireModelImport`. The emitted text was
+exactly what every assertion asked for; what was missing was a line no
+assertion mentioned.
+
+**`npm test` cannot catch this class, structurally.** It compares strings. The
+question "does this name resolve in the module that uses it?" is answered by
+the target language's own toolchain, and that runs one tier up — an opt-in
+corpus leg, not the per-PR fast suite. Same session, same shape one language
+over: `[NoNulChar]` reached a .NET file with no `using` for it, and only
+`dotnet build` said so.
+
+- **When an emitter starts returning a NAME where it returned a builtin, the
+  import is now part of the contract** — and it is a *project-wide* contract,
+  not a per-file one. Every call site of the type helper inherits the
+  obligation, including ones written before the helper had it.
+- **Gate it as a sweep, not as a case.** The test that replaced this asserts
+  over *every* emitted module of one project: no wire alias may appear
+  un-imported. A new emitter that grows a typed field is caught by
+  construction, rather than by whether someone remembered to add an assertion
+  for it — which is precisely what did not happen twice here.
+- **A sweep needs its own vacuity guard.** A second case pins that the fixture
+  actually produces all six aliases; without it the sweep passes just as
+  happily over a model that meets none of them.
+- **The mutation proof found the second bug.** Reverting the query-projection
+  import failed as designed. Reverting the *materialized*-projection one passed
+  — the fixture never reached that emitter. Extending the fixture until it did
+  turned that proof red too, and showed the folded-projection module had the
+  same gap, unreported because no corpus fixture had exercised it. Proving each
+  half separately is what surfaced the half nothing was complaining about.
