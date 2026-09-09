@@ -69,13 +69,20 @@ export interface WireEntry {
    *  comparator.  Scope is deliberately the FORMAT dimension only: the value
    *  dimension is already covered, at full JSON-path precision, by `diffBodies`.
    *
+   *  WHAT COUNTS is `offContractNumber` — see its own comment for the two
+   *  rules and the measurement behind them.  The short version: this is NOT
+   *  "any spelling that differs from `String(value)`".  That was the first cut
+   *  and it reported 23 divergences on every python run, all of them `10.0`
+   *  against node's `10` — the same number under every parser, and a bill
+   *  payable only in waivers nobody could ever delete.
+   *
    *  KNOWN LIMIT, stated rather than hidden: this is a multiset of spellings
    *  with no JSON path attached, so a non-canonical number MOVING between two
    *  fields of one body reads as no change. Path-carrying would mean threading
    *  a path through `JSON.parse`'s bottom-up reviver, which has no path to
    *  give; the multiset catches the class this exists for (a backend that
-   *  formats numbers differently from the oracle) and the offending spelling is
-   *  greppable in `body`. */
+   *  publishes precision the wire type does not have) and the offending
+   *  spelling is greppable in `body`. */
   readonly numberFormats?: readonly string[];
 }
 
@@ -218,18 +225,17 @@ export function toWireEntry(
   } else {
     try {
       // The reviver's third argument carries the RAW SOURCE TEXT of a primitive
-      // (Node >= 21 / V8 >= 11.9).  A number whose source differs from
-      // `String(value)` is spelled on the wire in a way the parsed double does
-      // not preserve — trailing zeros, a padded scale, digits past float64's
-      // ~17 — and that difference is invisible to every value-level comparison
-      // downstream.  `String(value)` is the right canonical form precisely
-      // because RS-24 defines the wire type as a float64 JSON number, so the
-      // shortest round-trip spelling IS the contract.
+      // (Node >= 21 / V8 >= 11.9).  `String(value)` is the canonical form
+      // precisely because RS-24 defines the wire type as a float64 JSON
+      // number, so the shortest round-trip spelling IS the contract — and a
+      // source that is not DECIMAL-EQUAL to it is publishing digits the
+      // contract does not carry.  That inequality, not textual inequality, is
+      // the test (see `numberFormats`).
       body = normalizeBody(
-        JSON.parse(trimmed, function (_key, value, context) {
+        JSON.parse(trimmed, (_key, value, context) => {
           const src = (context as { source?: string } | undefined)?.source;
           if (typeof value === "number" && typeof src === "string" && src !== String(value)) {
-            spellings.push(src);
+            if (offContractNumber(src, String(value))) spellings.push(src);
           }
           return value;
         }) as Json,
@@ -250,6 +256,93 @@ export function toWireEntry(
   // did before this field existed — no golden churn, and the field's presence
   // in a golden is itself the signal that something spells numbers unusually.
   return spellings.length > 0 ? { ...entry, numberFormats: [...spellings].sort() } : entry;
+}
+
+/** Exact decimal value of a JSON number literal, as a canonical
+ *  `sign|digits|exponent` triple with trailing fractional zeros removed — so
+ *  `10`, `10.0`, `1e1` and `0.10e2` all normalize to the same string, and
+ *  `3.3333333333333335` and `3.333333333333333333333333333333333` do not.
+ *
+ *  Deliberately string arithmetic, not `Number` or a big-decimal dependency:
+ *  routing through a double is exactly the information loss this whole field
+ *  exists to undo, and the test tree carries no decimal library.
+ *
+ *  Returns `null` for anything not shaped like a JSON number; callers treat an
+ *  unparseable spelling as NOT equal, so a form this does not understand is
+ *  reported rather than silently accepted. */
+export function decimalKey(literal: string): string | null {
+  const m = /^([+-]?)(\d+)(?:\.(\d*))?(?:[eE]([+-]?\d+))?$/.exec(literal.trim());
+  if (!m) return null;
+  const [, sign, intPart, fracPart = "", expPart] = m;
+  // One digit string with the point conceptually after `intPart`, then shift.
+  const digits = `${intPart}${fracPart}`;
+  let exponent = (expPart ? Number(expPart) : 0) - fracPart.length;
+  // Strip leading zeros (value-preserving) and trailing zeros (absorbed into
+  // the exponent), leaving one canonical mantissa per value.
+  let start = 0;
+  while (start < digits.length - 1 && digits[start] === "0") start++;
+  let end = digits.length;
+  while (end > start + 1 && digits[end - 1] === "0") {
+    end--;
+    exponent++;
+  }
+  const mantissa = digits.slice(start, end);
+  // Zero has no sign and no exponent, or `-0.0` and `0` would read as distinct.
+  if (/^0+$/.test(mantissa)) return "0";
+  return `${sign === "-" ? "-" : ""}${mantissa}e${exponent}`;
+}
+
+/** True when two JSON number literals denote the same exact decimal value.
+ *  An unparseable literal is never equal — see `decimalKey`. */
+export function decimalEqual(a: string, b: string): boolean {
+  const ka = decimalKey(a);
+  return ka !== null && ka === decimalKey(b);
+}
+
+/** IEEE-754 binary64 carries about 15-17 significant decimal digits; 17 is the
+ *  round-trip guarantee, so a literal wider than that is claiming precision the
+ *  wire type cannot hold no matter what its value is. */
+const FLOAT64_SIGNIFICANT_DIGITS = 17;
+
+/** Significant decimal digits in a JSON number literal — leading zeros do not
+ *  count, trailing ones do (they are the padding an un-narrowed big decimal
+ *  emits, and the whole point is that the padding is visible). */
+export function significantDigits(literal: string): number {
+  const key = decimalKey(literal);
+  if (key === null) return 0;
+  if (key === "0") return 1;
+  const digits = /^-?(\d+)e/.exec(key)?.[1] ?? "";
+  // `decimalKey` already stripped trailing zeros into the exponent, so measure
+  // the literal's own mantissa instead.
+  const m = /^[+-]?0*(\d*?)\.?(\d*?)(?:[eE][+-]?\d+)?$/.exec(literal.trim());
+  if (!m) return digits.length;
+  const raw = `${m[1]}${m[2]}`.replace(/^0+/, "");
+  return raw.length || digits.length;
+}
+
+/** Is this wire spelling off-contract for a float64 JSON number?
+ *
+ *  TWO independent ways to be, and both are needed — dropping either one was
+ *  measured to break the gate in a different direction:
+ *
+ *  1. **It denotes a different value than the canonical rendering.** java's
+ *     un-narrowed `3.333333333333333333333333333333333` against node's
+ *     `3.3333333333333335` is a different number to any decimal-preserving
+ *     client, which is the M-T6.46 defect.
+ *  2. **It claims more significant digits than a float64 holds**, even when the
+ *     value is identical. `9.9900000000000000000000000000000000` is exactly
+ *     `9.99`, so rule 1 alone lets it pass — but it is the SAME un-narrowed
+ *     BigDecimal serializer, caught on a value that happens to be exact. A gate
+ *     silent on that stays silent until the first division.
+ *
+ *  What neither rule fires on is the cosmetic case: python renders a float64
+ *  as `10.0` where V8 renders `10`, and .NET/java render a `NUMERIC(19,4)`
+ *  column as `12.5000`. Same value, well inside float64's width, and no client
+ *  can tell after parsing. Those produced 23 divergences per python run on the
+ *  first cut of this field — a bill payable only in permanent waivers, since
+ *  neither backend is wrong. */
+export function offContractNumber(source: string, canonical: string): boolean {
+  return !decimalEqual(source, canonical) || significantDigits(source) > FLOAT64_SIGNIFICANT_DIGITS;
 }
 
 // ── the differ ─────────────────────────────────────────────────────────────
@@ -521,6 +614,11 @@ export function renderWireReport(backend: string, caseName: string, split: Waive
     "request-count",
     "request",
     "status",
+    // Listed with the rest, not omitted: a kind absent from this table is
+    // COUNTED in the headline and then printed nowhere, so the report reads
+    // "5 divergence(s)" and names none of them.  That is the same defect this
+    // gate exists to remove, one level up.
+    "number-format",
     "type-mismatch",
     "key-set",
     "null-vs-empty",

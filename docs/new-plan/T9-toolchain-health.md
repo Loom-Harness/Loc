@@ -258,13 +258,21 @@ Minted 2026-08-23 by the numeric-types audit (the [root cause](../audits/numeric
 
 Sources: [numeric-types-audit-2026-08-23](../audits/numeric-types-audit-2026-08-23.md), plan.json N15, #2545/#2560/#2575/#2631. Relates to M-T9.25 (intra-backend consistency gates).
 
-## M-T9.37 — The wire-golden comparator can never fail on excess precision — `done` (Wave 1 follow-up, 2026-09-07) · **S–M** · P1 ⭐ the gate that was blind to M-T6.46, by construction
+## M-T9.37 — The wire-golden comparator can never fail on excess precision — `done` (Wave 1 follow-up, 2026-09-09) · **S–M** · P1 ⭐ the gate that was blind to M-T6.46, by construction
 
 Found 2026-08-23 by the numeric-types audit ([F16](../audits/numeric-types-audit-2026-08-23.md)). `toWireEntry` (`test/_helpers/wire-record.ts`) JSON-parses each body before diffing, collapsing every JSON number to a JS double: **deficient** precision (dapper's 15 digits, #2631) changes the parsed double and fails; **excess** precision (Java's 34-digit BigDecimals, M-T6.46) parses to the *identical* double and cannot fail — one-sided by construction. The direction that is currently broken on `main` is exactly the invisible one.
 
-**The fix:** compare numeric leaves on raw text (or a big-decimal parse) so excess precision diverges. Lands after M-T6.46, or first with a narrowly-scoped ratcheted java waiver that M-T6.46 must delete (`test/_helpers/wire-waivers.ts` is empty today — keep it that way if sequencing allows).
+**The fix:** capture each numeric leaf's RAW SOURCE TEXT alongside the parsed double (`WireEntry.numberFormats`, via the reviver's `context.source`) and compare that dimension too, as its own `number-format` divergence kind.
 
-**Verification when it lands.** The mutation-proof IS the test: the upgraded comparator must fail on Java's current 34-digit output (the exact defect that motivated it) and stay green on every existing golden.
+**What "excess precision" turned out to mean — measured, and it is two rules, not one.** The first cut recorded every spelling that differed from `String(value)`, and running it reported **23 divergences on every python leg**: all of them `10.0` where node sends `10`, because Python renders a float64 with its fractional part and V8 does not. Same number under every parser including a decimal-preserving one, neither backend wrong — a bill payable only in waivers nobody could ever delete. The same rule flagged .NET/java rendering a `NUMERIC(19,4)` column at its declared scale (`12.5000`). So the predicate (`offContractNumber`) is **two independent rules**: the spelling denotes a *different exact decimal value* than the canonical rendering (java's `3.333333333333333333333333333333333` against node's `3.3333333333333335`), **or** it carries more than **17 significant digits** — float64's round-trip width — even when the value is identical. The second rule is load-bearing and was nearly dropped: the M-T6.46 mutation re-seeds `10.00000000000000000000000000000000`, which is exactly `10`, so rule 1 alone would have missed the very defect this mission exists for.
+
+`test/_helpers/wire-waivers.ts` stays **empty**. The 23 were the comparator over-reporting, not a backend bill, so nothing needed waiving — the sequencing worry in the original mission text did not materialise.
+
+One companion defect fixed in the same pass: `renderWireReport`'s `ORDER` table did not list `number-format`, so those divergences were **counted in the headline and printed nowhere** — the leg said "5 divergence(s)" and named none of them. A kind missing from that table is the same blind-gate defect one level up.
+
+**Verification when it lands.** The mutation-proof IS the test, and it was run end-to-end through a booted backend rather than at the unit level. Re-seeding the pre-M-T6.46 java shape (response field back to `BigDecimal`, `.doubleValue()` removed) and rebuilding made `core-domain` report **5 `number-format` divergences** naming the exact 34-digit spellings — while every value assertion still passed (`2 passed, 0 failed`), which is precisely the blindness being removed. Restored by file copy, md5-verified, green again.
+
+Measured clean on the restored tree: **python 52 cases / 0 divergences**, **java 52 cases / 0 divergences** (JDK 25 + Gradle 9 extracted from `gradle:9-jdk25`, real Postgres). Elixir's leg could not be run on this host — no matching toolchain, and the CI image tag does not exist — so its serializer was measured directly instead: `__decimal_num/1` is `Decimal.to_float/1` and `Jason` renders the shortest round-trip float, so every spelling it emits is ≤17 digits and canonical. dotnet/dapper/mikroorm were already green under the stricter first cut, and the shipped rule only ever records a subset of what that one did, so no previously-green leg can turn red.
 
 Sources: [numeric-types-audit-2026-08-23](../audits/numeric-types-audit-2026-08-23.md) F16, plan.json N16. Relates to M-T9.11 (the differential itself), M-T6.46.
 

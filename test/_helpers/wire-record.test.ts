@@ -1,12 +1,15 @@
 import { describe, expect, it } from "vitest";
 import {
   applyWaivers,
+  decimalEqual,
   diffRecording,
   generalizePath,
   isVolatileSegment,
+  offContractNumber,
   pathMatches,
   renderWireReport,
   requestMatches,
+  significantDigits,
   staleWaivers,
   templatePath,
   toWireEntry,
@@ -104,20 +107,72 @@ describe("toWireEntry", () => {
     expect(JSON.stringify(e)).not.toContain("numberFormats");
   });
 
-  it("records the wire spelling when a number is not the canonical form", () => {
+  it("records a spelling that claims more digits than a float64 holds", () => {
     // Java's un-narrowed BigDecimal — the exact shape M-T6.46 shipped. It parses
-    // to the same double as 9.99, which is precisely why nothing caught it.
+    // to the same double as 9.99, which is precisely why nothing caught it, and
+    // its VALUE is 9.99 exactly — so only the digit-width rule reaches it.
     const raw = '{"price":9.9900000000000000000000000000000000}';
     const e = toWireEntry(0, "GET", "/x", 200, raw);
     expect(e.body).toEqual({ price: 9.99 });
     expect(e.numberFormats).toEqual(["9.9900000000000000000000000000000000"]);
   });
 
-  it("counts a trailing-zero scale as off-contract too", () => {
-    // `1.0` and `1` are the same float64; RS-24 makes the shortest round-trip
-    // spelling the contract, so a padded scale is a real wire difference.
-    expect(toWireEntry(0, "GET", "/x", 200, '{"a":1.0}').numberFormats).toEqual(["1.0"]);
+  it("records a spelling that denotes a DIFFERENT value than the canonical one", () => {
+    // The same un-narrowed serializer on a value that is not exact: node's
+    // float64 answers 3.3333333333333335, java's BigDecimal division answers
+    // 33 threes. A decimal-preserving client reads two different numbers.
+    const e = toWireEntry(0, "GET", "/x", 200, '{"avg":3.333333333333333333333333333333333}');
+    expect(e.numberFormats).toEqual(["3.333333333333333333333333333333333"]);
+  });
+
+  it("does NOT record a cosmetic float rendering — the 23-divergence lesson", () => {
+    // python renders a float64 with its fractional part where V8 does not, and
+    // .NET/java render a NUMERIC(19,4) column at its declared scale. Same
+    // value, well inside float64's width, indistinguishable to every parser.
+    // Gating these bought 23 divergences per python run and zero defects.
+    for (const raw of ['{"a":1.0}', '{"a":12.5000}', '{"a":10.0}', '{"a":1e1}']) {
+      expect(toWireEntry(0, "GET", "/x", 200, raw).numberFormats, raw).toBeUndefined();
+    }
     expect(toWireEntry(0, "GET", "/x", 200, '{"a":1}').numberFormats).toBeUndefined();
+  });
+
+  it("classifies every spelling the five backends were MEASURED to emit", () => {
+    // Captured 2026-09-09 by running the real serializers, not by reading
+    // emitters: node/V8 `String(x)`, python `json.dumps` over a float,
+    // elixir `Jason.encode!(Decimal.to_float(d))` in a 1.17.3 container,
+    // .NET `System.Text.Json` and java Jackson over a `double` response field.
+    // Every one of them is inside float64's width and denotes the canonical
+    // value, so NONE may gate — that is the whole finding.
+    const benign = [
+      "10.0", // python, elixir: a float64 rendered with its fractional part
+      "12.5000", // .NET/java: a NUMERIC(19,4) column at its declared scale
+      "9.99",
+      "12.5",
+      "3.3333333333333335", // the float64 answer itself
+      "1.2345678901234568e29", // elixir's exponent form, no `+` on the exponent
+      "0.0001",
+      "1e1",
+    ];
+    for (const lit of benign) {
+      expect(offContractNumber(lit, String(Number(lit))), lit).toBe(false);
+    }
+    // …and the two shapes M-T6.46 actually shipped, one caught by each rule.
+    for (const lit of [
+      "9.9900000000000000000000000000000000", // exact value, 33 digits wide
+      "3.333333333333333333333333333333333", // a different value entirely
+    ]) {
+      expect(offContractNumber(lit, String(Number(lit))), lit).toBe(true);
+    }
+  });
+
+  it("treats a spelling it cannot parse as off-contract rather than fine", () => {
+    // `decimalKey` returns null for anything not shaped like a JSON number;
+    // the predicate must fail CLOSED, or a form nobody anticipated is waved
+    // through by the code that did not understand it.
+    expect(offContractNumber("not-a-number", "1")).toBe(true);
+    expect(significantDigits("0")).toBe(1);
+    expect(decimalEqual("0", "-0.0")).toBe(true);
+    expect(decimalEqual("1e5", "100000")).toBe(true);
   });
 
   it("keeps a non-JSON body as text and an empty body as the empty string", () => {
