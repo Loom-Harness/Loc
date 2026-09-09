@@ -136,6 +136,9 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
     "16-ui-walker-primitives.md#chart--grouped-projection-series-every-frontend",
   "loom.bindable-input-value-arg":
     "16-ui-walker-primitives.md#the-form-family--createform-operationform-workflowform-destroyform",
+  "loom.page-form-locals-unsupported":
+    "16-ui-walker-primitives.md#the-form-family--createform-operationform-workflowform-destroyform",
+  "loom.component-children-unsupported": "16-ui-walker-primitives.md#slot",
   "loom.auth-missing-issuer": "17-auth.md#auth-----oidc-config",
   "loom.auth-unknown-claim-field": "17-auth.md#auth-----oidc-config",
   "loom.auth-without-user": "17-auth.md#auth-required--per-deployable-middleware--verifier-seam",
