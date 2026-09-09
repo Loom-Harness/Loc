@@ -7,13 +7,10 @@ import { wireFieldsFor } from "../../../src/ir/enrich/wire-projection.js";
 // to prevent.
 
 import { describe, expect, it } from "vitest";
-import type { AggregateIR } from "../../../src/ir/types/loom-ir.js";
+import type { AggregateIR, EnrichedLoomModel } from "../../../src/ir/types/loom-ir.js";
 import { buildLoomModel } from "../../_helpers/ir.js";
 
-function findAgg(
-  ir: { systems: { modules: { contexts: { aggregates: AggregateIR[] }[] }[] }[] },
-  name: string,
-): AggregateIR {
+function findAgg(ir: EnrichedLoomModel, name: string): AggregateIR {
   for (const s of ir.systems) {
     for (const m of s.subdomains) {
       for (const c of m.contexts) {

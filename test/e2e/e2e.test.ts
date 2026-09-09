@@ -17,6 +17,7 @@ import {
   normalizeBody,
   renderReport,
 } from "../_helpers/response-diff.js";
+import { hasDocker } from "./support/docker-probe.js";
 
 // ---------------------------------------------------------------------------
 // E2E smoke: generate the acme system, `docker compose build && up`, poll
@@ -62,15 +63,6 @@ const PARITY_ONLY = process.env.LOOM_E2E_PARITY_ONLY === "1";
 // fast run that skips the slowest backend); it is NOT set in conformance-parity.yml,
 // so the per-PR gate includes phoenix by default.
 const SKIP_PHOENIX = process.env.LOOM_E2E_SKIP_PHOENIX === "1";
-
-function hasDocker(): boolean {
-  try {
-    execSync("docker ps", { stdio: "ignore" });
-    return true;
-  } catch {
-    return false;
-  }
-}
 
 const RUN = ENABLED && hasDocker();
 

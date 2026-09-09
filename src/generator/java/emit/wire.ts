@@ -189,11 +189,23 @@ function elementMapper(element: TypeIR): string | null {
 }
 
 /** Expression converting a WIRE value (`expr`, a request-record read) to
- *  its domain form. */
-export function wireToDomain(t: TypeIR, expr: string): string {
+ *  its domain form.
+ *
+ *  `pointer` is the RFC 6901 path of the field being converted (`/price`,
+ *  `/lines/0/unitPrice`) and is REQUIRED, deliberately (M-T6.48): a money
+ *  conversion can now FAIL, and its refusal carries the pointer so the advice
+ *  renders the same `errors: [{pointer, message}]` entry the other four
+ *  backends send.  Making it a required argument rather than an optional one
+ *  is the point — a new call site cannot reintroduce a bare, un-pointed parse
+ *  by simply forgetting to pass it.  (The .NET arm took the same decision for
+ *  the same reason.) */
+export function wireToDomain(t: TypeIR, expr: string, pointer: string): string {
   switch (t.kind) {
     case "primitive":
-      if (t.name === "money") return `new BigDecimal(${expr})`;
+      // Total, and pointed: `new BigDecimal("12,50")` threw
+      // `NumberFormatException` out of the service and answered 500.
+      if (t.name === "money")
+        return `WireFormatException.money(${expr}, ${JSON.stringify(pointer)})`;
       if (t.name === "datetime") return `Instant.parse(${expr})`;
       return expr;
     case "id":
@@ -202,7 +214,9 @@ export function wireToDomain(t: TypeIR, expr: string): string {
       return `to${t.name}(${expr})`;
     case "array": {
       const el = t.element;
-      const mapped = wireToDomain(el, "__x");
+      // The element pointer keeps the RFC 6901 index wildcard shape the
+      // nested-errors work (M-T9.25) established for collections.
+      const mapped = wireToDomain(el, "__x", `${pointer}/0`);
       if (mapped === "__x") return expr;
       // MUTABLE copy, not `Stream.toList()`.  This value is assigned straight
       // onto a domain field, and on a value-object collection that field is a
@@ -217,7 +231,7 @@ export function wireToDomain(t: TypeIR, expr: string): string {
       return `new java.util.ArrayList<>(${expr}.stream().map(__x -> ${mapped}).toList())`;
     }
     case "optional": {
-      const inner = wireToDomain(t.inner, expr);
+      const inner = wireToDomain(t.inner, expr, pointer);
       if (inner === expr) return expr;
       return `${expr} == null ? null : ${inner}`;
     }
@@ -227,16 +241,27 @@ export function wireToDomain(t: TypeIR, expr: string): string {
 }
 
 /** Imports the inbound conversion needs. */
-export function collectWireToDomainImports(t: TypeIR, into: Set<string>): Set<string> {
+export function collectWireToDomainImports(
+  t: TypeIR,
+  into: Set<string>,
+  basePkg: string,
+): Set<string> {
   switch (t.kind) {
     case "primitive":
-      if (t.name === "money") into.add("java.math.BigDecimal");
+      if (t.name === "money") {
+        into.add("java.math.BigDecimal");
+        // The guarded parse `wireToDomain` emits (M-T6.48).  REQUIRED, and
+        // `basePkg` is required with it: emitting the call without the import
+        // is a `cannot find symbol` that no string-level test sees — the
+        // generated-java compile caught exactly that here.
+        into.add(`${basePkg}.domain.common.WireFormatException`);
+      }
       if (t.name === "datetime") into.add("java.time.Instant");
       return into;
     case "array":
-      return collectWireToDomainImports(t.element, into);
+      return collectWireToDomainImports(t.element, into, basePkg);
     case "optional":
-      return collectWireToDomainImports(t.inner, into);
+      return collectWireToDomainImports(t.inner, into, basePkg);
     default:
       return into;
   }
