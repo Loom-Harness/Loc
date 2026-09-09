@@ -18,8 +18,9 @@ describe("dtoParam — required-ness attribute target", () => {
     // Required STRINGS carry `AllowEmptyStrings = true` so an empty string
     // passes the structural layer and is rejected by the domain invariant
     // as 422 (matching Hono/Phoenix) instead of a 400 model-validation error.
+    // `[NoNulChar]` leads: a request string also carries the NUL guard (F20).
     expect(dtoParam("string", "Name", "request")).toBe(
-      "[Required(AllowEmptyStrings = true)] string Name",
+      "[NoNulChar] [Required(AllowEmptyStrings = true)] string Name",
     );
     // Non-string required fields keep the bare `[Required]` (AllowEmptyStrings
     // is string-only; null/omitted still 400s).
@@ -31,13 +32,24 @@ describe("dtoParam — required-ness attribute target", () => {
     expect(dtoParam("string", "Name", "request")).not.toContain("[property:");
   });
 
-  it("responses keep [property: Required] (serialized, never model-bound)", () => {
-    expect(dtoParam("string", "Name", "response")).toBe("[property: Required] string Name");
+  it("responses keep the PROPERTY target (serialized, never model-bound)", () => {
+    // A required response STRING also carries `AllowEmptyStrings = true`, for a
+    // contract reason rather than a pipeline one: the attribute's default
+    // (false) is published as `minLength: 1`, a bound nothing declared and
+    // nothing enforces, which the server then violates on its own reads
+    // (schemathesis F21 — see response-string-minlength.test.ts). Still a
+    // RequiredAttribute, so the required-set does not move.
+    expect(dtoParam("string", "Name", "response")).toBe(
+      "[property: Required(AllowEmptyStrings = true)] string Name",
+    );
+    // Non-strings keep the bare form — emptiness is a string-only notion.
     expect(dtoParam("Guid", "Id", "response")).toBe("[property: Required] Guid Id");
   });
 
   it("nullable types are not marked required in either direction", () => {
-    expect(dtoParam("string?", "Description", "request")).toBe("string? Description");
+    // Still not REQUIRED — but it does carry the NUL guard, which passes null
+    // and so cannot make an optional member required (F20).
+    expect(dtoParam("string?", "Description", "request")).toBe("[NoNulChar] string? Description");
     expect(dtoParam("Guid?", "ExternalId", "response")).toBe("Guid? ExternalId");
   });
 

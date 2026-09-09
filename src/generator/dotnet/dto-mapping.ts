@@ -270,6 +270,20 @@ export function wireType(
  *  operation body an omitted bool is a client error (RS-26), which is why
  *  Hono's body slot is an UNCOERCED `z.boolean()` — `z.coerce.boolean()`
  *  is `Boolean(input)` and would accept `undefined` as `false`. */
+/** The `using <ns>.Api;` line a DTO file needs IFF one of its record parameter
+ *  lists actually carries `[NoNulChar]` (the wire-string guard `dtoParam`
+ *  attaches on request DTOs).  The attribute lives in the project's own `Api`
+ *  namespace, so a file that emits it without the using is a CS0246 — and an
+ *  UNCONDITIONAL using is a CS8019 (unnecessary using) under `/warnaserror` on
+ *  every file whose records carry no wire string, which is every response file.
+ *
+ *  Shared because the gate was first written inline at the aggregate-DTO emitter
+ *  and the workflow request emitters call the same `dtoParam` without it — the
+ *  emitted project stopped compiling, and only a real `dotnet build` said so. */
+export function noNulCharUsing(ns: string, ...paramLists: readonly string[]): string {
+  return paramLists.some((p) => /\bNoNulChar\b/.test(p)) ? `using ${ns}.Api;\n` : "";
+}
+
 export function dtoParam(
   csType: string,
   name: string,
@@ -287,12 +301,21 @@ export function dtoParam(
    *  just `operation` — see below. */
   wireValueType = false,
 ): string {
+  // A request STRING — required, optional or defaulted alike — carries the NUL
+  // guard: U+0000 is a legal JSON character and an illegal Postgres `text`
+  // byte, so without it the driver's refusal escapes as a 500 (schemathesis
+  // F20). A CUSTOM attribute, so it enforces without publishing a `pattern` on
+  // every string in every schema; null passes, so it never makes an optional
+  // member required. Response DTOs are serialized, never validated, and their
+  // value came out of the very column that cannot hold a NUL.
+  const noNul = dir === "request" && (csType === "string" || csType === "string?");
+  const nulGuard = noNul ? "[NoNulChar] " : "";
   if (defaultLiteral !== undefined && dir === "request") {
-    return `${csType} ${name} = ${defaultLiteral}`;
+    return `${nulGuard}${csType} ${name} = ${defaultLiteral}`;
   }
   const optionalBoolRequest = dir === "request" && csType === "bool" && slot === "create";
   const required = !csType.endsWith("?") && !optionalBoolRequest;
-  if (!required) return `${csType} ${name}`;
+  if (!required) return `${nulGuard}${csType} ${name}`;
   // RS-26 on an OPERATION body: `[Required]` alone cannot reject an omitted
   // VALUE TYPE.  RequiredAttribute tests for null, and a missing `int qty` /
   // `bool active` binds to the CLR default (0/false) — non-null, so validation
@@ -346,13 +369,37 @@ export function dtoParam(
   // parity).  Null/omitted still fails `[Required]` (400), as before.  Stays
   // a `RequiredAttribute`, so Swashbuckle's `RequiredFromCtorParamFilter`
   // keeps the field in the OpenAPI required-set.
+  //
+  // A RESPONSE string carries `AllowEmptyStrings = true` for a different
+  // reason, and one that is about the CONTRACT rather than the pipeline:
+  // `RequiredAttribute` defaults `AllowEmptyStrings` to FALSE, and ASP.NET's
+  // schema generator translates that into `minLength: 1` on the published
+  // property.  Nothing enforces it — a response DTO is serialized, never
+  // validated — and nothing DECLARED it either: `name: string` carries no
+  // length invariant, so a customer created with `name: ""` (correctly 201)
+  // is then served by a `GET /api/customers` whose own published schema says
+  // that value is impossible (schemathesis F21 / W28 — the server breaking
+  // its own contract on a plain read).  Measured before and after on a booted
+  // app; the field stays in `required` either way, because this is still a
+  // RequiredAttribute.
+  //
+  // This makes .NET publish no length bound at all, which is what java
+  // already does.  Publishing the bounds a `len-*` invariant DOES declare
+  // (node emits them from `openapiLengthMeta`) is a separate slice: it has to
+  // go through the schema-document layer on both backends, because the
+  // DataAnnotations that would publish them — `[MinLength]` / `[MaxLength]` —
+  // also ENFORCE them, in UTF-16 code units rather than the code points the
+  // bound is defined in (src/generator/_expr/code-point.ts).
   const attr =
     jsonRequired +
-    (dir === "request"
-      ? csType === "string"
+    nulGuard +
+    (csType === "string"
+      ? dir === "request"
         ? "[Required(AllowEmptyStrings = true)] "
-        : "[Required] "
-      : "[property: Required] ");
+        : "[property: Required(AllowEmptyStrings = true)] "
+      : dir === "request"
+        ? "[Required] "
+        : "[property: Required] ");
   return `${attr}${csType} ${name}`;
 }
 

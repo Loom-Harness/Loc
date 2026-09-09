@@ -11,15 +11,23 @@ import { intrinsicMatcherSig } from "../util/intrinsic-matchers.js";
 // native matcher. There is no bare-boolean fallback: the validator
 // (`checkExpectMatcher`) requires every `expect` to carry a matcher, so a
 // non-matcher reaching here is a compiler invariant violation, not user input.
+//
+// The same validator also gates a LOCATOR matcher's receiver
+// (`loom.locator-matcher-receiver`), which is what makes the throw below an
+// invariant rather than a crash a user can trigger: `expect(<x>).toHaveText(…)`
+// on something that is not a page read used to validate clean and then die here
+// with a stack trace (audit 2026-09-03 F6).
 
 /** Render one `expect(<x>).<matcher>(…)` to an assertion statement (no
  *  trailing newline). `render` lowers a sub-expression to target source. */
 export function renderExpectStmt(expr: ExprIR, render: (e: ExprIR) => string): string {
   const explicit = renderExplicitValueMatcher(expr, render);
   if (explicit) return explicit;
-  // Locator matchers are peeled by the caller before this point; reaching here
-  // means a bare-boolean `expect`, which the validator rejects.  Fail loudly
-  // rather than silently emitting `.toBe(true)`.
+  // Locator matchers are peeled by the caller before this point, and a locator
+  // matcher whose receiver is not a page read never gets past
+  // `loom.locator-matcher-receiver`.  Reaching here means a bare-boolean
+  // `expect`, which the validator also rejects.  Fail loudly rather than
+  // silently emitting `.toBe(true)`.
   throw new Error(
     "expect requires a matcher (e.g. expect(x).toBe(y) / expect(call).toThrow()); " +
       "got a bare expression with no matcher.",

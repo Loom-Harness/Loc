@@ -24,6 +24,7 @@ import {
   FS_LEAVES,
   fsString,
   fsTemporalBinary,
+  renderFsCollectionOp,
   renderFsIntrinsic,
   storeModelField,
 } from "./fs-expr.js";
@@ -838,8 +839,18 @@ export const felizTarget: WalkerTarget = {
   /** A component body's `Slot { }` → the `children` field of the props record
    *  its function takes (`component-emit.ts` adds the field when the walk
    *  reports `usesChildren`).  The JSX `{children}` default is an F# ANONYMOUS
-   *  RECORD expression over an unbound `children` — it does not compile. */
-  renderChildrenSlot: () => `props.${FELIZ_CHILDREN_FIELD}`,
+   *  RECORD expression over an unbound `children` — it does not compile.
+   *
+   *  PAREN-WRAPPED for the same reason `renderUserComponent` above is: a bare
+   *  `props.children` starts with neither `Html.` nor `(`, so the pack's
+   *  `isRenderedElement` prefix test read it as raw TEXT and a `Slot { }`
+   *  landing in one of the ~20 text-OR-markup slots emitted the literal
+   *  `Html.text "props.children"` — the slot's content silently dropped and the
+   *  expression's own source shown to the user (`KeyValueRow { "P", Slot { } }`
+   *  was the reproducer).  The wrap makes "every Feliz element starts with
+   *  `Html.` or `(`" an invariant of the target rather than a property that
+   *  happened to hold. */
+  renderChildrenSlot: () => `(props.${FELIZ_CHILDREN_FIELD})`,
 
   // --- Markup seams — F# flavoured ---------------------------------------
   renderComment: (text: string) => `(* ${text} *)`,
@@ -1108,6 +1119,20 @@ export const felizTarget: WalkerTarget = {
   // (`(model.Name.toUpper())`), which is not F#.
   renderIntrinsic: (receiverType, member, recv, args) =>
     renderFsIntrinsic(receiverType, member, recv, args),
+
+  // Collection ops — likewise the SAME F# table the MVU update path uses.
+  // Without it the view path emitted `allCustomers.count` verbatim, which is
+  // not F# (`loom.frontend-collection-op-unsupported` refused the body rather
+  // than let `dotnet fable` fail on it).
+  renderCollectionOp: (spec) => renderFsCollectionOp(spec),
+
+  // A lambda in EXPRESSION position (a collection op's callback) is `fun p ->
+  // body`, not the shared default's JS arrow.  This seam is what retires the
+  // gate's Feliz `map` carve-out: `rows.map(o => o.name)` was ungated
+  // everywhere else and shipped `(o) => o.name` — verbatim JavaScript in an
+  // `.fs` file — on this one target, so `MAP_UNRENDERED_FRAMEWORK` had to gate
+  // the op here alone.
+  exprLambda: (param, body) => FS_LEAVES.lambda(param, body),
 };
 
 export { fsString };

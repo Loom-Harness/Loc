@@ -526,6 +526,13 @@ export const DIAGNOSTIC_MESSAGES = {
     "still committing the dataset's ship-once marker, and java/.NET emit a create call " +
     "that does not match the declared `create` signature. Seed a state-persisted " +
     "aggregate, or drive the stream through the aggregate's own create at runtime.",
+  "loom.locator-matcher-receiver": (p: { matcher: unknown; actual: unknown }) =>
+    `'${p.matcher}' asserts against a DOM element, so 'expect(...)' must be given a field ` +
+    "read on a row the test has on screen — bind one with `let <row> = " +
+    "ui.<aggregate>.getById(...)` or `ui.<aggregate>.create(...)`, then assert " +
+    `\`expect(<row>.<field>).${p.matcher}(...)\`. Got \`${p.actual}\`, which resolves to no ` +
+    "locator (a plain value, an `id`, or a nested path the page object does not expose); " +
+    "compare a plain value with `toBe` instead.",
   "loom.seed-abstract-aggregate": (p: { name: unknown }) =>
     `Seed row on abstract aggregate '${p.name}': an inheritance base has no create ` +
     "factory and no repository, so every backend drops the row — and elixir still commits " +
@@ -673,9 +680,19 @@ export const DIAGNOSTIC_MESSAGES = {
     `aggregate '${p.name}' declares ${p.count} appliers for event '${p.eventName}'. ` +
     `An event folds into state exactly one way — declare a single apply(${p.eventName}).`,
   "loom.collection-op-in-ui#distinct":
-    "collection op '.distinct' isn't available in a page body — only 'map' and 'join' render on the frontend; do the transformation in a view or derived property instead.",
+    "collection op '.distinct' isn't available in a page body — the frontends render " +
+    "the ops that RESHAPE a collection (count, where, any, all, map, sortBy, take, " +
+    "skip, join), but not this one: it needs VALUE equality, and Flutter's generated " +
+    "wire models define no 'operator ==', so a page would silently keep the " +
+    "duplicates. Do the transformation server-side instead — a view, a 'derived', or " +
+    "a 'projection' read model.",
   "loom.collection-op-in-ui#any-op": (p: { member: unknown }) =>
-    `collection op '.${p.member}' isn't available in a page body — only 'map' and 'join' render on the frontend; do the transformation in a view or derived property instead.`,
+    `collection op '.${p.member}' isn't available in a page body — the frontends ` +
+    `render the ops that RESHAPE a collection (count, where, any, all, map, sortBy, ` +
+    `take, skip, join), but not this one: it folds arithmetic over the projected ` +
+    `values, and 'money' is a Decimal object on React/Vue/Svelte/Angular and Phoenix ` +
+    `but a native scalar on Feliz and Flutter. Do the transformation server-side ` +
+    `instead — a view, a 'derived', or a 'projection' read model.`,
   "loom.duplicate-valueobject": (p: { name: unknown }) =>
     `duplicate root-level value object '${p.name}' — declare it once in the workspace.`,
   "loom.duplicate-enum": (p: { name: unknown }) =>
@@ -902,7 +919,12 @@ export const DIAGNOSTIC_MESSAGES = {
   "loom.unknown-member": (p: { member: unknown; record: unknown }) =>
     `'${p.member}' is not a member of '${p.record}'.`,
   "loom.collection-op-in-ui#avg":
-    "collection op '.avg' isn't available in a page body — only 'map' and 'join' render on the frontend; do the transformation in a view or derived property instead.",
+    "collection op '.avg' isn't available in a page body — the frontends render the " +
+    "ops that RESHAPE a collection (count, where, any, all, map, sortBy, take, skip, " +
+    "join), but not this one: it desugars to a sum over the projected values, and " +
+    "'money' is a Decimal object on React/Vue/Svelte/Angular and Phoenix but a native " +
+    "scalar on Feliz and Flutter. Do the transformation server-side instead — a view, " +
+    "a 'derived', or a 'projection' read model.",
   "loom.avg-non-numeric": "`.avg` requires a numeric projection (int, long, decimal, or money).",
   "loom.intrinsic-bare": (p: { member: unknown; signature: unknown }) =>
     `'${p.member}' is an intrinsic operation and needs a call — write '.${p.member}${p.signature})'.`,
@@ -943,6 +965,8 @@ export const DIAGNOSTIC_MESSAGES = {
     `Duplicate action '${p.name}' on ${p.surface}; action names must be unique on a page/component.`,
   "loom.ui-channel-not-broadcast": (p: { name: unknown; chName: unknown; delivery: unknown }) =>
     `ui '${p.name}' subscribes to channel '${p.chName}', but its delivery is '${p.delivery}'.  Only 'delivery: broadcast' channels are UI-observable; 'queue' is work distribution.`,
+  "loom.menu-link-unresolved": (p: { name: unknown; uiName: unknown; linkable: unknown }) =>
+    `menu link '${p.name}' does not name a page of ui '${p.uiName}'.  Linkable pages: ${p.linkable}.  Scaffolded pages are named by ROLE inside a per-aggregate area, so link them area-qualified (e.g. 'link Orders.List'); a workflow's form page is '<Workflow>Workflow'.`,
   "loom.extern-function-shadows-stdlib": (p: { name: unknown }) =>
     `extern function '${p.name}' shadows a walker-stdlib primitive.  Pick a different name.`,
   "loom.store-lifetime-invalid": (p: {
@@ -1581,6 +1605,37 @@ export const DIAGNOSTIC_MESSAGES = {
     `'state { … }' and named 'action's are lifted there today. The emitted project compiles, ` +
     `then fails at request time on the assign that was never made. Move '${p.primitive}' into ` +
     `the page body; the component can keep its layout, display, 'state' and 'action's.`,
+  "loom.page-form-locals-unsupported": (p: {
+    what: unknown;
+    dName: unknown;
+    fw: unknown;
+    labels: unknown;
+    hint: unknown;
+  }) =>
+    `${p.what} declares two forms that would emit the SAME page-local bindings on ` +
+    `deployable '${p.dName}' (frontend '${p.fw}'): ${p.labels}. Every JS frontend splices a ` +
+    `form's mutation hook and form handle in as page-scope consts ('const create = …', ` +
+    `'const { register, handleSubmit, … } = useForm(…)'), and those names come from the design ` +
+    `pack's form templates, so a second form redeclares them. ${p.hint} Split the forms across ` +
+    `two pages, or move one into its own 'component'. (Angular emits this shape correctly — its ` +
+    `locals are aggregate-scoped and a second same-aggregate form takes an ordinal suffix — so ` +
+    `the fix here is that same per-form ordinal, threaded through the ~68 pack templates that ` +
+    `hardcode 'create'/'register'/'handleSubmit'.)`,
+  "loom.component-children-unsupported": (p: {
+    what: unknown;
+    component: unknown;
+    dName: unknown;
+  }) =>
+    `${p.what} invokes component '${p.component}' with CHILDREN, which deployable '${p.dName}' ` +
+    `(frontend 'angular') drops. Angular has no PascalCase component tag, so a user component is ` +
+    `invoked through '<ng-container [ngComponentOutlet]=…>', and 'ngComponentOutlet' cannot ` +
+    `project content from a template — the extra positional argument has nowhere to go, so the ` +
+    `children vanish from the emitted project with no other symptom. Every other frontend ` +
+    `renders them into the component's 'Slot { }'. Pass the content as a declared parameter, or ` +
+    `host this page on another frontend. (The fix is Angular-local: a WALKED component already ` +
+    `has a kebab selector and its 'Slot { }' already emits '<ng-content>', so the call site can ` +
+    `switch from the outlet to '<app-x …>children</app-x>'; an extern component has no ` +
+    `Loom-known selector and keeps the outlet.)`,
   "loom.chart-unsupported-target": (p: { what: unknown; name: unknown; uiFramework: unknown }) =>
     `${p.what} uses 'Chart', which deployable '${p.name}' can't render ` +
     `(frontend '${p.uiFramework}'). Chart ships on every shipping frontend — react, vue, ` +
@@ -2034,28 +2089,18 @@ export const DIAGNOSTIC_MESSAGES = {
     `for is silently dropped and the tables land in 'public'. Use 'persistence: drizzle' ` +
     `on this deployable, or drop the clause.`,
   // (The generic `loom.mikroorm-unsupported` tail lived here — the one
-  // `validateMikroOrmSupport` used for its SHAPE rejects.  Its last surviving
-  // caller was the abstract-inheritance-base-with-`contains` shape, which is
-  // impossible on every target and so became the target-neutral
-  // `loom.abstract-aggregate-contains` above.  The CODE stays live through the
-  // `#migrations` variant just above and the `#scalar-array` reject below —
-  // the ONE shape where mikroorm is behind drizzle rather than at parity,
-  // which is why it carries its own message rather than a generic tail.)
-  "loom.mikroorm-unsupported#scalar-array": (p: {
-    name: unknown;
-    subject: unknown;
-    field: unknown;
-    element: unknown;
-  }) =>
-    `Deployable '${p.name}' selects 'persistence: mikroorm', but ${p.subject} declares the ` +
-    `scalar collection field '${p.field}: ${p.element}[]'. The MikroORM row emitter maps a ` +
-    `root aggregate field to a column per declared kind (primitive / enum / id / value ` +
-    `object) and has no arm for an array of primitives or enum values, so generation would ` +
-    `abort. Drizzle stores it as a native Postgres array — use 'persistence: drizzle' on ` +
-    `this deployable, move the collection onto a contained entity part (parts fold a ` +
-    `collection field into one jsonb column on this adapter), or model it as a value-object ` +
-    `collection ('<VO>[]') or a reference collection ('<Agg> id[]'), both of which mikroorm ` +
-    `already persists.`,
+  // `validateMikroOrmSupport` used for its SHAPE rejects.  Its last two
+  // callers: the abstract-inheritance-base-with-`contains` shape, impossible
+  // on every target and so promoted to the target-neutral
+  // `loom.abstract-aggregate-contains` above; and the root SCALAR/ENUM
+  // collection field (`#scalar-array`) — the one shape mikroorm was genuinely
+  // behind drizzle on — drained when `columnsForType` (typescript/emit/
+  // mikroorm.ts) grew an `"array"` arm mirroring drizzle's native Postgres
+  // array column (M-T6.23).  The CODE stays live through the three
+  // migration-checks.ts variants above (`#migrations`, `#schema-split`,
+  // `#schema-ignored`) — the self-provisioning limits this adapter's
+  // `orm.schema.updateSchema()` boot-time schema owner genuinely cannot
+  // express.)
   "loom.find-predicate-unsupported": (p: {
     name: unknown;
     adapter: unknown;
@@ -2386,13 +2431,17 @@ export const DIAGNOSTIC_MESSAGES = {
     `nested inside it silently disappear from the page.  Make it a direct child of ${p.parents}.`,
   "loom.frontend-collection-op-unsupported": (p: { where: unknown; op: unknown }) =>
     `uses the collection op \`.${p.op}\` on a collection in a page/component ` +
-    `expression, but the frontend walker has no renderer for it — it emits verbatim ` +
-    `(\`.${p.op}\`), so the generated project fails to compile (TS2339 on React/Vue/Svelte/` +
-    `Angular, and the equivalent on Feliz/Flutter).  Collection ops are a backend ` +
-    `vocabulary: compute the value server-side — a repository \`find\`, an aggregate ` +
-    `\`derived\`, or a \`projection\` read model — and bind the result in the page.  ` +
-    `(\`.map\` is the one op the frontends do render — except on Feliz, whose F# walker ` +
-    `has no lambda seam and would emit a JS arrow, so it is gated there too.)`,
+    `expression.  The frontends render the ops that RESHAPE a collection — \`count\`, ` +
+    `\`where\`, \`any\`, \`all\`, \`map\`, \`sortBy\`, \`take\`, \`skip\`, \`join\` — but not ` +
+    `\`.${p.op}\`, because the six frontends disagree on how its result is REPRESENTED: ` +
+    `\`sum\`/\`min\`/\`max\`/\`avg\` fold arithmetic, and \`money\` is a \`Decimal\` object ` +
+    `on React/Vue/Svelte/Angular and Phoenix but a native scalar on Feliz and Flutter; ` +
+    `\`first\`/\`firstOrNull\` differ on emptiness (\`undefined\` on the JS frontends, a ` +
+    `raised exception on F#/Dart) and on the optional type; \`distinct\`/\`contains\` need ` +
+    `value equality, which Flutter's generated models do not define.  Emitting anyway would ` +
+    `mean a project that fails to compile, or worse, one that compiles and answers wrong.  ` +
+    `Compute this one server-side instead — a repository \`find\`, an aggregate ` +
+    `\`derived\`, or a \`projection\` read model — and bind the result in the page.`,
   "loom.instance-effect-needs-route-id": (p: { name: unknown; route: unknown }) =>
     `page '${p.name}': \`match await …\` awaits an aggregate instance operation, which acts ` +
     `on the record identified by the page's route \`:id\` — but this page (route ` +
@@ -2783,6 +2832,8 @@ export const DIAGNOSTIC_MESSAGES = {
   "loom.e2e-unsupported-statement": (p: { name: unknown; badKind: unknown; magicId: unknown }) =>
     `e2e test '${p.name}': '${p.badKind}' is not supported in an e2e test body. ` +
     `Only expect, expect-throws, let, expression, and ${p.magicId}.<...> calls are allowed.`,
+  "loom.e2e-unaddressable-call": (p: { magicId: unknown; method: unknown }) =>
+    `\`${p.magicId}.${p.method}(…)\` is not a shape the e2e harness can address. Every call it emits is two-level — \`${p.magicId}.<aggregate>.<method>(…)\`, \`${p.magicId}.<projection>.{byKey,list}(…)\` or \`${p.magicId}.workflows.<name>(…)\`. An explicit \`route … -> <Handler>\` route has no such slug and cannot be called from a test body yet.`,
   "loom.e2e-unresolved-ref": (p: { testName: unknown; name: unknown }) =>
     `e2e test '${p.testName}': '${p.name}' is not a 'let' binding or a magic receiver ('api'/'ui'). ` +
     `An e2e body drives the deployable over HTTP, so it resolves no domain names — ` +

@@ -5593,7 +5593,455 @@ Three habits fall out.
   all), and it is declined anyway. A pin that argues impossibility invites
   exactly one rebuttal — a proof of possibility — and then has nothing left.
 
-## §90 — Re-running a red CI check does not retest it against a fixed base
+## 96. A log line is a claim about the code, and nothing type-checks it (2026-09-01)
+
+Every node repository logged `"event_type":"Object"` on every domain event it
+dispatched. The emitter read `(event as object).constructor.name`, under a
+comment asserting that this "is the emitted DomainEvent subclass name —
+reliable in TypeScript without depending on a per-event `type` discriminator".
+
+Both halves of that sentence were false about the code sitting beside it.
+`events.ts` emits each event as an **interface** carrying exactly the
+discriminator the comment says not to depend on:
+
+```ts
+export interface CrateReady { readonly type: "CrateReady"; readonly crate: Ids.CrateId }
+```
+
+Aggregates raise plain object literals, so there is no subclass and
+`constructor.name` is `"Object"`. The dispatcher three lines below switched
+correctly on `event.type` the whole time — the code was right and the log
+about the code was wrong.
+
+**Why every gate was blind, and this is the transferable part: the wrong value
+was still a `string`.** `tsc` is satisfied, the corpus compile gates are
+satisfied, the wire goldens never see it (logs aren't wire), and no unit test
+asserted the field's *content*. A log line is an assertion about program state
+that the compiler cannot check and the test suite usually does not read. It
+surfaced only when a workflow subscriber was driven at runtime for the first
+time — the same "no runtime caller had ever been here" class as §90/§92, one
+layer over.
+
+Elixir had it right all along (`event_type: "OrderPlaced"`, a literal baked in
+at emit time), and .NET is right by accident of language — C# events really are
+classes, so `GetType().Name` is the event name. Node was the lone outlier, and
+a .NET comment cross-referenced the node form as "the same identity", so the
+wrong belief had already propagated into a second backend's documentation.
+
+Two rules out of it:
+
+- **When a log names a thing, assert the name in a test.** The new gate reads
+  the emitted source for `event_type: (event as { type: string }).type` and,
+  separately, pins that events are emitted as interfaces — the fact that makes
+  `constructor.name` wrong. Mutation-proved both in the generator (revert →
+  fail) and at runtime (`"Object"` → `"OrderPlaced"` on the behavioural leg).
+- **A comment that explains *why* a form was chosen is a claim, and claims
+  rot.** This one justified itself against an emitted shape that either changed
+  or never existed. When a comment argues for a technique, check it against the
+  emitter's actual output, not against the comment's own confidence.
+
+## 97. A deadlock leaves no evidence, so instrument for SILENCE — and the fix was already written down in the same repo (2026-09-03)
+
+`Crate.release` killed the node backend: the log stopped at `event_dispatched`,
+the process exited 99, and there was no error, no `request_end`, no stack. I
+guessed the cause twice — first "the guarded-create seam", disproved by one
+grep; then a transaction hypothesis I recorded honestly as *unconfirmed* with
+three experiments (§93's rule, finally applied instead of skipped).
+
+**Experiment one settled it in minutes, and the technique is the lesson.** A
+standalone driver that installed `unhandledRejection` and `uncaughtException`
+handlers *and an 8-second watchdog* answered the question no amount of log
+reading could: the handlers never fired and the watchdog did. **Not a throw — a
+deadlock.** A second probe (a `console.error` before the subscriber's first
+query) showed it entered and never returned from that query.
+
+That distinction is everything, and it is invisible from the outside: a crash
+and a hang produce the *same* trace — output that just stops. Nothing in the
+harness said "hung"; exit 99 came from the runner giving up. **When a process
+dies quietly, the first move is a watchdog, because silence is a symptom with
+two very different causes and the logs cannot tell you which.**
+
+**The cause.** An `audited` aggregate wraps its route in
+`db.transaction(async (tx) => …)` and hands the repository that `tx`. `save()`
+dispatches at the end of its own body — correct when it owns its handle, wrong
+here, because the ROUTE's transaction is still open. The in-process dispatcher
+closed over the ROOT `db`, so the subscriber queried the very connection the
+open transaction held. On the node leg's single PGlite connection that is a
+self-deadlock; on a pooled backend the same code silently reads pre-commit
+state instead, which is the more dangerous version because it looks like it
+works.
+
+**The fix was already in the repo, as prose.** The WORKFLOW routes carry a
+comment saying they wrap the body in a transaction and "dispatch events after
+the callback returns successfully (so rollbacks discard them)". The aggregate
+routes never learned it. `deferredDispatcher` buffers events raised inside a
+caller-owned transaction and flushes past the commit; rollback safety falls out,
+because `flush()` only runs on the success path.
+
+Two rules:
+
+- **When one route family documents an invariant, check the others obey it.** A
+  correct pattern living in one builder is not an invariant, it is a
+  coincidence, until something enforces it across the family. The new gate
+  asserts a repo constructed on `tx` never receives the root dispatcher.
+- **Assert the flush, not just the deferral.** A deferral that never flushes
+  swallows every event silently — strictly worse than the deadlock, which at
+  least announced itself by stopping.
+
+## 98. A test that asserts equality on a GLOBAL registry is order-dependent by construction (2026-09-03)
+
+Fixing the dispatch deadlock added one test file, and three assertions in an
+unrelated file — `test/util/source-types.test.ts` — started failing. They passed
+in isolation and in a two-file pairing; only the full run reproduced them. The
+clean-tree control run (stash, full tier, `0 failed`) is what proved the trigger
+was mine rather than pre-existing noise, and that control is the step worth
+copying: **before debugging a suspicious failure, establish whether it fails
+without your change at all.**
+
+The assertions read like this:
+
+```ts
+expect(sourceTypesForSurfaceKind(kind)).toEqual([...LEGACY[kind]].sort());
+const relational = registeredSourceTypes().filter(isRelational).sort();
+```
+
+`registeredSourceTypes()` is a **process-global, deliberately extensible**
+registry: `source-type-plugins.ts` registers out-of-tree `sourceType`s from
+`packages/*`, and `source-type-plugins.test.ts` registers `clickhouseCloud` into
+it and never removes it. So the assertion encoded *"no plugin may ever exist"* —
+false as a claim about the design, and true or false at runtime depending on
+which files shared a worker. `vitest.config.ts` runs the fast tier with
+`isolate: false` and says so in a comment: "a file that mutates module state can
+leak into the next file in that worker."
+
+**The fix is the assertion, not the isolation.** Scoping every comparison to the
+stores the legacy matrix actually covers keeps the real claim — *every legacy
+store is classified exactly as before*, so a dropped or misclassified one still
+fails — while a newly registered plugin store no longer can. Adding the file to
+an isolated vitest project would have silenced it too, but it would have
+preserved a wrong claim behind a scheduling guarantee.
+
+Two more assertions in the same file (`isCacheStore`, and the `mailer` list) had
+the identical latent shape and had simply never been unlucky. Fixed as well:
+when you find one order-dependent global assertion, **the others in that file
+are the same bug waiting for a different schedule**, and fixing only the ones
+that turned red today just resets the timer.
+
+## 99. A helper that defers its change is invisible to the caller's "is there anything to do?" check (2026-09-07)
+
+Loom's Elixir named-operation write is `change(%{}) |> optimistic_lock(:version)
+|> Repo.update(changeset)`. It has been shipping with a hole: an operation that
+assigns **no field** — `Crate.release()`, which only `emit`s an event — never
+advanced the row's `version`, and never applied its CAS filter either. The other
+four backends issue the guarded UPDATE unconditionally, so the same `.ddd` read
+back `version: 2` on node and `version: 1` on Elixir.
+
+The mechanism is one line of Ecto (`ecto/lib/ecto/repo/schema.ex`):
+
+```elixir
+if changeset.changes != %{} or force? do        # ← decided HERE
+  wrap_in_transaction(..., fn ->
+    user_changeset = run_prepare(changeset, prepare)   # ← lock's bump happens HERE
+```
+
+`optimistic_lock/2` does not put the increment in `changes`. It registers a
+`prepare_changes` hook — and the emptiness check runs *before* the hooks. So the
+one call whose entire purpose is to guarantee a write is the call the write-skip
+cannot see. `Repo.update(changeset, force: true)` fixes it: prepare runs, the
+lock's own `%{version: n + 1}` lands, and the inner non-empty check clears.
+
+Three things worth keeping:
+
+**A deferred effect is not a visible effect.** Any API that takes a callback to
+run "later, inside the operation" is invisible to every decision the operation
+makes *before* that point. Before relying on one, ask what the framework decides
+between your call and your callback. This is the same shape as §15's stamped
+classification and §96's silent deadlock: the code reads as though the intent has
+been expressed, and nothing between the intent and the effect is checked.
+
+**A refactor that preserved the observable value can still drop a guarantee.**
+The code comments record the history honestly: RS-14 first shipped a plain
+`change(%{version: version + 1})`, and M-T6.27 replaced it with `optimistic_lock`
+because a plain bump carries no CAS filter. The replacement is better on the
+axis it was chosen for and *silently worse* on the axis nobody re-checked —
+because the plain bump was a change in `changes`, and the lock is not. "The wire
+values are unchanged" was true for every shape a fixture then had.
+
+**Only the shape no fixture had was broken.** Every operation that assigns a
+field has non-empty `changes`, so the trap is invisible until an
+assignment-free operation exists. The divergence appeared the moment
+`lifecycle-guard.ddd` grew `api.crates.release(crate, { })` — added for an
+entirely different reason (a node dispatch deadlock). The generic PATCH seam has
+the identical hole for a no-op update and is fixed in the same commit, still
+with no fixture that reaches it: **when you find one instance of a
+framework-contract bug, fix its siblings by inspection rather than waiting for
+each to be observed.**
+
+Proved both ways against a real Phoenix boot and a real Postgres, using the host
+toolchain recipe in `docs/tools.md`: unfixed → the exact CI divergence
+(`#11 GET /api/crates at $.items[0].version — golden 2 ≠ elixir 1`), fixed →
+`wire: matches golden`. Reading Ecto's source told me what to change; only the
+run told me it was the whole cause.
+
+## 100. The whole cross-backend arm keyed on the wrong SQLSTATE — because every test that pinned it pinned the same wrong constant (2026-09-07)
+
+Fixing F16 (a create naming a well-formed uuid for a row that does not exist
+answers **500**) turned up a bigger one on the way. A cross-aggregate `X id` FK
+is emitted `ON DELETE RESTRICT`, and a Postgres RESTRICT check raises
+`restrict_violation` — **23001** — not `foreign_key_violation` (23503), which is
+what an *insert* raises. Every backend's "still referenced, cannot be deleted"
+arm keyed on 23503. On Hono the arm therefore never fired and a still-referenced
+delete answered **500** against the 409 its own OpenAPI declares; on Spring it
+fell through to the *unique-violation* arm and answered 409 *"A resource with
+these values already exists."*
+
+Two tests pinned that arm — `hono-destroy-route`, `lifecycle-audit-route` — and
+both asserted the emitted expression **verbatim, including `=== "23503"`**. They
+were green the whole time. A gate that pins the string an emitter produces can
+only catch a change to the string; it cannot catch the string being wrong,
+because it was written by reading the emitter. Both tests, both comments, the
+shared helper's docstring and four separate code comments all said
+"foreign_key_violation", and every one of them was copied from the first.
+
+What actually found it: booting the generated app against a **real Postgres**
+and issuing the delete. The node behavioral leg cannot — its PGlite harness
+synthesises a DDL with no foreign keys at all, so the constraint under test does
+not exist there, and the leg's clean result was an artefact, not a verdict.
+python and dotnet were correct by accident: their delete arms catch the exception
+*class* (`IntegrityError` / `DbUpdateException`), never a code.
+
+- **A constant copied from the code it verifies is not a verification.** When a
+  gate's expected value came from reading the implementation, the gate pins
+  consistency, not correctness. Something outside both — here the database's own
+  error — has to supply the value at least once.
+- **"Backend X is clean" is a claim about the harness first.** Before reading a
+  clean leg as evidence, check the leg can *reach* the thing: the FK never
+  existed in the node harness, so it could not have reported this in any run.
+  §90 again, one layer down.
+- **Codes that look adjacent are a discriminator, not a duplicate.** 23001 can
+  only come from a delete and 23503 only from a write naming an absent row, so
+  the two halves of one constraint are told apart by the code alone — no request
+  method, no route inspection. Conflating them was what made the dangling-
+  reference case answer "still referenced" on Spring. They now live in one
+  named home (`src/generator/_persistence/pg-sqlstate.ts`) instead of as eight
+  string literals.
+
+A separate one from the same session, same root: the .NET project **did not
+compile**, and only `dotnet build` said so. F20's `[NoNulChar]` guard needs a
+`using <ns>.Api;`, gated on demand — written at the aggregate-DTO emitter, and
+the two workflow request emitters call the same `dtoParam` from their own file
+templates without it. Every assertion in that gate read **one** file, so the
+CS0246 was invisible. The replacement asserts over the whole emitted project —
+no `.cs` may name the attribute without resolving it — plus a case pinning that
+the workflow file really is one that emits it, so the sweep cannot pass by
+having nothing to check.
+
+## 101. pydantic has two strictness modes and FastAPI uses the stricter one — the probe that said "ship it" was validating the wrong one (2026-09-07)
+
+F17 is python accepting `{"amount": false}` for a field its own OpenAPI declares
+`{"type": "number"}` — `bool` is an `int` subclass and pydantic's lax mode
+coerces it. `ConfigDict(strict=True)` is the textbook fix, and a probe said it
+was perfect: it refused `false` and `"1.5"` for a number while still accepting
+an integer literal for a `number`, an ISO string for a `datetime`, and a string
+for a string-valued enum. Exactly the JSON semantics wanted, one line per model.
+
+Switched on, every create carrying a date-time or an enum answered **422** —
+`"Input should be an instance of OrderStatus"` — for input that is valid JSON.
+
+The probe called `model_validate_json`. **FastAPI does not.** It parses the body
+and validates the resulting *dict*, which is pydantic's PYTHON mode, and strict
+there additionally refuses `str → datetime` and `str → Enum`. The library has
+two conversion tables, they differ precisely on the cases that mattered, and the
+probe exercised the one the framework never uses.
+
+- **When a probe stands in for the runtime, name the entry point the runtime
+  actually calls.** "Does pydantic strict do the right thing?" has two answers.
+  The question worth asking was "does it do the right thing *through FastAPI*",
+  and that is one `curl` against a booted app — which is where the truth came
+  from, ten minutes later.
+- **The narrow fix survived the wide one.** What shipped is a `BeforeValidator`
+  rejecting `bool`/`str` on the numeric aliases only: it publishes nothing, it
+  cannot touch datetimes or enums because it is not attached to them, and it
+  behaves identically in both modes. A guard that only knows about the thing it
+  guards has no second conversion table to be wrong about.
+- **Pin the rejected approach, not just the chosen one.** The gate carries a
+  sweep asserting *no* emitted module turns strict mode on. The reasoning for
+  rejecting it lives three files away from where someone would re-add it, and
+  "obvious fix that is wrong" is exactly the shape that comes back.
+
+Two other numbers from the same slice, both settled by measurement rather than
+by reading docs: strictness does **not** propagate from a parent model into a
+nested one (a strict parent with a lax `Money` still took `price.amount:
+false`), and a strict model validating *python* values accepts `int`, `float`
+and `Decimal` alike for a `float` field — which is what made it safe to put the
+guard on value-object models shared with the response direction.
+
+## 102. The framework has a pipeline, and "which stage do I need" was the whole design question (2026-09-08)
+
+F22: on .NET a malformed path `{id}` answered **415** instead of the declared
+422, but *only* on routes carrying a body. With no `Content-Type`,
+`BodyModelBinder` short-circuits the entire binding pass before the path
+parameter is looked at — so the request is refused for the one thing the
+contract says least about, while its actual defect (an identifier that can never
+parse) goes unmentioned. Bodyless routes were correct all along, which is why
+the four-backend contract test never saw it.
+
+Three fixes were available and the difference between them is *where in the MVC
+pipeline they sit*, nothing else:
+
+- a **`{id:guid}` route constraint** — rejected once already for F18, and still
+  wrong for the same reason: it makes the route not match, so the declared 422
+  becomes a framework 404;
+- **middleware** — runs before routing, so it knows no route shapes and would
+  have to carry a table of them (and re-exclude every static sub-path), which is
+  the duplication F18's shared derivation exists to prevent;
+- a **resource filter** — runs after routing and before model binding. That gap
+  is the only place the route value exists *and* the 415 has not happened yet.
+
+Once the stage was right the implementation had no design left in it: read the
+matched action's own `id` parameter, act only if it is a `Guid`. No route
+patterns anywhere, static sub-paths handled by having already been routed.
+
+- **When a framework answers the wrong thing, ask which stage answered — not
+  what to add.** The 415 was not a missing check; it was a check that ran too
+  early. Adding validation would not have moved it. Choosing a stage did.
+- **Match the envelope of the path you are pre-empting, verbatim.** The filter
+  now produces the same body the Guid binder produces for the same defect on a
+  bodyless route, MVC's own `The value 'x' is not valid.` wording included. Two
+  producers of one answer is a drift risk; a mutation that reworded it to
+  something "nicer" is one of the four proofs, precisely because nicer-and-
+  different is the tempting mistake.
+- **An always-true emit gate is worse than no gate.** The first draft gated
+  emission on `idValueType === "guid"` — and every aggregate's identity is a
+  guid (`lower.ts` stamps the literal), so the false arm could not be exercised,
+  and the test written for it failed on a fixture the grammar rejects. The gate
+  came out; the narrowing moved into the emitted C# as a runtime check, where it
+  is both testable and still correct if the identity axis ever opens up.
+
+## 103. The missing case was the CONTROL — "backend X is strict" was true and useless without it (2026-09-08)
+
+F28: java answers 400 for `GET /api/orders?=%C3%A0` where node, python and
+dotnet answer 200. It had sat open for weeks as a bug "by constraint rather than
+by choice", with a real reason attached and a real cost implied — someone would
+eventually go and try to make java lenient.
+
+Re-measuring took two extra requests and changed the classification.
+
+- **The control.** Sending `?junk` — an *unrecognised* parameter with no `=` at
+  all — java answers **200**, exactly like the other three. So the earlier
+  framing ("java is strict about query parameters") was true of one input and
+  false of the class. What java actually refuses is a chunk that is not valid
+  query syntax, which is a different and much narrower claim — and one that made
+  the 400 look correct rather than divergent.
+- **The artifact, not the docs.** The waiver said Tomcat "exposes no leniency
+  knob". Reading `Parameters` out of the `tomcat-embed-core` jar the build
+  actually resolves confirmed it: `setLimit`, two charsets, a URL decoder, and
+  nothing else. That took one `unzip` and one `javap`, and it is the difference
+  between "we believe there is no knob" and "there is no knob in 11.0.22".
+
+Together they flipped the disposition from *open bug* to *by design*: a
+divergence between CONTAINERS, in the shape W8 already records for F9, rather
+than a defect in any emitter. The alternative — declaring 400 on every read
+route of every generated API so one container's parser stops being undeclared —
+was written down as considered and declined, with the reason, so the next person
+does not rediscover the trade and pick differently by accident.
+
+- **A finding's KIND is a claim too, and it rots like any other.** "Bug" on a
+  register means someone should fix it; leaving a correct behaviour classified
+  that way spends future attention indefinitely. Re-deriving the kind is part of
+  re-triage, not a separate exercise.
+- **When a measurement supports a general statement, take the second sample that
+  would refute it.** One input showed java refusing where others accept. The
+  control showed the refusal was about syntax, not about parameters — and that
+  is the whole finding.
+
+## 104. The fast suite asserts on emitted TEXT, so a name that does not resolve is invisible to it (2026-09-09)
+
+`corpus × python` went red on four projection fixtures with `ruff` reporting
+**F821 Undefined name `Int32`**. The generated projection module read
+`orders: Int32` and imported nothing called `Int32`.
+
+`responsePyType` returns a NAME, not a builtin, for every primitive carrying a
+guard or a published format (`Int32`, `WireNum`, `WireInt`, `WireStr`,
+`MoneyStr`, `UuidStr`). Two emitters call it and assemble their own import
+blocks — and neither routed through `wireModelImport`. The emitted text was
+exactly what every assertion asked for; what was missing was a line no
+assertion mentioned.
+
+**`npm test` cannot catch this class, structurally.** It compares strings. The
+question "does this name resolve in the module that uses it?" is answered by
+the target language's own toolchain, and that runs one tier up — an opt-in
+corpus leg, not the per-PR fast suite. Same session, same shape one language
+over: `[NoNulChar]` reached a .NET file with no `using` for it, and only
+`dotnet build` said so.
+
+- **When an emitter starts returning a NAME where it returned a builtin, the
+  import is now part of the contract** — and it is a *project-wide* contract,
+  not a per-file one. Every call site of the type helper inherits the
+  obligation, including ones written before the helper had it.
+- **Gate it as a sweep, not as a case.** The test that replaced this asserts
+  over *every* emitted module of one project: no wire alias may appear
+  un-imported. A new emitter that grows a typed field is caught by
+  construction, rather than by whether someone remembered to add an assertion
+  for it — which is precisely what did not happen twice here.
+- **A sweep needs its own vacuity guard.** A second case pins that the fixture
+  actually produces all six aliases; without it the sweep passes just as
+  happily over a model that meets none of them.
+- **The mutation proof found the second bug.** Reverting the query-projection
+  import failed as designed. Reverting the *materialized*-projection one passed
+  — the fixture never reached that emitter. Extending the fixture until it did
+  turned that proof red too, and showed the folded-projection module had the
+  same gap, unreported because no corpus fixture had exercised it. Proving each
+  half separately is what surfaced the half nothing was complaining about.
+
+## 105. A "direction" that only had two values had three all along — and the third one is not JSON (2026-09-09)
+
+The python wire-type helper took a direction — `"request"` or `"response"` —
+and every narrowing hung off it. F17 added a numeric guard to the request side:
+refuse a JSON `bool` or `str` where the contract says `number`, because
+pydantic's lax mode coerces both. Correct for a body. Applied to a repository
+find's parameters, it made **every well-formed numeric read answer 422**:
+
+```
+GET /api/articles/popular?min=6
+→ 422 {"pointer":"/min","message":"Value error, Input should be a valid number"}
+```
+
+A URL has no types. `?min=6` is the string `"6"`, and a guard that refuses a
+`str` for a number refuses it. The two body-side call sites and the two
+parameter-side call sites all read the same helper, and all four looked
+identical at the call site — which is exactly why one function with one boolean
+axis was the wrong shape.
+
+- **"Request" is not one thing.** A JSON body carries types; a path or query
+  parameter carries a substring of the URL. Anything that reasons about the
+  *type that arrived* has to distinguish them. Anything that constrains a
+  string — a NUL guard, a uuid format, a money format — does not, because a
+  string arrives as a string on both. The fix was a third direction whose only
+  divergence is the three numeric arms; widening it further would have
+  quietly dropped F2/F3's uuid gate off the query path.
+- **The same trap, one language over, on the same day.** java's NUL guard was
+  annotated onto every component that *bears* a string, so a `string[]` became
+  `@NoNulChar List<String>` — and a `ConstraintValidator<NoNulChar, String>`
+  is not applicable to a `List<String>`. Hibernate Validator raises
+  `UnexpectedTypeException` at validation time, which escapes as a **500**: the
+  exact status the guard was added to remove. Both bugs are one mistake —
+  putting a constraint on a thing that is *adjacent to* what it validates.
+- **Neither is visible to a compiler or to `npm test`.** `min: Int32` is a
+  well-formed annotation; `@NoNulChar List<String>` compiles. Both are resolved
+  at *request* time, so only a booted app answers. The behavioral tier found
+  both, on the two corpus fixtures in the whole suite that declare the shape
+  (`document`/`tenancy-filter` for the numeric parameter, `document-collection-
+  read` for the string array). If a narrowing is enforced by the framework
+  rather than the compiler, the gate that proves it has to boot something.
+- **Sweep over the axis the bug travels on.** The gates that replaced these
+  assert over *every* route signature and *every* emitted `.java` — not over
+  the one file the fixture was written for. The paged-run handler emitter is a
+  third call site nobody would have thought to assert on; the sweep caught it
+  under mutation, and the fixture had to grow a paged criterion read before that
+  proof went red at all.
+
+## 106. Re-running a red CI check does not retest it against a fixed base (2026-09-07)
 
 `main` was red for every PR that built a generated node project: npm 10.9.7
 crashes resolving vitest 4's peer graph (`Cannot read properties of null
@@ -5613,7 +6061,7 @@ would have. Diagnose this by comparing the run's `created_at` against the time
 the base fix merged — if the run is older, its verdict is about a `main` that
 no longer exists.
 
-## §91 — A reported merge conflict can be stale; verify before you resolve
+## 107. A reported merge conflict can be stale; verify before you resolve (2026-09-07)
 
 A PR was reported un-mergeable, so it was rebased onto fresh `main` and the
 conflicts resolved by hand. That work was thrown away: the branch had ALREADY
@@ -5630,7 +6078,7 @@ this correctly but about the WRONG branch in a worktree — it inspects
 a clean push whenever the main checkout sits on a stale branch. Fix by pointing
 the main checkout at fresh `main`, not by bypassing the hook.
 
-## §92 — Two optional seams at one insertion point conflict structurally
+## 108. Two optional seams at one insertion point conflict structurally (2026-09-07)
 
 Two independent missions each added an optional `WalkerTarget` seam — one for
 money operands, one for numeric widening — with identical signatures, at the
@@ -5646,7 +6094,7 @@ whoever resolves the next conflict, at random. Pin it with the reason inline.
 Here: money first, because it is the narrower claim — a money operand is
 numeric too, so a target defining both wants its money form to win.
 
-## §93 — Collected page errors that are only checked on the happy path
+## 109. Collected page errors that are only checked on the happy path (2026-09-07)
 
 Every Feliz Playwright smoke does `page.on("pageerror", e => errors.push(...))`
 and then asserts `errors` is empty — at the END of the run. So the diagnostic

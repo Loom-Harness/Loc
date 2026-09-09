@@ -29,7 +29,7 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { REQUIRED_CHECKS } from "./merge-queue-required-checks.js";
+import { QUEUE_REQUIRED_CHECKS, REQUIRED_CHECKS } from "./merge-queue-required-checks.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const workflowsDir = path.resolve(here, "../../.github/workflows");
@@ -182,9 +182,20 @@ describe("merge-queue readiness", () => {
       expect(existsSync(path.join(workflowsDir, workflow))).toBe(true);
     });
 
-    it("has a `merge_group:` trigger — without it the queue stalls on this check", () => {
-      expect(load(workflow).onKeys).toContain("merge_group");
-    });
+    // Scoped to the REQUIRED rows.  A required check with no `merge_group:`
+    // trigger is never posted inside the queue and GitHub waits for it
+    // forever — that is invariant 1, and it applies to exactly the names
+    // branch protection waits on.  The not-required rows carry the mirror
+    // assertion instead (see "the not-required 18 stay OUT of the queue"),
+    // because for them the trigger is pure cost: the gate already ran on the
+    // PR's own head, and the ruleset's "Require all queue entries to pass
+    // required checks" makes the queue re-run provably redundant.
+    it.skipIf(!entry.queueRequired)(
+      "has a `merge_group:` trigger — without it the queue stalls on this check",
+      () => {
+        expect(load(workflow).onKeys).toContain("merge_group");
+      },
+    );
 
     it(`exposes the required check name "${entry.check}"`, () => {
       const names = load(workflow).jobs.map(checkName);
@@ -236,6 +247,222 @@ describe("merge-queue readiness", () => {
       const ids = new Set(load(workflow).jobs.map((j) => j.id));
       for (const need of job.needs)
         expect(ids, `${check} needs unknown job ${need}`).toContain(need);
+    });
+  });
+
+  // ── The trim, made mechanical ──────────────────────────────────────────
+  //
+  // Which gates are required is a cost decision; which gates CAN be trimmed is
+  // not — it is decided by the `if:` guard on the job, and getting it backwards
+  // silently deletes coverage instead of saving money.  These two assertions
+  // read the guard and hold the manifest to it.
+  describe("the required/not-required split matches the workflows' own guards", () => {
+    const DRAFT_GUARD = "github.event.pull_request.draft == false";
+    const isLabelGuarded = (expr: string): boolean =>
+      expr.includes("github.event.label.name ==") ||
+      expr.includes("github.event.pull_request.labels");
+
+    /**
+     * The guard that actually decides whether the gate runs.
+     *
+     * For a plain job that is its own `if:`.  For a ROLLUP (`<stem>-passed`)
+     * it is not: the rollup carries `if: ${{ !cancelled() }}` so it reports
+     * either way, and the real guard sits on the matrix jobs it `needs`.
+     * Reading only the rollup's own `if:` therefore reports "unguarded" for
+     * every matrix workflow — which is exactly what the first version of this
+     * assertion did, and it flagged `tenancy-e2e` (genuinely label-guarded on
+     * its matrix job) as unproven.
+     */
+    const guardsOf = (entry: (typeof REQUIRED_CHECKS)[number]): string[] => {
+      const wf = load(entry.workflow);
+      const job = wf.jobs.find((j) => checkName(j) === entry.check);
+      expect(job, `no job named ${entry.check} in ${entry.workflow}`).toBeDefined();
+      if (!job) return [];
+      const guards = [job.ifExpr ?? ""];
+      for (const need of job.needs ?? []) {
+        const dep = wf.jobs.find((j) => j.id === need);
+        if (dep) guards.push(dep.ifExpr ?? "");
+      }
+      return guards;
+    };
+
+    it("every `runs-on-every-pr` waiver really does run on every non-draft PR", () => {
+      // If one of these were LABEL-guarded, the merge group would be its only
+      // run and dropping it from the required set would gate the feature on
+      // nothing.  That is the expensive mistake this assertion exists to stop.
+      const wrong: string[] = [];
+      for (const entry of REQUIRED_CHECKS) {
+        if (entry.notRequiredBecause !== "runs-on-every-pr") continue;
+        const guards = guardsOf(entry);
+        if (guards.some(isLabelGuarded)) {
+          wrong.push(
+            `${entry.check} (${entry.workflow}) is LABEL-guarded, so the merge group is its ` +
+              `only run — it cannot be waived as "runs-on-every-pr": ${guards.join(" | ")}`,
+          );
+        } else if (!guards.some((g) => g.includes(DRAFT_GUARD))) {
+          wrong.push(
+            `${entry.check} (${entry.workflow}) carries neither the draft guard nor a label ` +
+              `guard, so whether it runs per-PR is unproven: ${guards.join(" | ") || "(no if:)"}`,
+          );
+        }
+      }
+      expect(wrong, wrong.join("\n")).toEqual([]);
+    });
+
+    it("every `queueIsOnlyRun` row really is label-guarded", () => {
+      // The converse: a row claiming the queue is its only run must be gated
+      // off on PRs, or the claim is stale and the row is paying twice.
+      const wrong: string[] = [];
+      for (const entry of REQUIRED_CHECKS) {
+        if (!entry.queueIsOnlyRun) continue;
+        const guards = guardsOf(entry);
+        if (!guards.some(isLabelGuarded)) {
+          wrong.push(
+            `${entry.check} (${entry.workflow}) claims the queue is its only run but is not ` +
+              `label-guarded: ${guards.join(" | ") || "(no if:)"}`,
+          );
+        }
+      }
+      expect(wrong, wrong.join("\n")).toEqual([]);
+    });
+
+    it("states the required count the ci-gating runbook quotes", () => {
+      // docs/ci-gating.md's activation runbook tells the operator to paste
+      // exactly this many names.  A row flipped without updating the doc is a
+      // runbook that mis-instructs a human doing an admin action.
+      expect(QUEUE_REQUIRED_CHECKS).toHaveLength(22);
+      expect(REQUIRED_CHECKS.filter((c) => !c.queueRequired)).toHaveLength(18);
+    });
+  });
+
+  describe("discovery oracles stay OUT of the queue", () => {
+    // The mirror image of the ratchet above, and the reason it needs its own
+    // test rather than a comment in the workflow.
+    //
+    // `pairwise.yml`'s `compile` and `schema-load` legs are a DISCOVERY
+    // instrument: an all-pairs cover whose job is to reach crossings nobody
+    // has generated before. A new failure there is almost never a regression
+    // in the PR under test — it is a latent bug the cover has just now
+    // reached. Wire that into the merge queue and the instrument's success
+    // condition becomes a repo-wide freeze: on 2026-09-07, #2728 added two
+    // axes at 06:38 UTC, they found two real latent bugs (TPH × java, paged ×
+    // document × elixir), and nothing merged for nine hours because every
+    // queue entry ran these legs and failed on findings unrelated to itself.
+    //
+    // These legs were never in REQUIRED_CHECKS, so the ratchet above never
+    // covered them — the `merge_group` arm arrived by a queue-readiness sweep
+    // that read "add the trigger everywhere" and did not ask about tier. This
+    // test is what makes the next such sweep stop here.
+    const DISCOVERY_JOBS = [
+      { workflow: "pairwise.yml", jobs: ["compile", "schema-load"] },
+    ] as const;
+
+    it.each(
+      DISCOVERY_JOBS.flatMap((w) => w.jobs.map((j) => [w.workflow, j] as const)),
+    )("%s → `%s` is not reachable from merge_group", (workflow, jobId) => {
+      const job = load(workflow).jobs.find((j) => j.id === jobId);
+      expect(job, `no job \`${jobId}\` in ${workflow}`).toBeDefined();
+      const expr = job?.ifExpr ?? "";
+      // The job must be event-gated at all (an absent `if:` would run it on
+      // every trigger the workflow declares, merge_group included)…
+      expect(expr, `\`${jobId}\` has no if: — it would run in the queue`).not.toBe("");
+      // …and must not name merge_group as one of the events it runs on.
+      expect(
+        /merge_group/.test(expr),
+        `\`${jobId}\` if: "${expr}" — a discovery oracle must not gate the merge queue`,
+      ).toBe(false);
+    });
+
+    it("is not listed in REQUIRED_CHECKS either", () => {
+      const listed = REQUIRED_CHECKS.filter((c) =>
+        DISCOVERY_JOBS.some((w) => w.workflow === c.workflow),
+      );
+      expect(listed, "a discovery oracle was promoted into the required set").toEqual([]);
+    });
+  });
+
+  describe("pr-gate stays IN the queue", () => {
+    // The one required check that REQUIRED_CHECKS cannot cover, and therefore
+    // the one the `merge_group:` ratchet above never reached.
+    //
+    // Every other required check is a job, so its name resolves in the manifest
+    // (invariant 2). `pr-gate` is posted through the Checks API by the
+    // `pr-gate-eval` job, so it has no job of that name and cannot be a row
+    // there — and it fell through the gap: required on `main`, never checked
+    // for the trigger that makes it reportable in a merge group.
+    //
+    // The consequence is the manifest's own invariant 1, live: GitHub applies
+    // ONE required-checks list to a pull request and to a merge group, so there
+    // is no per-context list to leave `pr-gate` out of. Without `merge_group:`
+    // it is never posted inside the queue and the entry waits forever. On
+    // 2026-09-07 that is exactly what happened — an entry formed, ran its whole
+    // sweep green, and sat with zero runs left; `PUT /merge` answered
+    // `Required status check "pr-gate" is expected`.
+    const evaluatedContexts = () => {
+      const src = readFileSync(path.join(workflowsDir, "pr-gate.yml"), "utf8");
+      return { onKeys: load("pr-gate.yml").onKeys, src };
+    };
+
+    it("declares a `merge_group:` trigger", () => {
+      expect(
+        evaluatedContexts().onKeys,
+        "pr-gate is a required check; without merge_group: every queue entry stalls on it",
+      ).toContain("merge_group");
+    });
+
+    it("reads the merge-group SHA, so the evaluation is of the group and not of nothing", () => {
+      // The trigger alone is not enough: the eval script is SHA-driven
+      // (`scripts/pr-gate.mjs` reads HEAD_SHA), and on a merge_group payload
+      // both `pull_request` and `workflow_run` are empty.
+      expect(evaluatedContexts().src).toContain("github.event.merge_group.head_sha");
+    });
+
+    it("lets completions from inside the group re-evaluate it", () => {
+      // The merge_group arm fires once, when the group forms and everything
+      // else is still pending. If queue refs are filtered out of the
+      // `workflow_run` arm, nothing ever moves that verdict off `in_progress`
+      // and the trigger buys nothing.
+      const { src } = evaluatedContexts();
+      const ignore = src.slice(src.indexOf("branches-ignore:"));
+      const block = ignore.slice(0, ignore.indexOf("workflows:"));
+      expect(
+        /gh-readonly-queue/.test(block),
+        "pr-gate ignores merge-queue refs again — its verdict can never leave in_progress",
+      ).toBe(false);
+    });
+  });
+
+  // ── The other half of the cut ───────────────────────────────────────────
+  //
+  // Invariant 1 above is scoped to the required rows, so on its own nothing
+  // would notice a `merge_group:` trigger creeping back onto a gate the queue
+  // does not wait for.  That is not a correctness bug — it is the entire cost
+  // the trim exists to remove, and it re-appears silently, one copied `on:`
+  // block at a time.
+  //
+  // "Not required" does NOT stop a workflow running: GitHub runs everything
+  // carrying the trigger, and `pr-gate` then counts every check run present on
+  // the SHA, so a re-added trigger makes the gate binding in the queue again
+  // as well as expensive.  Hence a two-way ratchet — invariant 1 for the 22,
+  // this for the 18.
+  describe("the not-required gates stay OUT of the queue", () => {
+    const notRequired = REQUIRED_CHECKS.filter((c) => !c.queueRequired);
+
+    it("has rows to check", () => {
+      // Guards the vacuous pass: if the manifest ever loses its
+      // `queueRequired: false` rows, `it.each` over an empty list is green and
+      // asserts nothing.
+      expect(notRequired.length).toBeGreaterThan(0);
+    });
+
+    it.each(
+      notRequired.map((c) => [c.workflow] as const),
+    )("%s declares no `merge_group:` trigger", (workflow) => {
+      expect(
+        load(workflow).onKeys,
+        `${workflow} is queueRequired: false, so its queue run is redundant — ` +
+          "drop the merge_group: trigger, or flip the row to queueRequired: true",
+      ).not.toContain("merge_group");
     });
   });
 

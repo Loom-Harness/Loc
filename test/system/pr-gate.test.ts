@@ -22,8 +22,10 @@ import {
   currentGateState,
   evaluate,
   existingGateRunId,
+  fetchCheckRuns,
   isRetryableStatus,
   latestPerName,
+  liveRuns,
   publishCheck,
   retryDelayMs,
   SELF_NAMES,
@@ -40,6 +42,7 @@ interface CheckRun {
   name: string;
   status: string;
   conclusion: string | null;
+  suite?: number;
 }
 
 const run = (name: string, status: string, conclusion: string | null = null): CheckRun => ({
@@ -172,6 +175,126 @@ describe("latestPerName — a SHA can carry more than one check suite", () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// #2787 — the corpse that `latestPerName` could not reach.
+//
+// `latestPerName` collapses by NAME, so it rescues a SHA only once the live
+// suite has materialised a run of that name.  The four `*-passed` rollups sit
+// behind a dynamic matrix (`configure` emits it, the rollup `needs:` it), and
+// GitHub does not create the rollup job until `configure` runs.  On a saturated
+// pool nothing on the live suite had started in ~3h, so the superseded suite's
+// cancelled corpse was the ONLY bearer of each name and the fail-closed rule
+// condemned a SHA on which nothing had failed:
+//
+//   pr-gate: check(s) failed: corpus-elixir-build-passed, pages-passed,
+//            elixir-vanilla-build-passed, corpus-build-passed
+//   ...against 12 queued / 11 skipped / 4 cancelled / 2 pending / 0 failure.
+//
+// The MUTATION PROOF the fix owes: reverting `liveRuns` (or its call in
+// `evaluate`) turns the first case below back into `failed: [rollup]`.  The
+// three that follow are the controls — each one is a way the narrow rule could
+// have been written too wide, and each must still fail closed.
+// ---------------------------------------------------------------------------
+describe("liveRuns — a superseded suite's corpse is not a verdict", () => {
+  /** The motivating SHA, minimised: suite 1 cancelled, suite 2 live, and the
+   *  rollup name exists ONLY in the dead suite. */
+  const supersededSHA: CheckRun[] = [
+    { id: 1, suite: 1, name: "corpus-build-passed", status: "completed", conclusion: "cancelled" },
+    { id: 2, suite: 1, name: "test", status: "completed", conclusion: "cancelled" },
+    { id: 3, suite: 2, name: "test", status: "queued", conclusion: null },
+  ];
+
+  it("a corpse-only name goes PENDING, not FAILED", () => {
+    const { failed, pending, total } = evalRuns(supersededSHA);
+    expect(failed).toEqual([]);
+    // The rollup stops reporting entirely — the live suite owns that answer,
+    // whether or not it has created a job of that name yet.
+    expect(total).toBe(1);
+    expect(pending).toEqual(["test"]);
+    expect(verdict({ total, pending, failed }).state).toBe("pending");
+  });
+
+  it("CONTROL — a genuinely failed check still fails, corpses or not", () => {
+    const { failed } = evalRuns([
+      ...supersededSHA,
+      { id: 4, suite: 2, name: "lint", status: "completed", conclusion: "failure" },
+    ]);
+    expect(failed).toEqual(["lint"]);
+  });
+
+  it("CONTROL — a superseded suite's genuine FAILURE is not laundered", () => {
+    // It ran and it failed before its suite was cancelled.  Only `cancelled`
+    // is a non-verdict; a `failure` is a verdict whatever happened next.
+    const { failed } = evalRuns([
+      { id: 1, suite: 1, name: "build", status: "completed", conclusion: "failure" },
+      { id: 2, suite: 2, name: "test", status: "queued", conclusion: null },
+    ]);
+    expect(failed).toEqual(["build"]);
+  });
+
+  it("CONTROL — a cancelled run in the NEWEST suite still fails", () => {
+    const { failed } = evalRuns([
+      { id: 1, suite: 1, name: "build", status: "completed", conclusion: "success" },
+      { id: 2, suite: 2, name: "build", status: "completed", conclusion: "cancelled" },
+    ]);
+    expect(failed).toEqual(["build"]);
+  });
+
+  it("CONTROL — corpses with NO newer suite present still fail", () => {
+    // Nothing to defer to: deferring here would be inventing a live suite.
+    const { failed } = evalRuns([
+      { id: 1, suite: 1, name: "build", status: "completed", conclusion: "cancelled" },
+      { id: 2, suite: 1, name: "test", status: "completed", conclusion: "cancelled" },
+    ]);
+    expect(failed).toEqual(["build", "test"]);
+  });
+
+  it("a suiteless snapshot is untouched — every pre-existing case is byte-identical", () => {
+    // Only the tests hand-build runs without a suite; the API always sends one.
+    const runs: CheckRun[] = [
+      { id: 1, name: "build", status: "completed", conclusion: "cancelled" },
+      { id: 2, name: "test", status: "completed", conclusion: "success" },
+    ];
+    expect(liveRuns(runs)).toEqual(runs);
+  });
+
+  it("is empty-safe (Math.max of nothing is -Infinity, not a verdict)", () => {
+    expect(liveRuns([])).toEqual([]);
+  });
+
+  it("the FETCH carries the suite through — otherwise liveRuns is a no-op in prod", () => {
+    // The hole this closes: every test above hand-builds runs WITH a `suite`,
+    // so dropping `check_suite.id` from `fetchCheckRuns`' projection would keep
+    // all of them green while the real gate went on condemning corpses.  Drive
+    // the production mapping against an API-shaped payload instead.
+    const apiPayload = {
+      total_count: 1,
+      check_runs: [
+        {
+          id: 7,
+          name: "corpus-build-passed",
+          status: "completed",
+          conclusion: "cancelled",
+          check_suite: { id: 42 },
+        },
+      ],
+    };
+    const fetchImpl = async () =>
+      ({ ok: true, status: 200, json: async () => apiPayload }) as unknown as Response;
+    return fetchCheckRuns("o/r", "sha", "t", { fetchImpl }).then((runs: unknown[]) => {
+      expect(runs).toEqual([
+        {
+          id: 7,
+          name: "corpus-build-passed",
+          status: "completed",
+          conclusion: "cancelled",
+          suite: 42,
+        },
+      ]);
+    });
+  });
+});
+
 describe("verdict — snapshot to published state", () => {
   it("any failure wins, even while others are still pending (fail-fast)", () => {
     const v = verdict(evalRuns([run("fast-suite", "completed", "failure"), run("slow", "queued")]));
@@ -233,6 +356,21 @@ function triggerList(): string[] {
 // the first (a unique key per run) silently breaks correctness: unique keys let
 // sweeps OVERLAP, and a slower sweep posting its older verdict last can re-park
 // a PR it already greened.
+//
+// UPDATED 2026-09-08: `cancel-in-progress` is now FALSE on every path, and this
+// file used to REQUIRE the opposite — it asserted the value was conditional and
+// named `pull_request` / `workflow_run`, i.e. it pinned "cancel for the
+// SHA-keyed events" as the safe shape.  Measurement falsified that.  A burst of
+// completions did not collapse to the newest evaluation, it collapsed to none:
+// of the last 100 `workflow_run`-triggered pr-gate runs, 94 `cancelled`, 4
+// queued, 2 pending, ZERO successful.  An evaluation takes ~2m20s but waits far
+// longer for a runner, so the next completing check cancelled it before it ever
+// reached `publishCheck` — and with ~40 checks per SHA (times three SHAs during
+// a merge-queue batch) the stream never ended.  Serialising instead caps the
+// group at one running + one pending, which costs no extra runner (a PENDING
+// run holds no slot; a CANCELLED one has already wasted the slot it claimed).
+// The old assertion is kept below, inverted, so the reasoning is not silently
+// re-derived in the direction that broke it.
 // ---------------------------------------------------------------------------
 
 /** The `concurrency:` block of pr-gate.yml, comments stripped. */
@@ -265,20 +403,31 @@ describe("pr-gate.yml concurrency does not cancel its own safety net", () => {
     ).toBe(true);
   });
 
-  it("cancel-in-progress is conditional, never an unguarded true", () => {
+  it("cancel-in-progress is a flat false — no path cancels an evaluation", () => {
     const { cancelInProgress } = concurrencyBlock();
-    // An unconditional `true` cancels the sweep; a unique-per-run group would
-    // instead let sweeps overlap and race.  The only safe shape is: cancel for
-    // the SHA-keyed events, do not cancel for the sweep.
+    // A literal `false`, not an expression: every conditional spelling this
+    // block has carried cancelled SOME path, and each one starved the verdict
+    // on exactly the path it cancelled (the sweep first, then every SHA-keyed
+    // event).  There is no path that benefits from cancelling: a pending run
+    // holds no runner, so the only thing cancellation saves is the work of a
+    // run that has already claimed its slot.
     expect(
       cancelInProgress,
-      "cancel-in-progress: true cancels the cron sweep — gate it on the SHA-keyed events",
-    ).not.toBe("true");
-    expect(cancelInProgress).toContain("github.event_name");
-    expect(cancelInProgress).toContain("pull_request");
-    expect(cancelInProgress).toContain("workflow_run");
-    // …and it must NOT name the sweep's own events, or it cancels them again.
-    expect(cancelInProgress).not.toContain("schedule");
+      `cancel-in-progress must be a flat \`false\`, got: ${cancelInProgress}. ` +
+        "Cancelling collapses a burst of check completions to no published " +
+        "verdict at all (measured: 94 of 100 runs cancelled, 0 successful), " +
+        "which parks the gate and gets green merge-queue entries ejected.",
+    ).toBe("false");
+  });
+
+  it("the group key still serialises rather than letting runs overlap", () => {
+    // With cancellation off, the group key is the ONLY thing preventing two
+    // evaluations of one SHA from racing — a slower one posting its older
+    // verdict last would re-park a PR it already greened. A unique-per-run key
+    // (`github.run_id`, `github.run_attempt`) would reintroduce exactly that.
+    const { group } = concurrencyBlock();
+    expect(group).not.toContain("github.run_id");
+    expect(group).not.toContain("github.run_attempt");
   });
 });
 
@@ -347,10 +496,21 @@ describe("pr-gate survives dropped workflow_run events", () => {
 
   it("the job runs on schedule/dispatch events, not only pull_request paths", () => {
     // The old guard `event_name == 'pull_request' || …` silently skips the
-    // sweep.  The inverted form runs everything except non-PR workflow_run.
-    expect(src).toContain(
-      "if: github.event_name != 'workflow_run' || github.event.workflow_run.event == 'pull_request'",
-    );
+    // sweep.  The inverted form runs everything except workflow_run
+    // completions from a context this gate does not evaluate.
+    //
+    // Asserted by SHAPE rather than as one literal string: the guard grew a
+    // `merge_group` arm (a required check with no merge_group trigger stalls
+    // every queue entry — see merge-queue-readiness), and a literal pin would
+    // have forced that edit to look like a regression.  What must not rot is
+    // the inversion itself, so that is what is pinned.
+    const guard = src.slice(src.indexOf("if:"), src.indexOf("runs-on:"));
+    expect(
+      /github\.event_name\s*!=\s*'workflow_run'/.test(guard),
+      `guard must be the INVERTED form or the sweep is skipped, got: ${guard}`,
+    ).toBe(true);
+    expect(guard).toContain("github.event.workflow_run.event == 'pull_request'");
+    expect(guard).toContain("github.event.workflow_run.event == 'merge_group'");
   });
 
   it("sweep may list open PRs", () => {

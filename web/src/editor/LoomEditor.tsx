@@ -5,10 +5,19 @@ import type { LoomLspClient } from "../lsp/client";
 import type { Diagnostic } from "../lsp/protocol";
 import { modelUriFor } from "../lsp/workspace-lsp-sync";
 import { installMonacoEnvironment } from "./monaco-env";
-import type { EditorHandle } from "./editor-handle";
+import {
+  bandClass,
+  FLASH_CLASS,
+  installCorrespondenceStyles,
+  type SourceHighlight,
+} from "./correspondence-decorations";
+import type { EditorHandle, EditorRange } from "./editor-handle";
 import { loomQuickFixes, quickFixesAt } from "./fix-hint-actions";
+import { queueReveal, takeQueuedReveal } from "./pending-reveal";
+import { applyTextEdits } from "./apply-edits";
 
 export type { EditorHandle };
+export type { SourceHighlight };
 
 // Monaco spawns workers by LABEL, and with no `MonacoEnvironment` it throws
 // the moment tokenization starts ("You must define a function
@@ -97,6 +106,10 @@ function markersToDiagnostics(markers: monaco.editor.IMarker[]): Diagnostic[] {
             : "hint",
     message: m.message,
     source: m.source ?? "loom",
+    // Monaco carries the LSP `code` either bare or as `{ value, target }`
+    // (when the server attached a codeDescription); the Problems rows key
+    // their chip / docs link / Fix on the bare string.
+    code: typeof m.code === "string" ? m.code : m.code?.value,
   }));
 }
 
@@ -113,6 +126,18 @@ export interface LoomEditorProps {
    *  tearing the editor down.  Defaults to `/workspace/main.ddd`
    *  (today's behaviour, byte-identical Monaco URI). */
   activePath?: string;
+  /** A `#view=1` render: Monaco refuses typing (M-T8.23 slice 2).  Imperative
+   *  writes through `handleRef` still land — read-only is about the USER not
+   *  editing, not about the app being unable to reseed the model. */
+  readOnly?: boolean;
+  /** Report the 1-based source line under the pointer, `null` on leave —
+   *  the forward half of the source ↔ output correspondence (M-T8.20).
+   *  Reported only when the line CHANGES, so a mouse dragged along one line
+   *  does not re-run the mapping on every pixel. */
+  onHoverLine?: (line: number | null) => void;
+  /** Line ranges to tint.  `band` is the subtle colour-map overlay, `flash`
+   *  the reverse direction's "this generated line came from here". */
+  highlights?: readonly SourceHighlight[];
 }
 
 export function LoomEditor(props: LoomEditorProps): JSX.Element {
@@ -126,6 +151,10 @@ export function LoomEditor(props: LoomEditorProps): JSX.Element {
   // "whatever the active file's content is when the editor actually exists".
   const initialValueRef = useRef(props.initialValue);
   initialValueRef.current = props.initialValue;
+  // Read through a ref for the same reason as the seed: the editor is created
+  // long after first render, and the mount effect must see the CURRENT value.
+  const readOnlyRef = useRef(props.readOnly ?? false);
+  readOnlyRef.current = props.readOnly ?? false;
   // Text pushed through `handleRef.setSource` while Monaco did not yet exist
   // (see the pre-mount handle below).  Wins over `initialValueRef` as the
   // mount seed: it is a real user edit, whereas the prop can still be the
@@ -139,6 +168,15 @@ export function LoomEditor(props: LoomEditorProps): JSX.Element {
   onDiagnosticsRef.current = props.onDiagnosticsChange;
   const handleRef = useRef(props.handleRef);
   handleRef.current = props.handleRef;
+  // M-T8.20 — the correspondence seams.  The hover callback is read through a
+  // ref so the create effect (which runs once) always calls the latest one;
+  // the editor + decorations refs let the tinting effect reach an editor the
+  // create effect owns.
+  const onHoverLineRef = useRef(props.onHoverLine);
+  onHoverLineRef.current = props.onHoverLine;
+  const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
+  const decorationsRef = useRef<monaco.editor.IEditorDecorationsCollection | null>(null);
+  installCorrespondenceStyles();
   const isMobileRef = useRef(props.isMobile ?? false);
   // Frozen-at-mount activePath — Phase 2b1 keeps it constant; Phase
   // 2b2 will lift this to a state-driven model swap.
@@ -178,6 +216,26 @@ export function LoomEditor(props: LoomEditorProps): JSX.Element {
         setSource: (text: string) => {
           pendingSourceRef.current = text;
         },
+        // No model yet: apply against the queued / seed text so a fix that
+        // lands before Monaco exists is not dropped either.
+        applyEdits: (edits) => {
+          pendingSourceRef.current = applyTextEdits(
+            pendingSourceRef.current ?? initialValueRef.current,
+            edits,
+          );
+        },
+        // No editor yet — queue it.  The first-run card's *Write .ddd* door
+        // fires before Monaco has finished loading (it is a 9.5 MB chunk),
+        // and dropping the reveal there left the click doing nothing at all.
+        revealRange: (range) => {
+          queueReveal(range);
+        },
+        // No model yet, so no stack: the chrome renders Undo / Redo disabled
+        // rather than swallowing a click.
+        undo: () => {},
+        redo: () => {},
+        canUndo: () => false,
+        canRedo: () => false,
       };
       holder.current = placeholder;
       return () => {
@@ -203,6 +261,7 @@ export function LoomEditor(props: LoomEditorProps): JSX.Element {
       fontSize: isMobile ? 16 : 13,
       scrollBeyondLastLine: false,
       tabSize: 2,
+      readOnly: readOnlyRef.current,
       "semanticHighlighting.enabled": true,
       ...(isMobile
         ? {
@@ -221,12 +280,35 @@ export function LoomEditor(props: LoomEditorProps): JSX.Element {
         : {}),
     });
 
+    editorRef.current = editor;
+    // Source ↔ output correspondence, forward direction.  Monaco's own
+    // mouse events carry a resolved `position`, so no DOM hit-testing is
+    // needed; the last-line guard keeps a mouse dragged along one line from
+    // re-running the region walk on every pixel.
+    let lastHoverLine: number | null = null;
+    const reportHover = (line: number | null): void => {
+      if (line === lastHoverLine) return;
+      lastHoverLine = line;
+      onHoverLineRef.current?.(line);
+    };
+    const mouseMoveSub = editor.onMouseMove((e) => {
+      reportHover(e.target.position?.lineNumber ?? null);
+    });
+    const mouseLeaveSub = editor.onMouseLeave(() => reportHover(null));
+
     let suppressDispatch = false;
     const changeSub = model.onDidChangeContent((e) => {
       if (suppressDispatch) return;
       onChangeRef.current?.(model.getValue());
       revealLatestEdit(editor, model, e.changes);
     });
+
+    const revealRange = (r: EditorRange): void => {
+      const range = new monaco.Range(r.startLineNumber, r.startColumn, r.endLineNumber, r.endColumn);
+      editor.setSelection(range);
+      editor.revealRangeInCenter(range, monaco.editor.ScrollType.Smooth);
+      editor.focus();
+    };
 
     if (handleRef.current) {
       handleRef.current.current = {
@@ -236,8 +318,38 @@ export function LoomEditor(props: LoomEditorProps): JSX.Element {
           model.pushEditOperations(null, [{ range: model.getFullModelRange(), text }], () => null);
           suppressDispatch = false;
         },
+        // One undoable batch, NOT suppressed: a Fix from the Problems panel
+        // must reach the app like a keystroke (the LSP re-validates, the
+        // error count drops) — the same path the lightbulb's edit takes.
+        applyEdits: (edits) => {
+          if (edits.length === 0) return;
+          model.pushEditOperations(
+            null,
+            edits.map((e) => ({ range: e.range, text: e.text })),
+            () => null,
+          );
+        },
+        revealRange,
+        // The model's own stack — `pushEditOperations` above already put every
+        // pane write on it.  Undo/redo are NOT suppressed: the resulting
+        // content change is dispatched like a keystroke, which is how the app
+        // and the panes learn the source moved back (M-T8.17).
+        undo: () => {
+          void model.undo();
+        },
+        redo: () => {
+          void model.redo();
+        },
+        canUndo: () => model.canUndo(),
+        canRedo: () => model.canRedo(),
       };
     }
+
+    // Replay a reveal that arrived before this editor could show it — either
+    // while the stand-in handle was in place, or before this component mounted
+    // at all (it is behind a lazy chunk).  Both queue into the same slot.
+    const queued = takeQueuedReveal();
+    if (queued) revealRange(queued);
 
     // Automation seam: lets e2e set/read the document text directly (set
     // dispatches onChange like a normal edit), without depending on clipboard,
@@ -306,11 +418,36 @@ export function LoomEditor(props: LoomEditorProps): JSX.Element {
       delete (window as unknown as { __loomGetSource?: unknown }).__loomGetSource;
       changeSub.dispose();
       markerSub.dispose();
+      mouseMoveSub.dispose();
+      mouseLeaveSub.dispose();
+      decorationsRef.current = null;
+      editorRef.current = null;
       editor.dispose();
       // Keep the model alive: the language client stays attached to it
       // across example-switch remounts.
     };
   }, [status]);
+
+  // Correspondence tinting.  A decorations COLLECTION (not `deltaDecorations`)
+  // so the set is replaced atomically and disposes with the editor; the effect
+  // runs after the create effect above has published `editorRef`.
+  useEffect(() => {
+    const editor = editorRef.current;
+    if (!editor) return;
+    const monacoDecorations = (props.highlights ?? []).map((h) => ({
+      range: new monaco.Range(h.startLine, 1, h.endLine, 1),
+      options: {
+        isWholeLine: true,
+        className:
+          h.kind === "flash" ? FLASH_CLASS : bandClass(h.band ?? 0),
+      },
+    }));
+    if (!decorationsRef.current) {
+      decorationsRef.current = editor.createDecorationsCollection(monacoDecorations);
+    } else {
+      decorationsRef.current.set(monacoDecorations);
+    }
+  }, [props.highlights, status]);
 
   if (status !== "ready") {
     return (

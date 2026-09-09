@@ -278,7 +278,13 @@ describe("phoenix renderExpr — unary, paren, ternary", () => {
     ).toBe("(true)");
   });
 
-  it("lowers ternary to `if cond, do: x, else: y`", () => {
+  // SELF-PARENTHESIZED.  Elixir's keyword-list `if` swallows everything after
+  // it up to the enclosing terminator, so a bare one in non-terminal position
+  // (a wire-map value that is not the last entry, a non-final argument) is a
+  // SyntaxError — "unexpected expression after keyword list".  Pinned as the
+  // parenthesized form so the leaf cannot silently go back to emitting a
+  // Phoenix project that does not compile.
+  it("lowers ternary to a parenthesized `(if cond, do: x, else: y)`", () => {
     expect(
       renderExpr(
         {
@@ -290,7 +296,7 @@ describe("phoenix renderExpr — unary, paren, ternary", () => {
         },
         ctx,
       ),
-    ).toBe("if true, do: 1, else: 2");
+    ).toBe("(if true, do: 1, else: 2)");
   });
 });
 

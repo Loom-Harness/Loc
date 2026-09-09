@@ -173,7 +173,7 @@ describe("python — explicit handler body params → single request model", () 
     // with their request wire types (Money → its wire model MoneyModel).
     expect(ctrl).toContain("class DiscountBody(BaseModel):");
     expect(ctrl).toContain("    amount: MoneyModel");
-    expect(ctrl).toContain("    reason: str");
+    expect(ctrl).toContain("    reason: WireStr");
     // Route signature: real path param stays a `str` path param; the rest ride
     // in the single `body: DiscountBody`.
     expect(ctrl).toContain(
@@ -278,8 +278,8 @@ describe("python — scaffolded handlers consume record params (M-T5.10)", () =>
     // The command record's fields ARE the request body fields (byte-identical to
     // the flat-param form); Money rides as its wire model MoneyModel.
     expect(ctrl).toContain("class CreateOrderBody(BaseModel):");
-    expect(ctrl).toContain("    code: str");
-    expect(ctrl).toContain("    status: str");
+    expect(ctrl).toContain("    code: WireStr");
+    expect(ctrl).toContain("    status: WireStr");
     expect(ctrl).toContain("    total: MoneyModel");
     // Call args flatten in declared order; the VO field coerces to the domain class.
     expect(ctrl).toContain(
@@ -371,7 +371,9 @@ describe("python — paged-run queryHandler over run(criterion)", () => {
     const routes = fileEndingWith(m, "app/http/a_routes.py");
     expect(routes).toContain('@router.get("/orders/projections/in_region"');
     expect(routes).toMatch(
-      /rgn: str, session: SessionDep, page: Annotated\[int, Query\(ge=1, le=1000000\)\] = 1, pageSize: Annotated\[int, Query\(ge=1, le=500\)\] = 20, sort: str = "id", dir: str = "asc"/,
+      // `rgn` is a wire string bound for a SQL text parameter, so it carries the
+      // NUL guard (F20); `sort`/`dir` are framework knobs, not wire values.
+      /rgn: WireStr, session: SessionDep, page: Annotated\[int, Query\(ge=1, le=1000000\)\] = 1, pageSize: Annotated\[int, Query\(ge=1, le=500\)\] = 20, sort: str = "id", dir: str = "asc"/,
     );
     expect(routes).toContain(
       "return await list_in_region(session, rgn, page, pageSize, sort, dir)",

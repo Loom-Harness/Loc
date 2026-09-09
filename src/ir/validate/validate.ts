@@ -57,6 +57,7 @@ import {
   validateChannelWiring,
   validateChartSupport,
   validateColumnlessProjectionSources,
+  validateComponentChildrenSupport,
   validateComposeUniqueness,
   validateContextFilterSupport,
   validateCurrentUserNeedsAuthUi,
@@ -76,12 +77,12 @@ import {
   validateFilterBypassSupport,
   validateFindPredicateAdapterSupport,
   validateFlutterPrimitiveSupport,
+  validateFormLocalCollisions,
   validateGroupedProjectionBackend,
   validateGuardPrincipalWithoutAuth,
   validateHeexComponentHostState,
   validateInheritanceStorage,
   validateJavaReservedIdentifiers,
-  validateMikroOrmSupport,
   validateNeedCapabilities,
   validatePagedQueryHandlerBackend,
   validatePermissions,
@@ -180,7 +181,6 @@ export function validateLoomModel(loom: EnrichedLoomModel): LoomDiagnostic[] {
     validateGuardPrincipalWithoutAuth(sys, diags);
     validateDapperSupport(sys, diags);
     validateTphFilterExpressibility(sys, diags);
-    validateMikroOrmSupport(sys, diags);
     validateFindPredicateAdapterSupport(sys, diags);
     validateNeedCapabilities(sys, diags);
     validateResourceConfig(sys, diags);
@@ -193,6 +193,8 @@ export function validateLoomModel(loom: EnrichedLoomModel): LoomDiagnostic[] {
     validateCurrentUserNeedsAuthUi(sys, diags);
     validateDataGridFramework(sys, diags);
     validateHeexComponentHostState(sys, diags);
+    validateFormLocalCollisions(sys, diags);
+    validateComponentChildrenSupport(sys, diags);
     validateChartSupport(sys, diags);
     validateUiRealtimeSupport(sys, diags);
     validateUiProjectionReadFramework(sys, diags);

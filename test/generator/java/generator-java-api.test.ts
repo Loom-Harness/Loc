@@ -159,11 +159,29 @@ system S {
     // The request record is plain wire types (money/datetime as String);
     // validation lives in a Spring Validator, not on the DTO.
     expect(req).toContain(
-      "public record CreateOrderRequest(String code, Status status, AddressRequest shipTo, String notes, String total, String placedAt) {",
+      // Required members carry `@NotNull`, and a nested record `@Valid` so the
+      // Bean Validation walk descends into it (F23). `notes` is optional and
+      // stays bare; the invariant bounds still live in the Spring Validator.
+      // `@NoNulChar` rides every wire STRING, required or optional (F20): NUL is
+      // a legal JSON character and an illegal Postgres `text` byte.
+      // `@NoNulChar` rides a wire STRING only. `total` (money) and `placedAt`
+      // (datetime) cross as strings too, but each already has a parse a NUL
+      // cannot pass, so neither carries the guard (F20 narrowness).
+      "public record CreateOrderRequest(@NotNull @NoNulChar String code, @NotNull Status status, @NotNull @Valid AddressRequest shipTo, @NoNulChar String notes, @NotNull String total, @NotNull String placedAt) {",
     );
     const svc = files_.get(`${ROOT}/features/orders/OrderService.java`)!;
-    expect(svc).toContain("var total = new BigDecimal(request.total());");
-    expect(svc).toContain("var placedAt = Instant.parse(request.placedAt());");
+    // Since M-T6.48 the money parse is guarded and carries its RFC 6901
+    // pointer: the bare `new BigDecimal(...)` this pinned threw
+    // NumberFormatException on `"12,50"` and answered 500. `Instant.parse`
+    // below is deliberately untouched — datetime's own arm is a separate
+    // finding, not this one.
+    expect(svc).toContain('var total = WireFormatException.money(request.total(), "/total");');
+    // The datetime parse is guarded now, exactly as `money` above: the bare
+    // `Instant.parse` this used to pin threw DateTimeParseException on `""`
+    // and answered 500 (F19's second half — money's landed with M-T6.48).
+    expect(svc).toContain(
+      'var placedAt = WireFormatException.instant(request.placedAt(), "/placedAt");',
+    );
     expect(svc).toContain("var shipTo = toAddress(request.shipTo());");
   });
 });
@@ -240,7 +258,9 @@ describe("java generator — wire validators + advice (S5)", () => {
     expect(v).toContain("public final class CreateOrderValidator implements Validator {");
     expect(v).toContain("return CreateOrderRequest.class.equals(clazz);");
     expect(v).toContain(
-      'if (!(((int) code.codePoints().count()) >= 1)) errors.rejectValue("code", "loom.invariant", "Invariant violated: code.length > 0");',
+      // `code == null ||` skips a NULL rather than dereferencing it (F23): this
+      // Validator runs ALONGSIDE the record's @NotNull, not after it.
+      'if (!(code == null || ((int) code.codePoints().count()) >= 1)) errors.rejectValue("code", "loom.invariant", "Invariant violated: code.length > 0");',
     );
     const ctrl = files_.get(`${ROOT}/features/orders/OrdersController.java`)!;
     expect(ctrl).toContain("@Valid @RequestBody CreateOrderRequest request");
@@ -282,7 +302,7 @@ system Demo {
 `;
     const out = await generateSystemFiles(src);
     const check =
-      'if (!(((int) handle.codePoints().count()) >= 1)) errors.rejectValue("handle", "loom.invariant", "Invariant violated: handle.length > 0");';
+      'if (!(handle == null || ((int) handle.codePoints().count()) >= 1)) errors.rejectValue("handle", "loom.invariant", "Invariant violated: handle.length > 0");';
     const create = [...out.entries()].find(([k]) => /CreateAccountValidator\.java$/.test(k))?.[1];
     const update = [...out.entries()].find(([k]) => /UpdateAccountValidator\.java$/.test(k))?.[1];
     expect(create).toContain(check);

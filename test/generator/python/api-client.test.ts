@@ -163,7 +163,13 @@ describe("Python typed in-system api client", () => {
     const src = await client();
     expect(src).toContain("class OrderResponse(BaseModel):");
     expect(src).toMatch(/class OrderResponse\(BaseModel\):[\s\S]*code: str/);
-    expect(src).toMatch(/class OrderResponse\(BaseModel\):[\s\S]*version: int/);
+    expect(src).toMatch(
+      // A bare `int`, NOT the routes' `Int32`: the api client has its own type
+      // table and emits standalone models with no `wire_models` import. The
+      // int4 bound is the SERVER's to enforce; a client-side copy would buy
+      // nothing and drag the alias into a module that imports nothing else.
+      /class OrderResponse\(BaseModel\):[\s\S]*version: int/,
+    );
     // The pydantic twin of zod's `.parse` — a real runtime check, not a cast.
     expect(src).toContain("return OrderResponse.model_validate(res.json())");
   });

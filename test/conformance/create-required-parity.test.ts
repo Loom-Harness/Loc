@@ -129,9 +129,13 @@ describe("create-input required set — cross-backend parity", () => {
     const required = m![1]
       .split(/,(?![^(]*\))/)
       .map((p) => p.trim())
-      .filter((p) => p.startsWith("[Required"))
-      // `[Required(...)] string Name` → `Name` → `name`
-      .map((p) => p.replace(/^\[[^\]]*\]\s*/, "").split(/\s+/)[1])
+      // `.includes`, not `.startsWith`: a request STRING is prefixed with
+      // `[NoNulChar]` (F20), so requiredness is no longer the FIRST attribute
+      // on the parameter. Anchoring on position would report every guarded
+      // string as un-required — a false parity failure.
+      .filter((p) => p.includes("[Required"))
+      // `[NoNulChar] [Required(...)] string Name` → `Name` → `name`
+      .map((p) => p.replace(/^(\[[^\]]*\]\s*)+/, "").split(/\s+/)[1])
       .map((n) => n[0].toLowerCase() + n.slice(1));
     expect(required).toEqual(EXPECTED_REQUIRED);
   });

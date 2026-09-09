@@ -24,7 +24,10 @@ import { coerceMoneyStateInit, usesDecimalBinding } from "../../_expr/js-intrins
 import { componentPropTsType } from "../../_frontend/component-prop-type.js";
 import { renderGateExpr } from "../../_frontend/gate-expr.js";
 import type { LoadedPack } from "../../_packs/loader.js";
-import { routerPackageForStack } from "../../_packs/stack-runtime.js";
+import {
+  resolverModelsTransformForStack,
+  routerPackageForStack,
+} from "../../_packs/stack-runtime.js";
 import { storeHookName, storeMemberLocal } from "../../_walker/js-target-helpers.js";
 import {
   addImportToMap,
@@ -42,6 +45,7 @@ import type {
 } from "../body-walker.js";
 import { emitExpr, walkBodyToTsx } from "../body-walker.js";
 import { idTargetHookVar } from "../form-helpers.js";
+import { usesToastEffect } from "../toast-runtime.js";
 import { renderApiHookImports, renderImportLines, takeReactSpecifiers } from "./import-lines.js";
 import { indentJsx } from "./shared/args.js";
 import { tsxTarget } from "./tsx-target.js";
@@ -207,11 +211,35 @@ export function renderCustomLayoutPage(
   // Body refs resolve to the bare const via the walker's `derivedNames`.
   // The deps array is the referenced state/param/earlier-derived names so
   // the memo recomputes reactively (over state).
+  //
+  // A derived may also read a STORE field (`derived n: int = Cart.count`).
+  // That read renders as the shell-hoisted selector local (`count`), which
+  // exists only because `recordStoreUse` put the member in the walk's
+  // `usedStores` map — and the derived context used to carry no such map, so
+  // the record no-oped and the memo referenced an identifier nothing declared
+  // (F9 of the 2026-09-03 audit: `const itemCount = useMemo(() => count, [])`,
+  // TS2304).  Recording into the SAME map the body walk filled is the whole
+  // fix: `store.decls` is spliced above `derivedLines`, so the binding is
+  // already in scope by the time the memo reads it.
+  const storeUses: Map<string, Set<string>> = usedStores ?? new Map();
+  // The same reserved set `renderStoreWiring` names the bindings with, so a
+  // derived's use site and the hoisted `const` always agree.
+  const storeReserved = new Set([...stateNames, ...paramNames, ...derivedNames]);
   let derivedLines = "";
   let usesMemo = false;
   let usesStateForDerived = false;
   const seenDerived = new Set<string>();
   for (const d of derived) {
+    // `storeLocalFor` reserves the page's own binding names when it picks a
+    // store member's local, and the shell's `renderStoreWiring` reserves the
+    // FULL derived set.  A context scoped to the derived seen SO FAR would
+    // disagree with it for a member whose name matches a LATER derived, so the
+    // colliding names are folded in — the two sides then name the same local by
+    // construction.
+    const storeReads = collectStoreReads(d.expr);
+    const collidingDerived = storeReads
+      .map((r) => r.member)
+      .filter((m) => derivedNames.has(m) && !seenDerived.has(m));
     const dctx: WalkContext = {
       target: tsxTarget,
       imports,
@@ -220,7 +248,8 @@ export function renderCustomLayoutPage(
       usedParams,
       usesNavigate,
       stateNames,
-      derivedNames: seenDerived,
+      derivedNames: new Set([...seenDerived, ...collidingDerived]),
+      usedStores: storeUses,
       authUi: false,
       usesState: false,
       usesCurrentUser: false,
@@ -247,10 +276,13 @@ export function renderCustomLayoutPage(
     if (dctx.usesState) usesStateForDerived = true;
     const refs = new Set<string>();
     collectExprRefs(d.expr, refs);
-    const deps = [...refs]
-      .filter((n) => paramNames.has(n) || stateNames.has(n) || seenDerived.has(n))
-      .sort();
-    derivedLines += `  const ${d.name} = useMemo(() => ${exprStr}, [${deps.join(", ")}]);\n`;
+    const deps = [
+      ...[...refs].filter((n) => paramNames.has(n) || stateNames.has(n) || seenDerived.has(n)),
+      // Store selector locals — a Zustand selector returns a new value when the
+      // store cell changes, so the memo must depend on it or it goes stale.
+      ...storeReads.map((r) => storeMemberLocal(r.store, r.member, storeReserved)),
+    ].sort();
+    derivedLines += `  const ${d.name} = useMemo(() => ${exprStr}, [${[...new Set(deps)].join(", ")}]);\n`;
     seenDerived.add(d.name);
     usesMemo = true;
   }
@@ -534,11 +566,13 @@ export function renderCustomLayoutPage(
   // stays unconditional) and right before the body `return`, keeping the
   // rules-of-hooks contract intact while short-circuiting the render.
   const gate = renderPageGate(requires, usesCurrentUser, srcImportPrefix);
-  const store = renderStoreWiring(
-    usedStores,
-    srcImportPrefix,
-    new Set([...stateNames, ...paramNames, ...derivedNames]),
-  );
+  const store = renderStoreWiring(storeUses, srcImportPrefix, storeReserved);
+  // `toast(<msg>)` from an `action` body / an `Action { then: … }` slot renders
+  // as a bare call, so the page has to import the effect the project emits at
+  // `src/lib/toast.ts` — without it the symbol is undeclared (F3, TS2304).
+  const toastImport = usesToastEffect(body, actions, externFunctions)
+    ? `import { toast } from "${srcImportPrefix}lib/toast";\n`
+    : "";
   // Module-scope declarations a primitive hoisted out of the body (DataGrid's
   // generated child component + its column defs).  They sit between the
   // imports and the page component: a hook-bearing component cannot be
@@ -555,7 +589,7 @@ ${paramsLine}${navigateLine}${store.decls}${stateLines}${apiHookDecls}${actionWi
 }
 `;
   return `// Auto-generated.  Do not edit by hand.
-${gate.import}${reactImport}${decimalImportFor(belowImports, decimalImport)}${reactRouterImport}${mantineImport}${apiHookImports}${actionWiring.imports}${store.imports}${userComponentImports}${externFunctionImports}${belowImports}`;
+${gate.import}${reactImport}${decimalImportFor(belowImports, decimalImport)}${reactRouterImport}${mantineImport}${apiHookImports}${actionWiring.imports}${store.imports}${toastImport}${userComponentImports}${externFunctionImports}${belowImports}`;
 }
 
 /** The page file's decimal.js import.
@@ -670,9 +704,24 @@ function renderStoreWiring(
  *  types the resolver's INPUT as `z.input`, so a money-bearing form under the
  *  single generic asks for `Resolver<Request, …>` and gets
  *  `Resolver<FormState, …>`: TS2322 in the emitted page, plus a TS2345 where
- *  `handleSubmit`'s callback value flows into the mutation. */
-function formGenericsFor(requestType: string, formStateType: string | undefined): string {
-  return formStateType ? `${formStateType}, unknown, ${requestType}` : requestType;
+ *  `handleSubmit`'s callback value flows into the mutation.
+ *
+ *  The three-generic spelling is only available where the pack's STACK ships
+ *  `@hookform/resolvers` v5 — its `zodResolver` returns the three-generic
+ *  `Resolver`.  Stack `v1` pins v3, whose two-generic `Resolver` is not
+ *  assignable to it, so the transform split is invisible there in BOTH
+ *  directions and the single generic is both necessary and sufficient.
+ *  Getting this wrong is not a type nicety: it is a `tsc --noEmit` failure in
+ *  every generated project on the older stack (mantine@v7, mui@v5,
+ *  shadcn@v3, chakra@v2). */
+function formGenericsFor(
+  requestType: string,
+  formStateType: string | undefined,
+  pack: LoadedPack,
+): string {
+  return formStateType && resolverModelsTransformForStack(pack.manifest.stack)
+    ? `${formStateType}, unknown, ${requestType}`
+    : requestType;
 }
 
 type FormWiring = {
@@ -706,7 +755,7 @@ function renderFormOfWiring(
   }
   const { agg, idTargets, useController, defaultValuesTs, fieldArrays, onSubmitJs } = state;
   const tplCtx = {
-    formGenerics: formGenericsFor(`Create${agg.name}Request`, state.formStateType),
+    formGenerics: formGenericsFor(`Create${agg.name}Request`, state.formStateType, pack),
     aggregateName: agg.name,
     aggregateNameCamel: lowerFirst(agg.name),
     pluralAggregateName: plural(agg.name),
@@ -752,7 +801,7 @@ function renderFormOpWiring(
     state;
   const opPascal = upperFirst(op.name);
   const tplCtx = {
-    formGenerics: formGenericsFor(`${opPascal}${agg.name}Request`, state.formStateType),
+    formGenerics: formGenericsFor(`${opPascal}${agg.name}Request`, state.formStateType, pack),
     // Present iff a this-relative default seeded from the loaded record: the
     // component takes a `record: <recordType>` prop and its `defaultValues`
     // reads it (`record.<field>`).  Absent → no record prop (default path).
@@ -834,7 +883,7 @@ function renderFormRunsWiring(
   const { workflow, idTargets, useController, defaultValuesTs, onSubmitJs, fieldArrays } = state;
   const wfPascal = upperFirst(workflow.name);
   const tplCtx = {
-    formGenerics: formGenericsFor(`${wfPascal}Request`, state.formStateType),
+    formGenerics: formGenericsFor(`${wfPascal}Request`, state.formStateType, pack),
     workflowName: workflow.name,
     workflowPascal: wfPascal,
     humanWorkflow: humanize(workflow.name),
@@ -946,11 +995,20 @@ export function renderUserComponentFile(
   );
   // Component-derived bindings → hoisted `useMemo` computeds (same as the
   // page shell). Body refs resolve to the bare const via `derivedNames`.
+  // A store read inside one records onto the SAME `usedStores` map the body
+  // walk filled, so the shell hoists its selector binding — see the page
+  // shell's twin for why (F9).
+  const storeUses: Map<string, Set<string>> = usedStores ?? new Map();
+  const storeReserved = new Set([...stateNames, ...paramNames, ...derivedNames]);
   let derivedLines = "";
   let usesMemo = false;
   let usesStateForDerived = false;
   const seenDerived = new Set<string>();
   for (const d of derived) {
+    const storeReads = collectStoreReads(d.expr);
+    const collidingDerived = storeReads
+      .map((r) => r.member)
+      .filter((m) => derivedNames.has(m) && !seenDerived.has(m));
     const dctx: WalkContext = {
       target: tsxTarget,
       imports,
@@ -959,7 +1017,8 @@ export function renderUserComponentFile(
       usedParams,
       usesNavigate,
       stateNames,
-      derivedNames: seenDerived,
+      derivedNames: new Set([...seenDerived, ...collidingDerived]),
+      usedStores: storeUses,
       authUi: false,
       usesState: false,
       usesCurrentUser: false,
@@ -986,10 +1045,13 @@ export function renderUserComponentFile(
     if (dctx.usesState) usesStateForDerived = true;
     const refs = new Set<string>();
     collectExprRefs(d.expr, refs);
-    const deps = [...refs]
-      .filter((n) => paramNames.has(n) || stateNames.has(n) || seenDerived.has(n))
-      .sort();
-    derivedLines += `  const ${d.name} = useMemo(() => ${exprStr}, [${deps.join(", ")}]);\n`;
+    const deps = [
+      ...[...refs].filter((n) => paramNames.has(n) || stateNames.has(n) || seenDerived.has(n)),
+      // Store selector locals — a Zustand selector returns a new value when the
+      // store cell changes, so the memo must depend on it or it goes stale.
+      ...storeReads.map((r) => storeMemberLocal(r.store, r.member, storeReserved)),
+    ].sort();
+    derivedLines += `  const ${d.name} = useMemo(() => ${exprStr}, [${[...new Set(deps)].join(", ")}]);\n`;
     seenDerived.add(d.name);
     usesMemo = true;
   }
@@ -1222,11 +1284,11 @@ export function renderUserComponentFile(
   // not yet wired) shouldn't trigger TS lint noise.  We reference
   // them with a `void` block when none made it into `tsx`.
   void usedParams;
-  const store = renderStoreWiring(
-    usedStores,
-    "../",
-    new Set([...stateNames, ...paramNames, ...derivedNames]),
-  );
+  const store = renderStoreWiring(storeUses, "../", storeReserved);
+  // Component twin of the page shell's toast import (F3).
+  const toastImport = usesToastEffect(body, actions, externFunctions)
+    ? `import { toast } from "../lib/toast";\n`
+    : "";
   // Module-scope hoists (DataGrid's child component) — same contract as the
   // page shell above; a user `component` can host a DataGrid too.
   const moduleDecls = (hoistedModuleDecls ?? []).join("\n");
@@ -1242,7 +1304,7 @@ ${navigateLine}${store.decls}${actionWiring.decls}${form.decls}${stateLines}${ap
 }
 `;
   return `// Auto-generated.  Do not edit by hand.
-${gate.import}${reactImport}${decimalImportFor(belowImports, decimalFallback)}${reactTypesImport}${reactRouterImport}${mantineImport}${apiHookImports}${dtoImportLines}${actionWiring.imports}${store.imports}${userComponentImports}${externFunctionImports}${belowImports}`;
+${gate.import}${reactImport}${decimalImportFor(belowImports, decimalFallback)}${reactTypesImport}${reactRouterImport}${mantineImport}${apiHookImports}${dtoImportLines}${actionWiring.imports}${store.imports}${toastImport}${userComponentImports}${externFunctionImports}${belowImports}`;
 }
 
 /** True when a param type is `slot` or `slot?` — both render as
@@ -1357,8 +1419,29 @@ export type { ${name}Props } from "./${name}.props";
  *  parameter is inert. */
 function collectExprRefs(expr: ExprIR, out: Set<string>): void {
   walkExprDeep(expr, (e) => {
+    // A `<Store>.<field>` read is NOT a ref to the page binding of that name —
+    // it renders as the shell's selector local, whose name is store-qualified
+    // when it collides.  `collectStoreReads` returns those separately so the
+    // deps array can name the local rather than a same-named state cell.
+    if (e.kind === "ref" && e.refKind === "store-field") return;
     if (e.kind === "ref") out.add(e.name);
   });
+}
+
+/** The `<Store>.<field>` reads inside a `derived` initialiser, in encounter
+ *  order.  Each renders as the page/component shell's hoisted selector local
+ *  (`const count = useCart((s) => s.count)`), so the shell has to (a) record
+ *  the member on the walk's `usedStores` map and (b) list the local in the
+ *  memo's dependency array — a store cell changing has to recompute the
+ *  derived, exactly like a state cell does. */
+function collectStoreReads(expr: ExprIR): Array<{ store: string; member: string }> {
+  const out: Array<{ store: string; member: string }> = [];
+  walkExprDeep(expr, (e) => {
+    if (e.kind === "ref" && e.refKind === "store-field" && e.storeName) {
+      out.push({ store: e.storeName, member: e.name });
+    }
+  });
+  return out;
 }
 
 /** Render one `state {}` field as a React `useState`

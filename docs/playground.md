@@ -174,6 +174,52 @@ A browser without `navigator.locks` / `BroadcastChannel` degrades to the old
 single-tab assumption — every tab writable — rather than to a hard failure or
 a spurious read-only banner.
 
+## Runtime & evolution surfaces
+
+The dock's **Runtime** tab has four sub-views once the backend is booted: **API** (the spec-driven endpoint console), **Database** (the SQL console + Reset), **Tables** (read-only — `information_schema.tables` across every generated schema, click a table for its first 50 rows; a *Users* strip beside it names the identities requests carry: the generated dev stub's built-in identity and the Auth tab's override) and **Requests** (every OpenAPI operation with the number of requests it served, matched from the runtime log's `request_end` lines by `web/src/backend/route-match.ts`; unmatched paths collect in a *404s* list). Every raw runtime error — a boot failure, a 4xx/5xx body, a dispatch that produced no response — carries one line of interpretation and a *See Output → Runtime logs* link above the raw text.
+
+The **Migrations** tab compares the live source with a baseline (*Last save* by default, or any commit pinned from History) and draws the schema as a table diagram tinted by the pending migration — added green, changed amber, removed red, untouched dimmed (`web/src/layout/migration-tint.ts` over the evolution worker's `tables` + per-step `table`) — beside the migration SQL. A destructive change renders as the gate `ddd generate system` raises: the `--allow-destructive` flag and the data it would drop. The comparison runs when the tab opens; **Refresh** re-runs it.
+
+The **Tests** tab's requirement verdicts read *Verified / Failing / Untested / Unverified* with a one-line legend; a discovery failure (in a sandbox with no registry: `Failed to resolve module specifier "uuidv7"`) shows one line of interpretation with the raw text folded behind *Show details*, and discovery reports per-suite progress with a *Cancel*.
+
+## The `.loom/` bundle as views, and source ↔ output correspondence
+
+`generate system` emits a documentation bundle beside the code
+([`loom-artifacts.md`](loom-artifacts.md)). The Explorer switcher renders it
+rather than only listing it: **Diagrams** opens the `.loom/*.mmd` files in the
+mermaid viewer, **Traceability** renders the `.loom/*.md` reports, and **API**
+lists every HTTP operation grouped by aggregate plus the system's channels.
+The API view is derived from the IR (`deriveContextOperations` — the same
+derivation all five backend route builders render from), not parsed out of
+generated source, so it describes a .NET / Java / Phoenix / Python deployable's
+surface just as accurately, with nothing booted. The files stay browsable under
+**Generated**.
+
+The generated tree also marks what **changed since the last generate** (the
+build worker returns a per-file content hash), and each History commit carries
+a *What changed in the output* section grouped by deployable.
+
+**Source ↔ output correspondence** is the Compiler-Explorer feature over
+`.loom/sourcemap.json`, which the build worker now records on every system
+generate (the artifact itself is still only written into the tree under
+`--sourcemap`, so the emitted output is unchanged). Hovering a `.ddd`
+declaration names it, marks the generated files it produced and decorates
+their lines when one is open; hovering generated code flashes the `.ddd` span
+it came from; a **Colour map** toggle tints every declaration and every region
+it owns with one hue on both sides. Because the map is construct-granular
+rather than language-specific, one hover lights up files across every
+deployable at once. Which lines get painted follows the map: a region whose
+origin *begins* on the hovered line is a declaration you are pointing at (its
+whole file lights up), one that merely covers the line is a declaration you
+are inside (only that construct's lines light up). The mapping logic is pure
+in `web/src/build/correspondence.ts`.
+
+Finally, a **Select** toggle in the preview footer arms the running app: the
+next click is swallowed and its element's `data-testid` is resolved — through
+the generated page that emits it, then the sourcemap — to the `.ddd`
+declaration, which is revealed in the editor with *Open in Builder* and *Ask
+the agent* beside it.
+
 ## Crash reporting & diagnostics
 
 The playground is a static GitHub Pages site: **there is no telemetry and no

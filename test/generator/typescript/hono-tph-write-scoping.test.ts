@@ -20,12 +20,36 @@
 // The guard belongs on the write.
 
 import { describe, expect, it } from "vitest";
-import { generateHono, parseString } from "../../_helpers/index.js";
+import { generateSystemFiles } from "../../_helpers/index.js";
 
-async function gen(src: string): Promise<Map<string, string>> {
-  const { model, errors } = await parseString(src);
-  if (errors.length) throw new Error(errors.join("; "));
-  return generateHono(model);
+// This fixture used to ride the legacy `generateHono` helper on a BARE loose
+// context.  Once that path asserts phase ⑦ (M-T9.48) the shape is refused, and
+// correctly: TPH is a HOSTED capability — `validateInheritanceStorage` reports
+// `loom.tph-backend-unsupported` ("no TPH-capable backend deployable hosts this
+// context") — and the legacy path cannot host anything, because declaring a
+// `system` re-parents every loose context into it and empties the
+// `loom.contexts` list `generateTypeScript` emits from.  So the fixture grows
+// the deployable it always implied and emits through the orchestrator instead;
+// the map is re-keyed to drop the deployable directory, so every assertion
+// below reads the same path it did before.  Same disposition as the sibling
+// `hono-tph-capability-filter.test.ts`.
+async function gen(contextSrc: string): Promise<Map<string, string>> {
+  const files = await generateSystemFiles(`
+    system Fleets {
+      subdomain D {
+        ${contextSrc}
+      }
+      storage primary { type: postgres }
+      resource fleetState { for: Fleet, kind: state, use: primary }
+      deployable api {
+        platform: node
+        contexts: [Fleet]
+        dataSources: [fleetState]
+        port: 3000
+      }
+    }
+  `);
+  return new Map([...files].map(([k, v]) => [k.replace(/^api\//, ""), v]));
 }
 
 const TPH = `

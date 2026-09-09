@@ -61,10 +61,15 @@ describe("Hono canonical-destroy → DELETE route", () => {
     expect(routes).toContain("await repo.getById(Ids.WidgetId(id));");
     expect(routes).toContain("await repo.delete(Ids.WidgetId(id));");
     expect(routes).toContain("return c.body(null, 204);");
-    // FK-violation (still-referenced) → 409 mapped locally.
+    // Still-referenced → 409 mapped locally.  The SQLSTATE is
+    // `restrict_violation` (23001), not `foreign_key_violation` (23503): the FK
+    // is emitted `ON DELETE RESTRICT`, and a RESTRICT check raises its own code.
+    // This assertion used to pin 23503 alone, which is exactly the arm that
+    // never fired — measured as a 500 against the declared 409 on a booted app
+    // (F16).  23503 stays in the set for a NO ACTION FK.
     expect(routes).toContain('status: 409, detail: "Widget is still referenced');
     expect(routes).toContain(
-      '(((err as { code?: string }).code ?? (err as { cause?: { code?: string } }).cause?.code) === "23503")',
+      '["23001", "23503"].includes(((err as { code?: string }).code ?? (err as { cause?: { code?: string } }).cause?.code) as string)',
     );
   });
 
