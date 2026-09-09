@@ -236,6 +236,95 @@ function coerceOpParam(varName: string, type: TypeIR | undefined): string {
   }
 }
 
+/** Op params whose WIRE form can be malformed, and which therefore have to be
+ *  REFUSED rather than coerced-and-hoped.  `coerceOpParam` above makes the
+ *  well-formed cases total; this makes the ill-formed ones a 422 instead of a
+ *  500 (M-T6.48, the elixir arm).
+ *
+ *  Why a `with` clause and not a bind: the coercion can FAIL, and a failure has
+ *  to reach the response.  Returning `{:error, changeset}` puts it on the path
+ *  `ProblemDetails.validation_error_response/2` already renders — 422 with
+ *  `errors: [{"pointer": "/<param>", "message": …}]` — so this reuses the
+ *  envelope the backend already sends instead of inventing a second one, the
+ *  same move the .NET and python arms made.
+ *
+ *  `null` for a param that needs no guard, so an op with none keeps the flat
+ *  bind layout byte-identical. */
+function paramGuardClause(wireName: string, type: TypeIR | undefined): string | null {
+  const t = type?.kind === "optional" ? type.inner : type;
+  if (t?.kind !== "primitive") return null;
+  const access = `Map.get(params, ${JSON.stringify(wireName)})`;
+  const field = `:${snake(wireName)}`;
+  switch (t.name) {
+    case "money":
+    case "decimal":
+      return `{:ok, ${snake(wireName)}} <- __loom_decimal_param(record, ${field}, ${access})`;
+    case "int":
+    case "long":
+      return `{:ok, ${snake(wireName)}} <- __loom_int_param(record, ${field}, ${access})`;
+    default:
+      return null;
+  }
+}
+
+/** The `defp`s `paramGuardClause` emits calls to.  Appended to the context
+ *  module on demand, like `__truncate_dt` — a context with no guarded op param
+ *  is byte-identical to before.
+ *
+ *  The decimal grammar is node's `moneySchema` regex character for character
+ *  (`^-?\d+(\.\d+)?$`), and the message is node's and .NET's text verbatim
+ *  (`Invalid decimal: "12,50"`), because the wire-golden differential compares
+ *  bodies ACROSS backends — a divergent message is itself a divergence.
+ *
+ *  A JSON number is accepted for a decimal (the wire allows either form, which
+ *  is what `coerceOpParam`'s `to_string` was already doing) but NOT for an int
+ *  given as text: `"5"` is refused, matching node's `z.number()` body slot and
+ *  .NET.  A fractional value for an `int` is refused rather than truncated —
+ *  the same strictness M-T6.48 pins for Java's `ACCEPT_FLOAT_AS_INT`. */
+function renderNumericParamHelpers(needsDecimal: boolean, needsInt: boolean): string {
+  // Emitted SEPARATELY, not as one block: `mix compile --warnings-as-errors`
+  // rejects an unused private function, so a context whose ops take an `int`
+  // param but no `money` must not carry the decimal helper.  (The generated
+  // Phoenix build caught exactly that — `function __loom_decimal_param/3 is
+  // unused` — which no string-level test would have.)
+  const err = `  defp __loom_param_error(record, field, value, message) do
+    record
+    |> Ecto.Changeset.change(%{})
+    |> Ecto.Changeset.add_error(field, message <> ": " <> Jason.encode!(value))
+  end
+`;
+  const dec = `
+  defp __loom_decimal_param(_record, _field, nil), do: {:ok, nil}
+  defp __loom_decimal_param(_record, _field, %Decimal{} = value), do: {:ok, value}
+
+  defp __loom_decimal_param(_record, _field, value) when is_integer(value) or is_float(value) do
+    {:ok, Decimal.new(to_string(value))}
+  end
+
+  defp __loom_decimal_param(record, field, value) when is_binary(value) do
+    if Regex.match?(~r/^-?\\d+(\\.\\d+)?$/, value) do
+      {:ok, Decimal.new(value)}
+    else
+      {:error, __loom_param_error(record, field, value, "Invalid decimal")}
+    end
+  end
+
+  defp __loom_decimal_param(record, field, value),
+    do: {:error, __loom_param_error(record, field, value, "Invalid decimal")}
+`;
+  const int = `
+  defp __loom_int_param(_record, _field, nil), do: {:ok, nil}
+  defp __loom_int_param(_record, _field, value) when is_integer(value), do: {:ok, value}
+
+  defp __loom_int_param(record, field, value),
+    do: {:error, __loom_param_error(record, field, value, "Invalid integer")}
+`;
+  return `  # Wire-format guards for operation params (M-T6.48).  Each returns
+  # \`{:ok, value}\` or \`{:error, changeset}\` — the latter renders as the
+  # standard 422 with a \`/<param>\` pointer.
+${err}${needsDecimal ? dec : ""}${needsInt ? int : ""}`;
+}
+
 function renderContextModule(
   appModule: string,
   ctxModule: string,
@@ -672,6 +761,18 @@ ${findBlock}${opBlocks.length > 0 ? `\n${opBlocks.join("\n\n")}\n` : ""}${functi
     ? `\n${renderTruncateDtHelper()}\n`
     : "";
 
+  // The wire-format param guards (M-T6.48), on the same demand-driven footing
+  // as `__truncate_dt` above: read off the ASSEMBLED body, so a context whose
+  // ops take no `money`/`decimal`/`int` param emits none of it and stays
+  // byte-identical.
+  const assembledBody = [blocks.join("\n"), ensureBlock].join("\n");
+  const needsDecimalParam = assembledBody.includes("__loom_decimal_param(");
+  const needsIntParam = assembledBody.includes("__loom_int_param(");
+  const numericParamHelpers =
+    needsDecimalParam || needsIntParam
+      ? `\n${renderNumericParamHelpers(needsDecimalParam, needsIntParam)}`
+      : "";
+
   return `# Auto-generated.
 defmodule ${facadeMod} do
   @moduledoc """
@@ -682,7 +783,7 @@ defmodule ${facadeMod} do
   workflow body).  Plain Elixir context module.
   """${requireLogger}${mutatesRefColl ? "\n  import Ecto.Query" : ""}
 
-${blocks.join("\n")}${retrievalBlock}${readingServiceBlock}${ensureBlock}${refCollHelpers}${putAssocPartsHelper}${truncateDtBody}end
+${blocks.join("\n")}${retrievalBlock}${readingServiceBlock}${ensureBlock}${refCollHelpers}${putAssocPartsHelper}${truncateDtBody}${numericParamHelpers}end
 `;
 }
 
@@ -960,13 +1061,27 @@ function renderExternOpFunction(
   // 409 / `:forbidden` 403 / `:precondition_failed` 422); the extern delegation is
   // the final with-clause, rebinding `record` to the mutated struct.
   const guardClauses = collectOpGuardClauses(agg.name, op, rc);
-  const withClauses = [...guardClauses, `{:ok, record} <- ${implMod}.${opSnake}(record, params)`];
+  // Wire-format guards lead the chain (M-T6.48): a malformed `money`/`int`
+  // param is refused BEFORE any authorization guard or extern call runs, so a
+  // bad request cannot reach the hook — and it answers 422, where the bare
+  // coercion below used to raise `Ecto.ChangeError` out of `force_change` (500).
+  const paramGuards = op.params
+    .map((p) => paramGuardClause(p.name, p.type))
+    .filter((c): c is string => c != null);
+  const withClauses = [
+    ...paramGuards,
+    ...guardClauses,
+    `{:ok, record} <- ${implMod}.${opSnake}(record, params)`,
+  ];
   // Bind the params the preconditions reference (`score = Map.get(params,
   // "score")`) BEFORE the `with` — a precondition like `score >= 0` reads the op
   // param, not a column, so it needs the local.  Params the guards don't touch
   // stay inside the `params` map the hook receives (no unused-var warning).
   const paramBinds = op.params
     .filter((p) => op.statements.some((s) => stmtUsesParam(s, p.name)))
+    // A guarded param is bound BY its with-clause; binding it here too would
+    // shadow the validated value with the raw one.
+    .filter((p) => paramGuardClause(p.name, p.type) == null)
     .map(
       (p) =>
         `    ${snake(p.name)} = ${coerceOpParam(`Map.get(params, ${JSON.stringify(p.name)})`, p.type)}\n`,
@@ -1056,10 +1171,14 @@ function renderNamedOpFunction(
   // `mix compile --warnings-as-errors`.  (`record` is always used — the persist
   // pipeline reads it — so it needs no such guard.)
   const usedParams = op.params.filter((p) => op.statements.some((s) => stmtUsesParam(s, p.name)));
-  const paramBinds = usedParams.map(
-    (p) =>
-      `    ${snake(p.name)} = ${coerceOpParam(`Map.get(params, ${JSON.stringify(p.name)})`, p.type)}`,
-  );
+  // As in the extern renderer: a guarded param is bound by its with-clause, so
+  // it must not also be bound flat ahead of it (M-T6.48).
+  const paramBinds = usedParams
+    .filter((p) => paramGuardClause(p.name, p.type) == null)
+    .map(
+      (p) =>
+        `    ${snake(p.name)} = ${coerceOpParam(`Map.get(params, ${JSON.stringify(p.name)})`, p.type)}`,
+    );
 
   // S5a: a body that `emit`s a domain event is restructured to persist-then-
   // dispatch — the `emit`s are hoisted out of the interleaved body and fanned
@@ -1121,7 +1240,16 @@ function renderNamedOpFunction(
   // `{:error, :precondition_failed}` 422) BEFORE the mutation/persist runs, instead
   // of raising an ArgumentError (→ 500).  Exclude the guard STATEMENTS from the
   // in-body statements (the `when` gate is a predicate field, not a statement).
-  const guardClauses = collectOpGuardClauses(agg.name, op, rc);
+  const guardClauses = [
+    // Wire-format guards lead, so a malformed param is refused before the body
+    // mutates anything (M-T6.48).  Their presence alone moves this op onto the
+    // `with` layout, which is exactly the point: the refusal needs somewhere to
+    // short-circuit to.
+    ...usedParams
+      .map((p) => paramGuardClause(p.name, p.type))
+      .filter((c): c is string => c != null),
+    ...collectOpGuardClauses(agg.name, op, rc),
+  ];
   const bodyStmts = op.statements.filter((s) => {
     if (s.kind === "requires" || s.kind === "precondition") return false;
     if (emits && s.kind === "emit") return false;
