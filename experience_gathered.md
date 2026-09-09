@@ -5993,3 +5993,50 @@ over: `[NoNulChar]` reached a .NET file with no `using` for it, and only
   turned that proof red too, and showed the folded-projection module had the
   same gap, unreported because no corpus fixture had exercised it. Proving each
   half separately is what surfaced the half nothing was complaining about.
+
+## 105. A "direction" that only had two values had three all along — and the third one is not JSON (2026-09-09)
+
+The python wire-type helper took a direction — `"request"` or `"response"` —
+and every narrowing hung off it. F17 added a numeric guard to the request side:
+refuse a JSON `bool` or `str` where the contract says `number`, because
+pydantic's lax mode coerces both. Correct for a body. Applied to a repository
+find's parameters, it made **every well-formed numeric read answer 422**:
+
+```
+GET /api/articles/popular?min=6
+→ 422 {"pointer":"/min","message":"Value error, Input should be a valid number"}
+```
+
+A URL has no types. `?min=6` is the string `"6"`, and a guard that refuses a
+`str` for a number refuses it. The two body-side call sites and the two
+parameter-side call sites all read the same helper, and all four looked
+identical at the call site — which is exactly why one function with one boolean
+axis was the wrong shape.
+
+- **"Request" is not one thing.** A JSON body carries types; a path or query
+  parameter carries a substring of the URL. Anything that reasons about the
+  *type that arrived* has to distinguish them. Anything that constrains a
+  string — a NUL guard, a uuid format, a money format — does not, because a
+  string arrives as a string on both. The fix was a third direction whose only
+  divergence is the three numeric arms; widening it further would have
+  quietly dropped F2/F3's uuid gate off the query path.
+- **The same trap, one language over, on the same day.** java's NUL guard was
+  annotated onto every component that *bears* a string, so a `string[]` became
+  `@NoNulChar List<String>` — and a `ConstraintValidator<NoNulChar, String>`
+  is not applicable to a `List<String>`. Hibernate Validator raises
+  `UnexpectedTypeException` at validation time, which escapes as a **500**: the
+  exact status the guard was added to remove. Both bugs are one mistake —
+  putting a constraint on a thing that is *adjacent to* what it validates.
+- **Neither is visible to a compiler or to `npm test`.** `min: Int32` is a
+  well-formed annotation; `@NoNulChar List<String>` compiles. Both are resolved
+  at *request* time, so only a booted app answers. The behavioral tier found
+  both, on the two corpus fixtures in the whole suite that declare the shape
+  (`document`/`tenancy-filter` for the numeric parameter, `document-collection-
+  read` for the string array). If a narrowing is enforced by the framework
+  rather than the compiler, the gate that proves it has to boot something.
+- **Sweep over the axis the bug travels on.** The gates that replaced these
+  assert over *every* route signature and *every* emitted `.java` — not over
+  the one file the fixture was written for. The paged-run handler emitter is a
+  third call site nobody would have thought to assert on; the sweep caught it
+  under mutation, and the fixture had to grow a paged criterion read before that
+  proof went red at all.

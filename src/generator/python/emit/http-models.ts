@@ -170,6 +170,28 @@ const PY_INT32_DEF = [
   "]",
 ];
 
+/** Name of the query/path-parameter twin of `Int32`.
+ *
+ *  A QUERY PARAMETER is not JSON. It reaches FastAPI as a string off the URL
+ *  (`?min=6` is `"6"`, never `6`), so the F17 numeric-type guard — which
+ *  refuses a `str` for a field the contract calls a number — is exactly wrong
+ *  here: it turned every `find popular(min: int)` read into a 422 saying
+ *  *"Input should be a valid number"* for a perfectly well-formed request.
+ *  Measured on the booted behavioral app, not reasoned from the emitter.
+ *
+ *  The BOUND and the published `format: int32` still apply — an `int4` column
+ *  is an `int4` column however the value arrives — so this alias is `Int32`
+ *  minus the guard, and nothing about the published schema moves. */
+export const PY_INT32_PARAM = "Int32Param";
+
+const PY_INT32_PARAM_DEF = [
+  `${PY_INT32_PARAM} = Annotated[`,
+  "    int,",
+  "    Field(ge=-2147483648, le=2147483647),",
+  '    WithJsonSchema({"type": "integer", "format": "int32"}),',
+  "]",
+];
+
 /** Name of the shared NUL-rejecting string alias emitted into
  *  `app/http/wire_models.py`. */
 export const PY_WIRE_STR = "WireStr";
@@ -217,6 +239,7 @@ export function wireModelImport(
     ...(refersTo(PY_UUID_STR) ? [PY_UUID_STR] : []),
     ...(refersTo(PY_MONEY_STR) ? [PY_MONEY_STR] : []),
     ...(refersTo(PY_INT32) ? [PY_INT32] : []),
+    ...(refersTo(PY_INT32_PARAM) ? [PY_INT32_PARAM] : []),
     ...(refersTo(PY_WIRE_STR) ? [PY_WIRE_STR] : []),
     ...(refersTo(PY_WIRE_NUM) ? [PY_WIRE_NUM] : []),
     ...(refersTo(PY_WIRE_INT) ? [PY_WIRE_INT] : []),
@@ -237,12 +260,28 @@ export function responsePyType(t: TypeIR, ctx: BoundedContextIR): string {
   return wireFieldType(t, ctx, "response", "Model");
 }
 
+/** Pydantic field type for a PATH or QUERY parameter.
+ *
+ *  A request BODY is JSON, so the value already carries a type and the F17
+ *  guard can hold the server to the contract's `number`. A path/query
+ *  parameter carries none: it is a substring of the URL, so `?min=6` arrives
+ *  as `"6"` and the same guard refuses every well-formed read. Everything
+ *  except the numeric arms is the request spelling — a `MoneyStr`, a
+ *  `UuidStr` and a `WireStr` all constrain a string that arrives as a string.
+ */
+export function paramPyType(t: TypeIR, ctx: BoundedContextIR): string {
+  return wireFieldType(t, ctx, "param", "Model");
+}
+
 function wireFieldType(
   t: TypeIR,
   ctx: BoundedContextIR,
-  dir: "request" | "response",
+  dir: "request" | "response" | "param",
   voSuffix: string,
 ): string {
+  // A parameter is an INPUT, so every request-side narrowing applies to it —
+  // only the numeric arms below distinguish the two.
+  const inbound = dir !== "response";
   switch (t.kind) {
     case "primitive":
       switch (t.name) {
@@ -251,11 +290,15 @@ function wireFieldType(
         // validation, and the response needs the same published shape .NET and
         // java emit. `long` is a bigint and stays a bare `int` (see PY_INT32).
         case "int":
-          return PY_INT32;
+          return dir === "param" ? PY_INT32_PARAM : PY_INT32;
         case "long":
-          return PY_WIRE_INT;
+          // No `WireInt` on a parameter: the guard it carries rejects the very
+          // string a query parameter always is (see PY_INT32_PARAM). A bare
+          // `int` is what this annotated before F17, and it published the same
+          // `{"type": "integer"}` then as now.
+          return dir === "param" ? "int" : PY_WIRE_INT;
         case "decimal":
-          return PY_WIRE_NUM;
+          return dir === "param" ? "float" : PY_WIRE_NUM;
         case "money":
           // Money crosses the wire as its canonical decimal STRING in both
           // directions on every backend (Hono/.NET/Java/Phoenix) — the route
@@ -268,17 +311,17 @@ function wireFieldType(
           // RESPONSE side stays a bare `str` — it is OUR digits going out, the
           // constraint would never fire, and narrowing it would only publish a
           // needless schema restriction on a field clients read.
-          return dir === "request" ? PY_MONEY_STR : "str";
+          return inbound ? PY_MONEY_STR : "str";
         // REQUEST only: the alias rejects a NUL the `text` column cannot hold
         // (F20). A response string came out of that same column.
         case "string":
-          return dir === "request" ? PY_WIRE_STR : "str";
+          return inbound ? PY_WIRE_STR : "str";
         case "guid":
           return "str";
         case "bool":
           return "bool";
         case "datetime":
-          return dir === "request" ? "datetime" : "str";
+          return inbound ? "datetime" : "str";
         case "json":
           return "object";
         case "File":
@@ -307,7 +350,7 @@ function wireFieldType(
       // RESPONSE stays a bare `str`: the constraint is an INPUT gate, and the
       // response models are also fed by `to_wire` (which already yields the
       // stored uuid), so re-validating outbound buys nothing.
-      return t.valueType === "guid" && dir === "request" ? PY_UUID_STR : "str";
+      return t.valueType === "guid" && inbound ? PY_UUID_STR : "str";
     case "enum":
       return t.name;
     case "valueobject":
@@ -501,6 +544,8 @@ export function renderPyWireModels(ctx: BoundedContextIR): string {
     PY_WIRE_NUM_DEF,
     "",
     PY_INT32_DEF,
+    "",
+    PY_INT32_PARAM_DEF,
     "",
     PY_WIRE_STR_DEF,
     models.join(""),

@@ -817,6 +817,28 @@ over the WHOLE emitted project — no `.cs` may name the attribute without
 resolving it — plus a case asserting the workflow file really is one that emits
 it, so the sweep cannot go vacuous.
 
+**Found on the way, twice: the java guard was on the wrong thing.** F20's java
+half annotated every component whose type *bears* a string, arrays included, so
+a `string[]` create input rendered `@NoNulChar List<String> tags`.
+`NoNulChar.Validator` implements `ConstraintValidator<NoNulChar, String>`, so
+Hibernate Validator raises `UnexpectedTypeException` the first time such a
+request is validated — and that escapes the advice as a **500**, the exact
+status the guard exists to remove:
+
+```
+POST /api/orders  →  500 {"detail":"internal", …}      (document-collection-read)
+```
+
+`@NoNulChar List<String>` COMPILES, so the compile tier could not see it either;
+the constraint is resolved at validation time. The fix is the container-element
+form Bean Validation is built for — `List<@NoNulChar String>`, which needed
+`ElementType.TYPE_USE` on the annotation — and it is also the *more* complete
+guard: the list form never validated the elements even in principle.
+**Gate:** `test/generator/java/nul-guard-container-element.test.ts` — 6 cases
+over the three emitters that reach this decision, plus a sweep refusing
+`@NoNulChar` on any container. Mutation-proved, and verified against the booted
+java app on a real Postgres (500 before, 200 after).
+
 ### F17 — python: F7 (declared `type` not honoured) is still open
 **Waiver:** none — fixed · **Severity: medium** · **Status: FIXED (2026-09-07).**
 
@@ -870,6 +892,37 @@ ways (drop the guard, move it after the bound, revert `decimal` to a bare
 
 The emitted project still passes `ruff check` and `mypy --strict`, and a full
 read/write/operation/workflow sweep against the booted app is unchanged.
+
+**The guard was applied one stage too wide — a query parameter is not JSON.**
+The first shipped version annotated a repository find's parameters through the
+same `requestPyType` the body models use, so `find popular(min: int)` rendered
+`min: Int32`. A path or query parameter carries no type: it is a substring of
+the URL, `?min=6` arrives as the *string* `"6"`, and the guard refused it.
+
+| request | with the guard on the parameter | after |
+|---|---|---|
+| `GET /api/articles/popular?min=6` | **422** *"Input should be a valid number"* | 200 |
+| `GET /api/accounts/by_min_balance?min=0` | **422** (same) | 200 |
+
+The fast suite is structurally blind to this — `min: Int32` is a perfectly
+well-formed annotation, and the tier compares emitted TEXT. Only the booted
+behavioral leg answered.
+
+The fix is a DIRECTION, not a special case: `paramPyType` renders the path/query
+spelling, and only the three numeric arms differ from the request one —
+`Int32Param` (the bound and the published `format: int32`, minus the guard),
+`int` for a `long`, `float` for a `decimal`. Everything else keeps every
+request-side narrowing, because a `MoneyStr`, a `UuidStr` and a `WireStr` all
+constrain a string that *does* arrive as a string; F2/F3's uuid gate lives on
+that very path and must not be widened away.
+
+**Gate:** `test/generator/python/wire-param-number-type.test.ts` — 6 cases,
+including a sweep over every `async def` route signature in the project (three
+separate emitters annotate one) plus the control asserting the body side still
+carries the guard, so the sweep cannot go vacuous. Mutation-proved on both the
+find emitter and the paged-run handler emitter, and verified by re-running the
+two behavioral cases against a booted app on a real Postgres — failing before,
+passing after, with the CI failure text reproduced byte for byte.
 
 ### F18 — python + java + dotnet: a wrong verb on a static sub-path answers 422
 **Waiver:** none — fixed · **Severity: low** · **Status: FIXED (2026-09-03).**

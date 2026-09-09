@@ -213,8 +213,8 @@ export function renderDtoFiles(
       // so an optional component is not made required by carrying it (F20).
       const noNul = bearsWireString(f.type);
       if (noNul) imports.add(`${basePkg}.api.NoNulChar`);
-      const marks = `${guardable ? "@NotNull " : ""}${noNul ? "@NoNulChar " : ""}${nested ? "@Valid " : ""}`;
-      return `${marks}${javaType} ${f.name}`;
+      const marks = `${guardable ? "@NotNull " : ""}${nested ? "@Valid " : ""}`;
+      return `${marks}${noNul ? nulGuarded(javaType) : javaType} ${f.name}`;
     });
     out.push({
       name: `Create${agg.name}Request.java`,
@@ -246,7 +246,8 @@ export function renderDtoFiles(
       if (nested) imports.add("jakarta.validation.Valid");
       const noNul = bearsWireString(p.type);
       if (noNul) imports.add(`${basePkg}.api.NoNulChar`);
-      return `@NotNull ${noNul ? "@NoNulChar " : ""}${nested ? "@Valid " : ""}${wireJavaType(boxed, "Request")} ${p.name}`;
+      const boxedType = wireJavaType(boxed, "Request");
+      return `@NotNull ${nested ? "@Valid " : ""}${noNul ? nulGuarded(boxedType) : boxedType} ${p.name}`;
     });
     out.push({
       name: `${upperFirst(op.name)}${agg.name}Request.java`,
@@ -338,6 +339,24 @@ export function renderDtoFiles(
  *  in a `text` column and so carries the NUL guard (F20). `guid`, `datetime`
  *  and `money` cross as strings too, but each already has a parse or pattern a
  *  NUL cannot pass, so they are deliberately not matched. */
+/** Places the NUL guard where Bean Validation can actually RUN it — on the
+ *  `String` itself, not on a container holding strings.
+ *
+ *  `NoNulChar.Validator` implements `ConstraintValidator<NoNulChar, String>`,
+ *  so annotating a `List<String>` component makes Hibernate Validator throw
+ *  `UnexpectedTypeException` ("No validator could be found for constraint …
+ *  validating type java.util.List<java.lang.String>") the first time a request
+ *  carrying that field is validated. That escapes the advice as a **500** — the
+ *  exact status F20 exists to remove, on the exact fixture that declares a
+ *  `string[]` create input. A CONTAINER-ELEMENT annotation (`List<@NoNulChar
+ *  String>`, which is why the constraint also targets `TYPE_USE`) validates
+ *  each element instead, which is what the guard meant all along. */
+function nulGuarded(javaType: string): string {
+  return javaType.startsWith("List<")
+    ? javaType.replace("List<", "List<@NoNulChar ")
+    : `@NoNulChar ${javaType}`;
+}
+
 function bearsWireString(t: TypeIR): boolean {
   switch (t.kind) {
     case "primitive":
@@ -394,14 +413,14 @@ function voRecord(
     const javaType = wireJavaType(t, dir);
     const noNul = dir === "Request" && bearsWireString(t);
     if (noNul) imports.add(`${basePkg}.api.NoNulChar`);
-    const nulGuard = noNul ? "@NoNulChar " : "";
+    const guardedType = noNul ? nulGuarded(javaType) : javaType;
     if (dir === "Response" || f.optional || JAVA_PRIMITIVES.has(javaType)) {
-      return `${nulGuard}${javaType} ${f.name}`;
+      return `${guardedType} ${f.name}`;
     }
     imports.add("jakarta.validation.constraints.NotNull");
     const nested = bearsNestedRecord(t);
     if (nested) imports.add("jakarta.validation.Valid");
-    return `@NotNull ${nulGuard}${nested ? "@Valid " : ""}${javaType} ${f.name}`;
+    return `@NotNull ${nested ? "@Valid " : ""}${guardedType} ${f.name}`;
   });
   const body =
     dir === "Response"

@@ -623,7 +623,16 @@ export function renderNoNulCharConstraint(basePkg: string): string {
     // RECORD_COMPONENT is the one that matters (the DTOs are records); FIELD
     // and PARAMETER are where javac propagates a record component's
     // annotations, and the walk reads them there.
-    `@Target({ ElementType.RECORD_COMPONENT, ElementType.FIELD, ElementType.PARAMETER })`,
+    // TYPE_USE is what lets the guard ride a container ELEMENT
+    // (`List<@NoNulChar String>`): the validator takes a `String`, so a
+    // `List<String>` component carrying the annotation directly is an
+    // `UnexpectedTypeException` at request time — a 500, not a 422.
+    `@Target({`,
+    `    ElementType.RECORD_COMPONENT,`,
+    `    ElementType.FIELD,`,
+    `    ElementType.PARAMETER,`,
+    `    ElementType.TYPE_USE`,
+    `})`,
     `@Retention(RetentionPolicy.RUNTIME)`,
     `public @interface NoNulChar {`,
     `    String message() default "must not contain a NUL character";`,
