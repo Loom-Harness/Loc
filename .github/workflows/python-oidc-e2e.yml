@@ -83,7 +83,6 @@ on:
       - 'test/e2e/fixtures/python-build/auth-oidc.ddd'
       - '.github/workflows/python-oidc-e2e.yml'
   workflow_dispatch:
-  merge_group:
 permissions:
   contents: read
 

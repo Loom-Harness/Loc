@@ -84,7 +84,6 @@ on:
       - 'test/e2e/fixtures/auth-oidc-e2e.ddd'
       - '.github/workflows/hono-oidc-e2e.yml'
   workflow_dispatch:
-  merge_group:
 permissions:
   contents: read
 

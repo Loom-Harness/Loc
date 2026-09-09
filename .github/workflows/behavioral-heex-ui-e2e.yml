@@ -69,7 +69,6 @@ on:
       - 'test/behavioral/**'
       - '.github/workflows/behavioral-heex-ui-e2e.yml'
   workflow_dispatch:
-  merge_group:
 
 permissions:
   contents: read

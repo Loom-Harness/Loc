@@ -62,7 +62,6 @@ on:
       - '!src/platform/python.ts'
       - '!src/platform/elixir.ts'
   workflow_dispatch:
-  merge_group:
 permissions:
   contents: read
 

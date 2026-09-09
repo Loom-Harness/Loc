@@ -85,7 +85,6 @@ on:
       - 'test/e2e/fixtures/auth-oidc-e2e-java.ddd'
       - '.github/workflows/java-oidc-e2e.yml'
   workflow_dispatch:
-  merge_group:
 permissions:
   contents: read
 
