@@ -593,34 +593,65 @@ Three boundaries to know:
 
 - **Single-param callbacks only** — the grammar's `Lambda` is `param=ID =>
   …`, so a two-arg comparator (`sort((a, b) => …)`) isn't expressible.
-- **`filter` / `map` are the whole inline vocabulary.** The rest of the
-  stdlib **collection ops** (`docs/stdlib.md` — `count`, `sum`, `where`,
-  `any`, `all`, `first`, `sortBy`, `distinct`, `take`, `skip`, `join`,
-  `min`, `max`, `avg`, …) are a **backend** vocabulary: every backend
-  renders them through `src/generator/_expr/target.ts`, the frontend walker
-  has no arm for them and would emit them verbatim. Using one in a page /
-  component expression is an **error**,
-  `loom.frontend-collection-op-unsupported`:
+- **Nine stdlib collection ops render in a page body; eight do not.** The
+  ops that **reshape** a collection — `count`, `where`, `any`, `all`, `map`,
+  `sortBy`, `take`, `skip`, `join` — have a real renderer on every frontend,
+  reached through the walker's `renderCollectionOp` seam:
+
+  ```ddd
+  // ✓ renders on all six frontends and on Phoenix LiveView
+  body: QueryView { of: Orders.Order.all, data: rows =>
+    Stat("open", rows.where(o => o.open).count) }
+  ```
+
+  | `.ddd` | React / Vue / Svelte | Angular | Feliz | Flutter | Phoenix |
+  | --- | --- | --- | --- | --- | --- |
+  | `xs.count` | `(xs).length` | `(xs()).length` | `(List.length xs)` | `(xs).length` | `Enum.count(@xs)` |
+  | `xs.where(λ)` | `.filter(λ)` | `.filter(λ)` | `xs \|> List.filter λ` | `.where(λ).toList()` | `Enum.filter(@xs, λ)` |
+  | `xs.sortBy(λ)` | `[...xs].sort(…)` | `[...xs()].sort(…)` | `xs \|> List.sortBy λ` | `([...xs]..sort(…))` | `Enum.sort_by(@xs, λ)` |
+  | `xs.take(n)` | `.slice(0, n)` | `.slice(0, n)` | `xs \|> List.truncate n` | `.take(n).toList()` | `Enum.take(@xs, n)` |
+
+  The other **eight** — `sum`, `min`, `max`, `avg`, `first`, `firstOrNull`,
+  `distinct`, `contains` — are an **error** in a page / component / store
+  expression, `loom.frontend-collection-op-unsupported`:
 
   ```ddd
   // ✗ loom.frontend-collection-op-unsupported
-  body: QueryView { of: Orders.Order.all, data: rows => Stat("n", rows.count) }
+  body: QueryView { of: Orders.Order.all, data: rows => Stat("total", rows.sum(o => o.total)) }
   ```
 
-  Compute the value where the data lives — a repository `find`, an
-  aggregate `derived`, or a `projection` read model — and bind the result
-  in the page. (The gate is target-agnostic: it fires on Phoenix too, where
-  the parallel HEEx engine happens to map `count`, so that a `.ddd` renders
-  on every frontend or fails on every frontend rather than silently
-  breaking on a `framework:` change.)
-- **Frontend coverage.** React, Vue, Svelte, and Angular share the
-  `emitExpr` engine and get `filter`/`map` from native `Array.prototype`;
-  Phoenix/HEEx runs a parallel engine that mirrors them to Elixir idioms
-  (`Enum.filter/2` / `Enum.map/2`). Feliz supplies its own F# leaves
-  (`src/generator/feliz/fs-expr.ts`) for the **action/update** path only —
-  in a page **body** its method-call rendering still goes through the shared
-  walker arm, so inline `filter`/`map` shaping there emits JS-shaped F#;
-  prefer pre-shaping in a backend `find` when targeting Feliz or Flutter.
+  They are refused because the frontends disagree on how the **result** is
+  represented, not because the spelling is missing:
+
+  - `sum` / `min` / `max` / `avg` fold **arithmetic**, and `money` is a
+    `Decimal` **object** on React/Vue/Svelte/Angular and Phoenix but a native
+    scalar on Feliz and Flutter — a naive `+` / `<` is silently wrong on the
+    first two. (`avg` desugars to `count`/`sum`, so it is refused via `sum`.)
+  - `first` / `firstOrNull` differ on **partiality**: `first` yields
+    `undefined` on the JS frontends but raises on F# `List.head` and Dart
+    `.first`; `firstOrNull` is `T | null` there and `'T option` on F#.
+  - `distinct` / `contains` need **value equality**, and Flutter's generated
+    wire models define no `operator ==` — a dedupe would silently keep the
+    duplicates.
+
+  For those, compute the value where the data lives — a repository `find`, an
+  aggregate `derived`, or a `projection` read model — and bind the result in
+  the page.
+- **The gate is target-agnostic, with no per-framework carve-out.** It fires
+  on Phoenix too, so a `.ddd` renders on every frontend or fails on every
+  frontend rather than silently breaking on a `framework:` change. `map` used
+  to be the exception in both directions — ungated everywhere but Feliz,
+  whose walker emitted a JS arrow into the `.fs` file; `WalkerTarget.exprLambda`
+  (`(fun p -> …)`) closed that.
+- **Frontend coverage.** React, Vue, Svelte, and Angular share the `emitExpr`
+  engine and one JS table (`src/generator/_expr/js-collection-ops.ts` — the
+  *same* table the Hono backend renders a `derived` with, so a page body and
+  an aggregate expression agree); Angular re-spells `sortBy` alone, because
+  its template grammar rejects a block-bodied arrow. Feliz supplies F# arms
+  (`src/generator/feliz/fs-expr.ts`, `FS_COLLECTION_RENDERERS`) that BOTH its
+  page-body walk and its action/update path consume; Flutter supplies Dart
+  arms (`src/generator/flutter/dart-expr.ts`); Phoenix/HEEx runs a parallel
+  engine (`src/generator/elixir/heex-walker-core.ts`) with its own arms.
 
 ### 8.1a Scalar intrinsics in a page body
 
@@ -1228,10 +1259,26 @@ Pages carry `menu { … }` metadata; sidebar is derived. Optional `ui`-level
    (defaults: aggregates → "Aggregates", workflows → "Workflows")
 2. Apply explicit `page X` overrides (by name)
 3. If `ui` has a `menu { … }` block:
-       sidebar = that block, resolved against the page registry
+       sidebar = that block, resolved against the page registry   (REPLACES)
    else:
-       sidebar = pages grouped by `menu.section`, sorted by `menu.label`
+       sidebar = the scaffold defaults, MERGED with this ui's own pages:
+         - a page's `menu { section: "X" }` appends into section "X"
+           (creating it after the defaults when it is new),
+         - a page with no `menu` block at all appends to a "Pages" section,
+         - within a section, entries sort by `menu { order: N }`, then by
+           declaration order,
+         - a default entry whose route a page already claims is dropped, so a
+           page is never listed twice,
+         - `menu { hidden: true }` (what the scaffold puts on `New` / `Detail`)
+           keeps a page out entirely.
 ```
+
+An explicit `ui`-level `menu { … }` block is the only **replacement**: it is the
+author's exact layout, so nothing is merged into it.  A *page*-level
+`menu { … }` block is always **additive** — writing one on a hand-written page
+adds its link, it never takes the scaffolded links away.  (Before M-FT.6 a
+single page-level `menu` block replaced the whole sidebar, so one custom page
+erased every scaffolded link; omitting the block left that page with no link.)
 
 ### Explicit form
 
@@ -1256,11 +1303,14 @@ ambiguous across aggregates.  Disambiguate with the **area-qualified** form
 to a shared registry. The `menu` block is the explicit composition operator
 over that registry.
 
+A `link` that names no page of the ui is an error (`loom.menu-link-unresolved`)
+that lists every linkable name — bare and area-qualified — rather than leaving
+you to guess at the role-scoped scaffold names.
+
 Per-link auth: a `link Orders.List` inherits the underlying page's `requires`
-clause.  The React page guard (above) already renders `<Forbidden/>` on a gated
-page; conditionally **hiding** the matching menu link (so it never shows for a
-caller who can't reach it) is the next slice — today the link still renders and
-the destination page guards itself.
+clause.  On an `auth: ui` frontend the shell hides the link when the gate fails
+(the nav-side mirror of the page guard's `<Forbidden/>`); the default
+(non-menu-derived) entries inherit the gate of the page they link to as well.
 
 ---
 

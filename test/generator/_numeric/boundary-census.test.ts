@@ -100,14 +100,16 @@ const BACKENDS: BackendCensus[] = [
         reason: "ExprTarget money-literal constructor, not a read boundary",
       },
       {
-        file: "src/generator/typescript/render-expr.ts",
+        file: "src/generator/_expr/js-collection-ops.ts",
         contains: "acc.plus((${args[0]})(x)), new Decimal(0))",
-        reason: "ExprTarget sum-fold zero seed, not a read boundary",
+        reason:
+          "ExprTarget sum-fold zero seed, not a read boundary — the JS collection-op\n           leaves moved here from typescript/render-expr.ts when the shared JS\n           collection-op table was extracted; same code, new home",
       },
       {
-        file: "src/generator/typescript/render-expr.ts",
+        file: "src/generator/_expr/js-collection-ops.ts",
         contains: "acc.plus(x), new Decimal(0))",
-        reason: "ExprTarget sum-fold zero seed, not a read boundary",
+        reason:
+          "ExprTarget sum-fold zero seed, not a read boundary — the JS collection-op\n           leaves moved here from typescript/render-expr.ts when the shared JS\n           collection-op table was extracted; same code, new home",
       },
       {
         file: "src/generator/typescript/render-expr.ts",
@@ -148,6 +150,18 @@ const BACKENDS: BackendCensus[] = [
       { pattern: /new BigDecimal\(/, label: "bare new BigDecimal( construction" },
     ],
     waivers: [
+      {
+        file: "src/generator/java/emit/common.ts",
+        contains: "return new BigDecimal(value);",
+        reason:
+          "the emitted `WireFormatException.money(value, pointer)` helper — the SINGLE\n           java money-ingress funnel, which is what replaced the scattered bare\n           `new BigDecimal(expr)` at the call sites this census exists to find.\n           Waiving the seam, not a coercion: the validated parse and the javadoc\n           naming what it replaced both live here and nowhere else",
+      },
+      {
+        file: "src/generator/java/emit/common.ts",
+        contains: "bare {@code new BigDecimal(s)} it replaces threw on anything the",
+        reason:
+          "javadoc PROSE on the helper above naming the construction it replaced — not\n           emitted coercion at all; the census matches source text, so the comment\n           describing the fix trips the same pattern the fix removed",
+      },
       {
         file: "src/generator/java/render-expr.ts",
         contains: '`${recv}.setScale(${args[0] ?? "0"}, java.math.RoundingMode.HALF_UP)`,',
@@ -197,6 +211,12 @@ const BACKENDS: BackendCensus[] = [
       { pattern: /float\(cast\(/, label: "float(cast(...)) decimal decode" },
     ],
     waivers: [
+      {
+        file: "src/generator/python/emit/http-models.ts",
+        contains: "def _money_str(value: str) -> str:",
+        reason:
+          "the emitted `_money_str` pydantic AfterValidator — the SINGLE python\n           money-ingress funnel (one definition, one `AfterValidator(_money_str)`\n           use). Same shape as java's WireFormatException.money: this is the seam\n           the census wants coercions routed THROUGH, not a scattered coercion",
+      },
       {
         file: "src/generator/python/index.ts",
         contains: "def money_str(amount: Decimal) -> str:",

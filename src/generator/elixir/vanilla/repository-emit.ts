@@ -374,6 +374,25 @@ ${listSortArms}${listSortArms ? "\n" : ""}        _ -> :id
   // (context-emit / operation-returns-emit / document-emit), so a raced op write
   // raises `Ecto.StaleEntryError` here and must answer 409, not crash.
   const persistChangeRescue = "\n  rescue\n    Ecto.StaleEntryError -> {:error, :conflict}";
+  // `optimistic_lock/2` defers its increment into `prepare_changes`, and Ecto
+  // decides whether to run the UPDATE at all *before* the prepare hooks fire
+  // (`Ecto.Repo.Schema.do_update`: `if changeset.changes != %{} or force?`).  So
+  // a changeset whose USER changes are empty — an operation that only `emit`s,
+  // a PATCH whose attrs all equal the stored values — short-circuits to
+  // `{:ok, struct}` with no SQL, and the version silently never advances: the
+  // exact wire regression RS-14's plain bump was introduced to fix, reopened by
+  // the switch to `optimistic_lock` because no fixture had an assignment-free
+  // write until `lifecycle-guard`'s `release()`.  The other four backends always
+  // issue the guarded UPDATE, so the row read back diverged on Elixir alone
+  // (`GET /api/crates` → `version` 1 vs the golden's 2).  `force: true` makes
+  // Ecto run prepare, after which the lock's own `%{version: n + 1}` change
+  // clears its inner non-empty check.  Versioned aggregates only — without a
+  // lock there is no change for `force` to carry, so the non-versioned emission
+  // stays byte-identical.
+  const updateForce = versioned ? ", force: true" : "";
+  /** Same option in the PIPED spelling (`|> Repo.update(force: true)`), where
+   *  the changeset arrives through the pipe and the opts are the only arg. */
+  const updateForceArg = versioned ? "force: true" : "";
   const updateErrTail = versioned ? "Ecto.Changeset.t() | :conflict" : "Ecto.Changeset.t()";
   const updateSpecArgTail = `${hasStamps && stampPrincipal ? ", map() | nil" : ""}${versioned ? ", integer() | nil" : ""}`;
   // RS-18 — the generic update runs a changeset, not the synthesized `operation
@@ -392,7 +411,7 @@ ${listSortArms}${listSortArms ? "\n" : ""}        _ -> :id
       |> __capture_provenance()
 
     Repo.transaction(fn ->
-      case Repo.update(changeset) do
+      case Repo.update(changeset${updateForce}) do
         {:ok, saved} ->
           Enum.each(lineages, &${appModule}.Provenance.record/1)
           ${appModule}.Provenance.flush(Repo)
@@ -404,7 +423,7 @@ ${listSortArms}${listSortArms ? "\n" : ""}        _ -> :id
     end)${updateRescue}`
     : `${versionOverride}    record${updatePreload}
     |> ${aggModule}Changeset.${updateChangesetFn}(attrs)${updateStamps}${updatePutAssoc}
-    |> Repo.update()${updateRescue}`;
+    |> Repo.update(${updateForceArg})${updateRescue}`;
 
   // The CRUD `delete/1` repository fn is emitted only when the aggregate exposes
   // a REST delete surface (a reachable `destroy`).  Without it the function was
@@ -472,7 +491,7 @@ ${updateProvHelper}${deleteBlock}  @doc "Persist a pre-built changeset (the name
   @spec persist_change(Ecto.Changeset.t()) ::
           {:ok, ${aggModule}.t()} | {:error, Ecto.Changeset.t()${versioned ? " | :conflict" : ""}}
   def persist_change(%Ecto.Changeset{data: %${aggModule}{}} = changeset) do
-    Repo.update(changeset)${versioned ? persistChangeRescue : ""}
+    Repo.update(changeset${updateForce})${versioned ? persistChangeRescue : ""}
   end${findBlock}${refHelpers || "\n"}end
 `;
 }

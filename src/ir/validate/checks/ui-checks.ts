@@ -38,6 +38,13 @@ import {
   checkTableFilterSupport,
 } from "./ui-collection-display-checks.js";
 import { checkUserComponentSupport } from "./ui-component-deferral-checks.js";
+
+// Re-exported so every name this file exported before the packet-2.6 split is
+// still reachable at its original path — `COMPONENT_DEFERRALS` is read by
+// `test/ir/user-component-deferred.test.ts`, the behavioural derivation that
+// ratchets COMPONENT_FILTERING_FRAMEWORKS below.
+export { COMPONENT_DEFERRALS } from "./ui-component-deferral-checks.js";
+
 import {
   type CallableNames,
   checkAsyncEffectArgs,
@@ -127,20 +134,12 @@ export function validateUiBodies(loom: EnrichedLoomModel, diags: LoomDiagnostic[
         renderingHosts.set(uiName, byFw);
       }
     }
-    // Which uis this system renders through Feliz — the one frontend whose
-    // walker cannot render `.map(λ)` (see `MAP_UNRENDERED_FRAMEWORK`).  A ui
-    // declares its own `framework:`, but the LEGACY binding leaves it unset and
-    // derives the framework from the hosting deployable, so both are consulted
-    // (`platform: feliz` hosts only `framework: feliz` — the same detector
-    // `loom.feliz-async-effect-unsupported` uses in store-checks.ts).
-    const felizUis = new Set<string>();
-    for (const d of sys.deployables) {
-      if (d.platform !== MAP_UNRENDERED_FRAMEWORK && d.uiFramework !== MAP_UNRENDERED_FRAMEWORK)
-        continue;
-      for (const n of [d.uiName, ...(d.hostedUiNames ?? [])]) if (n) felizUis.add(n);
-    }
+    // (There used to be a per-ui Feliz carve-out here: `map` was ungated
+    // everywhere but Feliz, because the walker had no lambda seam and emitted a
+    // JS arrow into the `.fs` file.  `WalkerTarget.exprLambda` closed that, so
+    // the op set below is once again uniform across every frontend — which is
+    // what makes this check target-agnostic in fact and not just in intent.)
     for (const ui of sys.uis) {
-      const mapRendered = ui.framework !== MAP_UNRENDERED_FRAMEWORK && !felizUis.has(ui.name);
       const handles = new Set<string>([
         ...ui.apiParams.map((p) => p.name),
         ...(ui.channelParams ?? []).map((p) => p.name),
@@ -196,7 +195,7 @@ export function validateUiBodies(loom: EnrichedLoomModel, diags: LoomDiagnostic[
         checkActionBodies(page.actions, ctx, diags);
         checkInstanceEffectRouteId(page, aggNames, apiParamNames, diags);
         checkOpFormRouteId(page, diags);
-        checkFrontendCollectionOps(page, pageWhere(page), mapRendered, diags);
+        checkFrontendCollectionOps(page, pageWhere(page), diags);
         checkUnknownPageElements(page, pageWhere(page), callableNames, diags);
         checkSlotOutsideComponent(page, pageWhere(page), diags);
         checkUnresolvedPageRefs(page, pageWhere(page), callableNames, diags);
@@ -255,7 +254,7 @@ export function validateUiBodies(loom: EnrichedLoomModel, diags: LoomDiagnostic[
         };
         checkBody(comp.body, ctx, diags);
         checkActionBodies(comp.actions, ctx, diags);
-        checkFrontendCollectionOps(comp, `component '${comp.name}'`, mapRendered, diags);
+        checkFrontendCollectionOps(comp, `component '${comp.name}'`, diags);
         checkUnknownPageElements(comp, `component '${comp.name}'`, callableNames, diags);
         checkUnresolvedPageRefs(comp, `component '${comp.name}'`, callableNames, diags);
         checkFixedSlotArity(comp, `component '${comp.name}'`, diags);
@@ -289,7 +288,7 @@ export function validateUiBodies(loom: EnrichedLoomModel, diags: LoomDiagnostic[
       // (`state.tags.distinct()`) on Flutter — from a `.ddd` that validated
       // clean.  Same vocabulary gap, same gate.
       for (const store of ui.stores) {
-        checkFrontendCollectionOps(store, `store '${store.name}'`, mapRendered, diags);
+        checkFrontendCollectionOps(store, `store '${store.name}'`, diags);
       }
       // A `toast(<expr>)` outside the v1 message subset CRASHES every realtime
       // renderer (target-agnostic — the three switches are arm-for-arm equal).
@@ -336,21 +335,31 @@ const MAP_UNRENDERED_FRAMEWORK = "feliz";
 
 // -------------------------------------------------------------------------
 // `loom.user-component-deferred-target` — a user `component` whose SHAPE the
-// Feliz / Angular component emitter defers.
+// Feliz / Angular / Flutter component emitter defers.
 //
-// THE SILENT VANISH.  Both emitters build their emitted set by FILTERING:
-// `emitFelizUserComponents` / `emitAngularUserComponents` keep only the
-// components whose walked shape their shell can assemble, and a filtered
-// component is not merely degraded — it is not emitted AT ALL.  Its name never
-// enters the walker's `userComponents` map either, so every call site falls
-// through to `walk()`'s give-up comment (`(* unknown layout component: X *)` /
-// `<!-- unknown layout component: X -->`).  Declaration and use disappear
-// together: `ddd parse` clean, codegen clean, `dotnet fable` / `ng build`
-// clean, and the component is simply not in the app.
+// THE SILENT VANISH.  All three emitters build their emitted set by FILTERING:
+// `emitFelizUserComponents` / `emitAngularUserComponents` /
+// `emittableComponentParams` keep only the components whose walked shape their
+// shell can assemble, and a filtered component is not merely degraded — it is
+// not emitted AT ALL.  Its name never enters the walker's `userComponents` map
+// either, so every call site falls through to `walk()`'s give-up comment
+// (`(* unknown layout component: X *)` / `<!-- unknown layout component: X -->`
+// / `const SizedBox.shrink() /* unknown layout component: X */`).  Declaration
+// and use disappear together: `ddd parse` clean, codegen clean, `dotnet fable` /
+// `ng build` / `flutter analyze` clean, and the component is simply not in the
+// app.
 //
-// The two emitters gate their OWN async-effect shape honestly already
+// The three emitters gate their OWN async-effect shape honestly already
 // (`loom.feliz-async-effect-unsupported`, `loom.flutter-async-effect-
 // unsupported` for the Flutter twin) — every other filtered shape was silent.
+//
+// FLUTTER JOINED LATE, AND THAT IS THE LESSON.  This gate shipped covering two
+// frameworks while `src/generator/flutter/component-emit.ts` was already
+// filtering four shapes of its own — because the set below was a hand-written
+// literal and the completeness test derived its scope from a hand-written union
+// type, so nothing independent re-derived which emitters actually filter.  The
+// test now runs a probe battery through EVERY frontend and fails when a
+// framework drops one without appearing here.
 //
 // EACH ARM MIRRORS A FILTER, and says which.  The arms below were not read off
 // the emitter source alone: every one was MEASURED on this HEAD by generating
@@ -373,6 +382,21 @@ const MAP_UNRENDERED_FRAMEWORK = "feliz";
 /** Frameworks whose component emitter FILTERS its emitted set.  Keyed by the
  *  resolved ui framework, which is what actually renders (`ui.framework` wins
  *  over the deployable's platform-derived default — a `platform: static` host
- *  serves whichever bundle the ui declares). */
+ *  serves whichever bundle the ui declares).
+ *
+ *  THIS LITERAL CANNOT BE DERIVED HERE.  `src/ir/` may not import
+ *  `src/generator/` (the one-directional pipeline; `pipeline-layering.test.ts`
+ *  fails on the edge), so the set of filtering emitters cannot be read off the
+ *  emitters at validation time.  What ratchets it instead is a BEHAVIOURAL
+ *  derivation in the test: `user-component-deferred.test.ts` renders one probe
+ *  battery through EVERY frontend and asserts that a framework which drops a
+ *  probe (the walker's `unknown layout component:` give-up comment) appears
+ *  here.  That is the check this literal was missing when Flutter grew a
+ *  component filter without joining the set — a gate whose scope is a hand-kept
+ *  list only ratchets if something independent re-derives the list. */
 
-const COMPONENT_FILTERING_FRAMEWORKS = new Set(["feliz", "angular"]);
+export const COMPONENT_FILTERING_FRAMEWORKS: ReadonlySet<string> = new Set([
+  "feliz",
+  "angular",
+  "flutter",
+]);

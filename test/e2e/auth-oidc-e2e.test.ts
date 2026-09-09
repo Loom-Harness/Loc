@@ -5,6 +5,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { hasDocker } from "./support/docker-probe.js";
 
 // ---------------------------------------------------------------------------
 // OIDC runtime e2e (D-AUTH-OIDC).  Boots a REAL Keycloak (the bundled dev
@@ -27,15 +28,6 @@ const cli = path.join(repoRoot, "bin", "cli.js");
 const fixture = path.join(here, "fixtures", "auth-oidc-e2e.ddd");
 
 const ENABLED = process.env.LOOM_AUTH_E2E === "1";
-
-function hasDocker(): boolean {
-  try {
-    execSync("docker ps", { stdio: "ignore" });
-    return true;
-  } catch {
-    return false;
-  }
-}
 
 const RUN = ENABLED && hasDocker();
 
@@ -88,7 +80,7 @@ describe.skipIf(!RUN)("auth OIDC e2e: real Keycloak token flow (LOOM_AUTH_E2E=1)
     outDir = fs.mkdtempSync(path.join(os.tmpdir(), "loom-auth-e2e-"));
     execSync(`node ${cli} generate system ${fixture} -o ${outDir}`, { stdio: "inherit" });
     const apiDir = path.join(outDir, "api");
-    execSync("npm install --silent --no-audit --no-fund", {
+    execSync("npm install --loglevel=error --no-audit --no-fund", {
       cwd: apiDir,
       stdio: "inherit",
       timeout: 240_000,

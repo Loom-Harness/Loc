@@ -6,7 +6,6 @@
 // -------------------------------------------------------------------------
 
 import { diagMessage } from "../../../diagnostics/messages.js";
-import { isCollectionOp } from "../../../util/collection-ops.js";
 import {
   WALKER_PRIMITIVE_NAMED_ARGS,
   walkerPrimitiveNamedArgs,
@@ -22,6 +21,15 @@ import type {
   StoreIR,
   TypeIR,
 } from "../../types/loom-ir.js";
+import {
+  collectionOpOnBinding,
+  collectionOpSite,
+  FRONTEND_RENDERED_COLLECTION_OPS,
+  isCollectionReceiver,
+  isCollectionType,
+  pagedEnvelopeLambdaParam,
+  rowSetLambdaParam,
+} from "../../util/collection-op-site.js";
 import { typeLabel } from "../../util/type-label.js";
 import {
   walkExprChildren,
@@ -104,28 +112,12 @@ import { namedArg, walkerRenderedExprs } from "./ui-checks-shared.js";
  *  at least the four JS frontends.  Grow this set only alongside a real
  *  renderer on every frontend. */
 
-const FRONTEND_RENDERED_COLLECTION_OPS: ReadonlySet<string> = new Set(["map"]);
-
 /** True when a receiver type is a real collection — an `array`, or an
  *  `optional` wrapping one (`rows?.count`). */
-
-function isCollectionType(t: TypeIR): boolean {
-  const unwrapped = t.kind === "optional" ? t.inner : t;
-  return unwrapped.kind === "array";
-}
 
 /** True when this receiver is known to hold a collection: either its `TypeIR`
  *  says so, or it is a bare ref to a row-set lambda binding (see the block
  *  above for why both are needed). */
-
-function isCollectionReceiver(
-  receiver: ExprIR,
-  receiverType: TypeIR,
-  rowSetBindings: ReadonlySet<string>,
-): boolean {
-  if (isCollectionType(receiverType)) return true;
-  return receiver.kind === "ref" && rowSetBindings.has(receiver.name);
-}
 
 /** The unsupported collection-op name this node uses, or undefined.
  *  Covers BOTH spellings lowering produces: the call form
@@ -134,34 +126,31 @@ function isCollectionReceiver(
  *  `lower-expr.ts` only rewrites a no-paren op into a call for the
  *  `NO_PAREN_CALL_COLLECTION_OPS` names on a TYPED collection). */
 
+/** The unsupported collection-op name this node uses, or undefined.
+ *
+ *  Site recognition — both spellings lowering produces, and what counts as a
+ *  collection RECEIVER — is `ir/util/collection-op-site.ts`'s
+ *  `collectionOpSite`, the SAME function the frontend walkers route on.  That
+ *  is deliberate and load-bearing: this check and the walkers are two halves
+ *  of one contract, and the failure mode of two hand-kept-in-sync predicates
+ *  is the worst one available — a node this check ALLOWS but the walker does
+ *  not recognise falls through to the verbatim `<recv>.<member>` emit that
+ *  `loom.frontend-collection-op-unsupported` exists to prevent.  One function
+ *  makes that unrepresentable.
+ *
+ *  What stays local is the POLICY: which recognised ops are refused. */
 function unsupportedCollectionOp(
   e: ExprIR,
   rowSetBindings: ReadonlySet<string>,
-  mapRendered: boolean,
 ): string | undefined {
-  const named =
-    e.kind === "method-call" && e.isCollectionOp
-      ? e
-      : e.kind === "member" && isCollectionOp(e.member)
-        ? e
-        : undefined;
-  if (!named) return undefined;
-  if (mapRendered && FRONTEND_RENDERED_COLLECTION_OPS.has(named.member)) return undefined;
-  if (!isCollectionReceiver(named.receiver, named.receiverType, rowSetBindings)) return undefined;
-  return named.member;
+  const site = collectionOpSite(e, rowSetBindings);
+  if (site === undefined) return undefined;
+  if (FRONTEND_RENDERED_COLLECTION_OPS.has(site.op)) return undefined;
+  return site.op;
 }
 
 /** The `data:` lambda param a `QueryView` binds to a query's ROW SET, or
  *  undefined.  `single: true` binds one record, not a collection. */
-
-function rowSetLambdaParam(e: ExprIR): string | undefined {
-  if (e.kind !== "call" || e.name !== "QueryView") return undefined;
-  const single = namedArg(e, "single");
-  if (single?.kind === "literal" && single.lit === "bool" && single.value === "true")
-    return undefined;
-  const data = namedArg(e, "data");
-  return data?.kind === "lambda" ? data.param : undefined;
-}
 
 /** Every expression surface of a STORE a frontend emits: the state
  *  initialisers.  (Its action bodies are walked separately, exactly as a
@@ -569,10 +558,12 @@ function acceptedArgsSentence(name: string): string {
  *  One diagnostic per (host, op name): a body reading `rows.count` twice is one
  *  authoring mistake, not two. */
 
+/** F3 — reject a stdlib collection op anywhere the frontend walker renders it.
+ *  One diagnostic per (host, op name): a body reading `rows.count` twice is one
+ *  authoring mistake, not two. */
 export function checkFrontendCollectionOps(
   host: PageIR | ComponentIR | StoreIR,
   where: string,
-  mapRendered: boolean,
   diags: LoomDiagnostic[],
 ): void {
   const flagged = new Set<string>();
@@ -586,29 +577,49 @@ export function checkFrontendCollectionOps(
       source: where,
     });
   };
-  // Scope-tracking walk: `rowSetBindings` grows as we descend into a
-  // `QueryView`'s `data:` lambda, so `rows` is recognised as a collection
-  // inside that lambda and nowhere else.  (`walkExprDeep` can't thread scope,
-  // hence the explicit recursion over `walkExprChildren`.)
-  const visitStmt = (s: StmtIR, scope: ReadonlySet<string>): void =>
+  // Scope-tracking walk over TWO binding kinds, both grown as we descend into a
+  // `QueryView`'s `data:` lambda and both scoped to that lambda alone.
+  // (`walkExprDeep` can't thread scope, hence the explicit recursion over
+  // `walkExprChildren`.)
+  //
+  //   rows      — a genuine ROW SET.  `rowSetLambdaParam`, shared with the
+  //               walkers, so gate and renderer agree on the sites.
+  //   envelope  — an explicitly-`paged:` binding, which is the `Paged<T>`
+  //               CARRIER (`{items, page, pageSize, total, totalPages}`), not
+  //               the rows.  No frontend can render ANY collection op off it,
+  //               so every catalogue op there is refused, whatever the op —
+  //               and refusing is the point: dropping it from the walk instead
+  //               would let `rows.count` fall through to the walker's verbatim
+  //               `.count` emit, which is the failure this whole check exists
+  //               to prevent.  (`rows.items.count` is the spelling that works.)
+  interface Scope {
+    rows: ReadonlySet<string>;
+    envelope: ReadonlySet<string>;
+  }
+  const visitStmt = (s: StmtIR, scope: Scope): void =>
     walkStmtChildren(
       s,
       (c) => visit(c, scope),
       (n) => visitStmt(n, scope),
     );
-  const visit = (e: ExprIR, rowSetBindings: ReadonlySet<string>): void => {
-    const op = unsupportedCollectionOp(e, rowSetBindings, mapRendered);
+  const visit = (e: ExprIR, scope: Scope): void => {
+    const op = unsupportedCollectionOp(e, scope.rows) ?? collectionOpOnBinding(e, scope.envelope);
     if (op !== undefined) report(op);
     const rowParam = rowSetLambdaParam(e);
-    const inner: ReadonlySet<string> = rowParam
-      ? new Set<string>([...rowSetBindings, rowParam])
-      : rowSetBindings;
+    const envParam = pagedEnvelopeLambdaParam(e);
+    // Rebind, don't merely add: a nested `QueryView` reusing the name (`rows`)
+    // must SHADOW the outer binding in the OTHER set too, or an inner envelope
+    // binding would still read as an outer row set.
+    const inner: Scope = {
+      rows: rebindScope(scope.rows, rowParam, envParam),
+      envelope: rebindScope(scope.envelope, envParam, rowParam),
+    };
     walkExprChildren(e, {
       expr: (c) => visit(c, inner),
       stmt: (s) => visitStmt(s, inner),
     });
   };
-  const empty: ReadonlySet<string> = new Set<string>();
+  const empty: Scope = { rows: new Set<string>(), envelope: new Set<string>() };
   // `lifetime` is StoreIR's discriminator — a page/component never carries one.
   const roots = "lifetime" in host ? storeRenderedExprs(host) : walkerRenderedExprs(host);
   for (const e of roots) visit(e, empty);
@@ -780,4 +791,18 @@ export function checkChartArgs(
       }
     }
   });
+}
+
+/** Add `add` to a binding set and remove `remove` from it — the shadowing rule
+ *  a nested `QueryView` needs when it rebinds a name into the OTHER kind. */
+function rebindScope(
+  set: ReadonlySet<string>,
+  add: string | undefined,
+  remove: string | undefined,
+): ReadonlySet<string> {
+  if (add === undefined && (remove === undefined || !set.has(remove))) return set;
+  const next = new Set(set);
+  if (add !== undefined) next.add(add);
+  if (remove !== undefined) next.delete(remove);
+  return next;
 }

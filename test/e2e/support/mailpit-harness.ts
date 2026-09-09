@@ -21,15 +21,12 @@ import { execSync } from "node:child_process";
 import * as net from "node:net";
 import { expect } from "vitest";
 
-/** True when a docker daemon is reachable (sidecars need it, unless overridden). */
-export function hasDocker(): boolean {
-  try {
-    execSync("docker info", { stdio: "pipe", timeout: 5_000 });
-    return true;
-  } catch {
-    return false;
-  }
-}
+/**
+ * True when docker is usable — re-exported so the sibling suites that import
+ * it from this harness keep working.  See `docker-probe.ts` for why the old
+ * inline `docker info` probe reported a busy daemon as a missing one.
+ */
+export { hasDocker, requireDocker } from "./docker-probe.js";
 
 /** Pick a port the OS just confirmed is free (small race window; opt-in suite). */
 export async function freePort(): Promise<number> {

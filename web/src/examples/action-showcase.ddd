@@ -38,7 +38,9 @@ system ActionShowcase {
     component OrderActions(order: Order) {
       body: Toolbar {
         Action { order.confirm, then: navigate(Home) },
-        Action { order.cancel },
+        // `then:` may also be the toast effect — the OTHER spelling F3 of the
+        // 2026-09-03 audit found emitting an undeclared `toast` symbol.
+        Action { order.cancel, then: toast("Cancelled") },
         Modal { OperationForm { order.note }, trigger: Button { "Add note" }, title: "Add note" }
       }
     }

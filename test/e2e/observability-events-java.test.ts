@@ -5,6 +5,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { requireDocker } from "./support/docker-probe.js";
 
 // ---------------------------------------------------------------------------
 // Observability e2e for the Java backend (LOOM_OBS_E2E_JAVA=1): generate a
@@ -48,15 +49,6 @@ system ObsShop {
   }
 }
 `;
-
-function hasDocker(): boolean {
-  try {
-    execSync("docker info", { stdio: "pipe", timeout: 5_000 });
-    return true;
-  } catch {
-    return false;
-  }
-}
 
 function hasGradle(): boolean {
   try {
@@ -117,9 +109,7 @@ describe.skipIf(!ENABLED)(
       // Prerequisite checks INSIDE the test so a misconfigured CI
       // environment fails loudly instead of skipping silently.
       if (!hasGradle()) throw new Error("LOOM_OBS_E2E_JAVA=1 requires Gradle on PATH");
-      if (!PG_URL_OVERRIDE && !hasDocker()) {
-        throw new Error("LOOM_OBS_E2E_JAVA=1 requires docker (or LOOM_OBS_PG_URL)");
-      }
+      if (!PG_URL_OVERRIDE) requireDocker("LOOM_OBS_E2E_JAVA=1", "LOOM_OBS_PG_URL");
 
       const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "loom-obs-java-"));
       const srcFile = path.join(outDir, "obs.ddd");

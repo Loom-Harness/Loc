@@ -44,9 +44,25 @@ export function allMacros(): readonly MacroDefinition[] {
   return Array.from(registry.values());
 }
 
-/** Test/harness hook: wipe the registry.  Stdlib re-registers
- * itself on next import; project-local macros need to be re-loaded
- * explicitly. */
+/** Test/harness hook: wipe the registry.
+ *
+ * It does NOT restore anything by itself, and the stdlib in particular does
+ * not come back: `loadStdlibMacros()` latches on a module-level `_loaded`
+ * flag, so calling it after this is a no-op and the process is left with an
+ * EMPTY registry for every later caller.  Under `isolate: false` (one module
+ * graph per worker) that reaches other test FILES, as an order-dependent
+ * failure whose cause looks unrelated to whichever file exposes it.
+ *
+ * So a caller must restore what it wiped, one of two ways:
+ *   - re-register the exact prior contents (`allMacros()` before, replayed
+ *     after — this preserves order, which `lookupMacro` collisions depend on), or
+ *   - call `_resetStdlibLoadFlag()` from `./stdlib/index.js` and then
+ *     `loadStdlibMacros()` to rebuild the stdlib half.
+ *
+ * The two hooks stay separate rather than being fused here because
+ * `stdlib/index.ts` imports `registerMacro` from this module — reaching back
+ * the other way would close an import cycle.
+ * `test/system/module-global-state-census.test.ts` pins the coupling. */
 export function _resetRegistryForTests(): void {
   registry.clear();
 }

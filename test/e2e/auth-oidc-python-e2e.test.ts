@@ -5,6 +5,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { hasDocker } from "./support/docker-probe.js";
 
 // ---------------------------------------------------------------------------
 // OIDC runtime e2e on the Python/FastAPI backend (D-AUTH-OIDC).  The Python
@@ -32,18 +33,9 @@ const fixture = path.join(here, "fixtures", "python-build", "auth-oidc.ddd");
 
 const ENABLED = process.env.LOOM_AUTH_E2E_PYTHON === "1";
 
-function hasDocker(): boolean {
-  try {
-    execSync("docker ps", { stdio: "ignore" });
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 function hasUv(): boolean {
   try {
-    execSync("uv --version", { stdio: "pipe", timeout: 5_000 });
+    execSync("uv --version", { stdio: "pipe", timeout: 15_000 });
     return true;
   } catch {
     return false;

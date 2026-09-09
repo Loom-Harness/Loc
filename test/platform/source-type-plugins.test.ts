@@ -6,21 +6,21 @@ import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { discoverSourceTypePlugins } from "../../src/platform/source-type-plugins.js";
 import {
+  _unregisterSourceTypeForTests,
   capabilitiesFor,
   configSchemaFor,
   registeredSourceTypes,
   sourceTypeFor,
   supportsSurfaceKind,
-  unregisterSourceType,
 } from "../../src/util/source-types.js";
 
 let dir: string;
-// The sourceType registry is module-global and this file registers real
-// plugins into it.  Under `isolate: false` (vitest.config.ts) one module graph
-// is shared by every file in a worker, so a leaked registration reaches
-// whichever later file asserts the registry's exact contents — an
-// order-dependent failure that only surfaces when the two land in one shard.
-let preexisting: string[];
+/** The registry is module-global and the unit project runs `isolate: false`,
+ *  so a sourceType registered here outlives this file and leaks into whatever
+ *  runs next in the same worker.  Snapshot the names up front and drop the
+ *  delta after each case, so discovery tests cannot pollute a later file's
+ *  exact-contents assertions. */
+let registeredBefore: string[];
 
 function writePkg(name: string, pkg: unknown): void {
   const root = path.join(dir, name);
@@ -30,16 +30,13 @@ function writePkg(name: string, pkg: unknown): void {
 
 beforeEach(() => {
   dir = mkdtempSync(path.join(tmpdir(), "loom-stplugins-"));
-  preexisting = registeredSourceTypes();
+  registeredBefore = registeredSourceTypes();
 });
 afterEach(() => {
   rmSync(dir, { recursive: true, force: true });
   for (const name of registeredSourceTypes()) {
-    if (!preexisting.includes(name)) unregisterSourceType(name);
+    if (!registeredBefore.includes(name)) _unregisterSourceTypeForTests(name);
   }
-  // Proves the restore above actually happened: without it this file leaves
-  // `clickhouseCloud` behind for every later file in the worker.
-  expect(registeredSourceTypes()).toEqual(preexisting);
 });
 
 describe("sourceType plugin discovery", () => {

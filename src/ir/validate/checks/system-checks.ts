@@ -31,7 +31,6 @@ export { validateDefaultDeny } from "./default-deny-checks.js";
 export {
   validateDapperSupport,
   validateFindPredicateAdapterSupport,
-  validateMikroOrmSupport,
 } from "./orm-adapter-checks.js";
 export {
   validateGuardPrincipalWithoutAuth,
