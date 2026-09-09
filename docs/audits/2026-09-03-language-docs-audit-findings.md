@@ -405,14 +405,35 @@ An unhandled rejection on every click, plus an undefined `setMessage`. The same
 "typed placeholder await… so the statement is never dropped" — the intent was to avoid a
 silent drop, and the result is a runtime bomb instead, still with no diagnostic.
 
-**Root cause, and it is a one-line reach problem:** `loom.match-non-union-subject` lives in
-`validateVariantMatch` (`structural-checks.ts:1114`), which visits `ExprIR` nodes with
-`kind === "match"`. A `match` in an action body lowers to a **`StmtIR` `variant-match`**, which
-that visitor never sees. The ui-side checks that *do* walk `variant-match` statements
-(`forEachVariantMatch`, `ui-checks.ts:1436`) check the route-id and effect-marker rules but
-never that the subject resolves to a union or to a remote op. This is Wave 2's invariant
-again — a walker declining to render correctly without saying so — so it belongs with W2.3
-rather than in a text packet.
+**Root cause — corrected after trying the obvious fix.** The first diagnosis was that
+`loom.match-non-union-subject` lives in `validateVariantMatch` (`structural-checks.ts:1114`),
+which visits `ExprIR` nodes with `kind === "match"` and so never sees the `StmtIR`
+`variant-match` an action body lowers to. That reach gap is real, and it is **not** the
+blocker. Wiring the four gates to the three `ActionIR` carriers was built, and it **rejects the
+shipping Stage 2 fixture** — the legitimate `match await Sales.Order.placeOrder()` over a
+declared `Order or Failed`:
+
+```
+loom.match-non-union-subject … its type is p:string
+```
+
+`StmtIR.subjectType` is documented as *"Resolved `or`-union TypeIR of the subject — the variant
+set"*. It is not. `lowerMatchStmt` (`lower-stmt.ts:104`) fills it from `inferExprType`, whose
+**catch-all is `{ kind: "primitive", name: "string" }`** (`lower-expr.ts:1954`) — the same value
+it returns for `undefined` and for a null literal. An api-handle operation call is the *only*
+subject shape Stage 2 `match await` exists for, and `inferExprType` cannot resolve one, so every
+such subject silently types as `string`, byte-identical to a genuine string subject.
+
+So no type-grounded gate can run on the statement form at all: it would either miss both cases
+or reject both. **The fix is a lowering slice** — teach `inferExprType` to resolve an api-handle
+operation call to its declared return type — not a validation one, and it is
+`language-feature-developer`-shaped. The expression form's four gates rest on the same field, so
+they are unreliable for the same subject shape; they simply never meet one.
+
+Shipped meanwhile (W2.3 slice 1): the four gates are extracted to
+`src/ir/validate/checks/variant-match-shape.ts` behind one `checkVariantMatchShape`, so the
+statement form gains them in one line the day `subjectType` resolves;
+`test/ir/variant-match-subject-type.test.ts` pins the defect and fails the day it is fixed.
 
 **F55 (found while fixing W4.1). 119 validator errors carry no `loom.*` code at all.**
 The catalog's three invariants only see a site that attaches a code, so an
