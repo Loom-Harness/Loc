@@ -190,8 +190,29 @@ const REGISTER_FILE = path.join(srcRoot, "diagnostics", "unsupported-register.ts
  *  `--warnings-as-errors` and then silently does nothing.  The statement ships
  *  on the other four backends; refusing it on the fifth is the honest half.
  *  Draining it is M-T6.59 (value-producing branches in every vanilla body
- *  renderer), which deletes the row and lowers this back to 47. */
-const MAX_OPEN_GAPS = 48;
+ *  renderer), which deletes the row and lowers this back to 47.
+ *
+ *  48 → 49: `loom.page-form-locals-unsupported`.  The same trade this register
+ *  exists to record — the gap is not new (two forms on one page have always
+ *  redeclared the bare `create` / `form` / `register` / `handleSubmit` the
+ *  design packs emit), only the honesty is.  It was a TS2300 in the GENERATED
+ *  project on react/svelte and, on vue, no error at all: the shell deduped the
+ *  declarations, so the second form silently posted the first form's mutation
+ *  with the first form's schema.  Scoped to react/vue/svelte: ANGULAR emits the
+ *  shape correctly (aggregate-scoped locals, plus #2734's ordinal suffix for a
+ *  second same-aggregate form), so it is the reference implementation and not a
+ *  gap — an earlier revision of this row listed it, which made the gate refuse
+ *  a shape that works and hid #2734's own test behind the refusal.  Draining
+ *  the remaining three means threading that same per-FORM ordinal through the
+ *  ~68 pack templates that hardcode the names, which deletes the row and lowers
+ *  this back to 48.
+ *
+ *  49 → 50: `loom.component-children-unsupported`.  Same trade — the drop is
+ *  not new (angular's `renderUserComponent` has always dropped the children
+ *  positional, with only its own doc comment admitting it), only the honesty
+ *  is.  The child markup appeared NOWHERE in the emitted project.  Drained by
+ *  the selector-tag call site, which deletes the row and lowers this back to 49. */
+const MAX_OPEN_GAPS = 50;
 
 function walk(dir: string, out: string[] = []): string[] {
   for (const e of fs.readdirSync(dir, { withFileTypes: true })) {

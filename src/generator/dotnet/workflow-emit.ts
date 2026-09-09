@@ -46,6 +46,7 @@ import {
   csIdValueClrType,
   dtoParam,
   maskNamer,
+  noNulCharUsing,
   projectEntityExpr,
   projectToResponse,
   wireToCommandArgument,
@@ -244,7 +245,7 @@ using System;
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
 using ${ns}.Domain.Enums;
-
+${noNulCharUsing(ns, recs)}
 namespace ${ns}.Application.Workflows;
 
 ${recs}`;
@@ -1129,7 +1130,7 @@ function renderRequestDto(wf: WorkflowIR, ctx: EnrichedBoundedContextIR, ns: str
 using System.ComponentModel.DataAnnotations;
 using ${ns}.Domain.ValueObjects;
 using ${ns}.Domain.Enums;
-
+${noNulCharUsing(ns, params)}
 namespace ${ns}.Application.Workflows;
 
 public sealed record ${upperFirst(wf.name)}Request(${params});

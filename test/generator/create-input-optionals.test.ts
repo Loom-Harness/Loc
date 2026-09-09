@@ -75,7 +75,9 @@ describe("create-input contract — optionals are included", () => {
     const files = await generateSystemFiles(FIXTURE);
     const routes = findFile(files, /project\.routes\.ts$/i)!;
     const block = routes.match(/const CreateProjectRequest = z\.object\(\{[\s\S]*?\}\)/)![0];
-    expect(block).toMatch(/name:\s*z\.string\(\),/);
+    expect(block).toMatch(
+      /name:\s*z\.string\(\)\.refine\(\(s: string\) => !s\.includes\("\\u0000"\)\),/,
+    );
     expect(block).toMatch(/description:\s*z\.string\(\)\.nullish\(\)/);
     expect(block).toMatch(/externalId:\s*z\.string\(\)\.nullish\(\)/);
   });

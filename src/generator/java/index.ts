@@ -24,6 +24,7 @@ import {
 import type { MigrationsIR } from "../../ir/types/migrations-ir.js";
 import type { OriginRef } from "../../ir/types/origin.js";
 import {
+  aggregatesCanTripDanglingReference,
   aggregatesCanTripReferencedDelete,
   aggregatesHaveUniqueKeys,
   aggregatesNeedConcurrency,
@@ -68,6 +69,7 @@ import { inlineRunBypassesByRetrieval, promotedCapabilities } from "./capability
 import {
   renderApiExceptionAdvice,
   renderJavaController,
+  renderNoNulCharConstraint,
   renderStaticSubpathMethodFilter,
 } from "./emit/api.js";
 import {
@@ -450,6 +452,15 @@ function emitProjectFromContexts(
     "domain-common",
     renderAggregateNotFoundException(basePkg),
   );
+  // F19 — money and datetime cross the wire as STRINGS and were parsed bare in
+  // the service, so a malformed one threw past every advice arm as a 500. This
+  // carries the guarded parses AND the exception they raise; the advice's own
+  // arm renders it as the 422 + errors[] envelope the other backends send.
+  place("WireFormatException.java", "domain-common", renderWireFormatException(basePkg));
+  // F20 — a NUL is a legal JSON string character and an illegal Postgres `text`
+  // byte, so without a guard the driver's refusal escapes as a 500. Emitted
+  // unconditionally: every project has request DTOs with strings.
+  place("NoNulChar.java", "api-common", renderNoNulCharConstraint(basePkg));
   place("Paged.java", "domain-common", renderPagedRecord(basePkg));
   // File upload/download (M-T1.2): a hosted File field ⇒ emit the shared FileRef
   // record; the bound objectStore ⇒ mount root POST /files / GET /files/{key}
@@ -508,6 +519,9 @@ function emitProjectFromContexts(
       structuralErrorStatuses,
       validationMessages.length > 0,
       hasReferencedDelete,
+      // The 23503 → domain-floor arm's own gate: a write can name a reference row
+      // that does not exist.  A reference-free project stays byte-identical.
+      contexts.some((c) => aggregatesCanTripDanglingReference(c.aggregates)),
     ),
   );
   // F18 — a wrong verb on a static sub-path (`DELETE /api/customers/by_email`)

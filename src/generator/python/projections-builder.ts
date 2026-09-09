@@ -3,7 +3,7 @@ import { exprUsesCurrentUser, isMaterializedProjection } from "../../ir/types/lo
 import { type LinesPart, lines } from "../../util/code-builder.js";
 import { resolveErrorStatus } from "../../util/error-defaults.js";
 import { snake, upperFirst } from "../../util/naming.js";
-import { responsePyType } from "./emit/http-models.js";
+import { responsePyType, wireModelImport } from "./emit/http-models.js";
 import { wireHelperImport } from "./py-type-imports.js";
 import { renderPyNegatedGuard } from "./render-expr.js";
 import { errorResponsesKwarg } from "./routes-builder.js";
@@ -66,6 +66,12 @@ export function buildPyProjectionsFile(ctx: EnrichedBoundedContextIR): string | 
     // when a projection actually declares one (ruff F401 otherwise).
     refersTo("User") ? "from app.auth.user import User" : null,
     refersTo("ProblemDetails") ? "from app.http.problem import ProblemDetails" : null,
+    // A read-model field is annotated through `responsePyType`, which returns the
+    // SHARED wire aliases for the primitives that carry a guard or a published
+    // format (`Int32`, `WireNum`, `WireInt`, `MoneyStr`, `UuidStr`).  Without
+    // this line those names are undefined here — ruff F821 on the generated
+    // project, which only the corpus tier sees.
+    wireModelImport([], refersTo),
     wireHelperImport(refersTo),
     voEnumNames.length > 0
       ? `from app.domain.value_objects import ${voEnumNames.join(", ")}`

@@ -104,7 +104,9 @@ describe("python generator — versioned optimistic-concurrency", () => {
       "routes.py",
     );
     // Read model carries the token.
-    expect(routes).toContain("version: int");
+    // `Int32`: a declared `int` carries its int4 bound + published format
+    // through the shared alias (F11). The version token is one.
+    expect(routes).toContain("version: Int32");
   });
 
   it("an aggregate WITHOUT `with versioned` gets the same guarded upsert — versioning is default-on (M-T3.4)", async () => {

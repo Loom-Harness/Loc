@@ -14,6 +14,11 @@ import {
   unionMemberObjects,
   unionMembers,
 } from "../../../generator/_payload/union-wire.js";
+import {
+  PG_FOREIGN_KEY_VIOLATION,
+  PG_REFERENCED_IN_USE_SQLSTATES,
+  PG_UNIQUE_VIOLATION,
+} from "../../../generator/_persistence/pg-sqlstate.js";
 import { MONEY_WIRE_SCALE } from "../../../generator/money-scale.js";
 import {
   historyMapperArgs,
@@ -72,6 +77,7 @@ import {
   type WirePrimitive,
   wireTypeInfo,
 } from "../../../ir/types/wire-types.js";
+import { aggregateCanTripDanglingReference } from "../../../ir/util/aggregate-flags.js";
 import {
   type ApiOperationIR,
   apiStatusContext,
@@ -90,7 +96,11 @@ import {
   operationGates,
   operationGatesUseCurrentUser,
 } from "../../../ir/util/op-gates.js";
-import { problemTitle, UNPROCESSABLE_ENTITY } from "../../../ir/util/openapi-errors.js";
+import {
+  DANGLING_REFERENCE_DETAIL,
+  problemTitle,
+  UNPROCESSABLE_ENTITY,
+} from "../../../ir/util/openapi-errors.js";
 import {
   camelId,
   opCreate,
@@ -1226,14 +1236,22 @@ export function buildRoutesFile(
       lines.push(`        await repo.delete(Ids.${agg.name}Id(id));`);
     }
     lines.push(`      } catch (err) {`);
-    // PG foreign_key_violation (SQLSTATE 23503) — the row is still
-    // referenced.  Map to a 409 problem locally so the shared onError
-    // (and every other route's behaviour) stays untouched.  drizzle-orm
+    // The row is still referenced.  Map to a 409 problem locally so the shared
+    // onError (and every other route's behaviour) stays untouched.  drizzle-orm
     // (>= the DrizzleQueryError era, e.g. the v5 zod-4 stack) wraps the driver
     // error, so the pg SQLSTATE rides `err.cause.code`, not `err.code`; read
     // both so the map works on the wrapped and the raw (older-drizzle) shapes.
+    //
+    // The SQLSTATE is `restrict_violation` (23001), NOT `foreign_key_violation`
+    // (23503): the FK this trips is emitted `ON DELETE RESTRICT`, and a RESTRICT
+    // check raises its own code.  Keying on 23503 alone is why this arm never
+    // fired and the declared 409 leaked as a 500 — measured on a booted app
+    // against a real Postgres, which the node behavioral leg cannot see because
+    // its PGlite DDL synthesises no foreign keys at all.  23503 stays in the set
+    // for a NO ACTION FK; on the delete path nothing else can raise it.
+    const referencedSqlstates = `[${PG_REFERENCED_IN_USE_SQLSTATES.map((c) => JSON.stringify(c)).join(", ")}]`;
     lines.push(
-      `        if (err && typeof err === "object" && (((err as { code?: string }).code ?? (err as { cause?: { code?: string } }).cause?.code) === "23503")) {`,
+      `        if (err && typeof err === "object" && ${referencedSqlstates}.includes(((err as { code?: string }).code ?? (err as { cause?: { code?: string } }).cause?.code) as string)) {`,
     );
     lines.push(
       `          return c.body(JSON.stringify({ type: "about:blank", title: ${JSON.stringify(httpStatusText(referencedInUseStatus))}, status: ${referencedInUseStatus}, detail: "${agg.name} is still referenced and cannot be deleted.", instance: c.req.path }), ${referencedInUseStatus}, { "content-type": "application/problem+json" });`,
@@ -1386,6 +1404,33 @@ export function buildRoutesFile(
     `      return problem(${notFoundStatus}, ${JSON.stringify(problemTitle(notFoundStatus))}, err.message);`,
   );
   lines.push(`    }`);
+  // PG foreign_key_violation (SQLSTATE 23503) reaching the SHARED onError is the
+  // DANGLING-reference case: a write named a well-formed id for a row that is
+  // not there.  The still-referenced DELETE trips the same SQLSTATE but is
+  // caught and answered locally on the destroy route above, so it never arrives
+  // here.  A reference that is absent is a well-formed request refused on
+  // SEMANTIC grounds — the domain floor (422 by default), which every write
+  // route already declares — not a conflict with state that exists, and not the
+  // 500 it leaked as before.  Wire validation cannot catch it: a uuid is only
+  // wrong because the row is missing.  Gated on this aggregate carrying a
+  // cross-aggregate `X id` (its own or a contained part's), so a
+  // reference-free aggregate's router emits byte-identically.
+  if (aggregateCanTripDanglingReference(agg, new Set(ctx.aggregates.map((a) => a.name)))) {
+    // drizzle-orm wraps the driver error (DrizzleQueryError), so the pg SQLSTATE
+    // rides `err.cause.code`, not `err.code`; read both, exactly as the local
+    // delete-path arm and the 23505 arm below do.
+    lines.push(
+      `    if (err && typeof err === "object" && (((err as { code?: string }).code ?? (err as { cause?: { code?: string } }).cause?.code) === ${JSON.stringify(PG_FOREIGN_KEY_VIOLATION)})) {`,
+    );
+    lines.push(
+      `      ${renderHonoLogCall("domainError", `aggregate: "${agg.name}", message: ${JSON.stringify(DANGLING_REFERENCE_DETAIL)}, status: ${domainStatus}`)}`,
+    );
+    lines.push(`      recordDomainFault("domain_error");`);
+    lines.push(
+      `      return problem(${domainStatus}, ${JSON.stringify(problemTitle(domainStatus))}, ${JSON.stringify(DANGLING_REFERENCE_DETAIL)});`,
+    );
+    lines.push(`    }`);
+  }
   // PG unique_violation (SQLSTATE 23505) — a `unique (...)` domain invariant
   // was breached (the DB unique index is the enforcement contract,
   // uniqueness-and-indexes.md D-UNIQUE-DB-AUTHORITATIVE).  Map to 409 Conflict
@@ -1399,7 +1444,7 @@ export function buildRoutesFile(
     // a genuine unique breach maps to 409 under the wrapped (v5) and raw
     // (older-drizzle) shapes alike, instead of falling through to a 500.
     lines.push(
-      `    if (err && typeof err === "object" && (((err as { code?: string }).code ?? (err as { cause?: { code?: string } }).cause?.code) === "23505")) {`,
+      `    if (err && typeof err === "object" && (((err as { code?: string }).code ?? (err as { cause?: { code?: string } }).cause?.code) === ${JSON.stringify(PG_UNIQUE_VIOLATION)})) {`,
     );
     lines.push(
       `      ${renderHonoLogCall("disallowed", `aggregate: "${agg.name}", message: (err as { constraint?: string }).constraint ?? (err as { cause?: { constraint?: string } }).cause?.constraint ?? "unique_violation", status: ${uniquenessStatus}`)}`,
@@ -2298,8 +2343,53 @@ const BODY_DATETIME =
 export const QUERY_BOOL =
   'z.preprocess((v) => (v === "true" || v === "1" ? true : v === "false" || v === "0" ? false : v), z.boolean())';
 
+/** A declared `int` is an `int4` COLUMN, so its wire form carries that bound and
+ *  publishes `format: int32` — what .NET and java have always emitted.
+ *
+ *  node published `{"type": "integer"}` with no bound and enforced none, so a
+ *  value the contract permitted — measured, `qty: 9543751572142` — reached the
+ *  column and answered **500** (schemathesis F11). `.min`/`.max` make the
+ *  rejection the shared 422 `defaultHook` answers, and `.openapi({format})`
+ *  makes the published shape match the two backends that were already right.
+ *
+ *  `long` is deliberately left bare: it is a `bigint` column, and the int64
+ *  range it would declare is wider than a JS number carries exactly — a bound
+ *  nothing enforces is worse than none. */
+/** The int4 range an `int` column has, as a zod chain fragment. Split out from
+ *  the published format so a field that declares its OWN, tighter bound can
+ *  drop the range and keep the format (see `INT32_RANGE` use below). */
+/** A declared `string` lands in a Postgres `text` column, which cannot hold
+ *  U+0000: the driver rejects the row with `CharacterNotInRepertoireError`
+ *  (22021) and the error escapes as a **500** on every backend (schemathesis
+ *  F20). NUL is a legal JSON string character, so nothing upstream refuses it.
+ *
+ *  A `.refine` rather than a `.regex`: a refine is invisible to the OpenAPI
+ *  emitter, and this is deliberately ENFORCED WITHOUT BEING PUBLISHED. Putting
+ *  `pattern: "^[^\u0000]*$"` on every string in every schema would be a large,
+ *  noisy contract change for a character no real client sends — and the server
+ *  being stricter than its contract is safe, where the reverse (F21) is not.
+ *
+ *  Only plain `string` needs it: `guid`, `datetime` and `money` cross as
+ *  strings too, but each already has a parse or pattern a NUL cannot pass. */
+const NO_NUL = '.refine((s: string) => !s.includes("\\u0000"))';
+
+/** The base a plain `string` field starts from — the marker for "this field is
+ *  a bare string and wants the NUL guard".  `guid`/`datetime`/`money` cross as
+ *  strings too but each carries a parse or pattern a NUL cannot pass, so they
+ *  are deliberately not matched here. */
+const PLAIN_STRING_BASE = "z.string()";
+
+const INT32_RANGE = ".min(-2147483648).max(2147483647)";
+/** The published `format`, WITHOUT the bound.  This is the whole RESPONSE
+ *  half: a response value came out of the very `int4` column the bound
+ *  describes, so validating it again buys nothing — but the published shape
+ *  still has to match .NET's and java's, which carry `format: int32` in both
+ *  directions. */
+const INT32_FORMAT = '.openapi({ format: "int32" })';
+const INT32 = `${INT32_RANGE}${INT32_FORMAT}`;
+
 const QUERY_PRIMITIVE: Record<WirePrimitive, string> = {
-  int: "z.coerce.number().int()",
+  int: `z.coerce.number().int()${INT32}`,
   long: "z.coerce.number().int()",
   decimal: "z.coerce.number()",
   money: "moneySchema",
@@ -2312,7 +2402,7 @@ const QUERY_PRIMITIVE: Record<WirePrimitive, string> = {
 };
 
 const BODY_PRIMITIVE: Record<WirePrimitive, string> = {
-  int: "z.number().int()",
+  int: `z.number().int()${INT32}`,
   long: "z.number().int()",
   decimal: "z.number()",
   money: "moneySchema",
@@ -2325,7 +2415,7 @@ const BODY_PRIMITIVE: Record<WirePrimitive, string> = {
 };
 
 const RESPONSE_PRIMITIVE: Record<WirePrimitive, string> = {
-  int: "z.number().int()",
+  int: `z.number().int()${INT32_FORMAT}`,
   long: "z.number().int()",
   decimal: "z.number()",
   money: "z.string()",
@@ -2591,8 +2681,18 @@ export function emitWireSchema(
   out.push(`${declPrefix} = z.object({`);
   for (const f of fields) {
     let schema = f.base;
+    const isPlainString = f.base === PLAIN_STRING_BASE;
     const patterns = chainByField.get(f.name);
     if (patterns) {
+      // A DECLARED numeric bound is authoritative and lies inside int32, so the
+      // structural int4 range would only stack a wider, redundant pair in front
+      // of it — `.min(-2147483648).max(2147483647).min(1).max(5)` — and leave
+      // the published `minimum`/`maximum` depending on which of two `.min`
+      // calls the OpenAPI emitter reads last. Drop the range and keep the
+      // format: the invariant states the bound, the format states the column.
+      if (patterns.some((p) => p.kind === "min" || p.kind === "max" || p.kind === "between")) {
+        schema = schema.replace(INT32_RANGE, "");
+      }
       for (const p of orderSingleFieldPatterns(patterns))
         schema = chainSingleFieldNative(schema, p, f.name);
       // A `len-*` bound is CHECKED as a code-point refine, which zod cannot
@@ -2605,6 +2705,15 @@ export function emitWireSchema(
         schema = `${schema}.openapi({ ${entries.join(", ")} })`;
       }
     }
+    // The NUL guard goes on LAST of the checks, after any declared regex or
+    // length bound.  Under zod 3 — which the `node@v4` lane still pins —
+    // `.refine()` returns a `ZodEffects` WRAPPER that no longer exposes
+    // `.regex`/`.min`/`.max`, so a guard in the BASE would make
+    // `z.string().refine(…).regex(/…/)` a type error in every generated project
+    // on that lane. (zod 4 keeps the `ZodString` type through `.refine`, so on
+    // v5 the position is a no-op — the emitter orders for the stricter of the
+    // two, exactly as `orderSingleFieldPatterns` already does.)
+    if (isPlainString) schema = `${schema}${NO_NUL}`;
     // `.default(...)` / `.optional()` last: each wraps the (now constrained)
     // schema in a ZodDefault / ZodOptional, so any `.min`/`.max` must already
     // be applied above.  A server-sourced default (`now()`/`currentUser.*`) is

@@ -1721,7 +1721,10 @@ describe("typescript generator", () => {
       const orderRoutes = files.get("http/order.routes.ts")!;
       // `qty > 0` → recognised as min(1) on the int field.
       expect(orderRoutes).toMatch(
-        /AddLineOrderRequest = z\.object\(\{[\s\S]*qty: z\.number\(\)\.int\(\)\.min\(1, \{ message: "Qty must be at least 1" \}\)/,
+        // The published `format: int32` sits between the base type and the
+        // declared bound: `qty > 0` is tighter than the int4 range, so the range
+        // itself is dropped and only the format remains (F11).
+        /AddLineOrderRequest = z\.object\(\{[\s\S]*qty: z\.number\(\)\.int\(\)\.openapi\(\{ format: "int32" \}\)\.min\(1, \{ message: "Qty must be at least 1" \}\)/,
       );
     });
 

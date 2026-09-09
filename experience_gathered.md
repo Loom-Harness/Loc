@@ -5783,7 +5783,264 @@ toolchain recipe in `docs/tools.md`: unfixed → the exact CI divergence
 `wire: matches golden`. Reading Ecto's source told me what to change; only the
 run told me it was the whole cause.
 
-## 100. The merge queue lies in three different ways, and I believed all three
+## 100. The whole cross-backend arm keyed on the wrong SQLSTATE — because every test that pinned it pinned the same wrong constant (2026-09-07)
+
+Fixing F16 (a create naming a well-formed uuid for a row that does not exist
+answers **500**) turned up a bigger one on the way. A cross-aggregate `X id` FK
+is emitted `ON DELETE RESTRICT`, and a Postgres RESTRICT check raises
+`restrict_violation` — **23001** — not `foreign_key_violation` (23503), which is
+what an *insert* raises. Every backend's "still referenced, cannot be deleted"
+arm keyed on 23503. On Hono the arm therefore never fired and a still-referenced
+delete answered **500** against the 409 its own OpenAPI declares; on Spring it
+fell through to the *unique-violation* arm and answered 409 *"A resource with
+these values already exists."*
+
+Two tests pinned that arm — `hono-destroy-route`, `lifecycle-audit-route` — and
+both asserted the emitted expression **verbatim, including `=== "23503"`**. They
+were green the whole time. A gate that pins the string an emitter produces can
+only catch a change to the string; it cannot catch the string being wrong,
+because it was written by reading the emitter. Both tests, both comments, the
+shared helper's docstring and four separate code comments all said
+"foreign_key_violation", and every one of them was copied from the first.
+
+What actually found it: booting the generated app against a **real Postgres**
+and issuing the delete. The node behavioral leg cannot — its PGlite harness
+synthesises a DDL with no foreign keys at all, so the constraint under test does
+not exist there, and the leg's clean result was an artefact, not a verdict.
+python and dotnet were correct by accident: their delete arms catch the exception
+*class* (`IntegrityError` / `DbUpdateException`), never a code.
+
+- **A constant copied from the code it verifies is not a verification.** When a
+  gate's expected value came from reading the implementation, the gate pins
+  consistency, not correctness. Something outside both — here the database's own
+  error — has to supply the value at least once.
+- **"Backend X is clean" is a claim about the harness first.** Before reading a
+  clean leg as evidence, check the leg can *reach* the thing: the FK never
+  existed in the node harness, so it could not have reported this in any run.
+  §90 again, one layer down.
+- **Codes that look adjacent are a discriminator, not a duplicate.** 23001 can
+  only come from a delete and 23503 only from a write naming an absent row, so
+  the two halves of one constraint are told apart by the code alone — no request
+  method, no route inspection. Conflating them was what made the dangling-
+  reference case answer "still referenced" on Spring. They now live in one
+  named home (`src/generator/_persistence/pg-sqlstate.ts`) instead of as eight
+  string literals.
+
+A separate one from the same session, same root: the .NET project **did not
+compile**, and only `dotnet build` said so. F20's `[NoNulChar]` guard needs a
+`using <ns>.Api;`, gated on demand — written at the aggregate-DTO emitter, and
+the two workflow request emitters call the same `dtoParam` from their own file
+templates without it. Every assertion in that gate read **one** file, so the
+CS0246 was invisible. The replacement asserts over the whole emitted project —
+no `.cs` may name the attribute without resolving it — plus a case pinning that
+the workflow file really is one that emits it, so the sweep cannot pass by
+having nothing to check.
+
+## 101. pydantic has two strictness modes and FastAPI uses the stricter one — the probe that said "ship it" was validating the wrong one (2026-09-07)
+
+F17 is python accepting `{"amount": false}` for a field its own OpenAPI declares
+`{"type": "number"}` — `bool` is an `int` subclass and pydantic's lax mode
+coerces it. `ConfigDict(strict=True)` is the textbook fix, and a probe said it
+was perfect: it refused `false` and `"1.5"` for a number while still accepting
+an integer literal for a `number`, an ISO string for a `datetime`, and a string
+for a string-valued enum. Exactly the JSON semantics wanted, one line per model.
+
+Switched on, every create carrying a date-time or an enum answered **422** —
+`"Input should be an instance of OrderStatus"` — for input that is valid JSON.
+
+The probe called `model_validate_json`. **FastAPI does not.** It parses the body
+and validates the resulting *dict*, which is pydantic's PYTHON mode, and strict
+there additionally refuses `str → datetime` and `str → Enum`. The library has
+two conversion tables, they differ precisely on the cases that mattered, and the
+probe exercised the one the framework never uses.
+
+- **When a probe stands in for the runtime, name the entry point the runtime
+  actually calls.** "Does pydantic strict do the right thing?" has two answers.
+  The question worth asking was "does it do the right thing *through FastAPI*",
+  and that is one `curl` against a booted app — which is where the truth came
+  from, ten minutes later.
+- **The narrow fix survived the wide one.** What shipped is a `BeforeValidator`
+  rejecting `bool`/`str` on the numeric aliases only: it publishes nothing, it
+  cannot touch datetimes or enums because it is not attached to them, and it
+  behaves identically in both modes. A guard that only knows about the thing it
+  guards has no second conversion table to be wrong about.
+- **Pin the rejected approach, not just the chosen one.** The gate carries a
+  sweep asserting *no* emitted module turns strict mode on. The reasoning for
+  rejecting it lives three files away from where someone would re-add it, and
+  "obvious fix that is wrong" is exactly the shape that comes back.
+
+Two other numbers from the same slice, both settled by measurement rather than
+by reading docs: strictness does **not** propagate from a parent model into a
+nested one (a strict parent with a lax `Money` still took `price.amount:
+false`), and a strict model validating *python* values accepts `int`, `float`
+and `Decimal` alike for a `float` field — which is what made it safe to put the
+guard on value-object models shared with the response direction.
+
+## 102. The framework has a pipeline, and "which stage do I need" was the whole design question (2026-09-08)
+
+F22: on .NET a malformed path `{id}` answered **415** instead of the declared
+422, but *only* on routes carrying a body. With no `Content-Type`,
+`BodyModelBinder` short-circuits the entire binding pass before the path
+parameter is looked at — so the request is refused for the one thing the
+contract says least about, while its actual defect (an identifier that can never
+parse) goes unmentioned. Bodyless routes were correct all along, which is why
+the four-backend contract test never saw it.
+
+Three fixes were available and the difference between them is *where in the MVC
+pipeline they sit*, nothing else:
+
+- a **`{id:guid}` route constraint** — rejected once already for F18, and still
+  wrong for the same reason: it makes the route not match, so the declared 422
+  becomes a framework 404;
+- **middleware** — runs before routing, so it knows no route shapes and would
+  have to carry a table of them (and re-exclude every static sub-path), which is
+  the duplication F18's shared derivation exists to prevent;
+- a **resource filter** — runs after routing and before model binding. That gap
+  is the only place the route value exists *and* the 415 has not happened yet.
+
+Once the stage was right the implementation had no design left in it: read the
+matched action's own `id` parameter, act only if it is a `Guid`. No route
+patterns anywhere, static sub-paths handled by having already been routed.
+
+- **When a framework answers the wrong thing, ask which stage answered — not
+  what to add.** The 415 was not a missing check; it was a check that ran too
+  early. Adding validation would not have moved it. Choosing a stage did.
+- **Match the envelope of the path you are pre-empting, verbatim.** The filter
+  now produces the same body the Guid binder produces for the same defect on a
+  bodyless route, MVC's own `The value 'x' is not valid.` wording included. Two
+  producers of one answer is a drift risk; a mutation that reworded it to
+  something "nicer" is one of the four proofs, precisely because nicer-and-
+  different is the tempting mistake.
+- **An always-true emit gate is worse than no gate.** The first draft gated
+  emission on `idValueType === "guid"` — and every aggregate's identity is a
+  guid (`lower.ts` stamps the literal), so the false arm could not be exercised,
+  and the test written for it failed on a fixture the grammar rejects. The gate
+  came out; the narrowing moved into the emitted C# as a runtime check, where it
+  is both testable and still correct if the identity axis ever opens up.
+
+## 103. The missing case was the CONTROL — "backend X is strict" was true and useless without it (2026-09-08)
+
+F28: java answers 400 for `GET /api/orders?=%C3%A0` where node, python and
+dotnet answer 200. It had sat open for weeks as a bug "by constraint rather than
+by choice", with a real reason attached and a real cost implied — someone would
+eventually go and try to make java lenient.
+
+Re-measuring took two extra requests and changed the classification.
+
+- **The control.** Sending `?junk` — an *unrecognised* parameter with no `=` at
+  all — java answers **200**, exactly like the other three. So the earlier
+  framing ("java is strict about query parameters") was true of one input and
+  false of the class. What java actually refuses is a chunk that is not valid
+  query syntax, which is a different and much narrower claim — and one that made
+  the 400 look correct rather than divergent.
+- **The artifact, not the docs.** The waiver said Tomcat "exposes no leniency
+  knob". Reading `Parameters` out of the `tomcat-embed-core` jar the build
+  actually resolves confirmed it: `setLimit`, two charsets, a URL decoder, and
+  nothing else. That took one `unzip` and one `javap`, and it is the difference
+  between "we believe there is no knob" and "there is no knob in 11.0.22".
+
+Together they flipped the disposition from *open bug* to *by design*: a
+divergence between CONTAINERS, in the shape W8 already records for F9, rather
+than a defect in any emitter. The alternative — declaring 400 on every read
+route of every generated API so one container's parser stops being undeclared —
+was written down as considered and declined, with the reason, so the next person
+does not rediscover the trade and pick differently by accident.
+
+- **A finding's KIND is a claim too, and it rots like any other.** "Bug" on a
+  register means someone should fix it; leaving a correct behaviour classified
+  that way spends future attention indefinitely. Re-deriving the kind is part of
+  re-triage, not a separate exercise.
+- **When a measurement supports a general statement, take the second sample that
+  would refute it.** One input showed java refusing where others accept. The
+  control showed the refusal was about syntax, not about parameters — and that
+  is the whole finding.
+
+## 104. The fast suite asserts on emitted TEXT, so a name that does not resolve is invisible to it (2026-09-09)
+
+`corpus × python` went red on four projection fixtures with `ruff` reporting
+**F821 Undefined name `Int32`**. The generated projection module read
+`orders: Int32` and imported nothing called `Int32`.
+
+`responsePyType` returns a NAME, not a builtin, for every primitive carrying a
+guard or a published format (`Int32`, `WireNum`, `WireInt`, `WireStr`,
+`MoneyStr`, `UuidStr`). Two emitters call it and assemble their own import
+blocks — and neither routed through `wireModelImport`. The emitted text was
+exactly what every assertion asked for; what was missing was a line no
+assertion mentioned.
+
+**`npm test` cannot catch this class, structurally.** It compares strings. The
+question "does this name resolve in the module that uses it?" is answered by
+the target language's own toolchain, and that runs one tier up — an opt-in
+corpus leg, not the per-PR fast suite. Same session, same shape one language
+over: `[NoNulChar]` reached a .NET file with no `using` for it, and only
+`dotnet build` said so.
+
+- **When an emitter starts returning a NAME where it returned a builtin, the
+  import is now part of the contract** — and it is a *project-wide* contract,
+  not a per-file one. Every call site of the type helper inherits the
+  obligation, including ones written before the helper had it.
+- **Gate it as a sweep, not as a case.** The test that replaced this asserts
+  over *every* emitted module of one project: no wire alias may appear
+  un-imported. A new emitter that grows a typed field is caught by
+  construction, rather than by whether someone remembered to add an assertion
+  for it — which is precisely what did not happen twice here.
+- **A sweep needs its own vacuity guard.** A second case pins that the fixture
+  actually produces all six aliases; without it the sweep passes just as
+  happily over a model that meets none of them.
+- **The mutation proof found the second bug.** Reverting the query-projection
+  import failed as designed. Reverting the *materialized*-projection one passed
+  — the fixture never reached that emitter. Extending the fixture until it did
+  turned that proof red too, and showed the folded-projection module had the
+  same gap, unreported because no corpus fixture had exercised it. Proving each
+  half separately is what surfaced the half nothing was complaining about.
+
+## 105. A "direction" that only had two values had three all along — and the third one is not JSON (2026-09-09)
+
+The python wire-type helper took a direction — `"request"` or `"response"` —
+and every narrowing hung off it. F17 added a numeric guard to the request side:
+refuse a JSON `bool` or `str` where the contract says `number`, because
+pydantic's lax mode coerces both. Correct for a body. Applied to a repository
+find's parameters, it made **every well-formed numeric read answer 422**:
+
+```
+GET /api/articles/popular?min=6
+→ 422 {"pointer":"/min","message":"Value error, Input should be a valid number"}
+```
+
+A URL has no types. `?min=6` is the string `"6"`, and a guard that refuses a
+`str` for a number refuses it. The two body-side call sites and the two
+parameter-side call sites all read the same helper, and all four looked
+identical at the call site — which is exactly why one function with one boolean
+axis was the wrong shape.
+
+- **"Request" is not one thing.** A JSON body carries types; a path or query
+  parameter carries a substring of the URL. Anything that reasons about the
+  *type that arrived* has to distinguish them. Anything that constrains a
+  string — a NUL guard, a uuid format, a money format — does not, because a
+  string arrives as a string on both. The fix was a third direction whose only
+  divergence is the three numeric arms; widening it further would have
+  quietly dropped F2/F3's uuid gate off the query path.
+- **The same trap, one language over, on the same day.** java's NUL guard was
+  annotated onto every component that *bears* a string, so a `string[]` became
+  `@NoNulChar List<String>` — and a `ConstraintValidator<NoNulChar, String>`
+  is not applicable to a `List<String>`. Hibernate Validator raises
+  `UnexpectedTypeException` at validation time, which escapes as a **500**: the
+  exact status the guard was added to remove. Both bugs are one mistake —
+  putting a constraint on a thing that is *adjacent to* what it validates.
+- **Neither is visible to a compiler or to `npm test`.** `min: Int32` is a
+  well-formed annotation; `@NoNulChar List<String>` compiles. Both are resolved
+  at *request* time, so only a booted app answers. The behavioral tier found
+  both, on the two corpus fixtures in the whole suite that declare the shape
+  (`document`/`tenancy-filter` for the numeric parameter, `document-collection-
+  read` for the string array). If a narrowing is enforced by the framework
+  rather than the compiler, the gate that proves it has to boot something.
+- **Sweep over the axis the bug travels on.** The gates that replaced these
+  assert over *every* route signature and *every* emitted `.java` — not over
+  the one file the fixture was written for. The paged-run handler emitter is a
+  third call site nobody would have thought to assert on; the sweep caught it
+  under mutation, and the fixture had to grow a paged criterion read before that
+  proof went red at all.
+## 106. The merge queue lies in three different ways, and I believed all three
 
 Landing four small PRs took two days, and almost none of it was the code. Four
 separate wrong diagnoses, each cheap to avoid:
@@ -5815,7 +6072,7 @@ it.
 shows `cancelled`/`skipped`. Those are superseded duplicates, not failures — the
 same corpse shape that produced three wrong `pr-gate` reports the day before.
 
-## 101. A green local suite goes stale in hours — the ratchet you'll hit is the one that landed after your sync
+## 107. A green local suite goes stale in hours — the ratchet you'll hit is the one that landed after your sync
 
 `main` here moves ~150 commits/day. #2789 passed a full local suite (1897 files,
 0 failures) at 07:36, merged cleanly, and was still ejected from the queue at
@@ -5839,3 +6096,4 @@ never guess: `list_workflow_runs` on the `gh-readonly-queue/…` branch with
 `status: completed` → scan `conclusion` for `failure` → `list_workflow_jobs` →
 `get_job_logs` with `return_content` and `tail_lines`. That path found this in
 one pass after a day of theorising found nothing.
+

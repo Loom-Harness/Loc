@@ -146,8 +146,8 @@ describe("M-T5.10 PR4 — Python reads the <Agg>Response contract record", () =>
     // scaffoldHandlers-declared `response OrderResponse` record the SAME token
     // in the same wire-shape slot — so the two stay byte-identical.
     expect(baselineOrder).toBe(scaffoldOrder);
-    expect(baselineOrder).toContain("    version: int\n");
-    expect(scaffoldOrder).toContain("    version: int\n");
+    expect(baselineOrder).toContain("    version: Int32\n");
+    expect(scaffoldOrder).toContain("    version: Int32\n");
     expect(scaffoldOrder).toContain("list[LineResponse]");
     expect(scaffoldOrder).not.toContain("LineResponseResponse");
     expect(scaffoldOrder).toContain("id: ");

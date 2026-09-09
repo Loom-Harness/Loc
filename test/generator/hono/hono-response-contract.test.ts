@@ -157,8 +157,8 @@ describe("M-T5.10 PR3 — Hono reads the <Agg>Response contract record", () => {
     // default-on synthetic `version` token, and `apiReadFields` gives the
     // scaffold-declared record the SAME token in the same slot, so the two are
     // byte-identical.
-    expect(baselineOrder).toContain("version: z.number().int(),");
-    expect(scaffoldOrder).toContain("version: z.number().int(),");
+    expect(baselineOrder).toContain('version: z.number().int().openapi({ format: "int32" }),');
+    expect(scaffoldOrder).toContain('version: z.number().int().openapi({ format: "int32" }),');
     expect(baselineOrder).toBe(scaffoldOrder);
     expect(scaffoldOrder).toContain("z.array(LineResponse)");
     expect(scaffoldOrder).not.toContain("LineResponseResponse");

@@ -57,6 +57,7 @@ import {
   validateChannelWiring,
   validateChartSupport,
   validateColumnlessProjectionSources,
+  validateComponentChildrenSupport,
   validateComposeUniqueness,
   validateContextFilterSupport,
   validateCurrentUserNeedsAuthUi,
@@ -76,6 +77,7 @@ import {
   validateFilterBypassSupport,
   validateFindPredicateAdapterSupport,
   validateFlutterPrimitiveSupport,
+  validateFormLocalCollisions,
   validateGroupedProjectionBackend,
   validateGuardPrincipalWithoutAuth,
   validateHeexComponentHostState,
@@ -191,6 +193,8 @@ export function validateLoomModel(loom: EnrichedLoomModel): LoomDiagnostic[] {
     validateCurrentUserNeedsAuthUi(sys, diags);
     validateDataGridFramework(sys, diags);
     validateHeexComponentHostState(sys, diags);
+    validateFormLocalCollisions(sys, diags);
+    validateComponentChildrenSupport(sys, diags);
     validateChartSupport(sys, diags);
     validateUiRealtimeSupport(sys, diags);
     validateUiProjectionReadFramework(sys, diags);

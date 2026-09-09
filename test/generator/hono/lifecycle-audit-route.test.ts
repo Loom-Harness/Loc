@@ -83,9 +83,11 @@ describe("hono routes — audited lifecycle actions", () => {
     const deleteIdx = r.indexOf("await repoTx.delete(Ids.InvoiceId(id));");
     expect(auditIdx).toBeGreaterThan(-1);
     expect(deleteIdx).toBeGreaterThan(auditIdx);
-    // 409 FK-violation mapping is preserved on the audited destroy path.
+    // The still-referenced → 409 mapping is preserved on the audited destroy
+    // path, including the widened SQLSTATE set — `ON DELETE RESTRICT` raises
+    // `restrict_violation` (23001), which is what actually fires (F16).
     expect(r).toContain(
-      'if (err && typeof err === "object" && (((err as { code?: string }).code ?? (err as { cause?: { code?: string } }).cause?.code) === "23503")) {',
+      'if (err && typeof err === "object" && ["23001", "23503"].includes(((err as { code?: string }).code ?? (err as { cause?: { code?: string } }).cause?.code) as string)) {',
     );
   });
 

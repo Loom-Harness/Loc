@@ -47,8 +47,16 @@ function appliesDefault(files: Map<string, string>, backend: Backend, field: str
   const pascal = field.charAt(0).toUpperCase() + field.slice(1);
   switch (backend) {
     case "node":
-      // zod: `qty: z.coerce.number().int().default(1),` inside CreateXRequest.
-      return new RegExp(`\\b${field}:[^,\\n]*\\.default\\(`).test(createBlock(all, "z.object"));
+      // zod: `qty: z.coerce.number().int()….default(1),` inside CreateXRequest.
+      // ANCHORED at line start rather than excluding commas: an `int` field's
+      // chain now carries `.openapi({ format: "int32" })`, whose brace has a
+      // comma in it, and the old `[^,\n]*` stopped dead there — reporting a
+      // dropped default that was still being emitted. The anchor is what keeps
+      // the match from drifting in from a previous field, which is what the
+      // comma exclusion was really doing.
+      return new RegExp(`^\\s*${field}:[^\\n]*\\.default\\(`, "m").test(
+        createBlock(all, "z.object"),
+      );
     case "python":
       // Pydantic: `qty: int = 1` on the create model (the update model has no
       // initialiser, so an `=` on this name anywhere in a request class is the
@@ -75,7 +83,12 @@ function appliesDefault(files: Map<string, string>, backend: Backend, field: str
 function createBlock(source: string, marker: string): string {
   const at = source.indexOf(`CreateItemRequest = ${marker}`);
   if (at < 0) return source;
-  const end = source.indexOf("})", at);
+  // `\n})`, not the first `})`: an `int` field's chain now ends
+  // `.openapi({ format: "int32" })`, and slicing at the first `})` truncated
+  // the block at that field — every field after it vanished from the search
+  // and read as "no default emitted". The object's own closer is the one at
+  // the start of a line.
+  const end = source.indexOf("\n})", at);
   return source.slice(at, end < 0 ? undefined : end);
 }
 
@@ -168,8 +181,11 @@ function updateRequiresField(files: Map<string, string>, backend: Backend, field
   const pascal = field.charAt(0).toUpperCase() + field.slice(1);
   switch (backend) {
     case "node": {
-      const block = sliceBlock(all, "const UpdateItemRequest = z.object({", "})");
-      const decl = new RegExp(`\\b${field}:([^,\\n]*)`).exec(block);
+      // `\n})` closes the object; a bare `})` would stop at the first
+      // `.openapi({ … })` an `int` field now carries (F11) and silently drop
+      // every field after it — reading as "this backend requires nothing".
+      const block = sliceBlock(all, "const UpdateItemRequest = z.object({", "\n})");
+      const decl = new RegExp(`^\\s*${field}:([^\\n]*)`, "m").exec(block);
       if (decl === null) return false;
       const zod = decl[1];
       // Requiredness in zod is "does the schema REJECT `undefined`" — which is
