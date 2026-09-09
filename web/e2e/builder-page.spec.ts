@@ -4,7 +4,7 @@
 // rewritten source). Pure client-side — no network.
 
 import { expect, test, type Locator, type Page } from "@playwright/test";
-import { selectExample, waitForPlaygroundReady } from "./_helpers";
+import { readEditorSource, selectExample, waitForPlaygroundReady } from "./_helpers";
 
 // Set the editor document in one shot via the editor's automation seam
 // (`window.__loomSetSource`), which dispatches onChange like a real edit —
@@ -111,8 +111,10 @@ test("builder Apply syncs the edit into the Monaco source tab + LSP", async ({ p
   // edit, even though it never went through the editor's own change path.  Read
   // the whole model directly (Monaco virtualises `.view-lines`).
   await page.getByTestId("doc-tab-source").click();
-  const model = () => page.evaluate(() => (window as unknown as { __loomGetSource: () => string }).__loomGetSource());
-  await expect.poll(model).toContain("EDITEDZZZ");
+  // `readEditorSource` waits for the automation seam — the editor remounts
+  // on the view switch and a bare `page.evaluate` can beat its registration
+  // (seen once in a full-lane run: `__loomGetSource is not a function`).
+  await expect.poll(() => readEditorSource(page)).toContain("EDITEDZZZ");
   // LSP re-validated the synced source (no errors introduced).
   await expect(page.getByText(/^0 errors$/)).toBeVisible();
 });
@@ -436,8 +438,10 @@ test("edits a page's state fields from the State panel", async ({ page }) => {
   await expect.poll(model).toContain("field1");
   await expect(page.getByTestId("c4state-field")).toHaveCount(2);
 
-  // Delete the original "step" field → gone from the source, page still valid.
+  // Delete the original "step" field (× → the inline confirm's Yes, M-T8.17)
+  // → gone from the source, page still valid.
   await page.getByTestId("c4state-delete").first().click();
+  await page.getByTestId("c4state-delete-yes").click();
   await expect.poll(model).not.toContain("step");
   await expect(page.getByText("Source has syntax errors")).toHaveCount(0);
 });

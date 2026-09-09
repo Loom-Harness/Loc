@@ -55,7 +55,7 @@ import { lines } from "../../util/code-builder.js";
 import { plural, snake } from "../../util/naming.js";
 import { SCAFFOLD_ONCE_MARKER } from "../../util/scaffold-once.js";
 import { renderWorkflowStmtChunks } from "../_workflow/stmt-target.js";
-import { requestPyType, wireModelImport } from "./emit/http-models.js";
+import { paramPyType, requestPyType, wireModelImport } from "./emit/http-models.js";
 import { type PyRenderContext, renderPyExpr, renderPyType } from "./render-expr.js";
 import { aggHasFieldMask } from "./repository-builder.js";
 import { resourceImportLines } from "./resource-clients.js";
@@ -586,8 +586,8 @@ function emitPagedRunRoute(r: RouteIR, h: Handler, ctx: EnrichedBoundedContextIR
   // Non-default params first (Python signature order): path + criterion query
   // params + session, then the defaulted pagination controls.
   const sig = [
-    ...pathParams.map((p) => `${snake(p.name)}: ${requestPyType(p.type, ctx)}`),
-    ...queryParams.map((p) => `${snake(p.name)}: ${requestPyType(p.type, ctx)}`),
+    ...pathParams.map((p) => `${snake(p.name)}: ${paramPyType(p.type, ctx)}`),
+    ...queryParams.map((p) => `${snake(p.name)}: ${paramPyType(p.type, ctx)}`),
     "session: SessionDep",
     ...PY_PAGED_CONTROLS,
     `sort: str = "id"`,
@@ -673,7 +673,7 @@ export function emitPyExplicitRouteRouter(
       );
     }
     const sig = [
-      ...pathParams.map((p) => `${snake(p.name)}: ${requestPyType(p.type, ctx)}`),
+      ...pathParams.map((p) => `${snake(p.name)}: ${paramPyType(p.type, ctx)}`),
       ...(bodyModelName ? [`body: ${bodyModelName}`] : []),
       ...(usesUser ? ["request: Request"] : []),
       "session: SessionDep",

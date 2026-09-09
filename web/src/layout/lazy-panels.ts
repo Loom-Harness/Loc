@@ -42,3 +42,15 @@ export const LazyFileViewer = lazy(() =>
 export const LazyJsonBodyEditor = lazy(() =>
   import("../backend/JsonBodyEditor").then((m) => ({ default: m.JsonBodyEditor })),
 );
+
+/** The targets drawer.
+ *
+ *  Not a Monaco case — a TOOLCHAIN case.  `TargetsDrawer` rewrites a
+ *  deployable's clause, so it reaches `src/language/model-patch.js` and the
+ *  generated AST; `HeaderBar` renders it (closed) on every surface, which made
+ *  those a static dependency of the entry and put chevrotain + the whole
+ *  grammar back on the eager path — 12.63 MB against a 2.50 MB budget.
+ *  Nothing is needed until the drawer opens, so it loads when it opens. */
+export const LazyTargetsDrawer = lazy(() =>
+  import("./TargetsDrawer").then((m) => ({ default: m.TargetsDrawer })),
+);

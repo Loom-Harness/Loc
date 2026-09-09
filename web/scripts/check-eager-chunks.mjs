@@ -76,7 +76,14 @@ const FORBIDDEN_IN_EAGER = [
     fix: "reach it through `await import(...)`, or move the work into the build worker",
   },
   {
-    needle: "loom_validate",
+    // NOT a tool NAME.  `loom_validate` was the original signature and it went
+    // false-positive the moment `App.tsx` called `callTool("loom_validate", …)`
+    // through `await import(...)`: the catalog stayed lazy (1.76 MB eager, no
+    // chevrotain) but the ARGUMENT STRING is in the entry chunk, so a text
+    // search could not tell "the catalog is here" from "a call site names a
+    // tool".  A signature has to be text only the CATALOG MODULE contains, and
+    // a tool description is exactly that — call sites pass names, never prose.
+    needle: "Return the fix-hint edits for a diagnostic code",
     what: "the agent tool catalog (src/tools → src/api → src/language + src/ir)",
     fix: "import the agent modules type-only and `await import(...)` at the call site",
   },

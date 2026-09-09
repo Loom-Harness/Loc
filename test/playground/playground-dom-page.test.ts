@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+/// <reference lib="dom" />
 //
 // DOM-level unit tests for the Playwright-subset locator engine
 // (packages/ui-test-driver/dom-page.ts) — the engine the playground's UI test

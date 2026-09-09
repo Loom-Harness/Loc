@@ -213,13 +213,37 @@ const REGISTER_FILE = path.join(srcRoot, "diagnostics", "unsupported-register.ts
  *  Draining it is M-T6.59 (value-producing branches in every vanilla body
  *  renderer), which deletes the row and lowers this back to 47.
  *
- *  The arithmetic reaching 47 has changed since that raise, and this comment
- *  states the CURRENT sum rather than the one that first produced the number:
- *  `main` stands at 48 with the M-FT.11 row counted, and packet 2.5's drain
- *  (-1) takes it to 47.  The pin is exact (`toBe`, not just an upper bound),
- *  so this is measured, not asserted -- if the count and the pin disagree the
- *  test names both numbers. */
-const MAX_OPEN_GAPS = 47;
+ *  48 → 49: `loom.page-form-locals-unsupported`.  The same trade this register
+ *  exists to record — the gap is not new (two forms on one page have always
+ *  redeclared the bare `create` / `form` / `register` / `handleSubmit` the
+ *  design packs emit), only the honesty is.  It was a TS2300 in the GENERATED
+ *  project on react/svelte and, on vue, no error at all: the shell deduped the
+ *  declarations, so the second form silently posted the first form's mutation
+ *  with the first form's schema.  Scoped to react/vue/svelte: ANGULAR emits the
+ *  shape correctly (aggregate-scoped locals, plus #2734's ordinal suffix for a
+ *  second same-aggregate form), so it is the reference implementation and not a
+ *  gap — an earlier revision of this row listed it, which made the gate refuse
+ *  a shape that works and hid #2734's own test behind the refusal.  Draining
+ *  the remaining three means threading that same per-FORM ordinal through the
+ *  ~68 pack templates that hardcode the names, which deletes the row and lowers
+ *  this back to 48.
+ *
+ *  49 → 50: `loom.component-children-unsupported`.  Same trade — the drop is
+ *  not new (angular's `renderUserComponent` has always dropped the children
+ *  positional, with only its own doc comment admitting it), only the honesty
+ *  is.  The child markup appeared NOWHERE in the emitted project.  Drained by
+ *  the selector-tag call site, which deletes the row and lowers this back to 49.
+ *
+ *  50 → 49 here: packet 2.5 DRAINS `loom.seed-event-sourced-unsupported`.  It
+ *  implements the event-append seed path that row's own comment named as its
+ *  drain condition (elixir appends the creation event through the context
+ *  facade; java/.NET build the call from the declared `create` params), and the
+ *  validator no longer raises the code — it is replaced by two permanent,
+ *  narrower rules (`loom.seed-raw-eventsourced`, `loom.seed-eventsourced-no-create`)
+ *  which are refusals of genuinely unseedable shapes, not gaps.  The pin is
+ *  exact (`toBe`, not an upper bound), so this number is measured: if the count
+ *  and the pin disagree the test names both. */
+const MAX_OPEN_GAPS = 49;
 
 function walk(dir: string, out: string[] = []): string[] {
   for (const e of fs.readdirSync(dir, { withFileTypes: true })) {

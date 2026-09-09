@@ -176,7 +176,7 @@ describe("python provenance runtime (W2)", () => {
     // The response model types the field through the shared generic carrier —
     // not a trailing `total_provenance` model field.
     const routes = file(files, "/app/http/order_routes.py");
-    expect(routes).toContain("total: Provenanced[int]");
+    expect(routes).toContain("total: Provenanced[Int32]");
     expect(routes).toContain("Provenanced");
     expect(routes).not.toContain("total_provenance:");
     const models = file(files, "/app/http/wire_models.py");

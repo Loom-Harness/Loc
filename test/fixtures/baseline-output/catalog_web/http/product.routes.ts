@@ -10,18 +10,18 @@ import { DomainError, AggregateNotFoundError, DisallowedError, ForbiddenError, E
 import { Money } from "../domain/value-objects";
 
 const MoneySchema = z.object({
-  amount: z.number().min(0),
-  currency: z.string().refine((s) => [...s].length === 3).openapi({ minLength: 3, maxLength: 3 }),
+  amount: z.number().min(0, { message: "Amount must be at least 0" }),
+  currency: z.string().refine((s) => [...s].length === 3, { message: "Currency must be exactly 3 characters" }).openapi({ minLength: 3, maxLength: 3 }).refine((s: string) => !s.includes("\u0000")),
 }).openapi("Money");
 
 const CreateProductRequest = z.object({
-  sku: z.string().refine((s) => [...s].length >= 1).openapi({ minLength: 1 }),
+  sku: z.string().refine((s) => [...s].length >= 1, { message: "Sku must be at least 1 character" }).openapi({ minLength: 1 }).refine((s: string) => !s.includes("\u0000")),
   price: MoneySchema,
 }).openapi("CreateProductRequest");
 const CreateProductResponse = z.object({ id: z.string() }).openapi("CreateProductResponse");
 
 const UpdateProductRequest = z.object({
-  sku: z.string().refine((s) => [...s].length >= 1).openapi({ minLength: 1 }),
+  sku: z.string().refine((s) => [...s].length >= 1, { message: "Sku must be at least 1 character" }).openapi({ minLength: 1 }).refine((s: string) => !s.includes("\u0000")),
   price: MoneySchema,
 }).openapi("UpdateProductRequest");
 
@@ -38,7 +38,7 @@ export const ProductResponse = z.object({
   id: z.string(),
   sku: z.string(),
   price: MoneySchema,
-  version: z.number().int(),
+  version: z.number().int().openapi({ format: "int32" }),
   display: z.string(),
 }).openapi("ProductResponse");
 export const ProductListResponse = z.array(ProductResponse).openapi("ProductListResponse");
@@ -166,7 +166,7 @@ export function productRoutes(repo: ProductRepository): OpenAPIHono {
       try {
         await repo.delete(Ids.ProductId(id));
       } catch (err) {
-        if (err && typeof err === "object" && (((err as { code?: string }).code ?? (err as { cause?: { code?: string } }).cause?.code) === "23503")) {
+        if (err && typeof err === "object" && ["23001", "23503"].includes(((err as { code?: string }).code ?? (err as { cause?: { code?: string } }).cause?.code) as string)) {
           return c.body(JSON.stringify({ type: "about:blank", title: "Conflict", status: 409, detail: "Product is still referenced and cannot be deleted.", instance: c.req.path }), 409, { "content-type": "application/problem+json" });
         }
         throw err;

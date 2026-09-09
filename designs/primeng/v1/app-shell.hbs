@@ -4,9 +4,10 @@
 // PrimeNG's `p-toolbar` and the sidebar is plain styled markup keyed by the
 // same nav testids the other Angular shells use.  Nav labels/links are baked
 // at generation time.
-import { Component{{#if navUsesSession}}, inject{{/if}} } from "@angular/core";
+import { Component, inject } from "@angular/core";
 import { ToolbarModule } from "primeng/toolbar";
 import { RouterLink,{{#if hasNav}} RouterLinkActive,{{/if}} RouterOutlet } from "@angular/router";
+import { LoomErrorHandler } from "./error-handler";
 {{#if authUi}}import { AuthGateComponent } from "./auth/auth-gate.component";
 {{/if}}{{#if navUsesSession}}import { SessionService } from "./auth/session.service";
 {{/if}}{{#if hasRealtimeHandlers}}import { RealtimeHandlersComponent } from "./realtime-handlers.component";
@@ -23,7 +24,7 @@ import { RouterLink,{{#if hasNav}} RouterLinkActive,{{/if}} RouterOutlet } from 
 {{/if}}{{#if hasRealtimeHandlers}}    RealtimeHandlersComponent,
 {{/if}}  ],
   template: `
-    <a href="#main-content" class="loom-skip-link">{{{skipToContentText}}}</a>
+{{{errorBanner}}}    <a href="#main-content" class="loom-skip-link">{{{skipToContentText}}}</a>
 {{#if hasRealtimeHandlers}}    <app-realtime-handlers />
 {{/if}}    <p-toolbar styleClass="loom-toolbar">
       <ng-template pTemplate="start">
@@ -80,7 +81,8 @@ import { RouterLink,{{#if hasNav}} RouterLinkActive,{{/if}} RouterOutlet } from 
       background: var(--p-highlight-bg, rgba(0, 0, 0, 0.06));
       color: var(--p-primary-color, inherit);
     }
-    .loom-main { flex: 1; padding: 1.5rem; min-width: 0; }
+    .loom-main { flex: 1; padding: 1rem; min-width: 0; }
+    @media (min-width: 1024px) { .loom-main { padding: 1.5rem; } }
     .loom-skip-link { position: absolute; left: -9999px; top: 0; z-index: 3000; padding: 8px 16px; background: Canvas; color: CanvasText; border: 1px solid; border-radius: 4px; }
     .loom-skip-link:focus { left: 8px; top: 8px; }
   `,

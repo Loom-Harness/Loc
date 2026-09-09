@@ -8,8 +8,15 @@ import { type NumericTarget, numericEncode } from "../../../src/generator/_numer
 import { MONEY_WIRE_SCALE } from "../../../src/generator/money-scale.js";
 import type { TypeIR } from "../../../src/ir/types/loom-ir.js";
 
-const prim = (name: TypeIR extends { kind: "primitive"; name: infer N } ? N : never): TypeIR =>
-  ({ kind: "primitive", name }) as TypeIR;
+/** `TypeIR` is a concrete union alias, not a type parameter, so a conditional
+ *  written `TypeIR extends { kind: "primitive"; … } ? … : never` does NOT
+ *  distribute over its members — the whole union fails the check and the
+ *  parameter resolves to `never`, rejecting every call site.  `Extract` picks
+ *  the member out, which is what this helper meant to say and also gives the
+ *  argument a real type instead of an unusable one. */
+type PrimitiveName = Extract<TypeIR, { kind: "primitive" }>["name"];
+
+const prim = (name: PrimitiveName): TypeIR => ({ kind: "primitive", name }) as TypeIR;
 const optional = (inner: TypeIR): TypeIR => ({ kind: "optional", inner }) as TypeIR;
 
 describe("numericKindOf", () => {
