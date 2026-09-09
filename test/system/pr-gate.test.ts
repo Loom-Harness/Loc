@@ -356,6 +356,21 @@ function triggerList(): string[] {
 // the first (a unique key per run) silently breaks correctness: unique keys let
 // sweeps OVERLAP, and a slower sweep posting its older verdict last can re-park
 // a PR it already greened.
+//
+// UPDATED 2026-09-08: `cancel-in-progress` is now FALSE on every path, and this
+// file used to REQUIRE the opposite — it asserted the value was conditional and
+// named `pull_request` / `workflow_run`, i.e. it pinned "cancel for the
+// SHA-keyed events" as the safe shape.  Measurement falsified that.  A burst of
+// completions did not collapse to the newest evaluation, it collapsed to none:
+// of the last 100 `workflow_run`-triggered pr-gate runs, 94 `cancelled`, 4
+// queued, 2 pending, ZERO successful.  An evaluation takes ~2m20s but waits far
+// longer for a runner, so the next completing check cancelled it before it ever
+// reached `publishCheck` — and with ~40 checks per SHA (times three SHAs during
+// a merge-queue batch) the stream never ended.  Serialising instead caps the
+// group at one running + one pending, which costs no extra runner (a PENDING
+// run holds no slot; a CANCELLED one has already wasted the slot it claimed).
+// The old assertion is kept below, inverted, so the reasoning is not silently
+// re-derived in the direction that broke it.
 // ---------------------------------------------------------------------------
 
 /** The `concurrency:` block of pr-gate.yml, comments stripped. */
@@ -388,20 +403,31 @@ describe("pr-gate.yml concurrency does not cancel its own safety net", () => {
     ).toBe(true);
   });
 
-  it("cancel-in-progress is conditional, never an unguarded true", () => {
+  it("cancel-in-progress is a flat false — no path cancels an evaluation", () => {
     const { cancelInProgress } = concurrencyBlock();
-    // An unconditional `true` cancels the sweep; a unique-per-run group would
-    // instead let sweeps overlap and race.  The only safe shape is: cancel for
-    // the SHA-keyed events, do not cancel for the sweep.
+    // A literal `false`, not an expression: every conditional spelling this
+    // block has carried cancelled SOME path, and each one starved the verdict
+    // on exactly the path it cancelled (the sweep first, then every SHA-keyed
+    // event).  There is no path that benefits from cancelling: a pending run
+    // holds no runner, so the only thing cancellation saves is the work of a
+    // run that has already claimed its slot.
     expect(
       cancelInProgress,
-      "cancel-in-progress: true cancels the cron sweep — gate it on the SHA-keyed events",
-    ).not.toBe("true");
-    expect(cancelInProgress).toContain("github.event_name");
-    expect(cancelInProgress).toContain("pull_request");
-    expect(cancelInProgress).toContain("workflow_run");
-    // …and it must NOT name the sweep's own events, or it cancels them again.
-    expect(cancelInProgress).not.toContain("schedule");
+      `cancel-in-progress must be a flat \`false\`, got: ${cancelInProgress}. ` +
+        "Cancelling collapses a burst of check completions to no published " +
+        "verdict at all (measured: 94 of 100 runs cancelled, 0 successful), " +
+        "which parks the gate and gets green merge-queue entries ejected.",
+    ).toBe("false");
+  });
+
+  it("the group key still serialises rather than letting runs overlap", () => {
+    // With cancellation off, the group key is the ONLY thing preventing two
+    // evaluations of one SHA from racing — a slower one posting its older
+    // verdict last would re-park a PR it already greened. A unique-per-run key
+    // (`github.run_id`, `github.run_attempt`) would reintroduce exactly that.
+    const { group } = concurrencyBlock();
+    expect(group).not.toContain("github.run_id");
+    expect(group).not.toContain("github.run_attempt");
   });
 });
 
