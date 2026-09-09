@@ -16,6 +16,7 @@ import { isMaterializedProjection, isQueryTimeProjection } from "../../ir/types/
 import type { MigrationsIR } from "../../ir/types/migrations-ir.js";
 import type { OriginRef } from "../../ir/types/origin.js";
 import {
+  aggregatesCanTripDanglingReference,
   aggregatesHaveUniqueKeys,
   aggregatesNeedConcurrency,
 } from "../../ir/util/aggregate-flags.js";
@@ -168,6 +169,8 @@ import {
   renderJoinEntity,
   renderJoinEntityConfiguration,
   renderListWrapperFilter,
+  renderMalformedPathIdFilter,
+  renderNoNulCharAttribute,
   renderOrdinalGenerator,
   renderProblemDetailsFilter,
   renderProgram,
@@ -969,6 +972,10 @@ function emitProjectFromContexts(
       usingDapper,
       hasUniqueKeys,
       hasVersioned: hasConcurrency,
+      // Only emit the 23503 → domain-floor arm when some aggregate carries a
+      // cross-aggregate `X id` field — a reference-free project cannot trip a
+      // foreign-key violation on a write, so it stays byte-identical.
+      hasDanglingRef: aggregatesCanTripDanglingReference(merged.aggregates),
       localizeMessages: validationMessages.length > 0,
       // App-wide structural-conflict `httpStatus` overrides (M-T3.4a) — the
       // resolved statuses are identical across every hosted context (folded
@@ -979,6 +986,15 @@ function emitProjectFromContexts(
   // Shared RFC 6901 pointer helper + the replacement for MVC's built-in
   // invalid-model-state response (see renderValidationProblem).
   out.set("Api/ValidationProblem.cs", renderValidationProblem(ns));
+  out.set("Api/NoNulCharAttribute.cs", renderNoNulCharAttribute(ns));
+  // The unparseable-`{id}` guard (F22).  Unconditional, like every other file
+  // in this block: an aggregate's identity is ALWAYS a guid today (`lower.ts`
+  // stamps `idValueType` as the literal `"guid"`; there is no `ids` clause), so
+  // an emit-time gate on it would be an always-true branch nothing could
+  // exercise.  The narrowing that matters is inside the filter and is a RUNTIME
+  // one — it acts only on an action that actually binds a `Guid id` — which
+  // keeps it correct if the identity axis ever opens up.
+  out.set("Api/MalformedPathIdFilter.cs", renderMalformedPathIdFilter(ns));
   out.set("Api/ProblemDetailsResponsesFilter.cs", renderProblemDetailsFilter(ns));
   out.set(
     "Api/ListResponseWrapperFilter.cs",
@@ -1829,6 +1845,15 @@ function emitInfrastructure(
   // Shared RFC 6901 pointer helper + the replacement for MVC's built-in
   // invalid-model-state response (see renderValidationProblem).
   out.set("Api/ValidationProblem.cs", renderValidationProblem(ns));
+  out.set("Api/NoNulCharAttribute.cs", renderNoNulCharAttribute(ns));
+  // The unparseable-`{id}` guard (F22).  Unconditional, like every other file
+  // in this block: an aggregate's identity is ALWAYS a guid today (`lower.ts`
+  // stamps `idValueType` as the literal `"guid"`; there is no `ids` clause), so
+  // an emit-time gate on it would be an always-true branch nothing could
+  // exercise.  The narrowing that matters is inside the filter and is a RUNTIME
+  // one — it acts only on an action that actually binds a `Guid id` — which
+  // keeps it correct if the identity axis ever opens up.
+  out.set("Api/MalformedPathIdFilter.cs", renderMalformedPathIdFilter(ns));
   out.set("Api/ProblemDetailsResponsesFilter.cs", renderProblemDetailsFilter(ns));
   out.set("Api/ListResponseWrapperFilter.cs", renderListWrapperFilter(ns, listWrapperPairs([ctx])));
   out.set("Api/RequiredFromCtorParamFilter.cs", renderRequiredFromCtorParamFilter(ns));

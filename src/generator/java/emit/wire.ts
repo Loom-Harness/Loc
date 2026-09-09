@@ -206,7 +206,13 @@ export function wireToDomain(t: TypeIR, expr: string, pointer: string): string {
       // `NumberFormatException` out of the service and answered 500.
       if (t.name === "money")
         return `WireFormatException.money(${expr}, ${JSON.stringify(pointer)})`;
-      if (t.name === "datetime") return `Instant.parse(${expr})`;
+      // Guarded for the same reason and in the same shape as `money` above:
+      // `Instant.parse("")` / `Instant.parse("not-a-date")` threw
+      // `DateTimeParseException` out of the service, which no advice arm
+      // matched, so the caller got 500 for input the server itself refused
+      // (schemathesis F19 — money's half landed with M-T6.48 and left this one).
+      if (t.name === "datetime")
+        return `WireFormatException.instant(${expr}, ${JSON.stringify(pointer)})`;
       return expr;
     case "id":
       return `new ${t.targetName}Id(${expr})`;
@@ -240,6 +246,24 @@ export function wireToDomain(t: TypeIR, expr: string, pointer: string): string {
   }
 }
 
+/** True when converting this type at the WIRE BOUNDARY emits a guarded parse —
+ *  i.e. the type tree carries a `money` or `datetime`, the two primitives that
+ *  cross as strings and are parsed rather than bound. Call sites use it to add
+ *  the `WireFormatException` import only where the guard is actually emitted,
+ *  so a file with no such field keeps its import block byte-identical. */
+export function wireToDomainGuards(t: TypeIR): boolean {
+  switch (t.kind) {
+    case "primitive":
+      return t.name === "money" || t.name === "datetime";
+    case "array":
+      return wireToDomainGuards(t.element);
+    case "optional":
+      return wireToDomainGuards(t.inner);
+    default:
+      return false;
+  }
+}
+
 /** Imports the inbound conversion needs. */
 export function collectWireToDomainImports(
   t: TypeIR,
@@ -256,7 +280,13 @@ export function collectWireToDomainImports(
         // generated-java compile caught exactly that here.
         into.add(`${basePkg}.domain.common.WireFormatException`);
       }
-      if (t.name === "datetime") into.add("java.time.Instant");
+      if (t.name === "datetime") {
+        into.add("java.time.Instant");
+        // Same reason as `money`: the guarded parse names a type this file has
+        // to import, and a missing import is a `cannot find symbol` no
+        // string-level test sees — only the generated-java compile does.
+        into.add(`${basePkg}.domain.common.WireFormatException`);
+      }
       return into;
     case "array":
       return collectWireToDomainImports(t.element, into, basePkg);

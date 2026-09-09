@@ -10,16 +10,16 @@ import { DomainError, AggregateNotFoundError, DisallowedError, ForbiddenError, E
 
 
 const CreateCustomerRequest = z.object({
-  username: z.string().refine((s) => [...s].length >= 3 && [...s].length <= 32, { message: "Username must be 3 to 32 characters" }).openapi({ minLength: 3, maxLength: 32 }),
-  email: z.string(),
-  age: z.number().int().min(18, { message: "Age must be between 18 and 150" }).max(150, { message: "Age must be between 18 and 150" }),
+  username: z.string().refine((s) => [...s].length >= 3 && [...s].length <= 32, { message: "Username must be 3 to 32 characters" }).openapi({ minLength: 3, maxLength: 32 }).refine((s: string) => !s.includes("\u0000")),
+  email: z.string().refine((s: string) => !s.includes("\u0000")),
+  age: z.number().int().openapi({ format: "int32" }).min(18, { message: "Age must be between 18 and 150" }).max(150, { message: "Age must be between 18 and 150" }),
 }).openapi("CreateCustomerRequest").refine((data: any) => data.username !== data.email, { path: ["username"], message: "Invariant violated: username != email" }).refine((data: any) => /^[^@]+@[^@]+\.[^@]+$/.test(data.email) && [...data.email].length <= 120, { path: ["email"], message: "Invariant violated: email check email.matches(\"^[^@]+@[^@]+\\\\.[^@]+$\") && email.length <= 120" });
 const CreateCustomerResponse = z.object({ id: z.string() }).openapi("CreateCustomerResponse");
 
 const UpdateCustomerRequest = z.object({
-  username: z.string().refine((s) => [...s].length >= 3 && [...s].length <= 32, { message: "Username must be 3 to 32 characters" }).openapi({ minLength: 3, maxLength: 32 }),
-  email: z.string(),
-  age: z.number().int().min(18, { message: "Age must be between 18 and 150" }).max(150, { message: "Age must be between 18 and 150" }),
+  username: z.string().refine((s) => [...s].length >= 3 && [...s].length <= 32, { message: "Username must be 3 to 32 characters" }).openapi({ minLength: 3, maxLength: 32 }).refine((s: string) => !s.includes("\u0000")),
+  email: z.string().refine((s: string) => !s.includes("\u0000")),
+  age: z.number().int().openapi({ format: "int32" }).min(18, { message: "Age must be between 18 and 150" }).max(150, { message: "Age must be between 18 and 150" }),
 }).openapi("UpdateCustomerRequest").refine((data: any) => data.username !== data.email, { path: ["username"], message: "Invariant violated: username != email" }).refine((data: any) => /^[^@]+@[^@]+\.[^@]+$/.test(data.email) && [...data.email].length <= 120, { path: ["email"], message: "Invariant violated: email check email.matches(\"^[^@]+@[^@]+\\\\.[^@]+$\") && email.length <= 120" });
 
 const AllQuery = z.object({
@@ -35,8 +35,8 @@ export const CustomerResponse = z.object({
   id: z.string(),
   username: z.string(),
   email: z.string(),
-  age: z.number().int(),
-  version: z.number().int(),
+  age: z.number().int().openapi({ format: "int32" }),
+  version: z.number().int().openapi({ format: "int32" }),
   display: z.string(),
 }).openapi("CustomerResponse");
 export const CustomerListResponse = z.array(CustomerResponse).openapi("CustomerListResponse");
@@ -164,7 +164,7 @@ export function customerRoutes(repo: CustomerRepository): OpenAPIHono {
       try {
         await repo.delete(Ids.CustomerId(id));
       } catch (err) {
-        if (err && typeof err === "object" && (((err as { code?: string }).code ?? (err as { cause?: { code?: string } }).cause?.code) === "23503")) {
+        if (err && typeof err === "object" && ["23001", "23503"].includes(((err as { code?: string }).code ?? (err as { cause?: { code?: string } }).cause?.code) as string)) {
           return c.body(JSON.stringify({ type: "about:blank", title: "Conflict", status: 409, detail: "Customer is still referenced and cannot be deleted.", instance: c.req.path }), 409, { "content-type": "application/problem+json" });
         }
         throw err;

@@ -4,9 +4,10 @@ using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
 using CatalogApi.Domain.Enums;
 
+
 namespace CatalogApi.Application.Customers.Responses;
 
-public sealed record CustomerResponse([property: Required] Guid Id, [property: Required] string Username, [property: Required] string Email, [property: Required] int Age, [property: Required] int Version, [property: Required] string Display);
+public sealed record CustomerResponse([property: Required] Guid Id, [property: Required(AllowEmptyStrings = true)] string Username, [property: Required(AllowEmptyStrings = true)] string Email, [property: Required] int Age, [property: Required] int Version, [property: Required(AllowEmptyStrings = true)] string Display);
 
 public sealed record CreateCustomerResponse([property: Required] Guid Id);
 

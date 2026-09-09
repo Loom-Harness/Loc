@@ -337,7 +337,7 @@ describe("provenanced — TypeScript emission", () => {
     // sibling — over the shared nullable lineage schema.
     expect(routes).toContain("const ProvenanceLineage = z.object({");
     expect(routes).toContain(
-      "total: z.object({ value: z.number().int(), lineage: ProvenanceLineage.nullable() }),",
+      'total: z.object({ value: z.number().int().openapi({ format: "int32" }), lineage: ProvenanceLineage.nullable() }),',
     );
     expect(routes).not.toContain("total_provenance: ProvenanceLineage");
     // `toWire` folds the domain's split pair (value property + co-located

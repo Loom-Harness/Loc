@@ -889,7 +889,7 @@ describe(".NET generator", () => {
     // Required strings carry `AllowEmptyStrings = true` (empty → domain 422,
     // not model-validation 400); non-string required fields stay bare.
     expect(req).toMatch(
-      /public sealed record PlaceOrderRequest\(\[Required\] Guid CustomerId, \[Required\] decimal Amount, \[Required\(AllowEmptyStrings = true\)\] string PlacedAt\)/,
+      /public sealed record PlaceOrderRequest\(\[Required\] Guid CustomerId, \[Required\] decimal Amount, \[NoNulChar\] \[Required\(AllowEmptyStrings = true\)\] string PlacedAt\)/,
     );
 
     // Command uses domain types (CustomerId, DateTime).

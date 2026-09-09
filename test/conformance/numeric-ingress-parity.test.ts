@@ -195,19 +195,24 @@ const BAD_MONEY_STRING: Record<Platform, Seam[]> = {
  *  Elixir's operation params reached `force_change` with the float. */
 const FRACTIONAL_INT: Record<Platform, Seam[]> = {
   node: [
+    // The seam is `.int()`, not the whole chain: an `int` field also carries
+    // its int4 bound and published format since F11
+    // (`.min(…).max(…).openapi({ format: "int32" })`), so anchoring on the
+    // line END would pin a spelling this probe has no opinion about. What
+    // must not disappear is the integrality check itself.
     {
       why: "int request fields are z.number().int()",
-      shape: /qty: z\.number\(\)\.int\(\),/,
+      shape: /qty: z\.number\(\)\.int\(\)/,
       file: /\.routes\.ts$/,
     },
     {
       why: "int operation params too",
-      shape: /newQty: z\.number\(\)\.int\(\),/,
+      shape: /newQty: z\.number\(\)\.int\(\)/,
       file: /\.routes\.ts$/,
     },
     {
       why: "long is an integer too",
-      shape: /sold: z\.number\(\)\.int\(\),/,
+      shape: /sold: z\.number\(\)\.int\(\)/,
       file: /\.routes\.ts$/,
     },
   ],
@@ -243,8 +248,12 @@ const FRACTIONAL_INT: Record<Platform, Seam[]> = {
   ],
   python: [
     // pydantic answers `int_from_float` for 1.5 — measured, not assumed.
-    { why: "int request fields are `int`", shape: /qty: int/, file: /_routes\.py$/ },
-    { why: "int operation params too", shape: /newQty: int/, file: /_routes\.py$/ },
+    // The annotation is the shared `Int32` alias since F11 — `Annotated[int,
+    // …]`, so still an `int` to pydantic — and its own gate
+    // (`int32-wire-bound.test.ts`) pins the bound and the published format.
+    // What this probe needs is that the field stays INTEGER-typed.
+    { why: "int request fields are int-typed", shape: /qty: Int32/, file: /_routes\.py$/ },
+    { why: "int operation params too", shape: /newQty: Int32/, file: /_routes\.py$/ },
   ],
   elixir: [
     {

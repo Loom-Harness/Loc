@@ -1,4 +1,5 @@
 import { plural } from "../../../util/naming.js";
+import { noNulCharUsing } from "../dto-mapping.js";
 
 // Request + response DTO records.  Both are flat record-types in the
 // `Application.<Aggregates>.Requests` / `.Responses` namespaces.
@@ -52,6 +53,7 @@ using System;
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
 ${usesJsonRequired ? "using System.Text.Json.Serialization;\n" : ""}using ${args.ns}.Domain.Enums;
+${noNulCharUsing(args.ns, ...args.records.map((r) => r.params))}
 ${extra}
 namespace ${args.ns}.Application.${plural(args.aggName)}.${group};
 

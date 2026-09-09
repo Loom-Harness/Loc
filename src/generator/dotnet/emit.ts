@@ -6,6 +6,8 @@ export {
   renderController,
   renderExceptionFilter,
   renderListWrapperFilter,
+  renderMalformedPathIdFilter,
+  renderNoNulCharAttribute,
   renderProblemDetailsFilter,
   renderRequiredFromCtorParamFilter,
   renderValidationProblem,
