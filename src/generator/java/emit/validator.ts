@@ -285,7 +285,7 @@ function renderValidatorClass(spec: CommandSpec, pkg: string, basePkg: string): 
     new RegExp(`\\b${p.name}\\b`).test(checks.join("\n")),
   );
   const lets = referenced.map((p) => {
-    collectWireToDomainImports(eff(p.type, !!p.optional), imports);
+    collectWireToDomainImports(eff(p.type, !!p.optional), imports, basePkg);
     return `        var ${p.name} = ${validatorLocal(eff(p.type, !!p.optional), `request.${p.name}()`)};`;
   });
 
@@ -333,8 +333,11 @@ function renderValidatorClass(spec: CommandSpec, pkg: string, basePkg: string): 
  *  their domain value (`wireToDomain`); a value-object-bearing field keeps its
  *  wire record (its `to<VO>` parser is service-private, and nested accessors
  *  read the same shape) so member predicates resolve without it. */
-function validatorLocal(type: TypeIR, expr: string): string {
-  return bearsValueObject(type) ? expr : wireToDomain(type, expr);
+function validatorLocal(type: TypeIR, expr: string, pointer = ""): string {
+  // The validator evaluates member predicates over an already-parsed local; a
+  // money conversion here would have been refused at the service seam first,
+  // so the pointer is informational and defaults to the document root.
+  return bearsValueObject(type) ? expr : wireToDomain(type, expr, pointer);
 }
 
 function bearsValueObject(type: TypeIR): boolean {
@@ -417,7 +420,27 @@ function patternCheck(
     moneyLike
       ? `${field}.compareTo(new java.math.BigDecimal("${n}")) ${op} 0`
       : `${field} ${op} ${n}`;
-  const fail = (cond: string): string => reject(field, code, message, cond);
+  // A NULL field SKIPS its bound rather than failing it (F23). This validator
+  // is a Spring `Validator` that Bean Validation runs ALONGSIDE the record's
+  // own `@NotNull`, not after it — so with `{"sku": null}` the length check
+  // reached `sku.codePoints()` first and threw:
+  //
+  //     NullPointerException: Cannot invoke "String.codePoints()" because "sku" is null
+  //       at CreateOrderValidator.validate(CreateOrderValidator.java:23)
+  //
+  // → a 500 for a body `@NotNull` was about to reject with a 422. Skipping
+  // leaves the absence to the annotation that describes it, which is exactly
+  // what .NET's FluentValidation arms already do (`v == null || …`, and its
+  // built-in length validators return true for null).
+  //
+  // Only where the Java type is a REFERENCE: `len-*` and `regex` are always
+  // String, and the numeric arms are only nullable in their BigDecimal form.
+  // Emitting `int == null` would not compile.
+  const nullSkip = (cond: string): string =>
+    moneyLike || pattern.kind.startsWith("len-") || pattern.kind === "regex"
+      ? `${field} == null || ${cond}`
+      : cond;
+  const fail = (cond: string): string => reject(field, code, message, nullSkip(cond));
   switch (pattern.kind) {
     case "min":
       // Exclusive (`weight > 0.5` on a decimal/money field) → strict `>`; the

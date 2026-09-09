@@ -68,7 +68,7 @@ import { plural, snake, upperFirst } from "../../util/naming.js";
 import { isServerSourcedDefault, isValueObjectDefault } from "../_frontend/server-default.js";
 import { findUnionSpec } from "../_payload/union-wire.js";
 import { pyHistoryMapperName, renderPyHistoryMapper } from "./emit/audit-history.js";
-import { requestPyType, responsePyType, wireModelImport } from "./emit/http-models.js";
+import { paramPyType, requestPyType, responsePyType, wireModelImport } from "./emit/http-models.js";
 import { provColumn } from "./emit/provenance.js";
 import {
   createFieldConstraints,
@@ -1379,7 +1379,7 @@ function findRoute(
         `        raise ForbiddenError(${JSON.stringify(`Forbidden: find ${find.name}`)})`,
       ]
     : null;
-  const params = find.params.map((p) => `${p.name}: ${requestPyType(p.type, ctx)}`);
+  const params = find.params.map((p) => `${p.name}: ${paramPyType(p.type, ctx)}`);
   const sig = [...params, ...(needsUser ? ["request: Request"] : []), "session: SessionDep"].join(
     ", ",
   );

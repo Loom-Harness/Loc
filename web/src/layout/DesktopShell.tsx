@@ -1,5 +1,14 @@
-import { Box, Button, Group as MGroup, SegmentedControl, Text, UnstyledButton } from "@mantine/core";
-import { lazy, Suspense, useEffect, useState, type ReactNode } from "react";
+import {
+  Box,
+  Button,
+  Group as MGroup,
+  SegmentedControl,
+  Switch,
+  Text,
+  Tooltip,
+  UnstyledButton,
+} from "@mantine/core";
+import { lazy, Suspense, useEffect, useMemo, useState, type ReactNode } from "react";
 
 // The visual Builder pulls in craft.js + a main-thread Langium parse; lazily
 // loaded so neither lands in the main chunk until the Builder tab is opened.
@@ -16,15 +25,41 @@ import {
 } from "react-resizable-panels";
 import { EditorPane } from "./EditorPane";
 import { PreviewPane } from "./PreviewPane";
+import { ChatBody } from "./ChatPanel";
 import { DevToolsDock } from "./DevToolsDock";
-import { ExplorerTree } from "../preview/ExplorerTree";
+import { ExplorerTree, type RowMark } from "../preview/ExplorerTree";
+import { constructBand, constructHue, generatedBands } from "../build/correspondence";
+import type { ViewerHighlight } from "../editor/correspondence-decorations";
 import { LazyFileViewer } from "./lazy-panels";
 import { SourceFilesTree } from "./SourceFilesTree";
-import { usePersistedState } from "../util/usePersistedState";
 import { PaneErrorBoundary } from "../PaneErrorBoundary";
-import { modeLabel, type LayoutCtx } from "./ctx";
+import { ExamplesPane } from "./ExamplesPane";
+import { FirstRunCard } from "./FirstRunCard";
+import { type CenterView, type ExplorerMode, modeLabel, type LayoutCtx } from "./ctx";
+import { ApiPane, DiagramsPane, TraceabilityPane } from "./LoomViewsPane";
+import {
+  CHAT,
+  CORRESPONDENCE,
+  EXPLORER_VIEW,
+  EXPORT,
+  nextStep,
+  nextStepMid,
+  OUTPUT_DIFF,
+  PANE,
+  STAGE,
+} from "./vocabulary";
 
-type ExplorerMode = "user" | "generated";
+// The Explorer switcher, in the order a reader walks them: your source, the
+// emitted tree, the three `.loom/`-bundle views over it (M-T8.20), then the
+// examples syllabus.
+const EXPLORER_TABS: readonly ExplorerMode[] = [
+  "user",
+  "generated",
+  "diagrams",
+  "api",
+  "traceability",
+  "examples",
+];
 
 // The active non-source document in the center area — a file opened
 // from either Explorer view.  `source` (main.ddd) is the other tab.
@@ -63,20 +98,35 @@ export function DesktopShell({ ctx }: Props): JSX.Element {
   // Center area shows either the editable source (main.ddd) or a
   // read-only view of a file opened from the Explorer.  The editor
   // stays mounted underneath so Monaco keeps its model + undo history.
-  const [centerView, setCenterView] = useState<
-    "source" | "secondary" | "builder" | "model" | "requirements"
-  >("source");
+  // Both lifted to the ctx (App) in M-T8.18 so the palette, the Problems
+  // rows and the panes' *Go to line N* can switch them.
+  const { centerView, setCenterView, explorerMode, setExplorerMode, firstRunVisible } = ctx;
   const [secondaryDoc, setSecondaryDoc] = useState<SecondaryDoc | null>(null);
-  const [explorerMode, setExplorerMode] = usePersistedState<ExplorerMode>(
-    "loom.desktop.explorerMode",
-    // Default to your source files — the managed "User code" tree is the
-    // primary explorer now; "Generated" is for browsing emitted output.
-    "user",
-  );
   // Dock-tab state lives on the ctx now (lifted to App), so a panel inside
   // the dock — History's "diff as baseline" — can reveal a sibling tab
   // (Migrations) with context.  The legacy-alias coercion moved to App.
   const { dockTab, setDockTab } = ctx;
+
+  // Per-row decoration for the generated tree: what CHANGED in this generate
+  // (slice 2) and what the declaration under the cursor PRODUCED (slice 3).
+  // One map so a row can carry both — a file can be freshly changed AND part
+  // of the hovered declaration's output, and that combination is exactly what
+  // a reader wants to see.
+  const { outputDiff, correspondence } = ctx;
+  const rowMarks = useMemo(() => {
+    const out = new Map<string, RowMark>();
+    for (const [path, status] of outputDiff.byPath) {
+      // A removed file has no row to mark — it is gone from the tree.  The
+      // count still reaches the reader through the banner's summary.
+      if (status === "removed") continue;
+      out.set(path, { status });
+    }
+    const hue = correspondence?.construct ? constructHue(correspondence.construct) : undefined;
+    for (const file of correspondence?.files ?? []) {
+      out.set(file.file, { ...out.get(file.file), corresponds: true, hue });
+    }
+    return out;
+  }, [outputDiff, correspondence]);
 
   const onPickGenerated = (path: string): void => {
     const file = files.find((f) => f.path === path);
@@ -89,6 +139,35 @@ export function DesktopShell({ ctx }: Props): JSX.Element {
   // Which row the generated Explorer view highlights as active.
   const generatedSelection =
     secondaryDoc?.source === "generated" ? secondaryDoc.path : null;
+
+  // Correspondence tinting for the OPEN generated file: the standing colour
+  // map (every construct's regions in this file) plus the "hit" lines the
+  // declaration under the editor cursor produced.
+  const openPath = secondaryDoc?.source === "generated" ? secondaryDoc.path : null;
+  const viewerHighlights = useMemo<ViewerHighlight[]>(() => {
+    if (!openPath) return [];
+    const out: ViewerHighlight[] = [];
+    if (ctx.colourMap && ctx.sourceMap) {
+      for (const band of generatedBands(ctx.sourceMap, openPath)) {
+        out.push({
+          startLine: band.startLine,
+          endLine: band.endLine,
+          band: constructBand(band.construct),
+          kind: "band",
+        });
+      }
+    }
+    const match = correspondence?.files.find((f) => f.file === openPath);
+    for (const span of match?.highlights ?? []) {
+      out.push({
+        startLine: span.startLine,
+        endLine: span.endLine,
+        band: constructBand(span.construct ?? correspondence?.construct ?? ""),
+        kind: "hit",
+      });
+    }
+    return out;
+  }, [openPath, ctx.colourMap, ctx.sourceMap, correspondence]);
 
   const leftRef = usePanelRef();
   const rightRef = usePanelRef();
@@ -115,7 +194,7 @@ export function DesktopShell({ ctx }: Props): JSX.Element {
       case "ok":
         return (
           <Text size="xs" c={ddl ? "green" : "dimmed"}>
-            {ddl ? "live" : "needs Boot"}
+            {ddl ? "live" : `needs ${STAGE.boot}`}
           </Text>
         );
       case "fail":
@@ -133,7 +212,7 @@ export function DesktopShell({ ctx }: Props): JSX.Element {
       case "pending":
         return (
           <Text size="xs" c="dimmed">
-            needs Bundle
+            needs {STAGE.bundle}
           </Text>
         );
     }
@@ -167,9 +246,9 @@ export function DesktopShell({ ctx }: Props): JSX.Element {
                 minSize="10%"
                 onResize={(s) => setLeftCollapsed(s.asPercentage < 1)}
               >
-                <Box style={{ height: "100%", display: "flex", flexDirection: "column", background: "var(--mantine-color-dark-7)" }}>
+                <Box style={{ height: "100%", display: "flex", flexDirection: "column", background: "var(--loom-bg)" }}>
                   <RegionHeader
-                    label="Explorer"
+                    label={PANE.explorer}
                     collapsed={leftCollapsed}
                     side="left"
                     onToggle={() => (leftCollapsed ? leftRef.current?.expand() : leftRef.current?.collapse())}
@@ -178,23 +257,71 @@ export function DesktopShell({ ctx }: Props): JSX.Element {
                       {files.length} file{files.length === 1 ? "" : "s"} · {modeLabel(generateResult)}
                     </Text>
                   </RegionHeader>
-                  <Box px="xs" py={4} style={{ borderBottom: "1px solid var(--mantine-color-dark-4)" }}>
-                    <SegmentedControl
-                      size="xs"
-                      fullWidth
-                      value={explorerMode}
-                      onChange={(v) => setExplorerMode(v as ExplorerMode)}
-                      data={[
-                        { label: "User code", value: "user" },
-                        { label: "Generated", value: "generated" },
-                      ]}
-                      data-testid="explorer-mode"
-                    />
+                  {/* Six views in an 18 % column: a SegmentedControl would
+                      squeeze each label to two characters, so the switcher is
+                      a wrapping row of buttons instead.  It keeps the
+                      `explorer-mode` test id on the container and each label
+                      as plain text, which is what the ~6 specs that click
+                      `getByTestId("explorer-mode").getByText("Generated")`
+                      match on. */}
+                  <Box
+                    px={4}
+                    py={4}
+                    style={{ borderBottom: "1px solid var(--loom-border)" }}
+                    data-testid="explorer-mode"
+                  >
+                    <Box style={{ display: "flex", flexWrap: "wrap", gap: 2 }}>
+                      {EXPLORER_TABS.map((tab) => (
+                        <UnstyledButton
+                          key={tab}
+                          onClick={() => setExplorerMode(tab)}
+                          data-testid={`explorer-mode-${tab}`}
+                          data-active={explorerMode === tab || undefined}
+                          px={8}
+                          py={3}
+                          style={{
+                            borderRadius: 4,
+                            background:
+                              explorerMode === tab
+                                ? "var(--loom-bg-active)"
+                                : "transparent",
+                          }}
+                        >
+                          <Text
+                            size="xs"
+                            fw={explorerMode === tab ? 600 : 400}
+                            c={explorerMode === tab ? undefined : "dimmed"}
+                          >
+                            {EXPLORER_VIEW[tab]}
+                          </Text>
+                        </UnstyledButton>
+                      ))}
+                    </Box>
                   </Box>
-                  {explorerMode === "generated" ? (
+                  {explorerMode === "diagrams" ? (
+                    <DiagramsPane
+                      files={files}
+                      activePath={generatedSelection}
+                      isDesktop={ctx.isDesktop}
+                      onOpen={(doc) => onPickGenerated(doc.path)}
+                    />
+                  ) : explorerMode === "traceability" ? (
+                    <TraceabilityPane
+                      files={files}
+                      activePath={generatedSelection}
+                      isDesktop={ctx.isDesktop}
+                      onOpen={(doc) => onPickGenerated(doc.path)}
+                    />
+                  ) : explorerMode === "api" ? (
+                    <ApiPane ctx={ctx} />
+                  ) : explorerMode === "examples" ? (
+                    // Sample systems by concept, each opening in a NEW
+                    // workspace (M-T8.18, audit H5).
+                    <ExamplesPane ctx={ctx} />
+                  ) : explorerMode === "generated" ? (
                     <Box style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
                       {files.length > 0 && (
-                        <Box px="xs" py={4} style={{ borderBottom: "1px solid var(--mantine-color-dark-4)" }}>
+                        <Box px="xs" py={4} style={{ borderBottom: "1px solid var(--loom-border)" }}>
                           <Button
                             size="compact-xs"
                             variant="light"
@@ -202,16 +329,24 @@ export function DesktopShell({ ctx }: Props): JSX.Element {
                             leftSection={<span aria-hidden>↓</span>}
                             onClick={() => ctx.runDownloadZip()}
                             data-testid="download-zip"
+                            title={EXPORT.hint}
                           >
                             Download .zip
                           </Button>
                         </Box>
                       )}
+                      <ExplorerBanner ctx={ctx} />
                       <ExplorerTree
                         nodes={tree.children}
                         selectedPath={generatedSelection}
                         onActivateFile={onPickGenerated}
-                        emptyHint="No files yet — click Generate."
+                        emptyHint={`No files yet — ${nextStepMid("generate", true)}.`}
+                        marks={rowMarks}
+                        onHoverFile={(path) =>
+                          ctx.setReverseHover(
+                            path === null ? null : { file: path, line: 1 },
+                          )
+                        }
                       />
                     </Box>
                   ) : (
@@ -246,18 +381,17 @@ export function DesktopShell({ ctx }: Props): JSX.Element {
               {/* CENTER — Editor / Viewer */}
               <Panel minSize="25%">
                 <Box style={{ height: "100%", display: "flex", flexDirection: "column" }}>
-                  <MGroup px={4} py={2} bg="dark.6" gap={2} wrap="nowrap" style={{ borderBottom: "1px solid var(--mantine-color-dark-4)" }}>
+                  <MGroup px={4} py={2} bg="var(--loom-bg-raised)" gap={2} wrap="nowrap" style={{ borderBottom: "1px solid var(--loom-border)" }}>
                     <SegmentedControl
                       size="xs"
                       value={centerView === "secondary" ? "" : centerView}
-                      onChange={(v) =>
-                        setCenterView(v as "source" | "builder" | "model" | "requirements")
-                      }
+                      onChange={(v) => setCenterView(v as CenterView)}
                       data={[
-                        { value: "source", label: <span data-testid="doc-tab-source">Source</span> },
-                        { value: "builder", label: <span data-testid="doc-tab-builder">Builder</span> },
-                        { value: "model", label: <span data-testid="doc-tab-model">Model</span> },
-                        { value: "requirements", label: <span data-testid="doc-tab-requirements">Requirements</span> },
+                        { value: "source", label: <span data-testid="doc-tab-source">{PANE.source}</span> },
+                        { value: "chat", label: <span data-testid="doc-tab-chat">{PANE.chat}</span> },
+                        { value: "builder", label: <span data-testid="doc-tab-builder">{PANE.builder}</span> },
+                        { value: "model", label: <span data-testid="doc-tab-model">{PANE.model}</span> },
+                        { value: "requirements", label: <span data-testid="doc-tab-requirements">{PANE.requirements}</span> },
                       ]}
                     />
                     {secondaryDoc && (
@@ -265,12 +399,65 @@ export function DesktopShell({ ctx }: Props): JSX.Element {
                         {secondaryDoc.path}
                       </DocTab>
                     )}
+                    {/* Chat's own companion control: the source it is editing,
+                        beside it.  On by default while a turn is in flight
+                        (App drives that), so the model's edits are visible as
+                        they land rather than after the fact. */}
+                    {centerView === "chat" && (
+                      <Tooltip label={CHAT.splitHint} withArrow position="bottom" multiline w={260}>
+                        <Switch
+                          size="xs"
+                          ml="auto"
+                          checked={ctx.chatSplit}
+                          onChange={(e) => ctx.setChatSplit(e.currentTarget.checked)}
+                          label={CHAT.split}
+                          data-testid="chat-split-toggle"
+                        />
+                      </Tooltip>
+                    )}
                   </MGroup>
-                  {/* Editor stays mounted (display toggle) so Monaco keeps
-                      its model + undo history; the read-only viewer
-                      remounts per file via its key. */}
-                  <Box style={{ flex: 1, minHeight: 0, display: centerView === "source" ? "flex" : "none" }}>
-                    <EditorPane ctx={ctx} />
+                  {/* Chat + Source share one row so **Split** is a layout
+                      toggle, not a second mount: both stay mounted behind a
+                      display switch, which is what keeps Monaco's model +
+                      undo history (and the chat composer's draft) alive
+                      across a tab change. */}
+                  <Box
+                    style={{
+                      flex: 1,
+                      minHeight: 0,
+                      display: centerView === "source" || centerView === "chat" ? "flex" : "none",
+                      flexDirection: "row",
+                    }}
+                  >
+                    <Box
+                      data-testid="center-chat"
+                      style={{
+                        display: centerView === "chat" ? "flex" : "none",
+                        flexDirection: "column",
+                        minWidth: 0,
+                        flex: ctx.chatSplit ? "0 0 44%" : 1,
+                        borderRight: ctx.chatSplit
+                          ? "1px solid var(--mantine-color-default-border)"
+                          : undefined,
+                      }}
+                    >
+                      <ChatBody ctx={ctx} />
+                    </Box>
+                    <Box
+                      style={{
+                        flex: 1,
+                        minWidth: 0,
+                        display:
+                          centerView === "source" || (centerView === "chat" && ctx.chatSplit)
+                            ? "flex"
+                            : "none",
+                        position: "relative",
+                      }}
+                    >
+                      <EditorPane ctx={ctx} />
+                      {/* Three doors over the never-edited editor (M-T8.18). */}
+                      {firstRunVisible && centerView === "source" && <FirstRunCard ctx={ctx} />}
+                    </Box>
                   </Box>
                   {/* Lazy-mounted on first activation, then kept mounted via
                       a display toggle (same pattern as the editor above) so
@@ -312,7 +499,17 @@ export function DesktopShell({ ctx }: Props): JSX.Element {
                   {secondaryDoc && (
                     <Box style={{ flex: 1, minHeight: 0, display: centerView === "secondary" ? "flex" : "none" }}>
                       <Suspense fallback={<Box p="md"><Text size="sm" c="dimmed">Loading viewer…</Text></Box>}>
-                        <LazyFileViewer key={secondaryDoc.path} path={secondaryDoc.path} content={secondaryDoc.content} />
+                        <LazyFileViewer
+                          key={secondaryDoc.path}
+                          path={secondaryDoc.path}
+                          content={secondaryDoc.content}
+                          highlights={viewerHighlights}
+                          onHoverLine={(line) =>
+                            ctx.setReverseHover(
+                              line === null ? null : { file: secondaryDoc.path, line },
+                            )
+                          }
+                        />
                       </Suspense>
                     </Box>
                   )}
@@ -332,7 +529,7 @@ export function DesktopShell({ ctx }: Props): JSX.Element {
               >
                 <Box data-testid="preview-region" style={{ height: "100%", display: "flex", flexDirection: "column" }}>
                   <RegionHeader
-                    label="Preview"
+                    label={PANE.preview}
                     collapsed={rightCollapsed}
                     side="right"
                     onToggle={() => (rightCollapsed ? rightRef.current?.expand() : rightRef.current?.collapse())}
@@ -350,9 +547,14 @@ export function DesktopShell({ ctx }: Props): JSX.Element {
         </Box>
       </Panel>
 
-      <Handle orientation="horizontal" />
+      {/* An `#embed=1` link drops the dock entirely (M-T8.23 slice 2): an
+          iframe-sized playground has no room for Problems / Tests / History,
+          and a collapsed-but-present dock would eat the little height there
+          is.  `#view=1` keeps it — a read-only reader still wants Problems. */}
+      {!ctx.embedMode && <Handle orientation="horizontal" />}
 
       {/* BOTTOM — Dev Tools dock */}
+      {!ctx.embedMode && (
       <Panel
         panelRef={bottomRef}
         collapsible
@@ -362,9 +564,9 @@ export function DesktopShell({ ctx }: Props): JSX.Element {
         onResize={(s) => setBottomCollapsed(s.asPercentage < 8)}
       >
         {bottomCollapsed ? (
-          <MGroup px="sm" py={4} bg="dark.6" gap="xs" justify="space-between" style={{ height: "100%" }}>
+          <MGroup px="sm" py={4} bg="var(--loom-bg-raised)" gap="xs" justify="space-between" style={{ height: "100%" }}>
             <Text size="xs" fw={600} tt="uppercase" c="dimmed">
-              Dev Tools
+              {PANE.devTools}
             </Text>
             <UnstyledButton onClick={() => bottomRef.current?.expand()} data-testid="dock-toggle">
               <Text size="xs" c="dimmed">▴ expand</Text>
@@ -374,7 +576,79 @@ export function DesktopShell({ ctx }: Props): JSX.Element {
           <DevToolsDock ctx={ctx} tab={dockTab} setTab={setDockTab} />
         )}
       </Panel>
+      )}
     </Group>
+  );
+}
+
+/** The one line above the generated tree.
+ *
+ *  It answers whichever question is live: while a declaration is hovered in
+ *  the editor it names that declaration and how many files it produced (the
+ *  correspondence banner); otherwise it summarises what the last generate
+ *  changed.  Both are transient state the tree rows also carry — the banner
+ *  exists because a virtualized tree only mounts the rows in view, so a match
+ *  (or a change) further down would otherwise be invisible. */
+function ExplorerBanner({ ctx }: { ctx: LayoutCtx }): JSX.Element | null {
+  const { correspondence, outputDiff, colourMap, setColourMap } = ctx;
+  const hasDiff = outputDiff.any;
+  if (!correspondence && !hasDiff) {
+    return (
+      <Box px="xs" py={2} style={{ borderBottom: "1px solid var(--loom-border)" }}>
+        <ColourMapSwitch on={colourMap} onChange={setColourMap} />
+      </Box>
+    );
+  }
+  return (
+    <Box
+      px="xs"
+      py={2}
+      style={{ borderBottom: "1px solid var(--loom-border)" }}
+      data-testid="explorer-banner"
+    >
+      {correspondence ? (
+        <Text
+          size="xs"
+          truncate
+          data-testid="correspondence-banner"
+          data-files={correspondence.files.length}
+          data-construct={correspondence.construct}
+          style={{
+            color: correspondence.construct
+              ? `hsl(${constructHue(correspondence.construct)}, 70%, 70%)`
+              : undefined,
+          }}
+        >
+          {CORRESPONDENCE.from(correspondence.construct ?? "?", correspondence.files.length)}
+        </Text>
+      ) : (
+        <Text size="xs" c="dimmed" truncate data-testid="output-diff-summary">
+          {OUTPUT_DIFF.summary(outputDiff.added, outputDiff.changed, outputDiff.removed)}{" "}
+          {OUTPUT_DIFF.sinceLast}
+        </Text>
+      )}
+      <ColourMapSwitch on={colourMap} onChange={setColourMap} />
+    </Box>
+  );
+}
+
+function ColourMapSwitch({
+  on,
+  onChange,
+}: {
+  on: boolean;
+  onChange: (v: boolean) => void;
+}): JSX.Element {
+  return (
+    <Switch
+      size="xs"
+      checked={on}
+      onChange={(e) => onChange(e.currentTarget.checked)}
+      label={CORRESPONDENCE.colourMap}
+      title={CORRESPONDENCE.colourMapHint}
+      data-testid="colour-map-toggle"
+      styles={{ label: { fontSize: 11, color: "var(--mantine-color-dimmed)" } }}
+    />
   );
 }
 
@@ -385,7 +659,7 @@ function Handle({ orientation }: { orientation: "vertical" | "horizontal" }): JS
   return (
     <Separator
       style={{
-        background: "var(--mantine-color-dark-4)",
+        background: "var(--loom-border)",
         ...(vertical ? { width: 1 } : { height: 1 }),
       }}
     />
@@ -412,9 +686,9 @@ function CollapsedRail({
       style={{
         width: 26,
         flex: "0 0 26px",
-        background: "var(--mantine-color-dark-6)",
-        borderRight: side === "left" ? "1px solid var(--mantine-color-dark-4)" : undefined,
-        borderLeft: side === "right" ? "1px solid var(--mantine-color-dark-4)" : undefined,
+        background: "var(--loom-bg-raised)",
+        borderRight: side === "left" ? "1px solid var(--loom-border)" : undefined,
+        borderLeft: side === "right" ? "1px solid var(--loom-border)" : undefined,
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
@@ -450,7 +724,7 @@ function RegionHeader({
   const collapseGlyph = side === "left" ? "‹" : "›";
   const expandGlyph = side === "left" ? "›" : "‹";
   return (
-    <MGroup px="sm" py={4} bg="dark.6" gap="xs" justify="space-between" wrap="nowrap" style={{ borderBottom: "1px solid var(--mantine-color-dark-4)" }}>
+    <MGroup px="sm" py={4} bg="var(--loom-bg-raised)" gap="xs" justify="space-between" wrap="nowrap" style={{ borderBottom: "1px solid var(--loom-border)" }}>
       <MGroup gap="xs" wrap="nowrap">
         <Text size="xs" fw={600} tt="uppercase" c="dimmed">
           {label}
@@ -485,7 +759,7 @@ function DocTab({
       style={{
         borderRadius: 4,
         maxWidth: 280,
-        background: active ? "var(--mantine-color-dark-5)" : "transparent",
+        background: active ? "var(--loom-bg-active)" : "transparent",
       }}
     >
       <Text size="xs" ff="monospace" truncate c={active ? undefined : "dimmed"}>

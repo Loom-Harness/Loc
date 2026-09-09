@@ -538,45 +538,89 @@ places a non-optional read happens without a path id: a non-optional `find`
 route, and a workflow body that reads.
 
 ### F11 — an `int` field declares no range, and a value inside the declared range overflows the column
-**Waiver:** W11 (server error) + W12 (its status-conformance consequence), both
-`intermittent` · **Severity: high** — any body carrying an `int`.
-
-Intermittent because reaching the column needs two things in one run: an
-out-of-int32 `qty` *and* a path `{id}` that resolves to a row the fuzzer made
-earlier (a random uuid 404s first). It reproduced on the discovery run and not
-on the next, which is why the two rules are exempt from the staleness half of
-the ratchet — same shape as W6, and it graduates the same way (a pinned
-deterministic case).
+**Waiver:** W11/W12, **narrowed to java** · **Severity: high** · **Status: still
+OPEN on java (the rules are kept there); fixed on node and python 2026-09-06;
+.NET and java were already correct on the input; elixir not measured.**
 
 ```
 curl -X POST -H 'Content-Type: application/json' \
-  -d '{"productId":"<uuid>","qty":9543751572142}' http://host/api/orders/<id>/add_line
+  -d '{"sku":"A","qty":9543751572142,…}' http://host/api/orders
 → 500   # value out of range for type integer
 ```
 
-The wire validator says `z.number().int()` and the spec says
-`{"type":"integer"}` — neither carries a bound — while the column behind it is
-Postgres `int4`. So the fuzzer obeys the published contract exactly and still
-reaches a server error. Same family as F7 (declared vs enforced), one level
-down: F7 was the declared TYPE not being honoured, this is the declared RANGE
-not existing. The fix is to declare and enforce int32 for `int` (int64 for
-`long`) — a spec change, so all five backends together, and `.NET`/`Java`
-already type-bound their side while python/elixir do not.
+The wire validator said `z.number().int()` and the spec said
+`{"type":"integer"}` — neither carrying a bound — while the column behind it is
+Postgres `int4`. The fuzzer obeyed the published contract exactly and still
+reached a server error.
 
-**Re-verified 2026-08-31 (Wave 1b `wire-openapi` packet) and deliberately NOT
-taken there — with the size measured rather than asserted.** The premise holds:
-`int` still publishes an unbounded `{"type":"integer"}`. What the re-check adds
-is why this keeps being deferred (#2648, #2664, and now a third time), so the
-next agent does not re-discover it: **there is no shared choke point.** Each
-backend derives its integer schema separately — elixir from its own literal
-table (`elixir/vanilla/openapi-emit.ts:849/865`), .NET/java/python by
-REFLECTION over the annotated wire types (Swashbuckle / springdoc / FastAPI, so
-the bound has to come from a `[Range]` / `@Min@Max` / `Field(ge=,le=)` the
-validator emitters attach), node from zod via `_frontend/zod-schemas.ts`. So
-"declare int32" is five emitter changes plus the shared zod one, and the two
-waivers can only be DELETED once a booted schemathesis leg passes — a runtime
-tier, not a unit one. That is a mission, and it should be claimed as one rather
-than ridden along with a contract-shaped packet.
+**The "five emitter changes" estimate was wrong, and that is why this kept being
+deferred (#2648, #2664, and a third time in Wave 1b).** The prior re-check
+reasoned that each backend derives its integer schema separately, so declaring
+int32 meant touching all of them. Measured instead of reasoned — four booted
+apps, the same body:
+
+| | published `qty` | `qty: 9543751572142` |
+|---|---|---|
+| node | `{"type":"integer"}` | **500** |
+| python | `{"type":"integer"}` | **500** |
+| dotnet | `{"type":"integer","format":"int32"}` | 400 |
+| java | `{"type":"integer","format":"int32"}` | 400 |
+
+.NET and java had **already** published the format and rejected the overflow at
+the binder. Only two backends were wrong, so this was two edits, not six — and
+it was a PARITY fix (bring the other two up to what these already do), not the
+spec change across five backends the estimate assumed.
+
+**node** — the `int` entry in the three `*_PRIMITIVE` maps in the hono
+routes-builder, which is where a wire primitive becomes a zod chain, so the
+bound and the published format ride together. `.min`/`.max` make the rejection
+the shared 422 `defaultHook` already answers.
+
+**python** — an `Int32` alias in `wire_models.py`, the exact twin of the
+`UuidStr` alias already there for the same reason: `Field(ge=…, le=…)` supplies
+the validation (an ordinary pydantic error → FastAPI's standard 422),
+`WithJsonSchema` supplies the published shape, so the spec reads `format: int32`
+rather than pydantic's own `minimum`/`maximum` pair.
+
+After: node and python both answer **422**, and both publish the int32 format.
+node additionally publishes `minimum`/`maximum` on the REQUEST (zod emits them
+from `.min`/`.max`) — a superset of what .NET and java say, not a divergence
+from it. A valid body still answers 201 on all four, and so does the boundary
+value `-2147483648`, so the bound is not off by one.
+
+Two narrowings the first cut did not have, both found by the emitted output
+rather than by reasoning:
+
+- **The RESPONSE carries the format WITHOUT the bound.** A response value came
+  out of the very `int4` column the bound describes, so re-validating it buys
+  nothing; the published shape still has to match, so the format stays.
+- **A DECLARED bound wins outright.** With `invariant rating >= 1 && rating <= 5`
+  the chain first read
+  `z.number().int().min(-2147483648).max(2147483647).min(1).max(5)` — the wider
+  structural pair stacked in front of the real one, leaving the published
+  `minimum`/`maximum` dependent on which of two `.min` calls the OpenAPI emitter
+  read last. The structural range is now dropped whenever the field declares its
+  own numeric bound, and only the format remains: the invariant states the
+  bound, the format states the column.
+
+**`long` deliberately gets no twin.** It is a `bigint` column, and the int64
+range it would declare is wider than a JSON number carries exactly on either
+runtime — publishing a bound nothing enforces is F21's mistake, one type over.
+
+**Elixir was NOT measured and is NOT claimed.** The prior re-check notes it
+derives its integer schema from its own literal table
+(`elixir/vanilla/openapi-emit.ts`); nothing here touched it, and the elixir leg
+carries no waiver rules, so its state on this input is simply unknown.
+
+Gated by `test/generator/int32-wire-bound.test.ts`; four mutations each fail
+exactly the assertion that names them (node unbounded again, node over-applying
+to `long`, python's `WithJsonSchema` dropped, python's `int` mapped back to
+bare `int`).
+
+**W11/W12 are narrowed to java, not retired.** java does not 500 on this input —
+it answered 400 before and after — so if `not_a_server_error` still fires there
+it is firing on something else. That needs a nightly to say, and deleting a rule
+on a guess is how W31 came back four-fold.
 
 ---
 
@@ -613,8 +657,8 @@ that into a visible per-backend answer sheet:
 | Leg | Findings | Root causes | Verdict with the new rules |
 |---|---|---|---|
 | node | 11 | (F9, F10, F11) | clean |
-| python | 22 | F16, F17 (=F7 unfixed here), F18 (=F8 unfixed here), F9, F10 | clean |
-| dotnet | 10 + 1 case unfuzzable | F14, F19, F20, F21, F22, F9 | clean |
+| python | 22 | ~~F16~~, ~~F17~~ (both fixed), F18 (=F8 unfixed here), F9, F10 | clean |
+| dotnet | 10 + 1 case unfuzzable | F14, F19, F20, F21, ~~F22~~ (fixed), F9 | clean |
 | java | 103 | F19, F21, F23, F24, F25, F26, F18, F9, F10, F11 | clean |
 | elixir | — | F15 | discovery cell (see below) |
 
@@ -688,12 +732,13 @@ fixtures declare `contexts:` only, so on elixir there was literally nothing to
 fuzz them against; the leg therefore runs
 `web/src/examples/storefront-elixir.ddd`, which does declare an `api`.
 
-### F16 — python: a create referencing a well-formed uuid that does not exist 500s
-**Waiver:** W20 (+ W21) · **Severity: high**
+### F16 — a create referencing a well-formed uuid that does not exist 500s
+**Waiver:** none — fixed · **Severity: high** · **Status: FIXED (2026-09-07).**
+**Recorded as python-only; measured as all five, and it had a twin.**
 
 ```
 curl -X POST http://host/api/orders \
-  -d '{"customerId":"e3e70682-c209-1cac-a29f-6fbed82c07cd","placedAt":0,"status":"Draft"}'
+  -d '{"customerId":"e3e70682-c209-1cac-a29f-6fbed82c07cd", …}'
 → 500
 asyncpg.exceptions.ForeignKeyViolationError: insert or update on table "orders"
   violates foreign key constraint "orders_customer_id_fkey"
@@ -702,15 +747,100 @@ asyncpg.exceptions.ForeignKeyViolationError: insert or update on table "orders"
 F2's successor. F2 was the *malformed* reference, fixed on all five in #2555 by
 publishing and enforcing `format: uuid`; this is the well-formed one, which no
 amount of wire validation can catch — a uuid is only wrong because the row is
-absent. Nothing between the SQLAlchemy repository and the router maps
-`IntegrityError`, so it escapes as 500 and, being undeclared, also trips
-`status_code_conformance`. The node leg does not reproduce it: the PGlite DDL the
-behavioral harness synthesises carries no foreign keys, so node's clean result
-here is an artefact of the harness, not of the emitter — worth fixing in
-`synthDDL` so the two legs ask the same question.
+absent, which nothing above the database knows.
+
+**Measured on booted apps against a real Postgres**, same body on every backend:
+
+| | before | after |
+|---|---|---|
+| node | 500 `internal` | 422 `The request references a record that does not exist.` |
+| python | 500 `internal` | 422 (same) |
+| dotnet | 500 `internal` | 422 (same) |
+| java | **409** `…is still referenced and cannot be deleted.` | 422 (same) |
+| elixir | 500 `internal` | 422, `errors[{pointer: "/customerId", message: "does not exist"}]` |
+
+422 is already declared on every write route on every backend, so nothing in the
+published contract moves. The domain floor is where a well-formed request refused
+on *semantic* grounds belongs (RFC 9110 §15.5.21), and it resolves through the
+same `httpStatus DomainError -> <Code>` map as every other rung. Elixir answers
+in its own existing changeset-error envelope, which is why it gets a field
+pointer the other four do not: `foreign_key_constraint/2` turns the raise into
+`{:error, changeset}`, and the controller's existing 422 arm renders it.
+
+**Why only python reported it.** The node leg runs on PGlite against a DDL the
+harness synthesises, and that DDL carries no foreign keys at all — node's clean
+result was an artefact of the harness, not of the emitter. java did not 500: it
+answered an undeclared 409, which `not_a_server_error` does not report. That 409
+is very likely what W12 has been absorbing on `POST /api/orders/{id}/add_line`,
+whose `productId` is a cross-aggregate reference (measured: that body now answers
+the declared 422). The register said *python*; the defect was universal.
+
+**The SQLSTATE four backends had wrong.** A cross-aggregate `X id` FK is emitted
+`ON DELETE RESTRICT`, and a RESTRICT check raises `restrict_violation` (**23001**)
+— *not* `foreign_key_violation` (23503), which is what an INSERT raises. Every
+"still referenced, cannot be deleted" arm keyed on 23503, so it never fired:
+
+- **node** answered **500** on a still-referenced delete, against the 409 its own
+  OpenAPI declares. Measured, fixed, and invisible to the node leg for the same
+  reason as above — its PGlite DDL has no FKs, so the delete never conflicted.
+- **java** fell through to the *unique-violation* arm and answered 409 *"A
+  resource with these values already exists."*
+
+python and dotnet were unaffected: their delete-path arms catch the exception
+CLASS (`IntegrityError` / `DbUpdateException`), not a SQLSTATE. Elixir rescues
+`Ecto.ConstraintError` and Ecto does classify a restrict violation as
+`:foreign_key`, so it was correct too (measured: 409).
+
+The two codes are now the **discriminator**, named once in
+`src/generator/_persistence/pg-sqlstate.ts`: 23001 can only come from a delete,
+23503 only from a write naming an absent row, so no backend has to inspect the
+request method to tell the two halves of one constraint apart. A local
+delete-path arm may absorb both (nothing else reaches it); an app-global arm must
+not, and java's does not.
+
+**Gate:** `test/generator/dangling-reference-status.test.ts` — 13 cases across
+five backends, covering both arms, a contained part's reference
+(`OrderLine.productId`, the add_line route), and byte-identity for a
+reference-free project. Mutation-proved with seven separate reverts (node arm,
+node delete SQLSTATE, python gate, the parts walk in
+`aggregatesCanTripDanglingReference`, the java SQLSTATE split, the dotnet arm,
+the elixir `foreign_key_constraint`); each failed the case that names it.
+
+**Found on the way: the .NET project did not compile.** Booting dotnet for this
+measurement failed at `dotnet build` with CS0246 — `Application/Workflows/
+WorkflowRequests.cs` emitted `[NoNulChar]` (F20's guard) without
+`using <ns>.Api;`. The demand-gated using had been written at the aggregate-DTO
+emitter only, and the two workflow request emitters call the same `dtoParam` from
+their own file templates. Every existing assertion read one file, so nothing
+caught it. Fixed by sharing the gate (`noNulCharUsing`), and pinned by a sweep
+over the WHOLE emitted project — no `.cs` may name the attribute without
+resolving it — plus a case asserting the workflow file really is one that emits
+it, so the sweep cannot go vacuous.
+
+**Found on the way, twice: the java guard was on the wrong thing.** F20's java
+half annotated every component whose type *bears* a string, arrays included, so
+a `string[]` create input rendered `@NoNulChar List<String> tags`.
+`NoNulChar.Validator` implements `ConstraintValidator<NoNulChar, String>`, so
+Hibernate Validator raises `UnexpectedTypeException` the first time such a
+request is validated — and that escapes the advice as a **500**, the exact
+status the guard exists to remove:
+
+```
+POST /api/orders  →  500 {"detail":"internal", …}      (document-collection-read)
+```
+
+`@NoNulChar List<String>` COMPILES, so the compile tier could not see it either;
+the constraint is resolved at validation time. The fix is the container-element
+form Bean Validation is built for — `List<@NoNulChar String>`, which needed
+`ElementType.TYPE_USE` on the annotation — and it is also the *more* complete
+guard: the list form never validated the elements even in principle.
+**Gate:** `test/generator/java/nul-guard-container-element.test.ts` — 6 cases
+over the three emitters that reach this decision, plus a sweep refusing
+`@NoNulChar` on any container. Mutation-proved, and verified against the booted
+java app on a real Postgres (500 before, 200 after).
 
 ### F17 — python: F7 (declared `type` not honoured) is still open
-**Waiver:** W22 · **Severity: medium**
+**Waiver:** none — fixed · **Severity: medium** · **Status: FIXED (2026-09-07).**
 
 ```
 curl -X POST http://host/api/products \
@@ -719,8 +849,80 @@ curl -X POST http://host/api/products \
 
 `Money.amount` publishes `{"type":"number","minimum":0}`. Python's `bool` is an
 `int` subclass and pydantic's lax mode coerces it, so a body the published
-contract rejects is accepted. F7's fix landed on the Hono emitter only
-(2026-08-16) — same defect, same declared schema, different answer.
+contract rejects was accepted. A JSON **string** went through for the same
+reason. F7's fix landed on the Hono emitter only (2026-08-16) — same declared
+schema, different answer.
+
+**Measured on a booted app, `POST /api/products`:**
+
+| body | before | after |
+|---|---|---|
+| `{"amount": false}` | 201 | **422** `/price/amount` |
+| `{"amount": "1.5"}` | 201 | **422** `/price/amount` |
+| `{"amount": 1}` (integer literal) | 201 | 201 — JSON says this *is* a number |
+| `{"amount": 1.5}` | 201 | 201 |
+
+node, same body: 422 *"expected number, received boolean"*. The published
+schema does not move (`{"type":"number","minimum":0}` before and after) — a
+`BeforeValidator` contributes nothing to the JSON schema, exactly like the
+`WireStr` NUL guard. The server is now strictly inside the contract it already
+had.
+
+**`ConfigDict(strict=True)` is the obvious fix, and it is wrong — measured, not
+reasoned.** Against `model_validate_json` strict mode does exactly the right
+thing: it refuses bool/str → number while still accepting an integer literal
+for a `number`, an ISO string for a `datetime`, and a string for a
+string-valued enum. But **FastAPI does not validate the JSON.** It parses the
+body and validates the resulting dict — pydantic's PYTHON mode, where strict
+*also* refuses `str → datetime` and `str → Enum`. Switched on, every create
+carrying a date-time or an enum answered 422 with *"Input should be an instance
+of OrderStatus"* for input that is perfectly valid JSON. Two modes, FastAPI
+picks the stricter one, and only a booted app said so.
+
+What ships instead is a `BeforeValidator` over the two offending python types,
+carried by `WireNum` (`decimal`), `WireInt` (`long`) and `Int32` (`int`) — the
+guard placed FIRST on `Int32`, before the int coercion that would otherwise have
+turned the bool into 0/1.
+
+**Gate:** `test/generator/python/wire-number-type.test.ts` — 7 cases, including
+a sweep asserting no emitted module turns strict mode on, so the trap cannot
+come back without a booted app having to find it again. Mutation-proved four
+ways (drop the guard, move it after the bound, revert `decimal` to a bare
+`float`, re-introduce `strict=True`).
+
+The emitted project still passes `ruff check` and `mypy --strict`, and a full
+read/write/operation/workflow sweep against the booted app is unchanged.
+
+**The guard was applied one stage too wide — a query parameter is not JSON.**
+The first shipped version annotated a repository find's parameters through the
+same `requestPyType` the body models use, so `find popular(min: int)` rendered
+`min: Int32`. A path or query parameter carries no type: it is a substring of
+the URL, `?min=6` arrives as the *string* `"6"`, and the guard refused it.
+
+| request | with the guard on the parameter | after |
+|---|---|---|
+| `GET /api/articles/popular?min=6` | **422** *"Input should be a valid number"* | 200 |
+| `GET /api/accounts/by_min_balance?min=0` | **422** (same) | 200 |
+
+The fast suite is structurally blind to this — `min: Int32` is a perfectly
+well-formed annotation, and the tier compares emitted TEXT. Only the booted
+behavioral leg answered.
+
+The fix is a DIRECTION, not a special case: `paramPyType` renders the path/query
+spelling, and only the three numeric arms differ from the request one —
+`Int32Param` (the bound and the published `format: int32`, minus the guard),
+`int` for a `long`, `float` for a `decimal`. Everything else keeps every
+request-side narrowing, because a `MoneyStr`, a `UuidStr` and a `WireStr` all
+constrain a string that *does* arrive as a string; F2/F3's uuid gate lives on
+that very path and must not be widened away.
+
+**Gate:** `test/generator/python/wire-param-number-type.test.ts` — 6 cases,
+including a sweep over every `async def` route signature in the project (three
+separate emitters annotate one) plus the control asserting the body side still
+carries the guard, so the sweep cannot go vacuous. Mutation-proved on both the
+find emitter and the paged-run handler emitter, and verified by re-running the
+two behavioral cases against a booted app on a real Postgres — failing before,
+passing after, with the CI failure text reproduced byte for byte.
 
 ### F18 — python + java + dotnet: a wrong verb on a static sub-path answers 422
 **Waiver:** none — fixed · **Severity: low** · **Status: FIXED (2026-09-03).**
@@ -806,72 +1008,235 @@ comments say Phoenix "raises NoRouteError" for a wrong verb as well as an
 unmatched path, i.e. it answers **404 where the other four answer 405**. That
 is a design question of its own and deliberately out of this slice.
 
-### F19 — dotnet + java: a malformed declared `date-time` reaches the domain layer
-**Waiver:** W24/W25 (dotnet), W29/W30 (java) · **Severity: high**
+### F19 — java: a malformed declared `date-time` reaches the domain layer
+**Waiver:** none — fixed · **Severity: high** · **Status: FIXED (2026-09-03) on
+java; already fixed on .NET, which the original entry did not know.**
 
 ```
-curl -X POST http://host/api/orders -d '{"customerId":"…","placedAt":"","status":"Draft"}'
-→ 500   System.FormatException: String '' was not recognized as a valid DateTime.   (.NET)
-→ 500   java.time.format.DateTimeParseException: Text '' could not be parsed at index 0  (java)
+curl -X POST http://host/api/orders -d '{"placedAt":"", …}'
+→ 500   java.time.format.DateTimeParseException: Text '' could not be parsed at index 0
 ```
 
-The field publishes `{"type":"string","format":"date-time"}`, and both backends
-parse it inside the domain constructor rather than refusing it at the wire
-boundary. F7's family — declared but unenforced — on the two statically typed
-backends.
+The field publishes `{"type":"string","format":"date-time"}`; the service parsed
+it bare (`Instant.parse(request.placedAt())`) and the resulting
+`DateTimeParseException` matched no `@ExceptionHandler`, so the catch-all
+answered `500 "internal"` — a server fault for input the server itself refused.
 
-### F20 — dotnet: a NUL character in a declared string reaches Postgres
-**Waiver:** W24/W25 · **Severity: medium**
+**.NET was already fixed.** Measured on a booted app before touching anything:
+`placedAt: ""` and `placedAt: "not-a-date"` both answer **422** there, through
+the `WireFormatException` arm M-T6.48 landed. The finding's `dotnet + java`
+framing was stale; W24/W25 were narrowed to their F20 half rather than retired
+at the time, and have since been retired with F20 itself.
+
+**Java now mirrors it exactly.** `WireFormatException` (`domain/common`) carries
+the pointer plus the guarded parses — `instant`, `decimal`, `uuid` — each
+wrapping the very parse that used to run bare, and `ApiExceptionAdvice` gains an
+arm ahead of the catch-all rendering it as the same 422 + `errors[]` envelope:
+
+```json
+{"status":422,"title":"Validation failed","detail":"One or more fields are invalid.",
+ "errors":[{"pointer":"/placedAt","message":"Invalid datetime: \"not-a-date\""}]}
+```
+
+The guard is **opt-in per call site**: `wireToDomain` takes a `pointer`, and its
+presence is what turns a bare parse into a guarded one. The wire boundary (the
+service and workflow emitters) passes one; the emitters that are NOT the wire
+boundary — seeds, the channel decoder, the emitted tests — keep the bare parse
+byte-identical.
+
+Measured on a booted app before and after: `""` and `"not-a-date"` → 500 → 422
+with `/placedAt`; a valid body still 201. Gated by
+`test/generator/java/wire-boundary-refusals.test.ts`; five mutations each fail
+exactly the assertion that names them.
+
+### F20 — a NUL character in a declared string reaches Postgres (all four)
+**Waiver:** none — fixed · **Severity: medium** · **Status: FIXED (2026-09-07).**
 
 ```
-curl -X POST http://host/api/customers -d '{"email":" ","name":""}' → 500
-asyncpg/Npgsql: CharacterNotInRepertoireError (22021) — invalid byte sequence
+POST /api/orders -d '{"sku":"A\u0000B", …}' → 500
+asyncpg / Npgsql / pgjdbc: CharacterNotInRepertoireError (22021) — invalid byte sequence
 ```
 
-` ` is a legal JSON string character and an illegal Postgres `text` byte.
-Nothing on the write path rejects it, so the driver's error escapes as a 500. The
-same generated body also reproduces F21 (see below) when the NUL half happens not
-to be generated, which is why W27/W28 are marked `intermittent`.
+NUL is a legal JSON string character and an illegal Postgres `text` byte.
+Nothing on the write path refused it, so the driver's error escaped as a 500.
 
-### F21 — dotnet + java: `minLength` is published and enforced nowhere
-**Waiver:** W27/W28 (dotnet), W34 (java) · **Severity: medium**
+**Universal, not dotnet-only.** The register named .NET because that is the leg
+that reported it. Measured on four booted apps with the same body:
+
+| | before | after | pointer | message |
+|---|---|---|---|---|
+| node | **500** | **422** | `/sku` | `Invalid input` |
+| python | **500** | **422** | `/sku` | `Value error, must not contain a NUL character` |
+| dotnet | **500** | **422** | `/sku` | `The Sku field must not contain a NUL character.` |
+| java | **500** | **422** | `/sku` | `must not contain a NUL character` |
+
+A valid body still answers 201 on all four. **With this closed, no body on the
+create path answers 500 on any backend** — F19, F23, F11 and F20 were the four,
+and they are all now the declared 422.
+
+**Enforced, deliberately NOT published.** Each backend's seam is one the OpenAPI
+emitter cannot see:
+
+| | seam | why it publishes nothing |
+|---|---|---|
+| node | zod `.refine` | refines are invisible to zod-to-openapi |
+| python | `Annotated[str, AfterValidator(…)]` | an `AfterValidator` contributes no schema |
+| dotnet | a custom `ValidationAttribute` | the schema generator only knows the built-ins |
+| java | a custom Bean Validation constraint | springdoc only reads the standard ones |
+
+The alternative — a `pattern` excluding U+0000 on every string in every schema —
+is a large, noisy contract change for a character no real client sends. A server
+STRICTER than its published contract is safe; the reverse (F21, a published
+`minLength` nothing enforced) is not. Each seam also lands in the 422 envelope
+its backend already had, so none needed a new status arm.
+
+**Narrowness.** REQUEST only (a response string came out of the very column that
+cannot hold a NUL); null passes on all four, so an optional member is not made
+required by carrying the guard; and only plain `string` where the type is known
+— `guid`, `datetime` and `money` cross as strings too but each has a parse or
+pattern a NUL cannot pass. .NET's `dtoParam` sees only the C# type, so its guard
+also lands on those; inert, since their own parse rejects first.
+
+**The zod-3 ordering trap.** On node the guard is appended AFTER the invariant
+chain, not folded into the base. Under zod 3 — which the `node@v4` lane still
+pins — `.refine()` returns a `ZodEffects` wrapper that no longer exposes
+`.regex`/`.min`, so a guard in the base would make
+`z.string().refine(…).regex(/…/)` a type error in every generated project on
+that lane. Same reasoning as `orderSingleFieldPatterns`, and the gate has a case
+pinning the order.
+
+W24/W25 retired. Gated by `test/generator/nul-char-wire-guard.test.ts`; six
+mutations each fail exactly the assertion that names them, including one that
+moves the node guard into the base to prove the ordering case is not vacuous.
+
+### F21 — dotnet: the response schema claims a `minLength` nothing declared
+**Waiver:** W28 retired — fixed · W27 / W34 re-diagnosed, kept ·
+**Severity: medium** · **Status: the READ half is FIXED (2026-09-03); the write
+half was mis-diagnosed and is re-recorded below.**
 
 ```
-curl -X POST http://host/api/customers -d '{"name":"","email":"a@b.c"}'  → 201
+curl -X POST http://host/api/customers -d '{"name":"","email":"a@b.c"}'  → 201   (correct)
 curl     http://host/api/customers                                       → 200, and the
-  response violates the API's OWN schema: "" is shorter than 1 character
+  response violates the API's OWN schema: "" is shorter than the published minLength: 1
 ```
 
-One defect with two halves. `name` carries `minLength: 1` in both the request and
-the response schema; .NET and java enforce it in neither, so the write is
-accepted and the *read* then violates the published contract. Enforcing the
-declared bound on the write closes both.
+**The original entry got the cause wrong, and the wrong half of it.** It said
+`name` publishes `minLength: 1` in *both* the request and the response schema
+and that .NET and java enforce it in neither. Measured on booted apps of both,
+with the fixture's own model (`aggregate Customer with crudish { name, email,
+invariant email.length > 0 }`):
 
-### F22 — dotnet: a bodyless operation POST answers 415 before the path parameter is looked at
-**Waiver:** W26 (widened 2026-09-01) · **Severity: low**
+| | request `email` | response `name` / `email` | `email: ""` | `name: ""` |
+|---|---|---|---|---|
+| node | `minLength: 1` | — | 422 | 201 |
+| dotnet | **nothing** | **`minLength: 1` on BOTH** | 422 | 201 |
+| java | **nothing** | **nothing** | 422 | 201 |
+
+So the *behaviour* is correct and identical on all three: the declared bound
+(`email`) is enforced — FluentValidation on .NET, the domain invariant on java —
+and `name`, which declares nothing, is correctly accepted empty. What is wrong
+is the CONTRACT, and only on .NET, and only on the response.
+
+**Cause: `RequiredAttribute` defaults `AllowEmptyStrings` to false**, and
+ASP.NET's schema generator renders that as `minLength: 1`. Response DTOs are
+serialized, never validated, so nothing enforces it, and `name: string` declares
+nothing, so nothing asked for it. A row the server itself accepted is then
+served by a document saying that row is impossible — the server breaking its own
+contract on a plain read. That is W28's `response_schema_conformance`, and it is
+the real finding.
+
+**Fix:** response string properties carry `[property: Required(AllowEmptyStrings
+= true)]`, mirroring what the request side has carried (for a different, still
+valid reason) all along. Measured before and after on the same booted app: the
+phantom `minLength` is gone from `CustomerResponse`, `required` still lists every
+field, and `email: ""` → 422 / `name: ""` → 201 / `name: null` → 422 /
+`name` omitted → 422 are all unmoved. Gated by
+`test/generator/dotnet/response-string-minlength.test.ts`, mutation-proved both
+ways (revert the fix → 2 cases fail; widen it to non-strings → the narrowness
+case fails).
+
+**What this deliberately does not do.** `email` DOES declare `length > 0`, so
+its `minLength: 1` was accidentally correct; it goes too, leaving .NET where
+java already is — publishing no length bound at all. Publishing the bounds a
+`len-*` invariant actually declares (node emits them from `openapiLengthMeta`)
+is a separate slice on both backends, and it has to go through the
+schema-document layer: the DataAnnotations / Bean Validation annotations that
+would publish them (`[MinLength]`, `@Size`) also ENFORCE them, counting UTF-16
+code units rather than the code points the bound is defined in
+(`src/generator/_expr/code-point.ts`). Trading a false claim for a wrong count
+is not an improvement.
+
+**W27 and W34 are kept, not retired.** Both claimed an unenforced `minLength` on
+`POST /api/customers`; the measurements above say that is not what is there. What
+those two rules are actually absorbing cannot be established without running the
+leg, and retiring a rule on a guess is exactly how W31 came back four-fold on the
+next nightly. Their reasons now record the measurement and say "re-triage against
+a nightly".
+
+### F22 — dotnet: a body-carrying route answers 415 before the path parameter is looked at
+**Waiver:** none — fixed · **Severity: low** · **Status: FIXED (2026-09-08).**
 
 ```
-curl -X POST 'http://host/api/orders/%C2%A8/confirm'   → 415
+curl -X POST 'http://host/api/orders/not-a-uuid/confirm'    → 415   (honest answer: 422)
 ```
 
-ASP.NET's media-type check fires before model binding, so a request with a
-malformed `{id}` AND no body is answered by the one thing the contract says least
-about. 415 is not in the set of statuses that count as a rejection, so the fuzzer
-reads it as "schema-violating request accepted". The honest answer is the
-declared 422 for the unparseable identifier (or 400 for the absent body).
+A malformed path `{id}` answers the declared 422 on every backend — the contract
+`malformed-path-id-status.test.ts` pins across four of them. On .NET it held only
+for routes that carry no body: add a `[FromBody]` parameter and send no
+`Content-Type`, and `BodyModelBinder` short-circuits the whole binding pass with
+a 415 before the path parameter is ever looked at. 415 is the one status the
+contract says least about, and it is not a rejection the caller can act on — the
+request's real defect is the identifier, which no media type would have fixed.
+The fuzzer does not count 415 as a rejection either, which is what made this a
+`negative_data_rejection` finding rather than a silent divergence.
 
-**The rule was too narrow, and a later run proved it.** W26's pattern was written
-from the two `orders` routes of the discovery run, so the identical finding on
-`POST /api/customers/{id}/update` and `POST /api/wallets/{id}/freeze` arrived
-unwaived. Measured on a booted app, the 415 does not depend on the id being
-malformed at all — a VALID uuid with no `Content-Type` answers 415 too — so the
-shape is *every* operation POST, and the pattern now says that
-(`^POST /api/[a-z_]+/\{id\}/[a-z_]+$`). node, python and java are clean on this
-check in the same run, which is what makes the 415 a .NET divergence rather than
-a shared decision.
+**Measured on a booted app:**
+
+| request | before | after |
+|---|---|---|
+| `POST /api/orders/not-a-uuid/confirm` (no `Content-Type`) | **415** | **422** |
+| `POST /api/orders/not-a-uuid/add_line` (no `Content-Type`) | **415** | **422** |
+| `POST /api/orders/not-a-uuid/confirm` (+ `Content-Type`) | 422 | 422 |
+| `GET /api/orders/not-a-uuid` | 422 | 422 |
+| `DELETE /api/orders/not-a-uuid` | 422 | 422 |
+| node, every one of them | 422 | 422 |
+
+**A resource filter, because of where it sits.** MVC runs resource filters after
+routing but BEFORE model binding — the only window in which the route value can
+be judged ahead of the media-type check. The two obvious alternatives are both
+worse:
+
+- a **`{id:guid}` route constraint** was rejected for F18 and is still wrong: it
+  makes the route not match at all, turning the declared 422 into a framework
+  404 and breaking the four-backend contract;
+- **middleware** runs before routing, so it would have to re-derive every route
+  shape (and re-exclude every static sub-path) from a table — the duplication
+  F18's `staticSubpathRoutes` exists to avoid, for a check that needs no table.
+
+The filter reads the **action's own `id` parameter type** instead, so it needs no
+route knowledge at all: an aggregate keyed by `int`/`string` has no Guid
+parameter, and a static sub-path like `/api/customers/by_email` has already been
+routed to its own action by the time it runs (measured: still 200/404, never
+422). Its 422 envelope is byte-identical to the one the Guid binder produces for
+the same defect on a bodyless route — MVC's own `The value 'x' is not valid.`
+wording included — so the answer stops depending on whether a `Content-Type`
+happened to be present.
+
+**No emit-time gate.** An aggregate's identity is always a guid today
+(`lower.ts` stamps `idValueType` as the literal `"guid"`; there is no `ids`
+clause), so gating emission on it would be an always-true branch nothing could
+exercise — and a test for its false arm could not be written without a fixture
+the grammar rejects. The narrowing lives inside the filter and is checked per
+action at request time, which keeps it correct if the identity axis opens up.
+
+**Gate:** `test/generator/dotnet/malformed-path-id-before-media-type.test.ts` —
+7 cases, including the rejected route-constraint alternative pinned as a
+negative. Mutation-proved four ways (make it an action filter instead of a
+resource filter, register it after `DomainExceptionFilter`, drop the runtime
+Guid-parameter narrowing, drift the message off MVC's wording).
 
 ### F23 — java: a required body field arriving as JSON `null` NPEs in the domain layer
-**Waiver:** W29/W30 · **Severity: high**
+**Waiver:** none — fixed · **Severity: high** · **Status: FIXED (2026-09-03).**
 
 ```
 curl -X POST http://host/api/products -d '{"sku":null,"price":{"amount":1,"currency":"USD"}}'
@@ -880,8 +1245,42 @@ curl -X POST http://host/api/products -d '{"sku":null,"price":{"amount":1,"curre
 
 Also observed as `"amount" is null` and `"qty" is null`. The field is `required`
 in the published request schema; the Spring binder maps a JSON `null` to a Java
-`null` and hands it straight to the invariant check. Same family as F19 — the
-declared shape is published and never enforced.
+`null` and hands it straight to the invariant check.
+
+**Two things had to move, and only the second was obvious from the trace.**
+
+1. **`@NotNull` on the create body.** Operation bodies have carried it since
+   RS-26; the create body never did. A nested record additionally carries
+   `@Valid`, which is what makes the Bean Validation walk DESCEND — without it
+   `{"price":{"amount":null}}` passes the outer check and NPEs inside the value
+   object instead. With it the answer names `/price/amount`.
+   A component whose wire form is a Java PRIMITIVE gets no `@NotNull`: it can
+   never be null, and the absence it would describe is already answered (Jackson
+   3 enables `FAIL_ON_NULL_FOR_PRIMITIVES`).
+
+2. **The invariant validator now SKIPS a null instead of dereferencing it.**
+   Adding `@NotNull` alone did not fix `sku: null` — measured, the app still
+   answered 500 and the trace named `CreateOrderValidator.validate` line 23. The
+   emitted invariant validator is a Spring `Validator` that Bean Validation runs
+   ALONGSIDE the record's annotations, not after them, so the length check still
+   reached `sku.codePoints()` first. A null now skips its bound, leaving the
+   absence to the annotation that describes it — which is exactly what .NET's
+   FluentValidation arms already do (`v == null || …`, and its built-in length
+   validators return true for null). Only where the Java type is a REFERENCE:
+   `int == null` would not compile.
+
+Measured on a booted app before and after:
+
+| body | before | after | pointer |
+|---|---|---|---|
+| `sku: null` | 500 | **422** | `/sku` |
+| `price: null` | 500 | **422** | `/price` |
+| `price: {amount: null}` | 500 | **422** | `/price/amount` |
+| `sku: ""` (the invariant) | 422 | 422 | `/sku` — unmoved |
+| a valid body | 201 | 201 | — |
+
+Gated by `test/generator/java/wire-boundary-refusals.test.ts` alongside F19;
+the null-skip and each annotation are separately mutation-proved.
 
 ### F24 — java: an adversarial query string 500s a paged find
 **Waiver:** none — fixed · **Severity: medium**
@@ -982,33 +1381,56 @@ pointer (`/pageSize`, `/page`); `pageSize=467`, no params, and `sort=bogus`
 still answer 200. Gated by `test/generator/java/paged-bounds-422.test.ts`.
 
 ### F28 — java: an UNPARSEABLE query string answers an undeclared 400
-**Waiver:** W35 (intermittent) · **Severity: low** · **Status: OPEN, by
-constraint rather than by choice.**
+**Waiver:** W35 (intermittent) · **Severity: low** · **Status: BY DESIGN
+(reclassified 2026-09-08).** Previously recorded as an open bug "by constraint
+rather than by choice"; re-measured, it is the same shape as F9/W8 — a
+divergence between *containers*, deliberately not papered over.
 
 The residue of F24's fix, and narrower than the F25 it replaces in W32's slot.
 `GET /api/customers?=%C3%A0` now answers 400 instead of 500 — correct, and
 Tomcat's own `getErrorCode()` — but no read route declares a 400, so the
 `status_code_conformance` check still reports it.
 
-Three ways out, and none is free:
+**Re-measured 2026-09-08, three things this time.**
 
-1. **Answer 200, like the other four.** They ignore the junk parameter, which
-   W8 records as the deliberate cross-backend decision. Java cannot: Tomcat
-   refuses the malformed chunk in the container's own parser, before any
-   handler runs, and Tomcat 11.0.22 exposes no leniency knob — there is no
-   `parameterParsing*` attribute on `Connector` or on `Parameters` (checked
-   against the shipped jar, not the docs). It would take replacing the parser.
-2. **Answer 422.** Contradicts this repo's own split, stated in both the java
-   advice and the python handler: 422 is for a well-formed request that is
-   invalid, 400 for one that cannot be parsed. This one genuinely cannot.
-3. **Declare the 400.** On the SHARED read contract that publishes a status the
-   other four backends never produce — the exact failure the `errorStatuses`
-   table warns about. A java-only declaration would break spec parity instead.
+1. **All four backends, same request, booted against a real Postgres:**
 
-So it stays waived with an honest reason, and W35 carries `intermittent: true`:
-the case appeared ×4 on run 33382822525 and ×0 on the two runs before it. That
-low rate is what made W31 look permanently stale and got it wrongly retired —
-flagging it now is that lesson applied rather than repeated.
+   | | `?=%C3%A0` (empty parameter name) | `?junk` (unrecognised) |
+   |---|---|---|
+   | node | 200 | 200 |
+   | python | 200 | 200 |
+   | dotnet | 200 | 200 |
+   | java | **400** | 200 |
+
+   The `?junk` column is the control that was missing before: java is lenient
+   about an *unrecognised* parameter exactly like the other three. Its
+   strictness is specific to a chunk that is not valid query syntax.
+
+2. **It is not configurable away.** `org.apache.tomcat.util.http.Parameters`, as
+   shipped in `tomcat-embed-core 11.0.22` (read off the jar the build resolves,
+   not off the docs), exposes only `setLimit`, `setCharset`,
+   `setQueryStringCharset` and `setURLDecoder` — no strict/lenient flag, no
+   parse-failure action, nothing the Spring Boot `server.tomcat.*` namespace
+   could reach. Joining the other four would mean wrapping every request and
+   **re-implementing query parsing inside each emitted Spring app**, which buys
+   parity by making java silently accept malformed input.
+
+3. **400 is the right answer.** A syntactically invalid query string is the same
+   class of refusal as an over-long URI or unparseable headers — transport-level,
+   which is precisely why no route on any backend declares it.
+
+**The declaration alternative, considered and declined.** Adding 400 to the read
+arms of `errorStatuses` would make java conformant in one line. It would also
+publish, on every read route of every generated API on five backends, a status
+four of them never produce — for a refusal about HTTP syntax rather than about
+the operation. Every *write* arm already declares 400 because a body can be
+malformed; extending that to reads on the strength of one container's parser is
+a worse trade than carrying the waiver.
+
+W35 keeps `intermittent: true`: the case appeared ×4 on run 33382822525 and ×0
+on the two runs before it. That low rate is what made W31 look permanently stale
+and got it wrongly retired — flagging it is that lesson applied rather than
+repeated.
 
 ### F26 — java: every 405 omits the `Allow` header
 **Waiver:** none — fixed · **Severity: medium** · **Status: FIXED (2026-09-03).**
@@ -1047,8 +1469,8 @@ also what makes F18's java guard body-free: it raises
 `Allow`, and this arm is what puts it on the wire.
 
 ### F27 — elixir: the generated LiveView does not compile, so the leg never boots
-**Waiver:** none — the leg fails before any request is sent · **Severity: high**
-· **Status: OPEN, not yet diagnosed.**
+**Waiver:** none — the leg failed before any request was sent · **Severity: high**
+· **Status: FIXED (2026-09-01, [#2719](https://github.com/lemmit/Loc/pull/2719) / `d7c2df5`).**
 
 Observed on the 2026-08-31 nightly (run `33382822525`, `4466ab8`) while verifying
 an unrelated fix; recorded here so it is not lost. The elixir discovery cell
@@ -1074,9 +1496,33 @@ were found with the provided path` on its report upload is an *honest* empty —
 there is no work directory to upload, unlike the four legs whose uploads were
 silently dropped before the `include-hidden-files` fix.
 
-Not investigated further here — it belongs to the HEEx walker
-(`src/generator/elixir/heex-target.ts` / `heex-walker-core.ts`), not to the
-query-parameter path this session was working on.
+**Diagnosed and fixed by [#2719](https://github.com/lemmit/Loc/pull/2719).** It was
+the HEEx walker, as suspected. `renderMatch` only ever emitted HEEx's
+**expression** `cond` — but HEEx has two spellings that are not interchangeable:
+the expression form `<%= cond do  p -> term  end %>` takes Elixir TERMS as arms,
+the block form `<%= cond do %> … <% end %>` takes MARKUP. When an arm value was a
+page primitive — markup carrying its own `<%= … %>` / `<% end %>` — the two forms
+interleaved and the outer `cond do` was opened and never closed, because its `end`
+landed inside the arm's nested block. Hence the `TokenMissingError` above, with
+the unclosed delimiter reported at the `cond do` and the missing terminator 30
+lines later.
+
+The form is now chosen by what the arms actually render, per arm through
+`renderChild`, so a `match` MIXING markup and term arms stays valid
+(`armRendersMarkup` at `src/generator/elixir/heex-walker-core.ts:1235` + the `markupArms` branch at `:1269-1292`);
+a `true ->` fallback is always emitted, because `cond` raises `CondClauseError` at
+render time when no arm matches and no compile gate would see that. Pinned by
+`test/generator/elixir/heex-match-markup-arms.test.ts` (mutation-proved: 3 of 4
+cases fail on revert), and proved against the real toolchain — `mix compile` on the
+storefront-elixir fixture in a container returns "Generated phoenix_app app", exit
+0, and reverting the arm reproduces the CI error at the same file and the same
+line 158.
+
+**No waiver to retire** — this finding never had one (`test/behavioral/schemathesis-waivers.json`
+carries W8/W11/W12/W20–W30/W33–W36, none of them F27's), because the leg died
+before any request was sent. What is NOT proved here is the leg itself: a booted
+elixir schemathesis run has to confirm the cell now fuzzes rather than reporting
+`1 problem(s)`, and that belongs to a run of the leg, not to this docs pass.
 
 
 ### F29 — dotnet: a value object on a containment PART maps to columns the migration never created

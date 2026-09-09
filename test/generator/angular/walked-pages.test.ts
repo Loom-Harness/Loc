@@ -421,7 +421,7 @@ async function navPage(): Promise<string> {
 describe("angular generator — navigation + format-helper primitives", () => {
   it("routes Anchor/IdLink/Breadcrumbs via [routerLink] + registers RouterLink", async () => {
     const page = await navPage();
-    expect(page).toContain('<nav class="loom-breadcrumbs">');
+    expect(page).toContain('class="loom-breadcrumbs">');
     // Anchor label walks through the i18n seam (M-T1.11); routerLink unchanged.
     expect(page).toContain(
       '<a class="loom-anchor" [routerLink]=\'"/about"\'>{{ t("page.Home.anchor.onrqou", "About") }}</a>',
@@ -691,8 +691,10 @@ async function inputPage(): Promise<string> {
 describe("angular generator — standalone state-bound inputs", () => {
   it("binds each input to its state signal (read () / write .set())", async () => {
     const page = await inputPage();
+    // `Field` carries the derived a11y id (M-T1.12) — the other input
+    // primitives keep their own templates and are unchanged.
     expect(page).toContain(
-      '<input matInput [value]="name()" (input)="name.set($any($event.target).value)" />',
+      '<input matInput id="loom-field-name" [value]="name()" (input)="name.set($any($event.target).value)" />',
     );
     expect(page).toContain(
       '<input matInput type="number" [value]="count()" (input)="count.set(+$any($event.target).value)" />',

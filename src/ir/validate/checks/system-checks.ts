@@ -54,12 +54,14 @@ import {
 import { isMacroEmitted } from "../../types/origin.js";
 import { backendServesRealtime } from "../../util/channels.js";
 import { bodyUsesChart } from "../../util/chart.js";
+import { componentChildrenHosts } from "../../util/component-children.js";
 import { dataGridHosts } from "../../util/data-grid.js";
 import { aggregateFileField } from "../../util/file-field.js";
 import {
   firstUnlowerableForAdapter,
   isFindPredicateAdapter,
 } from "../../util/find-predicate-capability.js";
+import { FORM_LOCAL_FRAMEWORKS, formLocalCollisionHosts } from "../../util/form-locals.js";
 import { heexComponentHostStateUses } from "../../util/heex-component-host-state.js";
 import { nonRootFilterFields, rootBaseOf } from "../../util/inheritance.js";
 import { readableProjectionNames } from "../../util/projection-read.js";
@@ -76,7 +78,6 @@ import {
   resolveDataSourceConfig,
 } from "../../util/resolve-datasource.js";
 import { isDeepScopeFilter } from "../../util/tenant-stance.js";
-import { typeLabel } from "../../util/type-label.js";
 import { walkExprDeep, walkStmtsDeep, walkWorkflowStmtExprsDeep } from "../../util/walk.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
 import { firstNonGateRef, GATE_ALLOWED_REFS } from "./query-checks.js";
@@ -605,6 +606,102 @@ export function validateHeexComponentHostState(sys: SystemIR, diags: LoomDiagnos
             dName: d.name,
           }),
           source: `${ui.name}/${component}`,
+        });
+      }
+    }
+  }
+}
+
+/** A user component invoked WITH CHILDREN on the Angular frontend.
+ *
+ *  HONEST GAP.  Angular has no PascalCase component tag, so a user component
+ *  is invoked through `<ng-container [ngComponentOutlet]="X" …>`, and
+ *  `ngComponentOutlet` cannot project content from a template
+ *  (`ngComponentOutletContent` takes pre-built DOM nodes — TS-side only).  So
+ *  the extra positional argument that every JSX-family frontend renders as
+ *  children was DROPPED, silently: the child markup appeared nowhere in the
+ *  emitted project, and `renderUserComponent`'s doc comment admitting the drop
+ *  was the only trace anywhere.
+ *
+ *  Angular-scoped on purpose — react / vue / svelte render the children into
+ *  the component's `Slot { }` correctly, and feliz / flutter / heex were not
+ *  probed, so naming them would be an unverified refusal.
+ *
+ *  Ratchet: a WALKED component already carries a kebab selector
+ *  (`components-emit.ts`) and its `Slot { }` already emits `<ng-content>`
+ *  (`angular-target.renderChildrenSlot`), so the call site can switch from the
+ *  outlet to `<app-x …>children</app-x>` with the class in the page's
+ *  standalone `imports: []`.  That PR narrows this gate to `extern` components
+ *  (no Loom-known selector) or deletes it. */
+export function validateComponentChildrenSupport(sys: SystemIR, diags: LoomDiagnostic[]): void {
+  for (const d of sys.deployables) {
+    for (const { ui, fw } of mountedUis(sys, d)) {
+      if (fw !== "angular") continue;
+      for (const hit of componentChildrenHosts(ui)) {
+        diags.push({
+          // WARNING, not error, and the choice is deliberate.  #2734 made the
+          // same drop VISIBLE at the call site (a degradation comment in the
+          // emitted Angular) rather than blocking, and the two remedies are
+          // complementary rather than rival: the comment documents the loss in
+          // the output, this diagnostic tells the author at compile time, and
+          // between them nothing about the drop is silent any more.  Raising
+          // this to `error` would additionally REFUSE a model that has always
+          // generated — a breaking change, and one that would make #2734's
+          // comment path unreachable — so the non-blocking half of the pair is
+          // the one that belongs here.
+          severity: "warning",
+          code: "loom.component-children-unsupported",
+          message: diagMessage("loom.component-children-unsupported", {
+            what: hit.what,
+            component: hit.component,
+            dName: d.name,
+          }),
+          source: `${ui.name}/${hit.what}`,
+        });
+      }
+    }
+  }
+}
+
+/** Two forms on one page whose generated page-local bindings collide.
+ *
+ *  HONEST GAP, not a design rule.  Every JS frontend splices a form's mutation
+ *  hook + form handle in as page-scope consts named by the design pack's
+ *  `form-of-decls` / `form-op-decls` templates, and react / svelte / vue name
+ *  them BARE (`create`, `form`, `register`, `handleSubmit`) — so a second form
+ *  on the same page redeclares them.  React and Svelte then fail to build
+ *  (TS2300 / a Svelte compile error), which is loud; VUE dedupes the decl
+ *  strings and compiles, so the second form silently submits the FIRST form's
+ *  mutation with the first form's schema — a `CreateForm { of: Note }` that
+ *  posts an `Item`.  Angular already scopes the locals by aggregate and only
+ *  collides when two forms share an aggregate (+ op).
+ *
+ *  The rule per framework lives in `ir/util/form-locals.ts`, alongside the note
+ *  on which shapes were probed CLEAN and must not be flagged (`CreateForm` +
+ *  `OperationForm`; two `OperationForm`s over different ops).
+ *
+ *  Ratchet: the fix is Angular's aggregate prefix generalised to a per-FORM
+ *  prefix, threaded through the ~68 pack templates that hardcode these names.
+ *  The PR that lands it deletes this gate and its register row. */
+export function validateFormLocalCollisions(sys: SystemIR, diags: LoomDiagnostic[]): void {
+  for (const d of sys.deployables) {
+    for (const { ui, fw } of mountedUis(sys, d)) {
+      if (!FORM_LOCAL_FRAMEWORKS.has(fw)) continue;
+      for (const hit of formLocalCollisionHosts(ui)) {
+        diags.push({
+          severity: "error",
+          code: "loom.page-form-locals-unsupported",
+          message: diagMessage("loom.page-form-locals-unsupported", {
+            what: hit.what,
+            dName: d.name,
+            fw,
+            labels: hit.labels.join(" and "),
+            hint:
+              fw === "vue"
+                ? "On vue this does NOT fail the build — the duplicate declarations are deduped, so the second form silently submits the first form's mutation and schema."
+                : "The duplicate declarations are a compile error in the generated project.",
+          }),
+          source: `${ui.name}/${hit.what}`,
         });
       }
     }
@@ -3231,93 +3328,35 @@ export function validateDapperSupport(sys: SystemIR, diags: LoomDiagnostic[]): v
 }
 
 // ---------------------------------------------------------------------------
-// `persistence: mikroorm` capability gate (D-REALIZATION-AXES).
+// `persistence: mikroorm` capability (D-REALIZATION-AXES).
 //
 // The node/hono MikroORM adapter is the SECOND node persistence backend
 // (alongside the default `drizzle`).  On the PERSISTENCE axis it is at full
 // parity with drizzle: every shape / inheritance / containment / association /
 // audit / provenance / managed-field / seed / event-sourcing intersection
 // emits; persist-time audit stamping injects the audit columns into
-// `em.upsert(...)` from the ambient principal; and server-managed access
-// (`managed` / `token` / `internal` / `secret`) stores as an ordinary column.
-// Hierarchical (`deep`/`global`) tenancy scope is expressible through a `raw()`
-// FilterQuery key, so it is not gated here either.
+// `em.upsert(...)` from the ambient principal; server-managed access
+// (`managed` / `token` / `internal` / `secret`) stores as an ordinary column;
+// hierarchical (`deep`/`global`) tenancy scope is expressible through a `raw()`
+// FilterQuery key; and a root SCALAR/ENUM collection field (`tags: string[]`,
+// `kinds: Status[]`) — the one shape this adapter was genuinely BEHIND drizzle
+// on — now has a column arm too (`columnsForType`'s `"array"` case,
+// `typescript/emit/mikroorm.ts`, mirroring drizzle's own native array column):
+// `validateMikroOrmSupport` and its `#scalar-array` reject drained with it
+// (M-T6.23).
 //
-// The `loom.mikroorm-unsupported` CODE is also raised by `migration-checks.ts`
-// (`#migrations`), for declared migration steps this adapter's
-// `orm.schema.updateSchema()` can never apply.  Before adding a clause under
-// it, answer both questions this gate exists to ask: is the shape really
-// inexpressible on THIS adapter, and is it really specific to it?  A shape
-// impossible on every backend belongs in a target-neutral AST rule instead —
-// abstract-inheritance-base-with-`contains` lives in
-// `loom.abstract-aggregate-contains`
+// `loom.mikroorm-unsupported` is still raised, from `migration-checks.ts`
+// (`#migrations`, `#schema-split`, `#schema-ignored`) — the two genuinely
+// unmappable self-provisioning limits this adapter's `orm.schema.updateSchema()`
+// boot-time schema owner cannot express: a declared migration STEP (no
+// migration chain to apply it through) and Postgres schema PLACEMENT.  Before
+// adding a further clause under that code, answer both questions this gate has
+// always asked: is the shape really inexpressible on THIS adapter, and is it
+// really specific to it?  A shape impossible on every backend belongs in a
+// target-neutral AST rule instead — abstract-inheritance-base-with-`contains`
+// lives in `loom.abstract-aggregate-contains`
 // (`src/language/validators/inheritance.ts` Rule 3b) for exactly that reason.
 // ---------------------------------------------------------------------------
-//
-// ONE adapter-specific reject lives here, and it answers both
-// questions: a SCALAR collection field on the aggregate root (`tags: string[]`,
-// `kinds: Status[]`).  Inexpressible on THIS adapter (no column arm — see the
-// function body), and specific to it (drizzle stores the same field as a
-// native Postgres array).
-export function validateMikroOrmSupport(sys: SystemIR, diags: LoomDiagnostic[]): void {
-  const ctxByName = new Map<string, BoundedContextIR>();
-  for (const m of sys.subdomains) for (const c of m.contexts) ctxByName.set(c.name, c);
-
-  for (const dep of sys.deployables) {
-    if (dep.persistence !== "mikroorm") continue;
-    for (const ctxName of dep.contextNames) {
-      const ctx = ctxByName.get(ctxName);
-      if (!ctx) continue;
-      for (const agg of ctx.aggregates) {
-        const a = agg as EnrichedAggregateIR;
-        const where = `aggregate '${ctxName}.${agg.name}'`;
-        // SCALAR COLLECTION field on the aggregate ROOT (`tags: string[]`,
-        // `kinds: Status[]`).  `columnsOf` (typescript/emit/mikroorm.ts) filters
-        // out the two collection shapes it CAN map — `X id[]` (a pivot Row) and
-        // `<VO>[]` (one inline jsonb column) — and routes everything else into
-        // `columnsForType`, whose four arms are primitive / enum / id / value
-        // object.  An `array` falls to the default arm, which THROWS
-        // `unsupported field kind 'array' … (validator gap)` — codegen aborts on
-        // a `.ddd` that parsed and validated clean.  The throw named the gap; it
-        // was never gated.  Drizzle stores the same field as a native Postgres
-        // array, so this is the one place mikroorm is genuinely BEHIND drizzle
-        // rather than at parity — hence its own `#scalar-array` message instead
-        // of the "no relational mapping anywhere" generic tail.
-        //
-        // Scoped to the shapes that actually reach the row emitter:
-        //   • `persistedAs: eventLog` — no state table; the collection folds
-        //     in-memory from the event stream, so `columnsOf` never runs.
-        //   • `shape: document` — the whole aggregate is one jsonb blob, arrays
-        //     included (verified: it generates).  `relational` and `embedded`
-        //     BOTH go through the root column emitter, so both are gated.
-        // The safe interim fix per the parity policy: an honest refusal now, and
-        // it drains when the emitter grows a jsonb (or PG-array) column arm —
-        // exactly the one a contained PART's collection field already gets.
-        const rootShape = effectiveSavingShape(a, resolveDataSourceConfig(a, ctx, sys));
-        if (a.persistedAs !== "eventLog" && rootShape !== "document") {
-          for (const f of a.fields) {
-            const t = f.type.kind === "optional" ? f.type.inner : f.type;
-            if (t.kind !== "array") continue;
-            // `X id[]` (pivot table) and `<VO>[]` (inline jsonb) are mapped —
-            // only a PRIMITIVE / ENUM element array has no column arm.
-            if (t.element.kind !== "primitive" && t.element.kind !== "enum") continue;
-            diags.push({
-              severity: "error",
-              code: "loom.mikroorm-unsupported",
-              message: diagMessage("loom.mikroorm-unsupported#scalar-array", {
-                name: dep.name,
-                subject: where,
-                field: f.name,
-                element: typeLabel(t.element),
-              }),
-              source: `${sys.name}/${dep.name}`,
-            });
-          }
-        }
-      }
-    }
-  }
-}
 
 // ---------------------------------------------------------------------------
 // Per-persistence-adapter find-predicate capability gate (Bucket V / P0).

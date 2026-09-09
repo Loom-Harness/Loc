@@ -16,6 +16,7 @@ import { isMaterializedProjection, isQueryTimeProjection } from "../../ir/types/
 import type { MigrationsIR } from "../../ir/types/migrations-ir.js";
 import type { OriginRef } from "../../ir/types/origin.js";
 import {
+  aggregatesCanTripDanglingReference,
   aggregatesHaveUniqueKeys,
   aggregatesNeedConcurrency,
 } from "../../ir/util/aggregate-flags.js";
@@ -25,7 +26,13 @@ import { durableEventTypes } from "../../ir/util/channels.js";
 import { directParentName } from "../../ir/util/containment-parent.js";
 import { aggregateHasFileField } from "../../ir/util/file-field.js";
 import { foreignIdBrandNames, workflowIdTypeSources } from "../../ir/util/foreign-ids.js";
-import { isTpcBase, isTphBase, tableOwnerName, tphConcretesOf } from "../../ir/util/inheritance.js";
+import {
+  isTpcBase,
+  isTphBase,
+  isTphConcrete,
+  tableOwnerName,
+  tphConcretesOf,
+} from "../../ir/util/inheritance.js";
 import { mergeContexts } from "../../ir/util/merge-contexts.js";
 import {
   effectiveSavingShape,
@@ -162,6 +169,8 @@ import {
   renderJoinEntity,
   renderJoinEntityConfiguration,
   renderListWrapperFilter,
+  renderMalformedPathIdFilter,
+  renderNoNulCharAttribute,
   renderOrdinalGenerator,
   renderProblemDetailsFilter,
   renderProgram,
@@ -963,6 +972,10 @@ function emitProjectFromContexts(
       usingDapper,
       hasUniqueKeys,
       hasVersioned: hasConcurrency,
+      // Only emit the 23503 → domain-floor arm when some aggregate carries a
+      // cross-aggregate `X id` field — a reference-free project cannot trip a
+      // foreign-key violation on a write, so it stays byte-identical.
+      hasDanglingRef: aggregatesCanTripDanglingReference(merged.aggregates),
       localizeMessages: validationMessages.length > 0,
       // App-wide structural-conflict `httpStatus` overrides (M-T3.4a) — the
       // resolved statuses are identical across every hosted context (folded
@@ -973,6 +986,15 @@ function emitProjectFromContexts(
   // Shared RFC 6901 pointer helper + the replacement for MVC's built-in
   // invalid-model-state response (see renderValidationProblem).
   out.set("Api/ValidationProblem.cs", renderValidationProblem(ns));
+  out.set("Api/NoNulCharAttribute.cs", renderNoNulCharAttribute(ns));
+  // The unparseable-`{id}` guard (F22).  Unconditional, like every other file
+  // in this block: an aggregate's identity is ALWAYS a guid today (`lower.ts`
+  // stamps `idValueType` as the literal `"guid"`; there is no `ids` clause), so
+  // an emit-time gate on it would be an always-true branch nothing could
+  // exercise.  The narrowing that matters is inside the filter and is a RUNTIME
+  // one — it acts only on an action that actually binds a `Guid id` — which
+  // keeps it correct if the identity axis ever opens up.
+  out.set("Api/MalformedPathIdFilter.cs", renderMalformedPathIdFilter(ns));
   out.set("Api/ProblemDetailsResponsesFilter.cs", renderProblemDetailsFilter(ns));
   out.set(
     "Api/ListResponseWrapperFilter.cs",
@@ -1408,9 +1430,21 @@ function emitAggregate(
   const tpcBase = agg.extendsAggregate
     ? ctx.aggregates.find((a) => a.name === agg.extendsAggregate && isTpcBase(a, ctx.aggregates))
     : undefined;
-  const tphBase = agg.extendsAggregate
-    ? ctx.aggregates.find((a) => a.name === agg.extendsAggregate && isTphBase(a, ctx.aggregates))
-    : undefined;
+  // TPH identity is a property of THIS concrete, not of the base alone: a
+  // `shape: document` / `persistedAs: eventLog` concrete is forced to
+  // `inheritanceUsing: ownTable` under a `sharedTable` base (the sanctioned
+  // mixed hierarchy, `loom.es-tph-forced-own-table`), so the base stays a TPH
+  // base while this subtype owns its own table AND its own `<Agg>Id`.  Asking
+  // `isTphBase(base)` alone answered "shares identity" for such a concrete
+  // while `tableOwnerName(agg)` — which asks `isTphConcrete(agg)` — resolved
+  // the id class to `<Agg>Id`, so the entity minted a `<Base>Id` the service
+  // and repository refused (java: "incompatible types: ThingBaseId cannot be
+  // converted to ThingId").  Both questions now route through the same
+  // predicate; byte-identical for every hierarchy whose members agree.
+  const tphBase =
+    agg.extendsAggregate && isTphConcrete(agg, ctx.aggregates)
+      ? ctx.aggregates.find((a) => a.name === agg.extendsAggregate && isTphBase(a, ctx.aggregates))
+      : undefined;
   const inheritedBase = tpcBase ?? tphBase;
   const superType = inheritedBase
     ? {
@@ -1811,6 +1845,15 @@ function emitInfrastructure(
   // Shared RFC 6901 pointer helper + the replacement for MVC's built-in
   // invalid-model-state response (see renderValidationProblem).
   out.set("Api/ValidationProblem.cs", renderValidationProblem(ns));
+  out.set("Api/NoNulCharAttribute.cs", renderNoNulCharAttribute(ns));
+  // The unparseable-`{id}` guard (F22).  Unconditional, like every other file
+  // in this block: an aggregate's identity is ALWAYS a guid today (`lower.ts`
+  // stamps `idValueType` as the literal `"guid"`; there is no `ids` clause), so
+  // an emit-time gate on it would be an always-true branch nothing could
+  // exercise.  The narrowing that matters is inside the filter and is a RUNTIME
+  // one — it acts only on an action that actually binds a `Guid id` — which
+  // keeps it correct if the identity axis ever opens up.
+  out.set("Api/MalformedPathIdFilter.cs", renderMalformedPathIdFilter(ns));
   out.set("Api/ProblemDetailsResponsesFilter.cs", renderProblemDetailsFilter(ns));
   out.set("Api/ListResponseWrapperFilter.cs", renderListWrapperFilter(ns, listWrapperPairs([ctx])));
   out.set("Api/RequiredFromCtorParamFilter.cs", renderRequiredFromCtorParamFilter(ns));

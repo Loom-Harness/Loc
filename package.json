@@ -37,6 +37,7 @@
     "test:dapper-corpus": "LOOM_DOTNET_BUILD=1 vitest run test/e2e/corpus-dotnet-dapper-build.test.ts",
     "test:elixir-corpus": "LOOM_ELIXIR_BUILD=1 vitest run test/e2e/corpus-elixir-build.test.ts",
     "test:tsc-react": "LOOM_REACT_BUILD=1 vitest run test/e2e/generated-react-build.test.ts",
+    "test:pack-spacing-dom": "LOOM_PACK_SPACING_DOM=1 vitest run test/e2e/pack-spacing-dom.test.ts",
     "test:react-e2e": "LOOM_REACT_E2E=1 vitest run test/e2e/generated-react-e2e.test.ts",
     "test:tsc-react-extern": "LOOM_REACT_BUILD=1 vitest run test/e2e/extern-component-build.test.ts",
     "test:vue-build": "LOOM_VUE_BUILD=1 vitest run test/e2e/generated-vue-build.test.ts",
@@ -89,6 +90,7 @@
     "test:pairwise-corpus-java": "LOOM_PAIRWISE=1 LOOM_JAVA_BUILD=1 vitest run test/e2e/pairwise-corpus-java.test.ts",
     "test:pairwise-corpus-elixir": "LOOM_PAIRWISE=1 LOOM_ELIXIR_BUILD=1 vitest run test/e2e/pairwise-corpus-elixir.test.ts",
     "test:pairwise-corpus-dotnet": "LOOM_PAIRWISE=1 LOOM_DOTNET_BUILD=1 vitest run test/e2e/pairwise-corpus-dotnet.test.ts",
+    "test:fuzz-deep": "LOOM_FUZZ_DEEP=1 vitest run test/system/pipeline-fuzz-deep.test.ts",
     "test:schemathesis": "LOOM_SCHEMATHESIS=1 node test/behavioral/run-schemathesis.mjs",
     "test:schemathesis-python": "LOOM_SCHEMATHESIS=1 node test/behavioral/run-schemathesis-backend.mjs python",
     "test:schemathesis-java": "LOOM_SCHEMATHESIS=1 node test/behavioral/run-schemathesis-backend.mjs java",
@@ -125,7 +127,8 @@
     "format": "biome format --write .",
     "cli": "node bin/cli.js",
     "test:svelte-build": "LOOM_SVELTE_BUILD=1 vitest run test/e2e/generated-svelte-build.test.ts",
-    "test:svelte-e2e": "LOOM_SVELTE_E2E=1 vitest run test/e2e/generated-svelte-e2e.test.ts"
+    "test:svelte-e2e": "LOOM_SVELTE_E2E=1 vitest run test/e2e/generated-svelte-e2e.test.ts",
+    "test:typecheck": "node scripts/test-typecheck.mjs"
   },
   "overrides": {
     "hono": ">=4.12.26"

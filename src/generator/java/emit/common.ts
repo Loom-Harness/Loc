@@ -47,6 +47,88 @@ export function renderDomainException(basePkg: string): string {
   );
 }
 
+/** `WireFormatException` + the total parse helpers that raise it — the java arm
+ *  of M-T6.48.
+ *
+ *  `wireToDomain` converted a money request field with a bare
+ *  `new BigDecimal(expr)`, so `{"price": "12,50"}` threw `NumberFormatException`
+ *  out of the service, fell past the 4xx branch of `onUnhandled`, and answered
+ *  **500** — a client error reported as a server fault, the same recurring bug
+ *  `api.ts` documents three other instances of. node, .NET, python and elixir
+ *  all answer a typed 4xx.
+ *
+ *  The exception carries its own RFC 6901 POINTER so the advice can render the
+ *  `errors: [{pointer, message}]` entry the other four backends send, rather
+ *  than a bare detail string. The message text is node's and .NET's verbatim
+ *  (`Invalid decimal: "12,50"`), because the wire-golden differential compares
+ *  bodies across backends. */
+export function renderWireFormatException(basePkg: string): string {
+  return lines(
+    `package ${basePkg}.domain.common;`,
+    ``,
+    `import java.math.BigDecimal;`,
+    `import java.util.regex.Pattern;`,
+    ``,
+    `/**`,
+    ` * A request field whose WIRE FORM is malformed — maps to HTTP 422 with an`,
+    ` * {@code errors[]} entry pointing at the offending field.  Distinct from`,
+    ` * DomainException: nothing about the DOMAIN was violated, the bytes never`,
+    ` * parsed.`,
+    ` */`,
+    `public class WireFormatException extends RuntimeException {`,
+    `    private final String pointer;`,
+    ``,
+    `    public WireFormatException(String pointer, String message) {`,
+    `        super(message);`,
+    `        this.pointer = pointer;`,
+    `    }`,
+    ``,
+    `    public String getPointer() {`,
+    `        return pointer;`,
+    `    }`,
+    ``,
+    `    /** node's money grammar, character for character — no exponent, no`,
+    `     *  grouping, no leading '+', which is what the NUMERIC(19,4) column and`,
+    `     *  every other backend's parser accept. */`,
+    `    private static final Pattern MONEY = Pattern.compile("^-?\\\\d+(\\\\.\\\\d+)?$");`,
+    ``,
+    `    /** Parse a money wire string, or refuse with a pointer.  Total: the`,
+    `     *  bare {@code new BigDecimal(s)} it replaces threw on anything the`,
+    `     *  grammar rejects. */`,
+    `    public static BigDecimal money(String value, String pointer) {`,
+    `        if (value == null || !MONEY.matcher(value).matches()) {`,
+    `            throw new WireFormatException(pointer, "Invalid decimal: " + quote(value));`,
+    `        }`,
+    `        return new BigDecimal(value);`,
+    `    }`,
+    ``,
+    `    /** Parse an ISO-8601 datetime wire string, or refuse with a pointer.`,
+    `     *  The bare {@code Instant.parse(s)} it replaces threw`,
+    `     *  {@code DateTimeParseException} on {@code ""} or {@code "not-a-date"},`,
+    `     *  which no advice arm matched, so the caller got 500 for input the`,
+    `     *  server itself refused (schemathesis F19 — money's half landed with`,
+    `     *  M-T6.48 and deliberately left this one). */`,
+    `    public static java.time.Instant instant(String value, String pointer) {`,
+    `        try {`,
+    `            return java.time.Instant.parse(value);`,
+    `        } catch (RuntimeException e) {`,
+    `            throw new WireFormatException(pointer, "Invalid datetime: " + quote(value));`,
+    `        }`,
+    `    }`,
+    ``,
+    `    /** JSON-quotes the offending value for the message, matching`,
+    `     *  JSON.stringify / json.dumps on the other backends. */`,
+    `    private static String quote(String value) {`,
+    `        if (value == null) {`,
+    `            return "null";`,
+    `        }`,
+    `        return "\\"" + value.replace("\\\\", "\\\\\\\\").replace("\\"", "\\\\\\"") + "\\"";`,
+    `    }`,
+    `}`,
+    ``,
+  );
+}
+
 export function renderForbiddenException(basePkg: string): string {
   return lines(
     `package ${basePkg}.domain.common;`,
@@ -214,6 +296,66 @@ export function renderPackageMarker(pkg: string): string {
     `/** Auto-generated package marker — keeps wildcard imports of this package valid. */`,
     `public final class _Namespace {`,
     `    private _Namespace() {`,
+    `    }`,
+    `}`,
+    ``,
+  );
+}
+
+/** `WireNumberStrictness` — the Jackson coercion config for numeric request
+ *  fields (M-T6.48, java arm, second half).
+ *
+ *  MEASURED on the generated project, not assumed — the register only
+ *  suspected this, so it was probed with the app's own `ObjectMapper` before
+ *  anything was written:
+ *
+ *      {"qty": 1.5}  → ACCEPTED, qty=1     (silent truncation)
+ *      {"qty": "7"}  → ACCEPTED, qty=7     (stringified number)
+ *
+ *  Both are wrong in the same direction: java quietly ACCEPTS an out-of-contract
+ *  request that node's `z.number()` body slot and .NET's binder both refuse. A
+ *  truncation is the worse of the two — the caller is told nothing and the
+ *  aggregate stores a value the client never sent.
+ *
+ *  Disabling `ACCEPT_FLOAT_AS_INT` and failing the String→Integer coercion makes
+ *  both a deserialization failure, which Spring surfaces as
+ *  `HttpMessageNotReadableException` — the arm the advice already answers as a
+ *  malformed body, the same rung the other backends put it on. */
+export function renderWireNumberStrictness(basePkg: string): string {
+  return lines(
+    `package ${basePkg}.config;`,
+    ``,
+    `import org.springframework.boot.jackson.autoconfigure.JsonMapperBuilderCustomizer;`,
+    `import org.springframework.context.annotation.Bean;`,
+    `import org.springframework.context.annotation.Configuration;`,
+    ``,
+    `import tools.jackson.databind.DeserializationFeature;`,
+    `import tools.jackson.databind.cfg.CoercionAction;`,
+    `import tools.jackson.databind.cfg.CoercionInputShape;`,
+    `import tools.jackson.databind.type.LogicalType;`,
+    ``,
+    `/**`,
+    ` * Numeric request fields are STRICT: a fractional value for an int field is`,
+    ` * refused rather than truncated, and a stringified number is refused rather`,
+    ` * than parsed.`,
+    ` *`,
+    ` * <p>Measured before this existed: {@code {"qty": 1.5}} deserialized to`,
+    ` * {@code qty=1} — the caller was told nothing and the aggregate stored a`,
+    ` * value nobody sent — and {@code {"qty": "7"}} deserialized to {@code 7},`,
+    ` * where node's {@code z.number()} body slot and .NET's binder both refuse.`,
+    ` * Loom's wire contract is one contract on every backend, so java refuses`,
+    ` * too.`,
+    ` */`,
+    `@Configuration`,
+    `public class WireNumberStrictness {`,
+    `    @Bean`,
+    `    JsonMapperBuilderCustomizer loomStrictNumbers() {`,
+    `        return builder -> {`,
+    `            builder.disable(DeserializationFeature.ACCEPT_FLOAT_AS_INT);`,
+    `            builder.withCoercionConfig(`,
+    `                LogicalType.Integer,`,
+    `                cfg -> cfg.setCoercion(CoercionInputShape.String, CoercionAction.Fail));`,
+    `        };`,
     `    }`,
     `}`,
     ``,

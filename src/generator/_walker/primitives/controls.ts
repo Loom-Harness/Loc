@@ -4,6 +4,7 @@
 // lookups, so they pull the core walk/expr/stmt helpers.
 
 import type { ExprIR, TypeIR } from "../../../ir/types/loom-ir.js";
+import { rowSetLambdaParam } from "../../../ir/util/collection-op-site.js";
 import { humanize, lowerFirst, plural, snake, upperFirst } from "../../../util/naming.js";
 import { tryRenderGate } from "../../_frontend/gate-expr.js";
 import { tryDetectApiHook } from "../api-hook-detector.js";
@@ -370,6 +371,46 @@ function singleAggregateOfQuery(ofArg: ExprIR, ctx: WalkContext): string | undef
   return name && ctx.aggregatesByName.has(name) ? name : undefined;
 }
 
+/** Walk one `QueryView` branch slot, or the target's "renders nothing" token. */
+function walkBranch(
+  slot: ExprIR | undefined,
+  ctx: WalkContext,
+  depth: number,
+  nothing: string,
+): string {
+  return slot ? walk(slot, ctx, depth + 2) : nothing;
+}
+
+/** Lift a walked branch from CHILD position into EXPRESSION position.
+ *
+ *  Every `QueryView` branch is spliced into a JS expression slot — the pack
+ *  template renders `{ <query>.data && … && ( <branch> ) }`.  Most primitives
+ *  emit an element there and are fine, but the ones that emit a JSX BRACE
+ *  BLOCK (`For` → `{rows.map((r, i) => …)}`; anything else whose child form is
+ *  `{…}`) are not: the inner `{` opens an OBJECT LITERAL in expression
+ *  position, so
+ *
+ *      { itemAll.data.items.length > 0 && (
+ *        {itemAll.data.items.map((r, rIdx) => ( … ))}
+ *      ) }
+ *
+ *  does not parse at all — `QueryView { of: X.all, data: rows => For { … } }`
+ *  emitted a page that could not be built.  Wrapping it in a fragment
+ *  (`<>{…}</>`) makes it a single valid expression, which is exactly what the
+ *  `wrapMultiRoot` seam already does for a multi-root `Table` in this same
+ *  slot.
+ *
+ *  Only reached when the branch actually starts with `{`, so every existing
+ *  branch is byte-identical.  The strict-template frameworks
+ *  (Vue `v-if` / Svelte `{#if}` / Angular `@if`) put the branch in a markup
+ *  BLOCK where a child form is already legal, and they omit `wrapMultiRoot` —
+ *  so they are untouched too. */
+function asBranchExpr(branch: string, ctx: WalkContext): string {
+  const wrap = ctx.target.wrapMultiRoot;
+  if (!wrap || !branch.trimStart().startsWith("{")) return branch;
+  return wrap(branch);
+}
+
 export function emitQueryView(
   call: ExprIR & { kind: "call" },
   ctx: WalkContext,
@@ -454,9 +495,9 @@ export function emitQueryView(
   // `null` as literal TEXT, so it supplies the empty string instead.  See
   // `WalkerTarget.emptyChild`.
   const nothing = ctx.target.emptyChild ?? "null";
-  const loadingJsx = loading ? walk(loading, ctx, depth + 2) : nothing;
-  const errorJsx = error ? walk(error, ctx, depth + 2) : nothing;
-  const emptyJsx = empty ? walk(empty, ctx, depth + 2) : nothing;
+  const loadingJsx = asBranchExpr(walkBranch(loading, ctx, depth, nothing), ctx);
+  const errorJsx = asBranchExpr(walkBranch(error, ctx, depth, nothing), ctx);
+  const emptyJsx = asBranchExpr(walkBranch(empty, ctx, depth, nothing), ctx);
 
   // `data:` branch supports the lambda-binding form `rows => …`.
   // Lambda body walks with the lambda param rebound to the
@@ -485,6 +526,17 @@ export function emitQueryView(
     // entry, not inherit it — otherwise an inner binding resolves its members
     // against the outer query's handle.  Rebind unconditionally: set when this
     // QueryView owns an entry for the param, delete when it doesn't.
+    /** Drop `name` from an inherited SET, or keep the set untouched when it
+     *  never held it — the set-shaped twin of `rebind` below. */
+    const shadow = (
+      inherited: ReadonlySet<string> | undefined,
+      name: string,
+    ): ReadonlySet<string> | undefined => {
+      if (inherited === undefined || !inherited.has(name)) return inherited;
+      const next = new Set(inherited);
+      next.delete(name);
+      return next;
+    };
     const rebind = (
       inherited: ReadonlyMap<string, string> | undefined,
       own: string | undefined,
@@ -534,6 +586,21 @@ export function emitQueryView(
         ? new Map([...(ctx.listRowAggregates ?? []), [data.param, listAgg]])
         : ctx.listRowAggregates,
       pagedEnvelopeBindings: childPagedEnvelopeBindings,
+      // A non-`single` `data:` param IS a collection, however the target
+      // spells the access — but it carries no array `TypeIR` (lowering leaves
+      // UI-primitive lambda params at the `string` placeholder), so a
+      // collection op read off it (`rows.count`) is recognisable only through
+      // this set.  Grown by the SAME function the IR-validate gate uses
+      // (`rowSetLambdaParam`), so gate and walker cannot disagree about which
+      // nodes are collection-op sites — a disagreement in the "gate allows,
+      // walker doesn't recognise" direction would re-open the verbatim
+      // emission `loom.frontend-collection-op-unsupported` exists to prevent.
+      rowSetBindings: rowSetLambdaParam(call)
+        ? new Set([...(ctx.rowSetBindings ?? []), data.param])
+        : // `single: true` binds ONE record — SHADOW an outer binding of the
+          // same name rather than inheriting it (the same rebind discipline
+          // the two paged maps above follow).
+          shadow(ctx.rowSetBindings, data.param),
     };
     dataJsx = data.body ? walk(data.body, childCtx, depth + 2) : nothing;
     propagateChildFlags(ctx, childCtx);
@@ -542,6 +609,9 @@ export function emitQueryView(
   } else {
     dataJsx = nothing;
   }
+  // The `data:` branch is the one that most often renders a brace block — a
+  // `data: rows => For { … }` lambda is the canonical list body.
+  dataJsx = asBranchExpr(dataJsx, ctx);
 
   // `paged` drives the pack template's empty / non-empty length checks to read
   // the envelope's `.items` (`<query>.data.items.length`, or the framework's

@@ -57,8 +57,12 @@ describe("python find lowering", () => {
     expect(routes).toContain("await repo.watched_by(CustomerId(customerId))");
     // A `money` find param arrives as a wire string and is branded back to the
     // `Decimal` the repo expects at the wire→domain seam (request-side parity).
+    // `MoneyStr`, not a bare `str`, since M-T6.48: the annotation is what makes
+    // the `Decimal(limit)` below total.  `?limit=12,50` used to reach that
+    // constructor and raise `InvalidOperation` out of the handler — a 500 for
+    // what is plainly a client error.
     expect(routes).toContain(
-      "async def cheaper_than_orders(limit: str, session: SessionDep) -> list[dict[str, object]]:",
+      "async def cheaper_than_orders(limit: MoneyStr, session: SessionDep) -> list[dict[str, object]]:",
     );
     expect(routes).toContain("await repo.cheaper_than(Decimal(limit))");
     // Declaration order: finds precede the /{id} pattern.

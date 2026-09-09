@@ -184,7 +184,37 @@ export function renderDtoFiles(
       }))
     ).map((f) => {
       collectWireImports(f.type, imports, "Request");
-      return `${wireJavaType(f.type, "Request")} ${f.name}`;
+      // F23 — a REQUIRED create input that arrives as JSON `null` used to bind
+      // null and reach the domain, which dereferenced it: `Cannot invoke
+      // "String.codePoints()" because "sku" is null` → NullPointerException →
+      // 500, for a body the contract already forbids. Operation requests have
+      // carried `@NotNull` since RS-26; the create request never did, and it is
+      // the same absence, one slot over. `@Valid` is already on the
+      // controller's `@RequestBody`, so this lands in the advice's
+      // `onValidation` arm: 422 with `pointer: /sku`, exactly what .NET's
+      // `[Required]` answers.
+      //
+      // `@Valid` on a nested record makes the walk DESCEND — without it
+      // `{"price":{"amount":null}}` passes the outer check and NPEs inside the
+      // value object instead.
+      const javaType = wireJavaType(f.type, "Request");
+      const nested = bearsNestedRecord(f.type);
+      if (nested) imports.add("jakarta.validation.Valid");
+      // A required input whose wire form is a Java PRIMITIVE gets no `@NotNull`:
+      // a primitive can never be null, so the annotation is inert, and the
+      // absence it would describe is already answered — Jackson 3 (Spring Boot
+      // 4) enables FAIL_ON_NULL_FOR_PRIMITIVES, so a missing `int qty` is a
+      // hard HttpMessageNotReadableException. The create request deliberately
+      // leaves required inputs unboxed (unlike an operation body, RS-26), so
+      // this is where that decision shows up.
+      const guardable = !isOptionalType(f.type) && !JAVA_PRIMITIVES.has(javaType);
+      if (guardable) imports.add("jakarta.validation.constraints.NotNull");
+      // The NUL guard rides every wire string, required or not: null passes it,
+      // so an optional component is not made required by carrying it (F20).
+      const noNul = bearsWireString(f.type);
+      if (noNul) imports.add(`${basePkg}.api.NoNulChar`);
+      const marks = `${guardable ? "@NotNull " : ""}${nested ? "@Valid " : ""}`;
+      return `${marks}${noNul ? nulGuarded(javaType) : javaType} ${f.name}`;
     });
     out.push({
       name: `Create${agg.name}Request.java`,
@@ -210,7 +240,14 @@ export function renderDtoFiles(
       // controller's @RequestBody).
       imports.add("jakarta.validation.constraints.NotNull");
       const boxed = eff(p.type, true);
-      return `@NotNull ${wireJavaType(boxed, "Request")} ${p.name}`;
+      // …and `@Valid` where the component is itself a record, so a null INSIDE
+      // a value object is caught too rather than NPE-ing in the mapper.
+      const nested = bearsNestedRecord(p.type);
+      if (nested) imports.add("jakarta.validation.Valid");
+      const noNul = bearsWireString(p.type);
+      if (noNul) imports.add(`${basePkg}.api.NoNulChar`);
+      const boxedType = wireJavaType(boxed, "Request");
+      return `@NotNull ${nested ? "@Valid " : ""}${noNul ? nulGuarded(boxedType) : boxedType} ${p.name}`;
     });
     out.push({
       name: `${upperFirst(op.name)}${agg.name}Request.java`,
@@ -298,6 +335,65 @@ export function renderDtoFiles(
   return out;
 }
 
+/** True when the wire form of this type is a bare STRING — the one that lands
+ *  in a `text` column and so carries the NUL guard (F20). `guid`, `datetime`
+ *  and `money` cross as strings too, but each already has a parse or pattern a
+ *  NUL cannot pass, so they are deliberately not matched. */
+/** Places the NUL guard where Bean Validation can actually RUN it — on the
+ *  `String` itself, not on a container holding strings.
+ *
+ *  `NoNulChar.Validator` implements `ConstraintValidator<NoNulChar, String>`,
+ *  so annotating a `List<String>` component makes Hibernate Validator throw
+ *  `UnexpectedTypeException` ("No validator could be found for constraint …
+ *  validating type java.util.List<java.lang.String>") the first time a request
+ *  carrying that field is validated. That escapes the advice as a **500** — the
+ *  exact status F20 exists to remove, on the exact fixture that declares a
+ *  `string[]` create input. A CONTAINER-ELEMENT annotation (`List<@NoNulChar
+ *  String>`, which is why the constraint also targets `TYPE_USE`) validates
+ *  each element instead, which is what the guard meant all along. */
+function nulGuarded(javaType: string): string {
+  return javaType.startsWith("List<")
+    ? javaType.replace("List<", "List<@NoNulChar ")
+    : `@NoNulChar ${javaType}`;
+}
+
+function bearsWireString(t: TypeIR): boolean {
+  switch (t.kind) {
+    case "primitive":
+      return t.name === "string";
+    case "array":
+      return bearsWireString(t.element);
+    case "optional":
+      return bearsWireString(t.inner);
+    default:
+      return false;
+  }
+}
+
+/** The Java primitives a wire component can be. `@NotNull` on one of these is
+ *  inert — a primitive is never null — so the emitter skips it rather than
+ *  shipping an annotation that reads as a guard and is not one. */
+const JAVA_PRIMITIVES = new Set(["int", "long", "double", "float", "boolean", "short", "byte"]);
+
+/** True when the wire form of this type is a nested RECORD — a value object or
+ *  an entity — so a Bean Validation walk needs `@Valid` to descend into it.
+ *  Without that the outer `@NotNull` is checked and the members inside are not,
+ *  which is the difference between refusing `{"price":{"amount":null}}` and
+ *  NPE-ing on it. */
+function bearsNestedRecord(t: TypeIR): boolean {
+  switch (t.kind) {
+    case "valueobject":
+    case "entity":
+      return true;
+    case "array":
+      return bearsNestedRecord(t.element);
+    case "optional":
+      return bearsNestedRecord(t.inner);
+    default:
+      return false;
+  }
+}
+
 function voRecord(
   vo: string,
   fields: readonly FieldIR[],
@@ -309,7 +405,22 @@ function voRecord(
   const components = fields.map((f) => {
     const t = eff(f.type, f.optional);
     collectWireImports(t, imports, dir);
-    return `${wireJavaType(t, dir)} ${f.name}`;
+    // REQUEST only: a value object's own required members get the same
+    // `@NotNull` the enclosing create/operation body now carries, so
+    // `{"price":{"amount":null}}` is refused at the boundary instead of
+    // NPE-ing in `toMoney` (F23). A RESPONSE record is serialized, never
+    // validated — annotating it would only add noise to the published schema.
+    const javaType = wireJavaType(t, dir);
+    const noNul = dir === "Request" && bearsWireString(t);
+    if (noNul) imports.add(`${basePkg}.api.NoNulChar`);
+    const guardedType = noNul ? nulGuarded(javaType) : javaType;
+    if (dir === "Response" || f.optional || JAVA_PRIMITIVES.has(javaType)) {
+      return `${guardedType} ${f.name}`;
+    }
+    imports.add("jakarta.validation.constraints.NotNull");
+    const nested = bearsNestedRecord(t);
+    if (nested) imports.add("jakarta.validation.Valid");
+    return `@NotNull ${nested ? "@Valid " : ""}${guardedType} ${f.name}`;
   });
   const body =
     dir === "Response"

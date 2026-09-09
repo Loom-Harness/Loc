@@ -3,9 +3,9 @@ import { fileURLToPath } from "node:url";
 import { URI } from "langium";
 import { NodeFileSystem } from "langium/node";
 import { describe, expect, it } from "vitest";
-import { generateDotnet } from "../../../src/generator/dotnet/index.js";
 import { createDddServices } from "../../../src/language/ddd-module.js";
 import type { Model } from "../../../src/language/generated/ast.js";
+import { generateDotnet } from "../../_helpers/generate.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(here, "..", "..", "..");
@@ -889,7 +889,7 @@ describe(".NET generator", () => {
     // Required strings carry `AllowEmptyStrings = true` (empty → domain 422,
     // not model-validation 400); non-string required fields stay bare.
     expect(req).toMatch(
-      /public sealed record PlaceOrderRequest\(\[Required\] Guid CustomerId, \[Required\] decimal Amount, \[Required\(AllowEmptyStrings = true\)\] string PlacedAt\)/,
+      /public sealed record PlaceOrderRequest\(\[Required\] Guid CustomerId, \[Required\] decimal Amount, \[NoNulChar\] \[Required\(AllowEmptyStrings = true\)\] string PlacedAt\)/,
     );
 
     // Command uses domain types (CustomerId, DateTime).

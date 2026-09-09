@@ -1,7 +1,12 @@
 import { emitsRestCreate } from "../../../ir/enrich/wire-projection.js";
 import type { AggregateIR, RepositoryIR } from "../../../ir/types/loom-ir.js";
 import { type ApiOperationIR, relativeOpPath } from "../../../ir/util/api-surface.js";
-import { errorStatuses, type OpErrorKind, problemTitle } from "../../../ir/util/openapi-errors.js";
+import {
+  DANGLING_REFERENCE_DETAIL,
+  errorStatuses,
+  type OpErrorKind,
+  problemTitle,
+} from "../../../ir/util/openapi-errors.js";
 import {
   camelId,
   type OpIdTokens,
@@ -15,6 +20,7 @@ import { lines } from "../../../util/code-builder.js";
 import { resolveErrorStatus } from "../../../util/error-defaults.js";
 import { plural, snake, upperFirst } from "../../../util/naming.js";
 import { renderDotnetLogCall, renderDotnetLogCallWithException } from "../../_obs/render-dotnet.js";
+import { PG_FOREIGN_KEY_VIOLATION, PG_UNIQUE_VIOLATION } from "../../_persistence/pg-sqlstate.js";
 import type { ReturnUnionSpec } from "../cqrs/controller.js";
 import { dotnetFindAbsenceThrow } from "./common.js";
 
@@ -689,6 +695,102 @@ function renderCmdConstructorBody(args: string[], indent: string): string[] {
   return args.map((a, i) => `${indent}${a}${i < args.length - 1 ? "," : ""}`);
 }
 
+/** `Api/MalformedPathIdFilter.cs` — a RESOURCE filter that answers the declared
+ *  422 for an unparseable Guid `{id}` BEFORE model binding runs.
+ *
+ *  A malformed `{id}` already answered 422 on every bodyless route
+ *  (`GET`/`DELETE /api/orders/not-a-uuid`), from the Guid route binder through
+ *  `ApiBehaviorOptions.InvalidModelStateResponseFactory`. On a route that also
+ *  takes a `[FromBody]` parameter it did not: with no `Content-Type` on the
+ *  request, `BodyModelBinder` short-circuits the whole binding pass with a 415,
+ *  and the path parameter is never looked at (schemathesis F22). Measured on a
+ *  booted app:
+ *
+ *      POST /api/orders/not-a-uuid/confirm    (no Content-Type)  ->  415
+ *      POST /api/orders/not-a-uuid/confirm    (+ Content-Type)   ->  422
+ *      GET  /api/orders/not-a-uuid                               ->  422
+ *      node, all three                                           ->  422
+ *
+ *  415 is the one status the contract says least about, and it is not a
+ *  rejection the caller can act on: the request's actual defect is the
+ *  identifier, which no media type would have fixed.
+ *
+ *  A RESOURCE filter is the seam because of WHERE it sits: MVC runs resource
+ *  filters after routing but BEFORE model binding, so the route values are
+ *  already available and the 415 has not happened yet. The alternative that
+ *  suggests itself — a `{id:guid}` route constraint — was rejected for F18 and
+ *  is still wrong here: it makes the route not match at all, which turns the
+ *  declared 422 into a framework 404 and breaks the four-backend contract
+ *  `malformed-path-id-status.test.ts` pins.
+ *
+ *  It reads the ACTION's own `id` parameter rather than a table of route
+ *  shapes: an aggregate keyed by `int`/`string` has no Guid parameter, so its
+ *  routes are untouched, and a static sub-path like `/api/customers/by_email`
+ *  has already been routed to its own action by the time this runs. No route
+ *  patterns are duplicated anywhere.
+ *
+ *  The envelope is byte-identical to what the binder produces for the SAME
+ *  defect on a bodyless route — including MVC's own
+ *  `The value 'x' is not valid.` wording — so the answer stops depending on
+ *  whether a `Content-Type` happened to be present. */
+export function renderMalformedPathIdFilter(ns: string): string {
+  return `// Auto-generated.
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.Filters;
+
+namespace ${ns}.Api;
+
+/// <summary>
+/// Answers the declared 422 for an unparseable Guid route \`{id}\` before model
+/// binding runs — so a body-carrying route rejects the identifier instead of
+/// the media type (schemathesis F22).
+/// </summary>
+public sealed class MalformedPathIdFilter : IResourceFilter
+{
+    public void OnResourceExecuting(ResourceExecutingContext context)
+    {
+        // Only for an action that actually binds a Guid \`id\`. An aggregate keyed
+        // by int/string has no such parameter, and a static sub-path action has
+        // already been matched by routing, so neither is touched.
+        var takesGuidId = context.ActionDescriptor.Parameters.Any(p =>
+            string.Equals(p.Name, "id", StringComparison.OrdinalIgnoreCase)
+            && (p.ParameterType == typeof(Guid) || p.ParameterType == typeof(Guid?)));
+        if (!takesGuidId) return;
+        if (!context.RouteData.Values.TryGetValue("id", out var raw)) return;
+        var text = raw?.ToString();
+        if (text is null || Guid.TryParse(text, out _)) return;
+
+        var problem = new ProblemDetails
+        {
+            Type = "about:blank",
+            Title = "Validation failed",
+            Status = 422,
+            Detail = "One or more fields are invalid.",
+            Instance = context.HttpContext.Request.Path,
+        };
+        // MVC's own ModelBindingMessageProvider wording, so this answer is
+        // byte-identical to the one the Guid binder gives for the same defect on
+        // a route that carries no body.
+        problem.Extensions["errors"] = new[]
+        {
+            new Dictionary<string, object>
+            {
+                ["pointer"] = "/id",
+                ["message"] = $"The value '{text}' is not valid.",
+            },
+        };
+        context.Result = new ObjectResult(problem)
+        {
+            StatusCode = 422,
+            ContentTypes = { "application/problem+json" },
+        };
+    }
+
+    public void OnResourceExecuted(ResourceExecutedContext context) { }
+}
+`;
+}
+
 export function renderExceptionFilter(
   ns: string,
   options?: {
@@ -696,6 +798,10 @@ export function renderExceptionFilter(
     usingDapper?: boolean;
     hasUniqueKeys?: boolean;
     hasVersioned?: boolean;
+    /** True when a write here can name a reference row that does not exist — the
+     *  filter then carries the dangling-reference arm.  See
+     *  `aggregatesCanTripDanglingReference`. */
+    hasDanglingRef?: boolean;
     /** App-wide resolved structural-conflict statuses (M-T3.4a) — the api's
      *  `httpStatus` override map, each defaulting to 409. Routes this global
      *  filter's hardcoded 409 arms (Disallowed / UniquenessConflict /
@@ -735,6 +841,9 @@ export function renderExceptionFilter(
   // A project with no `versioned` aggregate emits no concurrency-conflict
   // arm.
   const hasVersioned = !!options?.hasVersioned;
+  // A project with no cross-aggregate `X id` field emits no dangling-reference
+  // arm — only such a write can raise 23503.
+  const hasDanglingRef = !!options?.hasDanglingRef;
   // Persistence selection (D-REALIZATION-AXES): the EF adapter surfaces a
   // Postgres unique-violation wrapped in `Microsoft.EntityFrameworkCore.
   // DbUpdateException`; the Dapper adapter throws the bare
@@ -754,14 +863,44 @@ export function renderExceptionFilter(
   // domain invariant's DB index rejected the write.  The bare
   // `Npgsql.PostgresException` is the Dapper path; the EF adapter wraps it in a
   // `DbUpdateException`.  Emitted only when the project declares a `unique` key.
+  // Postgres foreign_key_violation (SQLSTATE 23503) reaching this APP-WIDE filter
+  // is the DANGLING-reference case: a write named a well-formed id for a row that
+  // is not there.  The still-referenced DELETE trips `restrict_violation` (23001)
+  // instead — the FK is `ON DELETE RESTRICT` — and is caught and answered locally
+  // on the destroy action anyway, so the two never collide here.  A reference that
+  // is absent is a well-formed request refused on SEMANTIC grounds: the domain
+  // floor (422 by default), which every write route already declares — not the
+  // 500 it leaked as before.  Wire validation cannot catch it, because a uuid is
+  // only wrong when the row is missing.  Both driver levels are read for the same
+  // reason as the 23505 arm: EF wraps the Npgsql error, Dapper throws it bare.
+  const danglingRefArm = hasDanglingRef
+    ? `
+        if (context.Exception is Npgsql.PostgresException { SqlState: ${JSON.stringify(PG_FOREIGN_KEY_VIOLATION)} }${
+          usingDapper
+            ? ""
+            : `
+            || (context.Exception is Microsoft.EntityFrameworkCore.DbUpdateException dre
+                && dre.InnerException is Npgsql.PostgresException { SqlState: ${JSON.stringify(PG_FOREIGN_KEY_VIOLATION)} })`
+        })
+        {
+            ${renderDotnetLogCall("domainError", [
+              { name: "message", valueExpr: JSON.stringify(DANGLING_REFERENCE_DETAIL) },
+              { name: "status", valueExpr: `${domainStatus}` },
+            ])}
+            global::${ns}.Observability.HttpMetrics.RecordDomainFault("domain_error");
+            context.Result = Problem(context, ${domainStatus}, "${problemTitle(domainStatus)}", ${JSON.stringify(DANGLING_REFERENCE_DETAIL)}, trace_id);
+            context.ExceptionHandled = true;
+            return;
+        }`
+    : "";
   const uniqueConflictArm = hasUniqueKeys
     ? `
-        if (context.Exception is Npgsql.PostgresException { SqlState: "23505" }${
+        if (context.Exception is Npgsql.PostgresException { SqlState: ${JSON.stringify(PG_UNIQUE_VIOLATION)} }${
           usingDapper
             ? ""
             : `
             || (context.Exception is Microsoft.EntityFrameworkCore.DbUpdateException due
-                && due.InnerException is Npgsql.PostgresException { SqlState: "23505" })`
+                && due.InnerException is Npgsql.PostgresException { SqlState: ${JSON.stringify(PG_UNIQUE_VIOLATION)} })`
         })
         {
             ${renderDotnetLogCall("disallowed", [
@@ -957,7 +1096,7 @@ public sealed class DomainExceptionFilter : IExceptionFilter
             context.Result = Problem(context, ${disallowedStatus}, "Disallowed", dx.Message, trace_id);
             context.ExceptionHandled = true;
             return;
-        }${uniqueConflictArm}${concurrencyConflictArm}
+        }${danglingRefArm}${uniqueConflictArm}${concurrencyConflictArm}
         // A domain-floor rejection (precondition / invariant) is 422 —
         // the request is well-formed, the domain refuses it on semantic
         // grounds.  400 stays for a malformed request.
@@ -1092,6 +1231,46 @@ public sealed class DomainExceptionFilter : IExceptionFilter
  *  those keep 400 (matching hono's `HTTPException` arm and Spring's
  *  `HttpMessageNotReadableException`), detected by the `JsonException` MVC
  *  hangs on the model-state entry. */
+/** `Api/NoNulCharAttribute.cs` — the NUL guard every request STRING carries.
+ *
+ *  A declared `string` lands in a Postgres `text` column, which cannot hold
+ *  U+0000: Npgsql rejects the row with `CharacterNotInRepertoireError` (22021)
+ *  and the error escapes as a **500** (schemathesis F20). NUL is a legal JSON
+ *  string character, so nothing upstream refuses it.
+ *
+ *  A CUSTOM `ValidationAttribute` rather than `[RegularExpression]`, for two
+ *  reasons. It runs through ordinary model validation, so the failure lands in
+ *  `ValidationProblem.FromModelState` and answers the same 422 + pointer every
+ *  other bad field gets — no new status arm. And the schema generator does not
+ *  know it, so the constraint is ENFORCED WITHOUT BEING PUBLISHED: putting
+ *  `pattern` on every string in every schema would be a large, noisy contract
+ *  change for a character no real client sends, and a server stricter than its
+ *  contract is safe where the reverse (F21) is not.
+ *
+ *  Null passes: absence is `[Required]`'s question, not this one, and an
+ *  OPTIONAL string must not be made required by carrying the guard. */
+export function renderNoNulCharAttribute(ns: string): string {
+  return lines(
+    `// Auto-generated.`,
+    `using System;`,
+    `using System.ComponentModel.DataAnnotations;`,
+    ``,
+    `namespace ${ns}.Api;`,
+    ``,
+    `/// <summary>Refuses a U+0000 the Postgres <c>text</c> type cannot store.</summary>`,
+    `[AttributeUsage(AttributeTargets.Property | AttributeTargets.Parameter, AllowMultiple = false)]`,
+    `public sealed class NoNulCharAttribute : ValidationAttribute`,
+    `{`,
+    `    public override bool IsValid(object? value) =>`,
+    `        value is not string s || !s.Contains('\\0');`,
+    ``,
+    `    public override string FormatErrorMessage(string name) =>`,
+    `        $"The {name} field must not contain a NUL character.";`,
+    `}`,
+    ``,
+  );
+}
+
 export function renderValidationProblem(ns: string): string {
   return `// Auto-generated.
 using System.Text.Json;

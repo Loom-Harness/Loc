@@ -49,6 +49,12 @@ interface RenderCtx {
    *  locator-based reads (`.field("x")` / `.<coll>Rows()`) and equality
    *  assertions on them lower to web-first matchers. */
   detailHandles: Set<string>;
+  /** Locals bound to a `ui.<agg>.create(...)` result, mapped to that
+   *  aggregate's capitalised name.  The value is `{ id }` — the row the form
+   *  just created — so a field read on one is every bit as meaningful as one
+   *  on a `getById` handle; it just has to navigate first.  See
+   *  `pageHandleExpr`. */
+  createHandles: Map<string, string>;
 }
 
 export function renderUIE2EFile(
@@ -81,6 +87,7 @@ export function renderUIE2EFile(
       contexts,
       locals: new Set(),
       detailHandles: new Set(),
+      createHandles: new Map(),
     };
     bodyLines.push(...renderTest(t, ctx));
     bodyLines.push("");
@@ -282,6 +289,16 @@ function renderUIStmt(s: TestStmtIR, ctx: RenderCtx): string {
     if (call && call.kind === "aggregate" && call.method === "getById") {
       ctx.detailHandles.add(s.name);
     }
+    // A `let x = ui.<agg>.create({…})` local binds `{ id }`, not a page
+    // object — so `x.<field>` used to render as a property read on an object
+    // that has no such property, and `expect(x.<field>).toHaveText(…)` found
+    // no locator at all and reached `renderExpectStmt`'s
+    // compiler-invariant throw.  Remember which aggregate the row belongs to:
+    // the id is enough to navigate to its detail page on demand.
+    if (call && call.kind === "aggregate" && call.method === "create") {
+      const agg = findAggregateBySlug(call.aggregateSlug, ctx.contexts);
+      if (agg) ctx.createHandles.set(s.name, upperFirst(agg.name));
+    }
     return `const ${s.name} = ${renderUIExpr(s.expr, ctx)};`;
   }
   if (s.kind === "expression") {
@@ -329,17 +346,36 @@ function renderExplicitMatcher(expr: ExprIR, ctx: RenderCtx): string | null {
   return `await expect(${locator}).${expr.member}(${args.join(", ")});`;
 }
 
-/** `<handle>.<field>` where `<handle>` is a detail-handle local — and the
- *  member is a real field, not the page object's own `id` property. */
-function matchDetailField(e: ExprIR, ctx: RenderCtx): { handle: string; field: string } | null {
-  if (e.kind !== "member" || e.member === "id") return null;
-  if (e.receiver.kind !== "ref" || !ctx.detailHandles.has(e.receiver.name)) {
-    return null;
-  }
-  return { handle: e.receiver.name, field: e.member };
+/** The page-object expression a detail read hangs off, or null when `name`
+ *  is not a local that names a row on screen.
+ *
+ *  A `getById` local IS a navigated handle, so it is its own expression.  A
+ *  `create` local is the `{ id }` the submitted form returned — the same
+ *  identity, one navigation away — so reading a field off it lowers to
+ *  exactly what `let read = ui.<agg>.getById(<local>)` produces, inlined.
+ *  Re-navigating (rather than reusing the detail page the submit landed on)
+ *  is deliberate: intervening statements drive the browser elsewhere, and
+ *  `.goto()` is what makes the read independent of where the test currently
+ *  is. */
+function pageHandleExpr(name: string, ctx: RenderCtx): string | null {
+  if (ctx.detailHandles.has(name)) return name;
+  const cap = ctx.createHandles.get(name);
+  if (cap) return `(await new ${cap}DetailPage(page, ${name}.id).goto())`;
+  return null;
 }
 
-/** `<handle>.<collection>.length` on a detail-handle local. */
+/** `<handle>.<field>` where `<handle>` is a detail-handle or create-result
+ *  local — and the member is a real field, not the page object's own `id`
+ *  property.  `handle` is an EXPRESSION, not a name (see `pageHandleExpr`). */
+function matchDetailField(e: ExprIR, ctx: RenderCtx): { handle: string; field: string } | null {
+  if (e.kind !== "member" || e.member === "id") return null;
+  if (e.receiver.kind !== "ref") return null;
+  const handle = pageHandleExpr(e.receiver.name, ctx);
+  if (!handle) return null;
+  return { handle, field: e.member };
+}
+
+/** `<handle>.<collection>.length` on a detail-handle or create-result local. */
 function matchDetailCollectionLength(
   e: ExprIR,
   ctx: RenderCtx,
@@ -347,8 +383,9 @@ function matchDetailCollectionLength(
   if (e.kind !== "member" || e.member !== "length") return null;
   const inner = e.receiver;
   if (inner.kind !== "member" || inner.receiver.kind !== "ref") return null;
-  if (!ctx.detailHandles.has(inner.receiver.name)) return null;
-  return { handle: inner.receiver.name, collection: inner.member };
+  const handle = pageHandleExpr(inner.receiver.name, ctx);
+  if (!handle) return null;
+  return { handle, collection: inner.member };
 }
 
 // ---------------------------------------------------------------------------
