@@ -76,7 +76,6 @@ on:
       - 'src/platform/elixir.ts'
       - 'test/e2e/observability-events-elixir-vanilla.test.ts'
       - '.github/workflows/elixir-vanilla-obs-e2e.yml'
-  merge_group:
 
 permissions:
   contents: read

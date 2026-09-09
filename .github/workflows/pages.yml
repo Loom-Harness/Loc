@@ -26,7 +26,6 @@ on:
       - 'langium-config.json'
       - '.github/workflows/pages.yml'
   workflow_dispatch:
-  merge_group:
 permissions:
   contents: read
   pages: write

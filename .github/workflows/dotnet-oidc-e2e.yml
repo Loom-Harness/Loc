@@ -85,7 +85,6 @@ on:
       - 'test/e2e/fixtures/auth-oidc-e2e-dotnet.ddd'
       - '.github/workflows/dotnet-oidc-e2e.yml'
   workflow_dispatch:
-  merge_group:
 permissions:
   contents: read
 
