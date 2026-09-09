@@ -228,6 +228,27 @@ system S {
     repository Tasks for Task { }`),
 
   // --- structural ---------------------------------------------------------
+  // A block-bodied `function` that mutates aggregate state.  The purity gate had
+  // no catalog entry and no firing proof at all until W4.1 — the scanner never
+  // saw the site, because its `message` was a shorthand property.
+  "loom.function-block-impure": repoOnly(`    aggregate Counter with crudish {
+      n: int
+      function bump(q: int): int {
+        n := q
+        return q
+      }
+    }
+    repository Counters for Counter { }`),
+
+  // A `when` gate that reads an operation parameter.  The companion
+  // `GET /{id}/can_<op>` route takes no arguments, so the gate can only be a
+  // predicate over the aggregate's own state.
+  "loom.when-references-op-param": repoOnly(`    aggregate Order with crudish {
+      total: int
+      operation addLine(qty: int) when qty > 0 { total := total + qty }
+    }
+    repository Orders for Order { }`),
+
   "loom.duplicate-find": repoOnly(`    aggregate Thing with crudish { name: string }
     repository Things for Thing {
       find byName(n: string): Thing[] where this.name == n

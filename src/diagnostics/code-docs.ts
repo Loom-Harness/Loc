@@ -49,6 +49,9 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.applier-on-non-event-sourced":
     "06-behavior-and-statements.md#applye-event--the-event-sourcing-fold",
   "loom.reserved-derived-on-vo": "07-invariants-derived-functions.md#reserved-display-and-inspect",
+  "loom.function-block-impure": "07-invariants-derived-functions.md#function--a-pure-helper",
+  "loom.when-references-op-param":
+    "06-behavior-and-statements.md#when-also-auto-exposes-get-idcan_op",
   "loom.abstract-aggregate-behavior":
     "08-inheritance-and-polymorphism.md#abstract-aggregate--the-base",
   "loom.abstract-repository": "08-inheritance-and-polymorphism.md#abstract-aggregate--the-base",

@@ -76,17 +76,67 @@ interface Site {
   sf: ts.SourceFile;
 }
 
-/** True when the message is just a parameter of the enclosing function — a
- *  FORWARDING HELPER (`loweringDiag(message)` in `src/api/evolve.ts`), whose
- *  wording lives at its own call sites and is catalogued there.  Nothing is
- *  hard-coded at such a site, so there is nothing for the ratchet to catch. */
-function isForwardedParam(message: ts.Expression, sf: ts.SourceFile): boolean {
-  if (!ts.isIdentifier(message)) return false;
+/** The enclosing function of a message that is just one of ITS parameters — a
+ *  FORWARDING HELPER (`loweringDiag(message)` in `src/api/evolve.ts`, the local
+ *  `push(message)` in `structural-checks.ts`).  Nothing is worded at such a
+ *  site: the wording lives at the helper's own CALL SITES, so that is where the
+ *  ratchet has to look.
+ *
+ *  Returns the helper plus the index of the forwarded parameter, or `undefined`
+ *  when the message is worded in place. */
+function forwardingHelper(
+  message: ts.Expression,
+  sf: ts.SourceFile,
+): { fn: ts.SignatureDeclaration; paramIndex: number } | undefined {
+  if (!ts.isIdentifier(message)) return undefined;
   for (let n: ts.Node | undefined = message.parent; n; n = n.parent) {
     if (!ts.isFunctionLike(n)) continue;
-    return n.parameters.some((p) => p.name.getText(sf) === message.text);
+    const paramIndex = n.parameters.findIndex((p) => p.name.getText(sf) === message.text);
+    return paramIndex === -1 ? undefined : { fn: n, paramIndex };
   }
-  return false;
+  return undefined;
+}
+
+/** The name a forwarding helper is called by, for a helper declared as a
+ *  `function` or bound to a `const`.  A helper the scanner cannot name is
+ *  reported rather than skipped — skipping is the whole failure mode this
+ *  function exists to end. */
+function helperName(fn: ts.SignatureDeclaration, sf: ts.SourceFile): string | undefined {
+  if (ts.isFunctionDeclaration(fn) && fn.name) return fn.name.getText(sf);
+  const parent = fn.parent;
+  if (parent && ts.isVariableDeclaration(parent) && ts.isIdentifier(parent.name)) {
+    return parent.name.getText(sf);
+  }
+  return undefined;
+}
+
+/** Every argument a forwarding helper is passed for its forwarded parameter,
+ *  across the file that declares it.  These are the REAL message expressions of
+ *  the diagnostic site, and each is checked exactly as an in-place message is.
+ *
+ *  Following through is not optional.  `isForwardedParam` — this function's
+ *  predecessor — exempted a forwarding site outright, on the assumption that a
+ *  helper is always cross-module and its callers are scanned sites in their own
+ *  right.  That holds for `loweringDiag`, whose three callers pass
+ *  `diagMessage(…)`.  It does NOT hold for a LOCAL helper: `push` in
+ *  `validateFunctionBlockBodies` is called five times in the same function with
+ *  five inline template literals, and the blanket exemption made every one of
+ *  them invisible (audit finding F25). */
+function forwardedMessages(message: ts.Expression, sf: ts.SourceFile): ts.Expression[] | undefined {
+  const helper = forwardingHelper(message, sf);
+  if (!helper) return undefined;
+  const name = helperName(helper.fn, sf);
+  if (name === undefined) return [];
+  const out: ts.Expression[] = [];
+  const visit = (n: ts.Node): void => {
+    if (ts.isCallExpression(n) && n.expression.getText(sf) === name) {
+      const arg = n.arguments[helper.paramIndex];
+      if (arg) out.push(arg);
+    }
+    ts.forEachChild(n, visit);
+  };
+  visit(sf);
+  return out;
 }
 
 /** A `code:` the scanner recognises as a `loom.*` code but cannot resolve to a
@@ -180,14 +230,17 @@ function sitesIn(file: string): { sites: Site[]; dynamic: DynamicCodeSite[] } {
       });
       return;
     }
-    if (isForwardedParam(message, sf)) return;
-    out.push({
-      file,
-      line: sf.getLineAndCharacterOfPosition(message.getStart(sf)).line + 1,
-      code: resolved,
-      message,
-      sf,
-    });
+    // A forwarding helper words nothing itself; its call sites do.  Check each
+    // of those instead of the (empty) site here — see `forwardedMessages`.
+    for (const m of forwardedMessages(message, sf) ?? [message]) {
+      out.push({
+        file,
+        line: sf.getLineAndCharacterOfPosition(m.getStart(sf)).line + 1,
+        code: resolved,
+        message: m,
+        sf,
+      });
+    }
   };
   const visit = (n: ts.Node): void => {
     if (ts.isCallExpression(n) && /(^|\.)accept$/.test(n.expression.getText(sf))) {
@@ -201,9 +254,17 @@ function sitesIn(file: string): { sites: Site[]; dynamic: DynamicCodeSite[] } {
       }
     }
     if (ts.isObjectLiteralExpression(n)) {
+      // Shorthand counts.  `{ severity: "error", code, message, source }` is the
+      // same diagnostic as the spelled-out form, but reading only
+      // `PropertyAssignment` skipped it — silently, so all three invariants
+      // passed vacuously over it.  That is how `loom.function-block-impure`
+      // kept five inline template literals and no catalog entry at all (audit
+      // finding F25); the shorthand identifier IS the expression, so
+      // `p.name` serves as both.
       const props = new Map<string, ts.Expression>();
       for (const p of n.properties) {
         if (ts.isPropertyAssignment(p)) props.set(p.name.getText(sf), p.initializer);
+        else if (ts.isShorthandPropertyAssignment(p)) props.set(p.name.getText(sf), p.name);
       }
       const message = props.get("message");
       const code = props.get("code");
