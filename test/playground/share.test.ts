@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+/// <reference lib="dom" />
 import { beforeEach, describe, expect, it } from "vitest";
 import {
   buildShareUrl,

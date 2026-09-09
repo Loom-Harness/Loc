@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import type { ConstructNodeData } from "../../../web/src/builder/system-v2/ConstructNode.js";
 import {
   applyDetailLevel,
   applyDetailLevelToAll,
+  type ConstructNodeData,
   detailStorageKey,
   loadDetailLevel,
   saveDetailLevel,

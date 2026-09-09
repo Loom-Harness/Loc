@@ -23,6 +23,9 @@ import { pathHash } from "./persisted-positions";
 import type { ViewPath } from "./view-graph";
 
 export type { DetailLevel } from "../../layout/vocabulary";
+// Re-exported so a consumer that only needs the SHAPE (the headless tests)
+// never has to import the `.tsx` component module for a type.
+export type { ConstructNodeData } from "./ConstructNode";
 
 export const DETAIL_LEVELS: readonly DetailLevel[] = ["names", "fields", "everything"];
 
