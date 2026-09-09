@@ -41,8 +41,14 @@
 
 import { pathToFileURL } from "node:url";
 
-/** Check-run names this gate itself produces — never part of the verdict. */
-export const SELF_NAMES = new Set(["pr-gate", "pr-gate-eval"]);
+/** Check-run names this gate itself produces — never part of the verdict.
+ *
+ *  `pr-gate-sweep` is here even though the sweep job never runs on a
+ *  `pull_request` or `merge_group` event: on those it is SKIPPED, and a
+ *  skipped job still surfaces as a check run on the PR's head SHA.  `skipped`
+ *  passes, so leaving it out would not turn a PR red — it would just put the
+ *  gate's own plumbing into the count it reports ("waiting on 3/41"). */
+export const SELF_NAMES = new Set(["pr-gate", "pr-gate-eval", "pr-gate-sweep"]);
 
 /** Conclusions that count as "did not break the PR". Everything else —
  *  including conclusions this script has never heard of — fails closed. */
