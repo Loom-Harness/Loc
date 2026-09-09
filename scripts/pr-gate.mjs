@@ -31,8 +31,10 @@
 //
 // Fail-closed invariants, unchanged from v1: an unknown/future conclusion or
 // a cancelled run counts as FAILED — but only ever the NEWEST run of a given
-// check name (`latestPerName`), so a superseded suite's cancelled corpse never
-// condemns a SHA whose live suite is green; zero other checks reporting blocks (the
+// check name (`latestPerName`), and never a cancelled run from a suite a newer
+// suite supersedes (`liveRuns`), so a superseded suite's corpse never condemns
+// a SHA whose live suite is green OR has not created that job yet;
+// zero other checks reporting blocks (the
 // unfiltered test.yml guarantees at least one always comes); pending is never
 // green. The decision core (`evaluate`, `verdict`) is pure and pinned by
 // test/system/pr-gate.test.ts.
@@ -81,14 +83,59 @@ export function latestPerName(runs) {
 }
 
 /**
+ * Drop the CANCELLED runs of a check suite that a newer suite on the same SHA
+ * supersedes.
+ *
+ * `latestPerName` collapses by NAME, and that rescue needs the live suite to
+ * have materialised a run of the same name.  For the four `*-passed` rollups it
+ * has not: they sit behind a dynamic matrix (`configure` emits it, the rollup
+ * `needs:` it), and GitHub does not create the rollup job until `configure`
+ * runs.  With the runner pool saturated, the superseded suite's cancelled
+ * corpse is the ONLY bearer of each name, so the fail-closed rule condemns a
+ * SHA on which nothing has failed and nothing has even started (#2787).
+ *
+ * The rule is deliberately narrow, because the gate's value is that it fails
+ * closed:
+ *
+ *   * only `cancelled` is dropped.  A superseded suite's genuine `failure`
+ *     still condemns the SHA — a job that ran and failed before its suite was
+ *     cancelled reported a real verdict, and this must not launder it.
+ *   * only from a STRICTLY OLDER suite.  A cancelled run in the newest suite
+ *     still fails, and a SHA carrying nothing but corpses (no newer suite
+ *     present at all) still fails — there is no live suite to defer to, so
+ *     deferring would be inventing one.
+ *
+ * The effect on the motivating SHA is `failure` -> `in_progress`: blocking,
+ * but honest.  A name whose only bearer was a corpse simply stops reporting,
+ * and the live suite's queued jobs keep the verdict pending until they finish.
+ *
+ * Runs with no `suite` sort as 0 (only the hand-built snapshots in the tests —
+ * every API-returned run carries `check_suite.id`), so an all-suiteless
+ * snapshot has `newestSuite === 0`, nothing is dropped, and the pre-existing
+ * behaviour is byte-identical.
+ *
+ * @template {{conclusion: string | null, suite?: number}} T
+ * @param {ReadonlyArray<T>} runs
+ * @returns {T[]}
+ */
+export function liveRuns(runs) {
+  if (runs.length === 0) return [];
+  const newestSuite = Math.max(...runs.map((r) => r.suite ?? 0));
+  return runs.filter((r) => !(r.conclusion === "cancelled" && (r.suite ?? 0) < newestSuite));
+}
+
+/**
  * Classify one snapshot of the head SHA's check runs.
  *
- * @param {ReadonlyArray<{name: string, status: string, conclusion: string | null}>} runs
+ * @param {ReadonlyArray<{name: string, status: string, conclusion: string | null, suite?: number}>} runs
  * @param {ReadonlySet<string>} selfNames - this gate's own check names, excluded
  * @returns {{total: number, pending: string[], failed: string[]}}
  */
 export function evaluate(runs, selfNames) {
-  const others = latestPerName(runs).filter((r) => !selfNames.has(r.name));
+  // Corpses go BEFORE the per-name collapse: a name the live suite has not
+  // created a job for yet must vanish entirely rather than be represented by
+  // the superseded suite's cancelled run.
+  const others = latestPerName(liveRuns(runs)).filter((r) => !selfNames.has(r.name));
   const pending = others.filter((r) => r.status !== "completed").map((r) => r.name);
   const failed = others
     .filter((r) => r.status === "completed" && !PASSING_CONCLUSIONS.has(r.conclusion ?? ""))
@@ -212,13 +259,19 @@ export async function apiFetch(url, init = {}, opts = {}) {
 /** Fetch every check run on `sha` (paginated).  `filter=latest` narrows to the
  *  newest attempt per name WITHIN EACH CHECK SUITE — a SHA carrying two suites
  *  still yields two runs per name, so `latestPerName` does the cross-suite
- *  collapse the verdict actually needs.  `id` is carried for that ordering. */
-async function fetchCheckRuns(repo, sha, token) {
+ *  collapse the verdict actually needs.  `id` is carried for that ordering, and
+ *  `suite` for `liveRuns`' cross-suite one — a projection that is only useful if
+ *  it actually reaches the verdict, so `opts` (the same injection `apiFetch`
+ *  takes) exists to let the test drive THIS mapping rather than a hand-built
+ *  copy of it.  Without that, dropping `suite` here would leave every unit test
+ *  green and `liveRuns` a no-op in production. */
+export async function fetchCheckRuns(repo, sha, token, opts = {}) {
   const runs = [];
   for (let page = 1; ; page += 1) {
     const res = await apiFetch(
       `https://api.github.com/repos/${repo}/commits/${sha}/check-runs?filter=latest&per_page=100&page=${page}`,
       { headers: API_HEADERS(token) },
+      opts,
     );
     if (!res.ok)
       throw new Error(`GitHub API ${res.status} listing check runs: ${await res.text()}`);
@@ -231,6 +284,9 @@ async function fetchCheckRuns(repo, sha, token) {
     name: r.name,
     status: r.status,
     conclusion: r.conclusion,
+    // The suite this run belongs to — what `latestPerName` cannot infer from a
+    // name alone.  See `liveRuns`.
+    suite: r.check_suite?.id,
   }));
 }
 
