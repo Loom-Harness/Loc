@@ -413,6 +413,12 @@ const WAIVERS: Record<string, string> = {
   "src/generator/elixir/vanilla/wire-serialize.ts#derivedRenderable": CLOSED_PREDICATE,
   "src/generator/elixir/vanilla/workflow-eventsourced-emit.ts#bodyUsesState": CLOSED_PREDICATE,
   "src/generator/feliz/realtime.ts#exprReadsBinding": CLOSED_PREDICATE,
+  // Same shape as the line above, and deliberately NOT `never`-checked: its
+  // `default: false` mirrors `renderFsToastMessage`'s supported vocabulary
+  // (literal / ref / member / paren / binary) exactly, and every kind outside
+  // that set THROWS at render time rather than reaching here.  An exhaustive
+  // arm would assert coverage this predicate does not want.
+  "src/generator/feliz/realtime.ts#reads": CLOSED_PREDICATE,
   "src/generator/flutter/realtime.ts#exprReadsBinding": CLOSED_PREDICATE,
   "src/generator/java/render-expr.ts#addJavaExprImport": CLOSED_PREDICATE,
   "src/generator/python/find-predicate.ts#isColumnRooted": CLOSED_PREDICATE,
