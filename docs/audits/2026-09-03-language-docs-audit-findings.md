@@ -39,6 +39,15 @@ this is the hand-off list. Snapshot-in-time; re-verify on fresh `main` before pi
 >   `giveUp()` entirely: no diagnostic *and* invisible to the matrix `#2774` built to catch
 >   exactly this.
 >
+> * **F36's symptom is wrong too, and the truth is worse.** The row says two `system` blocks
+>   make `generate system` write "only root artefacts". It does not — **both systems generate
+>   in full.** Re-run on `9f89a009d`: two complete systems with no top-level members parse
+>   `0 error(s), 0 warning(s)`, and `generate system` emits `api/` and `api2/` side by side,
+>   the second system's aggregates included, merged into ONE tree and ONE `docker-compose.yml`.
+>   Two authored systems silently become one deployment and nothing in the output says which
+>   system the stack is. That is what justifies a direct gate rather than a tidy-up; fixed in
+>   [#2833](https://github.com/lemmit/Loc/pull/2833) as `loom.multiple-systems`.
+>
 > **The correction that generalises:** `#2774` delivered only the DISCOVERABILITY half of Wave 2's
 > shared invariant (*"the walker must never decline to render a declared element without a
 > diagnostic"*). Every give-up that reaches `giveUp()` is now findable — but a predicate that
