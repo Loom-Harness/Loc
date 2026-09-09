@@ -11,19 +11,26 @@
 
 import type { MutableRefObject, ReactNode } from "react";
 import type { AgentMessage } from "../agent/demo";
+import type { StuckSignal } from "../agent/loop-guard";
 import type { AgentSettings } from "../agent/provider";
-import type { EditorHandle } from "../editor/LoomEditor";
+import type { TurnCheckpoint } from "../agent/turn";
+import type { EditorHandle, EditorRange } from "../editor/editor-handle";
 import type { LoomLspClient } from "../lsp/client";
 import type { LoomBuildClient } from "../build/client";
 import type { RuntimeDispatcher, RuntimeEngine } from "../engine";
 import type { Diagnostic } from "../lsp/protocol";
 import type {
+  ApiSurfaceView,
   EvolutionResult,
   GenerateOk,
   GenerateResult,
+  LoomSourceMap,
   SnapshotResult,
   VirtualFile,
 } from "../build/protocol";
+import type { Band, Correspondence, SourceSpan } from "../build/correspondence";
+import type { OutputDiff } from "../build/output-diff";
+import type { SelectTarget } from "../build/select-target";
 import type { BundleFail, BundleOk } from "../bundle/protocol";
 import type { LoomExample } from "../examples";
 import type { TreeFolder } from "../preview/file-tree";
@@ -35,9 +42,11 @@ import type {
 import type { PipelineState } from "../pipeline/state";
 import type { DispatchResult, QueryResult } from "../runtime/protocol";
 import type { ApiEndpoint } from "../backend/openapi";
+import type { RequestTraces } from "../backend/route-match";
 import type { TestResult } from "../testing/harness";
 import type { OutputStream } from "./OutputPanel";
 import type { LogLine } from "../util/log-line";
+import type { ViewFlags } from "../util/share";
 
 export type ReactBundleStatus =
   | { kind: "pending" }
@@ -136,8 +145,93 @@ export type DockTab =
   | "history"
   | "auth";
 
+/** The desktop centre area's active document (lifted from DesktopShell in
+ *  M-T8.18 so the palette and the panes' *Go to line N* can switch it). */
+export type CenterView = "source" | "secondary" | "builder" | "model" | "requirements" | "chat";
+
+/** The desktop Explorer's switcher: your files, the generated tree, the
+ *  examples pane (M-T8.18), or one of the three `.loom/`-bundle views
+ *  M-T8.20 added — Diagrams, API, Traceability.  The bundle's FILES stay
+ *  browsable under `generated`; these are the same artifacts rendered. */
+export type ExplorerMode =
+  | "user"
+  | "generated"
+  | "examples"
+  | "diagrams"
+  | "api"
+  | "traceability";
+
+/** Every value the switcher accepts — the runtime guard for the persisted
+ *  `loom.desktop.explorerMode`, which can hold a value written by an older
+ *  (or newer) build. */
+export const EXPLORER_MODES: readonly ExplorerMode[] = [
+  "user",
+  "generated",
+  "examples",
+  "diagrams",
+  "api",
+  "traceability",
+];
+
+/** The outcome of one preview select-mode click (M-T8.20 slice 4).
+ *  Three shapes, because the three failures are genuinely different and the
+ *  copy has to say which: the element carried no test id, no generated page
+ *  claims that id, or it resolved. */
+export type SelectResult =
+  | { kind: "unidentified" }
+  | { kind: "unresolved"; testid: string }
+  | { kind: "found"; target: SelectTarget };
+
+/** A prompt handed to the Agent composer from elsewhere (a Problems row's
+ *  *Ask the agent*, the first-run card).  `nonce` makes two identical
+ *  requests distinguishable; an empty `text` means "just focus". */
+export interface AgentPromptRequest {
+  text: string;
+  nonce: number;
+}
+
 export interface LayoutCtx {
   isDesktop: boolean;
+
+  // M-T8.18 — navigation seams the palette, Problems rows, the first-run
+  // card and the panes' parse-error state drive.
+  /** Desktop centre view; mobile mirrors it through `codeView`. */
+  centerView: CenterView;
+  setCenterView: (v: CenterView) => void;
+  explorerMode: ExplorerMode;
+  setExplorerMode: (m: ExplorerMode) => void;
+  /** Mobile: the examples bottom sheet. */
+  examplesOpen: boolean;
+  setExamplesOpen: (v: boolean) => void;
+  /** Show the examples pane (desktop Explorer) or sheet (mobile). */
+  openExamples: () => void;
+  /** Switch the centre to Source (and the mobile shell to Code → Source),
+   *  then reveal `range` in the editor.  Problems rows, `F8`, *Go to line N*. */
+  revealSourceRange: (range: EditorRange) => void;
+  /** Step to the next / previous problem (`F8` / `Shift+F8`), revealing it
+   *  and announcing it through the `aria-live` region. */
+  stepProblem: (dir: 1 | -1) => void;
+  /** The `aria-live` text of the last `stepProblem`. */
+  problemAnnouncement: string;
+  /** Open the Agent tab with `text` in the composer ("" just focuses it). */
+  askAgent: (text: string) => void;
+  /** Focus the Chat surface — the centre tab on desktop, the full-screen
+   *  agent pane on mobile (M-T8.19 slice 1).  The dock's Agent tab and the
+   *  palette are both shortcuts to this. */
+  openChat: () => void;
+  /** Desktop only: render Chat and Source side by side.  Defaults on while a
+   *  turn is in flight, so the source streams next to the transcript. */
+  chatSplit: boolean;
+  setChatSplit: (v: boolean) => void;
+  agentPrompt: AgentPromptRequest | null;
+  consumeAgentPrompt: () => void;
+  /** First-run card: shown until dismissed, on a workspace never edited
+   *  in this browser and not loaded from a share link. */
+  firstRunVisible: boolean;
+  dismissFirstRun: () => void;
+  shortcutSheetOpen: boolean;
+  setShortcutSheetOpen: (v: boolean) => void;
+  openPalette: () => void;
 
   // Example picker
   exampleId: string;
@@ -225,7 +319,7 @@ export interface LayoutCtx {
    *  ("editor") from edits applied by the visual Builder ("builder"); the
    *  latter are pushed back into the Monaco model + LSP so all surfaces stay
    *  in sync.  Omitted origin is treated as external (Builder-like). */
-  onSourceChange: (text: string, origin?: "editor" | "builder") => void;
+  onSourceChange: (text: string, origin?: "editor" | "builder", label?: string) => void;
   /** Counter incremented on every editor-originated source change (i.e.
    *  the user typing in Monaco).  Drives the page-builder's debounced
    *  live re-seed; builder-originated edits do **not** bump this, so the
@@ -315,6 +409,51 @@ export interface LayoutCtx {
    *  why those deployables are file-pane-only. */
   unsupportedDeployables: ReadonlyArray<UnsupportedDeployable>;
 
+  // ---------------------------------------------------------------------
+  // M-T8.20 — the `.loom/` bundle as views, the output diff, and the
+  // source ↔ output correspondence.
+  // ---------------------------------------------------------------------
+  /** The generated backends' HTTP surface + channels, derived from the IR
+   *  by the build worker (never parsed out of generated source, and
+   *  available without booting).  Null before the first system generate. */
+  apiSurface: ApiSurfaceView | null;
+  /** The parsed `.loom/sourcemap.json` of the latest generate — recorded on
+   *  every generate now, not just the `--sourcemap` boot pass.  Null when
+   *  the source produced no system. */
+  sourceMap: LoomSourceMap | null;
+  /** Added / changed / removed files versus the PREVIOUS generate; empty on
+   *  the first one (see `diffGenerated`). */
+  outputDiff: OutputDiff;
+  /** The declaration the user is pointing at in the source editor, and
+   *  everything it produced.  Null when the cursor is over a line no
+   *  generated region came from. */
+  correspondence: Correspondence | null;
+  /** Report the source line under the pointer (`null` on leave).  Wired to
+   *  Monaco's `onMouseMove` by `LoomEditor`. */
+  setCorrespondenceLine: (line: number | null) => void;
+  /** The `.ddd` span the reverse direction resolved from a hovered
+   *  generated line — what the source editor flashes. */
+  reverseSpan: SourceSpan | null;
+  /** Report a hovered generated line (`file` + 1-based line), or null. */
+  setReverseHover: (at: { file: string; line: number } | null) => void;
+  /** The godbolt colour-mapping toggle. */
+  colourMap: boolean;
+  setColourMap: (v: boolean) => void;
+  /** One band per declaration in the active `.ddd`, for the colour overlay.
+   *  Empty unless `colourMap` is on — the bands are derived from the live
+   *  editor text, which only App can see. */
+  sourceBands: readonly Band[];
+  /** Handle a preview select-mode click: resolve the element's
+   *  `data-testid` to the generated page and the `.ddd` declaration behind
+   *  it, reveal that declaration in the editor, and record the outcome in
+   *  `selectResult`.  `null` means the clicked element carried no id. */
+  resolveSelectedElement: (testid: string | null) => void;
+  /** What the last select-mode click resolved to — rendered as a one-line
+   *  result under the preview, with the two follow-ups (open the Builder,
+   *  hand the node path to the agent).  Null before the first click. */
+  selectResult: SelectResult | null;
+  dismissSelectResult: () => void;
+
   // Playground auth stub (Phase 7) — identity injected into dispatched
   // requests via the `x-loom-dev-claims` header.  Persisted by App.tsx.
   authStub: AuthStubConfig;
@@ -345,6 +484,12 @@ export interface LayoutCtx {
   runGenerateExample: () => void;
   /** Run one SQL statement against the booted DB (Database console). */
   runQuery: (sql: string) => Promise<QueryResult>;
+  /** Requests the booted backend served, folded per operation from the
+   *  runtime log's `request_end` lines and matched to `apiEndpoints`
+   *  (M-T8.22) — the Runtime tab's Requests view reads it; M-T8.20 puts the
+   *  same counts on the Model pane's operation nodes.  `EMPTY_TRACES`
+   *  before the first request. */
+  requestTraces: RequestTraces;
 
   // Live mode
   liveMode: boolean;
@@ -369,7 +514,17 @@ export interface LayoutCtx {
 
   // Share-link feedback
   copied: boolean;
-  copyShareLink: () => void;
+  /** Copy a link that loads the current source.  `flags` picks the render
+   *  mode the recipient lands in (M-T8.23 slice 2). */
+  copyShareLink: (flags?: ViewFlags) => void;
+  /** The same link as a string, for the share dialog's preview field. */
+  buildShareLink: (flags?: ViewFlags) => string;
+
+  // How THIS tab was asked to render (M-T8.23 slice 2).  `#view=1` drops the
+  // editing chrome and takes no workspace writer lock; `#embed=1` implies it
+  // and additionally drops the bottom dock.  Read once from the hash on mount.
+  viewMode: boolean;
+  embedMode: boolean;
 
   // Agent demo (the Agent dock tab) — the deterministic M-T8.3 wedge: a scripted
   // agent turns prose into a validated `.ddd` and a generated stack, running the
@@ -388,6 +543,35 @@ export interface LayoutCtx {
   sendAgentMessage: (text: string) => void;
   /** Clear the live chat (display + the carried transcript). */
   clearAgentChat: () => void;
+  /** Plan-first mode (M-T8.19 slice 2).  While on, a turn returns a
+   *  model-node delta the user approves before any `.ddd` is written — for
+   *  the first turn of a conversation and for any structural turn; a
+   *  members-only follow-up writes straight through.  Off restores the
+   *  M-T8.3 behaviour of streaming the agent's source into the editor. */
+  agentPlanMode: boolean;
+  setAgentPlanMode: (v: boolean) => void;
+  /** Approve the pending plan, writing the candidate minus the node
+   *  addresses in `excluded` (honoured as real `remove` model patches). */
+  approveAgentPlan: (excluded: string[]) => void;
+  /** Reject the pending plan — nothing is written, and the refusal rides the
+   *  next prompt so the model knows what was refused. */
+  rejectAgentPlan: (excluded: string[]) => void;
+  /** Restore the workspace to a turn's commit (M-T8.19 slice 4).  The restore
+   *  is itself committed, so it is undoable — the Cursor lesson from the
+   *  research §2.4 — and `point` names what it lands on. */
+  restoreAgentCheckpoint: (oid: string, point: string) => void;
+  /** One-line outcome of the last Restore from a chat message, or null. */
+  agentRestoreNote: string | null;
+  dismissAgentRestoreNote: () => void;
+  /** The loop guard's stop signal (M-T8.19 slice 5) — three consecutive fix
+   *  turns left the same diagnostic code on the same node.  While set, a send
+   *  is refused: another fix turn is what burns credits for nothing.  Cleared
+   *  by any of the exit ramps on the "I'm stuck" card. */
+  agentStuck: StuckSignal | null;
+  dismissAgentStuck: () => void;
+  /** The newest agent turn whose write validated clean — where *Restore last
+   *  green* goes.  Null until a turn produces one. */
+  agentLastGreen: TurnCheckpoint | null;
 
   // Actions
   runGenerate: () => void;

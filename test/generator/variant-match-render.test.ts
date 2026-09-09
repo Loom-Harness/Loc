@@ -151,7 +151,10 @@ describe("variant-match over a union find (absence shape) — per-backend render
 
   it("Elixir: nil check, no {:ok,…} tuple case (the facade tuple is already unwrapped)", () => {
     expect(renderElixirExpr(ABSENCE_MATCH, { thisName: "record", contextModule: "MyApp" })).toBe(
-      'if outcome != nil, do: outcome.code, else: "missing"',
+      // Parenthesized: Elixir's keyword-list `if` swallows everything after it
+      // up to the enclosing terminator, so the leaf self-wraps (see
+      // ELIXIR_TARGET.ternary).
+      '(if outcome != nil, do: outcome.code, else: "missing")',
     );
   });
 });

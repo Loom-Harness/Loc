@@ -10,7 +10,7 @@
 // from the Targetable symbol index we already compute in the language
 // scope provider, so qualified names stay in sync with the model.
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   ActionIcon,
   Badge,
@@ -30,12 +30,19 @@ import {
   TextInput,
   Title,
   Tooltip,
+  UnstyledButton,
 } from "@mantine/core";
 import { AstUtils, type AstNode } from "langium";
 import type { LayoutCtx } from "../../layout/ctx";
+import { VERDICT_LABEL, VERDICT_LEGEND } from "../../layout/vocabulary";
+import { middleEllipsis, needsEllipsis } from "../../util/middle-ellipsis";
 import { spliceNodeIfParses } from "../edit-engine";
 import { RefusalLine } from "../refusal";
+import { ParseErrorState } from "../ParseErrorState";
+import { PARSE_ERROR } from "../../layout/vocabulary";
 import { usePaneHarness } from "../pane-harness";
+import { UndoRedo, paneUndoKeyHandler } from "../undo-redo";
+import { InlineConfirm, confirmSites } from "../../util/confirm";
 import {
   printRequirementText,
   printSolutionText,
@@ -203,6 +210,14 @@ const VERDICT_COLOR: Record<RequirementVerdict, string> = {
   UNTESTED: "gray",
   UNVERIFIED: "yellow",
 };
+// Hover text for the verdict badge — UNTESTED vs UNVERIFIED is not a
+// distinction a reader can guess from the two words alone.
+const VERDICT_HINT: Record<RequirementVerdict, string> = {
+  VERIFIED: "Verified: every test case for this requirement ran and passed",
+  FAILING: "Failing: at least one test case for this requirement failed",
+  UNTESTED: "Untested: no test case verifies this requirement yet",
+  UNVERIFIED: "Unverified: test cases exist but have not been run (or have no executable test)",
+};
 const TESTCASE_STATUS_COLOR: Record<TestCaseStatus, string> = {
   VERIFIED: "green",
   FAILING: "red",
@@ -244,6 +259,28 @@ export default function RequirementsPane({ ctx }: { ctx: LayoutCtx }): JSX.Eleme
   const { parsed, rev, refusal } = harness;
   const trace = useMemo(() => collect(parsed.ast), [parsed]);
   const [selected, setSelected] = useState<Selection | null>(null);
+  // DIRTY GUARD (M-T8.17, audit H11): the detail form reports whether it
+  // holds unsaved edits; a row click (or mobile "Back") while it does is
+  // held behind an inline confirm instead of dropping the form.  `undefined`
+  // = nothing pending; `null` = "back to the list" is pending.
+  const [formDirty, setFormDirty] = useState(false);
+  const [pendingSelect, setPendingSelect] = useState<Selection | null | undefined>(undefined);
+  const select = (next: Selection | null): void => {
+    const same =
+      next !== null && selected !== null && next.kind === selected.kind && next.id === selected.id;
+    if (same) return;
+    if (formDirty && selected !== null) {
+      setPendingSelect(next);
+      return;
+    }
+    setPendingSelect(undefined);
+    setSelected(next);
+  };
+  const forceSelect = (next: Selection | null): void => {
+    setPendingSelect(undefined);
+    setFormDirty(false);
+    setSelected(next);
+  };
 
   // Live verification overlay: lower + enrich the parsed model to get the
   // traceability index, then join the shared `testResults` (lifted into
@@ -274,7 +311,8 @@ export default function RequirementsPane({ ctx }: { ctx: LayoutCtx }): JSX.Eleme
   // spliced candidate is re-parsed by the harness before it commits — a reprint
   // that would leave the file unparseable is refused, not written.
   const apply = (originalNode: AstNode, newText: string): void => {
-    harness.applyOrRefuse(spliceNodeIfParses(ctx.getSource(), originalNode, newText));
+    const what = `${originalNode.$type} ${(originalNode as { name?: string }).name ?? ""}`.trim();
+    harness.on(what).applyOrRefuse(spliceNodeIfParses(ctx.getSource(), originalNode, newText));
   };
 
   /** Append a fresh top-level block to the end of the source.  We don't
@@ -290,13 +328,7 @@ export default function RequirementsPane({ ctx }: { ctx: LayoutCtx }): JSX.Eleme
   const [wizard, setWizard] = useState<null | "requirement" | "testCase" | "solution">(null);
 
   if (!harness.parseOk) {
-    return (
-      <Box p="md">
-        <Text size="sm" c="dimmed">
-          Source has syntax errors — fix them in the editor to see the requirements view.
-        </Text>
-      </Box>
-    );
+    return <ParseErrorState ctx={ctx} purpose={PARSE_ERROR.purpose.requirements} testid="requirements" />;
   }
   if (
     trace.requirements.length === 0 &&
@@ -327,8 +359,18 @@ export default function RequirementsPane({ ctx }: { ctx: LayoutCtx }): JSX.Eleme
   const showDetail = isDesktop || selected !== null;
 
   return (
-    <Box style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0, minWidth: 0 }}>
-    <RefusalLine refused={refusal.refused} />
+    // `tabIndex={-1}` + the key handler: a click in the list focuses the pane
+    // so ⌘Z / ⌘⇧Z reach the editor's undo stack; the form's inputs keep
+    // their own native undo (`undo-keys.ts`).
+    <Box
+      style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0, minWidth: 0, outline: "none" }}
+      tabIndex={-1}
+      onKeyDown={paneUndoKeyHandler(ctx.editorHandleRef)}
+    >
+    <Group px="xs" py={2} bg="var(--loom-bg)" gap="xs" style={{ borderBottom: "1px solid var(--loom-border)" }}>
+      <UndoRedo handleRef={ctx.editorHandleRef} testidPrefix="requirements" />
+    </Group>
+    <RefusalLine refusal={refusal} />
     <Box
       style={{
         flex: 1,
@@ -344,7 +386,7 @@ export default function RequirementsPane({ ctx }: { ctx: LayoutCtx }): JSX.Eleme
         <Box
           style={{
             width: isDesktop ? 320 : "100%",
-            borderRight: isDesktop ? "1px solid var(--mantine-color-dark-4)" : undefined,
+            borderRight: isDesktop ? "1px solid var(--loom-border)" : undefined,
             minHeight: 0,
             display: "flex",
             flexDirection: "column",
@@ -358,9 +400,16 @@ export default function RequirementsPane({ ctx }: { ctx: LayoutCtx }): JSX.Eleme
               onNew={() => setWizard("requirement")}
               newTestid="req-new-requirement"
             />
+            {verification && (
+              // One line that decodes the verdict pills (M9) — the same
+              // wording the Tests panel uses (`VERDICT_LEGEND`).
+              <Text size="xs" c="dimmed" mb={6} data-testid="req-verdict-legend">
+                {VERDICT_LEGEND}
+              </Text>
+            )}
             <Stack gap={2}>
               {roots.flatMap((r) =>
-                renderReqRow(r.name, 0, reqById, trace, verification, selected, setSelected),
+                renderReqRow(r.name, 0, reqById, trace, verification, selected, select),
               )}
             </Stack>
             <Divider my="sm" />
@@ -381,11 +430,11 @@ export default function RequirementsPane({ ctx }: { ctx: LayoutCtx }): JSX.Eleme
                   key={t.name}
                   testid={`req-row-tc-${t.name}`}
                   active={selected?.kind === "testCase" && selected.id === t.name}
-                  onClick={() => setSelected({ kind: "testCase", id: t.name })}
+                  onClick={() => select({ kind: "testCase", id: t.name })}
                 >
                   <Group gap={6} wrap="nowrap">
                     <Text size="sm" fw={500}>{t.name}</Text>
-                    <Text size="sm" c="dimmed" truncate>{t.title ?? ""}</Text>
+                    <EllipsisText text={t.title ?? ""} />
                   </Group>
                 </Row>
               ))}
@@ -409,11 +458,11 @@ export default function RequirementsPane({ ctx }: { ctx: LayoutCtx }): JSX.Eleme
                     key={s.name}
                     testid={`req-row-sol-${s.name}`}
                     active={selected?.kind === "solution" && selected.id === s.name}
-                    onClick={() => setSelected({ kind: "solution", id: s.name })}
+                    onClick={() => select({ kind: "solution", id: s.name })}
                   >
                     <Group gap={6} wrap="nowrap">
                       <Text size="sm" fw={500}>{s.name}</Text>
-                      <Text size="sm" c="dimmed" truncate>{s.title ?? ""}</Text>
+                      <EllipsisText text={s.title ?? ""} />
                     </Group>
                   </Row>
                 ))}
@@ -433,12 +482,12 @@ export default function RequirementsPane({ ctx }: { ctx: LayoutCtx }): JSX.Eleme
               px="sm"
               py={6}
               wrap="nowrap"
-              style={{ borderBottom: "1px solid var(--mantine-color-dark-4)" }}
+              style={{ borderBottom: "1px solid var(--loom-border)" }}
             >
               <Button
                 size="xs"
                 variant="subtle"
-                onClick={() => setSelected(null)}
+                onClick={() => select(null)}
                 data-testid="req-back-to-list"
               >
                 ← Back
@@ -447,6 +496,17 @@ export default function RequirementsPane({ ctx }: { ctx: LayoutCtx }): JSX.Eleme
                 {selected.id}
               </Text>
             </Group>
+          )}
+          {pendingSelect !== undefined && selected !== null && (
+            <Box px="sm" py={6} style={{ borderBottom: "1px solid var(--loom-border)" }}>
+              <InlineConfirm
+                spec={confirmSites.discardFormEdits(selected.id)}
+                size="compact-xs"
+                onConfirm={() => forceSelect(pendingSelect)}
+                onCancel={() => setPendingSelect(undefined)}
+                testids={{ base: "req-select" }}
+              />
+            </Box>
           )}
           <ScrollArea style={{ flex: 1 }}>
           <Box p="md">
@@ -465,7 +525,8 @@ export default function RequirementsPane({ ctx }: { ctx: LayoutCtx }): JSX.Eleme
                 trace={trace}
                 verification={verification}
                 onApply={apply}
-                onSelect={setSelected}
+                onSelect={select}
+                onDirtyChange={setFormDirty}
               />
             )}
             {selected?.kind === "testCase" && tcById.get(selected.id) && (
@@ -475,7 +536,8 @@ export default function RequirementsPane({ ctx }: { ctx: LayoutCtx }): JSX.Eleme
                 trace={trace}
                 verification={verification}
                 onApply={apply}
-                onSelect={setSelected}
+                onSelect={select}
+                onDirtyChange={setFormDirty}
               />
             )}
             {selected?.kind === "solution" && solById.get(selected.id) && (
@@ -484,7 +546,8 @@ export default function RequirementsPane({ ctx }: { ctx: LayoutCtx }): JSX.Eleme
                 sol={solById.get(selected.id)!}
                 trace={trace}
                 onApply={apply}
-                onSelect={setSelected}
+                onSelect={select}
+                onDirtyChange={setFormDirty}
               />
             )}
           </Box>
@@ -502,7 +565,7 @@ export default function RequirementsPane({ ctx }: { ctx: LayoutCtx }): JSX.Eleme
           onCreate={(text, newId) => {
             append(text);
             setWizard(null);
-            setSelected({ kind: "requirement", id: newId });
+            forceSelect({ kind: "requirement", id: newId });
           }}
         />
       )}
@@ -514,7 +577,7 @@ export default function RequirementsPane({ ctx }: { ctx: LayoutCtx }): JSX.Eleme
           onCreate={(text, newId) => {
             append(text);
             setWizard(null);
-            setSelected({ kind: "testCase", id: newId });
+            forceSelect({ kind: "testCase", id: newId });
           }}
         />
       )}
@@ -526,7 +589,7 @@ export default function RequirementsPane({ ctx }: { ctx: LayoutCtx }): JSX.Eleme
           onCreate={(text, newId) => {
             append(text);
             setWizard(null);
-            setSelected({ kind: "solution", id: newId });
+            forceSelect({ kind: "solution", id: newId });
           }}
         />
       )}
@@ -571,41 +634,48 @@ function renderReqRow(
       active={selected?.kind === "requirement" && selected.id === r.name}
       onClick={() => setSelected({ kind: "requirement", id: r.name })}
     >
-      <Group gap={6} wrap="nowrap" style={{ paddingLeft: depth * 12 }}>
+      {/* `wrap`: in a narrow list the badge cluster wraps onto a second
+          line instead of clipping (M-T8.21 / M9). */}
+      <Group gap={6} wrap="wrap" style={{ paddingLeft: depth * 12, rowGap: 2 }}>
         {type && (
           <Badge size="xs" color={REQUIREMENT_TYPE_COLOR[type] ?? "gray"} variant="light">
             {type.replace("AcceptanceCriteria", "AC")}
           </Badge>
         )}
-        <Text size="sm" fw={500}>{r.name}</Text>
-        <Text size="sm" c="dimmed" truncate style={{ flex: 1, minWidth: 0 }}>
-          {title ?? ""}
-        </Text>
+        {/* The badges must not shrink: in a narrow list they were the
+            first thing flex squeezed, leaving "INPRO…" / "UNT…" / "0…"
+            stubs while the (truncatable) title kept its width. */}
+        <Text size="sm" fw={500} style={{ whiteSpace: "nowrap", flexShrink: 0 }}>{r.name}</Text>
+        <EllipsisText text={title ?? ""} style={{ flex: 1, minWidth: 0 }} />
         {status && (
-          <Badge size="xs" color={STATUS_COLOR[status] ?? "gray"} variant="outline">
+          <Badge size="xs" color={STATUS_COLOR[status] ?? "gray"} variant="outline" style={{ flexShrink: 0 }} title={`Status: ${status}`}>
             {status}
           </Badge>
         )}
         {verdict && (
           <Badge
             size="xs"
+            tt="none"
             color={VERDICT_COLOR[verdict]}
             variant="filled"
+            style={{ flexShrink: 0 }}
+            title={VERDICT_HINT[verdict]}
             data-testid={`req-verdict-${r.name}`}
           >
-            {verdict}
+            {VERDICT_LABEL[verdict]}
           </Badge>
         )}
         <Badge
           size="xs"
           color={tcCount > 0 ? "green" : "gray"}
           variant="light"
-          title={`${tcCount} test case${tcCount === 1 ? "" : "s"}`}
+          style={{ flexShrink: 0 }}
+          title={`${tcCount} test case${tcCount === 1 ? "" : "s"} verify this requirement`}
         >
           {tcCount} TC
         </Badge>
         {!hasSolution && type === "UserStory" && (
-          <Badge size="xs" color="orange" variant="light" title="No solution declared">
+          <Badge size="xs" color="orange" variant="light" style={{ flexShrink: 0 }} title="No solution declared for this user story">
             no sol
           </Badge>
         )}
@@ -673,25 +743,59 @@ function Row({
   onClick: () => void;
   children: React.ReactNode;
 }): JSX.Element {
+  // A real button (M-T8.21 / audit M15): Tab reaches it, Enter / Space
+  // activate it, and `aria-pressed` says which row is open.
   return (
-    <Box
+    <UnstyledButton
       data-testid={testid}
       onClick={onClick}
+      aria-pressed={active}
       style={{
+        display: "block",
+        width: "100%",
+        textAlign: "left",
         padding: "4px 6px",
         borderRadius: 4,
         cursor: "pointer",
-        background: active ? "var(--mantine-color-dark-5)" : "transparent",
+        background: active ? "var(--loom-bg-active)" : "transparent",
       }}
     >
       {children}
-    </Box>
+    </UnstyledButton>
+  );
+}
+
+/** A title / path that truncates in the MIDDLE with the full value on hover
+ *  (M-T8.21 / audit M17) — the end of a title is the part that tells
+ *  siblings apart. */
+function EllipsisText({ text, max = 56, style }: { text: string; max?: number; style?: React.CSSProperties }): JSX.Element {
+  return (
+    <Text
+      size="sm"
+      c="dimmed"
+      component="span"
+      title={needsEllipsis(text, max) ? text : undefined}
+      style={{ whiteSpace: "nowrap", ...style }}
+    >
+      {middleEllipsis(text, max)}
+    </Text>
   );
 }
 
 // ---------------------------------------------------------------------------
 // Forms
 // ---------------------------------------------------------------------------
+
+/** Report the form's dirty flag to the pane (for the row-switch guard) —
+ *  on every change and, via the cleanup, as `false` when the form unmounts
+ *  (a Save re-keys the form; a switch replaces it). */
+function useDirtyReport(dirty: boolean, onDirtyChange?: (dirty: boolean) => void): void {
+  useEffect(() => {
+    onDirtyChange?.(dirty);
+    return () => onDirtyChange?.(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the callback is a state setter; `dirty` is the signal.
+  }, [dirty]);
+}
 
 function dirtyBadge(): JSX.Element {
   return (
@@ -736,12 +840,14 @@ function RequirementForm({
   verification,
   onApply,
   onSelect,
+  onDirtyChange,
 }: {
   req: Requirement;
   trace: CollectedTrace;
   verification: VerificationIR | null;
   onApply: (node: AstNode, newText: string) => void;
   onSelect: (s: Selection) => void;
+  onDirtyChange?: (dirty: boolean) => void;
 }): JSX.Element {
   const initial: Required<Pick<RequirementSpec, "type" | "title">> & {
     status: RequirementStatus | "";
@@ -756,6 +862,7 @@ function RequirementForm({
   };
   const [form, setForm] = useState(initial);
   const dirty = JSON.stringify(form) !== JSON.stringify(initial);
+  useDirtyReport(dirty, onDirtyChange);
   const solIds = trace.solutionsFor[req.name] ?? [];
   const tcIds = trace.testCasesByRequirement[req.name] ?? [];
 
@@ -794,8 +901,10 @@ function RequirementForm({
                 color={VERDICT_COLOR[verification.requirements[req.name]!.verdict]}
                 variant="filled"
                 data-testid={`req-verdict-detail-${req.name}`}
+                tt="none"
+                title={VERDICT_HINT[verification.requirements[req.name]!.verdict]}
               >
-                {verification.requirements[req.name]!.verdict}
+                {VERDICT_LABEL[verification.requirements[req.name]!.verdict]}
               </Badge>
             )}
           </>
@@ -827,6 +936,7 @@ function RequirementForm({
           onChange={(v) => setForm({ ...form, status: (v as RequirementStatus | null) ?? "" })}
           clearable
           placeholder="(unset)"
+          clearButtonProps={{ "aria-label": "Clear status" }}
           data-testid="req-form-status"
         />
         <NumberInput
@@ -847,6 +957,7 @@ function RequirementForm({
           clearable
           placeholder="(no parent)"
           searchable
+          clearButtonProps={{ "aria-label": "Clear parent" }}
           data-testid="req-form-parent"
         />
       </SimpleGrid>
@@ -884,10 +995,11 @@ function RequirementForm({
                 {status && (
                   <Badge
                     size="xs"
+                    tt="none"
                     color={TESTCASE_STATUS_COLOR[status]}
                     variant="light"
                   >
-                    {status}
+                    {VERDICT_LABEL[status]}
                   </Badge>
                 )}
                 {inherited && (
@@ -927,11 +1039,13 @@ function SolutionForm({
   trace,
   onApply,
   onSelect,
+  onDirtyChange,
 }: {
   sol: Solution;
   trace: CollectedTrace;
   onApply: (node: AstNode, newText: string) => void;
   onSelect: (s: Selection) => void;
+  onDirtyChange?: (dirty: boolean) => void;
 }): JSX.Element {
   const initial = {
     title: sol.title ?? "",
@@ -940,6 +1054,7 @@ function SolutionForm({
   };
   const [form, setForm] = useState(initial);
   const dirty = JSON.stringify(form) !== JSON.stringify(initial);
+  useDirtyReport(dirty, onDirtyChange);
 
   const save = (): void => {
     onApply(
@@ -1007,12 +1122,14 @@ function TestCaseForm({
   verification,
   onApply,
   onSelect,
+  onDirtyChange,
 }: {
   tc: TestCase;
   trace: CollectedTrace;
   verification: VerificationIR | null;
   onApply: (node: AstNode, newText: string) => void;
   onSelect: (s: Selection) => void;
+  onDirtyChange?: (dirty: boolean) => void;
 }): JSX.Element {
   const initial = {
     title: tc.title ?? "",
@@ -1021,6 +1138,7 @@ function TestCaseForm({
   };
   const [form, setForm] = useState(initial);
   const dirty = JSON.stringify(form) !== JSON.stringify(initial);
+  useDirtyReport(dirty, onDirtyChange);
 
   const save = (): void => {
     onApply(
@@ -1045,8 +1163,9 @@ function TestCaseForm({
                 color={TESTCASE_STATUS_COLOR[verification.testCases[tc.name]!.status]}
                 variant="filled"
                 data-testid={`tc-verdict-detail-${tc.name}`}
+                tt="none"
               >
-                {verification.testCases[tc.name]!.status}
+                {VERDICT_LABEL[verification.testCases[tc.name]!.status]}
               </Badge>
             )}
           </>
@@ -1147,6 +1266,7 @@ function CodeRefPicker({
         onChange={onChange}
         searchable
         clearable
+        clearButtonProps={{ "aria-label": "Clear selection" }}
         nothingFoundMessage="No matching code symbol"
         data-testid={testid}
       />
@@ -1184,15 +1304,21 @@ function Link({
   onClick: () => void;
   children: React.ReactNode;
 }): JSX.Element {
+  // A real button styled as a link (M15) — keyboard-activatable, in the tab
+  // order, still reads as a cross-reference.
   return (
-    <Text
-      size="sm"
-      c="blue.4"
-      style={{ cursor: "pointer", textDecoration: "underline" }}
+    <UnstyledButton
       onClick={onClick}
+      style={{
+        cursor: "pointer",
+        textDecoration: "underline",
+        color: "var(--mantine-color-blue-4)",
+        fontSize: "var(--mantine-font-size-sm)",
+        lineHeight: "var(--mantine-line-height-sm)",
+      }}
     >
       {children}
-    </Text>
+    </UnstyledButton>
   );
 }
 
@@ -1316,6 +1442,7 @@ function NewRequirementWizard({
         value={parent || null}
         onChange={(v) => setParent(v ?? "")}
         clearable
+        clearButtonProps={{ "aria-label": "Clear parent" }}
         searchable
         placeholder="(no parent)"
         data-testid="req-wizard-parent"

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "r
 import { AppShell } from "@mantine/core";
 import { useMediaQuery } from "@mantine/hooks";
 import type { EditorHandle } from "./editor/editor-handle";
+import { ConfirmHost, confirmSites, requestConfirm } from "./util/confirm";
 // Type-only.  `lsp/client.ts` imports `monaco-languageclient` and
 // `editor/loom-services`, i.e. Monaco — 9.56 MB and three worker realms.  The
 // client is constructed through `await import(...)` below, and only on the
@@ -10,7 +11,8 @@ import type { LoomLspClient } from "./lsp/client";
 import type { Diagnostic } from "./lsp/protocol";
 import { syncWorkspaceToLsp } from "./lsp/workspace-lsp-sync";
 import { buildDiagnosticsToLsp } from "./lsp/build-diagnostics";
-// `agent/demo`, `agent/live` and `agent/system-prompt` are imported TYPE-ONLY
+// `agent/demo`, `agent/live`, `agent/system-prompt` and `agent/openai-transport`
+// are imported TYPE-ONLY
 // on purpose, and their functions are reached through `await import(...)` at
 // the call sites below.  Each of them has a VALUE import of `src/tools`, which
 // re-exports `src/api`, which pulls `src/language` + `src/ir` — i.e. Langium,
@@ -23,9 +25,28 @@ import { buildDiagnosticsToLsp } from "./lsp/build-diagnostics";
 // demands a 128 MB contiguous heap, and on iOS the main thread and every worker
 // share one process memory budget.  See M-T8.15.
 import type { AgentMessage } from "./agent/demo";
+// `agent/plan` and `agent/turn` are safe to import EAGERLY: both are pure and
+// their only imports are `import type` (the diagnostics contract, the bubble
+// shape), so nothing of `src/api` / Langium follows them into the entry chunk.
+// The `callTool` / `applyPatches` calls the plan gate makes are still reached
+// through `await import(...)` below, for exactly the reason above.
+import { buildPlan, exclusionPatches, isStructural, planIsEmpty } from "./agent/plan";
+import {
+  diagnosticKeys,
+  EMPTY_LOOP_GUARD,
+  type LoopGuardState,
+  recordFixTurn,
+  resetLoopGuard,
+  type StuckSignal,
+} from "./agent/loop-guard";
+import {
+  attachTurnExtras,
+  type TurnCheckpoint,
+  type TurnExtras,
+  withTurnExtras,
+} from "./agent/turn";
 // Type-only from `src/tools` too (`Complete` etc.) — no runtime edge; this
 // module's own body is small and provider-shaped.
-import { createOpenAiCompatibleComplete } from "./agent/openai-transport";
 import {
   type AgentSettings,
   loadAgentSettings,
@@ -33,7 +54,12 @@ import {
   saveAgentSettings,
   settingsReady,
 } from "./agent/provider";
-import type { Complete, Message as AgentTranscriptMessage } from "../../src/tools/index.js";
+import type {
+  Complete,
+  Message as AgentTranscriptMessage,
+  TokenUsage,
+} from "../../src/tools/index.js";
+import type { Outline, ValidateReport } from "../../src/diagnostics/contract.js";
 import { examples, defaultExample, type LoomExample } from "./examples";
 import { LoomBuildClient } from "./build/client";
 import type {
@@ -45,6 +71,9 @@ import type {
   VirtualFile,
 } from "./build/protocol";
 import { inlineSourcemapArtifacts, overlaySourcemapArtifacts } from "./build/strip-sourcemap";
+import { type Band, correspondenceAt, sourceBands, sourceSpanFor } from "./build/correspondence";
+import { diffGenerated, type OutputDiff } from "./build/output-diff";
+import { resolveTestId } from "./build/select-target";
 import type { BundleOk } from "./bundle/protocol";
 import {
   engineRegistry,
@@ -63,6 +92,7 @@ import {
   type ApiEndpoint,
   type OpenApiDoc,
 } from "./backend/openapi";
+import { aggregateRequestTraces } from "./backend/route-match";
 import { buildTree } from "./preview/file-tree";
 import { useWorkspace } from "./workspace/use-workspace";
 import { useWorkspaceSources } from "./workspace/use-workspace-sources";
@@ -74,14 +104,32 @@ import type { WorkspaceSourcesController } from "./workspace/workspace-sources";
 import { applyGeneratedTree, readGeneratedTree, startAutoCommit } from "./workspace/git";
 import {
   buildShareUrl,
+  NO_VIEW_FLAGS,
   readHash,
+  readViewFlags,
+  type ViewFlags,
   writeHashProject,
   writeHashSource,
   type HashLoad,
 } from "./util/share";
 import { fnv1a32 } from "./util/hash";
 import { downloadBytes, makeZip } from "./util/zip";
+import { buildExportReadme, EXPORT_README_PATH } from "./util/export-readme";
 import { usePersistedState } from "./util/usePersistedState";
+// M-T8.18 — the palette, the shortcut sheet, app-level hotkeys, F8.
+import { CommandPalette, openPalette } from "./layout/CommandPalette";
+import { ShortcutSheet } from "./layout/ShortcutSheet";
+import { hotkeyAction, isTextEntry } from "./util/hotkeys";
+import { inDocumentOrder, stepIndex, toEditorRange } from "./layout/problem-nav";
+import { CHECKPOINT, PLAN, PROBLEMS } from "./layout/vocabulary";
+
+/** First non-empty line of a prompt, trimmed for a commit subject. */
+function firstLine(text: string, max = 60): string {
+  const line = text.split("\n").find((l) => l.trim().length > 0)?.trim() ?? "edit";
+  return line.length > max ? `${line.slice(0, max - 1)}…` : line;
+}
+import type { EditorRange } from "./editor/editor-handle";
+import type { AgentPromptRequest, CenterView, ExplorerMode } from "./layout/ctx";
 import { useStableFns } from "./util/useStableFns";
 import { initialPipelineState, pipelineReducer } from "./pipeline/reducer";
 import {
@@ -101,12 +149,14 @@ import {
   type AuthStubConfig,
   DEFAULT_AUTH_STUB,
   devClaimsHeader,
+  EXPLORER_MODES,
   formatUnsupportedDeployables,
   type DockTab,
   type LayoutCtx,
   type MobileCodeView,
   type MobileTab,
   type ReactBundleStatus,
+  type SelectResult,
   type UnsupportedDeployable,
   type UnsupportedPlatform,
 } from "./layout/ctx";
@@ -125,6 +175,9 @@ const capLog = (lines: LogLine[]): LogLine[] =>
 
 /** Shared "no generated files yet" identity — see the `files` derivation. */
 const EMPTY_FILES: VirtualFile[] = [];
+// Same module-level-constant discipline as EMPTY_FILES: a fresh `[]` per
+// render would defeat the `ctx` memo for every consumer.
+const EMPTY_BANDS: readonly Band[] = [];
 
 /** Per-deployable summary derived from the generated file tree.
  *  The playground only knows how to bundle + boot Hono backends and
@@ -211,6 +264,10 @@ export default function App(): JSX.Element {
   // imported into the active workspace on mount so a recipient lands
   // on the shared project (see the workspace-open effect below).
   const hashLoadOnMount = useMemo<HashLoad | null>(() => readHash(), []);
+  // How this link asks to be RENDERED (M-T8.23 slice 2), read once on mount
+  // alongside the payload: `#view=1` drops the editing chrome and opens no
+  // workspace store at all; `#embed=1` additionally drops the bottom dock.
+  const viewFlags = useMemo(() => readViewFlags(), []);
   // A shareable URL payload (single-file `s=` or multi-file `p=`),
   // normalised into an importable shape.  It's imported into the active
   // workspace once on mount (see the workspace-open effect below) so a
@@ -230,7 +287,7 @@ export default function App(): JSX.Element {
   // viewport on the desktop branch — no flicker for the e2e suite.
   const isDesktop = useMediaQuery("(min-width: 768px)", true) ?? true;
 
-  const workspace = useWorkspace();
+  const workspace = useWorkspace({ viewOnly: viewFlags.view });
   // Phase 2b1 of the multi-file work — the controller / hook landed
   // in Phase 2a; this is the wire-through.  `sources.activePath` is
   // locked to `/workspace/main.ddd` for now (no UI to change it
@@ -243,6 +300,11 @@ export default function App(): JSX.Element {
   const generatedConflicts = useGeneratedConflicts(workspace.store);
   const sourcesRef = useRef(sources);
   sourcesRef.current = sources;
+  // Same reason as `sourcesRef`: the checkpoint helpers (M-T8.19 slice 4) run
+  // inside async closures and must see the CURRENT store / writer-lock state,
+  // not the render that started the turn.
+  const workspaceRef = useRef(workspace);
+  workspaceRef.current = workspace;
   const [buildClientReady, setBuildClientReady] = useState(false);
   const userPickedExampleRef = useRef(false);
 
@@ -266,9 +328,16 @@ export default function App(): JSX.Element {
   // their content from `sources.files` (Phase 2b2).
   const exampleSource = useMemo(
     () =>
+      // `"shared"` is the non-example sentinel the shared-link seed flips to.
+      // It has no entry in the picker (deliberately — a shared link is not an
+      // example), so without this the seed falls through to the DEFAULT
+      // example whenever the controller cannot hold the payload: a `#view=1`
+      // link (no store at all, M-T8.23) and ephemeral mode (hostile storage).
+      // Both then showed the starter system instead of the shared source.
+      (exampleId === "shared" ? sharedImport?.source : undefined) ??
       augmentedExamplesList.find((e) => e.id === exampleId)?.source ??
       defaultExample.source,
-    [exampleId, augmentedExamplesList],
+    [exampleId, augmentedExamplesList, sharedImport],
   );
 
   // Editor's seed value for the active file — the precedence rule (and
@@ -312,8 +381,53 @@ export default function App(): JSX.Element {
   const [copied, setCopied] = useState(false);
   // Agent demo (the Agent dock tab) — the deterministic M-T8.3 wedge.
   const [agentMessages, setAgentMessages] = useState<AgentMessage[]>([]);
+  // Mirror, so the receipt's tool-call roll-up reads the turn's bubbles at the
+  // moment it is folded rather than the render that started the turn.
+  const agentMessagesRef = useRef<AgentMessage[]>([]);
+  agentMessagesRef.current = agentMessages;
   const [agentRunning, setAgentRunning] = useState(false);
   const agentSignalRef = useRef<{ cancelled: boolean }>({ cancelled: false });
+  // M-T8.19 — per-turn attachments (the plan, and later the receipt / commit /
+  // stuck card).  Kept OUT of the bubble list because that list is re-folded
+  // from the raw transcript on every render; `attachTurnExtras` grafts these
+  // back on at display time.  `agentTurnRef` is the 0-based turn index, which
+  // matches the count of `you` bubbles because every send appends exactly one.
+  const [agentExtras, setAgentExtras] = useState<(TurnExtras | undefined)[]>([]);
+  // Mirror, so the Approve / Reject handlers can read the card they are acting
+  // on without closing over a render-stale copy.
+  const agentExtrasRef = useRef<(TurnExtras | undefined)[]>([]);
+  agentExtrasRef.current = agentExtras;
+  const agentTurnRef = useRef(-1);
+  // Plan-first mode: the owner default is ON, and while on, the gate PAUSES
+  // for the first turn of a conversation and for any structural turn, and
+  // auto-approves an otherwise cosmetic follow-up (see `gatePlan`).
+  const [agentPlanMode, setAgentPlanMode] = usePersistedState<boolean>(
+    "loom.agent.planFirst",
+    true,
+  );
+  const agentPlanModeRef = useRef(agentPlanMode);
+  agentPlanModeRef.current = agentPlanMode;
+  // Resolver for the in-flight plan gate — the turn is literally awaiting this
+  // promise, so the composer stays disabled until Approve / Reject lands.
+  const planResolveRef = useRef<((v: string | null) => void) | null>(null);
+  // A rejection is fed back to the model on the NEXT prompt rather than as its
+  // own transcript turn, so the turn indices stay aligned with the bubbles.
+  const planRejectionRef = useRef<string | null>(null);
+  // The in-flight workspace write of an agent-applied source (slice 4).
+  const agentWriteRef = useRef<Promise<void> | null>(null);
+  // One-line feedback after a Restore from a chat message — which point it
+  // landed on, or why it could not.
+  const [agentRestoreNote, setAgentRestoreNote] = useState<string | null>(null);
+  // Loop guard (slice 5) — the streak state is a ref (it is folded once per
+  // turn, never rendered) and the STOP signal is state (it gates the composer
+  // and renders the "I'm stuck" card).
+  const loopGuardRef = useRef<LoopGuardState>(EMPTY_LOOP_GUARD);
+  const [agentStuck, setAgentStuck] = useState<StuckSignal | null>(null);
+  const agentStuckRef = useRef<StuckSignal | null>(null);
+  agentStuckRef.current = agentStuck;
+  // The newest turn whose write validated clean — where *Restore last green*
+  // goes.  Null until a turn produces one.
+  const [agentLastGreen, setAgentLastGreen] = useState<TurnCheckpoint | null>(null);
   // Live agent chat (M-T8.3): BYOK provider settings (persisted) + the raw
   // Anthropic-shaped transcript carried across turns.  `agentMessages` above is
   // the shared DISPLAY list (the demo and the live chat both render into it).
@@ -360,8 +474,14 @@ export default function App(): JSX.Element {
   const [dockTabRaw, setDockTabRaw] = usePersistedState<
     DockTab | "problems" | "generator" | "bundler"
   >("loom.desktop.dockTab", "output");
+  // `agent` is coerced too: M-T8.19 moved the chat out of the dock into the
+  // centre switcher, so a browser that persisted it would otherwise land on a
+  // dock tab with no panel behind it.
   const dockTab: DockTab =
-    dockTabRaw === "problems" || dockTabRaw === "generator" || dockTabRaw === "bundler"
+    dockTabRaw === "problems" ||
+    dockTabRaw === "generator" ||
+    dockTabRaw === "bundler" ||
+    dockTabRaw === "agent"
       ? "output"
       : dockTabRaw;
   const setDockTab = (t: DockTab): void => setDockTabRaw(t);
@@ -397,6 +517,43 @@ export default function App(): JSX.Element {
     !isDesktop && !userPickedCodeViewRef.current && isHeavyCodeView(persistedCodeView)
       ? "source"
       : persistedCodeView;
+
+  // ---------------------------------------------------------------------
+  // M-T8.18 — navigation seams: the desktop centre view and Explorer mode
+  // (lifted from DesktopShell so the palette / Problems rows / *Go to line*
+  // can switch them), the examples sheet, the Agent prompt hand-off, the
+  // first-run card, the shortcut sheet, and the F8 problem cursor.
+  // ---------------------------------------------------------------------
+  const [centerView, setCenterView] = useState<CenterView>("source");
+  // M-T8.19 slice 1 — Chat sits beside Source in the centre switcher, and
+  // **Split** shows both at once.  Persisted so the choice survives a reload;
+  // a turn starting turns it on (see the effect below) because watching the
+  // model change as the agent writes it IS the demo.
+  const [chatSplit, setChatSplit] = usePersistedState<boolean>("loom.desktop.chatSplit", true);
+  const [explorerModeRaw, setExplorerMode] = usePersistedState<ExplorerMode>(
+    "loom.desktop.explorerMode",
+    // Default to your source files — the managed "User code" tree is the
+    // primary explorer; "Generated" browses emitted output; "Examples" is
+    // the syllabus.
+    "user",
+  );
+  // Guarded against the persisted value: it can hold anything an older (or
+  // newer) build wrote, and M-T8.20 grew the set from three views to six.
+  const explorerMode: ExplorerMode = EXPLORER_MODES.includes(explorerModeRaw)
+    ? explorerModeRaw
+    : "user";
+  const [examplesOpen, setExamplesOpen] = useState(false);
+  const [agentPrompt, setAgentPrompt] = useState<AgentPromptRequest | null>(null);
+  const agentPromptNonceRef = useRef(0);
+  const [shortcutSheetOpen, setShortcutSheetOpen] = useState(false);
+  const [firstRunDismissed, setFirstRunDismissed] = usePersistedState<boolean>(
+    "loom.firstRun.dismissed",
+    false,
+  );
+  // State (not just the ref above) so the card can react to the first edit.
+  const [userEdited, setUserEdited] = useState(false);
+  const [problemCursor, setProblemCursor] = useState(-1);
+  const [problemAnnouncement, setProblemAnnouncement] = useState("");
 
   // Test runner results, lifted here so the Output panel's Tests stream
   // can read them independently of the (sometimes-unmounted) Tests tab.
@@ -792,15 +949,16 @@ export default function App(): JSX.Element {
     // Importing overwrites the workspace with the example's file set, so any
     // other source file is deleted.  Confirm ONLY when that would actually
     // lose something — a switch between two single-file examples drops
-    // nothing and must not prompt.  Same idiom as the other destructive file
-    // actions (SourceFilesTree deletes, workspace delete): `window.confirm`.
+    // nothing and must not prompt.  The shared confirm modal (via the
+    // `<ConfirmHost/>` mounted below) lists the files that go.
     const dropped = filesDroppedByExample(sourcesRef.current.files.keys(), ex.files);
-    if (dropped.length > 0 && typeof window !== "undefined") {
-      const list = dropped.map((p) => `  ${p.replace("/workspace/", "")}`).join("\n");
-      const ok = window.confirm(
-        `Loading "${ex.label}" replaces this workspace's files.\n\n` +
-          `${dropped.length} file${dropped.length === 1 ? "" : "s"} will be deleted:\n${list}\n\n` +
-          `Continue?`,
+    if (dropped.length > 0) {
+      const ok = await requestConfirm(
+        confirmSites.exampleImport(
+          ex.label,
+          dropped.map((p) => p.replace("/workspace/", "")),
+        ),
+        { base: "example-import" },
       );
       if (!ok) return;
     }
@@ -956,23 +1114,22 @@ export default function App(): JSX.Element {
     };
   }, []);
 
-  async function copyShareLink(): Promise<void> {
+  // Build the smallest legal URL for the current workspace: single-file
+  // (`s=`, byte-compatible with pre-Stage-3 shared links) when only main.ddd
+  // is present, multi-file (`p=`) when the user has added other `.ddd` files
+  // via the tabs strip.  `flags` adds the read-only / embed render modes.
+  function buildShareLink(flags: ViewFlags = NO_VIEW_FLAGS): string {
+    const s = sourcesRef.current;
+    const onlyMain =
+      s.files.size === 0 || (s.files.size === 1 && s.files.has("/workspace/main.ddd"));
+    return onlyMain
+      ? buildShareUrl(sourceRef.current, flags)
+      : buildShareUrl({ files: Object.fromEntries(s.files), active: s.activePath }, flags);
+  }
+
+  async function copyShareLink(flags: ViewFlags = NO_VIEW_FLAGS): Promise<void> {
     try {
-      // Build the smallest legal URL for the current workspace:
-      // single-file (`s=`, byte-compatible with pre-Stage-3 shared
-      // links) when only main.ddd is present, multi-file (`p=`) when
-      // the user has added other `.ddd` files via the tabs strip.
-      const s = sourcesRef.current;
-      const onlyMain =
-        s.files.size === 0 ||
-        (s.files.size === 1 && s.files.has("/workspace/main.ddd"));
-      const url = onlyMain
-        ? buildShareUrl(sourceRef.current)
-        : buildShareUrl({
-            files: Object.fromEntries(s.files),
-            active: s.activePath,
-          });
-      await navigator.clipboard.writeText(url);
+      await navigator.clipboard.writeText(buildShareLink(flags));
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     } catch {
@@ -1003,6 +1160,13 @@ export default function App(): JSX.Element {
   const persistent = selBootPersistent(pipeline);
   const migrated = selBootMigrated(pipeline);
   const bootErrorMessage = selBootError(pipeline);
+  // Requests served, per operation (M-T8.22) — derived, not stored: the
+  // runtime log already carries every `request_end` line and the spec is
+  // already fetched, so the aggregate is a pure fold over both.
+  const requestTraces = useMemo(
+    () => aggregateRequestTraces(backendLog, apiEndpoints),
+    [backendLog, apiEndpoints],
+  );
   const dispatchSlot = pipeline.dispatch.kind === "result" ? pipeline.dispatch.result : null;
 
   // Memoised: this is a fresh object per render otherwise, which would make
@@ -1010,7 +1174,15 @@ export default function App(): JSX.Element {
   const reactBundleStatus = useMemo<ReactBundleStatus>(() => {
     if (pipeline.bundle.kind !== "result") return { kind: "pending" };
     const r = pipeline.bundle.react;
-    if (r === null) return { kind: "absent" };
+    if (r === null) {
+      // The React half is skipped when the Hono half fails, so a null react
+      // result after a failed Hono bundle is a FAILURE, not "no React
+      // deployable" — reporting it as absent told the user their system had
+      // no frontend when the real problem was a bundle error.
+      const hono = pipeline.bundle.hono;
+      if (hono && !hono.ok) return { kind: "fail", result: hono };
+      return { kind: "absent" };
+    }
     return r.ok ? { kind: "ok", result: r } : { kind: "fail", result: r };
   }, [pipeline.bundle]);
 
@@ -1061,6 +1233,8 @@ export default function App(): JSX.Element {
    *  running, so it always bundles the BEST available input instead of
    *  whichever one happened to be published when it arrived. */
   const generateInFlightRef = useRef<Promise<unknown> | null>(null);
+  /** The last successful generate's file tree (see `runGenerateInner`). */
+  const lastGeneratedFilesRef = useRef<VirtualFile[]>(EMPTY_FILES);
 
   /** Register `p` as the generate CYCLE currently in flight.
    *
@@ -1405,6 +1579,11 @@ export default function App(): JSX.Element {
     const epoch = generationEpochRef.current;
     const cycle = await runGenerateStep();
     const result = cycle?.result ?? null;
+    // The generated tree, recorded off the CYCLE rather than off React state —
+    // the agent receipt (M-T8.19 slice 3) compares this ref before and after a
+    // turn, and a render-derived value would still hold the previous tree at
+    // the moment the generate promise resolves.
+    if (result?.ok) lastGeneratedFilesRef.current = result.files;
     let bundleGen: GenerateResult | null = result;
     if (persist && result?.ok) {
       const merged = await persistGeneratedTree(result, cycle?.mapped ?? null);
@@ -1680,6 +1859,96 @@ export default function App(): JSX.Element {
     [files],
   );
 
+  // ---------------------------------------------------------------------
+  // M-T8.20 — the `.loom/` views, the output diff, the correspondence.
+  //
+  // Both derived views ride the SAME `generateSuccess` the file pane reads,
+  // so they can never describe a different generate than the tree beside
+  // them — the reason they are read straight off the result rather than
+  // mirrored into state of their own.
+  // ---------------------------------------------------------------------
+  const apiSurface = generateSuccess?.api ?? null;
+  const sourceMap = generateSuccess?.sourcemap ?? null;
+
+  // Added / changed / removed versus the PREVIOUS generate.  The baseline is
+  // a ref (not state): it must advance exactly once per generate, and doing
+  // that in the same effect that computes the diff is what keeps "changed"
+  // meaning "changed by the edit you just made" rather than accumulating.
+  const previousFilesRef = useRef<VirtualFile[] | null>(null);
+  const [outputDiff, setOutputDiff] = useState<OutputDiff>(() => diffGenerated([], null));
+  useEffect(() => {
+    if (!generateSuccess) return;
+    setOutputDiff(diffGenerated(files, previousFilesRef.current));
+    previousFilesRef.current = files;
+  }, [files, generateSuccess]);
+  // A different project is not a diff — switching workspace or example would
+  // otherwise mark the entire new tree as "changed" against the old one's.
+  useEffect(() => {
+    previousFilesRef.current = null;
+    setOutputDiff(diffGenerated([], null));
+  }, [workspace.activeId, exampleId]);
+
+  // Source ↔ output correspondence.  The editor reports the line under the
+  // pointer; everything else is derived, so a hover costs one walk of the
+  // recorded regions and no state beyond the line itself.
+  const [correspondenceLine, setCorrespondenceLine] = useState<number | null>(null);
+  const [reverseHover, setReverseHover] = useState<{ file: string; line: number } | null>(null);
+  const [colourMap, setColourMap] = usePersistedState<boolean>(
+    "loom.correspondence.colourMap",
+    false,
+  );
+  const correspondence = useMemo(() => {
+    if (!sourceMap || correspondenceLine === null) return null;
+    // `sourceRef` is the live editor text (ahead of the controller snapshot
+    // mid-typing); the line→offset index has to be built against exactly the
+    // text the user is pointing at, or every span is off by an edit.
+    return correspondenceAt(sourceMap, sources.activePath, correspondenceLine, sourceRef.current);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sourceMap, correspondenceLine, sources.activePath, editorSourceTick]);
+  const correspondenceBands = useMemo(() => {
+    if (!sourceMap || !colourMap) return EMPTY_BANDS;
+    return sourceBands(sourceMap, sources.activePath, sourceRef.current);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sourceMap, colourMap, sources.activePath, editorSourceTick]);
+  // Preview select mode (M-T8.20 slice 4).  The click arrives as a bare
+  // `data-testid`; `resolveTestId` walks it back through the generated tree
+  // and the sourcemap to the page declaration, and the result is REVEALED in
+  // the editor immediately — landing on the source is the answer, the two
+  // follow-ups (Builder, agent) are offered beside it.
+  const [selectResult, setSelectResult] = useState<SelectResult | null>(null);
+  const resolveSelectedElement = (testid: string | null): void => {
+    if (!testid) {
+      setSelectResult({ kind: "unidentified" });
+      return;
+    }
+    const target = resolveTestId(files, sourceMap, testid, sourceRef.current);
+    if (!target) {
+      setSelectResult({ kind: "unresolved", testid });
+      return;
+    }
+    setSelectResult({ kind: "found", target });
+    if (target.sourceLine !== undefined) {
+      revealSourceRange({
+        startLineNumber: target.sourceLine,
+        startColumn: 1,
+        endLineNumber: target.sourceEndLine ?? target.sourceLine,
+        endColumn: 1,
+      });
+    }
+  };
+
+  const reverseSpan = useMemo(() => {
+    if (!sourceMap || !reverseHover) return null;
+    return sourceSpanFor(
+      sourceMap,
+      reverseHover.file,
+      reverseHover.line,
+      undefined,
+      sourceRef.current,
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sourceMap, reverseHover, editorSourceTick]);
+
   // Derive the migration + wire-contract delta the live edit implies vs the
   // last-committed baseline.  The heavy lowering of BOTH source trees happens
   // in the build worker; here we assemble the two trees — the live workspace
@@ -1759,6 +2028,22 @@ export default function App(): JSX.Element {
     const base =
       workspace.activeName.trim().replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") ||
       "loom-project";
+    // A README at the archive root (M-T8.23 slice 3).  The ZIP is the bridge
+    // out of the browser for every target the playground cannot boot, and it
+    // used to ship a tree of projects plus a compose file with nothing saying
+    // what to do with them.  Derived from the tree itself, so it can't name a
+    // service or a port the emitted compose file doesn't have.  Never
+    // overwrites a README the generator itself emitted at the root.
+    if (!entries.some((e) => e.path === EXPORT_README_PATH)) {
+      entries.unshift({
+        path: EXPORT_README_PATH,
+        content: buildExportReadme({
+          name: base,
+          paths: entries.map((e) => e.path),
+          compose: entries.find((e) => e.path === "docker-compose.yml")?.content ?? null,
+        }),
+      });
+    }
     downloadBytes(makeZip(entries), `${base}.zip`);
   }
 
@@ -1795,9 +2080,12 @@ export default function App(): JSX.Element {
   function applyAgentSource(text: string): void {
     sourceRef.current = text;
     hasUserEditedRef.current = true;
+    setUserEdited(true);
     const s = sourcesRef.current;
     if (s.activePath === "/workspace/main.ddd") scheduleHashSync(text);
-    s.write(s.activePath, text);
+    // Held so the turn's checkpoint commit (M-T8.19 slice 4) can wait for the
+    // write to land before staging the tree.
+    agentWriteRef.current = s.write(s.activePath, text);
     editorHandleRef.current?.setSource(text);
   }
 
@@ -1807,6 +2095,9 @@ export default function App(): JSX.Element {
   async function runAgentDemo(): Promise<void> {
     if (agentRunning) return;
     agentSignalRef.current = { cancelled: false };
+    // The demo replays from scratch — its own transcript starts at turn 0.
+    agentTurnRef.current = 0;
+    setAgentExtras([]);
     setAgentRunning(true);
     try {
       const { runAgentDemo: playAgentDemo } = await import("./agent/demo");
@@ -1818,6 +2109,224 @@ export default function App(): JSX.Element {
       });
     } finally {
       setAgentRunning(false);
+    }
+  }
+
+  // ---------------------------------------------------------------------
+  // The PLAN GATE (M-T8.19 slice 2).
+  //
+  // The builders' plan modes ask the model to describe what it intends in
+  // prose.  Loom does not have to: run `loom_outline` over the candidate
+  // `.ddd`, diff it against the outline of what is in the editor, and the plan
+  // IS the model-node delta — declarations to add, change, remove, each one a
+  // real patch address.  Nothing is written until this resolves.
+  // ---------------------------------------------------------------------
+  async function gatePlan(candidate: string, base: string): Promise<string | null> {
+    const turn = agentTurnRef.current;
+    const { callTool } = await import("../../src/tools/index.js");
+    const [before, after] = (await Promise.all([
+      callTool("loom_outline", { source: base }),
+      callTool("loom_outline", { source: candidate }),
+    ])) as [Outline, Outline];
+    const plan = buildPlan({ before, after, base, candidate, turn });
+
+    // Owner default: pause on the first turn of a conversation and on any
+    // structural turn; a follow-up that only moves members through is written
+    // straight away.  An empty delta is never worth a gate.
+    const firstTurn = turn === 0;
+    if (planIsEmpty(plan) || !(firstTurn || isStructural(plan.items))) return candidate;
+
+    setAgentExtras((prev) =>
+      withTurnExtras(prev, turn, { plan: { plan, state: "pending", excluded: [] } }),
+    );
+    return new Promise<string | null>((resolve) => {
+      planResolveRef.current = resolve;
+    });
+  }
+
+  // Approve the pending plan: write the candidate, minus whatever the user
+  // struck off the checklist.  The exclusions are honoured as REAL model
+  // patches (`op: "remove"` against the candidate's own addresses), so a
+  // partial approval produces a source the compiler agrees with rather than a
+  // hand-spliced string.
+  function approveAgentPlan(excluded: string[]): void {
+    const resolve = planResolveRef.current;
+    if (!resolve) return;
+    planResolveRef.current = null;
+    const turn = agentTurnRef.current;
+    const card = agentExtrasRef.current[turn]?.plan;
+    if (!card) {
+      resolve(null);
+      return;
+    }
+    setAgentExtras((prev) =>
+      withTurnExtras(prev, turn, { plan: { ...card, state: "approved", excluded } }),
+    );
+    void (async () => {
+      let source = card.plan.candidate;
+      const patches = exclusionPatches(card.plan.items, excluded);
+      if (patches.length > 0) {
+        const { applyPatches } = await import("../../src/api/index.js");
+        const result = await applyPatches(source, patches);
+        // A patch batch that cannot resolve leaves the candidate untouched
+        // (`applyPatches` is atomic) — better to write the whole plan than to
+        // write a mangled one, and the card still records what was struck.
+        if (result.ok) source = result.text;
+      }
+      resolve(source);
+    })();
+  }
+
+  // Reject: write nothing.  The refusal rides the NEXT prompt rather than
+  // becoming its own transcript turn, so the turn indices stay aligned with
+  // the `you` bubbles the extras are keyed by.
+  function rejectAgentPlan(excluded: string[]): void {
+    const resolve = planResolveRef.current;
+    if (!resolve) return;
+    planResolveRef.current = null;
+    const turn = agentTurnRef.current;
+    const card = agentExtrasRef.current[turn]?.plan;
+    const names = (card?.plan.items ?? [])
+      .filter((i) => i.change === "add")
+      .map((i) => i.node);
+    planRejectionRef.current = PLAN.rejectionNote(names);
+    setAgentExtras((prev) => {
+      const c = prev[turn]?.plan;
+      if (!c) return prev;
+      return withTurnExtras(prev, turn, { plan: { ...c, state: "rejected", excluded } });
+    });
+    resolve(null);
+  }
+
+  // ---------------------------------------------------------------------
+  // TURN ↔ COMMIT (M-T8.19 slice 4; research §4 #5).
+  //
+  // Every AI builder makes each chat turn a restorable version.  Loom already
+  // has the versions — the git-backed workspace commits on a debounce — but
+  // they were ANONYMOUS ("autosave workspace") and disconnected from the turn
+  // that caused them.  These two helpers close that: a write the agent or a
+  // visual Apply produced is committed under its own label the moment it
+  // lands, and the chat message carries the oid it produced.
+  // ---------------------------------------------------------------------
+
+  /** Commit the working tree under `message` once `written` has landed.
+   *  Returns the new oid, or undefined when nothing was staged / the store is
+   *  read-only — a no-op commit is not an error. */
+  async function commitCheckpoint(
+    message: string,
+    written?: Promise<void>,
+  ): Promise<string | undefined> {
+    const store = workspaceRef.current.store;
+    if (!store || !workspaceRef.current.writable) return undefined;
+    try {
+      if (written) await written;
+      const { commitOnSave } = await import("./workspace/git");
+      return await commitOnSave(store, message);
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.warn("checkpoint commit failed:", err);
+      return undefined;
+    }
+  }
+
+  /** Restore the workspace to `oid` — AS A NEW COMMIT.
+   *
+   *  This is the one restore rule the Cursor forum threads say everyone gets
+   *  wrong (research §2.4): a restore that rewrites history "permanently
+   *  destroys change history", and users cannot tell which point they landed
+   *  on.  So the restore is itself committed (undoable from the same list),
+   *  and the caller passes the POINT it names ("the end of turn 2") so the
+   *  message can say it. */
+  function restoreAgentCheckpoint(oid: string, point: string): void {
+    const turn = agentTurnRef.current;
+    void (async () => {
+      const store = workspaceRef.current.store;
+      if (!store || !workspaceRef.current.writable) return;
+      try {
+        const { commitOnSave } = await import("./workspace/git");
+        await store.restoreCommit(oid);
+        await commitOnSave(store, `restore to ${point}`);
+        // The editor follows through the sources controller's external-content
+        // epoch; the generated tree only follows if something asks — a restore
+        // is exactly such a request.
+        scheduleAutoGenerate(200);
+        setAgentExtras((prev) => {
+          const cp = prev[turn]?.checkpoint;
+          return cp ? withTurnExtras(prev, turn, { checkpoint: { ...cp } }) : prev;
+        });
+        setAgentRestoreNote(CHECKPOINT.restored(point));
+      } catch (err) {
+        setAgentRestoreNote(
+          `${CHECKPOINT.restoreFailed}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    })();
+  }
+
+  // ---------------------------------------------------------------------
+  // The per-turn RECEIPT (M-T8.19 slice 3).
+  //
+  // NN/g's sycophancy finding is why this is computed rather than quoted: the
+  // turn ends with the COMPILER's verdict on both sides of the write, the real
+  // `.ddd` diff, what moved in the generated tree, and the provider's own token
+  // count — none of it the model's claim about itself.
+  // ---------------------------------------------------------------------
+  async function recordTurnReceipt(args: {
+    turn: number;
+    sourceBefore: string;
+    filesBefore: VirtualFile[];
+    usage: TokenUsage | undefined;
+  }): Promise<void> {
+    const sourceAfter = sourceRef.current;
+    const { callTool } = await import("../../src/tools/index.js");
+    const reportFor = async (source: string): Promise<ValidateReport> =>
+      (await callTool("loom_validate", { source })) as ValidateReport;
+    const errorsIn = (r: ValidateReport): number =>
+      r.diagnostics.filter((d) => d.severity === "error").length;
+
+    // One validate when nothing was written — the same number on both sides is
+    // the honest reading of "this turn changed no source".
+    const beforeReport = await reportFor(args.sourceBefore);
+    const afterReport =
+      args.sourceBefore === sourceAfter ? beforeReport : await reportFor(sourceAfter);
+    const before = errorsIn(beforeReport);
+    const after = errorsIn(afterReport);
+
+    const { foldReceipt } = await import("./agent/receipt");
+    const receipt = foldReceipt({
+      bubbles: agentMessagesRef.current,
+      before: args.sourceBefore,
+      after: sourceAfter,
+      filesBefore: args.filesBefore,
+      filesAfter: lastGeneratedFilesRef.current,
+      validator: { before, after },
+      usage: args.usage,
+    });
+
+    // ---- the loop guard (slice 5) -------------------------------------
+    // A FIX TURN is one that began with errors on the board.  Anything else
+    // breaks the run of consecutive repairs, so the streak starts over.
+    let stuck: StuckSignal | null = null;
+    if (before > 0) {
+      loopGuardRef.current = recordFixTurn(
+        loopGuardRef.current,
+        diagnosticKeys(afterReport.diagnostics),
+      );
+      stuck = loopGuardRef.current.stuck;
+    } else {
+      loopGuardRef.current = resetLoopGuard();
+    }
+    setAgentStuck(stuck);
+
+    setAgentExtras((prev) =>
+      withTurnExtras(prev, args.turn, stuck ? { receipt, stuck } : { receipt }),
+    );
+
+    // The newest turn whose write validated clean is where *Restore last
+    // green* goes.  Read the checkpoint the same turn recorded.
+    if (after === 0) {
+      const cp = agentExtrasRef.current[args.turn]?.checkpoint;
+      if (cp) setAgentLastGreen(cp);
     }
   }
 
@@ -1836,39 +2345,88 @@ export default function App(): JSX.Element {
     // without a real provider key.
     const injected = (window as unknown as { __loomAgentComplete?: Complete }).__loomAgentComplete;
     if (agentRunning || !text.trim()) return;
+    // The circuit breaker: while the loop guard has stopped, another fix turn
+    // is exactly what the research says burns credits for nothing.  One of the
+    // exit ramps has to clear it first.
+    if (agentStuckRef.current) return;
     if (!injected && !settingsReady(agentSettings)) return;
     agentSignalRef.current = { cancelled: false };
+    agentTurnRef.current += 1;
+    // A rejected plan is carried into the next prompt, so the model learns
+    // what was refused without an extra bubble in the transcript.
+    const rejection = planRejectionRef.current;
+    planRejectionRef.current = null;
+    const prompt = rejection ? `${rejection}\n\n${text}` : text;
     setAgentRunning(true);
     const preset = presetById(agentSettings.providerId);
     const headers: Record<string, string> =
       preset.id === "openrouter"
         ? { "HTTP-Referer": "https://loom.build", "X-Title": "Loom playground" }
         : {};
-    const complete =
-      injected ??
-      createOpenAiCompatibleComplete({
-        baseUrl: agentSettings.baseUrl,
-        apiKey: agentSettings.apiKey,
-        model: agentSettings.model,
-        headers,
-        stream: true,
-      });
+    // Both sides of the receipt, captured BEFORE the turn can move anything.
+    const turn = agentTurnRef.current;
+    const sourceBefore = sourceRef.current;
+    const filesBefore = lastGeneratedFilesRef.current;
+    let generatePromise: Promise<void> | null = null;
+    let usage: TokenUsage | undefined;
     try {
-      const [{ runLiveAgent }, { buildSystemPrompt }] = await Promise.all([
-        import("./agent/live"),
-        import("./agent/system-prompt"),
-      ]);
+      const [{ runLiveAgent }, { buildSystemPrompt }, { createOpenAiCompatibleComplete }] =
+        await Promise.all([
+          import("./agent/live"),
+          import("./agent/system-prompt"),
+          import("./agent/openai-transport"),
+        ]);
+      // Built here rather than above the `try` so the transport module joins
+      // its siblings behind the dynamic boundary: it too has a value import of
+      // `src/tools`, and a static one put the compiler back in the entry chunk.
+      const complete =
+        injected ??
+        createOpenAiCompatibleComplete({
+          baseUrl: agentSettings.baseUrl,
+          apiKey: agentSettings.apiKey,
+          model: agentSettings.model,
+          headers,
+          stream: true,
+        });
       agentTranscriptRef.current = await runLiveAgent({
         complete,
-        prompt: text,
+        prompt,
         currentSource: sourceRef.current,
         history: agentTranscriptRef.current,
         system: buildSystemPrompt(),
         setMessages: setAgentMessages,
         applySource: applyAgentSource,
-        triggerGenerate: () => void runGenerate(true),
+        // Plan-first is the owner default; the toggle turns the gate off
+        // entirely, which restores the M-T8.3 behaviour of streaming the
+        // agent's source into the editor as it writes.
+        gateSource: agentPlanModeRef.current ? gatePlan : undefined,
+        // Held, not fired-and-forgotten: the receipt's generated-file delta is
+        // only meaningful once this cycle has actually produced a tree.
+        triggerGenerate: () => {
+          generatePromise = runGenerate(true);
+        },
+        onWrote: async () => {
+          // One labelled commit per turn: `agent: <first line of the ask>`.
+          const oid = await commitCheckpoint(
+            CHECKPOINT.agentLabel(firstLine(text)),
+            agentWriteRef.current ?? undefined,
+          );
+          agentWriteRef.current = null;
+          if (oid) {
+            setAgentExtras((prev) =>
+              withTurnExtras(prev, turn, {
+                checkpoint: { oid, point: CHECKPOINT.endOfTurn(turn + 1) },
+              }),
+            );
+          }
+        },
+        onUsage: (u) => {
+          usage = u;
+        },
         signal: agentSignalRef.current,
       });
+      if (generatePromise) await (generatePromise as Promise<void>).catch(() => undefined);
+      await recordTurnReceipt({ turn, sourceBefore, filesBefore, usage });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       setAgentMessages((prev) => [
@@ -1884,9 +2442,24 @@ export default function App(): JSX.Element {
   // send starts a fresh conversation).
   function clearAgentChat(): void {
     agentSignalRef.current.cancelled = true;
+    // A pending plan is part of the conversation being thrown away — release
+    // the turn that is awaiting it, writing nothing.
+    planResolveRef.current?.(null);
+    planResolveRef.current = null;
+    planRejectionRef.current = null;
     agentTranscriptRef.current = [];
+    agentTurnRef.current = -1;
+    setAgentExtras([]);
     setAgentMessages([]);
   }
+
+  // What the chat actually renders: the folded transcript with each turn's
+  // playground-side attachments grafted back on (see `agent/turn.ts` for why
+  // they cannot simply live on a bubble).
+  const agentMessagesDisplay = useMemo(
+    () => attachTurnExtras(agentMessages, agentExtras),
+    [agentMessages, agentExtras],
+  );
 
   // ---------------------------------------------------------------------
   // ctx — the state + actions bundle the shell and its panes consume.
@@ -1910,9 +2483,129 @@ export default function App(): JSX.Element {
   // render, and listing them reproduces exactly the old behaviour (ctx picks
   // the latest ref value up on whatever render happens next).
   // ---------------------------------------------------------------------
+  // ---------------------------------------------------------------------
+  // M-T8.18 — navigation actions + the app-level hotkeys.
+  // ---------------------------------------------------------------------
+  const isDesktopRef = useRef(isDesktop);
+  isDesktopRef.current = isDesktop;
+  const diagnosticsRef = useRef(diagnostics);
+  diagnosticsRef.current = diagnostics;
+  const runFullRef = useRef<() => Promise<void>>(() => Promise.resolve());
+  runFullRef.current = runFull;
+
+  /** Switch to Source (desktop centre / mobile Code → Source) and reveal
+   *  `range`.  The reveal is deferred a tick so a just-mounted editor pane is
+   *  laid out before Monaco scrolls. */
+  function revealSourceRange(range: EditorRange): void {
+    if (isDesktopRef.current) setCenterView("source");
+    else {
+      setActiveTab("code");
+      setCodeView("source");
+    }
+    window.setTimeout(() => editorHandleRef.current?.revealRange(range), 0);
+  }
+
+  function stepProblem(dir: 1 | -1): void {
+    const ordered = inDocumentOrder(diagnosticsRef.current);
+    setProblemCursor((cur) => {
+      const next = stepIndex(cur >= ordered.length ? -1 : cur, ordered.length, dir);
+      if (next < 0) {
+        setProblemAnnouncement(PROBLEMS.announceNone);
+        return -1;
+      }
+      const d = ordered[next];
+      setProblemAnnouncement(PROBLEMS.announce(next + 1, ordered.length, d.range.start.line + 1, d.message));
+      revealSourceRange(toEditorRange(d));
+      return next;
+    });
+  }
+
+  // Focus the chat: the centre tab on desktop (M-T8.19 slice 1), the
+  // full-screen agent pane on mobile.  One function, so the dock shortcut,
+  // the palette, the mobile switcher and `askAgent` cannot drift.
+  function openChat(): void {
+    if (isDesktopRef.current) setCenterView("chat");
+    else setActiveTab("agent");
+  }
+
+  function askAgent(text: string): void {
+    openChat();
+    agentPromptNonceRef.current++;
+    setAgentPrompt({ text, nonce: agentPromptNonceRef.current });
+  }
+
+  function openExamples(): void {
+    if (isDesktopRef.current) setExplorerMode("examples");
+    else setExamplesOpen(true);
+  }
+
+  const dismissFirstRun = (): void => setFirstRunDismissed(true);
+  // Never edited in this browser, not loaded from a share link, not dismissed.
+  const firstRunVisible = !firstRunDismissed && !userEdited && sharedImport === null;
+
+  // One keydown listener for the whole app (audit M14).  The pure map decides
+  // (`util/hotkeys.ts`); this only reads the target and dispatches.  Esc
+  // closes whichever overlay is open, outermost first, and otherwise falls
+  // through to the browser / Monaco.
+  const hotkeyStateRef = useRef({ shortcutSheetOpen, firstRunVisible });
+  hotkeyStateRef.current = { shortcutSheetOpen, firstRunVisible };
+  const hotkeyFnsRef = useRef({ stepProblem, dismissFirstRun });
+  hotkeyFnsRef.current = { stepProblem, dismissFirstRun };
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent): void => {
+      const t = e.target as HTMLElement | null;
+      const textEntry = !!t && isTextEntry(t.tagName ?? "", t.getAttribute?.("contenteditable"));
+      const action = hotkeyAction(e, textEntry);
+      if (!action) return;
+      switch (action) {
+        case "generate":
+          if (errorCountRef.current === 0 && !generatingRef.current) void runGenerateRef.current();
+          break;
+        case "bundle-boot":
+          void runFullRef.current();
+          break;
+        case "next-problem":
+          hotkeyFnsRef.current.stepProblem(1);
+          break;
+        case "previous-problem":
+          hotkeyFnsRef.current.stepProblem(-1);
+          break;
+        case "palette":
+          openPalette();
+          break;
+        case "shortcuts":
+          setShortcutSheetOpen(true);
+          break;
+        case "escape": {
+          const s = hotkeyStateRef.current;
+          if (s.shortcutSheetOpen) setShortcutSheetOpen(false);
+          else if (s.firstRunVisible) hotkeyFnsRef.current.dismissFirstRun();
+          else return; // not ours — Monaco / Mantine overlays handle their own
+          break;
+        }
+      }
+      e.preventDefault();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
+
   const ctxFns = useStableFns({
     setExampleId,
     createWorkspaceFromExample,
+    setCenterView,
+    setExplorerMode,
+    setExamplesOpen,
+    openExamples,
+    revealSourceRange,
+    stepProblem,
+    askAgent,
+    openChat,
+    setChatSplit,
+    consumeAgentPrompt: (): void => setAgentPrompt(null),
+    dismissFirstRun,
+    setShortcutSheetOpen,
+    openPalette,
     getSource: (): string => sourceRef.current,
     setActiveSourcePath: sources.setActivePath,
     // New-file: seed the VFS with a stub body, and only once that write
@@ -1937,11 +2630,14 @@ export default function App(): JSX.Element {
     deleteEmptySourceFolder: sources.deleteEmptyFolder,
     clearSourceError: sources.clearError,
     setAuthStub,
-    onSourceChange: (text: string, origin?: "editor" | "builder"): void => {
+    onSourceChange: (text: string, origin?: "editor" | "builder", label?: string): void => {
       sourceRef.current = text;
       // A real source change (typing in Monaco or a Builder Apply) — from
       // here on, mobile auto-generate is allowed (see hasUserEditedRef).
       hasUserEditedRef.current = true;
+      // …and as state, so the first-run card leaves on the first edit
+      // (M-T8.18).  A no-op re-set after the first is free.
+      setUserEdited(true);
       // Bump the live-sync tick **only** for editor-origin edits (the user
       // typing in Monaco).  Builder Apply also flows through here with
       // origin "builder" — bumping for those would re-seed the canvas
@@ -1960,11 +2656,17 @@ export default function App(): JSX.Element {
       // so the workspace-sources state stays in sync.  Read through
       // the ref so the active path reflects the latest hook snapshot
       // if a Phase-2b2 tab switch lands mid-typing.
-      s.write(s.activePath, text);
+      const written = s.write(s.activePath, text);
       // Builder (and any non-editor) edits don't flow through Monaco's own
       // change path, so push them into the live model — which also re-runs the
       // LSP — keeping the source tab and Problems panel in sync.
       if (origin !== "editor") editorHandleRef.current?.setSource(text);
+      // M-T8.19 slice 4 — a visual Apply is a CHECKPOINT, not an anonymous
+      // autosave: commit it under its own label as soon as the write lands.
+      // Typing in Monaco keeps the debounced autosave (one commit per burst).
+      if (origin === "builder") {
+        void commitCheckpoint(CHECKPOINT.builderLabel(label ?? "apply"), written);
+      }
     },
     onDiagnosticsChange: setLspDiagnostics,
     scheduleAutoGenerate,
@@ -1987,9 +2689,19 @@ export default function App(): JSX.Element {
     getAppLog,
     clearBackendLog,
     clearAppLog,
-    copyShareLink,
+    copyShareLink: (flags?: ViewFlags): void => void copyShareLink(flags),
+    buildShareLink,
     runAgentDemo: (): void => void runAgentDemo(),
     setAgentSettings,
+    setAgentPlanMode,
+    approveAgentPlan,
+    rejectAgentPlan,
+    restoreAgentCheckpoint,
+    dismissAgentRestoreNote: (): void => setAgentRestoreNote(null),
+    dismissAgentStuck: (): void => {
+      loopGuardRef.current = resetLoopGuard();
+      setAgentStuck(null);
+    },
     sendAgentMessage: (text: string): void => void sendAgentMessage(text),
     clearAgentChat,
     runGenerate: (): void => void runGenerate(true),
@@ -2003,6 +2715,11 @@ export default function App(): JSX.Element {
     pinEvolutionBaseline,
     runCaptureSnapshot: (): void => void runCaptureSnapshot(),
     runDownloadZip,
+    setCorrespondenceLine,
+    setReverseHover,
+    setColourMap,
+    resolveSelectedElement,
+    dismissSelectResult: (): void => setSelectResult(null),
   });
 
   const buildClient = buildClientRef.current;
@@ -2012,8 +2729,11 @@ export default function App(): JSX.Element {
   const sourceFiles = sources.files;
   const sourceEpoch = sources.epoch;
   const emptySourceFolders = sources.emptyFolders;
-  const sourcesWritable = sources.writable;
-  const sourcesReadOnlyReason = sources.readOnlyReason;
+  // A view link is read-only for a reason of its own — it opened no store, so
+  // the controller would otherwise report "ephemeral" (a storage failure),
+  // which is a different thing and reads as a bug to the recipient.
+  const sourcesWritable = !viewFlags.view && sources.writable;
+  const sourcesReadOnlyReason = viewFlags.view ? "view" : sources.readOnlyReason;
   const sourceError = sources.lastError;
 
   const ctx: LayoutCtx = useMemo(
@@ -2062,10 +2782,19 @@ export default function App(): JSX.Element {
       selectedFile,
       selectedPath,
       unsupportedDeployables,
+      apiSurface,
+      sourceMap,
+      outputDiff,
+      correspondence,
+      reverseSpan,
+      colourMap,
+      sourceBands: correspondenceBands,
+      selectResult,
       reqMethod,
       reqPath,
       reqBody,
       apiEndpoints,
+      requestTraces,
       selectedOpId,
       selectedEndpoint,
       pathParamValues,
@@ -2079,14 +2808,28 @@ export default function App(): JSX.Element {
       backendLog,
       appLog,
       copied,
-      agentMessages,
+      viewMode: viewFlags.view,
+      embedMode: viewFlags.embed,
+      agentMessages: agentMessagesDisplay,
       agentRunning,
+      agentPlanMode,
+      agentRestoreNote,
+      agentStuck,
+      agentLastGreen,
       agentSettings,
       evolution,
       evolutionRunning,
       evolutionBaselineRef,
       snapshotResult,
       snapshotRunning,
+      centerView,
+      chatSplit,
+      explorerMode,
+      examplesOpen,
+      agentPrompt,
+      firstRunVisible,
+      shortcutSheetOpen,
+      problemAnnouncement,
       ...ctxFns,
     }),
     // Exhaustive over every VALUE field above, in the same order.  `ctxFns`
@@ -2136,10 +2879,19 @@ export default function App(): JSX.Element {
       selectedFile,
       selectedPath,
       unsupportedDeployables,
+      apiSurface,
+      sourceMap,
+      outputDiff,
+      correspondence,
+      reverseSpan,
+      colourMap,
+      correspondenceBands,
+      selectResult,
       reqMethod,
       reqPath,
       reqBody,
       apiEndpoints,
+      requestTraces,
       selectedOpId,
       selectedEndpoint,
       pathParamValues,
@@ -2153,23 +2905,53 @@ export default function App(): JSX.Element {
       backendLog,
       appLog,
       copied,
-      agentMessages,
+      viewFlags,
+      agentMessagesDisplay,
       agentRunning,
+      agentPlanMode,
+      agentRestoreNote,
+      agentStuck,
+      agentLastGreen,
       agentSettings,
       evolution,
       evolutionRunning,
       evolutionBaselineRef,
       snapshotResult,
       snapshotRunning,
+      centerView,
+      chatSplit,
+      explorerMode,
+      examplesOpen,
+      agentPrompt,
+      firstRunVisible,
+      shortcutSheetOpen,
+      problemAnnouncement,
     ],
   );
 
   return (
     <AppShell
-      header={{ height: isDesktop ? 48 : 52 }}
+      // The desktop toolbar wraps onto a second row below ~1200 px (a
+      // common laptop width); a fixed 48 px header then paints that row
+      // over the Explorer / editor.  Give the wrapped layout its own
+      // height instead of clipping it.
+      // Mobile: the 48 px row plus the pipeline dots under it.
+      header={{ height: isDesktop ? { base: 88, lg: 48 } : 74 }}
       footer={{ height: isDesktop ? 28 : 0 }}
       padding={0}
     >
+      <ConfirmHost />
+      {/* M-T8.18: the ⌘K palette, the `?` sheet, and the F8 announcer. */}
+      <CommandPalette ctx={ctx} />
+      <ShortcutSheet opened={shortcutSheetOpen} onClose={() => setShortcutSheetOpen(false)} />
+      <div
+        aria-live="polite"
+        aria-atomic="true"
+        data-testid="problem-announcer"
+        style={{ position: "absolute", width: 1, height: 1, overflow: "hidden", clip: "rect(0 0 0 0)", whiteSpace: "nowrap" }}
+      >
+        {problemAnnouncement}
+      </div>
       <AppShell.Header>
         {isDesktop ? <DesktopHeader ctx={ctx} /> : <MobileHeader ctx={ctx} />}
       </AppShell.Header>

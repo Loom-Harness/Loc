@@ -13,10 +13,25 @@ import {
   UnstyledButton,
 } from "@mantine/core";
 import { useEffect, useMemo, useState } from "react";
+import {
+  type ChangeStatus,
+  generatedChangesOf,
+  groupByDeployable,
+} from "../build/output-diff";
 import { type CommitFileChange, type CommitInfo, commitOnSave } from "../workspace/git";
+import { GENERATED_PREFIX } from "../workspace/git/refs";
 import { readOnlyMessage } from "../workspace/workspace-sources";
+import { InlineConfirm, confirmSites } from "../util/confirm";
 import type { LayoutCtx } from "./ctx";
-import { classifyCommit, formatRelativeTime, shortOid } from "./history-format";
+import { ReadOnlyBadge } from "./ReadOnlyBadge";
+import {
+  classifyCommit,
+  COMMIT_KIND_COLOR,
+  COMMIT_KIND_LABEL,
+  formatRelativeTime,
+  shortOid,
+} from "./history-format";
+import { OUTPUT_DIFF } from "./vocabulary";
 
 // "History" dock tab — a visible timeline of the git-backed workspace.
 // Commits accrue from the debounced autosave ("autosave workspace"),
@@ -57,7 +72,11 @@ export function HistoryBody({
   const [loaded, setLoaded] = useState(false);
   const [hideAutosaves, setHideAutosaves] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
-  const [changes, setChanges] = useState<Record<string, CommitFileChange[]>>({});
+  // Per-commit file changes, with a FAILURE branch (audit M18): a git read
+  // that rejects shows an error row + Retry instead of "Loading changes…"
+  // forever.
+  type ChangesSlot = { kind: "ok"; files: CommitFileChange[] } | { kind: "error"; message: string };
+  const [changes, setChanges] = useState<Record<string, ChangesSlot>>({});
   // Inline "restore this version" confirm + in-flight state, keyed by oid.
   const [confirmOid, setConfirmOid] = useState<string | null>(null);
   const [restoringOid, setRestoringOid] = useState<string | null>(null);
@@ -115,13 +134,29 @@ export function HistoryBody({
     [commits, hideAutosaves],
   );
 
+  const loadChanges = (oid: string): void => {
+    if (!store) return;
+    setChanges((prev) => {
+      const next = { ...prev };
+      delete next[oid];
+      return next;
+    });
+    void store
+      .commitChanges(oid)
+      .then((fc) => {
+        setChanges((prev) => ({ ...prev, [oid]: { kind: "ok", files: fc } }));
+      })
+      .catch((err: unknown) => {
+        setChanges((prev) => ({
+          ...prev,
+          [oid]: { kind: "error", message: err instanceof Error ? err.message : String(err) },
+        }));
+      });
+  };
+
   const toggle = (oid: string): void => {
     setExpanded((cur) => (cur === oid ? null : oid));
-    if (!changes[oid] && store) {
-      void store.commitChanges(oid).then((fc) => {
-        setChanges((prev) => ({ ...prev, [oid]: fc }));
-      });
-    }
+    if (!changes[oid]) loadChanges(oid);
   };
 
   const restore = (oid: string): void => {
@@ -160,16 +195,13 @@ export function HistoryBody({
   return (
     <Box style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
       {!writable && (
-        <Group px="sm" py={6} gap={8} wrap="nowrap" style={{ flexShrink: 0 }}>
-          <Text size="xs" c="dimmed" style={{ flex: 1 }} data-testid="history-readonly">
-            {readOnlyMessage("other-tab")}
-          </Text>
-          {/* No "Take over" here on purpose — the header banner owns that one
-              action, so there is exactly one place to click and exactly one
-              `workspace-readonly-banner` in the DOM. */}
-          <Button size="compact-xs" variant="light" color="orange" onClick={ctx.workspace.takeOver}>
-            Take over
-          </Button>
+        // The SAME badge the header and the file tree show, with the reason
+        // this session actually has — this panel used to hard-code
+        // "another tab" and add a second *Take over*, which is two thirds of
+        // audit L1's "explained three ways, three affordances".  The header
+        // owns the action; here it is only an explanation.
+        <Group px="sm" py={6} gap={8} wrap="nowrap" style={{ flexShrink: 0 }} data-testid="history-readonly">
+          <ReadOnlyBadge reason={ctx.workspace.readOnlyReason} />
         </Group>
       )}
       <Group px="sm" py={4} justify="space-between" wrap="nowrap" style={{ flexShrink: 0 }}>
@@ -231,9 +263,10 @@ export function HistoryBody({
                     <Badge
                       size="xs"
                       variant="light"
-                      color={kind === "autosave" ? "gray" : "blue"}
+                      color={COMMIT_KIND_COLOR[kind]}
+                      data-testid={`history-kind-${kind}`}
                     >
-                      {kind === "autosave" ? "autosave" : "milestone"}
+                      {COMMIT_KIND_LABEL[kind]}
                     </Badge>
                     <Text size="sm" style={{ flex: 1 }} truncate>
                       {c.message}
@@ -253,23 +286,47 @@ export function HistoryBody({
                           Loading changes…
                         </Text>
                       </Group>
-                    ) : fc.length === 0 ? (
+                    ) : fc.kind === "error" ? (
+                      <Group gap={8} py={2} wrap="wrap" data-testid="history-changes-error">
+                        <Text size="xs" c="red" style={{ flex: 1, minWidth: 160 }}>
+                          Could not read this commit's changes — {fc.message}
+                        </Text>
+                        <Button
+                          size="compact-xs"
+                          variant="subtle"
+                          onClick={() => loadChanges(c.oid)}
+                          data-testid="history-changes-retry"
+                        >
+                          Retry
+                        </Button>
+                      </Group>
+                    ) : fc.files.length === 0 ? (
                       <Text size="xs" c="dimmed">
                         No tracked file changes.
                       </Text>
                     ) : (
-                      <Stack gap={1}>
-                        {fc.map((f) => (
-                          <Group key={f.path} gap={6} wrap="nowrap">
-                            <Badge size="xs" variant="light" color={STATUS_COLOR[f.status]}>
-                              {f.status[0]!.toUpperCase()}
-                            </Badge>
-                            <Text size="xs" c="dimmed" truncate>
-                              {f.path.replace(WORKSPACE_PREFIX, "")}
-                            </Text>
-                          </Group>
-                        ))}
-                      </Stack>
+                      <>
+                        <Stack gap={1}>
+                          {/* Sources only.  A regenerate commit touches a
+                              hundred generated files; listing them flat here
+                              buried the one `.ddd` edit that caused them, so
+                              the generated half moved to the grouped
+                              "what changed in the output" section below. */}
+                          {fc.files
+                            .filter((f) => !f.path.startsWith(GENERATED_PREFIX))
+                            .map((f) => (
+                              <Group key={f.path} gap={6} wrap="nowrap">
+                                <Badge size="xs" variant="light" color={STATUS_COLOR[f.status]}>
+                                  {f.status[0]!.toUpperCase()}
+                                </Badge>
+                                <Text size="xs" c="dimmed" truncate>
+                                  {f.path.replace(WORKSPACE_PREFIX, "")}
+                                </Text>
+                              </Group>
+                            ))}
+                        </Stack>
+                        <OutputChanges files={fc.files} />
+                      </>
                     )}
                     {/* One-click "diff against this milestone": pin this
                         commit as the evolution baseline and jump to the
@@ -290,28 +347,23 @@ export function HistoryBody({
                     {c.oid !== headOid && writable && (
                       <Box mt={6}>
                         {confirmOid === c.oid ? (
-                          <Group gap={6} wrap="nowrap" data-testid="history-restore-confirm">
-                            <Text size="xs" c="dimmed" style={{ flex: 1 }}>
-                              Restore the workspace to this version?
-                            </Text>
-                            <Button
-                              size="compact-xs"
-                              color="orange"
-                              loading={restoringOid === c.oid}
-                              onClick={() => restore(c.oid)}
-                              data-testid="history-restore-do"
-                            >
-                              Restore
-                            </Button>
-                            <Button
-                              size="compact-xs"
-                              variant="subtle"
-                              disabled={restoringOid === c.oid}
-                              onClick={() => setConfirmOid(null)}
-                            >
-                              Cancel
-                            </Button>
-                          </Group>
+                          // The copy says BOTH halves of what restore does:
+                          // the live edits are replaced, and the restore is
+                          // recorded as a new commit (`commitOnSave` above),
+                          // so it is itself restorable from this list.
+                          <InlineConfirm
+                            spec={confirmSites.historyRestore(shortOid(c.oid))}
+                            stacked
+                            size="compact-xs"
+                            loading={restoringOid === c.oid}
+                            onConfirm={() => restore(c.oid)}
+                            onCancel={() => setConfirmOid(null)}
+                            testids={{
+                              base: "history-restore",
+                              root: "history-restore-confirm",
+                              yes: "history-restore-do",
+                            }}
+                          />
                         ) : (
                           <Button
                             size="compact-xs"
@@ -333,4 +385,59 @@ export function HistoryBody({
       </ScrollArea>
     </Box>
   );
+}
+
+/** *What changed in the output* — the generated half of one commit, folded by
+ *  deployable (M-T8.20 slice 2, research §4 #17).
+ *
+ *  History already recorded the generated tree (the regenerate merge commits
+ *  it under `/workspace/generated/`); nothing rendered it as OUTPUT, so
+ *  "did that edit reach the frontend?" had no answer short of reading a
+ *  hundred flat paths.  Collapsed by default — the source diff is the review
+ *  unit, the output is the consequence you can inspect. */
+function OutputChanges({ files }: { files: CommitFileChange[] }): JSX.Element | null {
+  const [open, setOpen] = useState(false);
+  const groups = useMemo(() => groupByDeployable(generatedChangesOf(files)), [files]);
+  const total = groups.reduce((n, g) => n + g.changes.length, 0);
+  if (total === 0) return null;
+  return (
+    <Box mt={6} data-testid="output-changes">
+      <UnstyledButton onClick={() => setOpen((v) => !v)} data-testid="output-changes-toggle">
+        <Text size="xs" fw={600} c="dimmed">
+          {open ? "▾" : "▸"} {OUTPUT_DIFF.heading} ({total})
+        </Text>
+      </UnstyledButton>
+      {open && (
+        <Stack gap={2} mt={4}>
+          {groups.map((group) => (
+            <Box key={group.name || "__root__"} data-testid="output-changes-group">
+              <Text size="xs" fw={600}>
+                {OUTPUT_DIFF.group(group.name || OUTPUT_DIFF.rootGroup, group.changes.length)}
+              </Text>
+              {group.changes.map((change) => (
+                <Group key={change.path} gap={6} wrap="nowrap" pl={8}>
+                  <Badge
+                    size="xs"
+                    variant="light"
+                    color={STATUS_COLOR[toCommitStatus(change.status)]}
+                  >
+                    {change.status[0]!.toUpperCase()}
+                  </Badge>
+                  <Text size="xs" c="dimmed" truncate>
+                    {change.path}
+                  </Text>
+                </Group>
+              ))}
+            </Box>
+          ))}
+        </Stack>
+      )}
+    </Box>
+  );
+}
+
+/** `OutputChange` speaks "changed"; the commit badge palette is keyed by
+ *  git's "modified".  One place converts, rather than widening either type. */
+function toCommitStatus(status: ChangeStatus): CommitFileChange["status"] {
+  return status === "changed" ? "modified" : status;
 }
