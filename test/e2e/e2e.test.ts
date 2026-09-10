@@ -83,12 +83,17 @@ describe.runIf(ENABLED && !RUN && process.env.LOOM_E2E_ALLOW_NO_DOCKER !== "1")(
   "e2e: precondition",
   () => {
     it("LOOM_E2E=1 requires a reachable docker daemon", () => {
-      throw new Error(
+      // An assertion, not a bare `throw`, so the assertion-free ratchet
+      // (test/platform/assertion-free-tests.test.ts) sees a real check: inside
+      // this describe RUN is false by construction, so this always fails —
+      // with the reason in the message.
+      expect(
+        RUN,
         "LOOM_E2E=1 asked for the full conformance tier, but no docker daemon is " +
           "reachable, so every assertion below would have been skipped and this job " +
           "would have reported green having proven nothing. Start docker, or set " +
           "LOOM_E2E_ALLOW_NO_DOCKER=1 to accept the skip deliberately.",
-      );
+      ).toBe(true);
     });
   },
 );
