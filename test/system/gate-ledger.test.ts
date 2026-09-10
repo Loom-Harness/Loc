@@ -68,6 +68,8 @@ const BEHAVIOURAL_ABSENT: Record<string, string> = {
     "in-system api call; needs both deployables booted (the `api-call-e2e` leg does this outside the corpus tier)",
   "collection-op-shapes":
     "collection-op VALUE semantics (empty sum, avg of none, sort stability) — the exact class a string assertion cannot see",
+  "vo-id-reference":
+    "a value object holding an `X id` — the whole defect class is MISSING IMPORTS (node named `Ids.ShipId` with no import; python branded `ShipId(...)` with none), which only a type-checker sees; the runtime halves it would boot, an embedded VO and a `<VO>[]` collection, are already booted by `embedded` and `value-collections`",
 };
 
 describe("gate ledger", () => {

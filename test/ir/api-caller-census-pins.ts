@@ -570,6 +570,17 @@ export const UNATTRIBUTED_CALLS: Record<string, readonly string[]> = {
 // classes decide the ORDER of the remaining drain, and re-deriving them costs
 // the next agent an hour (#2517).
 export const E2E_LESS_CORPUS_FIXTURES: readonly string[] = [
+  // COMPILE-TIER WITNESS (freight audit D3 / M-T6.64) — a `valueobject` whose
+  // field is a cross-aggregate reference (`ship: Ship id`).  The defect class
+  // it pins is entirely STATIC: node emitted `domain/value-objects.ts` naming
+  // `Ids.ShipId` in a file with zero imports (TS2503), and python's repository
+  // branded `Berth(ShipId(row.berth_ship), …)` without importing `ShipId`
+  // (ruff F821).  A type-checker is the only oracle for that, and the five
+  // compile legs are it.  The runtime shapes a behavioural block would boot —
+  // a required embedded VO and a `<VO>[]` collection — are already booted by
+  // `embedded` and `value-collections`; the new axis here is only what the
+  // VO's fields are TYPED as, which no booted leg can observe.
+  "vo-id-reference",
   // COMPILE-TIER WITNESS (generator review A5/A10–A14) — the previously
   // unwitnessed collection-op shapes (arithmetic-lambda `sum`, `distinct` over
   // money, argless `any()`, descending `sortBy`, unary minus on money, `-=` on
