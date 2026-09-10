@@ -1,6 +1,6 @@
 # Refresh wave — 2026-09-10 (make `docs/new-plan/` true again before the completion waves start)
 
-*Claim doc for one Opus wave. Base: `main` @ `bc7ed8f` (2026-09-10, #2770 Wave 2 merged) **plus PR #2849** (the completion-waves plan; docs-only, green on its fast set). This wave IS packet **C0.4 + C0.5** of [`../completion-waves-2026-09.md`](../completion-waves-2026-09.md), expanded into tree-fenced Opus packets, with two additions that plan does not carry (R6 register↔mission truth, R7 the hollow-work sweep over the 100 merges since the last refresh). It forks no status table: every status flip lands in the track file that owns it; ledger rows stay in the ledger; register rows stay in `unsupported-register.ts`.*
+*Claim doc for one Opus wave. Base: `main` @ `42fce9e` (2026-09-10, #2770 Wave 2 and #2848 merged) **plus PR #2849** (the completion-waves plan; docs-only, green, in the merge queue — owner decision 2026-09-10). This wave IS packet **C0.4 + C0.5** of [`../completion-waves-2026-09.md`](../completion-waves-2026-09.md), expanded into tree-fenced Opus packets, with two additions that plan does not carry (R6 register↔mission truth, R7 the hollow-work sweep over the 100 merges since the last refresh). It forks no status table: every status flip lands in the track file that owns it; ledger rows stay in the ledger; register rows stay in `unsupported-register.ts`.*
 
 ## Why a refresh wave, measured on `bc7ed8f`
 
@@ -23,10 +23,10 @@ Everything above is docs/ledger drift, not code drift: the code moved, the map d
 
 | PR | state | what it does to this wave |
 |---|---|---|
-| **#2849** completion-waves plan | ready, green fast set | **Merge first.** It already: renumbers `M-T6.60`→`M-T6.62`, README 153→175, replaces the 09-02 open-PR list, drops M-T3.4 from §Sequencing. Do not redo those four edits. This wave branches from its head if it has not merged by kickoff, and rebases once when it does. Its §4 C0.1 merge order is already stale (#2770, #2846 merged) — R4 corrects it. |
+| **#2849** completion-waves plan | in the merge queue | **Merges first (decided).** It already: renumbers `M-T6.60`→`M-T6.62`, README 153→175, replaces the 09-02 open-PR list, drops M-T3.4 from §Sequencing. Do not redo those four edits. This wave branches from its head if it has not merged by kickoff, and rebases once when it does. Its §4 C0.1 merge order is already stale (#2770, #2846 merged) — R4 corrects it. |
 | **#2778** hotspot splits (12k lines, 35 files, rebased on `bc7ed8f`) | ready, CI running | Relocates 35 `site:` line refs in `unsupported-register.ts` and every `file:line` into `system-checks.ts` / `ui-checks.ts` / `mikroorm.ts`. **Rule for every packet: cite `file#function`, never `file:line`, into those three files; touch no `site:` field.** R6 lands after #2778 or by function name only. |
 | **#2843** M-T9.55 give-up glob (13 files) | ready | On merge: M-T9.55 → `partial` (glob fixed, 26 sites routed; the 28-site drain named by C1 1d is the residue). R2 flips at fold time, not before. |
-| **#2848** playground typing race (test-only) | ready | On merge: one of #2844's two failing specs closes; R4 records the flaky-gate state as *measured by `scripts/flake-budget.mjs`*, never by hand. |
+| **#2848** playground typing race (test-only) | **merged** (`42fce9e`) | One of #2844's two failing specs is closed; R4 records the flaky-gate state as *measured by `scripts/flake-budget.mjs`*, never by hand. |
 | **#2850** M-T6.60 → M-T6.62 workflow `create` | draft, claim only | Coordinator comments once: retitle to **M-T6.62** after #2849 merges. Its fix, when it lands, flips M-T6.62; not this wave's row. |
 
 ## Packets (all Opus; one draft PR; sub-branches `claude/refresh-<packet>`)
