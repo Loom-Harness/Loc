@@ -1,16 +1,26 @@
 // Cross-backend render pin for variant-`match` (variant-match.md).
 //
-// A variant-`match` narrows a union-returning repository find, and every
-// backend represents that find as its OPTIONAL TWIN — the success aggregate,
-// with the error variant standing for absence (Hono/Python: a null/`type`
-// check; .NET/Java: a `null`/type-pattern switch; Elixir: an
-// `{:ok,…}`/`{:error,…}` tuple).  The `<Union>_<Variant>` carrier records are
-// NOT emitted for a find, so the match dispatches on the twin, and the error
-// arm carries no variant fields (there is no error object — the row is simply
-// absent).  This constructs the lowered `match` ExprIR that
-// `match outcome { A a => a.code, NF => "gone" }` over an `A or NF` find union
-// lowers to, and asserts each backend renders its native shape.  Pure
-// string-emission unit tests (no IO) — the lowest altitude that catches a
+// TWO shapes, one per describe below, and the difference is `subjectShape`:
+//
+//   1. the TAGGED union — a real discriminated union (a `payload F = A | B`, an
+//      operation's `or`-return, a domainService return).  Every variant has a
+//      wire tag and, on the nominally-typed backends, an emitted
+//      `<Union>_<Variant>` carrier record.  Each backend dispatches on that:
+//      TS/Python probe the `type` tag, .NET/Java pattern-match the carrier,
+//      Elixir cases the `{:ok,…}`/`{:error,tag,…}` tuple.  An `error` variant
+//      is a variant like any other here — it carries fields and BINDS
+//      (audit F59: .NET and Java used to collapse a one-success/one-error
+//      union to `_ =>` / `case null ->` and lose the binding);
+//
+//   2. the ABSENCE shape (`subjectShape: "absence"`, second describe) — a
+//      union-returning repository FIND, which every backend represents as its
+//      OPTIONAL TWIN (the success aggregate, error variant standing for
+//      absence).  No carrier records are emitted for a find, so every backend
+//      renders a presence check.  Lowering stamps this; renderers never
+//      re-derive it, which is why the tagged fixture below must NOT be read as
+//      a find.
+//
+// Pure string-emission unit tests (no IO) — the lowest altitude that catches a
 // per-backend variant-match regression.  Mirrors render-expr-kinds.test.ts.
 
 import { describe, expect, it } from "vitest";
@@ -36,8 +46,8 @@ const fieldOf = (binding: string, field: string): ExprIR => ({
 
 const lit = (value: string): ExprIR => ({ kind: "literal", lit: "string", value });
 
-// `match outcome { A a => a.code, NF => "gone" }` — NF is the `error`
-// (absence) variant, so its arm binds nothing and reads no field.
+// `match outcome { A a => a.code, NF => "gone" }` over a TAGGED union — NF is
+// the `error` variant, and this arm happens to bind nothing and read no field.
 const MATCH: ExprIR = {
   kind: "match",
   arms: [],
@@ -50,7 +60,7 @@ const MATCH: ExprIR = {
   otherwise: undefined,
 };
 
-describe("variant-match — per-backend rendering", () => {
+describe("variant-match over a TAGGED union — per-backend rendering", () => {
   it("TS: discriminated-union conditional, binding aliased to the scrutinee", () => {
     expect(renderTsExpr(MATCH)).toBe('(outcome.type === "A" ? outcome.code : "gone")');
   });
@@ -61,21 +71,25 @@ describe("variant-match — per-backend rendering", () => {
     );
   });
 
-  it("Java: null/type-pattern switch over the optional twin", () => {
+  it("Java: sealed-union switch over the emitted carrier records", () => {
     const out = renderJavaExpr(MATCH);
     expect(out).toContain("switch (outcome)");
-    expect(out).toContain('case null -> "gone";');
-    expect(out).toContain("case A a -> a.code();");
-    // The find never emits the <Union>_<Variant> carriers.
-    expect(out).not.toContain("AOrNF_");
+    expect(out).toContain("case AOrNF_A a -> a.code();");
+    // The `error` variant is a carrier pattern like any other — NOT a `case
+    // null` collapse, which declares no binding (audit F59).  The absence
+    // shape, which really has no carriers, is the second describe below.
+    expect(out).toContain('case AOrNF_NF __unused -> "gone";');
+    expect(out).not.toContain("case null ->");
   });
 
-  it(".NET: null/type-pattern switch over the optional twin", () => {
+  it(".NET: switch expression over the emitted carrier records", () => {
     const out = renderCsExpr(MATCH);
     expect(out).toContain("outcome switch");
-    expect(out).toContain("A a => a.Code,");
-    expect(out).toContain('_ => "gone",');
-    expect(out).not.toContain("AOrNF_");
+    expect(out).toContain("AOrNF_A a => a.Code,");
+    expect(out).toContain('AOrNF_NF _unused => "gone",');
+    // The trailing discard is the mandatory non-exhaustiveness tail, never an
+    // arm standing in for the error variant.
+    expect(out).not.toContain('_ => "gone",');
   });
 
   it("Elixir: case over the asymmetric {:ok,…}/{:error,tag,…} tuple", () => {
@@ -94,7 +108,7 @@ describe("variant-match — per-backend rendering", () => {
       ],
     };
     const out = renderJavaExpr(binderless);
-    expect(out).toContain('case A __unused -> "yes";');
+    expect(out).toContain('case AOrNF_A __unused -> "yes";');
     expect(out).not.toMatch(/case _ /);
   });
 });

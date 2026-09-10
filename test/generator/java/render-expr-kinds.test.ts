@@ -837,3 +837,73 @@ describe("java renderJavaExpr — variant-match switch", () => {
     expect(out).toContain("case ProjectOrProjectNotFound_Project p -> p;");
   });
 });
+
+// ── The `error`-variant arm keeps its binding (audit F59 / M-T6.61) ────────
+// `match r { Hit h => h.code, NotFound n => n.resource }` over a union that
+// carries an `error` variant collapsed the error arm to `case null ->` and
+// left `n` undeclared ("cannot find symbol").  Node renders it correctly, and
+// so did any union with TWO non-error variants — the shape that misfired was
+// exactly "one success + one error", the arity an `<Agg>?` optional twin also
+// has.  A genuine twin never reaches this leaf: lowering stamps
+// `subjectShape: "absence"` on a match over a union-find let and the shared
+// dispatcher answers it with a presence ternary before `matchVariant` is
+// called, the workflow emitter intercepts the `exprLet` form ahead of that
+// (`renderJavaOptionalTwinMatch`), and `loom.match-non-union-subject` forbids
+// a call subject — so the arity test could only ever fire on a real union,
+// whose `<Union>_<Tag>` carrier records DO exist.
+describe("java renderJavaExpr — variant-match with an `error` variant", () => {
+  const union = (a: string, b: string): TypeIR => ({
+    kind: "union",
+    variants: [
+      { kind: "entity", name: a },
+      { kind: "entity", name: b },
+    ],
+  });
+  const readOf = (binding: string, member: string): ExprIR => ({
+    kind: "member",
+    receiver: { kind: "ref", name: binding, refKind: "match-binding" },
+    member,
+    receiverType: { kind: "entity", name: "X" },
+    memberType: STRING,
+  });
+
+  const oneSuccessOneError: ExprIR = {
+    kind: "match",
+    arms: [],
+    subject: { kind: "ref", name: "r", refKind: "let" },
+    subjectType: union("Hit", "NotFound"),
+    variantArms: [
+      { varType: { kind: "entity", name: "Hit" }, binding: "h", value: readOf("h", "code") },
+      {
+        varType: { kind: "entity", name: "NotFound" },
+        binding: "n",
+        isError: true,
+        value: readOf("n", "resource"),
+      },
+    ],
+  };
+
+  it("the error arm binds its name — not `case null`", () => {
+    const out = renderJavaExpr(oneSuccessOneError);
+    expect(out).toContain("case HitOrNotFound_NotFound n -> n.resource();");
+    expect(out).toContain("case HitOrNotFound_Hit h -> h.code();");
+    // The defect's exact emission: the arm collapsed to `case null`, so the
+    // bound `n` was never declared anywhere in the switch.
+    expect(out).not.toContain("case null ->");
+  });
+
+  it("CONTROL — two NON-error variants are unchanged", () => {
+    // This arity never took the collapsing branch, and must not start to.
+    const twoSuccesses: ExprIR = {
+      ...oneSuccessOneError,
+      variantArms: [
+        { varType: { kind: "entity", name: "Hit" }, binding: "h", value: readOf("h", "code") },
+        { varType: { kind: "entity", name: "Miss" }, binding: "m", value: readOf("m", "reason") },
+      ],
+      subjectType: union("Hit", "Miss"),
+    };
+    const out = renderJavaExpr(twoSuccesses);
+    expect(out).toContain("case HitOrMiss_Hit h -> h.code();");
+    expect(out).toContain("case HitOrMiss_Miss m -> m.reason();");
+  });
+});
