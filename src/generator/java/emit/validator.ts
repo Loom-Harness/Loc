@@ -480,7 +480,8 @@ function nullSkipRefs(
   inv: InvariantIR,
   regexFields: Map<string, string>,
 ): string {
-  if (mentionsNullLiteral(inv.expr) || (inv.guard && mentionsNullLiteral(inv.guard))) return predicate;
+  if (mentionsNullLiteral(inv.expr) || (inv.guard && mentionsNullLiteral(inv.guard)))
+    return predicate;
   const guards = new Map<number, Set<string>>();
   const add = (depth: number, g: string): void => {
     const at = guards.get(depth) ?? new Set<string>();
