@@ -110,6 +110,7 @@ import {
 } from "./checks/test-checks.js";
 import { validateTimerSources } from "./checks/timer-checks.js";
 import { validateUiBodies, validateUiPageIdentity } from "./checks/ui-checks.js";
+import { validatePageGates } from "./checks/ui-gate-checks.js";
 import {
   validateEventChannelAmbiguous,
   validateEventConsumersCarried,
@@ -332,6 +333,9 @@ export function validateLoomModel(loom: EnrichedLoomModel): LoomDiagnostic[] {
   validateRoutes(loom, diags);
   validateVariantMatch(loom, diags);
   validateUiBodies(loom, diags);
+  // Page `requires` gates (audit D2) — the client-evaluable subset, refused
+  // here so the six frontend gate renderers' throws stay internal invariants.
+  validatePageGates(loom, diags);
   // Page EMIT IDENTITY — two pages resolving to one emit path / one scaffold
   // archetype slot.  IR-level so it covers every frontend at once.
   validateUiPageIdentity(loom, diags);

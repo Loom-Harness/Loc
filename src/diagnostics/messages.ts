@@ -2343,6 +2343,23 @@ export const DIAGNOSTIC_MESSAGES = {
     `subdomain '${p.name}': permission '${p.pName}' is declared more than once.`,
 
   // ----------------------------------------------------------------------
+  // src/ir/validate/checks/ui-gate-checks.ts
+  // ----------------------------------------------------------------------
+  "loom.page-gate-not-client-evaluable": (p: {
+    uiName: unknown;
+    pageName: unknown;
+    offending: unknown;
+    why: unknown;
+    origin: unknown;
+  }) =>
+    `page '${p.pageName}' on ui '${p.uiName}': a page \`requires\` gate is re-evaluated ` +
+    `IN THE BROWSER against the verified session claims (it is what renders \`<Forbidden/>\` ` +
+    `instead of the body), so it may only touch \`currentUser\`, enum members, constants, ` +
+    `\`.contains(…)\`, comparison / boolean operators and a ternary — \`${p.offending}\` is ` +
+    `outside that set.${p.origin} ${p.why}.  Every frontend refuses to emit a gate it cannot ` +
+    `evaluate rather than degrade it to "always allowed", so this stops generation for all six.`,
+
+  // ----------------------------------------------------------------------
   // src/ir/validate/checks/ui-checks.ts
   // ----------------------------------------------------------------------
   "loom.ui-projection-read-unsupported#not-ui-consumable": (p: {
