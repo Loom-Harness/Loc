@@ -661,6 +661,13 @@ function foldImpurity(stmt: StmtIR): string | undefined {
       // be dropped silently.  Fail closed, like every other non-allowlisted
       // kind.
       return "contains an 'if' branch";
+    default: {
+      // Wave 2 packet 2.3 — every `StmtIR` kind is already listed above
+      // (this function's own docstring explains why that allowlist shape is
+      // load-bearing); this turns it into a compile-time guarantee too.
+      const _exhaustive: never = stmt;
+      return _exhaustive;
+    }
   }
 }
 

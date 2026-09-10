@@ -143,8 +143,8 @@ Sources: [frontend-acl](../old/proposals/frontend-acl.md) Phases 3–4, [loom-fo
 `attempt {}` railway + `onError` sugar + `spawn` (fire-and-forget / optimistic UI) with `loom.bind-on-spawn`/`loom.spurious-onerror`; then `async` keyword + transitive inference + action→action awaiting.
 Sources: [async-actions-and-effects](../old/proposals/async-actions-and-effects.md) steps 3–4, [named-actions-and-stores](../old/proposals/named-actions-and-stores.md) stages 2–4.
 
-## M-T1.8 — Global error boundary + failure sink (frontend half) — `open` · **M** · P2
-Unhandled-`await` terminus + render-time error boundary + default fallback page per framework; `errors {}` declarative override; backend `traceId` in the problem+json contract.
+## M-T1.8 — Global error boundary + failure sink (frontend half) — `partial` · **M** · P2
+The RENDER-TIME BOUNDARY + FAILURE SINK half now ships on five of seven targets: react (pre-existing, `src/generator/react/index.ts:315-329` — `ErrorBoundary.tsx` + `logger.ts`), feliz (`src/generator/feliz/index.ts` — `safeView` wraps `view`/`appView` in `try`/`with`, `Program.withErrorHandler` the update-phase sink), flutter (`src/generator/flutter/index.ts`'s `mainFn` — `ErrorWidget.builder` + `FlutterError.onError` + `runZonedGuarded`), and HEEx's DEAD-render half (`src/generator/elixir/vanilla/shell-emit.ts`'s `renderVanillaErrorHtml` — `render_errors`' `html:` format; a CONNECTED LiveView crash needs no code, since `phoenix_live_view.js`'s reconnect overlay + OTP's own crash logging already cover it). Svelte and Angular are built on `claude/w2-frontend-js` (#2720, not yet merged as of 2026-09-03) — not landed on `main`. Vue has NO boundary yet (only `logger.ts`, no `ErrorBoundary` equivalent — `grep -rn error-boundary src/generator/vue` is empty); not covered by any known in-flight branch. Still fully unbuilt: the unhandled-`await` terminus (a shared mutation/query error hop distinct from the boundary above) and the `errors {}` declarative override — see the separate ledger row `M-T1.8-errors-block-and-await-terminus` (P4, `open`). Backend `traceId` in the problem+json contract is M-T5.2's, tracked there.
 Sources: [error-handling-and-failure-sink](../old/proposals/error-handling-and-failure-sink.md); backend half in M-T5.2.
 
 ## M-T1.10 — Realtime beyond toast — `partial` · **L** · P2
@@ -278,7 +278,7 @@ Found 2026-08-23 by the numeric-types audit ([F1](../audits/numeric-types-audit-
 
 Sources: [numeric-types-audit-2026-08-23](../audits/numeric-types-audit-2026-08-23.md) F1/F18, plan.json N1. Relates to M-T1.18 (Flutter residue), M-T9.38 (runtime leg).
 
-## M-T1.22 — Feliz numeric conformance: decimal encodes as a string, int `/` truncates, `long` is int32 — `in-flight` (PR [#2674](https://github.com/lemmit/Loc/pull/2674), ready for review since 2026-08-30 — unmerged as of 2026-09-02) · **M** · P1
+## M-T1.22 — Feliz numeric conformance: decimal encodes as a string, int `/` truncates, `long` is int32 — `done` (Wave 1, [#2674](https://github.com/lemmit/Loc/pull/2674), merged 2026-09-10) · **M** · P1
 
 Found 2026-08-23 by the numeric-types audit ([F2](../audits/numeric-types-audit-2026-08-23.md)). Four defects, one target: (1) plain `decimal` request fields encode via Thoth `Encode.decimal`, which emits a JSON **string** — right for money, wrong for decimal (RS-24 says number) → 422 on node/.NET (`src/generator/feliz/wire.ts`; only the money arm is test-pinned). (2) `fs-expr.ts` has no `isIntDivWidenedToDecimal` arm, so a page-body `a / b` on ints **truncates** in F# where every other target yields 2.5. (3) `long` collapses to F# `int` + `Decode.int`, rejecting anything past int32. (4) No numeric validation runs before Fable's `int`/`decimal` conversion — a stray `2.5` in an int field throws an unhandled Elmish exception on submit.
 
@@ -306,7 +306,7 @@ Found 2026-08-23 by the numeric-types audit ([F3](../audits/numeric-types-audit-
 
 Sources: [numeric-types-audit-2026-08-23](../audits/numeric-types-audit-2026-08-23.md) F3/F18, plan.json N3. Conflicts with M-T1.24 in the shared walker tree — sequence or stack.
 
-## M-T1.24 — Money form values must be strings/Decimals, never JS numbers: three seams violate it — `in-flight` (PR [#2671](https://github.com/lemmit/Loc/pull/2671), ready for review since 2026-08-30 — unmerged as of 2026-09-02) · **M** · P1
+## M-T1.24 — Money form values must be strings/Decimals, never JS numbers: three seams violate it — `done` (Wave 1, [#2672](https://github.com/lemmit/Loc/pull/2672), merged 2026-09-03) · **M** · P1
 
 Found 2026-08-23 by the numeric-types audit ([F4+F5+F6](../audits/numeric-types-audit-2026-08-23.md)), grouped because they are one contract violated at three seams. (1) **Svelte**: `createForm`'s `$state(structuredClone(defaults))` (`src/generator/svelte/emit-templates.ts`) strips the prototype off the money seed `new Decimal("0")` (`src/generator/_frontend/form-helpers.ts`) — the input renders `[object Object]` and an untouched default can never pass `moneySchema` (node-reproduced). (2) **Shared walker**: money inside a `VO[]` dynamic-row form registers `{valueAsNumber: true}` with a numeric `0` default (`NUMERIC` set in `src/generator/_walker/form-fields-vm.ts`) — the row always fails validation, and would wire a JSON number if it passed; flat money fields are correct, the array path diverges. (3) **Angular**: the request interface says `price: string` but `controlInit` seeds `new FormControl(0)` behind a `type="number"` input (`src/generator/angular/form-fields.ts`) — `TS2345` under `ng build`, and a JSON number if suppressed.
 

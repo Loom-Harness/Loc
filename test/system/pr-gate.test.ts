@@ -527,6 +527,37 @@ function sweepJobConcurrency(): { group: string; cancelInProgress: string } {
   };
 }
 
+/** What the workflow-level `group:` resolves to on a `schedule` /
+ *  `workflow_dispatch` payload, where all three SHA expressions are empty:
+ *  the literal prefix plus the `|| '<fallback>'` alternative. */
+function workflowGroupWithoutSha(): string {
+  const { group } = concurrencyBlock();
+  const prefix = group.slice(0, group.indexOf("${{"));
+  const fallback = group.match(/\|\|\s*'([^']+)'\s*\}\}/);
+  expect(fallback, `group key lost its SHA-less fallback literal: ${group}`).toBeTruthy();
+  return `${prefix}${(fallback as RegExpMatchArray)[1]}`.trim();
+}
+
+describe("the sweep job can actually start on the cron", () => {
+  // A job cannot acquire a concurrency group its own workflow run already
+  // holds.  From #2835 until #2846 both names were `pr-gate-sweep` — the
+  // workflow key resolves to it on exactly the SHA-less events the sweep runs
+  // on — so every scheduled sweep failed in under a second with zero steps and
+  // no logs, while the `workflow_run` sweeps (keyed `pr-gate-<head_sha>`, no
+  // collision) all passed.  Nothing else in this file could see that: the
+  // trigger, the throttle and the group were each individually correct.
+  it("its group differs from the workflow group on the events it runs on", () => {
+    const jobGroup = sweepJobConcurrency().group;
+    expect(
+      jobGroup,
+      `the sweep job's concurrency group (${jobGroup}) is the string the ` +
+        "workflow-level group resolves to on schedule / workflow_dispatch. " +
+        "GitHub fails such a job at startup — 0 steps, no logs — so the " +
+        "dropped-event safety net silently stops running. Rename either one.",
+    ).not.toBe(workflowGroupWithoutSha());
+  });
+});
+
 describe("pr-gate survives dropped workflow_run events", () => {
   const src = readFileSync(path.join(workflowsDir, "pr-gate.yml"), "utf8");
 

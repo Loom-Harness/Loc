@@ -979,6 +979,26 @@ export interface WalkerTarget {
    *  set, so the entity escape carries over; HEEx escapes its own. */
   escapeText(text: string): string;
 
+  /** Escape raw `.ddd`-authored text for a STATIC markup ATTRIBUTE VALUE —
+   *  the attribute-position twin of `escapeText` (Wave 2 packet 2.2,
+   *  F2-ELX-ESCAPE-FUNNEL; `test/system/escape-funnel-census.test.ts`).
+   *  Distinct from `renderAttrBinding`, which quotes an already-rendered JS
+   *  EXPRESSION for a BOUND attribute (`[name]="expr"`); this escapes a bare
+   *  author STRING for a plain ` name="value"` fragment — the shape
+   *  `ariaLabelAttr` / `localizedAriaLabelAttr` / a static `label:`/`title:`
+   *  hint (`_walker/a11y-emit.ts`, `_walker/i18n-emit.ts`,
+   *  `_walker/primitives/layout.ts`) already builds via the free function
+   *  `escapeHtmlAttr` — this seam is that same rule, declared on the
+   *  contract so a NEW target can't add a markup attribute position without
+   *  being asked for its own escaping rule (the exhaustive-implementation
+   *  discipline `escapeText` already gets).  The four HTML-ish frontends
+   *  (React/Vue/Svelte/Angular) share ONE rule — HTML entity-escape `&`,
+   *  `"`, `<`, `>` — because a double-quoted markup attribute means the same
+   *  thing on all four; Feliz and Flutter have no separate "attribute"
+   *  syntax (a widget property takes the same string literal `escapeText`
+   *  already renders), so both alias this to `escapeText`. */
+  escapeAttr(text: string): string;
+
   /** OPTIONAL — page-side import lines the form runtime needs.
    *  Omitted targets fall back to the react-hook-form import set
    *  (TSX's `useForm` / `Controller`); Svelte returns `[]` — the
@@ -1524,6 +1544,33 @@ export interface WalkerTarget {
    *  it partially, and a target that omits it keeps today's behaviour
    *  byte-for-byte. */
   exprTemporalBinary?(
+    left: string,
+    right: string,
+    e: Extract<ExprIR, { kind: "binary" }>,
+  ): string | null;
+
+  /** NUMERIC binary-operand adaptation, for a target whose host language does
+   *  not follow Loom's numeric-widening rules by itself.  Two divergences:
+   *
+   *   - Integer division WIDENS to `decimal` (`a / b` with both operands
+   *     integral and the lowered `resultType` `decimal` —
+   *     `isIntDivWidenedToDecimal` in `_expr/target.ts`).  Loom says `5 / 2`
+   *     is `2.5`; a host whose integer `/` TRUNCATES (F#, like C# and Java)
+   *     has to convert the operands itself, or a page body silently computes
+   *     `2` where every backend computes `2.5`.
+   *   - MIXED numeric operands (`intField + longField`, `price * qty`).
+   *     Loom's type system widens along `int → long → decimal`; a host with
+   *     no implicit numeric conversions (F#) has to convert the narrower
+   *     operand up, or the emitted operator does not typecheck at all.
+   *
+   *  The four JS frontends and Flutter get both behaviours from their host's
+   *  single `number`/`double`-ish numeric tower for free, so they leave this
+   *  seam undefined and stay byte-identical.
+   *
+   *  Consulted by `emitExpr` for EVERY binary op, after `exprTemporalBinary`
+   *  and BEFORE `exprBinary`.  Return `null` to fall through to `exprBinary`,
+   *  so a target may implement it partially. */
+  exprNumericBinary?(
     left: string,
     right: string,
     e: Extract<ExprIR, { kind: "binary" }>,

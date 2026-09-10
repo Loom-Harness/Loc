@@ -23,6 +23,7 @@ import {
   FELIZ_DISPATCH_PARAM,
   FELIZ_MODEL_PARAM,
   FS_LEAVES,
+  fsNumericBinary,
   fsString,
   fsTemporalBinary,
   renderFsCollectionOp,
@@ -46,6 +47,7 @@ import {
   formTouchMsg,
   historyFieldName,
   idLabelsFrom,
+  isValidatedField,
   pageMetaFieldName,
   pageMetaMember,
   projectionFieldName,
@@ -139,7 +141,9 @@ function renderFormInput(formField: string, fld: FelizFormField, base: string): 
   // Message-bearing fields (required, non-checkbox) get a touched onBlur + an
   // inline error below the input — the Elmish mirror of react-hook-form's
   // per-field `errors.<f>.message`, shown once the field has been blurred.
-  const validated = fld.required;
+  // Required OR numeric — an optional numeric cell shows the same inline
+  // error, since its text has to parse before the encoder converts it.
+  const validated = isValidatedField(fld);
   const onBlur = validated
     ? `; prop.onBlur (fun _ -> dispatch (${formTouchMsg(formField)} "${fld.wireName}"))`
     : "";
@@ -899,6 +903,10 @@ export const felizTarget: WalkerTarget = {
   // Raw text for markup TEXT position — F# string-body escaping (the pack
   // wraps it in `Html.text "…"` or `prop.text "…"`).
   escapeText: (text: string) => text.replace(/\\/g, "\\\\").replace(/"/g, '\\"'),
+  // Feliz has no separate HTML-attribute syntax — a widget property takes the
+  // same F# string-literal body `escapeText` renders — so the attribute-
+  // position twin (Wave 2 packet 2.2) is the same rule.
+  escapeAttr: (text: string) => text.replace(/\\/g, "\\\\").replace(/"/g, '\\"'),
 
   /** F# member SPELLING for a plain read.  The walker's default is the JS
    *  `<recv>.<member>`, which Fable rejects for the handful of members F#
@@ -1113,6 +1121,12 @@ export const felizTarget: WalkerTarget = {
   // action body.
   exprDuration: (unit, amount) => FS_LEAVES.duration(unit, amount),
   exprTemporalBinary: (left, right, e) => fsTemporalBinary(left, right, e),
+  // `5 / 2` is `2.5` in Loom's type system, but F#'s integer `/` truncates —
+  // and F# has NO implicit numeric conversion where Loom widens (`int + long`,
+  // `qty * price`).  The seam converts the operands; it forwards to the SAME
+  // shared function the MVU update path uses, so a numeric op cannot mean one
+  // thing in a page body and another in an action body.
+  exprNumericBinary: (left, right, e) => fsNumericBinary(left, right, e),
 
   // Scalar intrinsics — the SAME F# table the MVU update path uses
   // (`renderFsMethodCall`), so `s.replace(a, b)` cannot mean one thing in a
