@@ -169,5 +169,10 @@ jobs:
           path: |
             test/behavioral/.work-ui/**/test-results/**
             test/behavioral/.work-ui/**/report.json
+          # `.work-ui` is a DOT directory, and upload-artifact@v4 skips hidden
+          # paths by default — without this the step would succeed having
+          # shipped nothing, which is the failure mode this whole change exists
+          # to stop (workflow-artifact-uploads.test.ts caught it).
+          include-hidden-files: true
           if-no-files-found: ignore
           retention-days: 14
