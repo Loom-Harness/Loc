@@ -26,7 +26,7 @@ This consolidation replaces three drifting status tables with one. Keep it true:
 - ~~The stale "warning, not error" comment beside `checkUserVisibleConcat`~~ — corrected in the same PR; the rule has raised `"error"` since M-T1.11 item 8 landed, and 9 of that PR's 53 fixture fixes were tripping it.
 
 **Open item queued here 2026-09-10, from a deferred comment on merged [#2832](https://github.com/Loom-Harness/Loc/pull/2832#issuecomment-5609067588):**
-- **`docs/ci-gating.md`'s queue runbook has no honest "is my PR actually in the queue?" probe, and the obvious one is wrong.** An accepted queue entry has **no `gh-readonly-queue` ref until its batch forms**, so `ls-remote` for that ref answers "not queued" for a PR that is queued — which is exactly what sent #2832 down two dead diagnoses (the `cancel-in-progress` cancellation, already fixed by #2822; and a rejected auto-merge method, where the `405 Merge commits are not allowed` is about the direct merge API, not the queue). The probe that does answer is the merge API itself, which replies `405 Pull Request is in the merge queue`. One paragraph in the runbook, next to the existing lever table. Cheap, and it retires a wrong diagnosis that has already cost one session ~95 minutes.
+- **`docs/ci-gating.md`'s queue runbook has no honest "is my PR actually in the queue?" probe, and the obvious one is wrong.** An accepted queue entry has **no `gh-readonly-queue` ref until its batch forms**, so `ls-remote` for that ref answers "not queued" for a PR that is queued — which is exactly what sent #2832 down two dead diagnoses (the `cancel-in-progress` cancellation, already fixed by #2822; and a rejected auto-merge method, where the `405 Merge commits are not allowed` is about the direct merge API, not the queue). The probe that does answer is the merge API itself, which replies `405 Pull Request is in the merge queue`. One paragraph in the runbook, next to the existing lever table, carried by **packet P3 of [`missions/ci-harness-deferrals-fleet.md`](missions/ci-harness-deferrals-fleet.md)**. Cheap, and it retires a wrong diagnosis that has already cost one session ~95 minutes.
 
 Sources: weak-spots §5, old global-plan T1.4; test-coverage-audit-2026-08-13 §3.7.
 
@@ -746,6 +746,8 @@ is no backstop at all** (a stalled group head's only bound is the timeout, which
 heals); and the cron re-measures at a **3.3 h median** against its `*/15` schedule. Honest bounds to
 document: ~30 min active, ~3.3 h idle, unbounded in-queue today.
 
+**Packet P3 of [`missions/ci-harness-deferrals-fleet.md`](missions/ci-harness-deferrals-fleet.md)**, which fences it with M-T9.6's queue-runbook item (same file, same subject) and states the verify-first exit — closing this row as "the premise was a measurement artifact" is a full outcome.
+
 ## M-T9.58 — Every generated-project install runs `--silent`, so a dependency failure names no cause and gets no retry — `open` · **S** · P1
 
 Minted 2026-09-10 from an audit of deferred comments on merged PRs. This one was **proposed four times across two PRs and picked up by neither** — [#2720](https://github.com/Loom-Harness/Loc/pull/2720#issuecomment-5603540482) ("no fix exists to port, and I am not widening this PR to write one"), [#2770](https://github.com/Loom-Harness/Loc/pull/2770#issuecomment-5621699381) ("I have not changed it here because it is outside this PR's scope"). Each author was right to defer it and wrong to assume someone else would file it; this row is that filing.
@@ -773,5 +775,7 @@ Do both in one place: these 49 sites want a shared `installGeneratedProject(dir)
 - *Half 1:* point a generated project's `package.json` at a version that cannot resolve, run one cell, and assert the harness's failure text contains npm's own `npm error code ETARGET` line. The control that stops this going vacuous: the same assertion must **fail** against the pre-fix harness, which reports only `Command failed: npm install`.
 - *Half 2:* count invocations. A transient failure (fail once, then succeed) must produce exactly two installs and a green cell; a deterministic failure must produce exactly two and a red one. Asserting only the green case cannot tell a once-retry from an unbounded loop.
 - Neither half may change a green cell's exit code or its wall time beyond the capture overhead.
+
+**Packet P1 of [`missions/ci-harness-deferrals-fleet.md`](missions/ci-harness-deferrals-fleet.md)**, which carries the file fence, the shared-helper shape and the kickoff prompt.
 
 Sources: deferred comments on merged PRs #2720 and #2770, re-verified on `main` @ `bc7ed8f` (49 sites, 23 files, still unfixed). Relates to M-T9.8 (a gate whose failure report names nothing is how hollow work stays hidden) and to `completion-waves-2026-09.md` wave C0.2, which owns the *flaky-leg* root causes but does not name this one.
