@@ -17,17 +17,18 @@ are not restated here (the LSP neighbour-map isolation leak → #2845; the
 sourceType registry leak → #2770; the `pr-gate` superseded-suite corpse →
 `liveRuns` in `scripts/pr-gate.mjs`).
 
-Of the remaining three, **one is claimed by a fix PR and is out of scope**: the
-`workspace-persistence` playground spec is [#2848](https://github.com/Loom-Harness/Loc/pull/2848),
+Of the remaining three, **one was claimed by a fix PR and is out of scope**: the
+`workspace-persistence` playground spec was [#2848](https://github.com/Loom-Harness/Loc/pull/2848),
 which also found a better root cause than the deferring comment proposed — focus
-loss during a raw-keystroke burst, not a marginal assertion timeout. Do not
-re-open it.
+loss during a raw-keystroke burst, not a marginal assertion timeout. It **merged
+2026-09-10** (`42fce9e`). Do not re-open it.
 
-**One is claimed by a plan, not by a fix.** The `behavioral-java` 20-minute cap
-is packet 0.2(e) of the open [#2849](https://github.com/Loom-Harness/Loc/pull/2849)
-completion-waves plan. That plan owns the row; it has no code behind it. Packet
-**P2** below *is* that row, measured. If #2849 merges first, P2 lands **as**
-C0.2(e) and cites it — it does not fork a second claim.
+**One was claimed by a plan, not by a fix.** The `behavioral-java` 20-minute cap
+is packet C0.2(e) of the completion-waves plan, which **merged 2026-09-10** as
+[#2849](https://github.com/Loom-Harness/Loc/pull/2849) (`54750de`). That plan owned
+the row and had no code behind it. Packet **P2** below *is* that row, measured; it
+landed as [#2855](https://github.com/Loom-Harness/Loc/pull/2855) citing C0.2(e)
+rather than forking a second claim. **DONE — see §5.**
 
 The scope rule for this fleet, stated once: **a deferral is in scope only while
 no PR is fixing it.** Re-run the claim check on fresh `main` before starting —
@@ -45,7 +46,7 @@ their own PR by the standing rule, and P1's tree is test-only.
 | | packet | mission | tree fence |
 |---|---|---|---|
 | **P1** | Generated-project installs name their cause and retry once | M-T9.58 | `test/e2e/**` |
-| **P2** | The behavioral-tier timeout budgets, measured as a class | (C0.2e of #2849) | `.github/workflows/behavioral-e2e*.yml`, `test/behavioral/**` |
+| **P2** | The behavioral-tier timeout budgets, measured as a class — **DONE, [#2855](https://github.com/Loom-Harness/Loc/pull/2855)** | C0.2(e) | `.github/workflows/behavioral-e2e*.yml`, `test/behavioral/**` |
 | **P3** | The `pr-gate` stuck verdict, and the queue runbook's missing probe | M-T9.57 + M-T9.6 | `scripts/pr-gate.mjs`, `.github/workflows/pr-gate.yml`, `docs/ci-gating.md` |
 
 ### P1 — installs that name their cause (M-T9.58)
@@ -151,3 +152,63 @@ most often, restated so a packet agent does not have to find them.
 - P3: the dropped-dispatch premise is either re-grounded or deleted everywhere it appears; the queue runbook answers "am I queued?" correctly.
 
 Three PRs, no shared files, no sequencing between them.
+
+---
+
+## 5. Outcomes
+
+### P2 — landed as [#2855](https://github.com/Loom-Harness/Loc/pull/2855) (2026-09-10)
+
+Every budget re-sized from one rule, now written down in
+[`ci-gating.md`](../../ci-gating.md) § "Sizing a job's `timeout-minutes`":
+`timeout-minutes = max(10, ceil_to_5min(p95(job exec) × 1.5))` over ≥10
+successful runs, with `node test/behavioral/ci-budget-report.mjs` as the
+one-command re-derivation and `test/behavioral/timeout-budgets.test.ts` pinning
+each budget to what the rule *generates* from the recorded p95.
+
+| leg | n | median | job-exec max | was | headroom @ max | now |
+|---|---:|---:|---:|---:|---:|---:|
+| node | 15 | 2m47s | 3m25s | 15m | 77% | 10m |
+| python | 15 | 3m41s | 4m37s | 15m | 69% | 10m |
+| java | 40 | 17m56s | 19m50s | 20m | **1%** | 30m |
+| dotnet | 15 | 7m08s | 8m19s | 20m | 58% | 15m |
+| dapper | 15 | 6m00s | 7m18s | 20m | 64% | 15m |
+| mikroorm | 15 | 9m22s | 10m35s | 25m | 58% | 20m |
+| elixir | 15 | 10m14s | 11m34s | 30m | 61% | 20m |
+
+**Four corrections that outlive the fix**, each of which changes how the next
+budget question should be asked:
+
+1. **The premise undercounted by 4×.** The cap was hit **13 times in the last
+   100 runs** — ~18% of those reaching a verdict — not the three occurrences
+   this row was filed on. And the headroom in §1 was measured on too small a
+   sample: it is **10s / 1%**, not 1m38s / 8%.
+2. **A capped leg's p95 is censored, so the cap hides the data needed to size
+   the cap.** Killed runs never enter the success sample. Any budget derived
+   from successes alone on a leg that is *already* timing out is biased low by
+   construction — which is why the new budget is explicitly not a final answer
+   for java, only enough to stop the censoring.
+3. **Java is slow, not tight-budgeted** — 17m56s median against 6–10m for its
+   peers, from a sequential per-case `gradle --no-daemon bootJar`, with a
+   run-to-run spread **35× the headroom**. That ratio is why the kills looked
+   random. Separate mission; the raise only stops the bleeding. A split was
+   declined with its reason recorded: a second slot on *every* run, plus a shard
+   manifest that `run-java.mjs`'s explicit case list would let a new corpus case
+   fall out of entirely.
+4. **The over-provisioned legs paid for the raise.** Six of seven had 58–77%
+   headroom, so re-sizing the class dropped worst-case slot exposure **145 → 120
+   min** even while raising java.
+
+**One measurement trap, worth carrying forward:** the Actions API sets a job's
+`started_at` at **queue** time, so job *wall* duration includes queue wait — one
+python job reads 80m against a 15m cap and would have scored as a cap hit. Size
+budgets from the **sum of step durations**, never from wall.
+
+**And one vacuous gate caught in the act**, which is the §59/§63 shape again:
+the new test's sixth mutation *passed on first run*, because its fixture used
+`{null, null}` steps that contribute 0 either way and never reached the filter
+they named. The real hazard is a **started-but-never-finished** step — exactly
+what a cap-killed job has in flight — whose duration goes hugely negative and
+drops the whole job below the `> 0` guard, so **a leg that is timing out
+measures as if it never ran**. Retargeted; it now fails with
+`expected -1789056165 to be 16`.
