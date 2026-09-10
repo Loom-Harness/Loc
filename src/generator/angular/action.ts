@@ -1,6 +1,7 @@
 import type { ExprIR } from "../../ir/types/loom-ir.js";
 import { humanize, lowerFirst, upperFirst } from "../../util/naming.js";
 import { tryRenderGate } from "../_frontend/gate-expr.js";
+import { giveUp } from "../_walker/give-up.js";
 import { emitActionThen } from "../_walker/primitives/controls.js";
 import { renderPrimitive } from "../_walker/render-primitive.js";
 import { namedArgValue, positionalArgs } from "../_walker/shared/args.js";
@@ -73,19 +74,19 @@ export function renderAngularAction(
   const opName = opRef.member;
   const aggName = ctx.paramTypes?.get(instanceName);
   if (!aggName) {
-    return ctx.target.renderComment(
+    return giveUp(
+      ctx.target,
       `Action(${instanceName}.${opName}): '${instanceName}' is not an in-scope aggregate instance`,
     );
   }
   const agg = ctx.aggregatesByName.get(aggName);
   if (!agg) {
-    return ctx.target.renderComment(
-      `Action(${instanceName}.${opName}): aggregate ${aggName} not found`,
-    );
+    return giveUp(ctx.target, `Action(${instanceName}.${opName}): aggregate ${aggName} not found`);
   }
   const op = agg.operations.find((o) => o.name === opName && o.visibility === "public");
   if (!op) {
-    return ctx.target.renderComment(
+    return giveUp(
+      ctx.target,
       `Action(${instanceName}.${opName}): no public operation '${opName}' on ${agg.name}`,
     );
   }

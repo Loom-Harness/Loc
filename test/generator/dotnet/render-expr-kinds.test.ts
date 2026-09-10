@@ -766,3 +766,73 @@ describe("dotnet renderCsType — generic carriers (P3b)", () => {
     expect(renderCsType(t)).toBe("Envelope<string>");
   });
 });
+
+// ── The `error`-variant arm keeps its binding (audit F59 / M-T6.61) ────────
+// `match r { Hit h => h.code, NotFound n => n.resource }` over a union that
+// carries an `error` variant collapsed the error arm to a `_ =>` discard and
+// left `n` undeclared (CS0103).  Node renders it correctly, and so did any
+// union with TWO non-error variants — the shape that misfired was exactly
+// "one success + one error", the arity an `Agg?` optional twin also has.  A
+// genuine twin never reaches this leaf: lowering stamps `subjectShape:
+// "absence"` on a match over a union-find let and the shared dispatcher
+// answers it with a presence ternary before `matchVariant` is called (pinned
+// by dotnet-showcase-compile-regressions.test.ts, which asserts the
+// `outcome is not null ? … : …` form), and `loom.match-non-union-subject`
+// forbids a call subject — so the arity test could only ever fire on a real
+// union, whose `<Union>_<Tag>` carrier records DO exist.
+describe("dotnet renderCsExpr — variant-match with an `error` variant", () => {
+  const union = (a: string, b: string): TypeIR => ({
+    kind: "union",
+    variants: [
+      { kind: "entity", name: a },
+      { kind: "entity", name: b },
+    ],
+  });
+  const readOf = (binding: string, member: string): ExprIR => ({
+    kind: "member",
+    receiver: { kind: "ref", name: binding, refKind: "match-binding" },
+    member,
+    receiverType: { kind: "entity", name: "X" },
+    memberType: STRING,
+  });
+
+  const oneSuccessOneError: ExprIR = {
+    kind: "match",
+    arms: [],
+    subject: { kind: "ref", name: "r", refKind: "let" },
+    subjectType: union("Hit", "NotFound"),
+    variantArms: [
+      { varType: { kind: "entity", name: "Hit" }, binding: "h", value: readOf("h", "code") },
+      {
+        varType: { kind: "entity", name: "NotFound" },
+        binding: "n",
+        isError: true,
+        value: readOf("n", "resource"),
+      },
+    ],
+  };
+
+  it("the error arm binds its name — not a `_` discard", () => {
+    const out = renderCsExpr(oneSuccessOneError);
+    expect(out).toContain("HitOrNotFound_NotFound n => n.Resource,");
+    expect(out).toContain("HitOrNotFound_Hit h => h.Code,");
+    // The defect's exact emission: the arm collapsed to `_ => n.Resource`,
+    // so the bound `n` was never declared anywhere in the switch.
+    expect(out).not.toContain("_ => n.Resource");
+  });
+
+  it("CONTROL — two NON-error variants are unchanged", () => {
+    // This arity never took the collapsing branch, and must not start to.
+    const twoSuccesses: ExprIR = {
+      ...oneSuccessOneError,
+      variantArms: [
+        { varType: { kind: "entity", name: "Hit" }, binding: "h", value: readOf("h", "code") },
+        { varType: { kind: "entity", name: "Miss" }, binding: "m", value: readOf("m", "reason") },
+      ],
+      subjectType: union("Hit", "Miss"),
+    };
+    const out = renderCsExpr(twoSuccesses);
+    expect(out).toContain("HitOrMiss_Hit h => h.Code,");
+    expect(out).toContain("HitOrMiss_Miss m => m.Reason,");
+  });
+});
