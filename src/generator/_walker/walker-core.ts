@@ -1753,7 +1753,7 @@ export function emitExpr(expr: ExprIR, ctx: WalkContext): string {
         const temporal = ctx.target.exprTemporalBinary?.(left, right, expr);
         if (temporal !== undefined && temporal !== null) return temporal;
       }
-      // Money next, for EVERY operator (not just `+`/`-`): on a target whose
+      // Money first, for EVERY operator (not just `+`/`-`): on a target whose
       // money is not a numeric type, the comparisons are as wrong as the
       // arithmetic — a string `<` orders '10' before '9'.  Same null-means-
       // fall-through contract, so a target that omits the seam is byte-identical.
@@ -1761,6 +1761,20 @@ export function emitExpr(expr: ExprIR, ctx: WalkContext): string {
         const money = ctx.target.exprMoneyBinary?.(left, right, expr);
         if (money !== undefined && money !== null) return money;
       }
+      // Then numeric operand adaptation: integer division widened to `decimal`
+      // (`5 / 2` is `2.5` in Loom's type system) and mixed-width operands
+      // (`int + long`, `int * decimal` — Loom widens implicitly, F# does not).
+      // JS and Dart get both from their host numeric tower, so they omit the
+      // seam and stay byte-identical.
+      //
+      // Money is consulted BEFORE this one because it is the narrower claim: a
+      // money operand is numeric too, so a target defining both would want its
+      // money form to win.  No target defines both today (Flutter omits the
+      // numeric seam, Feliz omits the money one — its money IS an F# decimal),
+      // so the order is not observable yet; it is fixed here so that it cannot
+      // be decided by accident later.
+      const numeric = ctx.target.exprNumericBinary?.(left, right, expr);
+      if (numeric !== undefined && numeric !== null) return numeric;
       // Operator-spelling + strict-equality mapping lives in the target's leaf
       // (JS `===`/`!==`; F# `=`/`<>`).
       return ctx.target.exprBinary(left, right, expr.op);

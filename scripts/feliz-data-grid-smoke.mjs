@@ -38,6 +38,14 @@ const ROWS = [
   id: `p${i}`,
   name: r.name,
   price: `${i + 1}.00`,
+  // `weight` (decimal) and `sold` (long) are REQUIRED on the fixture's
+  // Product as of M-T1.22, and the emitted decoder reads both through
+  // `get.Required.Field`. A stub row missing either fails the WHOLE record
+  // decode, so the page renders zero rows and every assertion below times
+  // out on absent markup rather than on a wrong value. Decimal is a JSON
+  // number (never money's string) and long encodes as a JSON number too.
+  weight: 1.5,
+  sold: 42,
   inStock: true,
   note: null,
   status: r.status,
