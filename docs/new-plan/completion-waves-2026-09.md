@@ -32,6 +32,8 @@
 
 ## 1. Where things stand — the denominators (every number computed by a file on `a6b538b`)
 
+*Regenerate this table with `node scripts/completion-denominators.mjs` — the numbers below were hand-copied and had already drifted (the register reads 49 `gap` + 11 `scope`, the ledger P2 13); `test/system/completion-denominators.test.ts` re-derives every row independently, so the script cannot drift from the files it reads.*
+
 | Register | File / command | Now | "Done" reads |
 |---|---|---|---|
 | `*-unsupported` register, `gap` rows | `src/diagnostics/unsupported-register.ts`, `MAX_OPEN_GAPS` | **50** (24 LIVE on a shipping target · 20 LATENT seams whose set already names every target · 3 CONFIG · 2 dormant/unreachable · 1 settled) + 10 `scope` rows (5 unowned) | LIVE = 0; LATENT re-classed to a `seam` kind so `MAX_OPEN_GAPS` counts gaps only; every `scope` row owned |
