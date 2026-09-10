@@ -32,8 +32,10 @@ import {
 import { renderJavaStatements } from "../render-stmt.js";
 import type { OpFragment } from "./entity.js";
 import {
+  bearsNestedRecord,
   collectWireImports,
   collectWireToDomainImports,
+  JAVA_PRIMITIVES,
   referencedValueObjects,
   wireJavaType,
   wireToDomain,
@@ -570,9 +572,26 @@ export function renderJavaWorkflows(
     // Request record over the workflow params (wire types in, parsed here).
     if (wf.params.length > 0) {
       const reqImports = new Set<string>();
+      // The same wire-boundary refusal the create + operation bodies carry
+      // (F23): a REQUIRED workflow param that arrives null — absent key or
+      // explicit `null` — used to bind null and reach the workflow body, which
+      // dereferenced it (`Cannot invoke "MoneyRequest.amount()" because
+      // "request" is null` out of the generated `toMoney`) → 500, for a body
+      // the published contract already marks required.  `@Valid` on the nested
+      // record makes the walk DESCEND, and the controller's `@RequestBody`
+      // carries `@Valid` so this lands in the advice's 422 arm.
+      //
+      // A PRIMITIVE component gets no `@NotNull` — it can never be null, and
+      // the annotation would read as a guard it is not (dto.ts takes the same
+      // decision on the create body).
       const components = wf.params.map((p) => {
         collectWireImports(p.type, reqImports, "Request");
-        return `${wireJavaType(p.type, "Request")} ${p.name}`;
+        const javaType = wireJavaType(p.type, "Request");
+        const guardable = p.type.kind !== "optional" && !JAVA_PRIMITIVES.has(javaType);
+        if (guardable) reqImports.add("jakarta.validation.constraints.NotNull");
+        const nested = bearsNestedRecord(p.type);
+        if (nested) reqImports.add("jakarta.validation.Valid");
+        return `${guardable ? "@NotNull " : ""}${nested ? "@Valid " : ""}${javaType} ${p.name}`;
       });
       // A VO-typed param's `<Vo>Request` record lives in an aggregate's
       // application package, not `domain.valueobjects.*` — import it
@@ -812,7 +831,7 @@ export function renderJavaWorkflows(
     `    @PostMapping("/${snake(wf.name)}")`,
     `    @ResponseStatus(HttpStatus.NO_CONTENT)`,
     wf.params.length > 0
-      ? `    public void ${lowerFirst(wf.name)}(@RequestBody ${upperFirst(wf.name)}Request request) {`
+      ? `    public void ${lowerFirst(wf.name)}(@Valid @RequestBody ${upperFirst(wf.name)}Request request) {`
       : `    public void ${lowerFirst(wf.name)}() {`,
     `        workflows.${lowerFirst(wf.name)}(${wf.params.length > 0 ? "request" : ""});`,
     `    }`,
@@ -824,6 +843,7 @@ export function renderJavaWorkflows(
     content: lines(
       `package ${wctx.basePkg}.api;`,
       ``,
+      `import jakarta.validation.Valid;`,
       `import org.springframework.http.HttpStatus;`,
       `import org.springframework.web.bind.annotation.*;`,
       ``,

@@ -538,9 +538,11 @@ places a non-optional read happens without a path id: a non-optional `find`
 route, and a workflow body that reads.
 
 ### F11 — an `int` field declares no range, and a value inside the declared range overflows the column
-**Waiver:** W11/W12, **narrowed to java** · **Severity: high** · **Status: still
-OPEN on java (the rules are kept there); fixed on node and python 2026-09-06;
-.NET and java were already correct on the input; elixir not measured.**
+**Waiver:** none — W11/W12 deleted 2026-09-10 · **Severity: high** ·
+**Status: FIXED.** node and python 2026-09-06; .NET and java were already
+correct on this input. W11/W12 were held open on java only because something
+unexplained was still firing on that route — the leg has since named it, and it
+was F31 (a null `qty`), not this. Elixir is not measured and not claimed.
 
 ```
 curl -X POST -H 'Content-Type: application/json' \
@@ -617,10 +619,25 @@ exactly the assertion that names them (node unbounded again, node over-applying
 to `long`, python's `WithJsonSchema` dropped, python's `int` mapped back to
 bare `int`).
 
-**W11/W12 are narrowed to java, not retired.** java does not 500 on this input —
-it answered 400 before and after — so if `not_a_server_error` still fires there
-it is firing on something else. That needs a nightly to say, and deleting a rule
-on a guess is how W31 came back four-fold.
+**W11/W12 are DELETED (2026-09-10) — the nightly said what they were catching,
+and it was not this.** The rules were kept on java for exactly one reason: java
+answers 400 to the overflow, before and after, so `not_a_server_error` on
+`POST /api/orders/{id}/add_line` had to be firing on something else, and the leg
+was what had to name it. It has. Reproduced locally on a booted Spring app of
+`sales-system`, the leg's own app-error log names the fault outright:
+
+```
+×2 java.lang.NullPointerException: Cannot invoke "java.lang.Integer.intValue()"
+                                   because "qty" is null
+```
+
+`add_line` is the only operation on `Order` taking a `qty`, and RS-26 boxes an
+operation param, so the emitted `AddLineOrderValidator` held
+`if (!(qty >= 1)) …` over an `Integer` that had arrived null — F23's class, one
+command shape over. That is **F31** below, and with it fixed the two rules
+stopped matching (java leg: 12 problems → 0). The int32 half of this entry is
+unaffected and stays as written: java has always published `format: int32` and
+rejected the overflow at the binder.
 
 ---
 
@@ -1258,7 +1275,7 @@ in the published request schema; the Spring binder maps a JSON `null` to a Java
    never be null, and the absence it would describe is already answered (Jackson
    3 enables `FAIL_ON_NULL_FOR_PRIMITIVES`).
 
-2. **The invariant validator now SKIPS a null instead of dereferencing it.**
+5. **The invariant validator now SKIPS a null instead of dereferencing it.**
    Adding `@NotNull` alone did not fix `sku: null` — measured, the app still
    answered 500 and the trace named `CreateOrderValidator.validate` line 23. The
    emitted invariant validator is a Spring `Validator` that Bean Validation runs
@@ -1629,6 +1646,134 @@ half is separately mutation-proved — revoking the guard fails 2 of 5 cases,
 revoking the status arm fails the 5th.
 
 
+### F31 — java: the invariant validator dereferenced values it was not guarding
+**Waiver:** W11/W12 — **deleted with the fix** · **Severity: high** ·
+**Status: FIXED (2026-09-10).**
+
+```
+curl -X POST http://host/api/wallets \
+  -d '{"ownerId":"…","status":"Open","openedAt":"","closedAt":""}'   # balance OMITTED
+→ 500  NullPointerException: Cannot invoke "MoneyRequest.amount()" because "balance" is null
+
+curl -X POST http://host/api/wallets/{id}/debit -d '{"amount":{"currency":""}}'
+→ 500  NullPointerException: … because the return value of "MoneyRequest.amount()" is null
+
+curl -X POST http://host/api/orders/{id}/add_line -d '{"qty":null,…}'
+→ 500  NullPointerException: Cannot invoke "java.lang.Integer.intValue()" because "qty" is null
+```
+
+Every one of those bodies is refused by the record's own `@NotNull`. The
+emitted invariant `Validator` never let it get that far — F23 already recorded
+why: it is a Spring `Validator` that Bean Validation runs **ALONGSIDE** the
+annotations, not after them, so the predicate reaches the null first. F23 fixed
+the null-skip on the arms it could see. Two arms it could not:
+
+1. **The single-field arms asked the PATTERN, not the slot.** `nullSkip` fired
+   for `money` / `len-*` / `regex` and for nothing else, on the reasoning that
+   "the numeric arms are only nullable in their BigDecimal form" — true of a
+   CREATE body's unboxed `int qty`, false of an OPERATION body's, which RS-26
+   boxes to `Integer` precisely so an omission is detectable. So `qty >= 1`
+   unboxed a null. The slot's nullability now comes from the DTO's own boxing
+   decision (`wireComponentNullable` in `emit/wire.ts`, fed the same
+   `isRequiredCreateInput` / RS-26 boxing the record was built with), so the
+   validator and the record cannot disagree about what can be null.
+
+2. **The GENERIC-predicate arm had no guard at all.** `invariant
+   balance.amount >= 0` is not a single-field shape, so it fell through to the
+   rendered predicate — `balance.amount().compareTo(new BigDecimal("0")) >= 0`
+   — with nothing in front of it. Guarding only the root was not enough either:
+   `{"balance":{"currency":""}}`, the required nested `amount` simply omitted,
+   NPEs one step deeper. Every member step along a chain rooted at a nullable
+   param is guarded now, **shallow first** so `balance == null` short-circuits
+   before `balance.amount()` runs:
+
+```java
+if (!(balance == null || balance.amount() == null
+      || balance.amount().compareTo(new BigDecimal("0")) >= 0))
+    errors.rejectValue("balance", "loom.invariant", "…");
+```
+
+An invariant that mentions a `null` LITERAL is left alone: it is asking about
+absence, so skipping on absence would delete the check. A PRIMITIVE accessor is
+skipped too — `int == null` does not compile.
+
+Measured on booted Spring apps of both leg fixtures, before and after:
+
+| body | before | after |
+|---|---|---|
+| `POST /api/wallets` — `balance` omitted | 500 | **422** |
+| `POST /api/wallets/{id}/debit` — `{}` | 500 | **422** |
+| `POST /api/wallets/{id}/debit` — `{"amount":{"currency":""}}` | 500 | **422** |
+| `POST /api/orders/{id}/add_line` — `qty: null` | 500 | **422** |
+| a PRESENT violation (`balance.amount: -1`) | 422 | 422 — unmoved |
+| a valid body | 201 | 201 — unmoved |
+
+Gated by `test/generator/java/wire-boundary-null-skip.test.ts`.
+
+### F32 — java: the workflow body had no wire boundary at all
+**Waiver:** none — fixed · **Severity: high** · **Status: FIXED (2026-09-10).**
+
+```
+curl -X POST http://host/api/workflows/checkout \
+  -d '{"customerId":"…","walletId":"…","productId":"…","qty":0}'   # unitPrice OMITTED
+→ 500  NullPointerException: Cannot invoke "MoneyRequest.amount()" because "request" is null
+        at StorefrontWorkflows.toMoney(StorefrontWorkflows.java:54)
+```
+
+Create bodies got `@NotNull` with F23 and operation bodies with RS-26. The
+WORKFLOW request record got neither — `public record CheckoutRequest(UUID
+customerId, …, MoneyRequest unitPrice, int qty)`, bare — and
+`<Ctx>WorkflowsController` bound it with a plain `@RequestBody`, so even an
+annotation would have been inert. Both halves are needed and both are one line:
+the record's required non-primitive components carry `@NotNull` (`@Valid` where
+the component is itself a record, so the walk DESCENDS), and the controller
+carries `@Valid`. `unitPrice` is required in the document the customizer
+already publishes, so this closes the gap between what java advertised and what
+it enforced.
+
+**A primitive workflow param still has no `@NotNull`** — it would be inert, the
+same decision `dto.ts` takes on the create body. That leaves one honest residue:
+an ABSENT `int qty` deserializes to `0` rather than being refused (Jackson 3's
+`FAIL_ON_NULL_FOR_PRIMITIVES` catches an explicit `null`, not an absent key).
+On the leg's fixture the workflow's own `precondition qty > 0` refuses it, so no
+finding rides on it; boxing workflow params the way RS-26 boxes operation params
+is the follow-up, not this fix.
+
+Gated by `test/generator/java/wire-boundary-null-skip.test.ts` (and the
+assertion in `java-workflow-vo-param.test.ts` that pins the record's shape).
+
+### F33 — java: every create route published 200 and answered 201
+**Waiver:** none — fixed · **Severity: medium** · **Status: FIXED (2026-09-10).**
+
+```
+curl -X POST http://host/api/customers -d '{"name":"n","email":"a@b.c"}'
+→ 201   # and the published contract declares 200, 400, 415, 422 — no 201
+```
+
+The #2472 class, on every create route of every generated java API, and the one
+finding on this leg that is not data-dependent at all. springdoc derives the
+success status from the controller's return TYPE — `ResponseEntity<Create<Agg>
+Response>` — which cannot see `ResponseEntity.created(...)`. Every other route
+shape is fine because it carries `@ResponseStatus(HttpStatus.NO_CONTENT)`, which
+springdoc reads.
+
+| | published for `POST /api/customers` |
+|---|---|
+| node | `201, 400, 415, 422` |
+| python | `201, 400, 415, 422` |
+| dotnet | `201, 400, 415, 422` |
+| java | **`200`**, 400, 415, 422 |
+
+Fixed in the emitted `OpenApiContractCustomizer` — the baked `Route` row now
+carries the status the route ANSWERS, and the customizer re-keys the inferred
+2xx to it. Putting `@ResponseStatus(HttpStatus.CREATED)` on the controller was
+rejected: it is IGNORED at runtime on a method returning `ResponseEntity`, so it
+would have fixed the document by annotating something untrue.
+
+Gated by `test/generator/java/wire-boundary-null-skip.test.ts` plus the Route
+literals in `generator-java-openapi-customizer.test.ts`.
+
+
 ### The elixir leg
 It ships as a **discovery cell**: the matrix runs it, but `continue-on-error`
 keeps its verdict off the workflow's, because its waiver register is empty. The
@@ -1639,21 +1784,76 @@ produces the finding set (`LOOM_SCHEMATHESIS_UPDATE=1` writes `observed.json`);
 turning it into root-cause rules and deleting the `discovery: true` matrix entry
 is the follow-up. F15 above is what is already known about that leg.
 
+**2026-09-10 — the leg WAS run, and it stays a discovery cell.** The hex-image
+blocker is gone (`hexpm/elixir:1.18.4-erlang-27.3.4-debian-bookworm-20260610-slim`
+under `--network host` with a `mix` shim on PATH resolves hex through the egress
+proxy fine), so the question "is it green enough to make binding?" now has a
+measured answer instead of an assumption: **no — 52 findings, 0 waived, 25
+distinct unhandled exceptions in the app.** That is not one rule away from
+binding; it is its own triage packet. Making the cell binding today would turn a
+nightly that fails on ONE backend into one that fails on two, and would bury the
+java verdict this packet just cleared.
+
+The inventory, so the follow-up starts from data rather than from a re-run
+(`storefront-elixir`, 29 operations, seed 20260811):
+
+| count | shape | cluster |
+|---|---|---|
+| 15 | `501 Unsupported methods` | **E1** — `TRACE` on any route answers Plug's 501 |
+| 14 | `501 Server error` | **E1 again**: the same TRACE requests, counted by `not_a_server_error` because 501 is 5xx |
+| 7 | `400 Undocumented HTTP status code` | **E2** — a non-uuid `{id}` (and a STATIC sub-path shadowed by `/{id}`) reaches Ecto and raises `Ecto.Query.CastError` |
+| 7 | `200 Undocumented Content-Type` | **E3** — the success media type the routes answer is not the one the emitted spec declares |
+| 6 | `405 Undocumented HTTP status code` | **E4** — the F18/F26 class on this backend: a wrong verb answers an undeclared 405 |
+| 1 | `500 Server error` + 1 `500 Undocumented` | **E5** — a REAL defect, below |
+| 1 | `200 API accepted schema-violating request` | F9's class (W8 records it as by-design on the other four) |
+
+**E2 has a static-sub-path half worth calling out**: the CastError values are
+`"by_email"`, `"by_owner"` and `"open_by_owner"` — the named find routes, being
+matched by the sibling `/{id}` route and cast to a UUID. That is F8/F18's shape
+on elixir, and it is why three separate `GET /…/by_*` operations each report
+three checks at once.
+
+**E5 is the one entry that is a defect and not a contract gap**, and it is the
+highest-value thing in this list:
+
+```
+GET /wallets?page=1&pageSize=1&dir=      → 500
+** (ArithmeticError) bad argument in arithmetic expression
+    :erlang.-("", 1)
+    (phoenix_app 0.1.0) lib/phoenix_app/storefront/wallets…
+```
+×52 occurrences in one run. A paged read parameter arrives as the empty string
+and goes into `(page - 1) * pageSize` unparsed. Every other backend answers this
+input without a server error. It needs its own F-entry once someone owns the
+elixir triage.
+
+**So the `discovery: true` line stays**, and the reason it stays has changed:
+not "the toolchain cannot be run here" (it can now — recipe above) but "the leg
+has 52 unattributed findings across six root causes, and attributing them is a
+packet of its own".
+
 ---
 
 ## Follow-up slices
 
 1. **Seed the elixir leg and drop its `continue-on-error`** — the one cell of the
    matrix whose rules are not yet written (see "The elixir leg" above), plus F15,
-   which is why it cannot run the shared fixtures at all.
-2. **F1–F8 as cross-backend fixes**, one per root cause, each landing on all
+   which is why it cannot run the shared fixtures at all. The 2026-09-10 run
+   turned this from a blocked task into a scoped one: the finding inventory and
+   its six clusters (E1–E5 + F9's class) are written down there, and E5 — a paged
+   read parameter arriving as `""` and reaching `:erlang.-("", 1)` → 500 — is a
+   real emitter defect that should be fixed rather than waived.
+2. **Box a workflow's primitive params the way RS-26 boxes an operation's**
+   (java) — F32 closed the reference-typed half of the workflow wire boundary; an
+   ABSENT `int` param still deserializes to `0` instead of being refused.
+3. **F1–F8 as cross-backend fixes**, one per root cause, each landing on all
    five backends with a wire-golden case so the answer stops being per-backend
    folklore.
-3. **The `stateful` phase**, disabled here: its findings are labelled "Stateful
+4. **The `stateful` phase**, disabled here: its findings are labelled "Stateful
    tests" rather than by operation, so they cannot be keyed into a waiver rule
    yet. It found a 500 on the first exploratory run, so it is worth the key
    design.
-4. **OIDC fixtures** — the runner refuses a deployable with an `auth {}` block
+5. **OIDC fixtures** — the runner refuses a deployable with an `auth {}` block
    because the bearer material would have to be handed to schemathesis. That is
    where the #2261/#2442 malformed-token class lives, so it is the highest-value
    extension of this leg.

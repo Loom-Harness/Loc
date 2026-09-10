@@ -96,10 +96,10 @@ describe("java workflow instance read endpoints", () => {
       'new Wrapper("OrderFulfillmentInstanceListResponse", "OrderFulfillmentInstanceResponse")',
     );
     expect(c).toContain(
-      'new Route("get", "/api/workflows/order_fulfillment/instances", "OrderFulfillmentInstanceListResponse", new int[] {}, null)',
+      'new Route("get", "/api/workflows/order_fulfillment/instances", "OrderFulfillmentInstanceListResponse", new int[] {}, null, 0)',
     );
     expect(c).toContain(
-      'new Route("get", "/api/workflows/order_fulfillment/instances/{id}", null, new int[] {404, 422}, null)',
+      'new Route("get", "/api/workflows/order_fulfillment/instances/{id}", null, new int[] {404, 422}, null, 0)',
     );
     expect(c).toContain(
       'new RequiredSet("OrderFulfillmentInstanceResponse", List.of("attempts", "orderId", "status"))',
