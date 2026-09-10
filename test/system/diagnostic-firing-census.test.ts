@@ -375,6 +375,23 @@ system S {
         create(code: string) { code := code }
         create draft(code: string) { code := code }
       }`),
+  // --- undeclared principal claim (audit D2) ------------------------------
+  // The `user { }` block declares `id` and `role`; the gate reads a third,
+  // undeclared claim.  Both member-typing sites fail OPEN on the principal
+  // (unknown ⇒ `string`), so before this check the model parsed, validated and
+  // GENERATED clean — and the emitted backend then failed its own compile
+  // against a `UserClaims` shape built from exactly these two fields.
+  "loom.unknown-user-claim": `
+system S {
+  user { id: string  role: string }
+  subdomain Sub { context C {
+    aggregate Widget with crudish {
+      name: string
+      operation touch() { requires currentUser.totallyBogusField == "x" }
+    }
+    repository Widgets for Widget { }
+  } }
+}`,
   // --- workflow instance-read gate (M-T3.15 §A2) --------------------------
   // The header gate runs BEFORE any instance is loaded, so only `currentUser`
   // is in scope; `stage` is a workflow STATE field and has no value to read.

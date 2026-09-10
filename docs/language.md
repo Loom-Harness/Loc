@@ -1378,6 +1378,13 @@ The validator runs after parsing and reports errors for:
   parts, value objects, events / payloads, and `X id` references; it does
   not fire on collection ops (`lines.first`), string members (`s.length`),
   or receivers whose type couldn't be resolved.
+- Access to a claim the principal doesn't carry — `currentUser.totallyBogus`
+  where the system's `user { … }` block never declares it
+  (`loom.unknown-user-claim`). The generated backend's `UserClaims` type is
+  emitted from exactly that block, so an undeclared claim otherwise reaches
+  it verbatim and breaks the generated project's own compile. The derived
+  tenancy members `currentUser.orgPath` / `.rootOrg` are always valid (using
+  them without a `tenancy by` line is `loom.orgpath-without-tenancy`).
 - Assignment to a derived property.
 - `emit` payloads that don't match the event's declared shape.
 - **Record construction** (`X { field: value }` for a value object, entity part,

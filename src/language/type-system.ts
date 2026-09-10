@@ -1194,7 +1194,16 @@ function lookupPayloadMember(target: EventDecl | PayloadDecl, name: string): Ddd
  *  resolves to `string` rather than `unknown`, so introducing precise typing
  *  here never turns an already-valid `currentUser.<x>` reference into a new
  *  error — it only lets the *known* claim types (arrays, ints, …) reach the
- *  collection-op / comparison checks, which would otherwise see `unknown`. */
+ *  collection-op / comparison checks, which would otherwise see `unknown`.
+ *
+ *  The fail-open TYPING stays; what is no longer silent is the MEMBERSHIP.
+ *  `absentUserClaim` below judges that separately, so an undeclared claim gets
+ *  its own diagnostic (`loom.unknown-user-claim`) instead of riding a `string`
+ *  all the way into a generated project that then fails its own compile
+ *  (audit `docs/audits/2026-09-10-claimshub-dev-experience.md` §D2).  Keeping
+ *  the two apart matters: the type is still needed downstream for the very
+ *  expression the diagnostic complains about, and only ONE report should come
+ *  out of it. */
 function lookupUserMember(target: UserBlock, name: string): DddType {
   if (name === PRINCIPAL_ORG_PATH || name === PRINCIPAL_ROOT_ORG) return T.prim("string");
   const f = target.fields.find((f) => f.name === name);
@@ -1208,6 +1217,34 @@ function lookupUserMember(target: UserBlock, name: string): DddType {
 function userBlockFor(node: AstNode): UserBlock | undefined {
   const sys = AstUtils.getContainerOfType(node, isSystem);
   return sys?.members.find(isUserBlock);
+}
+
+/** For the unknown-user-claim validator: `name` is definitively NOT reachable
+ *  on the `currentUser` principal.  Returns the declared claim names (for the
+ *  diagnostic's "declared claims" tail) when the member is absent, and
+ *  `undefined` when it resolves *or* the receiver isn't the principal.
+ *
+ *  The principal is the one record whose membership `lookupUserMember` above
+ *  deliberately fails OPEN on (unknown ⇒ `string`), and that fallback is not
+ *  cosmetic: an undeclared claim rides all the way through lowering and reaches
+ *  the generated backend verbatim, where the emitted `UserClaims` interface —
+ *  built from exactly these `user { }` fields (`auth-emit.ts`) — has no such
+ *  property.  node/.NET/Java then fail their OWN compile; python/elixir read
+ *  nothing at request time.  So the membership judgement has to be made here,
+ *  at the only layer that still has a CST node to point at.
+ *
+ *  Valid members = the declared `UserField`s PLUS the two derived tenancy
+ *  members (`orgPath` / `rootOrg`), which are computed per-request from the
+ *  tenancy claim rather than declared in `user { }`.  Referencing either
+ *  WITHOUT a `tenancy by` line is already its own diagnostic
+ *  (`loom.orgpath-without-tenancy`, `validators/tenancy.ts`), so they are
+ *  accepted here unconditionally — never double-reported. */
+export function absentUserClaim(recvType: DddType, name: string): string[] | undefined {
+  const t = recvType.kind === "optional" ? recvType.inner : recvType;
+  if (t.kind !== "userclaim") return undefined;
+  if (name === PRINCIPAL_ORG_PATH || name === PRINCIPAL_ROOT_ORG) return undefined;
+  if (t.ref.fields.some((f) => f.name === name)) return undefined;
+  return t.ref.fields.map((f) => f.name);
 }
 
 /** For the unknown-member validator: when `recvType` is a record we can
