@@ -91,6 +91,47 @@ export async function readEditorSource(page: Page): Promise<string> {
   );
 }
 
+/** Prepend a marker line to the active source through the `__loomSetSource`
+ *  automation seam — the house pattern (`builder-page`, `builder-scaffold`,
+ *  `destructive-actions`, `loom-views`, `migrations-panel` all edit this way).
+ *  `setValue` dispatches Monaco's change event, so this takes exactly the same
+ *  onChange → workspace-write path a keystroke does.
+ *
+ *  It replaces `click()` + `keyboard.type(...)`, which additionally required
+ *  the editor to HOLD DOM FOCUS for the whole burst — a requirement the specs
+ *  never asserted and CI does not grant.  Measured in the trace of the
+ *  2026-09-09 `playground-e2e-no-network` failure (run 34415602347): clicking
+ *  the editor took 2.7 s to become actionable and the 38-character marker then
+ *  took 3.6 s to type. Anything that moved focus inside that window truncated
+ *  the marker at a random character — the model kept the prefix, the trailing
+ *  newline never landed, and the spec failed later on the RELOAD, reporting a
+ *  persistence loss that had not happened. Both specs that still typed raw
+ *  keystrokes (`workspace-persistence`, `multi-tab`) failed in that run; none
+ *  of the five using this seam did.
+ *
+ *  Asserting the edit reached the model is part of the contract: a failure
+ *  then names the EDIT, at the line that made it, instead of surfacing as a
+ *  restore failure ten seconds and one navigation later. */
+export async function prependMarker(page: Page, marker: string): Promise<void> {
+  await page.waitForFunction(
+    () =>
+      typeof (window as unknown as { __loomSetSource?: unknown }).__loomSetSource === "function" &&
+      typeof (window as unknown as { __loomGetSource?: unknown }).__loomGetSource === "function",
+    null,
+    { timeout: 45_000 },
+  );
+  await page.evaluate((m) => {
+    const w = window as unknown as {
+      __loomSetSource: (t: string) => void;
+      __loomGetSource: () => string;
+    };
+    w.__loomSetSource(`${m}\n${w.__loomGetSource()}`);
+  }, marker);
+  expect(await readEditorSource(page), "the marker never reached the editor model").toContain(
+    marker,
+  );
+}
+
 /** Click into whichever source editor this viewport actually rendered.
  *  Desktop gets Monaco; mobile gets the plain textarea. */
 export async function focusSourceEditor(page: Page): Promise<void> {
