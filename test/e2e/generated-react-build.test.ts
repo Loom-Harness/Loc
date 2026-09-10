@@ -10,6 +10,7 @@ import {
   type ReactPackSpec as PackSpec,
   reactPackId as packId,
 } from "./react-build-cases.js";
+import { installGeneratedProject } from "./support/npm-install.js";
 
 // ---------------------------------------------------------------------------
 // Generator regression test for the React frontend: for each example
@@ -210,18 +211,13 @@ describe.skipIf(!ENABLED)(
         // Frontend `function … extern from` impls are user-owned and never
         // generated; stub them so the generated-only tree type-checks.
         stubFrontendExterns(projectDir);
-        // Deliberately NOT `--prefer-offline`: the pack-batch mode does
-        // reinstall a near-identical project per cell, but that flag also
-        // serves stale cached *packuments*, so a floating range whose newest
-        // matching version was published after the cache entry (`jiti@^2.7.0`
-        // is a live example) dies with ETARGET.  npm already reuses the
-        // warmed tarball cache after a cheap etag revalidation — the batch
-        // gets the saving without the flake.
-        execSync(`npm install --silent --no-audit --no-fund`, {
-          cwd: projectDir,
-          stdio: "inherit",
-          timeout: 240_000,
-        });
+        // The install runs through the shared helper: npm's own error text
+        // survives a failure, and one transient registry window is retried.
+        // The `--prefer-offline` reasoning that used to sit here — the flag
+        // serves stale packuments, so a floating range whose newest matching
+        // version postdates the cache entry dies with ETARGET — now lives on
+        // the helper, where it governs every caller rather than this one.
+        installGeneratedProject(projectDir, { timeout: 240_000 });
         // `tsc --noEmit` honours the project's tsconfig.json `include`
         // / `strict` settings.  References (tsconfig.node.json) are
         // not built — Vite's config is only checked when `tsc -b` runs
@@ -262,11 +258,7 @@ describe.skipIf(!ENABLED)(
               );
             }
             stubFrontendExterns(extraDir);
-            execSync(`npm install --silent --no-audit --no-fund`, {
-              cwd: extraDir,
-              stdio: "inherit",
-              timeout: 240_000,
-            });
+            installGeneratedProject(extraDir, { timeout: 240_000 });
             execSync(`npx tsc --noEmit`, { cwd: extraDir, stdio: "inherit", timeout: 90_000 });
           }
         }

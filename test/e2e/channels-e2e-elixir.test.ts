@@ -17,6 +17,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { mixDepsGet } from "./support/mix-retry.js";
+import { installGeneratedProject } from "./support/npm-install.js";
 
 const ENABLED = process.env.LOOM_CHANNELS_E2E_ELIXIR === "1";
 
@@ -135,7 +136,7 @@ describe.skipIf(!ENABLED)("cross-backend broker delivery (channels-e2e, elixir c
       redisUrl = `redis://localhost:${REDIS_PORT}`;
     }
 
-    sh("npm install --silent", join(dir, "out", "sales_api"));
+    installGeneratedProject(join(dir, "out", "sales_api"), { flags: [], timeout: 600_000 });
     const shipDir = join(dir, "out", "ship_api");
     const shipEnv = {
       DATABASE_URL: pgUrl("ship_api"),
