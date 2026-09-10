@@ -38,7 +38,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, 
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { AUTHZ_LADDERS, declaresE2e, DEV_CLAIMS, featureCases, mountsFileRoutes, resetDatabase, sharedSystemCases, unauthorizedCredentials } from "./cases.mjs";
+import { AUTHZ_LADDERS, declaresE2e, DEV_CLAIMS, featureCases, mountsFileRoutes, otherTenantCredentials, resetDatabase, sharedSystemCases, unauthorizedCredentials } from "./cases.mjs";
 import { stopServer, waitForPort, waitForPortFree } from "./proc.mjs";
 import { makeWireGate, recorderPreamble } from "./wire-differential.mjs";
 import { startMockIssuer } from "./oidc-mock.mjs";
@@ -179,7 +179,7 @@ async function waitForHealth(base, timeoutMs = 30_000) {
 
 /** The e2e-run entry (bundled by esbuild): loads the emitted api suite and
  *  dispatches each request over real HTTP at the booted Hono/mikroorm server. */
-function entrySource(e2eFile, bearerToken, hasAuth, authzLadder, unauthorizedCreds, mountsFiles) {
+function entrySource(e2eFile, bearerToken, hasAuth, authzLadder, unauthorizedCreds, otherTenantCreds, mountsFiles) {
   const J = JSON.stringify;
   const bearerEnv = bearerToken ? `, E2E_BEARER_TOKEN: ${J(bearerToken)}` : "";
   return `
@@ -194,6 +194,7 @@ const DEV_CLAIMS = ${J(DEV_CLAIMS)};
 const BEARER_ENV = { E2E_DEV_CLAIMS: DEV_CLAIMS${bearerEnv} };
 const AUTHZ_LADDER = ${J(authzLadder ?? null)};
 const UNAUTHORIZED_CREDS = ${J(unauthorizedCreds ?? null)};
+const OTHER_TENANT_CREDS = ${J(otherTenantCreds ?? null)};
 const BASE = ${J(BASE)};
 
 export async function run() {
@@ -221,7 +222,7 @@ export async function run() {
   // last and off the RECORDER (see __authzLadder) so it neither shifts wire
   // ordinals nor perturbs the tier it follows.
   const authz = AUTHZ_LADDER && UNAUTHORIZED_CREDS
-    ? await __authzLadder(AUTHZ_LADDER, { authorized: __authHeaders, unauthorized: UNAUTHORIZED_CREDS }, dispatch)
+    ? await __authzLadder(AUTHZ_LADDER, { authorized: __authHeaders, unauthorized: UNAUTHORIZED_CREDS, otherTenant: OTHER_TENANT_CREDS }, dispatch)
     : [];
   return { results, authz, wire: __wire };
 }
@@ -311,6 +312,7 @@ async function runCase(c) {
         hasAuth,
         AUTHZ_LADDERS[c.name] ?? null,
         unauthorizedCredentials(isOidc ? "oidc" : hasAuth ? "devstub" : "none", isOidc && oidc ? oidc.unauthorizedToken : null),
+        otherTenantCredentials(isOidc ? "oidc" : hasAuth ? "devstub" : "none"),
         mountsFiles,
       ),
     );
