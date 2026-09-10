@@ -1,171 +1,163 @@
-# Freight-audit fleet plan — the order for draining #2864
+# Freight-audit fleet plan (rev. 2)
 
-**Snapshot 2026-09-10, `main @ 93bc82d`.** The findings are in
-[`2026-09-10-freight-dev-experience.md`](2026-09-10-freight-dev-experience.md);
-this file is the ORDER, the FILE OWNERSHIP that keeps the fleet from colliding,
-and the four design decisions that gate part of it.
+**Snapshot 2026-09-10, `main @ 93bc82d`.** Findings:
+[`2026-09-10-freight-dev-experience.md`](2026-09-10-freight-dev-experience.md)
+(Part 1 = node+react, Part 2 = the other nine targets). This file is the ORDER,
+the FILE OWNERSHIP that keeps a parallel fleet from colliding, and the decisions
+that gate part of it.
 
-Per the repo's rule, `docs/new-plan/` is the only authoritative status table.
-This is a plan snapshot, not a status register — if the two disagree later, the
-track file wins.
+`docs/new-plan/` remains the only authoritative status table. This is a plan
+snapshot; if the two disagree later, the track file wins.
 
-Every finding below was **re-verified on fresh `main` after the audit was
-written** (the 19-commit drift). All five headline defects still reproduce.
+**Rev. 2 replans rev. 1 for three things that changed:** Part 2 (five of nine
+retargeted variants do not build), a **fourth** parallel dev-experience audit
+(#2865), and #2850 leaving draft. The mission set is now grouped by **root
+cause and fix seam** rather than by symptom, because Part 2 showed several
+symptoms share one cause — and one of those causes is better closed by a gate
+than by four patches.
 
-## What the fleet must not touch
+## The field: four audits, one fleet
 
-Three PRs are in flight over adjacent code. File ownership is the whole reason
-this plan exists.
-
-| In flight | Owns | Fleet rule |
+| PR | Audit | Claims |
 |---|---|---|
-| **#2850** (F58 / M-T6.60) | all five workflow emitters — `src/platform/hono/**` workflow files, `src/generator/{dotnet,java,python,elixir}/**` workflow files, `src/generator/_workflow/create-state.ts` | **Wave 2 only.** No wave-1 mission opens a workflow emitter. |
-| **#2862** (e-shop audit) | the auth emitters, `src/generator/_walker/`, `src/generator/_frontend/gate-expr.ts`, the macro stdlib, a docs-fence ratchet | M-T6.64 must confirm the `Ids`-import split with them first (see its row). M-T1.32 stacks behind their walker work. |
-| **#2861** (tracker audit) | projection emitters on all five backends, Vue emitter, first-run docs, two create-input gates | M-T6.67 shares the *directory* `src/platform/hono/v4/` but not a file. M-T5.30 must confirm the create-input gate boundary with them. |
+| #2861 | Jira-like tracker | parameterized projection parameter drop, Vue attribute escaping, first-run docs, two create-input gates |
+| #2862 | e-shop | macro-emitted members vs `denyByDefault`, a codegen crash on a client-unevaluable gate, two walker miscompiles, **the `user{}` `X id?` claim**, the `find` deprecation's hidden costs, a docs-fence ratchet |
+| #2864 | freight forwarding (this one) | everything in this plan |
+| #2865 | insurance claims | the `softDelete` hook `tsc` error, `currentUser.<undeclared>` falling back to `string`, `crudish update` bypassing `requires`, `policy`/`deny` keyword friction |
 
-## What Part 2 changed
+Deduped in both directions. Nothing below is claimed by any of the other three.
 
-The multi-target sweep (Part 2 of the audit) retargeted the same model to the
-other four backends and five frontends. **Five of the nine fail to build.** It
-re-scoped three missions and added three:
+## The root causes, and why the grouping changed
 
-- **M-T6.65 doubles in size** — the enum-stated workflow breaks four FRONTENDS
-  too (react/vue/svelte import an undefined `ClaimStateSchema` from an unrelated
-  module; angular degrades the field to `unknown`).
-- **M-T6.67 splits** — the payload half is a five-backend defect (no backend
-  emits the `<Payload>Response` wire type), not a node `z.unknown()`.
-- **#2862's D6 is four backends, not one** — node, python, dotnet (`CustomerId??`,
-  invalid C#) and java (proven with `javac`). Theirs to re-scope; flagged on the PR.
-- **Three new missions**: M-T1.33 (unguarded nullable reference, six frontends),
-  M-T1.34 (the Svelte picker collision), M-T6.68 (the Python channel-tee annotation).
+Rev. 1 had one mission per symptom. Part 2 showed four symptoms are the **same
+defect class**: *an emitter names a type it never emits or imports.*
 
-The process lesson is now a rule for every mission below: **compiling one target
-is not evidence about the others.** Four of the five build failures are in
-targets a node-only pass cannot see.
+| site | shape | who |
+|---|---|---|
+| a `valueobject` holding an `X id` → `value-objects.ts` has no imports | missing import | **RC-1a** (this plan) |
+| `user { … : X id? }` → missing import on node/python/java; `CustomerId??` on dotnet | missing import + doubled nullability | **#2862** (escalated by my T1) |
+| a workflow's enum state field → `<Enum>Schema`, emitted nowhere, imported from an unrelated module on the frontends | missing emission + wrong module | **RC-1b** |
+| a workflow's `command` parameter → `<Payload>Response`, emitted on no backend | missing emission | **RC-1c** |
 
-## Wave 1 — six agents, fully disjoint, start now
+Four emitters, one invariant: **every symbol a generated file references must be
+emitted or imported.** That invariant is checkable mechanically, and a gate for
+it would have caught all four plus #2862's. So the plan now leads with the gate,
+carrying a waiver per known site, and each fix deletes its own waiver — the
+repo's standing ratchet convention, applied here instead of "fixture last".
 
-No two of these open the same file, and none opens a file the three in-flight
-PRs own.
+## Wave 0 — the ratchet, first (1 agent)
 
-| Mission | Fixes | Owns | Proof it must carry |
+| Mission | What | Owns |
+|---|---|---|
+| **M-T9.59 — the unresolved-symbol gate** | Generate the corpus **plus** four new fixtures carrying the shapes above, and assert every referenced symbol in the emitted TypeScript/Python/Java/C#/Elixir resolves. Land it with one waiver per known-broken site, each naming its mission. | a new `test/system/` gate + `test/e2e/fixtures/ts-build/**` |
+
+Landing this first inverts the usual order deliberately: the gate is **red by
+construction** on day one, its waiver list *is* the work list, and each fix below
+lands with its waiver deleted. That is the repo's own "waivers ratchet" rule, and
+it is what stops these four from recurring — the corpus has no value object
+holding an `X id`, no enum-stated workflow, and no `managed` field with a default,
+which is precisely why three emitters can ship non-compiling output today.
+
+## Wave 1 — the fixes that need no decision (5 agents, disjoint)
+
+Sized at five concurrent, not nine: the runner pool is shared with three other
+audit fleets and a merge queue, and every one of these triggers the per-backend
+compile gates.
+
+| # | Mission | Fixes | Owns | Proof it must carry |
+|---|---|---|---|---|
+| 1 | **M-T2.15 — the migration diff models a value-collection field as a root column** | D1 | `src/system/migrations-builder.ts` (`schemaFromModule`) | **The only data-destroying finding.** Seed the pre-fix deriver, show the phantom `ADD COLUMN … JSONB[]` appears; after the fix, gen-2 emits only `CREATE TABLE <agg>_<field>`. Then apply both migrations to a real postgres and insert a row — Part 1's proof, as a test. |
+| 2 | **M-T6.63 — a `managed`/`internal` field's declared default is discarded** | D2 | the node create-factory emitter; the `money` default arm on python/dotnet/java | The 3×5 matrix as a table test. **Elixir is the reference — it is already right in every cell.** |
+| 3 | **M-T6.64 — a `valueobject` holding an `X id` emits a file with no imports** (RC-1a) | D3 | the TypeScript value-object emitter | `tsc --noEmit` on a project whose VO carries an `X id`; **delete the RC-1a waiver**. Coordinate with #2862 — same class, different emitter. |
+| 4 | **M-T6.67a — a `command`-typed workflow parameter has no wire type on any backend** (RC-1c) | D7 / T2 | the workflow request-record emitters, all five backends | All five reference `<Payload>Response`; none emits it (.NET also misses the domain `FileClaim`). A flat record — no design question. **Delete the RC-1c waiver.** Compile-check at least node + one of java/dotnet. |
+| 5 | **M-T1.33 — a nullable `X id?` reference emits an unguarded link on all six frontends** | T4 | the reference-link renderer in `src/generator/_frontend/` + the six walker targets | Two of six fail to build (vue TS2345, feliz `string` + `string option`); four render `/locations/null`. **Flutter already null-guards `datetime`/`money` on the same page — reuse that helper.** Proof: build vue, and show feliz no longer concatenates a `string option`. |
+
+## Wave 2 — after wave 1 frees slots (4 agents)
+
+| # | Mission | Fixes | Owns | Notes |
+|---|---|---|---|---|
+| 6 | **M-T6.65 — the enum-stated workflow, backend AND four frontends** (RC-1b) | D4 / T3 | `src/platform/hono/v4/workflow-builder.ts` + the frontend workflow-client emitter | Opens a file **#2850 owns** — stack on its branch (it left draft today) rather than waiting for merge. The aggregate route emitter is the reference; it emits `const HandlingKindSchema = …` locally. Also corrects T4's "runtime-proven at five-backend parity" line, which cannot have included a node typecheck of an enum-stated saga. **Delete the RC-1b waiver.** |
+| 7 | **M-T1.34 — Svelte: two operations on one aggregate redeclare their picker** | T5 | the Svelte page-shell emitter | `Identifier '__locations' has already been declared`. Dedupe per page. Any aggregate with two such operations is un-buildable today. |
+| 8 | **M-T5.30 — two validator rulings** | G2, G4 | `src/ir/validate/checks/`, `src/diagnostics/messages.ts` | Reactor-without-starter (the ruling #2850's `create-state.ts` header defers); and the VO-collection-vs-entity-containment create-input asymmetry. Confirm the create-input boundary with #2861 slice 4 and the validator boundary with #2865 D2 — all three touch `src/ir/validate/`. |
+| 9 | **M-T9.60 — parser and CLI papercuts** | the `money("…")` ambiguity, the two summary lines | `src/language/ddd.langium`, the CLI reporter | `MoneyLit` and `PrimitiveConversion` both match `money("10.50")`, so every parse of a money-carrying model prints four lines of Chevrotain internals — on the repo's own `examples/showcase.ddd`. Proof: stderr clean. |
+
+## Wave 3 — the tail (4 agents)
+
+| # | Mission | Fixes | Notes |
 |---|---|---|---|
-| **M-T2.15** — the migration diff models a value-collection field as a root column | D1 | `src/system/migrations-builder.ts` (`schemaFromModule`), `test/system/migrations-*` | Seed the pre-fix deriver, show the phantom `ADD COLUMN … JSONB[]` appears; after the fix, show gen-2 emits only `CREATE TABLE <agg>_<field>`. Then **apply both migrations to a real postgres and insert a row** — the audit's proof, as a test. |
-| **M-T6.63** — a `managed` / `internal` field's declared default is discarded | D2 | node create-factory emitter; the `money` default arm in `src/generator/{python,dotnet,java}` | The 3×5 matrix in the audit as a table test. Elixir is the reference implementation — it is already right in every cell. |
-| **M-T6.64** — a `valueobject` holding an `X id` emits a file with no imports | D3 | the TypeScript value-object emitter | `tsc --noEmit` on a generated project whose VO carries an `X id`. **Coordinate first:** #2862's D6 is the same class in the auth emitters. One slice or two is their call; do not land a duplicate fix. |
-| **M-T6.67a** — a `command`-typed workflow parameter has no wire type on any backend | D7, T2 | the workflow request-record emitters on all five backends | All five reference `<Payload>Response`; none emits it (.NET also misses the domain `FileClaim`). No decision needed — the payload record is a flat record and the fix is to emit it. **Split from 67b, which is gated on D-2.** |
-| **M-T6.67b** — an entity-part-typed operation parameter has no materialization | D6 | the operation request-schema + call-site emitters on node/dotnet/java/python | The value-object arm is the reference (`new LineVO(e.sku, e.qty)`). **Gated on decision D-2.** |
-| **M-T1.33** — a nullable `X id?` reference emits an unguarded link on all six frontends | T4 | the reference-link renderer in `src/generator/_frontend/` + the six walker targets | Two of the six fail to build (vue TS2345, feliz `string` + `string option`); four render `/locations/null`. Flutter already null-guards `datetime`/`money` in the same page — reuse that helper. Proof: build vue and confirm feliz's `string option` concat is gone. |
-| **M-T1.34** — Svelte: two operations referencing the same aggregate redeclare their picker | T5 | the Svelte page-shell emitter | `Identifier '__locations' has already been declared`. Dedupe the picker declarations per page. Proof: `npm run build` on a model with two such operations. |
-| **M-T6.68** — the Python channel tee's annotation rejects its own factory argument | T6 | the Python channels emitter | `mypy` clean on a channels-using Python backend. Types-only, tiny. |
-| **M-T5.30** — two validator rulings | G2, G4 | `src/ir/validate/checks/`, `src/diagnostics/messages.ts` | A reactor-without-starter model must fail the new gate and pass after adding a starter. Confirm the create-input boundary with #2861's slice 4 first. |
-| **M-T9.59** — parser and CLI papercuts | the `money("…")` ambiguity, the two contradictory summary lines | `src/language/ddd.langium` (the `MoneyLit` / `PrimitiveConversion` overlap), the CLI reporter | `ddd parse examples/showcase.ddd` must print no Chevrotain output, and one summary line. A regression test asserting stderr is clean on a money-carrying model. |
+| 10 | **M-T2.16 — a scalar-literal field default becomes a SQL column DEFAULT** | G1 | **Stacks on M-T2.15** (same file). Gated on decision D-3. |
+| 11 | **M-T3.18 — masked / `secret` fields leave the list-read sort allowlist** | G3 | An unauthorized caller can order by a value they cannot read. |
+| 12 | **M-T6.66 — `handle` continuations** | D5 | Gated on decision D-1. Opens the same five workflow emitters as #2850 and mission 6. |
+| 13 | **M-T6.68 + M-T1.32 + the Angular notes** | T6, the VO subform, T7 | Small, batchable: the Python channel-tee annotation; the VO subform's missing picker / `datetime-local` / `error=`; the Angular root `tsconfig` including `e2e` with no `@playwright/test` declared anywhere. |
 
-## Wave 2 — two agents, after #2850 merges
+Also free, now, no mission needed: **`docs/language.md:435`** still says a
+`create` body "populates a fresh `this`", which is backwards for the default
+persistence mode. #2862's docs-fence ratchet will not catch prose. One line.
 
-Both open workflow emitter files #2850 owns. Stack on its branch or wait for the
-merge; do not run them concurrently with it.
+## The decisions that gate waves 2 and 3
 
-| Mission | Fixes | Owns | Proof |
-|---|---|---|---|
-| **M-T6.65** — a workflow with an enum state field emits an undefined `<Enum>Schema`, on the backend AND four frontends | D4, T3 | `src/platform/hono/v4/workflow-builder.ts` **and** the frontend workflow-client emitter in `src/generator/_frontend/` | The aggregate route emitter is the reference: it emits `const HandlingKindSchema = z.enum([…])` locally before use. `tsc --noEmit` on an enum-stated saga. Note this breaks the **event-triggered** path too, so it invalidates T4's "runtime-proven at five-backend parity" claim for that shape — the mission must also correct that line. |
-| **M-T6.66** — `handle` continuations emit nothing on any backend | D5 | all five workflow emitters | Gated on decision D-1 below. If "implement": a `handle` route on all five, plus an instance-state round-trip test. If "reject": one `loom.*` code and a corpus sweep. |
+### D-1 — `handle` continuations: implement, or reject? (gates mission 12)
 
-## Wave 3 — three agents, after wave 1
+Documented as the multi-command saga surface (`docs/workflow.md:318`), emitting
+nothing anywhere, silently. **(a)** implement on all five backends — marginal
+cost is lowest right now, since #2850 is building the instance load/mutate/save
+seam for `create`; **(b)** reject with a `loom.*` code and drop the surface from
+the docs, consistent with the frozen saga-compensation decision; **(c)** reject
+now, implement later.
 
-| Mission | Fixes | Owns | Depends on |
-|---|---|---|---|
-| **M-T2.16** — a scalar-literal field default becomes a SQL column DEFAULT | G1 | `src/system/migrations-builder.ts` + the per-backend DDL renderers | **Stacks on M-T2.15** — same file. Gated on decision D-3. |
-| **M-T3.18** — a `mask unless` / `secret` field leaves the list-read sort allowlist | G3 | the sort-enum emitter + a validator gate | Independent; wave 3 only to keep wave 1 at six. |
-| **M-T9.60** — a coverage ratchet over the ts-build fixture matrix | the systemic point | `test/e2e/fixtures/ts-build/**`, a new ratchet test | **After wave 1**, because each wave-1 mission adds its shape to the fixture; this pins the matrix so the next three cannot recur. |
-| **M-T1.32** — value-object subforms lose the picker, the `datetime-local` input and the `error=` binding | the scaffold papercut | the subform renderer under `src/generator/_walker/` | Behind #2862's walker slices. |
+**Recommendation: (c).** The silence is the bug. Mint the code in wave 2 (it is
+disjoint from #2850) and let the emitter be a separate, unhurried decision.
 
-## The four decisions that gate the plan
+### D-2 — entity-part parameters: materialize, or reject? (gates the 67b half)
 
-These are not defects with an obvious fix — someone has to choose. Wave 2 and
-M-T2.16 should not start until D-1 to D-3 are answered.
+Rev. 1 posed this for both parameter kinds. Part 2 settled the payload half —
+it is a flat record with no identity question, so mission 4 just emits it, no
+decision. What remains is the **entity** half, which hides a language question
+the DSL has never answered: does a client-supplied part *replace* the collection
+(new ids, orphaning history) or *merge* by id?
 
-### D-1 — `handle` continuations: implement, or reject?
+**Recommendation: reject entity-typed parameters** with a `loom.*` code pointing
+at the value-object alternative — which is what a DDD-literate author should
+reach for anyway (a `Leg` in an itinerary is a value object in Evans' own model)
+— and defer the identity question to a proposal rather than guessing at it in an
+emitter.
 
-`docs/workflow.md:318` sells `handle` as the multi-command saga surface. Today
-it emits nothing anywhere, silently. Three options:
-
-- **(a) Implement on all five backends.** Honours the documented surface. Cost:
-  five emitters, plus the instance load / mutate / save seam — most of which
-  #2850 is already building for `create`, so the marginal cost is lower now than
-  it will ever be. This is the recommendation *if* sagas are a surface we intend
-  to keep selling.
-- **(b) Reject with a `loom.*` code and delete the surface from the docs.**
-  Cheap, honest, and consistent with the frozen saga-compensation decision
-  (T4: "sagas are already expressible today — authors write a form-4 workflow
-  with explicit failure handlers"). Cost: a documented feature disappears.
-- **(c) Reject now, implement later.** Mint the code in wave 1 (it is disjoint
-  from #2850), schedule the emitter behind it. Gets the silence closed this week
-  without committing five emitters.
-
-**Recommendation: (c).** The silence is the actual bug; the emitter is a feature
-decision that does not need to be made under time pressure.
-
-### D-2 — entity-part and payload-typed parameters: materialize, or reject?
-
-- **(a) Materialize.** Emit the construction the value-object arm already emits.
-  For an entity part this means minting `id` and threading `parentId` — which
-  raises a real semantic question the DSL has never answered: does a client-
-  supplied part *replace* the collection (new ids each time, orphaning history)
-  or *merge* by id? Answering it is a language decision, not an emitter fix.
-- **(b) Reject entity-typed parameters, materialize payload-typed ones.** The
-  payload case (`create(c: FileClaim)`) has no identity question at all — it is a
-  flat record, exactly like a value object, and the current `z.unknown()` is
-  plainly a hole. The entity case gets a `loom.*` code pointing at the
-  value-object alternative, which is what a DDD-literate author should reach for
-  anyway (a `Leg` in an itinerary is a value object in Evans' own model).
-
-**Recommendation: (b).** It closes the wire-contract hole immediately and turns
-the hard half into an explicit, documented "use a value object" — with the
-identity question deferred to a proposal rather than guessed at in an emitter.
-
-### D-3 — should a DSL field default become a SQL column DEFAULT?
+### D-3 — should a DSL field default reach the DDL? (gates mission 10)
 
 Today `status: string = "pending"` never reaches the DDL, so the natural way to
 add a required column non-destructively does not work and the author restates
-the value in a `migration {}` block. Wiring it through would delete a whole class
-of destructive-gate friction (this audit hit it twice in three iterations).
+the value in a `migration {}` block. Against: a column default is a second
+source of truth for a value the domain layer owns.
 
-The argument against is real: a column default is a **second** source of truth
-for a value the domain layer already owns, and rows written outside the app
-would silently acquire domain semantics. The middle path is to emit the DEFAULT
-**only in the add-column diff** (so the backfill is automatic and the gate
-clears), then `DROP DEFAULT` in the same migration — the column ends up exactly
-as it is today, and the friction disappears.
+**Recommendation: the middle path** — emit the DEFAULT only *inside* the
+add-column diff so the backfill is automatic, then `DROP DEFAULT` in the same
+migration. The column ends up exactly as it is today; the friction disappears;
+no runtime surface changes.
 
-**Recommendation: the middle path.** It is a migration-emitter change with no
-runtime surface and no second source of truth.
+### D-4 — re-price M-T3.16 (the inert `create` body)
 
-### D-4 — the create-body inertness (M-T3.16) is the deepest gap here
+Not a new finding, but this build is evidence about its cost. A state-based
+aggregate's `create` body is entirely inert, so in a DSL whose pitch is DDD the
+aggregate cannot guard its own construction or raise its creation event — the
+canonical "book a cargo" factory had to become a workflow. And the workflow
+escape hatch is itself leaky (#2850, missions 4, 6, 12). The two gaps compound.
 
-Not a new finding — it is tracked — but this build is evidence about its cost. A
-state-based aggregate's `create` body is entirely inert: `precondition`, `emit`
-and every assignment are dropped. In a DSL whose pitch is Domain-Driven Design,
-the aggregate cannot guard its own construction or raise its creation event, so
-the canonical "book a cargo" factory had to become a workflow. Every author who
-reaches for the obvious DDD shape will hit this.
+**Recommendation:** land the one-line docs correction now, and re-price the
+mission upward on the strength of four independent audits reaching for the same
+workaround.
 
-Two things this audit adds to the mission:
+## Shape and pacing
 
-1. **`docs/language.md:435` still describes the body as "populates a fresh
-   `this`"** — exactly backwards for the default persistence mode. That is a
-   one-line docs fix that should not wait for the emitter.
-2. The workaround (move it to a workflow) is only viable because workflows work.
-   D4, D5 and #2850 mean the workflow escape hatch is itself partly broken — so
-   the two gaps compound, and M-T3.16 is worth more than its own row suggests.
+Thirteen missions: one gate, five decision-free fixes, four followers, four in
+the tail. **Five concurrent agents**, not nine — the runner pool is shared with
+three other audit fleets and a merge queue, and every mission here triggers a
+per-backend compile gate.
 
-**Recommendation:** land the docs correction in wave 1 (free), and re-price
-M-T3.16 upward now that the escape hatch is known to be leaky.
+Two ordering rules carry the plan:
 
-## Fleet shape
-
-Wave 1 is now nine agents (the six original plus M-T1.33, M-T1.34 and M-T6.68,
-all disjoint and none needing a decision), wave 2 two, wave 3 four — fifteen
-missions. Each mission is one
-draft PR, opened before the work per the repo's claim rule, with the file list
-above pasted into its body so the next agent can see the boundary.
+1. **The gate goes first, red, with a waiver per known site.** Each fix deletes
+   its own waiver. The work list and the regression guard are the same artifact.
+2. **Compiling one target is not evidence about the others.** Part 2's whole
+   yield came from retargeting a model that already passed on node+react: three
+   of Part 1's findings were under-scoped, and two defect classes were invisible.
+   Every mission above names the targets its proof must cover.
