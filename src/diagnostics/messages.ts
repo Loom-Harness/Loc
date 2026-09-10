@@ -2361,6 +2361,40 @@ export const DIAGNOSTIC_MESSAGES = {
     `elements.  A collection op is still fine in a VALUE position ` +
     `(\`Text { rows.map(r => r.name).join(", ") }\`) — it is only the markup case that has ` +
     `nowhere to go.`,
+  // The `money` value cannot be rendered as text; the two arms differ only in
+  // WHERE `Money { … }` goes.  A one-slot text primitive coerces its slot to a
+  // string, so a nested primitive there renders EMPTY — the fix is to replace
+  // the call.  `Stat` / `KeyValueRow` walk a nested primitive in their value
+  // slot on purpose, so the fix is to wrap in place.
+  "loom.money-in-text-slot#replace": (p: {
+    where: unknown;
+    primitive: unknown;
+    path: unknown;
+    aggregate: unknown;
+  }) =>
+    `\`${p.primitive} { ${p.path} }\` renders a \`money\` value ` +
+    `(\`${p.aggregate}.${String(p.path).split(".").pop()}\`) as TEXT.  \`money\` crosses the wire ` +
+    `as a decimal string and deserialises client-side to a \`Decimal\` OBJECT, which is not a ` +
+    `renderable node — the generated frontend fails to TYPECHECK (\`TS2322: Type 'Decimal' is ` +
+    `not assignable to type 'ReactNode'\`), and the other frontends have the same hole in their ` +
+    `own wording.  Write \`Money { ${p.path} }\` instead: it is the formatter primitive, and it ` +
+    `is what the scaffolded table renders every money column through, so the amount also comes ` +
+    `out WITH its currency.  \`${p.primitive} { Money { … } }\` does NOT work — a one-slot text ` +
+    `primitive coerces its slot to a string and a nested primitive there renders empty.`,
+  "loom.money-in-text-slot#wrap": (p: {
+    where: unknown;
+    primitive: unknown;
+    path: unknown;
+    aggregate: unknown;
+  }) =>
+    `\`${p.primitive}\`'s value slot renders a \`money\` value ` +
+    `(\`${p.aggregate}.${String(p.path).split(".").pop()}\`) as TEXT.  \`money\` crosses the wire ` +
+    `as a decimal string and deserialises client-side to a \`Decimal\` OBJECT, which is not a ` +
+    `renderable node — the generated frontend fails to TYPECHECK (\`TS2322: Type 'Decimal' is ` +
+    `not assignable to type 'ReactNode'\`), and the other frontends have the same hole in their ` +
+    `own wording.  \`${p.primitive}\` walks a nested primitive in that slot, so wrap it in ` +
+    `place: \`Money { ${p.path} }\`.  That is also what renders the amount WITH its currency.`,
+
   // ----------------------------------------------------------------------
   // src/ir/validate/checks/ui-gate-checks.ts
   // ----------------------------------------------------------------------
