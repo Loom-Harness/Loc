@@ -42,6 +42,7 @@ import {
 } from "../generated/ast.js";
 import {
   absentRecordMember,
+  absentUserClaim,
   arithmeticResult,
   comparable,
   type DddType,
@@ -193,6 +194,36 @@ export function checkUnknownMemberAccess(model: Model, accept: ValidationAccepto
             property: "member",
             code: "loom.bare-collection-accessor",
           });
+          break;
+        }
+        // `currentUser.<undeclared-claim>` — the principal is the one record
+        // whose member typing fails OPEN (unknown ⇒ `string`), so without this
+        // the bad claim reaches the generated backend verbatim and breaks its
+        // own compile.  Its own code, not `loom.unknown-member`: the fix is to
+        // declare the claim in `user { }`, not to correct a typo on a domain
+        // record, and the message has to say so.
+        //
+        // SOURCE-WRITTEN ACCESSES ONLY (`ms.$cstNode`).  The `tenantOwned`
+        // prelude capability splices `currentUser.tenantId` as a PLACEHOLDER —
+        // the claim it really binds is `tenancy by user.<claim>`, and the
+        // rewrite happens in phase ⑥ (`bindTenancyClaim`), long after this
+        // validator runs.  Under `tenancy by user.orgId`, that placeholder is
+        // by construction not a declared claim, and reporting it would fail
+        // every hierarchical-tenancy model in the corpus at 1:1 with a
+        // diagnostic naming text the author never wrote.  A capability /
+        // macro splice carries no CST node; a hand-written access always does,
+        // and where a macro CLONES a user expression the original still
+        // carries its own CST and is reported exactly once.
+        const claims = ms.$cstNode ? absentUserClaim(recvType, ms.member) : undefined;
+        if (claims) {
+          accept(
+            "error",
+            diagMessage("loom.unknown-user-claim", {
+              member: ms.member,
+              claims: claims.length ? claims.join(", ") : "(none)",
+            }),
+            { node: ms, property: "member", code: "loom.unknown-user-claim" },
+          );
           break;
         }
         const record = absentRecordMember(recvType, ms.member);

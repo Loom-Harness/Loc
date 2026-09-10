@@ -8,7 +8,9 @@
 // `==` / `&&` / `||` forced the result to bool (which is why every shipped
 // example happened to OR it).  These tests pin that the bare gate now
 // type-checks, that a genuinely-non-bool gate is still rejected, and that an
-// unknown claim stays fail-open (no new error).
+// unknown claim is reported as an unknown CLAIM rather than as a gate-type
+// failure (`loom.unknown-user-claim`, audit D2 — that check has its own
+// coverage in `unknown-user-claim.test.ts`).
 
 import { describe, expect, it } from "vitest";
 import { parseString } from "../../_helpers/index.js";
@@ -72,13 +74,19 @@ describe("currentUser gate typing — bare boolean claim gates type-check", () =
     expect(e.some((s) => /'requires' must be of type 'bool', got 'int'/.test(s))).toBe(true);
   });
 
-  it("stays fail-open on an unknown claim (no new error)", async () => {
-    // `role` IS declared; `nickname` is NOT — the reference must not error
-    // (mirrors the IR layer's string fallback for unknown principal members).
+  it("rejects an unknown claim (`loom.unknown-user-claim`), not the gate's type", async () => {
+    // REVERSED, deliberately.  This case used to assert the fail-open posture
+    // ("no new error") that mirrored the IR layer's string fallback — which
+    // audit D2 (`docs/audits/2026-09-10-claimshub-dev-experience.md`) showed
+    // was the bug: the undeclared claim rode through to the generated
+    // backend and broke its own compile.  `loom.unknown-user-claim` now
+    // reports it.  What still holds is the part this file is about: the GATE
+    // types as bool, so the only complaint is about the claim itself.
     const e = await errs(
       `aggregate Order with crudish { status: string
         operation go() requires currentUser.nickname == "x" { status := "a" } }`,
     );
-    expect(e.join("\n")).toBe("");
+    expect(e.filter((s) => /'requires' must be of type 'bool'/.test(s))).toHaveLength(0);
+    expect(e.join("\n")).toMatch(/'nickname' is not a claim on the principal/);
   });
 });

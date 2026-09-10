@@ -2583,8 +2583,11 @@ function memberType(t: TypeIR, name: string, env: Env): TypeIR {
   // `currentUser.<field>` — synthetic entity backed by the system's
   // user block.  Walked via env.user.fields rather than the
   // bounded-context registry.  Unknown members fall through to the
-  // string fallback; the validator will surface the broken reference
-  // with a friendlier message.
+  // string fallback — the AST validator has already rejected a
+  // source-written one (`loom.unknown-user-claim`,
+  // `validators/types.ts` → `absentUserClaim`), so what still reaches
+  // here is a macro/capability splice whose principal side phase ⑥
+  // rebinds (`tenantOwned`'s `currentUser.tenantId` placeholder).
   if (t.kind === "entity" && t.name === USER_SHAPE_NAME && env.user) {
     // `currentUser.orgPath` — the derived tenant materialized-path member
     // (tenancy.md).  Not a `user {}` claim; computed per
