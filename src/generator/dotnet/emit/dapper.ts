@@ -51,6 +51,7 @@ import { intrinsicFor, intrinsicKey } from "../../../util/intrinsics.js";
 import { escapeCsharpIdent, plural, snake, upperFirst } from "../../../util/naming.js";
 import { MAKE_INTERVAL_ARG, temporalInterval } from "../../_expr/pg-interval.js";
 import { PG_INTRINSIC_SQL } from "../../_expr/pg-intrinsics.js";
+import { refuseOutOfVocabulary } from "../../_expr/target.js";
 import { renderCreateTableIfNotExists } from "../../sql-pg.js";
 import { isReservedIdent } from "../../sql-reserved.js";
 import { unionFindAsOptionalTwin } from "../find-emit.js";
@@ -698,13 +699,18 @@ export interface WhereSqlCtx {
   table: string;
 }
 
+/** Hand-rolled ExprIR → raw Postgres SQL, the `persistence: dapper` adapter's
+ *  narrow query-language renderer.  Declared `QueryEmissionMode` (§F2, Wave 2
+ *  packet 2.4): `"sql-dapper"` — constant, threaded directly at each refusal
+ *  site rather than through a `ctx.mode` field (this renderer has exactly one
+ *  target sub-language, unlike JPQL's two SpEL-vs-plain-param sub-modes). */
 export function whereToSql(e: ExprIR, sqlCtx?: WhereSqlCtx): string {
   switch (e.kind) {
     case "paren":
       return `(${whereToSql(e.inner, sqlCtx)})`;
     case "unary":
       if (e.op === "!") return `(NOT ${whereToSql(e.operand, sqlCtx)})`;
-      throw new Error("dapper: unsupported unary in find");
+      return refuseOutOfVocabulary("sql-dapper", "unary operator in find");
     case "binary": {
       // A5 temporal — `datetime ± days/hours/minutes(n)` is not a comparison,
       // so it has no `SQL_BINOP` row; it is Postgres interval arithmetic and
@@ -718,7 +724,7 @@ export function whereToSql(e: ExprIR, sqlCtx?: WhereSqlCtx): string {
         return `(${side} ${interval.op} make_interval(${arg} => ${amount}))`;
       }
       const op = SQL_BINOP[e.op];
-      if (!op) throw new Error(`dapper: unsupported operator '${e.op}' in find`);
+      if (!op) return refuseOutOfVocabulary("sql-dapper", `operator '${e.op}' in find`);
       return `(${whereToSql(e.left, sqlCtx)} ${op} ${whereToSql(e.right, sqlCtx)})`;
     }
     case "method-call": {
@@ -763,7 +769,7 @@ export function whereToSql(e: ExprIR, sqlCtx?: WhereSqlCtx): string {
           );
         }
       }
-      throw new Error(`dapper: unsupported method-call '${e.member}' in find`);
+      return refuseOutOfVocabulary("sql-dapper", `method call '${e.member}' in find`);
     }
     case "member":
       // `this.<field>` → column.
@@ -774,7 +780,7 @@ export function whereToSql(e: ExprIR, sqlCtx?: WhereSqlCtx): string {
       // parameter object — see `filterPrincipalRefs` in renderDapperRepository.
       if (e.receiver.kind === "ref" && e.receiver.refKind === "current-user")
         return `@${currentUserParam(e.member)}`;
-      throw new Error("dapper: unsupported member access in find");
+      return refuseOutOfVocabulary("sql-dapper", "member access in find");
     case "ref":
       // A find/retrieval parameter → Dapper named parameter.
       if (e.refKind === "param") return `@${e.name}`;
@@ -783,7 +789,7 @@ export function whereToSql(e: ExprIR, sqlCtx?: WhereSqlCtx): string {
       // An enum value (`Status.Confirmed`) → its text representation, matching
       // the `text` column the enum is stored as.
       if (e.refKind === "enum-value") return `'${e.name.replace(/'/g, "''")}'`;
-      throw new Error(`dapper: unsupported ref '${e.refKind}' in find`);
+      return refuseOutOfVocabulary("sql-dapper", `ref '${e.refKind}' in find`);
     case "authz-filter":
       return authzFilterToSql(e);
     case "literal":
@@ -800,10 +806,10 @@ export function whereToSql(e: ExprIR, sqlCtx?: WhereSqlCtx): string {
         case "money":
           return e.value;
         default:
-          throw new Error("dapper: unsupported literal in find");
+          return refuseOutOfVocabulary("sql-dapper", `literal kind '${e.lit}' in find`);
       }
     default:
-      throw new Error(`dapper: unsupported expression '${e.kind}' in find`);
+      return refuseOutOfVocabulary("sql-dapper", `expression kind '${e.kind}' in find`);
   }
 }
 

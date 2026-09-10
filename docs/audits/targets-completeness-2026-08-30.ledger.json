@@ -510,51 +510,6 @@
       }
     },
     {
-      "id": "G2667-D3-projection-join-unguarded-index",
-      "title": "Debt: query-time projection `join` indexes the joined dictionary unguarded — 500 from ordinary data",
-      "kind": "silent",
-      "class": null,
-      "confidence": "likely",
-      "targets": [
-        "dotnet",
-        "node"
-      ],
-      "fileTrees": [
-        "src/generator/dotnet/query-projection-emit.ts",
-        "src/platform/hono/v4/projection-query-routes-builder.ts"
-      ],
-      "evidence": [
-        {
-          "fleet": 1,
-          "id": "G2667-D3-projection-join-unguarded-index",
-          "text": "Documented by register-only PR #2667 §D3: .NET query-projection-emit.ts:1301 indexes the joined dictionary directly → `KeyNotFoundException`, and node projection-query-routes-builder.ts:649 uses `.get(...)!` → undefined deref, whenever the join target is soft-deleted or capability-filtered OUT. Ordinary data therefore 500s. Cross-backend debt."
-        }
-      ],
-      "repro": null,
-      "impact": null,
-      "fix": "Make the join lookup total: emit a `TryGetValue` / `?? null` and decide the semantics (skip the row, or emit a null-filled join). Record the choice as an RS rule so all five agree, and add a behavioral case where the join target is soft-deleted.",
-      "size": "S",
-      "sources": [
-        "fleet1:pr-registers"
-      ],
-      "related_to": [
-        "adjacency: #2667 edits dotnet/query-projection-emit.ts (A1/C1); node projection-query-routes-builder.ts untouched"
-      ],
-      "securityClass": false,
-      "P": 2,
-      "note": "Packet 1b (dotnet-adapters, claude/wave-1, NOT YET on main): the dotnet arm is fixed on that branch. node/python/java/elixir arms remain open; needs an RS-rule for LEFT-JOIN semantics. Row stays open pending that branch's merge. | Wave 1: dotnet (1b), node (1c) and python (1e) arms LEFT-JOIN (source row survives, joined field absent); elixir and java arms open; the cross-backend RS rule for the absent value (node null vs .NET default!) is still to be ruled. | Wave 1 packet 1d: elixir arm LEFT-JOINs too (total __joined/2). Only the java arm is open.",
-      "verified": {
-        "date": "2026-09-03",
-        "against": "bd7aaeedc",
-        "method": "each row's own repro re-run; emitted output read",
-        "verdict": "partial",
-        "note": "node/dotnet/python/elixir all LEFT-JOIN to null on a miss; java still `customerById.get(...).name()` unguarded → NPE/500",
-        "remainingTargets": [
-          "java"
-        ]
-      }
-    },
-    {
       "id": "G2646-open-heex-layout-inert",
       "title": "#2646 documented, NOT fixed: HEEx layout primitives semantically inert (Grid ≡ Stack, bare divs); non-server-paged Table gets no pager; i18nFormat wrapper dropped",
       "kind": "silent",
@@ -2911,45 +2866,6 @@
       "P": 4
     },
     {
-      "id": "G2667-F2-render-mode-in-seam",
-      "title": "Architecture: make emission MODE part of the shared seam and refuse out-of-vocabulary constructs loudly (root cause of A1 + A8)",
-      "kind": "mission",
-      "class": null,
-      "confidence": "likely",
-      "targets": [
-        "java",
-        "dotnet",
-        "node",
-        "python",
-        "elixir"
-      ],
-      "fileTrees": [
-        "src/generator/_expr/target.ts",
-        "src/generator/java/render-jpql.ts",
-        "src/generator/dotnet/render-expr.ts"
-      ],
-      "evidence": [
-        {
-          "fleet": 1,
-          "id": "G2667-F2-render-mode-in-seam",
-          "text": "Recommended by register-only PR #2667 §F2. Grounded in A8 (render-jpql.ts:186-189 emits SpEL in a mode where SpEL is illegal, while dotnet/render-expr.ts:399-418 correctly gates on ctx.efQuery) and A1 (columns-vs-document mode guessed per arm)."
-        }
-      ],
-      "repro": null,
-      "impact": null,
-      "fix": "Add an explicit mode to RenderCtx (efQuery|principalAccessors; relational|document) and have the renderers THROW at generate time on a construct outside the active mode's vocabulary, the way _expr/target.ts already throws on authz-filter. Converts the next A1/A8 from a silent 500 into a one-line gate.",
-      "size": "M",
-      "sources": [
-        "fleet1:pr-registers"
-      ],
-      "related_to": [
-        "G2667-A1-document-shape-aggregation, G2667-A8-java-spel-prefilter-mode — the two concrete defects",
-        "adjacency: #2667 lands the A8/A1 point fixes in render-jpql.ts/_expr/target.ts; the mode-in-seam contract itself is not built"
-      ],
-      "securityClass": false,
-      "P": 4
-    },
-    {
       "id": "G2667-F3-one-ref-walker-per-ir-family",
       "title": "Architecture: one ref-walker per IR family, never hand-enumerated switches (root cause of A16 ×3 and A17)",
       "kind": "mission",
@@ -4228,45 +4144,6 @@
       ],
       "related_to": [
         "G2644-M-T9.36-wire-codec-seam — the seam this rule would live in"
-      ],
-      "securityClass": false,
-      "P": 4
-    },
-    {
-      "id": "G2644-M-T9.36-wire-codec-seam",
-      "title": "#2644 root cause / M-T9.36 — the numeric wire-codec seam: one per-backend codec contract + a boundary-enumeration completeness gate",
-      "kind": "mission",
-      "class": null,
-      "confidence": "likely",
-      "targets": [
-        "node",
-        "dotnet",
-        "java",
-        "python",
-        "elixir"
-      ],
-      "fileTrees": [
-        "src/generator/_wire/",
-        "src/generator/",
-        "src/ir/util/projection-aggregate.ts",
-        "test/system/"
-      ],
-      "evidence": [
-        {
-          "fleet": 1,
-          "id": "G2644-M-T9.36-wire-codec-seam",
-          "text": "Documented by register-only PR #2644 as the ROOT CAUSE behind five instances in four days (#2545, #2560, #2575 ×3, #2631): the number wire contract (money = fixed-scale-4 string RS-12, decimal = float64 JSON number RS-24, int/long = JSON integer) is one cross-cutting decision implemented as many scattered per-backend, per-read-path coercions. Each new read path (per-row DTO, projection select, aggregate, group key, dapper raw SQL) re-makes the decision and no gate enumerates the boundaries."
-        }
-      ],
-      "repro": null,
-      "impact": null,
-      "fix": "BLOCKED on M-T6.46 + M-T6.47 (they finish the concrete divergences the seam generalizes). Lift the scattered per-path decisions into one per-backend numeric codec table (the generalization of `aggregateCoercion` + #2631's `aggregateLandsOnDouble`) under a new src/generator/_wire/, consumed at every boundary: per-row DTO, projection select, aggregate, group key, raw-SQL adapters. Gate: a completeness test enumerating the boundaries per backend, mutation-proved by adding a fake unregistered boundary. Byte-identical emission across the refactor.",
-      "size": "L",
-      "sources": [
-        "fleet1:pr-registers"
-      ],
-      "related_to": [
-        "root-cause seam for the whole G2644 numeric family (M-T1.22/1.23/1.24/1.25, T2.14, T5.22/5.23/5.24, T6.44-6.48)"
       ],
       "securityClass": false,
       "P": 4
@@ -6443,11 +6320,6 @@
       "title": "Computed `to:` on Anchor/Button silently dropped on six of seven frontends"
     },
     {
-      "id": "G2667-A15-angular-apostrophe-crash",
-      "claimedBy": "#2667",
-      "title": "Angular + i18n: an apostrophe in any bound-attribute text slot crashes the whole generate run"
-    },
-    {
       "id": "G2644-M-T1.23-duplicate-decimal-import",
       "claimedBy": "#2671",
       "title": "#2644 F3 / M-T1.23 — a money form input makes the generated React/Svelte app fail to build (duplicate Decimal import)"
@@ -6514,19 +6386,9 @@
       "title": "-= on a datetime[] (or object-element) collection compares by reference — silent no-op on node"
     },
     {
-      "id": "G2667-D12-flutter-feliz-testid-escaping",
-      "claimedBy": "#2667",
-      "title": "Debt: flutter/feliz testid escaping — Timeline Key bypasses dartString; HTML-entity-escaped text in non-HTML testids"
-    },
-    {
       "id": "G2667-A13-i18n-consumption-gaps",
       "claimedBy": "#2667",
       "title": "i18n: modal trigger/submit labels and the sidebar render raw while their keys sit in the catalog"
-    },
-    {
-      "id": "G2667-C6-heex-testid-splice",
-      "claimedBy": "#2667",
-      "title": "08-17 register #6: unescaped data-testid=\"${testid}\" splices in heex-primitives — now 19 sites, plus ~8 literal-only testid renderers"
     },
     {
       "id": "G2667-A14-feliz-named-route-param",
@@ -7043,7 +6905,7 @@
       "title": "The Elixir `#{` escaping funnel is incomplete: four emit sites splice a `.ddd` string into Elixir code with bare `JSON.stringify`",
       "pr": "#2668",
       "sha": "e0aff5a",
-      "note": "fixed (P0 security): all four named sites now route through `elixirString` instead of bare `JSON.stringify` — verified at the exact cited lines on fresh main: schema-emit.ts:409 (`renderEctoDefault`), denial.ts:203/247/308, changeset-invariant-emit.ts:145, realtime-liveview.ts:67. Note the fix's second half (widening test/generator/hostile-inputs.test.ts to cover these four emitters directly) is NOT done — the gate still only exercises `renderElixirExpr`/`elixirString`."
+      "note": "fixed (P0 security): all four named sites now route through `elixirString` instead of bare `JSON.stringify` — verified at the exact cited lines on fresh main: schema-emit.ts:409 (`renderEctoDefault`), denial.ts:203/247/308, changeset-invariant-emit.ts:145, realtime-liveview.ts:67. Note the fix's second half (widening test/generator/hostile-inputs.test.ts to cover these four emitters directly) is NOT done — the gate still only exercises `renderElixirExpr`/`elixirString`. Wave 2 packet 2.2 (#2770) closes the residual gap this note named: `test/system/escape-funnel-census.test.ts` now scans every `JSON.stringify(` call under `src/generator/**` (not just the four named sites) and classifies it by destination, so a new bare splice into a non-JS-family position fails the census instead of waiting for the next manual sweep. `escapeStringLiteral` was also added to the shared `ExprTarget` contract (`_expr/target.ts`) and `escapeAttr` to `WalkerTarget` (`_walker/target.ts`), and `seed-emit.ts`'s duplicate `exStr` helper was deleted in favour of the shared `elixirString` import."
     },
     {
       "id": "F2-FFE-6",
@@ -7328,9 +7190,9 @@
     {
       "id": "F2-SEED-EVENTSOURCED",
       "title": "A `seed` row on an event-sourced aggregate is silently dropped on elixir (marker still written) and emits an arity-wrong `create(...)` on java + dotnet",
-      "pr": "#2700",
+      "pr": "#2770",
       "sha": "727d328",
-      "note": "gated: loom.seed-event-sourced-unsupported + loom.seed-abstract-aggregate (src/diagnostics/unsupported-register.ts:613) — the event-append seed path itself remains real future work under M-T6.50/M-T6.52."
+      "note": "gated 2026-08-31 by #2700 (loom.seed-event-sourced-unsupported + loom.seed-abstract-aggregate); M-T6.52 (Wave 2 packet 2.5, #2770) lands the event-append seed path itself — a shared seeder model (src/generator/_persistence/seed-datasets.ts) derives an event-sourced aggregate's create-call shape from its `create` action's OWN params (not the field set) and all five backends read it: elixir appends the creation event through the create_<agg>/1 command seam, java/.NET build the call from the shared param list. `loom.seed-event-sourced-unsupported` is retired; the domain path is now accepted, with two narrower permanent rules (`loom.seed-raw-eventsourced`, `loom.seed-eventsourced-no-create`) in its place."
     },
     {
       "id": "connection-secret-wiring",
@@ -7452,46 +7314,95 @@
       "note": "Wave 1 sweeper: <DomainService>.<op>(...) arm added to typeOfPostfixChain; test/language/type-system/domainservice-requires-typing.test.ts."
     },
     {
-      "id": "F2-CFE-9",
-      "title": "Flutter's `Money` / `DateDisplay` / `EnumBadge` primitives do not null-guard an OPTIONAL field — two produce Dart that fails static analysis, the third renders the literal text \"null\"",
-      "source": "fleet2:probe-combos-frontend",
-      "closedBy": "verified 2026-09-03 against bd7aaeedc",
-      "note": "all three primitives route through `nullSafe(...)` (#2734)"
+      "id": "G2667-F2-render-mode-in-seam",
+      "title": "Architecture: make emission MODE part of the shared seam and refuse out-of-vocabulary constructs loudly (root cause of A1 + A8)",
+      "pr": "#2770",
+      "sha": "5e1ad1c74",
+      "note": "fixed: src/generator/_expr/target.ts declares QueryEmissionMode + QUERY_EMISSION_VOCABULARY (per-mode accepted ExprIR.kind set) + refuseOutOfVocabulary, which every query-language renderer's out-of-vocabulary fallback routes through instead of an ad hoc per-arm throw (java/render-jpql.ts JpqlCtx.mode replaces the principalAccessors boolean flag this row names directly; sql-pg-expr.ts, dotnet/emit/dapper.ts whereToSql, python/find-predicate.ts requireLowered, typescript/repository-find-predicate.ts lowerToDrizzle route the same way; dotnet LINQ / Elixir Ecto document their reuse of the full ExprTarget for query positions). test/generator/_expr/emission-mode.test.ts is the census + vocabulary + reachability contract test, mutation-proved."
     },
     {
-      "id": "flutter-modal-instance-operationform",
-      "title": "Flutter drops the ENTIRE operations row of every scaffolded Detail page — `renderModal` only matches `OperationForm { of:, op: }`",
-      "source": "fleet1:plan-residue",
-      "closedBy": "verified 2026-09-03 against bd7aaeedc",
-      "note": "scaffolded flutter Detail pages emit `showDialog(… <Op>Form(id: id))`; no `/* Modal:` comments (#2734)"
+      "id": "G2667-A15-angular-apostrophe-crash",
+      "title": "Angular + i18n: an apostrophe in any bound-attribute text slot crashes the whole generate run",
+      "pr": "#2667",
+      "note": "fixed (#2667): `angularTarget.renderAttrBinding` (`src/generator/angular/walker/angular-target.ts`) escapes a both-quote bound expression to `&quot;`/`'` instead of throwing, matching Vue's `quoteAttrExpr` (finding B21) — confirmed at the cited lines on fresh main by Wave 2 packet 2.2 (#2770) while reviewing the WalkerTarget attribute-escaping seam."
     },
     {
-      "id": "F2-FFE-8",
-      "title": "Flutter and Feliz persisted stores write a FLAT JSON blob under the same `loom.store.<Name>` key the JS frontends use for zustand's `{state,version}` envelope",
-      "source": "fleet2:fix-frontends",
-      "closedBy": "verified 2026-09-03 against bd7aaeedc",
-      "note": "Feliz and Flutter both write the zustand `persist` envelope and both readers still unwrap a bare object (#2734)"
+      "id": "G2667-D12-flutter-feliz-testid-escaping",
+      "title": "Debt: flutter/feliz testid escaping — Timeline Key bypasses dartString; HTML-entity-escaped text in non-HTML testids",
+      "pr": "#2667",
+      "note": "fixed (#2667): Flutter's `renderTimeline`/`testidKey` (`flutter-target.ts`, `pack.ts`) route a static testid through `dartString`/the walker's `escapeText` seam, not a hand-rolled `'…'` — confirmed at the cited lines on fresh main by Wave 2 packet 2.2 (#2770) while reviewing the escape-funnel class."
+    },
+    {
+      "id": "G2667-C6-heex-testid-splice",
+      "title": "08-17 register #6: unescaped data-testid=\"${testid}\" splices in heex-primitives — now 19 sites, plus ~8 literal-only testid renderers",
+      "pr": "#2667",
+      "note": "fixed (#2667): every `data-testid` emit site in `heex-primitives.ts` routes through `attrValue`/`escapeHeexAttr` (a literal testid escapes `\"`/`&`/`<`/`>`) — confirmed at the cited lines on fresh main by Wave 2 packet 2.2 (#2770) while reviewing the HEEx attribute-escaping funnel."
+    },
+    {
+      "id": "G2667-D3-projection-join-unguarded-index",
+      "title": "Debt: query-time projection `join` indexes the joined dictionary unguarded — 500 from ordinary data",
+      "pr": "#2770",
+      "note": "fixed on all five backends: dotnet (b75ce2c) and node (40202d9) in wave 1 packet 1b/1c, python and elixir in wave 1 packets 1e/1d, java in the wave-2 residue (src/generator/java/emit/query-projection-reads.ts's renderSelectWire -- a null-guarded lookup, wire null when the joined aggregate is absent from its own bulk-load; the wire coercion sits INSIDE the guard so a joined money/decimal/datetime field's non-null narrowing never runs on the absent row). RS rule recorded as RS-34 in docs/conformance-semantics.md (wire null on every backend; the .NET value-typed-joined-field gap is documented as still open there, unverified/unfixed, out of this packet's scope). Pinned by test/generator/java/query-projection-join-missing.test.ts and the java arm of test/ir/projection-comprehension.test.ts; mutation-proven by file-copy revert of renderSelectWire (4 named assertions fail).",
+      "verified": {
+        "date": "2026-09-03",
+        "against": "bd7aaeedc",
+        "method": "each row's own repro re-run; emitted output read",
+        "verdict": "partial",
+        "note": "node/dotnet/python/elixir all LEFT-JOIN to null on a miss; java still `customerById.get(...).name()` unguarded → NPE/500",
+        "remainingTargets": [
+          "java"
+        ]
+      }
     },
     {
       "id": "provenanced-bare-read-in-page-body",
       "title": "Provenanced<T> (#2653, merged 2026-08-24) changed the wire shape of a `provenanced` field under every page-body read; only the scaffold macro was taught `.value`, so a hand-written body reading the field bare now emits an object into a text slot with no gate",
-      "source": "fleet1:fresh-gate-probe",
+      "pr": "#2770",
+      "note": "already-done-verified on this base: src/generator/_walker/walker-core.ts's emitExpr `case \"member\"` already routes through emitMemberAccess's isProvenancedCarrierRead unwrap (the M-T6.12 provenanced-wire carrier hop, landed generally by #2734 -- a side effect, not a targeted fix for this row). Re-verified by RUNNING a hand-written (non-scaffold) page-body probe reading a provenanced field both bare and via `.value` on all SIX shared-walker targets (react/vue/svelte/angular/feliz/flutter) generated from source: bare reads gain the `.value` hop, explicit reads stay single-hop (no `.value.value`), a plain field is untouched. Newly pinned by test/generator/_walker/provenanced-bare-read-in-page-body.test.ts (react/vue/svelte), mutation-proven by disabling the unwrap arm (3 named assertions fail). HEEx's opposite-direction drop (heex-walker-core.ts's provenancedFieldNames) remains covered by its own existing test file, untouched here.",
       "closedBy": "verified 2026-09-03 against bd7aaeedc",
-      "note": "bare read auto-appends `.value` on all six frontends; explicit `.value` not double-hopped; HEEx drops the hop (#2734)"
+      "source": "fleet1:fresh-gate-probe"
+    },
+    {
+      "id": "G2644-M-T9.36-wire-codec-seam",
+      "title": "#2644 root cause / M-T9.36 — the numeric wire-codec seam: one per-backend codec contract + a boundary-enumeration completeness gate",
+      "pr": "#2770",
+      "sha": "ed65cc458",
+      "note": "fixed: src/generator/_numeric/ (codec.ts's NUMERIC_WIRE_CODEC decision table + target.ts's NumericTarget contract over five read-boundary kinds) is the one per-backend numeric codec, consumed at every repo-read/projection-read/dto-map/find-param boundary across all five backends (per-backend numeric-codec.ts leaf tables) -- repository hydration, DTO/wire mappers, query-time projection reads, inbound param decode, channel/realtime payloads. test/generator/_numeric/boundary-census.test.ts enumerates every occurrence of the extracted literal signatures across the fenced trees and fails, naming file:line, on any outside the seam; mutation-proved three ways (unregistered boundary, deleted waiver, stale waiver -- see docs/new-plan/waves/handoffs/wave-2-numeric-codec.md). Byte-identical corpus/examples/web-examples diff verified across the refactor (55 fixtures, only pre-existing per-run random secrets differ); three genuinely-wrong boundaries found and fixed as separate commits (java channel/SSE money payload, dotnet channel envelope money payload, elixir channel envelope money payload -- all bare-scale-echo bugs of the #2549 class, each mutation-proved)."
+    },
+    {
+      "id": "F2-CFE-9",
+      "title": "Flutter's `Money` / `DateDisplay` / `EnumBadge` primitives do not null-guard an OPTIONAL field — two produce Dart that fails static analysis, the third renders the literal text \"null\"",
+      "note": "all three primitives route through `nullSafe(...)` (#2734)",
+      "closedBy": "verified 2026-09-03 against bd7aaeedc",
+      "source": "fleet2:probe-combos-frontend"
+    },
+    {
+      "id": "flutter-modal-instance-operationform",
+      "title": "Flutter drops the ENTIRE operations row of every scaffolded Detail page — `renderModal` only matches `OperationForm { of:, op: }`",
+      "note": "scaffolded flutter Detail pages emit `showDialog(… <Op>Form(id: id))`; no `/* Modal:` comments (#2734)",
+      "closedBy": "verified 2026-09-03 against bd7aaeedc",
+      "source": "fleet1:plan-residue"
+    },
+    {
+      "id": "F2-FFE-8",
+      "title": "Flutter and Feliz persisted stores write a FLAT JSON blob under the same `loom.store.<Name>` key the JS frontends use for zustand's `{state,version}` envelope",
+      "note": "Feliz and Flutter both write the zustand `persist` envelope and both readers still unwrap a bare object (#2734)",
+      "closedBy": "verified 2026-09-03 against bd7aaeedc",
+      "source": "fleet2:fix-frontends"
     },
     {
       "id": "M-T6.2-s14-audit-wiresnapshot",
       "title": "Elixir audit before/after snapshots still dump the raw snake_case Ecto struct while the other four record the wireShape",
-      "source": "fleet1:t6-backend",
+      "note": "all 8 `wireSnapshot(...)` call sites pass `appModule`, routing through `Audit.Wire.wire/1`; the raw `Map.from_struct` branches are dead fallbacks",
       "closedBy": "verified 2026-09-03 against bd7aaeedc",
-      "note": "all 8 `wireSnapshot(...)` call sites pass `appModule`, routing through `Audit.Wire.wire/1`; the raw `Map.from_struct` branches are dead fallbacks"
+      "source": "fleet1:t6-backend"
     },
     {
       "id": "M-T3.15-C3-nav-vs-requires",
       "title": "C3 — the default sidebar shows links to routes the backend refuses (react/vue/svelte)",
-      "source": "fleet1:t3-t5-auth-lang",
+      "note": "react/vue/svelte gated in #2734; angular and heex verified gated too. Feliz's ungated navbar is a DIFFERENT target this row never named — filed as `feliz-navbar-ignores-page-requires`",
       "closedBy": "verified 2026-09-03 against bd7aaeedc",
-      "note": "react/vue/svelte gated in #2734; angular and heex verified gated too. Feliz's ungated navbar is a DIFFERENT target this row never named — filed as `feliz-navbar-ignores-page-requires`"
+      "source": "fleet1:t3-t5-auth-lang"
     }
   ],
   "conflicts": [
@@ -7763,53 +7674,47 @@
     }
   ],
   "counts": {
-    "open": 156,
+    "open": 153,
     "byPriority": {
-      "P0": 1,
-      "P1": 11,
-      "P2": 20,
-      "P3": 34,
-      "P4": 91,
+      "P0": 0,
+      "P1": 7,
+      "P2": 13,
+      "P3": 32,
+      "P4": 89,
       "P5": 12
     },
     "byKind": {
-      "silent": 32,
-      "honest": 34,
-      "mission": 65,
+      "silent": 20,
+      "honest": 32,
+      "mission": 63,
       "breadth": 26,
       "stale-prose": 12
     },
     "byConfidence": {
-      "proven": 35,
-      "likely": 132,
-      "suspected": 2
+      "proven": 29,
+      "likely": 123,
+      "suspected": 1
     },
     "byClass": {
-      "null": 168,
+      "null": 152,
       "faulty-fix": 1
     },
     "bySize": {
-      "M": 73,
-      "S": 49,
-      "L": 47
+      "S": 41,
+      "M": 66,
+      "L": 46
     },
     "bySourceFleet": {
-      "fleet2only": 19,
-      "fleet1only": 149,
-      "both": 1
+      "fleet2only": 14,
+      "fleet1only": 137,
+      "both": 1,
+      "unknown": 1
     },
-    "claimed": 64,
-    "done": 128,
+    "claimed": 61,
+    "done": 140,
     "conflicts": 10,
     "checkedOk": 146,
     "waveRows": 134,
-    "packets": 13,
-    "reverified_2026_09_03": {
-      "rowsChecked": 26,
-      "shipped": 6,
-      "partial": 11,
-      "open": 9,
-      "newRows": 1
-    }
+    "packets": 13
   }
 }
