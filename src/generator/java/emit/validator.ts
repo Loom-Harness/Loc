@@ -387,11 +387,30 @@ function buildChecks(
     // Generic predicate over the command values — the .NET `.Must(...)` arm.
     // `bareProps` renders `this.x` refs as the parsed local names declared above.
     const path = pickErrorPath(inv) ?? spec.params[0]?.name ?? "";
+    // A GUARDED invariant (`invariant P when G`) is the implication `G -> P`,
+    // NOT `P`.  Rendering only the consequent turns a conditional rule into an
+    // unconditional one and 422-refuses a body the domain layer itself accepts
+    // — so the guard rides here exactly as it does on .NET
+    // (`.Must(x => !(guard) || (body))`, dotnet/validator-emit.ts), node
+    // (`.refine(d => !(guard) || …)`) and python.  `singleFieldShape` returns
+    // null for every guarded invariant (ir/validate/invariant-classify.ts), so
+    // this arm is the only one a guard can reach: nothing else re-enforces it.
+    // Imports and regex literals are collected from BOTH halves — the guard is
+    // rendered source like any other, and a `Pattern` field it needs is
+    // otherwise never declared.  Body first, so an UNGUARDED invariant keeps
+    // its existing `MATCHES_PATTERN_<n>` numbering byte-identically.
     collectJavaExprImports(inv.expr, imports);
-    for (const p of collectJavaRegexLiterals(inv.expr)) {
+    if (inv.guard) collectJavaExprImports(inv.guard, imports);
+    const literals = [
+      ...collectJavaRegexLiterals(inv.expr),
+      ...(inv.guard ? collectJavaRegexLiterals(inv.guard) : []),
+    ];
+    for (const p of literals) {
       if (!regexFields.has(p)) regexFields.set(p, `MATCHES_PATTERN_${regexFields.size}`);
     }
-    const predicate = renderJavaExpr(inv.expr, { thisName: "this", bareProps: true, regexFields });
+    const renderOpts = { thisName: "this", bareProps: true, regexFields } as const;
+    const body = renderJavaExpr(inv.expr, renderOpts);
+    const predicate = inv.guard ? `!(${renderJavaExpr(inv.guard, renderOpts)}) || (${body})` : body;
     checks.push(reject(path, code, message, predicate));
   }
   return checks;
