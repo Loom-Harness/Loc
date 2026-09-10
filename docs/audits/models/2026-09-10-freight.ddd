@@ -1,0 +1,328 @@
+// Freight — a cargo-shipping / freight-forwarding system.
+// Iteration 1: booking, routing, and handling.
+
+system Freight {
+
+  user {
+    id: string
+    role: string
+    permissions: string[]
+    agencyId: string
+    customerId: Customer id?
+  }
+
+  auth {
+    oidc { issuer: env("OIDC_ISSUER") clientId: env("OIDC_CLIENT_ID") }
+    sessions: cookie
+    enforcement: opt
+  }
+
+  tenancy by user.agencyId of Agency
+
+  subdomain Logistics {
+
+    permissions {
+      cargoRead,
+      cargoBook implies cargoRead,
+      cargoReroute implies cargoBook,
+      agencyAdmin implies [cargoRead, cargoBook, cargoReroute]
+    }
+
+    context Shipping {
+
+      // Leg is a value object: an itinerary is a list of legs, replaced
+      // wholesale when the cargo is (re)routed.
+      valueobject Leg {
+        voyage: Voyage id
+        loadLocation: Location id
+        unloadLocation: Location id
+        loadTime: datetime
+        unloadTime: datetime
+        invariant unloadTime > loadTime message "A leg must unload after it loads"
+      }
+
+      enum TransportStatus { NotReceived, InPort, OnboardCarrier, Claimed, Unknown }
+      enum RoutingStatus { NotRouted, Routed, Misrouted }
+      enum HandlingKind { Receive, Load, Unload, Customs, Claim }
+
+      valueobject UnLocode {
+        code: string
+        invariant code.length == 5 message "UN/LOCODE is five characters"
+      }
+
+      // The tenant registry: one row per forwarding agency.
+      aggregate Agency {
+        name: string
+        derived display: string = name
+      }
+
+      repository Agencies for Agency { }
+
+      aggregate Customer with tenantOwned {
+        name: string
+        contactEmail: string sensitive(pii) mask unless currentUser.role == "ops"
+        derived display: string = name
+      }
+
+      repository Customers for Customer { }
+
+      aggregate Location crossTenant {
+        unlocode: UnLocode
+        name: string
+        country: string
+        derived display: string = name
+      }
+
+      repository Locations for Location { }
+
+      aggregate Voyage crossTenant {
+        voyageNumber: string immutable
+        movements: CarrierMovement[]
+
+        entity CarrierMovement {
+          departure: Location id
+          arrival: Location id
+          departureTime: datetime
+          arrivalTime: datetime
+        }
+
+        derived display: string = voyageNumber
+        derived legCount: int = movements.count
+
+        unique (voyageNumber)
+      }
+
+      repository Voyages for Voyage { }
+
+      // The cargo aggregate: a route specification, an itinerary that
+      // (hopefully) satisfies it, and a delivery progress snapshot.
+      aggregate Cargo with tenantOwned {
+        trackingId: string immutable
+        shipper: Customer id
+        origin: Location id
+        destination: Location id
+        arrivalDeadline: datetime
+
+        legs: Leg[]
+
+        weightKg: decimal
+        freightCharge: money managed = money("0.00")
+        routingStatus: RoutingStatus = NotRouted
+        transportStatus: TransportStatus = NotReceived
+        lastKnownLocation: Location id?
+        currentVoyage: Voyage id?
+
+        derived display: string = trackingId
+        derived isRouted: bool = legs.count > 0
+        derived estimatedArrival: datetime? = legs.max(l => l.unloadTime)
+        derived misdirected: bool = routingStatus == Misrouted
+
+        invariant origin != destination message "Origin and destination must differ"
+
+        unique (tenantId, trackingId)
+
+        // Assign an itinerary. The legs must chain: each leg unloads where
+        // the next one loads, and the whole chain must span origin→destination.
+        operation assignToRoute(newLegs: Leg[]) requires currentUser.permissions.contains(permissions.cargoBook) {
+          precondition newLegs.count > 0 message "An itinerary needs at least one leg"
+          precondition newLegs.first.loadLocation == origin message "Itinerary must start at the cargo origin"
+          legs := newLegs
+          routingStatus := Routed
+          emit CargoRouted { cargo: id, legCount: newLegs.count, at: now() }
+        }
+
+        operation quote(zoneMultiplier: decimal) requires currentUser.permissions.contains(permissions.cargoBook) {
+          precondition zoneMultiplier > 0
+          freightCharge := Tariff.rate(weightKg, zoneMultiplier)
+        }
+
+        operation registerHandling(kind: HandlingKind, at: Location id, voyage: Voyage id?) {
+          lastKnownLocation := at
+          currentVoyage := voyage
+          transportStatus := match {
+            kind == Receive => InPort,
+            kind == Load => OnboardCarrier,
+            kind == Unload => InPort,
+            kind == Claim => Claimed,
+            else => Unknown
+          }
+          emit CargoHandled { cargo: id, kind: kind, location: at, at: now() }
+        }
+
+        operation reroute(reason: string) requires currentUser.permissions.contains(permissions.cargoReroute) when routingStatus == Routed {
+          precondition reason.length > 0
+          legs := []
+          routingStatus := NotRouted
+        }
+      }
+
+      // Stateless cross-aggregate calculator.
+      domainService Tariff {
+        operation rate(weightKg: decimal, zoneMultiplier: decimal): money {
+          let base = money("25.00")
+          return base + money("1.75") * weightKg * zoneMultiplier
+        }
+      }
+
+      event CargoBooked { cargo: Cargo id, trackingId: string, at: datetime }
+      event CargoRouted { cargo: Cargo id, legCount: int, at: datetime }
+      event CargoHandled { cargo: Cargo id, kind: HandlingKind, location: Location id, at: datetime }
+
+      repository Cargos for Cargo { }
+
+      projection CargoByStatus {
+        transportStatus: TransportStatus
+        cargos: int
+        from Cargo as c
+        group by c.transportStatus
+        select transportStatus = c.transportStatus, cargos = count()
+      }
+
+      projection FleetVolume {
+        total: int
+        charged: money
+        from Cargo as c
+        select total = count(), charged = sum(c.freightCharge)
+      }
+
+      criterion Unrouted of Cargo = this.routingStatus == NotRouted
+      criterion Overdue(deadline: datetime) of Cargo = this.arrivalDeadline < deadline
+
+      enum ClaimState { Filed, Approved, Rejected }
+
+      command FileClaim { cargo: Cargo id, description: string, amount: money }
+      command ApproveClaim { note: string }
+      command RejectClaim { reason: string }
+
+      event ClaimFiled { cargo: Cargo id, amount: money }
+      event ClaimSettled { cargo: Cargo id, approved: bool }
+
+      // A multi-command saga: file → approve / reject.
+      workflow ClaimHandling {
+        cargo: Cargo id
+        claimState: ClaimState
+        amount: money
+
+        create(c: FileClaim) {
+          cargo := c.cargo
+          claimState := Filed
+          amount := c.amount
+          emit ClaimFiled { cargo: c.cargo, amount: c.amount }
+        }
+
+        handle approve(c: ApproveClaim) {
+          requires currentUser.permissions.contains(permissions.agencyAdmin)
+          precondition claimState == Filed message "Only a filed claim can be approved"
+          claimState := Approved
+          emit ClaimSettled { cargo: cargo, approved: true }
+        }
+
+        handle reject(c: RejectClaim) {
+          requires currentUser.permissions.contains(permissions.agencyAdmin)
+          precondition claimState == Filed message "Only a filed claim can be rejected"
+          claimState := Rejected
+          emit ClaimSettled { cargo: cargo, approved: false }
+        }
+      }
+
+      // Publish cargo lifecycle to the customer-facing tracking service.
+      channel CargoLifecycle {
+        carries: CargoBooked, CargoRouted, CargoHandled
+        delivery: broadcast
+        retention: ephemeral
+        key: cargo
+      }
+
+      // Book a cargo.  The aggregate's own `create` body would be inert on a
+      // state-based aggregate (loom.lifecycle-body-dropped), so the booking
+      // event is raised from a workflow instead.
+      workflow bookCargo {
+        create(trackingId: string, shipper: Customer id, origin: Location id, destination: Location id, deadline: datetime, weightKg: decimal) {
+          requires currentUser.permissions.contains(permissions.cargoBook)
+          let cargo = Cargo.create({
+            trackingId: trackingId,
+            shipper: shipper,
+            origin: origin,
+            destination: destination,
+            arrivalDeadline: deadline,
+            weightKg: weightKg,
+            legs: [],
+            routingStatus: NotRouted,
+            transportStatus: NotReceived
+          })
+          emit CargoBooked { cargo: cargo.id, trackingId: trackingId, at: now() }
+        }
+      }
+    }
+  }
+
+  subdomain CustomerPortal {
+    context Tracking {
+      aggregate TrackingEntry crossTenant {
+        cargoRef: guid
+        lastEventAt: datetime
+        note: string
+        derived display: string = note
+      }
+
+      repository TrackingEntries for TrackingEntry { }
+
+      workflow RecordSighting {
+        cargo: Cargo id
+
+        create(e: CargoHandled) by e.cargo {
+          let entry = TrackingEntry.create({
+            cargoRef: e.cargo,
+            lastEventAt: e.at,
+            note: `Cargo seen at handling step {e.kind}`
+          })
+        }
+      }
+    }
+  }
+
+  ui WebApp with scaffold(subdomains: [Logistics]) { }
+
+  storage primary { type: postgres }
+  storage bus { type: redis }
+  resource shippingState { for: Shipping, kind: state, use: primary }
+  resource trackingState { for: Tracking, kind: state, use: primary }
+  channelSource cargoBus { for: CargoLifecycle, use: bus }
+
+  deployable api {
+    platform: node,
+    contexts: [Shipping],
+    dataSources: [shippingState],
+    channels: [cargoBus],
+    port: 3000,
+    auth: required
+  }
+
+  deployable trackingApi {
+    platform: python,
+    contexts: [Tracking],
+    dataSources: [trackingState],
+    channels: [cargoBus],
+    port: 8000
+  }
+
+  deployable webApp {
+    platform: react,
+    targets: api,
+    ui: WebApp,
+    port: 3001,
+    design: mantine,
+    auth: ui
+  }
+}
+
+// Adopting multi-tenancy on a database that already has cargo rows.
+migration "adopt-tenancy" {
+  Cargo.tenantId = "legacy-agency"
+  Cargo.shipper = "00000000-0000-0000-0000-000000000001"
+}
+
+migration "freight-charging" {
+  Cargo.weightKg = 0
+  Cargo.freightCharge = money("0.00")
+}
