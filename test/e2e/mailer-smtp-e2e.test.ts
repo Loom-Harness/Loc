@@ -12,6 +12,7 @@ import {
   startPostgres,
   waitForHealth,
 } from "./support/mailpit-harness.js";
+import { installGeneratedProject } from "./support/npm-install.js";
 
 // ---------------------------------------------------------------------------
 // Mailer (smtp) runtime e2e — HONO/node.  The mocked-SMTP-server test the
@@ -65,11 +66,7 @@ describe.skipIf(!ENABLED)(
           cwd: repoRoot,
         });
         const apiDir = path.join(outDir, "api");
-        execSync("npm install --silent --no-audit --no-fund", {
-          cwd: apiDir,
-          stdio: "pipe",
-          timeout: 300_000,
-        });
+        installGeneratedProject(apiDir, { timeout: 300_000 });
 
         const port = await freePort();
         // detached: own process group so a single kill(-pid) reaches the
