@@ -17,6 +17,44 @@ this is the hand-off list. Snapshot-in-time; re-verify on fresh `main` before pi
 > **⚠ verify-first is not ceremony.** A finding written from a symptom is a lead, not a diagnosis.
 > Waves 2–7 remain unstarted.
 
+> **Status 2026-09-09 — Wave 1 is MERGED, and two more rows are corrected.**
+> All four packets are on `main`: W1.3 `f182aa74b`, W1.2 `ca731d498`, W1.1 `4970ee7ef`,
+> W1.4 `adaa4f6e8`. Seven findings closed — F2, F3, F5, F6, F7, F8, F9.
+>
+> Two rows below were re-verified against fresh `main` while closing the wave, and **both were
+> written down more optimistically than the code deserves**:
+>
+> * **F11 is half-fixed.** [#2774](https://github.com/lemmit/Loc/pull/2774) routed the
+>   `DestroyForm` fallback through `giveUp()` (`_walker/primitives/forms.ts:145`), so the
+>   degradation now carries the `loom:unrendered` sentinel and the cross-frontend matrix can
+>   see it. It still emits **no `loom.*` diagnostic** — the half the row actually asks for.
+> * **F17 is NOT fixed, and is not even discoverable.** [#2723](https://github.com/lemmit/Loc/pull/2723)
+>   merged (`2b0c0457b`) and does touch `flutter/component-emit.ts`, but it did not close this.
+>   Re-run on `main` @ `adaa4f6e8` — a `platform: flutter` deployable whose ui declares
+>   `component Fancy(label: string) extern from "./components/Fancy"` and renders it:
+>   `ddd parse` reports **`0 error(s), 0 warning(s)`**, and the emitted
+>   `lib/pages/extra_page.dart` carries
+>   `const SizedBox.shrink() /* unknown layout component: Fancy */` — a bare `renderComment`
+>   with **no `loom:unrendered` sentinel**. So Flutter's component-drop path is outside
+>   `giveUp()` entirely: no diagnostic *and* invisible to the matrix `#2774` built to catch
+>   exactly this.
+>
+> * **F36's symptom is wrong too, and the truth is worse.** The row says two `system` blocks
+>   make `generate system` write "only root artefacts". It does not — **both systems generate
+>   in full.** Re-run on `9f89a009d`: two complete systems with no top-level members parse
+>   `0 error(s), 0 warning(s)`, and `generate system` emits `api/` and `api2/` side by side,
+>   the second system's aggregates included, merged into ONE tree and ONE `docker-compose.yml`.
+>   Two authored systems silently become one deployment and nothing in the output says which
+>   system the stack is. That is what justifies a direct gate rather than a tidy-up; fixed in
+>   [#2833](https://github.com/lemmit/Loc/pull/2833) as `loom.multiple-systems`.
+>
+> **The correction that generalises:** `#2774` delivered only the DISCOVERABILITY half of Wave 2's
+> shared invariant (*"the walker must never decline to render a declared element without a
+> diagnostic"*). Every give-up that reaches `giveUp()` is now findable — but a predicate that
+> declines UPSTREAM of any `giveUp()` call still vanishes silently. F10 (dropped at
+> `isWalkableLayoutBody`) and F17 (dropped at the Flutter component filter) are both that shape,
+> which is why the sentinel cannot see either. Wave 2's real deliverable is still open.
+
 Twelve auditors each walked one doc packet, tracing every claim to the file that proves it.
 When a doc and the code disagreed, the doc was corrected — **unless the code was the thing
 that was wrong**, in which case the behaviour was documented honestly and the defect landed
@@ -333,17 +371,155 @@ which is how F25 and F26 survive.
 
 | # | Finding | Anchor |
 |---|---|---|
-| **F25** | `loom.function-block-impure` is raised live with an inline message and has **no catalog entry**. | `src/ir/validate/checks/structural-checks.ts:1243`; referenced from `validators/structural.ts:327`, `types.ts:809` |
-| **F26** | The `when`-gate-references-op-param check raises an inline message with **no `code` at all**. | `src/language/validators/statements.ts:110-118` |
-| **F27** | `loom.scaffold-filter-param-unsupported`'s text contradicts its own gate: it says the bar renders `string`, `int`, `long`, `<X> id` and that `bool`/`datetime`/`guid` "have no input at all". Since #2699 all three render. The gate reads the correct set; only the message lies — and its stale twin sits in a comment. | `messages.ts:2308-2315`; `ui-checks.ts:1097-1099` |
-| **F28** | `loom.flutter-primitive-unsupported`'s text names FileUpload as "the one deferred primitive", but `FLUTTER_UNRENDERED_PRIMITIVES` is now **empty**, so the gate can never fire and the message names a primitive that renders. | `messages.ts:1624`; `src/util/flutter-deferred-primitives.ts` |
-| **F29** | `loom.filter-bypass-unsupported` is unreachable — `FILTER_BYPASS_FAMILIES` holds all five families — and its text still names three backends as "the honoring backends". Dead gate or a missing family; the wording is wrong either way. | `system-checks.ts:2712`; `messages.ts:1832-1842` |
-| **F30** | `loom.projection-event-unkeyed` interpolates `proj.correlationField`, which is `undefined` for the keyless case it fires on: *"…has no 'undefined' field to route by."* | `projection-checks.ts` `validateHandlers` ~:90 |
-| **F31** | `loom.scaffold-unexpanded`'s message blames "walker-primitive-expander", a pass that no longer exists, and names `view` as a resolvable target. | `messages.ts:783` |
-| **F32** | Grammar and IR comments name `loom.workflow-function-block-body` as the gate for block-bodied workflow functions. The code does not exist, nothing raises it, and such helpers generate correctly on all five backends. | `ddd.langium:1456`; `loom-ir.ts:1311` |
-| **F33** | A comment cites `loom.intrinsic-not-queryable`, which does not exist. | `src/util/intrinsics.ts:57` |
-| **F34** | A comment says `loom.spurious-effect-marker` is raised by the validator. No such code exists; a stray `await` is a parse error instead. | `src/ir/lower/lower-expr.ts:1080` |
-| **F35** | `extern_handlers_registered` is in the observability catalog but no backend emits it — an orphan entry. | `src/generator/_obs/log-events.ts` |
+| **F25** ✅ | `loom.function-block-impure` is raised live with an inline message and has **no catalog entry**. Confirmed: FIVE inline template literals. Hidden from the gate by shorthand `message` syntax, not by the gate's reach — see analysis item 3. Fixed in W4.1 as five `#`-slug variants; the `where` lead was dropped too (it duplicated `source`, which the gate's own invariant refuses). | `src/ir/validate/checks/structural-checks.ts:1243`; referenced from `validators/structural.ts:327`, `types.ts:809` |
+| **F26** ✅ | The `when`-gate-references-op-param check raises an inline message with **no `code` at all**. Fixed in W4.1 as `loom.when-references-op-param`. The row understates it: this is one instance of a 130-site class — see F55. | `src/language/validators/statements.ts:110-118` |
+| **F27** ✅ | `loom.scaffold-filter-param-unsupported`'s text contradicts its own gate… **Half of this was already fixed on `main`** — the message now names the correct set (`string`, `guid`, `datetime`, `int`, `long`, `bool`, `<X> id`) and correctly holds back `decimal`/`money` and `enum`. The comment twin in `ui-checks.ts` was still stale and is fixed in W4.2. | `messages.ts:2308-2315`; `ui-checks.ts:1097-1099` |
+| **F28** ✅ | `loom.flutter-primitive-unsupported`'s text names FileUpload as "the one deferred primitive", but `FLUTTER_UNRENDERED_PRIMITIVES` is now **empty**… Confirmed. The gate is a **deliberate dormant safety net**, not dead code — its own source comment says so, and re-arming it takes one line. So the fix is the wording, not a deletion: the FileUpload claim is dropped and the message reads correctly for whatever primitive re-arms it. | `messages.ts:1624`; `src/util/flutter-deferred-primitives.ts` |
+| **F29** ✅ | `loom.filter-bypass-unsupported` is unreachable… **The "dead gate or missing family" question is already answered in the code**, which the row did not check: it is a pinned `LATENT_GATES` entry in `diagnostic-firing-census.test.ts` (*"`FILTER_BYPASS_FAMILIES` covers every backend-owning platform… no deployable can reach the `!supported` push"*) — the same dormant-safety-net shape as F28. Wording only: all five families honor `ignoring`, and the message now says reaching it means a backend was added without a bypass arm. | `system-checks.ts:2712`; `messages.ts:1832-1842` |
+| **F30** ✅ | `loom.projection-event-unkeyed` interpolates `proj.correlationField`, which is `undefined` for the keyless case it fires on: *"…has no 'undefined' field to route by."* Confirmed verbatim. **Message-only, as recorded** — refusing a keyless fold is intentional and documented (`10-repositories-and-queries.md`: a keyless projection is the query-time aggregation, not a fold), so the fix is a `#singleton` variant that asks for `keyed by` rather than for a field nobody can name. | `projection-checks.ts` `validateHandlers` ~:90 |
+| **F31** ✅ | `loom.scaffold-unexpanded`'s message blames "walker-primitive-expander", a pass that no longer exists, and names `view` as a resolvable target. Confirmed; both dropped in W4.2. | `messages.ts:783` |
+| **F32** ✅ | Grammar and IR comments name `loom.workflow-function-block-body`… Confirmed by running it: a block-bodied workflow `function` parses `0 error(s), 0 warning(s)` and `generate system` emits it as a real workflow-scoped helper on **all five backends** (`opsSlaDays` / `SlaDays` / `opsSlaDays` / `ops_sla_days` / `sla_days`) — never inlined. The grammar comment was doubly wrong: it also claimed the helper is *inlined at each call site*, which the IR comment two files away correctly contradicts. Both fixed in W4.2. | `ddd.langium:1456`; `loom-ir.ts:1311` |
+| **F33** ✅ | A comment cites `loom.intrinsic-not-queryable`, which does not exist. Confirmed; the real codes are the position-specific family (`loom.find-where-not-queryable` / `-projection-where-` / `-retrieval-where-`), with `firstNonQueryableNode` naming the offending intrinsic. | `src/util/intrinsics.ts:57` |
+| **F34** ⚠️ | A comment says `loom.spurious-effect-marker` is raised by the validator. **The code does not exist — but "a stray `await` is a parse error instead" is wrong, and the truth is much worse.** See F56. | `src/ir/lower/lower-expr.ts:1080` |
+| **F35** ✅ | `extern_handlers_registered` is in the observability catalog but no backend emits it — an orphan entry. Confirmed: Python **deliberately deleted** its producer (`python-extern.test.ts`, "deleted apparatus") and no other backend ever had one. Deleted in W4.2, together with the reverse invariant that would have caught it — `catalog-parity.test.ts` only ever checked *emitted ⊆ catalogued*, never the other direction. The new gate found three more unemitted entries, all documented-reserved, now held in a ratcheting `RESERVED_UNEMITTED` waiver. | `src/generator/_obs/log-events.ts` |
+
+## P0 — codegen that does not compile or crashes at runtime (found 2026-09-09 by a verification fleet)
+
+Eight agents re-verified 30 rows of this register against `main @ adb6b54c0`, generating and reading
+output rather than reading source. **Six rows were already fixed, five understated their finding, and
+two named the wrong symptom.** They also found six defects that emit non-compiling or crashing code
+from `.ddd` that reports `0 error(s), 0 warning(s)` — none of which this register ranked above P2.
+
+Every row below was reproduced by generating. The shared lesson is in the last column: **each one
+survived because no corpus fixture exercises the shape**, so no compile gate could ever have seen it.
+
+| # | Defect | Blast radius | Why it survived |
+|---|---|---|---|
+| **F57** | The `envelope` generic carrier emits **non-compiling** Java and .NET. Java references `Envelope<T>` in three files and declares it in none; .NET's method body returns a bare `T` from a signature typed `Task<Envelope<T>>` (CS0029). | java, dotnet | **No `.ddd` anywhere in the repo uses the carrier.** `grep -rnE "\b[A-Z][A-Za-z0-9_]*\s+envelope\b" --include=*.ddd .` → zero syntactic hits; every textual match is a comment about `paged`. |
+| **F58** | A command-triggered `create` on a **state-bearing** workflow emits an unbound receiver on **all five** backends — `this.status =` inside an arrow function (TS2683), `this.Status` on a handler with no such member, `self._status` in a module-level `async def`, unbound `state` in Elixir. It also never loads or saves the correlation row, so a later `on` reactor logs `event_unrouted` forever. | all 5 | No fixture pairs `create(params)` with workflow `state {}`. |
+| **F59** | A `match` **expression** whose union carries an `error` variant drops that arm's binding on .NET and Java — the arm collapses to `_ =>` / `case null ->` and the bound name is unresolved. Node is correct; two non-error variants are correct. | dotnet, java | This is the form W3.1 wants to recommend as the substitute for the statement form, so the sequencing matters. |
+| **F60** | Elixir's `serialize/1` drops a `derived` that reads another `derived`, while the emitted OpenAPI schema **declares it and lists it in `required:`**. The generated app violates its own published contract on every response. | elixir | `LOOM_SCHEMATHESIS=1 npm run test:schemathesis-elixir` would catch it; the leg exists and does not run per-PR. |
+| **F61** | HEEx `WorkflowForm` emits `phx-submit="run_<wf>"` with **zero** matching `handle_event/3` clauses. Submitting raises `FunctionClauseError` and kills the LiveView process. Recorded in the reference as a "placeholder"; it is a crash. | elixir/heex | Its only proving leg, `phoenix-ui-e2e`, is in neither the per-PR set nor the merge queue — a standing blind spot this register should name. |
+| **F62** | `DestroyForm { of: <non-aggregate> }` interpolates the raw reference name into a Feliz dispatch, emitting a `Msg` case that does not exist and an unbound `id` (FS0039). Angular emits a give-up with **no sentinel**. This is F11's real severity. | feliz (miscompile), angular (invisible) | The showcase corpus has no unresolvable `DestroyForm`. |
+
+**F63. The give-up routing gate scans 40 of 140 walker files and reports green.**
+`test/system/walker-give-up-routing.test.ts` enumerates via `git ls-files 'src/generator/<target>/**/*.ts'`.
+That pathspec matches **subdirectories only**, so every top-level file of every walker tree is unscanned —
+`src/generator/flutter/**/*.ts` and `src/generator/feliz/**/*.ts` each return **zero** files. Twenty-eight
+direct `renderComment` give-ups sit in the blind spot, including six in the shared `walker-core.ts`, five in
+`flutter-target.ts` and the whole Angular destroy-form fork. **Any conformance gate built on the
+`loom:unrendered` sentinel is a no-op until this one line is fixed**, which makes it the highest-leverage
+item in the whole register.
+
+**F64. 130 validator conditions reach the user as one non-catalog code.**
+The sharp half of F55. `src/api/report.ts` stamps `loom.unknown` on any diagnostic with no `code`, and
+`loom.unknown` is **not a catalog key** — no docs anchor, no fix hint, no census bucket. So the 130
+code-less `accept` sites are not merely unsearchable, they are actively mislabelled as one meaningless
+string. `docs/architecture/diagnostic-catalog.md:16` states the opposite rule normatively, and the two
+places the reference calls a message "uncoded" are receipts of the gap, not a carve-out — the boundary is
+incoherent either way (seven type-mismatch codes already exist, and the coded `loom.unknown-name` sits
+700 lines from six identical uncoded resolution errors).
+
+**F65. The "dropped `workflow_run` dispatch" premise is a measurement artifact.**
+`workflow_run`-triggered runs are attributed to the repository's **default branch**, so
+`list_workflow_runs(branch=<pr-branch>)` structurally cannot return a `pr-gate` evaluation — it returns only
+the one `pull_request`-event run. Every "the dispatch was dropped" conclusion in `pr-gate.yml`'s comments,
+in `docs/ci-gating.md`, in PR #2835 and in this session's own notes traces to that call. Of the last 100
+`event=workflow_run` runs of `pr-gate.yml`, **all 100** carry `head_branch: main`. Re-measure without the
+filter before building anything on the premise. The better-fitting explanation for a stuck verdict is a
+read-after-write race: the final evaluation is dispatched by the last check's completion, sits queued 6-14
+minutes under runner starvation, reads a snapshot in which that check still looks pending, publishes a
+non-terminal verdict and exits — with no further event coming.
+
+**F66. Feliz already has the gate the four SPA frontends lack, and it is fenced behind a platform check.**
+`classifyFelizAsyncEffect` (`src/ir/util/feliz-async-effect.ts`) is an IR-pure, target-neutral classifier of
+exactly the predicate the SPA walkers need (`tryDetectApiHook` must resolve, or `mutationVar` stays empty
+and the walker emits `Promise.reject`). It is invoked behind `if (dep.platform !== "feliz") continue`. The
+identical model, differing only in host:
+
+```
+feliz  → loom.feliz-async-effect-unsupported … the awaited subject is not an
+         aggregate instance operation (`<api>.<Agg>.<op>(…)`)
+react  → 0 error(s), 0 warning(s)
+```
+
+So **F56's fix is a promotion, not a type-resolution mission** — small, IR-layer, with zero effect on the
+good path. Resolving `subjectType` is the optional second half, and it carries a real trap: fixing it on the
+expression form un-blocks that form into walkers that cannot render it (a variant match with `variantArms`
+and no `arms` falls through to `otherwise ?? "/* empty match */ undefined"`), trading a false-positive error
+for a silent `undefined`.
+
+**F56 correction.** F56's own root-cause paragraph says a union-returning subject and a plain `string`
+subject carry byte-identical `subjectType`. That holds **only for the awaited-call shape**: a `let`-bound
+subject resolves to the real union. The awaited api call is the canonical page form, so the finding stands,
+but the claim as written generalises past the evidence.
+
+---
+
+**F56 (found while fixing W4.2, replacing F34's symptom). `match await <non-call>` validates
+clean and ships a guaranteed runtime crash on four frontends.**
+F34 records that a stray `await` is "a parse error instead". It is not. The grammar admits
+`await <MatchScrutinee>` (`ddd.langium` `MatchSubject`), and a `MatchScrutinee` is a plain
+`NameRef` with an optional postfix chain — so `match await <plain state field>` parses. Run on
+`9f89a009d`, a page action containing `match await message { string s => { message := s } }`
+over `state { message: string = "" }` reports **`0 error(s), 0 warning(s)`**, and the generated
+React page contains:
+
+```tsx
+const submit = async () => {
+  const result = await Promise.reject(new Error("no remote op for variant-match"));
+  switch (result.type) { case "string": { const s = result; setMessage(s); break; } }
+};
+```
+
+An unhandled rejection on every click, plus an undefined `setMessage`. The same
+`Promise.reject` fallback is in all four SPA walker targets (`tsx-target.ts:490`,
+`vue-target.ts:555`, `svelte-target.ts:477`, `angular-target.ts:714`), each commented as a
+"typed placeholder await… so the statement is never dropped" — the intent was to avoid a
+silent drop, and the result is a runtime bomb instead, still with no diagnostic.
+
+**Root cause — corrected after trying the obvious fix.** The first diagnosis was that
+`loom.match-non-union-subject` lives in `validateVariantMatch` (`structural-checks.ts:1114`),
+which visits `ExprIR` nodes with `kind === "match"` and so never sees the `StmtIR`
+`variant-match` an action body lowers to. That reach gap is real, and it is **not** the
+blocker. Wiring the four gates to the three `ActionIR` carriers was built, and it **rejects the
+shipping Stage 2 fixture** — the legitimate `match await Sales.Order.placeOrder()` over a
+declared `Order or Failed`:
+
+```
+loom.match-non-union-subject … its type is p:string
+```
+
+`StmtIR.subjectType` is documented as *"Resolved `or`-union TypeIR of the subject — the variant
+set"*. It is not. `lowerMatchStmt` (`lower-stmt.ts:104`) fills it from `inferExprType`, whose
+**catch-all is `{ kind: "primitive", name: "string" }`** (`lower-expr.ts:1954`) — the same value
+it returns for `undefined` and for a null literal. An api-handle operation call is the *only*
+subject shape Stage 2 `match await` exists for, and `inferExprType` cannot resolve one, so every
+such subject silently types as `string`, byte-identical to a genuine string subject.
+
+So no type-grounded gate can run on the statement form at all: it would either miss both cases
+or reject both. **The fix is a lowering slice** — teach `inferExprType` to resolve an api-handle
+operation call to its declared return type — not a validation one, and it is
+`language-feature-developer`-shaped. The expression form's four gates rest on the same field, so
+they are unreliable for the same subject shape; they simply never meet one.
+
+Shipped meanwhile (W2.3 slice 1): the four gates are extracted to
+`src/ir/validate/checks/variant-match-shape.ts` behind one `checkVariantMatchShape`, so the
+statement form gains them in one line the day `subjectType` resolves;
+`test/ir/variant-match-subject-type.test.ts` pins the defect and fails the day it is fixed.
+
+**F55 (found while fixing W4.1). 119 validator errors carry no `loom.*` code at all.**
+The catalog's three invariants only see a site that attaches a code, so an
+`accept("error", "<inline literal>", { node, property })` with no `code:` key is invisible to
+all of them — that is F26's real shape, and F26 is not one site but a class. Counted on
+`9f89a009d` across `src/language/validators/**` + `ddd-validator.ts`: **195** `accept` sites
+carry a code, **119 errors and 11 warnings** do not. Those 130 diagnostics cannot be looked up
+in the reference, linked from the playground's Problems pane, asserted on by a test, or
+referred to in a bug report — the user sees prose and nothing else. The IR check leaves are
+clean (every one of their diagnostic literals carries a code), so this is purely the Langium
+`accept` surface. Too large for a ratcheting waiver inside W4.1; it wants its own mission,
+which should decide per site whether the diagnostic deserves a code or the check deserves
+deleting.
 
 **F36. Two `system` blocks with no top-level members pass validation.**
 `composition.ts:120-137` only fires when a top-level member must fold; there is no direct
@@ -400,10 +576,25 @@ individual fixes:
    copy). Every hand-rolled `ExprIR`/`StmtIR` walk outside the shared `_expr`/`_stmt` dispatchers
    is a candidate.
 
-3. **The catalog gate does not reach the IR check leaves.** F25 and F26 are exactly the
-   defect class `test/system/diagnostic-catalog.test.ts` was written to prevent, surviving
-   because the test does not walk `src/ir/validate/checks/`. Extending its reach retires
-   F25–F35 as a class and prevents the next one.
+3. **The catalog gate has two blind spots — neither of them the IR leaves.** F25 and F26 are
+   exactly the defect class `test/system/diagnostic-catalog.test.ts` was written to prevent.
+   This item originally blamed the gate's *reach*, which is wrong: it has walked
+   `src/ir/validate/checks/` all along. **Corrected on `main` @ `9f89a009d`** — the two
+   survivals have two different causes, both of them in the scanner:
+
+   * **Shorthand property syntax.** `sitesIn` collected only `ts.isPropertyAssignment`, so
+     `diags.push({ severity: "error", code: "…", message, source })` — `message` shorthand —
+     was never recorded as a site at all, and all three invariants passed vacuously over it
+     (F25). Exactly two sites in the whole scanned surface were hidden this way.
+   * **A blanket forwarding exemption.** `isForwardedParam` skipped any site whose message is
+     a parameter of the enclosing function, on the assumption that its call sites are
+     themselves scanned. That holds for `loweringDiag` in `src/api/evolve.ts`; it does not
+     hold for a *local* helper, whose callers word the message inline. The predicate fired on
+     **zero** sites, so it had never been exercised. It now retargets to the helper's own
+     in-file call sites instead of exempting.
+
+   Both were fixed in W4.1, and the extended gate fails on unmodified `main` naming all five
+   `loom.function-block-impure` sites by line.
 
 Per `CLAUDE.md`: mutation-prove each gate before trusting it — revert the fix with a file copy,
 never `git checkout -- <path>`, and confirm the assertion that fails is the one under test.

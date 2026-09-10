@@ -1,3 +1,6 @@
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { LogEvents, type LogLevel } from "../../../src/generator/_obs/log-events.js";
 import { generateSystemFiles } from "../../_helpers/generate.js";
@@ -174,6 +177,88 @@ describe("log-event catalog — Python emission parity", () => {
       .filter((c) => CATALOG_LEVEL.has(c.event) && CATALOG_LEVEL.get(c.event) !== c.level)
       .map((c) => `${c.event}: emitted ${c.level}, catalog ${CATALOG_LEVEL.get(c.event)}`);
     expect([...new Set(levelMismatch)], "Python log level disagrees with the catalog").toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The REVERSE direction (audit finding F35).  Everything above catches an
+// event a backend emits that the catalog does not carry.  Nothing caught the
+// opposite — a catalog entry NO backend emits — which is how
+// `extern_handlers_registered` outlived its producer: the Python backend
+// deliberately deleted its boot-time registration verify (see
+// `test/generator/python/python-extern.test.ts`, "deleted apparatus"), no other
+// backend ever had one, and the entry sat in the catalog unnoticed.
+//
+// The scan is source-level rather than output-level on purpose.  Every emitter
+// reaches the catalog by KEY (`renderHonoLogCall("healthDegraded", …)`,
+// `javaLogEvent("migrationApplied")`), so one grep of `src/` over the key and
+// the event string covers all five backends at once — no generate, no docker.
+//
+// RESERVED_UNEMITTED is a ratcheting waiver: an entry deliberately kept for a
+// future emitter, each with its reason. It ratchets both ways — a new orphan
+// fails the gate rather than joining silently, and an entry that GAINS an
+// emitter fails too, so the fix deletes its waiver in the same change.
+// ---------------------------------------------------------------------------
+
+const RESERVED_UNEMITTED: Readonly<Record<string, string>> = {
+  dbConnecting:
+    "reserved for a future eager-connect path; today's backend uses pg's lazy pool, so a " +
+    "one-shot 'connected' event would either lie or block boot.",
+  dbConnected: "the other half of the eager-connect pair above.",
+  dbPoolExhausted:
+    "pg.Pool exposes no exhaustion event; detecting it means polling waitingCount vs " +
+    "options.max with debouncing. Kept so a future pool wrapper can fire it.",
+};
+
+describe("log-event catalog — no orphan entries", () => {
+  it("every catalog entry is emitted by some backend, or waived with a reason", () => {
+    const srcRoot = path.resolve(
+      path.dirname(fileURLToPath(import.meta.url)),
+      "..",
+      "..",
+      "..",
+      "src",
+    );
+    const files: string[] = [];
+    const walk = (dir: string): void => {
+      for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+        const p = path.join(dir, e.name);
+        if (e.isDirectory()) walk(p);
+        else if (e.name.endsWith(".ts") && !p.endsWith(path.join("_obs", "log-events.ts"))) {
+          files.push(p);
+        }
+      }
+    };
+    walk(srcRoot);
+    const all = files.map((f) => fs.readFileSync(f, "utf8")).join("\n");
+
+    // A key is REACHED when the emitters name it, either by catalog key
+    // (`renderHonoLogCall("healthDegraded")`) or by the wire event string
+    // (Java/Python re-spell it by hand).
+    const reached = (key: string, event: string): boolean =>
+      new RegExp(`\\b${key}\\b`).test(all) || new RegExp(`\\b${event}\\b`).test(all);
+
+    const orphans = Object.entries(LogEvents)
+      .filter(([key, e]) => !reached(key, e.event))
+      .map(([key, e]) => `${key} → ${e.event}`);
+    const waived = Object.keys(RESERVED_UNEMITTED);
+
+    expect(
+      orphans.filter((o) => !waived.includes(o.split(" ")[0]!)),
+      "A catalog entry no backend emits is an orphan — delete it, or add it to " +
+        "RESERVED_UNEMITTED with the reason it is being held.",
+    ).toEqual([]);
+
+    // Ratchet the other way: a waiver whose entry now HAS an emitter (or was
+    // deleted) must go in the same change that earned it.
+    const stale = waived.filter((k) => {
+      const entry = (LogEvents as Record<string, { event: string } | undefined>)[k];
+      return entry === undefined || reached(k, entry.event);
+    });
+    expect(
+      stale,
+      "RESERVED_UNEMITTED entry is stale — the event is now emitted (or gone). Drop the waiver.",
+    ).toEqual([]);
   });
 });
 
