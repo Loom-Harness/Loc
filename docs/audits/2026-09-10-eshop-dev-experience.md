@@ -331,3 +331,186 @@ F3 and F4 both add a corpus fixture — distinct filenames, agreed up front.
 | F10 | the ` ```ddd ` fence CI gate + waiver list | **#2861 slice 3 merging first** |
 | F11 | papercuts: the `channel carries:` doc, the root-vs-system placement in the migration message, a diagnostic for an `api` no deployable `serves:`, and the `'requires' must be of type 'bool', got 'unknown'` wording | — |
 | F12 | source positions on IR diagnostics | **G5** |
+
+---
+
+# Pass 2 — the same model on every other target
+
+The first pass compiled node + react only. This pass regenerated the identical
+e-shop model onto the other four backends and the other three frontends, plus
+the Phoenix LiveView ui, and compiled what could be compiled here.
+
+| Target | How far it was taken | Result |
+|---|---|---|
+| node / react | `tsc --noEmit` both halves | 10 backend errors, 1 frontend (D1 pass) |
+| **java** | `gradle compileJava` on JDK 21 | **2 errors, one defect** — compile-proven |
+| **vue** | `vue-tsc --noEmit` | **31 errors**, every one scaffold-emitted |
+| **svelte** | `svelte-check` | **1 error** |
+| **python** | module namespace evaluation | **1 defect, runtime** — proven |
+| **dotnet** | source inspection (no SDK here) | **2 defects**, both unambiguous |
+| **elixir** | generation diff against react | **1 defect — silent wrong data** |
+| angular | `tsc -p tsconfig.app.json` | clean. `ng build` not run: the generated project's Angular CLI wants Node ≥ 22.22.3, this host has 22.22.2, so template typechecking is UNVERIFIED |
+| flutter / feliz | not attempted — no SDK here | unverified |
+
+## P1 — Phoenix LiveView silently substitutes "list everything" for every filtered page read
+
+The most severe thing in either pass. A page body that names a filtered read
+renders a different result set on Phoenix than on every other frontend, with no
+diagnostic.
+
+```ddd
+criterion LiveItems of Item = st == Live
+page OnlyLive { route: "/only-live"
+  body: QueryView { of: Item.findAllByLiveItems(), data: rows => … } }
+```
+
+| target | emitted load |
+|---|---|
+| react | `useFindAllByLiveItemsItem()` — the filtered read |
+| **phoenixLiveView** | `Api.Shop.list_items()` — **every row** |
+
+The context module exposes `find_all_by_live_items_item/4` two lines away; the
+LiveView never calls it. My storefront page — `of: Product.findAllBySellable()`,
+meaning in-stock, published products — renders drafts and discontinued products
+on Phoenix.
+
+With a **parameterised find** it is worse than wrong, it is nonsense:
+
+```ddd
+find byState(state: St): Item[] where this.st == state
+body: QueryView { of: Item.byState(Live), … }
+```
+→ `case Api.Shop.list_items(:Live) do`
+
+against `defdelegate list_items(page \\ 1, page_size \\ 20, sort \\ "id", dir \\ "asc")`
+— the filter value is passed as the **page number**. The find is not delegated
+into the context module at all.
+
+Root cause: `src/generator/elixir/liveview-emit.ts:1293` hard-codes
+`list_<agg>s(<args>)` for any list-shaped read; the `of:` call's operation name
+is never consulted. `byId` is routed correctly (`get_<agg>`), so this is
+specific to the collection path. Repro: `/tmp/heex.ddd` and `/tmp/heex2.ddd`
+shapes, reproduced in the audit's session.
+
+## P2 — the `user {}` id-claim defect (D6) hits four of five backends, four different ways
+
+One emitter bug, four symptoms, from `customerId: Customer id?`:
+
+| backend | emitted | symptom |
+|---|---|---|
+| node | `Ids.CustomerId \| null \| null`, `Ids` unimported | `TS2503`, compile-proven |
+| **java** | `CustomerId customerId`, unimported (`User` is in `…auth`, the id in `…domain.ids`) | **`cannot find symbol` — compile-proven, and the ONLY error in the whole Java tree** |
+| **python** | `cast(CustomerId \| None \| None, …)` with no import | **`NameError` on every OIDC token verification** — the annotation is inside a function body, so it is evaluated per call. Proven: `'CustomerId' in vars(app.auth.oidc)` is `False`, and evaluating the emitted annotation in its own module raises. Login is permanently broken. |
+| **dotnet** | `public sealed record User(…, CustomerId?? CustomerId)` | **`??` is not C# type syntax — the project does not parse** |
+| elixir | a plain map | fine |
+
+The doubled nullable (`\| null \| null`, `\| None \| None`, `??`) and the missing
+import are two independent bugs in the same line, and the neutral type renderer
+is emitting the optional marker twice for an `X id?`.
+
+## P3 — the optional value object (D5) also breaks .NET, at the schema
+
+Node's symptom was a typecheck error in repository hydration. On .NET it is a
+schema mismatch. Isolated with one aggregate carrying both shapes:
+
+```ddd
+aggregate Person with crudish { name: string  home: Addr  office: Addr? }
+```
+
+```csharp
+builder.OwnsOne<Addr>(x => x.Home, o => { … });          // required VO — correct
+builder.Property(x => x.Office).HasColumnName("office"); // optional VO — wrong
+```
+
+while the migration it ships beside creates `office_line1` / `office_city` and
+no column called `office`. EF cannot map a complex type as a scalar without a
+converter, so this fails at model build — every read and write of the aggregate.
+
+Java maps the optional VO with `@Embedded` + `@AttributeOverride`, which is
+correct JPA. Python mirrors node's first-column-only narrowing but is
+dynamically typed, so a partially-null row yields an `Address` with `None`
+fields rather than an error — latent, not fatal.
+
+## P4 — the Vue frontend does not typecheck: 31 errors, all scaffold-emitted
+
+`vue-tsc --noEmit` is the first half of the generated project's own
+`npm run build`, so `npm run build` fails on the generated Vue app. Three
+classes, none of them from my hand-written page:
+
+| count | error | cause |
+|---|---|---|
+| 22 | `TS18049` `…values.shipping is possibly 'null' or 'undefined'` | an **optional value object** dereferenced in the scaffolded create/update form with no guard |
+| 4 | `TS2322` `Type 'string' is not assignable to type 'Decimal'` | a **`money`** field bound to a form input model |
+| 5 | `TS2322` `'string \| null \| undefined'` → `'string \| number \| undefined'` | an **optional string / `X id?`** bound to an input |
+
+Files: `customers/detail`, `orders/detail`, `payments/detail`, `payments/new`,
+`products/detail`, `products/new`. Any Vue model with an optional value object,
+a money field, or an optional string hits this — which is close to every real
+model, so the `generated-vue-build` corpus evidently has none of the three.
+
+## P5 — Svelte: a parameterless criterion read calls a hook that requires an argument
+
+```
+src/routes/(app)/shop/+page.svelte:8  Expected 1 arguments, but got 0.
+```
+
+The page emits `useFindAllBySellableProduct()`; the client emits
+`export function useFindAllBySellableProduct(query: () => FindAllBySellableQuery)`
+— required. React gives the same parameter a default (`= {}`) and Vue passes one.
+A Svelte-only arity disagreement between the two emitters.
+
+## P6 — `type`, `user`, `event`, `index`, `header` and `document` cannot be field names
+
+```ddd
+aggregate Invoice { type: string }
+→ error: Expecting token of type '}' but found `type`.
+```
+
+183 of the 296 identifiers tracked in
+`test/language/parsing/keyword-identifier-coverage.snapshot.json` are usable in
+zero positions. Most are unavoidable (`aggregate`, `context`, `enum`), but the
+set includes ordinary domain vocabulary: `type`, `user`, `event`, `index`,
+`header`, `document`, `layout`, `log`, `main`, `provider`, `required`, `seed`,
+`solution`, `storage`, `test`, `theme`, `unique`, `work`. `Invoice.type` and
+`Account.type` are among the most common field names in business modelling.
+`state`, `key`, `role` and `status` are fine, so the line is arbitrary from a
+modeller's point of view.
+
+The snapshot RECORDS this — these are reviewed decisions, not oversights — but
+the review was against the grammar, not against what users name fields. Two
+separable asks: widen the soft-keyword set in the field-name position, and make
+the failure say "`type` is reserved here" instead of "Expecting token of type
+'}'".
+
+## What pass 2 changes about the fleet
+
+Three of the wave-1 slices grow, and one new agent joins ahead of them.
+
+- **New, ahead of everything: P1**, the Phoenix list-read substitution. It is the
+  only defect here that produces *wrong data silently* rather than a build
+  failure, and it needs no design decision:
+  `src/generator/elixir/liveview-emit.ts` must resolve the `of:` call's
+  operation the way `byId` already is, and refuse (a `loom.*` gate) rather than
+  fall back when it cannot.
+- **F4 grows from one backend to four.** The `user {}` id-claim slice now covers
+  node, java, python and dotnet, with the doubled-nullable and the missing
+  import as two distinct fixes. Its proof is a corpus fixture with an `X id?`
+  claim compiled on every backend — java's leg is one line and catches it.
+- **F3 grows to include the .NET schema half.** The optional value object is a
+  typecheck error on node and a model-build failure on dotnet, and the fixture
+  must assert the EF mapping emits `OwnsOne` for both the required and the
+  optional case.
+- **New: P4 + P5**, the Vue and Svelte frontend breaks. Both are scaffold-side
+  and independent of the page-body gates in F2, so they are one more agent:
+  the optional-VO form guard, the money-input binding, the optional-string input
+  binding, and the Svelte hook arity.
+- **P6** joins the papercut agent (F11) as two separable asks: widen the
+  soft-keyword set in the field-name position, and make the failure name the
+  reserved word.
+
+The common thread across P2, P3, P4 and P5 is that the per-PR compile gates
+carry no corpus fixture with an **optional value object**, a **`money` field
+bound to a form**, or an **`X id?` user claim** — three shapes that appear in
+essentially every real model. One fixture carrying all three, compiled on every
+backend and typechecked on every frontend, would have caught nine of the
+eleven defects in this audit.
