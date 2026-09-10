@@ -25,6 +25,9 @@ This consolidation replaces three drifting status tables with one. Keep it true:
 - ~~**M-T9.28 – M-T9.32 have no mission bodies.**~~ **Drained (#2572)** — the first of the two ways out was taken: all five bodies are written below, with statuses re-derived from what actually shipped. One correction fell out of it: `README.md`'s mint line describes M-T9.28 as the repo-wide `.ddd`/clause census, but that shipped *unlabelled* in #2498 and the ID's only claim in code (#2515) is the **authorization-surface** census — first claim wins, so the stale description is flagged in M-T9.28's own ID note rather than silently reinterpreted.
 - ~~The stale "warning, not error" comment beside `checkUserVisibleConcat`~~ — corrected in the same PR; the rule has raised `"error"` since M-T1.11 item 8 landed, and 9 of that PR's 53 fixture fixes were tripping it.
 
+**Open item queued here 2026-09-10, from a deferred comment on merged [#2832](https://github.com/Loom-Harness/Loc/pull/2832#issuecomment-5609067588):**
+- **`docs/ci-gating.md`'s queue runbook has no honest "is my PR actually in the queue?" probe, and the obvious one is wrong.** An accepted queue entry has **no `gh-readonly-queue` ref until its batch forms**, so `ls-remote` for that ref answers "not queued" for a PR that is queued — which is exactly what sent #2832 down two dead diagnoses (the `cancel-in-progress` cancellation, already fixed by #2822; and a rejected auto-merge method, where the `405 Merge commits are not allowed` is about the direct merge API, not the queue). The probe that does answer is the merge API itself, which replies `405 Pull Request is in the merge queue`. One paragraph in the runbook, next to the existing lever table. Cheap, and it retires a wrong diagnosis that has already cost one session ~95 minutes.
+
 Sources: weak-spots §5, old global-plan T1.4; test-coverage-audit-2026-08-13 §3.7.
 
 ## M-T9.7 — Repo-admin one-clicks — `blocked(admin)` · **S** · P3
@@ -742,3 +745,33 @@ Two further gaps found alongside: the sweep enumerates open PRs only, so **insid
 is no backstop at all** (a stalled group head's only bound is the timeout, which ejects rather than
 heals); and the cron re-measures at a **3.3 h median** against its `*/15` schedule. Honest bounds to
 document: ~30 min active, ~3.3 h idle, unbounded in-queue today.
+
+## M-T9.58 — Every generated-project install runs `--silent`, so a dependency failure names no cause and gets no retry — `open` · **S** · P1
+
+Minted 2026-09-10 from an audit of deferred comments on merged PRs. This one was **proposed four times across two PRs and picked up by neither** — [#2720](https://github.com/Loom-Harness/Loc/pull/2720#issuecomment-5603540482) ("no fix exists to port, and I am not widening this PR to write one"), [#2770](https://github.com/Loom-Harness/Loc/pull/2770#issuecomment-5621699381) ("I have not changed it here because it is outside this PR's scope"). Each author was right to defer it and wrong to assume someone else would file it; this row is that filing.
+
+**The measurement.** 49 call sites across **23 files**, all under `test/e2e/`, run the generated project's dependency install as `npm install --silent …`. `--silent` sets npm's loglevel to silent, so npm's own `npm error` lines never reach the log — `stdio: "inherit"` does not rescue them, because there is nothing on the stream to inherit. The emitted Dockerfiles are **not** affected (`RUN npm install --no-audit --no-fund`, unsilenced), so this is a CI-harness row, not an emitter one.
+
+**What that costs, twice measured.** On 2026-09-10 three cells failed one registry-resolution window: `generated-angular-build` (`grid × angularMaterial@v1`, `showcase × primeng@v1`) and `elixir-vanilla-build` (`vanilla-embed-angular`). The two Angular cells reported only `Command failed: npm install`. The elixir cell — whose harness is the one that leaves the install unsilenced — carried the actual cause:
+
+```
+npm error code ETARGET
+npm error notarget No matching version found for @angular-devkit/architect@0.2201.8.
+```
+
+One day earlier the same class hit `generated-react-build` (`file-scaffold-system.ddd × mantine@v9`), and there was no unsilenced sibling: the `ETARGET` diagnosis had to be **inferred from step timing** (3.0 s in the failing cell against 11–20 s in the seven that reached `tsc` and `vite`). A gate that can only be diagnosed by accident is the shape `experience_gathered.md` §59/§63 warns about, one rung out — the check reaches its subject, but its failure report does not.
+
+**The fix is two independent halves, and the second is not optional.**
+
+1. **Stop discarding npm's error output.** Prefer capturing stderr and re-printing it on a non-zero exit over deleting `--silent` outright — the flag is deliberate about log volume on the ~50 green cells a matrix run produces, and a green run should stay quiet. Deleting it is acceptable if the capture wrapper proves fiddlier than the noise it saves; the invariant is that a failed install names its own cause.
+2. **Retry the install once on a non-zero exit**, before failing the cell. This is exactly the "one re-run confirms a flake" rule the CI guidance already applies by hand, moved to where it costs seconds instead of a queue sweep. Once, not a loop — a retry loop laundering a genuinely broken manifest is the failure mode this must not create.
+
+Do both in one place: these 49 sites want a shared `installGeneratedProject(dir)` helper in `test/e2e/`, not 49 edited `execSync` calls. The helper is also where the existing `--prefer-offline` reasoning already written out at `test/e2e/generated-react-build.test.ts:212-219` belongs, instead of living in one file's comment.
+
+**Verification when it lands.** Mutation-prove **both halves separately**, by file copy, never `git checkout -- <path>` (§84):
+
+- *Half 1:* point a generated project's `package.json` at a version that cannot resolve, run one cell, and assert the harness's failure text contains npm's own `npm error code ETARGET` line. The control that stops this going vacuous: the same assertion must **fail** against the pre-fix harness, which reports only `Command failed: npm install`.
+- *Half 2:* count invocations. A transient failure (fail once, then succeed) must produce exactly two installs and a green cell; a deterministic failure must produce exactly two and a red one. Asserting only the green case cannot tell a once-retry from an unbounded loop.
+- Neither half may change a green cell's exit code or its wall time beyond the capture overhead.
+
+Sources: deferred comments on merged PRs #2720 and #2770, re-verified on `main` @ `bc7ed8f` (49 sites, 23 files, still unfixed). Relates to M-T9.8 (a gate whose failure report names nothing is how hollow work stays hidden) and to `completion-waves-2026-09.md` wave C0.2, which owns the *flaky-leg* root causes but does not name this one.
