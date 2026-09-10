@@ -4,6 +4,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { describeCompileLeg } from "../pairwise/compile-leg.js";
+import { installGeneratedProject } from "./support/npm-install.js";
 
 // ---------------------------------------------------------------------------
 // M-T9.29 — the COMPILE oracle, node leg (Hono, strict `tsc`).
@@ -40,11 +41,7 @@ function nodeModulesFor(pkgJson: string): string {
   if (cached) return cached;
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), `loom-pw-deps-${key}-`));
   fs.writeFileSync(path.join(dir, "package.json"), pkgJson);
-  execSync("npm install --silent --no-audit --no-fund", {
-    cwd: dir,
-    stdio: "inherit",
-    timeout: 300_000,
-  });
+  installGeneratedProject(dir, { timeout: 300_000 });
   installs.set(key, dir);
   return dir;
 }
