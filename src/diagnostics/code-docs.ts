@@ -142,6 +142,8 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
     "16-ui-walker-primitives.md#the-form-family--createform-operationform-workflowform-destroyform",
   "loom.page-form-locals-unsupported":
     "16-ui-walker-primitives.md#the-form-family--createform-operationform-workflowform-destroyform",
+  "loom.destroy-form-of-unresolved":
+    "16-ui-walker-primitives.md#the-form-family--createform-operationform-workflowform-destroyform",
   "loom.component-children-unsupported": "16-ui-walker-primitives.md#slot",
   "loom.auth-missing-issuer": "17-auth.md#auth-----oidc-config",
   "loom.auth-unknown-claim-field": "17-auth.md#auth-----oidc-config",

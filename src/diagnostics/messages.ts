@@ -2513,6 +2513,27 @@ export const DIAGNOSTIC_MESSAGES = {
     `detail route (\`route: "/…/:id"\`), or bind an in-scope record and use the instance ` +
     `spelling (\`QueryView { of: …byId(id), single: true, data: row => OperationForm ` +
     `{ row.${p.op} } }\`).`,
+  // `DestroyForm { of: … }` whose `of:` names no aggregate with a canonical
+  // destroy.  Three arms, one code — the author's mistake is the same in each
+  // (`of:` takes the aggregate TYPE), only the evidence differs.
+  "loom.destroy-form-of-unresolved#not-a-ref": (p: { shape: unknown }) =>
+    `\`DestroyForm\` takes \`of: <Aggregate>\` — the aggregate TYPE, not a record instance, a ` +
+    `lambda binding (\`row\`), or a positional argument; it deletes the record the page's ` +
+    `\`:id\` route param names, so no record is passed in.  Found ${p.shape}.  Spell it ` +
+    `\`DestroyForm { of: <Aggregate> }\` over an aggregate that carries a canonical destroy — ` +
+    `one declared \`with crudish\`, or one with an explicit \`destroy { }\` member.`,
+  "loom.destroy-form-of-unresolved#unresolved": (p: { name: unknown }) =>
+    `\`DestroyForm { of: ${p.name} }\` names no declared aggregate.  \`of:\` takes the aggregate ` +
+    `TYPE, not a record instance or a lambda binding — a \`QueryView\`/\`Table\` row binding ` +
+    `spelled here resolves to nothing the frontends can delete, and every one of them drops ` +
+    `the form for a comment.  Name a declared aggregate that carries a canonical destroy — ` +
+    `one declared \`with crudish\`, or one with an explicit \`destroy { }\` member.`,
+  "loom.destroy-form-of-unresolved#no-canonical-destroy": (p: { name: unknown }) =>
+    `\`DestroyForm { of: ${p.name} }\` submits the aggregate's CANONICAL destroy, and ` +
+    `\`${p.name}\` declares none — so the form has nothing to call.  Two spellings give it ` +
+    `one: \`aggregate ${p.name} with crudish { … }\`, or an explicit \`destroy { }\` member on ` +
+    `\`${p.name}\`.  (\`of:\` names the aggregate TYPE, never a record instance or a lambda ` +
+    `binding — the record comes from the page's \`:id\` route param.)`,
   "loom.match-await-arg-mismatch": (p: {
     where: unknown;
     aggregate: unknown;

@@ -230,6 +230,7 @@ export function validateUiBodies(loom: EnrichedLoomModel, diags: LoomDiagnostic[
         checkActionBodies(page.actions, ctx, diags);
         checkInstanceEffectRouteId(page, aggNames, apiParamNames, diags);
         checkOpFormRouteId(page, diags);
+        checkDestroyFormOf(page, pageWhere(page), aggByName, diags);
         checkFrontendCollectionOps(page, pageWhere(page), diags);
         checkUnknownPageElements(page, pageWhere(page), callableNames, diags);
         checkSlotOutsideComponent(page, pageWhere(page), diags);
@@ -289,6 +290,7 @@ export function validateUiBodies(loom: EnrichedLoomModel, diags: LoomDiagnostic[
         };
         checkBody(comp.body, ctx, diags);
         checkActionBodies(comp.actions, ctx, diags);
+        checkDestroyFormOf(comp, `component '${comp.name}'`, aggByName, diags);
         checkFrontendCollectionOps(comp, `component '${comp.name}'`, diags);
         checkUnknownPageElements(comp, `component '${comp.name}'`, callableNames, diags);
         checkUnresolvedPageRefs(comp, `component '${comp.name}'`, callableNames, diags);
@@ -1200,6 +1202,109 @@ function checkOpFormRouteId(page: PageIR, diags: LoomDiagnostic[]): void {
         }),
         source: pageWhere(page),
       });
+    });
+  }
+}
+
+// -------------------------------------------------------------------------
+// `loom.destroy-form-of-unresolved` — the `DestroyForm { of: … }` whose `of:`
+// does not resolve to an aggregate with a canonical destroy (F11 / F62).
+//
+// `OperationForm` got its by-name gate one site up; `DestroyForm` never got
+// the twin, and the three ways its `of:` can fail were all silent:
+//
+//   NOT A REF          `DestroyForm { row }` / `{ of: row.thing }` — the
+//                      positional slot and any non-ref expression.
+//   UNRESOLVED         `DestroyForm { of: p }` over a `QueryView` binding, or
+//                      over a value object / enum / typo.
+//   NO CANONICAL       `DestroyForm { of: Note }` where `Note` declares no
+//                      `destroy { }` and is not `with crudish`.
+//
+// Five of the six frontends degrade to a give-up COMMENT
+// (`src/generator/_walker/primitives/forms.ts`, three branches) — the page
+// silently loses its delete button.  FELIZ MISCOMPILES: `renderDestroyForm`
+// (`feliz-target.ts`) interpolates the raw ref NAME into a `Delete<Name>`
+// dispatch without ever consulting `ctx.aggregatesByName`, while the `Msg`
+// case is collected by `formOfAggs` (`feliz/wire.ts`), which DOES filter by
+// that map.  The two disagree, so an unresolved `of:` emits
+// `dispatch (DeleteGadget id)` against a `Msg` union with no such case —
+// `dotnet fable` FS0039, from a `.ddd` that reported `0 error(s)`.
+//
+// Modelled on `checkOpFormRouteId` above, and run for BOTH pages and
+// components (a component body renders the same primitive through the same
+// walker).  Aggregate resolution is model-wide (`allAggregates`), matching the
+// walker's own name map rather than narrowing by deployable.
+// -------------------------------------------------------------------------
+
+/** A short human description of an `of:` argument the check refuses because it
+ *  is not a plain aggregate reference.  Doubles as the dedupe key. */
+function destroyFormOfShape(of: ExprIR | undefined): string {
+  if (of === undefined) return "no `of:` argument at all";
+  switch (of.kind) {
+    case "member":
+      return `\`of:\` a member access (\`….${of.member}\`)`;
+    case "call":
+      return "`of:` a call";
+    case "lambda":
+      return "`of:` a lambda";
+    case "literal":
+      return "`of:` a literal";
+    default:
+      return `\`of:\` a ${of.kind} expression`;
+  }
+}
+
+/** Reject a `DestroyForm` whose `of:` is not an aggregate carrying a canonical
+ *  destroy.  One diagnostic per (host, offending `of:`) — a body repeating the
+ *  same form is one mistake. */
+function checkDestroyFormOf(
+  host: PageIR | ComponentIR,
+  where: string,
+  aggByName: ReadonlyMap<string, AggregateIR>,
+  diags: LoomDiagnostic[],
+): void {
+  const flagged = new Set<string>();
+  const push = (key: string, d: LoomDiagnostic): void => {
+    if (flagged.has(key)) return;
+    flagged.add(key);
+    diags.push(d);
+  };
+  for (const root of walkerRenderedExprs(host)) {
+    walkExprDeep(root, (e) => {
+      if (e.kind !== "call" || e.callKind !== "free" || e.name !== "DestroyForm") return;
+      const names = e.argNames ?? [];
+      let of: ExprIR | undefined;
+      for (let i = 0; i < e.args.length; i++) if (names[i] === "of") of = e.args[i];
+      if (of === undefined || of.kind !== "ref") {
+        const shape = destroyFormOfShape(of);
+        push(`shape:${shape}`, {
+          severity: "error",
+          code: "loom.destroy-form-of-unresolved",
+          message: diagMessage("loom.destroy-form-of-unresolved#not-a-ref", { shape }),
+          source: where,
+        });
+        return;
+      }
+      const agg = aggByName.get(of.name);
+      if (agg === undefined) {
+        push(`unresolved:${of.name}`, {
+          severity: "error",
+          code: "loom.destroy-form-of-unresolved",
+          message: diagMessage("loom.destroy-form-of-unresolved#unresolved", { name: of.name }),
+          source: where,
+        });
+        return;
+      }
+      if (!agg.canonicalDestroy) {
+        push(`no-destroy:${agg.name}`, {
+          severity: "error",
+          code: "loom.destroy-form-of-unresolved",
+          message: diagMessage("loom.destroy-form-of-unresolved#no-canonical-destroy", {
+            name: agg.name,
+          }),
+          source: where,
+        });
+      }
     });
   }
 }
