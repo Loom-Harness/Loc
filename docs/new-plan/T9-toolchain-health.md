@@ -424,7 +424,7 @@ Minted 2026-09-03 to stop [M-T9.42](#m-t942--promote-the-duplicated-per-target-s
 
 Sources: [verification-architecture-2026-08-31](../audits/verification-architecture-2026-08-31.md) §1, §5 (the duplication ranking). Relates to M-T9.42 (the promotion campaign this unblocks for one of its six candidates), M-T9.13 (the behavioural matrix that owns the deep cases).
 
-## M-T9.44 — The diagnostic-catalog gate does not reach the IR check leaves — `open` · **M** · P1 ⭐ the leverage packet ⚠ verify-first
+## M-T9.44 — The diagnostic-catalog gate's two blind spots: shorthand syntax and a blanket forwarding exemption — `done` · **M** · P1 ⭐ the leverage packet
 
 Found 2026-09-03 by the language-docs audit ([F25](../audits/2026-09-03-language-docs-audit-findings.md), [F26](../audits/2026-09-03-language-docs-audit-findings.md), [F30](../audits/2026-09-03-language-docs-audit-findings.md), P3). `test/system/diagnostic-catalog.test.ts` fails on an inline literal, a mis-keyed message and an orphan entry — but it evidently does not walk `src/ir/validate/checks/**` or the AST validators, which is how two textbook instances survive: `loom.function-block-impure` is raised live with an inline message and **no catalog entry** (`src/ir/validate/checks/structural-checks.ts:1243`; referenced from `validators/structural.ts:327` and `types.ts:809`), and the `when`-gate-references-op-param check raises an inline message with **no `code` at all** (`src/language/validators/statements.ts:110-118`). A third rides along: `loom.projection-event-unkeyed` interpolates `proj.correlationField`, which is `undefined` for exactly the keyless case it fires on — *"…has no 'undefined' field to route by."* (`projection-checks.ts`, `validateHandlers` ~:90).
 
@@ -434,11 +434,78 @@ Found 2026-09-03 by the language-docs audit ([F25](../audits/2026-09-03-language
 
 Sources: [language-docs-audit-2026-09-03](../audits/2026-09-03-language-docs-audit-findings.md) F25/F26/F30 + "Cross-cutting reading" §3, [wave plan](../audits/2026-09-03-language-docs-audit-findings.waves.md) packet **W4.1**. M-T9.45 stacks on this branch rather than waiting for merge.
 
-## M-T9.45 — Messages that contradict their own gate, comments naming codes that do not exist, one dead gate, one orphan catalog entry — `open` · **M** · P3 ⚠ verify-first
+> **Landed 2026-09-09. The premise in this row's title was wrong, and the correction is the
+> finding.** The gate has walked `src/ir/validate/checks/**` and the AST validators all along.
+> F25 and F26 survive for two unrelated reasons, both in the scanner rather than its reach:
+> `sitesIn` read only `ts.isPropertyAssignment`, so a diagnostic literal using **shorthand**
+> `message` was never recorded as a site (exactly two in the scanned surface — F25's, and
+> `loweringDiag`'s); and `isForwardedParam` **blanket-exempted** any site whose message is a
+> parameter of the enclosing function, a predicate that fired on **zero** sites and so had
+> never been exercised. It now retargets to the helper's own in-file call sites, which is what
+> makes F25's five inline template literals visible. Extended gate mutation-proved: with the
+> defect re-seeded it names all five sites by line under "has no inline wording".
+>
+> F26's row understates its finding. A site with **no `code:` at all** is invisible to the
+> catalog's three invariants too, and that is not one site: **119 errors and 11 warnings**
+> against 195 coded sites across the Langium validator surface. Fixing the one site the
+> register names would have hidden a class 130 times larger, so the class is filed as audit
+> finding **F55** and wants its own mission; the IR check leaves are clean.
+>
+> Shipped: the two scanner fixes; `loom.function-block-impure` as five `#`-slug variants (with
+> the `where` lead dropped — it duplicated `source`, which the gate's own invariant refuses);
+> `loom.when-references-op-param`; `loom.projection-event-unkeyed#singleton`, which asks for
+> `keyed by` instead of interpolating `undefined`. Refusing a keyless fold is intentional and
+> documented, so F30 was message-only exactly as recorded.
+
+## M-T9.45 — Messages that contradict their own gate, comments naming codes that do not exist, one dead gate, one orphan catalog entry — `done` · **M** · P3
 
 Found 2026-09-03 by the language-docs audit (F27–F29, F31–F35, P3). Eight rows, all text, each with a grep behind it: `loom.scaffold-filter-param-unsupported` says `bool`/`datetime`/`guid` "have no input at all" when since #2699 all three render — the gate reads the correct set, only the message (and its stale twin in a comment) lies (`messages.ts:2308-2315`; `ui-checks.ts:1097-1099`); `loom.flutter-primitive-unsupported` names `FileUpload` as "the one deferred primitive" while `FLUTTER_UNRENDERED_PRIMITIVES` is now empty (`messages.ts:1624`; `src/util/flutter-deferred-primitives.ts`); `loom.filter-bypass-unsupported` is unreachable — `FILTER_BYPASS_FAMILIES` holds all five families — and still names three backends as "the honoring backends" (`system-checks.ts:2712`; `messages.ts:1832-1842`); `loom.scaffold-unexpanded` blames "walker-primitive-expander", a pass that no longer exists, and names `view` as a resolvable target (`messages.ts:783`); three comments cite codes that do not exist at all — `loom.workflow-function-block-body` (`ddd.langium:1456`, `loom-ir.ts:1311`), `loom.intrinsic-not-queryable` (`src/util/intrinsics.ts:57`), `loom.spurious-effect-marker` (`src/ir/lower/lower-expr.ts:1080`); and `extern_handlers_registered` sits in the observability catalog with no backend emitting it (`src/generator/_obs/log-events.ts`).
 
 **The fix:** mostly text, but every edit carries the grep that proves the claim it replaces. **F29 needs a decision** — delete the dead gate or add the missing family; the wording is wrong either way.
+
+> **Landed 2026-09-09 (W4.2, stacked on M-T9.44's branch). Three of the eight rows were not
+> what they said.**
+>
+> * **F27 was already half-fixed on `main`.** The message names the correct renderable set
+>   today; only its comment twin in `ui-checks.ts` was still stale.
+> * **F29 needed no decision — the code had already made it.** The gate is a pinned
+>   `LATENT_GATES` entry in the firing census (*"no deployable can reach the `!supported`
+>   push"*), i.e. a deliberate dormant safety net, the same shape as F28's Flutter gate. Both
+>   are reworded, neither deleted.
+> * **F34's symptom was wrong and the truth is much worse.** A stray `await` is not a parse
+>   error: `match await <plain state field>` validates with **zero diagnostics** and the four
+>   SPA walkers emit `await Promise.reject(new Error("no remote op for variant-match"))` — a
+>   guaranteed runtime rejection on every invocation, plus an undefined setter. Root cause:
+>   `loom.match-non-union-subject` guards the **expression** `match` only; a `match` in an
+>   action body lowers to a `StmtIR` `variant-match` that its visitor never sees. Filed as
+>   audit finding **F56** and routed to W2.3, since it is Wave 2's invariant rather than text.
+>
+> **F56 re-scoped 2026-09-09 (fleet), twice.** (1) "A union-returning subject and a plain `string` one
+> carry byte-identical `subjectType`" holds only for the **awaited-call** shape — a `let`-bound subject
+> is a `ref`, takes `lowerMatchStmt`'s `subject.type` branch, and resolves to the real union. The
+> awaited api-handle call is the only shape Stage 2 `match await` exists for, so the canonical page form
+> is exactly the one that cannot be discriminated; the finding stands, the sentence generalised past it.
+> (2) **The fix is a promotion, not a type-resolution mission (audit F66).**
+> `classifyFelizAsyncEffect` (`src/ir/util/feliz-async-effect.ts`) is already an IR-pure, target-neutral
+> classifier of exactly the predicate the SPA walkers need, invoked behind
+> `if (dep.platform !== "feliz") continue` — the identical model is refused on a Feliz host and reports
+> `0 error(s), 0 warning(s)` on React. Resolving `subjectType` is an optional second half with a real
+> trap: fixing it on the EXPRESSION form un-blocks that form into walkers that cannot render it (a
+> variant match with `variantArms` and no `arms` falls through to
+> `otherwise ?? "/* empty match */ undefined"`), trading a false-positive error for a silent `undefined`.
+>
+> **F32 was verified by running it, not by reading:** a block-bodied workflow `function`
+> parses clean and emits as a real workflow-scoped helper on all five backends, never inlined
+> — which also exposed the grammar comment's *second* false claim (that such helpers are
+> inlined at each call site), contradicted by the IR comment two files away.
+>
+> **F35 shipped the class, not the instance.** `catalog-parity.test.ts` only ever checked
+> *emitted ⊆ catalogued*; the reverse — a catalog entry no backend emits — had no gate, which
+> is how `extern_handlers_registered` outlived its producer. The new orphan invariant scans
+> `src/` for each entry's key and event string (every emitter reaches the catalog by key, so
+> one grep covers all five backends with no generate and no docker), and holds the three
+> documented-reserved entries in a ratcheting `RESERVED_UNEMITTED` waiver that fails both ways.
+> Mutation-proved by restoring the deleted entry.
 
 **Verification when it lands.** The extended catalog gate from M-T9.44 stays green; the register-backed claims (`FLUTTER_UNRENDERED_PRIMITIVES`, `FILTER_BYPASS_FAMILIES`) are re-derived from code in the PR body rather than restated.
 
@@ -588,3 +655,77 @@ Minted 2026-09-07, from the isolation leak [#2766](https://github.com/Loom-Harne
 - The scan covers `src/` only. `test/_helpers/` has its own module state and is not yet censused.
 
 Sources: [verification-waves-2026-09](verification-waves-2026-09.md) — the isolation-leak section. Relates to M-T9.8 (hollow work: a test asserting against leaked state is green for the wrong reason), M-T9.50 (the `test/` typecheck baseline, the other shrink-only census).
+
+## M-T9.55 — The give-up routing gate scans 40 of 140 walker files and reports green — `open` · **S** to fix, **L** to drain · P0 ⭐
+
+Found 2026-09-09 by the verification fleet ([F63](../audits/2026-09-03-language-docs-audit-findings.md)).
+`test/system/walker-give-up-routing.test.ts` enumerates its files by shelling
+`git ls-files 'src/generator/<target>/**/*.ts'`. **That pathspec matches subdirectories only.** Measured:
+
+| tree | `<t>/*.ts` | `<t>/**/*.ts` |
+|---|---:|---:|
+| `_walker` | 39 | 19 |
+| react | 22 | 9 |
+| flutter | 22 | **0** |
+| feliz | 13 | **0** |
+
+40 of 140 files are scanned. The unscanned 100 contain **28 direct `renderComment` / `renderNotice`
+give-ups** — six in the shared `walker-core.ts`, five in `flutter-target.ts`, three each in
+`feliz-target.ts` and the Angular destroy-form fork. The test passes.
+
+This is the repo's own recurring failure shape (`experience_gathered.md` §59, §63): a check that never
+reaches the thing it names. **Land it first** — any conformance gate built on the `loom:unrendered`
+sentinel is a no-op until it does, including the "a walker never declines without a diagnostic" gate
+W2.3 is meant to produce.
+
+**Two slices.** (1) Fix `WALKER_GLOBS` to carry two entries per tree — `git ls-files` will not do it
+with one — and watch the 28 sites appear. (2) Drain them: route each through `giveUp()` or add a
+reasoned `NOT_A_GIVE_UP` row. Mutation-prove by reverting the globs from a file copy and confirming the
+28 disappear again.
+
+## M-T9.56 — 130 validator conditions reach the user as one non-catalog code — `open` · **S/M** for the ratchet, ~**70-78 h** for the drain · P1
+
+Found 2026-09-09 ([F55](../audits/2026-09-03-language-docs-audit-findings.md), extended as F64). Across
+`src/language/validators/**` + `ddd-validator.ts`: **196 `accept` sites carry a code, 119 errors and 11
+warnings do not.** The IR check leaves are clean.
+
+The sharp half: `src/api/report.ts` stamps **`loom.unknown`** on any diagnostic with no code, and
+`loom.unknown` is not a catalog key — no docs anchor, no fix hint, no census bucket. 123 distinct
+conditions collapse onto one meaningless string on the wire.
+
+**Not a convention.** `docs/architecture/diagnostic-catalog.md:16` states the opposite rule normatively;
+the two places the reference calls a message "uncoded" are receipts of the gap. The boundary is
+incoherent regardless — seven type-mismatch codes already exist, and the coded `loom.unknown-name` sits
+700 lines from six identical uncoded resolution errors.
+
+**A 130-entry waiver is the wrong instrument** (a code-less site has no stable key to waive; line
+numbers churn, message text rewords). Use a **12-row per-file EXACT count**, shrink-only, following
+`test/system/legacy-generate-path-ratchet.test.ts`, as a fifth invariant inside
+`diagnostic-catalog.test.ts` — it already owns the scanners. Add, in the same slice, an assertion that
+no `FIRING_FIXTURES` fixture raises `loom.unknown`, and a length baseline for `UNDOCUMENTED_CODES`
+(368 entries, currently unpinned, so new codes can land wholly undocumented).
+
+Then ~10 drain slices; the triage, per-site cost and ordering are in the fleet plan.
+
+## M-T9.57 — Every "dropped `workflow_run` dispatch" claim rests on a measurement artifact — `open` · **S** · P1 ⚠ verify-first
+
+Found 2026-09-09 ([F65](../audits/2026-09-03-language-docs-audit-findings.md)).
+`workflow_run`-triggered runs are attributed to the repository's **default branch**, so
+`list_workflow_runs(branch=<pr-branch>)` structurally cannot return a `pr-gate` evaluation — it returns
+only the one `pull_request`-event run. Of the last 100 `event=workflow_run` runs of `pr-gate.yml`, **all
+100** carry `head_branch: main`.
+
+That call is the sole evidence behind the dropped-dispatch premise in `pr-gate.yml`'s header comments,
+in `docs/ci-gating.md`, in PR #2835, and in this session's own notes. **Re-measure without the filter
+before building anything on it.**
+
+Better-fitting explanation for a stuck verdict: a read-after-write race. The final evaluation is
+dispatched by the last check's completion, sits queued 6-14 minutes under measured runner starvation,
+reads a check-runs snapshot in which that check still looks `in_progress`, publishes a non-terminal
+verdict and exits — with no further event coming. Fix is a bounded tail re-read on the near-green
+pending path (~25 lines), capped well under the queue's 180-min checks timeout.
+
+Two further gaps found alongside: the sweep enumerates open PRs only, so **inside the merge queue there
+is no backstop at all** (a stalled group head's only bound is the timeout, which ejects rather than
+heals); and the cron re-measures at a **3.3 h median** against its `*/15` schedule. Honest bounds to
+document: ~30 min active, ~3.3 h idle, unbounded in-queue today.

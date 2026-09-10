@@ -174,6 +174,25 @@ ${uiBody}
 }`;
 
 const FIRING_FIXTURES: Record<string, string> = {
+  // --- phase ④ AST validate -----------------------------------------------
+  // Two complete `system { }` blocks and NO top-level members — the shape that
+  // slipped past the fold-triggered composition check, because with nothing to
+  // fold it returned before ever counting systems (F36).  The smallest system
+  // pair that parses; the diagnostic lands on the SECOND one.
+  "loom.multiple-systems": `
+system Alpha {
+  subdomain S { context Ops {
+    aggregate Job { name: string }
+    repository Jobs for Job { }
+  } }
+}
+
+system Beta {
+  subdomain T { context Other {
+    aggregate Task { title: string }
+    repository Tasks for Task { }
+  } }
+}`,
   // --- phase ① parse ------------------------------------------------------
   // A mistyped design pack.  `loom.parse-error` is the code `src/api/report.ts`
   // stamps on Langium's `parsing-error`, and the wording it carries is
@@ -209,6 +228,27 @@ system S {
     repository Tasks for Task { }`),
 
   // --- structural ---------------------------------------------------------
+  // A block-bodied `function` that mutates aggregate state.  The purity gate had
+  // no catalog entry and no firing proof at all until W4.1 — the scanner never
+  // saw the site, because its `message` was a shorthand property.
+  "loom.function-block-impure": repoOnly(`    aggregate Counter with crudish {
+      n: int
+      function bump(q: int): int {
+        n := q
+        return q
+      }
+    }
+    repository Counters for Counter { }`),
+
+  // A `when` gate that reads an operation parameter.  The companion
+  // `GET /{id}/can_<op>` route takes no arguments, so the gate can only be a
+  // predicate over the aggregate's own state.
+  "loom.when-references-op-param": repoOnly(`    aggregate Order with crudish {
+      total: int
+      operation addLine(qty: int) when qty > 0 { total := total + qty }
+    }
+    repository Orders for Order { }`),
+
   "loom.duplicate-find": repoOnly(`    aggregate Thing with crudish { name: string }
     repository Things for Thing {
       find byName(n: string): Thing[] where this.name == n
@@ -1209,10 +1249,13 @@ system P {
   deployable app { platform: angular targets: api ui: WebApp { C: api } port: 3001 }
 }`,
 
-  // A `toast(<expr>)` outside the v1 message subset every realtime renderer
-  // implements — two-level member access off the event binding.  Without the
-  // gate this aborts `ddd generate system` with a raw Error from
-  // `renderMessageExpr` / `renderFsToastMessage` / `renderMessageExprElixir`.
+  // A `toast(<expr>)` outside the message subset every realtime renderer
+  // implements — a CONVERSION call.  (A member CHAIN off the binding —
+  // `e.order.id` — used to sit here; it renders on all four renderers now, so
+  // the fixture moved to a shape that is still refused.)  Without the gate this
+  // aborts `ddd generate system` with a raw Error from `renderMessageExpr` /
+  // `renderFsToastMessage` / `renderMessageExprElixir` /
+  // `renderDartToastMessage`.
   "loom.toast-message-unsupported": `
 system P {
   subdomain D { context C {
@@ -1224,7 +1267,7 @@ system P {
   ui WebApp {
     api C: Api
     channel Live: C.Lifecycle
-    on Live.OrderPlaced(e) { toast(e.order.id) }
+    on Live.OrderPlaced(e) { toast(string(e.at)) }
     page Home { route: "/" body: Stack { Heading { "home" } } }
   }
   storage pg { type: postgres }

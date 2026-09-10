@@ -24,8 +24,9 @@ name: PR gate
 # jobs don't surface in the PR checks UI, so the job is `pr-gate-eval` and
 # the canonical `pr-gate` name comes from the posted check on every path.
 #
-# No polling, no timeout to tune, no parked slot — and a re-run of a red
-# check fires `workflow_run: completed` again, so recovery is automatic.
+# No polling, no timeout to tune, no parked slot.  A re-run of a red check does
+# fire `workflow_run: completed` again — but that is NOT enough to recover a
+# parked gate; see the lever table under `schedule:` below.
 #
 # The `workflows:` list below must name every other workflow (else a gate's
 # completion stops re-evaluating and a PR can stick at in_progress until the
@@ -62,30 +63,38 @@ on:
   # this workflow's runs filtered to `event=schedule` and diff `created_at`.)
   #
   # So a dropped dispatch parks a green PR for HOURS, not minutes.  If you are
-  # waiting on a parked `pr-gate`, do not wait for the sweep — but note that
-  # only ONE of the two obvious levers actually works.
+  # waiting on a parked `pr-gate`, do not wait for the sweep.  THREE levers have
+  # been measured, and they do not all work:
   #
   #   a new SHA        WORKS.  Measured on #2812 (2026-09-08): parked on
   #                    `5e0995d`, unparked the moment `027454e` was pushed.
-  #   a workflow re-run DOES NOT.  Measured twice — on #2812 and again on
-  #                    #2792 — `rerun_workflow_run` returns 201 and the
-  #                    dispatch does fire, but no verdict reaches the head
-  #                    SHA and the merge stays refused with
+  #   re-run THIS      WORKS.  Measured on #2773 (2026-09-09, 15:57Z): the
+  #   workflow's own   `pull_request`-event `PR gate` run for the parked head
+  #   run              (34356460700) re-run by hand; the PR entered the merge
+  #                    queue ~3 minutes later.  This is the cheap one — it
+  #                    re-evaluates the same SHA and costs no other CI.
+  #   re-run the RED   DOES NOT.  Measured three times — #2812, #2792, and
+  #   check's workflow #2773 after the cancellation fix below.
+  #                    `rerun_workflow_run` returns 201 and the dispatch does
+  #                    fire, but no verdict reaches the head SHA and the merge
+  #                    stays refused with
   #                    `Required status check "pr-gate" is expected`.
   #
-  # This comment used to offer the two as interchangeable.  They are not, and
-  # the difference costs hours: on a re-run you wait, conclude it worked, and
-  # find the PR still unmergeable.
+  # This comment used to offer the first two as interchangeable, and then to
+  # know only the first.  The difference costs hours: on a red-check re-run you
+  # wait, conclude it worked, and find the PR still unmergeable.
   #
-  # SUSPECTED cause, not yet proven — the `concurrency` block at the bottom of
-  # this file is SHA-keyed with `cancel-in-progress: true` for `workflow_run`.
-  # The two `pr-gate` runs that fired for #2792's re-run (34211962880 at
-  # 09:47Z, 34212476487 at 09:53Z) both concluded `cancelled`, never `success`,
-  # so neither reached the Checks-API publish step.  A burst of completions is
-  # supposed to collapse to the NEWEST evaluation; if the newest is itself
-  # cancelled by the next dispatch, the burst collapses to nothing.  Verify by
-  # listing this workflow's `event=workflow_run` runs and counting how many
-  # conclude `success` versus `cancelled` before changing the group key.
+  # The suspected cause used to be named here as the SHA-keyed
+  # `cancel-in-progress: true` on the `concurrency` block at the bottom of this
+  # file.  It was verified (94 of 100 `workflow_run` evaluations cancelled, zero
+  # published) and FIXED in #2822 — nothing cancels now; see that block.
+  #
+  # The red-check re-run hole SURVIVED that fix, and is NOT explained by it.
+  # Measured on #2773: the last two red checks were re-run to green at 14:33Z
+  # and 14:41Z, every check on the head was then success or skipped, and the
+  # gate was still blocking at 15:57Z — 76 minutes with no verdict and no sweep.
+  # Re-running this workflow's own run cleared it immediately.  So the mechanism
+  # is still undiagnosed; what is established is which lever to reach for.
   schedule:
     - cron: '*/15 * * * *'
   workflow_dispatch:
@@ -228,13 +237,22 @@ concurrency:
 jobs:
   pr-gate-eval:
     name: pr-gate-eval
-    # Everything runs except workflow_run completions from a context this gate
-    # does not evaluate: `pull_request` and `merge_group` each evaluate one
-    # SHA, schedule/workflow_dispatch run the sweep.
+    # Runs wherever there is ONE SHA to evaluate: a `pull_request` or
+    # `merge_group` event directly, or a `workflow_run` completion from a run
+    # that was itself triggered by one of those.
+    #
+    # `schedule` / `workflow_dispatch` deliberately fall through to `sweep`
+    # below.  They carry no SHA, so this job would run in sweep mode — which is
+    # what it used to do, and why the guard here was once written inverted
+    # (`event_name != 'workflow_run' || …`).  The sweep is its own job now,
+    # because it needs a throttle and a concurrency group this one must not
+    # have; running it in both places would only sweep twice.
     if: >-
-      github.event_name != 'workflow_run'
-      || github.event.workflow_run.event == 'pull_request'
-      || github.event.workflow_run.event == 'merge_group'
+      github.event_name == 'pull_request'
+      || github.event_name == 'merge_group'
+      || (github.event_name == 'workflow_run'
+      && (github.event.workflow_run.event == 'pull_request'
+      || github.event.workflow_run.event == 'merge_group'))
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -248,4 +266,72 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha || github.event.workflow_run.head_sha || github.event.merge_group.head_sha }}
+        run: node scripts/pr-gate.mjs
+
+  # ---------------------------------------------------------------------------
+  # The safety net, moved off the CLOCK and onto REPO ACTIVITY.
+  #
+  # `sweep` re-derives every open PR's verdict and posts only where it
+  # disagrees with what is already on the SHA (`sweepShouldPost`).  It exists
+  # because `workflow_run` delivery is best-effort: when the FINAL completion
+  # for a SHA is dropped, nothing is left to re-evaluate it and a fully green
+  # PR sits at `in_progress` forever.
+  #
+  # Measured on #2819, 2026-09-09: last check completed 05:49:10, last
+  # evaluation created 05:48:26, none after — parked ~50 minutes with every one
+  # of its 241 checks green or skipped.  The workflow whose dispatch was
+  # dropped ('Behavioral e2e — Java (Spring Boot + JPA)') IS named in the
+  # `workflows:` list above, so this was delivery, not a missing name.
+  #
+  # The `schedule:` trigger was the only thing meant to catch that, and it does
+  # not: the cron asks for four sweeps an hour and Actions delivers a mean gap
+  # of 4.7 HOURS on this account (measured — see the comment on the trigger).
+  # So the sweep now also rides `workflow_run`, the one event stream this repo
+  # produces both reliably and in volume.
+  #
+  # TWO independent brakes, because an unthrottled sweep would exhaust the
+  # per-repository GITHUB_TOKEN budget — a sweep costs one call to list the
+  # open PRs plus a paged check-run fetch per PR:
+  #
+  #   * `endsWith(run_number, '0')` — one sweep per ten evaluations.  It costs
+  #     no API call to decide, it is deterministic, and it scales with
+  #     activity, which is the right correlate: a park can only happen where
+  #     events are flowing.  At the observed ~40 evaluations/hour that is ~4
+  #     sweeps/hour — the cadence the cron asks for and does not deliver.
+  #     (GitHub expressions have no arithmetic, so this is a string test on the
+  #     last digit, not a modulo.)
+  #   * a CONSTANT concurrency group.  The workflow-level one is keyed per SHA,
+  #     so it would let sweeps for different SHAs pile up; this one holds every
+  #     sweep in a single group, which GitHub caps at one running plus one
+  #     pending, cancelling a superseded pending.  A burst can never stack
+  #     sweeps, and nothing that has started is ever cancelled.
+  #
+  # It never runs on `pull_request` or `merge_group`, so it never posts a check
+  # run onto a SHA this gate evaluates.  On those events the job is SKIPPED,
+  # and a skipped job still surfaces as a check run — which is why
+  # `pr-gate-sweep` is in `SELF_NAMES`.
+  # ---------------------------------------------------------------------------
+  sweep:
+    name: pr-gate-sweep
+    if: >-
+      github.event_name == 'schedule'
+      || github.event_name == 'workflow_dispatch'
+      || (github.event_name == 'workflow_run'
+      && endsWith(format('{0}', github.run_number), '0'))
+    concurrency:
+      group: pr-gate-sweep
+      cancel-in-progress: false
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+
+      # No HEAD_SHA — that is what selects sweep mode in scripts/pr-gate.mjs.
+      - name: Reconcile every open PR's published verdict
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: node scripts/pr-gate.mjs

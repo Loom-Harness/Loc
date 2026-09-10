@@ -1174,8 +1174,17 @@ function lowerExprInner(expr: Expression | undefined, env: Env): ExprIR {
   if (isAwaitExpr(expr)) {
     // `await <call>` (async-actions-and-effects.md Stage 2) — lower the inner
     // remote call and mark it `awaited`, so the frontend walker wraps its
-    // variant-match in the async envelope.  A spurious `await` on a non-call is
-    // returned unmarked; the validator (`loom.spurious-effect-marker`) flags it.
+    // variant-match in the async envelope.
+    //
+    // A spurious `await` on a NON-call is returned unmarked, and nothing flags
+    // it.  This comment used to credit `loom.spurious-effect-marker`, a code
+    // that has never existed; the grammar admits `await <MatchScrutinee>`, so
+    // `match await <plain state field>` reaches here and validates with zero
+    // diagnostics.  The four SPA walkers then emit
+    // `await Promise.reject(new Error("no remote op for variant-match"))` — a
+    // guaranteed runtime rejection on every invocation.  Tracked as audit
+    // finding F56; the real gap is that `loom.match-non-union-subject` guards
+    // the EXPRESSION `match` only, never the `variant-match` STATEMENT.
     const inner = lowerExpr(expr.inner, env);
     if (inner.kind === "call" || inner.kind === "method-call") {
       return { ...inner, awaited: true };

@@ -173,8 +173,16 @@ timeout fired and needed a manual label re-arm. v2 never waits:
   on the SHA, so it's OK by construction.
 - Zero other checks reporting **blocks** — `test.yml` runs unfiltered on PRs
   precisely so at least one check always comes; pending is *never* green.
-- Re-running a red check to green fires `workflow_run: completed` again, so
-  the gate re-evaluates **automatically** — no manual pr-gate re-run.
+- **Re-running a red check to green does NOT reliably re-evaluate the gate.**
+  It fires `workflow_run: completed`, and this bullet used to conclude that
+  recovery is therefore automatic. Measured three times it is not — #2812,
+  #2792, and #2773 (2026-09-09) after the cancellation fix in #2822: the last
+  red checks went green at 14:33Z and 14:41Z, every check on the head was then
+  success or skipped, and `pr-gate` was still blocking at 15:57Z. The mechanism
+  is undiagnosed. What is established is the remedy: **re-run the
+  `pull_request`-event `PR gate` run for that head** (it re-evaluates the same
+  SHA and costs no other CI — #2773 entered the merge queue ~3 minutes later),
+  or push a new SHA. See the lever table in `.github/workflows/pr-gate.yml`.
 - **A `pr-gate` success you read a minute ago is not a licence to merge.**
   Observed twice on 2026-08-16 (#2561, #2576): every check on the head SHA
   read `success`, `pr-gate` included, and the merge API still refused with
@@ -190,7 +198,8 @@ timeout fired and needed a manual label re-arm. v2 never waits:
   the obvious one is ruled out: it is **not** "branch must be up to date",
   because the attempt that finally succeeded was itself one commit behind
   `main`. What is left is a race — the gate re-posts on every `workflow_run`
-  completion (and on the 15-minute sweep), so the ruleset may be reading a
+  completion (and on the sweep, which now rides that same stream), so the
+  ruleset may be reading a
   newer `pr-gate` run than the one the API just showed you — or a propagation
   delay on the Checks-API-posted run. If you hit it: re-read the gate's
   CURRENT state rather than trusting the one you fetched, and if it is
@@ -217,36 +226,58 @@ timeout fired and needed a manual label re-arm. v2 never waits:
   `Required status check "pr-gate" is expected`. Pinned by the
   "pr-gate stays IN the queue" block in
   `test/system/merge-queue-readiness.test.ts`.
-- **The sweep is an hours-scale backstop, not the 15-minute cap the cron
-  suggests.** The workflow asks for `*/15`, and this doc, `pr-gate.yml` and
-  `scripts/pr-gate.mjs` all used to claim it therefore capped a dropped-event
-  outage at one interval. Measured, it does not: the 30 most recent
-  `schedule`-event runs of `pr-gate.yml` span **135 hours** — mean gap 4.7 h,
-  median 4.6 h, shortest gap anywhere in that window **110 min** — not one
-  15-minute gap in 29.
-  Actions cron is best-effort and a high-frequency schedule on a busy account
-  is heavily deprioritised. Re-measure before relying on either figure: list
-  the workflow's runs filtered to `event=schedule` and diff `created_at`.
-  Practical consequence: a dropped dispatch parks a green PR for **hours**. If
-  you are waiting on one, don't wait for the sweep — but **the two obvious
-  levers are not equivalent**, and this passage used to say they were:
+- **The sweep rides repo ACTIVITY, not the cron.** The workflow asks for
+  `*/15`, and this doc, `pr-gate.yml` and `scripts/pr-gate.mjs` all used to
+  claim it therefore capped a dropped-event outage at one interval. Measured,
+  it does not: the 30 most recent `schedule`-event runs of `pr-gate.yml` span
+  **135 hours** — mean gap 4.7 h, median 4.6 h, shortest gap anywhere in that
+  window **110 min** — not one 15-minute gap in 29. Actions cron is
+  best-effort and a high-frequency schedule on a busy account is heavily
+  deprioritised. Re-measure before relying on either figure: list the
+  workflow's runs filtered to `event=schedule` and diff `created_at`.
+
+  That left the safety net effectively absent, and it showed. On 2026-09-09
+  #2819 sat parked for ~50 minutes with **all 241** of its checks green or
+  skipped: its last check completed at 05:49:10, the last evaluation was
+  created at 05:48:26, and none followed. The workflow whose dispatch was
+  dropped is named in the `workflows:` list, so this was delivery, not a
+  missing name.
+
+  So the sweep is now a **second job** in `pr-gate.yml` that also fires on
+  `workflow_run` — the one event stream this repo produces both reliably and
+  in volume. Two brakes keep it affordable, since a sweep costs one call to
+  list open PRs plus a paged check-run fetch per PR:
+
+  | brake | what it does |
+  |---|---|
+  | `endsWith(format('{0}', github.run_number), '0')` | one sweep per ten evaluations — no API call to decide, deterministic, and it scales with activity, which is the right correlate because a park can only happen where events flow. At ~40 evaluations/hour that is ~4 sweeps/hour, the cadence the cron asks for and does not deliver. (GitHub expressions have no arithmetic, hence a last-digit string test rather than a modulo.) |
+  | a **constant** job-level concurrency group | the workflow-level group is keyed per SHA, so it would let sweeps for different SHAs pile up. One shared group is capped by GitHub at one running plus one pending, with a superseded pending cancelled. |
+
+  It never runs on `pull_request` or `merge_group`, so it never posts a check
+  run onto a SHA the gate evaluates; on those paths it is skipped, and because
+  a skipped job still surfaces as a check run, `pr-gate-sweep` is in
+  `SELF_NAMES`. Pinned by `test/system/pr-gate.test.ts`, including a control
+  arm that fails if the reader stops finding the job at all.
+
+  Both levers for a parked gate now work:
 
   | lever | works? | evidence |
   |---|---|---|
   | a new SHA | **yes** | #2812 was parked on `5e0995d` and unparked the moment `027454e` was pushed |
-  | a re-run of a workflow on the branch | **no** | measured twice — #2812 and #2792. `rerun_workflow_run` returns 201, the dispatch fires, no verdict reaches the head SHA, and the merge stays refused with `Required status check "pr-gate" is expected` |
+  | a re-run of a workflow on the branch | **yes, since #2822** | it did not before — measured twice, on #2812 and #2792, where `rerun_workflow_run` returned 201 and no verdict ever reached the head SHA. The cause was `cancel-in-progress`, now settled and fixed (below) |
 
-  The re-run is the expensive mistake: it looks like it worked, so you wait,
-  and the PR is still unmergeable. Reach for the SHA.
-
-  **Suspected cause, not proven.** `concurrency` in `pr-gate.yml` is SHA-keyed
-  with `cancel-in-progress: true` for `workflow_run`. Both `pr-gate` runs that
-  fired for #2792's re-run (`34211962880`, `34212476487`) concluded
-  **`cancelled`**, never `success`, so neither reached the Checks-API publish
-  step. A burst is meant to collapse to the newest evaluation; if the newest is
-  itself cancelled by the next dispatch, it collapses to nothing. Before
-  changing the group key, list the workflow's `event=workflow_run` runs and
-  count `success` versus `cancelled` — that ratio is the actual measurement.
+  **The cancellation cause, measured and closed.** This passage used to record
+  it as "suspected, not proven" and asked for the success-versus-cancelled
+  ratio. That ratio: of the last 100 `event=workflow_run` runs of
+  `pr-gate.yml`, **94 cancelled, 4 queued, 2 pending, 0 successful**. An
+  evaluation takes ~2m20s but sits queued far longer under load, so the next
+  completing check superseded it before it ever reached the publish step, and
+  the stream never ended. #2822 set `cancel-in-progress` to a flat `false`;
+  the demonstration is the pr-2738 merge group, which sat 42 minutes with all
+  42 gates green and a cancelled evaluation, then merged **30 seconds** after
+  that one evaluation was re-run. Note that cancellations do not go to zero
+  afterwards and are not meant to: a superseded *pending* run is still
+  cancelled, having burned no runner. Read parked groups, not cancel counts.
 
   Separately: `workflow_dispatch` on `pr-gate.yml` can return **403** to a
   GitHub-App token (`rerun_workflow_run` did **not** here — it returned 201),

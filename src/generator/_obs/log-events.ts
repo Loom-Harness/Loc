@@ -86,11 +86,6 @@ export const LogEvents = {
   migrationFailed: { event: "migration_failed", level: "error", fields: ["id", "name", "error"] },
   healthOk: { event: "health_ok", level: "debug", fields: ["checks"] },
   healthDegraded: { event: "health_degraded", level: "debug", fields: ["checks"] },
-  externHandlersRegistered: {
-    event: "extern_handlers_registered",
-    level: "debug",
-    fields: ["aggregate", "count", "ops"],
-  },
   authEnabled: { event: "auth_enabled", level: "info", fields: ["required"] },
   // Verifier-registration lifecycle (auth.md).  Emitted once at boot by the
   // backends that wire a token verifier: `auth_oidc_verifier_registered`
@@ -126,6 +121,16 @@ export const LogEvents = {
   seedApplied: { event: "seed_applied", level: "info", fields: ["dataset"] },
   workflowStarted: { event: "workflow_started", level: "info", fields: ["workflow"] },
   workflowCompleted: { event: "workflow_completed", level: "info", fields: ["workflow"] },
+  // The TERMINAL event of a failed run — the counterpart `workflow_started`
+  // needs to be readable at all.  Without it a workflow that threw logged
+  // `workflow_started` and then nothing, so "started but never finished" was
+  // indistinguishable from "still running" in the log stream, and every
+  // started/completed pairing in a dashboard leaked one row per failure.
+  // `error` is the failure's message (a domain refusal, a guard, or an
+  // unexpected throw alike — the workflow did not reach its terminal state,
+  // which is what this event asserts; the response status is carried by the
+  // request_end / internal_error line the router already emits).
+  workflowFailed: { event: "workflow_failed", level: "error", fields: ["workflow", "error"] },
   // An inbound event reached an `on(...)` reactor but no persisted workflow
   // instance existed for its correlation key — the continuation is dropped
   // (channels.md drop+log policy).  `event_type` mirrors `event_dispatched`.

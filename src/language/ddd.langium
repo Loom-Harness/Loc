@@ -1449,14 +1449,17 @@ Workflow:
 // starters (`create`), continuation commands (`handle`), event reactors
 // (`on`), and event folds (`apply`).
 //
-// `function` — a private, expression-bodied pure helper, the aggregate-parity
-// member (workflows are state-bearing entities like aggregates, so they get
-// the same helper-factoring surface).  Restricted to the expression form
-// (`function f(...): T = expr`) by the validator
-// (`loom.workflow-function-block-body`): a workflow body is not a class, so an
-// expression-bodied helper is INLINED at each call site during lowering (like
-// a parameterised `criterion`), needing no per-backend emission.  Block-bodied
-// / recursive helpers are a later slice.
+// `function` — a private pure helper, the aggregate-parity member (workflows
+// are state-bearing entities like aggregates, so they get the same
+// helper-factoring surface).  BOTH forms are accepted: the expression form
+// (`function f(...): T = expr`) and the block form (`{ let … return … }`).
+// This comment used to claim the block form was rejected by a validator named
+// `loom.workflow-function-block-body`; that code has never existed and nothing
+// rejects the block form — verified by generating a block-bodied workflow
+// helper onto all five backends, each of which emits it as a real
+// workflow-scoped helper (`opsSlaDays` / `SlaDays` / `ops_sla_days` /
+// `sla_days`), never inlined.  Recursive helpers remain rejected, by
+// `loom.function-recursive`.
 WorkflowMember:
     WorkflowCreateDecl | Apply | OnDecl | HandleDecl | Property | FunctionDecl;
 
