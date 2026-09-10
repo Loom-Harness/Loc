@@ -1,5 +1,6 @@
 import type { ExprIR } from "../../ir/types/loom-ir.js";
 import { lowerFirst, snake, upperFirst } from "../../util/naming.js";
+import { giveUp } from "../_walker/give-up.js";
 import { namedArgValue, stringNamed } from "../_walker/shared/args.js";
 import type { WalkContext } from "../_walker/walker-core.js";
 import {
@@ -62,14 +63,12 @@ export function renderAngularWorkflowForm(
         ? runsArg.value
         : undefined;
   if (!wfName) {
-    return ctx.target.renderComment("WorkflowForm(runs: …): missing 'runs:' workflow ref");
+    return giveUp(ctx.target, "WorkflowForm(runs: …): missing 'runs:' workflow ref");
   }
   const workflow = ctx.workflowsByName.get(wfName);
   const bc = ctx.bcByWorkflow?.get(wfName);
   if (!workflow || !bc) {
-    return ctx.target.renderComment(
-      `WorkflowForm(runs: ${wfName}): workflow not reachable from this UI`,
-    );
+    return giveUp(ctx.target, `WorkflowForm(runs: ${wfName}): workflow not reachable from this UI`);
   }
 
   const T = upperFirst(workflow.name);

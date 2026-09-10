@@ -221,7 +221,9 @@ describe("(b) PLATFORM_SAVING_SHAPES keys and values are real vocabulary", () =>
     // tell you the opposite of what ships.  Pin the widening's existence — if it
     // is ever folded into the table the comment must go with it.
     expect(PLATFORM_SAVING_SHAPES.elixir).not.toContain("document");
-    expect(read("src/ir/validate/checks/system-checks.ts")).toContain(
+    // `validateSavingShapeSupport` moved to the datasource leaf when
+    // system-checks.ts was split by theme; the widening itself is unchanged.
+    expect(read("src/ir/validate/checks/datasource-checks.ts")).toContain(
       'dep.platform === "elixir" ? ([...base, "document"] as readonly SavingShape[]) : base',
     );
   });

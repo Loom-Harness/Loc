@@ -187,7 +187,7 @@ The first two rows are this mission's guarantee and hold on all five. The last t
 
 Sources: [numeric-types-audit-2026-08-23](../audits/numeric-types-audit-2026-08-23.md) F12 + annex, plan.json N14. Relates to RS-15 (domain floor 422), M-T5.20 (denial ladder). Conflicts with M-T6.46/M-T6.47 in the shared wire files — stack or sequence within the wave.
 
-## M-T6.60 — Request-side numeric strictness still diverges three ways — needs an owner ruling, not just a fix — `open` · **M** · P2
+## M-T6.60 — Request-side numeric strictness diverges three ways: TWO need an owner ruling, one is an ordinary defect — `open` · **M** · P2
 
 Found 2026-09-08 by M-T6.48's cross-backend ingress matrix (`test/conformance/numeric-ingress-parity.test.ts`). M-T6.48 made *malformed* numeric input answer a typed 4xx on all five backends. It did not make *lenient* input answer the same way, because nothing had ever compared the five. The matrix did, against the real deserializers rather than by reading emitters, and found three rows that still disagree. All three are pinned in that file's second `describe` block as characterizations — each fails the day a backend moves in either direction — so this mission's first act is deleting the pin it closes.
 
@@ -197,7 +197,11 @@ Found 2026-09-08 by M-T6.48's cross-backend ingress matrix (`test/conformance/nu
 
 **Divergence 3 — a money value too large for the domain type.** A 40-digit money string parses on node (decimal.js), java (`BigDecimal`), python (a `str` passthrough) and elixir (`Decimal`); .NET's `decimal.TryParse` returns false past ~29 significant digits, so .NET alone answers 4xx. On the other four the value reaches `NUMERIC(19,4)` and the **database** rejects it — a 500, which is exactly the failure shape M-T6.48 was written to remove, arriving one layer later.
 
-**Why this is a ruling and not a bug fix.** Divergences 1 and 2 are backends being *more permissive* than the contract, and narrowing them breaks clients that are relying on the lenience today — a decision the owner makes, not the codegen. Divergence 3 is unambiguous (a 500 is never the right answer) but its fix is a different shape from M-T6.48's: a **range** check against the money column's precision at the wire boundary on four backends, not a format guard.
+**Why 1 and 2 are a ruling, and why 3 must NOT wait on it.** Divergences 1 and 2 are backends being *more permissive* than the contract, and narrowing them breaks clients relying on the lenience today — a decision the owner makes, not the codegen.
+
+**Divergence 3 is not that, and should be scheduled apart from them.** There is no contract to narrow: nobody depends on "a 40-digit price answers 500". It is the same client-fault-reported-as-server-fault class M-T6.48 removed, surfacing one layer later at the database instead of at the parse. Its fix is a different shape too — a **range** check derived from the money column's precision, not a format guard — so it shares neither the decision nor the code with 1 and 2. Holding it behind an owner ruling stalls an unambiguous defect behind a contract question it does not raise. Land it as an ordinary P2 defect whenever a backend packet is open; land 1 and 2 only after the ruling.
+
+*(Recorded 2026-09-10 from the M-T6.48 matrix session. The wave plan's §5 ruling #4 currently bundles all three as one owner-only item — see the note on [#2849](https://github.com/lemmit/Loc/pull/2849).)*
 
 **The fix, once ruled.** Strict: `model_config = ConfigDict(strict=True)` on python request models (or per-field `Strict()`, which is narrower and does not disturb datetime parsing), and a pre-cast wire-type guard on elixir's changeset path — the natural home is a `__loom_money_field` / `__loom_int_field` validation running before `cast/3`, reusing the `__loom_param_error` responder the op-param arm already emits. For divergence 3, derive the bound from `MONEY_WIRE_SCALE` + the `NUMERIC(19,4)` precision (`src/generator/money-scale.ts`) so one constant governs the guard and the column.
 
@@ -395,7 +399,8 @@ Sources: [language-docs-audit-2026-09-03](../audits/2026-09-03-language-docs-aud
 > the use case with a full emitter on all five. Named `create` is dropped too, by a different
 > mechanism (`lowerWorkflow` picks one primary). The route drop is one identical fail-open five times
 > (`if (!h) continue;`) while `api-checks.ts:217-220` actively models the handler name as "the WRITE
-> face" — three places promise routing works, zero deliver. **Blocked on M-T6.60**, which must land
+> face" — three places promise routing works, zero deliver. **Blocked on M-T6.62** (the workflow-`create`
+> miscompile; renumbered from M-T6.60 on 2026-09-10), which must land
 > first: option (a) would be built on a create path that miscompiles on all five.
 ## M-T6.59 — Phoenix cannot render the `if` statement: an assigning branch would compile and do nothing — `open` · **M** · P2
 
@@ -409,7 +414,9 @@ Raised 2026-09-03 by the M-FT.11 field-test slice, which added the `if <cond> { 
 
 Sources: M-FT.11 (grammar slice: `key` / `if` / `??`). Relates to [`vanilla-phoenix-gaps.md`](../old/plans/vanilla-phoenix-gaps.md).
 
-## M-T6.60 — A command-triggered `create` on a state-bearing workflow miscompiles on all five backends — `open` · **M** · P0
+## M-T6.62 — A command-triggered `create` on a state-bearing workflow miscompiles on all five backends — `open` · **M** · P0
+
+*Renumbered 2026-09-10 from `M-T6.60`, which #2840 minted while the numeric-strictness mission above already held that id (two live headings, one id — M-T6.58's "blocked on M-T6.60" was ambiguous). This one is the P0 miscompile; M-T6.60 stays the strictness ruling.*
 
 Found 2026-09-09 by the verification fleet ([F58](../audits/2026-09-03-language-docs-audit-findings.md)).
 `workflow Fulfillment { orderId: Order id  status: string  create(orderId: Order id) { status := "Pending" } }`
