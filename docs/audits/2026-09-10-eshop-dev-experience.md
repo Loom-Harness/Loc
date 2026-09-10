@@ -220,3 +220,114 @@ all 9 self-contained `system …` fences from those files and parsed each:
 affordable — it is simply not enforced. A gate that parses every self-contained
 fence, with an explicit waiver list for the deliberately-invalid ones, is the
 ratchet that keeps #2861's doc fixes from rotting again.
+
+---
+
+# Remediation plan
+
+Sequenced 2026-09-10, after reconciling with #2861 (which owns the projection
+parameter drop, Vue attribute escaping, the first-run doc/starter breakage, and
+the `create`-input gates — none of those appear below).
+
+## Design gaps — decide before Wave 2
+
+### G1 — a macro-emitted member has no way to carry an authorization gate
+
+The defect is D1; the gap is that there is no surface where the gate could go.
+`crudish` and `scaffoldPaged` emit client-reachable members, macro params are
+`string | bool | int | ref | refList` (`src/macros/api/define.ts:65-69`) with no
+expression kind, and an aggregate `Create` / `Destroy` carries its gate as a
+body STATEMENT in a body the macro owns.
+
+| Option | Cost | Consequence |
+|---|---|---|
+| (a) add `kind: "expr"` to the macro param API → `with crudish(requires: <expr>)` | macro API + every macro that emits a reachable member | precise, but per-macro and every future macro must remember |
+| (b) **an aggregate / context default gate** — `aggregate Order requires <expr> { … }`, inherited by every client-reachable member that declares none | grammar + validator + the denyByDefault check | the gate lives somewhere a macro cannot take away |
+| (c) message-only — denyByDefault names the MACRO, not the member you cannot edit | one message | honest, fixes nothing |
+
+**Recommendation: (c) immediately, (b) as the mission, (a) only on demand.**
+(b) has independent value: writing the e-shop I hand-wrote eleven near-identical
+`requires` lines that a single aggregate-level gate would have carried.
+
+### G2 — the read path has no replacement of equal power
+
+| Spelling | route | client hook | scaffold filter bar | index hint | survives `denyByDefault` |
+|---|---|---|---|---|---|
+| `find …: T[]` | yes | yes | yes | yes | yes — **but deprecated** |
+| `criterion` + `retrieval` | no | no | no | no | n/a |
+| + `scaffoldPaged` + `scaffoldPagedApi` + `serves:` | yes | yes | no | yes | **no** (G1) |
+
+A tool must not deprecate the only spelling that works.
+
+| Option | Cost |
+|---|---|
+| (a) a `retrieval` becomes route-bearing when its context is served — a true peer of `find`; subsumes `scaffoldPagedApi` | mission-sized, five backends |
+| (b) the scaffold binds criteria/retrievals in the filter bar and emits a page per `scaffoldPaged` read | scaffold macros + `_body-builders.ts` |
+| (c) downgrade `loom.repository-find-deprecated` to a hint (or scope it to models that already declare a retrieval) until (a)+(b) land | one validator |
+
+**Recommendation: (c) now, (a)+(b) as one mission.**
+
+### G3 — `this.x :=` and factory parameter shadowing
+
+`create(name: string) { this.name := name }` cannot be written: `this.` is not
+in the `LValue` head (`ddd.langium:2213`) and the bare `name` resolves to the
+shadowing parameter. `docs/language.md:1078` already describes `:=` as
+"assignment to a property reachable from `this`".
+
+**Recommendation: add `'this'` to the LValue head** — one grammar alternative
+plus one lowering arm. Rejected: resolving a bare LHS to the field instead of
+the parameter, which would silently change the meaning of existing models.
+
+### G4 — block-body separators are inconsistent
+
+Commas separate members in `event` / `payload` bodies and are a parse error in
+`aggregate` / `valueobject` / `user` bodies. **Recommendation: accept an optional
+`,` between members everywhere.** No semantics, one grammar change, and it
+retires a whole class of copy-paste failure — including the invalid
+`user { id: string, permissions: string[] }` in `docs/page-metamodel.md:161` and
+the `aggregate Product { sku: string, price: Money }` in the README.
+
+### G5 — IR-phase diagnostics carry no source position
+
+`LoomDiagnostic` is `{severity, message, source, code}` with no span
+(`src/ir/validate/checks/diagnostic.ts`), so `ddd parse` prints
+`loom.ui-id-ref-no-display webApp/Product.category: …` where an AST diagnostic
+prints `main.ddd:63:14`. `src/ir/lower/origin.ts` already captures `$cstNode`
+spans. **Recommendation: its own mission, sequenced last** — an optional span on
+`LoomDiagnostic`, threaded from the IR nodes that carry origin, plus the CLI
+and LSP printers. It touches all ~17 check leaves.
+
+## The fleet
+
+Each agent: branch from fresh `origin/main`, open its DRAFT PR first (the claim),
+implement, mutation-prove the gate it adds, run the matching local gate, then
+mark ready. One slice per agent; no two agents in a wave share a file.
+
+### Wave 1 — six agents, no design decision needed, startable now
+
+| # | Slice | Primary files | Proof |
+|---|---|---|---|
+| F1 | **D2** — the UI-gate codegen throw becomes a `loom.*` validator error | `src/generator/_frontend/gate-expr.ts`, `src/language/validators/` | the repro model validates-clean today and must fail validation after; revert the check → repro throws again |
+| F2 | **D3 + D4** — two page-body gates: a markup primitive inside a collection-op lambda, and a `money` expression in a non-formatting text slot | `src/language/validators/ui-checks.ts`, `src/generator/_walker/` | each gate mutation-proven; both repros currently emit non-compiling output |
+| F3 | **D5** — optional value-object hydration narrows only its first column | `src/generator/typescript/repository-builder.ts` + the four backend siblings | new corpus fixture with an optional VO; `test:tsc-corpus` red before, green after |
+| F4 | **D6** — an `X id?` claim in `user {}` emits an unimported `Ids.` and a doubled `\| null` | the auth emitters, all backends | new corpus fixture with an id-typed claim; same gate |
+| F5 | **D7b** — index suggestions are blind to `criterion` / `retrieval` predicates | `src/ir/validate/checks/index-suggestion-checks.ts` | test asserting the suggestion survives a find → criterion migration |
+| F6 | **D8** — an aggregate with no creator gets a diagnostic | validators | stacked on #2861 slice 4, or dropped if that PR takes it |
+
+F3 and F4 both add a corpus fixture — distinct filenames, agreed up front.
+
+### Wave 2 — three agents, gated on the G-decisions above
+
+| # | Slice | Depends on |
+|---|---|---|
+| F7 | the macro gate surface | **G1** |
+| F8 | read-path parity (filter bar + retrieval route, or the honest downgrade first) | **G2** |
+| F9 | `this.` in the LValue head; optional commas between members | **G3 + G4** |
+
+### Wave 3 — three agents, finishing
+
+| # | Slice | Depends on |
+|---|---|---|
+| F10 | the ` ```ddd ` fence CI gate + waiver list | **#2861 slice 3 merging first** |
+| F11 | papercuts: the `channel carries:` doc, the root-vs-system placement in the migration message, a diagnostic for an `api` no deployable `serves:`, and the `'requires' must be of type 'bool', got 'unknown'` wording | — |
+| F12 | source positions on IR diagnostics | **G5** |
