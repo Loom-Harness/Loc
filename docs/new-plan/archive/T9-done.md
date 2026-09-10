@@ -307,3 +307,47 @@ Minted 2026-08-23 by the numeric-types audit (the [root cause](../../audits/nume
 Byte-identical corpus/examples/web-examples diff verified across the pure-extraction commits (55 successfully-generated fixtures out of 128; the rest fail for pre-existing reasons unrelated to this change — legacy single-context sources, unsubstituted `__PLATFORM__` template fixtures, one malformed example); the only differences are the per-generation-run random `SECRET_KEY_BASE` secret in four elixir `docker-compose.yml` files. Local compile legs: .NET (`dotnet build /warnaserror`), Java (`gradle testClasses bootJar`, JDK 25 container), and Python (`ruff` + `mypy --strict` + `pytest`) all green against a fresh money/decimal/int-arithmetic fixture generated post-refactor; the five backend generator vitest suites (dotnet 699, java 535, python 488, elixir 1104, typescript+hono 697 — 3523 tests) all pass, as does `test/platform/pipeline-layering.test.ts`. Full detail: [`docs/new-plan/waves/handoffs/wave-2-numeric-codec.md`](../waves/handoffs/wave-2-numeric-codec.md).
 
 Sources: [numeric-types-audit-2026-08-23](../../audits/numeric-types-audit-2026-08-23.md), plan.json N15, #2545/#2560/#2575/#2631. Relates to M-T9.25 (intra-backend consistency gates).
+
+## M-T9.35 — The direct `generateSystems` callers the phase gate cannot reach — `done` ([#2604](https://github.com/Loom-Harness/Loc/pull/2604) drain + [#2647](https://github.com/Loom-Harness/Loc/pull/2647) ratchet, both merged 2026-08-24) · **M** · P1
+
+> **Status 2026-08-24.** **The drain shipped** ([#2604](https://github.com/lemmit/Loc/pull/2604), merged as `015a7bd`): re-measured on fresh `main` at **277** error-carrying generations across **62** files (the numbers below were 266/54 when this mission was written — `main` moved, as the mission's own "re-measure before starting" line predicted), all drained to **zero**, with **35 files migrated onto `generateSystemFiles`** so the phase ①/④/⑦ gate covers them from here. Done per file with the emission diff reviewed, not by codemod — the same conclusion the mission reached, re-reached by trying it. **Step 3, the ratchet, MERGED 2026-08-24 as [#2647](https://github.com/Loom-Harness/Loc/pull/2647)** — and the mission closes with it. Evidence on `main`: `test/system/direct-generate-systems-ratchet.test.ts` (AST census of every `test/**` importer of `generateSystems`/`generateSystemsFromLoom`, pinned shrink-only in both directions) and `scripts/direct-caller-census.mjs` (regenerates the pin paste-ready). It caught six direct callers on contact, arrived from #2637 and its neighbours while the stack was in flight; all six were **migrated** rather than pinned, so the baseline is still exactly the 200 the drain left. Mutation-proved against a file the drain actually migrated (`dotnet/dotnet-seed.test.ts`) — the first attempt used a still-legitimately-pinned file, passed, and proved nothing.
+
+**M-T9.34 gated the helper; this gates the rest.** 223 test files call `generateSystems` directly and never touch `generateSystemFiles`, so the phase ①/④/⑦ assertions cannot see them. Measuring rather than assuming — instrumenting `generateSystems` itself over one full `npm test` (**9,276 calls**) — puts the real damage at:
+
+| | |
+|---|---:|
+| error-carrying generations | **266** |
+| files | **54** |
+
+Far less than the 223-file surface implies: most direct callers parse through `parseValid` (which *does* assert phase ④, 54 of the 223) or simply have valid fixtures. By code:
+
+| count | code |
+|---:|---|
+| 201 | `loom.persistence-mode-unsupported` |
+| 20 | `loom.field-default-not-constant` |
+| 20 | `loom.named-lifecycle-dropped` |
+| 10 | `loom.workflow-unrecognised-statement` |
+| 6 | `loom.ui-id-ref-no-display` |
+| 6 | `loom.lifecycle-body-dropped` |
+| 2 | `loom.workflow-create-missing-field` |
+| 1 | `loom.guard-principal-without-auth` |
+
+Six of the eight are classes M-T9.34 already drained through the helper, so the fix shapes are known and written up in its slice commits (`storage`/`resource` + `dataSources:`; an emptied canonical `create` body; a canonical rather than named lifecycle action; `user { … }` + `auth: required`). Two are new here: `field-default-not-constant` and `workflow-create-missing-field`.
+
+**Do NOT codemod it.** That was tried against these 54 and reverted: one file stopped transforming and 30 tests failed, because *these* fixtures pin seed SQL, migration chains and saga dispatch — so binding a `resource` moves real emitted output (tables become schema-qualified, `pgTable(…)` → `<ctx>Schema.table(…)`, Ecto gains `prefix:`). Every such move is a real assertion change that needs reading, not a mechanical rewrite. Per file, with the emission diff reviewed.
+
+**Prerequisite, already landed:** `generateSystemResult(source, options?)` in `test/_helpers/generate.ts` returns the whole `SystemEmission` (not just `.files`) and takes `GenerateSystemOptions`, so migrating a direct caller is a one-line change rather than a capability loss. 260 of the direct call sites only wanted `.files`; the rest wanted the full result or `{ sourcemap: true }`.
+
+**Order:** drain the 54, migrate them to the helper, and only then add a ratchet forbidding `import { generateSystems }` in `test/**` with a shrink-only allowlist. A ratchet before the drain just blocks everyone.
+
+**The 54, by generation count** (re-measure before starting — `main` moves):
+
+`test/ir/provenance` 21 · `test/conformance/corpus-mutation` 20 · `test/generator/typescript/realtime-emission` 18 · `test/ir/audited` 13 · `java/java-workflow-dispatch` 11 · `test/platform/dotnet-fullstack` 10 · `hono/hono-seed` 10 · `hono/hono-wire-conformance` 10 · `dotnet/dotnet-wire-conformance` 10 · `java/java-workflow-instances` 7 · `dotnet/dotnet-seed` 7 · `dotnet/dotnet-showcase-compile-regressions` 7 · `java/java-workflow-command-surface` 6 · `python/message-clause` 6 · `hono/hono-destroy-route` 6 · then 39 files with ≤5 each across `elixir/`, `java/`, `python/`, `typescript/`, `test/system/`, `react/`, `flutter/`, `angular/`, `_walker/`.
+
+**How to re-measure** (the technique, since the numbers rot): temporarily add a `validateLoomModel(loom)` call inside `generateSystems` in `src/system/index.ts` behind an env var, append `{file, code}` per call (derive `file` from `new Error().stack`), run `npx vitest run`, tabulate, then **revert by file copy** — never `git checkout --`, which discards unrelated edits in the same file (retro §84, §87).
+
+Sources: M-T9.34's own measurement pass. Blocked-by: nothing — M-T9.34's helper half is landed.
+
+Sources: [test-coverage-audit-2026-08-13](../../audits/test-coverage-audit-2026-08-13.md) §3.2. Relates to #2354 (the parse-error half, already landed in this helper), #2489, #2512.
+
+> **ID note.** M-T9.36–M-T9.38 minted 2026-08-23 by the numeric-types audit. M-T9.35 was allocated to #2604's census drain (since landed above).
