@@ -792,7 +792,19 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
       sourcemap?.file(repoPath, repoContent, repo?.origin ?? agg.origin, construct);
       pyPortSpecs.push({ aggName: agg.name, members: pyPortMembersFromSource(repoContent) });
       const routesPath = `app/http/${snake(agg.name)}_routes.py`;
-      const routesContent = buildPyRoutesFile(agg, repo, ctx, hasDispatch, foreignIdNames);
+      // The id-import candidate pool is `ctx.aggregates` + these.  An `X id`
+      // field pointing at an aggregate in ANOTHER CONTEXT of the SAME
+      // deployable is in neither: not in `ctx.aggregates` (different context),
+      // and not in `foreignIdNames` (that set is the NON-hosted brands).  So
+      // `Thing.create(owner=OwnerId(body.owner))` emitted a call to a name the
+      // module never imported — `mypy` name-defined, and a `NameError` 500 on
+      // the first create request at runtime, since the reference only evaluates
+      // inside the handler.  Hosted siblings join the pool; `refersTo` still
+      // gates each one, so an aggregate that references none is byte-identical.
+      const routesContent = buildPyRoutesFile(agg, repo, ctx, hasDispatch, [
+        ...foreignIdNames,
+        ...merged.aggregates.map((a) => a.name),
+      ]);
       out.set(routesPath, routesContent);
       sourcemap?.file(routesPath, routesContent, agg.origin, construct);
       const tests = renderPyTestsFile(agg, ctx);
