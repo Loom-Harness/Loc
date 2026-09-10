@@ -20,7 +20,7 @@
 
 import type { Page } from "@playwright/test";
 import { expect, test } from "@playwright/test";
-import { waitForPlaygroundReady } from "./_helpers";
+import { prependMarker, waitForPlaygroundReady } from "./_helpers";
 
 /** Wipe the playground's IndexedDB so each test starts clean (mirrors
  *  workspace-persistence.spec.ts / workspace-history.spec.ts). */
@@ -49,10 +49,7 @@ const takeOver = (page: Page) => page.getByTestId("workspace-take-over");
 /** Prepend a marker line and wait past the autosave-commit debounce (1.5 s in
  *  `startAutoCommit`) so the write is committed AND broadcast. */
 async function typeMarker(page: Page, marker: string): Promise<void> {
-  const editor = page.locator(".monaco-editor").first();
-  await editor.click();
-  await page.keyboard.press("Control+Home");
-  await page.keyboard.type(`${marker}\n`);
+  await prependMarker(page, marker);
   await page.waitForTimeout(2200);
 }
 
