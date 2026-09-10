@@ -11,7 +11,10 @@
 // wiring is a second place for the origin/proxy/CORS invariant to drift —
 // and a drift there fails as a browser-level mystery, not a diff.
 
-import { build } from "esbuild";
+// esbuild is loaded lazily inside the bundler step: the runtime legs have it
+// (the generated project installs it), but the fast suite that unit-tests this
+// module's pure helpers (test/harness/ui-stack-frontend-build.test.ts) must
+// not need it at import time.
 import { execFileSync } from "node:child_process";
 import { cpSync, existsSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
@@ -275,6 +278,7 @@ export async function buildServerModule(deplDir, workDir) {
   const entry = join(workDir, "server-entry.mts");
   const bundle = join(workDir, "server-bundle.mjs");
   writeFileSync(entry, serverEntrySource({ deplDir }));
+  const { build } = await import("esbuild");
   await build({
     entryPoints: [entry],
     outfile: bundle,
