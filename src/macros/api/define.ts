@@ -70,7 +70,12 @@ export type ParamType =
 
 /** Named-decl kinds that a macro arg can cross-reference.  Limited
  * to the set actually useful at expansion time — extend when a new
- * macro needs it. */
+ * macro needs it.
+ *
+ * `"Policy"` resolves the FUNCTION form only (`policy Name(): bool = …`),
+ * never the anonymous / read-ladder `policy { … }` block — a macro takes a
+ * policy so it can splice `requires <Name>()` into a body it owns, and a read
+ * ladder is not callable.  See `crudish(requires: …)`. */
 export type NamedDeclKind =
   | "Aggregate"
   | "Subdomain"
@@ -78,7 +83,8 @@ export type NamedDeclKind =
   | "Workflow"
   | "ValueObject"
   | "EnumDecl"
-  | "Criterion";
+  | "Criterion"
+  | "Policy";
 
 /** A declared parameter list: name -> spec. */
 export type ParamSpec = Record<string, ParamType>;

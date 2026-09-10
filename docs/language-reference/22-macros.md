@@ -2,7 +2,7 @@
 
 A macro is a compile-time `with <Macro>(...)` clause that splices AST into its host declaration **before** lowering — it expands to ordinary `.ddd` you could have written by hand. The most instructive "output" of a macro is therefore the **expanded source**, not the target language: every macro has a source-equivalent, and the `unfold` refactor ejects it verbatim. This chapter covers the `with` invocation and its argument forms, the thirteen stdlib macros, the built-in *capabilities* they compose with, the `defineMacro` authoring surface, the macro validation gates, and `unfold`.
 
-> **Grammar:** `WithClause`, `MacroCall`, `MacroArg`, `MacroArgValue` · **Pipeline:** macro expansion is phase ② (AST→AST), before scope/link · **Validators:** `loom.unknown-macro`, `loom.macro-target-mismatch`, `loom.macro-arg-*`, `loom.macro-threw`, `loom.macro-escapes-host`, `loom.macro-non-ast-result`, `loom.capability-host-invalid`, `loom.scaffold-filter-param-unsupported` · **Source:** [`src/macros/`](../../src/macros/) · **Docs:** [`../scaffold-macros.md`](../scaffold-macros.md), [`../macro-api.md`](../macro-api.md)
+> **Grammar:** `WithClause`, `MacroCall`, `MacroArg`, `MacroArgName`, `MacroArgValue` · **Pipeline:** macro expansion is phase ② (AST→AST), before scope/link · **Validators:** `loom.unknown-macro`, `loom.macro-target-mismatch`, `loom.macro-arg-*`, `loom.macro-threw`, `loom.macro-escapes-host`, `loom.macro-non-ast-result`, `loom.capability-host-invalid`, `loom.scaffold-filter-param-unsupported` · **Source:** [`src/macros/`](../../src/macros/) · **Docs:** [`../scaffold-macros.md`](../scaffold-macros.md), [`../macro-api.md`](../macro-api.md)
 
 Macros expand at AST phase ②, so a synthesised member is indistinguishable from a hand-written one by the time scope resolution, validation, lowering, and codegen run. That is why the examples below pair the **written** `.ddd` with its **expanded** `.ddd` (a `macro` tab group) — and, where the macro feeds backend output, one `backend` tab showing what the expansion ultimately emits.
 
@@ -25,7 +25,7 @@ A bare name (`with crudish`) is the zero-arg form; the parentheses are optional.
 
 ## Argument forms
 
-A macro arg is `name: value`. The grammar admits five value shapes (`MacroArgValue`); the arg *name* is a `LooseName`, so soft keywords like `aggregates:` / `contexts:` work as parameter names.
+A macro arg is `name: value`. The grammar admits five value shapes (`MacroArgValue`); the arg *name* is a `MacroArgName` — `LooseName` plus `requires` — so soft keywords like `aggregates:` / `contexts:` work as parameter names, and so does the gate parameter `crudish` / `softDelete` take (`with crudish(requires: <Policy>)`). `requires` is admissible in this position ONLY; it stays a hard keyword everywhere a statement or a header gate clause can start.
 
 | Form | Syntax | Example | Used by |
 |---|---|---|---|

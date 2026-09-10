@@ -60,6 +60,19 @@ export function isMacroEmitted(origin: OriginRef | undefined): boolean {
   return origin.kind === "derived" && origin.reason.startsWith("macro:");
 }
 
+/** The name of the macro that produced the node, when one did — the
+ *  `with <macro>(...)` the author would have to edit, since the member
+ *  itself has no header of its own.  Mirrors `isMacroEmitted`'s two
+ *  spellings; `undefined` for anything author-written or purely derived. */
+export function macroNameOf(origin: OriginRef | undefined): string | undefined {
+  if (!origin) return undefined;
+  if (origin.kind === "macro") return origin.macro;
+  if (origin.kind === "derived" && origin.reason.startsWith("macro:")) {
+    return origin.reason.slice("macro:".length);
+  }
+  return undefined;
+}
+
 /** Walk the chain to the nearest real source span: a `macro` resolves
  *  through its `call`, a `derived` resolves through `from` (if present).
  *  Returns `undefined` only for a bare `derived` ref with no `from` chain. */
