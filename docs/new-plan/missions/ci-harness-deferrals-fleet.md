@@ -47,7 +47,7 @@ their own PR by the standing rule, and P1's tree is test-only.
 |---|---|---|---|
 | **P1** | Generated-project installs name their cause and retry once — **DONE, [#2858](https://github.com/Loom-Harness/Loc/pull/2858)** | M-T9.58 | `test/e2e/**` |
 | **P2** | The behavioral-tier timeout budgets, measured as a class — **DONE, [#2855](https://github.com/Loom-Harness/Loc/pull/2855)** | C0.2(e) | `.github/workflows/behavioral-e2e*.yml`, `test/behavioral/**` |
-| **P3** | The `pr-gate` stuck verdict, and the queue runbook's missing probe | M-T9.57 + M-T9.6 | `scripts/pr-gate.mjs`, `.github/workflows/pr-gate.yml`, `docs/ci-gating.md` |
+| **P3** | The `pr-gate` stuck verdict, and the queue runbook's missing probe — **DONE, [#2859](https://github.com/Loom-Harness/Loc/pull/2859)** | M-T9.57 + M-T9.6 | `scripts/pr-gate.mjs`, `.github/workflows/pr-gate.yml`, `docs/ci-gating.md` |
 
 ### P1 — installs that name their cause (M-T9.58)
 
@@ -260,3 +260,56 @@ rest cannot be affected (no `src/` file changed; nothing outside `test/e2e/`
 imports the helper). `tsc -b`, `test:typecheck` and `lint` clean. CI's
 `tests passed` runs the remainder unfiltered. A named narrower run that was
 actually read beats a full run nobody saw.
+
+### P3 — landed as [#2859](https://github.com/Loom-Harness/Loc/pull/2859) (2026-09-10)
+
+**Closed on the verify-first exit, which is the outcome §1 said was full and not
+a punt: the premise was the artifact, so there is no code fix.** Of the 100 most
+recent `pr-gate.yml` runs, the 91 `workflow_run` ones all carry `head_branch:
+main`; a PR head carries exactly one `pr-gate-eval` check run however many
+evaluations ran. No branch-filtered count can separate "none fired" from "fired
+and invisible". Parks are real; the dropped-delivery attribution never was
+evidence, and is retired everywhere it appeared.
+
+**The tail re-read was declined on evidence, not caution.** Two green PRs
+reached terminal verdicts with no human lever the same day (14m18s, 11m48s):
+the late evaluation reads a *fresh* snapshot and publishes `success`, so the
+symptom is latency, not staleness. The instance §1 offered as the hypothesis'
+anchor rests on the same branch-filtered figure and cannot ground a fix. A
+sleeping evaluation would also re-introduce the runner parking v1 died of.
+
+**What it found instead — a live comment that was wrong.**
+`cancel-in-progress: false` does not mean nothing cancels: GitHub still cancels
+the superseded *pending* run. Of the 91 evaluations, **66 cancelled / 20 success
+/ 5 queued** — so ~⅕ execute, a SHA's verdict advances about twice per storm,
+and *that* is the 12–14 min lag previously blamed on dropped dispatches.
+
+**Part C was re-verified, not inherited**, since all three claims came from the
+session whose central premise was under suspicion. Two moved: 5 of the last 30
+cron runs are `failure` across a ~16 h window (#2835's self-collision), so the
+idle backstop was **absent**, not slow; and "~30 min active" was too generous —
+91 evaluations in 18.4 min left 10 sweep-eligible and **exactly 1 survivor**,
+about one delivered sweep per 18 min.
+
+**The queue probe was verified live rather than quoted**, and both refinements
+matter: `ls-remote` for `gh-readonly-queue/*` lists *running batches*, not
+membership, so its silence proves nothing; and the merge API must be read by its
+**message, not its status code** — `405 Pull Request is in the merge queue.`
+(queued) and `405 Pull Request is still a draft` (draft) are both 405.
+
+---
+
+## 6. What the fleet actually taught
+
+All three packets landed, and **two of the three overturned the premise they
+were given** — P1 disproved this doc's own capture-stderr instruction, P3
+disproved the mission's central claim. The pattern worth keeping: each was
+caught because the packet *measured before building to the instruction*, which
+is the same discipline `experience_gathered.md` §59/§63 demands of a gate,
+applied one level up to the plan. A plan is an instrument too, and it can be
+vacuous in exactly the same way.
+
+The corollary for the next fleet: **state the premise as a measurement to
+re-run, not as a finding to build on** — and make "the premise was wrong" an
+explicitly acceptable exit for every packet, not just the one flagged
+verify-first. P1 was not flagged, and needed it.
