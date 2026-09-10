@@ -1236,22 +1236,22 @@ function checkOpFormRouteId(page: PageIR, diags: LoomDiagnostic[]): void {
 // walker's own name map rather than narrowing by deployable.
 // -------------------------------------------------------------------------
 
+/** How a non-ref `of:` argument is described back to the author.  A TABLE, not
+ *  a `switch (of.kind)`: this is a small open-ended labelling map, not a
+ *  dispatch that must cover every `ExprIR.kind`, and `ir-walk-census.test.ts`
+ *  is right to refuse a hand-rolled non-exhaustive switch here. */
+const DESTROY_FORM_OF_SHAPE: Partial<Record<ExprIR["kind"], string>> = {
+  member: "`of:` a member access",
+  call: "`of:` a call",
+  lambda: "`of:` a lambda",
+  literal: "`of:` a literal",
+};
+
 /** A short human description of an `of:` argument the check refuses because it
  *  is not a plain aggregate reference.  Doubles as the dedupe key. */
 function destroyFormOfShape(of: ExprIR | undefined): string {
   if (of === undefined) return "no `of:` argument at all";
-  switch (of.kind) {
-    case "member":
-      return `\`of:\` a member access (\`….${of.member}\`)`;
-    case "call":
-      return "`of:` a call";
-    case "lambda":
-      return "`of:` a lambda";
-    case "literal":
-      return "`of:` a literal";
-    default:
-      return `\`of:\` a ${of.kind} expression`;
-  }
+  return DESTROY_FORM_OF_SHAPE[of.kind] ?? `\`of:\` a ${of.kind} expression`;
 }
 
 /** Reject a `DestroyForm` whose `of:` is not an aggregate carrying a canonical
