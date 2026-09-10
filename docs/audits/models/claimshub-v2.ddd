@@ -1,0 +1,156 @@
+// ClaimsHub v2 — "the demo went well, now make it real" round of feedback:
+//   1. Adjusters need to be assigned to a claim and be the ones who
+//      approve/reject it — not anonymous CRUD.
+//   2. Only adjusters/admins may approve or reject; customers shouldn't be
+//      able to touch claim state once submitted.
+//   3. We need an audit trail (who/when) on claims.
+//   4. Customers should be able to attach a photo/document as evidence.
+// None of the v1 domain shape changed — auth/permissions/audit/file-upload
+// are all mixed in, same story as the built-in SaaS capabilities.
+system ClaimsHub {
+
+  // JWT claim shape the verifier decodes per request.
+  //
+  // NOTE (real bug, confirmed minimal repro): forgetting `permissions:
+  // string[]` here — while still writing `currentUser.permissions...` in a
+  // `requires` gate below — is accepted by BOTH `ddd parse` and `ddd
+  // generate system` with 0 errors. `currentUser.<anything>` silently
+  // types as `string` when the field isn't declared on the user shape
+  // (src/ir/lower/lower-expr.ts memberType(), ~L2588-2596) instead of
+  // raising a diagnostic; the comment there says "the validator will
+  // surface the broken reference with a friendlier message" but no such
+  // check exists in src/ir/validate/. The break only shows up as a `tsc`
+  // error in the emitted Hono routes: "Property 'permissions' does not
+  // exist on type 'UserClaims'". Fixed here by declaring the field.
+  user {
+    id: string
+    role: string
+    email: string
+    permissions: string[]
+  }
+
+  subdomain Claims {
+
+    permissions {
+      claimsApprove,
+      claimsReject,
+      claimsAssign
+    }
+
+    context Core {
+
+      enum PolicyStatus { Active, Lapsed, Cancelled }
+      enum ClaimStatus  { Submitted, UnderReview, Approved, Denied, Paid }
+
+      aggregate Policy with crudish {
+        policyNumber: string
+        holderName: string
+        status: PolicyStatus
+        premium: money
+
+        invariant policyNumber.length > 0
+        invariant premium > 0
+        derived display: string = policyNumber
+      }
+
+      aggregate Adjuster with crudish {
+        name: string
+        email: string
+        active: bool
+
+        invariant name.length > 0
+        derived display: string = name
+      }
+
+      event ClaimAssigned { claim: Claim id, adjuster: Adjuster id, at: datetime }
+
+      // NOTE (papercut, unchanged from v1): a field named `policy` still
+      // fails to parse — `policy` collides with the `policy { }`
+      // authorization block. Kept as `coveredPolicy`.
+      aggregate Claim with crudish, auditable {
+        coveredPolicy: Policy id
+        status: ClaimStatus
+        description: string
+        amountClaimed: money
+        submittedAt: datetime
+        assignedAdjuster: Adjuster id?
+        evidence: File?
+
+        invariant amountClaimed > 0
+        derived display: string = description
+
+        operation assign(adjuster: Adjuster id) {
+          requires currentUser.role == "admin"
+                || currentUser.permissions.contains(permissions.claimsAssign)
+          precondition status == Submitted
+          assignedAdjuster := adjuster
+          status := UnderReview
+          emit ClaimAssigned { claim: id, adjuster: adjuster, at: now() }
+        }
+
+        operation approve() {
+          requires currentUser.role == "admin"
+                || currentUser.permissions.contains(permissions.claimsApprove)
+          precondition status == UnderReview
+          status := Approved
+        }
+
+        // NOTE (papercut, unchanged from v1): `operation deny()` still
+        // fails to parse — `deny` is a hard keyword reserved by `policy { }`
+        // (`deny on <target>`), so it's not even LooseName-softened the way
+        // `policy` is for parameter names. Kept as `reject`.
+        operation reject() {
+          requires currentUser.role == "admin"
+                || currentUser.permissions.contains(permissions.claimsReject)
+          precondition status == UnderReview
+          status := Denied
+        }
+      }
+
+      repository Policies for Policy {
+        find byNumber(policyNumber: string): Policy? where this.policyNumber == policyNumber
+      }
+
+      criterion IsActive() of Adjuster = this.active == true
+
+      retrieval ActiveAdjusters() of Adjuster {
+        where: IsActive()
+      }
+
+      repository Adjusters for Adjuster { }
+
+      criterion ForPolicy(policyId: Policy id) of Claim = this.coveredPolicy == policyId
+
+      retrieval ClaimsForPolicy(policyId: Policy id) of Claim {
+        where: ForPolicy(policyId)
+      }
+
+      repository Claims for Claim { }
+    }
+  }
+
+  ui WebApp with scaffold(subdomains: [Claims]) { }
+
+  storage primary { type: postgres }
+  storage uploads { type: localDisk }
+  resource appState { for: Core, kind: state, use: primary,
+                      index: [Policy.policyNumber, Claim.coveredPolicy] }
+  resource claimFiles { for: Core, kind: objectStore, use: uploads }
+
+  deployable api {
+    platform: node,
+    contexts: [Core],
+    dataSources: [appState, claimFiles],
+    port: 3000,
+    auth: required
+  }
+
+  deployable webApp {
+    platform: react,
+    targets: api,
+    ui: WebApp,
+    port: 3001,
+    design: mantine,
+    auth: ui
+  }
+}
