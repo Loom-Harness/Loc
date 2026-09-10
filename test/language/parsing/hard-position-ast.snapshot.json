@@ -1,0 +1,770 @@
+{
+  "deny": {
+    "$type": "Model",
+    "members": [
+      {
+        "$type": "BoundedContext",
+        "name": "C",
+        "members": [
+          {
+            "$type": "Aggregate",
+            "name": "Claim",
+            "members": [
+              {
+                "$type": "Property",
+                "name": "total",
+                "type": {
+                  "$type": "TypeRef",
+                  "base": {
+                    "$type": "PrimitiveType",
+                    "name": "int"
+                  },
+                  "alternatives": [],
+                  "array": false,
+                  "ctors": [],
+                  "optional": false
+                },
+                "provenanced": false
+              }
+            ],
+            "audited": false,
+            "crossTenant": false,
+            "isAbstract": false
+          },
+          {
+            "$type": "Aggregate",
+            "name": "Payment",
+            "members": [
+              {
+                "$type": "Property",
+                "name": "total",
+                "type": {
+                  "$type": "TypeRef",
+                  "base": {
+                    "$type": "PrimitiveType",
+                    "name": "int"
+                  },
+                  "alternatives": [],
+                  "array": false,
+                  "ctors": [],
+                  "optional": false
+                },
+                "provenanced": false
+              }
+            ],
+            "audited": false,
+            "crossTenant": false,
+            "isAbstract": false
+          },
+          {
+            "$type": "PolicyDecl",
+            "rules": [
+              {
+                "$type": "PolicyReadRule",
+                "effect": "allow",
+                "level": "deep",
+                "target": "Claim"
+              },
+              {
+                "$type": "PolicyReadRule",
+                "effect": "deny",
+                "target": "Payment"
+              },
+              {
+                "$type": "PolicyReadRule",
+                "effect": "deny",
+                "verb": "write",
+                "target": "Claim"
+              }
+            ],
+            "params": []
+          }
+        ]
+      }
+    ],
+    "imports": []
+  },
+  "allow": {
+    "$type": "Model",
+    "members": [
+      {
+        "$type": "BoundedContext",
+        "name": "C",
+        "members": [
+          {
+            "$type": "Aggregate",
+            "name": "Claim",
+            "members": [
+              {
+                "$type": "Property",
+                "name": "total",
+                "type": {
+                  "$type": "TypeRef",
+                  "base": {
+                    "$type": "PrimitiveType",
+                    "name": "int"
+                  },
+                  "alternatives": [],
+                  "array": false,
+                  "ctors": [],
+                  "optional": false
+                },
+                "provenanced": false
+              }
+            ],
+            "audited": false,
+            "crossTenant": false,
+            "isAbstract": false
+          },
+          {
+            "$type": "EventDecl",
+            "name": "Tick",
+            "fields": [
+              {
+                "$type": "Property",
+                "name": "at",
+                "type": {
+                  "$type": "TypeRef",
+                  "base": {
+                    "$type": "PrimitiveType",
+                    "name": "string"
+                  },
+                  "alternatives": [],
+                  "array": false,
+                  "ctors": [],
+                  "optional": false
+                },
+                "provenanced": false
+              }
+            ]
+          },
+          {
+            "$type": "PolicyDecl",
+            "rules": [
+              {
+                "$type": "PolicyReadRule",
+                "effect": "allow",
+                "level": "local",
+                "target": "Claim"
+              },
+              {
+                "$type": "PolicyReadRule",
+                "effect": "allow",
+                "verb": "write",
+                "level": "deep",
+                "target": "Claim"
+              }
+            ],
+            "params": []
+          }
+        ]
+      },
+      {
+        "$type": "System",
+        "name": "S",
+        "members": [
+          {
+            "$type": "TimerSource",
+            "name": "Nightly",
+            "event": {
+              "$ref": "Tick"
+            },
+            "cron": "0 0 * * *",
+            "overlap": true
+          }
+        ]
+      }
+    ],
+    "imports": []
+  },
+  "deep": {
+    "$type": "Model",
+    "members": [
+      {
+        "$type": "BoundedContext",
+        "name": "C",
+        "members": [
+          {
+            "$type": "Aggregate",
+            "name": "Claim",
+            "members": [
+              {
+                "$type": "Property",
+                "name": "total",
+                "type": {
+                  "$type": "TypeRef",
+                  "base": {
+                    "$type": "PrimitiveType",
+                    "name": "int"
+                  },
+                  "alternatives": [],
+                  "array": false,
+                  "ctors": [],
+                  "optional": false
+                },
+                "provenanced": false
+              }
+            ],
+            "audited": false,
+            "crossTenant": false,
+            "isAbstract": false
+          },
+          {
+            "$type": "PolicyDecl",
+            "rules": [
+              {
+                "$type": "PolicyReadRule",
+                "effect": "allow",
+                "level": "deep",
+                "target": "Claim"
+              },
+              {
+                "$type": "PolicyReadRule",
+                "effect": "allow",
+                "verb": "write",
+                "level": "deep",
+                "target": "Claim"
+              }
+            ],
+            "params": []
+          }
+        ]
+      }
+    ],
+    "imports": []
+  },
+  "global": {
+    "$type": "Model",
+    "members": [
+      {
+        "$type": "BoundedContext",
+        "name": "C",
+        "members": [
+          {
+            "$type": "Aggregate",
+            "name": "Claim",
+            "members": [
+              {
+                "$type": "Property",
+                "name": "total",
+                "type": {
+                  "$type": "TypeRef",
+                  "base": {
+                    "$type": "PrimitiveType",
+                    "name": "int"
+                  },
+                  "alternatives": [],
+                  "array": false,
+                  "ctors": [],
+                  "optional": false
+                },
+                "provenanced": false
+              }
+            ],
+            "audited": false,
+            "crossTenant": false,
+            "isAbstract": false
+          },
+          {
+            "$type": "PolicyDecl",
+            "rules": [
+              {
+                "$type": "PolicyReadRule",
+                "effect": "allow",
+                "level": "global",
+                "target": "Claim"
+              },
+              {
+                "$type": "PolicyReadRule",
+                "effect": "allow",
+                "verb": "write",
+                "level": "global",
+                "target": "Claim"
+              }
+            ],
+            "params": []
+          }
+        ]
+      }
+    ],
+    "imports": []
+  },
+  "of": {
+    "$type": "Model",
+    "members": [
+      {
+        "$type": "BoundedContext",
+        "name": "C",
+        "members": [
+          {
+            "$type": "Aggregate",
+            "name": "Order",
+            "members": [
+              {
+                "$type": "Property",
+                "name": "total",
+                "type": {
+                  "$type": "TypeRef",
+                  "base": {
+                    "$type": "PrimitiveType",
+                    "name": "int"
+                  },
+                  "alternatives": [],
+                  "array": false,
+                  "ctors": [],
+                  "optional": false
+                },
+                "provenanced": false
+              },
+              {
+                "$type": "Property",
+                "name": "tenantId",
+                "type": {
+                  "$type": "TypeRef",
+                  "base": {
+                    "$type": "PrimitiveType",
+                    "name": "string"
+                  },
+                  "alternatives": [],
+                  "array": false,
+                  "ctors": [],
+                  "optional": false
+                },
+                "provenanced": false
+              }
+            ],
+            "audited": false,
+            "crossTenant": false,
+            "isAbstract": false
+          },
+          {
+            "$type": "Criterion",
+            "name": "Big",
+            "target": {
+              "$type": "TypeRef",
+              "base": {
+                "$type": "NamedType",
+                "target": {
+                  "$ref": "Order"
+                }
+              },
+              "alternatives": [],
+              "array": false,
+              "ctors": [],
+              "optional": false
+            },
+            "body": {
+              "$type": "BinaryChain",
+              "head": {
+                "$type": "PostfixChain",
+                "head": {
+                  "$type": "ThisRef"
+                },
+                "suffixes": [
+                  {
+                    "$type": "MemberSuffix",
+                    "member": "total",
+                    "args": [],
+                    "call": false
+                  }
+                ],
+                "bypass": [],
+                "bypassAll": false
+              },
+              "ops": [
+                ">"
+              ],
+              "rest": [
+                {
+                  "$type": "IntLit",
+                  "value": 10
+                }
+              ]
+            },
+            "params": []
+          },
+          {
+            "$type": "Criterion",
+            "name": "Small",
+            "target": {
+              "$type": "TypeRef",
+              "base": {
+                "$type": "NamedType",
+                "target": {
+                  "$ref": "Order"
+                }
+              },
+              "alternatives": [],
+              "array": false,
+              "ctors": [],
+              "optional": false
+            },
+            "body": {
+              "$type": "BinaryChain",
+              "head": {
+                "$type": "PostfixChain",
+                "head": {
+                  "$type": "ThisRef"
+                },
+                "suffixes": [
+                  {
+                    "$type": "MemberSuffix",
+                    "member": "total",
+                    "args": [],
+                    "call": false
+                  }
+                ],
+                "bypass": [],
+                "bypassAll": false
+              },
+              "ops": [
+                "<"
+              ],
+              "rest": [
+                {
+                  "$type": "IntLit",
+                  "value": 2
+                }
+              ]
+            },
+            "params": []
+          },
+          {
+            "$type": "Retrieval",
+            "name": "Recent",
+            "target": {
+              "$type": "TypeRef",
+              "base": {
+                "$type": "NamedType",
+                "target": {
+                  "$ref": "Order"
+                }
+              },
+              "alternatives": [],
+              "array": false,
+              "ctors": [],
+              "optional": false
+            },
+            "where": {
+              "$type": "PostfixChain",
+              "head": {
+                "$type": "NameRef",
+                "name": "Big"
+              },
+              "suffixes": [
+                {
+                  "$type": "CallSuffix",
+                  "args": []
+                }
+              ],
+              "bypass": [],
+              "bypassAll": false
+            },
+            "loads": [],
+            "params": [],
+            "sort": []
+          },
+          {
+            "$type": "Retrieval",
+            "name": "Ranked",
+            "params": [
+              {
+                "$type": "Parameter",
+                "name": "floor",
+                "type": {
+                  "$type": "TypeRef",
+                  "base": {
+                    "$type": "PrimitiveType",
+                    "name": "int"
+                  },
+                  "alternatives": [],
+                  "array": false,
+                  "ctors": [],
+                  "optional": false
+                }
+              }
+            ],
+            "target": {
+              "$type": "TypeRef",
+              "base": {
+                "$type": "NamedType",
+                "target": {
+                  "$ref": "Order"
+                }
+              },
+              "alternatives": [],
+              "array": false,
+              "ctors": [],
+              "optional": false
+            },
+            "where": {
+              "$type": "BinaryChain",
+              "head": {
+                "$type": "PostfixChain",
+                "head": {
+                  "$type": "ThisRef"
+                },
+                "suffixes": [
+                  {
+                    "$type": "MemberSuffix",
+                    "member": "total",
+                    "args": [],
+                    "call": false
+                  }
+                ],
+                "bypass": [],
+                "bypassAll": false
+              },
+              "ops": [
+                ">"
+              ],
+              "rest": [
+                {
+                  "$type": "NameRef",
+                  "name": "floor"
+                }
+              ]
+            },
+            "sort": [
+              {
+                "$type": "SortItem",
+                "path": {
+                  "$type": "LoadPath",
+                  "segments": [
+                    {
+                      "$type": "LoadSegment",
+                      "name": "total",
+                      "collection": false
+                    }
+                  ]
+                },
+                "direction": "desc"
+              }
+            ],
+            "loads": []
+          }
+        ]
+      },
+      {
+        "$type": "System",
+        "name": "S",
+        "members": [
+          {
+            "$type": "UserBlock",
+            "fields": [
+              {
+                "$type": "UserField",
+                "name": "tenantId",
+                "type": {
+                  "$type": "TypeRef",
+                  "base": {
+                    "$type": "PrimitiveType",
+                    "name": "string"
+                  },
+                  "alternatives": [],
+                  "array": false,
+                  "ctors": [],
+                  "optional": false
+                }
+              }
+            ]
+          },
+          {
+            "$type": "TenancyDecl",
+            "claim": {
+              "$ref": "tenantId"
+            },
+            "registry": {
+              "$ref": "Order"
+            }
+          }
+        ]
+      }
+    ],
+    "imports": []
+  },
+  "policy": {
+    "$type": "Model",
+    "members": [
+      {
+        "$type": "BoundedContext",
+        "name": "C",
+        "members": [
+          {
+            "$type": "Aggregate",
+            "name": "Claim",
+            "members": [
+              {
+                "$type": "Property",
+                "name": "total",
+                "type": {
+                  "$type": "TypeRef",
+                  "base": {
+                    "$type": "PrimitiveType",
+                    "name": "int"
+                  },
+                  "alternatives": [],
+                  "array": false,
+                  "ctors": [],
+                  "optional": false
+                },
+                "provenanced": false
+              }
+            ],
+            "audited": false,
+            "crossTenant": false,
+            "isAbstract": false
+          },
+          {
+            "$type": "PolicyDecl",
+            "rules": [
+              {
+                "$type": "PolicyReadRule",
+                "effect": "allow",
+                "level": "deep",
+                "target": "Claim"
+              }
+            ],
+            "params": []
+          },
+          {
+            "$type": "PolicyDecl",
+            "name": "Named",
+            "rules": [
+              {
+                "$type": "PolicyReadRule",
+                "effect": "allow",
+                "level": "local",
+                "target": "Claim"
+              }
+            ],
+            "params": []
+          },
+          {
+            "$type": "PolicyDecl",
+            "name": "IsBig",
+            "params": [
+              {
+                "$type": "Parameter",
+                "name": "floor",
+                "type": {
+                  "$type": "TypeRef",
+                  "base": {
+                    "$type": "PrimitiveType",
+                    "name": "int"
+                  },
+                  "alternatives": [],
+                  "array": false,
+                  "ctors": [],
+                  "optional": false
+                }
+              }
+            ],
+            "returnType": {
+              "$type": "TypeRef",
+              "base": {
+                "$type": "PrimitiveType",
+                "name": "bool"
+              },
+              "alternatives": [],
+              "array": false,
+              "ctors": [],
+              "optional": false
+            },
+            "body": {
+              "$type": "BinaryChain",
+              "head": {
+                "$type": "NameRef",
+                "name": "floor"
+              },
+              "ops": [
+                ">"
+              ],
+              "rest": [
+                {
+                  "$type": "IntLit",
+                  "value": 0
+                }
+              ]
+            },
+            "rules": []
+          },
+          {
+            "$type": "PolicyDecl",
+            "name": "IsSmall",
+            "params": [
+              {
+                "$type": "Parameter",
+                "name": "floor",
+                "type": {
+                  "$type": "TypeRef",
+                  "base": {
+                    "$type": "PrimitiveType",
+                    "name": "int"
+                  },
+                  "alternatives": [],
+                  "array": false,
+                  "ctors": [],
+                  "optional": false
+                }
+              }
+            ],
+            "returnType": {
+              "$type": "TypeRef",
+              "base": {
+                "$type": "PrimitiveType",
+                "name": "bool"
+              },
+              "alternatives": [],
+              "array": false,
+              "ctors": [],
+              "optional": false
+            },
+            "body": {
+              "$type": "BinaryChain",
+              "head": {
+                "$type": "NameRef",
+                "name": "floor"
+              },
+              "ops": [
+                "<"
+              ],
+              "rest": [
+                {
+                  "$type": "IntLit",
+                  "value": 0
+                }
+              ]
+            },
+            "rules": []
+          }
+        ]
+      }
+    ],
+    "imports": []
+  },
+  "persistence": {
+    "$type": "Model",
+    "members": [
+      {
+        "$type": "System",
+        "name": "S",
+        "members": [
+          {
+            "$type": "Deployable",
+            "name": "Api",
+            "platform": "node",
+            "persistence": "memory",
+            "directoryLayout": "flat",
+            "channelRefs": [],
+            "contextRefs": [],
+            "dataSourceRefs": [],
+            "hosts": [],
+            "serves": []
+          }
+        ]
+      }
+    ],
+    "imports": []
+  }
+}

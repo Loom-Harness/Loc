@@ -1973,7 +1973,12 @@ LooseName returns string:
     ID | CommonSoftKeywords
     // LooseName-only (soft here but not in every value position):
     | 'aggregates' | 'allow' | 'api' | 'await' | 'bind' | 'cache' | 'component' | 'contains'
-    | 'contexts' | 'deep' | 'design' | 'directoryLayout' | 'framework' | 'from' | 'global' | 'id' | 'ignoring'
+    // `deny` is `allow`'s grammar sibling in `PolicyReadRule` and was the one
+    // half of the pair never re-admitted as an identifier (audit #2865, D4a) —
+    // `operation op(deny: string)` failed where `allow` parsed.  A plain
+    // asymmetry, not a scoping decision: `allow`/`deny` is as ordinary a domain
+    // verb pair as `approve`/`reject`.
+    | 'contexts' | 'deep' | 'deny' | 'design' | 'directoryLayout' | 'framework' | 'from' | 'global' | 'id' | 'ignoring'
     | 'link' | 'local' | 'menu' | 'modules' | 'of' | 'page' | 'permissions' | 'persistence'
     | 'policy' | 'route' | 'section' | 'static' | 'targets' | 'transactional' | 'ui' | 'urlStyle'
     | 'views' | 'workflows';
