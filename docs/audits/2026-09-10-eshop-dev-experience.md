@@ -239,15 +239,38 @@ The defect is D1; the gap is that there is no surface where the gate could go.
 expression kind, and an aggregate `Create` / `Destroy` carries its gate as a
 body STATEMENT in a body the macro owns.
 
-| Option | Cost | Consequence |
-|---|---|---|
-| (a) add `kind: "expr"` to the macro param API → `with crudish(requires: <expr>)` | macro API + every macro that emits a reachable member | precise, but per-macro and every future macro must remember |
-| (b) **an aggregate / context default gate** — `aggregate Order requires <expr> { … }`, inherited by every client-reachable member that declares none | grammar + validator + the denyByDefault check | the gate lives somewhere a macro cannot take away |
-| (c) message-only — denyByDefault names the MACRO, not the member you cannot edit | one message | honest, fixes nothing |
+> **Revised 2026-09-10 after maintainer review.** An inherited aggregate- or
+> context-level default gate was REJECTED — a default-deny rule that is not
+> visible at the member it guards is the wrong trade. The recommendation below
+> replaces it.
 
-**Recommendation: (c) immediately, (b) as the mission, (a) only on demand.**
-(b) has independent value: writing the e-shop I hand-wrote eleven near-identical
-`requires` lines that a single aggregate-level gate would have carried.
+**Recommendation: pass a named policy function to the macro.** The gate stays
+explicit, named, and written at the macro call site; nothing is inherited.
+
+```ddd
+policy CatalogManager(): bool =
+  currentUser.permissions.contains(permissions.catalogManage)
+
+aggregate Product with crudish(requires: CatalogManager) { sku: string }
+```
+
+Cost — **no grammar change**. `requires: CatalogManager` is a bare ID, already a
+`MacroArgRef` (`ddd.langium:1136`). What changes:
+
+1. `NamedDeclKind` in `src/macros/api/define.ts` gains `"Policy"`;
+2. `crudish` declares `requires: { kind: "ref", of: "Policy", optional: true }`
+   and splices `requires <Policy>()` as the first statement of each emitted body;
+3. `denyByDefault`'s message, when the ungated member came from a macro, names
+   the macro and this parameter instead of a member the author cannot edit.
+
+Verified: a named policy function already gates and inlines correctly today —
+`create(...) { requires CatalogManager() }` emits
+`if (!((currentUser.permissions).includes("sales.catalogManage"))) throw new
+ForbiddenError("Forbidden: CatalogManager()")`. The macro has only to splice the
+statement the author would have written by hand.
+
+`scaffoldPaged`'s half of this problem disappears entirely under G2 — a
+`retrieval` that carries its own `requires` needs no macro.
 
 ### G2 — the read path has no replacement of equal power
 
@@ -259,13 +282,35 @@ body STATEMENT in a body the macro owns.
 
 A tool must not deprecate the only spelling that works.
 
-| Option | Cost |
-|---|---|
-| (a) a `retrieval` becomes route-bearing when its context is served — a true peer of `find`; subsumes `scaffoldPagedApi` | mission-sized, five backends |
-| (b) the scaffold binds criteria/retrievals in the filter bar and emits a page per `scaffoldPaged` read | scaffold macros + `_body-builders.ts` |
-| (c) downgrade `loom.repository-find-deprecated` to a hint (or scope it to models that already declare a retrieval) until (a)+(b) land | one validator |
+**Recommendation: bring `retrieval` to parity on all six axes, then retire the
+macros, then make the deprecation honest — in that order.** A `find` yields six
+things; a `retrieval` must yield the same six before the warning is defensible.
 
-**Recommendation: (c) now, (a)+(b) as one mission.**
+```ddd
+criterion Sellable of Product = status == Active && stock > 0
+
+retrieval SellableProducts of Product
+  requires currentUser.role == "staff"      // ← new clause, mirrors `find … requires`
+  { where: Sellable  sort: [sku asc] }
+```
+
+| # | axis | today | after |
+|---|---|---|---|
+| 1 | repository method | ✅ `runSellableProducts` | unchanged |
+| 2 | HTTP route | ❌ needs `scaffoldPaged` + `scaffoldPagedApi` + `serves:` | derived from the declaration |
+| 3 | typed client + hook | ❌ | follows the route |
+| 4 | scaffold list-page filter bar | ❌ scaffold scans `find` params only | scans retrieval params too |
+| 5 | index suggestion | ❌ checker scans `repo.finds` + `contextFilters` | scans criterion predicates too |
+| 6 | survives `denyByDefault` | ❌ the macro-emitted handler cannot be gated | the `requires` clause above |
+
+Axis 6 belongs to THIS proposal rather than G1's: a route-bearing retrieval that
+carries its own gate removes `scaffoldPaged` from the G1 problem altogether.
+Once 2–6 land, **`scaffoldPaged` and `scaffoldPagedApi` retire** — they exist
+only to supply axis 2.
+
+Interim, shipped first and alone: `loom.repository-find-deprecated` stops firing
+until the replacement reaches parity, so `ddd new` no longer warns about its own
+template.
 
 ### G3 — `this.x :=` and factory parameter shadowing
 
@@ -274,18 +319,51 @@ in the `LValue` head (`ddd.langium:2213`) and the bare `name` resolves to the
 shadowing parameter. `docs/language.md:1078` already describes `:=` as
 "assignment to a property reachable from `this`".
 
-**Recommendation: add `'this'` to the LValue head** — one grammar alternative
-plus one lowering arm. Rejected: resolving a bare LHS to the field instead of
-the parameter, which would silently change the meaning of existing models.
+Two options, and they are not the same size.
+
+**(a) Make the spelling work — ~15 lines.** Not a feature; a prefix flag.
+`LValue` (`ddd.langium:2209`) gains `(thisRef?='this' '.')?` before `head`, and
+`lowerStatement`'s LValue dispatch (`lower-stmt.ts:181`) gains one early branch:
+a `thisRef` head resolves straight to a this-prop, skipping the action /
+function / operation / store / service / resource arms it must not consider.
+Plus a printer arm (`print-completeness.test.ts` will demand it) and a test.
+`'this'` is already a token (`ddd.langium:2601`, `ThisRef`), and `('this' '.')?`
+is already spelled at `ddd.langium:1704`.
+
+**(b) Refuse the silent bug only — one validator, no grammar.**
+`loom.param-shadows-field` on `name := name` where `name` is both a parameter and
+a field: "the assignment writes the parameter, not the field; rename the
+parameter." Stops the silent no-op, leaves the natural spelling unwritable.
+
+**Recommendation: (a).** (b) is strictly smaller but still leaves every factory
+parameter renamed away from the field it fills. Rejected outright: resolving a
+bare LHS name to the field instead of the parameter — that silently changes the
+meaning of models that already compile.
 
 ### G4 — block-body separators are inconsistent
 
 Commas separate members in `event` / `payload` bodies and are a parse error in
-`aggregate` / `valueobject` / `user` bodies. **Recommendation: accept an optional
-`,` between members everywhere.** No semantics, one grammar change, and it
-retires a whole class of copy-paste failure — including the invalid
-`user { id: string, permissions: string[] }` in `docs/page-metamodel.md:161` and
-the `aggregate Product { sku: string, price: Money }` in the README.
+`aggregate` / `valueobject` / `user` bodies. **ACCEPTED — align them.**
+
+The grammar already ships the idiom, at `EventDecl` (`ddd.langium:1332`):
+
+```langium
+(fields+=Property (','? fields+=Property)* ','?)?
+```
+
+Apply that exact shape to the four rules that lack it:
+
+| rule | line | today |
+|---|---|---|
+| `Aggregate` | 1066 | `members+=AggregateMember*` |
+| `ValueObject` | 990 | `members+=ValueObjectMember*` |
+| `EntityPart` | 1324 | `members+=EntityPartMember*` |
+| `UserBlock` | 144 | `fields+=UserField*` |
+
+No semantics, no new idiom, and it retires a whole class of copy-paste failure —
+including the invalid `user { id: string, permissions: string[] }` in
+`docs/page-metamodel.md:161` and the `aggregate Product { sku: string, price: Money }`
+in the README.
 
 ### G5 — IR-phase diagnostics carry no source position
 
@@ -523,7 +601,7 @@ Every "generated" block below is real output from this toolchain. Where the
 proposal is new syntax, the generated half comes from the hand-written
 desugaring that exists today — that is what the sugar has to produce.
 
-## G1 — an aggregate-level default gate
+## G1 — a named policy passed to the macro
 
 **Today.** The starter's own recommended posture cannot be expressed:
 
@@ -538,35 +616,36 @@ loom.default-deny-ungated Product/destroy … declares no `requires` gate
 The three members come from the macro, and an aggregate `create` / `destroy`
 carries its gate as a body statement, so there is nowhere to put one.
 
-**Proposed.** The gate moves to the header, where it survives the macro:
+**Proposed.** The gate is named once and handed to the macro that emits the
+members. Nothing is inherited; the rule is visible at the call site.
 
 ```ddd
-aggregate Product with crudish
-  requires currentUser.permissions.contains(permissions.catalogManage)
-{
+policy CatalogManager(): bool =
+  currentUser.permissions.contains(permissions.catalogManage)
+
+aggregate Product with crudish(requires: CatalogManager) {
   sku: string
   name: string
 
-  // A member that wants a different rule still overrides it.
+  // A hand-written member still carries its own gate, as today.
   operation view() { requires true }
 }
 ```
 
-**Generated** (Hono — from the hand-written desugaring, `g1.ddd`). Every
-client-reachable member that declared no gate of its own gets the header's:
+**Generated** (Hono — this is today's output for the hand-written
+`create(...) { requires CatalogManager() }`, `pol.ddd`; the macro has only to
+splice that statement):
 
 ```ts
 // api/http/product.routes.ts — create, rename and destroy each open with:
 if (!((currentUser.permissions).includes("sales.catalogManage")))
-  throw new ForbiddenError(
-    "Forbidden: currentUser.permissions.contains(permissions.catalogManage)");
+  throw new ForbiddenError("Forbidden: CatalogManager()");
 ```
 
-The same rule at context scope covers finds and handlers:
-
-```ddd
-context Catalog requires currentUser.role == "staff" { … }
-```
+No grammar change: `requires: CatalogManager` is already a `MacroArgRef`
+(`ddd.langium:1136`). `NamedDeclKind` gains `"Policy"`, `crudish` gains the
+optional param, and `denyByDefault`'s message names the macro and the parameter
+when the ungated member came from one.
 
 ## G2 — a `retrieval` carries its own route
 
@@ -581,12 +660,20 @@ deployable api { … serves: CatalogApi }
 Drop any one of the three and the read vanishes with no diagnostic. Under
 `denyByDefault` the combination cannot validate at all (G1).
 
-**Proposed.** The retrieval is the declaration; the route follows from it:
+**Proposed.** The retrieval is the declaration; the route, the client, the
+filter bar, the index hint and the gate all follow from it:
 
 ```ddd
 criterion  Sellable of Product = status == Active && stock > 0
-retrieval  SellableProducts of Product { where: Sellable sort: [sku asc] }
+
+retrieval  SellableProducts of Product
+  requires currentUser.role == "staff"     // ← new, mirrors `find … requires`
+  { where: Sellable  sort: [sku asc] }
 ```
+
+That `requires` clause is what makes the read survive `denyByDefault` without any
+macro — which is why `scaffoldPaged` and `scaffoldPagedApi` retire once this
+lands, and why G1 then has only `crudish` left to solve.
 
 **Generated** (Hono — this is today's `scaffoldPaged` + `scaffoldPagedApi`
 output, which is exactly what the sugar must keep producing):
@@ -630,12 +717,18 @@ The only working spelling renames the parameter away from its field:
 operation rename(newName: string) { name := newName }
 ```
 
-**Proposed.** `'this'` joins the LValue head, so the shadowed form means what it
-reads as:
+**Proposed (a).** `'this'` joins the LValue head, so the shadowed form means what
+it reads as. `'this'` is already a token (`ddd.langium:2601`) and `('this' '.')?`
+is already spelled at `ddd.langium:1704`; the lowering gains one early branch.
 
 ```ddd
 operation rename(name: string) { this.name := name }
 ```
+
+**Alternative (b), no grammar.** Leave the spelling unwritable and refuse the
+silent bug instead — `loom.param-shadows-field` on `name := name`:
+"the assignment writes the parameter, not the field; rename the parameter."
+Smaller, but every factory parameter stays renamed away from its field.
 
 **Generated** (Hono — identical to what the renamed-parameter form emits today):
 
