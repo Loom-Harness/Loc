@@ -23,6 +23,26 @@ this plan exists.
 | **#2862** (e-shop audit) | the auth emitters, `src/generator/_walker/`, `src/generator/_frontend/gate-expr.ts`, the macro stdlib, a docs-fence ratchet | M-T6.64 must confirm the `Ids`-import split with them first (see its row). M-T1.32 stacks behind their walker work. |
 | **#2861** (tracker audit) | projection emitters on all five backends, Vue emitter, first-run docs, two create-input gates | M-T6.67 shares the *directory* `src/platform/hono/v4/` but not a file. M-T5.30 must confirm the create-input gate boundary with them. |
 
+## What Part 2 changed
+
+The multi-target sweep (Part 2 of the audit) retargeted the same model to the
+other four backends and five frontends. **Five of the nine fail to build.** It
+re-scoped three missions and added three:
+
+- **M-T6.65 doubles in size** — the enum-stated workflow breaks four FRONTENDS
+  too (react/vue/svelte import an undefined `ClaimStateSchema` from an unrelated
+  module; angular degrades the field to `unknown`).
+- **M-T6.67 splits** — the payload half is a five-backend defect (no backend
+  emits the `<Payload>Response` wire type), not a node `z.unknown()`.
+- **#2862's D6 is four backends, not one** — node, python, dotnet (`CustomerId??`,
+  invalid C#) and java (proven with `javac`). Theirs to re-scope; flagged on the PR.
+- **Three new missions**: M-T1.33 (unguarded nullable reference, six frontends),
+  M-T1.34 (the Svelte picker collision), M-T6.68 (the Python channel-tee annotation).
+
+The process lesson is now a rule for every mission below: **compiling one target
+is not evidence about the others.** Four of the five build failures are in
+targets a node-only pass cannot see.
+
 ## Wave 1 — six agents, fully disjoint, start now
 
 No two of these open the same file, and none opens a file the three in-flight
@@ -33,7 +53,11 @@ PRs own.
 | **M-T2.15** — the migration diff models a value-collection field as a root column | D1 | `src/system/migrations-builder.ts` (`schemaFromModule`), `test/system/migrations-*` | Seed the pre-fix deriver, show the phantom `ADD COLUMN … JSONB[]` appears; after the fix, show gen-2 emits only `CREATE TABLE <agg>_<field>`. Then **apply both migrations to a real postgres and insert a row** — the audit's proof, as a test. |
 | **M-T6.63** — a `managed` / `internal` field's declared default is discarded | D2 | node create-factory emitter; the `money` default arm in `src/generator/{python,dotnet,java}` | The 3×5 matrix in the audit as a table test. Elixir is the reference implementation — it is already right in every cell. |
 | **M-T6.64** — a `valueobject` holding an `X id` emits a file with no imports | D3 | the TypeScript value-object emitter | `tsc --noEmit` on a generated project whose VO carries an `X id`. **Coordinate first:** #2862's D6 is the same class in the auth emitters. One slice or two is their call; do not land a duplicate fix. |
-| **M-T6.67** — entity-part and payload-typed parameters have no wire materialization | D6, D7 | the operation/workflow request-schema + call-site emitters on node/dotnet/java/python | The value-object arm is the reference (`new LineVO(e.sku, e.qty)`). Decide materialize-vs-reject per D-2 below **before** writing code. |
+| **M-T6.67a** — a `command`-typed workflow parameter has no wire type on any backend | D7, T2 | the workflow request-record emitters on all five backends | All five reference `<Payload>Response`; none emits it (.NET also misses the domain `FileClaim`). No decision needed — the payload record is a flat record and the fix is to emit it. **Split from 67b, which is gated on D-2.** |
+| **M-T6.67b** — an entity-part-typed operation parameter has no materialization | D6 | the operation request-schema + call-site emitters on node/dotnet/java/python | The value-object arm is the reference (`new LineVO(e.sku, e.qty)`). **Gated on decision D-2.** |
+| **M-T1.33** — a nullable `X id?` reference emits an unguarded link on all six frontends | T4 | the reference-link renderer in `src/generator/_frontend/` + the six walker targets | Two of the six fail to build (vue TS2345, feliz `string` + `string option`); four render `/locations/null`. Flutter already null-guards `datetime`/`money` in the same page — reuse that helper. Proof: build vue and confirm feliz's `string option` concat is gone. |
+| **M-T1.34** — Svelte: two operations referencing the same aggregate redeclare their picker | T5 | the Svelte page-shell emitter | `Identifier '__locations' has already been declared`. Dedupe the picker declarations per page. Proof: `npm run build` on a model with two such operations. |
+| **M-T6.68** — the Python channel tee's annotation rejects its own factory argument | T6 | the Python channels emitter | `mypy` clean on a channels-using Python backend. Types-only, tiny. |
 | **M-T5.30** — two validator rulings | G2, G4 | `src/ir/validate/checks/`, `src/diagnostics/messages.ts` | A reactor-without-starter model must fail the new gate and pass after adding a starter. Confirm the create-input boundary with #2861's slice 4 first. |
 | **M-T9.59** — parser and CLI papercuts | the `money("…")` ambiguity, the two contradictory summary lines | `src/language/ddd.langium` (the `MoneyLit` / `PrimitiveConversion` overlap), the CLI reporter | `ddd parse examples/showcase.ddd` must print no Chevrotain output, and one summary line. A regression test asserting stderr is clean on a money-carrying model. |
 
@@ -44,7 +68,7 @@ merge; do not run them concurrently with it.
 
 | Mission | Fixes | Owns | Proof |
 |---|---|---|---|
-| **M-T6.65** — a workflow with an enum state field emits an undefined `<Enum>Schema` | D4 | `src/platform/hono/v4/workflow-builder.ts` | The aggregate route emitter is the reference: it emits `const HandlingKindSchema = z.enum([…])` locally before use. `tsc --noEmit` on an enum-stated saga. Note this breaks the **event-triggered** path too, so it invalidates T4's "runtime-proven at five-backend parity" claim for that shape — the mission must also correct that line. |
+| **M-T6.65** — a workflow with an enum state field emits an undefined `<Enum>Schema`, on the backend AND four frontends | D4, T3 | `src/platform/hono/v4/workflow-builder.ts` **and** the frontend workflow-client emitter in `src/generator/_frontend/` | The aggregate route emitter is the reference: it emits `const HandlingKindSchema = z.enum([…])` locally before use. `tsc --noEmit` on an enum-stated saga. Note this breaks the **event-triggered** path too, so it invalidates T4's "runtime-proven at five-backend parity" claim for that shape — the mission must also correct that line. |
 | **M-T6.66** — `handle` continuations emit nothing on any backend | D5 | all five workflow emitters | Gated on decision D-1 below. If "implement": a `handle` route on all five, plus an instance-state round-trip test. If "reject": one `loom.*` code and a corpus sweep. |
 
 ## Wave 3 — three agents, after wave 1
@@ -140,7 +164,8 @@ M-T3.16 upward now that the escape hatch is known to be leaky.
 
 ## Fleet shape
 
-Six agents in wave 1, two in wave 2, four in wave 3 — twelve missions, of which
-**wave 1 needs no decision** and can start immediately. Each mission is one
+Wave 1 is now nine agents (the six original plus M-T1.33, M-T1.34 and M-T6.68,
+all disjoint and none needing a decision), wave 2 two, wave 3 four — fifteen
+missions. Each mission is one
 draft PR, opened before the work per the repo's claim rule, with the file list
 above pasted into its body so the next agent can see the boundary.

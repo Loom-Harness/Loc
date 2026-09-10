@@ -351,3 +351,164 @@ default — so three separate emitters can emit non-compiling TypeScript and eve
 gate stays green. The cheapest durable fix is not three patches but one fixture
 that carries all three shapes, plus a ratchet on the ts-build fixture set's
 coverage of the type × access-modifier matrix.
+
+---
+
+# Part 2 — the same model on the other nine targets
+
+The audit above compiled one target (node + react). This part retargets the
+**identical model** to the other four backends and the other five frontends —
+nine variants, all of which parse **0 errors, 0 warnings** and generate cleanly
+— and compiles every one the sandbox has a toolchain for.
+
+| target | how it was checked | result |
+|---|---|---|
+| python backend | `uv venv -p 3.13` + the project's own `pyproject.toml` deps + `mypy` | **7 errors** |
+| java backend | `javac` on the offending file (gradle wants a JDK 25 toolchain the sandbox lacks) | **does not compile** |
+| vue frontend | `npm install` + `npm run build` (`vue-tsc --noEmit && vite build`) | **build fails** |
+| svelte frontend | `npm install` + `npm run build` (`svelte-check` + `vite build`) | **build fails, 6 errors** |
+| angular frontend | `npm install` + `tsc -p tsconfig.app.json` | app sources clean; two notes below |
+| dotnet / elixir / feliz / flutter | static review against the defect classes (no SDK in the sandbox) | **three of the four carry a provable compile error** |
+
+Five of the nine fail to build. Every failure below is a **different symptom of
+a defect the node+react pass either missed or under-measured**, so the
+cross-target sweep more than paid for itself.
+
+## T1 — an `X id?` claim in `user { … }` breaks FOUR of five backends
+
+#2862's D6 records this as a node emitter defect (an unimported `Ids.` plus a
+doubled `| null`). It is not node-specific — the same `customerId: Customer id?`
+claim produces, from the same model:
+
+| backend | emitted | verdict |
+|---|---|---|
+| node | `customerId: Ids.CustomerId \| null \| null;`, `Ids` never imported | TS2503 |
+| python | `cast(CustomerId \| None \| None, …)`, `CustomerId` never imported | `Name "CustomerId" is not defined` (mypy), NameError at import |
+| dotnet | `public record User(…, CustomerId?? CustomerId)` | **`CustomerId??` is not valid C#** |
+| java | `public record User(…, CustomerId customerId)`, imports only `java.util.List` | **proven with `javac`**: `cannot find symbol: class CustomerId` |
+| elixir | untyped map access | fine |
+
+Both halves of the defect (the missing import AND the doubled nullability)
+replicate on the two typed backends that spell nullability differently. This
+should be scoped as one cross-backend fix, not a node patch.
+
+## T2 — a `command`-typed workflow `create` parameter has no wire type on ANY backend
+
+`create(c: FileClaim)`, where `FileClaim` is a declared `command`, is the
+explicit-command form `docs/workflow.md` documents. Every backend emits a
+request record referencing `FileClaimResponse` — and **no backend emits it**:
+
+| backend | emitted | verdict |
+|---|---|---|
+| node | `z.object({ c: z.unknown() })` | compiles, no contract; every `c.<field>` is TS18046 |
+| python | `class ClaimHandlingRequest(BaseModel): c: FileClaimResponse` | `Name "FileClaimResponse" is not defined` |
+| java | `public record ClaimHandlingRequest(FileClaimResponse c)` | undefined type |
+| dotnet | `record ClaimHandlingRequest([Required] FileClaimResponse C)` — **and** `record ClaimHandlingCommand(FileClaim C)`, with the domain `FileClaim` not emitted either | two undefined types |
+| elixir | `c: ApiWeb.Api.Schemas.FileClaimResponse` — no `file_claim_response.ex` | undefined module |
+
+This upgrades D7 from "node emits `z.unknown()`" to "the payload record's wire
+type is emitted nowhere". It is also why this workflow shape sits outside
+#2850's correlation rule — see the note on that PR.
+
+## T3 — the enum-stated workflow (D4) breaks the generated FRONTEND too
+
+D4 above reported an undefined `<Enum>Schema` in the node backend. The same root
+cause reaches four frontends, in two shapes:
+
+| frontend | emitted | verdict |
+|---|---|---|
+| react | `import { ClaimStateSchema } from "./agency";` | nothing exports it (react was never built in part 1 — this is why) |
+| vue | same import | **`vue-tsc` TS2305 — build fails** |
+| svelte | same import | **`svelte-check` — build fails** |
+| angular | `claimState: unknown;` | builds, contract silently degraded |
+
+Note the import target: `./agency` — an unrelated aggregate's module, apparently
+the first in the context. So the fix is not only "emit the schema" but "resolve
+which module owns an enum used by a workflow".
+
+## T4 — a nullable `X id?` reference emits an unguarded link on ALL SIX frontends
+
+`lastKnownLocation: Location id?` renders as a link built by string
+concatenation, with no null check, everywhere:
+
+| frontend | emitted | verdict |
+|---|---|---|
+| vue | `:title="row.lastKnownLocation"` | **TS2345 — build fails** (RouterLink's `title` rejects `null`) |
+| feliz | `("/locations/" + cargoById.lastKnownLocation)` where the field is `string option` | **F# type error — `string` + `string option`** |
+| react | `` to={`/locations/${row.lastKnownLocation}`} `` | compiles → `/locations/null` |
+| svelte | `` href={`/locations/${row.lastKnownLocation}`} `` | compiles → `/locations/null` |
+| angular | `[routerLink]='"/locations/" + …lastKnownLocation'` | compiles → `/locations/null` |
+| flutter | `'/locations/' + row.lastKnownLocation.toString()` | compiles → `/locations/null`, label reads `"null"` |
+
+Flutter is the tell: the same generated page **does** guard `datetime` and
+`money` with `((DateTime? v) => v == null ? '—' : …)`. The null-guard helper
+exists and is applied to scalars; the reference-link path just never got it.
+
+An optional reference is completely ordinary domain modelling ("we don't know
+where the cargo is yet"), so this is on the happy path of any real model.
+
+## T5 — Svelte: two operations touching the same aggregate collide
+
+Svelte hoists every operation form into ONE page-level `<script>`, and each
+operation declares its own picker query:
+
+```svelte
+const __voyages = useAllVoyages();      // for assignToRoute
+const __locations = useAllLocations();
+…
+const __locations = useAllLocations();  // for registerHandling — redeclared
+const __voyages = useAllVoyages();
+```
+```
+[PARSE_ERROR] Identifier `__locations` has already been declared
+```
+
+Trigger: **two operations on one aggregate that each take a parameter
+referencing the same other aggregate.** Here `assignToRoute` (legs carry
+`Voyage id` + `Location id`) and `registerHandling` (`at: Location id`,
+`voyage: Voyage id?`). React and Vue scope each form to its own component and
+are unaffected. Any aggregate with two such operations is un-buildable on
+Svelte.
+
+## T6 — Python: the channel tee's own annotation rejects what the factory passes
+
+```python
+def __init__(self, inner: NoopDomainEventDispatcher) -> None: ...
+…
+return ChannelTeeDispatcher(RealtimeDispatcher(NoopDomainEventDispatcher()))
+```
+`Argument 1 to "ChannelTeeDispatcher" has incompatible type "RealtimeDispatcher";
+expected "NoopDomainEventDispatcher"`. Runtime duck-types fine, so this is a
+types-only defect — but it means a channels-using Python backend can never pass
+a strict type check. The parameter wants the dispatcher protocol, not the noop
+implementation.
+
+## T7 — two Angular notes
+
+- The generated root `tsconfig.json` includes `e2e/**`, and **no** frontend
+  declares `@playwright/test` in its `package.json`. On react/vue/svelte the
+  build script uses a narrower config so nothing notices; on Angular a plain
+  `npx tsc -p tsconfig.json` (or opening the project in an editor) reports 20+
+  errors before any app code is reached. Either declare the dev dependency or
+  exclude `e2e` from the root config.
+- `ng build` refuses to run on Node 22.22.2 (the Angular CLI floor is 22.22.3).
+  The generated Dockerfile uses `node:24-alpine`, so compose is unaffected — but
+  a contributor on the same Node the toolchain repo uses cannot build the
+  Angular output locally.
+
+## What this part changes about the plan
+
+Three of part 1's findings were **under-scoped by measuring one target**:
+
+- D4 is a backend **and** four-frontend defect (T3).
+- D7 is a five-backend defect, not a node `z.unknown()` (T2).
+- #2862's D6 is a four-backend defect, not a node emitter detail (T1).
+
+And two whole defect classes exist only off the node+react path: the unguarded
+nullable reference (T4, six frontends, two of them un-buildable) and the Svelte
+picker collision (T5).
+
+The systemic conclusion from part 1 holds and gets sharper: the per-PR gates
+compile a corpus that does not contain these shapes. But the second half of the
+lesson is new — **compiling one target is not evidence about the others**, and
+four of the five failures here are in targets a node-only pass cannot see.
