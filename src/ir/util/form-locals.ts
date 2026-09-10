@@ -47,6 +47,20 @@
 // all three covered frontends: `CreateForm` + `OperationForm` on one page, and
 // two `OperationForm`s over DIFFERENT ops.  A gate that fired on those would be
 // a false refusal.
+//
+// The second of those was NOT clean on svelte until M-T1.34 (#2864 T5), and the
+// hole is worth recording because it is the shape this module reasons about
+// from one axis only.  The rule above keys on the names a form claims for its
+// own MUTATION and HANDLE (`create`, `rename`, `form`) — differently-named ops
+// never collide there.  But a form also claims one binding per `X id` param it
+// renders as a picker (`const __locations = useAllLocations()`), and THAT name
+// comes from the TARGET aggregate, not from the op: two differently-named ops
+// each taking a `Location id` claimed `__locations` twice.  Svelte was the only
+// frontend it reached — react scopes each form to its own component, vue
+// deduped these lines already — and it is now deduped at svelte's page shell
+// (`src/generator/svelte/walker/page-shell.ts`), so the paragraph above holds
+// again.  A picker binding is safe to SHARE where a mutation handle is not:
+// every form wants the same list of options off the same query.
 
 import type { ExprIR, UiIR } from "../types/loom-ir.js";
 import { walkExprDeep } from "./walk.js";

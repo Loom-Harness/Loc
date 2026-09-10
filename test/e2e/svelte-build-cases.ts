@@ -29,6 +29,13 @@ export const svelteBuildExamples = [
   // sees any of it — a null dereference through an optional field compiles
   // fine and fails at runtime everywhere else.
   "test/e2e/fixtures/svelte-build/optional-fields.ddd",
+  // Two operations on one aggregate that each take a param referencing the SAME
+  // other aggregate (M-T1.34 / #2864 T5).  Svelte hoists every form on a page
+  // into ONE `<script>`, so both op forms' `useAll<Target>()` picker
+  // declarations share a scope and used to redeclare each other — a hard parse
+  // error that fails svelte-check AND `vite build`.  No other case puts two
+  // picker-bearing forms on one page.
+  "test/e2e/fixtures/svelte-build/two-op-picker.ddd",
 ] as const;
 
 export const sveltePacks = ["shadcnSvelte@v1", "flowbite@v1"] as const;

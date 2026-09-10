@@ -106,10 +106,62 @@ type FormWiring = {
   usesNavigate: boolean;
 };
 
-function renderFormOfWiring(state: FormOfState, pack: LoadedPack): FormWiring {
-  if (state.kind === "workflow") return renderFormRunsWiring(state, pack);
-  if (state.kind === "operation") return renderFormOpWiring(state, pack);
-  const { agg, idTargets, useController, defaultValuesTs, onSubmitJs } = state;
+/** The `X id` picker targets THIS form still has to declare.
+ *
+ *  Every form on a Svelte page shares one page-level `<script>` (Svelte
+ *  allows exactly one component per file), so the `const <hookVar> =
+ *  useAll<X>()` lines the three `*-decls` pack templates emit all land in
+ *  the SAME lexical scope.  Two forms that reference the same target —
+ *  two operations on one aggregate each taking a `Location id`, say —
+ *  would otherwise redeclare it: `Identifier '__locations' has already
+ *  been declared`, a hard parse error that fails the generated app's own
+ *  `npm run build` (#2864 T5).
+ *
+ *  So the FIRST form to reach a target declares it and the rest reuse the
+ *  binding: the field templates only ever REFERENCE `idTargetHookVar`, so
+ *  one declaration per page serves them all.  React scopes each form to
+ *  its own component and never collides; Vue emits these lines itself and
+ *  dedupes at the same seam (`vue/walker/page-shell.ts`). */
+function undeclaredIdTargets(
+  idTargets: readonly AggregateIR[],
+  declaredPickers: Set<string>,
+): AggregateIR[] {
+  const out: AggregateIR[] = [];
+  for (const t of idTargets) {
+    const hookVar = idTargetHookVar(t);
+    if (declaredPickers.has(hookVar)) continue;
+    declaredPickers.add(hookVar);
+    out.push(t);
+  }
+  return out;
+}
+
+/** Fold every form state on the page into one wiring block, sharing the
+ *  `declaredPickers` set across them so each `useAll<X>()` is declared once. */
+function renderFormOfsWiring(formOfs: readonly FormOfState[], pack: LoadedPack): FormWiring {
+  const declaredPickers = new Set<string>();
+  return formOfs.reduce<FormWiring>(
+    (acc, st) => {
+      const w = renderFormOfWiring(st, pack, declaredPickers);
+      return {
+        decls: acc.decls + w.decls,
+        templateScope: acc.templateScope + w.templateScope,
+        usesNavigate: acc.usesNavigate || w.usesNavigate,
+      };
+    },
+    { decls: "", templateScope: "", usesNavigate: false },
+  );
+}
+
+function renderFormOfWiring(
+  state: FormOfState,
+  pack: LoadedPack,
+  declaredPickers: Set<string>,
+): FormWiring {
+  if (state.kind === "workflow") return renderFormRunsWiring(state, pack, declaredPickers);
+  if (state.kind === "operation") return renderFormOpWiring(state, pack, declaredPickers);
+  const { agg, useController, defaultValuesTs, onSubmitJs } = state;
+  const idTargets = undeclaredIdTargets(state.idTargets, declaredPickers);
   const tplCtx = {
     aggregateName: agg.name,
     aggregateNameCamel: lowerFirst(agg.name),
@@ -135,8 +187,13 @@ function renderFormOfWiring(state: FormOfState, pack: LoadedPack): FormWiring {
   };
 }
 
-function renderFormRunsWiring(state: WorkflowFormState, pack: LoadedPack): FormWiring {
-  const { workflow, idTargets, useController, defaultValuesTs, onSubmitJs } = state;
+function renderFormRunsWiring(
+  state: WorkflowFormState,
+  pack: LoadedPack,
+  declaredPickers: Set<string>,
+): FormWiring {
+  const { workflow, useController, defaultValuesTs, onSubmitJs } = state;
+  const idTargets = undeclaredIdTargets(state.idTargets, declaredPickers);
   const wfPascal = upperFirst(workflow.name);
   const tplCtx = {
     workflowName: workflow.name,
@@ -160,8 +217,13 @@ function renderFormRunsWiring(state: WorkflowFormState, pack: LoadedPack): FormW
   };
 }
 
-function renderFormOpWiring(state: OperationFormState, pack: LoadedPack): FormWiring {
-  const { agg, op, idTargets, useController, defaultValuesTs, fieldHtmls, idExpr } = state;
+function renderFormOpWiring(
+  state: OperationFormState,
+  pack: LoadedPack,
+  declaredPickers: Set<string>,
+): FormWiring {
+  const { agg, op, useController, defaultValuesTs, fieldHtmls, idExpr } = state;
+  const idTargets = undeclaredIdTargets(state.idTargets, declaredPickers);
   const opPascal = upperFirst(op.name);
   const tplCtx = {
     aggregateName: agg.name,
@@ -377,17 +439,7 @@ export function renderSveltePage(
   const effectiveUsesState =
     usesState || usesStateForTitle || derivedResult.usesState || actionResult.usesState;
 
-  const form = formOfs.reduce<FormWiring>(
-    (acc, st) => {
-      const w = renderFormOfWiring(st, pack);
-      return {
-        decls: acc.decls + w.decls,
-        templateScope: acc.templateScope + w.templateScope,
-        usesNavigate: acc.usesNavigate || w.usesNavigate,
-      };
-    },
-    { decls: "", templateScope: "", usesNavigate: false },
-  );
+  const form = renderFormOfsWiring(formOfs, pack);
   // An operation-form module is a PACK fragment spliced into THIS file, so any
   // pack-DECLARED chrome it renders binds a `t` this page must import — and the
   // import block is serialized two lines below.  Hence the form wiring runs here.
@@ -686,17 +738,7 @@ export function renderSvelteComponentFile(
     new Set([...stateNames, ...paramNames, ...derivedNames]),
   );
   const actionWiring = renderActionMutations(actionMutations);
-  const form = formOfs.reduce<FormWiring>(
-    (acc, st) => {
-      const w = renderFormOfWiring(st, pack);
-      return {
-        decls: acc.decls + w.decls,
-        templateScope: acc.templateScope + w.templateScope,
-        usesNavigate: acc.usesNavigate || w.usesNavigate,
-      };
-    },
-    { decls: "", templateScope: "", usesNavigate: false },
-  );
+  const form = renderFormOfsWiring(formOfs, pack);
   addOpModuleImports(imports, pack, formOfs);
   // See the page renderer above.
   if (needsPackChromeT(form.templateScope)) addImportToMap(imports, I18N_MODULE, "t");
