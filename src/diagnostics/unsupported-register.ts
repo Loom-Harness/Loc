@@ -297,7 +297,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.frontend-collection-op-unsupported",
     kind: "gap",
-    site: "src/ir/validate/checks/ui-checks.ts:1342",
+    site: "src/ir/validate/checks/ui-checks.ts:1448",
     what:
       "EIGHT of the seventeen stdlib collection ops over a collection receiver in a " +
       "walker-rendered page/component/store expression. The nine that RESHAPE a collection " +
@@ -527,7 +527,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.toast-message-unsupported",
     kind: "gap",
-    site: "src/ir/validate/checks/ui-checks.ts:3183",
+    site: "src/ir/validate/checks/ui-checks.ts:3306",
     what:
       "an `on <chan>.<Event> { toast(<expr>) }` message outside the subset all FOUR realtime " +
       "renderers implement.  NARROWED 2026-09-02: a member access CHAIN of any depth off the " +
