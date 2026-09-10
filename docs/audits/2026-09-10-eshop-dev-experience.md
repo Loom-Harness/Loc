@@ -514,3 +514,334 @@ bound to a form**, or an **`X id?` user claim** — three shapes that appear in
 essentially every real model. One fixture carrying all three, compiled on every
 backend and typechecked on every frontend, would have caught nine of the
 eleven defects in this audit.
+
+---
+
+# Worked examples for each recommendation
+
+Every "generated" block below is real output from this toolchain. Where the
+proposal is new syntax, the generated half comes from the hand-written
+desugaring that exists today — that is what the sugar has to produce.
+
+## G1 — an aggregate-level default gate
+
+**Today.** The starter's own recommended posture cannot be expressed:
+
+```ddd
+aggregate Product with crudish { sku: string }
+```
+```
+loom.default-deny-ungated Product/update  … declares no `requires` gate
+loom.default-deny-ungated Product/create  … declares no `requires` gate
+loom.default-deny-ungated Product/destroy … declares no `requires` gate
+```
+The three members come from the macro, and an aggregate `create` / `destroy`
+carries its gate as a body statement, so there is nowhere to put one.
+
+**Proposed.** The gate moves to the header, where it survives the macro:
+
+```ddd
+aggregate Product with crudish
+  requires currentUser.permissions.contains(permissions.catalogManage)
+{
+  sku: string
+  name: string
+
+  // A member that wants a different rule still overrides it.
+  operation view() { requires true }
+}
+```
+
+**Generated** (Hono — from the hand-written desugaring, `g1.ddd`). Every
+client-reachable member that declared no gate of its own gets the header's:
+
+```ts
+// api/http/product.routes.ts — create, rename and destroy each open with:
+if (!((currentUser.permissions).includes("sales.catalogManage")))
+  throw new ForbiddenError(
+    "Forbidden: currentUser.permissions.contains(permissions.catalogManage)");
+```
+
+The same rule at context scope covers finds and handlers:
+
+```ddd
+context Catalog requires currentUser.role == "staff" { … }
+```
+
+## G2 — a `retrieval` carries its own route
+
+**Today.** Three declarations and a `serves:` clause to publish one filtered list:
+
+```ddd
+context Catalog with scaffoldPaged(of: Sellable) { … }
+api CatalogApi with scaffoldPagedApi(of: Sellable) { }
+deployable api { … serves: CatalogApi }
+```
+
+Drop any one of the three and the read vanishes with no diagnostic. Under
+`denyByDefault` the combination cannot validate at all (G1).
+
+**Proposed.** The retrieval is the declaration; the route follows from it:
+
+```ddd
+criterion  Sellable of Product = status == Active && stock > 0
+retrieval  SellableProducts of Product { where: Sellable sort: [sku asc] }
+```
+
+**Generated** (Hono — this is today's `scaffoldPaged` + `scaffoldPagedApi`
+output, which is exactly what the sugar must keep producing):
+
+```ts
+// api/http/catalogApi-routes.ts
+app.openapi(
+  createRoute({
+    method: "get",
+    path: "/products/projections/sellable",
+    operationId: "catalogListProductBySellable",
+    request: { query: z.object({ page: …, pageSize: …, sort: …, dir: … }) },
+    …
+  }),
+  async (httpCtx) => {
+    const query = httpCtx.req.valid("query");
+    const products = new ProductRepository(db, events);
+    const result = await products.findAllBySellable(
+      query.page, query.pageSize, query.sort, query.dir);
+    return httpCtx.json(
+      { ...result, items: result.items.map((__e) => products.toWire(__e)) }, 200);
+  },
+);
+```
+
+Interim, until that lands — `loom.repository-find-deprecated` stops firing on a
+model that has no retrieval to migrate to, so `ddd new` no longer warns about
+its own template.
+
+## G3 — `this.` on the left of `:=`
+
+**Today.** The natural factory and the natural setter are both unwritable:
+
+```ddd
+create(name: string)      { this.name := name }   // ✗ Expecting token of type '}' but found `this`
+operation rename(name: string) { this.name := name } // ✗ same
+operation rename(name: string) { name := name }   // parses — assigns the parameter to itself
+```
+The only working spelling renames the parameter away from its field:
+```ddd
+operation rename(newName: string) { name := newName }
+```
+
+**Proposed.** `'this'` joins the LValue head, so the shadowed form means what it
+reads as:
+
+```ddd
+operation rename(name: string) { this.name := name }
+```
+
+**Generated** (Hono — identical to what the renamed-parameter form emits today):
+
+```ts
+public rename(name: string): void {
+  this._name = name;
+  this._assertInvariants();
+}
+```
+
+## G4 — an optional comma between members
+
+**Today.** Commas separate members in `event` and `payload` bodies and are a
+parse error in `aggregate`, `valueobject` and `user`:
+
+```ddd
+event  OrderPlaced { order: Order id, at: datetime }   // ✓
+aggregate Product  { sku: string, price: money }       // ✗ Expecting token of type '}' but found `,`
+user               { id: string, role: string }        // ✗ same
+```
+
+**Proposed.** Both spellings parse and mean the same thing:
+
+```ddd
+aggregate Product with crudish { sku: string, price: money }
+```
+
+**Generated** (Drizzle — byte-identical to the newline form's output today):
+
+```ts
+// api/db/schema.ts
+sku:   text("sku").notNull(),
+price: numeric("price", { precision: 19, scale: 4 }).notNull(),
+```
+
+This is also what makes the README's `aggregate Product { sku: string, price: Money }`
+and `docs/page-metamodel.md:161`'s `user { id: string, permissions: string[] }`
+true rather than aspirational.
+
+## G5 — a source position on an IR diagnostic
+
+Not a language change — a CLI one. Same model, same run:
+
+```
+main.ddd:63:14 error: 'requires' must be of type 'bool', got 'unknown'.        ← AST phase
+loom.ui-id-ref-no-display webApp/Product.category: … no 'derived display' …    ← IR phase
+```
+
+**Proposed** — the IR half gains the same prefix, from the `$cstNode` span
+`src/ir/lower/origin.ts` already captures:
+
+```
+main.ddd:41:9 error: loom.ui-id-ref-no-display  'Product.category' references
+  Category id, but 'Category' has no 'derived display' clause.
+```
+
+## P1 — the Phoenix read that has to name its own query
+
+Not a proposal — a fix. Same page body, two frontends:
+
+```ddd
+criterion Sellable of Product = status == Active && stockOnHand > 0
+page Storefront {
+  route: "/shop"
+  body: QueryView { of: Product.findAllBySellable(), data: rows => … }
+}
+```
+
+```tsx
+// react — correct
+const productFindAllBySellable = useFindAllBySellableProduct();
+```
+
+```elixir
+# phoenixLiveView — WRONG: every product, drafts and discontinued included
+case Api.Catalog.list_products() do
+  {:ok, items} -> assign(socket, :items, items)
+  _ -> assign(socket, :items, :error)
+end
+```
+
+…while the same context module already exposes the right one:
+
+```elixir
+defdelegate find_all_by_sellable_product(page \\ 1, page_size \\ 20,
+                                         sort \\ "id", dir \\ "asc"),
+  to: Api.Catalog.ProductRepository, as: :find_all_by_sellable
+```
+
+With a parameterised find the fallback is not merely wrong, it is nonsense —
+`of: Item.byState(Live)` emits `Api.Shop.list_items(:Live)` against
+`list_items(page \\ 1, …)`, so the filter value arrives as the page number.
+
+## P2 — one `.ddd` line, four broken backends
+
+```ddd
+user {
+  id: string
+  role: string
+  permissions: string[]
+  customerId: Customer id?
+}
+```
+
+```ts
+// node — Ids never imported, `| null` twice
+customerId: Ids.CustomerId | null | null;     // TS2503: Cannot find namespace 'Ids'
+```
+```java
+// java — CustomerId lives in …domain.ids, User in …auth, no import
+public record User(String id, String role, List<String> permissions, CustomerId customerId) {}
+// error: cannot find symbol — symbol: class CustomerId
+```
+```python
+# python — evaluated per call inside cast(), so every token verification raises
+customer_id=cast(CustomerId | None | None, _claim(payload, "customer_id")),
+# NameError: name 'CustomerId' is not defined
+```
+```csharp
+// dotnet — `??` is the null-coalescing operator, not a type suffix
+public sealed record User(string Id, string Role, List<string> Permissions, CustomerId?? CustomerId);
+```
+
+Correct, in each: import the id type, and emit the optional marker once
+(`Ids.CustomerId | null`, `CustomerId?`, `CustomerId | None`).
+
+## P3 — an optional value object, required and optional side by side
+
+```ddd
+valueobject Addr { line1: string  city: string }
+aggregate Person with crudish {
+  name:   string
+  home:   Addr
+  office: Addr?
+}
+```
+
+```csharp
+// dotnet — Infrastructure/Persistence/Configurations/PersonConfiguration.cs
+builder.OwnsOne<Addr>(x => x.Home, o => { … });            // required — correct
+builder.Property(x => x.Office).HasColumnName("office");   // optional — WRONG
+```
+```sql
+-- the migration shipped beside it creates neither an `office` column …
+"home_line1"   TEXT NOT NULL,
+"home_city"    TEXT NOT NULL,
+"office_line1" TEXT NULL,
+"office_city"  TEXT NULL,
+```
+
+The optional case has to take the same `OwnsOne` path, marked optional.
+On node the same shape fails in hydration, narrowing only the first column:
+
+```ts
+shipping: (root.shipping_line1 == null ? null
+  : new Address(root.shipping_line1, root.shipping_city,      // string | null
+                root.shipping_postalCode, root.shipping_country))
+// TS2345: Argument of type 'string | null' is not assignable to parameter of type 'string'
+```
+
+## P4 / P5 — the three Vue shapes and the Svelte arity
+
+```ddd
+aggregate Customer with crudish {
+  email:    string
+  fullName: string
+  shipping: Address?        // → 22 × TS18049
+}
+aggregate Product with crudish {
+  price:       money        // →  4 × TS2322  string vs Decimal
+  description: string?      // →  5 × TS2322  null vs string | number
+}
+```
+
+```vue
+<!-- optional VO — dereferenced with no guard -->
+:model-value="updateForm.values.shipping.line1"
+<!-- 'updateForm.values.shipping' is possibly 'null' or 'undefined' -->
+
+<!-- money — the input model is Decimal, the binding is a string -->
+:model-value="String(form.values.price ?? '0')"
+@update:model-value="(v) => form.values.price = String(v || '0')"
+```
+
+```svelte
+<!-- svelte — the page calls it with no argument … -->
+const productFindAllBySellable = useFindAllBySellableProduct();
+```
+```ts
+// … and the client declares the argument required (react defaults it to {})
+export function useFindAllBySellableProduct(query: () => FindAllBySellableQuery) { … }
+```
+
+## P6 — the reserved words a modeller actually reaches for
+
+```ddd
+aggregate Invoice { type: string }      // ✗ Expecting token of type '}' but found `type`
+aggregate Audit   { event: string }     // ✗
+aggregate Page    { index: int }        // ✗
+aggregate Request { header: string }    // ✗
+aggregate Vault   { document: string }  // ✗
+aggregate Order   { status: string }    // ✓
+aggregate Order   { state: string }     // ✓
+aggregate Order   { key: string }       // ✓
+```
+
+Two separable asks: widen the soft-keyword set in the field-name position, and
+make the refusal name the word — `'type' is reserved here; quote it or rename
+the field` — instead of `Expecting token of type '}'`.
