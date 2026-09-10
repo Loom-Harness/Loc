@@ -1897,7 +1897,11 @@ export const DIAGNOSTIC_MESSAGES = {
     `which has a \`File\` field ('${p.fileField}'), but binds no object-store ` +
     `dataSource.  A \`File\` stores its bytes in an object store — declare a ` +
     `\`storage <s> { type: localDisk }\` (or \`s3\`), a ` +
-    `\`dataSource <ds> { for: ${p.ctxName}, kind: objectStore, use: <s> }\`, and ` +
+    // `resource`, not `dataSource` — the same slip this file's
+    // `loom.persistence-mode-unsupported` carried.  `dataSource` names the
+    // deployable's `dataSources:` CLAUSE, never the declaration, so pasting the
+    // suggested line was a parse error.
+    `\`resource <ds> { for: ${p.ctxName}, kind: objectStore, use: <s> }\`, and ` +
     `add '<ds>' to '${p.name}'\`s 'dataSources:' list.`,
   "loom.saving-shape-unsupported": (p: {
     name: unknown;
