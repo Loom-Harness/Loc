@@ -938,3 +938,43 @@ aggregate Order   { key: string }       // ✓
 Two separable asks: widen the soft-keyword set in the field-name position, and
 make the refusal name the word — `'type' is reserved here; quote it or rename
 the field` — instead of `Expecting token of type '}'`.
+
+
+---
+
+## P7 — a NON-optional `X id` user claim breaks node and .NET too
+
+Found by the agent fixing P2 and verified here independently. P2 covered
+`customerId: Customer id?`; the un-suffixed shape is a *different* defect, in the
+**dev-stub principal tables** rather than the type/import halves.
+
+```ddd
+user { id: string  role: string  customerId: Customer id }
+```
+
+```ts
+// api/domain/ids.ts — the id is a BRANDED string
+export type CustomerId = string & { readonly __brand: "CustomerId" };
+
+// api/auth/user-types.ts
+customerId: Ids.CustomerId;
+
+// api/auth/dev-stub.ts — a plain string literal against that brand
+customerId: "00000000-0000-0000-0000-000000000000",
+```
+
+Reduced and confirmed with `tsc --strict`:
+
+```
+error TS2322: Type 'string' is not assignable to type 'CustomerId'.
+  Type 'string' is not assignable to type '{ readonly __brand: "CustomerId"; }'.
+```
+
+`.NET` fails the same way — `CustomerId: System.Guid.Empty` against a
+`readonly record struct CustomerId(Guid)` with no implicit conversion (CS0029).
+Java and Python are already correct (`null` / `CustomerId("000…")`).
+
+This is the MORE common spelling of the two: a customer or tenant claim that is
+always present takes no `?`. Fix by constructing through the id factory
+(`Ids.CustomerId("000…")` / `new CustomerId(Guid.Empty)`) in the dev-stub tables,
+and add the un-suffixed shape to the same corpus fixture P2's fix introduced.
