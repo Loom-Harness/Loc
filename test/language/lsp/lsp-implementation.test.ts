@@ -236,9 +236,15 @@ describe("DddImplementationProvider (textDocument/implementation)", () => {
   // with an empty `files` yields no regions, so the assertion would hold with or
   // without the fix and prove nothing. (It did, in the first draft of this test.)
   it("does not adopt a NEIGHBOUR project's map that matches only on the filename", async () => {
-    // Both projects live under one workspace dir, so neither reaches for the
-    // shared system temp dir — the collision is fully local to this fixture.
-    const ws = path.join(tmp, "workspace");
+    // Both projects live under one workspace dir, so the collision between them
+    // is local to this fixture — but that ALONE does not bound the walk.  From
+    // `<tmp>/workspace/app-a` the ancestors are `workspace`, `<tmp>`, then
+    // os.tmpdir() itself, which is inside `MAX_ANCESTOR_LEVELS`: discovery would
+    // climb out and probe every entry of the shared system temp dir, exactly the
+    // non-hermeticity case (c) above nests five deep to avoid.  The comment here
+    // used to claim this case was already protected; it was not.  Pad it so all
+    // six probes stay inside the fixture.
+    const ws = path.join(tmp, "neighbour-case", "a", "b", "c", "workspace");
     const subjectDir = path.join(ws, "app-a");
     const { services, doc } = await loadRealDocument(subjectDir, "main.ddd", SOURCE);
 
