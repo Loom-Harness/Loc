@@ -409,20 +409,27 @@ describe("pr-gate.yml concurrency does not cancel its own safety net", () => {
     ).toBe(true);
   });
 
-  it("cancel-in-progress is a flat false — no path cancels an evaluation", () => {
+  it("cancel-in-progress is a flat false — the RUNNING evaluation is never killed", () => {
     const { cancelInProgress } = concurrencyBlock();
     // A literal `false`, not an expression: every conditional spelling this
     // block has carried cancelled SOME path, and each one starved the verdict
     // on exactly the path it cancelled (the sweep first, then every SHA-keyed
-    // event).  There is no path that benefits from cancelling: a pending run
-    // holds no runner, so the only thing cancellation saves is the work of a
-    // run that has already claimed its slot.
+    // event).  There is no path that benefits from killing an evaluation that
+    // has already claimed its slot — it is the one about to publish.
+    //
+    // What this flag does NOT do, and this test used to be titled as though it
+    // did: stop GitHub cancelling a superseded PENDING run.  That happens
+    // regardless (measured 2026-09-10: 479 of 759 evaluations `cancelled`,
+    // sampled ones with zero jobs), and it is harmless — a pending run holds
+    // no runner, and the newest arrival, which is the tail evaluation, is
+    // never the evicted one.
     expect(
       cancelInProgress,
       `cancel-in-progress must be a flat \`false\`, got: ${cancelInProgress}. ` +
-        "Cancelling collapses a burst of check completions to no published " +
-        "verdict at all (measured: 94 of 100 runs cancelled, 0 successful), " +
-        "which parks the gate and gets green merge-queue entries ejected.",
+        "With it TRUE, a burst of check completions collapses to no published " +
+        "verdict at all (measured under that setting: 94 of 100 runs " +
+        "cancelled, 0 successful), which parks the gate and gets green " +
+        "merge-queue entries ejected.",
     ).toBe("false");
   });
 
@@ -472,15 +479,18 @@ describe("pr-gate.yml re-evaluates on every other workflow's completion", () => 
 });
 
 // ---------------------------------------------------------------------------
-// Dropped-event resilience — pinned.  `workflow_run` delivery is BEST-EFFORT:
-// under this repo's completion storms GitHub drops dispatches, and a dropped
-// final event parked a fully-green PR at in_progress (#2464, 08:42Z).  Two
-// defenses, each of which rots silently if removed:
+// Dropped-event resilience — pinned.  `workflow_run` delivery is BEST-EFFORT,
+// and 2026-09-10 put a number on it: 13 of 178 eligible completions in a
+// six-hour census produced no evaluation run at all.  A drop on a SHA's LAST
+// completion parks a fully-green PR at in_progress.  The PRIMARY answer is the
+// tail watch at the bottom of this file; the two defenses pinned here are the
+// older ones, each of which rots silently if removed:
 //   1. `branches-ignore: [main]` on the workflow_run trigger — without it,
 //      every push:main heavy-set completion (~60 per merge) creates an eval
 //      run, and that dispatch storm is what got real events dropped;
-//   2. the scheduled sweep — without it, one dropped event = one PR parked
-//      until a human pokes it.
+//   2. the sweep — a reconciler over open PRs for SHAs no watcher is still on.
+//      It rides the same event stream it protects against, so it is a backstop
+//      of last resort, not a cap on the outage.
 // ---------------------------------------------------------------------------
 
 /** The body of one job in pr-gate.yml, from its key to the next job (or EOF).
