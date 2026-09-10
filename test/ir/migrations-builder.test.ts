@@ -2508,3 +2508,91 @@ system Shop {
     expect(diffSchema(prev, next)).toEqual([]);
   });
 });
+
+// ---------------------------------------------------------------------------
+// M-T2.15 / #2864 D1 — a value-object COLLECTION field is a child TABLE, in the
+// diff exactly as in the initial create.
+//
+// `columnsForField` gives such a field a parent-table stand-in column tagged
+// `valueArrayChildTable`.  It is a carrier for the child-table name inside
+// `TableShape`, not a column any backend creates: `renderCreateTable`
+// (sql-pg.ts) and the Ecto initial/inline renderers all skip it.  The diff used
+// to take it at face value, so adding a `LineVO[]` field to an aggregate already
+// in the baseline emitted `ADD COLUMN "lines" JSONB[]` + `SET NOT NULL` beside
+// the correct child table — a column no ORM maps and nothing ever writes, which
+// makes every later INSERT fail its NOT NULL constraint permanently.
+// ---------------------------------------------------------------------------
+describe("diffSchema — value-object collection fields (M-T2.15)", () => {
+  const VC_BASE = `
+system P {
+  subdomain Ordering {
+    context Ord {
+      valueobject LineVO { sku: string  qty: int }
+      aggregate Order { note: string }
+      repository Orders for Order { }
+    }
+  }
+  deployable api { platform: node, contexts: [Ord], port: 3000 }
+}
+`;
+  const VC_EVOLVED = VC_BASE.replace(
+    "aggregate Order { note: string }",
+    "aggregate Order { note: string  lines: LineVO[] }",
+  );
+
+  async function snapOf(src: string) {
+    const loom = await buildLoomModel(src);
+    return schemaFromModule(loom.systems[0]!.subdomains[0]!);
+  }
+
+  it("adding one contributes the child table and NO column on the root", async () => {
+    const steps = diffSchema(await snapOf(VC_BASE), await snapOf(VC_EVOLVED));
+    expect(steps.map((s) => s.op)).toEqual(["createTable"]);
+    expect(steps[0]).toMatchObject({ op: "createTable", table: { name: "order_lines" } });
+  });
+
+  it("removing one drops the child table and NO column on the root", async () => {
+    const steps = diffSchema(await snapOf(VC_EVOLVED), await snapOf(VC_BASE));
+    expect(steps.map((s) => s.op)).toEqual(["dropTable"]);
+    expect(steps[0]).toMatchObject({ op: "dropTable", name: "order_lines" });
+  });
+
+  it("the stand-in column reaches no migration step in either direction", async () => {
+    const base = await snapOf(VC_BASE);
+    const evolved = await snapOf(VC_EVOLVED);
+    // The stand-in column really is on the derived shape — otherwise these
+    // assertions would pass for the wrong reason.
+    const orders = evolved.tables.find((t) => t.name === "orders")!;
+    expect(orders.columns.find((c) => c.name === "lines")?.valueArrayChildTable).toBe(
+      "order_lines",
+    );
+    for (const steps of [diffSchema(base, evolved), diffSchema(evolved, base)]) {
+      expect(JSON.stringify(steps)).not.toContain('"lines"');
+    }
+  });
+
+  it("adding one is NOT destructive — it needs no --allow-destructive", async () => {
+    const base = await snapOf(VC_BASE);
+    const raw = diffSchema(base, await snapOf(VC_EVOLVED));
+    expect(() =>
+      applyDestructivePolicy(raw, base, { allowDestructive: false, module: "Ordering" }),
+    ).not.toThrow();
+  });
+
+  // The control, and the cross-backend half: `createTable` carries the whole
+  // `TableShape`, stand-in column included — it is each RENDERER that drops it.
+  // Both DDL renderers that consume the shared MigrationsIR already did so on
+  // the initial create, which is why a fresh generate was correct all along and
+  // only the diff bricked the table.  Pinning it here keeps the fix in
+  // `diffTable` honest: the diff must agree with what the renderers emit.
+  it("neither DDL renderer lays the stand-in column down on the initial create", async () => {
+    const steps = diffSchema(null, await snapOf(VC_EVOLVED));
+    const orders = steps.find(
+      (s) => s.op === "createTable" && s.table.name === "orders",
+    ) as Extract<MigrationStep, { op: "createTable" }>;
+    // It IS on the shape — otherwise the assertions below pass for the wrong reason.
+    expect(orders.table.columns.map((c) => c.name)).toEqual(["id", "note", "lines", "version"]);
+    expect(renderPgStep(orders)).not.toContain('"lines"');
+    expect(renderEctoStep(orders).join("\n")).not.toContain("lines");
+  });
+});

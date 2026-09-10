@@ -6,6 +6,7 @@ import {
   type PgConn,
   runMigrationEvolutionGate,
   runMoneyBoundsCatchUpGate,
+  runValueCollectionEvolutionGate,
 } from "./support/migration-evolution-harness.js";
 import { installGeneratedProject } from "./support/npm-install.js";
 
@@ -62,6 +63,15 @@ describe.skipIf(!ENABLED)(
   () => {
     it("diffs the bound out, refuses it without --allow-destructive, applies it with", async () => {
       await runMoneyBoundsCatchUpGate();
+    }, 240_000);
+  },
+);
+
+describe.skipIf(!ENABLED)(
+  "value-collection evolution gate — adding a `LineVO[]` field to an aggregate already in the baseline (M-T2.15)",
+  () => {
+    it("emits only the child table, applies to a populated db, and leaves INSERT working", async () => {
+      await runValueCollectionEvolutionGate();
     }, 240_000);
   },
 );
