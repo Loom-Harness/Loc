@@ -81,7 +81,7 @@ A track file should carry no `done` heading for long (see §Status legend); rege
 
 <!-- mission-counts:end -->
 
-*The 2026-09-03 jump is the [language-docs audit](../audits/2026-09-03-language-docs-audit-findings.md): 18 missions minted from its 47 findings — M-T5.26–M-T5.29, M-T1.28–M-T1.31, M-T6.53–M-T6.58, M-T9.44–M-T9.47, one per packet of its [wave plan](../audits/2026-09-03-language-docs-audit-findings.waves.md). Wave 1 of that plan drained 2026-09-06 and its PRs merged 09-07/09-09; M-T5.26/M-T5.27/M-T6.53/M-T1.29/M-T1.30/M-T5.29 are archived and M-T1.28 carries only its residue (Wave C0.4).*
+*The 2026-09-03 jump is the [language-docs audit](../audits/2026-09-03-language-docs-audit-findings.md): 18 missions minted from its 47 findings — M-T5.26–M-T5.29, M-T1.28–M-T1.31, M-T6.53–M-T6.58, M-T9.44–M-T9.47, one per packet of its [wave plan](../audits/2026-09-03-language-docs-audit-findings.waves.md). **Waves 1, 2 and 4 of that plan are drained** (2026-09-09/10): M-T1.29, M-T1.30, M-T5.26, M-T5.27, M-T5.29, M-T6.53, M-T9.44 and M-T9.45 are archived, and M-T1.28 stays live carrying only the residue #2786 opened (the `renderToast` seam + F50, the Svelte twin). What remains from the plan is W3.1 (M-T5.28), Wave 5 (M-T6.54–M-T6.57), Wave 6 (M-T6.58) and Wave 7 (M-T9.46, M-T9.47) — all `open`.*
 
 ## Sequencing — the load-bearing dependencies
 
