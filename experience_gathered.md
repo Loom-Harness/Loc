@@ -6097,3 +6097,100 @@ never guess: `list_workflow_runs` on the `gh-readonly-queue/…` branch with
 `get_job_logs` with `return_content` and `tail_lines`. That path found this in
 one pass after a day of theorising found nothing.
 
+## 108. Re-running a red CI check does not retest it against a fixed base (2026-09-07)
+
+`main` was red for every PR that built a generated node project: npm 10.9.7
+crashes resolving vitest 4's peer graph (`Cannot read properties of null
+(reading 'edgesOut')`, reproducible in an empty directory). The fix landed on
+`main` as #2772. Three PRs stayed red for four days afterwards, and re-running
+their failed checks changed nothing.
+
+**A `pull_request` run tests a merge commit computed when the run was
+CREATED.** A re-run replays that same recorded SHA — so it re-tests the PR
+against the base as it stood before the fix, forever. The check cannot go green
+no matter how many times it is re-run, and nothing in the UI says why.
+
+The base must be merged into the head so GitHub builds a NEW merge commit:
+GitHub's "Update branch" button, `update_pull_request_branch` via the API, or a
+plain local `git merge origin/main` + push. All three worked; re-running never
+would have. Diagnose this by comparing the run's `created_at` against the time
+the base fix merged — if the run is older, its verdict is about a `main` that
+no longer exists.
+
+## 109. A reported merge conflict can be stale; verify before you resolve (2026-09-07)
+
+A PR was reported un-mergeable, so it was rebased onto fresh `main` and the
+conflicts resolved by hand. That work was thrown away: the branch had ALREADY
+been reconciled days earlier by an ordinary merge commit, and merged cleanly on
+its own. The rebase would have discarded that reviewed reconciliation and
+replaced it with a second, independently-resolved copy.
+
+`git merge-tree --write-tree origin/main <branch>` answers the question in one
+command with no side effects — exit 0 and no `CONFLICT` line means there is
+nothing to resolve. Run it BEFORE touching a branch someone (or an earlier
+session) may already have fixed. Related: the repo's own pre-push hook asks
+this correctly but about the WRONG branch in a worktree — it inspects
+`CLAUDE_PROJECT_DIR`'s checkout, not the branch being pushed, so it will block
+a clean push whenever the main checkout sits on a stale branch. Fix by pointing
+the main checkout at fresh `main`, not by bypassing the hook.
+
+## 110. Two optional seams at one insertion point conflict structurally (2026-09-07)
+
+Two independent missions each added an optional `WalkerTarget` seam — one for
+money operands, one for numeric widening — with identical signatures, at the
+same point in `walker-core`'s `binary` arm. Git reported a conflict in both
+files, which reads like a semantic collision and is not one: the correct
+resolution keeps BOTH, because they answer different questions.
+
+What the conflict does hide is a real decision the diff never states: which one
+is consulted first. Today no target implements both (Flutter omits the numeric
+seam; Feliz omits the money one, its money already being an F# decimal), so the
+order is unobservable — which is exactly why it will otherwise be settled by
+whoever resolves the next conflict, at random. Pin it with the reason inline.
+Here: money first, because it is the narrower claim — a money operand is
+numeric too, so a target defining both wants its money form to win.
+
+## 111. Collected page errors that are only checked on the happy path (2026-09-07)
+
+Every Feliz Playwright smoke does `page.on("pageerror", e => errors.push(...))`
+and then asserts `errors` is empty — at the END of the run. So the diagnostic
+exists only when it is least needed. When a wire-decode failure empties the
+page, the run dies at the FIRST `locator.waitFor`, ten seconds earlier, and CI
+prints `waiting for getByText('Page 1 of 3')` with no cause; the one page error
+that names the real problem is collected and then discarded.
+
+Diagnosing it took a full CI round trip. The fix is three lines: on failure,
+append the collected errors to the thrown error's message before rethrowing.
+The general rule — **a diagnostic you only report on success is not a
+diagnostic** — applies to any harness that accumulates context and checks it at
+the end.
+
+## 112. `tsc -b` does not typecheck `test/`, and the gate that does is not the one you ran (2026-09-09)
+
+`npx tsc -b` came back clean, `biome ci` came back clean, the touched suites
+came back green — and CI's `lint + web-tsc` still went red:
+
+```
+test/ typecheck ratchet FAILED
+1 file(s) gained type errors.  Fix them — do NOT raise the baseline; it only shrinks:
+    test/_helpers/wire-record.ts: 0 → 4
+```
+
+`tsconfig.json` **excludes `test/`**. Nothing in the build covers it; the
+coverage lives in a separate shrink-only ratchet, `scripts/test-typecheck.mjs`
+over `tsconfig.test.json`, which is a different invocation from anything the
+normal loop runs. So a file under `test/` can be simultaneously "compiles
+clean" and "four type errors", and only the second one is a merge blocker.
+
+The errors were real, and they had been there since the file's first commit —
+a three-argument `JSON.parse` reviver (V8's source-text reviver, Node >= 21)
+that the shipped `JSON.parse` type does not describe, so all three parameters
+fell to implicit `any`. Two days of local runs never saw them because none of
+those runs was the one that looks.
+
+**The general shape:** "I ran the typechecker" is a claim about a *project*,
+not about a *directory*. Before trusting a clean typecheck on a file, check
+which `tsconfig` actually includes it — a repo with more than one project has
+more than one answer, and the excluded tree is exactly where nobody notices.
+`docs/testing.md` → "Running any CI gate locally" is the reverse index for
+this; `test/system/local-run-mapping.test.ts` pins that it stays complete.

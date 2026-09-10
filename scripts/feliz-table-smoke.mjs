@@ -114,6 +114,19 @@ try {
 
   if (errors.length) throw new Error(`page errors: ${errors.join(" | ")}`);
   console.log("feliz table smoke OK");
+} catch (e) {
+  // Report what the PAGE said before re-throwing.  Without this the collected
+  // `errors` are only ever printed by the check at the end of the happy path,
+  // so any failure BEFORE it — in practice a `locator.waitFor` timeout, the
+  // normal shape when the page rendered nothing — loses them entirely and CI
+  // reports "waiting for getByText(...)" with no cause.  A wire-decode failure
+  // is exactly that: one `pageerror`, an empty page, and ten seconds of
+  // waiting for markup that was never coming (M-T1.22 spent a CI round trip
+  // rediscovering this).
+  if (errors.length > 0) {
+    e.message += `\n  page errors collected before the failure:\n    ${errors.join("\n    ")}`;
+  }
+  throw e;
 } finally {
   await browser.close();
 }
