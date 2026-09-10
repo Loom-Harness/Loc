@@ -97,8 +97,12 @@ jobs:
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     # Boot+dispatch is ~sub-second per case; the time is npm ci (root +
-    # harness) + the toolchain build.  Cap leaves headroom for cold cache.
-    timeout-minutes: 15
+    # harness) + the toolchain build.
+    # Budget per docs/ci-gating.md § "Sizing a job's `timeout-minutes`":
+    # 50 % margin over the measured p95, rounded up to 5 min, floor 10.
+    # Measured 2026-09-10, n=15 successful runs: p95 3m24s, max 3m25s.
+    # Re-derive with `node test/behavioral/ci-budget-report.mjs`.
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v6
 

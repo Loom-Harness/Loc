@@ -786,6 +786,108 @@ above — the queue is the structural fix; labels are the interim "80/20."
 **When you add a new post-merge gate, wire it to the matching `run-<feature>`
 label (or mint a new one) and add a row here + in `CLAUDE.md`.**
 
+## Sizing a job's `timeout-minutes`
+
+**A timeout is not a flake.** When a job is cancelled at its cap, nothing
+misbehaved — the budget was set below the work. Re-running it is not a
+diagnosis, and on a saturated pool it costs another full slot to re-roll the
+same dice. So a budget is a measurement, not a round number.
+
+### The rule
+
+```
+timeout-minutes = max(10, ceil_to_5min( p95(job execution time) × 1.5 ))
+```
+
+over **at least 10 recent successful runs** of that job. 50 % margin over the
+p95 covers a leg's own run-to-run variance with room left, and the round-up to
+5 minutes keeps the value readable without inviting a fresh guess.
+
+Three things the definition has to pin down, because each of them was got wrong
+here at least once:
+
+- **"Job execution time" is the SUM of the job's step durations.** Not
+  `run.updated_at − run.created_at` (queue **plus** run), and not
+  `job.completed_at − job.started_at`: the API sets `started_at` at *queue*
+  time for some jobs, and one `behavioral-python` entry reads **80m against a
+  15-minute cap** for exactly that reason. Steps only exist once a runner holds
+  the job, so their sum is what `timeout-minutes` actually gates. On jobs that
+  ran cleanly the two agree within ~10s, which is the sanity check.
+- **Measure the STEP, but budget the JOB.** The test step is where a leg's time
+  and all of its variance live; the prelude (checkout, `setup-*`, `npm ci`,
+  toolchain build) is ~35s–1m20s and nearly constant. Read the step to
+  understand a leg, but set the cap against the whole job — the cap gates the
+  job.
+- **A cap that has fired censors its own measurement.** A killed run is not a
+  successful run, so it never enters the sample — the cap deletes precisely the
+  tail you need in order to size it, and the surviving p95 is a *lower bound*
+  that looks reassuringly close to the budget. **Count the kills first.** If a
+  leg has any, raise it enough to stop them, let it run uncensored, then
+  re-apply the rule. This is not a hypothetical: `behavioral-java` sat at a
+  measured p95 of 19m46s against a 20-minute cap — 10 seconds of headroom —
+  while separately killing 13 of the ~74 runs that reached a verdict in its
+  last 100.
+
+### Re-deriving it
+
+```bash
+GITHUB_TOKEN=<token with actions:read> node test/behavioral/ci-budget-report.mjs
+```
+
+prints, per behavioral leg: n, median, p95, max, the declared budget, the
+headroom at max, the budget the rule asks for, and a loud `CAP KILLS` warning
+when the sample is censored. Re-run it when a leg starts getting killed, when
+the corpus case list grows materially, or when a backend's build changes.
+
+### Raise, or split?
+
+Both cost something, and the trade is not symmetric:
+
+- **Raising** the cap is a legitimate fix and needs no apology — but a
+  genuinely hung job then holds a runner slot for longer, against a pool of
+  ~20.
+- **Splitting** bounds each half, but spends a second slot *on every run* (not
+  just hung ones), re-pays the prelude, and needs a shard manifest — the
+  behavioral runners take an explicit case list, so a new corpus case that no
+  shard names would run in neither half. A split that silently drops cases is
+  worse than a slow leg.
+
+Prefer raising unless the leg is slow enough that its own variance no longer
+fits any sane budget. **A leg that is slow is a different problem from a leg
+that is tight-budgeted, and it wants a different fix** — the budget stops the
+bleeding, cutting the runtime is the repair.
+
+### The 2026-09-10 baseline
+
+All seven behavioral legs, measured at step level from the Actions API
+(`behavioral-java` at n=40, the rest at n=15):
+
+| leg | test-step median | job p95 | job max | was | now |
+|---|---:|---:|---:|---:|---:|
+| `behavioral-e2e` (node) | 2m47s | 3m24s | 3m25s | 15m | **10m** |
+| `behavioral-e2e-python` | 3m41s | 4m37s | 4m37s | 15m | **10m** |
+| `behavioral-e2e-java` | 17m56s | 19m46s † | 19m50s | 20m | **30m** |
+| `behavioral-e2e-dotnet` | 7m08s | 8m19s | 8m19s | 20m | **15m** |
+| `behavioral-e2e-dapper` | 6m00s | 7m14s | 7m18s | 20m | **15m** |
+| `behavioral-e2e-mikroorm` | 9m22s | 10m35s | 10m35s | 25m | **20m** |
+| `behavioral-e2e-elixir` | 10m14s | 11m27s | 11m34s | 30m | **20m** |
+
+† censored — see the third bullet above.
+
+Six of the seven were **over**-provisioned by 57–77 %, which is its own cost: an
+over-wide cap is how long a hung job squats a slot. Fixing the class rather than
+the one leg that was visibly bleeding therefore *pays for itself* — worst-case
+slot exposure across the tier drops from 145 to 120 minutes even though Java
+goes up by 10.
+
+`behavioral-java` remains the outlier that a budget cannot fix: 17m56s median in
+the test step against 6m–10m for every other backend leg, because
+`run-java.mjs` pays a `gradle --no-daemon bootJar` — cold JVM, full Spring
+compile — per corpus case, sequentially. Its run-to-run spread is
+13m02s–18m49s; that **5m47s swing alone was 35× the 10s of headroom** the old
+cap left, which is why the kills read as random. Cutting that runtime is a
+separate mission.
+
 ## Guardrails added alongside
 
 - **`workflow-lint.yml`** — validates every workflow file parses (YAML) and
