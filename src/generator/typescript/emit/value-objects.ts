@@ -1,10 +1,4 @@
-import {
-  type BoundedContextIR,
-  type EnumIR,
-  type TypeIR,
-  typeUsesMoney,
-  type ValueObjectIR,
-} from "../../../ir/types/loom-ir.js";
+import type { BoundedContextIR, EnumIR, TypeIR, ValueObjectIR } from "../../../ir/types/loom-ir.js";
 import { lines } from "../../../util/code-builder.js";
 import { lowerFirst } from "../../../util/naming.js";
 import { renderTsExpr, renderTsType } from "../render-expr.js";
@@ -21,20 +15,87 @@ import { renderTsStatements } from "../render-stmt.js";
 
 export function renderEnumsAndValueObjects(ctx: BoundedContextIR): string {
   const needsDomainError = ctx.valueObjects.some((v) => v.invariants.length > 0);
-  // A `money` VO field renders as decimal.js `Decimal` (renderTsType), so the
-  // class needs the import — without it any VO carrying money is a tsc
-  // break.
-  const usesMoney = ctx.valueObjects.some((v) => v.fields.some((f) => typeUsesMoney(f.type)));
+  // The import header keys on EVERY type position the file renders, not on the
+  // fields alone: `renderTsType` maps `money` to decimal.js `Decimal` and an
+  // `id` to `Ids.<Agg>Id`, and both spellings appear in the field
+  // declarations, the constructor parameter list, the `derived` getter
+  // signatures and each `function`'s params/return alike.  Scanning only the
+  // fields is how a `valueobject` holding a cross-aggregate reference
+  // (`ship: Ship id`) shipped a file with ZERO import statements and two
+  // `TS2503: Cannot find namespace 'Ids'` — freight audit D3 / M-T6.64.  The
+  // .NET emitter has always collected over the same four positions
+  // (`emit/enums-vos.ts`), which is why only node was broken.
+  //
+  // Collected rather than added unconditionally so a scalar-only VO keeps a
+  // clean header (the corpus is almost entirely scalar-only VOs, so this is
+  // the byte-identical path for nearly every model).
+  const usage: TsTypeUsage = { usesIds: false, usesMoney: false };
+  for (const v of ctx.valueObjects) for (const t of renderedTypes(v)) visitTsTypeUsage(t, usage);
   return (
     lines(
       "// Auto-generated.",
-      usesMoney ? 'import Decimal from "decimal.js";' : null,
+      usage.usesMoney ? 'import Decimal from "decimal.js";' : null,
+      // A VALUE import, matching `emit/aggregate.ts`: `domain/ids.ts` exports
+      // the brand constructors alongside the branded types, so this stays
+      // correct if a VO body ever renders one.
+      usage.usesIds ? 'import * as Ids from "./ids";' : null,
       needsDomainError ? 'import { DomainError } from "./errors";' : null,
       "",
       ...ctx.enums.flatMap(renderEnum),
       ...ctx.valueObjects.flatMap(renderValueObject),
     ) + "\n"
   );
+}
+
+/** Which of the file's two importable type spellings a rendered `TypeIR`
+ *  reaches — decimal.js `Decimal` (`money`) and the `Ids.<Agg>Id` namespace
+ *  (an aggregate/entity id reference). */
+interface TsTypeUsage {
+  usesIds: boolean;
+  usesMoney: boolean;
+}
+
+/** Every `TypeIR` `renderValueObject` puts through `renderTsType` below.  Kept
+ *  next to that function so a new rendered type position cannot be added
+ *  without the import header seeing it. */
+function* renderedTypes(v: ValueObjectIR): Generator<TypeIR> {
+  for (const f of v.fields) yield f.type;
+  for (const d of v.derived) yield d.type;
+  for (const fn of v.functions) {
+    yield fn.returnType;
+    for (const p of fn.params) yield p.type;
+  }
+}
+
+/** Accumulate a rendered type's import needs.  Mirrors the recursion in
+ *  `renderTypeWith` (`../_type/target.ts`) over the arms that carry a
+ *  sub-type — an id inside `Ship id[]`, `Ship id?`, a generic argument or a
+ *  union variant renders `Ids.` just the same.  `enum` / `valueobject` name a
+ *  sibling declaration in THIS file, and `entity` / `slot` / `action` / `none`
+ *  import nothing. */
+function visitTsTypeUsage(t: TypeIR, acc: TsTypeUsage): void {
+  switch (t.kind) {
+    case "primitive":
+      if (t.name === "money") acc.usesMoney = true;
+      return;
+    case "id":
+      acc.usesIds = true;
+      return;
+    case "array":
+      visitTsTypeUsage(t.element, acc);
+      return;
+    case "optional":
+      visitTsTypeUsage(t.inner, acc);
+      return;
+    case "genericInstance":
+      visitTsTypeUsage(t.arg, acc);
+      return;
+    case "union":
+      for (const v of t.variants) visitTsTypeUsage(v, acc);
+      return;
+    default:
+      return;
+  }
 }
 
 function renderEnum(e: EnumIR): string[] {

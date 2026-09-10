@@ -90,6 +90,14 @@ export const CORPUS: readonly CorpusFeature[] = [
   { id: "paged", title: "pagination — `find ... paged` Paged<T> envelope", doc: "payloads", backends: ALL },
   { id: "single-containment", title: "single (non-collection) containment — hidden `_parent`", doc: "language", backends: ALL },
   { id: "value-collections", title: "value-object array (`Money[]`) stored inline", doc: "language", backends: ALL },
+  {
+    id: "vo-id-reference",
+    title:
+      "a value object holding a CROSS-AGGREGATE REFERENCE (`ship: Ship id`) — in a field, a `derived` type and a `function` parameter",
+    doc: "language",
+    backends: ALL,
+    note: "compile-tier by necessity: the defect it pins is a MISSING IMPORT, which emits cleanly and only fails the type-checker. The corpus had no value object holding an id at all — every one was scalar-only — which is how node shipped `domain/value-objects.ts` with zero import statements (TS2503). The other four backends already imported the id type, so this row is what keeps all five honest.",
+  },
   { id: "document", title: "`shape: document` — whole aggregate in one jsonb column", doc: "language", backends: ALL },
   {
     id: "document-collection-read",
