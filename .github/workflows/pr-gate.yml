@@ -219,11 +219,23 @@ permissions:
 #
 #   * `group` — a `schedule` / `workflow_dispatch` payload has neither
 #     `pull_request` nor `workflow_run`, so without the literal fallback the key
-#     degenerates to `pr-gate-` and every sweep shares one group.  The `sweep`
-#     literal keeps sweeps in their own group, clear of the SHA-keyed ones —
+#     degenerates to `pr-gate-` and every sweep shares one group.  The `no-sha`
+#     literal keeps those runs in their own group, clear of the SHA-keyed ones —
 #     and, now that nothing cancels, serialises them rather than killing them.
 #     (Observed on #2443 under the old setting: checks green at 22:07Z, sweeps
 #     at 21:20Z and 22:08Z both cancelled, gate parked at `in_progress`.)
+#
+#     The literal must NOT be `sweep`.  It was, from #2835 until #2846, and that
+#     made this key resolve to `pr-gate-sweep` on exactly the SHA-less events —
+#     the same string as the sweep JOB's own group below.  A job cannot take a
+#     concurrency group its own workflow run already holds, so every scheduled
+#     sweep died instantly: 0 steps, no logs, `completed_at` BEFORE `started_at`.
+#     Measured on the four schedule runs from 2026-09-09T21:55Z to 09-10T09:05Z,
+#     all `failure`, against 19 `workflow_run` sweeps over the same window that
+#     all SUCCEEDED — those resolve this key to `pr-gate-<head_sha>`, so they
+#     never collided.  The safety net was dead for the 11 hours in between, and
+#     #2674 sat with no verdict at all the whole time.  `pr-gate.test.ts` pins
+#     the two names apart.
 #
 #   * `cancel-in-progress` — FALSE, unconditionally.  Making the key unique per
 #     run would also stop the cancelling, but it lets runs OVERLAP, and two
@@ -231,7 +243,7 @@ permissions:
 #     verdict last and can re-park a PR it already greened.  Never lose the
 #     newest, never kill the in-flight one.
 concurrency:
-  group: pr-gate-${{ github.event.pull_request.head.sha || github.event.workflow_run.head_sha || github.event.merge_group.head_sha || 'sweep' }}
+  group: pr-gate-${{ github.event.pull_request.head.sha || github.event.workflow_run.head_sha || github.event.merge_group.head_sha || 'no-sha' }}
   cancel-in-progress: false
 
 jobs:
