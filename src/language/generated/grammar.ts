@@ -14143,6 +14143,10 @@ export const DddGrammar = (): Grammar => loadedDddGrammar ?? (loadedDddGrammar =
           },
           {
             "$type": "Keyword",
+            "value": "allow"
+          },
+          {
+            "$type": "Keyword",
             "value": "asc"
           },
           {
@@ -14183,6 +14187,14 @@ export const DddGrammar = (): Grammar => loadedDddGrammar ?? (loadedDddGrammar =
           },
           {
             "$type": "Keyword",
+            "value": "deep"
+          },
+          {
+            "$type": "Keyword",
+            "value": "deny"
+          },
+          {
+            "$type": "Keyword",
             "value": "desc"
           },
           {
@@ -14216,6 +14228,10 @@ export const DddGrammar = (): Grammar => loadedDddGrammar ?? (loadedDddGrammar =
           {
             "$type": "Keyword",
             "value": "filter"
+          },
+          {
+            "$type": "Keyword",
+            "value": "global"
           },
           {
             "$type": "Keyword",
@@ -14295,6 +14311,10 @@ export const DddGrammar = (): Grammar => loadedDddGrammar ?? (loadedDddGrammar =
           },
           {
             "$type": "Keyword",
+            "value": "of"
+          },
+          {
+            "$type": "Keyword",
             "value": "ogImage"
           },
           {
@@ -14320,6 +14340,14 @@ export const DddGrammar = (): Grammar => loadedDddGrammar ?? (loadedDddGrammar =
           {
             "$type": "Keyword",
             "value": "query"
+          },
+          {
+            "$type": "Keyword",
+            "value": "persistence"
+          },
+          {
+            "$type": "Keyword",
+            "value": "policy"
           },
           {
             "$type": "Keyword",
@@ -14450,10 +14478,6 @@ export const DddGrammar = (): Grammar => loadedDddGrammar ?? (loadedDddGrammar =
           },
           {
             "$type": "Keyword",
-            "value": "allow"
-          },
-          {
-            "$type": "Keyword",
             "value": "api"
           },
           {
@@ -14482,14 +14506,6 @@ export const DddGrammar = (): Grammar => loadedDddGrammar ?? (loadedDddGrammar =
           },
           {
             "$type": "Keyword",
-            "value": "deep"
-          },
-          {
-            "$type": "Keyword",
-            "value": "deny"
-          },
-          {
-            "$type": "Keyword",
             "value": "design"
           },
           {
@@ -14503,10 +14519,6 @@ export const DddGrammar = (): Grammar => loadedDddGrammar ?? (loadedDddGrammar =
           {
             "$type": "Keyword",
             "value": "from"
-          },
-          {
-            "$type": "Keyword",
-            "value": "global"
           },
           {
             "$type": "Keyword",
@@ -14534,23 +14546,11 @@ export const DddGrammar = (): Grammar => loadedDddGrammar ?? (loadedDddGrammar =
           },
           {
             "$type": "Keyword",
-            "value": "of"
-          },
-          {
-            "$type": "Keyword",
             "value": "page"
           },
           {
             "$type": "Keyword",
             "value": "permissions"
-          },
-          {
-            "$type": "Keyword",
-            "value": "persistence"
-          },
-          {
-            "$type": "Keyword",
-            "value": "policy"
           },
           {
             "$type": "Keyword",

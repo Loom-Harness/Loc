@@ -1949,12 +1949,12 @@ Parameter:
 // the factoring is byte-identical, and a keyword with a HARD position in one of
 // the three rules stays a per-rule extra, NOT here.
 CommonSoftKeywords returns string:
-      'action' | 'asc' | 'body' | 'by' | 'canonical' | 'channels' | 'command' | 'config' | 'connection'
-      | 'crossTenant' | 'dataSources' | 'desc' | 'description' | 'env' | 'envelope' | 'error' | 'eventLog'
-      | 'every' | 'favicon' | 'filter' | 'group' | 'handle' | 'immutable' | 'implements' | 'instance' | 'internal'
+      'action' | 'allow' | 'asc' | 'body' | 'by' | 'canonical' | 'channels' | 'command' | 'config' | 'connection'
+      | 'crossTenant' | 'dataSources' | 'deep' | 'deny' | 'desc' | 'description' | 'env' | 'envelope' | 'error' | 'eventLog'
+      | 'every' | 'favicon' | 'filter' | 'global' | 'group' | 'handle' | 'immutable' | 'implements' | 'instance' | 'internal'
       | 'isolationLevel' | 'join' | 'key' | 'keyPrefix' | 'kind' | 'literal' | 'loads' | 'mailer' | 'managed' | 'message' | 'migration' | 'money'
-      | 'objectStore' | 'ogImage' | 'option' | 'or' | 'paged' | 'parent' | 'payload' | 'query'
-      | 'queue' | 'readonly' | 'replica' | 'resource' | 'response' | 'retain' | 'retrieval' | 'schema'
+      | 'objectStore' | 'of' | 'ogImage' | 'option' | 'or' | 'paged' | 'parent' | 'payload' | 'query'
+      | 'persistence' | 'policy' | 'queue' | 'readonly' | 'replica' | 'resource' | 'response' | 'retain' | 'retrieval' | 'schema'
       | 'secret' | 'select' | 'service' | 'snapshot' | 'sort' | 'sql' | 'stamp' | 'state' | 'store' | 'tablePrefix'
       | 'tenancy' | 'title' | 'token' | 'ttl' | 'use' | 'write';
 
@@ -1972,15 +1972,10 @@ CommonSoftKeywords returns string:
 LooseName returns string:
     ID | CommonSoftKeywords
     // LooseName-only (soft here but not in every value position):
-    | 'aggregates' | 'allow' | 'api' | 'await' | 'bind' | 'cache' | 'component' | 'contains'
-    // `deny` is `allow`'s grammar sibling in `PolicyReadRule` and was the one
-    // half of the pair never re-admitted as an identifier (audit #2865, D4a) —
-    // `operation op(deny: string)` failed where `allow` parsed.  A plain
-    // asymmetry, not a scoping decision: `allow`/`deny` is as ordinary a domain
-    // verb pair as `approve`/`reject`.
-    | 'contexts' | 'deep' | 'deny' | 'design' | 'directoryLayout' | 'framework' | 'from' | 'global' | 'id' | 'ignoring'
-    | 'link' | 'local' | 'menu' | 'modules' | 'of' | 'page' | 'permissions' | 'persistence'
-    | 'policy' | 'route' | 'section' | 'static' | 'targets' | 'transactional' | 'ui' | 'urlStyle'
+    | 'aggregates' | 'api' | 'await' | 'bind' | 'cache' | 'component' | 'contains'
+    | 'contexts' | 'design' | 'directoryLayout' | 'framework' | 'from' | 'id' | 'ignoring'
+    | 'link' | 'local' | 'menu' | 'modules' | 'page' | 'permissions'
+    | 'route' | 'section' | 'static' | 'targets' | 'transactional' | 'ui' | 'urlStyle'
     | 'views' | 'workflows';
 
 // A dotted page reference for `menu { link <Area>.<Page> }` — lets a menu link

@@ -78,10 +78,13 @@ bare expression ref (it is the `match await` marker there); `api`, `route`,
 `component`, `menu`, `section`, `link`, `targets`, `framework`, `design`,
 `ui`, `page` … are admissible as parameter / argument names and expression
 refs but — apart from `page` — **not** as field names (`aggregate Order {
-route: string }` is a parse error); `of`, `allow`, `deep`, `global`,
-`policy`, `persistence` are soft only as parameter / clause names.  The source of
-truth is the rule set in `src/language/ddd.langium`, pinned by
-`test/language/keyword-identifier-completeness.test.ts`.
+route: string }` is a parse error).  `of`, `allow`, `deny`, `deep`, `global`,
+`policy` and `persistence` were soft only as parameter / clause names until
+audit finding D4; they are now in the shared set, so `aggregate Claim { policy:
+Policy id }` parses.  The source of truth is the rule set in
+`src/language/ddd.langium`, pinned by
+`test/language/parsing/keyword-identifier-completeness.test.ts` and
+`test/language/parsing/reserved-field-name-widening.test.ts`.
 
 ```ddd
 context Orders {

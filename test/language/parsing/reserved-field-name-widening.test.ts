@@ -45,7 +45,10 @@ import { printStructural } from "../../../src/language/print/index.js";
 import { parseRawResult } from "../../_helpers/index.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
+const repoRoot = path.resolve(here, "..", "..", "..");
 const SNAPSHOT = path.join(here, "hard-position-ast.snapshot.json");
+const GRAMMAR = path.join(repoRoot, "src/language/ddd.langium");
+const LEXICAL_DOC = path.join(repoRoot, "docs/language-reference/01-lexical-structure.md");
 
 /** Comparable projection of an AST — same normalization
  *  `print-structural-roundtrip.test.ts` uses: keep `$type` + own non-`$`
@@ -67,7 +70,12 @@ function norm(v: unknown): unknown {
 // ---------------------------------------------------------------------------
 // The words. `deny` is D4a (it had NO identifier position at all); the other
 // six were `LooseName`-only.  `promoted` records the verdict of the D4b
-// investigation — see the per-word note for why a word is not promoted.
+// investigation, which was run one word at a time (regenerate the parser, run
+// the grammar suites, only then move on) so a failure would have been
+// attributable to a single word.  All seven came back clean and joined
+// `CommonSoftKeywords`, so `HELD_BACK` is empty today — the field stays because
+// a LATER keyword may well not be promotable, and flipping it to `false` with a
+// `note` is how that verdict gets recorded and pinned.
 // ---------------------------------------------------------------------------
 
 type Word = {
@@ -75,7 +83,7 @@ type Word = {
   word: string;
   /** Was it promoted to `Property.name` (field-name position)? */
   promoted: boolean;
-  /** Why not, when `promoted` is false. */
+  /** Why not, when `promoted` is false — the reason it stays `LooseName`-only. */
   note?: string;
   /** A source exercising EVERY hard-keyword position of the word. */
   hard: string;
@@ -209,7 +217,10 @@ describe("reserved-field-name widening (audit D4)", () => {
           `context C { payload P { title: string\n ${word}: string } }`,
         ]) {
           const res = parseRawResult(src);
-          expect(res.parserErrors.map((e) => e.message), src).toEqual([]);
+          expect(
+            res.parserErrors.map((e) => e.message),
+            src,
+          ).toEqual([]);
         }
       });
 
@@ -244,8 +255,10 @@ describe("reserved-field-name widening (audit D4)", () => {
         // Pinned so a later promotion is a deliberate edit here, not a silent
         // side effect of an unrelated grammar change.
         const res = parseRawResult(`context C { aggregate A { title: string\n ${word}: string } }`);
-        expect(res.parserErrors.length, `\`${word}\` unexpectedly became a field name`).
-          toBeGreaterThan(0);
+        expect(
+          res.parserErrors.length,
+          `\`${word}\` unexpectedly became a field name`,
+        ).toBeGreaterThan(0);
       });
     }
   });
@@ -255,7 +268,10 @@ describe("reserved-field-name widening (audit D4)", () => {
       it(`\`${word}\` is usable as a parameter name`, () => {
         const src = `context C { aggregate A { title: string\n operation op(${word}: string) { } } }`;
         const res = parseRawResult(src);
-        expect(res.parserErrors.map((e) => e.message), src).toEqual([]);
+        expect(
+          res.parserErrors.map((e) => e.message),
+          src,
+        ).toEqual([]);
       });
     }
 
@@ -278,12 +294,82 @@ describe("reserved-field-name widening (audit D4)", () => {
     });
   });
 
+  // The per-word samples above test each use in isolation.  The case that
+  // actually decides whether a promotion is safe is the word used BOTH ways in
+  // ONE document — that is where a mis-widened keyword re-associates (the
+  // aggregate's `policy:` field swallowing the context's `policy { … }` block,
+  // or vice versa).  Each source below declares the word as a field AND
+  // exercises its hard syntax, and asserts both nodes survive.
+  describe("both uses coexist in one document", () => {
+    const COEXIST: { word: string; src: string; expect: string[] }[] = [
+      {
+        word: "policy",
+        src: `context C {
+  aggregate Claim { title: string  policy: string }
+  policy { allow deep on Claim }
+  policy IsBig(floor: int): bool = floor > 0
+}`,
+        expect: [`{"$type":"Property","name":"policy"`, `{"$type":"PolicyDecl"`],
+      },
+      {
+        word: "of",
+        src: `context C {
+  aggregate Claim { title: string  of: string }
+  criterion Named() of Claim = this.of == "x"
+}`,
+        expect: [`{"$type":"Property","name":"of"`, `{"$type":"Criterion"`],
+      },
+      {
+        word: "persistence",
+        src: `context C { aggregate Claim { title: string  persistence: string } }
+system S {
+  deployable Api { platform: node { persistence: memory } }
+}`,
+        expect: [`{"$type":"Property","name":"persistence"`, `"persistence":"memory"`],
+      },
+      {
+        word: "allow / deny / deep / global",
+        src: `context C {
+  aggregate Claim { title: string  allow: bool  deny: bool  deep: int  global: bool }
+  policy {
+    allow deep on Claim
+    allow global on Claim
+    deny on Claim
+  }
+}`,
+        expect: [
+          `{"$type":"Property","name":"allow"`,
+          `{"$type":"Property","name":"deny"`,
+          `{"$type":"Property","name":"deep"`,
+          `{"$type":"Property","name":"global"`,
+          `"effect":"deny"`,
+          `"level":"global"`,
+        ],
+      },
+    ];
+
+    for (const { word, src, expect: needles } of COEXIST) {
+      it(`\`${word}\` as a field name does not disturb its hard syntax in the same file`, () => {
+        const res = parseRawResult(src);
+        expect(
+          res.parserErrors.map((e) => e.message),
+          src,
+        ).toEqual([]);
+        const json = JSON.stringify(norm(res.value));
+        for (const needle of needles) expect(json, `missing ${needle}`).toContain(needle);
+      });
+    }
+  });
+
   describe("hard-keyword positions parse to the pre-change AST", () => {
     const live: Record<string, unknown> = {};
     for (const { word, hard } of WORDS) {
       const res = parseRawResult(hard);
       it(`\`${word}\`'s hard position(s) still parse`, () => {
-        expect(res.parserErrors.map((e) => e.message), hard).toEqual([]);
+        expect(
+          res.parserErrors.map((e) => e.message),
+          hard,
+        ).toEqual([]);
       });
       live[word] = norm(res.value);
     }
@@ -298,5 +384,31 @@ describe("reserved-field-name widening (audit D4)", () => {
         "A hard-keyword position now parses to a DIFFERENT AST than it did before these words were widened — the promotion re-associated the parse. Revert the offending word to LooseName-only rather than refreshing this snapshot.",
       ).toEqual(expected);
     });
+  });
+
+  // The reference doc spells the shared soft set out word by word, and that
+  // prose is what a user reads before picking a field name — so it is part of
+  // the contract, not decoration.  It had already drifted (`key` was promoted
+  // to `CommonSoftKeywords` and the doc never picked it up), which is exactly
+  // the failure this pins: re-derive the set from the grammar and compare.
+  it("the lexical-structure doc lists exactly the grammar's CommonSoftKeywords", () => {
+    const grammar = readFileSync(GRAMMAR, "utf8");
+    const rule = /CommonSoftKeywords returns string:\n([\s\S]*?);\n/.exec(grammar);
+    expect(rule, "CommonSoftKeywords rule not found in the grammar").not.toBeNull();
+    const fromGrammar = [
+      ...new Set([...(rule?.[1] ?? "").matchAll(/'([A-Za-z_][A-Za-z0-9_]*)'/g)].map((m) => m[1])),
+    ].sort();
+
+    const doc = readFileSync(LEXICAL_DOC, "utf8");
+    const line = /The `CommonSoftKeywords` set today \([^)]*\): ([^.]*)\./.exec(doc);
+    expect(line, "the doc's CommonSoftKeywords sentence was not found").not.toBeNull();
+    const fromDoc = [...(line?.[1] ?? "").matchAll(/`([A-Za-z_][A-Za-z0-9_]*)`/g)]
+      .map((m) => m[1])
+      .sort();
+
+    expect(
+      fromDoc,
+      "docs/language-reference/01-lexical-structure.md no longer lists the grammar's CommonSoftKeywords — update the sentence, it is what users read before naming a field",
+    ).toEqual(fromGrammar);
   });
 });
