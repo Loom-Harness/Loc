@@ -2,14 +2,14 @@
 
 *Plan: [`../completion-waves-2026-09.md`](../completion-waves-2026-09.md) §4 Wave C0. Base: `main` @ `54750de` (#2849, the plan, merged 2026-09-10 17:5xZ). One PR for the wave (`claude/loom-review-planning-adz0n4`, the same branch the plan landed from, restarted from `main` per the merged-PR rule); packets work on local `claude/c0-<packet>` branches in isolated worktrees and are folded here by the coordinator. This file is the claim: any agent reading the PR list sees every packet, row and tree fence below. Hand-off notes are under [`handoffs/`](handoffs/).*
 
-## Status: **in progress** (2026-09-10)
+## Status: **all eight packets folded — ready for review** (2026-09-10)
 
 ## Packets
 
 | packet | model | tree fence | rows | state |
 |---|---|---|---|---|
 | 0.1 merge order | coordinator | — | #2848 → #2843 → #2778 (#2770 and #2846 merged on their own; #2849 merged) | #2848 merged; #2843 base-updated + auto-merge; #2778 rebased by its author, awaiting green |
-| 0.2a schemathesis | Opus | `test/behavioral/schemathesis-*`, waivers, its workflow | #2579 0/20 root cause; elixir cell binding | running |
+| 0.2a schemathesis | Opus | `test/behavioral/schemathesis-*`, waivers, its workflow, `src/generator/java/emit/{validator,wire,workflow,openapi-customizer}.ts` | #2579 0/20 root cause; elixir cell binding | **folded** — [`handoffs/wave-c0-schemathesis.md`](handoffs/wave-c0-schemathesis.md); red was java alone (F31/F32/F33), W11/W12 deleted with the fix; elixir inventoried, not yet binding |
 | 0.2b frontend-fullstack | Opus | `test/behavioral/run-ui*`, `_frontend/e2e*`, its workflow | #2636 0/20 root cause; §111 error surfacing | **folded** — [`handoffs/wave-c0-frontend-fullstack.md`](handoffs/wave-c0-frontend-fullstack.md); cause A was #2674 (already on `main`), cause B npm's optional-dep hole (harness heal) |
 | 0.2c+d playground + conformance | Opus | `web/e2e/**`, `test/conformance/**`, the two workflows | #2844 residue after #2848; Conformance full red 09-07 → 09-10 | **folded** — [`handoffs/wave-c0-playground-conformance.md`](handoffs/wave-c0-playground-conformance.md); neither was flake; c7 (browser-mode pino envelope on hono) handed to C1 |
 | 0.2e behavioral-java timeout | Opus | java behavioral harness + workflow | the 20-min cap: measure, fix the dominant cost | **folded** — [`handoffs/wave-c0-behavioral-java.md`](handoffs/wave-c0-behavioral-java.md); stacked on #2855 (carried here until it merges); Gradle daemon ~4× per case |
