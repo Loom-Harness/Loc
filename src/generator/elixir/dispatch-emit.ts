@@ -24,6 +24,7 @@ import { buildPhoenixResourceModules } from "./adapters/resource-clients.js";
 import type { ElixirChannelsCfg } from "./channels-emit.js";
 import { internalCreateFn } from "./lifecycle-seam.js";
 import { type RenderCtx, renderExpr } from "./render-expr.js";
+import { stateDefault } from "./state-default.js";
 import { denialTerm } from "./vanilla/denial.js";
 import { renderEsWorkflowHandler } from "./vanilla/workflow-eventsourced-emit.js";
 import { lookupOp, opCallParamFields } from "./vanilla/workflow-execution-emit.js";
@@ -672,29 +673,6 @@ function renderPersistedBody(
     ...indent(bodyLines, 8),
     `    end`,
   ].join("\n");
-}
-
-/** A backend-zero Elixir literal for a required saga column at allocation
- *  (the correlation field is seeded from the routing key, never this). */
-function stateDefault(t: import("../../ir/types/loom-ir.js").TypeIR): string {
-  if (t.kind === "primitive") {
-    switch (t.name) {
-      case "int":
-      case "long":
-        return "0";
-      case "decimal":
-      case "money":
-        return "Decimal.new(0)";
-      case "bool":
-        return "false";
-      case "datetime":
-        return "DateTime.utc_now()";
-      default:
-        return '""';
-    }
-  }
-  if (t.kind === "array") return "[]";
-  return "nil";
 }
 
 // ---------------------------------------------------------------------------
