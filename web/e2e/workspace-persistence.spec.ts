@@ -11,7 +11,7 @@
 // No network needed — runs everywhere the playground bundle does.
 
 import { expect, test } from "@playwright/test";
-import { waitForPlaygroundReady } from "./_helpers";
+import { prependMarker, waitForPlaygroundReady } from "./_helpers";
 
 test("editor change → reload → source restored from IDB", async ({ page, context }) => {
   await context.clearCookies();
@@ -34,18 +34,18 @@ test("editor change → reload → source restored from IDB", async ({ page, con
   await page.reload();
   await waitForPlaygroundReady(page);
 
-  // Type a uniquely identifiable comment into the editor.  Monaco
-  // accepts keystrokes when focused; we put the cursor at the top
-  // of the document and prepend a marker line.
+  // Prepend a uniquely identifiable comment through the automation seam,
+  // which dispatches Monaco's change event exactly as a keystroke does.
   const marker = `// loom-persistence-test-${Date.now()}`;
-  const editor = page.locator(".monaco-editor").first();
-  await editor.click();
-  await page.keyboard.press("Control+Home");
-  await page.keyboard.type(marker + "\n");
+  await prependMarker(page, marker);
 
-  // Wait for the IDB flush debounce (~250ms in IdbVfs) plus a
-  // small buffer for the worker→IDB round-trip.
-  await page.waitForTimeout(800);
+  // Wait past the autosave-commit debounce (1.5 s in `startAutoCommit`), the
+  // same budget `multi-tab.spec.ts` uses.  The previous 800 ms was attributed
+  // to "the IDB flush debounce (~250ms in IdbVfs)" — a constant that is not in
+  // the code: the write path is `WorkspaceSourcesController.write`, awaited per
+  // change, and the only debounce above it is the 1.5 s autosave.  A budget
+  // shorter than the constant it is meant to clear is not a budget.
+  await page.waitForTimeout(2200);
 
   // Reload via the bare playground URL, dropping the `#s=` hash
   // that `scheduleHashSync` wrote during typing.  The hash always
