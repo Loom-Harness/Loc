@@ -5501,6 +5501,14 @@ be waiting for: on a later PR (#2722) the same parked-gate symptom cleared only
 after the next sweep, and at the measured 4.7 h cadence that is the scale to
 budget for — not the 15 minutes the cron implies.
 
+> **Addendum (2026-09-10) — §113 closes this.** "The mechanism is unresolved.
+> Do not invent one" was the right call and it held for nine days. The
+> measurement that settled it is in §113: `workflow_run` dispatches are dropped
+> ~7% of the time, and a drop on a SHA's last completion parks the gate. The
+> first theory in this entry — a dropped dispatch — was the correct one; what
+> was missing was a probe that could see it, since the branch-filtered run
+> listing everyone used structurally cannot.
+
 ## 94. The fast suite was slow at the file boundary, not in the tests — and sharing the module graph found a leak isolation had been hiding (2026-09-03)
 
 **Symptom.** `npm test` (the "fast" tier) did not finish in 10 minutes on a
@@ -6072,6 +6080,15 @@ it.
 shows `cancelled`/`skipped`. Those are superseded duplicates, not failures — the
 same corpse shape that produced three wrong `pr-gate` reports the day before.
 
+> **Addendum (2026-09-10) — §113 closes the third bullet.** "`pr-gate` can
+> leave a required check with no PUBLISHED verdict … #2822 diagnosed the bug
+> without closing it" was the most accurate account written at the time, and
+> the mechanism it names is the one the measurement confirmed. #2822 did not
+> diagnose it: it fixed a different, real problem (`cancel-in-progress`) and
+> the parks continued. The remedy is now in the gate itself — a near-green
+> evaluation watches the tail instead of exiting — so the manual "re-run any
+> cheap completed workflow" step should no longer be needed.
+
 ## 107. A green local suite goes stale in hours — the ratchet you'll hit is the one that landed after your sync
 
 `main` here moves ~150 commits/day. #2789 passed a full local suite (1897 files,
@@ -6194,3 +6211,78 @@ which `tsconfig` actually includes it — a repo with more than one project has
 more than one answer, and the excluded tree is exactly where nobody notices.
 `docs/testing.md` → "Running any CI gate locally" is the reverse index for
 this; `test/system/local-run-mapping.test.ts` pins that it stays complete.
+
+## 113. Seven PRs, four theories, one measurement — and the measurement they all skipped was the cheap one (2026-09-10)
+
+**Addendum to §93 and §106.** Both entries describe the same symptom from
+opposite ends: a fully green PR whose merge is refused with *"Required status
+check `pr-gate` is expected"*. §93 says the mechanism is unresolved and tells
+you not to invent one. §106 gets it right in one paragraph and then reports it
+as unclosed. Between them, seven PRs shipped four incompatible stories in ten
+days (#2730, #2804, #2812, #2822, #2832, #2835, #2846). This entry closes it,
+and the useful part is not the answer — it is why the answer was cheap and
+nobody bought it.
+
+**The answer.** `workflow_run` delivery drops. Measured over six hours: 178
+completions of listed workflows on non-`main` branches produced 172 `PR gate`
+runs, and 13 completions produced **no run at all** — not cancelled, not
+skipped, never created. When the drop lands on a SHA's LAST completion, nothing
+is left to re-evaluate that SHA and the gate sits at `in_progress` forever. Ten
+of the 22 measurable merged PRs had parked ≥5 minutes fully green; three of
+them 43, 46 and 58 minutes. Every park traced to exactly one missing dispatch.
+
+**Why nobody could see it.** A `workflow_run`-triggered run is attributed to
+the repository's **default branch** — `head_branch: main` on all 100 of the
+last 100. So `list_workflow_runs(branch=<pr-branch>)`, the call every
+investigation reached for, returns only the single `pull_request`-event run and
+*structurally cannot* show an evaluation. That one call is the sole evidence
+behind "the dispatch does fire" in the lever table, behind #2835's premise,
+behind the docs, and behind my own notes. The fix was to list unfiltered
+(`/actions/workflows/pr-gate.yml/runs?created=<window>`) and match on time —
+about four minutes of work, available the whole time.
+
+**The shape to recognise: a tool that cannot express the negative.** The
+branch filter could only ever return "the pull_request run" or "nothing". Both
+readings were consumed as evidence — *nothing* was read as "the dispatch was
+dropped" in one PR and "the dispatch fired but was cancelled" in another. When
+a probe's output space does not contain the observation that would falsify your
+hypothesis, it is not a probe. Ask what result would prove you wrong, then
+check the call can produce it.
+
+**Two claims died, and one of them was mine twice over.**
+
+- *"Re-running the red check does not work — the dispatch does fire but no
+  verdict reaches the head SHA."* Both halves false. On #2773 the re-run
+  completed at 14:41:09Z and the repo-wide run list has no `PR gate` run
+  between 14:38:40Z and 14:43:27Z. There was never a separate
+  red-check-re-run hole to explain; it was the ordinary drop, seen through the
+  filter that cannot see.
+- *"Nothing cancels now"* (after #2822 set `cancel-in-progress: false`). 479 of
+  759 evaluations are still `cancelled`, because GitHub evicts a superseded
+  **pending** run of a concurrency group regardless of that flag — it only
+  protects the running one. A sample of 15 had **zero jobs**: cancelled before a
+  runner was claimed, costing nothing. #2822 was a real fix (under
+  `cancel-in-progress: true` the RUNNING evaluation died too: 94 of 100
+  cancelled, 0 published) and it was not the fix for the parks. Two true
+  statements, one wrong conclusion.
+
+**The general rule this repo keeps re-learning.** §92: a waiver names a
+suspicion, not a diagnosis. §93: a story that explains the symptom is not a
+diagnosis until you try to break it. Add the operational half: **a fix that
+lands without a falsification attempt buys the NEXT agent a contradictory
+theory, not a closed bug.** Four of the seven PRs were docs-only rewrites of
+each other's explanations. The measurement that settled it cost less than any
+one of them.
+
+**And the remedy that follows from it.** Not another safety net on the same
+event stream — the sweep already rode it, and an outage that swallows the tail
+dispatch swallows the sweeps too. The gate now stops depending on any FUTURE
+dispatch: an evaluation that finds the SHA near-green (≤8 outstanding, none
+failed, at least one reported) re-reads it every 30s for up to 15 minutes and
+publishes each change, so the completion it was waiting for is observed by the
+run that is already alive. Both knobs are sized off the measured distribution
+(outstanding at the last delivered evaluation: median 1, max 7; minutes to the
+last completion: median 1.2, max 16.9), and the `pending < total` conjunct is
+the only thing keeping it from becoming v1's parked poller. Mutation proof in
+`test/system/pr-gate.test.ts`: the CONTROL arm replays #2819's timeline through
+the pre-fix path and shows the only verdict ever published is `in_progress`.

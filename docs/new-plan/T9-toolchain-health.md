@@ -720,25 +720,49 @@ no `FIRING_FIXTURES` fixture raises `loom.unknown`, and a length baseline for `U
 
 Then ~10 drain slices; the triage, per-site cost and ordering are in the fleet plan.
 
-## M-T9.57 — Every "dropped `workflow_run` dispatch" claim rests on a measurement artifact — `open` · **S** · P1 ⚠ verify-first
+## M-T9.57 — `pr-gate` parks because tail `workflow_run` dispatches are dropped — `done` · **S** · P1
 
-Found 2026-09-09 ([F65](../audits/2026-09-03-language-docs-audit-findings.md)).
-`workflow_run`-triggered runs are attributed to the repository's **default branch**, so
-`list_workflow_runs(branch=<pr-branch>)` structurally cannot return a `pr-gate` evaluation — it returns
-only the one `pull_request`-event run. Of the last 100 `event=workflow_run` runs of `pr-gate.yml`, **all
-100** carry `head_branch: main`.
+Opened 2026-09-09 as *"every dropped-dispatch claim rests on a measurement artifact"*
+([F65](../audits/2026-09-09-verification-fleet-plan.md)); **measured and closed 2026-09-10**. Title
+updated to what the measurement found. Seven PRs in ten days had shipped four incompatible explanations
+of one symptom (#2730, #2804, #2812, #2822, #2832, #2835, #2846); this replaces all of them.
 
-That call is the sole evidence behind the dropped-dispatch premise in `pr-gate.yml`'s header comments,
-in `docs/ci-gating.md`, in PR #2835, and in this session's own notes. **Re-measure without the filter
-before building anything on it.**
+**The artifact was real.** A `workflow_run`-triggered run is attributed to the repository's default
+branch, so `list_workflow_runs(branch=<pr-branch>)` structurally cannot return a `pr-gate` evaluation —
+all 100 of the last 100 carry `head_branch: main`. Re-measured **unfiltered**
+(`/actions/workflows/pr-gate.yml/runs?created=<window>`, matched on time), the picture is unambiguous:
 
-Better-fitting explanation for a stuck verdict: a read-after-write race. The final evaluation is
-dispatched by the last check's completion, sits queued 6-14 minutes under measured runner starvation,
-reads a check-runs snapshot in which that check still looks `in_progress`, publishes a non-terminal
-verdict and exits — with no further event coming. Fix is a bounded tail re-read on the near-green
-pending path (~25 lines), capped well under the queue's 180-min checks timeout.
+| measurement | result |
+|---|---|
+| eligible completions → evaluations, 2026-09-10T10:00–16:00Z | 178 completions of listed workflows on non-`main` branches → 172 `PR gate` runs; **13 produced no run at all** (never created — not cancelled, not skipped). ~7% drop rate, in multi-minute windows |
+| parks, last 30 merged PRs | of the 22 whose gate never went red first, **10 parked ≥5 min fully green**: #2846 14 m, #2847 12 m, #2832 14 m, #2742 12 m, #2747 8 m, #2721 11 m, #2756 14 m, #2845 43 m, #2819 46 m, #2674 58 m |
+| each park's cause | one missing dispatch. #2819: last check completed 05:49:11Z, last evaluation created 05:48:26Z, **zero `PR gate` runs repo-wide until 06:35:29Z**, with exactly one eligible completion in that window |
+| tail size at the last delivered evaluation | outstanding checks median 1, max 7; minutes to the last completion median 1.2, 9 of 10 within 5, max 16.9 |
+| cancellation (#2822's premise) | **not the cause** — 479 of 759 evaluations still `cancelled` after `cancel-in-progress: false` (GitHub evicts a superseded *pending* run regardless), and a sample of 15 had zero jobs. The newest arrival, i.e. the tail one, is never the evicted one |
+| the read-after-write race (this mission's own hypothesis) | **not the cause** — an evaluation dispatched *by* a completion reads the check-runs API strictly after it |
+| the `*/15` cron | six consecutive `schedule` runs gapped 2.0 / 4.5 / 4.6 / 4.5 / 3.6 hours |
 
-Two further gaps found alongside: the sweep enumerates open PRs only, so **inside the merge queue there
-is no backstop at all** (a stalled group head's only bound is the timeout, which ejects rather than
-heals); and the cron re-measures at a **3.3 h median** against its `*/15` schedule. Honest bounds to
-document: ~30 min active, ~3.3 h idle, unbounded in-queue today.
+**Remedy landed: the tail watch** (`scripts/pr-gate.mjs`). An evaluation that finds the SHA near-green —
+`shouldWatchTail`: ≤8 outstanding, none failed, at least one already reported — re-reads the SHA every
+30 s for up to 15 min, publishing every change and stopping at the first terminal verdict. The gate no
+longer depends on any *future* dispatch, only on the one it is already running in. Both knobs are sized
+off the table above; `pending < total` is the conjunct that stops it becoming v1's parked poller, and
+the SHA-keyed concurrency group bounds it to one watcher per SHA. `pr-gate.yml`'s eval job timeout
+went 10 → 20 min to fit the budget.
+
+**Mutation-proved** in `test/system/pr-gate.test.ts`: the CONTROL arm replays #2819's timeline through
+the pre-fix path and asserts the only verdict ever published is `in_progress`. Three seeded defects were
+run and each failed the intended arm — unwiring the call site (1 failure), forcing `shouldWatchTail`
+false (4), restoring `timeout-minutes: 10` (1).
+
+**Two claims deleted** from `pr-gate.yml`, `docs/ci-gating.md` and `experience_gathered.md` (§113,
+with addenda on §93 and §106): *"re-running a red check does not re-evaluate the gate — the dispatch
+does fire but no verdict reaches the head SHA"* (it does **not** fire: on #2773 the re-run completed
+14:41:09Z and no `PR gate` run exists repo-wide between 14:38:40Z and 14:43:27Z), and *"nothing cancels
+now"*.
+
+**Residual, documented rather than fixed.** The sweep still enumerates open PRs only, so inside the
+merge queue the tail watch is the only cover; and the sweep rides the same `workflow_run` stream, so it
+is a reconciler, not a backstop for a drop. Honest bounds now: a near-green SHA converges in-run; a SHA
+that parks outside the watch's reach waits on repo activity (~10 evaluations per sweep) or the cron
+(~4 h median).
