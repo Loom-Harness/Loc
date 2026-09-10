@@ -339,7 +339,8 @@ export function buildPyDocumentRepositoryFile(
 function projectionViewFind(agg: EnrichedAggregateIR, view: AggregateReadShape): FindIR {
   return {
     name: view.name,
-    params: [],
+    // The projection's own parameters — its inlined `where` names them.
+    params: view.params ?? [],
     returnType: { kind: "array", element: { kind: "entity", name: agg.name } },
     ...(view.filter ? { filter: view.filter } : {}),
     ...(view.bypassAll ? { bypassAll: true } : {}),

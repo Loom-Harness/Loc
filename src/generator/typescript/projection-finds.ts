@@ -1,9 +1,20 @@
 // ---------------------------------------------------------------------------
-// Query-time `projection`s sourced from an aggregate synthesise a
-// parameterless-find repository read — `repo.<projName>()` returns the filtered
-// aggregate rows the projection route then follows (`join`) + projects
-// (`select`).  A parameterised projection's `where` still lowers criterion
-// params away at compile time, so the synthesised find stays parameterless.
+// Query-time `projection`s sourced from an aggregate synthesise a repository
+// read — `repo.<projName>(<params>)` returns the filtered aggregate rows the
+// projection route then follows (`join`) + projects (`select`).
+//
+// The find carries the projection's OWN parameters.  It used to hard-code
+// `params: []` on the reasoning that "a parameterised projection's `where`
+// still lowers criterion params away at compile time, so the synthesised find
+// stays parameterless".  That is false: inlining `where: OwnedBy(o)` substitutes
+// the criterion's body with the PROJECTION's parameter `o` in the predicate, so
+// the filter expression references a name the parameterless method never binds.
+// Every backend then emitted a method whose body read a free variable —
+// `TS2304: Cannot find name 'o'` on node, the same shape on .NET and python, and
+// a JPQL `:o` with no `@Param` on java (which compiles, then fails at Spring
+// context startup).  An UNUSED parameter was quieter and equally wrong: the read
+// ignored it, so the route returned unfiltered rows.  Threading the params here
+// gives every builder's find-method emitter the binding for free.
 //
 // EVERY TypeScript repository builder must emit these, whatever its persistence
 // adapter or saving shape: the projection query routes call the method BY NAME
@@ -28,7 +39,7 @@ export function synthProjectionFinds(aggName: string, ctx: EnrichedBoundedContex
     .filter((p) => isQueryTimeProjection(p) && p.query?.source === aggName)
     .map((p) => ({
       name: lowerFirst(p.name),
-      params: [],
+      params: p.params ?? [],
       returnType: { kind: "array", element: { kind: "entity", name: aggName } },
       filter: p.query?.filter,
       bypassAll: p.query?.bypassAll,

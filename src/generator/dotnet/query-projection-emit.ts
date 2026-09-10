@@ -34,6 +34,7 @@ import {
 } from "./emit/dapper.js";
 import { dapperProjectionColumns, dapperWorkflowStateColumns } from "./emit/dapper-workflow.js";
 import { queryFilterNames } from "./emit/efcore.js";
+import { queryActionParam } from "./explicit-handlers-emit.js";
 import { CS_NUMERIC } from "./numeric-codec.js";
 import {
   projectionRowClass,
@@ -45,6 +46,7 @@ import {
   CS_INTRINSIC_RENDERERS,
   collectCsExprUsings,
   renderCsExpr,
+  renderCsType,
 } from "./render-expr.js";
 import {
   workflowStateClass,
@@ -131,11 +133,21 @@ function renderQuery(proj: ProjectionIR, ns: string): string {
   const result = wholeTableAggregates(proj)
     ? `${upperFirst(proj.name)}Row`
     : `IReadOnlyList<${upperFirst(proj.name)}Row>`;
+  // A parameterised projection carries its parameters on the query record, so
+  // the handler can pass them to the synthesised repository read.  They ride the
+  // DOMAIN types (`ThingId`, not `Guid`) — the controller does the wire
+  // coercion, exactly as a paged-run queryHandler's action does.
+  const recordParams = proj.params
+    .map((p) => `${renderCsType(p.type)} ${escapeCsharpIdent(p.name)}`)
+    .join(", ");
   return `// Auto-generated.
 using Mediator;
+using ${ns}.Domain.Ids;
+using ${ns}.Domain.ValueObjects;
+using ${ns}.Domain.Enums;
 namespace ${ns}.Application.Projections;
 
-public sealed record ${upperFirst(proj.name)}QpQuery() : IQuery<${result}>;
+public sealed record ${upperFirst(proj.name)}QpQuery(${recordParams}) : IQuery<${result}>;
 `;
 }
 
@@ -335,7 +347,10 @@ ${ctor}
 
     public async ValueTask<IReadOnlyList<${rowName}>> Handle(${queryName} query, CancellationToken cancellationToken)
     {
-${gate}        var domain = await _repo.${upperFirst(proj.name)}(cancellationToken);
+${gate}        var domain = await _repo.${upperFirst(proj.name)}(${proj.params
+    .map((p) => `query.${escapeCsharpIdent(p.name)}`)
+    .concat("cancellationToken")
+    .join(", ")});
 ${auxLines.join("\n")}${auxLines.length > 0 ? "\n" : ""}        return domain.Select(d => ${projection}).ToList();
     }
 }
@@ -1465,9 +1480,13 @@ function renderController(ctx: BoundedContextIR, ns: string, routePrefix?: strin
         wholeTableAggregates(proj)
           ? `${upperFirst(proj.name)}Row`
           : `IReadOnlyList<${upperFirst(proj.name)}Row>`
-      }>> ${upperFirst(proj.name)}()\n` +
+      }>> ${upperFirst(proj.name)}(${proj.params
+        .map((p) => queryActionParam(p).actionParam)
+        .join(", ")})\n` +
       `    {\n` +
-      `        var result = await _mediator.Send(new ${upperFirst(proj.name)}QpQuery());\n` +
+      `        var result = await _mediator.Send(new ${upperFirst(proj.name)}QpQuery(${proj.params
+        .map((p) => queryActionParam(p).commandArg)
+        .join(", ")}));\n` +
       `        return Ok(result);\n` +
       `    }\n`,
   );

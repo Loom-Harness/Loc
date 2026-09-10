@@ -160,7 +160,7 @@ function findParamCoercion(
  * `popular(min: int)` — an in-memory find over a jsonb document — was driven
  * for the first time and answered `[]` where every other backend answered 1.
  */
-function findParamRead(p: { name: string; type?: TypeIR }): string {
+export function findParamRead(p: { name: string; type?: TypeIR }): string {
   const raw = `params[${JSON.stringify(p.name)}]`;
   switch (findParamCoercion(p.type)) {
     case "int":
