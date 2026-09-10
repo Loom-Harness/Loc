@@ -31,7 +31,7 @@ Health/queues/outbox/audit browsing as a generated ops UI (production-readiness 
 The one remaining piece of embedded-frontend composition: one `ui` served by several frameworks / `hosts+=` list; `hostableFrameworks` derivation.
 Sources: [embedded-frontend-composition](../old/proposals/embedded-frontend-composition.md).
 
-## M-T7.9 — `connection:` on a `storage` reaches the deployment wiring — `open` · **L** · P1
+## M-T7.9 — `connection:` on a `storage` reaches the deployment wiring — `blocked(D-MISC-C0)` (item 2 settles both semantic questions) · **L** · P1
 The clause parses (`ddd.langium:581`), lowers into `StorageIR.connection` (`ConnectionSourceIR`) — and nothing downstream reads it. The **honesty half is already done**: `loom.reserved-not-emitted` (M-T5.9a, `src/ir/validate/checks/reserved-surfaces.ts`, id `storage-connection`) warns on every declaration, naming the real behaviour, so no author can believe the clause is wired. What is left is the wiring.
 
 Today the emitted credential wiring is derived **heuristically from the topology**, not from the declaration: `src/system/kubernetes.ts` classifies a connection-string value as DB-derived iff it embeds the compose `db` host (`…@db:5432/…`, `Host=db;…`), and turns that into the `Secret` reference. So `connection: secret(dbCreds)` and no clause at all emit byte-identical output.

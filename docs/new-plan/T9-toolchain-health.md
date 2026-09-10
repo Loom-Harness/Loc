@@ -624,7 +624,7 @@ Minted 2026-09-07 from [verification-waves-2026-09](verification-waves-2026-09.m
 
 Sources: [verification-waves-2026-09](verification-waves-2026-09.md), "Findings handed off, not fixed here". Relates to M-T9.3 (corpus/example coverage) and M-T9.8 (a fixture nothing executes is hollow).
 
-## M-T9.52 — `generateDotnetForContexts` is the remaining unwatched .NET entry point — `open` · **S** · P2
+## M-T9.52 — `generateDotnetForContexts` is the remaining unwatched .NET entry point — `blocked(D-MISC-C0)` (item 1: the boundary stays, M-T9.42's promotion goes first) · **S** · P2
 
 Minted 2026-09-07 as the explicit residue of [M-T9.49](#m-t949--the-net-half-of-the-same-hole-generatedotnet-was-a-bare-re-export-so-136-of-its-150-call-sites-never-reached-the-helper-at-all), which closed the *wrapper* and deliberately left the rung below it out of scope.
 
