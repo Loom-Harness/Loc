@@ -29,3 +29,27 @@ Found 2026-08-23 by the numeric-types audit ([S6](../../audits/numeric-types-aud
 **Landed 2026-08-24.** One owner — `MONEY_TEXT_SOURCE` in `src/generator/_frontend/money-format.ts` — is spliced into the `src/lib/format.*` all four Handlebars frontends already emit, and all **15** packs' money helper delegates to it. Default is **verbatim**: the wire's own digits, locale-neutral, no `Number()` hop, no symbol, no re-scale. `decimals: n` re-scales the digit string half-away-from-zero (never through a float, so `NUMERIC(19,4)`'s 19 digits survive); `currency:` prefixes the caller's code verbatim. Both stay the pre-existing, user-declared `Money(…)` arguments — no new pack knob. Witnessed by a transpile-and-execute behavioural test on `MONEY_TEXT_SOURCE` plus a cross-pack gate banning `"USD"` / `style: "currency"` / `Number(` on the money path in every pack, both mutation-proved. Deliberately excluded: Feliz (already conforms; its `decimals:` gap is unchanged), Flutter (M-T1.21 owns it), and `formatNumber`'s `Math.max(decimals, 2)` on plain `decimal` — same shape, different type, recorded not changed.
 
 Sources: [numeric-types-audit-2026-08-23](../../audits/numeric-types-audit-2026-08-23.md) S6, plan.json N5. Relates to M-T2.12 (currency dimension). Conflicts with M-T1.24 in the pack trees.
+
+## M-T1.29 — A page whose `body:` is a bare `match` is dropped entirely on React and Svelte, while Vue renders it — `done` ([#2830](https://github.com/Loom-Harness/Loc/pull/2830), merged 2026-09-09) · **M** · P1
+
+**Evidence on `main`:** `isWalkableLayoutBody` (`src/generator/_walker/walker-core.ts:394`) has the `match` arm — walkable when any arm or the `else` is, the same rule `ternary` already used — and the comment records why the predicate, not the rendering, was the fix. Pinned by `test/generator/_walker/walker-predicate-fail-open.test.ts` with **Vue as the control** (it never consulted the predicate, so a Vue regression would be a different bug): under the file-copy revert of the arm, 3 of 7 fail — react and svelte both `expected [] to not deeply equal []` (no file, no route), react also `expected '' to contain 'useState<number>(0)'`, and the Vue control stays green.
+
+Found 2026-09-03 by the language-docs audit ([F10](../../audits/2026-09-03-language-docs-audit-findings.md), P1) — independently by three auditors, and `page-metamodel.md` §7/§12 documented `body: match` as the wizard pattern. `isWalkableLayoutBody` (`src/generator/_walker/walker-core.ts:367`) admits only `call` and `ternary`, though the walker has full `match` arms: no file, no route, no diagnostic. Wrapping the same body in `Stack { match { … } }` emits it, and **Vue emits the bare form correctly** — one `.ddd`, three different frontend outcomes.
+
+**The fix:** the predicate, not new rendering — admit `variant-match` in `isWalkableLayoutBody`. Vue is the control: assert its output is unchanged.
+
+**Verification when it lands.** Mutation-proved on React *and* Svelte (the page vanishes again when the predicate is reverted by file copy), with a Vue byte-identity assertion beside it.
+
+Sources: [language-docs-audit-2026-09-03](../../audits/2026-09-03-language-docs-audit-findings.md) F10 + "Cross-cutting reading" §1, [wave plan](../../audits/2026-09-03-language-docs-audit-findings.waves.md) packet **W2.1**. Adopts the walker invariant proposed by whichever of M-T1.29/M-T1.30/M-T1.31 lands first (see M-T1.31).
+
+## M-T1.30 — A method call in a `KeyValueRow` value slot silently degrades to a comment — `done` ([#2830](https://github.com/Loom-Harness/Loc/pull/2830), merged 2026-09-09) · **S** · P1
+
+**Evidence on `main`:** element-position `walk` has the `method-call` arm (`src/generator/_walker/walker-core.ts:1195-1203`), mirroring the `member` case directly above it and routing through the same `renderInterpolation(emitExpr(...))` the `Text` twin uses. Pinned by `test/generator/_walker/walker-predicate-fail-open.test.ts` with the `Text` twin as the control (a regression shows up as the two disagreeing): under the file-copy revert, 3 of 7 fail — react, svelte and vue all `expected … not to contain 'unsupported expr: method-call'`.
+
+Found 2026-09-03 by the language-docs audit ([F12](../../audits/2026-09-03-language-docs-audit-findings.md), P1). `emitKeyValueRow` (`src/generator/_walker/primitives/text.ts:299-338`) routes the value through element-position `walk`, which has no method-call arm: `KeyValueRow { "Note", note.toUpper() }` emits `{/* unsupported expr: method-call */}` — the value vanishes — while `Text { note.toUpper() }` emits `note.toUpperCase()`. Same expression, same page, two answers.
+
+**The fix:** give element-position `walk` the method-call arm it lacks, so a `KeyValueRow` value behaves like a `Text` value; audit the other primitives routing through the same path while in the file.
+
+**Verification when it lands.** A walker test per affected primitive asserting the rendered call (and the *absence* of the `unsupported expr` comment); mutation-proved by file-copy revert.
+
+Sources: [language-docs-audit-2026-09-03](../../audits/2026-09-03-language-docs-audit-findings.md) F12 + "Cross-cutting reading" §1, [wave plan](../../audits/2026-09-03-language-docs-audit-findings.waves.md) packet **W2.2**. Adopts the walker invariant from M-T1.31.
