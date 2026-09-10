@@ -1752,6 +1752,16 @@ export const DIAGNOSTIC_MESSAGES = {
     `gains a Flutter renderer.`,
   "loom.default-deny-ungated#denybydefault-is-reachable": (p: { name: unknown; opName: unknown }) =>
     `denyByDefault: '${p.name}.${p.opName}' is reachable on an 'auth: required' deployable but declares no \`requires\` gate. Add a \`requires <expr>\` (use \`requires true\` to allow anonymous access).`,
+  // Same rule, but the member came from a MACRO — so there is no declaration
+  // header in the `.ddd` to add a `requires` to, and naming the member alone
+  // sends the author looking for a line that does not exist.  Name the macro
+  // call they DO own, and the parameter that carries the gate.
+  "loom.default-deny-ungated#denybydefault-is-reachable-macro": (p: {
+    name: unknown;
+    opName: unknown;
+    macroName: unknown;
+  }) =>
+    `denyByDefault: '${p.name}.${p.opName}' is reachable on an 'auth: required' deployable but declares no \`requires\` gate. Its body comes from \`with ${p.macroName}(...)\`, so there is no member here to add one to — name the gate as a \`policy\` and hand it to the macro (\`with ${p.macroName}(requires: <Policy>)\`), or drop \`with ${p.macroName}\` and hand-write the member with its own \`requires\`.`,
   "loom.default-deny-ungated#denybydefault-workflow": (p: { label: unknown }) =>
     `denyByDefault: workflow '${p.label}' is reachable on an 'auth: required' deployable but declares no \`requires\` gate. Add a \`requires <expr>\` (use \`requires true\` to allow anonymous access).`,
   "loom.default-deny-ungated#denybydefault-find-is-reachable": (p: {
