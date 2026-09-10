@@ -204,15 +204,52 @@ timeout fired and needed a manual label re-arm. v2 never waits:
   delay on the Checks-API-posted run. If you hit it: re-read the gate's
   CURRENT state rather than trusting the one you fetched, and if it is
   `in_progress`, wait instead of merging.
-- **`workflow_run` delivery is best-effort, so the gate does not depend on
-  it alone.** Under completion storms GitHub drops dispatches — observed
-  live: a fully-green PR parked at `in_progress` because the events for its
-  final two completions never arrived. Two defenses: the trigger carries
+- **How many evaluations a PR head gets is NOT observable the way this repo
+  kept measuring it.** A `workflow_run`-triggered run is attributed to the
+  repository's DEFAULT BRANCH. Measured 2026-09-10 over the 100 most recent
+  runs of `pr-gate.yml`: the **91** that were `event=workflow_run` every one
+  carry `head_branch: main` and `head_sha` = `main`'s head, whatever PR SHA
+  they were dispatched to evaluate. So `list_workflow_runs(branch=<pr-branch>)`
+  returns exactly ONE `pr-gate` run — the `pull_request`-event one — and a
+  PR's own check-runs list carries exactly one `pr-gate-eval` for the same
+  reason: a `workflow_run`-triggered job's check run lands on `main`'s SHA,
+  not on the SHA it evaluated. **Neither view can distinguish "no evaluation
+  fired" from "evaluations fired and are invisible here."**
+
+  That retires a claim this file used to make. "The events for its final two
+  completions never arrived" and "the last evaluation was created at
+  05:48:26, and none followed" were both produced by that filtered view, so
+  neither is evidence that GitHub dropped a dispatch. What the record does
+  support is weaker, and still worth defending against: a green PR whose
+  published verdict stays `in_progress` well after its last check went
+  terminal. To count evaluations, list `pr-gate.yml`'s runs **unfiltered** and
+  read `event` + `created_at`; to reason about one PR, read the published
+  `pr-gate` check run's own timestamps.
+
+  Two defenses stand whatever the cause: the trigger carries
   `branches-ignore: [main]`, so the ~60 push-to-main completions per merge
-  stop creating (skipped) eval runs at all — the storm source; and a
-  **scheduled sweep** re-derives the verdict for every open PR and posts only
-  where it differs from what's published. Both are pinned by
+  stop creating (skipped) eval runs at all — the storm source; and the
+  **sweep** re-derives the verdict for every open PR and posts only where it
+  differs from what's published. Both are pinned by
   `test/system/pr-gate.test.ts`.
+
+  **What the latency actually looks like**, measured 2026-09-10 on two green
+  PRs that reached a terminal verdict with no human lever:
+
+  | PR | last non-`pr-gate` check completed | `pr-gate` went terminal | lag |
+  |---|---|---|---|
+  | #2846 | 15:36:35Z | 15:50:53Z | 14m18s |
+  | #2847 | 16:12:20Z | 16:24:08Z | 11m48s |
+
+  So the shape to expect under load is a LATE verdict, not an absent one. The
+  final evaluation is dispatched by the last completion, sits queued while the
+  pool is saturated, then reads a fresh snapshot and publishes. A tail
+  re-read on the near-green path (evaluate, sleep, re-read before publishing
+  `in_progress`) was considered for exactly this row and **rejected**: nothing
+  in the record shows a final evaluation publishing a non-terminal verdict off
+  a stale read, and making an evaluation sleep re-introduces the runner
+  parking v1 died of — it would also hold the per-SHA concurrency group
+  longer, delaying the NEXT evaluation.
 
   `gh-readonly-queue/**` was ignored alongside `main` and no longer is.
   `pr-gate` is a **required** check, and GitHub applies one required-checks
@@ -229,19 +266,32 @@ timeout fired and needed a manual label re-arm. v2 never waits:
 - **The sweep rides repo ACTIVITY, not the cron.** The workflow asks for
   `*/15`, and this doc, `pr-gate.yml` and `scripts/pr-gate.mjs` all used to
   claim it therefore capped a dropped-event outage at one interval. Measured,
-  it does not: the 30 most recent `schedule`-event runs of `pr-gate.yml` span
-  **135 hours** — mean gap 4.7 h, median 4.6 h, shortest gap anywhere in that
-  window **110 min** — not one 15-minute gap in 29. Actions cron is
+  it does not. Re-measured 2026-09-10: the 30 most recent `schedule`-event
+  runs of `pr-gate.yml` span **100.9 hours** — mean gap **3.48 h**, median
+  **3.49 h**, shortest gap anywhere in that window **91 min** — not one
+  15-minute gap in 29. (The earlier reading of the same call was 4.7 h /
+  4.6 h / 110 min, so the order of magnitude is stable and the exact numbers
+  are not. Re-measure rather than quoting these: list the workflow's runs
+  filtered to `event=schedule` and diff `created_at`.) Actions cron is
   best-effort and a high-frequency schedule on a busy account is heavily
-  deprioritised. Re-measure before relying on either figure: list the
-  workflow's runs filtered to `event=schedule` and diff `created_at`.
+  deprioritised.
 
-  That left the safety net effectively absent, and it showed. On 2026-09-09
-  #2819 sat parked for ~50 minutes with **all 241** of its checks green or
-  skipped: its last check completed at 05:49:10, the last evaluation was
-  created at 05:48:26, and none followed. The workflow whose dispatch was
-  dropped is named in the `workflows:` list, so this was delivery, not a
-  missing name.
+  And "slow" was the good case. **Five** of those 30 runs are `failure`, not
+  late — 2026-09-09T21:55Z through 2026-09-10T13:37Z, the window in which the
+  scheduled sweep collided with its own job-level concurrency group (#2835,
+  fixed in #2846). For those ~16 hours the idle backstop was not slow, it was
+  absent.
+
+  That is the setting for #2819 on 2026-09-09: **all 241** of its checks green
+  or skipped, gate still blocking. Re-verified 2026-09-10 from that head's
+  check-run record, the next evaluation VISIBLE on the head is a
+  `pull_request`-event `pr-gate-eval` at 06:34:59Z — a hand re-run, 46 minutes
+  after its last check completed at 05:49:10Z. Whether a `workflow_run`
+  evaluation ran in between cannot be read off that record at all (see the
+  measurement trap above), so this is a park of **measured duration and
+  undiagnosed cause**; the old "the dispatch was dropped, and the workflow is
+  named in the `workflows:` list, so this was delivery" attribution is
+  retired.
 
   So the sweep is now a **second job** in `pr-gate.yml` that also fires on
   `workflow_run` — the one event stream this repo produces both reliably and
@@ -250,7 +300,7 @@ timeout fired and needed a manual label re-arm. v2 never waits:
 
   | brake | what it does |
   |---|---|
-  | `endsWith(format('{0}', github.run_number), '0')` | one sweep per ten evaluations — no API call to decide, deterministic, and it scales with activity, which is the right correlate because a park can only happen where events flow. At ~40 evaluations/hour that is ~4 sweeps/hour, the cadence the cron asks for and does not deliver. (GitHub expressions have no arithmetic, hence a last-digit string test rather than a modulo.) |
+  | `endsWith(format('{0}', github.run_number), '0')` | one sweep per ten evaluations — no API call to decide, deterministic, and it scales with activity, which is the right correlate because a park can only happen where events flow. (GitHub expressions have no arithmetic, hence a last-digit string test rather than a modulo.) **Measured 2026-09-10 under a fleet burst: 91 evaluations in 18.4 min (~300/h), of which 10 were sweep-eligible and exactly 1 survived — the other 9 were cancelled as superseded *pending* runs, taking their sweep job with them. So the DELIVERED cadence was ~1 sweep per 18 min, not the ~4/h the arithmetic suggests.** |
   | a **constant** job-level concurrency group | the workflow-level group is keyed per SHA, so it would let sweeps for different SHAs pile up. One shared group is capped by GitHub at one running plus one pending, with a superseded pending cancelled. |
 
   It never runs on `pull_request` or `merge_group`, so it never posts a check
@@ -266,6 +316,41 @@ timeout fired and needed a manual label re-arm. v2 never waits:
   | a new SHA | **yes** | #2812 was parked on `5e0995d` and unparked the moment `027454e` was pushed |
   | a re-run of a workflow on the branch | **yes, since #2822** | it did not before — measured twice, on #2812 and #2792, where `rerun_workflow_run` returned 201 and no verdict ever reached the head SHA. The cause was `cancel-in-progress`, now settled and fixed (below) |
 
+  **"Is my PR actually in the queue?" — ask the merge API, not the refs.**
+  The obvious probe is wrong.
+  `git ls-remote origin 'refs/heads/gh-readonly-queue/*'` lists the refs of
+  merge-queue **batches that are currently running**; the ref name embeds the
+  batch's base SHA (`gh-readonly-queue/main/pr-<n>-<sha>`), and it does not
+  exist until the entry's batch forms. Its silence therefore says nothing
+  about a PR that has been accepted into the queue. Reading it as membership
+  is what sent one session down two dead diagnoses — a `cancel-in-progress`
+  cancellation already fixed by #2822, and a "rejected auto-merge method" that
+  was really the direct-merge refusal.
+
+  The probe that answers is the merge endpoint itself: it refuses, and the
+  refusal names the reason. Verified 2026-09-10 against this repo:
+
+  | PR at the time | `PUT /repos/:owner/:repo/pulls/:n/merge` answered |
+  |---|---|
+  | #2849 — in the queue, its batch ref present | `405 Pull Request is in the merge queue.` |
+  | #2859 — open, draft | `405 Pull Request is still a draft` |
+
+  Read the **message**, not the status code: both are `405`, and only the
+  first means "queued". Anything else means it is not queued, and says why.
+  Note what makes this safe to run: it is a WRITE endpoint made inert by the
+  repository requiring the merge queue on `main`, so do not reach for it
+  against a base branch that has no such requirement. There is no read-only
+  probe for queue membership today.
+
+  **The sweep's bound, stated honestly.** `sweep()` enumerates
+  `GET /pulls?state=open` and reconciles those heads. So:
+
+  | situation | backstop |
+  |---|---|
+  | an open PR while the repo is busy | the activity-riding sweep — ~1 delivered sweep per 18 min at the burst measured above |
+  | an open PR while the repo is idle | the cron alone — mean/median gap ~3.5 h, and absent entirely for the ~16 h #2835 was live |
+  | a head **inside the merge queue** | **none.** A merge-group head is not an open PR's head, so no sweep ever re-derives its verdict. Event-driven evaluation does still run there (the `merge_group:` arm, plus `workflow_run` completions from inside the group), but if that stream is what failed, nothing reconciles it: the entry's only bound is the queue's checks timeout, which EJECTS rather than heals. |
+
   **The cancellation cause, measured and closed.** This passage used to record
   it as "suspected, not proven" and asked for the success-versus-cancelled
   ratio. That ratio: of the last 100 `event=workflow_run` runs of
@@ -277,7 +362,13 @@ timeout fired and needed a manual label re-arm. v2 never waits:
   42 gates green and a cancelled evaluation, then merged **30 seconds** after
   that one evaluation was re-run. Note that cancellations do not go to zero
   afterwards and are not meant to: a superseded *pending* run is still
-  cancelled, having burned no runner. Read parked groups, not cancel counts.
+  cancelled, having burned no runner. Re-measured 2026-09-10 over the same
+  call (100 runs of `pr-gate.yml`, of which 91 `event=workflow_run`):
+  **66 cancelled, 20 success, 5 queued** — about a fifth of dispatched
+  evaluations actually execute. That is by design and it is also the mechanism
+  behind the 12–14-minute verdict lag above: under a burst a SHA gets at most
+  one running plus one pending evaluation, so its verdict advances twice per
+  storm, not forty times. Read parked groups, not cancel counts.
 
   Separately: `workflow_dispatch` on `pr-gate.yml` can return **403** to a
   GitHub-App token (`rerun_workflow_run` did **not** here — it returned 201),
