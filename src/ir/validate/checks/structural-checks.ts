@@ -10,6 +10,7 @@ import { allPlatformDescriptors } from "../../../platform/metadata.js";
 import { isStdlibError, STRUCTURAL_CONFLICT_ERRORS } from "../../../util/error-defaults.js";
 import { bodyTypeOf } from "../../../util/expr-body-type.js";
 import { plural, snake } from "../../../util/naming.js";
+import { buildCreateInput } from "../../enrich/wire-projection.js";
 import type {
   AggregateIR,
   BoundedContextIR,
@@ -1932,6 +1933,66 @@ export function validateLifecycleBodyDropped(ctx: BoundedContextIR, diags: LoomD
           severity: "error",
           code: "loom.lifecycle-guard-event-sourced",
           message: diagMessage("loom.lifecycle-guard-event-sourced", { agg: agg.name }),
+          source: `${ctx.name}/aggregate ${agg.name}.create`,
+        });
+      }
+    }
+
+    // ── the declared create's PARAMETER LIST is not the request contract ──
+    //
+    // `POST /<aggs>` takes the FIELD-DERIVED create input, never the parameter
+    // list the author wrote (see the block comment above — no emitter reads
+    // `canonicalCreate.params`).  So a narrowed list shapes nothing:
+    //
+    //     aggregate Issue {
+    //       …
+    //       blockedBy: Issue id[]
+    //       create(project: Project id, key: string, title: string) { … }
+    //     }
+    //
+    // still emits `Issue.create({ …, blockedBy })` and a request body that
+    // REQUIRES `blockedBy`.  The author reads their own list as the contract,
+    // writes a client (or a `test` block) against it, and gets a 422 naming a
+    // field their create does not even accept.
+    //
+    // The sibling `loom.lifecycle-body-dropped` did not cover this: it fires on
+    // a dropped STATEMENT, and the ubiquitous `field := <same-named param>`
+    // idiom is exempt there because the field-derived input reproduces its
+    // effect.  A create whose body is only those identity assignments is
+    // therefore silent today — which is precisely the shape that misleads.
+    //
+    // A warning, not an error: the model is emittable and correct, the author's
+    // MENTAL MODEL is what is wrong.  Listing every create-input field (what
+    // `with crudish` generates) or omitting the parens both keep it quiet.
+    if (agg.canonicalCreate && agg.canonicalCreate.params.length > 0) {
+      const declared = new Set(agg.canonicalCreate.params.map((p) => p.name));
+      const input = agg.createInput ?? buildCreateInput(agg);
+      const missing = input.filter((c) => !declared.has(c.field.name));
+      // Only a missing REQUIRED field actually breaks a caller: it is the one
+      // the request body demands and the declared `create` never mentions, so a
+      // client written from the declaration gets a 422 naming a field the
+      // author does not believe exists.  A missing OPTIONAL field is merely
+      // accepted-but-undeclared, which is confusing rather than broken, so it is
+      // named in the message but does not on its own raise it — otherwise every
+      // aggregate with one nullable field would warn, and the signal would be
+      // spent before it said anything.
+      const missingRequired = missing.filter((c) => c.requiredInput).map((c) => c.field.name);
+      if (missingRequired.length > 0) {
+        const alsoAccepted = missing.filter((c) => !c.requiredInput).map((c) => c.field.name);
+        const fmt = (ns: string[]) => ns.map((n) => `\`${n}\``).join(", ");
+        diags.push({
+          severity: "warning",
+          code: "loom.create-params-not-wire",
+          message: diagMessage("loom.create-params-not-wire", {
+            agg: agg.name,
+            missing: fmt(missingRequired),
+            also:
+              alsoAccepted.length > 0
+                ? `  (\`${agg.name}\`'s optional ${fmt(alsoAccepted)} ${
+                    alsoAccepted.length === 1 ? "is" : "are"
+                  } accepted on the wire too.)`
+                : "",
+          }),
           source: `${ctx.name}/aggregate ${agg.name}.create`,
         });
       }

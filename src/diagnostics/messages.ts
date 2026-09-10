@@ -1847,6 +1847,14 @@ export const DIAGNOSTIC_MESSAGES = {
     `channel — the SSE relay can't legally serve those events, so the handler receives ` +
     `nothing. Host '${p.owner}' on '${p.relayName}', or add a channelSource for ` +
     `'${p.channelName}' to its 'channels:' clause.`,
+  "loom.create-params-not-wire": (p: { agg: unknown; missing: unknown; also: unknown }) =>
+    `Aggregate '${p.agg}': the canonical \`create\`'s parameter list is not the ` +
+    `request contract.  \`POST /<plural>\` takes the FIELD-DERIVED create input, ` +
+    `so ${p.missing} is REQUIRED on the wire even though the declared \`create\` ` +
+    `does not accept it — a client (or a \`test\` block) written from the ` +
+    `declaration gets a 422 naming a field the create never mentions.${p.also}  ` +
+    `List every create-input field, or drop the parameter list: a narrowed one ` +
+    `shapes nothing.`,
   "loom.persistence-mode-unsupported": (p: {
     name: unknown;
     ctxName: unknown;
