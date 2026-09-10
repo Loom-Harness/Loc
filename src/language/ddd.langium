@@ -141,7 +141,7 @@ ThemeProp:
 // implicit aggregate identity) is admissible here.
 UserBlock:
     'user' '{'
-        fields+=UserField*
+        (fields+=UserField (','? fields+=UserField)* ','?)?
     '}';
 
 UserField:
@@ -987,7 +987,7 @@ EnumValue:
 
 ValueObject:
     'valueobject' name=ID '{'
-        members+=ValueObjectMember*
+        (members+=ValueObjectMember (','? members+=ValueObjectMember)* ','?)?
     '}';
 
 ValueObjectMember:
@@ -1063,7 +1063,7 @@ Aggregate:
           | (audited?='audited' ','?)
         )*
         withClause=WithClause? '{'
-        members+=AggregateMember*
+        (members+=AggregateMember (','? members+=AggregateMember)* ','?)?
     '}';
 
 // Inheritance table layout — a header colon modifier on aggregates
@@ -1321,7 +1321,7 @@ ExpectStmt:
 
 EntityPart:
     'entity' name=ID '{'
-        members+=EntityPartMember*
+        (members+=EntityPartMember (','? members+=EntityPartMember)* ','?)?
     '}';
 
 EntityPartMember:
