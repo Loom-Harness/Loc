@@ -235,3 +235,32 @@ describe.skipIf(!onPosix)("installGeneratedProject", () => {
     expect(invocations()).toHaveLength(1);
   });
 });
+
+// ── The ratchet ─────────────────────────────────────────────────────────────
+// The helper refuses a caller that passes `--silent`, but nothing stops a new
+// suite from spelling its own `execSync("npm install --silent …")` the way all
+// 49 migrated sites did.  This is the waiver-free half: every generated-project
+// install in test/e2e/ goes through the helper, so the next one inherits both
+// the diagnosis and the retry by default rather than by remembering to.
+describe("no e2e suite installs a generated project behind the helper's back", () => {
+  it("has no raw `npm install` / `npm ci` invocation left in test/e2e/", () => {
+    const dir = path.join(import.meta.dirname, "..");
+    const offenders: string[] = [];
+    for (const name of fs.readdirSync(dir).filter((n) => n.endsWith(".test.ts"))) {
+      const lines = fs.readFileSync(path.join(dir, name), "utf8").split("\n");
+      lines.forEach((line, i) => {
+        const code = line.trim();
+        // Prose about npm is fine; a quoted command line is the thing.
+        if (code.startsWith("//") || code.startsWith("*") || code.startsWith("/*")) return;
+        if (/["'`][^"'`]*\bnpm (install|ci)\b/.test(line)) {
+          offenders.push(`${name}:${i + 1}: ${code}`);
+        }
+      });
+    }
+    expect(
+      offenders,
+      `Use installGeneratedProject() from test/e2e/support/npm-install.ts instead — a raw ` +
+        `install discards npm's error output (with --silent) and never retries:\n${offenders.join("\n")}`,
+    ).toEqual([]);
+  });
+});
