@@ -1,5 +1,6 @@
 import type { ExprIR } from "../../ir/types/loom-ir.js";
 import { humanize, lowerFirst, plural, snake } from "../../util/naming.js";
+import { giveUp } from "../_walker/give-up.js";
 import { emitActionThen } from "../_walker/primitives/controls.js";
 import { namedArgValue, stringNamed } from "../_walker/shared/args.js";
 import type { WalkContext } from "../_walker/walker-core.js";
@@ -53,14 +54,15 @@ export function renderAngularDestroyForm(
   if (call.kind !== "call") return null;
   const ofArg = namedArgValue(call, "of");
   if (ofArg?.kind !== "ref") {
-    return ctx.target.renderComment("DestroyForm: expected (of: <Agg>)");
+    return giveUp(ctx.target, "DestroyForm: expected (of: <Agg>)");
   }
   const agg = ctx.aggregatesByName.get(ofArg.name);
   if (!agg) {
-    return ctx.target.renderComment(`DestroyForm(of: ${ofArg.name}): aggregate not found`);
+    return giveUp(ctx.target, `DestroyForm(of: ${ofArg.name}): aggregate not found`);
   }
   if (!agg.canonicalDestroy) {
-    return ctx.target.renderComment(
+    return giveUp(
+      ctx.target,
       `DestroyForm(of: ${agg.name}): no canonical destroy — declare 'destroy { }' (or use 'with crudish')`,
     );
   }

@@ -84,6 +84,7 @@ import {
 import { escapeHtmlAttr } from "./a11y-emit.js";
 import { tryDetectApiHook } from "./api-hook-detector.js";
 import { registerApiHook } from "./api-hook-register.js";
+import { giveUp } from "./give-up.js";
 import { storeMemberLocal, upperFirstName } from "./js-target-helpers.js";
 import { emitUserComponent } from "./primitives/controls.js";
 import { WALKER_PRIMITIVES } from "./registry.js";
@@ -1157,7 +1158,7 @@ export function walk(expr: ExprIR, ctx: WalkContext, depth: number): string {
       if (ctx.derivedNames.has(expr.name)) {
         return ctx.target.renderInterpolation(renderDerived(ctx, expr.name, "template"));
       }
-      return ctx.target.renderComment(`ref: ${expr.name}`);
+      return giveUp(ctx.target, `ref: ${expr.name}`);
     case "match": {
       // Predicate-arms conditional rendering (page-metamodel §7).
       // Each arm's value walks as markup in the caller's scope; the
@@ -1202,7 +1203,7 @@ export function walk(expr: ExprIR, ctx: WalkContext, depth: number): string {
       // `"abc".toUpperCase()` — the same expression, two outcomes, one page.
       return ctx.target.renderInterpolation(emitExpr(expr, ctx), provableStringType(expr));
     default:
-      return ctx.target.renderComment(`unsupported expr: ${expr.kind}`);
+      return giveUp(ctx.target, `unsupported expr: ${expr.kind}`);
   }
 }
 
@@ -1236,9 +1237,9 @@ function emitComponent(call: ExprIR & { kind: "call" }, ctx: WalkContext, depth:
   // Svelte, Angular, Feliz and Flutter through `WalkerTarget`, so React's name
   // would land in the Angular/Flutter output too.
   if (def) {
-    return ctx.target.renderComment(`${call.name}: not supported by the walker yet`);
+    return giveUp(ctx.target, `${call.name}: not supported by the walker yet`);
   }
-  return ctx.target.renderComment(`unknown layout component: ${call.name}`);
+  return giveUp(ctx.target, `unknown layout component: ${call.name}`);
 }
 
 // Layout primitives (Stack, Group, Grid, Container, Tabs) live in
@@ -2806,7 +2807,7 @@ export function renderTextContent(expr: ExprIR, ctx: WalkContext): string | unde
     // comment so the user sees the unresolved name in the
     // generated file (the page still compiles; the comment makes
     // the gap visible).
-    return ctx.target.renderComment(`ref: ${expr.name}`);
+    return giveUp(ctx.target, `ref: ${expr.name}`);
   }
   // Anything else (binary op, unary, non-string
   // literal): emit the JS-expression form as an inline
@@ -2834,7 +2835,7 @@ export function renderTextContent(expr: ExprIR, ctx: WalkContext): string | unde
     if (declaredValueObject(expr.name, ctx)) {
       return ctx.target.renderInterpolation(emitExpr(expr, ctx));
     }
-    return ctx.target.renderComment(`unknown page element: ${expr.name}`);
+    return giveUp(ctx.target, `unknown page element: ${expr.name}`);
   }
   // A structurally-provable string (a bare literal, a Yes/No conditional of
   // string literals) lets a text-coercing target (Feliz) drop a redundant cast;
