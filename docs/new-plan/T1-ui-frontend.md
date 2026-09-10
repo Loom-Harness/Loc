@@ -278,7 +278,7 @@ Found 2026-08-23 by the numeric-types audit ([F1](../audits/numeric-types-audit-
 
 Sources: [numeric-types-audit-2026-08-23](../audits/numeric-types-audit-2026-08-23.md) F1/F18, plan.json N1. Relates to M-T1.18 (Flutter residue), M-T9.38 (runtime leg).
 
-## M-T1.22 — Feliz numeric conformance: decimal encodes as a string, int `/` truncates, `long` is int32 — `in-flight` (PR [#2674](https://github.com/lemmit/Loc/pull/2674), ready for review since 2026-08-30 — unmerged as of 2026-09-02) · **M** · P1
+## M-T1.22 — Feliz numeric conformance: decimal encodes as a string, int `/` truncates, `long` is int32 — `done` (Wave 1, [#2674](https://github.com/lemmit/Loc/pull/2674), merged 2026-09-10) · **M** · P1
 
 Found 2026-08-23 by the numeric-types audit ([F2](../audits/numeric-types-audit-2026-08-23.md)). Four defects, one target: (1) plain `decimal` request fields encode via Thoth `Encode.decimal`, which emits a JSON **string** — right for money, wrong for decimal (RS-24 says number) → 422 on node/.NET (`src/generator/feliz/wire.ts`; only the money arm is test-pinned). (2) `fs-expr.ts` has no `isIntDivWidenedToDecimal` arm, so a page-body `a / b` on ints **truncates** in F# where every other target yields 2.5. (3) `long` collapses to F# `int` + `Decode.int`, rejecting anything past int32. (4) No numeric validation runs before Fable's `int`/`decimal` conversion — a stray `2.5` in an int field throws an unhandled Elmish exception on submit.
 

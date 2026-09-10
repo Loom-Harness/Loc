@@ -276,11 +276,11 @@ Measured clean on the restored tree: **python 52 cases / 0 divergences**, **java
 
 Sources: [numeric-types-audit-2026-08-23](../audits/numeric-types-audit-2026-08-23.md) F16, plan.json N16. Relates to M-T9.11 (the differential itself), M-T6.46.
 
-## M-T9.38 — Flutter and Feliz have no runtime leg: a money crash ships behind a green compile gate — `blocked(#2678, #2674 merge)` · **L** · P2
+## M-T9.38 — Flutter and Feliz have no runtime leg: a money crash ships behind a green compile gate — `open` (unblocked 2026-09-10) · **L** · P2
 
 Found 2026-08-23 by the numeric-types audit ([F17](../audits/numeric-types-audit-2026-08-23.md)). `generated-flutter-build.yml` / `generated-feliz-build.yml` are compile-only, and Dart's `(x as num)` on a wire string compiles clean — so F1's crash-on-first-read shipped green. React/Vue/Svelte/Angular have real e2e legs; the two self-hosting frontends (the pair M-T1.20 already flags as carrying most frontend residue) have none.
 
-**The work:** a minimal boot + list-read + create-submit smoke for each, against a real backend, over a numeric-rich fixture (money, decimal, int, long) — the runtime twin of the build gates, wired to a `run-*` label per the post-merge-gate convention. Blocked on M-T1.21/M-T1.22 (the legs would be born red).
+**The work:** a minimal boot + list-read + create-submit smoke for each, against a real backend, over a numeric-rich fixture (money, decimal, int, long) — the runtime twin of the build gates, wired to a `run-*` label per the post-merge-gate convention. **Both blockers are in** — M-T1.21 as [#2678](https://github.com/lemmit/Loc/pull/2678) and M-T1.22 as [#2674](https://github.com/lemmit/Loc/pull/2674) (merged 2026-09-10) — so the legs would now be born green rather than red, which was the whole reason to hold them.
 
 **Verification when it lands.** The legs themselves, mutation-proved by re-seeding F1's `as num` decode on a scratch branch and watching the flutter leg fail.
 
