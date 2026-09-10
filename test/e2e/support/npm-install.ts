@@ -140,6 +140,11 @@ function runNpm(
     stdio: ["ignore", "pipe", "pipe"],
     timeout: opts.timeout,
     env: opts.env ? { ...process.env, ...opts.env } : process.env,
+    // The `execSync` calls this replaces went through a shell, which is how
+    // `npm` resolved to `npm.cmd` on Windows; spawnSync does not, and Node
+    // refuses to spawn a `.cmd` directly.  No flag here contains a space, so
+    // the shell round-trip is safe where it is still needed.
+    shell: process.platform === "win32",
   });
   const output = truncate(`${res.stdout ?? ""}\n${res.stderr ?? ""}`);
   if (res.error) {
