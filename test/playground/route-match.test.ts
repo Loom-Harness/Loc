@@ -7,7 +7,8 @@ import {
   matchRoute,
   requestFromLogLine,
 } from "../../web/src/backend/route-match.js";
-import type { LogLine } from "../../web/src/util/log-line.js";
+import { installConsoleTee, setLogSink } from "../../web/src/runtime/console-tee.js";
+import { LOG_LEVELS, type LogLine } from "../../web/src/util/log-line.js";
 
 // Requests → operations (M-T8.22 slice 4): the pure matcher + aggregate the
 // Runtime tab's Requests view (and M-T8.20's Model-node counts) read.
@@ -143,6 +144,46 @@ describe("isInfraPath", () => {
     }
     expect(isInfraPath("/products")).toBe(false);
     expect(isInfraPath("/healthcheck-ish")).toBe(false);
+  });
+
+  it("classifies the session probe at the path auth is actually mounted on", () => {
+    // Auth mounts under the API base (`AUTH_BASE_PATH` = `${API_BASE_PATH}/auth`,
+    // src/util/api-base.ts), so the line the runtime log carries is
+    // `/api/auth/me`, never the bare `/auth/me` this list used to check.  A
+    // probe the playground itself fires must not land in the Requests view's
+    // 404s list — which asserts "Every request so far matched an operation."
+    expect(isInfraPath("/api/auth/me")).toBe(true);
+    // Neighbours stay domain traffic.
+    expect(isInfraPath("/api/auth/login")).toBe(false);
+    expect(isInfraPath("/api/products")).toBe(false);
+  });
+});
+
+describe("the browser-pino line the playground actually captures", () => {
+  // End-to-end over the two seams the Requests view sits on: the runtime
+  // worker's console tee produces the LogLine, and `aggregateRequestTraces`
+  // folds it.  pino's browser build emits a per-request line as TWO objects
+  // with no `level` (see console-tee.test.ts for the why), so a tee that only
+  // structured a single, level-carrying argument produced `structured:
+  // undefined` — and this fold then counted zero requests, which is what the
+  // Runtime tab reported after a real GET.
+  it("counts a request_end line teed from a child logger's console.info", () => {
+    const con = {} as Record<string, unknown>;
+    for (const level of LOG_LEVELS) con[level] = () => {};
+    installConsoleTee(con as unknown as Console);
+    const logs: LogLine[] = [];
+    setLogSink(logs);
+    (con.info as (...a: unknown[]) => void)(
+      { request_id: "abc-123" },
+      { event: "request_end", method: "GET", path: "/products", status: 200, duration_ms: 3 },
+    );
+    setLogSink(null);
+
+    const traces = aggregateRequestTraces(logs, ENDPOINTS);
+    expect(traces.total, "the fold must see the teed request_end line").toBe(1);
+    expect(traces.unmatched).toHaveLength(0);
+    const getList = traces.byOperation.find((t) => t.endpoint.operationId === "get /products");
+    expect(getList?.count).toBe(1);
   });
 });
 
