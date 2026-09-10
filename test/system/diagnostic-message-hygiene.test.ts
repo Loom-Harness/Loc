@@ -163,19 +163,19 @@ const VARIABLE_ARG_SITES: { site: string; why: string }[] = [
     why: "the mikroorm arm of the same hoisted `params` object",
   },
   {
-    site: "src/ir/validate/checks/system-checks.ts :: loom.projection-groupby-unsupported-backend#document",
+    site: "src/ir/validate/checks/projection-backend-checks.ts :: loom.projection-groupby-unsupported-backend#document",
     why: "document-shape projection gate: one `params` hoisted above the grouped/whole-table arms, each with its own literal code",
   },
   {
-    site: "src/ir/validate/checks/system-checks.ts :: loom.projection-whole-table-aggregation-unsupported#document",
+    site: "src/ir/validate/checks/projection-backend-checks.ts :: loom.projection-whole-table-aggregation-unsupported#document",
     why: "the whole-table arm of the same hoisted `params` object",
   },
   {
-    site: "src/ir/validate/checks/system-checks.ts :: loom.default-deny-ungated#denybydefault-handler-extern",
+    site: "src/ir/validate/checks/default-deny-checks.ts :: loom.default-deny-ungated#denybydefault-handler-extern",
     why: "denyByDefault handler gate: one `params` hoisted above the extern/normal arms, which share one code but two keys",
   },
   {
-    site: "src/ir/validate/checks/system-checks.ts :: loom.default-deny-ungated#denybydefault-handler",
+    site: "src/ir/validate/checks/default-deny-checks.ts :: loom.default-deny-ungated#denybydefault-handler",
     why: "the non-extern arm of the same hoisted `params` object",
   },
 ];

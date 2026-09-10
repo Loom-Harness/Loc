@@ -6212,7 +6212,47 @@ more than one answer, and the excluded tree is exactly where nobody notices.
 `docs/testing.md` → "Running any CI gate locally" is the reverse index for
 this; `test/system/local-run-mapping.test.ts` pins that it stays complete.
 
-## 113. Seven PRs, four theories, one measurement — and the measurement they all skipped was the cheap one (2026-09-10)
+## 113. "This toolchain isn't available here" was wrong twice in one session — `docs/tools.md` had both recipes (2026-09-10)
+
+Two separate arms of the same session reported a toolchain as unrunnable on a
+sandbox host. Both reports were false, and the fix for each was already written
+down in `docs/tools.md`.
+
+**Java.** `gradle` failed with *"No matching toolchains found … languageVersion=25"*
+— the host has JDK 21 and the emitted project targets 25. Reported as "the
+generated project cannot be compiled on this host", and the PR body said so.
+`docs/tools.md` documents that exact error and its fix: run
+`gradle:9-jdk25` with `/root/.ccr` mounted for the proxy CA. Running it found a
+real bug the string tests could not see — the service emitted
+`WireFormatException.money(...)` and never imported the class, `cannot find
+symbol` ×4.
+
+**Elixir.** I *composed* a `hexpm/elixir` tag from the workflow's
+`ELIXIR_VERSION`/`OTP_VERSION` env pair, got `not found` from Docker Hub, and
+concluded the behavioural leg "does not run on this host" — in a PR body, again.
+Two errors: the workflow pins **no image at all** (it uses `erlef/setup-beam`),
+and `docs/tools.md` § *"Running `mix` on the HOST"* names a working tag and
+explains that the runner specifically cannot be containerised (it shells out to
+`mix` from Node and boots a long-lived child). Following it verbatim —
+`docker create`, `docker cp` the `elixir`/`erlang` trees to
+`/opt/elixir-toolchain`, prepend to `PATH` — took about two minutes, and
+`node run-elixir.mjs core-domain` then ran green.
+
+**The shape, and why it recurs.** A toolchain error message describes the
+*mechanism* ("no matching toolchain", "manifest not found"), never the
+*remedy* — so the error reads like a property of the environment. It usually
+isn't; on a repo with heterogeneous backends someone has already hit it and
+written the recipe down. Composing an image tag from version variables is the
+specific trap: it produces a plausible string that fails in a way indistinguishable
+from "unsupported here".
+
+**Rule: before reporting any toolchain as unavailable, grep `docs/tools.md` for
+it — and never derive a container tag when a document names one.** The cost of
+not doing so is not just the detour: both times the claim reached a PR body,
+where it becomes a false fact other agents plan around. §110's lesson is
+adjacent (the gate you did not run) — this is the playbook you did not read.
+
+## 114. Seven PRs, four theories, one measurement — and the measurement they all skipped was the cheap one (2026-09-10)
 
 **Addendum to §93 and §106.** Both entries describe the same symptom from
 opposite ends: a fully green PR whose merge is refused with *"Required status
