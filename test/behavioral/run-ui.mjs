@@ -37,15 +37,7 @@
 
 import { build } from "esbuild";
 import { execFileSync, spawn } from "node:child_process";
-import {
-  cpSync,
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -55,6 +47,7 @@ import {
   findFrontendDeployable,
   findNodeDeployable,
   outcomesFromPlaywrightJson,
+  preserveArtifacts,
   walk,
 } from "./ui-stack.mjs";
 
@@ -170,22 +163,6 @@ async function runCase(c) {
   }
 }
 
-/** Copy every `test-results` dir out of the generated tree into `workDir`,
- *  which lives in the repo and so survives for the workflow's upload step. */
-function preserveArtifacts(genDir, workDir) {
-  try {
-    const roots = new Set(
-      walk(genDir, (p) => /[/\\]test-results[/\\]/.test(p.slice(genDir.length))).map(
-        (p) => p.slice(0, p.indexOf("/test-results/") + "/test-results".length),
-      ),
-    );
-    for (const root of roots) {
-      cpSync(root, join(workDir, "test-results"), { recursive: true, force: true });
-    }
-  } catch {
-    /* evidence rescue must never mask the real failure */
-  }
-}
 
 const only = process.argv.slice(2).filter((a) => !a.startsWith("-"));
 // Nightly-tier cases (non-React frontends) run only when explicitly named or

@@ -25,9 +25,17 @@
 // The seams (`install` / `buildScript` / `clean` / `distRoot`) are injected, so
 // the property is asserted without a network, an npm, or a generated project.
 
-import { describe, expect, it } from "vitest";
-// @ts-expect-error — .mjs harness module, deliberately dependency-free JS.
-import { buildFrontend, combinedOutput, isOptionalDepMiss } from "../behavioral/ui-stack.mjs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
+import {
+  buildFrontend,
+  combinedOutput,
+  isOptionalDepMiss,
+  preserveArtifacts,
+  // @ts-expect-error — .mjs harness module, deliberately dependency-free JS.
+} from "../behavioral/ui-stack.mjs";
 
 /** The verbatim shape npm/rolldown produced on the 2026-09-09 nightly. */
 const NPM_OPTIONAL_HOLE = [
@@ -109,6 +117,47 @@ describe("buildFrontend — npm's optional-dependency hole", () => {
       }),
     ).toThrow(/TS2322/);
     expect(cleans, "a generated-code failure must not be papered over by a reinstall").toBe(0);
+  });
+});
+
+// The other half of "a diagnostic you only report on success is not a
+// diagnostic": the runners generate into a mkdtemp and unlink it in a
+// `finally`, so Playwright's traces/screenshots/error-context were deleted
+// BEFORE any CI upload step could see them.  Every red nightly on this leg
+// left the console tail and nothing else.
+describe("preserveArtifacts", () => {
+  const dirs: string[] = [];
+  const mk = () => {
+    const d = mkdtempSync(join(tmpdir(), "loom-pa-"));
+    dirs.push(d);
+    return d;
+  };
+  afterEach(() => {
+    for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
+  });
+
+  it("copies the trace out of the tree that is about to be deleted", () => {
+    const genDir = mk();
+    const workDir = mk();
+    const results = join(genDir, "web_app/e2e/test-results/SalesSystem-ui-chromium");
+    mkdirSync(results, { recursive: true });
+    writeFileSync(join(results, "trace.zip"), "PK-not-really");
+    writeFileSync(join(results, "error-context.md"), "# page snapshot");
+
+    const rescued = preserveArtifacts(genDir, workDir);
+    rmSync(genDir, { recursive: true, force: true }); // what the runner does next
+
+    expect(rescued).toHaveLength(1);
+    const out = join(workDir, "test-results/SalesSystem-ui-chromium");
+    expect(readFileSync(join(out, "trace.zip"), "utf8")).toBe("PK-not-really");
+    expect(readFileSync(join(out, "error-context.md"), "utf8")).toBe("# page snapshot");
+  });
+
+  it("is a no-op on a green run, and never throws on a missing tree", () => {
+    const genDir = mk();
+    mkdirSync(join(genDir, "web_app/dist"), { recursive: true });
+    expect(preserveArtifacts(genDir, mk())).toEqual([]);
+    expect(preserveArtifacts(join(genDir, "gone"), mk())).toEqual([]);
   });
 });
 

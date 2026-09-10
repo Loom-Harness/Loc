@@ -13,7 +13,7 @@
 
 import { build } from "esbuild";
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -180,6 +180,35 @@ export function buildFrontend(frontendDir, opts = {}) {
     }
   }
   return distRoot(frontendDir);
+}
+
+/**
+ * Copy every `test-results` dir out of a generated tree into `workDir`.
+ *
+ * Playwright's evidence for a red cell — `trace.zip`, `test-failed-1.png`,
+ * `error-context.md` — is written under `<frontend>/e2e/test-results`, i.e.
+ * INSIDE the mkdtemp the runners unlink in their `finally`.  So the nightly
+ * leg's log named a trace file that no longer existed by the time the job
+ * ended, and every investigation had to start from the console tail.  `workDir`
+ * lives in the repo, where the workflow's `upload-artifact` step can reach it.
+ *
+ * Never throws: rescuing evidence must not replace the failure it documents.
+ */
+export function preserveArtifacts(genDir, workDir) {
+  const MARK = "/test-results";
+  try {
+    const roots = new Set(
+      walk(genDir, (p) => p.slice(genDir.length).includes(`${MARK}/`)).map((p) =>
+        p.slice(0, p.indexOf(`${MARK}/`) + MARK.length),
+      ),
+    );
+    for (const root of roots) {
+      cpSync(root, join(workDir, "test-results"), { recursive: true, force: true });
+    }
+    return [...roots];
+  } catch {
+    return [];
+  }
 }
 
 /** The bundled boot: createApp on PGlite, served (static dist + /api) over one HTTP origin. */
