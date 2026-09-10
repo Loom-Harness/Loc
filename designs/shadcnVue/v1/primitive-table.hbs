@@ -5,7 +5,7 @@
 {{/each}}{{headIndent}}</TableRow>
 {{indent}}</TableHeader>
 {{indent}}<TableBody>
-{{headIndent}}<TableRow v-for="({{rowVar}}{{#if usesIdx}}, idx{{/if}}) in {{{rowsExpr}}}" :key="{{{keyExpr}}}"{{#if hasRowTestid}} :data-testid='{{{rowTestid}}}'{{/if}}{{#if hasOnRowClick}} @click='{{{onRowClick}}}'{{/if}}>
+{{headIndent}}<TableRow v-for="({{rowVar}}{{#if usesIdx}}, idx{{/if}}) in {{{rowsAttrExpr}}}" :key="{{{keyAttrExpr}}}"{{#if hasRowTestid}} :data-testid='{{{rowTestid}}}'{{/if}}{{#if hasOnRowClick}} @click='{{{onRowClick}}}'{{/if}}>
 {{#each columns}}{{../rowIndent}}<TableCell>{{{this.cellJsx}}}</TableCell>
 {{/each}}{{headIndent}}</TableRow>
 {{indent}}</TableBody>

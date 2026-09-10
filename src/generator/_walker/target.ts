@@ -860,6 +860,26 @@ export interface WalkerTarget {
    *  sites keep them inline. */
   renderAttrBinding(name: string, jsExpr: string): string;
 
+  /** OPTIONAL — escape a rendered JS expression for an attribute-VALUE position
+   *  that a PACK TEMPLATE quotes itself (`v-for="{{{rowsAttrExpr}}}"`), rather
+   *  than one `renderAttrBinding` builds.  The delimiters stay the template's;
+   *  this only makes the expression safe INSIDE them.
+   *
+   *  Only Vue implements it, and it is not cosmetic: a Vue template attribute is
+   *  HTML, so a rendered expression carrying the delimiter terminates the
+   *  attribute early.  `Table { rows: rows.filter(i => i.status == Todo) }`
+   *  emitted
+   *      <tr v-for="(row) in rows.filter((i) => (i.status === "Todo"))" …>
+   *  which fails `vite build` in `parseForExpression` — from a model that
+   *  validates clean.  Any enum or string comparison in a `rows:` / `key:`
+   *  expression hits it, which is most of them.
+   *
+   *  The other frontends leave it undefined: JSX (`{…}`), Svelte (`{#each …}`)
+   *  and Angular (`@for` inside a backtick template) put the expression in a
+   *  brace/block position where a quote is ordinary text, so their packs read
+   *  the raw `rowsExpr` and stay byte-identical. */
+  escapeAttrExpr?(jsExpr: string): string;
+
   /** Prefix a bound HTML ATTRIBUTE (aria-*, data-*) needs before its name when
    *  it rides `renderAttrBinding` (M-T1.11 i18n aria labels).  Angular binds
    *  plain element attributes as `[attr.aria-label]="…"` — a bare

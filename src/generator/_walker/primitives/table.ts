@@ -285,6 +285,12 @@ export function emitTable(
     rowsExpr,
     rowVar,
     keyExpr,
+    // The same two expressions, escaped for a template-quoted attribute value.
+    // Only the Vue packs read these (`v-for="{{{rowsAttrExpr}}}"`); every other
+    // pack reads the raw `rowsExpr` above and stays byte-identical.  See
+    // `WalkerTarget.escapeAttrExpr`.
+    rowsAttrExpr: ctx.target.escapeAttrExpr?.(rowsExpr) ?? rowsExpr,
+    keyAttrExpr: ctx.target.escapeAttrExpr?.(keyExpr) ?? keyExpr,
     usesIdx,
     columns: cols,
     hasColumns: cols.length > 0,
