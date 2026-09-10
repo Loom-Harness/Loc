@@ -83,7 +83,18 @@ export function renderTypeWith(t: TypeIR, target: TypeTarget, mode: TypeMode = "
     case "array":
       return target.array(recur(t.element));
     case "optional":
-      return target.optional(recur(t.inner));
+      // A NESTED optional is degenerate — `T??` means exactly `T?` in every
+      // target language — and rendering it verbatim is not merely redundant,
+      // it does not compile: `.NET` gets `CustomerId??` (`??` is the
+      // null-coalescing OPERATOR, not a type suffix, so the project does not
+      // parse), TS gets `Ids.CustomerId | null | null`, Python gets
+      // `CustomerId | None | None`.  It arises whenever an emitter wraps a
+      // field's type in `optional` off the redundant `FieldIR.optional` flag,
+      // because `FieldIR.type` ALREADY carries the wrapper for every field
+      // lowered from source (`lowerAtom` wraps on `t.optional`).  Collapse it
+      // once, here, instead of at each construction site — the auth emitters
+      // hit this for an `X id?` user claim (D6/P2).
+      return target.optional(recur(flattenOptional(t.inner)));
     case "action":
     case "slot":
       throw new Error(
@@ -96,4 +107,12 @@ export function renderTypeWith(t: TypeIR, target: TypeTarget, mode: TypeMode = "
     case "none":
       return target.none();
   }
+}
+
+/** Strip any further `optional` wrappers off an optional's inner type.
+ *  `T??` collapses to `T?`; a non-optional inner is returned unchanged. */
+function flattenOptional(t: TypeIR): TypeIR {
+  let inner = t;
+  while (inner.kind === "optional") inner = inner.inner;
+  return inner;
 }

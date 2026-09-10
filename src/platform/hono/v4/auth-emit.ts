@@ -1,3 +1,4 @@
+import { claimsReferenceIds } from "../../../generator/_auth/claim-types.js";
 import { renderTsType } from "../../../generator/typescript/render-expr.js";
 import type {
   AuthIR,
@@ -150,6 +151,16 @@ function claimPathFor(field: string, auth: AuthIR): string {
   return field === "id" ? "sub" : field;
 }
 
+/** The `Ids` namespace import an auth module needs when the claim shape names
+ *  a strong id (`customerId: Customer id?` renders as `Ids.CustomerId`).  The
+ *  id classes live in `domain/ids.ts`, the auth modules in `auth/`, so without
+ *  this the generated project fails `tsc` with
+ *  `TS2503: Cannot find namespace 'Ids'` (D6/P2).  Empty when no claim is
+ *  id-typed, so the common shape keeps its current byte-for-byte output. */
+function idsImport(user: UserIR): string[] {
+  return claimsReferenceIds(user.fields) ? ['import * as Ids from "../domain/ids";', ""] : [];
+}
+
 function renderUserTypes(user: UserIR, orgPathClaim?: string): string {
   // User shape lives in its own module so any per-aggregate file (or
   // workflow route) can `import type { User }` without
@@ -188,6 +199,7 @@ function renderUserTypes(user: UserIR, orgPathClaim?: string): string {
       "// derives the request principal `User` from it (adding `orgPath` under",
       "// tenancy).  Downstream route handlers / workflow handlers",
       "// reference `User` via the magic `currentUser` identifier.",
+      ...idsImport(user),
       "export interface UserClaims {",
       ...fields,
       "}",
@@ -482,7 +494,7 @@ function renderOidcVerifier(user: UserIR, auth: AuthIR): string {
   });
   return `// Auto-generated.
 import { createRemoteJWKSet, type JWTPayload, jwtVerify } from "jose";
-import type { UserClaims } from "./user-types";
+${idsImport(user).join("\n")}import type { UserClaims } from "./user-types";
 import { registerUserVerifier } from "./verifier";
 
 // Resolved from the system \`auth { oidc { … } }\` block.  Env-bound values
