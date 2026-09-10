@@ -11,7 +11,7 @@
 // same edge translation the exception-less operation routes emit.
 // ---------------------------------------------------------------------------
 
-import { pagedReturn } from "../../../ir/stdlib/generics.js";
+import { envelopeReturn, pagedReturn } from "../../../ir/stdlib/generics.js";
 import { variantTag } from "../../../ir/stdlib/unions.js";
 import type { AggregateIR, BoundedContextIR, FindIR, TypeIR } from "../../../ir/types/loom-ir.js";
 import { exprUsesCurrentUser } from "../../../ir/types/loom-ir.js";
@@ -52,6 +52,10 @@ function isSingleReturn(t: TypeIR): boolean {
   if (t.kind === "optional" && t.inner.kind === "entity") return true;
   if (t.kind === "entity") return true;
   if (t.kind === "union") return true;
+  // `T envelope` — a single-row find (M-T6.57).  The controller serialises ONE
+  // record and answers 404 when absent, which is what the OpenAPI it emits for
+  // this same action has always declared.
+  if (envelopeReturn(t)) return true;
   return false;
 }
 

@@ -1,0 +1,52 @@
+// The `envelope` generic carrier: `find … : T envelope` is a SINGLE-ROW find
+// (M-T6.57, ratified) — the repository answers one `T`, the route serialises the
+// BARE body, and an empty result set is the not-found rung (404).  It carries no
+// distinct wire shape, so `T envelope` must emit exactly what `T` emits.
+//
+// Until this fixture landed, NO `.ddd` in the repo instantiated the carrier, so
+// every compile gate was blind to it by construction — and java emitted an
+// undeclared `Envelope<Order>` in three signatures while dotnet returned a bare
+// `Order` from a `Task<Envelope<Order>>` (CS0029).  Both compiled only because
+// nothing generated them.
+system EnvelopeShop {
+  subdomain Sales {
+    context Orders {
+      aggregate Order with crudish { code: string  region: string }
+      repository Orders for Order {
+        // Bare carrier — the shape the audit finding reproduced.
+        find audit(): Order envelope
+        // …and a PARAMETERISED one with a `where`, so the carrier is exercised
+        // on the filtered find path too (a different emitter branch on every
+        // backend than the filterless one above).
+        find latestInRegion(region: string): Order envelope where this.region == region
+      }
+    }
+  }
+  api OrdersApi from Sales
+  storage primary { type: postgres }
+  resource ordersState { for: Orders, kind: state, use: primary }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Orders]
+    dataSources: [ordersState]
+    serves: OrdersApi
+    port: 4000
+  }
+
+  test e2e "an envelope find answers the bare body, and 404s when absent" against d {
+    // Absent FIRST: a backend that returned a list (elixir returned every row as
+    // a JSON array) answers 200 `[]` here, where the contract it publishes says
+    // 404.
+    expect(api.orders.audit()).toThrow(404)
+
+    api.orders.create({ code: "E1", region: "NA" })
+    // The body is the AGGREGATE itself — not `{ id, ts, body }`, and not an
+    // array.  Reading `.code` off the response is what pins that.
+    let a = api.orders.audit()
+    expect(a.code).toBe("E1")
+
+    let eu = api.orders.latestInRegion({ region: "NA" })
+    expect(eu.code).toBe("E1")
+    expect(api.orders.latestInRegion({ region: "EU" })).toThrow(404)
+  }
+}

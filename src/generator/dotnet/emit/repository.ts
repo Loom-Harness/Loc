@@ -15,7 +15,7 @@ import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { lines } from "../../../util/code-builder.js";
 import { escapeCsharpIdent, plural, upperFirst } from "../../../util/naming.js";
 import { renderDotnetLogCall } from "../../_obs/render-dotnet.js";
-import { unionFindAsOptionalTwin } from "../find-emit.js";
+import { domainFindShape } from "../find-emit.js";
 import {
   AMBIENT_CURRENT_USER,
   csValueTypeForId,
@@ -47,8 +47,10 @@ export function renderRepositoryInterface(
   // Union-returning finds (P4c) reach the Domain repository as their optional
   // twin (single-row select returning `Agg?`); the Application query handler
   // owns the union mapping, so the Domain layer never names the Response-side
-  // union type.  See `unionFindAsOptionalTwin` in find-emit.ts.
-  const finds = (repo?.finds ?? []).map((f) => unionFindAsOptionalTwin(f, agg.name));
+  // union type.  A `T envelope` return is unwrapped to `T` in the same step
+  // (M-T6.57 — the carrier is a single-row find).  See `domainFindShape` in
+  // find-emit.ts.
+  const finds = (repo?.finds ?? []).map((f) => domainFindShape(f, agg.name));
   const anyFindUsesUser = finds.some(findUsesCurrentUser);
   const anyFindIsPaged = finds.some((f) => pagedReturn(f.returnType));
   const findLines = finds.map((f) => {
@@ -147,8 +149,10 @@ export function renderRepositoryImpl(
   // Union-returning finds (P4c) reach the Domain repository as their optional
   // twin (single-row select returning `Agg?`); the Application query handler
   // owns the union mapping, so the Domain layer never names the Response-side
-  // union type.  See `unionFindAsOptionalTwin` in find-emit.ts.
-  const finds = (repo?.finds ?? []).map((f) => unionFindAsOptionalTwin(f, agg.name));
+  // union type.  A `T envelope` return is unwrapped to `T` in the same step
+  // (M-T6.57 — the carrier is a single-row find).  See `domainFindShape` in
+  // find-emit.ts.
+  const finds = (repo?.finds ?? []).map((f) => domainFindShape(f, agg.name));
   const anyFindUsesUser = finds.some(findUsesCurrentUser);
   const setName = plural(upperFirst(agg.name));
   // Embedded aggregates persist their reference collections as a JSONB column
@@ -694,8 +698,10 @@ export function renderDocumentRepositoryImpl(
   // Union-returning finds (P4c) reach the Domain repository as their optional
   // twin (single-row select returning `Agg?`); the Application query handler
   // owns the union mapping, so the Domain layer never names the Response-side
-  // union type.  See `unionFindAsOptionalTwin` in find-emit.ts.
-  const finds = (repo?.finds ?? []).map((f) => unionFindAsOptionalTwin(f, agg.name));
+  // union type.  A `T envelope` return is unwrapped to `T` in the same step
+  // (M-T6.57 — the carrier is a single-row find).  See `domainFindShape` in
+  // find-emit.ts.
+  const finds = (repo?.finds ?? []).map((f) => domainFindShape(f, agg.name));
   const anyFindUsesUser = finds.some(findUsesCurrentUser);
   const setName = plural(upperFirst(agg.name));
   const snap = `${agg.name}Snapshot`;
@@ -977,8 +983,10 @@ export function renderEventSourcedRepositoryImpl(
   // Union-returning finds (P4c) reach the Domain repository as their optional
   // twin (single-row select returning `Agg?`); the Application query handler
   // owns the union mapping, so the Domain layer never names the Response-side
-  // union type.  See `unionFindAsOptionalTwin` in find-emit.ts.
-  const finds = (repo?.finds ?? []).map((f) => unionFindAsOptionalTwin(f, agg.name));
+  // union type.  A `T envelope` return is unwrapped to `T` in the same step
+  // (M-T6.57 — the carrier is a single-row find).  See `domainFindShape` in
+  // find-emit.ts.
+  const finds = (repo?.finds ?? []).map((f) => domainFindShape(f, agg.name));
   const anyFindUsesUser = finds.some(findUsesCurrentUser);
   // The single per-context event log (event-log-architecture.md): the shared
   // `_db.Events` DbSet over the `EventRecord` POCO.  This aggregate's stream is

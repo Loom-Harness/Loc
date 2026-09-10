@@ -88,6 +88,13 @@ export const CORPUS: readonly CorpusFeature[] = [
   { id: "operation-returns", title: "exception-less `T or Error` operation returns", doc: "payloads", backends: ALL },
   { id: "union-find-absence", title: "union-returning finds (`Order or NotFound`, `Order option`)", doc: "payloads", backends: ALL },
   { id: "paged", title: "pagination — `find ... paged` Paged<T> envelope", doc: "payloads", backends: ALL },
+  {
+    id: "envelope",
+    title: "`find … : T envelope` — the single-row find carrier (M-T6.57)",
+    doc: "payloads",
+    backends: ALL,
+    note: "Minted by audit F57.  NO `.ddd` in the repo instantiated `envelope` before this fixture, so every compile gate was blind to the carrier by construction — java emitted an UNDECLARED `Envelope<Order>` in three signatures (port, Spring-Data interface, impl) and dotnet returned a bare `Order` from a `Task<Envelope<Order>>` (CS0029), while elixir `Repo.all`-ed EVERY row and answered a JSON array against its own single-object OpenAPI.  The carrier is ratified as a single-row find, so the point of the fixture is that `T envelope` emits exactly what `T` emits.",
+  },
   { id: "single-containment", title: "single (non-collection) containment — hidden `_parent`", doc: "language", backends: ALL },
   { id: "value-collections", title: "value-object array (`Money[]`) stored inline", doc: "language", backends: ALL },
   { id: "document", title: "`shape: document` — whole aggregate in one jsonb column", doc: "language", backends: ALL },

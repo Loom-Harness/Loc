@@ -54,7 +54,7 @@ import { PG_INTRINSIC_SQL } from "../../_expr/pg-intrinsics.js";
 import { refuseOutOfVocabulary } from "../../_expr/target.js";
 import { renderCreateTableIfNotExists } from "../../sql-pg.js";
 import { isReservedIdent } from "../../sql-reserved.js";
-import { unionFindAsOptionalTwin } from "../find-emit.js";
+import { domainFindShape } from "../find-emit.js";
 import {
   AMBIENT_CURRENT_USER,
   csValueTypeForId,
@@ -1445,10 +1445,10 @@ export function renderDapperRepository(
   // ambient `RequestContext.Current!.CurrentUser!` member access (no type name),
   // so they don't.
   const anyFindUsesUser = (repo?.finds ?? []).some((raw) =>
-    findUsesCurrentUser(unionFindAsOptionalTwin(raw, agg.name)),
+    findUsesCurrentUser(domainFindShape(raw, agg.name)),
   );
   const findMethods = (repo?.finds ?? []).map((raw) => {
-    const f = unionFindAsOptionalTwin(raw, agg.name);
+    const f = domainFindShape(raw, agg.name);
     const name = upperFirst(f.name);
     const ret = renderCsType(f.returnType);
     const isList = f.returnType.kind === "array";
@@ -1914,7 +1914,7 @@ export function renderDapperDocumentRepository(
   const snap = `${agg.name}Snapshot`;
   const idCs = idTypes(agg.idValueType).cs;
   const versioned = aggregateIsVersioned(agg);
-  const finds = (repo?.finds ?? []).map((raw) => unionFindAsOptionalTwin(raw, agg.name));
+  const finds = (repo?.finds ?? []).map((raw) => domainFindShape(raw, agg.name));
   const anyFindUsesUser = finds.some(findUsesCurrentUser);
   // Rehydrate from the JSONB snapshot, but the `version` COLUMN is the
   // authoritative concurrency version (INSERT stamps it `1`, ON CONFLICT bumps
@@ -2208,7 +2208,7 @@ export function renderDapperEventSourcedRepository(
   // the
   // file also needs `using <ns>.Auth`.
   const anyFindUsesUser = (repo?.finds ?? []).some((raw) =>
-    findUsesCurrentUser(unionFindAsOptionalTwin(raw, agg.name)),
+    findUsesCurrentUser(domainFindShape(raw, agg.name)),
   );
   // Write-scope narrowing (authorization): the EVENT-SOURCED twin
   // of the document `writeScopeMethod` above — a stream has no queryable row to
@@ -2233,7 +2233,7 @@ export function renderDapperEventSourcedRepository(
       ]
     : [];
   const findMethods = (repo?.finds ?? []).flatMap((raw) => {
-    const f = unionFindAsOptionalTwin(raw, agg.name);
+    const f = domainFindShape(raw, agg.name);
     const body = findBodies.find((b) => b.name === f.name);
     const filter = body?.filterClause ?? "";
     // ES finds load every stream in-memory, so strip the async EF terminal
