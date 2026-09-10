@@ -356,7 +356,8 @@ Sources: [language-docs-audit-2026-09-03](../audits/2026-09-03-language-docs-aud
 > the use case with a full emitter on all five. Named `create` is dropped too, by a different
 > mechanism (`lowerWorkflow` picks one primary). The route drop is one identical fail-open five times
 > (`if (!h) continue;`) while `api-checks.ts:217-220` actively models the handler name as "the WRITE
-> face" — three places promise routing works, zero deliver. **Blocked on M-T6.60**, which must land
+> face" — three places promise routing works, zero deliver. **Blocked on M-T6.62** (the workflow-`create`
+> miscompile; renumbered from M-T6.60 on 2026-09-10), which must land
 > first: option (a) would be built on a create path that miscompiles on all five.
 ## M-T6.59 — Phoenix cannot render the `if` statement: an assigning branch would compile and do nothing — `open` · **M** · P2
 
@@ -370,7 +371,9 @@ Raised 2026-09-03 by the M-FT.11 field-test slice, which added the `if <cond> { 
 
 Sources: M-FT.11 (grammar slice: `key` / `if` / `??`). Relates to [`vanilla-phoenix-gaps.md`](../old/plans/vanilla-phoenix-gaps.md).
 
-## M-T6.60 — A command-triggered `create` on a state-bearing workflow miscompiles on all five backends — `open` · **M** · P0
+## M-T6.62 — A command-triggered `create` on a state-bearing workflow miscompiles on all five backends — `open` · **M** · P0
+
+*Renumbered 2026-09-10 from `M-T6.60`, which #2840 minted while the numeric-strictness mission above already held that id (two live headings, one id — M-T6.58's "blocked on M-T6.60" was ambiguous). This one is the P0 miscompile; M-T6.60 stays the strictness ruling.*
 
 Found 2026-09-09 by the verification fleet ([F58](../audits/2026-09-03-language-docs-audit-findings.md)).
 `workflow Fulfillment { orderId: Order id  status: string  create(orderId: Order id) { status := "Pending" } }`
