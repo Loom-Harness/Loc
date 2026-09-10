@@ -2343,6 +2343,25 @@ export const DIAGNOSTIC_MESSAGES = {
     `subdomain '${p.name}': permission '${p.pName}' is declared more than once.`,
 
   // ----------------------------------------------------------------------
+  // src/ir/validate/checks/ui-render-slot-checks.ts
+  // ----------------------------------------------------------------------
+  "loom.markup-primitive-in-collection-lambda": (p: {
+    where: unknown;
+    op: unknown;
+    primitive: unknown;
+    param: unknown;
+  }) =>
+    `\`${p.primitive} { … }\` is built inside a \`.${p.op}(…)\` lambda, where it is not markup.  ` +
+    `A collection op is an EXPRESSION: every frontend renders its lambda body through the ` +
+    `expression renderer, not the body walker, so the primitive comes out as a bare function ` +
+    `call (\`${p.primitive}(…)\`) against a name no import provides — the generated frontend ` +
+    `fails to compile (\`Cannot find name '${p.primitive}'\`), it does not merely render wrong.  ` +
+    `Rendering a list of markup is what \`For\` is for: ` +
+    `\`For { each: <collection>, ${p.param} => ${p.primitive} { … } }\` emits properly keyed ` +
+    `elements.  A collection op is still fine in a VALUE position ` +
+    `(\`Text { rows.map(r => r.name).join(", ") }\`) — it is only the markup case that has ` +
+    `nowhere to go.`,
+  // ----------------------------------------------------------------------
   // src/ir/validate/checks/ui-gate-checks.ts
   // ----------------------------------------------------------------------
   "loom.page-gate-not-client-evaluable": (p: {
