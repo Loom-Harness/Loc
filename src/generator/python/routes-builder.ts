@@ -783,6 +783,21 @@ export function pyWireToDomain(expr: string, t: TypeIR, ctx: BoundedContextIR): 
       // `str`, wire parity with Hono/.NET); the domain works in Decimal.
       if (t.name === "money") return `Decimal(${expr})`;
       return expr;
+    case "entity": {
+      // A declared record PAYLOAD — the workflow explicit-command param
+      // (`create(c: FileClaim)`, #2864 D7/T2).  Its wire model and its domain
+      // dataclass are two distinct types, so the value is rebuilt field by
+      // field exactly as a value object is: without it `Claim.create(
+      // cargo=c.cargo, …)` passed a `str` where the factory declares a
+      // `CargoId`.  Every other `entity` is a containment part, which keeps
+      // the pass-through the default arm gives.
+      const pl = ctx.payloads.find((x) => x.name === t.name && !x.variants);
+      if (!pl) return expr;
+      const args = pl.fields
+        .map((pf) => pyWireToDomain(`${expr}.${pf.name}`, pf.type, ctx))
+        .join(", ");
+      return `${t.name}(${args})`;
+    }
     default:
       return expr;
   }

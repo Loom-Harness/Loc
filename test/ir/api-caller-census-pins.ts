@@ -712,6 +712,27 @@ export const E2E_LESS_CORPUS_FIXTURES: readonly string[] = [
   // blocker as `R.tenantRegistryRow`; drain them together.  Runtime home today:
   // `tenancy-e2e.yml`'s hierarchy legs (label/post-merge).
   "tenancy-hierarchy",
+  // COMPILE-TIER WITNESS, and NOT EXPRESSIBLE at the behavioural tier besides.
+  // The bug class this fixture was minted for (#2864 D7/T2) is "the emitted
+  // project names a wire type nothing emits" — `z.unknown()` with no contract
+  // on node, an undefined `<Payload>Response` on the other four, plus an
+  // undefined domain record on dotnet.  That is exactly what the five compile
+  // legs see and the generate tier cannot: the model generated cleanly on all
+  // five backends the whole time it was broken.
+  //
+  // A caller is also not writable here today: the defect lives on the WORKFLOW
+  // command route (`POST /workflows/claim_handling`), and the e2e DSL has no
+  // surface that calls one — no `.ddd` in the repo drives a command workflow
+  // from a `test e2e` block.  So an e2e block added to this fixture would drive
+  // the two `crudish` aggregates and never touch the payload wire contract it
+  // exists for, which is worse than an honest exclusion: a green caller over
+  // the routes that were never broken.
+  //
+  // Drain: when the e2e DSL gains a workflow-invocation form, POST the payload
+  // and read the created `Claim` back — that would prove the wire CONTRACT
+  // (node's `z.unknown()` accepted anything, so the boundary had no oracle at
+  // all), which the compile tier genuinely cannot see.
+  "workflow-command-payload",
 ];
 
 /**

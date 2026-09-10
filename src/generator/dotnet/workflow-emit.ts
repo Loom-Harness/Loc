@@ -42,6 +42,10 @@ import { workflowCorrIdValueType } from "../../ir/util/workflow-instances.js";
 import { resolveErrorStatus } from "../../util/error-defaults.js";
 import { lowerFirst, plural, snake, upperFirst } from "../../util/naming.js";
 import { renderDotnetLogCall } from "../_obs/render-dotnet.js";
+import {
+  workflowParamPayloads,
+  workflowParamTypeSeeds,
+} from "../_payload/workflow-param-payloads.js";
 import type { SourceMapRecorder } from "../_trace/sourcemap.js";
 import { statementSubRegions } from "../_trace/sourcemap.js";
 import { renderWorkflowStmtChunks, type WorkflowStmtTarget } from "../_workflow/stmt-target.js";
@@ -218,7 +222,107 @@ export function emitWorkflows(
     // mirroring the aggregate-create `<Vo>Request` shape.
     const voRequests = renderWorkflowValueObjectRequests(commandWfs, ctx, ns);
     if (voRequests) out.set("Application/Workflows/WorkflowRequests.cs", voRequests);
+    // A command-workflow whose param is a declared record PAYLOAD
+    // (`create(c: FileClaim)` — `docs/workflow.md`'s explicit-command form)
+    // needs TWO records that nothing else emits, because a payload has no
+    // owning aggregate to hang them off (#2864 D7/T2):
+    //
+    //   * the WIRE record `<Payload>Response`, which the Request DTO already
+    //     names (`wireType`'s `entity` arm renders `<Name>Response`), and
+    //   * the DOMAIN record `<Payload>`, which the Command record already
+    //     names (`renderCsType`'s `entity` arm renders the bare name) and
+    //     which the handler body's `command.C.<Field>` reads must be typed by
+    //     — the body renderer types a payload member access at its DOMAIN
+    //     type, so `Claim.Create(command.C.Cargo, …)` needs a `CargoId`, not
+    //     the wire `Guid`.
+    //
+    // Emitting only the wire half would trade CS0246 for CS1503.  The domain
+    // half is materialized from the wire half by `wireToCommandArgument`'s
+    // payload arm, exactly as a VO param is.
+    const payloadWire = renderWorkflowPayloadWireRecords(ctx, ns);
+    if (payloadWire) out.set("Application/Workflows/WorkflowPayloads.cs", payloadWire);
+    // One file per payload, named for the type it declares — not one pooled
+    // file.  `pruneUnreferencedAmbientKernel` reads `Domain/ValueObjects/<X>.cs`
+    // as "this file declares the type `X`" and drops it when no other emitted
+    // file names `X`; a pooled `WorkflowPayloads.cs` declaring `FileClaim` is
+    // dropped by that rule even though the Command record names `FileClaim`.
+    // Per-payload files make the basename the declared name, exactly as
+    // `emitValueObjects` does, so the pruner keeps them for the right reason.
+    for (const [path, content] of renderWorkflowPayloadDomainRecords(ctx, ns)) {
+      out.set(path, content);
+    }
   }
+}
+
+/** The `<Payload>Response` WIRE records this context's command-workflow
+ *  payload params reference, in the shared `Application.Workflows` namespace
+ *  (the Request DTOs' own namespace, so they resolve unqualified).  Mirrors
+ *  `renderWorkflowValueObjectRequests`, keyed off payload params.  Returns
+ *  `undefined` when no workflow param is a payload. */
+function renderWorkflowPayloadWireRecords(
+  ctx: EnrichedBoundedContextIR,
+  ns: string,
+): string | undefined {
+  const payloads = workflowParamPayloads(ctx);
+  if (payloads.length === 0) return undefined;
+  const recs = payloads
+    .map((pl) => {
+      const params = pl.fields
+        .map((f) => dtoParam(wireType(f.type, ctx, "request"), upperFirst(f.name), "request"))
+        .join(", ");
+      return `public sealed record ${pl.name}Response(${params});\n`;
+    })
+    .join("\n");
+  return `// Auto-generated.
+using System;
+using System.Collections.Generic;
+using System.ComponentModel.DataAnnotations;
+using ${ns}.Domain.Enums;
+using ${ns}.Domain.ValueObjects;
+${noNulCharUsing(ns, recs)}
+namespace ${ns}.Application.Workflows;
+
+${recs}`;
+}
+
+/** The DOMAIN records for the same payloads — the type the Command record and
+ *  the handler body are written against.  Emitted beside the value objects
+ *  (`Domain.ValueObjects`), which every workflow file already `using`s, and
+ *  which shares the payload's one-name-per-context namespace rule
+ *  (`docs/payloads.md` §1: payload names share a namespace with value objects
+ *  and events).  Fields carry their DOMAIN types (`renderCsType`), so an
+ *  `X id` field is an `XId` and a `money` field a `decimal`. */
+function renderWorkflowPayloadDomainRecords(
+  ctx: EnrichedBoundedContextIR,
+  ns: string,
+): Map<string, string> {
+  const files = new Map<string, string>();
+  for (const pl of workflowParamPayloads(ctx)) {
+    const params = pl.fields
+      // `renderCsType` already renders an `optional(T)` as `T?`, so the
+      // `f.optional` flag only adds the `?` when the TYPE does not already
+      // carry it — appending unconditionally emitted `string?? Note`, which
+      // is not C#.  (The same normalisation the java arm gets from `effType`.)
+      .map(
+        (f) =>
+          `${renderCsType(f.type)}${f.optional && f.type.kind !== "optional" ? "?" : ""} ${upperFirst(f.name)}`,
+      )
+      .join(", ");
+    files.set(
+      `Domain/ValueObjects/${pl.name}.cs`,
+      `// Auto-generated.
+using System;
+using System.Collections.Generic;
+using ${ns}.Domain.Enums;
+using ${ns}.Domain.Ids;
+
+namespace ${ns}.Domain.ValueObjects;
+
+public sealed record ${pl.name}(${params});
+`,
+    );
+  }
+  return files;
 }
 
 /** Emit the `<Vo>Request` records that this context's command-workflows'
@@ -231,10 +335,15 @@ function renderWorkflowValueObjectRequests(
   ctx: EnrichedBoundedContextIR,
   ns: string,
 ): string | undefined {
-  const seeds = function* (): Generator<import("../../ir/types/loom-ir.js").TypeIR> {
-    for (const wf of commandWfs) for (const p of wf.params) yield p.type;
-  };
-  const { valueObjects } = collectReachableTypes(seeds(), ctx.valueObjects);
+  // Seeds include a payload param's OWN field types (`workflowParamTypeSeeds`)
+  // — a VO reachable only THROUGH a payload (`command FileClaim { total: Money }`)
+  // would otherwise be missed, and the emitted `<Payload>Response` record then
+  // names a `MoneyRequest` this pass never emitted (CS0246, one level down
+  // from #2864 D7/T2 itself).
+  const { valueObjects } = collectReachableTypes(
+    workflowParamTypeSeeds(commandWfs, ctx),
+    ctx.valueObjects,
+  );
   if (valueObjects.size === 0) return undefined;
   const recs = ctx.valueObjects
     .filter((v) => valueObjects.has(v.name))

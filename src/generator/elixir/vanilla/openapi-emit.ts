@@ -61,6 +61,7 @@ import {
 import { plural, snake, upperFirst } from "../../../util/naming.js";
 import { PROVENANCE_VALUE_FIELD, provenancedEntries } from "../../_payload/provenanced-wire.js";
 import { unionMembers } from "../../_payload/union-wire.js";
+import { workflowParamPayloads } from "../../_payload/workflow-param-payloads.js";
 import type { ApiRoute } from "../api-emit.js";
 import { servedOperationEntries, servesHistory } from "./api-emit.js";
 import { denialOverrides, denialStatus } from "./denial.js";
@@ -320,6 +321,26 @@ export function emitOpenApiSpec(args: OpenApiEmitArgs): OpenApiEmitResult {
     allAggregates.some(({ agg }) => agg.operations.some((o) => o.visibility === "public" && o.when))
   ) {
     files.set(`${schemaDir}/can_response.ex`, renderCanResponseSchema(webModule));
+  }
+
+  // Declared record payloads a workflow param names — the
+  // `create(c: FileClaim)` explicit-command form.  The workflow request
+  // schema below references `<Payload>Response` (the `entity` spelling
+  // `schemaRefFor` produces), and nothing emitted that module: a payload has
+  // no owning aggregate, so no per-aggregate pass reaches it and the request
+  // schema named an undefined module (#2864 D7/T2).  Deduplicated by name
+  // like the value objects above, since a payload is context-scoped but the
+  // schema directory is per-project.
+  const emittedPayloads = new Set<string>();
+  for (const ctx of contexts) {
+    for (const pl of workflowParamPayloads(ctx)) {
+      if (emittedPayloads.has(pl.name)) continue;
+      emittedPayloads.add(pl.name);
+      files.set(
+        `${schemaDir}/${snake(pl.name)}_response.ex`,
+        renderPayloadResponseSchema(pl, webModule),
+      );
+    }
   }
 
   // Workflow request schemas
@@ -1107,6 +1128,23 @@ function renderValueObjectSchema(vo: ValueObjectIR, webModule: string): string {
     }),
   );
   return renderSchemaModule(moduleName, vo.name, fields, `${webModule}.Api.Schemas`);
+}
+
+/** The `<Payload>Response` schema module for a declared record payload used as
+ *  a workflow command param.  Structurally identical to a value object's
+ *  schema (a payload IS a flat record) — only the module name differs, and it
+ *  carries the `Response` suffix because that is the name every backend's
+ *  wire-type mapper already renders for an `entity` reference. */
+function renderPayloadResponseSchema(pl: PayloadIR, webModule: string): string {
+  const moduleName = `${webModule}.Api.Schemas.${pl.name}Response`;
+  const fields: Array<{ name: string; type: TypeIR; optional: boolean }> = pl.fields.map(
+    (f: FieldIR) => ({
+      name: f.name,
+      type: f.type,
+      optional: f.optional,
+    }),
+  );
+  return renderSchemaModule(moduleName, `${pl.name}Response`, fields, `${webModule}.Api.Schemas`);
 }
 
 function renderPartResponseSchema(part: EnrichedEntityPartIR, webModule: string): string {

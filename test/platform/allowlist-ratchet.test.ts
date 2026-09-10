@@ -331,7 +331,25 @@ const REGISTERED: Ratchet[] = [
     // stale entry the moment `main` moved under this branch — the drain
     // direction working in the field rather than in a mutation, twice in two
     // days, which is the rate a hand-maintained matrix would have rotted at.
-    max: 12,
+    //
+    // 12 -> 13 (#2864 D7/T2, mission M-T6.67a) — the first RAISE, and the
+    // reviewed line in the diff this ratchet exists to force.  The new corpus
+    // fixture `workflow-command-payload` cannot carry a `test e2e` block:
+    // its defect is on the WORKFLOW command route, and the e2e DSL has no form
+    // that calls one — NO `.ddd` in this repo drives a command workflow from a
+    // `test e2e` block.  A block added anyway could only drive the fixture's
+    // two `crudish` aggregates, i.e. a green caller over the routes that were
+    // never broken, which is the hollowing-out this gate was minted to stop
+    // rather than a way around it.  The bug class is "the emitted project
+    // names a wire type nothing emits", which is precisely what the five
+    // compile legs see.
+    //
+    // Drain (M-T9.13, which owns authoring these blocks): when the e2e DSL
+    // gains a workflow-invocation form, POST the payload and read the created
+    // aggregate back — that reaches the one thing the compile tier cannot, the
+    // wire CONTRACT (node's pre-fix `z.unknown()` accepted anything). Lower
+    // this back to 12 in the same PR.
+    max: 13,
   },
 ];
 
