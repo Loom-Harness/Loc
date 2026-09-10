@@ -207,9 +207,9 @@ timeout fired and needed a manual label re-arm. v2 never waits:
 - **How many evaluations a PR head gets is NOT observable the way this repo
   kept measuring it.** A `workflow_run`-triggered run is attributed to the
   repository's DEFAULT BRANCH. Measured 2026-09-10 over the 100 most recent
-  runs of `pr-gate.yml`: the **91** that were `event=workflow_run` every one
-  carry `head_branch: main` and `head_sha` = `main`'s head, whatever PR SHA
-  they were dispatched to evaluate. So `list_workflow_runs(branch=<pr-branch>)`
+  runs of `pr-gate.yml`, **all 91** that were `event=workflow_run` carry
+  `head_branch: main` and `head_sha` = `main`'s head, whatever PR SHA they
+  were dispatched to evaluate. So `list_workflow_runs(branch=<pr-branch>)`
   returns exactly ONE `pr-gate` run — the `pull_request`-event one — and a
   PR's own check-runs list carries exactly one `pr-gate-eval` for the same
   reason: a `workflow_run`-triggered job's check run lands on `main`'s SHA,

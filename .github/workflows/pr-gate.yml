@@ -338,9 +338,11 @@ jobs:
   #
   # The `schedule:` trigger was the only thing meant to catch that, and it does
   # not: the cron asks for four sweeps an hour and Actions delivers a mean gap
-  # of 4.7 HOURS on this account (measured — see the comment on the trigger).
-  # So the sweep now also rides `workflow_run`, the one event stream this repo
-  # produces both reliably and in volume.
+  # of 3.48 HOURS on this account (re-measured 2026-09-10 — see the comment on
+  # the trigger).  So the sweep now also rides `workflow_run`, the one event
+  # stream this repo produces both reliably and in volume — though under load
+  # most sweep-eligible runs are cancelled as superseded pendings, so what it
+  # delivers is ~1 sweep per 18 min, not ~4/hour.
   #
   # TWO independent brakes, because an unthrottled sweep would exhaust the
   # per-repository GITHUB_TOKEN budget — a sweep costs one call to list the
