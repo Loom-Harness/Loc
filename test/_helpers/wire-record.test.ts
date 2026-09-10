@@ -1,12 +1,15 @@
 import { describe, expect, it } from "vitest";
 import {
   applyWaivers,
+  decimalEqual,
   diffRecording,
   generalizePath,
   isVolatileSegment,
+  offContractNumber,
   pathMatches,
   renderWireReport,
   requestMatches,
+  significantDigits,
   staleWaivers,
   templatePath,
   toWireEntry,
@@ -89,6 +92,89 @@ describe("toWireEntry", () => {
     });
   });
 
+  // -------------------------------------------------------------------------
+  // The FORMAT dimension (M-T9.37).  Every assertion below is on a body whose
+  // parsed VALUES are identical — the point is that the old comparator saw
+  // nothing here, by construction, which is how 34-digit decimals shipped
+  // through a green wire gate for four PRs running.
+  // -------------------------------------------------------------------------
+
+  it("records nothing for ordinary numbers, so no golden churns", () => {
+    const e = toWireEntry(0, "GET", "/x", 200, JSON.stringify({ qty: 2, rate: 9.99 }));
+    // Absent, not empty: the serialized entry is byte-identical to one written
+    // before this field existed.
+    expect(e.numberFormats).toBeUndefined();
+    expect(JSON.stringify(e)).not.toContain("numberFormats");
+  });
+
+  it("records a spelling that claims more digits than a float64 holds", () => {
+    // Java's un-narrowed BigDecimal — the exact shape M-T6.46 shipped. It parses
+    // to the same double as 9.99, which is precisely why nothing caught it, and
+    // its VALUE is 9.99 exactly — so only the digit-width rule reaches it.
+    const raw = '{"price":9.9900000000000000000000000000000000}';
+    const e = toWireEntry(0, "GET", "/x", 200, raw);
+    expect(e.body).toEqual({ price: 9.99 });
+    expect(e.numberFormats).toEqual(["9.9900000000000000000000000000000000"]);
+  });
+
+  it("records a spelling that denotes a DIFFERENT value than the canonical one", () => {
+    // The same un-narrowed serializer on a value that is not exact: node's
+    // float64 answers 3.3333333333333335, java's BigDecimal division answers
+    // 33 threes. A decimal-preserving client reads two different numbers.
+    const e = toWireEntry(0, "GET", "/x", 200, '{"avg":3.333333333333333333333333333333333}');
+    expect(e.numberFormats).toEqual(["3.333333333333333333333333333333333"]);
+  });
+
+  it("does NOT record a cosmetic float rendering — the 23-divergence lesson", () => {
+    // python renders a float64 with its fractional part where V8 does not, and
+    // .NET/java render a NUMERIC(19,4) column at its declared scale. Same
+    // value, well inside float64's width, indistinguishable to every parser.
+    // Gating these bought 23 divergences per python run and zero defects.
+    for (const raw of ['{"a":1.0}', '{"a":12.5000}', '{"a":10.0}', '{"a":1e1}']) {
+      expect(toWireEntry(0, "GET", "/x", 200, raw).numberFormats, raw).toBeUndefined();
+    }
+    expect(toWireEntry(0, "GET", "/x", 200, '{"a":1}').numberFormats).toBeUndefined();
+  });
+
+  it("classifies every spelling the five backends were MEASURED to emit", () => {
+    // Captured 2026-09-09 by running the real serializers, not by reading
+    // emitters: node/V8 `String(x)`, python `json.dumps` over a float,
+    // elixir `Jason.encode!(Decimal.to_float(d))` in a 1.17.3 container,
+    // .NET `System.Text.Json` and java Jackson over a `double` response field.
+    // Every one of them is inside float64's width and denotes the canonical
+    // value, so NONE may gate — that is the whole finding.
+    const benign = [
+      "10.0", // python, elixir: a float64 rendered with its fractional part
+      "12.5000", // .NET/java: a NUMERIC(19,4) column at its declared scale
+      "9.99",
+      "12.5",
+      "3.3333333333333335", // the float64 answer itself
+      "1.2345678901234568e29", // elixir's exponent form, no `+` on the exponent
+      "0.0001",
+      "1e1",
+    ];
+    for (const lit of benign) {
+      expect(offContractNumber(lit, String(Number(lit))), lit).toBe(false);
+    }
+    // …and the two shapes M-T6.46 actually shipped, one caught by each rule.
+    for (const lit of [
+      "9.9900000000000000000000000000000000", // exact value, 33 digits wide
+      "3.333333333333333333333333333333333", // a different value entirely
+    ]) {
+      expect(offContractNumber(lit, String(Number(lit))), lit).toBe(true);
+    }
+  });
+
+  it("treats a spelling it cannot parse as off-contract rather than fine", () => {
+    // `decimalKey` returns null for anything not shaped like a JSON number;
+    // the predicate must fail CLOSED, or a form nobody anticipated is waved
+    // through by the code that did not understand it.
+    expect(offContractNumber("not-a-number", "1")).toBe(true);
+    expect(significantDigits("0")).toBe(1);
+    expect(decimalEqual("0", "-0.0")).toBe(true);
+    expect(decimalEqual("1e5", "100000")).toBe(true);
+  });
+
   it("keeps a non-JSON body as text and an empty body as the empty string", () => {
     expect(toWireEntry(0, "GET", "/x", 500, "Internal Server Error").body).toBe(
       "Internal Server Error",
@@ -132,6 +218,38 @@ describe("diffRecording", () => {
     expect(d.map((x) => x.kind).sort()).toEqual(["enum-casing", "null-vs-empty"]);
     expect(d[0].seq).toBe(0);
     expect(d[0].request).toBe("GET /api/products");
+  });
+});
+
+describe("diffRecording — the format dimension (M-T9.37)", () => {
+  const entry = (bodyText: string) => toWireEntry(0, "GET", "/api/products", 200, bodyText);
+
+  it("FAILS on excess precision the value comparison cannot see", () => {
+    // The regression this gate exists for, end to end: oracle vs Java.
+    const golden = [entry('{"price":9.99}')];
+    const actual = [entry('{"price":9.9900000000000000000000000000000000}')];
+
+    // The premise — the values really are equal, so every value-level check
+    // passes and only the format check can fire.
+    expect(golden[0].body).toEqual(actual[0].body);
+
+    const d = diffRecording(golden, actual);
+    expect(d).toHaveLength(1);
+    expect(d[0].kind).toBe("number-format");
+    expect(d[0].actual).toBe("9.9900000000000000000000000000000000");
+    expect(d[0].golden).toBe("");
+  });
+
+  it("stays silent when both sides spell numbers canonically", () => {
+    const d = diffRecording([entry('{"price":9.99}')], [entry('{"price":9.99}')]);
+    expect(d).toEqual([]);
+  });
+
+  it("treats an absent field and an empty list alike, so old goldens still pass", () => {
+    // A golden written before `numberFormats` existed has no such key at all.
+    const stale = { ...entry('{"price":9.99}') } as Record<string, unknown>;
+    delete stale.numberFormats;
+    expect(diffRecording([stale as never], [entry('{"price":9.99}')])).toEqual([]);
   });
 });
 

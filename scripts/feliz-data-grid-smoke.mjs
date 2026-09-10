@@ -38,6 +38,14 @@ const ROWS = [
   id: `p${i}`,
   name: r.name,
   price: `${i + 1}.00`,
+  // `weight` (decimal) and `sold` (long) are REQUIRED on the fixture's
+  // Product as of M-T1.22, and the emitted decoder reads both through
+  // `get.Required.Field`. A stub row missing either fails the WHOLE record
+  // decode, so the page renders zero rows and every assertion below times
+  // out on absent markup rather than on a wrong value. Decimal is a JSON
+  // number (never money's string) and long encodes as a JSON number too.
+  weight: 1.5,
+  sold: 42,
   inStock: true,
   note: null,
   status: r.status,
@@ -148,6 +156,19 @@ try {
 
   if (errors.length > 0) throw new Error(`page errors: ${errors.join(" | ")}`);
   console.log("feliz data-grid smoke: OK");
+} catch (e) {
+  // Report what the PAGE said before re-throwing.  Without this the collected
+  // `errors` are only ever printed by the check at the end of the happy path,
+  // so any failure BEFORE it — in practice a `locator.waitFor` timeout, the
+  // normal shape when the page rendered nothing — loses them entirely and CI
+  // reports "waiting for getByText(...)" with no cause.  A wire-decode failure
+  // is exactly that: one `pageerror`, an empty page, and ten seconds of
+  // waiting for markup that was never coming (M-T1.22 spent a CI round trip
+  // rediscovering this).
+  if (errors.length > 0) {
+    e.message += `\n  page errors collected before the failure:\n    ${errors.join("\n    ")}`;
+  }
+  throw e;
 } finally {
   await browser.close();
 }
