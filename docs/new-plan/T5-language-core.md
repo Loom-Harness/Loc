@@ -106,7 +106,23 @@ Mint the RS rule per the registry's own claim-the-number protocol (`docs/conform
 
 **Also carried here** (same ruling's blast radius, from the register annex): node money arithmetic runs at decimal.js default 20-significant-digit precision (no `Decimal.set` emitted) vs 28+ elsewhere; the inbound `decimal` precision-acceptance skew (Java unlimited vs .NET 28–29 vs double-clamped — a Java-written 30-digit value can `OverflowException` a .NET reader of the same column); and the numeric doc drift (`docs/language.md` host-type table predates #2575 and mislabels Java; the stdlib catalog signature `sum → decimal` in `src/util/collection-ops.ts` disagrees with `type-system.ts`'s body-type rule — fix the catalog, regen `docs:stdlib`).
 
-**Verification when it lands.** The new corpus case green on all five behavioral legs; the RS entry in the registry; mutation-proved by reverting one exact-side backend.
+**This is a COORDINATED MOMENT — one PR, nothing else in it.** Measured
+2026-09-10: `jq -r .oracle test/behavioral/wire-golden/*.json | sort | uniq -c`
+answers **54 node**, and SEVEN behavioural legs diff against those goldens
+(`behavioral`, `-mikroorm`, `-dotnet`, `-dapper`, `-python`, `-java`,
+`-elixir`). So the instant node goes exact, all seven are red until all 54 are
+re-captured — node, python and the goldens have to land **together, alone**.
+Landing it as one row inside a multi-row cross-backend packet is the failure
+mode to avoid: there, any other row being wrong is indistinguishable from the
+oracle move, and a conflict on the goldens blocks the whole packet. Treat it as
+a fourth coordinated moment alongside the three in
+[completion-waves-2026-09](completion-waves-2026-09.md) (A4 `getById`,
+`denyByDefault`, `organizationContext`). Note the move is more visible than it
+was before [#2807](https://github.com/lemmit/Loc/pull/2807): the differential
+now compares number FORMATS as well as values, so an oracle shift diverges on
+spelling too, not only on magnitude.
+
+**Verification when it lands.** The new corpus case green on all five behavioral legs; the RS entry in the registry; mutation-proved by reverting one exact-side backend. **Every leg is locally runnable** — including elixir, whose toolchain lifts out of the `hexpm/elixir` image onto the host (`docs/tools.md` → "Running `mix` on the HOST"); verified 2026-09-10 by running `node run-elixir.mjs core-domain` that way (`2 passed, 0 failed`, 0 divergences), which corrects [#2807](https://github.com/lemmit/Loc/pull/2807)'s body where it claims the elixir leg does not run on a sandbox host. It does. Re-capture the goldens against a leg you have RUN, never against CI alone.
 
 Sources: [numeric-types-audit-2026-08-23](../audits/numeric-types-audit-2026-08-23.md) F11 + annex, plan.json N7. Relates to M-T6.46/M-T6.47 (the response-narrowing halves), RS-24.
 
