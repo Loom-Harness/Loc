@@ -1860,7 +1860,13 @@ export const DIAGNOSTIC_MESSAGES = {
     `(persistedAs: ${p.persistedAs}, ` +
     `needs dataSource kind: ${p.kind}) but lists no matching dataSource. ` +
     `Declare ` +
-    `\`dataSource ${p.ctxName2}${p.kind2} ` +
+    // The DECLARATION keyword is `resource`; `dataSource` is only the name of
+    // the deployable's `dataSources:` clause.  This read `dataSource`, so a
+    // reader who pasted the suggested line verbatim got a parse error
+    // ("Expecting token of type '}' but found `dataSource`") — the one thing a
+    // fix-it message must never do.  Its sibling `loom.datasource-unused` has
+    // always said "resource".
+    `\`resource ${p.ctxName2}${p.kind2} ` +
     `{ for: ${p.ctxName}, kind: ${p.kind}, use: <storage> }\` ` +
     `and add it to '${p.name}'\`s 'dataSources:' list.`,
   "loom.datasource-unused": (p: {

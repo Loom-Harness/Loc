@@ -61,6 +61,16 @@ export function checkRepositoryFinds(model: Model, accept: ValidationAcceptor): 
     if (!isFindDecl(node)) continue;
     checkGateIsBool(node.gate, node, accept);
     if (!returnsCollection(node)) continue;
+    // `find all` is NOT a bespoke list finder — it is the aggregate's own
+    // compiler-synthesised list route, and DECLARING it is the one documented
+    // way to put a `requires` gate on that route (auth.md: "the auto-injected
+    // `find all` list route ... Declaring an explicit `find all(): T[] requires
+    // <expr>` gates that route, and does so on all five backends").  Warning on
+    // it told the reader that the fix for an ungated list read is deprecated —
+    // two shipped rules contradicting each other, with security on the losing
+    // side.  A criterion/retrieval cannot replace it: neither is reachable from
+    // that route.
+    if (node.name === "all") continue;
     accept("warning", diagMessage("loom.repository-find-deprecated", { name: node.name }), {
       node,
       property: "name",

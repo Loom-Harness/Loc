@@ -64,9 +64,20 @@ describe("ddd new — scaffold matrix", () => {
         expect(gen.status).toBe(0);
         const report = JSON.parse(gen.stdout) as {
           ok: boolean;
+          diagnostics: { severity?: string; code?: string; message?: string }[];
           deployables: { name: string; platform: string; port: number }[];
         };
         expect(report.ok).toBe(true);
+        // ...and CLEANLY.  `ok` is true with warnings, so this assertion was
+        // the gap: the shipped `crud` starter carried a list-returning
+        // `find byProject(...)`, which `loom.repository-find-deprecated` warns
+        // on — so a fresh `ddd new` scolded the user on their very first
+        // `ddd parse`, before they had written a line.  A starter is the one
+        // model in the repo that must be exemplary.
+        expect(
+          report.diagnostics ?? [],
+          `${platform}/${template} scaffolds without diagnostics`,
+        ).toEqual([]);
         expect(report.deployables.some((d) => d.platform === platform)).toBe(true);
 
         fs.rmSync(tmp, { recursive: true });

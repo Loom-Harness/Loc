@@ -170,9 +170,17 @@ function crudDomain(): DomainBlock {
         project: Project id
       }
 
-      repository Tasks for Task {
-        find byProject(projectId: Project id): Task[] where this.project == projectId
+      // A list read is a criterion + retrieval pair, not a bespoke repository
+      // find: a list-returning "find byX(...)" is deprecated
+      // (loom.repository-find-deprecated), and the starter used to ship one — so
+      // a fresh "ddd new" warned on its own first parse.
+      criterion InProject(p: Project id) of Task = project == p
+      retrieval TasksInProject(p: Project id) of Task {
+        where: InProject(p)
+        sort: [title asc]
       }
+
+      repository Tasks for Task { }
     }
   }`,
   };
@@ -244,10 +252,24 @@ export function renderStarter(opts: {
 system ${sys} {
 
   // Authorization is opt-in in a fresh model.  When you wire real auth, prefer
-  // deny-by-default: every client-reachable command AND read (operations,
-  // creates, destroys, workflows, views, repository finds) must then declare a
-  // \`requires <expr>\` gate — \`requires true\` is the explicit "intentionally
-  // public" escape.  Mark the deployable \`auth: required\` to enforce it.
+  // deny-by-default: every client-reachable command (operations, creates,
+  // destroys, workflow starters + handlers) and every DECLARED read (repository
+  // finds, projections) must then carry a \`requires <expr>\` gate —
+  // \`requires true\` is the explicit "intentionally public" escape.  Mark the
+  // deployable \`auth: required\` to enforce it.
+  //
+  // Two limits to know before you turn it on.  The compiler-synthesised reads
+  // (\`GET /<plural>\` and \`GET /<plural>/{id}\`) have no author surface to
+  // attach a gate to, so they are NOT covered — they serve to any authenticated
+  // caller.  And \`with crudish\` generates its create/update/destroy, which
+  // likewise cannot carry a gate: under denyByDefault you must hand-write those
+  // three on any aggregate you want gated.  Both wait on one aggregate-level
+  // default-gate surface.
+  //   user {
+  //     id: string
+  //     role: string
+  //     permissions: string[]
+  //   }
   //   auth {
   //     enforcement: denyByDefault
   //     oidc { issuer: env("OIDC_ISSUER") clientId: env("OIDC_CLIENT_ID") }
