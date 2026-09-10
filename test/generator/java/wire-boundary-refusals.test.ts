@@ -178,3 +178,77 @@ describe("java — the invariant validator skips a null instead of dereferencing
     expect(validator).toContain(">= 1");
   });
 });
+
+// ── The guarded invariant (audit F19 / M-T6.54) ────────────────────────────
+// `invariant note.length > 0 when taxRate > 0` is a CONDITIONAL rule: it says
+// nothing at all about `note` when `taxRate == 0`.  Java rendered only the
+// consequent, so `{taxRate: 0, note: ""}` — a body the Java DOMAIN layer
+// itself accepts — was refused at the wire with a 422 no other backend emits.
+// The three peers all render the implication: .NET
+// `.Must(x => !(x.TaxRate > 0) || (…))`, node `.refine(d => !(d.taxRate > 0) || …)`,
+// python `if not (not (self.taxRate > 0) or (…))`.
+//
+// `singleFieldShape` returns null for any guarded invariant
+// (`src/ir/validate/invariant-classify.ts`), so the generic-predicate arm of
+// `buildChecks` is the ONLY arm a guarded invariant can reach — nothing else
+// (no bean-validation annotation, no `patternCheck` chain) double-enforces it,
+// which is exactly why dropping the guard was a silent over-refusal.
+const guardedSrc = `
+system Shop {
+  subdomain D {
+    context Shop {
+      aggregate Order with crudish {
+        sku: string
+        taxRate: int
+        note: string
+        invariant note.length > 0 when taxRate > 0
+      }
+      repository Orders for Order { }
+    }
+  }
+  api A from D
+  storage pg { type: postgres }
+  resource shopState { for: Shop, kind: state, use: pg }
+  deployable jv { platform: java, contexts: [Shop], dataSources: [shopState], serves: A, port: 4000 }
+}
+`;
+
+async function guardedFile(suffix: string): Promise<string> {
+  const files = await generateSystemFiles(guardedSrc);
+  const key = [...files.keys()].find((k) => k.endsWith(suffix));
+  expect(key, `${suffix} not emitted`).toBeDefined();
+  return files.get(key as string) as string;
+}
+
+describe("java — a guarded invariant crosses the wire WITH its guard", () => {
+  it("the generic predicate is the `!(guard) || (body)` implication", async () => {
+    const validator = await guardedFile("orders/CreateOrderValidator.java");
+    expect(validator).toContain(
+      "if (!(!(taxRate > 0) || (((int) note.codePoints().count()) > 0)))",
+    );
+  });
+
+  it("the UNGUARDED form is absent — a presence-only check cannot see the drop", async () => {
+    // The defect's exact emission.  Asserting only the implication above would
+    // still pass if BOTH lines were emitted; this is the assertion that fails
+    // on unmodified main.
+    const validator = await guardedFile("orders/CreateOrderValidator.java");
+    expect(validator).not.toContain("if (!(((int) note.codePoints().count()) > 0))");
+  });
+
+  it("the guard's own field gets its parse-local, so the predicate compiles", async () => {
+    // `renderValidatorClass` derives the locals by scanning the RENDERED
+    // checks — a guard that is rendered but whose field never appears would
+    // emit `taxRate` undeclared (javac "cannot find symbol").
+    const validator = await guardedFile("orders/CreateOrderValidator.java");
+    expect(validator).toContain("var taxRate = request.taxRate();");
+    expect(validator).toContain("var note = request.note();");
+  });
+
+  it("an UNGUARDED invariant in the same command is untouched", async () => {
+    // Scope guard: the implication must wrap ONLY guarded invariants.  `sku`
+    // carries crudish's own rules and no `when`, so it keeps its bare form.
+    const validator = await guardedFile("orders/CreateOrderValidator.java");
+    expect(validator).not.toContain("!(true) ||");
+  });
+});
