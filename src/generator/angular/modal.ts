@@ -1,6 +1,7 @@
 import type { ExprIR, OperationIR } from "../../ir/types/loom-ir.js";
 import { humanize, lowerFirst, plural, snake, upperFirst } from "../../util/naming.js";
 import { preconditionsAsInvariants } from "../_frontend/zod-schemas.js";
+import { giveUp } from "../_walker/give-up.js";
 import {
   localizedNamedText,
   localizedPageChromeText,
@@ -110,7 +111,7 @@ export function renderAngularModal(
   if (!formChild) return null;
   const resolved = resolveOpForm(formChild, ctx);
   if (!resolved) {
-    return ctx.target.renderComment("Modal: could not resolve the OperationForm operation");
+    return giveUp(ctx.target, "Modal: could not resolve the OperationForm operation");
   }
   const { aggName, op, idExpr } = resolved;
 

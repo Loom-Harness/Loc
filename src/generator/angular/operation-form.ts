@@ -1,6 +1,7 @@
 import type { ExprIR, OperationIR } from "../../ir/types/loom-ir.js";
 import { humanize, lowerFirst, plural, snake, upperFirst } from "../../util/naming.js";
 import { preconditionsAsInvariants } from "../_frontend/zod-schemas.js";
+import { giveUp } from "../_walker/give-up.js";
 import { namedArgValue, positionalArgs, stringNamed } from "../_walker/shared/args.js";
 import { emitExpr, type WalkContext } from "../_walker/walker-core.js";
 import {
@@ -107,7 +108,8 @@ export function renderAngularOperationForm(
   if (call.kind !== "call") return null;
   const resolved = resolveOpForm(call, ctx);
   if (!resolved) {
-    return ctx.target.renderComment(
+    return giveUp(
+      ctx.target,
       "OperationForm: expected (of: <Agg>, op: <opName>) or (<instance>.<op>)",
     );
   }

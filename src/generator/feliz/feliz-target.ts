@@ -11,6 +11,7 @@ import type { BoundedContextIR, ExprIR, FieldIR, ParamIR, TypeIR } from "../../i
 import { AUDIT_HISTORY_FIND } from "../../util/audit-names.js";
 import { lowerFirst, plural, snake, upperFirst } from "../../util/naming.js";
 import { PROVENANCE_LINEAGE_FIELD } from "../_payload/provenanced-wire.js";
+import { giveUp } from "../_walker/give-up.js";
 import { localizedPositionalTranslation } from "../_walker/i18n-emit.js";
 import { namedArgValue, stringNamed } from "../_walker/shared/args.js";
 import type { RenderPosition, StateRef, WalkerTarget } from "../_walker/target.js";
@@ -479,7 +480,7 @@ export const felizTarget: WalkerTarget = {
     const fieldIdx = argNames.indexOf("field");
     const fieldArg = fieldIdx >= 0 ? call.args[fieldIdx] : undefined;
     if (!ofArg || fieldArg?.kind !== "literal") {
-      return felizTarget.renderComment("ProvenanceInfo: missing record or field");
+      return giveUp(felizTarget, "ProvenanceInfo: missing record or field");
     }
     const lineage = `${emitExpr(ofArg, ctx)}.${String(fieldArg.value)}.${PROVENANCE_LINEAGE_FIELD}`;
     const rule =
@@ -540,7 +541,7 @@ export const felizTarget: WalkerTarget = {
     const argNames = call.argNames ?? [];
     const opRef = (call.args ?? []).find((_, i) => !argNames[i]);
     if (opRef?.kind !== "member" || opRef.receiver.kind !== "ref") {
-      return felizTarget.renderComment("Action: first argument must be <instance>.<operation>");
+      return giveUp(felizTarget, "Action: first argument must be <instance>.<operation>");
     }
     const aggName = ctx.paramTypes?.get(opRef.receiver.name);
     const agg = aggName ? ctx.aggregatesByName.get(aggName) : undefined;
@@ -548,7 +549,8 @@ export const felizTarget: WalkerTarget = {
       (o) => o.name === opRef.member && o.visibility === "public" && o.params.length === 0,
     );
     if (!agg || !op) {
-      return felizTarget.renderComment(
+      return giveUp(
+        felizTarget,
         `Action(${opRef.receiver.name}.${opRef.member}): no parameterless public operation in scope (use OperationForm for an op with parameters)`,
       );
     }
