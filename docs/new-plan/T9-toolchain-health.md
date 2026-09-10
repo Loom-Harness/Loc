@@ -727,14 +727,22 @@ Opened 2026-09-09 as *"every dropped-dispatch claim rests on a measurement artif
 updated to what the measurement found. Seven PRs in ten days had shipped four incompatible explanations
 of one symptom (#2730, #2804, #2812, #2822, #2832, #2835, #2846); this replaces all of them.
 
-**The artifact was real.** A `workflow_run`-triggered run is attributed to the repository's default
-branch, so `list_workflow_runs(branch=<pr-branch>)` structurally cannot return a `pr-gate` evaluation —
-all 100 of the last 100 carry `head_branch: main`. Re-measured **unfiltered**
+**The artifact is real; this mission's accusation was not.** F65 is true of branch-filtered listings in
+general — a `workflow_run`-triggered run is attributed to the repository's default branch, so
+`list_workflow_runs(branch=<pr-branch>)` structurally cannot return a `pr-gate` evaluation, and all 100
+of the last 100 carry `head_branch: main`. It is **not** true of **#2835**, which this mission named as
+resting on it. #2835 listed `event=workflow_run` runs **unfiltered** and read them correctly: its #2819
+table (last evaluation created 05:48:26, last check completed 05:49:10, *"evaluations created after:
+none"*) is the same observation the census below reproduces at scale, and its conclusion — "this was
+delivery, not a missing name" — was right. **#2835 was right on mechanism and incomplete on coverage**:
+its sweep maps `/pulls?state=open` to head SHAs, so a `gh-readonly-queue/**` head cannot appear in it,
+and its own motivating case (the pr-2738 group, 42 min all-green, merged 30 s after one manual re-run)
+is exactly the case that sweep cannot reach. Re-measured **unfiltered**
 (`/actions/workflows/pr-gate.yml/runs?created=<window>`, matched on time), the picture is unambiguous:
 
 | measurement | result |
 |---|---|
-| eligible completions → evaluations, 2026-09-10T10:00–16:00Z | 178 completions of listed workflows on non-`main` branches → 172 `PR gate` runs; **13 produced no run at all** (never created — not cancelled, not skipped). ~7% drop rate, in multi-minute windows |
+| eligible completions → evaluations, 2026-09-10T10:00–16:00Z | 178 completions of listed workflows on non-`main` branches → 172 `PR gate` runs; **13 produced no run at all** (never created — not cancelled, not skipped). ~7% drop rate, in multi-minute windows. 9 of the 13 were on `gh-readonly-queue/**` refs, against 71 of the 178 completions (40%) — over-represented, n too small for more than that |
 | parks, last 30 merged PRs | of the 22 whose gate never went red first, **10 parked ≥5 min fully green**: #2846 14 m, #2847 12 m, #2832 14 m, #2742 12 m, #2747 8 m, #2721 11 m, #2756 14 m, #2845 43 m, #2819 46 m, #2674 58 m |
 | each park's cause | one missing dispatch. #2819: last check completed 05:49:11Z, last evaluation created 05:48:26Z, **zero `PR gate` runs repo-wide until 06:35:29Z**, with exactly one eligible completion in that window |
 | tail size at the last delivered evaluation | outstanding checks median 1, max 7; minutes to the last completion median 1.2, 9 of 10 within 5, max 16.9 |
@@ -756,13 +764,25 @@ run and each failed the intended arm — unwiring the call site (1 failure), for
 false (4), restoring `timeout-minutes: 10` (1).
 
 **Two claims deleted** from `pr-gate.yml`, `docs/ci-gating.md` and `experience_gathered.md` (§113,
-with addenda on §93 and §106): *"re-running a red check does not re-evaluate the gate — the dispatch
-does fire but no verdict reaches the head SHA"* (it does **not** fire: on #2773 the re-run completed
-14:41:09Z and no `PR gate` run exists repo-wide between 14:38:40Z and 14:43:27Z), and *"nothing cancels
-now"*.
+with addenda on §93 and §106): the lever table's *"re-running a red check does not re-evaluate the gate
+— the dispatch does fire but no verdict reaches the head SHA"* (it does **not** fire: on #2773 the
+re-run completed 14:41:09Z and no `PR gate` run exists repo-wide between 14:38:40Z and 14:43:27Z), and
+`pr-gate.yml`'s *"NOTHING here cancels"* (479 of 759 evaluations still cancelled — GitHub evicts a
+superseded *pending* run regardless of the flag; `docs/ci-gating.md` had this right already, via #2835).
 
-**Residual, documented rather than fixed.** The sweep still enumerates open PRs only, so inside the
-merge queue the tail watch is the only cover; and the sweep rides the same `workflow_run` stream, so it
-is a reconciler, not a backstop for a drop. Honest bounds now: a near-green SHA converges in-run; a SHA
-that parks outside the watch's reach waits on repo activity (~10 evaluations per sweep) or the cron
-(~4 h median).
+**The tail watch IS the in-queue backstop.** A merge-queue head receives evaluations on both paths a PR
+head does — the `merge_group: checks_requested` arm and `workflow_run` completions from inside the group
+(`branches-ignore` lists only `main`, deliberately) — and `scripts/pr-gate.mjs`'s single-SHA path is
+shared, so a queue head arms and runs the watch identically, bounded to one watcher per SHA by the same
+concurrency group. This closes the coverage gap #2835 left, which its own sweep structurally could not.
+
+**One residual, stated rather than fixed.** The formation evaluation cannot arm the watch: at
+`checks_requested` no check has reported, and `shouldWatchTail` requires `pending < total` — the
+conjunct that stops the watch parking a runner from PR-open. So an in-queue head needs at least one
+`workflow_run` dispatch to land while ≤8 checks are outstanding; with 22 gates wired into the queue
+there are ~22 chances, but that is a probability, not a guarantee. If every one is dropped the group
+parks and its only bound is the queue's 180-minute checks timeout, which ejects rather than heals. The
+fix, should in-queue parks survive this change, is a formation-time arm with its own budget — not
+another sweep. Honest bounds now: a near-green SHA converges in-run; a SHA that parks outside the
+watch's reach waits on repo activity (~10 evaluations per sweep) or the cron (~4 h median), and a queue
+head that parks waits on the checks timeout.

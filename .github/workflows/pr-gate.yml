@@ -96,11 +96,16 @@ on:
   #                    separate red-check-re-run hole; it is the same dropped
   #                    tail dispatch, and the tail watch closes it.
   #
-  # The earlier evidence for "the dispatch does fire" came from a
-  # branch-filtered run listing, which structurally cannot see it: a
+  # HOW TO CHECK ANY OF THIS YOURSELF, and the one way not to: list this
+  # workflow's runs UNFILTERED and match on time.  Never filter by branch — a
   # `workflow_run`-triggered run is attributed to the DEFAULT branch, so
-  # filtering by the PR's branch returns only the `pull_request`-event run
-  # (F65).  List the runs unfiltered and match on time.
+  # filtering by the PR's branch returns only the `pull_request`-event run and
+  # can never show an evaluation (F65).  That trap is a property of the call,
+  # not an indictment of any particular investigation: #2835's own #2819
+  # diagnosis listed `event=workflow_run` unfiltered and got the mechanism
+  # right.  What it lacked was merge-queue COVERAGE — its sweep enumerates open
+  # PRs, and a `gh-readonly-queue/**` head is not one.  The tail watch closes
+  # that half too, because a merge-group head takes the same single-SHA path.
   #
   # Cancellation is NOT the cause either, and this file used to say it was.
   # #2822 set `cancel-in-progress: false` and the ratio barely moved: 479 of

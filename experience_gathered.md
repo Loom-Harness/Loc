@@ -6286,3 +6286,40 @@ last completion: median 1.2, max 16.9), and the `pending < total` conjunct is
 the only thing keeping it from becoming v1's parked poller. Mutation proof in
 `test/system/pr-gate.test.ts`: the CONTROL arm replays #2819's timeline through
 the pre-fix path and shows the only verdict ever published is `in_progress`.
+
+> **Correction (2026-09-10, hours later — and it is the same mistake again).**
+> This entry, and the mission that produced it, said the dropped-dispatch
+> premise "rests on a measurement artifact" and named **#2835** as one of the
+> four wrong stories. That is wrong, and the author of #2835 caught it in
+> review. **#2835 listed `event=workflow_run` runs UNFILTERED** and read them
+> correctly: its #2819 table — last evaluation created 05:48:26, last check
+> completed 05:49:10, *"evaluations created after: none"* — is precisely the
+> observation the six-hour census above reproduces at scale, and its conclusion
+> ("this was delivery, not a missing name") was right. F65 is a true statement
+> about branch-filtered listings *in general*; it was never true of that PR.
+> What #2835 lacked was **coverage, not mechanism**: the sweep it built maps
+> `/pulls?state=open` to head SHAs, so a `gh-readonly-queue/**` head cannot
+> appear in it — and its own motivating case (the pr-2738 group, 42 minutes
+> all-green, merged 30 seconds after one manual re-run) is exactly the case
+> that sweep cannot reach.
+>
+> Two things worth keeping from having got this wrong:
+>
+> **A general defect in a class of probes does not convict a particular use of
+> it.** "The call everyone reaches for cannot see X" is a claim about the call.
+> Whether a given PR made that call is a separate fact, and it is one commit
+> message away. I inherited "the sole evidence behind the premise in #2835"
+> from the mission text, propagated it into a workflow comment, a reference doc
+> and a retrospective entry, and never opened the PR. Read the artifact you are
+> about to contradict — especially when you are contradicting it *by name*.
+>
+> **The same entry that documents "four PRs rewrote each other's explanations"
+> was itself a fifth rewrite of someone else's.** The failure mode this file
+> keeps describing is not believing a wrong thing; it is asserting a *causal
+> attribution* — this PR was wrong, because it used that call — without the one
+> check that would break it. §92, §93 and this correction are the same lesson
+> at three sizes.
+>
+> The remedy paragraph above is unaffected: the tail watch is the fix for the
+> mechanism #2835 identified, and it happens to close the coverage half too,
+> because a merge-queue head takes the same single-SHA path a PR head does.
