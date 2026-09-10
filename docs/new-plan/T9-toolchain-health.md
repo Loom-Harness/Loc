@@ -748,7 +748,7 @@ document: ~30 min active, ~3.3 h idle, unbounded in-queue today.
 
 **Packet P3 of [`missions/ci-harness-deferrals-fleet.md`](missions/ci-harness-deferrals-fleet.md)**, which fences it with M-T9.6's queue-runbook item (same file, same subject) and states the verify-first exit — closing this row as "the premise was a measurement artifact" is a full outcome.
 
-## M-T9.58 — Every generated-project install runs `--silent`, so a dependency failure names no cause and gets no retry — `open` · **S** · P1
+## M-T9.58 — Every generated-project install runs `--silent`, so a dependency failure names no cause and gets no retry — `done` ([#2858](https://github.com/Loom-Harness/Loc/pull/2858)) · **S** · P1
 
 Minted 2026-09-10 from an audit of deferred comments on merged PRs. This one was **proposed four times across two PRs and picked up by neither** — [#2720](https://github.com/Loom-Harness/Loc/pull/2720#issuecomment-5603540482) ("no fix exists to port, and I am not widening this PR to write one"), [#2770](https://github.com/Loom-Harness/Loc/pull/2770#issuecomment-5621699381) ("I have not changed it here because it is outside this PR's scope"). Each author was right to defer it and wrong to assume someone else would file it; this row is that filing.
 
@@ -765,7 +765,7 @@ One day earlier the same class hit `generated-react-build` (`file-scaffold-syste
 
 **The fix is two independent halves, and the second is not optional.**
 
-1. **Stop discarding npm's error output.** Prefer capturing stderr and re-printing it on a non-zero exit over deleting `--silent` outright — the flag is deliberate about log volume on the ~50 green cells a matrix run produces, and a green run should stay quiet. Deleting it is acceptable if the capture wrapper proves fiddlier than the noise it saves; the invariant is that a failed install names its own cause.
+1. **Stop discarding npm's error output.** ~~Prefer capturing stderr and re-printing it on a non-zero exit over deleting `--silent`.~~ **That guidance was wrong, and [#2858](https://github.com/Loom-Harness/Loc/pull/2858) measured why before building to it:** at `--silent`, a failing `npm install` exits 1 with **0 bytes on both streams**, so there is nothing for a capture wrapper to capture. The loglevel itself has to change — `--loglevel=error` yields 356 bytes on the same failure — *and then* be captured. A green run still stays quiet, because `error` emits nothing on success; the volume worry the original guidance was protecting against does not exist at that level. The invariant is unchanged: a failed install names its own cause.
 2. **Retry the install once on a non-zero exit**, before failing the cell. This is exactly the "one re-run confirms a flake" rule the CI guidance already applies by hand, moved to where it costs seconds instead of a queue sweep. Once, not a loop — a retry loop laundering a genuinely broken manifest is the failure mode this must not create.
 
 Do both in one place: these 49 sites want a shared `installGeneratedProject(dir)` helper in `test/e2e/`, not 49 edited `execSync` calls. The helper is also where the existing `--prefer-offline` reasoning already written out at `test/e2e/generated-react-build.test.ts:212-219` belongs, instead of living in one file's comment.
@@ -776,6 +776,6 @@ Do both in one place: these 49 sites want a shared `installGeneratedProject(dir)
 - *Half 2:* count invocations. A transient failure (fail once, then succeed) must produce exactly two installs and a green cell; a deterministic failure must produce exactly two and a red one. Asserting only the green case cannot tell a once-retry from an unbounded loop.
 - Neither half may change a green cell's exit code or its wall time beyond the capture overhead.
 
-**Packet P1 of [`missions/ci-harness-deferrals-fleet.md`](missions/ci-harness-deferrals-fleet.md)**, which carries the file fence, the shared-helper shape and the kickoff prompt.
+**Packet P1 of [`missions/ci-harness-deferrals-fleet.md`](missions/ci-harness-deferrals-fleet.md)** — **landed as [#2858](https://github.com/Loom-Harness/Loc/pull/2858)** (`test/e2e/support/npm-install.ts`, 67 call sites across 34 suites, both halves mutation-proved in both directions, plus a ratchet refusing a raw quoted `npm install` in `test/e2e/*.test.ts`). See §5 of the fleet doc for what its measurement corrected.
 
 Sources: deferred comments on merged PRs #2720 and #2770, re-verified on `main` @ `bc7ed8f` (49 sites, 23 files, still unfixed). Relates to M-T9.8 (a gate whose failure report names nothing is how hollow work stays hidden) and to `completion-waves-2026-09.md` wave C0.2, which owns the *flaky-leg* root causes but does not name this one.

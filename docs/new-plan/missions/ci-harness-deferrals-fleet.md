@@ -45,7 +45,7 @@ their own PR by the standing rule, and P1's tree is test-only.
 
 | | packet | mission | tree fence |
 |---|---|---|---|
-| **P1** | Generated-project installs name their cause and retry once | M-T9.58 | `test/e2e/**` |
+| **P1** | Generated-project installs name their cause and retry once — **DONE, [#2858](https://github.com/Loom-Harness/Loc/pull/2858)** | M-T9.58 | `test/e2e/**` |
 | **P2** | The behavioral-tier timeout budgets, measured as a class — **DONE, [#2855](https://github.com/Loom-Harness/Loc/pull/2855)** | C0.2(e) | `.github/workflows/behavioral-e2e*.yml`, `test/behavioral/**` |
 | **P3** | The `pr-gate` stuck verdict, and the queue runbook's missing probe | M-T9.57 + M-T9.6 | `scripts/pr-gate.mjs`, `.github/workflows/pr-gate.yml`, `docs/ci-gating.md` |
 
@@ -212,3 +212,51 @@ what a cap-killed job has in flight — whose duration goes hugely negative and
 drops the whole job below the `> 0` guard, so **a leg that is timing out
 measures as if it never ran**. Retargeted; it now fails with
 `expected -1789056165 to be 16`.
+
+### P1 — landed as [#2858](https://github.com/Loom-Harness/Loc/pull/2858) (2026-09-10)
+
+One helper, `test/e2e/support/npm-install.ts`, beside the two existing
+shared-e2e-failure helpers. **67 call sites across 34 suites** — the 49 silenced
+ones this row was filed on, plus 18 already-unsilenced installs that had no
+retry. Per-site options preserved rather than normalised. Both halves
+mutation-proved in both directions against a real npm and a real registry;
+a green cell's wall time moved inside its own spread.
+
+**The correction that matters, and it is against this doc's own instruction.**
+§1 told the packet to *prefer capturing stderr over deleting `--silent`*, on the
+reasoning that the flag protects log volume across ~50 green cells. The packet
+measured before building to it, and the guidance was wrong: at `--silent` a
+failing install exits 1 with **0 bytes on both streams**, so a capture wrapper
+has nothing to capture. The loglevel itself must change — `--loglevel=error`
+yields 356 bytes on the identical failure — *and then* be captured. The volume
+worry was unfounded at that level, because `error` emits nothing on success.
+**A wrapper built to the original instruction would have shipped, passed its
+own test, and still reported nothing** — the §59/§63 shape, arriving through the
+plan rather than through the code.
+
+Three things it added that were not asked for, each defensible:
+
+1. **Scope 49 → 67.** Half 2 (retry) applies to every install, not only the
+   silenced ones, and one helper is the whole point of the packet.
+2. **A ratchet.** The proof file fails on any raw quoted `npm install`/`npm ci`
+   left in `test/e2e/*.test.ts`, mutation-proved by reinstating one. Without it
+   the next suite re-creates the defect and the drain is a one-off.
+3. **`--prefer-offline` rationale rehomed** from one file's comment onto the
+   helper, as §1 asked.
+
+**Two migration bugs worth carrying forward**, both from mechanical rewrites:
+a regex put the options object *inside* `join(dir, "out", app, {…})` at eight
+channels sites — caught by `npm run test:typecheck`, **not** by `npx tsc -b`,
+which does not typecheck `test/` at all; and an "insert after the last import"
+heuristic injected an import *inside a template literal* in two files that embed
+a generated static-server script.
+
+**Verdict substitution, stated rather than glossed:** the full fast suite twice
+exceeded a 600 s foreground call on a box shared with concurrent agents, so the
+packet ran and *read* a named subset instead — `test/e2e/`, `test/system`,
+`test/platform` (including `allowlist-ratchet` and `assertion-free-tests`, which
+read `test/e2e/*` by path) and the proof file — with the argument for why the
+rest cannot be affected (no `src/` file changed; nothing outside `test/e2e/`
+imports the helper). `tsc -b`, `test:typecheck` and `lint` clean. CI's
+`tests passed` runs the remainder unfiltered. A named narrower run that was
+actually read beats a full run nobody saw.
