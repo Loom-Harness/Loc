@@ -234,7 +234,16 @@ export function emitAction(
   // re-runs the hook per render (so it captures the real id once loaded); Vue
   // (setup runs once) and Svelte (getter) tolerate the `undefined`.  Without
   // the `?.`, React/Vue crash on mount dereferencing `.id` of pending data.
-  const idExpr = `${emitExpr(opRef.receiver, ctx)}?.id`;
+  //
+  // …and COALESCE it, because `use<Op><Agg>` is typed `(id: string)` (svelte:
+  // `(id: () => string)`), so the `undefined` the `?.` admits is a TS2345 on
+  // the page — the scaffolded Detail page's leave-the-page op (`softDelete`)
+  // failed `tsc`/`vue-tsc`/`svelte-check` this way while every SIBLING hoist on
+  // the same page compiled.  `?? ""` is the shape those siblings already use
+  // (`routeIdExpr`, `_walker/primitives/forms.ts` → `id ?? ""`); it changes no
+  // loaded-state behaviour, since the coalesce is only reachable while the
+  // receiver is still pending.
+  const idExpr = `${emitExpr(opRef.receiver, ctx)}?.id ?? ""`;
   if (!ctx.actionMutations.some((m) => m.localVar === localVar)) {
     ctx.actionMutations.push({
       localVar,
