@@ -206,8 +206,8 @@ export const PAGED_MAX_PAGE_SIZE = 500;
  *  the BARE body — exactly what `find audit(): T` already emits on every
  *  backend.  The carrier keyword therefore carries no distinct wire shape; it is
  *  unwrapped at each backend's find-return seam so `T envelope` and `T` emit
- *  identically.  (The `{ id, ts, body }` shape below was the P3 design; nothing
- *  in the IR can source `ts`, so it never shipped — see `GENERIC_SHAPES.envelope`.)
+ *  identically.  (The `{ id, ts, body }` shape in `GENERIC_SHAPES.envelope`
+ *  was the P3 design; nothing in the IR can source `ts`, so it never shipped.)
  *
  *  Sibling of `pagedReturn`: the recogniser a backend's find emitter reaches for
  *  when it needs to know what a carrier return actually means. */

@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { generateSystems } from "../../src/system/index.js";
-import { parseString } from "../_helpers/parse.js";
+import { generateSystemFiles } from "../_helpers/generate.js";
 import { BACKEND_LABEL, BACKENDS, type Backend } from "../fixtures/corpus/backends.js";
 import { corpusSourceFor } from "../fixtures/corpus/harness.js";
 
@@ -34,11 +33,9 @@ function withoutCarrier(source: string): string {
   return stripped;
 }
 
-async function emit(source: string): Promise<Map<string, string>> {
-  const { model, errors } = await parseString(source);
-  if (errors.length > 0) throw new Error(`parse/validation errors:\n${errors.join("\n")}`);
-  return generateSystems(model).files;
-}
+/** Parse + AST-validate + IR-validate, then emit — the gated helper, so a
+ *  fixture that the product would refuse cannot silently emit here. */
+const emit = (source: string): Promise<Map<string, string>> => generateSystemFiles(source);
 
 /** The emitted BACKEND PROJECT only.  `.loom/` artefacts (the mermaid view in
  *  particular) render the DECLARED type, so they legitimately keep the source's
@@ -126,7 +123,9 @@ describe("`envelope` is a single-row find (M-T6.57)", () => {
 
   it("Phoenix: the document + event-sourced find emitters agree too", async () => {
     const carrier = projectFiles(await emit(NON_RELATIONAL));
-    const bare = projectFiles(await emit(NON_RELATIONAL.replaceAll(/(: (?:Doc|Ev)) envelope\b/g, "$1")));
+    const bare = projectFiles(
+      await emit(NON_RELATIONAL.replaceAll(/(: (?:Doc|Ev)) envelope\b/g, "$1")),
+    );
     const diverged = [...carrier].filter(([p, c]) => bare.get(p) !== c).map(([p]) => p);
     expect(
       diverged,

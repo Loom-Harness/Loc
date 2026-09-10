@@ -363,6 +363,20 @@ Sources: [language-docs-audit-2026-09-03](../audits/2026-09-03-language-docs-aud
 > carry. `envelope` is now documentation-in-the-signature ("this read yields at most one row"),
 > not a wire wrapper. Docs corrected: `generators.md` (the five-tick carriers row, split + noted),
 > `payloads.md` §2, `language-reference/04-type-system.md` § `envelope`.
+> **Fixture tier — compile, not behavioural, and signed as such.** `envelope.ddd` carries no
+> `test e2e` block; it is listed in `E2E_LESS_CORPUS_FIXTURES` and `BEHAVIOURAL_ABSENT`. A block was
+> authored and withdrawn: it mints a wire golden, and the find-miss 404 `detail` is **not uniform** —
+> node answers `"not found"`, dotnet/java/python/elixir answer `"not_found"` (dotnet's own
+> `projectionClauseFor` comment calls `"not_found"` "the canonical find-miss detail token on every
+> backend"). A golden captured on the node leg would redden the other four on `main`.
+> **TWO SPIN-OFFS, both pre-existing and neither envelope-specific:**
+> (a) that 1-vs-4 find-miss `detail` split — any non-optional single find hits it;
+> (b) a FILTERLESS single-return find on an EVENT-SOURCED aggregate emits
+> `Enum.find(all, fn a ->  end)` on elixir — an empty lambda body, invalid Elixir (identical for
+> `find pick(): Ev` with no carrier).
+> A third, benign: the `envelope` carrier in a PAYLOAD FIELD (the other position the AST gate
+> admits) is unreachable — the monomorphized `<T>Envelope` payload has no builder, so nothing can
+> construct one.
 ## M-T6.58 — `handle` and named `create` are lowered, test-pinned and promised by a diagnostic — but no backend emits an entry point — `open` · **L** · P1 ⚠ verify-first, route to `language-feature-developer`
 
 Found 2026-09-03 by the language-docs audit ([F13](../audits/2026-09-03-language-docs-audit-findings.md), P1) — the only finding in the register that is a *missing feature* rather than a defect. `src/ir/lower/lower-workflow.ts:124-174` fills `WorkflowIR.handlers`/`.creates`, `test/ir/workflow-handle.test.ts` pins the lowering, and `loom.duplicate-handler` (`src/diagnostics/messages.ts:310`) promises that a `route -> Ctx.<handle>` is meaningful — yet no emitter reads `wf.handlers`. A workflow with `handle retry(...)` plus `api { route POST "/fulfil/retry" -> C.retry }` produces no route on node or dotnet, and no routes file at all.

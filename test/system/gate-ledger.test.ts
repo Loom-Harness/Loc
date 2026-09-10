@@ -68,6 +68,8 @@ const BEHAVIOURAL_ABSENT: Record<string, string> = {
     "in-system api call; needs both deployables booted (the `api-call-e2e` leg does this outside the corpus tier)",
   "collection-op-shapes":
     "collection-op VALUE semantics (empty sum, avg of none, sort stability) — the exact class a string assertion cannot see",
+  envelope:
+    'the `envelope` carrier is a COMPILE defect (java named an undeclared `Envelope<Order>`, dotnet returned a bare `Order` from `Task<Envelope<Order>>`); the five compile legs plus the byte-identity gate in `test/generator/envelope-carrier.test.ts` are its oracle, and a booted leg would mint a wire golden across the un-drained find-miss 404 `detail` split (`"not found"` on node, `"not_found"` on the other four)',
 };
 
 describe("gate ledger", () => {

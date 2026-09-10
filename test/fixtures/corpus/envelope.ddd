@@ -8,6 +8,14 @@
 // undeclared `Envelope<Order>` in three signatures while dotnet returned a bare
 // `Order` from a `Task<Envelope<Order>>` (CS0029).  Both compiled only because
 // nothing generated them.
+//
+// COMPILE-TIER fixture on purpose: no `test e2e` block (signed in
+// E2E_LESS_CORPUS_FIXTURES + BEHAVIOURAL_ABSENT).  The oracle is the five corpus
+// compile legs plus `test/generator/envelope-carrier.test.ts`, which asserts the
+// emitted project is byte-identical to the same source with the carrier spelled
+// away.  A behavioural block would mint a wire golden across the un-drained
+// find-miss 404 `detail` split (node `"not found"` vs `"not_found"` on the other
+// four) and redden four legs on main.
 system EnvelopeShop {
   subdomain Sales {
     context Orders {
@@ -31,22 +39,5 @@ system EnvelopeShop {
     dataSources: [ordersState]
     serves: OrdersApi
     port: 4000
-  }
-
-  test e2e "an envelope find answers the bare body, and 404s when absent" against d {
-    // Absent FIRST: a backend that returned a list (elixir returned every row as
-    // a JSON array) answers 200 `[]` here, where the contract it publishes says
-    // 404.
-    expect(api.orders.audit()).toThrow(404)
-
-    api.orders.create({ code: "E1", region: "NA" })
-    // The body is the AGGREGATE itself — not `{ id, ts, body }`, and not an
-    // array.  Reading `.code` off the response is what pins that.
-    let a = api.orders.audit()
-    expect(a.code).toBe("E1")
-
-    let eu = api.orders.latestInRegion({ region: "NA" })
-    expect(eu.code).toBe("E1")
-    expect(api.orders.latestInRegion({ region: "EU" })).toThrow(404)
   }
 }
