@@ -4,6 +4,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { installGeneratedProject } from "./support/npm-install.js";
 import { svelteBuildExamples, sveltePacks } from "./svelte-build-cases.js";
 
 // ---------------------------------------------------------------------------
@@ -79,7 +80,7 @@ describe.skipIf(!ENABLED)("generated svelte project builds (svelte-check + vite 
 
       const project = path.join(work, "out", "web");
       expect(fs.existsSync(path.join(project, "svelte.config.js"))).toBe(true);
-      run("npm install --no-audit --no-fund", project);
+      installGeneratedProject(project, { timeout: 600_000 });
       run("npx svelte-kit sync", project);
       // The type gate — fails on any svelte-check error (warnings
       // pass; the templates are kept warning-clean separately).

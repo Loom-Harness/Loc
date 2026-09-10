@@ -1,4 +1,4 @@
-import { execSync, spawn } from "node:child_process";
+import { spawn } from "node:child_process";
 import { describe, it } from "vitest";
 import {
   type BackendDriver,
@@ -7,6 +7,7 @@ import {
   runMigrationEvolutionGate,
   runMoneyBoundsCatchUpGate,
 } from "./support/migration-evolution-harness.js";
+import { installGeneratedProject } from "./support/npm-install.js";
 
 // ---------------------------------------------------------------------------
 // Migration-evolution gate (M-T2.13) — NODE/Hono/Drizzle backend.
@@ -32,11 +33,7 @@ const nodeDriver: BackendDriver = {
   platform: "node",
   toolchain: { name: "node", check: () => true },
   install(appDir) {
-    execSync("npm install --silent --no-audit --no-fund", {
-      cwd: appDir,
-      stdio: "pipe",
-      timeout: 180_000,
-    });
+    installGeneratedProject(appDir, { timeout: 180_000 });
   },
   boot(appDir, pg: PgConn, port) {
     const url = `postgres://${pg.user}:${pg.password}@${pg.host}:${pg.port}/${pg.db}`;

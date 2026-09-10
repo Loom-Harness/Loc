@@ -4,6 +4,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, it } from "vitest";
+import { installGeneratedProject } from "./support/npm-install.js";
 
 // ---------------------------------------------------------------------------
 // Generator build gate for the Vue frontend (vue-frontend-plan.md
@@ -301,11 +302,7 @@ describe.skipIf(!ENABLED)("generated Vue project compiles + bundles (vue-tsc + v
       if (!fs.existsSync(projectDir)) {
         throw new Error(`Expected Vue project at ${projectDir}`);
       }
-      execSync(`npm install --silent --no-audit --no-fund`, {
-        cwd: projectDir,
-        stdio: "inherit",
-        timeout: 240_000,
-      });
+      installGeneratedProject(projectDir, { timeout: 240_000 });
       // vue-tsc carries the .vue SFC type surface that plain tsc
       // can't see; --noEmit honours the project tsconfig.
       execSync(`npx vue-tsc --noEmit`, {
