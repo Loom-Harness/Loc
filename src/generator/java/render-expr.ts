@@ -358,21 +358,23 @@ const JAVA_TARGET: ExprTarget<JavaRenderContext> = {
   // `default` arm always trails so a non-exhaustive match (validator *warns*,
   // never errors) still compiles against the sealed type.
   matchVariant(m) {
-    // A union-returning repository find reaches Java as its OPTIONAL TWIN (the
-    // success entity, nullable): exactly one non-error success variant plus
-    // error variant(s) that collapse to `null`.  The `<Union>_<Tag>` carrier
-    // records are never emitted for a find, so a workflow `match` over such a
-    // result switches on `null` vs the success type — `case null` for the
-    // absent/error variant, a total type pattern for the success (no `default`,
-    // which would be dominated).  A real polymorphic DU keeps the carrier form.
-    const successArms = m.arms.filter((a) => !a.isError);
-    const isOptionalTwin = successArms.length === 1 && m.arms.length > successArms.length;
-    if (isOptionalTwin) {
-      const success = successArms[0]!;
-      const binder = success.binding ?? "__unused";
-      const errorValue = m.arms.find((a) => a.isError)?.value ?? m.otherwise ?? "null";
-      return `switch (${m.subject}) {\n      case null -> ${errorValue};\n      case ${success.variantTypeName} ${binder} -> ${success.value};\n    }`;
-    }
+    // EVERY arm renders as its `<Union>_<Tag>` carrier pattern, error variants
+    // included — an `error` arm binds a real payload (`NotFound n -> n.resource()`)
+    // exactly as a success arm does.  This leaf once collapsed the shape "one
+    // non-error variant + error variant(s)" to `case null -> <errorValue>` on
+    // the theory that it was a repository union find's OPTIONAL TWIN (the
+    // nullable success entity), for which no carrier records are emitted.  That
+    // test was an arity guess, and it misfired on every REAL union of one
+    // success + one error: `case null` declares nothing, so the arm's bound name
+    // was left undeclared (javac "cannot find symbol" — audit F59).
+    //
+    // A genuine optional twin cannot reach here.  The workflow emitter
+    // intercepts the `exprLet` form first (`renderJavaOptionalTwinMatch` in
+    // `emit/workflow.ts`, pinned by `generator-java-workflow-union-find.test.ts`),
+    // lowering stamps `subjectShape: "absence"` on a match over a union-find let
+    // so the shared dispatcher answers it with a presence ternary, and
+    // `loom.match-non-union-subject` refuses a call subject.  What is left here
+    // is always a real DU, whose carriers do exist.
     const arms = m.arms.map((a) => {
       const carrier = `${m.unionName}_${a.tag}`;
       // A pattern needs a binder even when the arm bound none.  NOT `_`:

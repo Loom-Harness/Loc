@@ -314,22 +314,23 @@ const CS_TARGET: ExprTarget<CsRenderContext> = {
   // match (validator *warns*, never errors) stays a total switch expression.
   matchVariant(m) {
     const unmatched = 'throw new System.InvalidOperationException("unmatched variant")';
-    // A union-returning repository find reaches .NET as its OPTIONAL TWIN
-    // (`Agg?`, see `unionFindAsOptionalTwin`): exactly one non-error success
-    // variant (the aggregate) plus error variant(s) that collapse to the
-    // absent `null`.  The Domain layer never emits the `<Union>_<Tag>` carrier
-    // records for a find union, so a workflow `match` over such a result must
-    // switch on the twin natively — an `Agg pattern` arm for the success, `_`
-    // for absent — not the DU carriers.  A real polymorphic DU (2+ success
-    // variants, whose carrier records ARE emitted) keeps the carrier form.
-    const successArms = m.arms.filter((a) => !a.isError);
-    const isOptionalTwin = successArms.length === 1 && m.arms.length > successArms.length;
-    if (isOptionalTwin) {
-      const success = successArms[0]!;
-      const binder = success.binding ?? "_unused";
-      const errorValue = m.arms.find((a) => a.isError)?.value ?? m.otherwise ?? unmatched;
-      return `${m.subject} switch\n    {\n        ${success.variantTypeName} ${binder} => ${success.value},\n        _ => ${errorValue},\n    }`;
-    }
+    // EVERY arm renders as its `<Union>_<Tag>` carrier pattern, error variants
+    // included — an `error` arm binds a real payload (`NotFound n => n.Resource`)
+    // exactly as a success arm does.  This leaf once collapsed the shape "one
+    // non-error variant + error variant(s)" to `_ => <errorValue>` on the
+    // theory that it was a repository union find's OPTIONAL TWIN (`Agg?`, see
+    // `unionFindAsOptionalTwin`), for which no carrier records are emitted.
+    // That test was an arity guess, and it misfired on every REAL union of one
+    // success + one error: the discard declares nothing, so the arm's bound
+    // name was left undefined (CS0103 — audit F59).
+    //
+    // A genuine optional twin cannot reach here.  Lowering stamps
+    // `subjectShape: "absence"` on a match over a union-find let and the shared
+    // dispatcher answers that with a presence ternary BEFORE calling this leaf
+    // (`dotnet-showcase-compile-regressions.test.ts` pins the
+    // `outcome is not null ? … : …` emission), and `loom.match-non-union-subject`
+    // refuses a call subject, so a twin can only arrive through such a let.
+    // What is left here is always a real DU, whose carriers do exist.
     const arms = m.arms.map((a) => {
       const carrier = `${m.unionName}_${a.tag}`;
       const binder = a.binding ?? "_unused";

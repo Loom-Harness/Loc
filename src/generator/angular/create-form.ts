@@ -1,6 +1,7 @@
 import { createInputFields } from "../../ir/enrich/wire-projection.js";
 import type { ExprIR } from "../../ir/types/loom-ir.js";
 import { lowerFirst, plural, snake } from "../../util/naming.js";
+import { giveUp } from "../_walker/give-up.js";
 import type { WalkContext } from "../_walker/walker-core.js";
 import {
   type AngularFieldArraySpec,
@@ -69,13 +70,11 @@ export function renderAngularCreateForm(
 ): string | null {
   if (call.kind !== "call") return null;
   const aggName = aggNameOf(call);
-  if (!aggName) return ctx.target.renderComment("CreateForm(of: …): missing 'of:' aggregate ref");
+  if (!aggName) return giveUp(ctx.target, "CreateForm(of: …): missing 'of:' aggregate ref");
   const agg = ctx.aggregatesByName.get(aggName);
   const bc = ctx.bcByAggregate?.get(aggName);
   if (!agg || !bc) {
-    return ctx.target.renderComment(
-      `CreateForm(of: ${aggName}): aggregate not reachable from this UI`,
-    );
+    return giveUp(ctx.target, `CreateForm(of: ${aggName}): aggregate not reachable from this UI`);
   }
 
   const fields = createInputFields(agg);
