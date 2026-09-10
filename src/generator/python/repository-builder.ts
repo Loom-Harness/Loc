@@ -354,6 +354,16 @@ export function buildPyRepositoryFile(
             .filter((n): n is string => n != null)
             .map((n) => `${n}Id`),
         ),
+        // …and every id a VALUE OBJECT holds, which brands on hydrate through
+        // the VO constructor rather than through a field of this aggregate:
+        // `berth=Berth(ShipId(row.berth_ship), row.berth_position)`.  The
+        // aggregate's own field is typed `Berth`, so the scan above never sees
+        // `ShipId` and the module named it without importing it (`F821
+        // Undefined name`, and mypy the same) — freight audit D3 / M-T6.64, the
+        // python face of the node value-object emitter's missing `Ids` import.
+        // Over-generating candidates is free: every name here is dropped again
+        // by the `refersTo` body scan unless the module actually spells it.
+        ...voIdTargets(ctx).map((n) => `${n}Id`),
       ].filter(refersTo),
     ),
   ].sort();
@@ -465,6 +475,32 @@ function idFieldTarget(f: FieldIR): string | null {
   if (t.kind === "id") return t.targetName;
   if (t.kind === "array" && t.element.kind === "id") return t.element.targetName;
   return null;
+}
+
+/** Every aggregate/entity an id inside a VALUE OBJECT points at, anywhere in
+ *  the context — the brands a repository's hydrate renders when it rebuilds a
+ *  VO from its flattened columns.  Recurses through nested VOs; the whole
+ *  context is walked rather than just the VOs one aggregate holds, because the
+ *  result is only a CANDIDATE list that the module body scan then filters. */
+function voIdTargets(ctx: EnrichedBoundedContextIR): string[] {
+  const out = new Set<string>();
+  const visit = (t: TypeIR): void => {
+    switch (t.kind) {
+      case "id":
+        out.add(t.targetName);
+        return;
+      case "array":
+        visit(t.element);
+        return;
+      case "optional":
+        visit(t.inner);
+        return;
+      default:
+        return;
+    }
+  };
+  for (const vo of ctx.valueObjects) for (const f of vo.fields) visit(f.type);
+  return [...out];
 }
 
 // --- finds -------------------------------------------------------------------
