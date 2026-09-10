@@ -12,11 +12,11 @@
 | 0.2a schemathesis | Opus | `test/behavioral/schemathesis-*`, waivers, its workflow | #2579 0/20 root cause; elixir cell binding | running |
 | 0.2b frontend-fullstack | Opus | `test/behavioral/run-ui*`, `_frontend/e2e*`, its workflow | #2636 0/20 root cause; §111 error surfacing | running |
 | 0.2c+d playground + conformance | Opus | `web/e2e/**`, `test/conformance/**`, the two workflows | #2844 residue after #2848; Conformance full red 09-07 → 09-10 | running |
-| 0.2e behavioral-java timeout | Opus | java behavioral harness + workflow | the 20-min cap: measure, fix the dominant cost | running |
+| 0.2e behavioral-java timeout | Opus | java behavioral harness + workflow | the 20-min cap: measure, fix the dominant cost | running — **PR #2855** (a parallel session) already lands the measured budgets for all seven legs; the packet builds on it and owns the java runtime cost |
 | 0.3 pr-gate mechanism | Opus | `pr-gate.yml`, `scripts/pr-gate.mjs`, its test, `docs/ci-gating.md` | M-T9.57 | **folded** — [`handoffs/wave-c0-pr-gate.md`](handoffs/wave-c0-pr-gate.md); wording follow-up (the #2835 attribution) pending |
-| 0.4 plan hygiene | Opus | `docs/new-plan/**`, `docs/generators.md`, parity-auditor matrix | rows (i)–(viii) + M-T6.18 flip + `scripts/completion-denominators.mjs` | running |
+| 0.4 plan hygiene | Opus | `docs/new-plan/**`, `docs/generators.md`, parity-auditor matrix | rows (i)–(viii) + M-T6.18 flip + `scripts/completion-denominators.mjs` | running — merges **PR #2856** (the seven flips + 20 archive moves, a parallel session) and owns the rest |
 | 0.5 ledger truth | Opus | the ledger, `scripts/ledger-counts.mjs`, its test | P1–P3 by running, P4/P5 by reading, `declined` bucket | **folded** — [`handoffs/wave-c0-ledger-truth.md`](handoffs/wave-c0-ledger-truth.md) |
-| 0.6 decisions batch | Opus | `docs/decisions.md`, status lines | the fifteen rulings (moved from C5 per the #2849 review) | running |
+| 0.6 decisions batch | Opus | `docs/decisions.md`, status lines | the fifteen rulings (moved from C5 per the #2849 review) | **folded** — [`handoffs/wave-c0-decisions.md`](handoffs/wave-c0-decisions.md); owner sign-off on #2 and #4 pending |
 
 ## Fold protocol
 
@@ -27,3 +27,7 @@
 ## Amendments to the plan folded in this wave
 
 The ten amendments from the #2849 review (`7978b06`): M-T5.22 as the fourth coordinated moment; the 40-digit-money 500 as a C1 defect; M-T6.18 gap 3 closed; the decisions batch as packet 0.6; the 3-day time-box on 0.2; C0.5's scope; §1 as a script in 0.4; C2 as one PR per target tree; the `NON_PARSING_SOURCES` row; the done-claim vs C6 split.
+
+## Collisions with parallel sessions (2026-09-10 18:00Z)
+
+Seven PRs opened outside the wave protocol while C0 ran: #2859 (claim-only draft duplicating the folded 0.3 — told so), #2856 (0.4's rows i–iv — merged into 0.4), #2855 (0.2e's measurement — 0.2e builds on it), #2858 (install diagnosability, complementary to 0.2b), #2857 (M-T6.54 + M-T6.61 — C1 1b/1f rows), #2860 (M-T1.31 — C1 1d), #2854 (docs). The wave stays the claim unit; per-mission PRs from other sessions are folded by reference, not re-done.

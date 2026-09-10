@@ -184,7 +184,7 @@ Fifteen rulings block work in C1–C4 today. **The batch itself moved to Wave C0
 | 2 | `handle` / named `create` (M-T6.58, F13): shipping surface or redundant with `commandHandler` | **redundant → removal track** (grammar carries no `by` correlation) — *owner-only* | C1 1a |
 | 3 | `for` in a domain body (M-T5.28, F4): permanent refusal or gap with successor | **gap with a named successor mission** | C1 1b |
 | 4 | request-side numeric strictness (M-T6.60): **the two real narrowings only** — stringified ints accepted on python/elixir (pydantic lax mode, `Ecto.Type.cast/2`), JSON-number money accepted on elixir | **strict** (refuse strings for numbers, refuse JSON numbers for money) — a breaking narrowing clients may rely on today, *owner-only*. The 40-digit-money DB 500 is NOT a ruling: it is a defect, moved to C1 1e | C2 2f, Schemathesis F11 |
-| 5 | decimal arithmetic RS number (M-T5.22, ruling given: exact) | mint RS-31 in `conformance-semantics.md` | C2 2f |
+| 5 | decimal arithmetic RS number (M-T5.22, ruling given: exact) | mint **RS-35** in `conformance-semantics.md` (RS-31–RS-34 were already taken; `D-DECIMAL-EXACT-MOMENT`) | the C5 moment |
 | 6 | write-path atomicity (M-T4.3 item 5): which writes/emits share a transaction | **save + outbox row + audit + provenance in one tx on every backend; dispatch after commit** | C2 2b/2c |
 | 7 | `crossTenant` acknowledgment surface (M-T3.6 (6)) | accept `deny` as the acknowledgment | C6 |
 | 8 | M-T3.15 sequencing sign-off (premise partly stale per #2766) | re-verify, then projection masking first | C6 |
@@ -192,7 +192,7 @@ Fifteen rulings block work in C1–C4 today. **The batch itself moved to Wave C0
 | 10 | dapper schema evolution (`dapper-no-schema-evolution`) | **build the ALTER path in phase ⑨** (T2 mission) rather than a permanent `scope` row | C2 2b |
 | 11 | B20 channel-less `projection … on(Event)` (folds on no backend today) | **implicit in-process subscription** on every backend | C2 2b/2c/2d/2e |
 | 12 | `F2-EXPR-7` `.first` on an empty collection | throws (`first: T`), `firstOrNull` is the total form; node/elixir stop degrading | C2 2g |
-| 13 | `G2667-D3` absent LEFT-JOIN value; sub-second datetime wire form (`.12Z` / `.120Z` / `.120000Z`) | `null` on every backend; millisecond precision, three digits, on every backend | C2 2a/2d |
+| 13 | `G2667-D3` absent LEFT-JOIN value; sub-second datetime wire form (`.12Z` / `.120Z` / `.120000Z`) | `null` on every backend (ratifies RS-34; closes .NET's value-typed `default!` arm); exactly three fraction digits *when a fraction is present*, none on a whole second (RS-4 stays), truncate at ingress — RS-37 | C2 2a/2d |
 | 14 | Flutter realtime credential (M-T4.12): no HttpOnly cookie on mobile | **bearer token from the OIDC client, `withCredentials` on web** — a plan amendment | C2 2j |
 | 15 | M-T9.52 `generateDotnetForContexts` boundary; M-T7.9's two `connection:` semantics; M-T6.13 tag grouping (f); M-T3.11 `scopeId` D-tag | as proposed in each row | C3 3d, C6 |
 
