@@ -152,4 +152,22 @@ describe("Feliz — a model name that lowercases to an F# keyword", () => {
     // field and the backend 422s on a parameter it never received.
     expect(src).toContain('"to", Encode.string form.``to``');
   });
+
+  // The escape has to reach every QUALIFIED reference too, not just the binding.
+  // `fsIdent` was first applied only to the binding site and to
+  // `decoderExprFor`; six other call sites build `Decoders.<name>` themselves
+  // (the paged-envelope item decoder, the optional decoder, the single-record
+  // decoder, the row list/option pair, and the union-tag decoder).  With the
+  // binding escaped and the references not, `dotnet fable` moved on to
+  //     ./src/App.fs(590,131): error FSHARP: Missing qualification after '.'
+  //     ./src/App.fs(590,132): error FSHARP: Unexpected keyword 'member' in expression
+  // — the same defect one layer out.  Only running fable found it, which is why
+  // this asserts the reference shape and not just the declaration.
+  it("escapes every qualified `Decoders.<name>` reference, not just the binding", async () => {
+    const src = await appFs("Member");
+    // The paged list read is the reference site the scaffold always emits.
+    expect(src).toMatch(/Decode\.list Decoders\.``member``/);
+    // No bare qualified reference survives anywhere.
+    expect(src).not.toMatch(/Decoders\.member\b/);
+  });
 });

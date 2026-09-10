@@ -291,7 +291,7 @@ export function felizAllRead(aggregate: string, opts: FelizAllReadOpts = {}): Fe
   const paging: FelizReadPaging | undefined = opts.paged
     ? { controls: opts.controls, metaField: pageMetaFieldName(field) }
     : undefined;
-  const items = `(Decode.field "items" (Decode.list Decoders.${lowerFirst(aggregate)}))`;
+  const items = `(Decode.field "items" (Decode.list Decoders.${fsIdent(lowerFirst(aggregate))}))`;
   return {
     field,
     msgCase: `${field}Loaded`,
@@ -327,7 +327,7 @@ export function felizByIdRead(aggregate: string, pageCase: string): FelizRead {
     apiFn: lowerFirst(field),
     aggregate,
     resultType: `${upperFirst(aggregate)} option`,
-    decoderExpr: `(Decode.option Decoders.${lowerFirst(aggregate)})`,
+    decoderExpr: `(Decode.option Decoders.${fsIdent(lowerFirst(aggregate))})`,
     route: `${API_BASE_PATH}/${snake(plural(aggregate))}`,
     binding: lowerFirst(field),
     single: true,
@@ -413,7 +413,7 @@ export function felizFindRead(
 ): FelizRead {
   const agg = upperFirst(aggregate);
   const field = findFieldName(aggregate, find.name);
-  const decoder = `Decoders.${lowerFirst(agg)}`;
+  const decoder = `Decoders.${fsIdent(lowerFirst(agg))}`;
   const paged = pagedReturn(find.returnType);
   const ret = paged ? paged.arg : find.returnType;
   const inner = ret.kind === "optional" ? ret.inner : ret;
@@ -542,8 +542,8 @@ export function felizProjectionRead(proj: ProjectionIR): FelizRead {
     aggregate: proj.name,
     resultType: many ? `${row} list` : `${row} option`,
     decoderExpr: many
-      ? `(Decode.list Decoders.${lowerFirst(row)})`
-      : `(Decode.map Some Decoders.${lowerFirst(row)})`,
+      ? `(Decode.list Decoders.${fsIdent(lowerFirst(row))})`
+      : `(Decode.map Some Decoders.${fsIdent(lowerFirst(row))})`,
     route: `${API_BASE_PATH}/projections/${snake(proj.name)}`,
     binding: lowerFirst(field),
     // SINGLE-shaped but NOT page-entry-keyed — see `FelizRead.projection`.
@@ -2337,7 +2337,7 @@ function felizAsyncEffect(
       tag,
       isError,
       recordType: upperFirst(tag),
-      decoder: `Decoders.${lowerFirst(tag)}`,
+      decoder: `Decoders.${fsIdent(lowerFirst(tag))}`,
       duCase: `${opCap}${upperFirst(tag)}`,
       uri: isError ? errorTypeUri(tag) : undefined,
       binding: arm.binding,
