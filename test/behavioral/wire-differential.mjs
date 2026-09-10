@@ -489,6 +489,10 @@ const __authzLadder = async (spec, creds, dispatch) => {
   // above on __authHeaders leakage through the recorder.
   const authorized = { ...creds.authorized };
   const unauthorized = creds.unauthorized;
+  // The CROSS-TENANT principal (row 3.3): granting claims, different tenant.
+  // May be null (OIDC has no tenancy claim to vary) — the arm then reports as
+  // skipped rather than passing, same rule as the anonymous rung.
+  const otherTenant = creds.otherTenant ?? null;
   const json = (h) => ({ ...h, "content-type": "application/json" });
   const out = [];
   const push = (name, status, error) => out.push({ tier: "authz", name, status, error });
@@ -542,10 +546,10 @@ const __authzLadder = async (spec, creds, dispatch) => {
     arms: g.arms ?? spec.arms,
   }));
 
-  const arm = async (surface, rung, headers, expected) => {
+  const arm = async (surface, rung, headers, expected, skipNote) => {
     const where = surface.label ? \`\${surface.label} — \` : "";
     if (expected === null || expected === undefined) {
-      push(\`authz ladder: \${where}\${rung} (skipped — \${spec.anonymousNote ?? "not expressible"})\`, "skip");
+      push(\`authz ladder: \${where}\${rung} (skipped — \${skipNote ?? spec.anonymousNote ?? "not expressible"})\`, "skip");
       return;
     }
     const r = await dispatch({
@@ -568,9 +572,25 @@ const __authzLadder = async (spec, creds, dispatch) => {
   // goes last.  With several surfaces that ordering is kept PER SURFACE — the
   // walk is surface-major, not rung-major — so a mutating surface's authorized
   // arm cannot disturb the next surface's denial arms.
+  // The CROSS-TENANT rung joins the DENIED group for the same reason the other
+  // two are there: it must run while the surface is still in its pre-operation
+  // state, so a refusal cannot be an artefact of the authorized arm having
+  // already mutated the row.  It is declared per-surface as \`arms.otherTenant\`
+  // and is OPT-IN — a surface that does not declare it is not asserting a
+  // tenancy statement, and an undeclared arm skips (see \`arm\`) rather than
+  // inventing an expectation.
   for (const s of surfaces) {
     await arm(s, "unauthenticated", {}, s.arms.anonymous);
     await arm(s, "authenticated-but-unauthorized", unauthorized, s.arms.unauthorized);
+    if (s.arms.otherTenant !== undefined) {
+      await arm(
+        s,
+        "cross-tenant",
+        otherTenant,
+        otherTenant ? s.arms.otherTenant : null,
+        "this system's auth flavour carries no tenancy claim to vary",
+      );
+    }
     await arm(s, "authorized", authorized, s.arms.authorized);
   }
   return out;
@@ -586,6 +606,6 @@ const __authzLadder = async (spec, creds, dispatch) => {
 // credential) is a no-op.
 export function authzLadderTail(resultsVar) {
   return `if (AUTHZ_LADDER && UNAUTHORIZED_CREDS) {
-    for (const r of await __authzLadder(AUTHZ_LADDER, { authorized: __authHeaders, unauthorized: UNAUTHORIZED_CREDS }, dispatch)) ${resultsVar}.push(r);
+    for (const r of await __authzLadder(AUTHZ_LADDER, { authorized: __authHeaders, unauthorized: UNAUTHORIZED_CREDS, otherTenant: OTHER_TENANT_CREDS }, dispatch)) ${resultsVar}.push(r);
   }`;
 }

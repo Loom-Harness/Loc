@@ -153,6 +153,62 @@ export const DEV_CLAIMS_UNAUTHORIZED = JSON.stringify({
   permissions: ["ops.none"],
 });
 
+/** The THIRD dev-stub principal: **authenticated, authorized, and in a
+ *  DIFFERENT TENANT** (wave-3 row 3.3 / M-T9.13).
+ *
+ *  Why a third one is needed at all.  `DEV_CLAIMS_UNAUTHORIZED` is a PERMISSION
+ *  second identity, not a TENANCY one — it deliberately shares `tenantId:
+ *  "acme"` so that the only thing separating it from the authorized principal
+ *  is the authorization predicate.  That isolation is right for the 403 arm and
+ *  useless for a tenancy statement: with one tenant in play the behavioural tier
+ *  can prove "denied by predicate" but NOT "row hidden because it belongs to
+ *  another tenant", which is what every scope-filter cell actually claims.  A
+ *  tenancy filter emitted as a no-op passes the existing ladder unharmed.
+ *
+ *  So this principal inverts the isolation: `role` and `permissions` are the
+ *  GRANTING values, byte-identical to `DEV_CLAIMS`, and the tenancy claims are
+ *  the only difference.  A refusal under it is therefore attributable to the
+ *  scope filter alone — an authorization denial would have shown up on this
+ *  principal's granting claims too.
+ *
+ *  Keep `tenantId` and `orgId` in step (the second name is for
+ *  `tenancy-claim-name`, whose claim is deliberately not called `tenantId`) and
+ *  keep the value different from `DEV_CLAIMS`'s.  A fixture that starts seeding
+ *  rows under THIS tenant turns every hidden-row arm into a visible-row arm and
+ *  the rung stops proving anything. */
+export const DEV_CLAIMS_OTHER_TENANT = JSON.stringify({
+  tenantId: "globex",
+  orgId: "globex",
+  // Identical to `DEV_CLAIMS` ON PURPOSE — see the note above.  If a refusal
+  // under this principal could also be explained by a failing `requires`, the
+  // arm would not isolate the tenancy filter.
+  role: "agent",
+  permissions: ["ops.manage"],
+});
+
+/** The cross-tenant credential for one case, in that system's auth flavour —
+ *  the twin of `unauthorizedCredentials`, and the ONE place all five runner legs
+ *  derive it.
+ *
+ *  dev-stub: the same `x-loom-dev-claims` channel, carrying the other tenant's
+ *  granting claims.
+ *
+ *  OIDC: `null`, and that is a real limitation rather than an oversight.  The
+ *  emitted OIDC verifier's `toUser` projects `sub` / `realm_access.roles` /
+ *  `email` / `permissions` — there is no tenancy claim in the mock issuer's
+ *  token at all, so a second token would differ from the first in nothing a
+ *  scope filter reads.  Minting one anyway would produce an arm that passes
+ *  because both principals are in the same (absent) tenant, which is exactly
+ *  the false green this rung exists to prevent.  `null` makes the ladder report
+ *  the rung as SKIPPED — unavailable, not green.  Giving OIDC a tenancy claim
+ *  is its own piece of work (the verifier projection, not the harness). */
+export function otherTenantCredentials(authMode) {
+  if (authMode === "devstub") {
+    return { "x-loom-dev-claims": Buffer.from(DEV_CLAIMS_OTHER_TENANT).toString("base64") };
+  }
+  return null;
+}
+
 /** The authenticated-but-unauthorized credential for one case, in that system's
  *  auth flavour — the ONE place all five runner legs derive it, so "what
  *  unauthorized means" cannot drift between them.
@@ -396,6 +452,47 @@ export const AUTHZ_LADDERS = {
       },
     ],
     arms: { anonymous: null, unauthorized: 404, authorized: 404 },
+    anonymousNote: "dev-stub verifier accepts every request — no anonymous caller exists",
+  },
+
+  /** The TENANCY rung's first consumer (wave-3 row 3.3 / M-T9.13) — and the
+   *  reason `DEV_CLAIMS_OTHER_TENANT` exists.
+   *
+   *  Every ladder above varies the AUTHORIZATION predicate while holding the
+   *  tenant fixed. This one does the opposite: the cross-tenant principal
+   *  carries the same granting `role` and `permissions` as the authorized one,
+   *  so a refusal here is attributable to the scope filter and to nothing else.
+   *
+   *  What the ladder can and cannot see, stated because the difference decides
+   *  the whole spec: it asserts STATUS. A tenant-scoped LIST that leaks rows
+   *  still answers 200, so the list surface cannot carry the statement — it is
+   *  the CONTROL, proving the cross-tenant credential authenticates and reaches
+   *  the route at all. The by-id read is where hiding IS status-visible: the row
+   *  belongs to `acme`, so the `globex` principal must get 404. Without the
+   *  control a broken credential would 404 everything and the arm would "pass"
+   *  for the wrong reason — the same trap `field-mask`'s control guards.
+   *
+   *  The row-level assertions (`items`, and the `total` that catches a
+   *  cross-tenant COUNT leak) stay in the fixture's own `test e2e` block, which
+   *  is the surface that can read a body. This ladder adds the arm that block
+   *  structurally cannot express: a request made AS somebody else. */
+  "tenancy-owned": {
+    seed: { path: "/api/invoices", body: { number: "LADDER-1", amountDue: 100 } },
+    gated: [
+      {
+        label: "tenant-scoped list — CONTROL, status cannot see a leak",
+        method: "GET",
+        path: "/api/invoices",
+        arms: { anonymous: null, unauthorized: 200, otherTenant: 200, authorized: 200 },
+      },
+      {
+        label: "tenant-scoped read by id — the row belongs to another tenant",
+        method: "GET",
+        path: "/api/invoices/{id}",
+        arms: { anonymous: null, unauthorized: 200, otherTenant: 404, authorized: 200 },
+      },
+    ],
+    arms: { anonymous: null, unauthorized: 200, authorized: 200 },
     anonymousNote: "dev-stub verifier accepts every request — no anonymous caller exists",
   },
 };
