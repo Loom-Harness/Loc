@@ -1,0 +1,93 @@
+// ClaimsHub v1 — the "start fast" MVP an adjuster-ops team would actually
+// ship first: policies exist, customers can file a claim against one,
+// and someone can approve/deny it. No auth, no multi-tenancy yet — that's
+// exactly the kind of system a small team spins up before they need any
+// of that.
+system ClaimsHub {
+
+  subdomain Claims {
+    context Core {
+
+      enum PolicyStatus { Active, Lapsed, Cancelled }
+      enum ClaimStatus  { Submitted, UnderReview, Approved, Denied, Paid }
+
+      aggregate Policy with crudish {
+        policyNumber: string
+        holderName: string
+        status: PolicyStatus
+        premium: money
+
+        invariant policyNumber.length > 0
+        invariant premium > 0
+        derived display: string = policyNumber
+      }
+
+      aggregate Claim with crudish {
+        // NOTE: a field literally named `policy` fails to parse — `policy`
+        // is reserved for the `policy { }` authorization-ladder block (see
+        // docs/auth.md). It's admitted as a *parameter* name (LooseName)
+        // but not as a *field* name (Property), and the parser error gives
+        // no hint why ("Expecting token of type '}' but found `policy`").
+        // Renamed to `coveredPolicy` as the workaround.
+        coveredPolicy: Policy id
+        status: ClaimStatus
+        description: string
+        amountClaimed: money
+        submittedAt: datetime
+
+        invariant amountClaimed > 0
+        derived display: string = description
+
+        operation approve() {
+          precondition status == Submitted || status == UnderReview
+          status := Approved
+        }
+
+        // NOTE: `operation deny()` fails to parse — `deny` is a hard
+        // keyword (the `deny on <target>` effect inside `policy { }`,
+        // docs/auth.md) and Operation.name only admits bare ID (plus the
+        // special-cased 'write'), so it's not even LooseName-softened.
+        // Renamed to `reject` as the workaround — "approve/deny" is one of
+        // the most idiomatic verb pairs in a claims domain and collides
+        // outright with the authorization DSL's own vocabulary.
+        operation reject() {
+          precondition status == Submitted || status == UnderReview
+          status := Denied
+        }
+      }
+
+      repository Policies for Policy {
+        find byNumber(policyNumber: string): Policy? where this.policyNumber == policyNumber
+      }
+
+      criterion ForPolicy(policyId: Policy id) of Claim = this.coveredPolicy == policyId
+
+      retrieval ClaimsForPolicy(policyId: Policy id) of Claim {
+        where: ForPolicy(policyId)
+      }
+
+      repository Claims for Claim { }
+    }
+  }
+
+  ui WebApp with scaffold(subdomains: [Claims]) { }
+
+  storage primary { type: postgres }
+  resource appState { for: Core, kind: state, use: primary,
+                      index: [Policy.policyNumber, Claim.coveredPolicy] }
+
+  deployable api {
+    platform: node,
+    contexts: [Core],
+    dataSources: [appState],
+    port: 3000
+  }
+
+  deployable webApp {
+    platform: react,
+    targets: api,
+    ui: WebApp,
+    port: 3001,
+    design: mantine
+  }
+}
