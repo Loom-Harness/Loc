@@ -385,6 +385,18 @@ export function isWalkableLayoutBody(
       isWalkableLayoutBody(body.otherwise, userComponents)
     );
   }
+  // A bare `match` body is the documented wizard pattern
+  // (page-metamodel.md §7/§12) and the walker has full `match` arms —
+  // only THIS predicate did not admit it, so react and svelte (the two
+  // emitters that gate on it) dropped the page with no file and no
+  // diagnostic, while vue and angular — which walk unconditionally —
+  // rendered it.  Same rule as `ternary`: walkable when any arm is.
+  if (body.kind === "match") {
+    return (
+      body.arms.some((a) => isWalkableLayoutBody(a.value, userComponents)) ||
+      isWalkableLayoutBody(body.otherwise, userComponents)
+    );
+  }
   return false;
 }
 
@@ -1179,6 +1191,15 @@ export function walk(expr: ExprIR, ctx: WalkContext, depth: number): string {
       // type is unreliable for untyped scaffold accessors), so a
       // text-coercing target keeps its cast — safe today, and the site
       // widens to the real type once accessors are typed.
+      return ctx.target.renderInterpolation(emitExpr(expr, ctx), provableStringType(expr));
+    case "method-call":
+      // An intrinsic call in markup-child position — `KeyValueRow { "Note",
+      // note.toUpper() }`.  Identical in kind to `member` above: a VALUE
+      // expression `emitExpr` already renders (it is what `Text { … }` does
+      // with the same source), so element position had no reason to refuse it.
+      // Without this arm the value slot degraded to `/* unsupported expr:
+      // method-call */` while the visually identical `Text` twin rendered
+      // `"abc".toUpperCase()` — the same expression, two outcomes, one page.
       return ctx.target.renderInterpolation(emitExpr(expr, ctx), provableStringType(expr));
     default:
       return ctx.target.renderComment(`unsupported expr: ${expr.kind}`);

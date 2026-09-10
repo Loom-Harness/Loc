@@ -10,7 +10,6 @@ import { allPlatformDescriptors } from "../../../platform/metadata.js";
 import { isStdlibError, STRUCTURAL_CONFLICT_ERRORS } from "../../../util/error-defaults.js";
 import { bodyTypeOf } from "../../../util/expr-body-type.js";
 import { plural, snake } from "../../../util/naming.js";
-import { typeKey, variantTag } from "../../stdlib/unions.js";
 import type {
   AggregateIR,
   BoundedContextIR,
@@ -36,6 +35,7 @@ import {
 } from "../../util/walk.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
 import { walkExpr } from "./shared.js";
+import { checkVariantMatchShape } from "./variant-match-shape.js";
 
 // Backend platforms that render the paged generic carrier / the `or`-union
 // operation return.  Both are EXPORTED so the diagnostic-firing census can
@@ -1120,80 +1120,16 @@ export function validateVariantMatch(loom: EnrichedLoomModel, diags: LoomDiagnos
     (source: string) =>
     (e: ExprIR): void => {
       if (e.kind !== "match" || !e.subject) return;
-      const subjectType = e.subjectType;
-      // Non-union subject — the scrutinee must resolve to an `or`-union.
-      if (subjectType?.kind !== "union") {
-        diags.push({
-          severity: "error",
-          code: "loom.match-non-union-subject",
-          message: diagMessage("loom.match-non-union-subject", {
-            subjectType: subjectType ? typeKey(subjectType) : "unresolved",
-          }),
-          source,
-        });
-        return;
-      }
-      const variantKeys = new Set(subjectType.variants.map(typeKey));
-      const covered = new Set<string>();
-      for (const arm of e.variantArms) {
-        const key = typeKey(arm.varType);
-        // Unknown variant — the arm names a type outside the union's set.
-        if (!variantKeys.has(key)) {
-          diags.push({
-            severity: "error",
-            code: "loom.match-unknown-variant",
-            message: diagMessage("loom.match-unknown-variant", {
-              varType: variantTag(arm.varType),
-              variants: [...subjectType.variants.map(variantTag)].join(" | "),
-            }),
-            source,
-          });
-          continue;
-        }
-        // Duplicate variant — the same variant matched twice.
-        if (covered.has(key)) {
-          diags.push({
-            severity: "error",
-            code: "loom.match-duplicate-variant",
-            message: diagMessage("loom.match-duplicate-variant", {
-              varType: variantTag(arm.varType),
-            }),
-            source,
-          });
-          continue;
-        }
-        covered.add(key);
-      }
-      // Non-exhaustive — some variant is uncovered and there is no else.
-      if (!e.otherwise) {
-        const missing = [...variantKeys].filter((k) => !covered.has(k));
-        if (missing.length > 0) {
-          const missingTags = subjectType.variants
-            .filter((v) => missing.includes(typeKey(v)))
-            .map(variantTag);
-          diags.push({
-            severity: "warning",
-            code: "loom.match-non-exhaustive",
-            message: diagMessage("loom.match-non-exhaustive", {
-              missingTags: missingTags.map((t) => `'${t}'`).join(", "),
-            }),
-            source,
-          });
-        }
-      }
+      // The four gates live in `variant-match-shape.ts` so the STATEMENT form
+      // gets exactly the same ones — see that module's header for the reach
+      // gap this closes (audit finding F56).
+      checkVariantMatchShape(
+        { subjectType: e.subjectType, arms: e.variantArms, hasElse: e.otherwise !== undefined },
+        source,
+        diags,
+      );
     };
 
-  // ONE outer loop (M-T9.40).  This check carried a straight copy of the
-  // outer loop `validateExprIntegrity` used to have, minus its ui half — so a
-  // `match` written anywhere the copy did not reach (a page or component body,
-  // a find filter, a handler, a criterion, a domain service, a test) was
-  // parsed, lowered and emitted with none of its four semantic gates run:
-  // non-union subject, unknown variant, duplicate variant, non-exhaustive.
-  //
-  // Widening produced ZERO new diagnostics across nine examples and all 59
-  // corpus fixtures, so no existing model was relying on the gap; the change
-  // is reach, not behaviour.  `ui` is ignored here — a variant match means the
-  // same thing on both sides of that line.
   forEachModelExpr(loom, ({ expr, source }) => {
     visit(source)(expr);
   });
@@ -1248,7 +1184,6 @@ const PURE_FUNCTION_CALL_KINDS: ReadonlySet<string> = new Set([
 export function validateFunctionBlockBodies(ctx: BoundedContextIR, diags: LoomDiagnostic[]): void {
   const check = (owner: string, fn: FunctionIR): void => {
     if ("expr" in fn.body) return; // expression form is pure by construction
-    const where = `function '${fn.name}' on ${owner}`;
     const source = `${ctx.name}/${owner}.function[${fn.name}]`;
     const push = (message: string): void => {
       diags.push({ severity: "error", code: "loom.function-block-impure", message, source });
@@ -1261,20 +1196,23 @@ export function validateFunctionBlockBodies(ctx: BoundedContextIR, diags: LoomDi
         case "add":
         case "remove":
           push(
-            `${where}: '${stmt.target.segments.join(".")}' is mutated, but a 'function' is a PURE helper over its parameters — it may not write aggregate state.  Move the mutation into an 'operation' (which owns 'this'), or return a value instead.`,
+            diagMessage("loom.function-block-impure#mutation", {
+              target: stmt.target.segments.join("."),
+            }),
           );
           break;
         case "emit":
-          push(
-            `${where}: 'emit ${stmt.eventName}' is not allowed — a 'function' is pure (no side effects).  Emit the event from the 'operation' that decides it.`,
-          );
+          push(diagMessage("loom.function-block-impure#emit", { eventName: stmt.eventName }));
           break;
         case "call":
           // A bare call STATEMENT (`bump()`) — only a pure `function` call is
           // allowed; an operation / action / store-action call mutates.
           if (stmt.target !== "function") {
             push(
-              `${where}: call to '${stmt.name}' (${stmt.target}) is not allowed in a pure block-body 'function' — it invokes a mutating operation/action.  Call a pure 'function', or move the logic into an 'operation'.`,
+              diagMessage("loom.function-block-impure#call-stmt", {
+                name: stmt.name,
+                target: stmt.target,
+              }),
             );
           }
           break;
@@ -1285,13 +1223,14 @@ export function validateFunctionBlockBodies(ctx: BoundedContextIR, diags: LoomDi
       walkExprsInStmt(stmt, (e) => {
         if (e.kind === "call" && !PURE_FUNCTION_CALL_KINDS.has(e.callKind)) {
           push(
-            `${where}: call to '${e.name}' (${e.callKind}) reaches beyond the pure subset — a block-body 'function' may only call other pure 'function's (no operations, repository reads, domain services, externs, or workflow starts).  Move the side-effecting logic into an 'operation' or a 'domainService'.`,
+            diagMessage("loom.function-block-impure#call-expr", {
+              name: e.name,
+              callKind: e.callKind,
+            }),
           );
         }
         if (e.kind === "method-call") {
-          push(
-            `${where}: method call '${e.member}(…)' on a receiver is not allowed in a pure block-body 'function' — call a pure 'function' instead, or move the logic into an 'operation'.`,
-          );
+          push(diagMessage("loom.function-block-impure#method-call", { member: e.member }));
         }
       });
     }

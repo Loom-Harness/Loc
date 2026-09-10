@@ -114,8 +114,8 @@ export function checkOperation(op: Operation, agg: Aggregate, accept: Validation
       if (node.$type === "NameRef" && name !== undefined && paramNames.has(name)) {
         accept(
           "error",
-          `'when' on operation '${op.name}' references parameter '${name}' — a 'when' gate is a predicate over the aggregate's state only (its can-${op.name} query has no arguments). Move argument-aware checks into a 'precondition' in the body.`,
-          { node: op, property: "when" },
+          diagMessage("loom.when-references-op-param", { name: op.name, param: name }),
+          { node: op, property: "when", code: "loom.when-references-op-param" },
         );
       }
     }

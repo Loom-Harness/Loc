@@ -827,14 +827,21 @@ function toastMessageProblem(
               `reads '${e.name}', which is not in scope — only the handler's event ` +
               `binding '${bind}' is`,
           };
-    case "member":
-      if (e.receiver.kind === "ref" && e.receiver.name === bind) return undefined;
+    case "member": {
+      // A member CHAIN of any depth is in the subset as long as it bottoms out
+      // at a bare reference to the handler's event binding.  Rooted at anything
+      // else — another name (`currentUser.email`), a paren, a call — it is not:
+      // no renderer has a receiver to walk down from.
+      let root: ExprIR = e;
+      while (root.kind === "member") root = root.receiver;
+      if (root.kind === "ref" && root.name === bind) return undefined;
       return {
         kind: "member",
         detail:
-          `reads \`${describeReceiver(e)}\` — a toast message admits SINGLE-LEVEL member ` +
+          `reads \`${describeReceiver(e)}\` — a toast message admits member ` +
           `access off the event binding '${bind}' only`,
       };
+    }
     case "paren":
       return toastMessageProblem(e.inner, bind);
     case "binary":

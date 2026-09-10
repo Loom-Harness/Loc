@@ -110,6 +110,37 @@ export function checkTopLevelDomainComposition(
   services?: DddServices,
 ): void {
   const foldable = model.members.filter((m) => foldableKeyword(m) !== undefined);
+
+  // A SECOND `system { }` is wrong on its own, with nothing to fold.
+  // "One `system` per project" is the documented rule
+  // (language-reference/02-systems-and-topology.md) and the comment below
+  // states why: the system is composition's fold TARGET, so two targets have
+  // no resolution.  The fold-triggered check underneath only runs when some
+  // top-level member needs a home, so a file declaring two complete systems
+  // and no top-level members passed validation clean — and `generate system`
+  // then merged both into ONE tree and ONE `docker-compose.yml`, silently
+  // treating two authored systems as one deployment (F36).
+  //
+  // Scoped to MORE than one deliberately.  Zero systems in the closure is a
+  // legitimate mid-edit state for an imported fragment, so it stays the
+  // fold-triggered check's business, where there is a foldable member to
+  // prove something actually needed a system.
+  const systems = [
+    ...model.members.filter(isSystem),
+    ...composedRoots(model, services).flatMap((r) => r.members.filter(isSystem)),
+  ];
+  if (systems.length > 1) {
+    // Flag every system after the first: the first is the presumptive fold
+    // target, and the extras are what has to go.
+    for (const extra of systems.slice(1)) {
+      accept("error", diagMessage("loom.multiple-systems", { count: systems.length }), {
+        node: extra,
+        property: "name",
+        code: "loom.multiple-systems",
+      });
+    }
+  }
+
   if (foldable.length === 0) return;
 
   // Count `system { }` blocks across the project's IMPORT CLOSURE (this

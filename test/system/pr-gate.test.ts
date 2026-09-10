@@ -477,6 +477,56 @@ describe("pr-gate.yml re-evaluates on every other workflow's completion", () => 
 //      until a human pokes it.
 // ---------------------------------------------------------------------------
 
+/** The body of one job in pr-gate.yml, from its key to the next job (or EOF).
+ *  Read by slicing rather than by parsing YAML because what these assertions
+ *  are about is the literal `if:` expression GitHub evaluates — a YAML load
+ *  would hand back the same string with its folding already applied, and the
+ *  comments that explain each arm would be gone. */
+function jobBlock(job: string): string {
+  const src = readFileSync(path.join(workflowsDir, "pr-gate.yml"), "utf8");
+  const start = src.search(new RegExp(`^ {2}${job}:\\s*$`, "m"));
+  expect(start, `pr-gate.yml has no \`${job}:\` job`).toBeGreaterThan(-1);
+  const rest = src.slice(start + 1);
+  const next = rest.search(/^ {2}[a-z][\w-]*:\s*$/m);
+  return next === -1 ? rest : rest.slice(0, next);
+}
+
+/** A job's `if:` guard, with comment lines dropped so an arm mentioned only in
+ *  prose can never satisfy an assertion about the expression. */
+function jobGuard(job: string): string {
+  const block = jobBlock(job);
+  const start = block.indexOf("if:");
+  expect(start, `the ${job} job lost its if: guard`).toBeGreaterThan(-1);
+  const runsOn = block.indexOf("runs-on:", start);
+  const concurrency = block.indexOf("concurrency:", start);
+  const end = Math.min(...[runsOn, concurrency].filter((i) => i > -1));
+  return block
+    .slice(start, end)
+    .split("\n")
+    .filter((l) => !l.trim().startsWith("#"))
+    .join("\n");
+}
+
+const evalJobGuard = () => jobGuard("pr-gate-eval");
+const sweepJobGuard = () => jobGuard("sweep");
+
+/** The sweep job's OWN concurrency block — the workflow-level one is keyed per
+ *  SHA and so cannot serialise sweeps against each other. */
+function sweepJobConcurrency(): { group: string; cancelInProgress: string } {
+  const block = jobBlock("sweep");
+  const start = block.indexOf("concurrency:");
+  expect(start, "the sweep job lost its own concurrency: block").toBeGreaterThan(-1);
+  const scoped = block.slice(start, block.indexOf("runs-on:", start));
+  const group = scoped.match(/^\s*group:\s*(.+)$/m);
+  const cancel = scoped.match(/^\s*cancel-in-progress:\s*(.+)$/m);
+  expect(group, "the sweep's concurrency block lost its group:").toBeTruthy();
+  expect(cancel, "the sweep's concurrency block lost its cancel-in-progress:").toBeTruthy();
+  return {
+    group: (group as RegExpMatchArray)[1].trim(),
+    cancelInProgress: (cancel as RegExpMatchArray)[1].trim(),
+  };
+}
+
 describe("pr-gate survives dropped workflow_run events", () => {
   const src = readFileSync(path.join(workflowsDir, "pr-gate.yml"), "utf8");
 
@@ -494,23 +544,72 @@ describe("pr-gate survives dropped workflow_run events", () => {
     expect(/cron:/.test(src)).toBe(true);
   });
 
-  it("the job runs on schedule/dispatch events, not only pull_request paths", () => {
-    // The old guard `event_name == 'pull_request' || …` silently skips the
-    // sweep.  The inverted form runs everything except workflow_run
-    // completions from a context this gate does not evaluate.
-    //
-    // Asserted by SHAPE rather than as one literal string: the guard grew a
-    // `merge_group` arm (a required check with no merge_group trigger stalls
-    // every queue entry — see merge-queue-readiness), and a literal pin would
-    // have forced that edit to look like a regression.  What must not rot is
-    // the inversion itself, so that is what is pinned.
-    const guard = src.slice(src.indexOf("if:"), src.indexOf("runs-on:"));
-    expect(
-      /github\.event_name\s*!=\s*'workflow_run'/.test(guard),
-      `guard must be the INVERTED form or the sweep is skipped, got: ${guard}`,
-    ).toBe(true);
+  // UPDATED 2026-09-09.  This block used to assert that `pr-gate-eval`'s guard
+  // was the INVERTED form (`event_name != 'workflow_run' || …`), because that
+  // was what let the SAME job fall through to sweep mode on schedule/dispatch.
+  // The sweep is its own job now — it needs a throttle and a constant
+  // concurrency group that the per-SHA evaluation must not have — so the
+  // inversion is gone and pinning it would now block the fix that removed it.
+  // What replaces it is the pair of properties that actually matter: the
+  // evaluation runs on every path that HAS a SHA, and the sweep runs on the
+  // paths that do not.
+  it("the evaluation runs on every path that carries a SHA", () => {
+    const guard = evalJobGuard();
+    expect(guard).toContain("github.event_name == 'pull_request'");
+    expect(guard).toContain("github.event_name == 'merge_group'");
+    // A `workflow_run` completion is only worth evaluating when the run that
+    // triggered it was itself a PR or merge-group run — those are the two
+    // contexts whose head SHA this gate publishes on.
     expect(guard).toContain("github.event.workflow_run.event == 'pull_request'");
     expect(guard).toContain("github.event.workflow_run.event == 'merge_group'");
+  });
+
+  it("the sweep runs on ACTIVITY, not only on the cron that does not fire", () => {
+    // The whole point of the 2026-09-09 change.  `schedule` alone is not a
+    // safety net on this account: the cron asks for four sweeps an hour and
+    // Actions delivered a mean gap of 4.7 hours, so a dropped final
+    // `workflow_run` dispatch parked a green PR (#2819) for ~50 minutes with
+    // all 241 of its checks green.  Riding `workflow_run` is what closes it.
+    const guard = sweepJobGuard();
+    expect(
+      guard.includes("github.event_name == 'workflow_run'"),
+      `the sweep must ride workflow_run or it is back on the cron alone, got: ${guard}`,
+    ).toBe(true);
+    expect(guard).toContain("github.event_name == 'schedule'");
+    expect(guard).toContain("github.event_name == 'workflow_dispatch'");
+  });
+
+  it("the sweep is throttled, and by something that costs no API call", () => {
+    // Unthrottled it would ride EVERY completion — tens per SHA — and a sweep
+    // costs a paged check-run fetch per open PR, which would exhaust the
+    // per-repository GITHUB_TOKEN budget.  GitHub expressions have no
+    // arithmetic, so the throttle is a last-digit string test on run_number
+    // rather than a modulo.
+    const guard = sweepJobGuard();
+    expect(
+      /endsWith\(\s*format\('\{0\}',\s*github\.run_number\s*\)/.test(guard),
+      `the sweep's workflow_run arm must be throttled, got: ${guard}`,
+    ).toBe(true);
+  });
+
+  it("the sweep serialises against ITSELF, not against one SHA", () => {
+    // The workflow-level group is keyed per SHA, so it would happily run one
+    // sweep per active SHA at once.  A constant job-level group is what caps
+    // them at one running plus one pending.
+    const block = sweepJobConcurrency();
+    expect(
+      /\$\{\{|github\./.test(block.group),
+      `the sweep's concurrency group must be a CONSTANT, got: ${block.group}`,
+    ).toBe(false);
+    expect(block.cancelInProgress).toBe("false");
+  });
+
+  it("the sweep never posts a check run onto a SHA this gate evaluates", () => {
+    // It is skipped on `pull_request` / `merge_group`, and a skipped job still
+    // surfaces as a check run — so its name has to be excluded from the
+    // verdict, or the gate counts its own plumbing.
+    expect(sweepJobGuard()).not.toContain("github.event_name == 'pull_request'");
+    expect(SELF_NAMES.has("pr-gate-sweep")).toBe(true);
   });
 
   it("sweep may list open PRs", () => {
