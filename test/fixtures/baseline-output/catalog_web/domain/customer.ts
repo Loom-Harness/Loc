@@ -68,7 +68,7 @@ export class Customer {
       username: input.username,
       email: input.email,
       age: input.age,
-      version: 0,
+      version: 1,
     });
   }
 }
