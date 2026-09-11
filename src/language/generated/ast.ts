@@ -1967,6 +1967,7 @@ export interface LValue extends langium.AstNode {
     call: boolean;
     head: LValueIdent;
     tail: Array<LValueIdent>;
+    thisRef: boolean;
 }
 
 export const LValue = {
@@ -1974,7 +1975,8 @@ export const LValue = {
     args: 'args',
     call: 'call',
     head: 'head',
-    tail: 'tail'
+    tail: 'tail',
+    thisRef: 'thisRef'
 } as const;
 
 export function isLValue(item: unknown): item is LValue {
@@ -5736,6 +5738,11 @@ export class DddAstReflection extends langium.AbstractAstReflection {
                 tail: {
                     name: LValue.tail,
                     defaultValue: [],
+                    optional: true
+                },
+                thisRef: {
+                    name: LValue.thisRef,
+                    defaultValue: false,
                     optional: true
                 }
             },

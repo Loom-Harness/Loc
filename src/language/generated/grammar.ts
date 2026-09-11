@@ -16222,6 +16222,25 @@ export const DddGrammar = (): Grammar => loadedDddGrammar ?? (loadedDddGrammar =
         "$type": "Group",
         "elements": [
           {
+            "$type": "Group",
+            "elements": [
+              {
+                "$type": "Assignment",
+                "feature": "thisRef",
+                "operator": "?=",
+                "terminal": {
+                  "$type": "Keyword",
+                  "value": "this"
+                }
+              },
+              {
+                "$type": "Keyword",
+                "value": "."
+              }
+            ],
+            "cardinality": "?"
+          },
+          {
             "$type": "Assignment",
             "feature": "head",
             "operator": "=",
