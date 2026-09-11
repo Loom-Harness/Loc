@@ -1253,10 +1253,10 @@ export function renderEventSourcedRepositoryImpl(
  * `object?` unifies them; the id sorts on its `.Value`, since the generated id
  * is a `readonly record struct` and record structs are not `IComparable`.
  */
-function inMemoryPagedFindLines(
+export function inMemoryPagedFindLines(
   agg: EnrichedAggregateIR,
   f: FindIR,
-  opts: { loadAll: string; filter: string; usesUser: boolean },
+  opts: { loadAll: string; filter: string; usesUser: boolean; log?: boolean },
 ): string[] {
   const sortArms = sortableFields(agg)
     .filter((wf) => wf !== "id")
@@ -1278,11 +1278,18 @@ function inMemoryPagedFindLines(
     }_ => (object?)__x.Id.Value };`,
     '        var __ordered = dir == "desc" ? __matched.OrderByDescending(__key) : __matched.OrderBy(__key);',
     "        var items = __ordered.Skip((page - 1) * pageSize).Take(pageSize).ToList();",
-    `        ${renderDotnetLogCall("findExecuted", [
-      { name: "aggregate", valueExpr: `"${agg.name}"` },
-      { name: "find", valueExpr: `"${f.name}"` },
-      { name: "rows", valueExpr: "items.Count" },
-    ])}`,
+    // The Dapper mirrors carry no `_log` (no Dapper repository logs a read
+    // today), so the caller can drop the event rather than reference a field
+    // the class does not declare (CS0103).
+    ...(opts.log === false
+      ? []
+      : [
+          `        ${renderDotnetLogCall("findExecuted", [
+            { name: "aggregate", valueExpr: `"${agg.name}"` },
+            { name: "find", valueExpr: `"${f.name}"` },
+            { name: "rows", valueExpr: "items.Count" },
+          ])}`,
+        ]),
     `        return new Paged<${agg.name}>(items, page, pageSize, __total, __totalPages);`,
     "    }",
   ];

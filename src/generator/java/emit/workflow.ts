@@ -31,6 +31,7 @@ import {
   renderJavaType,
 } from "../render-expr.js";
 import { renderJavaStatements } from "../render-stmt.js";
+import { voRecord } from "./dto.js";
 import type { OpFragment } from "./entity.js";
 import {
   bearsNestedRecord,
@@ -204,6 +205,13 @@ export function javaWorkflowStmtTarget(
    *  not the carrier-pattern switch `matchVariant` emits for operation
    *  unions (whose carriers DO exist). */
   unionFindLets: ReadonlySet<string> = new Set(),
+  /** The saga row's correlation field, when the body renders against a row
+   *  that `_allocate(__key)` already keyed (the command-workflow facade).  The
+   *  JPA state entity exposes no setter for its key — the assignment spelling
+   *  of the correlation rule (`orderId := order`, M-T6.62) selects the row, it
+   *  does not mutate it — so the `assign` arm renders nothing for it instead
+   *  of `state.setOrderId(order)` (javac: cannot find symbol). */
+  fixedKeyField?: string,
 ): WorkflowStmtTarget {
   return {
     indentUnit: "    ",
@@ -269,6 +277,15 @@ export function javaWorkflowStmtTarget(
     // the public JavaBean setter (`state.setAttempts(1)`); `repo.save(state)`
     // at handler exit flushes it.
     assign: (s, indent) => {
+      if (
+        fixedKeyField !== undefined &&
+        s.target.segments.length === 1 &&
+        s.target.segments[0] === fixedKeyField
+      ) {
+        return [
+          `${indent}// \`${fixedKeyField}\` is the correlation key: fixed by \`_allocate(__key)\` above, never re-set.`,
+        ];
+      }
       collectJavaExprImports(s.value, imports);
       return [
         `${indent}${renderCtx.thisName}.${setterName(s.target.segments[0]!)}(${renderJavaExpr(s.value, renderCtx)});`,
@@ -587,6 +604,9 @@ export function renderJavaWorkflows(
   const isSaga = new Set(sagaWorkflows.map((w) => w.name));
   const methods: string[] = [];
 
+  // VO `<Vo>Request` records no aggregate package emits (collected per
+  // workflow below, emitted once into this package after the loop).
+  const localVoRequests = new Set<string>();
   for (const wf of cmdWorkflows) {
     const usesUser = workflowUsesCurrentUser(wf);
     // The own-state receiver: the loaded saga row, whose fields are
@@ -647,6 +667,12 @@ export function renderJavaWorkflows(
       for (const vo of [...voNames].sort()) {
         const voPkg = wctx.voRequestPkgOf?.(vo);
         if (voPkg && voPkg !== wctx.pkg) reqImports.add(`${voPkg}.${vo}Request`);
+        // No aggregate package emits this VO's Request record (nothing but the
+        // workflow carries the VO on its wire) — the workflows package must
+        // emit it itself, or `MoneyRequest` is `cannot find symbol` in both the
+        // request record and the `toMoney` mapper (corpus java leg,
+        // `workflow-primitive-params`).
+        else if (!voPkg) localVoRequests.add(vo);
       }
       out.set(`${reqType}.java`, {
         category: "request-dto",
@@ -685,6 +711,7 @@ export function renderJavaWorkflows(
         wfRenderCtx,
         undefined,
         collectUnionFindLets(wf.statements),
+        corrParam ? wf.correlationField : undefined,
       ),
       "            ",
     );
@@ -778,6 +805,27 @@ export function renderJavaWorkflows(
   // `to<Vo>(...)` mappers for VO-typed params (parity with the per-aggregate
   // service).  Their `<Vo>Request` parameter type lives in an aggregate's
   // application package → import it the same way the Request DTO does.
+  if (localVoRequests.size > 0) {
+    // Close over nested VOs the same way `dto.ts` does for an aggregate.
+    const voLookup = new Map(ctx.valueObjects.map((v) => [v.name, v.fields] as const));
+    const queue = [...localVoRequests];
+    while (queue.length > 0) {
+      const vo = queue.pop()!;
+      for (const nested of referencedValueObjects(
+        (voLookup.get(vo) ?? []).map((f) => f.type),
+        new Set<string>(),
+      )) {
+        if (!localVoRequests.has(nested) && !wctx.voRequestPkgOf?.(nested)) {
+          localVoRequests.add(nested);
+          queue.push(nested);
+        }
+      }
+    }
+    for (const vo of [...localVoRequests].sort()) {
+      const rec = voRecord(vo, voLookup.get(vo) ?? [], "Request", wctx.pkg, wctx.basePkg);
+      out.set(rec.name, { category: "request-dto", content: rec.content });
+    }
+  }
   const voMappers = workflowVoMappers(ctx, cmdWorkflows, imports, wctx.basePkg);
   while (voMappers[voMappers.length - 1] === "") voMappers.pop();
   const voReqNames = new Set<string>();

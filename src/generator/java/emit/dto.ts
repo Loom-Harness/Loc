@@ -372,7 +372,7 @@ function bearsWireString(t: TypeIR): boolean {
   }
 }
 
-function voRecord(
+export function voRecord(
   vo: string,
   fields: readonly FieldIR[],
   dir: WireDir,

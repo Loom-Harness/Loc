@@ -270,7 +270,7 @@ describe("a create that ASSIGNS the correlation field from a param (F58 residue)
     expect(wf).toContain('%{"order" => order} = params');
     expect(wf).toContain('key = params["order"]');
     expect(wf).toContain("case Repo.get(D.Orders.Workflows.FulfilmentState, key) do");
-    expect(wf).toContain("state = __loom_state");
+    expect(wf).toContain("state = loom_state");
     expect(wf).toContain("Repo.update!");
   });
 });

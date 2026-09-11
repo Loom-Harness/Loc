@@ -195,7 +195,12 @@ export function buildPyWorkflowsFile(
     // `timedelta` rides in on use (like UTC/datetime).
     refersTo("datetime") || refersTo("timedelta")
       ? `from datetime import ${[
-          ...(refersTo("datetime") ? ["UTC", "datetime"] : []),
+          // `UTC` only on use — a `datetime` PARAM names the type in the
+          // request model without ever stamping `datetime.now(UTC)`, and an
+          // unconditional import is ruff F401 (the aggregate module already
+          // gates it the same way).
+          ...(refersTo("UTC") ? ["UTC"] : []),
+          ...(refersTo("datetime") ? ["datetime"] : []),
           ...(refersTo("timedelta") ? ["timedelta"] : []),
         ].join(", ")}`
       : null,
@@ -624,8 +629,22 @@ function workflowRoute(
       `        await session.connection(execution_options={"isolation_level": "${pyIsolationLevel(isolation)}"})`,
     );
   }
-  // Wire params → domain locals (brand ids, build VOs) once up front.
+  // Wire params → domain locals (brand ids, build VOs) once up front — but
+  // only the params the body (or the F58 correlation row loader) actually
+  // READS.  A param bound and never read is ruff F841 in the generated route
+  // (the corpus python leg runs `ruff check` as a gate), and a create that
+  // takes a param it does not use is valid `.ddd` (`workflow-primitive-params`
+  // exercises exactly that shape to pin the wire types).
+  const readParams = new Set<string>();
+  for (const st of wf.statements) {
+    walkWorkflowStmtExprsDeep(st, (e) => {
+      if (e.kind === "ref" && e.refKind === "param") readParams.add(e.name);
+    });
+  }
+  const readCorrParam = commandCreateCorrelationParam(wf);
+  if (readCorrParam) readParams.add(readCorrParam.name);
   for (const p of wf.params) {
+    if (!readParams.has(p.name)) continue;
     out.push(`        ${snake(p.name)} = ${pyWireToDomain(`body.${p.name}`, p.type, ctx)}`);
   }
   // F58 — a CORRELATED command workflow addresses a real persisted saga row:

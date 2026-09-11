@@ -1569,7 +1569,7 @@ function renderWorkflowModule(
   def report_result(result), do: result`;
   const lines = lowerStatements(wf.statements ?? [], contextModuleFq, renderCtx, ctx);
   // Load-or-allocate + persist, mirroring `renderPersistedBody`'s create arm.
-  // `__loom_state` keeps the row AS LOADED so the trailing changeset carries the
+  // `loom_state` keeps the row AS LOADED so the trailing changeset carries the
   // body's writes as real CHANGES — Elixir rebinds `state` in place
   // (`state = %{state | f: v}`), and `Ecto.Changeset.change(state, …)` against
   // the already-updated struct would diff to nothing and the update would be a
@@ -1586,12 +1586,12 @@ function renderWorkflowModule(
   const statePrelude = corrParam
     ? [
         `    key = params[${JSON.stringify(corrParam.name)}]`,
-        `    ${bindsState ? "__loom_state" : "_"} =`,
+        `    ${bindsState ? "loom_state" : "_"} =`,
         `      case Repo.get(${stateMod}, key) do`,
         `        nil -> Repo.insert!(%${stateMod}{${allocFields.join(", ")}})`,
         `        existing -> existing`,
         `      end`,
-        ...(bindsState ? ["", "    state = __loom_state"] : []),
+        ...(bindsState ? ["", "    state = loom_state"] : []),
         "",
       ].join("\n") + "\n"
     : "";
@@ -1605,7 +1605,7 @@ function renderWorkflowModule(
   const persistLines =
     bindsState && workflowBodyWritesOwnState(wf.statements ?? []) && mutableStateFields.length > 0
       ? [
-          `Repo.update!(Ecto.Changeset.change(__loom_state, Map.take(state, [${mutableStateFields.join(", ")}])))`,
+          `Repo.update!(Ecto.Changeset.change(loom_state, Map.take(state, [${mutableStateFields.join(", ")}])))`,
         ]
       : [];
   const body = assembleBody(lines, completedCall, persistLines);

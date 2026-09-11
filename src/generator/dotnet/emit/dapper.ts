@@ -62,7 +62,7 @@ import {
   renderCsType,
 } from "../render-expr.js";
 import { csClaimStampsFor } from "./entity.js";
-import { renderRetrievalParamsWithCt } from "./repository.js";
+import { inMemoryPagedFindLines, renderRetrievalParamsWithCt } from "./repository.js";
 
 // ---------------------------------------------------------------------------
 // Reserved-word identifier quoting (M-T6.42).
@@ -2047,15 +2047,30 @@ export function renderDapperDocumentRepository(
       .replace(".ToListAsync(cancellationToken)", ".ToList()")
       .replace(".FirstOrDefaultAsync(cancellationToken)", ".FirstOrDefault()");
     const usesUser = findUsesCurrentUser(f);
-    return lines(
-      `    public async Task<${renderCsType(f.returnType)}> ${upperFirst(f.name)}(${renderParams(f.params, [], usesUser)})`,
-      "    {",
-      "        await using var conn = await _db.OpenConnectionAsync(cancellationToken);",
-      `        var __rows = await conn.QueryAsync<Row>(new CommandDefinition("SELECT id, data, version FROM ${table}", cancellationToken: cancellationToken));`,
+    const loadAllLines = [
+      "await using var conn = await _db.OpenConnectionAsync(cancellationToken);",
+      `var __rows = await conn.QueryAsync<Row>(new CommandDefinition("SELECT id, data, version FROM ${table}", cancellationToken: cancellationToken));`,
       // The capability filter narrows the visible set BEFORE the find's own
       // predicate runs, so a find never returns a capability-hidden (foreign
       // tenant, soft-deleted) document.
-      `        var __all = __rows.Select(__d => ${deser})${capFilter};`,
+      `var __all = __rows.Select(__d => ${deser})${capFilter};`,
+    ];
+    // `find … paged` over a document carrier (ledger row F2-CB-C1): the SAME
+    // in-memory page the EF document path emits — the interface, controller and
+    // handler declare the 5-argument `Paged<T>` contract, so the Dapper mirror
+    // must offer it too (it did not: CS0535 + CS0029 on the corpus Dapper leg).
+    if (pagedReturn(f.returnType)) {
+      return inMemoryPagedFindLines(agg, f, {
+        loadAll: loadAllLines.join("\n        "),
+        filter,
+        usesUser,
+        log: false,
+      }).join("\n");
+    }
+    return lines(
+      `    public async Task<${renderCsType(f.returnType)}> ${upperFirst(f.name)}(${renderParams(f.params, [], usesUser)})`,
+      "    {",
+      ...loadAllLines.map((l) => `        ${l}`),
       `        return __all${filter}${projection};`,
       "    }",
     );
@@ -2241,6 +2256,17 @@ export function renderDapperEventSourcedRepository(
     const projection = (body?.projectionClause ?? ".ToListAsync(cancellationToken)")
       .replace(".ToListAsync(cancellationToken)", ".ToList()")
       .replace(".FirstOrDefaultAsync(cancellationToken)", ".FirstOrDefault()");
+    // `find … paged` over an event-log carrier (ledger row F2-CB-C1) — the
+    // same in-memory page the EF event-store path emits; see the document
+    // repository above for why the Dapper mirror must offer the paged contract.
+    if (pagedReturn(f.returnType)) {
+      return inMemoryPagedFindLines(agg, f, {
+        loadAll: "var __all = await _LoadAllAsync(cancellationToken);",
+        filter,
+        usesUser: findUsesCurrentUser(f),
+        log: false,
+      });
+    }
     return [
       `    public async Task<${renderCsType(f.returnType)}> ${upperFirst(f.name)}(${renderParams(f.params, [], findUsesCurrentUser(f))})`,
       "    {",
