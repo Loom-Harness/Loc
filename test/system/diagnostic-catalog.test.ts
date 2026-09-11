@@ -286,6 +286,36 @@ function sitesIn(file: string): { sites: Site[]; dynamic: DynamicCodeSite[] } {
   return { sites: out, dynamic };
 }
 
+/** Every `loom.*` code named at a walker give-up call site (`giveUp` /
+ *  `giveUpNotice` / `giveUpText`) anywhere under `src/generator/`.  Read out of
+ *  the sources rather than listed, so a new give-up code is recognised the day
+ *  it is written — the same "derive, don't hand-keep" rule the sentinel itself
+ *  exists for. */
+function giveUpCodes(): Set<string> {
+  const out = new Set<string>();
+  const walk = (dir: string): void => {
+    for (const e of fs.readdirSync(path.join(repoRoot, dir), { withFileTypes: true })) {
+      const rel = path.join(dir, e.name);
+      if (e.isDirectory()) walk(rel);
+      else if (e.name.endsWith(".ts")) {
+        const src = fs.readFileSync(path.join(repoRoot, rel), "utf8");
+        if (!src.includes("giveUp")) continue;
+        for (const m of src.matchAll(
+          /giveUp(?:Notice|Text)?\(\s*(?:[^,()]+,\s*)?"(loom\.[a-z0-9-]+)"/g,
+        ))
+          out.add(m[1] as string);
+        // The `Icon` fork passes a CONDITIONAL of two literals.
+        for (const m of src.matchAll(/\?\s*"(loom\.[a-z0-9-]+)"\s*:\s*"(loom\.[a-z0-9-]+)"/g)) {
+          out.add(m[1] as string);
+          out.add(m[2] as string);
+        }
+      }
+    }
+  };
+  walk(path.join("src", "generator"));
+  return out;
+}
+
 const SCANNED = catalogedSources().map(sitesIn);
 const ALL_SITES = SCANNED.flatMap((s) => s.sites);
 const ALL_DYNAMIC = SCANNED.flatMap((s) => s.dynamic);
@@ -407,6 +437,16 @@ describe("validator diagnostic-message catalog", () => {
       };
       visit(sf);
     }
+    // A give-up code counts as USED (M-T9.55).  The body walker's ~70 decline
+    // sites name their `loom.*` code through `giveUp(target, "loom.…", …)`
+    // rather than through `diagMessage` — codegen has no diagnostic channel, so
+    // the code is rendered into the `loom:unrendered [<code>] …` comment and the
+    // catalog holds the text a reader (and a future `generate system` reporting
+    // pass) looks it up with.  The link stays MACHINE-CHECKED in both
+    // directions: `GiveUpCode` is `DiagnosticMessageKey`, so a code outside the
+    // catalog fails `tsc`, and this scan makes deleting the last give-up that
+    // names a code delete its catalog entry too.
+    for (const code of giveUpCodes()) used.add(code);
     const orphans = Object.keys(DIAGNOSTIC_MESSAGES).filter((k) => !used.has(k));
     expect(orphans).toEqual([]);
   });
