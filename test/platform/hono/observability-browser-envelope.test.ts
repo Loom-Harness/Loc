@@ -113,13 +113,7 @@ describe("generated hono backend — browser-mode pino envelope", () => {
     expect(typeof line?.ts).toBe("string");
     expect(new Date(line?.ts as string).toISOString()).toBe(line?.ts);
     // Everything else rides through untouched, `ts` first (envelope order).
-    expect(Object.keys(line as object)).toEqual([
-      "ts",
-      "level",
-      "request_id",
-      "event",
-      "status",
-    ]);
+    expect(Object.keys(line as object)).toEqual(["ts", "level", "request_id", "event", "status"]);
     expect(line?.level).toBe("info");
     expect(line?.request_id).toBe("req-1");
     expect(line?.event).toBe("request_end");

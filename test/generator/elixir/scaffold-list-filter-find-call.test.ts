@@ -101,7 +101,7 @@ describe("scaffolded list filter bar — the LiveView load calls the find it nam
     // `list/4` reads `page`, whose first use is `(page - 1) * page_size`.
     expect(
       handleParams(live),
-      "the filter's state reached the PAGED list read (the `:erlang.-(\"\", 1)` crash)",
+      'the filter\'s state reached the PAGED list read (the `:erlang.-("", 1)` crash)',
     ).not.toMatch(/list_orders\(socket\.assigns\.by_code_code/);
   });
 
