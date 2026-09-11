@@ -80,6 +80,7 @@ function catalogedSources(): string[] {
     path.join("src", "generator", "elixir", "domain-service-emit.ts"),
     path.join("src", "generator", "_frontend", "component-prop-type.ts"),
     path.join("src", "generator", "_frontend", "extern-functions.ts"),
+    path.join("src", "generator", "flutter", "riverpod-emit.ts"),
   ]) {
     out.push(f);
   }

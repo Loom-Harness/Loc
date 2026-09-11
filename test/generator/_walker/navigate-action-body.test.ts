@@ -28,7 +28,7 @@
 // ---------------------------------------------------------------------------
 
 import { describe, expect, it } from "vitest";
-import { generateSystemFiles } from "../../_helpers/generate.js";
+import { generateSystemFiles, generateSystemFilesUnchecked } from "../../_helpers/generate.js";
 
 const HOST: Record<string, string> = {
   react: "static",
@@ -176,13 +176,31 @@ it("heex: emits a real push_navigate pipe step, not a call to an undefined fn", 
   );
 });
 
-it("flutter: the Notifier residue stays a VISIBLE, compiling TODO", async () => {
+describe("flutter — navigate() in an action body is REFUSED, not commented", () => {
   // A Riverpod `Notifier` method has no `BuildContext`, which is what
-  // `Navigator.pushNamed` needs — so Flutter keeps the honest marker rather
-  // than emitting Dart that cannot compile.  Pinned so the day it is fixed,
-  // this test says so.
-  const src = await homePage("flutter");
-  expect(src).toMatch(/TODO\(flutter full-parity\).*navigate/);
+  // navigation needs — the one frontend of the six that cannot do this (Feliz
+  // returns a `Cmd`, the four JS frontends bind a navigator).  It used to keep
+  // an honest-looking `// TODO(flutter full-parity)` marker in the Dart, which
+  // is not honest at all from where the author sits: valid `.ddd`, a clean
+  // `flutter analyze`, and a button wired to an action that does nothing.
+  // Wave C1 packet 1d-ii moved the refusal to phase ⑦ so it is a diagnostic.
+  // M-T1.32 is the drain; when it lands, these two flip to a real emission.
+  it("raises loom.flutter-action-body-unsupported at IR-validate", async () => {
+    await expect(generateSystemFiles(sys("flutter"))).rejects.toThrow(
+      /loom\.flutter-action-body-unsupported.*navigate/s,
+    );
+  });
+
+  it("and the emitter floor still fires on a model that bypasses the validator", async () => {
+    await expect(
+      generateSystemFilesUnchecked(
+        sys("flutter"),
+        "the Riverpod emitter's internal floor IS the subject",
+      ),
+    ).rejects.toThrow(
+      /internal: the Flutter Riverpod Notifier emitter cannot render a 'private-operation' call 'navigate'/,
+    );
+  });
 });
 
 it("a declared extern ui `function navigate` still wins over the built-in", async () => {

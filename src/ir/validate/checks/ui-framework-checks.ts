@@ -29,7 +29,7 @@ import {
 import { heexComponentHostStateUses } from "../../util/heex-component-host-state.js";
 import { liveViewHandlerCollisions, liveViewStatefulReuse } from "../../util/liveview-hoisting.js";
 import { readableProjectionNames } from "../../util/projection-read.js";
-import { walkExprDeep, walkStmtDeep } from "../../util/walk.js";
+import { walkExprDeep, walkExprStmtsDeep, walkStmtDeep } from "../../util/walk.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
 import { walkExpr } from "./shared.js";
 import { VIEW_EFFECT_BUILTINS } from "./ui-checks-shared.js";
@@ -816,19 +816,39 @@ export function validateFlutterActionBodies(sys: SystemIR, diags: LoomDiagnostic
   for (const d of sys.deployables) {
     for (const { ui, fw } of mountedUis(sys, d)) {
       if (fw !== "flutter") continue;
-      const flag = (where: string, slug: string, detail: string): void => {
+      // The message KEY is spelled out at each call site rather than built from
+      // a slug: `diagnostic-catalog.test.ts` reads the key as a string literal
+      // to check it belongs to the `code:` beside it, and a template literal is
+      // invisible to that scan (it read as inline wording AND as an orphaned
+      // catalog entry — the gate working).
+      const push = (where: string, message: string): void => {
         diags.push({
           severity: "error",
           code: "loom.flutter-action-body-unsupported",
-          message: diagMessage(`loom.flutter-action-body-unsupported#${slug}` as never, {
+          message,
+          source: `${ui.name}/${where}`,
+        });
+      };
+      const flagViewEffect = (where: string, detail: string): void =>
+        push(
+          where,
+          diagMessage("loom.flutter-action-body-unsupported#view-effect", {
             where,
             uiName: ui.name,
             dName: d.name,
             detail,
           }),
-          source: `${ui.name}/${where}`,
-        });
-      };
+        );
+      const flagStandardOp = (where: string, detail: string): void =>
+        push(
+          where,
+          diagMessage("loom.flutter-action-body-unsupported#match-await-standard-op", {
+            where,
+            uiName: ui.name,
+            dName: d.name,
+            detail,
+          }),
+        );
       const actionHosts: { where: string; actions: readonly ActionIR[] }[] = [
         ...ui.pages.map((p) => ({ where: `page '${p.name}'`, actions: p.actions })),
         ...ui.components.map((c) => ({ where: `component '${c.name}'`, actions: c.actions })),
@@ -853,9 +873,118 @@ export function validateFlutterActionBodies(sys: SystemIR, diags: LoomDiagnostic
               }
             });
           }
-          for (const name of [...effects].sort()) flag(where, "view-effect", name);
-          for (const name of [...unresolved].sort()) flag(where, "match-await-standard-op", name);
+          for (const name of [...effects].sort()) flagViewEffect(where, name);
+          for (const name of [...unresolved].sort()) flagStandardOp(where, name);
         }
+      }
+    }
+  }
+}
+
+// -------------------------------------------------------------------------
+// BACKEND-BODY STATEMENT KINDS in a ui body — `loom.ui-body-statement-kind`.
+//
+// `loom.if-stmt-page-body-unsupported` (M-FT.11) gated ONE statement kind on
+// this reasoning: a page body is an expression tree, so a backend-body
+// statement form has nowhere to go.  Three more kinds sat in the same position
+// and none was gated — measured on this tree, each from a `.ddd` that reported
+// `0 error(s), 0 warning(s)`:
+//
+//   action bump() { return 1 }              react   `Error: react: unsupported
+//   action bump() { precondition n > 0 }            statement '<kind>' in a page
+//   action bump() { requires n > 0 }                event handler` — a bare
+//                                                   throw, raw stack trace, no
+//                                                   `loom.*` code
+//                                           flutter `// TODO(flutter
+//                                                   full-parity): unsupported
+//                                                   action statement '<kind>'`
+//                                                   — the action SILENTLY does
+//                                                   nothing
+//
+// One shape, a crash on four frontends and a silent no-op on a fifth: the §18
+// sentinel class in one picture.
+//
+// UNLIKE the `if` gate, this one is PER-FRAMEWORK, and the difference was
+// measured rather than assumed.  **Phoenix LiveView renders all three**, in
+// `heex-walker-core.ts`'s hoisted-handler `renderStmt`: `precondition` /
+// `requires` become a predicate that keeps the socket or flashes and halts the
+// pipe, and `return` becomes `|> tap(fn _ -> … end)` (Elixir has no `return`,
+// and a page handler has no value sink).  That is a real rendering, pinned by
+// `heex-page-stmt-coverage.test.ts` — so a universal gate would have refused
+// working `.ddd`, which is how this arrived at the per-framework shape the
+// sibling `DataGrid` / `Chart` / flutter-primitive gates already use.
+// -------------------------------------------------------------------------
+
+/** Statement kind → the `.ddd` keyword it is written with.  `if` is
+ *  deliberately absent: it has its own gate with wording that names the ternary
+ *  / `match` replacement, and merging the two would trade a specific message
+ *  for a generic one. */
+
+const BACKEND_BODY_UI_STMT_KINDS: Readonly<Record<string, string>> = {
+  return: "return",
+  precondition: "precondition",
+  requires: "requires",
+};
+
+/** Frontends whose action-body renderer HAS an arm for those three kinds.
+ *  Measured, not inferred: `src/generator/elixir/heex-walker-core.ts`
+ *  `renderStmt` cases `precondition`/`requires` (~2065) and `return` (~2165).
+ *  The set is kept rather than spelled `fw !== "phoenixLiveView"` so a frontend
+ *  that ports them joins ONE list. */
+
+const BACKEND_BODY_STMT_FRAMEWORKS: ReadonlySet<string> = new Set(["phoenixLiveView"]);
+
+/** The backend-body statement kinds in `stmts` (or nested in one of them, or in
+ *  a block-body lambda one of them carries), deduped, in a stable order. */
+
+function backendBodyKinds(stmts: readonly StmtIR[]): string[] {
+  const found = new Set<string>();
+  for (const s of stmts) {
+    walkStmtDeep(s, (n) => {
+      if (n.kind in BACKEND_BODY_UI_STMT_KINDS) found.add(n.kind);
+    });
+  }
+  return [...found].sort();
+}
+
+export function validateUiBodyStatementKinds(sys: SystemIR, diags: LoomDiagnostic[]): void {
+  for (const d of sys.deployables) {
+    for (const { ui, fw } of mountedUis(sys, d)) {
+      if (BACKEND_BODY_STMT_FRAMEWORKS.has(fw)) continue;
+      const flag = (where: string, stmts: readonly StmtIR[]): void => {
+        for (const kind of backendBodyKinds(stmts)) {
+          diags.push({
+            severity: "error",
+            code: "loom.ui-body-statement-kind",
+            message: diagMessage("loom.ui-body-statement-kind", {
+              where,
+              uiName: ui.name,
+              keyword: BACKEND_BODY_UI_STMT_KINDS[kind],
+              fw: fw || "unknown",
+              dName: d.name,
+            }),
+            source: `${ui.name}/${where}`,
+          });
+        }
+      };
+      // A page/component BODY is an expression, but its lambdas carry statement
+      // blocks — reached through `walkExprStmtsDeep`, exactly as the sibling
+      // `if` gate does.
+      const bodyStmts = (body: ExprIR | undefined): StmtIR[] => {
+        const out: StmtIR[] = [];
+        walkExprStmtsDeep(body, (st) => out.push(st));
+        return out;
+      };
+      for (const page of ui.pages) {
+        for (const a of page.actions) flag(`page '${page.name}' action '${a.name}'`, a.body);
+        flag(`page '${page.name}' body`, bodyStmts(page.body));
+      }
+      for (const c of ui.components) {
+        for (const a of c.actions) flag(`component '${c.name}' action '${a.name}'`, a.body);
+        flag(`component '${c.name}' body`, bodyStmts(c.body));
+      }
+      for (const st of ui.stores) {
+        for (const a of st.actions) flag(`store '${st.name}' action '${a.name}'`, a.body);
       }
     }
   }

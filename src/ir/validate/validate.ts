@@ -100,6 +100,7 @@ import {
   validateStampSupport,
   validateSystem,
   validateTphFilterExpressibility,
+  validateUiBodyStatementKinds,
   validateUiProjectionReadFramework,
   validateUiRealtimeSupport,
   validateVanillaDocumentScope,
@@ -112,7 +113,6 @@ import {
   validateContextIntegrationTests,
 } from "./checks/test-checks.js";
 import { validateTimerSources } from "./checks/timer-checks.js";
-import { validateUiBodyStatementKinds } from "./checks/ui-action-body-checks.js";
 import { validateUiBodies, validateUiPageIdentity } from "./checks/ui-checks.js";
 import {
   validateEventChannelAmbiguous,
@@ -200,6 +200,7 @@ export function validateLoomModel(loom: EnrichedLoomModel): LoomDiagnostic[] {
     validateLiveViewHoisting(sys, diags);
     validateFrontendPropTypes(sys, diags);
     validateFlutterActionBodies(sys, diags);
+    validateUiBodyStatementKinds(sys, diags);
     validateFormLocalCollisions(sys, diags);
     validateComponentChildrenSupport(sys, diags);
     validateChartSupport(sys, diags);
@@ -347,6 +348,5 @@ export function validateLoomModel(loom: EnrichedLoomModel): LoomDiagnostic[] {
   // elixir-hosted context and every ui body are refused here rather than
   // silently dropped by an emitter.
   validateIfStatementPlacement(loom, diags);
-  validateUiBodyStatementKinds(loom, diags);
   return diags;
 }

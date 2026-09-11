@@ -96,6 +96,7 @@ export {
   validateFrontendPropTypes,
   validateHeexComponentHostState,
   validateLiveViewHoisting,
+  validateUiBodyStatementKinds,
   validateUiProjectionReadFramework,
   validateUiRealtimeSupport,
 } from "./ui-framework-checks.js";

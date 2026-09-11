@@ -1547,14 +1547,21 @@ export const DIAGNOSTIC_MESSAGES = {
   // a bare `throw` (raw stack trace, no code) and emitted a silent
   // `// TODO(flutter full-parity)` no-op on Flutter — one shape, a crash on
   // four frontends and a silent drop on a fifth.
-  "loom.ui-body-statement-kind": (p: { where: unknown; uiName: unknown; keyword: unknown }) =>
-    `A \`${p.keyword}\` statement is used in ${p.where} on ui '${p.uiName}'. ` +
-    `\`${p.keyword}\` is a backend-body form (aggregate / domain-service / workflow ` +
-    `operations); no frontend renders it — a ui \`action\` is a void event handler whose ` +
-    `only outputs are state writes, sibling-action calls, \`navigate\` / \`toast\`, and ` +
-    `\`match await\` on a remote op. Guard with a conditional VALUE (a ternary, or ` +
-    `\`match { cond => …, else => … }\`) and let the backend operation own the ` +
-    `\`precondition\` / \`requires\` / \`return\`.`,
+  "loom.ui-body-statement-kind": (p: {
+    where: unknown;
+    uiName: unknown;
+    keyword: unknown;
+    fw: unknown;
+    dName: unknown;
+  }) =>
+    `A \`${p.keyword}\` statement is used in ${p.where} on ui '${p.uiName}', which the ` +
+    `${p.fw} frontend cannot render (deployable '${p.dName}'). \`${p.keyword}\` is a ` +
+    `backend-body form (aggregate / domain-service / workflow operations); a ui \`action\` ` +
+    `is a void event handler whose only outputs are state writes, sibling-action calls, ` +
+    `\`navigate\` / \`toast\`, and \`match await\` on a remote op. Guard with a ` +
+    `conditional VALUE (a ternary, or \`match { cond => …, else => … }\`) and let the ` +
+    `backend operation own the \`precondition\` / \`requires\` / \`return\` — or host this ` +
+    `ui on Phoenix LiveView, whose handler renderer is the one that has arms for all three.`,
   // ----------------------------------------------------------------------
   // src/ir/validate/checks/ui-framework-checks.ts — the two Flutter
   // action-body gaps (§18 sentinels: the `TODO(flutter full-parity)` arms in

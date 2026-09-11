@@ -78,6 +78,68 @@ describe("loom.ui-page-route-collision", () => {
       "loom.ui-page-route-collision",
     );
   });
+
+  // ---------------------------------------------------------------------
+  // The ONE exempt pair, and why it is a rule rather than a hole.
+  //
+  // A scaffold-synthesised `Home` YIELDS its route to a user page claiming the
+  // same address — `classifyPage`'s contract ("write `page Home { … }` to
+  // replace the generated landing page") and React's `userHasRootRoute`, which
+  // skips the synthesised Home's import AND its route.  Found by this gate
+  // refusing `web/src/examples/erp/main.ddd`, whose hand-written
+  // `page Dashboard { route: "/" }` sits beside the scaffold's Home; the
+  // emitted `App.tsx` carries exactly one `<Route path="/" …>`, for Dashboard.
+  // ---------------------------------------------------------------------
+  const scaffoldSys = (customRoute: string, extra = "") => `
+system ScaffoldRoute {
+  subdomain Work { context Ops {
+    aggregate Job with crudish { name: string }
+  } }
+  api OpsApi from Work
+  storage pg { type: postgres }
+  resource st { for: Ops, kind: state, use: pg }
+  ui Console with scaffold(aggregates: [Job]) {
+    page Dashboard { route: "${customRoute}" body: Stack { Heading { "D", level: 1 } } }
+${extra}
+  }
+  deployable api { platform: node, contexts: [Ops], dataSources: [st], serves: OpsApi, port: 8080 }
+  deployable web { platform: react, targets: api, ui: Console, port: 3001 }
+}`;
+
+  it("exempts a scaffold `Home` yielding `/` to a user page", async () => {
+    expect(await codes(scaffoldSys("/"))).not.toContain("loom.ui-page-route-collision");
+  });
+
+  it("but a THIRD page at `/` still collides with the one that actually mounts", async () => {
+    // The winner owns the route from there on.  Declared in THIS order on
+    // purpose — Home first, so the yielded page is the one already in the map
+    // when `Landing` arrives.  Without the winner-ownership guard, `Landing`
+    // would be compared against the yielded `Home`, be exempted as a
+    // Home-vs-user pair, and a genuine two-user-page collision at `/` would go
+    // unreported.  (A hand-written `page Home` classifies as the home kind on
+    // purpose: the scaffold's override contract is by NAME.)
+    const found = await codes(`
+system ThreeAtRoot {
+  subdomain Work { context Ops {
+    aggregate Job with crudish { name: string }
+  } }
+  api OpsApi from Work
+  storage pg { type: postgres }
+  resource st { for: Ops, kind: state, use: pg }
+  ui Console {
+    page Home { route: "/" body: Stack { Heading { "H", level: 1 } } }
+    page Dashboard { route: "/" body: Stack { Heading { "D", level: 1 } } }
+    page Landing { route: "/" body: Stack { Heading { "L", level: 1 } } }
+  }
+  deployable api { platform: node, contexts: [Ops], dataSources: [st], serves: OpsApi, port: 8080 }
+  deployable web { platform: react, targets: api, ui: Console, port: 3001 }
+}`);
+    expect(found).toContain("loom.ui-page-route-collision");
+  });
+
+  it("and the scaffold's own pages do not collide with each other", async () => {
+    expect(await codes(scaffoldSys("/elsewhere"))).not.toContain("loom.ui-page-route-collision");
+  });
 });
 
 // ---------------------------------------------------------------------------

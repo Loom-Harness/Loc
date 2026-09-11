@@ -6,15 +6,7 @@
 // -------------------------------------------------------------------------
 
 import { diagMessage } from "../../../diagnostics/messages.js";
-import type {
-  ActionIR,
-  AggregateIR,
-  EnrichedLoomModel,
-  ExprIR,
-  StmtIR,
-  UiIR,
-} from "../../types/loom-ir.js";
-import { walkExprStmtsDeep, walkStmtDeep } from "../../util/walk.js";
+import type { ActionIR, AggregateIR, ExprIR, StmtIR, UiIR } from "../../types/loom-ir.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
 import { namedArg, VIEW_EFFECT_BUILTINS } from "./ui-checks-shared.js";
 
@@ -878,102 +870,6 @@ export function checkToastMessages(ui: UiIR, diags: LoomDiagnostic[]): void {
         }),
         source: where,
       });
-    }
-  }
-}
-
-// -------------------------------------------------------------------------
-// BACKEND-ONLY STATEMENT KINDS in a ui body — `loom.ui-body-statement-kind`.
-//
-// `loom.if-stmt-page-body-unsupported` (M-FT.11) gated ONE statement kind on
-// this reasoning: a page body is an expression tree, so a backend-body
-// statement form has nowhere to go on any frontend.  Three more kinds are in
-// exactly the same position, and none was gated — measured on this tree, each
-// from a `.ddd` that reported `0 error(s), 0 warning(s)`:
-//
-//   action bump() { return 1 }              react: `Error: react: unsupported
-//   action bump() { precondition n > 0 }    statement '<kind>' in a page event
-//   action bump() { requires n > 0 }        handler` — a bare throw, raw stack
-//                                           trace, no `loom.*` code
-//                                           flutter: `// TODO(flutter
-//                                           full-parity): unsupported action
-//                                           statement '<kind>'` — the action
-//                                           SILENTLY does nothing
-//
-// So the same shape produced a crash on four frontends and a silent no-op on a
-// fifth, which is the §18 sentinel class in one picture.  Gated here, once, for
-// every frontend — the emitters' own arms stay as internal floors.
-//
-// `emit` is NOT in the set and does not need to be: an `emit <Event> { … }` in
-// a ui body cannot resolve its event reference (the ui scope holds no domain
-// events), so phase ③ already refuses it with `Could not resolve reference to
-// EventDecl`.  Verified by probe rather than assumed.
-// -------------------------------------------------------------------------
-
-/** Statement kinds that are backend-body forms with no frontend rendering, and
- *  the `.ddd` keyword each is written with.  `if` is deliberately absent — it
- *  has its own gate (`loom.if-stmt-page-body-unsupported`) with wording that
- *  names the ternary / `match` replacement, and merging the two would trade a
- *  specific message for a generic one. */
-
-const BACKEND_ONLY_UI_STMT_KINDS: Readonly<Record<string, string>> = {
-  return: "return",
-  precondition: "precondition",
-  requires: "requires",
-};
-
-/** The backend-only statement kinds in `stmts` (or nested in one of them, or in
- *  a block-body lambda one of them carries), deduped, in a stable order. */
-
-function backendOnlyKinds(stmts: readonly StmtIR[]): string[] {
-  const found = new Set<string>();
-  for (const s of stmts) {
-    walkStmtDeep(s, (n) => {
-      if (n.kind in BACKEND_ONLY_UI_STMT_KINDS) found.add(n.kind);
-    });
-  }
-  return [...found].sort();
-}
-
-export function validateUiBodyStatementKinds(
-  loom: EnrichedLoomModel,
-  diags: LoomDiagnostic[],
-): void {
-  for (const sys of loom.systems) {
-    for (const ui of sys.uis) {
-      const flag = (where: string, stmts: readonly StmtIR[]): void => {
-        for (const kind of backendOnlyKinds(stmts)) {
-          diags.push({
-            severity: "error",
-            code: "loom.ui-body-statement-kind",
-            message: diagMessage("loom.ui-body-statement-kind", {
-              where,
-              uiName: ui.name,
-              keyword: BACKEND_ONLY_UI_STMT_KINDS[kind],
-            }),
-            source: `${ui.name}/${where}`,
-          });
-        }
-      };
-      // A page/component BODY is an expression, but its lambdas carry statement
-      // blocks — reached through `walkExprStmtsDeep`, exactly as the sibling
-      // `if` gate does.
-      const bodyStmts = (body: ExprIR | undefined): StmtIR[] => {
-        const out: StmtIR[] = [];
-        walkExprStmtsDeep(body, (s) => out.push(s));
-        return out;
-      };
-      for (const p of ui.pages) {
-        for (const a of p.actions) flag(`page '${p.name}' action '${a.name}'`, a.body);
-        flag(`page '${p.name}' body`, bodyStmts(p.body));
-      }
-      for (const c of ui.components) {
-        for (const a of c.actions) flag(`component '${c.name}' action '${a.name}'`, a.body);
-        flag(`component '${c.name}' body`, bodyStmts(c.body));
-      }
-      for (const st of ui.stores) {
-        for (const a of st.actions) flag(`store '${st.name}' action '${a.name}'`, a.body);
-      }
     }
   }
 }
