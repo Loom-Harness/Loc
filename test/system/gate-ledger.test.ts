@@ -68,6 +68,8 @@ const BEHAVIOURAL_ABSENT: Record<string, string> = {
     "in-system api call; needs both deployables booted (the `api-call-e2e` leg does this outside the corpus tier)",
   "collection-op-shapes":
     "collection-op VALUE semantics (empty sum, avg of none, sort stability) — the exact class a string assertion cannot see",
+  "walker-give-up-shapes":
+    "its whole subject is what the FRONTEND body walker emits for five page bodies that render nothing (M-T9.55) — the oracle is the emitted comment's `loom.*` code, read back by `test/generator/_walker/walker-give-up-corpus-shapes.test.ts`; the backend deployable exists only to give the ui something to fail to bind to, so a booted leg would exercise routes the fixture has no opinion about",
 };
 
 describe("gate ledger", () => {

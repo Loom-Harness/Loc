@@ -598,6 +598,19 @@ export const E2E_LESS_CORPUS_FIXTURES: readonly string[] = [
   // set up per-fixture; `document.ddd` already drives the document write path at
   // runtime.
   "projection-document-aggregation",
+  // FRONTEND-ONLY SUBJECT (M-T9.55) — the fixture's whole content is FIVE page
+  // bodies that validate clean and render NOTHING, so the thing it witnesses is
+  // what the body walker EMITS (a `loom:unrendered [loom.…]` comment carrying
+  // the decline's code), not what any route answers.  Its backend deployable is
+  // a plain `crudish` aggregate that exists only to give the ui something to
+  // fail to bind to; a `test e2e` block would mint wire goldens for routes the
+  // fixture has no opinion about.  The oracle is
+  // `test/generator/_walker/walker-give-up-corpus-shapes.test.ts`, which reads
+  // the emitted page back through `GIVE_UP_RE` and asserts each shape reaches
+  // its declared code — plus the cross-target sweep beside it.  It ALSO carries
+  // two deployables (`d` + the react `web`), which the behavioural corpus's
+  // one-node-deployable rule excludes on its own.
+  "walker-give-up-shapes",
   // TWO DEPLOYABLES — the caller's client is derived from the callee's served
   // operation set (see the manifest note), and the behavioural corpus requires
   // exactly one `platform: node` deployable per case so dispatch is unambiguous.
