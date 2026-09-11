@@ -131,6 +131,7 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.react-deployable-missing-ui": "15-ui-pages-structure.md#ui-block--deployable-binding",
   "loom.svelte-deployable-missing-ui": "15-ui-pages-structure.md#ui-block--deployable-binding",
   "loom.ui-framework-unhostable": "15-ui-pages-structure.md#ui-block--deployable-binding",
+  "loom.ui-read-unresolved": "16-ui-walker-primitives.md#queryview--async-data-branching",
   "loom.vue-deployable-missing-ui": "15-ui-pages-structure.md#ui-block--deployable-binding",
   "loom.chart-accessor-not-field":
     "16-ui-walker-primitives.md#chart--grouped-projection-series-every-frontend",

@@ -2451,6 +2451,14 @@ export const DIAGNOSTIC_MESSAGES = {
     `\`${p.name}\`'s \`style:\` takes an OBJECT LITERAL of CSS declarations ` +
     `(\`style: { padding: "1rem" }\`).  Any other expression is dropped during lowering, so ` +
     `the styling silently never reaches the rendered element on any frontend.`,
+  "loom.ui-read-unresolved": (p: { aggregate: unknown; operation: unknown; known: unknown }) =>
+    `reads \`${p.aggregate}.${p.operation}\`, which '${p.aggregate}' does not expose.  A page ` +
+    `read names one of: \`all\` (the auto-\`findAll\`), \`byId\`, \`history\` on an audited ` +
+    `aggregate, or a \`find\` declared on its repository.  ${p.known}  Left to codegen this ` +
+    `does not fail loudly — it fails DIFFERENTLY on each frontend: the JSX and Feliz/Flutter ` +
+    `clients import a hook that was never emitted (a build error), while Phoenix LiveView ` +
+    `substitutes the UNFILTERED \`list_<agg>s()\` and renders every row of the table with no ` +
+    `error at all.  Declare the find on the repository, or name one that exists.`,
   "loom.scaffold-filter-param-unsupported": (p: {
     where: unknown;
     find: unknown;

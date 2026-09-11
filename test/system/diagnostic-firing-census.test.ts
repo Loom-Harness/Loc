@@ -1033,6 +1033,30 @@ system S {
   deployable api { platform: node contexts: [C] dataSources: [st] serves: Api port: 3000 }
   deployable web { platform: static targets: api ui: WebApp { C: api } port: 3001 }
 }`,
+  // A `QueryView` `of:` naming an operation the repository never declares.
+  // `findAllBySellable` is the shape a criterion gets only where `scaffoldPaged`
+  // synthesizes it; without that macro the criterion exists and the find does
+  // not, and the read used to become the unfiltered list on Phoenix.
+  "loom.ui-read-unresolved": `
+system S {
+  subdomain Sub { context C {
+    aggregate Product with crudish { name: string }
+    repository Products for Product { }
+  } }
+  api Api from Sub
+  ui WebApp {
+    framework: react
+    api C: Api
+    page Shop {
+      route: "/shop"
+      body: QueryView { of: Product.findAllBySellable(), data: rows => Text { rows.count } }
+    }
+  }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable api { platform: node contexts: [C] dataSources: [st] serves: Api port: 3000 }
+  deployable web { platform: static targets: api ui: WebApp { C: api } port: 3001 }
+}`,
   // `OperationForm { of:, op: }` names no record, so every frontend targets the
   // page's route `:id` — on a route that declares none it submits an empty id.
   "loom.op-form-needs-route-id": `

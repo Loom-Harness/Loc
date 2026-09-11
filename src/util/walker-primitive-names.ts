@@ -223,3 +223,15 @@ export const WALKER_PRIMITIVE_SLOTS: ReadonlyMap<string, WalkerPrimitiveSlots> =
   ["Chart", { max: 0 }],
   ["QueryView", { max: 0 }],
 ]);
+
+/** Primitives that carry an `of:` API/PROJECTION READ.
+ *
+ *  The generator asks this through `_walker/of-reads.ts`, which derives it from
+ *  the registry's `readsOf` flag.  The IR VALIDATOR has to ask the same question
+ *  — `loom.ui-read-unresolved` gates the `of:` operation against the aggregate's
+ *  repository — and `ir/` may not import `generator/`, so the names are
+ *  hand-listed here for the same reason (and pinned by the same mechanism) as
+ *  the two sets above: `walker-stdlib-completeness.test.ts` compares this set
+ *  against the registry's `readsOf` entries, so a new read-bearing primitive
+ *  fails CI until it is added. */
+export const WALKER_READ_PRIMITIVES: ReadonlySet<string> = new Set(["Chart", "QueryView"]);
