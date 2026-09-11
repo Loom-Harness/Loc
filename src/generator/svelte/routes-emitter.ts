@@ -105,14 +105,14 @@ function groupForLayout(page: PageIR): string {
 
 /** The scaffold's synthesised landing page — the one page kind whose route a
  *  user page of the same address takes over.  Classified rather than stamped,
- *  through the same `classifyPage` every other consumer uses. */
-function isScaffoldLandingPage(page: PageIR, ui: UiIR): boolean {
-  return (
-    classifyPage(page, {
-      aggregateNames: [],
-      workflowNames: [],
-    }).kind === "home" && ui.pages.includes(page)
-  );
+ *  through the same `classifyPage` every other consumer uses.
+ *
+ *  The empty name context is deliberate and not a shortcut: `classifyPage`
+ *  decides `home` on the reserved NAME alone, before it consults any aggregate
+ *  or workflow names, and a hand-written `page Home` is meant to classify the
+ *  same way (the scaffold's override contract is by name). */
+function isScaffoldLandingPage(page: PageIR): boolean {
+  return classifyPage(page, { aggregateNames: [], workflowNames: [] }).kind === "home";
 }
 
 /** Emit path for a routable page. */
@@ -259,11 +259,11 @@ export function emitSveltePagesForUi(ui: UiIR, ctx: SveltePageEmitContext): Map<
   {
     const claimed = new Map<string, PageIR>();
     for (const page of ui.pages) {
-      if (!page.route || isScaffoldLandingPage(page, ui)) continue;
+      if (!page.route || isScaffoldLandingPage(page)) continue;
       claimed.set(page.route, page);
     }
     for (const page of ui.pages) {
-      if (page.route && isScaffoldLandingPage(page, ui) && claimed.has(page.route)) {
+      if (page.route && isScaffoldLandingPage(page) && claimed.has(page.route)) {
         yieldedHomes.add(page);
       }
     }
