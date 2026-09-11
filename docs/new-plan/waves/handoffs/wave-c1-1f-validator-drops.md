@@ -1,7 +1,9 @@
 # Wave C1 — packet 1f (validator silent drops) hand-off
 
 *Branch: `claude/c1-1f-validator-drops`. Commits `a9ff0dc0` (M-T6.54 F18 + the two
-verified flips) and `587e725c` (M-T6.55 + the M-T6.50 narrowing).*
+verified flips), `587e725c` (M-T6.55 + the M-T6.50 narrowing), `ef77f11c` (this
+note) and `d8837bef` (the new code's docs anchor + the reference line M-T6.55
+outdated).*
 
 ## Headline
 
@@ -272,7 +274,8 @@ agree about the arity. The new code is the register row that names it.
 - `npx vitest run test/generator/java/` — **96 files / 575 tests**, all pass.
 - `npx vitest run test/language/ test/ir/` — **449 files / 4893 tests**, all pass (3 skipped).
 - `npx vitest run test/generator/{python,typescript,dotnet}/` — **287 files / 1812 tests**, all pass.
-- `npx vitest run test/conformance/corpus-coverage.test.ts test/system/{gate-ledger,diagnostic-catalog,diagnostic-firing-census,ir-walk-census,unsupported-register}.test.ts test/platform/allowlist-ratchet.test.ts test/ir/api-caller-census.test.ts` — all pass.
+- `npx vitest run test/system/` — **90 files / 1926 tests**, all pass (1 file skipped, 30 tests skipped).
+- `npx vitest run test/conformance/corpus-coverage.test.ts test/platform/allowlist-ratchet.test.ts test/ir/api-caller-census.test.ts` — all pass.
 - The ten compile legs in the fixture table above.
 
 **`npm test` was NOT run** (four cores shared by five agents, per the protocol); the
@@ -286,6 +289,16 @@ suites this packet touches were run in full instead.
 | `BEHAVIOURAL_ABSENT` (`gate-ledger.test.ts`) | 12 | 13 | `find-bypass` only. Its `max` in `allowlist-ratchet.test.ts` is raised with the reason inline, which is the reviewed line that ratchet asks for. |
 | `MAX_OPEN_GAPS` / the unsupported register | — | unchanged | `loom.vanilla-op-call-actor` is a `*-unsupported`-shaped refusal but not a register row, matching its sibling `loom.vanilla-op-call-position`. One `site:` line number in `unsupported-register.ts` was re-pointed (`backend-syntax-checks.ts:246 → :287`) because the new gate shifted it — caught by that file's own "site resolves to its own code" check, which is the ratchet working. |
 | `JAVA_COMPILE_SKIP` | 0 | **0** | deliberately not grown — see hand-off 2. |
+
+### 6. One doc line the new code corrected, recorded because it is the packet's own lesson
+
+`docs/language-reference/06-behavior-and-statements.md` carried the F24 sentinel in a
+worked Elixir example AND, beneath it, the sentence "**Honest gap:** … the private
+body does not run on Phoenix." Both are now what ships. It is the fourth instance in
+this packet of prose that outlived its code — and the one that would have MISLED a
+reader into believing the gap was a reviewed decision. `diagnostic-docs-anchors.test.ts`
+is what forced the visit (rule 14: a minted code carries its anchor in the same PR),
+which is an argument for that ratchet doing more than bookkeeping.
 
 ## Notes for the coordinator
 
