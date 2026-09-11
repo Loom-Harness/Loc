@@ -165,6 +165,39 @@ function dartRoute(
   return `'/${rendered.join("/")}'`;
 }
 
+/** The ARGUMENT LIST of a Flutter navigation — `'/orders'`, or
+ *  `'/orders', arguments: {…}` — everything after the navigator receiver.
+ *
+ *  Split out of `renderNavigate` because there are TWO receivers, not one: a
+ *  widget `build` has a `BuildContext` and pushes through
+ *  `Navigator.pushNamed(context, …)`, while a Riverpod `Notifier` method (where
+ *  a page `action` body lands) has NO context and pushes through the generated
+ *  `navigateTo(…)` bridge in `lib/nav.dart`.  Both spellings must agree on the
+ *  route and on how leftover args travel, so the derivation lives here once
+ *  (`riverpod-emit.ts` is the other caller). */
+export function dartNavigateArgs(
+  routeTemplate: string,
+  args: ReadonlyArray<{ name: string; value: string }>,
+  stateExpr: string | undefined,
+): string {
+  const path = dartRoute(routeTemplate, args);
+  if (stateExpr !== undefined) return `${path}, arguments: ${stateExpr}`;
+  // Args consumed by a `:param` segment are already interpolated into the
+  // route; only the LEFTOVER args ride along as a Navigator arguments map.
+  const routeParams = new Set(
+    routeTemplate
+      .split("/")
+      .filter((s) => s.startsWith(":"))
+      .map((s) => s.slice(1)),
+  );
+  const extra = args.filter((a) => !routeParams.has(a.name));
+  const argMap =
+    extra.length > 0
+      ? `, arguments: {${extra.map((a) => `${dartString(a.name)}: ${a.value}`).join(", ")}}`
+      : "";
+  return `${path}${argMap}`;
+}
+
 /** The provider-local var a detected api call resolves to (`Customer` + `all` →
  *  `customerAll`).  Track D wires the matching Riverpod provider; the view only
  *  names the local it reads. */
@@ -498,26 +531,8 @@ export const flutterTarget: WalkerTarget = {
   },
 
   // --- Navigation seam — Navigator.pushNamed -------------------------------
-  renderNavigate: (routeTemplate, args, stateExpr) => {
-    const path = dartRoute(routeTemplate, args);
-    if (stateExpr !== undefined) {
-      return `Navigator.pushNamed(context, ${path}, arguments: ${stateExpr})`;
-    }
-    // Args consumed by a `:param` segment are already interpolated into the
-    // route; only the LEFTOVER args ride along as a Navigator arguments map.
-    const routeParams = new Set(
-      routeTemplate
-        .split("/")
-        .filter((s) => s.startsWith(":"))
-        .map((s) => s.slice(1)),
-    );
-    const extra = args.filter((a) => !routeParams.has(a.name));
-    const argMap =
-      extra.length > 0
-        ? `, arguments: {${extra.map((a) => `${dartString(a.name)}: ${a.value}`).join(", ")}}`
-        : "";
-    return `Navigator.pushNamed(context, ${path}${argMap})`;
-  },
+  renderNavigate: (routeTemplate, args, stateExpr) =>
+    `Navigator.pushNamed(context, ${dartNavigateArgs(routeTemplate, args, stateExpr)})`,
   // `Button(to: "/products")` → the bare navigate call (bound as a statement by
   // `renderEventHandler`).  The dest arg is already rendered.
   renderNavigateExpr: (toArg: string) => `Navigator.pushNamed(context, ${toArg})`,
@@ -562,6 +577,7 @@ export const flutterTarget: WalkerTarget = {
       if (inst?.kind === "member") {
         return giveUp(
           flutterTarget,
+          "loom.page-ref-unreachable",
           `OperationForm(${inst.receiver.kind === "ref" ? inst.receiver.name : "?"}.${inst.member}): ` +
             "'" +
             (inst.receiver.kind === "ref" ? inst.receiver.name : "?") +
@@ -598,7 +614,11 @@ export const flutterTarget: WalkerTarget = {
     const argNames = call.argNames ?? [];
     const opRef = (call.args ?? []).find((_, i) => !argNames[i]);
     if (opRef?.kind !== "member" || opRef.receiver.kind !== "ref") {
-      return giveUp(flutterTarget, "Action: first argument must be <instance>.<operation>");
+      return giveUp(
+        flutterTarget,
+        "loom.page-primitive-arg-invalid",
+        "Action: first argument must be <instance>.<operation>",
+      );
     }
     const aggName = ctx.paramTypes?.get(opRef.receiver.name);
     const agg = aggName ? ctx.aggregatesByName.get(aggName) : undefined;
@@ -608,6 +628,7 @@ export const flutterTarget: WalkerTarget = {
     if (!agg || !op) {
       return giveUp(
         flutterTarget,
+        "loom.page-ref-unreachable",
         `Action(${opRef.receiver.name}.${opRef.member}): no parameter-less public operation in scope (use OperationForm for an op with parameters)`,
       );
     }
@@ -683,6 +704,7 @@ export const flutterTarget: WalkerTarget = {
     if (!resolved) {
       return giveUp(
         flutterTarget,
+        "loom.page-primitive-arg-invalid",
         "Modal: OperationForm child must name of: <Agg> and op: <public op>",
       );
     }
@@ -764,7 +786,11 @@ export const flutterTarget: WalkerTarget = {
     const fieldIdx = argNames.indexOf("field");
     const fieldArg = fieldIdx >= 0 ? call.args[fieldIdx] : undefined;
     if (!ofArg || fieldArg?.kind !== "literal") {
-      return giveUp(flutterTarget, "ProvenanceInfo: missing record or field");
+      return giveUp(
+        flutterTarget,
+        "loom.page-primitive-arg-missing",
+        "ProvenanceInfo: missing record or field",
+      );
     }
     const lineage = `${emitExpr(ofArg, ctx)}.${String(fieldArg.value)}.${PROVENANCE_LINEAGE_FIELD}`;
     const row = (label: string, value: string) =>

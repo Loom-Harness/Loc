@@ -38,7 +38,7 @@ from repo-root sibling dirs, gated by `format`:
 | `tsx` | `vite/`, `api/`, `docker/` |
 | `vue` | `vue/`, `api/`, `docker/` |
 | `svelte` | `sveltekit/` |
-| `heex` | `phoenix/` (empty in v0 — ashPhoenix ships its shell directly) |
+| `heex` | `phoenix/` (still empty — each HEEx pack ships its own shell) |
 | `angular` | (Angular-specific shared layer; see the angular generator) |
 
 These supply `index-html`, `api-client`/`api-config`, `dockerfile`, etc. A pack
@@ -137,15 +137,26 @@ No `field-input-*`, no `form-*`, no `op-dialog`, no `primitive-form-of`/
 
 ## Phoenix HEEx (`heex`)
 
-**Analog:** `designs/ashPhoenix/v3` — the ONLY HEEx pack. Format `heex`, **no
-`stack`** (Phoenix manages deps via `mix.exs`). Filenames are `*.heex.hbs`.
+**Analogs:** `designs/coreComponents/v3` (the baseline Phoenix core-components
+layer) and `designs/daisyui/v1`. Format `heex`, **no `stack`** (Phoenix manages
+deps via `mix.exs`). Filenames are `*.heex.hbs`. (The pack once named
+`ashPhoenix` is gone — see CLAUDE.md's history note; it was unrelated to the
+removed Ash *foundation*, but it went with the same rename.)
 
-**Layout:** `SHARED_PRIMITIVES` core + `SHARED_SHELL` only — **no** `fieldInput`
-or `form` set (Phoenix renders form inputs inline via the HEEx walker from the
-Ecto schema / wire shape). Several primitives the JSX walker emits as templates
-(`Section`, `Sticky`, `Modal`, `Icon`, `CodeBlock`) are rendered **inline** by the
-HEEx walker (`src/generator/elixir/heex-walker.ts`) and so are deliberately
-exempt from the heex required set — this is the documented exemption pattern.
+**Layout: HEEx packs are wired differently from the JSX packs.** LiveView has
+ONE component convention, so the walker emits design-neutral markup plus
+`<.button>` / `<.table>`-style component calls INLINE — a HEEx pack therefore
+owns the SHELL surface instead of call-site primitive templates. The required
+set is literally `{ core: [], shell: HEEX_SHELL }`
+(`src/generator/_packs/required-primitives.ts`): `core-components`
+(→ `core_components.ex`, the function-component library every page renders
+through), `main` / `app-shell` / `sidebar` / `sidebar-entry` (root + app layouts
+and the nav), `theme` (design-token CSS), and the assets pipeline
+(`assets-css` / `assets-js` / `tailwind-config` / `package-json` → `assets/`,
+built into `priv/static/assets`). No `fieldInput` or `form` set: Phoenix renders
+form inputs inline from the Ecto schema / wire shape. `test/generator/elixir/
+heex-design-pack.test.ts` gates that the two packs genuinely DIVERGE, so a new
+HEEx pack that copies one of them wholesale fails there.
 
 **Build gate:** `elixir-vanilla-build.yml`, `npm run test:phoenix`
 (docker; see CLAUDE.md Docker section, `LOOM_HEX_MIRROR=1` if behind a

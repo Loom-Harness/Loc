@@ -39,6 +39,7 @@ import {
 import { maskedHistoryFields } from "../../ir/util/audit-history.js";
 import { partsChildrenFirst } from "../../ir/util/containment-parent.js";
 import {
+  callerGates,
   lifecycleGates,
   lifecycleGatesReadRow,
   lifecycleGatesUseCurrentUser,
@@ -69,6 +70,7 @@ import { isServerSourcedDefault, isValueObjectDefault } from "../_frontend/serve
 import { numericEncode } from "../_numeric/target.js";
 import { findUnionSpec } from "../_payload/union-wire.js";
 import { pyHistoryMapperName, renderPyHistoryMapper } from "./emit/audit-history.js";
+import { domainServiceImportLinesForExprs } from "./emit/domain-service.js";
 import { paramPyType, requestPyType, responsePyType, wireModelImport } from "./emit/http-models.js";
 import { provColumn } from "./emit/provenance.js";
 import {
@@ -355,6 +357,22 @@ export function buildPyRoutesFile(
     `from app.db.repositories.${snake(agg.name)}_repository import ${agg.name}Repository`,
     hasDispatch ? "from app.dispatch import make_dispatcher" : null,
     errorImports(refersTo),
+    // Domain-service functions the module's GATE expressions call.  PY_TARGET
+    // renders a domain-service call as the BARE function name, so every calling
+    // module must import it — and the routes module's other collectors only ever
+    // saw operation BODIES, which is precisely where a hoisted `requires` gate
+    // is NOT (`src/ir/util/op-gates.ts` lifts it out to the caller).  Ledger row
+    // `F2-CB-C7`: `if not (fee(__loaded.quantity) == 0)` against a module that
+    // never imported `fee` — ruff `F821`, `NameError` on the first gated request.
+    // The gate set comes from `callerGates` rather than a local re-enumeration,
+    // so a sixth gate site cannot reintroduce the hole; `when` state gates and
+    // find read-gates render into the same module and join it.
+    ...domainServiceImportLinesForExprs([
+      ...callerGates(agg).map((g) => g.expr),
+      ...agg.operations.map((o) => o.when),
+      ...emittableFinds(repo).map((f) => f.requires),
+      listReadFind(repo)?.requires,
+    ]),
     // Only the create route constructs the domain class directly.
     refersTo(agg.name) ? `from app.domain.${snake(agg.name)} import ${agg.name}` : null,
     hasDispatch ? null : "from app.domain.events import NoopDomainEventDispatcher",

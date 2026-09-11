@@ -331,7 +331,15 @@ const REGISTERED: Ratchet[] = [
     // stale entry the moment `main` moved under this branch — the drain
     // direction working in the field rather than in a mutation, twice in two
     // days, which is the rate a hand-maintained matrix would have rotted at.
-    max: 12,
+    //
+    // 12 -> 13: `find-bypass` (M-T6.54 F18, wave-c1 packet 1f) — a NEW fixture,
+    // not a drained one regressing.  Its assertion ("does the OTHER tenant's row
+    // appear under `ignoring tenantOwned`?") needs the two-principal harness
+    // `projection-agg-filters` already waits on, and under one principal both
+    // spellings return the same set, i.e. a behavioural block would be GREEN over
+    // the retained conjunct the fixture exists to catch.  Its tracker is the same
+    // one (tenancy-e2e's two-principal harness); it drains with its neighbour.
+    max: 13,
   },
 ];
 

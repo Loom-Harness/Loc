@@ -1,0 +1,62 @@
+// THE OVER-FIRE GUARD for `src/language/validators/stmt-placement.ts`.
+//
+// All three gated statements in the homes that DO lower them, in one source:
+// `for` and `if let` in a workflow `create` body and in a `commandHandler`,
+// and the effect form of `match` in a page `action` (through `match await`).
+// A gate that fires here is refusing valid programs — which is the failure mode
+// a placement rule is most likely to have, so the test asserts the three
+// placement codes are ABSENT rather than that the file is diagnostic-free.
+system AllowedPlacement {
+  subdomain D {
+    context Shop {
+      error NotAllowed { reason: string }
+      aggregate Order with crudish {
+        code: string
+        reserved: bool
+        operation place(): Order or NotAllowed { reserved := true  return this }
+      }
+      criterion ByCode(code: string) of Order = this.code == code
+      retrieval Coded(code: string) of Order { where: ByCode(code) }
+      repository Orders for Order { }
+
+      // `for` + `if let` in a workflow body — the `for-each` / `if-let`
+      // WorkflowStmtIR kinds.
+      workflow sweep {
+        create(code: string) {
+          let matched = Orders.run(Coded(code), page: { offset: 0, limit: 100 })
+          for o in matched { o.place() }
+          if let hit = Orders.find(ByCode(code)) { hit.place() }
+        }
+      }
+
+      // …and in a top-level handler, which shares the workflow lowering.
+      commandHandler sweepAgain(code: string) {
+        let more = Orders.run(Coded(code), page: { offset: 0, limit: 100 })
+        for o in more { o.place() }
+        if let hit = Orders.find(ByCode(code)) { hit.place() }
+      }
+    }
+  }
+  api A from D
+  storage primary { type: postgres }
+  resource st { for: Shop, kind: state, use: primary }
+
+  ui Console {
+    api Orders: A
+    page OrderPage(id: Order id) {
+      route: "/orders/:id"
+      state { message: string = "" }
+      // The effect form of `match` in its one legal home.
+      action place() {
+        match await Orders.Order.place() {
+          Order o => { message := "placed" }
+          NotAllowed e => { message := e.reason }
+        }
+      }
+      body: Stack { Text { message }, Button { "Place", onClick: place } }
+    }
+  }
+
+  deployable d { platform: node, contexts: [Shop], dataSources: [st], serves: A, port: 4000 }
+  deployable web { platform: react, targets: d, ui: Console { Orders: d }, port: 3000 }
+}

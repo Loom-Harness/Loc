@@ -29,6 +29,11 @@ import {
 import { isValueCollectionType } from "../../../ir/util/value-collections.js";
 import { elixirString, plural, snake, upperFirst } from "../../../util/naming.js";
 import type { SourceMapRecorder } from "../../_trace/sourcemap.js";
+import {
+  messagedRoutesToResidual,
+  renderInvariantValidatorFn,
+} from "./changeset-invariant-emit.js";
+import { partConstraintLines } from "./changeset-validators.js";
 import { isVanillaDocAgg, renderDocSchema } from "./document-emit.js";
 import { renderAggregatePureCore } from "./domain-core-emit.js";
 import { isEventSourced } from "./eventsourced-emit.js";
@@ -214,7 +219,27 @@ function renderPartSchema(
       .map((f) => `:${snake(f.name)}`),
     ...(part.contains ?? []).map((c) => `:${snake(c.name)}`),
   ].join(", ");
-  const castBlock = castEmbeds ? `\n${castEmbeds}` : "";
+  // A part-level `check` / `invariant` is enforced HERE or nowhere: this
+  // `changeset/2` is what the owner's `cast_embed`/`cast_assoc` runs (M-T6.55
+  // F14 — it used to only `cast`, while node/.NET/java/python assert both forms
+  // at the part's domain floor).  Same two-carrier split as the aggregate
+  // changeset: a message-less single-field rule takes its native `validate_*`
+  // line; everything else (cross-field, guarded, messaged) routes to the
+  // part's own `validate_invariants/1`, so neither double-emits.
+  const partInvariants = part.invariants ?? [];
+  const nativeLines = partConstraintLines({
+    fields: part.fields,
+    invariants: partInvariants.filter((inv) => !messagedRoutesToResidual(inv)),
+  });
+  const invariantFn = renderInvariantValidatorFn(
+    { invariants: partInvariants, fields: part.fields },
+    `${appModule}.${ctxModule}`,
+  );
+  const validateBlock = [
+    ...nativeLines,
+    ...(invariantFn ? ["    |> validate_invariants()"] : []),
+  ].join("\n");
+  const castBlock = [castEmbeds, validateBlock].filter(Boolean).join("\n");
   // Relational parts live in a real table (`@foreign_key_type` for the
   // `belongs_to`); embedded parts stay an `embedded_schema`.
   const schemaDecl = relational
@@ -236,9 +261,9 @@ ${schemaBody}
     attrs = __normalize_keys(attrs)
 
     struct
-    |> cast(attrs, [${castCols.join(", ")}])${castBlock}
+    |> cast(attrs, [${castCols.join(", ")}])${castBlock ? `\n${castBlock}` : ""}
   end
-
+${invariantFn ? `\n${invariantFn}\n` : ""}
 ${NORMALIZE_KEYS_DEFP}
 end
 `;

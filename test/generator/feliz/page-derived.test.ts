@@ -17,7 +17,7 @@
 // derived is a missing value, an unbound NAME is a build break.
 
 import { describe, expect, it } from "vitest";
-import { GIVE_UP_SENTINEL } from "../../../src/generator/_walker/give-up.js";
+import { giveUpText } from "../../../src/generator/_walker/give-up.js";
 import { generateFelizForContexts } from "../../../src/generator/feliz/index.js";
 import { buildLoomModel } from "../../_helpers/ir.js";
 
@@ -110,6 +110,9 @@ describe("feliz page-level `derived`", () => {
     // The sentinel is part of the assertion on purpose: this give-up used to
     // reach `renderComment` directly and was therefore invisible to the
     // cross-frontend matrix (audit F63).
-    expect(fs).toContain(`(* ${GIVE_UP_SENTINEL} ref: who *)`);
+    // Built through `giveUpText` rather than re-spelled: the marker carries
+    // the give-up's `loom.*` code as well as the sentinel (M-T9.55), and
+    // reading it from the emitter side is what keeps this pin from drifting.
+    expect(fs).toContain(`(* ${giveUpText("loom.unresolved-page-ref", "ref: who")} *)`);
   });
 });

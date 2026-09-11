@@ -586,11 +586,45 @@ export const E2E_LESS_CORPUS_FIXTURES: readonly string[] = [
   // cross-backend decimal-arithmetic divergence (F11 / M-T5.22) — that golden
   // waits for the owner ruling, not for this fixture.
   "numeric-operands",
+  // COMPILE + UNIT-TIER WITNESS (verification fleet F58 / M-T6.62) — a COMMAND
+  // `create(params)` on a workflow that carries `Property` state.  The defect
+  // it exists for is a TYPE ERROR in four of the five emitted projects (an
+  // unbound `this`/`state` receiver), so the per-backend compile legs are the
+  // oracle; the pure-domain `test` block rides every backend's unit tier.  The
+  // runtime half — POST the command, emit the event, read the saga row back
+  // through `/workflows/fulfillment/instances/{id}` — is expressible, but it
+  // mints a five-way wire golden for a cascade no golden covers yet, and
+  // capturing that needs the behavioural legs rather than this fixture's PR.
+  "workflow-create-state",
   // COMPILE-TIER WITNESS (generator review A1) — a projection aggregation over
   // a `tenantOwned` + `softDeletable` source; pins that the emitted aggregation
   // read carries the capability predicates.  The runtime half needs the
   // two-principal harness (`tenancy-e2e.yml` owns that shape).
   "projection-agg-filters",
+  // COMPILE-TIER WITNESS (M-T6.54 F18), for the SAME reason as
+  // `projection-agg-filters` directly above — same capabilities, same missing
+  // harness.  The assertion this fixture wants is "a SECOND tenant's rows
+  // appear under `ignoring tenantOwned` and are absent without it", which needs
+  // two principals; the behavioural runners authenticate as one
+  // (`DEV_CLAIMS`), so the caller could only ever read its own rows and both
+  // spellings would return the same set — a green e2e over a retained conjunct,
+  // which is exactly the failure mode this fixture exists to catch.  The
+  // structural proof is `test/generator/java/generator-java-find-bypass-principal.test.ts`
+  // (paired presence + ABSENCE per conjunct, per read surface).  Drain: the
+  // two-principal harness `tenancy-e2e.yml` owns — the same one
+  // `projection-agg-filters` waits on.
+  "find-bypass",
+  // UNIT-TIER WITNESS (M-T6.55 F14/F15/F24), the `numeric-operands` shape: it
+  // carries a DOMAIN `test` block and no `test e2e`, so the behavioural runners
+  // do run it (unit tier) and the gate ledger scores its cells `behavioural` —
+  // it is e2e-LESS, not gate-less.  A `test e2e` would add little: two of its
+  // three rules are REJECTION behaviour reachable only through the NESTED create
+  // body, which the runners do not drive today (`lifecycle-guard`'s entry records
+  // what it took to make a DENIAL testable there).  The third — a private
+  // operation's write reaching the caller's result — is exactly what the domain
+  // test asserts, in memory, on all five.  Drain: give the runner a nested create
+  // plus a `toThrow(422)` on it.
+  "part-rules-private-op",
   // COMPILE-TIER WITNESS (generator review A1, document half) — the row count
   // over a `shape: document` source, the one aggregation that shape can express.
   // The gate it exists for is a GENERATION one (four backends emit it, java is
@@ -712,6 +746,19 @@ export const E2E_LESS_CORPUS_FIXTURES: readonly string[] = [
   // blocker as `R.tenantRegistryRow`; drain them together.  Runtime home today:
   // `tenancy-e2e.yml`'s hierarchy legs (label/post-merge).
   "tenancy-hierarchy",
+  // WAVE C1 PACKET 1e-i (ledger rows F2-XB-4 / F2-CB-C1) — both fixtures exist
+  // for the COMPILE tier: a dropped fold-body `let` is CS0103 / "cannot find
+  // symbol", and the paged × non-relational carrier is CS0535 + CS0029, so the
+  // gate that mattered is the corpus compile leg plus the two conformance
+  // matrices named in `BEHAVIOURAL_ABSENT`.  A runtime `test e2e` is owed and
+  // is the drain condition recorded there.
+  "projection-fold-statements",
+  "paged-nonrelational",
+  // WAVE C1 PACKET 1h (RS-26 boxing of a java workflow's primitive params) —
+  // the contract under test is the emitted wire type (`Integer`, not `int`)
+  // and the 422 its `@NotNull` answers, pinned by the java generator suite;
+  // the behavioural runner cannot yet address a workflow's create surface.
+  "workflow-primitive-params",
 ];
 
 /**

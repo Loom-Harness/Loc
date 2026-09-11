@@ -103,8 +103,21 @@ function projectMembers(files: readonly string[]): Set<string> {
 const UNPARSEABLE = ["examples/sales-ui.ddd"] as const;
 
 /** Parses, but is INVALID ON PURPOSE — the subject of a negative test. Its own
- *  name says so; `test/cli/*` asserts the diagnostics it produces. */
-const DELIBERATELY_INVALID = ["test/cli/fixtures/bad-model.ddd"] as const;
+ *  name says so; `test/cli/*` asserts the diagnostics it produces, and the
+ *  `stmt-placement-*` trio is the refusal corpus of M-T5.28
+ *  (`test/language/validators/stmt-placement.test.ts`) — one file per gated
+ *  statement, each carrying the one construct its code refuses.  They live
+ *  beside their gate rather than in `test/fixtures/corpus/` because that corpus
+ *  is a POSITIVE matrix: every fixture there must GENERATE on each backend its
+ *  manifest row declares, so it has no shape for an expected-diagnostic source.
+ *  The `it("still rejects …")` control below therefore also asserts all four
+ *  keep refusing — a gate deleted by accident fails here too. */
+const DELIBERATELY_INVALID = [
+  "test/cli/fixtures/bad-model.ddd",
+  "test/language/validators/fixtures/stmt-placement-variant-match.ddd",
+  "test/language/validators/fixtures/stmt-placement-for.ddd",
+  "test/language/validators/fixtures/stmt-placement-if-let.ddd",
+] as const;
 
 /** Entry files of a multi-file project whose SIBLINGS are imported but which
  *  are not themselves imported by anything — so the derived rule cannot see

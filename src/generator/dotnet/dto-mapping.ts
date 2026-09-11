@@ -21,6 +21,7 @@ import { collectReachableTypes } from "../../ir/util/reachable-types.js";
 import { snake, upperFirst } from "../../util/naming.js";
 import { numericEncode } from "../_numeric/target.js";
 import { PROVENANCED_REQUEST_ERROR } from "../_payload/provenanced-wire.js";
+import { MONEY_MAX_EXCLUSIVE, MONEY_RANGE_MESSAGE } from "../money-scale.js";
 import { csProvSibling, PROVENANCED_CS_RECORD } from "./emit/provenance.js";
 import { CS_NUMERIC } from "./numeric-codec.js";
 import { renderCsExpr } from "./render-expr.js";
@@ -412,14 +413,26 @@ function wireParseGuard(
   site: WireArgSite,
   label: string,
   tryParse: (outVar: string) => string,
+  /** An additional, POST-PARSE predicate over the out-variable, with its own
+   *  refusal message.  Money's range check (M-T6.60 divergence 3) is the only
+   *  user: a value can parse and still not fit `NUMERIC(19,4)`, and that is a
+   *  magnitude question the COLUMN answers rather than a second format guard —
+   *  so it needs its own message, nested INSIDE the successful parse. */
+  postParse?: { predicate: (outVar: string) => string; message: string },
 ): string {
   const outVar = `__wp_${expr.replace(/[^A-Za-z0-9]/g, "_")}`;
+  const refuse = (message: string): string =>
+    `throw new global::${site.ns}.Domain.Common.WireFormatException(` +
+    `${JSON.stringify(site.pointer)}, ${message})`;
   // Interpolated so the message quotes the value the caller actually sent.
   // `{{` / `}}` are not needed: the only interpolation hole is the raw value.
-  const message = `$"Invalid ${label}: \\"{${expr}}\\""`;
+  const ok = postParse
+    ? `(${postParse.predicate(outVar)}\n                    ? ${outVar}\n                    : ` +
+      `${refuse(`$"${postParse.message}: \\"{${expr}}\\""`)})`
+    : outVar;
   return (
-    `${tryParse(outVar)}\n                ? ${outVar}\n                : throw new global::${site.ns}` +
-    `.Domain.Common.WireFormatException(${JSON.stringify(site.pointer)}, ${message})`
+    `${tryParse(outVar)}\n                ? ${ok}\n                : ` +
+    refuse(`$"Invalid ${label}: \\"{${expr}}\\""`)
   );
 }
 
@@ -473,6 +486,13 @@ export function wireToCommandArgument(
         // Wire string → System.Decimal.  InvariantCulture so a locale's
         // comma-vs-dot doesn't flip the parse — and TryParse so `"12,50"`
         // answers 422 like node's `moneySchema` instead of 500 (M-T6.48).
+        // The second guard is RANGE, not format: a value can parse as a
+        // `decimal` and still not fit NUMERIC(MONEY_PRECISION, MONEY_WIRE_SCALE),
+        // in which case it reached the DATABASE and came back a 500 for a client
+        // fault (M-T6.60 divergence 3).  `decimal.TryParse` already refuses past
+        // ~29 significant digits, so .NET answered 4xx for the 40-digit probe
+        // that motivated the row — but not for a 16-digit one, which is the same
+        // defect a few digits earlier.
         return wireParseGuard(
           expr,
           site,
@@ -480,6 +500,10 @@ export function wireToCommandArgument(
           (out) =>
             `decimal.TryParse(${expr}, NumberStyles.Number, CultureInfo.InvariantCulture, ` +
             `out var ${out})`,
+          {
+            predicate: (out) => `System.Math.Abs(${out}) < ${MONEY_MAX_EXCLUSIVE}m`,
+            message: MONEY_RANGE_MESSAGE,
+          },
         );
       }
       return expr;

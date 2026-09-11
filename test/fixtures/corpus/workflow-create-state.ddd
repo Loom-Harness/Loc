@@ -1,0 +1,114 @@
+// shape: a COMMAND-triggered `create(params)` on a STATE-BEARING workflow —
+// the pairing no corpus fixture had (F58 / M-T6.62).
+//
+// `workflow Fulfillment { orderId: Order id  status: string  create(orderId: Order id) { … } }`
+// parsed `0 error(s), 0 warning(s)` and emitted an UNBOUND RECEIVER on all five
+// backends: `this.status = "Pending"` inside a Hono module-scope arrow function
+// (a real TS2683), `this.Status` on a .NET handler class with no such member,
+// `this.setStatus(...)` on a Java service without it, `self._status` in a
+// module-level python `async def`, and an unbound `state` in the Elixir
+// `with`-chain.  The command route also never LOADED OR SAVED the correlation
+// row, so the `on(...)` reactor below logged `event_unrouted` forever.
+//
+// Why it survived every gate: the corpus had event-triggered creates
+// (`saga.ddd` — `create(p: OrderPlaced) by p.order`) and stateless command
+// creates, but nothing that paired a COMMAND create with workflow `Property`
+// state.  The compile tier is what sees this class — the defect is a type error
+// in four of the five emitted projects — so this fixture's job is to put that
+// pairing in front of `corpus-{tsc,dotnet,java,python,elixir}-build`.
+//
+// The reactor is not decoration: it is the OBSERVABLE half.  It routes by the
+// omitted-`by` name-match rule to the very row the command create must have
+// persisted, so a backend that binds the receiver but skips the save still
+// compiles and still drops the event.
+//
+// No `test e2e` block.  Driving the full command → event → reactor cascade over
+// the wire needs the saga row read back through the workflow-instance route,
+// and minting a five-way wire golden for that cascade is a behavioural-tier
+// change of its own (the same reason `collection-op-shapes` and
+// `numeric-operands` stay unit-only).  The domain `test` block below runs on
+// every backend's unit tier.
+system WorkflowCreateState {
+  subdomain Fulfil {
+    context Fulfil {
+      aggregate Order with crudish {
+        sku: string
+        status: string
+
+        operation ship() {
+          precondition status == "Placed"
+          status := "Shipped"
+          emit OrderShipped { orderId: id, at: now() }
+        }
+
+        test "ship transitions a placed order and rejects an unplaced one" {
+          let o = Order.create({ sku: "SKU-1", status: "Placed" })
+          o.ship()
+          expect(o.status).toBe("Shipped")
+          let bad = Order.create({ sku: "SKU-2", status: "Draft" })
+          expect(bad.ship()).toThrow()
+        }
+      }
+      repository Orders for Order { }
+
+      event OrderShipped { orderId: Order id, at: datetime }
+
+      channel Lifecycle {
+        carries: OrderShipped
+        delivery: broadcast
+        retention: ephemeral
+      }
+
+      // SPELLING 1 — the correlation field (`orderId`) is supplied by the
+      // create param of the SAME NAME: the command-side twin of the reactor's
+      // omitted-`by` rule.
+      workflow Fulfillment {
+        orderId: Order id
+        status: string
+        attempts: int
+
+        create(orderId: Order id) {
+          status := "Pending"
+          attempts := 0
+        }
+
+        // Routes by name-match onto the row the create above persisted.
+        on(e: OrderShipped) {
+          status := "Shipped"
+          attempts := attempts + 1
+        }
+      }
+
+      // SPELLING 2 — the create takes a differently-named param and ASSIGNS
+      // the correlation field from it.  Both spellings name a value that is in
+      // hand before the body runs, so both key the same load-or-allocate seam;
+      // the emitters read them through one rule
+      // (`commandCreateCorrelationParam`).  This one is the residue #2850's
+      // name-match-only rule left behind, and it is separately the shape every
+      // backend's instance-gate test drives — it produced an unbound `this` /
+      // `state` on node / .NET / java / elixir, a `command.OrderId` CS1061 on a
+      // .NET record whose member is `Order`, an undefined `order` in the Elixir
+      // `run/1`, and a silently-discarded request-scoped scratch on python.
+      workflow Escalation {
+        escalatedOrder: Order id
+        level: int
+
+        create raise(order: Order id) {
+          escalatedOrder := order
+          level := 1
+        }
+      }
+    }
+  }
+
+  api FulfilApi from Fulfil
+  storage primary { type: postgres }
+  resource fulfilState { for: Fulfil, kind: state, use: primary }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Fulfil]
+    dataSources: [fulfilState]
+    serves: FulfilApi
+    port: 4000
+  }
+}

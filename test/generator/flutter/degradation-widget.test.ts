@@ -12,7 +12,14 @@
 // compiled here; `generated-flutter-build.yml` owns the SDK gate.
 
 import { describe, expect, it } from "vitest";
-import { GIVE_UP_SENTINEL } from "../../../src/generator/_walker/give-up.js";
+import { giveUpText } from "../../../src/generator/_walker/give-up.js";
+
+/** The give-up marker as the EMITTER builds it — sentinel, `loom.*` code, then
+ *  the prose (M-T9.55).  Read from `giveUpText` rather than re-spelled here: a
+ *  pin that copies the shape is a pin that silently stops matching when the
+ *  shape changes, which is the exact failure this whole sentinel exists for. */
+const MARKER = giveUpText("loom.unresolved-page-ref", "ref: viaId");
+
 import { generateSystemFiles } from "../../_helpers/generate.js";
 
 // `viaId` is a page `derived` over the magic route `id` — a binding the shell
@@ -57,9 +64,7 @@ const page = async (): Promise<string> =>
 describe("flutter degradation sentinels stay widgets", () => {
   it("emits a degraded table cell as a widget, not as Dart source inside Text(…)", async () => {
     const dart = await page();
-    expect(dart).toContain(
-      `DataCell(const SizedBox.shrink() /* ${GIVE_UP_SENTINEL} ref: viaId */)`,
-    );
+    expect(dart).toContain(`DataCell(const SizedBox.shrink() /* ${MARKER} */)`);
     expect(dart).not.toContain("DataCell(Text('const SizedBox");
   });
 
@@ -67,11 +72,9 @@ describe("flutter degradation sentinels stay widgets", () => {
     const dart = await page();
     // Tab body (`TabBarView` children) and Card content ride the same probe.
     expect(dart).toContain(
-      `TabBarView(children: <Widget>[ const SizedBox.shrink() /* ${GIVE_UP_SENTINEL} ref: viaId */ ])`,
+      `TabBarView(children: <Widget>[ const SizedBox.shrink() /* ${MARKER} */ ])`,
     );
-    expect(dart).toContain(
-      `children: <Widget>[const SizedBox.shrink() /* ${GIVE_UP_SENTINEL} ref: viaId */]`,
-    );
+    expect(dart).toContain(`children: <Widget>[const SizedBox.shrink() /* ${MARKER} */]`);
     // Nowhere in the page is a `const `-leading widget stringified.
     expect(dart).not.toContain("Text('const SizedBox");
     expect(dart).not.toMatch(/Text\('const\s/);

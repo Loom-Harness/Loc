@@ -27,6 +27,7 @@ import type {
   DomainServiceIR,
   DomainServiceOperationIR,
   EnumIR,
+  ExprIR,
   TypeIR,
   ValueObjectIR,
 } from "../../../ir/types/loom-ir.js";
@@ -34,6 +35,7 @@ import {
   type ReadPort,
   readPortsForOperation,
 } from "../../../ir/util/domain-service-read-ports.js";
+import { walkExprDeep } from "../../../ir/util/walk.js";
 import { lines } from "../../../util/code-builder.js";
 import { lowerFirst } from "../../../util/naming.js";
 import { renderTsType } from "../render-expr.js";
@@ -109,6 +111,32 @@ export function renderDomainServices(ctx: BoundedContextIR): string | undefined 
       body,
     ) + "\n"
   );
+}
+
+/** The domain-service NAMESPACE names an expression set calls — the import
+ *  surface a module needs from `domain/services` for those expressions.
+ *
+ *  For the emission sites whose IR is a bare `ExprIR` rather than a statement
+ *  body: a hoisted `requires` authorization gate (`src/ir/util/op-gates.ts`), a
+ *  `when` state gate, a find's read gate.  Those render INTO the routes module
+ *  while the module's import block was derived only from the operation BODIES
+ *  the gates had just been hoisted out of — ledger row `F2-CB-C7`:
+ *  `if (!(Rules.fee(__loaded.quantity) === 0))` against a file that never
+ *  imported `Rules`, a TS2304 in a project that generated and validated clean.
+ *
+ *  Rides `walkExprDeep` rather than a local child enumeration, so a gate whose
+ *  service call hides inside a `match` arm or a list literal is still seen. */
+export function domainServiceNamesInExprs(exprs: readonly (ExprIR | undefined)[]): string[] {
+  const names = new Set<string>();
+  for (const e of exprs) {
+    if (!e) continue;
+    walkExprDeep(e, (node) => {
+      if (node.kind === "call" && node.callKind === "domain-service" && node.serviceRef) {
+        names.add(node.serviceRef.service);
+      }
+    });
+  }
+  return [...names].sort();
 }
 
 function renderService(svc: DomainServiceIR, ctx: BoundedContextIR): string {

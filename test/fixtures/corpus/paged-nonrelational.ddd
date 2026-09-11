@@ -1,0 +1,73 @@
+// `find … paged` over a NON-RELATIONAL carrier — ledger row `F2-CB-C1`.
+//
+// Pagination and the three storage shapes were each covered (`paged.ddd`,
+// `document.ddd`, `event-sourcing.ddd`, `embedded.ddd`) — their CROSSING was
+// not, and that is where it broke.  The route, the repository port/interface and
+// the response model all derive their contract from `pagedReturn(returnType)`,
+// so they declared the 5-argument `Paged<T>` shape; but the document and
+// event-log repository builders — which rehydrate the whole set and filter it
+// in memory — had no paged branch, and kept emitting the 1-argument unpaged
+// method.  A route built for the paged contract against a repository built for
+// the unpaged one:
+//
+//   dotnet  IOrderRepository.InRegion(string, int, int, string, string, CT)
+//           vs OrderRepository.InRegion(string, CT)          → CS0535 + CS0029
+//   python  `result = await repo.in_region(region, page, pageSize, sort, dir)`
+//           vs `async def in_region(self, region) -> Order`  → TypeError, then
+//                                                              `result.items`
+//
+// and NOT ONE diagnostic anywhere: `ddd parse` is clean and all five backends
+// report OK.  node / java / elixir already paged both carriers correctly, which
+// is the other half of why it stayed invisible — a fixture on any one of them
+// would have passed.
+//
+// Both carriers live here, in one system, because the defect is the CROSSING and
+// the two builders are separate code paths: a fixture with only one of them
+// leaves the other's arm unexercised.  The `embedded` shape is deliberately
+// absent — it reuses the relational row table, so its paged find was always
+// correct, and `embedded.ddd` already owns that shape.
+system PagedNonRelational {
+  subdomain S {
+    context Ledger {
+
+      // ── document carrier ── the whole aggregate in one jsonb column, so every
+      // find rehydrates and filters in app.
+      aggregate Invoice shape: document, with crudish {
+        region: string
+        total: int
+      }
+      repository Invoices for Invoice {
+        find inRegion(region: string): Invoice paged where this.region == region
+      }
+
+      // ── event-log carrier ── no state columns at all; a find folds the stream
+      // and filters the folded aggregates.
+      aggregate Account persistedAs: eventLog {
+        owner: string
+        balance: int
+        create(owner: string) {
+          emit AccountOpened { accountRef: id, owner: owner }
+        }
+        apply(e: AccountOpened) {
+          owner := e.owner
+          balance := 0
+        }
+      }
+      event AccountOpened { accountRef: Account id, owner: string }
+      repository Accounts for Account {
+        find byOwner(owner: string): Account paged where this.owner == owner
+      }
+    }
+  }
+  api LedgerApi from S
+  storage primary { type: postgres }
+  resource ledgerState { for: Ledger, kind: state, use: primary }
+  resource ledgerLog { for: Ledger, kind: eventLog, use: primary }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Ledger]
+    dataSources: [ledgerState, ledgerLog]
+    serves: LedgerApi
+    port: 4000
+  }
+}

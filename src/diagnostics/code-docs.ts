@@ -46,12 +46,18 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.token-nullable": "04-type-system.md#options--t",
   "loom.bare-aggregate-in-type": "04-type-system.md#x-id--cross-aggregate-references",
   "loom.unknown-name": "05-expressions.md#member-access--calls",
+  "loom.emit-unknown-field": "06-behavior-and-statements.md#let--emit",
   "loom.applier-on-non-event-sourced":
     "06-behavior-and-statements.md#applye-event--the-event-sourcing-fold",
   "loom.reserved-derived-on-vo": "07-invariants-derived-functions.md#reserved-display-and-inspect",
   "loom.function-block-impure": "07-invariants-derived-functions.md#function--a-pure-helper",
   "loom.when-references-op-param":
     "06-behavior-and-statements.md#when-also-auto-exposes-get-idcan_op",
+  "loom.variant-match-placement":
+    "06-behavior-and-statements.md#match--the-effect-form-variant-match",
+  "loom.for-placement": "06-behavior-and-statements.md#for--if-let--workflow-bodies-only",
+  "loom.if-let-placement": "06-behavior-and-statements.md#for--if-let--workflow-bodies-only",
+  "loom.vanilla-op-call-actor": "06-behavior-and-statements.md#operation--a-mutating-method",
   "loom.abstract-aggregate-behavior":
     "08-inheritance-and-polymorphism.md#abstract-aggregate--the-base",
   "loom.abstract-repository": "08-inheritance-and-polymorphism.md#abstract-aggregate--the-base",
@@ -116,6 +122,7 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.transactional-no-effect": "13-workflows.md#transactional--isolation",
   "loom.correlation-field-ambiguous": "13-workflows.md#workflow--state",
   "loom.workflow-correlation-required": "13-workflows.md#workflow--state",
+  "loom.workflow-create-correlation-unsupplied": "13-workflows.md#workflow--state",
   "loom.channel-key-missing-field": "14-apis-storage-resources-channels.md#channel--channelsource",
   "loom.reserved-not-emitted": "14-apis-storage-resources-channels.md#connection-sources",
   "loom.channelsource-incompatible":
@@ -128,6 +135,7 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.angular-deployable-missing-ui": "15-ui-pages-structure.md#ui-block--deployable-binding",
   "loom.feliz-deployable-missing-ui": "15-ui-pages-structure.md#ui-block--deployable-binding",
   "loom.flutter-deployable-missing-ui": "15-ui-pages-structure.md#ui-block--deployable-binding",
+  "loom.flutter-action-statement-unsupported": "15-ui-pages-structure.md#state--derived--action",
   "loom.react-deployable-missing-ui": "15-ui-pages-structure.md#ui-block--deployable-binding",
   "loom.svelte-deployable-missing-ui": "15-ui-pages-structure.md#ui-block--deployable-binding",
   "loom.ui-framework-unhostable": "15-ui-pages-structure.md#ui-block--deployable-binding",
@@ -143,6 +151,17 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.page-form-locals-unsupported":
     "16-ui-walker-primitives.md#the-form-family--createform-operationform-workflowform-destroyform",
   "loom.component-children-unsupported": "16-ui-walker-primitives.md#slot",
+  // The body-walker give-up codes (M-T9.55).  The first four are argument /
+  // reference / expression refusals — the chapter's own gate section lists the
+  // sibling `loom.page-primitive-*` codes — and the fifth is a porting gap, so
+  // it anchors on the per-target table instead.
+  "loom.page-primitive-arg-missing":
+    "16-ui-walker-primitives.md#arity-argument-and-placement-gates",
+  "loom.page-primitive-arg-invalid":
+    "16-ui-walker-primitives.md#arity-argument-and-placement-gates",
+  "loom.page-ref-unreachable": "16-ui-walker-primitives.md#arity-argument-and-placement-gates",
+  "loom.page-expr-unrenderable": "16-ui-walker-primitives.md#the-dispatch-model",
+  "loom.page-primitive-target-gap": "16-ui-walker-primitives.md#per-target-honest-gates",
   "loom.auth-missing-issuer": "17-auth.md#auth-----oidc-config",
   "loom.auth-unknown-claim-field": "17-auth.md#auth-----oidc-config",
   "loom.auth-without-user": "17-auth.md#auth-required--per-deployable-middleware--verifier-seam",

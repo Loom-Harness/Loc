@@ -40,7 +40,11 @@ import {
   type ReadPort,
   readPortsForOperation,
 } from "../../../ir/util/domain-service-read-ports.js";
-import { walkStmtExprsDeep, walkWorkflowStmtExprsDeep } from "../../../ir/util/walk.js";
+import {
+  walkExprDeep,
+  walkStmtExprsDeep,
+  walkWorkflowStmtExprsDeep,
+} from "../../../ir/util/walk.js";
 import { lines } from "../../../util/code-builder.js";
 import { snake } from "../../../util/naming.js";
 import { emptyPyTypeImports, visitPyTypeImports } from "../py-type-imports.js";
@@ -270,6 +274,20 @@ export function collectStmtExprImports(st: StmtIR, into: Set<string>): void {
 export function domainServiceImportLines(stmts: readonly StmtIR[]): string[] {
   const byService = new Map<string, Set<string>>();
   for (const st of stmts) walkStmtExprsDeep(st, (e) => collectServiceRef(e, byService));
+  return importLinesFor(byService);
+}
+
+/** The BARE-EXPRESSION sibling — for the emission sites whose IR is an
+ *  `ExprIR`, not a statement body: a hoisted `requires` authorization gate
+ *  (`src/ir/util/op-gates.ts`), a `when` state gate, a find's read gate.  Those
+ *  render INTO the routes module while the module's imports were derived only
+ *  from the operation BODIES the gates had just been hoisted out of — ledger row
+ *  `F2-CB-C7`, an `F821` / `NameError` on the first gated request. */
+export function domainServiceImportLinesForExprs(exprs: readonly (ExprIR | undefined)[]): string[] {
+  const byService = new Map<string, Set<string>>();
+  for (const e of exprs) {
+    if (e) walkExprDeep(e, (node) => collectServiceRef(node, byService));
+  }
   return importLinesFor(byService);
 }
 

@@ -1290,11 +1290,31 @@ ${okArm}
   // `{:error, _}` arm maps to the `:error` sentinel the list `cond` renders as
   // the error slot.
   const listArgs = (qb.listArgs ?? []).join(", ");
-  const read = `      case ${ctxModule}.list_${aggSnake}s(${listArgs}) do
+  // WHICH read: the auto-`findAll` is `list_<agg>s/4`; a declared `find` (a
+  // filter-bar arm) is `<find>_<agg>` (context-emit.ts).  Calling the former
+  // with the latter's arguments put a filter value in the paged list's `page`
+  // slot — `list_wallets("")` → `offset = ("" - 1) * page_size` →
+  // `ArithmeticError :erlang.-("", 1)`, a 500 on every load of a scaffolded
+  // list page carrying a filter bar (schemathesis elixir cell, E5).
+  const readFn =
+    qb.retrieval === undefined || qb.retrieval === "all"
+      ? `list_${aggSnake}s`
+      : `${snake(qb.retrieval)}_${aggSnake}`;
+  const read = `      case ${ctxModule}.${readFn}(${listArgs}) do
         {:ok, items} -> assign(socket, :${qb.assign}, items)
         _ -> assign(socket, :${qb.assign}, :error)
       end`;
-  if (!listGate) return `    socket =\n${read}`;
+  // A `match`-arm read runs ONLY when its arm is the one the template renders
+  // (`QueryBinding.gate`): the else branch leaves the socket untouched rather
+  // than taking the `:error` sentinel, because a non-matching arm is not a
+  // failure — the arm that DOES match owns the assign.  Without this every arm
+  // loaded on every `handle_params`, the last write won, and the filter reads
+  // ran with their own UNSET values.
+  const gated = (block: string): string =>
+    qb.gate === undefined
+      ? block
+      : `      if ${qb.gate} do\n${block.replace(/^ {6}/gm, "        ")}\n      else\n        socket\n      end`;
+  if (!listGate) return `    socket =\n${gated(read)}`;
   // Gated list read — denial takes the same `:error` sentinel the projection
   // loader uses, so the page renders its error slot instead of the rows.  The
   // gate is evaluated BEFORE the query, matching the `index` action's contract:
@@ -1305,11 +1325,11 @@ ${okArm}
     ? "    current_user = Map.get(socket.assigns, :current_user)\n"
     : "";
   return `${cuBind}    socket =
-      if ${listGate.expr} do
+${gated(`      if ${listGate.expr} do
 ${read.replace(/^ {6}/gm, "        ")}
       else
         assign(socket, :${qb.assign}, :error)
-      end`;
+      end`)}`;
 }
 
 /** The `handle_params` load line for a `QueryView { of: <api>.<Projection> }`

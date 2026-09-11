@@ -162,3 +162,115 @@ describe("python own-state scratch for an uncorrelated command workflow", () => 
     expect(wf).toContain('        self._status = "Pending"');
   });
 });
+
+// ---------------------------------------------------------------------------
+// The SECOND spelling of the correlation rule, and the residue the name-match
+// rule above left behind (F58 / M-T6.62).
+//
+// `create start(order: Order id) { orderId := order … }` — the create takes a
+// differently-named param and ASSIGNS the correlation field from it.  It is
+// the shape `test/generator/workflow-instance-gate.test.ts` drives on all five
+// backends, so the whole instance-gate matrix was asserting against output
+// that does not compile:
+//
+//   node    `this.orderId = order;`             module-scope arrow (TS2683)
+//   dotnet  `this.OrderId = command.Order;`     handler class, no such member
+//   java    `this.setOrderId(order);`           service class, no such method
+//   elixir  `%{state | order_id: order}`        `state` unbound (and `order`
+//                                               too — the param destructure's
+//                                               collector had no `assign` arm)
+//   python  `self = SimpleNamespace(...)`       SILENT: the write landed in a
+//                                               request-scoped scratch, the
+//                                               saga row was never inserted,
+//                                               and /instances stayed empty
+//
+// `commandCreateCorrelationParam` now accepts this spelling too (the key is a
+// value already in hand before the body runs), so the same load-or-allocate /
+// bind / save seam applies with no new emitter path.
+const ASSIGNED = (deployable: string) => `
+system Shop {
+  subdomain Sales {
+    context Orders {
+      aggregate Order with crudish { code: string }
+      repository Orders for Order { }
+      workflow Fulfilment {
+        orderId: Order id
+        stage: string
+        create start(order: Order id) {
+          orderId := order
+          stage := "started"
+        }
+      }
+    }
+  }
+  api SalesApi from Sales
+  storage pg { type: postgres }
+  resource ordersState { for: Orders, kind: state, use: pg }
+  deployable d {
+    ${deployable}
+    contexts: [Orders]
+    dataSources: [ordersState]
+    serves: SalesApi
+    port: 8080
+  }
+}
+`;
+
+const assignedFile = async (deployable: string, suffix: string): Promise<string> => {
+  const files = await generateSystemFiles(ASSIGNED(deployable));
+  const hit = [...files.entries()].find(([p]) => p.endsWith(suffix))?.[1];
+  expect(hit, `file ending ${suffix}`).toBeDefined();
+  return hit as string;
+};
+
+describe("a create that ASSIGNS the correlation field from a param (F58 residue)", () => {
+  it("Hono keys the row off the assigned param, not `this`", async () => {
+    const wf = await assignedFile("platform: node", "http/workflows.ts");
+    expect(wf).not.toContain("this.orderId");
+    expect(wf).toContain("const state = (await loadFulfilment(db, order)) ??");
+    expect(wf).toContain('state.stage = "started";');
+    expect(wf).toContain("await saveFulfilment(db, state);");
+  });
+
+  it(".NET reads the key off the COMMAND PARAM, not the correlation field's name", async () => {
+    const handler = await assignedFile("platform: dotnet", "FulfilmentHandler.cs");
+    expect(handler).not.toContain("this.OrderId");
+    // `FulfilmentCommand(OrderId Order)` has no `OrderId` member — emitting
+    // `command.OrderId` here was a CS1061 on a project that otherwise built.
+    expect(handler).toContain("var __key = command.Order;");
+    expect(handler).not.toContain("var __key = command.OrderId;");
+    // The state-side comparison still names the COLUMN.
+    expect(handler).toContain("FindAsync(x => x.OrderId == __key");
+    expect(handler).toContain("await _sagaState.SaveChangesAsync(cancellationToken);");
+  });
+
+  it("Java binds the loaded saga row, not `this`", async () => {
+    const svc = await assignedFile("platform: java", "OrdersWorkflows.java");
+    expect(svc).not.toContain("this.setOrderId");
+    expect(svc).toContain(
+      "var state = fulfilmentStateRepository.findById(__key).orElseGet(() -> FulfilmentState._allocate(__key));",
+    );
+    expect(svc).toContain('state.setStage("started");');
+    expect(svc).toContain("fulfilmentStateRepository.save(state);");
+  });
+
+  it("Python writes the PERSISTED row, not a request-scoped scratch", async () => {
+    const wf = await assignedFile("platform: python", "workflows_routes.py");
+    // The silent half: a SimpleNamespace here meant the saga row was never
+    // written and `/workflows/fulfilment/instances` answered empty forever.
+    expect(wf).not.toContain("SimpleNamespace");
+    expect(wf).toContain("state = await _load_fulfilment(session, __key)");
+    expect(wf).toContain('state.stage = "started"');
+  });
+
+  it("Elixir binds BOTH the row and the param the assignment reads", async () => {
+    const wf = await assignedFile("platform: elixir", "workflows/fulfilment.ex");
+    // The param destructure — its collector had no `assign` arm, so `order`
+    // was an undefined variable in the emitted `run/1`.
+    expect(wf).toContain('%{"order" => order} = params');
+    expect(wf).toContain('key = params["order"]');
+    expect(wf).toContain("case Repo.get(D.Orders.Workflows.FulfilmentState, key) do");
+    expect(wf).toContain("state = __loom_state");
+    expect(wf).toContain("Repo.update!");
+  });
+});

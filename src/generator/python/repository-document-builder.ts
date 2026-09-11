@@ -1,3 +1,4 @@
+import { pagedReturn } from "../../ir/stdlib/generics.js";
 import type {
   ContainmentIR,
   EnrichedAggregateIR,
@@ -30,7 +31,9 @@ import {
   authUserImport,
   emittableFinds,
   findExecutedLine,
+  PY_PAGED_FIND_PARAMS,
   partWireMethod,
+  pyInMemoryPagedFind,
   queryProjectionViews,
   recordAuditMethod,
   toWireMaskedMethod,
@@ -309,6 +312,10 @@ export function buildPyDocumentRepositoryFile(
       ? "from app.domain.events import DomainEvent, DomainEventDispatcher"
       : "from app.domain.events import DomainEventDispatcher",
     idNames.length > 0 ? `from app.domain.ids import ${idNames.join(", ")}` : null,
+    // The shared paging carrier — demand-gated like every import here, so a
+    // document repository with no `find … paged` stays byte-identical
+    // (F2-CB-C1 taught the in-memory paged branch to this builder).
+    refersTo("PagedResult") ? "from app.domain.paging import PagedResult" : null,
     domainNames.length > 0
       ? `from app.domain.${snake(agg.name)} import ${domainNames.join(", ")}`
       : null,
@@ -367,7 +374,11 @@ function findMethod(
     : conventionPredicate(agg, find);
   const isList = find.returnType.kind === "array";
   const isOptional = find.returnType.kind === "optional";
+  const isPaged = !!pagedReturn(find.returnType);
   const ret = isList ? `list[${agg.name}]` : isOptional ? `${agg.name} | None` : agg.name;
+  // `find … paged` over a document carrier — the four wire controls join the
+  // signature and the body pages in memory (`pyInMemoryPagedFind`, F2-CB-C1).
+  const pagedSig = ["self", ...params, ...PY_PAGED_FIND_PARAMS].join(", ");
 
   // When the aggregate carries a capability `filter` (DEBT-02 tail), a find
   // must apply the capability predicate too — but it reads a RAW load (not the
@@ -391,14 +402,17 @@ function findMethod(
       : conventionInline(agg, find);
     const conds = [cap?.expr, findCond].filter((c): c is string => c != null).map((c) => `(${c})`);
     const filtered = conds.length > 0 ? `[x for x in items if ${conds.join(" and ")}]` : "items";
-    out = [
-      `    async def ${snake(find.name)}(${sig}) -> ${ret}:`,
+    const loadLines = [
       `        rows = (await self._session.execute(select(${rowClassName(agg.name)}))).scalars().all()`,
       ...(bindPrincipal ? ["        current_user = require_current_user()"] : []),
       aggregateIsVersioned(agg)
         ? `        items = [_${snake(agg.name)}_from_doc(r.data, r.version) for r in rows]`
         : `        items = [_${snake(agg.name)}_from_doc(r.data) for r in rows]`,
     ];
+    if (isPaged) {
+      return pyInMemoryPagedFind(agg, find, { sig: pagedSig, loadLines, filteredExpr: filtered });
+    }
+    out = [`    async def ${snake(find.name)}(${sig}) -> ${ret}:`, ...loadLines];
     if (isList) {
       out.push(`        result = ${filtered}`);
       out.push(findExecutedLine(agg, find.name, "len(result)"));
@@ -414,6 +428,13 @@ function findMethod(
   }
 
   const filtered = pred ? `[x for x in items if (${pred})(x)]` : "items";
+  if (isPaged) {
+    return pyInMemoryPagedFind(agg, find, {
+      sig: pagedSig,
+      loadLines: ["        items = await self.all()"],
+      filteredExpr: filtered,
+    });
+  }
   out = [
     `    async def ${snake(find.name)}(${sig}) -> ${ret}:`,
     "        items = await self.all()",

@@ -335,7 +335,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.java-reserved-identifier-unsupported",
     kind: "gap",
-    site: "src/ir/validate/checks/backend-syntax-checks.ts:246",
+    site: "src/ir/validate/checks/backend-syntax-checks.ts:287",
     what:
       "a `.ddd` field / param / operation named after a JAVA reserved word (`case`, `do`, " +
       '`new`, …). The SQL half is quoted (`@Column(name = "`case`")`); the host-identifier ' +
@@ -677,7 +677,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.workflow-load-array-unsupported",
     kind: "scope",
-    site: "src/ir/validate/checks/workflow-checks.ts:643",
+    site: "src/ir/validate/checks/workflow-checks.ts:751",
     what: "workflow load of an array result — v1 is single non-nullable",
     verified: true,
   },
@@ -699,7 +699,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.workflow-load-nullable-unsupported",
     kind: "scope",
-    site: "src/ir/validate/checks/workflow-checks.ts:656",
+    site: "src/ir/validate/checks/workflow-checks.ts:764",
     what: "workflow load of a nullable result — v1 is single non-nullable",
     verified: true,
   },

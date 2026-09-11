@@ -110,7 +110,7 @@ def confirm_order(%ExApi.Orders.Order{} = record, params) when is_map(params) do
   with :ok <- ensure(record.status == :Draft, {:disallowed, "operation 'confirm' is not allowed in the current state of Order."}),
        :ok <- ensure(is_mutable(record), {:precondition_failed, "Precondition failed: isMutable()"}),
        :ok <- ensure(Enum.count(record.lines) > 0, {:precondition_failed, "Precondition failed: lines.count > 0"}) do
-    _ = nil  # vanilla: bare call to 'recompute' (no callable target); record unchanged
+    record = __op_recompute(record)  # the private op as a module-local pure transform
     record = %{record | status: :Placed}
     changeset =
       record
@@ -133,7 +133,7 @@ end
 ```
 ::: end
 
-A `private operation` is invoked from another op as a bare call — `recompute()` lowers to `this.recompute()` (TS/.NET/Java), `self._recompute()` (Python). **Honest gap:** the Elixir context function renders that call as the `_ = nil  # … bare call to 'recompute' (no callable target)` line above — the private body does not run on Phoenix.
+A `private operation` is invoked from another op as a bare call — `recompute()` lowers to `this.recompute()` (TS/.NET/Java), `self._recompute()` (Python) and, on Elixir, to `record = __op_recompute(record)` against a module-local `defp __op_recompute/1` carrying the callee's body as a PURE struct transform (the caller's persist tail writes the columns it assigned). The public twin `recompute_order/2` is not used for this: it persists, and calling it mid-operation would commit a partial write inside the caller's optimistic-lock window. **One narrow refusal on Elixir:** a private operation whose body reads `currentUser` is rejected with `loom.vanilla-op-call-actor` — the helper takes no actor and the caller binds `current_user` only when its own body reads the principal, so the generated project would not compile. Move the `currentUser` read up into the routed operation.
 
 Modifiers: `extern` emits only the gates and hands the business decision to a user-registered handler — its body may contain nothing but `precondition` statements (`loom.extern-body-not-precondition`), and it can't be `private` (`loom.extern-on-private-operation`); see [Externs](21-externs.md). `audited` records an audit row around the call on all five backends (a context hosted elsewhere is `loom.audited-backend-unsupported`); an `audited` operation that also declares a return type is refused on **node** (`loom.audited-returning-operation-unsupported` — the Hono route emits only the void 204 handler for that combination). See [Capabilities](11-capabilities-filters-stamps.md) for `auditable`.
 
@@ -616,7 +616,7 @@ A record variant flattens its fields beside `type` on the wire; a scalar variant
 
 ## `match` — the effect-form variant match
 
-`match SUBJECT { Variant [b] => stmt | { stmts }, …, else => … }` (`MatchStmt` / `VariantStmtArm`) is the **statement** twin of the variant-match expression: its arms run statements rather than yield a value, and each arm may bind the narrowed variant. It lowers to the `variant-match` StmtIR kind, which is **frontend-only** — the shared statement dispatcher throws if one ever reaches a backend body, and in practice it can't: the only admitted call subject is `await <api>.<Agg>.<op>(args)`, the async remote command of a page or component `action`. Every arm of an `or`-union must be covered or an `else` supplied.
+`match SUBJECT { Variant [b] => stmt | { stmts }, …, else => … }` (`MatchStmt` / `VariantStmtArm`) is the **statement** twin of the variant-match expression: its arms run statements rather than yield a value, and each arm may bind the narrowed variant. It lowers to the `variant-match` StmtIR kind, which is **frontend-only**: it renders in a page / component / store `action` body and has no backend form. Written anywhere else — an `operation`, a `create` / `destroy` / `apply` body, a `function`, a domain-service operation, a projection `on` fold, or a workflow / handler body — it is refused at phase ④ by `loom.variant-match-placement`, a **permanent** placement rule. (Until M-T5.28 nothing gated it: a domain-body `match` validated clean and then threw `variant-match statement is frontend-only …` out of the shared statement dispatcher on all five backends. That throw survives as an internal-invariant assertion for a caller that generates without validating.) Every arm of an `or`-union must be covered or an `else` supplied.
 
 ```ddd
 ui Console {
@@ -753,15 +753,20 @@ An `extern` handler keeps the routed dispatch but calls a scaffold-once, user-ow
 
 ## `for` & `if let` — workflow bodies only
 
-`for x in xs { … }` and `if let x = Repo.find(C) { … } else { … }` parse via the same `Statement` rule but are meaningful only inside `workflow` (and handler) bodies — there they lower (`lower-workflow.ts`) to the `for-each` / `if-let` `WorkflowStmtIR` kinds with per-iteration / per-branch repository saves. The iterable is a `ForIterable` (a name plus optional postfix suffixes), so `for n in notes` parses but `for n in [1, 2]` does not.
+`for x in xs { … }` and `if let x = Repo.find(C) { … } else { … }` parse via the same `Statement` rule but are meaningful only inside `workflow` (and `commandHandler` / `queryHandler`) bodies — there they lower (`lower-workflow.ts`) to the `for-each` / `if-let` `WorkflowStmtIR` kinds with per-iteration / per-branch repository saves. The iterable is a `ForIterable` (a name plus optional postfix suffixes), so `for n in notes` parses but `for n in [1, 2]` does not.
 
-The aggregate-body lowerer (`lower-stmt.ts`) has **no arm for either**, and nothing gates them there: an `operation touch() { for n in notes { owner := n } }` validates clean (`0 error(s), 0 warning(s)`) and the node backend then emits
+The aggregate-body lowerer (`lower-stmt.ts`) has **no arm for either**, so anywhere else both are **refused at phase ④** (`src/language/validators/stmt-placement.ts`) rather than lowered into the `<unknown>` call sentinel they used to produce:
 
-```ts
-public touch(): void {
-  this.<unknown>();
-  this._assertInvariants();
+```ddd
+aggregate Order {
+  notes: string[]
+  operation touch() {
+    for n in notes { code := n }   // loom.for-placement
+    if let c = code { code := c }  // loom.if-let-placement
+  }
 }
 ```
 
-— source that does not compile. Don't write one there; they're covered in [Workflows](13-workflows.md).
+The two codes say different things on purpose. `loom.if-let-placement` is a **permanent** placement rule: `if let` exists to bind the optional result of a repository read, and a domain body reaches its own state through `this` (a cross-aggregate read from inside an aggregate is already refused by `loom.infra-call-from-aggregate`). `loom.for-placement` is an **honest gap** — nothing about a loop is workflow-specific, only the per-iteration save the workflow lowering owns is — and its message names the successor mission (M-T5.30) that tracks lowering `for` into domain bodies.
+
+Before the gates landed, `operation touch() { for n in notes { owner := n } }` validated clean (`0 error(s), 0 warning(s)`) and every backend emitted a call to a method that does not exist — `this.<unknown>()` (node/.NET/Java), `self._<unknown>()` (Python), `_ = <unknown>(record)` (Elixir).

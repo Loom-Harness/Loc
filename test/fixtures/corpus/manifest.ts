@@ -88,6 +88,14 @@ export const CORPUS: readonly CorpusFeature[] = [
   { id: "operation-returns", title: "exception-less `T or Error` operation returns", doc: "payloads", backends: ALL },
   { id: "union-find-absence", title: "union-returning finds (`Order or NotFound`, `Order option`)", doc: "payloads", backends: ALL },
   { id: "paged", title: "pagination — `find ... paged` Paged<T> envelope", doc: "payloads", backends: ALL },
+  {
+    id: "paged-nonrelational",
+    title:
+      "`find … paged` × a NON-RELATIONAL carrier — the paged contract over a `shape: document` and a `persistedAs: eventLog` repository, both of which page in memory",
+    doc: "payloads",
+    backends: ALL,
+    note: "Minted by ledger row F2-CB-C1.  Pagination and the storage shapes each had a fixture; their CROSSING did not, and that is exactly where it broke.  The route, the repository port and the response model all derive their contract from `pagedReturn(returnType)` and declared the 5-argument `Paged<T>` shape, while the document / event-log repository builders — which rehydrate and filter in app — had no paged branch and kept emitting the 1-argument unpaged method: CS0535 + CS0029 on .NET, a 5-arg call into a 1-arg `async def` (then `result.items`) on python.  No diagnostic anywhere — all five backends reported OK.  node / java / elixir already paged both carriers, which is the other half of why it stayed invisible: a fixture on any ONE of them would have passed.  `shape: embedded` is deliberately absent — it reuses the relational row table, so its paged find was always correct and `embedded.ddd` owns that shape.",
+  },
   { id: "single-containment", title: "single (non-collection) containment — hidden `_parent`", doc: "language", backends: ALL },
   { id: "value-collections", title: "value-object array (`Money[]`) stored inline", doc: "language", backends: ALL },
   { id: "document", title: "`shape: document` — whole aggregate in one jsonb column", doc: "language", backends: ALL },
@@ -106,7 +114,22 @@ export const CORPUS: readonly CorpusFeature[] = [
   { id: "event-sourcing", title: "`persistedAs: eventLog` — append-only stream + appliers", doc: "workflow", backends: ALL },
   { id: "eventsourced-workflow", title: "event-sourced saga folding its own emitted events", doc: "workflow", backends: ALL },
   { id: "saga", title: "in-process dispatch / saga with persisted correlation", doc: "workflow", backends: ALL },
+  {
+    id: "workflow-create-state",
+    title:
+      "COMMAND-triggered `create(params)` on a STATE-BEARING workflow — the create writes saga state, an `on(...)` reactor routes back onto the row it persisted",
+    doc: "workflow",
+    backends: ALL,
+    note: "minted by the 2026-09-09 verification fleet (F58 / M-T6.62, P0): the corpus had event-triggered creates (`saga`) and stateless command creates, but NOTHING paired a command `create(params)` with workflow `Property` state — so the command route rendered its body against the default `this` receiver on all five backends and never loaded or saved the correlation row.  Four of the five emitted projects did not compile (`this.status` in a Hono module-scope arrow = TS2683; `this.Status` on a .NET handler with no such member; `this.setStatus(...)` on a Java service without it; an unbound `state` in the Elixir `with`-chain), python's `self._status` in a module-level `async def` was the silent one — and the missing row meant the reactor logged `event_unrouted` forever.  The COMPILE tier is what sees this class, which is what the fixture is for.  No `test e2e`: driving the command → event → reactor cascade over the wire reads the saga row back through the workflow-instance route, and minting that five-way golden is a behavioural-tier change of its own (same posture as `numeric-operands` / `collection-op-shapes`); the domain `test` block rides every backend's unit tier",
+  },
   { id: "projection", title: "folded projection — read model folded from aggregate events (keyed row + on() folds)", backends: ALL },
+  {
+    id: "projection-fold-statements",
+    title:
+      "folded-projection fold body — the FULL pure statement vocabulary (`let` read by a later assign, scalar `+=`/`-=` over int and money, collection `+=`/`-=`)",
+    backends: ALL,
+    note: "Minted by ledger row F2-XB-4.  Every corpus fold was `:=`-only, so the other THREE kinds `foldImpurity` admits were unexercised on every backend — and four of five mis-emitted them, silently: .NET / java / elixir filtered the body to `kind === \"assign\"` (a `let` vanished while its uses survived → CS0103 / 'cannot find symbol' / 'undefined variable'; `+=` was dropped outright, so the column never accumulated), and python delegated to the EVENT-SOURCED applier renderer, whose list-only `.append` spelling is wrong on a projection row (every non-key column is nullable, and a scalar `+=` is not a list at all).  The money `+=` arm is deliberate: three backends have no `+` operator on their money representation (`Decimal.add` / `BigDecimal.add` / decimal.js), so a fold that reached the generic integer spelling would not compile.",
+  },
   { id: "projection-aggregation", title: "whole-table aggregation — singleton query-time projection (count/sum/avg/min/max pushed to SQL)", doc: "language", backends: ALL },
   { id: "projection-groupby", title: "group by — grouped query-time projection (one row per group, key selects + per-group aggregates, GROUP BY/ORDER BY pushed to SQL)", doc: "language", backends: ALL },
   {
@@ -116,6 +139,22 @@ export const CORPUS: readonly CorpusFeature[] = [
     doc: "tenancy",
     backends: ALL,
     note: "minted by audit A1: the aggregation shapes read the source table DIRECTLY, so four backends applied only the projection's own `where` — a cross-tenant COUNT/SUM leak no fixture crossed",
+  },
+  {
+    id: "part-rules-private-op",
+    title:
+      "part-level `check` / `invariant`, a GUARDED single-field invariant (messaged and not), and a private-operation call from a sibling operation — three domain rules with one enforcement site each",
+    doc: "language",
+    backends: ALL,
+    note: "minted by M-T6.55 (F14/F15/F24).  All three shipped on node/.NET/java/python and were SILENT on Phoenix: the part changeset only `cast`, a guarded rule fell between the native `validate_*` path (which refuses a guard) and the residual carrier (which asked the native classifier and got null), and a bare private-op call rendered `_ = nil  # vanilla: bare call to 'recompute' (no callable target); record unchanged` — a comment in emitted output, not a diagnostic.  `Invoice.total` is assigned ONLY by the private operation, so a half-fix that emits the call but leaves `persistPutBodies` walking the caller's own statements still ships a row whose `total` never changes.  UNIT-TIER: a domain `test` block (no `test e2e`) is the runtime oracle for that write on all five — the `numeric-operands` shape.  NOT `with crudish`: that plus a relational entity part emits an `UpdateInvoiceRequest(… List<LineResponse>)` against an `Invoice.update(String, List<Line>)` and javac rejects the project — an older, separate java gap this fixture found and does not own (handed off in wave-c1-1f).",
+  },
+  {
+    id: "find-bypass",
+    title:
+      "repository `find … ignoring <Cap>` / `ignoring *` — the capability-filter bypass on the ROW-shaped read path, crossed with a principal (`tenantOwned`) and a non-principal (`softDeletable`) filter, on a relational AND a `shape: document` aggregate",
+    doc: "tenancy",
+    backends: ALL,
+    note: "minted by M-T6.54 F18.  `projection-agg-filters` witnesses `ignoring` on a query-time PROJECTION and the tenancy fixtures witness the filters with no bypass anywhere, so `find … ignoring` over a PRINCIPAL filter had no fixture at all — and java kept the tenant conjunct on both of its read surfaces (relational @Query JPQL and the document `findAll()`) while `loom.filter-bypass-unsupported`'s family list certified it as honouring the clause.  Every assertion over it is paired presence + ABSENCE: the failure mode is a RETAINED conjunct, invisible to a presence-only check.  Also pins the fail-OPEN direction — the root `findAll`/by-id reads carry no `ignoring` clause, so no OTHER find's bypass may widen them.",
   },
   {
     id: "projection-document-aggregation",
@@ -137,6 +176,13 @@ export const CORPUS: readonly CorpusFeature[] = [
   { id: "auth-simple", title: "dev-stub auth — user shape + requires-guard", doc: "auth", backends: ALL },
   { id: "read-gates", title: "read-side requires gates — gated list read + folded and query-time projections", doc: "auth", backends: ALL },
   { id: "outbox", title: "durable channel / transactional outbox + relay", doc: "workflow", backends: ALL },
+  {
+    id: "workflow-primitive-params",
+    title: "a command workflow's PRIMITIVE params at the wire boundary (RS-26) — every param kind in one create",
+    doc: "workflow",
+    backends: ALL,
+    note: "the shape no fixture carried: a scalar request component cannot express absence, so java's `TopUpRequest(int qty, …)` bound a missing key to `0` while its own RequiredSet published the field as required",
+  },
   {
     id: "channels-broker",
     title: "broker-bound channel — channelSource binds `queue/work` to rabbitmq, real driver code emitted",

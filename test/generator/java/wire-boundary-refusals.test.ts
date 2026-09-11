@@ -106,8 +106,12 @@ describe("java — F19: a malformed wire string is refused, not parsed into a 50
     expect(ex).toContain("public static java.time.Instant instant(String value, String pointer)");
     expect(ex).toContain("public static BigDecimal money(String value, String pointer)");
     // Wrapping, not re-implementing: the parse itself must stay the same one.
+    // `money` binds its result now (the RANGE guard added by ledger row `G2644`
+    // reads `parsed.precision() - parsed.scale()` before returning), so the
+    // assertion is on the PARSE, not on the statement that used to hold it —
+    // otherwise it pins the shape of the guard rather than the parse it claims.
     expect(ex).toContain("java.time.Instant.parse(value)");
-    expect(ex).toContain("return new BigDecimal(value);");
+    expect(ex).toContain("new BigDecimal(value)");
   });
 
   it("the advice answers 422 with the field's own pointer", async () => {

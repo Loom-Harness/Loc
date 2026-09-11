@@ -2,9 +2,12 @@
 // a value object (`lines: LineItem[]`, `LineItem { sku: string  qty: int }`)
 // renders as a repeatable add/remove row list where each row is a group of
 // `TextFormField`s over the VO's scalar sub-fields (a
-// `List<List<TextEditingController>>` in state); each row submits a `{sub: value,
-// …}` map.  Only when EVERY sub-field is text/numeric; a bool/enum/datetime/
-// nested sub-field defers the whole array.  No Dart is compiled here.
+// `List<List<dynamic>>` in state, one slot per sub-field); each row submits a
+// `{sub: value, …}` map.  A slot holds a `TextEditingController` for a text /
+// number cell and the VALUE itself for a bool / enum / datetime cell (see
+// `bool-enum-array.test.ts` for those); only a sub-field with no flat form (a
+// nested VO, an array, a File, an fk id) defers the whole array.  No Dart is
+// compiled here.
 
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../../_helpers/generate.js";
@@ -39,17 +42,22 @@ describe("flutter array-of-value-object inputs", () => {
     expect(forms, "no forms.dart").toBeDefined();
     const src = forms![1];
     // Rows = a list of controller lists; disposed row-by-row.
-    expect(src).toContain("final List<List<TextEditingController>> _linesRows = [];");
-    expect(src).toContain("for (final row in _linesRows) { for (final c in row) c.dispose(); }");
-    // Add appends a row with one controller per sub-field; remove disposes them.
-    expect(src).toContain("_linesRows.add([TextEditingController(), TextEditingController()])");
+    expect(src).toContain("final List<List<dynamic>> _linesRows = [];");
     expect(src).toContain(
-      "final removed = _linesRows.removeAt(entry.key); for (final c in removed) c.dispose();",
+      "for (final row in _linesRows) { for (final c in row) { if (c is TextEditingController) c.dispose(); } }",
     );
-    // Each sub-field is a labelled cell over its positional controller.
-    expect(src).toContain("controller: row[0]");
+    // Add appends a row with one slot per sub-field; remove disposes the
+    // controller-backed slots only.
+    expect(src).toContain(
+      "_linesRows.add(<dynamic>[TextEditingController(), TextEditingController()])",
+    );
+    expect(src).toContain(
+      "final removed = _linesRows.removeAt(entry.key); for (final c in removed) { if (c is TextEditingController) c.dispose(); }",
+    );
+    // Each sub-field is a labelled cell over its positional slot.
+    expect(src).toContain("controller: row[0] as TextEditingController");
     expect(src).toContain("labelText: 'Sku'");
-    expect(src).toContain("controller: row[1]");
+    expect(src).toContain("controller: row[1] as TextEditingController");
     expect(src).toContain("keyboardType: TextInputType.number");
   });
 
@@ -57,7 +65,7 @@ describe("flutter array-of-value-object inputs", () => {
     const files = await generateSystemFiles(SRC);
     const src = [...files.entries()].find(([k]) => k.endsWith("lib/forms.dart"))![1];
     expect(src).toContain(
-      "'lines': _linesRows.map((row) => <String, dynamic>{'sku': row[0].text, 'qty': int.tryParse(row[1].text)}).toList(),",
+      "'lines': _linesRows.map((row) => <String, dynamic>{'sku': (row[0] as TextEditingController).text, 'qty': int.tryParse((row[1] as TextEditingController).text)}).toList(),",
     );
   });
 });

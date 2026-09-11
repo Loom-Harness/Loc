@@ -20,7 +20,10 @@ import { FLUTTER_INLINE_OR_DEFERRED } from "../../src/util/flutter-deferred-prim
 // primitives gain renderers (Field/Toggle/… left it once the pack rendered them).
 const INLINE_OR_DEFERRED = FLUTTER_INLINE_OR_DEFERRED;
 
-const MISSING = /^\/\/ loom:unrendered flutter pack: no renderer/;
+// The code (`loom.page-primitive-target-gap`) is part of the marker now — a
+// give-up says WHY, not only THAT (M-T9.55), so the pin carries it.
+const MISSING =
+  /^\/\/ loom:unrendered \[loom\.page-primitive-target-gap\] flutter pack: no renderer/;
 
 describe("flutter pack format groundwork", () => {
   it("flutter required set is the display + controlled-input surface — forms/modal render inline, FileUpload/NumberField/Tabs deferred", () => {

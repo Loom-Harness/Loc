@@ -585,6 +585,21 @@ export const DIAGNOSTIC_MESSAGES = {
   }) => `${p.label} expects ${p.length} argument${p.length2}, got ${p.argsLength}.`,
 
   // ----------------------------------------------------------------------
+  // src/language/validators/stmt-placement.ts
+  // ----------------------------------------------------------------------
+  // Two PERMANENT placement refusals and one HONEST GAP (M-T5.28, ruling
+  // D-FOR-IN-DOMAIN).  The two permanent messages deliberately prescribe no
+  // replacement construct: a placement rule that will never change reads
+  // better as a statement of where the construct lives than as advice that
+  // later goes stale.
+  "loom.variant-match-placement": (p: { owner: unknown }) =>
+    `A 'match' used for its EFFECTS (arms that run statements) is frontend-only — it lowers to a page / component / store 'action' handler and has no backend form — but this one is in ${p.owner}, which runs on the backend. Move the effect into the 'action' that invokes it. This is a permanent placement rule, not a missing feature.`,
+  "loom.if-let-placement": (p: { owner: unknown }) =>
+    `'if let' binds the optional result of a repository read and branches on its presence; only a workflow body ('create' / 'handle' / 'on') or a top-level 'commandHandler' / 'queryHandler' lowers it. This one is in ${p.owner}, which has no such lowering — do the optional read in a workflow or handler and pass the resolved value in. This is a permanent placement rule, not a missing feature.`,
+  "loom.for-placement": (p: { owner: unknown }) =>
+    `'for … in …' is lowered only inside a workflow body ('create' / 'handle' / 'on') or a top-level 'commandHandler' / 'queryHandler' — that lowering owns the per-iteration save the loop needs. This one is in ${p.owner}, where the loop would be dropped silently. Put it in a workflow or handler for now; this is a GAP, not a design rule — mission M-T5.30 tracks lowering 'for' into domain bodies.`,
+
+  // ----------------------------------------------------------------------
   // src/language/validators/structural.ts
   // ----------------------------------------------------------------------
   "loom.slot-out-of-position": (p: { where: unknown }) =>
@@ -1557,6 +1572,35 @@ export const DIAGNOSTIC_MESSAGES = {
     `(CreateForm/OperationForm).`,
 
   // ----------------------------------------------------------------------
+  // src/generator/flutter/riverpod-emit.ts
+  //
+  // Phase ⑧ give-ups, not phase ④/⑦ checks: they are worded here (and route
+  // through `giveUp`, so they carry the shared degradation sentinel) because
+  // the emitter is the only layer that knows a Riverpod Notifier method cannot
+  // express the statement.  Before this they were bare `TODO(flutter
+  // full-parity)` comments with no code and no sentinel.
+  // ----------------------------------------------------------------------
+  "loom.flutter-action-statement-unsupported#private-operation": (p: { name: unknown }) =>
+    `Call to '${p.name}' in a Flutter page/store action body resolves to no declaration, so ` +
+    `the Riverpod Notifier method has nothing to invoke and the call is DROPPED. ` +
+    `Navigation is the one such call Flutter renders (\`navigate(<Page>)\`); anything else ` +
+    `must name a sibling action, a store action, or a declared \`extern function\`.`,
+  "loom.flutter-action-statement-unsupported#kind": (p: { kind: unknown }) =>
+    `Statement '${p.kind}' has no Flutter Notifier-method form, so it is DROPPED from the ` +
+    `action body. A Flutter action body supports state writes (\`:=\`/\`+=\`/\`-=\`), \`let\`, ` +
+    `bare expressions, sibling / store action calls, \`navigate(<Page>)\` and \`match await\`.`,
+  "loom.flutter-action-statement-unsupported#navigate-route-param": (p: { page: unknown }) =>
+    `\`navigate(${p.page})\` in a Flutter action body targets a page whose route carries a ` +
+    `':param' segment, and the call supplies no value for it — a Riverpod Notifier method has ` +
+    `no route arguments in scope, so the navigation is DROPPED rather than emitted as Dart ` +
+    `that will not compile. Spell the destination as a path instead ` +
+    `(\`navigate("/products/" + id)\`), or navigate from a body slot that binds the id.`,
+  "loom.flutter-action-statement-unsupported#match-await":
+    `The \`match await\` subject in this Flutter action body does not resolve to a remote ` +
+    `aggregate instance operation, so no request can be emitted and the effect is DROPPED. ` +
+    `Spell the subject \`<api>.<Aggregate>.<operation>(args?)\`.`,
+
+  // ----------------------------------------------------------------------
   // src/ir/validate/checks/system-checks.ts
   // ----------------------------------------------------------------------
   "loom.projection-whole-table-aggregation-unsupported": (p: {
@@ -1919,6 +1963,20 @@ export const DIAGNOSTIC_MESSAGES = {
     `whole 'return' value, not composed into a larger expression or bound with ` +
     `'let'. Use a bare 'return ${p.eName}(...)', or host this context on a backend ` +
     `with full support (node / dotnet / python / java).`,
+  "loom.vanilla-op-call-actor": (p: {
+    ctxName: unknown;
+    name: unknown;
+    opName: unknown;
+    eName: unknown;
+  }) =>
+    `operation '${p.ctxName}.${p.name}.${p.opName}' calls '${p.eName}', whose body reads ` +
+    `'currentUser' — the elixir backend can't thread the request principal into it. A bare ` +
+    `call to a private operation lowers to a module-local pure transform ` +
+    `('record = __op_${p.eName}(record, ...)'), and the calling function binds the actor only ` +
+    `when its OWN body reads it, so the callee's 'current_user' would be unbound and the ` +
+    `generated project would not compile. Move the 'currentUser' read up into ` +
+    `'${p.opName}' (the routed operation, which receives the actor), or host this context on ` +
+    `a backend with full support (node / dotnet / python / java).`,
   "loom.java-reserved-identifier-unsupported": (p: {
     what: unknown;
     owner: unknown;
@@ -2356,6 +2414,50 @@ export const DIAGNOSTIC_MESSAGES = {
     `A keyed projection returns rows parameterised by key and a folded one is read by key off ` +
     `its materialized table; neither has a frontend client yet, so this would emit an ` +
     `unresolved receiver.`,
+  // --------------------------------------------------------------------
+  // The BODY-WALKER GIVE-UP codes (M-T9.55).
+  //
+  // These four name the conditions under which the frontend body walker
+  // declines to render a construct.  They are unusual in this catalog:
+  // today they are attached at the EMISSION site (`giveUp()` in
+  // `src/generator/_walker/give-up.ts` renders the code into the
+  // `loom:unrendered [<code>] …` comment) rather than raised as a
+  // diagnostic, because codegen has no diagnostic channel.  The wording
+  // still lives here, for the one reason the catalog exists: the text a
+  // user reads about a `loom.*` code must have exactly one home, whichever
+  // phase puts it in front of them.  When `generate system` grows a
+  // give-up-reporting pass these become ordinary reported diagnostics with
+  // no change to the emitters.
+  // --------------------------------------------------------------------
+  "loom.page-primitive-arg-missing": (p: { name: unknown; arg: unknown }) =>
+    `\`${p.name}\` was written without ${p.arg}, and every frontend reads that ` +
+    `argument to decide what to render — so the body walker cannot emit the primitive at ` +
+    `all and leaves a \`loom:unrendered\` comment in its place.  The page still compiles; ` +
+    `the region is simply empty on React, Vue, Svelte, Angular, Feliz, Flutter and Phoenix ` +
+    `alike.  Supply the argument.`,
+  "loom.page-primitive-arg-invalid": (p: { name: unknown; expected: unknown }) =>
+    `\`${p.name}\` has an argument the body walker cannot read: it expects ${p.expected}.  ` +
+    `Any other shape is unreadable by every frontend emitter, so the primitive is replaced ` +
+    `by a \`loom:unrendered\` comment and the region comes out empty on every target.`,
+  "loom.page-ref-unreachable": (p: { name: unknown; what: unknown }) =>
+    `\`${p.name}\` names ${p.what}, so the body walker has no wire contract to generate ` +
+    `against and the primitive degrades to a \`loom:unrendered\` comment on every frontend.  ` +
+    `A page binds only aggregates, workflows and PUBLIC operations served by the backend its ` +
+    `deployable \`targets:\` (or, for a self-hosting frontend, the contexts it owns).  Add ` +
+    `the owning context to that backend deployable, declare the member the primitive needs, ` +
+    `or bind something the ui already reaches.`,
+  "loom.page-expr-unrenderable": (p: { kind: unknown }) =>
+    `a \`${p.kind}\` expression appears in a MARKUP position (a primitive's child slot), ` +
+    `and the body walker renders markup children from a closed set of expression kinds — ` +
+    `everything else has no child-position lowering on any frontend and degrades to a ` +
+    `\`loom:unrendered\` comment.  Bind the value to a \`derived\` (or page \`state\`) and ` +
+    `render that, or wrap it in a text primitive.`,
+  "loom.page-primitive-target-gap": (p: { name: unknown; framework: unknown }) =>
+    `\`${p.name}\` has no renderer on '${p.framework}' yet, so this frontend emits a ` +
+    `\`loom:unrendered\` comment where the other targets emit the primitive.  Unlike a ` +
+    `refusal this is a PORTING gap, not a modelling error: the same \`.ddd\` renders it ` +
+    `elsewhere.  Host this ui on a frontend that implements the primitive, or render the ` +
+    `same information with one that is portable.`,
   "loom.unknown-page-element": (p: { where: unknown; name: unknown }) =>
     `\`${p.name}(…)\` names no walker primitive, component, value object, or ` +
     `\`extern\` function, so the frontend renders nothing for it — in a text slot the ` +
@@ -3005,12 +3107,39 @@ export const DIAGNOSTIC_MESSAGES = {
   }) =>
     `workflow '${p.name}': ${p.label} omits 'by' but event '${p.event}' has no ` +
     `field named '${p.corrName}' to infer routing from. Add a 'by <expr>' clause.`,
+  "loom.workflow-create-correlation-unsupplied": (p: {
+    name: unknown;
+    corr: unknown;
+    params: unknown;
+  }) =>
+    `workflow '${p.name}': the command 'create' writes workflow state but supplies no value for ` +
+    `the correlation field '${p.corr}', so it addresses no instance. A create has no 'by' clause ` +
+    `(a 'by' makes it event-triggered) — supply the key as a parameter named '${p.corr}', or ` +
+    `assign it from one ('${p.corr} := <param>'). Parameters today: ${p.params}.`,
+  "loom.workflow-create-correlation-unsupplied#payload": (p: {
+    name: unknown;
+    corr: unknown;
+    param: unknown;
+    payload: unknown;
+  }) =>
+    `workflow '${p.name}': the command 'create' writes workflow state and its correlation key ` +
+    `'${p.corr}' is a field of '${p.payload}' (parameter '${p.param}'), not a parameter of the ` +
+    `create. A create routes by parameter — by name, or by a '${p.corr} := <param>' assignment — ` +
+    `and reads no nested field, so this addresses no instance. Add '${p.corr}' as a top-level ` +
+    `parameter: 'create(${p.corr}: …, ${p.param}: ${p.payload})'.`,
   "loom.workflow-unknown-name": (p: { name: unknown; kind: unknown; exprName: unknown }) =>
     `workflow '${p.name}': ${p.kind} references unknown name '${p.exprName}'.`,
   "loom.workflow-emit-unknown-event": (p: { name: unknown; eventName: unknown }) =>
     `workflow '${p.name}': emit refers to unknown event '${p.eventName}'.`,
   "loom.workflow-emit-missing-field": (p: { name: unknown; evName: unknown; f: unknown }) =>
     `workflow '${p.name}': emit '${p.evName}' is missing field '${p.f}'.`,
+  // The AST-phase (④) twin of `loom.workflow-emit-unknown-field` below: the
+  // IR check only sees `emit` inside a WORKFLOW, while `checkEmit` in
+  // `src/language/validators/statements.ts` sees every `emit` — aggregate
+  // operations included.  Both fire on a workflow emit, which is why the
+  // firing fixture raises the pair.
+  "loom.emit-unknown-field": (p: { evName: unknown; f: unknown }) =>
+    `Event '${p.evName}' has no field '${p.f}'.`,
   "loom.workflow-emit-unknown-field": (p: { name: unknown; evName: unknown; f: unknown }) =>
     `workflow '${p.name}': emit '${p.evName}' has unknown field '${p.f}'.`,
   "loom.workflow-create-unknown-aggregate": (p: { name: unknown; aggName: unknown }) =>

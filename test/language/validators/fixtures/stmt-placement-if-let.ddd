@@ -1,0 +1,28 @@
+// REFUSED SHAPE — `loom.if-let-placement` (M-T5.28 / audit F4).
+//
+// `if let` in an aggregate `operation` body.  Same silent decline as its `for`
+// sibling: `lower-stmt.ts` has no arm for `IfLetStmt`, so the statement fell
+// through to the fallback and emitted the `<unknown>` call sentinel on all five
+// backends after a clean `0 error(s), 0 warning(s)`.
+//
+// Unlike `for`, this one is a PERMANENT placement rule: `if let` exists to bind
+// the optional result of a repository read, and a domain body reaches its own
+// state through `this`.  See the sibling `stmt-placement-variant-match.ddd`
+// header for why refusal fixtures do not live in `test/fixtures/corpus/`.
+system IfLetPlacement {
+  subdomain D {
+    context Shop {
+      aggregate Order {
+        code: string
+        operation touch() {
+          if let c = code { code := c }
+        }
+      }
+      repository Orders for Order { }
+    }
+  }
+  api A from D
+  storage primary { type: postgres }
+  resource st { for: Shop, kind: state, use: primary }
+  deployable d { platform: node, contexts: [Shop], dataSources: [st], serves: A, port: 4000 }
+}
