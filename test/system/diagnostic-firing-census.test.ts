@@ -192,6 +192,30 @@ ${uiBody}
   deployable api { platform: elixir, contexts: [Orders], dataSources: [st], serves: SalesApi, ui: WebApp { Sales: api }, port: 4000 }
 }`;
 
+/** A flutter-hosted ui — the self-hosting frontend whose Riverpod action-body
+ *  emitter the two `loom.flutter-action-body-unsupported` arms describe. */
+const flutterUi = (uiBody: string) => `
+system S {
+  api A from D
+  subdomain D { context C {
+    error Rejected { reason: string }
+    aggregate Order {
+      code: string
+      operation confirm(): Order or Rejected { code := "c" }
+    }
+    repository Orders for Order { }
+  } }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  ui App {
+    framework: flutter
+    api Shop: A
+${uiBody}
+  }
+  deployable api { platform: node, contexts: [C], dataSources: [st], serves: A, port: 8080 }
+  deployable app { platform: flutter, targets: api, ui: App { Shop: api }, port: 3006 }
+}`;
+
 const FIRING_FIXTURES: Record<string, string> = {
   // --- phase ④ AST validate -----------------------------------------------
   // Two complete `system { }` blocks and NO top-level members — the shape that
@@ -1387,6 +1411,46 @@ system P {
       body: Button { "inc", onClick: bump }
     }
     page Home { route: "/" body: Stack { Counter(), Counter() } }`),
+
+  // `navigate(…)` in a page action on a FLUTTER-hosted ui.  A Riverpod
+  // Notifier holds no BuildContext, so the emitter replaced the call with a
+  // `// TODO(flutter full-parity)` comment: the button was wired and did
+  // nothing.  (The `match await` on a standard agg op is the same code's other
+  // slug; one fixture per code is what the census asks for.)
+  "loom.flutter-action-body-unsupported": flutterUi(`    page Edit {
+      route: "/edit"
+      state { n: int = 0 }
+      action go() { navigate("/other") }
+      body: Stack { Heading { "Edit", level: 1 }, Button { "go", onClick: go } }
+    }`),
+
+  // A `component` param whose declared type the shared TypeScript prop layer
+  // has no spelling for.  `money` rides the wire as a decimal string re-parsed
+  // to a `Decimal`, so this is portable work — until it lands it was a raw
+  // `Error: component prop: unsupported primitive 'money'.` mid-generate.
+  "loom.frontend-prop-type-unsupported": uiPages(
+    "",
+    `    component Price(amount: money) { body: Text { "price" } }
+    page Home {
+      route: "/"
+      state { total: money = 0.00 }
+      body: Stack { Heading { "Home", level: 1 }, Price(amount: total) }
+    }`,
+  ),
+
+  // A backend-body statement form in a ui action.  The sibling of
+  // `loom.if-stmt-page-body-unsupported`: same reasoning, three more kinds,
+  // each of which crashed the JS walker with a bare throw and emitted a silent
+  // no-op comment on Flutter.
+  "loom.ui-body-statement-kind": uiPages(
+    "",
+    `    page Home {
+      route: "/"
+      state { n: int = 0 }
+      action bump() { precondition n > 0 }
+      body: Button { "Go", onClick: bump }
+    }`,
+  ),
 
   // A `menu` link naming a page that does not exist.  The linker already
   // reports the bare unresolved reference; this check is the one that names

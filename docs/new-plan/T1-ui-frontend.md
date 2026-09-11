@@ -434,3 +434,24 @@ Found 2026-09-03 by the language-docs audit ([F11](../audits/2026-09-03-language
 **Verification when it lands.** A negative validator test per shape; each gate mutation-proved by file-copy revert, reading *which* assertion fails.
 
 Sources: [language-docs-audit-2026-09-03](../audits/2026-09-03-language-docs-audit-findings.md) F11/F17 + "Cross-cutting reading" §1, [wave plan](../audits/2026-09-03-language-docs-audit-findings.waves.md) packet **W2.3**. Relates to M-T1.20 (the frontend per-target refusal register — a new code lands a row there).
+
+## M-T1.32 — Flutter action bodies drop a view effect and a standard-op `match await` — `open` · **M** · P1
+
+Minted 2026-09-11 by Wave C1 packet 1d-ii (the [§18 emitter-sentinel drain](waves/handoffs/wave-c1-1d-sentinels.md)), which **refused** both shapes rather than leaving them silent. Each was measured on a `.ddd` that `ddd parse` reported `0 error(s), 0 warning(s)` for:
+
+| shape | react | flutter (before) |
+|---|---|---|
+| `action go() { navigate("/other") }` | `const go = () => { navigate("/other"); };` over a real `useNavigate()` | `// TODO(flutter full-parity): 'private-operation' call 'navigate' in a Notifier method` |
+| `action say() { toast("hi") }` | `const say = () => { toast("hi"); };` | the same comment, for `toast` |
+| `action confirm() { match await Shop.Order.delete() { … } }` | the full await / reify / switch against the standard mutation hook | `// TODO(flutter full-parity): \`match await\` subject is not a resolvable remote op` — the request, the error reification and **every arm body** replaced by one comment |
+
+All three compiled: valid Dart, a clean `flutter analyze`, and a button wired to an action that does nothing. They now raise `loom.flutter-action-body-unsupported` at phase ⑦ (`validateFlutterActionBodies`, `src/ir/validate/checks/ui-framework-checks.ts`), with a row in `src/diagnostics/unsupported-register.ts` naming this mission as the drain.
+
+**The fix, in two independent halves:**
+
+1. **View effects out of the Notifier.** A Riverpod `Notifier` has no `BuildContext`, so it can reach neither the router nor a `ScaffoldMessenger` — that is the real constraint, not an oversight. The shape that works is a side-channel the widget layer drains: the Notifier records the intent on its state (a `pendingRoute` / `pendingToast` cell, or a small effect queue), and the page's `ConsumerWidget` uses `ref.listen` to consume it with the `BuildContext` it does have. `flutter-target.ts`'s `renderNavigate` already navigates fine from widget position, so only the action-body path needs this.
+2. **A standard-op `match await`.** `renderVariantMatchNotifier` (`riverpod-emit.ts`) resolves its op through `agg.operations`, which holds only DECLARED operations, so the five standard ops (`all` / `byId` / `create` / `update` / `delete`) never resolve. Their routes and payload shapes are already derivable the same way the form widgets derive them (`forms-emit.ts` posts `/(<coll>)` for `create` and `/(<coll>)/$id` for `update`/`delete`), so this is a resolution arm, not new transport.
+
+**Verification when it lands.** Per half: a generated-Dart assertion on the emitted page (the `ref.listen` consumer; the `http.delete` + switch), plus the register row deleted and `MAX_OPEN_GAPS` lowered in the same PR — the gate ratchets, so a stale row fails it. The negative probes live in `test/generator/flutter/action-body-gaps.test.ts` and must flip from "refused" to "emitted" together with the gate arm they name.
+
+Sources: Wave C1 packet 1d-ii hand-off (`docs/new-plan/waves/handoffs/wave-c1-1d-sentinels.md`), §18 of the gap survey in [`completion-waves-2026-09.md`](completion-waves-2026-09.md). Relates to M-T1.20 (the frontend per-target refusal register).
