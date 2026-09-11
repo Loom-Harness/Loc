@@ -76,17 +76,23 @@ export function renderAngularAction(
   if (!aggName) {
     return giveUp(
       ctx.target,
+      "loom.page-primitive-arg-invalid",
       `Action(${instanceName}.${opName}): '${instanceName}' is not an in-scope aggregate instance`,
     );
   }
   const agg = ctx.aggregatesByName.get(aggName);
   if (!agg) {
-    return giveUp(ctx.target, `Action(${instanceName}.${opName}): aggregate ${aggName} not found`);
+    return giveUp(
+      ctx.target,
+      "loom.page-ref-unreachable",
+      `Action(${instanceName}.${opName}): aggregate ${aggName} not found`,
+    );
   }
   const op = agg.operations.find((o) => o.name === opName && o.visibility === "public");
   if (!op) {
     return giveUp(
       ctx.target,
+      "loom.page-ref-unreachable",
       `Action(${instanceName}.${opName}): no public operation '${opName}' on ${agg.name}`,
     );
   }

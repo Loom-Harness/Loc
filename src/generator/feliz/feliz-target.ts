@@ -480,7 +480,11 @@ export const felizTarget: WalkerTarget = {
     const fieldIdx = argNames.indexOf("field");
     const fieldArg = fieldIdx >= 0 ? call.args[fieldIdx] : undefined;
     if (!ofArg || fieldArg?.kind !== "literal") {
-      return giveUp(felizTarget, "ProvenanceInfo: missing record or field");
+      return giveUp(
+        felizTarget,
+        "loom.page-primitive-arg-missing",
+        "ProvenanceInfo: missing record or field",
+      );
     }
     const lineage = `${emitExpr(ofArg, ctx)}.${String(fieldArg.value)}.${PROVENANCE_LINEAGE_FIELD}`;
     const rule =
@@ -541,7 +545,11 @@ export const felizTarget: WalkerTarget = {
     const argNames = call.argNames ?? [];
     const opRef = (call.args ?? []).find((_, i) => !argNames[i]);
     if (opRef?.kind !== "member" || opRef.receiver.kind !== "ref") {
-      return giveUp(felizTarget, "Action: first argument must be <instance>.<operation>");
+      return giveUp(
+        felizTarget,
+        "loom.page-primitive-arg-invalid",
+        "Action: first argument must be <instance>.<operation>",
+      );
     }
     const aggName = ctx.paramTypes?.get(opRef.receiver.name);
     const agg = aggName ? ctx.aggregatesByName.get(aggName) : undefined;
@@ -551,6 +559,7 @@ export const felizTarget: WalkerTarget = {
     if (!agg || !op) {
       return giveUp(
         felizTarget,
+        "loom.page-ref-unreachable",
         `Action(${opRef.receiver.name}.${opRef.member}): no parameterless public operation in scope (use OperationForm for an op with parameters)`,
       );
     }

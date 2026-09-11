@@ -562,6 +562,7 @@ export const flutterTarget: WalkerTarget = {
       if (inst?.kind === "member") {
         return giveUp(
           flutterTarget,
+          "loom.page-ref-unreachable",
           `OperationForm(${inst.receiver.kind === "ref" ? inst.receiver.name : "?"}.${inst.member}): ` +
             "'" +
             (inst.receiver.kind === "ref" ? inst.receiver.name : "?") +
@@ -598,7 +599,11 @@ export const flutterTarget: WalkerTarget = {
     const argNames = call.argNames ?? [];
     const opRef = (call.args ?? []).find((_, i) => !argNames[i]);
     if (opRef?.kind !== "member" || opRef.receiver.kind !== "ref") {
-      return giveUp(flutterTarget, "Action: first argument must be <instance>.<operation>");
+      return giveUp(
+        flutterTarget,
+        "loom.page-primitive-arg-invalid",
+        "Action: first argument must be <instance>.<operation>",
+      );
     }
     const aggName = ctx.paramTypes?.get(opRef.receiver.name);
     const agg = aggName ? ctx.aggregatesByName.get(aggName) : undefined;
@@ -608,6 +613,7 @@ export const flutterTarget: WalkerTarget = {
     if (!agg || !op) {
       return giveUp(
         flutterTarget,
+        "loom.page-ref-unreachable",
         `Action(${opRef.receiver.name}.${opRef.member}): no parameter-less public operation in scope (use OperationForm for an op with parameters)`,
       );
     }
@@ -683,6 +689,7 @@ export const flutterTarget: WalkerTarget = {
     if (!resolved) {
       return giveUp(
         flutterTarget,
+        "loom.page-primitive-arg-invalid",
         "Modal: OperationForm child must name of: <Agg> and op: <public op>",
       );
     }
@@ -764,7 +771,11 @@ export const flutterTarget: WalkerTarget = {
     const fieldIdx = argNames.indexOf("field");
     const fieldArg = fieldIdx >= 0 ? call.args[fieldIdx] : undefined;
     if (!ofArg || fieldArg?.kind !== "literal") {
-      return giveUp(flutterTarget, "ProvenanceInfo: missing record or field");
+      return giveUp(
+        flutterTarget,
+        "loom.page-primitive-arg-missing",
+        "ProvenanceInfo: missing record or field",
+      );
     }
     const lineage = `${emitExpr(ofArg, ctx)}.${String(fieldArg.value)}.${PROVENANCE_LINEAGE_FIELD}`;
     const row = (label: string, value: string) =>

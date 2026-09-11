@@ -66,7 +66,7 @@ import { DURATION_UNIT_MS, type DurationUnit } from "../../util/temporal.js";
 import { USER_VISIBLE_SLOTS } from "../../util/user-visible-slots.js";
 import { tryRenderGate } from "../_frontend/gate-expr.js";
 import { PROVENANCE_VALUE_FIELD, provenancedFieldNames } from "../_payload/provenanced-wire.js";
-import { GIVE_UP_SENTINEL } from "../_walker/give-up.js";
+import { giveUpText } from "../_walker/give-up.js";
 import { icuFromConcat, messageKey } from "../_walker/i18n-extract.js";
 import { WALKER_PRIMITIVES } from "../_walker/registry.js";
 import { heexTarget, renderHeexStoreActionCall, renderHeexStoreFieldRead } from "./heex-target.js";
@@ -969,18 +969,18 @@ function externModuleFromPath(path: string): string {
 export function renderAction(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkContext): string {
   const opRef = expr.args.find((_, i) => !expr.argNames?.[i]);
   if (opRef?.kind !== "member" || opRef.receiver.kind !== "ref") {
-    return `<!-- Action: expected <instance>.<operation> -->`;
+    return `<!-- ${giveUpText("loom.page-primitive-arg-invalid", "Action: expected <instance>.<operation>")} -->`;
   }
   const instanceName = opRef.receiver.name;
   const opName = opRef.member;
   const aggName = ctx.instanceTypes?.get(instanceName);
   if (!aggName) {
-    return `<!-- Action(${instanceName}.${opName}): '${instanceName}' is not an in-scope aggregate instance -->`;
+    return `<!-- ${giveUpText("loom.page-ref-unreachable", `Action(${instanceName}.${opName}): '${instanceName}' is not an in-scope aggregate instance`)} -->`;
   }
   const agg = ctx.aggregatesByName.get(aggName);
   const op = agg?.operations.find((o) => o.name === opName && o.visibility === "public");
   if (!op) {
-    return `<!-- Action(${instanceName}.${opName}): no public operation '${opName}' on ${aggName} -->`;
+    return `<!-- ${giveUpText("loom.page-ref-unreachable", `Action(${instanceName}.${opName}): no public operation '${opName}' on ${aggName}`)} -->`;
   }
   const eventName = `${snake(opName)}_${snake(aggName)}`;
   const idExpr = `${renderExpr(opRef.receiver, { ...ctx, position: "template" })}.id`;
@@ -1129,7 +1129,7 @@ function renderCall(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkContext): 
   // positions (`isHEExCall` also keeps every registered primitive in markup
   // position, so the wrap does not arise).
   if (def) {
-    return `<%!-- ${GIVE_UP_SENTINEL} ${expr.name}: not supported by Phoenix LiveView target --%>`;
+    return `<%!-- ${giveUpText("loom.page-primitive-target-gap", `${expr.name}: not supported by Phoenix LiveView target`)} --%>`;
   }
   // Helper function call.
   if (expr.callKind === "function" || expr.callKind === "free") {

@@ -39,7 +39,8 @@ export function emitTimeline(
   if (override != null) return override;
 
   const entriesArg = namedArgValue(call, "of") ?? positionalArgs(call)[0];
-  if (!entriesArg) return giveUp(ctx.target, "Timeline: missing entries");
+  if (!entriesArg)
+    return giveUp(ctx.target, "loom.page-primitive-arg-missing", "Timeline: missing entries");
   const entries = guardedList(emitExpr(entriesArg, ctx));
   const testid = testidAttr(call, ctx);
 
@@ -53,7 +54,11 @@ export function emitTimeline(
     case "angular":
       return angularTimeline(entries, testid);
     default:
-      return giveUp(ctx.target, `Timeline: not yet supported on ${ctx.target.framework}`);
+      return giveUp(
+        ctx.target,
+        "loom.page-primitive-target-gap",
+        `Timeline: not yet supported on ${ctx.target.framework}`,
+      );
   }
 }
 
