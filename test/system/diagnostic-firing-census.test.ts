@@ -27,6 +27,7 @@ import {
 import { parseBuiltinPlatformRef } from "../../src/platform/metadata.js";
 import { FLUTTER_UNRENDERED_PRIMITIVES } from "../../src/util/flutter-deferred-primitives.js";
 import { COVERED_ELSEWHERE, UNCOVERED } from "./diagnostic-firing-census.data.js";
+import { FIXTURES_RAISING_UNKNOWN } from "./diagnostic-uncoded-baseline.js";
 
 // ---------------------------------------------------------------------------
 // Diagnostic FIRING census (M-T9.33).
@@ -787,6 +788,19 @@ system P {
   // The code whose "covered by message in validation.test.ts" claim outlived
   // the file it cited (M-T9.33's own opening finding).  It fires: an `emit`
   // supplying a field the event does not declare.
+  // The AST-phase (④) twin of `loom.workflow-emit-unknown-field`, and the one
+  // site M-T9.56's gate half drained as its proof that the drain path works.
+  // Deliberately an AGGREGATE emit, not a workflow one: the IR check below only
+  // walks workflow bodies, so this shape is the half of the condition that used
+  // to reach the user as `loom.unknown` with nothing else raised beside it.
+  "loom.emit-unknown-field": repoOnly(`    event Opened { account: Account id, owner: string }
+    aggregate Account persistedAs: eventLog {
+      owner: string
+      create open(owner: string) { emit Opened { account: id, owner: owner, bogus: owner } }
+      apply(e: Opened) { owner := e.owner }
+    }
+    repository Accounts for Account { }`),
+
   "loom.workflow-emit-unknown-field": repoOnly(`    aggregate Thing with crudish { name: string }
     repository Things for Thing { }
     event Happened { thing: Thing id, label: string }
@@ -2072,6 +2086,68 @@ describe("diagnostic firing census", () => {
     expect(
       blank,
       `A pin without a real reason is a TODO wearing a gate's clothes: ${blank}`,
+    ).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// `loom.unknown` never reaches a user (M-T9.56, gate half).
+//
+// The buckets above account for every CATALOGUED code.  `loom.unknown` is in no
+// bucket because it is in no catalogue: `src/api/report.ts` synthesises it for
+// any diagnostic that arrived with no `loom.*` code of its own, so it is the
+// one string on the wire that means "129 different conditions, take your pick".
+//
+// The per-file census in `diagnostic-uncoded-baseline.ts` counts those SITES.
+// This counts their EFFECT, on the only population where a defect diagnostic is
+// actually produced: the firing fixtures.  Every one of them is a deliberately
+// broken `.ddd`, so if an uncoded condition is reachable at all, this is where
+// it surfaces — and a fixture that raises `loom.unknown` alongside the code it
+// is proving is a user, today, reading a diagnostic with no name.
+//
+// `FIXTURES_RAISING_UNKNOWN` is shrink-only and names the site each entry hits,
+// so the drain can aim at it; an entry that stops raising `loom.unknown` fails
+// as STALE, which is what makes the fix delete its own row.
+// ---------------------------------------------------------------------------
+
+describe("the generic code `loom.unknown` reaches no user", () => {
+  it("scans the real fixture population (guard against a vacuous pass)", () => {
+    expect(Object.keys(FIRING_FIXTURES).length).toBeGreaterThan(50);
+  });
+
+  for (const [code, source] of Object.entries(FIRING_FIXTURES)) {
+    it(`${code}'s fixture raises no uncoded diagnostic`, async () => {
+      const raised = (await validate(source)).diagnostics.filter((d) => d.code === "loom.unknown");
+      const waived = code in FIXTURES_RAISING_UNKNOWN;
+      if (waived) {
+        expect(
+          raised.length,
+          `${code} is listed in FIXTURES_RAISING_UNKNOWN but no longer raises\n` +
+            `loom.unknown — the site it named was drained.  Delete its row from\n` +
+            `test/system/diagnostic-uncoded-baseline.ts in the same change.`,
+        ).toBeGreaterThan(0);
+        return;
+      }
+      expect(
+        raised.map((d) => `${d.severity ?? "?"}: ${d.message}`),
+        `${code}'s fixture makes an UNCODED diagnostic reach the user.  ` +
+          `src/api/report.ts stamps it \`loom.unknown\`, which is not a catalogue key: ` +
+          `no wording entry, no docs anchor, no fix hint in the Problems panel.  Give ` +
+          `the validator site a \`loom.*\` code (see the invariant-5 message in ` +
+          `diagnostic-catalog.test.ts for the four edits), or — if the drain is not ` +
+          `this change's job — add the fixture to FIXTURES_RAISING_UNKNOWN naming the ` +
+          `site it hits.`,
+      ).toEqual([]);
+    });
+  }
+
+  it("carries no stale waiver", () => {
+    const notAFixture = Object.keys(FIXTURES_RAISING_UNKNOWN).filter(
+      (c) => !(c in FIRING_FIXTURES),
+    );
+    expect(
+      notAFixture,
+      "FIXTURES_RAISING_UNKNOWN names a code with no FIRING_FIXTURES entry — delete it.",
     ).toEqual([]);
   });
 });

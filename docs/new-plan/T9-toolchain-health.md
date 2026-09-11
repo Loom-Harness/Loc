@@ -580,7 +580,7 @@ the generated comment, not on `ddd generate`'s stderr — lifting them into real
 ([`waves/handoffs/wave-c1-1d-giveup-drain.md`](waves/handoffs/wave-c1-1d-giveup-drain.md)) along with
 the HEEx named-icon parity gap the drain deliberately did not smuggle in.
 
-## M-T9.56 — 130 validator conditions reach the user as one non-catalog code — `open` · **S/M** for the ratchet, ~**70-78 h** for the drain · P1
+## M-T9.56 — 128 validator conditions reach the user as one non-catalog code — gate half `done`, drain half `open` · ~**70-78 h** for the drain · P1
 
 Found 2026-09-09 ([F55](../audits/2026-09-03-language-docs-audit-findings.md), extended as F64). Across
 `src/language/validators/**` + `ddd-validator.ts`: **196 `accept` sites carry a code, 119 errors and 11
@@ -596,13 +596,41 @@ incoherent regardless — seven type-mismatch codes already exist, and the coded
 700 lines from six identical uncoded resolution errors.
 
 **A 130-entry waiver is the wrong instrument** (a code-less site has no stable key to waive; line
-numbers churn, message text rewords). Use a **12-row per-file EXACT count**, shrink-only, following
+numbers churn, message text rewords). Use a **per-file EXACT count**, shrink-only, following
 `test/system/legacy-generate-path-ratchet.test.ts`, as a fifth invariant inside
 `diagnostic-catalog.test.ts` — it already owns the scanners. Add, in the same slice, an assertion that
 no `FIRING_FIXTURES` fixture raises `loom.unknown`, and a length baseline for `UNDOCUMENTED_CODES`
-(368 entries, currently unpinned, so new codes can land wholly undocumented).
+(currently unpinned, so new codes can land wholly undocumented).
 
-Then ~10 drain slices; the triage, per-site cost and ordering are in the fleet plan.
+### Gate half — `done` (Wave C1 packet 1g)
+
+Measured on the tree, not from the audit: **129** uncoded sites (118 errors, 11 warnings) across **12**
+files — `deployable.ts` 24, `statements.ts` 23, `ui.ts` 21, `types.ts` 15, `match.ts` 12,
+`datasource.ts` 9, `traceability.ts` 9, `structural.ts` 7, `ddd-validator.ts` 6, `_shared.ts` 1,
+`repository.ts` 1, `toplevel-function.ts` 1. The IR check leaves, the macro expander and the `src/api/`
+entry points hold no row — they are already clean. Three gates landed, all shrink-only:
+
+- **invariant 5** in `diagnostic-catalog.test.ts`, over the per-file baseline
+  `test/system/diagnostic-uncoded-baseline.ts`. Grow a row → it fails naming the site; drain one without
+  lowering the row → it fails as STALE; a row reaching 0 is deleted, not left at 0.
+- **`diagnostic-firing-census.test.ts`** — no `FIRING_FIXTURES` fixture may raise `loom.unknown`. On its
+  first run it found exactly one (`loom.workflow-emit-unknown-field`'s fixture, hitting
+  `statements.ts`'s `checkEmit`); that site was drained here, so its waiver table
+  (`FIXTURES_RAISING_UNKNOWN`) ships **empty**. Separately measured: **357** standalone tracked `.ddd`
+  files raise `loom.unknown` **zero** times — the generic code reaches a user only through a defect
+  source, which is why the fixture population is the one that matters.
+- **`diagnostic-docs-anchors.test.ts`** — `UNDOCUMENTED_CODES`' LENGTH is pinned (369). Membership was
+  already gated, but membership alone is satisfied by appending the new code to the undocumented list.
+
+One site drained as the proof the drain path works end to end: `checkEmit`'s unknown-field arm now
+raises **`loom.emit-unknown-field`** (wording in `messages.ts`, anchor
+`06-behavior-and-statements.md#let--emit` in `code-docs.ts`, an aggregate-emit firing fixture — the half
+the workflow-only IR check never sees). **128 left.**
+
+### Drain half — `open` (Wave C4, ~10 slices)
+
+The triage, per-site cost and ordering are in the fleet plan. Each slice lowers its row in
+`diagnostic-uncoded-baseline.ts` in the same change; the whole file is deleted when the last row goes.
 
 ## M-T9.57 — `pr-gate` parks: two 2026-09-10 measurements disagree on whether tail `workflow_run` dispatches are dropped — `done` ([#2859](https://github.com/Loom-Harness/Loc/pull/2859) retired every branch-filtered claim; Wave C0 packet 0.3 ([#2863](https://github.com/Loom-Harness/Loc/pull/2863)) counted unfiltered and landed the bounded tail watch — **owner ruling pending on which reading stands**) · **S** · P1
 
