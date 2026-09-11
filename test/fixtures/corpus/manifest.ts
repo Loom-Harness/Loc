@@ -118,6 +118,14 @@ export const CORPUS: readonly CorpusFeature[] = [
     note: "minted by audit A1: the aggregation shapes read the source table DIRECTLY, so four backends applied only the projection's own `where` — a cross-tenant COUNT/SUM leak no fixture crossed",
   },
   {
+    id: "part-rules-private-op",
+    title:
+      "part-level `check` / `invariant`, a GUARDED single-field invariant (messaged and not), and a private-operation call from a sibling operation — three domain rules with one enforcement site each",
+    doc: "language",
+    backends: ALL,
+    note: "minted by M-T6.55 (F14/F15/F24).  All three shipped on node/.NET/java/python and were SILENT on Phoenix: the part changeset only `cast`, a guarded rule fell between the native `validate_*` path (which refuses a guard) and the residual carrier (which asked the native classifier and got null), and a bare private-op call rendered `_ = nil  # vanilla: bare call to 'recompute' (no callable target); record unchanged` — a comment in emitted output, not a diagnostic.  `Invoice.total` is assigned ONLY by the private operation, so a half-fix that emits the call but leaves `persistPutBodies` walking the caller's own statements still ships a row whose `total` never changes.  UNIT-TIER: a domain `test` block (no `test e2e`) is the runtime oracle for that write on all five — the `numeric-operands` shape.  NOT `with crudish`: that plus a relational entity part emits an `UpdateInvoiceRequest(… List<LineResponse>)` against an `Invoice.update(String, List<Line>)` and javac rejects the project — an older, separate java gap this fixture found and does not own (handed off in wave-c1-1f).",
+  },
+  {
     id: "find-bypass",
     title:
       "repository `find … ignoring <Cap>` / `ignoring *` — the capability-filter bypass on the ROW-shaped read path, crossed with a principal (`tenantOwned`) and a non-principal (`softDeletable`) filter, on a relational AND a `shape: document` aggregate",

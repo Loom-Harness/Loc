@@ -71,6 +71,7 @@ import {
   persistPutBodies,
   renderDurableEmitDispatchParts,
   renderEmitDispatchLines,
+  renderPrivateOpHelpers,
   renderReturningOpFunction,
   renderReturningStmt,
   wrapOpBodyWithGuards,
@@ -434,6 +435,17 @@ function renderContextModule(
                 extraChannels,
               ),
       );
+    // `defp __op_<name>/n` for every PRIVATE operation those bodies call
+    // (M-T6.55 F24) — a pure struct transform, so the caller's own persist tail
+    // is the single write.  Empty (byte-identical) when nothing calls one.
+    const privateOpHelpers = renderPrivateOpHelpers(
+      (agg.operations ?? []).filter((op) => !CRUD_RESERVED_NAMES.has(op.name)),
+      agg,
+      ctx,
+      facadeMod,
+      agg as EnrichedAggregateIR,
+      isDoc,
+    );
     // Custom-find defdelegates — `<find>_<agg>(args...)` routes to the
     // repository fn emitted by `customFindsOf`.  Workflow `repo-let`
     // lowering (for a non-getById method) calls through this seam.
@@ -670,7 +682,7 @@ ${body}
   }
 ${createDelegate}
   defdelegate update_${aggSnake}(record, attrs${stampActorArg}${versionedArg}), to: ${repoMod}, as: :update${deleteDelegate}${changeFacade}${destroyFacade}${opBangFacade}${canFacade}
-${findBlock}${opBlocks.length > 0 ? `\n${opBlocks.join("\n\n")}\n` : ""}${functionBlock}`;
+${findBlock}${opBlocks.length > 0 ? `\n${opBlocks.join("\n\n")}\n` : ""}${privateOpHelpers.length > 0 ? `${privateOpHelpers.join("\n")}\n` : ""}${functionBlock}`;
   });
 
   // Retrieval defdelegates — `run_<retrieval>_<agg>(args..., opts \\ [])`

@@ -335,7 +335,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.java-reserved-identifier-unsupported",
     kind: "gap",
-    site: "src/ir/validate/checks/backend-syntax-checks.ts:246",
+    site: "src/ir/validate/checks/backend-syntax-checks.ts:287",
     what:
       "a `.ddd` field / param / operation named after a JAVA reserved word (`case`, `do`, " +
       '`new`, …). The SQL half is quoted (`@Column(name = "`case`")`); the host-identifier ' +

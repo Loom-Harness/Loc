@@ -12,7 +12,11 @@ import { type RenderCtx, renderExpr } from "../render-expr.js";
 import { isVanillaDocAgg } from "./document-emit.js";
 import { isEventSourced } from "./eventsourced-emit.js";
 import { bodyUsesParam, bodyUsesReceiver, renderFunctionBodyLines } from "./function-emit.js";
-import { isReturningOperation, renderReturningStmt } from "./operation-returns-emit.js";
+import {
+  isReturningOperation,
+  renderPrivateOpHelpers,
+  renderReturningStmt,
+} from "./operation-returns-emit.js";
 
 // ---------------------------------------------------------------------------
 // Pure domain core for the vanilla (Ecto/Phoenix) aggregate module — the seam
@@ -121,6 +125,20 @@ export function renderAggregatePureCore(
   )) {
     out.push(line);
   }
+  // `defp __op_<name>/n` for every PRIVATE operation the pure bodies above call
+  // (M-T6.55 F24).  The public pure twin `def <op>(record, params)` is emitted
+  // just above for the SAME operation, but it takes a params MAP and is the
+  // module's own entry point; the helper takes the call site's POSITIONAL
+  // arguments, which is what `renderReturningStmt`'s `call` arm renders.
+  out.push(
+    ...renderPrivateOpHelpers(
+      agg.operations ?? [],
+      agg,
+      ctx,
+      `${appModule}.${ctxModule}`,
+      agg as EnrichedAggregateIR,
+    ),
+  );
   return out;
 }
 
