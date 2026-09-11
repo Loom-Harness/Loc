@@ -37,3 +37,30 @@ Sources: [encrypted-at-rest](../old/proposals/encrypted-at-rest.md).
 ## M-T2.12 — Money currency dimension + reporting queries — `open` · **L** · P3
 From the completeness audit: `money` has precision but no currency dimension; no cross-row aggregation/reporting query surface (`sum of Order.total where …`). Both are language-level designs — write proposals; reporting may fold into `projection` (M-T4.2) + `view` extensions.
 Sources: [completeness-audit-2026-07](../audits/completeness-audit-2026-07.md).
+
+## M-T2.16 — `ddd diff`: a wire-contract compatibility verdict, not a JSON diff — `open` · **M** · P2
+
+Found 2026-09-10 by the [independent completeness audit](../audits/2026-09-10-independent-completeness-audit.md) (F11).
+
+**The artifact exists and nothing reads it.** `.loom/wire-spec.json` is described in
+[loom-artifacts.md](../loom-artifacts.md) as *"diffable — wire-contract drift between regens
+shows up as a clean JSON diff"*, and it deliberately carries enum members in declaration order
+so that removing one moves the file. But the CLI's 17 commands include nothing that compares
+two versions of a model, and searching every track file for "breaking change", "wire compat",
+"backward compat" and "semver" returns **zero** matches. So the artifact that knows whether a
+model edit breaks existing clients is a file a human is expected to eyeball.
+
+**The command.** `ddd diff <old> <new>` — over two `.ddd` sources, or a source against a
+`.loom/snapshots/*.loomsnap.json` — classifying each change as `compatible` /
+`breaking-for-clients` / `breaking-for-data`, non-zero exit on breaking, `--json` for CI. The
+rules are ones the emitters already encode: removing an enum member, narrowing a carrier,
+dropping or renaming a wire field, changing a field from optional to required.
+
+**Two things it must not re-derive.** [M-T2.1](#m-t21)'s rename intent supplies the signal that
+distinguishes a rename from a drop-plus-add — without it every rename reads as breaking. And
+the data-side half is already computed: phase ⑨'s destructive gating in `migrations-builder.ts`
+knows which changes need `--allow-destructive`, so `breaking-for-data` should read that verdict
+rather than re-deciding it.
+
+Relates to [M-T2.1](#m-t21) (rename intent), the phase-⑨ migration gating, and
+`docs/loom-artifacts.md` (the read side of the `.loom/` bundle).

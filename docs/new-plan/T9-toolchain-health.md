@@ -686,3 +686,146 @@ Do both in one place: these 49 sites want a shared `installGeneratedProject(dir)
 **Packet P1 of [`missions/ci-harness-deferrals-fleet.md`](missions/ci-harness-deferrals-fleet.md)** — **landed as [#2858](https://github.com/Loom-Harness/Loc/pull/2858)** (`test/e2e/support/npm-install.ts`, 67 call sites across 34 suites, both halves mutation-proved in both directions, plus a ratchet refusing a raw quoted `npm install` in `test/e2e/*.test.ts`). See §5 of the fleet doc for what its measurement corrected.
 
 Sources: deferred comments on merged PRs #2720 and #2770, re-verified on `main` @ `bc7ed8f` (49 sites, 23 files, still unfixed). Relates to M-T9.8 (a gate whose failure report names nothing is how hollow work stays hidden) and to `completion-waves-2026-09.md` wave C0.2, which owns the *flaky-leg* root causes but does not name this one.
+## M-T9.59 — The `*-unsupported` register cannot see a target gap that wears another suffix — `open` · **M** · P1 ⭐ the entry hole
+
+Found 2026-09-10 by the [independent completeness audit](../audits/2026-09-10-independent-completeness-audit.md) (F2).
+This is [M-T9.27](#m-t927)'s slice 4, re-aimed: the problem is not that rows are undrained,
+it is that rows are **missing**, and the reason they are missing is structural.
+
+**The contradiction.** `src/diagnostics/unsupported-register.ts` opens by arguing — correctly
+— that *"NO NAMING CONVENTION separates these"*, and therefore writes `kind` down per row as a
+reviewed field. But **membership** in the register is still decided by the code's suffix. So a
+per-target refusal wearing any other suffix is invisible to the one list that exists to drain
+per-target refusals. Two measured instances:
+
+* `loom.dotnet-name-collision` — a portability break ([M-T6.69](T6-backend-parity.md#m-t669)).
+  Grepping the register and every track file for the code returns nothing.
+* `loom.user-component-deferred-target` — Angular and Feliz refuse a user component declaring
+  `slot`/`action` params. Pinned as a gap in `test/conformance/frontend-showcase-render.test.ts`,
+  and a **seventh** row on exactly the axis [M-T1.20](T1-ui-frontend.md#m-t120) enumerates as
+  "the five rejections outside the pack matrix" (which lists six, not this).
+
+**The fix, in three slices.**
+1. **Classify once.** All 493 `loom.*` codes into `target-refusal` / `misuse` / `impossible` /
+   `no-effect`. 23 codes name a specific target in their catalog message and sit outside the
+   register today; most of those 23 are genuine misuse errors, which is precisely why the
+   classification must be reviewed and written down rather than derived.
+2. **Admit every `target-refusal`**, suffix irrelevant, starting with the two above.
+3. **Close the entry hole, not the exit one.** Extend `test/system/unsupported-register.test.ts`
+   so a code whose message names a single target and carries no row **fails**. Today the gate
+   only checks that existing rows cite a live mission id — it cannot notice an absent row.
+
+**Verification.** Mutation-prove both directions: add a new single-target refusal code with no
+row → the gate fails; delete `loom.dotnet-name-collision`'s row after M-T6.69 lands → the gate
+passes (the code is gone), while deleting a row whose code still exists → fails as missing.
+Revert by file copy, never `git checkout --` (`experience_gathered.md` §84).
+
+Relates to [M-T9.56](#m-t956) (the other "the code identity is not carrying its weight" row)
+and [M-T9.27](#m-t927), whose partial status this supersedes for slice 4.
+
+## M-T9.61 — Nothing says a dependency bump is due, on either surface — `open` · **S** · P2
+
+Found 2026-09-10 by the [independent completeness audit](../audits/2026-09-10-independent-completeness-audit.md) (F5).
+The repo has a `dependency-upgrade` skill that knows *how* to land a bump across both surfaces.
+Nothing knows *when* one is due.
+
+**Measured.** `npm audit` → **11 advisories, 4 high** (`fast-uri`, `ip-address`, `nanoid`,
+`postcss`) — all transitive dev-tree, so no user is exposed today. No `dependabot.yml`, no
+Renovate config, and no `npm audit` / OSV / Trivy / CodeQL step in any of the 67 workflows. On
+the generated-app surface the hand-maintained pins have drifted apart: `stacks/v1` still emits
+**React 18.3 + zod 3.23** where `stacks/v3` emits React 19.2 + zod 4, and four shipping design
+packs — `chakra/v2`, `mantine/v7`, `mui/v5`, `shadcn/v3` — resolve to `v1`, so choosing one of
+them silently produces a two-major-old React app.
+
+**Two halves, one per surface.** *Toolchain:* a Dependabot (or Renovate) config plus
+`npm audit --audit-level=high` as a failing step, with an explicit, **expiry-dated** waiver file
+for accepted dev-tree advisories (an undated waiver is the stale-row failure this repo already
+ratchets against). *Generated apps:* a freshness ratchet over `stacks/*/stack.json` and the
+backend-package pins that fails when a pinned major falls more than one behind latest — which
+would fire immediately on `stacks/v1` and name the four packs still on it.
+
+Relates to [M-T9.5](#m-t95) (version-axis consolidation — the React `stacks/` fork this would
+put a clock on) and to the `dependency-upgrade` skill, which this feeds.
+
+## M-T9.62 — Every census gate asserts its own denominator — `open` · **S** to build, **M** to apply · P1 ⭐
+
+Found 2026-09-10 by the [independent completeness audit](../audits/2026-09-10-independent-completeness-audit.md) (F7).
+The generalization of [M-T9.55](#m-t955): fix the instance there, build the class here.
+
+**The shape.** The repo has ~40 census / ratchet gates. Each computes a file set, a call-site
+set or a code set, then asserts something about it. The **numerator** is asserted everywhere;
+the **denominator** almost nowhere. So a pattern that silently stops matching turns the gate
+green rather than red — `experience_gathered.md` §59 and §63 verbatim, and the exact mechanism
+of M-T9.55 (a `git ls-files 'src/generator/<t>/**/*.ts'` pathspec reaching 28 files where the
+two-entry form reaches 96, because git's default wildmatch runs without `WM_PATHNAME`, so
+`**/` still requires a following `/`).
+
+**The fix.** One assertion per gate: *this scan reached N files (or call sites, or codes), and
+N is pinned here.* A shrunken denominator then fails as a shrunken denominator. Apply it to the
+existing gates, taking the `git ls-files` pathspec users first — `inline-ddd-source-census` and
+`ddd-source-census` are fine today, but by luck of pattern rather than by construction.
+
+**Verification.** Per gate, narrow its pattern by one directory and confirm the gate fails.
+Reverting by file copy is load-bearing here: several of these gates live in files that carry
+other pinned tables.
+
+Relates to [M-T9.55](#m-t955) (the instance), [M-T9.8](#m-t98) (which finds this class by hand)
+and [M-T9.40](#m-t940) (the same "the instrument was never wired to anything" shape on the
+generator entry points).
+
+## M-T9.63 — A per-target corpus floor — `open` · **S** · P2
+
+Found 2026-09-10 by the [independent completeness audit](../audits/2026-09-10-independent-completeness-audit.md) (F9).
+Declarations across all 280 repo `.ddd` files:
+
+| target | node | elixir | dotnet | java | python | react | svelte | vue | flutter | feliz | angular |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| count | 93 | 87 | 50 | 42 | 35 | 34 | 9 | 6 | 3 | 2 | 2 |
+
+Backends sit within 2.7× of each other. Frontends span **17×** — and the two thinnest after
+Angular are Feliz and Flutter, the two self-hosting frontends that
+[M-T1.20](T1-ui-frontend.md#m-t120) itself identifies as carrying most of the remaining risk
+*because* the per-pack build matrices structurally cannot see them.
+
+**The gate.** Assert a minimum declaration count per target and fail below it. Set the floor at
+today's value for the healthy targets and **one above** today's for Feliz, Flutter and Angular,
+so the ratchet forces the gap closed rather than freezing it in place.
+
+Pairs with [M-T9.42](#m-t942) (which supplies the fixtures) and
+[M-T9.38](#m-t938) (which supplies the Feliz/Flutter runtime leg those fixtures would exercise —
+a corpus fixture on a target with no runtime leg only buys a compile).
+
+## M-T9.64 — The deep fuzz tier is built, red, and runs nowhere — `open` · **M** · P1
+
+Found 2026-09-10 by the [independent completeness audit](../audits/2026-09-10-independent-completeness-audit.md) (F3).
+
+*Half-corrected while this row was in flight.* The audit found **[M-T9.22](#m-t922) mis-statused** —
+it read `open` ("no code yet") though the deep leg, the model generator and the shrinker all exist. It
+was re-statused to `partial` on `main` on 2026-09-11, independently, so that half is closed and this
+row no longer asks for it. **The three findings below are unaffected and were re-measured on `main` @
+`d6192914`.**
+
+Measured: `LOOM_FUZZ_DEEP=1 LOOM_FUZZ_DEEP_N=400 npm run test:fuzz-deep` → **3 failures**
+(seeds 45, 70, 115), each shipping a shrunk 20-line corpus-ready `.ddd` and a replay seed. The
+harness works. Three things around it do not.
+
+1. **It is red on `main`.** All three seeds reduce to
+   [M-T6.69](T6-backend-parity.md#m-t669), so that mission closes them; re-run at 400 and pin
+   the seed count.
+2. **No workflow runs it.** `grep -rln fuzz .github/workflows/` matches `schemathesis.yml`,
+   `pr-gate.yml` and `ci-red-alarm.yml` — all three only as references to the *Schemathesis* job.
+   Nothing invokes `npm run test:fuzz-deep`. The one tier that explores the *input space* rather
+   than a fixture list is unwired. Add a nightly leg, register it in `ci-red-alarm.yml`, and put
+   the seed in the failure output.
+3. **Its triage sends the author to the wrong file.** The failure reads *"the GENERATOR emitted
+   an invalid model. Fix `test/_helpers/ddd-model-generator.ts`"* — so a model that ONE backend
+   refuses and four accept is reported as a fuzzer bug. Add a rung to the tier ladder: a
+   diagnostic raised by a single-target gate on a model the other targets accept is a **backend**
+   finding, and the report should name the backend, not the generator.
+
+**Verification.** Seed the ladder with a model that only one backend refuses and confirm it is
+attributed to that backend; seed one that every backend refuses and confirm it is still
+attributed to the generator. A green first run proves neither.
+
+Relates to [M-T9.8](#m-t98) (same "valid input, wrong output" class, found generatively) and
+[M-T9.42](#m-t942) (the shrunk models graduate into the corpus).
