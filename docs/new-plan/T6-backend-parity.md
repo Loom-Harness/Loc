@@ -375,7 +375,7 @@ Raised 2026-09-03 by the M-FT.11 field-test slice, which added the `if <cond> { 
 
 Sources: M-FT.11 (grammar slice: `key` / `if` / `??`). Relates to [`vanilla-phoenix-gaps.md`](../old/plans/vanilla-phoenix-gaps.md).
 
-## M-T6.62 — A command-triggered `create` on a state-bearing workflow miscompiles on all five backends — `open` · **M** · P0
+## M-T6.62 — A command-triggered `create` on a state-bearing workflow miscompiles on all five backends — `in-flight (#2850 + wave C1 1a)` · **M** · P0
 
 *Renumbered 2026-09-10 from `M-T6.60`, which #2840 minted while the numeric-strictness mission above already held that id (two live headings, one id — M-T6.58's "blocked on M-T6.60" was ambiguous). This one is the P0 miscompile; M-T6.60 stays the strictness ruling.*
 
@@ -390,6 +390,22 @@ the correlation row, so a later `on` reactor logs `event_unrouted` forever.
 **Why it survived:** no fixture pairs a workflow `create(params)` with a `state {}` block.
 
 **Blocks [M-T6.58](#m-t658).** Do not build workflow entry points on a create path that does not compile.
+
+### LANDED
+
+- **The receiver binding + correlation-row load/save on all five** — [#2850](https://github.com/Loom-Harness/Loc/pull/2850). The routing key is the create param that NAME-MATCHES the correlation field; the shared predicate is `commandCreateCorrelationParam`.
+- **The second spelling of that rule** (wave C1 packet 1a): `create start(order: Order id) { orderId := order … }` — the create takes a differently-named param and ASSIGNS the correlation field from it. #2850's name-match-only rule left this on the unbound path, and it is the shape `test/generator/workflow-instance-gate.test.ts` drives **on all five backends**, so that whole matrix was asserting against output that does not compile. Verified on `d0b24a2`: node `this.orderId = order` in a module-scope arrow (TS2683); .NET `this.OrderId` on a handler with no such member; Java `this.setOrderId(...)`; Elixir `%{state | order_id: order}` with **both** `state` and `order` unbound; python `self = SimpleNamespace(...)` — the silent one, where the write landed in a request-scoped scratch, the saga row was never inserted, and `/workflows/<wf>/instances` answered empty forever. Accepted only when the assignment is a TOP-LEVEL statement whose RHS is a bare param ref (the row is loaded-or-allocated before the body runs, so the key must be certain and already in hand); a conditional or computed key is refused, not emitted unbound.
+- **Two emitter bugs the second spelling exposed**, both fixed in the same packet: .NET emitted `var __key = command.<CorrelationField>` where the record member is the PARAM name (`FulfilmentCommand(OrderId Order)` → CS1061), and the Elixir `run/1` param-destructure collector (`collectWorkflowStmtParamRefs`) was a hand-rolled switch over 13 of the 14 `WorkflowStmtIR` kinds with **no `default`** — the missing arm was `assign`, so the param an assignment reads was never destructured and the emitted module named an undefined variable. Migrated onto `walkWorkflowStmtChildren`; its `ir-walk-census` waiver deleted with the fix.
+- **The rule now lives once**, at `src/ir/util/workflow-own-state.ts`, because phase ⑦ must refuse exactly what phase ⑧ cannot address; `src/generator/_workflow/create-state.ts` is the generator-side re-export.
+- **`loom.workflow-create-correlation-unsupplied`** (+ the `#payload` message variant) closes the give-up: a command create that supplies the key by neither spelling is refused instead of emitted unbound. The `#payload` variant is the form reported on #2850 — `create(c: FileClaim)`, where the key is a FIELD of a payload-typed param. Refused rather than followed one level down: the emitters would render `c.<corr>` against a param with no wire contract (`z.unknown()` — #2886 owns that half), so node still would not compile, and a spelling that works today exists. Revisit once #2886 lands.
+- **Rule 13 fixture**: `test/fixtures/corpus/workflow-create-state.ddd` carries both spellings plus an `on(...)` reactor routing back onto the row the create persisted; registered on all five backends and in `E2E_LESS_CORPUS_FIXTURES`.
+
+### REMAINING
+
+- **An UNCORRELATED command workflow (state fields, no id-shaped field) is a five-way parity gap.** M-T6.50 (b) made python emit a request-scoped scratch (`self = SimpleNamespace(_total=0)`) for it, and #2850 fixed that scratch's indentation; node/.NET/Java still emit an unbound `this.<field>`, and Elixir's shape needs re-reading. Not refused — refusing would revoke a shipped emission — so this is emitter work to bring the other four onto python's semantics (or a ruling that the shape is a `scope` limit). Repro: `workflow Tally { total: int  create(base: int) { total := base } }`.
+- **A command create whose body does NOT touch own state still allocates no row**, so an `on` reactor for the same key logs `event_unrouted` forever (the reactor path loads, it does not allocate). Deliberately ungated — refusing it would refuse a legitimately stateless command starter — and it is the half of F58's "never loads or saves" that a receiver-binding fix cannot reach.
+- **The wire contract for a payload-typed create param** (`z.unknown()` / `TS18046`) is [#2886](https://github.com/Loom-Harness/Loc/pull/2886)'s.
+- **An `eventSourced` workflow with state fields and no id-shaped field** is unexamined; the `apply(...)` fold path is `StmtIR`, not `WorkflowStmtIR`, and is out of this packet's scope.
 
 ## M-T6.61 — A `match` expression drops an `error` variant's binding on .NET and Java — `open` · **M** · P0
 

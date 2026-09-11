@@ -677,7 +677,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.workflow-load-array-unsupported",
     kind: "scope",
-    site: "src/ir/validate/checks/workflow-checks.ts:643",
+    site: "src/ir/validate/checks/workflow-checks.ts:751",
     what: "workflow load of an array result — v1 is single non-nullable",
     verified: true,
   },
@@ -699,7 +699,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.workflow-load-nullable-unsupported",
     kind: "scope",
-    site: "src/ir/validate/checks/workflow-checks.ts:656",
+    site: "src/ir/validate/checks/workflow-checks.ts:764",
     what: "workflow load of a nullable result — v1 is single non-nullable",
     verified: true,
   },

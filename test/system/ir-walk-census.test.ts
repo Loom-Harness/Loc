@@ -504,8 +504,13 @@ const WAIVERS: Record<string, string> = {
   "src/generator/elixir/vanilla/workflow-execution-emit.ts#collectParamRefs": TRAVERSAL_TIME_BOXED,
   "src/generator/elixir/vanilla/workflow-execution-emit.ts#collectParamRefsInStmt":
     TRAVERSAL_TIME_BOXED,
-  "src/generator/elixir/vanilla/workflow-execution-emit.ts#collectWorkflowStmtParamRefs":
-    TRAVERSAL_TIME_BOXED,
+  // `#collectWorkflowStmtParamRefs` waiver DELETED, and it is the census
+  // earning its keep: the waived switch covered 13 of the 14 `WorkflowStmtIR`
+  // kinds, with no `default`, and the missing one was `assign` — so a create
+  // that assigned workflow state from a param (`orderId := order`) never
+  // surfaced that param into the `run/1` destructure and the emitted Elixir
+  // named an undefined variable.  Migrated onto `walkWorkflowStmtChildren`
+  // (F58 / M-T6.62); the waiver goes with the fix, per the ratchet convention.
   "src/system/e2e-render.ts#visit": TRAVERSAL_TIME_BOXED,
   "src/system/e2e-render.ts#visit$2": TRAVERSAL_TIME_BOXED,
 };

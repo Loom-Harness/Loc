@@ -59,9 +59,9 @@ system WorkflowCreateState {
         retention: ephemeral
       }
 
-      // The correlation field (`orderId`) is supplied by the create param of
-      // the SAME NAME — the command-side twin of the reactor's omitted-`by`
-      // rule, and the whole addressing story for a command-started saga.
+      // SPELLING 1 — the correlation field (`orderId`) is supplied by the
+      // create param of the SAME NAME: the command-side twin of the reactor's
+      // omitted-`by` rule.
       workflow Fulfillment {
         orderId: Order id
         status: string
@@ -76,6 +76,26 @@ system WorkflowCreateState {
         on(e: OrderShipped) {
           status := "Shipped"
           attempts := attempts + 1
+        }
+      }
+
+      // SPELLING 2 — the create takes a differently-named param and ASSIGNS
+      // the correlation field from it.  Both spellings name a value that is in
+      // hand before the body runs, so both key the same load-or-allocate seam;
+      // the emitters read them through one rule
+      // (`commandCreateCorrelationParam`).  This one is the residue #2850's
+      // name-match-only rule left behind, and it is separately the shape every
+      // backend's instance-gate test drives — it produced an unbound `this` /
+      // `state` on node / .NET / java / elixir, a `command.OrderId` CS1061 on a
+      // .NET record whose member is `Order`, an undefined `order` in the Elixir
+      // `run/1`, and a silently-discarded request-scoped scratch on python.
+      workflow Escalation {
+        escalatedOrder: Order id
+        level: int
+
+        create raise(order: Order id) {
+          escalatedOrder := order
+          level := 1
         }
       }
     }
