@@ -258,7 +258,7 @@ On the branch tip, after every fix:
 | Gate | Result |
 |---|---|
 | `npx tsc -b` | clean |
-| `npx vitest run test/ir/ test/generator/ test/platform/ test/system/ test/conformance/ test/language/` | **RESULT_PLACEHOLDER** |
+| `npx vitest run test/ir/ test/generator/ test/platform/ test/system/ test/conformance/ test/language/` | **1 748 files / 19 752 tests, green** (1 skipped file, 33 skipped tests, 1 expected-fail — `component-prop-type.test.ts`'s `it.fails` money row, the open gap M-T1.20 drains) |
 | `test/ir/sentinel-gates.test.ts` | 26/26 |
 | `test/ir/frontend-prop-type-support.test.ts` | 46/46 |
 | `test/generator/_walker/unresolved-receiver-give-up.test.ts` | 7/7 |
