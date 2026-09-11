@@ -70,11 +70,20 @@ export function renderAngularCreateForm(
 ): string | null {
   if (call.kind !== "call") return null;
   const aggName = aggNameOf(call);
-  if (!aggName) return giveUp(ctx.target, "CreateForm(of: …): missing 'of:' aggregate ref");
+  if (!aggName)
+    return giveUp(
+      ctx.target,
+      "loom.page-primitive-arg-missing",
+      "CreateForm(of: …): missing 'of:' aggregate ref",
+    );
   const agg = ctx.aggregatesByName.get(aggName);
   const bc = ctx.bcByAggregate?.get(aggName);
   if (!agg || !bc) {
-    return giveUp(ctx.target, `CreateForm(of: ${aggName}): aggregate not reachable from this UI`);
+    return giveUp(
+      ctx.target,
+      "loom.page-ref-unreachable",
+      `CreateForm(of: ${aggName}): aggregate not reachable from this UI`,
+    );
   }
 
   const fields = createInputFields(agg);

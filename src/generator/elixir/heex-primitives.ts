@@ -17,6 +17,7 @@ import type { EnumIR, ExprIR, TypeIR, ValueObjectIR } from "../../ir/types/loom-
 import { humanize, plural, snake } from "../../util/naming.js";
 import { iconA11yAttr } from "../_walker/a11y-emit.js";
 import { tryDetectApiHook } from "../_walker/api-hook-detector.js";
+import { giveUpText } from "../_walker/give-up.js";
 import { isEntityHistoryRead } from "../_walker/history-read.js";
 import { lookupBuiltinIcon } from "../_walker/icons.js";
 import { queryShape } from "../_walker/paged-query.js";
@@ -224,7 +225,7 @@ ${heading}${childrenHeex}
     }
   }
   if (!formChild || !ofName || !opName) {
-    return `<!-- malformed Modal: expected trigger: Button + OperationForm(<instance>.<op>) or OperationForm(of:, op:) -->`;
+    return `<!-- ${giveUpText("loom.page-primitive-arg-invalid", "malformed Modal: expected trigger: Button + OperationForm(<instance>.<op>) or OperationForm(of:, op:)")} -->`;
   }
   const aggSnake = snake(ofName);
   const opSnake = snake(opName);
@@ -314,10 +315,11 @@ export function renderForm(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkCon
   const positional0 = expr.args.find((_, i) => !expr.argNames?.[i]);
   if (positional0 && positional0.kind === "member") {
     const opName = positional0.member;
-    return (
-      `<%!-- OperationForm(<instance>.${opName}): the instance-qualified shape is only rendered ` +
-      `inside a Modal on Phoenix LiveView — use OperationForm { of: <Agg>, op: ${opName} } --%>`
-    );
+    return `<%!-- ${giveUpText(
+      "loom.page-primitive-target-gap",
+      `OperationForm(<instance>.${opName}): the instance-qualified shape is only rendered ` +
+        `inside a Modal on Phoenix LiveView — use OperationForm { of: <Agg>, op: ${opName} }`,
+    )} --%>`;
   }
   let ofTarget = "";
   let runsTarget = "";
@@ -597,10 +599,10 @@ export function renderFor(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkCont
     else if (name === undefined) coll ??= arg;
   }
   if (!coll) {
-    return `<%!-- For: missing 'each:' collection expression --%>`;
+    return `<%!-- ${giveUpText("loom.page-primitive-arg-missing", "For: missing 'each:' collection expression")} --%>`;
   }
   if (!itemLam?.body) {
-    return `<%!-- For: missing item lambda --%>`;
+    return `<%!-- ${giveUpText("loom.page-primitive-arg-missing", "For: missing item lambda")} --%>`;
   }
   const itemVar = snake(itemLam.param);
   const collHeex = renderExpr(coll, { ...ctx, position: "template" });
@@ -893,6 +895,15 @@ export function renderQueryView(expr: Extract<ExprIR, { kind: "call" }>, ctx: Wa
     return a?.kind === "literal" && a.value === "true";
   };
   const ofNode = expr.args[names.indexOf("of")];
+  // No `of:` at all — the JSX walker gives up here (`emitQueryView` in
+  // `_walker/primitives/controls.ts`), and HEEx used to fall through to the
+  // `cond` below with `ofExpr === ""`, which renders the loading / error /
+  // empty arms plus an EMPTY `true ->` branch: a framed panel that reads as
+  // "loaded, nothing to show" for a read that was never wired.  Same shape as
+  // the standalone-op-form finding two hundred lines up — HEEx said nothing
+  // where every other target at least said what it could not do.
+  if (!ofNode)
+    return `<!-- ${giveUpText("loom.page-primitive-arg-missing", "QueryView: missing 'of:' query expression")} -->`;
   // Entity-history read (`<Agg>.history(id)`, docs/audit.md) — NOT an ordinary
   // aggregate read: it scans `audit_records` for one target, so binding it as
   // one would load `list_<aggs>` (the LIST, not the trail).  Tagged here and
@@ -1230,7 +1241,7 @@ export function renderProvenanceInfo(
   const recordArg = namedArg(expr, "of");
   const fieldArg = namedArg(expr, "field");
   if (!recordArg || fieldArg?.kind !== "literal") {
-    return "<!-- ProvenanceInfo: missing record or field -->";
+    return `<!-- ${giveUpText("loom.page-primitive-arg-missing", "ProvenanceInfo: missing record or field")} -->`;
   }
   const record = renderExpr(recordArg, { ...ctx, position: "template" });
   // `<field>_provenance` — snake_cased to match `provColumn` / the schema field.
@@ -1264,7 +1275,8 @@ export function renderProvenanceInfo(
  *  `e.action`. */
 export function renderTimeline(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkContext): string {
   const entriesArg = namedArg(expr, "of") ?? expr.args.find((_, i) => !expr.argNames?.[i]);
-  if (!entriesArg) return "<!-- Timeline: missing entries -->";
+  if (!entriesArg)
+    return `<!-- ${giveUpText("loom.page-primitive-arg-missing", "Timeline: missing entries")} -->`;
   const entries = renderExpr(entriesArg, { ...ctx, position: "template" });
   const testid = testIdAttr(expr, ctx);
   return [
@@ -1615,11 +1627,13 @@ export function renderDestroyForm(
     const arg = expr.args[i]!;
     if (name === "of" && arg.kind === "ref") ofName = arg.name;
   }
-  if (!ofName) return `<!-- DestroyForm: expected (of: <Agg>) -->`;
+  if (!ofName)
+    return `<!-- ${giveUpText("loom.page-primitive-arg-invalid", "DestroyForm: expected (of: <Agg>)")} -->`;
   const agg = ctx.aggregatesByName.get(ofName);
-  if (!agg) return `<!-- DestroyForm(of: ${ofName}): aggregate not found -->`;
+  if (!agg)
+    return `<!-- ${giveUpText("loom.page-ref-unreachable", `DestroyForm(of: ${ofName}): aggregate not found`)} -->`;
   if (!agg.canonicalDestroy) {
-    return `<!-- DestroyForm(of: ${ofName}): no canonical destroy — declare 'destroy { }' (or use 'with crudish') -->`;
+    return `<!-- ${giveUpText("loom.page-ref-unreachable", `DestroyForm(of: ${ofName}): no canonical destroy — declare 'destroy { }' (or use 'with crudish')`)} -->`;
   }
   const eventName = `destroy_${snake(ofName)}`;
   const thenRoute = `/${snake(plural(ofName))}`;
@@ -1698,7 +1712,8 @@ export function renderTabs(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkCon
       tabs.push({ label: `Tab ${idx}`, slug: `tab-${idx}`, body: [arg] });
     }
   }
-  if (tabs.length === 0) return `<!-- Tabs: no tabs -->`;
+  if (tabs.length === 0)
+    return `<!-- ${giveUpText("loom.page-primitive-arg-missing", "Tabs: no tabs")} -->`;
   const id = `tabs-${++ctx.tabSeq.value}`;
   const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   const triggers = tabs
@@ -2194,6 +2209,18 @@ export function renderIcon(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkCon
   // icon.  Acceptable for v0; a future change can import the registry
   // and emit a `<!-- unknown icon: <name> -->` comment for unresolved
   // names matching the TSX shape.
+  //
+  // NARROW give-up (M-T9.55): the case where the author named NOTHING at all.
+  // `Icon { }` carries no `name:` and no `svg:`, so there is no glyph to look
+  // up on any target — the JSX walker gives up (`Icon needs name: or svg:`)
+  // while HEEx emitted `<span class="loom-icon" aria-hidden="true"></span>`,
+  // an empty element that reads as a rendered icon.  The WIDER gap above (a
+  // `name:` the builtin registry does not resolve still emits an empty span
+  // here, because this emitter does not consult the registry) is a HEEx parity
+  // defect, not a give-up routing one, and is handed off rather than smuggled
+  // into this drain — closing it changes the bytes of every valid named icon.
+  if (customSvg === undefined && name === undefined)
+    return `<!-- ${giveUpText("loom.page-primitive-arg-missing", "Icon needs name: or svg:")} -->`;
   void name;
   const svg = customSvg ?? "";
   const sizeClass = size ? ` loom-icon-${size}` : "";
@@ -2270,7 +2297,7 @@ export function renderChart(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkCo
   if (!projection) {
     // Unreachable from valid input — `loom.chart-of-not-grouped` (ui-checks)
     // rejects any `of:` that isn't a grouped readable projection.
-    return `<%!-- Chart: unresolved 'of:' projection --%>`;
+    return `<%!-- ${giveUpText("loom.page-ref-unreachable", "Chart: unresolved 'of:' projection")} --%>`;
   }
   const assign = snake(projection);
   ctx.queryBindings.push({

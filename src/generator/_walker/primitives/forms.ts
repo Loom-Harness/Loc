@@ -113,6 +113,7 @@ export function emitOperationForm(
   }
   return giveUp(
     ctx.target,
+    "loom.page-primitive-arg-invalid",
     `OperationForm: expected (of: <Agg>, op: <opName>) or (<instance>.<op>)`,
   );
 }
@@ -138,15 +139,24 @@ export function emitDestroyForm(
   void depth;
   const ofArg = namedArgValue(call, "of");
   if (ofArg?.kind !== "ref") {
-    return giveUp(ctx.target, `DestroyForm: expected (of: <Agg>)`);
+    return giveUp(
+      ctx.target,
+      "loom.page-primitive-arg-invalid",
+      `DestroyForm: expected (of: <Agg>)`,
+    );
   }
   const agg = ctx.aggregatesByName.get(ofArg.name);
   if (!agg) {
-    return giveUp(ctx.target, `DestroyForm(of: ${ofArg.name}): aggregate not found`);
+    return giveUp(
+      ctx.target,
+      "loom.page-ref-unreachable",
+      `DestroyForm(of: ${ofArg.name}): aggregate not found`,
+    );
   }
   if (!agg.canonicalDestroy) {
     return giveUp(
       ctx.target,
+      "loom.page-ref-unreachable",
       `DestroyForm(of: ${agg.name}): no canonical destroy — declare 'destroy { }' (or use 'with crudish')`,
     );
   }
@@ -212,7 +222,11 @@ export function emitWorkflowForm(
   if (override != null) return override;
   const runsArg = namedArgValue(call, "runs");
   if (!runsArg) {
-    return giveUp(ctx.target, `WorkflowForm: missing 'runs: <Workflow>'`);
+    return giveUp(
+      ctx.target,
+      "loom.page-primitive-arg-missing",
+      `WorkflowForm: missing 'runs: <Workflow>'`,
+    );
   }
   return emitFormRuns(call, ctx, depth, runsArg);
 }
@@ -293,12 +307,17 @@ function emitFormOfOperationByName(
   const agg = ctx.aggregatesByName.get(aggName);
   const bc = ctx.bcByAggregate.get(aggName);
   if (!agg || !bc) {
-    return giveUp(ctx.target, `OperationForm(of: ${aggName}, op: ${opName}): aggregate not found`);
+    return giveUp(
+      ctx.target,
+      "loom.page-ref-unreachable",
+      `OperationForm(of: ${aggName}, op: ${opName}): aggregate not found`,
+    );
   }
   const op = agg.operations.find((o) => o.name === opName && o.visibility === "public");
   if (!op) {
     return giveUp(
       ctx.target,
+      "loom.page-ref-unreachable",
       `OperationForm(of: ${aggName}, op: ${opName}): no public operation '${opName}' on ${aggName}`,
     );
   }
@@ -565,13 +584,18 @@ function emitFormOfAggregate(
         ? ofArg.value
         : undefined;
   if (!aggName) {
-    return giveUp(ctx.target, `CreateForm(of: …): missing 'of:' aggregate ref`);
+    return giveUp(
+      ctx.target,
+      "loom.page-primitive-arg-missing",
+      `CreateForm(of: …): missing 'of:' aggregate ref`,
+    );
   }
   const agg = ctx.aggregatesByName.get(aggName);
   const bc = ctx.bcByAggregate.get(aggName);
   if (!agg || !bc) {
     return giveUp(
       ctx.target,
+      "loom.page-ref-unreachable",
       `CreateForm(of: ${aggName}): aggregate not found in this UI's reachable contexts`,
     );
   }
@@ -669,13 +693,18 @@ function emitFormRuns(
         ? runsArg.value
         : undefined;
   if (!wfName) {
-    return giveUp(ctx.target, `WorkflowForm(runs: …): missing 'runs:' workflow ref`);
+    return giveUp(
+      ctx.target,
+      "loom.page-primitive-arg-missing",
+      `WorkflowForm(runs: …): missing 'runs:' workflow ref`,
+    );
   }
   const workflow = ctx.workflowsByName.get(wfName);
   const bc = ctx.bcByWorkflow.get(wfName);
   if (!workflow || !bc) {
     return giveUp(
       ctx.target,
+      "loom.page-ref-unreachable",
       `WorkflowForm(runs: ${wfName}): workflow not found in this UI's reachable contexts`,
     );
   }
@@ -740,18 +769,24 @@ function emitFormOfOperation(
   if (!instanceName || !aggName) {
     return giveUp(
       ctx.target,
+      "loom.page-ref-unreachable",
       `Form(${instanceName ?? "?"}.${opName}): '${instanceName ?? "?"}' is not an in-scope aggregate instance`,
     );
   }
   const agg = ctx.aggregatesByName.get(aggName);
   const bc = ctx.bcByAggregate.get(aggName);
   if (!agg || !bc) {
-    return giveUp(ctx.target, `Form(${instanceName}.${opName}): aggregate ${aggName} not found`);
+    return giveUp(
+      ctx.target,
+      "loom.page-ref-unreachable",
+      `Form(${instanceName}.${opName}): aggregate ${aggName} not found`,
+    );
   }
   const op = agg.operations.find((o) => o.name === opName && o.visibility === "public");
   if (!op) {
     return giveUp(
       ctx.target,
+      "loom.page-ref-unreachable",
       `Form(${instanceName}.${opName}): no public operation '${opName}' on ${agg.name}`,
     );
   }
@@ -948,6 +983,7 @@ export function emitModal(
   if (!formChild || !triggerArg || triggerArg.kind !== "call") {
     return giveUp(
       ctx.target,
+      "loom.page-primitive-arg-invalid",
       `Modal: expects trigger: Button(...) and an OperationForm(<instance>.<operation>) child`,
     );
   }
@@ -969,6 +1005,7 @@ export function emitModal(
   if (!opName) {
     return giveUp(
       ctx.target,
+      "loom.page-primitive-arg-invalid",
       `Modal: child must be OperationForm(<instance>.<op>) or OperationForm(of:, op:)`,
     );
   }

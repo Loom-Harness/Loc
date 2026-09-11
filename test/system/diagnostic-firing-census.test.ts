@@ -1408,6 +1408,22 @@ system S {
  * can re-test the claim instead of inheriting it.
  */
 const UNREACHABLE_PINS: Record<string, string> = {
+  // M-T9.55.  The one give-up code in its family with no known reachable shape:
+  // `walker-core.ts`'s markup-position expression `default:` arm, reached only
+  // by an `ExprIR.kind` that appears as a primitive's CHILD and has no arm in
+  // the child-position switch.  Every kind the page-body lowerer can put there
+  // today has one (`ref`, `match`, `ternary`, `member`, `method-call`, `call`,
+  // `literal`), so the arm is the backstop to that exhaustiveness rather than a
+  // condition an author can write.  Kept coded rather than converted to a
+  // `never`-check because the api toolkit and the playground can both hand the
+  // generator an un-validated model, where a throw would be a crash instead of
+  // a comment.
+  "loom.page-expr-unrenderable":
+    "`walker-core.ts`'s markup-position `default:` arm — every `ExprIR.kind` a page body can " +
+    "put in a child slot has an explicit arm above it, so the default is the exhaustiveness " +
+    "backstop, not an authorable condition.  Re-test when the walker grows a new " +
+    "child-position arm; see M-T9.55's hand-off H3 " +
+    "(docs/new-plan/waves/handoffs/wave-c1-1d-giveup-drain.md).",
   // The four below share ONE structure, and it is worth naming once: each gate
   // filters the platforms hosting a context against a SUPPORTED set, and
   // returns/skips when nothing is left over.  The hosting platforms come from
@@ -1742,6 +1758,24 @@ const DRIVEN_ELSEWHERE: Record<string, string> = {
   "loom.macro-threw": "test/macro/misbehaving-macro-diagnostics.test.ts",
   "loom.macro-non-ast-result": "test/macro/misbehaving-macro-diagnostics.test.ts",
   "loom.macro-escapes-host": "test/macro/misbehaving-macro-diagnostics.test.ts",
+  // The body-walker GIVE-UP codes (M-T9.55).  Reachable from ordinary `.ddd`
+  // source — `Stack { CreateForm { } }` reaches one — but never out of
+  // `validate()`: they are attached in phase 8 by `giveUp()` and rendered into
+  // the emitted page as `loom:unrendered [<code>] ...`, because codegen has no
+  // diagnostic channel.  The pointed-at file drives all four through all seven
+  // frontend targets and asserts each is produced (`MUST_EXERCISE`), so this
+  // pointer is the same kind of claim the macro trio's is.  They move to
+  // FIRING_FIXTURES the day `generate system` grows a give-up-reporting pass.
+  "loom.page-primitive-arg-missing": "test/generator/_walker/walker-declines-with-a-code.test.ts",
+  "loom.page-primitive-arg-invalid": "test/generator/_walker/walker-declines-with-a-code.test.ts",
+  // These two are NOT reachable by varying an argless page body, so they point
+  // at the tests that do reach them: a primitive that NAMES something the ui
+  // cannot serve (`CreateForm { of: "Ghost" }`, the corpus witness), and the
+  // per-FRONTEND porting gap, whose fire-points are the HEEx engine's
+  // unsupported-primitive arm and the two procedural packs' missing-renderer
+  // fallback.
+  "loom.page-ref-unreachable": "test/generator/_walker/walker-give-up-corpus-shapes.test.ts",
+  "loom.page-primitive-target-gap": "test/generator/elixir/heex-unsupported-primitive.test.ts",
 };
 
 const catalogueCodes = (): string[] => [

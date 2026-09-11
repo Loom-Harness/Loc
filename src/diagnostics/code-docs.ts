@@ -143,6 +143,17 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.page-form-locals-unsupported":
     "16-ui-walker-primitives.md#the-form-family--createform-operationform-workflowform-destroyform",
   "loom.component-children-unsupported": "16-ui-walker-primitives.md#slot",
+  // The body-walker give-up codes (M-T9.55).  The first four are argument /
+  // reference / expression refusals — the chapter's own gate section lists the
+  // sibling `loom.page-primitive-*` codes — and the fifth is a porting gap, so
+  // it anchors on the per-target table instead.
+  "loom.page-primitive-arg-missing":
+    "16-ui-walker-primitives.md#arity-argument-and-placement-gates",
+  "loom.page-primitive-arg-invalid":
+    "16-ui-walker-primitives.md#arity-argument-and-placement-gates",
+  "loom.page-ref-unreachable": "16-ui-walker-primitives.md#arity-argument-and-placement-gates",
+  "loom.page-expr-unrenderable": "16-ui-walker-primitives.md#the-dispatch-model",
+  "loom.page-primitive-target-gap": "16-ui-walker-primitives.md#per-target-honest-gates",
   "loom.auth-missing-issuer": "17-auth.md#auth-----oidc-config",
   "loom.auth-unknown-claim-field": "17-auth.md#auth-----oidc-config",
   "loom.auth-without-user": "17-auth.md#auth-required--per-deployable-middleware--verifier-seam",

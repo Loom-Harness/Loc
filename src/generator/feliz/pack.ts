@@ -15,7 +15,7 @@
 
 import { lowerFirst, upperFirst } from "../../util/naming.js";
 import type { LoadedPack } from "../_packs/loader.js";
-import { GIVE_UP_SENTINEL } from "../_walker/give-up.js";
+import { giveUpText } from "../_walker/give-up.js";
 import { fsString } from "./fs-expr.js";
 
 type Ctx = Record<string, string | number | boolean | readonly string[] | undefined>;
@@ -1024,7 +1024,8 @@ export function felizPack(): LoadedPack {
     setChromeI18n() {},
     render(name: string, context: unknown): string {
       const fn = RENDERERS[name];
-      if (!fn) return `(* ${GIVE_UP_SENTINEL} feliz pack: no renderer for "${name}" *)`;
+      if (!fn)
+        return `(* ${giveUpText("loom.page-primitive-target-gap", `feliz pack: no renderer for "${name}"`)} *)`;
       return fn((context ?? {}) as Ctx);
     },
   };

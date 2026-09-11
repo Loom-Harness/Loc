@@ -301,7 +301,10 @@ export function emitTabs(call: ExprIR & { kind: "call" }, ctx: WalkContext, dept
       // every selector, e2e spec and deep link the moment a translation landed.
       value: slugify(labelStr) || `tab-${i + 1}`,
       ...tabLabelForms(isLiteralLabel ? arg : undefined, ctx, labelStr),
-      bodyJsx: bodyParts.length > 0 ? joinBody(bodyParts) : giveUp(ctx.target, "missing tab body"),
+      bodyJsx:
+        bodyParts.length > 0
+          ? joinBody(bodyParts)
+          : giveUp(ctx.target, "loom.page-primitive-arg-missing", "missing tab body"),
       // The same children UNJOINED, for the two packs that emit a PROGRAMMING
       // LANGUAGE rather than markup: Feliz splices them into an offside-
       // sensitive `prop.children [ … ]` list (`;`-separated) and Flutter needs

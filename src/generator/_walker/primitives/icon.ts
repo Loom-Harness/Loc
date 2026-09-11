@@ -37,8 +37,15 @@ export function emitIcon(call: ExprIR & { kind: "call" }, ctx: WalkContext, dept
   if (svg === undefined) {
     // Unknown name + no `svg:` literal — emit a visible comment so
     // the gap is loud at review time.  Pages still compile.
+    // Two different refusals behind one fallback: a `name:` that is not in the
+    // builtin registry is an argument the walker cannot READ (invalid), while
+    // no `name:`/`svg:` at all is an argument that is not THERE (missing).
     const hint = name ? `unknown icon name '${name}'` : `Icon needs name: or svg:`;
-    return giveUp(ctx.target, `${hint}`);
+    return giveUp(
+      ctx.target,
+      name ? "loom.page-primitive-arg-invalid" : "loom.page-primitive-arg-missing",
+      `${hint}`,
+    );
   }
   // Decorative-by-default (the `Icon` a11y contract): a glyph beside a labelled
   // control conveys nothing and must be hidden, or it double-announces.  A

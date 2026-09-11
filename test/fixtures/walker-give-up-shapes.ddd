@@ -1,0 +1,97 @@
+// shape: the BODY-WALKER GIVE-UP shapes — page bodies that validate clean and
+// render NOTHING, so the only thing standing between the author and a blank
+// screen is what the walker says about it (M-T9.55).
+//
+// Every construct below is valid `.ddd`.  `ddd parse` reports `0 error(s), 0
+// warning(s)` on this file — that is the point of it.  Each one reaches a
+// give-up in the frontend body walker, and before M-T9.55's third slice each
+// left only a sentence of emitter prose in a generated comment: findable (the
+// `loom:unrendered` sentinel, #2843) but not explicable, with no code to look
+// up and nothing for a census or a future `generate system` pass to group on.
+//
+//   Timeline { }                  no `of:`/positional entries
+//                                 → loom.page-primitive-arg-missing
+//   IdLink { }                    no `of:` aggregate ref
+//                                 → loom.page-primitive-arg-missing
+//   DestroyForm { }               `of:` present in neither form
+//                                 → loom.page-primitive-arg-invalid
+//   Icon { name: "…" }            a name outside the builtin glyph registry
+//                                 → loom.page-primitive-arg-invalid
+//   CreateForm { of: "Ghost" }    names an aggregate this ui cannot reach
+//                                 → loom.page-ref-unreachable
+//
+// The `of:` STRING form on the last one is deliberate and is not a trick: the
+// walker accepts a string there as well as a ref, and the string form is the
+// one that survives scope resolution with a name no aggregate carries — which
+// is exactly the "page binds something the deployable does not serve" shape,
+// reachable in real projects by removing a context from a backend deployable
+// and leaving the page behind.
+//
+// Two codes in the family are NOT witnessed here, for reasons worth writing
+// down rather than papering over:
+//
+//   * `loom.page-primitive-target-gap` is per-FRONTEND (Timeline on feliz /
+//     flutter, a pack with no renderer, the HEEx instance-op-form), so it
+//     cannot fire on the react host this fixture declares.  The cross-target
+//     sweep in `test/generator/_walker/walker-declines-with-a-code.test.ts`
+//     covers it on all seven targets.
+//   * `loom.page-expr-unrenderable` is the markup-position expression
+//     backstop (`walker-core.ts`'s `default:` arm).  No authored `.ddd` shape
+//     is known to reach it today; it is carried as a coded backstop rather
+//     than claimed as a witnessed condition.
+//
+// WHY IT IS NOT IN `test/fixtures/corpus/`.  The corpus is a BACKEND feature
+// matrix, and two of its own gates say so normatively: `clause-census.test.ts`
+// asserts "the corpus fixtures still carry no `ui`" (retro §82 — the corpus
+// compile legs can never reach a frontend feature no matter how many fixtures
+// they gain), and `feature-doc-coverage.test.ts`'s FEATURE_DOCS admits only
+// docs describing an authorable DOMAIN feature.  A frontend give-up fixture
+// satisfies neither.  Both gates caught the first attempt to put it there,
+// which is the gates working; it lives here instead, read directly by
+// `test/generator/_walker/walker-give-up-corpus-shapes.test.ts`.
+//
+// A concrete `platform: node` backend (not the corpus's `__PLATFORM__` token)
+// for the same reason: the backend deployable exists only to give the ui
+// something to fail to bind to, and nothing here varies with it.
+system WalkerGiveUpShapes {
+  subdomain Work {
+    context Ops {
+      aggregate Job with crudish {
+        name: string
+        note: string?
+      }
+    }
+  }
+
+  ui Console {
+    page Home {
+      route: "/"
+      title: "Give-up shapes"
+      body: Stack {
+        Heading { "Give-up shapes", level: 1 },
+        Timeline { },
+        IdLink { },
+        DestroyForm { },
+        Icon { name: "no-such-glyph-in-the-builtin-registry" },
+        CreateForm { of: "Ghost" }
+      }
+    }
+  }
+
+  api OpsApi from Work
+  storage primary { type: postgres }
+  resource opsState { for: Ops, kind: state, use: primary }
+  deployable d {
+    platform: node
+    contexts: [Ops]
+    dataSources: [opsState]
+    serves: OpsApi
+    port: 4000
+  }
+  deployable web {
+    platform: react
+    targets: d
+    ui: Console
+    port: 3000
+  }
+}

@@ -54,6 +54,25 @@ const GAPS: Record<string, string> = {
   "angular:Console": "Panel's slot/action params are refused for an angular host",
   "feliz:Console": "Panel's slot/action params are refused for a feliz host",
 
+  // REVEALED, NOT INTRODUCED, by M-T9.55.  `Console`'s Kitchen page hands a
+  // standalone instance-qualified `OperationForm { row.<op> }` (inside a
+  // `single:` QueryView, with no Modal) to the HEEx walker, which cannot render
+  // it: LiveView's op-form needs the `handle_event` + form-binding half
+  // `renderModal` owns, so it is a FEATURE, not a seam fix.  The emitter has
+  // said so in the output since #2652 — `<%!-- OperationForm(<instance>.<op>):
+  // the instance-qualified shape is only rendered inside a Modal … --%>` — but
+  // that comment was built inline and carried NO sentinel, so this matrix, which
+  // finds silent gaps by the sentinel, could not see it.  Routing every HEEx
+  // give-up through `giveUpText` made it visible; the gap itself is unchanged
+  // and is the same one `heex-standalone-op-form-marker.test.ts` pins.
+  //
+  // Flutter had the identical finding (F1 in the note above) and CLOSED it when
+  // `renderModal` / `renderOperationForm` grew the instance-qualified arm — so
+  // this entry is closable the same way, by teaching `renderForm`'s HEEx arm to
+  // emit the form plus its `handle_event` clause. Delete it then.
+  "heex:Console":
+    "the standalone instance-qualified OperationForm is not rendered on LiveView (needs the handle_event + form-binding half renderModal owns)",
+
   // The four static-bundle frontends, Feliz AND Flutter render the whole
   // showcase UI surface against `FALLBACK_MARKERS`.  (Vue's user-component
   // slot/action props, once a gap here, now render: the slot is template

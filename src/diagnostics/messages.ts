@@ -2356,6 +2356,50 @@ export const DIAGNOSTIC_MESSAGES = {
     `A keyed projection returns rows parameterised by key and a folded one is read by key off ` +
     `its materialized table; neither has a frontend client yet, so this would emit an ` +
     `unresolved receiver.`,
+  // --------------------------------------------------------------------
+  // The BODY-WALKER GIVE-UP codes (M-T9.55).
+  //
+  // These four name the conditions under which the frontend body walker
+  // declines to render a construct.  They are unusual in this catalog:
+  // today they are attached at the EMISSION site (`giveUp()` in
+  // `src/generator/_walker/give-up.ts` renders the code into the
+  // `loom:unrendered [<code>] …` comment) rather than raised as a
+  // diagnostic, because codegen has no diagnostic channel.  The wording
+  // still lives here, for the one reason the catalog exists: the text a
+  // user reads about a `loom.*` code must have exactly one home, whichever
+  // phase puts it in front of them.  When `generate system` grows a
+  // give-up-reporting pass these become ordinary reported diagnostics with
+  // no change to the emitters.
+  // --------------------------------------------------------------------
+  "loom.page-primitive-arg-missing": (p: { name: unknown; arg: unknown }) =>
+    `\`${p.name}\` was written without ${p.arg}, and every frontend reads that ` +
+    `argument to decide what to render — so the body walker cannot emit the primitive at ` +
+    `all and leaves a \`loom:unrendered\` comment in its place.  The page still compiles; ` +
+    `the region is simply empty on React, Vue, Svelte, Angular, Feliz, Flutter and Phoenix ` +
+    `alike.  Supply the argument.`,
+  "loom.page-primitive-arg-invalid": (p: { name: unknown; expected: unknown }) =>
+    `\`${p.name}\` has an argument the body walker cannot read: it expects ${p.expected}.  ` +
+    `Any other shape is unreadable by every frontend emitter, so the primitive is replaced ` +
+    `by a \`loom:unrendered\` comment and the region comes out empty on every target.`,
+  "loom.page-ref-unreachable": (p: { name: unknown; what: unknown }) =>
+    `\`${p.name}\` names ${p.what}, so the body walker has no wire contract to generate ` +
+    `against and the primitive degrades to a \`loom:unrendered\` comment on every frontend.  ` +
+    `A page binds only aggregates, workflows and PUBLIC operations served by the backend its ` +
+    `deployable \`targets:\` (or, for a self-hosting frontend, the contexts it owns).  Add ` +
+    `the owning context to that backend deployable, declare the member the primitive needs, ` +
+    `or bind something the ui already reaches.`,
+  "loom.page-expr-unrenderable": (p: { kind: unknown }) =>
+    `a \`${p.kind}\` expression appears in a MARKUP position (a primitive's child slot), ` +
+    `and the body walker renders markup children from a closed set of expression kinds — ` +
+    `everything else has no child-position lowering on any frontend and degrades to a ` +
+    `\`loom:unrendered\` comment.  Bind the value to a \`derived\` (or page \`state\`) and ` +
+    `render that, or wrap it in a text primitive.`,
+  "loom.page-primitive-target-gap": (p: { name: unknown; framework: unknown }) =>
+    `\`${p.name}\` has no renderer on '${p.framework}' yet, so this frontend emits a ` +
+    `\`loom:unrendered\` comment where the other targets emit the primitive.  Unlike a ` +
+    `refusal this is a PORTING gap, not a modelling error: the same \`.ddd\` renders it ` +
+    `elsewhere.  Host this ui on a frontend that implements the primitive, or render the ` +
+    `same information with one that is portable.`,
   "loom.unknown-page-element": (p: { where: unknown; name: unknown }) =>
     `\`${p.name}(…)\` names no walker primitive, component, value object, or ` +
     `\`extern\` function, so the frontend renders nothing for it — in a text slot the ` +

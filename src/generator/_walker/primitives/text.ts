@@ -373,7 +373,7 @@ export function emitKeyValueRow(
     ? childIsLiteral
       ? localizedText(call, ctx, "keyValueValue", '""', 1)
       : walk(childArg, ctx, depth + 2)
-    : giveUp(ctx.target, "missing value");
+    : giveUp(ctx.target, "loom.page-primitive-arg-missing", "missing value");
   return renderPrimitive(ctx, "primitive-key-value-row", {
     // The label is a user-visible slot (`keyValue`), and the packs split on how
     // they render it — a `<span>` on the seven layout-markup packs, a component
