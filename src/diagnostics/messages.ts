@@ -3011,6 +3011,13 @@ export const DIAGNOSTIC_MESSAGES = {
     `workflow '${p.name}': emit refers to unknown event '${p.eventName}'.`,
   "loom.workflow-emit-missing-field": (p: { name: unknown; evName: unknown; f: unknown }) =>
     `workflow '${p.name}': emit '${p.evName}' is missing field '${p.f}'.`,
+  // The AST-phase (④) twin of `loom.workflow-emit-unknown-field` below: the
+  // IR check only sees `emit` inside a WORKFLOW, while `checkEmit` in
+  // `src/language/validators/statements.ts` sees every `emit` — aggregate
+  // operations included.  Both fire on a workflow emit, which is why the
+  // firing fixture raises the pair.
+  "loom.emit-unknown-field": (p: { evName: unknown; f: unknown }) =>
+    `Event '${p.evName}' has no field '${p.f}'.`,
   "loom.workflow-emit-unknown-field": (p: { name: unknown; evName: unknown; f: unknown }) =>
     `workflow '${p.name}': emit '${p.evName}' has unknown field '${p.f}'.`,
   "loom.workflow-create-unknown-aggregate": (p: { name: unknown; aggName: unknown }) =>
