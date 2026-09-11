@@ -18,10 +18,19 @@
 //     next completion") — BLOCKS merge without claiming failure;
 //   - all triggered checks completed OK -> completed/success.
 //
-// The last workflow to complete always fires one final evaluation, so the
-// verdict flips green with no polling, no timeout to tune, and no parked slot.
-// A re-run of a red check fires `workflow_run: completed` again, so recovery
-// is automatic too — no manual pr-gate re-run.
+// The last workflow to complete fires one final evaluation, so the verdict
+// flips green with no polling, no timeout to tune, and no parked slot.  It
+// flips LATE, not instantly: the per-SHA concurrency group holds at most one
+// running plus one pending evaluation, so a burst of ~40 completions on one
+// SHA advances the verdict twice, not forty times.  Measured 2026-09-10, the
+// gap between a green PR's last check completing and `pr-gate` going terminal
+// was 14m18s (#2846) and 11m48s (#2847).
+//
+// A re-run of a red CHECK fires `workflow_run: completed` again, but that is
+// NOT a reliable way to recover a parked gate — measured three times, most
+// recently #2773 after the cancellation fix.  The cheap lever is re-running
+// this workflow's own `pull_request`-event run for the head; see the lever
+// table in `pr-gate.yml`.
 //
 // The API-posted check (not this job's own check) is what branch protection
 // requires: `workflow_run`-triggered jobs don't surface in the PR's checks UI,
@@ -406,8 +415,8 @@ export function currentGateState(runs) {
 }
 
 /** Sweep-mode posting rule: publish only when the fresh verdict DISAGREES with
- *  what is already on the SHA.  The sweep is a safety net for dropped
- *  `workflow_run` events, not a second event stream — re-publishing an
+ *  what is already on the SHA.  The sweep is a safety net for a SHA whose
+ *  evaluations stopped arriving, not a second event stream — re-publishing an
  *  identical verdict every cycle is churn with no information. */
 export function sweepShouldPost(current, fresh) {
   return current !== fresh.state;
@@ -422,21 +431,38 @@ async function fetchOpenPrHeads(repo, token) {
   return prs.map((p) => ({ number: p.number, sha: p.head.sha }));
 }
 
-/** The safety net: `workflow_run` delivery is best-effort — under this repo's
- *  completion storms (a post-merge heavy set is ~60 completions; a label event
- *  spawns a dozen more) GitHub demonstrably DROPS some dispatches, and an
- *  event-driven gate turns one dropped final event into a permanently parked
- *  PR (observed on #2464: last checks completed 08:40–08:42, no eval fired).
- *  This re-derives the verdict for every open PR and posts only where it
- *  differs.
+/** The safety net.  It re-derives the verdict for every OPEN PR and posts only
+ *  where it differs from what is already published.
  *
- *  It does NOT cap the outage at one sweep interval — that claim was here, in
+ *  What it is a net FOR is narrower than this comment used to say.  It said
+ *  GitHub "demonstrably DROPS some dispatches", citing #2464 ("last checks
+ *  completed 08:40–08:42, no eval fired").  That is not demonstrable by the
+ *  call that produced it: a `workflow_run`-triggered run is attributed to the
+ *  DEFAULT BRANCH, so listing this workflow's runs filtered to a PR branch
+ *  returns only the one `pull_request`-event run, and the eval job's check run
+ *  lands on `main`'s SHA rather than the SHA it evaluated.  Measured
+ *  2026-09-10: of the 100 most recent runs of `pr-gate.yml`, all 91 that were
+ *  `event=workflow_run` carry `head_branch: main`.  Neither view can tell "no
+ *  evaluation fired" from "evaluations fired and are invisible here".
+ *
+ *  What IS observed is a green PR whose published verdict stays non-terminal
+ *  long after its last check finished.  Cause undiagnosed; the net is worth
+ *  having either way.
+ *
+ *  It does NOT cap that outage at one sweep interval — that claim was here, in
  *  `pr-gate.yml` and in `docs/ci-gating.md`, and none of the three had been
  *  measured.  GitHub runs the every-15-minutes schedule far slower than
- *  requested: the 30 most recent `schedule` runs span 135 HOURS (mean gap
- *  4.7 h, median 4.6 h, shortest gap in that window 110 min).  Treat the sweep as
- *  an eventual backstop on the order of hours, not a 15-minute cap; when a
- *  green PR is parked, force a fresh evaluation instead of waiting for it.
+ *  requested: re-measured 2026-09-10, the 30 most recent `schedule` runs span
+ *  100.9 HOURS (mean gap 3.48 h, median 3.49 h, shortest gap in that window
+ *  91 min) — and five of the 30 are outright failures, from the window where
+ *  the scheduled sweep collided with its own concurrency group.  Treat the
+ *  sweep as an eventual backstop on the order of hours, not a 15-minute cap;
+ *  when a green PR is parked, force a fresh evaluation instead of waiting.
+ *
+ *  Open PRs are the whole reach: a head INSIDE the merge queue is not an open
+ *  PR's head, so nothing here ever reconciles it.  In-queue, event-driven
+ *  evaluation is the only mechanism, and its only bound is the queue's checks
+ *  timeout — which ejects the entry rather than healing it.
  *
  *  (Spell that cadence out in words, never as the cron literal — the slash-star
  *  sequence closes this block comment and breaks the file.  Which is how this
