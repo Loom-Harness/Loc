@@ -746,6 +746,19 @@ export const E2E_LESS_CORPUS_FIXTURES: readonly string[] = [
   // blocker as `R.tenantRegistryRow`; drain them together.  Runtime home today:
   // `tenancy-e2e.yml`'s hierarchy legs (label/post-merge).
   "tenancy-hierarchy",
+  // WAVE C1 PACKET 1e-i (ledger rows F2-XB-4 / F2-CB-C1) — both fixtures exist
+  // for the COMPILE tier: a dropped fold-body `let` is CS0103 / "cannot find
+  // symbol", and the paged × non-relational carrier is CS0535 + CS0029, so the
+  // gate that mattered is the corpus compile leg plus the two conformance
+  // matrices named in `BEHAVIOURAL_ABSENT`.  A runtime `test e2e` is owed and
+  // is the drain condition recorded there.
+  "projection-fold-statements",
+  "paged-nonrelational",
+  // WAVE C1 PACKET 1h (RS-26 boxing of a java workflow's primitive params) —
+  // the contract under test is the emitted wire type (`Integer`, not `int`)
+  // and the 422 its `@NotNull` answers, pinned by the java generator suite;
+  // the behavioural runner cannot yet address a workflow's create surface.
+  "workflow-primitive-params",
 ];
 
 /**

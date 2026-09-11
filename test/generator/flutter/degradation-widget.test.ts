@@ -19,6 +19,7 @@ import { giveUpText } from "../../../src/generator/_walker/give-up.js";
  *  pin that copies the shape is a pin that silently stops matching when the
  *  shape changes, which is the exact failure this whole sentinel exists for. */
 const MARKER = giveUpText("loom.unresolved-page-ref", "ref: viaId");
+
 import { generateSystemFiles } from "../../_helpers/generate.js";
 
 // `viaId` is a page `derived` over the magic route `id` — a binding the shell
@@ -63,9 +64,7 @@ const page = async (): Promise<string> =>
 describe("flutter degradation sentinels stay widgets", () => {
   it("emits a degraded table cell as a widget, not as Dart source inside Text(…)", async () => {
     const dart = await page();
-    expect(dart).toContain(
-      `DataCell(const SizedBox.shrink() /* ${MARKER} */)`,
-    );
+    expect(dart).toContain(`DataCell(const SizedBox.shrink() /* ${MARKER} */)`);
     expect(dart).not.toContain("DataCell(Text('const SizedBox");
   });
 
@@ -75,9 +74,7 @@ describe("flutter degradation sentinels stay widgets", () => {
     expect(dart).toContain(
       `TabBarView(children: <Widget>[ const SizedBox.shrink() /* ${MARKER} */ ])`,
     );
-    expect(dart).toContain(
-      `children: <Widget>[const SizedBox.shrink() /* ${MARKER} */]`,
-    );
+    expect(dart).toContain(`children: <Widget>[const SizedBox.shrink() /* ${MARKER} */]`);
     // Nowhere in the page is a `const `-leading widget stringified.
     expect(dart).not.toContain("Text('const SizedBox");
     expect(dart).not.toMatch(/Text\('const\s/);

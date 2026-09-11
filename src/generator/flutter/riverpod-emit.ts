@@ -248,6 +248,7 @@ export function renderNotifierStmt(stmt: StmtIR, ctx: WalkContext, selfStore?: s
           if (nav.includes("${")) {
             return giveUp(
               notifierStmtTarget,
+              "loom.flutter-action-statement-unsupported#navigate-route-param",
               diagMessage("loom.flutter-action-statement-unsupported#navigate-route-param", {
                 page: stmt.args[0]?.kind === "ref" ? stmt.args[0].name : stmt.name,
               }),
@@ -259,6 +260,7 @@ export function renderNotifierStmt(stmt: StmtIR, ctx: WalkContext, selfStore?: s
         }
         return giveUp(
           notifierStmtTarget,
+          "loom.flutter-action-statement-unsupported#private-operation",
           diagMessage("loom.flutter-action-statement-unsupported#private-operation", {
             name: stmt.name,
           }),
@@ -282,6 +284,7 @@ export function renderNotifierStmt(stmt: StmtIR, ctx: WalkContext, selfStore?: s
       // a `loom.*`-coded wording from the catalog.
       return giveUp(
         notifierStmtTarget,
+        "loom.flutter-action-statement-unsupported#kind",
         diagMessage("loom.flutter-action-statement-unsupported#kind", { kind: stmt.kind }),
       );
   }
@@ -312,6 +315,7 @@ function renderVariantMatchNotifier(
     return [
       giveUp(
         notifierStmtTarget,
+        "loom.flutter-action-statement-unsupported#match-await",
         diagMessage("loom.flutter-action-statement-unsupported#match-await"),
       ),
     ];

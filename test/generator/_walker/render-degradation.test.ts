@@ -195,8 +195,7 @@ const SENTINELS: ReadonlyArray<{
       },
       {
         file: "src/generator/elixir/heex-walker-core.ts",
-        template:
-          '`${expr.name}: not supported by Phoenix LiveView target`',
+        template: "`${expr.name}: not supported by Phoenix LiveView target`",
       },
     ],
   },

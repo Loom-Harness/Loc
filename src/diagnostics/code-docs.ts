@@ -135,6 +135,7 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.angular-deployable-missing-ui": "15-ui-pages-structure.md#ui-block--deployable-binding",
   "loom.feliz-deployable-missing-ui": "15-ui-pages-structure.md#ui-block--deployable-binding",
   "loom.flutter-deployable-missing-ui": "15-ui-pages-structure.md#ui-block--deployable-binding",
+  "loom.flutter-action-statement-unsupported": "15-ui-pages-structure.md#state--derived--action",
   "loom.react-deployable-missing-ui": "15-ui-pages-structure.md#ui-block--deployable-binding",
   "loom.svelte-deployable-missing-ui": "15-ui-pages-structure.md#ui-block--deployable-binding",
   "loom.ui-framework-unhostable": "15-ui-pages-structure.md#ui-block--deployable-binding",
