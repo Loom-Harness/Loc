@@ -176,13 +176,33 @@ list + detail pages, a nav entry and an OpenAPI document — and no way to put a
 row in the table. `loom.ui-id-ref-no-display` shouts about a missing picker
 label; "this aggregate has no creator" is silent.
 
-### D9 — the natural factory cannot be written
+### D9 — `this.` on the left of `:=` is a parse error
 
-`create(name: string) { this.name := name }` is impossible: `this.x :=` is a
-parse error (`Expecting token of type '}' but found 'this'`, and
+> **CORRECTED 2026-09-11.** The original text also claimed that the bare
+> `name := name` "resolves to the shadowing parameter". **That is wrong** — the
+> agent implementing the fix (#2873) checked it against the emitters and I
+> re-verified: `operation rename(name: string) { name := name }` emits
+> `this._name = name;`. The field is written and the parameter is read, which is
+> what you want. The defect below is real; this half of the diagnosis was not.
+
+`create(name: string) { this.name := name }` cannot be written: `this.x :=` is a
+parse error (`Expecting token of type '}' but found 'this'`), while
 `docs/language.md:1078` describes `:=` as "assignment to a property reachable
-from `this`"), while the bare `name :=` resolves to the shadowing parameter. Every
-factory parameter has to be renamed away from the field it fills.
+from `this`" — so the doc promises a spelling the grammar rejects.
+
+**And the prefix turns out to be load-bearing, not just cosmetic** — found while
+implementing #2873. Over a `total: money` field with a shadowing parameter of a
+*different* type:
+
+```ddd
+operation adjust(total: decimal) { this.total := 0.50 }   // → new Decimal("0.50")
+operation adjust(total: decimal) { total := 0.50 }        // → a bare 0.50 into a Decimal field
+```
+
+The bare form takes the literal's coercion from the shadowing parameter's type
+rather than the field's. So the two spellings are not equivalent wherever a
+parameter shadows a field of a different type, which is exactly the case that
+makes `this.` worth having.
 
 ### D10 — smaller surface papercuts
 
@@ -315,9 +335,14 @@ template.
 ### G3 — `this.x :=` and factory parameter shadowing
 
 `create(name: string) { this.name := name }` cannot be written: `this.` is not
-in the `LValue` head (`ddd.langium:2213`) and the bare `name` resolves to the
-shadowing parameter. `docs/language.md:1078` already describes `:=` as
-"assignment to a property reachable from `this`".
+in the `LValue` head (`ddd.langium:2213`). `docs/language.md:1078` already
+describes `:=` as "assignment to a property reachable from `this`", so the doc
+promises a spelling the grammar rejects.
+
+(CORRECTED 2026-09-11: an earlier revision added "and the bare `name` resolves to
+the shadowing parameter". It does not — see D9. The case for the prefix rests on
+the doc mismatch and on the money-coercion divergence recorded there, not on the
+bare form being broken.)
 
 Two options, and they are not the same size.
 
@@ -705,17 +730,19 @@ its own template.
 
 ## G3 — `this.` on the left of `:=`
 
-**Today.** The natural factory and the natural setter are both unwritable:
+**Today.** The `this.`-prefixed spelling is rejected:
 
 ```ddd
-create(name: string)      { this.name := name }   // ✗ Expecting token of type '}' but found `this`
-operation rename(name: string) { this.name := name } // ✗ same
-operation rename(name: string) { name := name }   // parses — assigns the parameter to itself
+create(name: string)           { this.name := name }  // ✗ Expecting token of type '}' but found `this`
+operation rename(name: string) { this.name := name }  // ✗ same
+operation rename(name: string) { name := name }       // parses, and is CORRECT — emits this._name = name
 ```
-The only working spelling renames the parameter away from its field:
-```ddd
-operation rename(newName: string) { name := newName }
-```
+
+(CORRECTED 2026-09-11: an earlier revision said the third line assigns the
+parameter to itself, and that only a renamed parameter worked. Both wrong — see
+D9. What survives is the doc-vs-grammar mismatch, plus the money-coercion
+divergence between the two spellings when a parameter shadows a field of a
+different type.)
 
 **Proposed (a).** `'this'` joins the LValue head, so the shadowed form means what
 it reads as. `'this'` is already a token (`ddd.langium:2601`) and `('this' '.')?`
