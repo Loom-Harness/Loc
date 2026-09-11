@@ -258,13 +258,17 @@ system ${sys} {
   // \`requires true\` is the explicit "intentionally public" escape.  Mark the
   // deployable \`auth: required\` to enforce it.
   //
-  // Two limits to know before you turn it on.  The compiler-synthesised reads
-  // (\`GET /<plural>\` and \`GET /<plural>/{id}\`) have no author surface to
-  // attach a gate to, so they are NOT covered — they serve to any authenticated
-  // caller.  And \`with crudish\` generates its create/update/destroy, which
-  // likewise cannot carry a gate: under denyByDefault you must hand-write those
-  // three on any aggregate you want gated.  Both wait on one aggregate-level
-  // default-gate surface.
+  // Two limits to know before you turn it on.  The synthesised LIST read is
+  // coverable — declare \`find all(): <T>[] requires <expr>\` on the repository
+  // and the gate lands on \`GET /<plural>\`.  The synthesised BY-ID read is not:
+  // \`GET /<plural>/{id}\` has no author surface to attach a gate to, so under
+  // denyByDefault it still serves to any authenticated caller, and nothing
+  // warns (mission M-T3.19).  And \`with crudish\` generates its
+  // create/update/destroy, which likewise cannot carry a gate today:
+  // hand-write those three on any aggregate you want gated until
+  // \`crudish(requires: <Policy>)\` lands.  In both cases the gate is named at
+  // the declaration — an INHERITED aggregate-level default was rejected, because
+  // a deny rule invisible at the member it guards is the wrong trade.
   //   user {
   //     id: string
   //     role: string

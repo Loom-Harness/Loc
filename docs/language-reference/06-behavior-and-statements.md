@@ -363,6 +363,8 @@ On a **state-based** aggregate the braces are a contract, not a body: no backend
 
 The **parameter list is not the request contract either.** `POST /<plural>` takes the field-derived create input, so a narrowed list shapes nothing: `create(project: Project id, key: string, title: string)` on an aggregate that also has a required `blockedBy: Issue id[]` still emits a body that demands `blockedBy`, and a client (or a `test` block) written from the declaration gets a 422 naming a field the create does not accept. `loom.create-params-not-wire` (a warning) names each required create-input field the list omits. Listing every create-input field — which is what `with crudish` generates — or omitting the parens keeps it quiet.
 
+This warning is a stand-in for a missing capability, not the end state: **[M-T5.32](../new-plan/T5-language-core.md)** makes the declared parameter list *become* the create input, and deletes `loom.create-params-not-wire` in the same change.
+
 A `requires` **is** rendered for the canonical pair (every backend evaluates it at its own chokepoint and denies with 403). Note the spelling: `Create`/`Destroy` have no header `requires` clause in the grammar — `create(name: string) requires … { }` is a parse error — so a lifecycle guard is written as the first *statement* of the body. What it may read is narrow: a `create` guard may read `currentUser` only; a `destroy` guard may read `currentUser` and `this` — never a parameter (`loom.lifecycle-guard-unreadable`). On an event-sourced aggregate a `create` guard cannot be enforced at all (`loom.lifecycle-guard-event-sourced`) — gate the operation that issues the create instead.
 
 ```ddd

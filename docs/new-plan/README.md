@@ -50,9 +50,9 @@ The unsupported-diagnostic register (`src/diagnostics/unsupported-register.ts`) 
 |---|---|---|---|---|
 | [T1 — UI & frontend ceiling](T1-ui-frontend.md) | Data-heavy tables, upload, forms tail, state/async, i18n, a11y, extern parity, navigation, the numeric/money frontend seams | 26 | 5 | **P1 — highest product ROI** |
 | [T2 — Data & schema evolution](T2-data-evolution.md) | Rename intent, data migrations, baseline safety, seeding/uniqueness tails, storage config tail | 8 | 6 | **P1 — the "silent data loss" class** |
-| [T3 — Security, tenancy & governance](T3-security-governance.md) | `organizationContext`, OIDC depth, sensitivity, versioned-on, the read surface, lifecycle-gate goldens | 12 | 5 | **P1 — secure-by-default** |
+| [T3 — Security, tenancy & governance](T3-security-governance.md) | `organizationContext`, OIDC depth, sensitivity, versioned-on, the read surface, lifecycle-gate goldens | 13 | 5 | **P1 — secure-by-default** |
 | [T4 — Eventing, workflow & temporal](T4-eventing-temporal.md) | Projections, channels/brokers, outbox completion, saga hardening, realtime contract, email/storage batteries — **scheduling is done** (`timerSource` `every:`/`cron:` on all five backends, M-T4.1 archived 2026-09-02; don't re-propose "temporal" features) | 8 | 4 | P2 |
-| [T5 — Language core & type system](T5-language-core.md) | Exception-less A4–A6, criterion/retrieval tails, payload P3/P5, stdlib tail, inheritance I4, lifecycle 3–5, surface hygiene, numeric RS-rulings | 23 | 6 | P2 |
+| [T5 — Language core & type system](T5-language-core.md) | Exception-less A4–A6, criterion/retrieval tails, payload P3/P5, stdlib tail, inheritance I4, lifecycle 3–5, surface hygiene, numeric RS-rulings | 26 | 6 | P2 |
 | [T6 — Backend parity & generated-code quality](T6-backend-parity.md) | Phoenix gaps register, adapter subsets, numeric ingress, saga/workflow emission holes, ES seeding | 20 | 38 | P1/P2 (small missions, wrong failure modes today) |
 | [T7 — Deployment & operations](T7-deployment-ops.md) | k8s hardening, proxy/networking, terraform, PaaS deploy | 8 | 1 | P2 |
 | [T8 — DX, tooling & the AI platform](T8-dx-tooling-ai.md) | Debugger frontier, sourcemaps, LSP tail, playground chat/agent loop, builder, packaging split, mutation testing | 13 | 2 | P2/P3 |
