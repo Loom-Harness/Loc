@@ -110,6 +110,29 @@ ${body}
   } }
 }`;
 
+/** A system with a react ui whose single hand-written page carries `body`.
+ *  The page-body gates need a MOUNTED ui (a `deployable` serving the bundle)
+ *  and an aggregate with a `money` field to read rows off. */
+const uiPage = (body: string) => `
+system S {
+  subdomain Catalog { context Stock {
+    aggregate Item with crudish { sku: string  price: money }
+    repository Items for Item { }
+  } }
+  api StockApi from Catalog
+  storage pg { type: postgres }
+  resource st { for: Stock, kind: state, use: pg }
+  deployable api { platform: node contexts: [Stock] dataSources: [st] serves: StockApi port: 8080 }
+  ui WebApp {
+    api Catalog: StockApi
+    page Browse {
+      route: "/browse"
+      body: ${body}
+    }
+  }
+  deployable web { platform: static targets: api ui: WebApp { Catalog: api } port: 3001 }
+}`;
+
 /** A deployable-bearing system — needed by the checks that read the deployment
  *  side (auth wiring, persistence mode) rather than the declaration alone. */
 const deployed = (agg: string) => `
@@ -1398,6 +1421,61 @@ system S {
     seed default { Invoice { label: "Seeded" } }
   } }
 }`,
+
+  // --- page-body / gate shapes that used to reach CODEGEN (audit D2/D3/D4) --
+  // `permissions.<name>` is a subdomain-scoped catalogue reference; a `ui` is
+  // declared outside the subdomain that owns it, so the name does not resolve
+  // and no frontend can evaluate the gate.  Before the check this reached
+  // `renderGateExpr`, which threw a bare JS `Error` with no code and no page.
+  "loom.page-gate-not-client-evaluable": `
+system S {
+  user { id: string  role: string  permissions: string[] }
+  subdomain Warehouse {
+    permissions { manage }
+    context Stock {
+      aggregate Item with crudish { sku: string }
+      repository Items for Item { }
+    }
+  }
+  api StockApi from Warehouse
+  storage pg { type: postgres }
+  resource st { for: Stock, kind: state, use: pg }
+  deployable api {
+    platform: node
+    contexts: [Stock]
+    dataSources: [st]
+    serves: StockApi
+    auth: required
+    port: 8080
+  }
+  ui WebApp {
+    api Warehouse: StockApi
+    page Secret {
+      route: "/secret"
+      requires currentUser.permissions.contains(permissions.manage)
+      body: Stack { Text { "hi" } }
+    }
+  }
+  deployable web {
+    platform: static
+    targets: api
+    auth: ui
+    ui: WebApp { Warehouse: api }
+    port: 3001
+  }
+}`,
+  // A collection op is an EXPRESSION: its lambda body renders through the
+  // expression renderer, so a primitive there emits as a bare function call
+  // (`Card(Text(i.name))`) that nothing imports.  `For { each: … }` is the
+  // slot that renders markup.
+  "loom.markup-primitive-in-collection-lambda": uiPage(
+    `QueryView { of: Item.all, data: rows => Stack { rows.map(i => Card { Text { i.sku } }) } }`,
+  ),
+  // `money` deserialises client-side to a \`Decimal\` object, which is not a
+  // renderable node — the emitted frontend fails its OWN typecheck.
+  "loom.money-in-text-slot": uiPage(
+    `QueryView { of: Item.all, data: rows => For { each: rows, i => Text { i.price } } }`,
+  ),
 };
 
 /**
