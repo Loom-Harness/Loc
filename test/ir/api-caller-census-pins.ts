@@ -570,6 +570,23 @@ export const UNATTRIBUTED_CALLS: Record<string, readonly string[]> = {
 // classes decide the ORDER of the remaining drain, and re-deriving them costs
 // the next agent an hour (#2517).
 export const E2E_LESS_CORPUS_FIXTURES: readonly string[] = [
+  // COMPILE-TIER WITNESS (dev-experience audit D6/P2) — an id-typed `user { … }`
+  // claim (`customerId: Customer id?`), which broke four of five backends two
+  // ways at once (the optional marker emitted twice; the strong-id class never
+  // imported into the auth tree).  Every one of the four symptoms is STATIC and
+  // is caught by the compile leg that already gates this fixture: `TS2503`
+  // (corpus-tsc), `cannot find symbol` (corpus-java), a `CustomerId??` that does
+  // not parse (corpus-dotnet), and python's missing import — which READS as a
+  // runtime bug (a `NameError` on every token verification, because the
+  // annotation sits inside `cast(...)` in a function body) but is caught
+  // statically by corpus-python's `ruff check` as F821 and `mypy --strict` as
+  // `name-defined`.  So there is no runtime-only half here to witness: a
+  // behavioural block would boot a generic CRUD round-trip wearing an OIDC hat
+  // — which `auth-oidc` already boots and records — and mint a wire golden that
+  // is an oracle for nothing this fixture is about.  The claim VALUE is not
+  // assertable at runtime either: the harness's mock issuer mints no
+  // `customer_id`, so the claim would read null on every booted backend.
+  "auth-id-claim",
   // COMPILE-TIER WITNESS (generator review A5/A10–A14) — the previously
   // unwitnessed collection-op shapes (arithmetic-lambda `sum`, `distinct` over
   // money, argless `any()`, descending `sortBy`, unary minus on money, `-=` on
