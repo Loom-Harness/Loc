@@ -14,6 +14,7 @@ import type {
 import { exprUsesCurrentUser, operationUsesCurrentUser } from "../../../ir/types/loom-ir.js";
 import { maskedHistoryFields } from "../../../ir/util/audit-history.js";
 import {
+  callerGates,
   lifecycleGates,
   lifecycleGatesUseCurrentUser,
   operationBodyUsesCurrentUser,
@@ -40,6 +41,7 @@ import {
   renderJavaHistoryServiceMethod,
 } from "./audit-history.js";
 import { javaNotFoundThrow } from "./common.js";
+import { exprsCallDomainService } from "./domain-service.js";
 import { claimStampsFor } from "./entity.js";
 import {
   declaredFinds,
@@ -651,6 +653,22 @@ export function renderJavaService(
     `import ${ctx.basePkg}.domain.enums.*;`,
     `import ${ctx.basePkg}.domain.ids.*;`,
     `import ${ctx.basePkg}.domain.valueobjects.*;`,
+    // Domain services the module's GATE expressions call.  A `requires` gate is
+    // HOISTED out of the operation body to the caller
+    // (`src/ir/util/op-gates.ts`), so it renders `Rules.fee(...)` INTO this
+    // service while the entity's `callsDomainService` sweep — the only collector
+    // there was — reads the bodies the gates left, in a different file.  Ledger
+    // row `F2-CB-C7`, javac "cannot find symbol".  The gate set comes from
+    // `callerGates` rather than a local re-enumeration, so a sixth gate site
+    // cannot reintroduce the hole; the `when` state gates (rendered by the
+    // `can<Op>` companions above) and the find read-gates join it.
+    exprsCallDomainService([
+      ...callerGates(agg).map((g) => g.expr),
+      ...agg.operations.map((o) => o.when),
+      ...declaredFinds(repo).map((f) => f.requires),
+    ])
+      ? `import ${ctx.basePkg}.domain.services.*;`
+      : null,
     `import ${ctx.basePkg}.config.CatalogLog;`,
     ``,
     `@Service`,
