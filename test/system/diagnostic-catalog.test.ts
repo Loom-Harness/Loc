@@ -67,6 +67,14 @@ function catalogedSources(): string[] {
   // invariants — appropriate, since this is a defensive backstop the IR
   // validator is meant to make unreachable, not a validator call site).
   out.push(path.join("src", "generator", "_expr", "target.ts"));
+  // Same shape as the line above, on the frontend side: `renderNotifierStmt`
+  // (phase ⑧) declines a statement a Riverpod Notifier method cannot express
+  // and emits the refusal as a sentinel-carrying give-up comment in the Dart.
+  // It is a diagnostic the user reads, so its wording lives in the catalog —
+  // listed here so invariant 3 counts those entries as REACHED.  The other
+  // three invariants look for an object-literal `code:` this site has no reason
+  // to carry (it returns source text, it does not `accept()` a diagnostic).
+  out.push(path.join("src", "generator", "flutter", "riverpod-emit.ts"));
   // Phase ① — the parser's own error text.  It attaches no `loom.*` code
   // (Langium stamps `parsing-error` and `src/api/report.ts` maps that to
   // `loom.parse-error`), so invariants 1/2/4 have nothing to check here; it

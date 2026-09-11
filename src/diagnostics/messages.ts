@@ -1557,6 +1557,35 @@ export const DIAGNOSTIC_MESSAGES = {
     `(CreateForm/OperationForm).`,
 
   // ----------------------------------------------------------------------
+  // src/generator/flutter/riverpod-emit.ts
+  //
+  // Phase ⑧ give-ups, not phase ④/⑦ checks: they are worded here (and route
+  // through `giveUp`, so they carry the shared degradation sentinel) because
+  // the emitter is the only layer that knows a Riverpod Notifier method cannot
+  // express the statement.  Before this they were bare `TODO(flutter
+  // full-parity)` comments with no code and no sentinel.
+  // ----------------------------------------------------------------------
+  "loom.flutter-action-statement-unsupported#private-operation": (p: { name: unknown }) =>
+    `Call to '${p.name}' in a Flutter page/store action body resolves to no declaration, so ` +
+    `the Riverpod Notifier method has nothing to invoke and the call is DROPPED. ` +
+    `Navigation is the one such call Flutter renders (\`navigate(<Page>)\`); anything else ` +
+    `must name a sibling action, a store action, or a declared \`extern function\`.`,
+  "loom.flutter-action-statement-unsupported#kind": (p: { kind: unknown }) =>
+    `Statement '${p.kind}' has no Flutter Notifier-method form, so it is DROPPED from the ` +
+    `action body. A Flutter action body supports state writes (\`:=\`/\`+=\`/\`-=\`), \`let\`, ` +
+    `bare expressions, sibling / store action calls, \`navigate(<Page>)\` and \`match await\`.`,
+  "loom.flutter-action-statement-unsupported#navigate-route-param": (p: { page: unknown }) =>
+    `\`navigate(${p.page})\` in a Flutter action body targets a page whose route carries a ` +
+    `':param' segment, and the call supplies no value for it — a Riverpod Notifier method has ` +
+    `no route arguments in scope, so the navigation is DROPPED rather than emitted as Dart ` +
+    `that will not compile. Spell the destination as a path instead ` +
+    `(\`navigate("/products/" + id)\`), or navigate from a body slot that binds the id.`,
+  "loom.flutter-action-statement-unsupported#match-await":
+    `The \`match await\` subject in this Flutter action body does not resolve to a remote ` +
+    `aggregate instance operation, so no request can be emitted and the effect is DROPPED. ` +
+    `Spell the subject \`<api>.<Aggregate>.<operation>(args?)\`.`,
+
+  // ----------------------------------------------------------------------
   // src/ir/validate/checks/system-checks.ts
   // ----------------------------------------------------------------------
   "loom.projection-whole-table-aggregation-unsupported": (p: {

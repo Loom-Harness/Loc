@@ -23,6 +23,7 @@ import type { EnrichedBoundedContextIR, StoreIR } from "../../ir/types/loom-ir.j
 import { upperFirst } from "../../util/naming.js";
 import { dartType } from "./dart-types.js";
 import { usesMoney } from "./money-runtime.js";
+import { FLUTTER_NAV_MARKER } from "./nav-runtime.js";
 import {
   buildStateFields,
   buildStateInits,
@@ -68,6 +69,7 @@ function renderStore(
   store: StoreIR,
   contexts: readonly EnrichedBoundedContextIR[],
   persisted: FlutterPersistedStore | undefined,
+  pageRoutes: ReadonlyMap<string, string>,
 ): string[] {
   const stateClass = storeStateClass(store.name);
   const notifierClass = storeNotifierClass(store.name);
@@ -118,7 +120,13 @@ function renderStore(
     const param = action.params[0];
     const locals = new Map<string, string>();
     if (param) locals.set(param.name, param.name);
-    const ctx = stateCtx({ stateNames, derivedNames: new Set(), aggregatesByName, locals });
+    const ctx = stateCtx({
+      stateNames,
+      derivedNames: new Set(),
+      aggregatesByName,
+      locals,
+      pageRoutes,
+    });
     // `selfStore` keeps a same-store action call a plain in-class invocation: a
     // provider that reads its OWN notifier is what Riverpod reports as a
     // circular dependency, and the method is right here anyway.
@@ -155,6 +163,9 @@ export function renderFlutterStores(
    *  empty when every store is `memory`, which keeps the emitted file
    *  byte-identical to the pre-persistence output. */
   persisted: readonly FlutterPersistedStore[] = [],
+  /** Page name → route, so a `navigate(<Page>)` inside a store action targets
+   *  the router's real key (see `stateCtx`'s `pageRoutes`). */
+  pageRoutes: ReadonlyMap<string, string> = new Map(),
 ): string | undefined {
   if (stores.length === 0) return undefined;
   const byName = new Map(persisted.map((p) => [p.store.name, p]));
@@ -171,11 +182,16 @@ export function renderFlutterStores(
   ];
   if (persisted.length > 0) header.push("", "import 'store_persist.dart';");
   if (needsModels(stores)) header.push("", "import 'models.dart';");
-  const bodies = stores.map((s) => renderStore(s, contexts, byName.get(s.name)).join("\n"));
+  const bodies = stores.map((s) =>
+    renderStore(s, contexts, byName.get(s.name), pageRoutes).join("\n"),
+  );
   // The money runtime (M-T1.21), on demand: a store's money cell seeds and its
   // actions' money arithmetic both render `LoomMoney.` into these bodies.  Same
   // marker `index.ts` emits `lib/money.dart` on, so neither can dangle.
   const body = bodies.join("\n\n");
   if (usesMoney(body)) header.push("", "import 'money.dart';");
+  // A store action that navigates pushes through the out-of-tree bridge — a
+  // Riverpod `Notifier` has no `BuildContext` (F2-CFE-1).
+  if (body.includes(FLUTTER_NAV_MARKER)) header.push("", "import 'nav.dart';");
   return `${[...header, "", body, ...urlSync].join("\n")}\n`;
 }
