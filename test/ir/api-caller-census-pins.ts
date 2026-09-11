@@ -601,6 +601,30 @@ export const E2E_LESS_CORPUS_FIXTURES: readonly string[] = [
   // read carries the capability predicates.  The runtime half needs the
   // two-principal harness (`tenancy-e2e.yml` owns that shape).
   "projection-agg-filters",
+  // COMPILE-TIER WITNESS (M-T6.54 F18), for the SAME reason as
+  // `projection-agg-filters` directly above — same capabilities, same missing
+  // harness.  The assertion this fixture wants is "a SECOND tenant's rows
+  // appear under `ignoring tenantOwned` and are absent without it", which needs
+  // two principals; the behavioural runners authenticate as one
+  // (`DEV_CLAIMS`), so the caller could only ever read its own rows and both
+  // spellings would return the same set — a green e2e over a retained conjunct,
+  // which is exactly the failure mode this fixture exists to catch.  The
+  // structural proof is `test/generator/java/generator-java-find-bypass-principal.test.ts`
+  // (paired presence + ABSENCE per conjunct, per read surface).  Drain: the
+  // two-principal harness `tenancy-e2e.yml` owns — the same one
+  // `projection-agg-filters` waits on.
+  "find-bypass",
+  // UNIT-TIER WITNESS (M-T6.55 F14/F15/F24), the `numeric-operands` shape: it
+  // carries a DOMAIN `test` block and no `test e2e`, so the behavioural runners
+  // do run it (unit tier) and the gate ledger scores its cells `behavioural` —
+  // it is e2e-LESS, not gate-less.  A `test e2e` would add little: two of its
+  // three rules are REJECTION behaviour reachable only through the NESTED create
+  // body, which the runners do not drive today (`lifecycle-guard`'s entry records
+  // what it took to make a DENIAL testable there).  The third — a private
+  // operation's write reaching the caller's result — is exactly what the domain
+  // test asserts, in memory, on all five.  Drain: give the runner a nested create
+  // plus a `toThrow(422)` on it.
+  "part-rules-private-op",
   // COMPILE-TIER WITNESS (generator review A1, document half) — the row count
   // over a `shape: document` source, the one aggregation that shape can express.
   // The gate it exists for is a GENERATION one (four backends emit it, java is

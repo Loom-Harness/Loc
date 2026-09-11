@@ -49,31 +49,36 @@ export function renderJavaDocumentRepositoryImpl(
   const finds = declaredFinds(repo).map((f) => unionFindAsOptionalTwin(f, agg.name));
 
   // A document aggregate's every field lives in the `data` jsonb column, so a
-  // (non-principal) capability `filter` is applied in-app over the rehydrated
-  // aggregate (the read already deserialises every row).  findById + findAll
-  // apply the ALWAYS-ON subset (non-promoted caps + bare filters); since every
-  // custom find reads through findAll(), that gates them too.
+  // capability `filter` is applied in-app over the rehydrated aggregate (the
+  // read already deserialises every row).
   //
-  // §11.6 selective bypass: a PROMOTED capability (some read `ignoring`s it)
-  // leaves the always-on subset and is re-applied PER-FIND — conjoined into each
-  // find's stream `.filter`, omitted on the finds that bypass it.  `promotedCaps`
-  // is threaded by the orchestrator (capability-filter.ts).
-  const promotedCaps = ctx.promotedCaps ?? new Set<string>();
+  // TWO shapes (M-T6.54 F18):
+  //
+  //  - NO read on this aggregate carries an `ignoring` clause — the common case.
+  //    `findById` / `findAll` apply the whole filter set and every declared find
+  //    streams off `findAll()`, so one predicate gates them all.  Byte-identical
+  //    to what this emitter always produced.
+  //  - SOME read bypasses a capability.  `findAll()` is then itself a SCOPED
+  //    read (it is the root LIST route's only source) and cannot double as the
+  //    unfiltered base a bypassing find needs, so the rehydrate is split out as
+  //    `rehydrateAll()` and EVERY read — `findAll()` included — conjoins the
+  //    capabilities IT does not bypass.  The previous emission hoisted the
+  //    promoted caps out of `findAll()` and re-applied them per find, which
+  //    dropped them from the root list/by-id routes entirely (a soft-deleted row
+  //    became readable through `GET /<plural>` as soon as any OTHER find said
+  //    `ignoring softDeletable`), and gave the principal conjunct no per-read
+  //    bypass at all.
   const origins = agg.contextFilterOrigins ?? [];
-  // The (predicate, origin) entries, split by whether the predicate reads the
-  // request principal (`currentUser`).  Non-principal filters are applied in-app
-  // over the rehydrated aggregate as before; PRINCIPAL filters (,
-  // e.g. `filter this.tenantId == currentUser.tenantId`) are also applied in-app
-  // here — a document aggregate can't push them to SQL/JPQL (the relational path
-  // does via a SpEL @Query) — but they need the `currentUser` local bound from
-  // the injected accessor and a fail-closed null guard (see `principalPred`).
-  const capEntries: { pred: ExprIR; origin: string | undefined }[] = (agg.contextFilters ?? [])
-    .map((pred, i) => ({ pred, origin: origins[i] }))
-    .filter((e) => !exprUsesCurrentUser(e.pred));
-  // Principal (tenancy) filters: always-on (never promoted/bypassable — the
-  // relational path AND-s them into every root read unconditionally), rendered
-  // with `accessorProps` so `currentUser.tenantId` → `currentUser.tenantId()`.
-  const principalPreds: ExprIR[] = (agg.contextFilters ?? []).filter(exprUsesCurrentUser);
+  // The (predicate, origin) entries.  `principal` marks a predicate that reads
+  // the request principal (`filter this.tenantId == currentUser.tenantId`): a
+  // document aggregate can't push those to SQL/JPQL (the relational path does
+  // via a SpEL @Query), so they are applied in-app too — but they need the
+  // `currentUser` local bound from the injected accessor and a fail-closed null
+  // guard (see `capBody`).  A BARE filter (`origin === undefined`) is never
+  // bypassable, matching `capability-filter.ts`'s triage rule.
+  const capEntries: { pred: ExprIR; origin: string | undefined; principal: boolean }[] = (
+    agg.contextFilters ?? []
+  ).map((pred, i) => ({ pred, origin: origins[i], principal: exprUsesCurrentUser(pred) }));
   const hasPrincipal = aggregateUsesPrincipalContextFilter(agg);
   // The command load's IN-APP write-scope guard can read the principal
   // even when no READ filter does, and it is the only other user of the
@@ -85,37 +90,53 @@ export function renderJavaDocumentRepositoryImpl(
   // and a document read has no query to translate into (pairwise finding F1).
   const renderPred = (p: ExprIR, varName: string): string =>
     `(${renderJavaExpr(desugarAuthzFilterInApp(p, agg.name), { thisName: varName, agg, accessorProps: true })})`;
-  // The principal conjunct over `varName`, guarded fail-closed: a null
-  // `currentUser` (unauthenticated scope) short-circuits to NO rows rather than
-  // NPE-ing on `currentUser.tenantId()`.  This is the in-app analogue of the
-  // relational path's null-safe SpEL (`@currentUserAccessor.user()?.tenantId()`),
-  // which a null principal makes match nothing.  Null when no principal filter.
-  const principalPred = (varName: string): string | null => {
-    if (principalPreds.length === 0) return null;
-    const preds = principalPreds.map((p) => renderPred(p, varName));
-    return `currentUser != null && ${preds.join(" && ")}`;
-  };
-  // Always-on predicates: bare filters (undefined origin) + non-promoted caps
-  // + the fail-closed principal conjunct.
-  const alwaysOn = (varName: string): string | null => {
-    const preds = capEntries
-      .filter((e) => e.origin == null || !promotedCaps.has(e.origin))
-      .map((e) => renderPred(e.pred, varName));
-    const principal = principalPred(varName);
-    if (principal) preds.push(principal);
+  /** True when `e` survives the read's own `ignoring` clause.  A bare filter
+   *  (undefined origin) always survives. */
+  const survives = (e: { origin: string | undefined }, bypass: FilterBypass | undefined): boolean =>
+    !(e.origin !== undefined && bypassDrops(e.origin, bypass));
+  /** The in-app capability predicate for a read with `bypass`, over `varName`.
+   *  The principal conjunct is guarded fail-closed: a null `currentUser`
+   *  (unauthenticated scope) short-circuits to NO rows rather than NPE-ing on
+   *  `currentUser.tenantId()` — the in-app analogue of the relational path's
+   *  null-safe SpEL (`@currentUserAccessor.user()?.tenantId()`), which a null
+   *  principal makes match nothing.  Null when nothing narrows this read. */
+  const capBody = (bypass: FilterBypass | undefined, varName: string): string | null => {
+    const kept = capEntries.filter((e) => survives(e, bypass));
+    const preds = kept.filter((e) => !e.principal).map((e) => renderPred(e.pred, varName));
+    const principal = kept.filter((e) => e.principal).map((e) => renderPred(e.pred, varName));
+    if (principal.length > 0) preds.push(`currentUser != null && ${principal.join(" && ")}`);
     return preds.length > 0 ? preds.join(" && ") : null;
   };
-  // Promoted predicates a read does NOT bypass — conjoined into the find stream.
-  const promotedFilterClause = (bypass: FilterBypass | undefined, varName: string): string => {
-    const preds = capEntries
-      .filter(
-        (e) => e.origin != null && promotedCaps.has(e.origin) && !bypassDrops(e.origin, bypass),
-      )
-      .map((e) => renderPred(e.pred, varName));
-    return preds.length > 0 ? `.filter(${varName} -> ${preds.join(" && ")})` : "";
+  /** True when `capBody(bypass, …)` reads the `currentUser` local, so the read
+   *  has to bind it from the accessor first. */
+  const capBodyBindsPrincipal = (bypass: FilterBypass | undefined): boolean =>
+    capEntries.some((e) => e.principal && survives(e, bypass));
+  const readBypass = (b: FilterBypass | undefined): boolean =>
+    !!b && (b.bypassAll === true || (b.bypassCaps?.length ?? 0) > 0);
+  // Does ANY read of this aggregate carry an `ignoring` clause?  `promotedCaps`
+  // carries the context-wide non-principal answer (finds, inline `Repo.run`s and
+  // query-time projections — capability-filter.ts); the two local scans add the
+  // PRINCIPAL caps, which never enter that set (they ride the relational path's
+  // JPQL, not a Hibernate @Filter).
+  const perReadFilters =
+    (ctx.promotedCaps?.size ?? 0) > 0 ||
+    finds.some((f) => readBypass({ bypassAll: f.bypassAll, bypassCaps: f.bypassCaps })) ||
+    (ctx.retrievals ?? []).some((r) => readBypass(ctx.bypassByRetrieval?.get(r.name)));
+  /** The rehydrate call a declared find / retrieval streams off. */
+  const baseCall = perReadFilters ? "rehydrateAll()" : "findAll()";
+  /** The capability `.filter(...)` a declared read conjoins onto `baseCall`.
+   *  Empty in the no-bypass shape — `findAll()` already applied it. */
+  const capClauseFor = (bypass: FilterBypass | undefined, varName: string): string => {
+    if (!perReadFilters) return "";
+    const body = capBody(bypass, varName);
+    return body ? `.filter(${varName} -> ${body})` : "";
   };
-  const capRec = alwaysOn("rec");
-  const capX = alwaysOn("x");
+  const principalBindFor = (bypass: FilterBypass | undefined): string[] =>
+    perReadFilters && capBodyBindsPrincipal(bypass)
+      ? [`        var currentUser = currentUserAccessor.user();`]
+      : [];
+  const capRec = capBody(undefined, "rec");
+  const capX = capBody(undefined, "x");
   // aggregate_loaded (debug) — shared by the plain and the write-scoped command
   // load so the two emissions stay one log line, not two spellings.
   const aggregateLoadedLog = `        CatalogLog.event(${javaLogEvent("aggregateLoaded")}, "aggregate", "${agg.name}", "id", String.valueOf(id.value()), "found", found.isPresent());`;
@@ -146,8 +167,9 @@ export function renderJavaDocumentRepositoryImpl(
     agg,
     ctx.retrievals ?? [],
     exprImports,
-    (retrievalName, varName) =>
-      promotedFilterClause(ctx.bypassByRetrieval?.get(retrievalName), varName),
+    (retrievalName, varName) => capClauseFor(ctx.bypassByRetrieval?.get(retrievalName), varName),
+    baseCall,
+    (retrievalName) => principalBindFor(ctx.bypassByRetrieval?.get(retrievalName)),
   );
 
   // find_executed (debug) per declared find — the `rows` field is an integer
@@ -160,15 +182,18 @@ export function renderJavaDocumentRepositoryImpl(
     const ownFilter = f.filter
       ? `.filter(x -> ${renderJavaExpr(f.filter, { thisName: "x", agg, accessorProps: true })})`
       : "";
-    // Re-apply the promoted caps this find doesn't `ignoring`, over the same `x`.
-    const filter =
-      ownFilter + promotedFilterClause({ bypassAll: f.bypassAll, bypassCaps: f.bypassCaps }, "x");
+    // Conjoin the capabilities this find does NOT `ignoring`, over the same `x`
+    // — empty in the no-bypass shape, where `findAll()` already applied them.
+    const bypass: FilterBypass = { bypassAll: f.bypassAll, bypassCaps: f.bypassCaps };
+    const filter = ownFilter + capClauseFor(bypass, "x");
+    const prelude = principalBindFor(bypass);
     if (isPagedFind(f)) {
       const sig = [...params, "int page", "int pageSize", "String sort", "String dir"].join(", ");
       return [
         `    @Override`,
         `    public Paged<${agg.name}> ${f.name}(${sig}) {`,
-        `        var all = findAll().stream()${filter}.toList();`,
+        ...prelude,
+        `        var all = ${baseCall}.stream()${filter}.toList();`,
         ...inMemoryPagedSortLines(agg),
         `        var items = all.stream().sorted(__cmp).skip((long) (page - 1) * pageSize).limit(pageSize).toList();`,
         findExecutedLog(f.name, "all.size()"),
@@ -181,7 +206,8 @@ export function renderJavaDocumentRepositoryImpl(
       return [
         `    @Override`,
         `    public ${agg.name} ${f.name}(${params.join(", ")}) {`,
-        `        var result = findAll().stream()${filter}.findFirst().orElse(null);`,
+        ...prelude,
+        `        var result = ${baseCall}.stream()${filter}.findFirst().orElse(null);`,
         findExecutedLog(f.name, "result == null ? 0 : 1"),
         `        return result;`,
         `    }`,
@@ -191,7 +217,8 @@ export function renderJavaDocumentRepositoryImpl(
     return [
       `    @Override`,
       `    public List<${agg.name}> ${f.name}(${params.join(", ")}) {`,
-      `        var result = findAll().stream()${filter}.toList();`,
+      ...prelude,
+      `        var result = ${baseCall}.stream()${filter}.toList();`,
       findExecutedLog(f.name, "result.size()"),
       `        return result;`,
       `    }`,
@@ -330,22 +357,48 @@ export function renderJavaDocumentRepositoryImpl(
       `    }`,
     ]),
     ``,
-    `    @Override`,
-    `    public List<${agg.name}> findAll() {`,
-    `        var rows = jdbc.query("select data from ${table} order by id", (rs, i) -> rs.getString(1));`,
-    `        var out = new ArrayList<${agg.name}>();`,
-    ...(capX
+    // `findAll()` is a SCOPED read — the root LIST route's only source — so it
+    // applies the whole capability set.  When some OTHER read bypasses a
+    // capability, the unfiltered rehydrate it needs is split out below rather
+    // than taken out of `findAll()` (M-T6.54 F18).
+    ...(perReadFilters
       ? [
-          hasPrincipal ? `        var currentUser = currentUserAccessor.user();` : null,
-          `        for (var data : rows) {`,
-          `            var x = fromJson(data);`,
-          `            if (${capX}) out.add(x);`,
-          `        }`,
-        ].filter((l): l is string => l != null)
-      : [`        for (var data : rows) out.add(fromJson(data));`]),
-    `        return out;`,
-    `    }`,
-    ``,
+          `    private List<${agg.name}> rehydrateAll() {`,
+          `        var rows = jdbc.query("select data from ${table} order by id", (rs, i) -> rs.getString(1));`,
+          `        var out = new ArrayList<${agg.name}>();`,
+          `        for (var data : rows) out.add(fromJson(data));`,
+          `        return out;`,
+          `    }`,
+          ``,
+          `    @Override`,
+          `    public List<${agg.name}> findAll() {`,
+          ...(capX
+            ? [
+                hasPrincipal ? `        var currentUser = currentUserAccessor.user();` : null,
+                `        return rehydrateAll().stream().filter(x -> ${capX}).toList();`,
+              ].filter((l): l is string => l != null)
+            : [`        return rehydrateAll();`]),
+          `    }`,
+          ``,
+        ]
+      : [
+          `    @Override`,
+          `    public List<${agg.name}> findAll() {`,
+          `        var rows = jdbc.query("select data from ${table} order by id", (rs, i) -> rs.getString(1));`,
+          `        var out = new ArrayList<${agg.name}>();`,
+          ...(capX
+            ? [
+                hasPrincipal ? `        var currentUser = currentUserAccessor.user();` : null,
+                `        for (var data : rows) {`,
+                `            var x = fromJson(data);`,
+                `            if (${capX}) out.add(x);`,
+                `        }`,
+              ].filter((l): l is string => l != null)
+            : [`        for (var data : rows) out.add(fromJson(data));`]),
+          `        return out;`,
+          `    }`,
+          ``,
+        ]),
     `    @Override`,
     `    public void delete(${agg.name} aggregate) {`,
     `        jdbc.update("delete from ${table} where id = ?", aggregate.id().value());`,

@@ -173,9 +173,22 @@ Found 2026-09-08 by M-T6.48's cross-backend ingress matrix (`test/conformance/nu
 
 Sources: [numeric-types-audit-2026-08-23](../audits/numeric-types-audit-2026-08-23.md) F12 annex (the stringified-number skew was noted there but never dispositioned); M-T6.48 and its matrix. Relates to RS-12 (money wire scale, response direction) and RS-24 (decimal is a JSON number).
 
-## M-T6.50 — Python saga / workflow emission holes: three collector gaps that ship `F821` into the generated app — `open` · **S–M** · P1
+## M-T6.50 — Python saga / workflow emission holes: three collector gaps that ship `F821` into the generated app — `partial` (sites 1 + 3 landed by [#2752](https://github.com/lemmit/Loc/pull/2752), verified 2026-09-11; **site 2 is the only live half**, claimed by [#2850](https://github.com/lemmit/Loc/pull/2850) + wave-c1 packet 1a) · **S–M** · P1
 
-Found 2026-08-30 re-verifying the [08-24 generator review](../audits/generator-code-review-2026-08-24.md)'s follow-up register (rows 14–16); two **reproduced** on `main` @ `aa236ae`, one latent. No ledger row in #2668, no other owner. One backend, one class — a renderer emits a name the module never binds — three sites:
+Found 2026-08-30 re-verifying the [08-24 generator review](../audits/generator-code-review-2026-08-24.md)'s follow-up register (rows 14–16); two **reproduced** on `main` @ `aa236ae`, one latent.
+
+> **Narrowed 2026-09-11 (wave C1, packet 1f) by READING the code on the wave base, not the PR bodies.**
+> **Site 1 is closed:** `dispatch-builder.ts:21` imports `domainServiceImportLinesForWorkflow` and `:452`
+> splices it into the saga-handler file's import block, so the bare `next_attempt(1)` the mission
+> reproduced now has its `from app.domain.services.retry import next_attempt`.
+> **Site 3 is closed, and closed the way §F3 asked:** `collectStmtExprImports`
+> (`python/emit/domain-service.ts:252-254`) is two lines — `walkStmtExprsDeep(st, (e) =>
+> collectPyExprImports(e, into))` — so the hand-enumerated 10-of-11 switch is gone and a new
+> `StmtIR` kind cannot silently skip imports again. `test/system/ir-walk-census.test.ts` is green
+> on this tree with no waiver for either file, which is the ratchet that keeps them closed.
+> **Site 2 (own-state assign in an uncorrelated command workflow) is untouched here** — the
+> python indentation half is #2850 and the VALIDATOR RULING for its cases (B)/(C) is wave C1
+> packet 1a's. This mission closes when that lands; nothing else in it is open. No ledger row in #2668, no other owner. One backend, one class — a renderer emits a name the module never binds — three sites:
 
 1. **`dispatch-builder.ts` emits no domain-service imports at all.** `domainServiceImportLinesForWorkflow` exists (`python/emit/domain-service.ts:291`) and has exactly two callers — `workflows-builder.ts:257` and `emit/aggregate.ts:266`. The saga-handler file is not one of them, and the PY_TARGET leaf renders a domain-service call as the **bare** function name. Reproduced: a saga `on(s: ShipmentRequested)` handler calling `Retry.nextAttempt(1)` emits `next_attempt(1)` at `app/dispatch.py:31` with no `from app.domain.services.retry import next_attempt` → ruff `F821` / `NameError` at first delivery.
 2. **Own-state assign in a non-correlated command workflow renders `self._x` at module level.** `workflows-builder.ts:582` builds the route target with `thisName: "self"`, and the `assign` arm (`:817-823`) renders the own-state LHS through that mapping — but the workflow ROUTE is a module-level `async def`, not a method. Reproduced: `create(title: string) { counter := 1 … }` emits `self._counter = 1` into `app/http/workflows_routes.py` → `F821`. (The correlated saga path is correct: it maps to the tracked row via `thisName: "state"`.)
@@ -187,58 +200,6 @@ Found 2026-08-30 re-verifying the [08-24 generator review](../audits/generator-c
 
 Sources: [generator-code-review-2026-08-24](../audits/generator-code-review-2026-08-24.md) §Follow-up register (2026-08-30) rows 14–16; §F3 (one ref-walker per IR family) is the durable fix for (3). Relates to §A16 (the three sibling collectors #2667 already migrated onto `src/ir/util/walk.ts`).
 
-## M-T6.51 — node document finds ignore `ignoring` — the A11 fix has no node twin — `open` · **S** · P1
-
-Found 2026-08-30 (recorded as §D item 14 of the [08-24 review](../audits/generator-code-review-2026-08-24.md), re-verified on `main` @ `aa236ae`). Not claimed by #2668.
-
-`documentFindMethod` computes the capability predicate once per aggregate — `const cap = documentCapabilityBody(agg, "x")` (`src/generator/typescript/repository-document-builder.ts:325`) — and reuses it for every find, with no access to that find's `bypassAll` / `bypassCaps`. So on a `shape: document` aggregate a declared `find … ignoring softDeletable` **still filters the soft-deleted rows out**: wrong data, fail-closed, no diagnostic. The synthesized query-time-projection reads assembled in the same file inherit it (`:89-90`), so a `projection … ignoring <Cap>` over a document source is likewise not bypassed on node.
-
-Both siblings already do it right: elixir's `renderDocFindFn` threads `bypass: { bypassAll: f.bypassAll, bypassCaps: f.bypassCaps }` (`elixir/vanilla/document-emit.ts:641` — the §A11 fix landed in #2667), and python's document `findMethod` recomputes with the find's own bypass.
-
-**The fix:** recompute the predicate per find, exactly as `renderDocFindFn` does — pass the find's bypass set into `documentCapabilityBody` (or a bypass-aware sibling) and drop the per-aggregate cache. Check the synthesized projection reads take the projection's own bypass, not the aggregate's default.
-
-**Verification when it lands.** A generator test per shape (declared find with `ignoring <Cap>`, `ignoring *`, and a projection over a document source), asserting the bypassed predicate is *absent* — and mutation-proved, since the failure mode here is a silently-retained conjunct, which a presence-only assertion cannot see.
-
-Sources: [generator-code-review-2026-08-24](../audits/generator-code-review-2026-08-24.md) §D item 14 + §Follow-up register (2026-08-30) row 18. Sibling of §A11 (elixir, fixed #2667).
-
-## M-T6.54 — Java ignores `ignoring` for principal filters, and renders a guarded invariant on the wire without its guard — `open` · **M** · P1 ⚠ verify-first
-
-Found 2026-09-03 by the language-docs audit ([F18](../audits/2026-09-03-language-docs-audit-findings.md), [F19](../audits/2026-09-03-language-docs-audit-findings.md), both P2). `jpqlWhere` (`src/generator/java/emit/repository.ts:361-392`) ANDs `principalClause` unconditionally with no `bypassAll`/`bypassCaps` check (`bypassAll` appears only at `:637`, the impl-side Hibernate wrapper), so both `find allRows(): Order[] ignoring *` and `ignoring tenantScoped` still emit `where (e.tenantId = :#{@currentUserAccessor.user()?.tenantId()})` — node/python/elixir drop the conjunct and dotnet emits `IgnoreQueryFilters`. It contradicts the comment at `src/generator/java/capability-filter.ts:26-29`, which claims parity with node. The fail-direction is safe (Java over-restricts rather than leaking), which is why this is not a Wave-1 packet — but the same `.ddd` returns a different row set on Java, and an operator reading the docs would conclude the bypass took effect. Separately, `buildChecks` (`src/generator/java/emit/validator.ts:366-395`) calls `renderJavaExpr(inv.expr, …)` with no `!(guard) ||` implication, which node/.NET/python all emit: `invariant note.length > 0 when taxRate > 0` becomes unconditional, so Java 422-rejects a request that is legal when `taxRate == 0`.
-
-**The fix:** `jpqlWhere` honours the find's `bypassAll`/`bypassCaps`; the wire validator emits the implication the other backends emit. Correct the stale parity comment in `capability-filter.ts` in the same PR.
-
-**Verification when it lands.** Generator tests asserting the *absence* of the principal conjunct under each bypass spelling (a presence-only assertion cannot see a retained conjunct) and the presence of the guard implication; both mutation-proved by file-copy revert.
-
-Sources: [language-docs-audit-2026-09-03](../audits/2026-09-03-language-docs-audit-findings.md) F18/F19, [wave plan](../audits/2026-09-03-language-docs-audit-findings.waves.md) packet **W5.1** (first in its wave — the one row there with a behavioural consequence). Sibling of M-T6.51 (the node document-find twin of the same "bypass silently retained" shape).
-
-> **Verified 2026-09-09 (fleet). Both rows hold; F18 is TWO surfaces, not one.** The relational
-> `@Query` path AND the document-shape `findAll()` path both keep the principal conjunct under
-> `ignoring`. Java already contains the CORRECT implementation for the aggregation path
-> (`emit/query-projection-reads.ts:161-166`), so this is a missed surface, not an undesigned feature —
-> and `capability-filter.ts:29-32` asserts the behaviour exists. **`FILTER_BYPASS_FAMILIES` includes
-> `java`, so `loom.filter-bypass-unsupported` certifies Java as honouring `ignoring` while two of its
-> four read surfaces do not.** Fail direction is safe (over-restricts). F19 is S: one arm of
-> `buildChecks`, with `dotnet/validator-emit.ts:167-171` as a line-for-line template. The
-> document-store half is the awkward one — the conjunct lives inside the SHARED `findAll()`, so a
-> per-read bypass needs it hoisted into each read's filter chain.
-## M-T6.55 — Phoenix drops a part-level `check`, a guarded single-field invariant, and a private-operation call — `open` · **M** · P1 ⚠ verify-first
-
-Found 2026-09-03 by the language-docs audit ([F14](../audits/2026-09-03-language-docs-audit-findings.md), [F15](../audits/2026-09-03-language-docs-audit-findings.md), [F24](../audits/2026-09-03-language-docs-audit-findings.md); P1/P1/P2). Three silent under-enforcements on one backend: `entity Line { qty: int check qty > 0 }` produces a `changeset/2` that only `cast`s `[:sku, :qty]` with no `validate_number` (root-level `check`/`invariant` do emit one, and node/dotnet/java/python all enforce the part-level form); a guarded single-field invariant is excluded by both `residualInvariants` (`src/generator/elixir/vanilla/changeset-invariant-emit.ts`) and the native path in `changeset-emit.ts`, so nothing enforces it; and a private-operation call renders `_ = nil  # vanilla: bare call to 'recompute' (no callable target); record unchanged` — compile-clean, behaviourally absent, signalled only by a comment in generated code.
-
-**The fix:** each either enforces or raises a `loom.*` code. F24's comment-only degrade is not an acceptable resting state — a comment in emitted output is not a diagnostic.
-
-**Verification when it lands.** A changeset test per shape plus a behavioural leg that submits the value the rule should reject; each mutation-proved by file-copy revert.
-
-Sources: [language-docs-audit-2026-09-03](../audits/2026-09-03-language-docs-audit-findings.md) F14/F15/F24, [wave plan](../audits/2026-09-03-language-docs-audit-findings.waves.md) packet **W5.2**. Relates to M-T6.2 (the vanilla-Phoenix gap register — the same "silent fallthrough vs honest gate" discipline).
-
-> **Verified 2026-09-09 (fleet). All three hold, two undercount, and F24's stated reason is false.**
-> F14 also drops part-level `invariant`, not just `check`. F15 also drops the MESSAGED guarded
-> invariant, so its `loom_code` wire key vanishes — contradicting `messagedRoutesToResidual`'s own
-> docblock. **F24's emitter comment says "no callable target" while `def recompute/2` is defined SIX
-> LINES ABOVE in the same module.** Fork resolved: **EMIT the call, do not mint a refusal** — a
-> validator gate is platform-independent and would reject a construct the other four backends have
-> shipped for months. The fix has TWO halves: `persistPutBodies` walks only `op.statements`, so
-> emitting the call alone computes the mutation and silently drops it at persist.
 ## M-T6.56 — Phoenix wire and HEEx divergences: a dropped `derived`, a `:map` value-object column, `Image`/`Icon`/`WorkflowForm` — `open` · **M** · P2 ⚠ verify-first
 
 Found 2026-09-03 by the language-docs audit ([F16](../audits/2026-09-03-language-docs-audit-findings.md), [F20](../audits/2026-09-03-language-docs-audit-findings.md), [F22](../audits/2026-09-03-language-docs-audit-findings.md), [F23](../audits/2026-09-03-language-docs-audit-findings.md); P1/P2). `derivedRenderable` (`src/generator/elixir/vanilla/wire-serialize.ts`) omits a `derived` that reads another `derived` from `serialize/1` while the other four backends ship it — a wire-shape divergence with no gate. On the HEEx side, `renderImage` (`src/generator/elixir/heex-primitives.ts:1510`) and `renderIcon` (`:2151`) read only a named `src:` / a `svg:` literal, ignoring the positional spelling every other target renders (`Image { "/logo.png", alt: … }` emits `<img alt>` with no `src`; `Icon { name: "check" }` an empty span), and the HEEx `WorkflowForm` emits a single `<.input field={@form[:_placeholder]}>` (`heex-primitives.ts:388`) where React emits the real field set.

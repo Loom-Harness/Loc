@@ -174,6 +174,33 @@ ${uiBody}
 }`;
 
 const FIRING_FIXTURES: Record<string, string> = {
+  // --- phase ⑦ IR validate, elixir-only -----------------------------------
+  // A bare call to a PRIVATE operation whose body reads `currentUser`.  Vanilla
+  // lowers the call to a module-local `__op_<name>(record, …)` pure transform
+  // (M-T6.55 F24) and has no way to thread the request principal into it — the
+  // caller binds `current_user` only when its OWN body reads it.  Refused here
+  // rather than emitted as a body `mix compile` rejects.
+  "loom.vanilla-op-call-actor": `
+system VanillaActor {
+  user { id: guid  role: string }
+  subdomain Core { context Billing {
+    aggregate Invoice with crudish {
+      total: int
+      operation bump(by: int) {
+        total := total + by
+        recompute()
+      }
+      private operation recompute() {
+        requires currentUser.role == "admin"
+        total := total * 2
+      }
+    }
+  } }
+  api BillingApi from Core
+  storage pg { type: postgres }
+  resource st { for: Billing, kind: state, use: pg }
+  deployable d { platform: elixir, contexts: [Billing], dataSources: [st], serves: BillingApi, port: 4000, auth: required }
+}`,
   // --- phase ④ AST validate -----------------------------------------------
   // Two complete `system { }` blocks and NO top-level members — the shape that
   // slipped past the fold-triggered composition check, because with nothing to

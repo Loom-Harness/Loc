@@ -146,27 +146,6 @@ Found 2026-08-23 by the numeric-types audit ([F14](../audits/numeric-types-audit
 
 Sources: [numeric-types-audit-2026-08-23](../audits/numeric-types-audit-2026-08-23.md) F14, plan.json N9. Relates to RS-12, #2560.
 
-## M-T5.25 — `ignoring` after `group by` parses and is then silently dropped — clause order is load-bearing and nothing says so — `open` · **S** · P1
-
-Found 2026-08-30 re-verifying the [08-24 generator review](../audits/generator-code-review-2026-08-24.md)'s follow-up register (row 13); **reproduced on `main` @ `aa236ae`**, no ledger row, no other owner.
-
-`ProjectionQueryClauses` fixes the bypass clause in the `where` position — `('where' filter=Expression)? IgnoringClause? (joins+=ProjectionJoin)* ('group' 'by' …)?` (`src/language/ddd.langium:1581-1586`). But a `group by` operand is an ordinary `Expression`, and `PostfixChain` admits its own trailing `IgnoringClause` (`:2322`, added so an inline `Repo.findAll(…) ignoring softDeletable` parses). So `group by o.status ignoring softDeletable` **parses clean**, binds the clause to the grouping expression, and lowering drops it — the author asked to see soft-deleted rows and silently keeps getting the filtered count.
-
-Reproduced from `test/fixtures/corpus/projection-groupby.ddd` + `softDeletable` on `Order`, generated to node:
-
-```
-group by o.status ignoring softDeletable   → .where(and(eq(status,"Confirmed"), not(eq(isDeleted,true))))
-where Confirmed / ignoring softDeletable   → .where(eq(status,"Confirmed"))
-```
-
-Same model, same intent, opposite data — decided by where in the clause list the word sits.
-
-**The fix (proposed, overridable):** refuse it. A `bypass`/`bypassAll` that survives on a `groupBys` (or `selects`, or a `join`'s `on`) expression after lowering is authoring error, not a feature — raise a `loom.*` code naming the legal position, from the phase-④ validator where the CST still carries the offending span. Moving the grammar instead (hoisting `IgnoringClause` to accept a trailing position too) is the wrong shape: the clause means "bypass the SOURCE's capability filters", which has no per-expression reading. Audit the sibling positions while in here — the same `PostfixChain` trailing clause is admissible anywhere an `Expression` is, including `where`-position sub-expressions and `select` bodies.
-
-**Verification when it lands.** A negative parse/validate test per admissible-but-illegal position; mutation-proved by deleting the gate and watching the fixture above go quiet again. Add the legal-position witness to the projection fixture so the *working* spelling is pinned too.
-
-Sources: [generator-code-review-2026-08-24](../audits/generator-code-review-2026-08-24.md) §Follow-up register (2026-08-30) row 13. Relates to M-T4.2 (query-time projections), `named-filter-bypass.md` §11.
-
 ## M-T5.28 — `variant-match` off a page crashes all five backends; `for`/`if let` off a workflow emits `this.<unknown>()` — neither is gated — `done` (2026-09-11, Wave C1 packet 1b) · **M** · P1
 
 Found 2026-09-03 by the language-docs audit ([F1](../audits/2026-09-03-language-docs-audit-findings.md), [F4](../audits/2026-09-03-language-docs-audit-findings.md), both P0). A `match` over a union in a domain body reports `0 error(s)` and then throws `variant-match statement is frontend-only; it must not reach the <X> backend` from `src/generator/_stmt/target.ts:160` on node, dotnet, java, python and elixir alike — no IR check covers `variant-match` outside a page (`src/ir/validate/checks/store-checks.ts` handles only the page case), and non-exhaustive arms are unchecked too. Symmetrically, `src/ir/lower/lower-stmt.ts` has no arm for `ForStmt`/`IfLetStmt` outside a workflow and no validator rejects them: `operation touch() { for n in notes { owner := n } }` reports `0 error(s), 0 warning(s)` and emits `this.<unknown>();`.

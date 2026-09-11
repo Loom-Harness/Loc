@@ -1934,6 +1934,20 @@ export const DIAGNOSTIC_MESSAGES = {
     `whole 'return' value, not composed into a larger expression or bound with ` +
     `'let'. Use a bare 'return ${p.eName}(...)', or host this context on a backend ` +
     `with full support (node / dotnet / python / java).`,
+  "loom.vanilla-op-call-actor": (p: {
+    ctxName: unknown;
+    name: unknown;
+    opName: unknown;
+    eName: unknown;
+  }) =>
+    `operation '${p.ctxName}.${p.name}.${p.opName}' calls '${p.eName}', whose body reads ` +
+    `'currentUser' — the elixir backend can't thread the request principal into it. A bare ` +
+    `call to a private operation lowers to a module-local pure transform ` +
+    `('record = __op_${p.eName}(record, ...)'), and the calling function binds the actor only ` +
+    `when its OWN body reads it, so the callee's 'current_user' would be unbound and the ` +
+    `generated project would not compile. Move the 'currentUser' read up into ` +
+    `'${p.opName}' (the routed operation, which receives the actor), or host this context on ` +
+    `a backend with full support (node / dotnet / python / java).`,
   "loom.java-reserved-identifier-unsupported": (p: {
     what: unknown;
     owner: unknown;
