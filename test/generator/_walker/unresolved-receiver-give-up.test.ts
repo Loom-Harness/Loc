@@ -44,10 +44,13 @@ ${uiBody}
 
 async function errorCodes(source: string): Promise<string[]> {
   const { model, doc } = await parseString(source, { validate: false });
-  expect((doc.parseResult.parserErrors ?? []).map((e) => e.message), "fixture parses").toEqual([]);
+  expect(
+    (doc.parseResult.parserErrors ?? []).map((e) => e.message),
+    "fixture parses",
+  ).toEqual([]);
   return validateLoomModel(enrichLoomModel(lowerModel(model)))
     .filter((d) => d.severity === "error")
-    .map((d) => d.code);
+    .map((d) => d.code ?? "<uncoded>");
 }
 
 // Each row is a DIFFERENT body position a method call can sit in.  `ghost` is

@@ -46,6 +46,7 @@ import type { ApiCallSite, RenderPosition, StateRef, WalkerTarget } from "../_wa
 import type { WalkContext } from "../_walker/walker-core.js";
 import { emitExpr, testidAttr, walk } from "../_walker/walker-core.js";
 import { opActionGate } from "./auth-gate.js";
+import { copyWithChain } from "./copy-with.js";
 import {
   DART_LEAVES,
   dartMoneyBinary,
@@ -63,7 +64,6 @@ import {
   workflowFormWidgetName,
 } from "./forms-emit.js";
 import { dartStringLit } from "./i18n.js";
-import { copyWithChain } from "./copy-with.js";
 import { storeProviderName } from "./store-names.js";
 
 /** True when a value is provably a `string` already, so a `Text(…)` child can

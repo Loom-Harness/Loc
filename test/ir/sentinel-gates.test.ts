@@ -32,7 +32,7 @@ async function codes(source: string): Promise<string[]> {
   expect(parseErrors, "fixture must parse").toEqual([]);
   return validateLoomModel(enrichLoomModel(lowerModel(model)))
     .filter((d) => d.severity === "error")
-    .map((d) => d.code);
+    .map((d) => d.code ?? "<uncoded>");
 }
 
 // ---------------------------------------------------------------------------

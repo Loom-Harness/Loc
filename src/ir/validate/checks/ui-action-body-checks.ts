@@ -935,7 +935,10 @@ function backendOnlyKinds(stmts: readonly StmtIR[]): string[] {
   return [...found].sort();
 }
 
-export function validateUiBodyStatementKinds(loom: EnrichedLoomModel, diags: LoomDiagnostic[]): void {
+export function validateUiBodyStatementKinds(
+  loom: EnrichedLoomModel,
+  diags: LoomDiagnostic[],
+): void {
   for (const sys of loom.systems) {
     for (const ui of sys.uis) {
       const flag = (where: string, stmts: readonly StmtIR[]): void => {

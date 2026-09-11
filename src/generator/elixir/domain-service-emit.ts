@@ -34,6 +34,7 @@
 // plain return is the bare value (Elixir's last-expression-is-the-result).
 // ---------------------------------------------------------------------------
 
+import { diagMessage } from "../../diagnostics/messages.js";
 import type {
   BoundedContextIR,
   DomainServiceIR,
@@ -41,7 +42,6 @@ import type {
   ExprIR,
   StmtIR,
 } from "../../ir/types/loom-ir.js";
-import { diagMessage } from "../../diagnostics/messages.js";
 import { readPortsForOperation } from "../../ir/util/domain-service-read-ports.js";
 import {
   aggregateOpResolver,
@@ -71,10 +71,13 @@ import { opCallParamFields } from "./vanilla/workflow-execution-emit.js";
 // emitter SKIPS a reading op from the `Domain.Services` module (and skips the
 // whole module when every op is reading), and `context-emit.ts` ADDS the reading
 // op as a context fn via `renderReadingServiceContextFn`.  A reading op whose
-// read-ports span MORE THAN ONE context is OUT OF SCOPE for — it would
-// need a standalone module taking explicit `Repo`/context args; we keep it in
-// the `Domain.Services` module (so it still emits *something*) and flag it with a
-// `# loom.domain-service-multi-context-reading` note rather than crashing.
+// read-ports span MORE THAN ONE context would need a standalone module taking
+// explicit `Repo`/context args — but that shape is STRUCTURALLY UNREACHABLE
+// (see `readingIsSingleContext`), and the cross-context body that motivated it
+// is refused at phase ⑦ by `loom.domain-service-cross-context-read`.  It used
+// to emit a `def` whose body was a runtime `raise`; Wave C1 packet 1d-ii
+// replaced that with a generate-time internal floor, because shipping a
+// compiling landmine is strictly worse than failing the build.
 // ---------------------------------------------------------------------------
 
 /** True when a reading op's read-ports all resolve to ONE context (this
@@ -92,7 +95,12 @@ import { opCallParamFields } from "./vanilla/workflow-execution-emit.js";
  *  customers"), which is now rejected at phase ⑦ by
  *  `loom.domain-service-cross-context-read` (domain-service-checks.ts).  The
  *  guard below stays as a floor in case lowering ever widens the resolution
- *  scope; it is not the thing that closes the gap. */
+ *  scope; it is not the thing that closes the gap.  The tautology is ASSERTED
+ *  (not merely asserted in prose) by
+ *  `test/generator/elixir/domain-service-cross-context-floor.test.ts`, which
+ *  drives a two-context model that wants to cross and checks every read port —
+ *  so widening lowering's scope fails there rather than silently re-arming the
+ *  floor. */
 export function readingIsSingleContext(
   op: DomainServiceOperationIR,
   ctx: BoundedContextIR,

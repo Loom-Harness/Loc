@@ -67,7 +67,10 @@ const LOCAL = CROSSING.replace("Customers.byName(r)", "Jobs.byTitle(r)").replace
 
 async function ir(source: string) {
   const { model, doc } = await parseString(source, { validate: false });
-  expect((doc.parseResult.parserErrors ?? []).map((e) => e.message), "fixture parses").toEqual([]);
+  expect(
+    (doc.parseResult.parserErrors ?? []).map((e) => e.message),
+    "fixture parses",
+  ).toEqual([]);
   return enrichLoomModel(lowerModel(model));
 }
 

@@ -13,14 +13,14 @@
 // make impossible.
 
 import { describe, expect, it } from "vitest";
-import { buildExternFunctionSignature } from "../../src/generator/_frontend/extern-functions.js";
 import { componentPropTsType } from "../../src/generator/_frontend/component-prop-type.js";
+import { buildExternFunctionSignature } from "../../src/generator/_frontend/extern-functions.js";
+import type { AggregateIR, TypeIR, UiFunctionIR } from "../../src/ir/types/loom-ir.js";
+import { PRIMITIVES } from "../../src/ir/types/loom-ir.js";
 import {
   unsupportedFrontendParamType,
   unsupportedFrontendPropType,
 } from "../../src/ir/util/frontend-prop-type.js";
-import type { AggregateIR, TypeIR, UiFunctionIR } from "../../src/ir/types/loom-ir.js";
-import { PRIMITIVES } from "../../src/ir/types/loom-ir.js";
 
 const prim = (name: string): TypeIR => ({ kind: "primitive", name: name as never });
 

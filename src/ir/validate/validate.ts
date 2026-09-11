@@ -5,7 +5,6 @@ import { validateStampReadsBeforeFlush } from "./checks/capability-checks.js";
 import type { LoomDiagnostic } from "./checks/diagnostic.js";
 import { validateDomainServices } from "./checks/domain-service-checks.js";
 import { validateIfStatementPlacement } from "./checks/if-stmt-checks.js";
-import { validateUiBodyStatementKinds } from "./checks/ui-action-body-checks.js";
 import { validateIndexSuggestions } from "./checks/index-suggestion-checks.js";
 import {
   validateMigrationAdapterSupport,
@@ -113,6 +112,7 @@ import {
   validateContextIntegrationTests,
 } from "./checks/test-checks.js";
 import { validateTimerSources } from "./checks/timer-checks.js";
+import { validateUiBodyStatementKinds } from "./checks/ui-action-body-checks.js";
 import { validateUiBodies, validateUiPageIdentity } from "./checks/ui-checks.js";
 import {
   validateEventChannelAmbiguous,

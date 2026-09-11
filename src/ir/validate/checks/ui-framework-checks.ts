@@ -31,8 +31,8 @@ import { liveViewHandlerCollisions, liveViewStatefulReuse } from "../../util/liv
 import { readableProjectionNames } from "../../util/projection-read.js";
 import { walkExprDeep, walkStmtDeep } from "../../util/walk.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
-import { VIEW_EFFECT_BUILTINS } from "./ui-checks-shared.js";
 import { walkExpr } from "./shared.js";
+import { VIEW_EFFECT_BUILTINS } from "./ui-checks-shared.js";
 
 // `auth: ui` (the frontend OIDC guard) is emitted by every shipped frontend
 // generator: React, Vue, Svelte, Angular, Feliz (`generator/feliz/auth-gate.ts`
