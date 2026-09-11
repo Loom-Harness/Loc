@@ -25,10 +25,8 @@ import { operationBody, operationBodyUsesCurrentUser } from "../../../ir/util/op
 import { walkStmtExprsDeep } from "../../../ir/util/walk.js";
 import { lines } from "../../../util/code-builder.js";
 import { snake } from "../../../util/naming.js";
-import {
-  constructionSeededDefaults,
-  isServerSourcedDefault,
-} from "../../_frontend/server-default.js";
+import { isServerSourcedDefault } from "../../_frontend/server-default.js";
+import { constructionSeededFields } from "../../construction-default.js";
 import { provColumn, provenancedFieldsOf } from "../emit/provenance.js";
 import { externHookCall, externHookModuleName } from "../extern-builder.js";
 import { emptyPyTypeImports, visitPyTypeImports } from "../py-type-imports.js";
@@ -823,12 +821,15 @@ function renderEntity(
         : `${snake(f.name)}: ${renderPyType(f.type)}`;
     });
     // Server-seeded literal defaults (RS-11): a field outside the create-input
-    // set (`token`/`managed`/`internal`) whose default is a plain constant —
-    // the `versioned` capability's `version: int token = 1` is the canonical
-    // case — must be constructed at its declared default, not the type zero, or
-    // the created aggregate reads back at version 0 instead of 1.
+    // set (`token`/`managed`/`internal`) whose default is a construction-time
+    // constant — the `versioned` capability's `version: int token = 1` is the
+    // canonical case — must be constructed at its declared default, not the
+    // type zero, or the created aggregate reads back at version 0 instead of 1.
+    // `money` counts: `renderPyExpr` emits `Decimal("2.50")`, so a
+    // `mm: money managed = money("2.50")` no longer lands as `None` under a
+    // `Decimal` annotation.
     const defaultSeeds = new Map(
-      constructionSeededDefaults(e.fields).map((f) => [f.name, renderPyExpr(f.default)]),
+      constructionSeededFields(e.fields).map((f) => [f.name, renderPyExpr(f.default)]),
     );
     const fieldInit = (f: FieldIR): string => {
       if (inputNames.has(f.name)) {

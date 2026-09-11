@@ -207,9 +207,17 @@ test("editor → generate → bundle → boot → dispatch", async ({ page }) =>
     // runtime log's `request_end` lines to the OpenAPI operation.  This spec
     // sent GET /products twice above (the empty page + the read-back); the
     // preview's own list fetch may add more, so the count is >= 2, never 0.
+    // The row's TEXT CONTENT is the concatenation of three sibling nodes with
+    // no separator — count, "GET /api/products", and "last 200 · 7 ms" — so it
+    // reads `2GET /api/productslast 200 · 7 ms`.  (The spaces in the
+    // accessible name are inserted by the a11y name computation; `hasText`
+    // does not see them.)  Anchoring on trailing whitespace therefore matched
+    // nothing once the view finally had rows to show.  A negative lookahead on
+    // `/` is what actually separates the collection operation from
+    // `/products/{id}`.
     const row = requests
       .locator('[data-testid^="runtime-request-op-"]')
-      .filter({ hasText: /GET \/(api\/)?products(\s|$)/ })
+      .filter({ hasText: /GET \/(api\/)?products(?!\/)/ })
       .first();
     await expect(row).toBeVisible();
     const count = row.locator('[data-testid^="runtime-request-count-"]');

@@ -26,6 +26,51 @@ import { JAVA_PROVENANCED_RECORD } from "./provenance.js";
 
 export type WireDir = "Request" | "Response";
 
+/** The Java primitives a wire component can be. `@NotNull` on one of these is
+ *  inert — a primitive is never null — and so is a `x == null` guard, which
+ *  additionally does not COMPILE. Every emitter that asks "can this component
+ *  actually be null?" reads this one set. */
+export const JAVA_PRIMITIVES: ReadonlySet<string> = new Set([
+  "int",
+  "long",
+  "double",
+  "float",
+  "boolean",
+  "short",
+  "byte",
+]);
+
+/** True when the request component for `t` is a Java REFERENCE — i.e. it can
+ *  hold `null`, so `component == null` both compiles and can be true.
+ *
+ *  `boxed` is the DTO's own boxing decision for this slot (an operation body
+ *  boxes every non-optional param per RS-26; a create body leaves them
+ *  unboxed), passed in rather than re-derived so the answer cannot drift from
+ *  the record the validator is actually reading. */
+export function wireComponentNullable(t: TypeIR, boxed: boolean): boolean {
+  const inner: TypeIR = boxed && t.kind !== "optional" ? { kind: "optional", inner: t } : t;
+  return !JAVA_PRIMITIVES.has(wireJavaType(inner, "Request"));
+}
+
+/** True when the wire form of this type is a nested RECORD — a value object or
+ *  an entity — so a Bean Validation walk needs `@Valid` to descend into it.
+ *  Without that the outer `@NotNull` is checked and the members inside are not,
+ *  which is the difference between refusing `{"price":{"amount":null}}` and
+ *  NPE-ing on it. */
+export function bearsNestedRecord(t: TypeIR): boolean {
+  switch (t.kind) {
+    case "valueobject":
+    case "entity":
+      return true;
+    case "array":
+      return bearsNestedRecord(t.element);
+    case "optional":
+      return bearsNestedRecord(t.inner);
+    default:
+      return false;
+  }
+}
+
 /** The Java type a domain type takes inside a request/response record. */
 export function wireJavaType(t: TypeIR, dir: WireDir, boxed = false): string {
   switch (t.kind) {

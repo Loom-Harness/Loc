@@ -4,6 +4,7 @@ import {
   formatLogArg,
   LOG_LEVELS,
   type StructuredLogPayload,
+  structuredFromConsoleArgs,
 } from "../../web/src/util/log-line.js";
 
 // ---------------------------------------------------------------------------
@@ -65,6 +66,57 @@ describe("asStructuredPayload — catalog payload detection", () => {
     });
     expect(out?.event).toBe("health_ok");
     expect(out?.checks).toEqual(["readiness", "db"]);
+  });
+});
+
+describe("structuredFromConsoleArgs — the shape pino's BROWSER build emits", () => {
+  // `asStructuredPayload` was written against the node envelope
+  // (`{ level, event, … }`, one argument).  The generated backend runs in a
+  // WORKER in the playground, where the bundle resolves pino's `browser`
+  // entry — and that build:
+  //   * reads formatters from `opts.browser.formatters`, not the top-level
+  //     `opts.formatters` the generated `obs/log.ts` sets, so the object it
+  //     hands `console.info` has NO `level` field; and
+  //   * prepends a child logger's bindings as a SEPARATE argument, so a
+  //     per-request line arrives as two objects.
+  // Neither survives a single-argument, level-carrying probe — which is why
+  // the Runtime tab's Requests view stayed on "No requests yet" after a real
+  // GET (`runtime.spec.ts` failed on `runtime-requests` for exactly this).
+
+  it("merges a child logger's bindings with the payload and takes the level from the method", () => {
+    const out = structuredFromConsoleArgs(
+      [
+        { request_id: "abc-123" },
+        {
+          event: "request_end",
+          method: "GET",
+          path: "/api/products",
+          status: 200,
+          duration_ms: 3,
+        },
+      ],
+      "info",
+    );
+    expect(out, "a two-argument browser-pino line must still be structured").toBeDefined();
+    expect(out?.event).toBe("request_end");
+    expect(out?.level).toBe("info");
+    expect(out?.request_id).toBe("abc-123");
+    expect(out?.path).toBe("/api/products");
+  });
+
+  it("prefers a level the payload carries over the console method", () => {
+    // pino-in-browser routes logger.trace through console.debug; when the
+    // payload does name a level (node envelope, or `browser.asObject`), it
+    // is the semantic one.
+    const out = structuredFromConsoleArgs([{ level: "trace", event: "deep" }], "debug");
+    expect(out?.level).toBe("trace");
+  });
+
+  it("stays strict: a non-object argument or a missing event is not structured", () => {
+    expect(structuredFromConsoleArgs(["bundled 12 MB", { event: "x" }], "info")).toBeUndefined();
+    expect(structuredFromConsoleArgs([{ result: 1 }], "log")).toBeUndefined();
+    expect(structuredFromConsoleArgs([], "info")).toBeUndefined();
+    expect(structuredFromConsoleArgs([new Error("boom")], "error")).toBeUndefined();
   });
 });
 

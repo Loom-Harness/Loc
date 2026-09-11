@@ -34,8 +34,9 @@ import { snake, upperFirst, workflowFnSnake } from "../../util/naming.js";
 import { numericEncode } from "../_numeric/target.js";
 import { LogEvents } from "../_obs/log-events.js";
 import { statementSubRegions } from "../_trace/sourcemap.js";
+import { commandCreateCorrelationParam } from "../_workflow/create-state.js";
 import { renderWorkflowStmtChunks, type WorkflowStmtTarget } from "../_workflow/stmt-target.js";
-import { zeroFor } from "./dispatch-builder.js";
+import { allocateKwargs, zeroFor } from "./dispatch-builder.js";
 import type { OpFragment } from "./emit/aggregate.js";
 import { domainServiceImportLinesForWorkflow } from "./emit/domain-service.js";
 import { responsePyType, wireModelImport } from "./emit/http-models.js";
@@ -152,7 +153,17 @@ export function buildPyWorkflowsFile(
   // bodies can call them.  Expression-bodied + pure over params (validator-guaranteed).
   const helperDefs = wfs.flatMap((wf) => workflowFnHelpers(wf)).join("\n\n");
   const helpersBlock = helperDefs ? `${helperDefs}\n\n\n` : "";
-  const body = `${models}${instanceModels}${helpersBlock}router = APIRouter(prefix="/workflows", tags=["workflows"])\n\n\n${routes}`;
+  // F58 — the saga-row loader for every command route that load-or-allocates
+  // its correlation row.  Structurally identical to `dispatch-builder.ts`'s
+  // `stateHelpers`, emitted locally so `workflows_routes.py` stays
+  // self-contained (a channel-less project has no `app/dispatch.py` loaders at
+  // all).  Empty for stateless / event-sourced / key-less workflows.
+  const sagaLoaders = wfs
+    .filter((wf) => !!commandCreateCorrelationParam(wf))
+    .map((wf) => stateLoader(wf))
+    .join("\n\n");
+  const loadersBlock = sagaLoaders ? `${sagaLoaders}\n\n\n` : "";
+  const body = `${models}${instanceModels}${loadersBlock}${helpersBlock}router = APIRouter(prefix="/workflows", tags=["workflows"])\n\n\n${routes}`;
 
   const scan = body.replace(/"(?:\\.|[^"\\])*"/g, '""');
   const refersTo = (n: string): boolean => new RegExp(`\\b${n}\\b`).test(scan);
@@ -542,6 +553,21 @@ function workflowFnHelpers(wf: WorkflowIR): string[] {
   return out;
 }
 
+/** `_load_<wf>(session, key)` — the persisted correlation row by its key.
+ *  Mirrors `stateHelpers` in `dispatch-builder.ts` (same name, same shape), so
+ *  a workflow that is both command-routed and subscribed reads its row the
+ *  same way on both paths. */
+function stateLoader(wf: WorkflowIR): string {
+  const row = `${wf.name}Row`;
+  const corr = snake(wf.correlationField as string);
+  return lines(
+    `async def _load_${snake(wf.name)}(session: AsyncSession, key: str) -> ${row} | None:`,
+    `    return (`,
+    `        await session.execute(select(${row}).where(${row}.${corr} == key).limit(1))`,
+    "    ).scalars().first()",
+  );
+}
+
 function workflowRoute(
   wf: WorkflowIR,
   ctx: EnrichedBoundedContextIR,
@@ -602,27 +628,47 @@ function workflowRoute(
   for (const p of wf.params) {
     out.push(`        ${snake(p.name)} = ${pyWireToDomain(`body.${p.name}`, p.type, ctx)}`);
   }
-  // Own-state (`field := value`) on an UNCORRELATED command workflow (M-T6.50):
-  // there is no persisted saga row to write through (that's the dispatch-file
-  // path, gated on `correlationField`), and this route is a module-level
-  // `async def`, not a method — so the render context's default `self._x`
-  // mapping (`pyWorkflowStmtTarget`'s `assign` arm) has no `self` to land on.
-  // Seed a genuine local namespace instead: scratch state that lives only for
-  // this one request, typed-zeroed exactly like a fresh saga row allocates
-  // (`allocateKwargs`/`zeroFor` in dispatch-builder.ts) so a read-before-write
-  // sees the same starting value the correlated path would.  Skipped when the
-  // body never touches own state (dead `self = SimpleNamespace()` would trip
-  // ruff F841), and when the workflow IS correlated — its own-state path (the
-  // dispatch-file reactor) already maps correctly onto the persisted row.
-  if (!wf.correlationField && usesOwnState(wf.statements)) {
+  // F58 — a CORRELATED command workflow addresses a real persisted saga row:
+  // load-or-allocate it exactly as the event-triggered starter in
+  // `dispatch-builder.ts` does, and render the body against it
+  // (`thisName: "state"` → `state.<snake(field)>`).  Before this the route fell
+  // through to the `self` scratch branch below — which M-T6.50 skipped for a
+  // correlated workflow, on the belief that "its own-state path (the
+  // dispatch-file reactor) already maps correctly onto the persisted row".
+  // That is exactly what F58 disproved: the REACTOR maps, the COMMAND ROUTE did
+  // not, so `self._status = …` reached a module-level `async def` with no
+  // `self` (a NameError) and the correlation row was never created — a later
+  // `on` reactor for the same key logged `event_unrouted` forever.
+  const corrParam = commandCreateCorrelationParam(wf);
+  if (corrParam) {
+    out.push(`        __key = str(${snake(corrParam.name)})`);
+    out.push(`        state = await _load_${snake(wf.name)}(session, __key)`);
+    out.push("        if state is None:");
+    out.push(`            state = ${wf.name}Row(${allocateKwargs(wf)})`);
+    out.push("            session.add(state)");
+  } else if (usesOwnState(wf.statements)) {
+    // Own-state (`field := value`) on an UNCORRELATED command workflow
+    // (M-T6.50): there is no persisted saga row to write through, and this
+    // route is a module-level `async def`, not a method — so the render
+    // context's default `self._x` mapping (`pyWorkflowStmtTarget`'s `assign`
+    // arm) has no `self` to land on.  Seed a genuine local namespace instead:
+    // scratch state that lives only for this one request, typed-zeroed exactly
+    // like a fresh saga row allocates (`allocateKwargs`/`zeroFor` in
+    // dispatch-builder.ts).  Skipped when the body never touches own state (a
+    // dead `self = SimpleNamespace()` would trip ruff F841).
+    //
     // Attribute names carry the leading underscore: every own-state read/write
     // renders `self._<field>` (the same `self._foo` private-backing-field
     // convention an aggregate operation's own fields use — `render-expr.ts`'s
     // `this-prop` case, unchanged here), so the namespace's attrs must match.
+    //
+    // Emitted at the body's own 8-space base: M-T6.50 wrote it at 4, which is
+    // an `IndentationError` inside the route's `try:` — the scratch never
+    // parsed (F58 bycatch).
     const initKwargs = (wf.stateFields ?? [])
       .map((f) => `_${snake(f.name)}=${f.optional ? "None" : zeroFor(f)}`)
       .join(", ");
-    out.push(`    self = SimpleNamespace(${initKwargs})`);
+    out.push(`        self = SimpleNamespace(${initKwargs})`);
   }
   // Read-port repos (domain-services.md rev. 4): a `reading`-tier
   // domain-service call the workflow makes needs a live repository handle, so
@@ -653,7 +699,10 @@ function workflowRoute(
     // (domain-services.md rev. 4).  PURE service calls resolve to
     // `[]` → byte-identical.
     pyWorkflowStmtTarget(
-      { thisName: "self", readPortArgs: workflowReadPortResolver(ctx) },
+      {
+        thisName: corrParam ? "state" : "self",
+        readPortArgs: workflowReadPortResolver(ctx),
+      },
       ctx,
       collectUsedLetNames(wf.statements),
     ),
@@ -672,6 +721,9 @@ function workflowRoute(
   for (const save of wf.savesAtExit) {
     out.push(`        await ${snake(save.repoName)}.save(${snake(save.name)})`);
   }
+  // Persist the saga row (a fresh allocation, or a `this.<stateField>` write) so
+  // a later `on` reactor for the same key routes instead of dropping the event.
+  if (corrParam) out.push("        await session.flush()");
   if (hasEmit) {
     out.push(`        dispatcher = ${dispatcherExpr}`);
     out.push("        for ev in workflow_events:");

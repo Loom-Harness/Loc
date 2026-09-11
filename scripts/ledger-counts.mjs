@@ -2,9 +2,15 @@
 // count in prose is a cache with no invalidation").
 //
 // `docs/audits/targets-completeness-2026-08-30.ledger.json` is the source of
-// truth for the ledger's `open`/`done`/`claimed`/`checkedOk`/`conflicts`
-// buckets. Its companion `.md` carries two regions that are pure projections
-// of that JSON and must never be hand-edited out of sync with it:
+// truth for the ledger's `open`/`done`/`declined`/`claimed`/`checkedOk`/
+// `conflicts` buckets.  (`declined` was added by Reconciliation 3, 2026-09-10:
+// a row that is neither open nor fixed — stale prose that no longer applies,
+// breadth nobody will build, a duplicate of another row, or a decision the
+// plan already recorded.  It is a BUCKET, not a deletion, so the disposition
+// stays greppable and reversible.)
+//
+// Its companion `.md` carries two regions that are pure projections of that
+// JSON and must never be hand-edited out of sync with it:
 //
 //   - the "## Counts" table (recomputed from the JSON's buckets)
 //   - the "## Open ledger" table (one row per entry in the `open` bucket, in
@@ -89,6 +95,7 @@ export function computeCounts(ledger) {
     bySourceFleet,
     claimed: (ledger.claimed ?? []).length,
     done: (ledger.done ?? []).length,
+    declined: (ledger.declined ?? []).length,
     conflicts: (ledger.conflicts ?? []).length,
     checkedOk: (ledger.checkedOk ?? []).length,
     // Static properties of the original wave plan, not the live open bucket.
@@ -137,6 +144,7 @@ export function renderCountsTable(ledger) {
     ["provenance: fleet1-only / fleet2-only / corroborated by both", fmtFleetRow(counts)],
     ["claimed by an open PR", String(counts.claimed)],
     ["done / merged", String(counts.done)],
+    ["declined (not a gap: stale / breadth / duplicate / decided)", String(counts.declined)],
     ["conflicts", String(counts.conflicts)],
     ["checkedOk entries", String(counts.checkedOk)],
     ["rows scheduled into waves", `${counts.waveRows ?? 0} across ${counts.packets ?? 0} packets`],

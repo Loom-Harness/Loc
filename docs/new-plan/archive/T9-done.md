@@ -158,3 +158,196 @@ That third direction is why `test/system/generate-helper-gate.test.ts` exists: t
 **One piece remains: the direct-caller slice, now measured.** 223 test files call `generateSystems` directly and never touch the helper, so no flip can reach them. Instrumenting `generateSystems` ITSELF over a full run (9,276 calls) sizes the real damage at **266 error-carrying generations across 54 files** — far less than the file count implies, because most direct callers parse through `parseValid` (which does assert phase ④) or simply have valid fixtures. 201 of the 266 are the same `persistence-mode-unsupported` class. It is NOT a codemod job: tried and reverted, because these fixtures pin seed SQL, migration chains and saga dispatch, so binding a `resource` moves real emitted output and 30 tests fail for reasons that each need reading. `generateSystemResult(source, options?)` now exists in the helper (full `SystemEmission` + options passthrough, both phase gates) so migrating a direct caller is a one-line change rather than a capability loss; the migration itself, and only then a ratchet forbidding the direct import, is the slice.
 
 Sources: [test-coverage-audit-2026-08-13](../../audits/test-coverage-audit-2026-08-13.md) §3.2. Relates to #2354 (the parse-error half, already landed in this helper), #2489, #2512. The remaining half is **M-T9.35** below.
+
+## M-T9.37 — The wire-golden comparator can never fail on excess precision — `done` (Wave 1 follow-up, 2026-09-09) · **S–M** · P1 ⭐ the gate that was blind to M-T6.46, by construction
+
+Found 2026-08-23 by the numeric-types audit ([F16](../../audits/numeric-types-audit-2026-08-23.md)). `toWireEntry` (`test/_helpers/wire-record.ts`) JSON-parses each body before diffing, collapsing every JSON number to a JS double: **deficient** precision (dapper's 15 digits, #2631) changes the parsed double and fails; **excess** precision (Java's 34-digit BigDecimals, M-T6.46) parses to the *identical* double and cannot fail — one-sided by construction. The direction that is currently broken on `main` is exactly the invisible one.
+
+**The fix:** capture each numeric leaf's RAW SOURCE TEXT alongside the parsed double (`WireEntry.numberFormats`, via the reviver's `context.source`) and compare that dimension too, as its own `number-format` divergence kind.
+
+**What "excess precision" turned out to mean — measured, and it is two rules, not one.** The first cut recorded every spelling that differed from `String(value)`, and running it reported **23 divergences on every python leg**: all of them `10.0` where node sends `10`, because Python renders a float64 with its fractional part and V8 does not. Same number under every parser including a decimal-preserving one, neither backend wrong — a bill payable only in waivers nobody could ever delete. The same rule flagged .NET/java rendering a `NUMERIC(19,4)` column at its declared scale (`12.5000`). So the predicate (`offContractNumber`) is **two independent rules**: the spelling denotes a *different exact decimal value* than the canonical rendering (java's `3.333333333333333333333333333333333` against node's `3.3333333333333335`), **or** it carries more than **17 significant digits** — float64's round-trip width — even when the value is identical. The second rule is load-bearing and was nearly dropped: the M-T6.46 mutation re-seeds `10.00000000000000000000000000000000`, which is exactly `10`, so rule 1 alone would have missed the very defect this mission exists for.
+
+`test/_helpers/wire-waivers.ts` stays **empty**. The 23 were the comparator over-reporting, not a backend bill, so nothing needed waiving — the sequencing worry in the original mission text did not materialise.
+
+One companion defect fixed in the same pass: `renderWireReport`'s `ORDER` table did not list `number-format`, so those divergences were **counted in the headline and printed nowhere** — the leg said "5 divergence(s)" and named none of them. A kind missing from that table is the same blind-gate defect one level up.
+
+**Verification when it lands.** The mutation-proof IS the test, and it was run end-to-end through a booted backend rather than at the unit level. Re-seeding the pre-M-T6.46 java shape (response field back to `BigDecimal`, `.doubleValue()` removed) and rebuilding made `core-domain` report **5 `number-format` divergences** naming the exact 34-digit spellings — while every value assertion still passed (`2 passed, 0 failed`), which is precisely the blindness being removed. Restored by file copy, md5-verified, green again.
+
+Measured clean on the restored tree: **python 52 cases / 0 divergences**, **java 52 cases / 0 divergences** (JDK 25 + Gradle 9 extracted from `gradle:9-jdk25`, real Postgres). Elixir's leg could not be run on this host — no matching toolchain, and the CI image tag does not exist — so its serializer was measured directly instead: `__decimal_num/1` is `Decimal.to_float/1` and `Jason` renders the shortest round-trip float, so every spelling it emits is ≤17 digits and canonical. dotnet/dapper/mikroorm were already green under the stricter first cut, and the shipped rule only ever records a subset of what that one did, so no previously-green leg can turn red.
+
+Sources: [numeric-types-audit-2026-08-23](../../audits/numeric-types-audit-2026-08-23.md) F16, plan.json N16. Relates to M-T9.11 (the differential itself), M-T6.46.
+
+## M-T9.44 — The diagnostic-catalog gate's two blind spots: shorthand syntax and a blanket forwarding exemption — `done` · **M** · P1 ⭐ the leverage packet
+
+Found 2026-09-03 by the language-docs audit ([F25](../../audits/2026-09-03-language-docs-audit-findings.md), [F26](../../audits/2026-09-03-language-docs-audit-findings.md), [F30](../../audits/2026-09-03-language-docs-audit-findings.md), P3). `test/system/diagnostic-catalog.test.ts` fails on an inline literal, a mis-keyed message and an orphan entry — but it evidently does not walk `src/ir/validate/checks/**` or the AST validators, which is how two textbook instances survive: `loom.function-block-impure` is raised live with an inline message and **no catalog entry** (`src/ir/validate/checks/structural-checks.ts:1243`; referenced from `validators/structural.ts:327` and `types.ts:809`), and the `when`-gate-references-op-param check raises an inline message with **no `code` at all** (`src/language/validators/statements.ts:110-118`). A third rides along: `loom.projection-event-unkeyed` interpolates `proj.correlationField`, which is `undefined` for exactly the keyless case it fires on — *"…has no 'undefined' field to route by."* (`projection-checks.ts`, `validateHandlers` ~:90).
+
+**Why this is the leverage packet.** Extending the gate's reach retires the F25–F35 class rather than the three instances, and prevents the next one — the register's own "Cross-cutting reading" §3 makes the same argument. **The mutation proof is the deliverable:** the extended gate must FAIL on today's `main` before any of the fixes land, and the PR body must say which assertion failed.
+
+**The fix:** extend the walk, then repair everything it newly catches — mint `loom.function-block-impure`, give the `when`-gate check a code, stop the projection message interpolating `undefined`.
+
+Sources: [language-docs-audit-2026-09-03](../../audits/2026-09-03-language-docs-audit-findings.md) F25/F26/F30 + "Cross-cutting reading" §3, [wave plan](../../audits/2026-09-03-language-docs-audit-findings.waves.md) packet **W4.1**. M-T9.45 stacks on this branch rather than waiting for merge.
+
+> **Landed 2026-09-09. The premise in this row's title was wrong, and the correction is the
+> finding.** The gate has walked `src/ir/validate/checks/**` and the AST validators all along.
+> F25 and F26 survive for two unrelated reasons, both in the scanner rather than its reach:
+> `sitesIn` read only `ts.isPropertyAssignment`, so a diagnostic literal using **shorthand**
+> `message` was never recorded as a site (exactly two in the scanned surface — F25's, and
+> `loweringDiag`'s); and `isForwardedParam` **blanket-exempted** any site whose message is a
+> parameter of the enclosing function, a predicate that fired on **zero** sites and so had
+> never been exercised. It now retargets to the helper's own in-file call sites, which is what
+> makes F25's five inline template literals visible. Extended gate mutation-proved: with the
+> defect re-seeded it names all five sites by line under "has no inline wording".
+>
+> F26's row understates its finding. A site with **no `code:` at all** is invisible to the
+> catalog's three invariants too, and that is not one site: **119 errors and 11 warnings**
+> against 195 coded sites across the Langium validator surface. Fixing the one site the
+> register names would have hidden a class 130 times larger, so the class is filed as audit
+> finding **F55** and wants its own mission; the IR check leaves are clean.
+>
+> Shipped: the two scanner fixes; `loom.function-block-impure` as five `#`-slug variants (with
+> the `where` lead dropped — it duplicated `source`, which the gate's own invariant refuses);
+> `loom.when-references-op-param`; `loom.projection-event-unkeyed#singleton`, which asks for
+> `keyed by` instead of interpolating `undefined`. Refusing a keyless fold is intentional and
+> documented, so F30 was message-only exactly as recorded.
+
+## M-T9.45 — Messages that contradict their own gate, comments naming codes that do not exist, one dead gate, one orphan catalog entry — `done` · **M** · P3
+
+Found 2026-09-03 by the language-docs audit (F27–F29, F31–F35, P3). Eight rows, all text, each with a grep behind it: `loom.scaffold-filter-param-unsupported` says `bool`/`datetime`/`guid` "have no input at all" when since #2699 all three render — the gate reads the correct set, only the message (and its stale twin in a comment) lies (`messages.ts:2308-2315`; `ui-checks.ts:1097-1099`); `loom.flutter-primitive-unsupported` names `FileUpload` as "the one deferred primitive" while `FLUTTER_UNRENDERED_PRIMITIVES` is now empty (`messages.ts:1624`; `src/util/flutter-deferred-primitives.ts`); `loom.filter-bypass-unsupported` is unreachable — `FILTER_BYPASS_FAMILIES` holds all five families — and still names three backends as "the honoring backends" (`system-checks.ts:2712`; `messages.ts:1832-1842`); `loom.scaffold-unexpanded` blames "walker-primitive-expander", a pass that no longer exists, and names `view` as a resolvable target (`messages.ts:783`); three comments cite codes that do not exist at all — `loom.workflow-function-block-body` (`ddd.langium:1456`, `loom-ir.ts:1311`), `loom.intrinsic-not-queryable` (`src/util/intrinsics.ts:57`), `loom.spurious-effect-marker` (`src/ir/lower/lower-expr.ts:1080`); and `extern_handlers_registered` sits in the observability catalog with no backend emitting it (`src/generator/_obs/log-events.ts`).
+
+**The fix:** mostly text, but every edit carries the grep that proves the claim it replaces. **F29 needs a decision** — delete the dead gate or add the missing family; the wording is wrong either way.
+
+> **Landed 2026-09-09 (W4.2, stacked on M-T9.44's branch). Three of the eight rows were not
+> what they said.**
+>
+> * **F27 was already half-fixed on `main`.** The message names the correct renderable set
+>   today; only its comment twin in `ui-checks.ts` was still stale.
+> * **F29 needed no decision — the code had already made it.** The gate is a pinned
+>   `LATENT_GATES` entry in the firing census (*"no deployable can reach the `!supported`
+>   push"*), i.e. a deliberate dormant safety net, the same shape as F28's Flutter gate. Both
+>   are reworded, neither deleted.
+> * **F34's symptom was wrong and the truth is much worse.** A stray `await` is not a parse
+>   error: `match await <plain state field>` validates with **zero diagnostics** and the four
+>   SPA walkers emit `await Promise.reject(new Error("no remote op for variant-match"))` — a
+>   guaranteed runtime rejection on every invocation, plus an undefined setter. Root cause:
+>   `loom.match-non-union-subject` guards the **expression** `match` only; a `match` in an
+>   action body lowers to a `StmtIR` `variant-match` that its visitor never sees. Filed as
+>   audit finding **F56** and routed to W2.3, since it is Wave 2's invariant rather than text.
+>
+> **F56 re-scoped 2026-09-09 (fleet), twice.** (1) "A union-returning subject and a plain `string` one
+> carry byte-identical `subjectType`" holds only for the **awaited-call** shape — a `let`-bound subject
+> is a `ref`, takes `lowerMatchStmt`'s `subject.type` branch, and resolves to the real union. The
+> awaited api-handle call is the only shape Stage 2 `match await` exists for, so the canonical page form
+> is exactly the one that cannot be discriminated; the finding stands, the sentence generalised past it.
+> (2) **The fix is a promotion, not a type-resolution mission (audit F66).**
+> `classifyFelizAsyncEffect` (`src/ir/util/feliz-async-effect.ts`) is already an IR-pure, target-neutral
+> classifier of exactly the predicate the SPA walkers need, invoked behind
+> `if (dep.platform !== "feliz") continue` — the identical model is refused on a Feliz host and reports
+> `0 error(s), 0 warning(s)` on React. Resolving `subjectType` is an optional second half with a real
+> trap: fixing it on the EXPRESSION form un-blocks that form into walkers that cannot render it (a
+> variant match with `variantArms` and no `arms` falls through to
+> `otherwise ?? "/* empty match */ undefined"`), trading a false-positive error for a silent `undefined`.
+>
+> **F32 was verified by running it, not by reading:** a block-bodied workflow `function`
+> parses clean and emits as a real workflow-scoped helper on all five backends, never inlined
+> — which also exposed the grammar comment's *second* false claim (that such helpers are
+> inlined at each call site), contradicted by the IR comment two files away.
+>
+> **F35 shipped the class, not the instance.** `catalog-parity.test.ts` only ever checked
+> *emitted ⊆ catalogued*; the reverse — a catalog entry no backend emits — had no gate, which
+> is how `extern_handlers_registered` outlived its producer. The new orphan invariant scans
+> `src/` for each entry's key and event string (every emitter reaches the catalog by key, so
+> one grep covers all five backends with no generate and no docker), and holds the three
+> documented-reserved entries in a ratcheting `RESERVED_UNEMITTED` waiver that fails both ways.
+> Mutation-proved by restoring the deleted entry.
+
+**Verification when it lands.** The extended catalog gate from M-T9.44 stays green; the register-backed claims (`FLUTTER_UNRENDERED_PRIMITIVES`, `FILTER_BYPASS_FAMILIES`) are re-derived from code in the PR body rather than restated.
+
+Sources: [language-docs-audit-2026-09-03](../../audits/2026-09-03-language-docs-audit-findings.md) F27–F29/F31–F35, [wave plan](../../audits/2026-09-03-language-docs-audit-findings.waves.md) packet **W4.2** (stacks on W4.1). Relates to M-T9.27 (the `*-unsupported` register — a deleted gate deletes its row).
+
+## M-T9.49 — The .NET half of the same hole: `generateDotnet` was a bare re-export, so 136 of its 150 call sites never reached the helper at all — `done` · **M** · P1 ⭐
+
+Minted 2026-09-03 by Wave G2 packet 2.2 of [verification-waves-2026-09](../verification-waves-2026-09.md), as the hand-off named in [M-T9.48](#m-t948--the-legacy-single-context-generate-path-asserted-nothing--partial-route-1-slice-2-and-the-ratchet-landed-the-residue-is-named-below)'s residue. Closed in the same PR.
+
+**The hole, and why it was bigger than the hand-off said.** `test/_helpers/generate.ts` ended in `export { generateDotnet, generateSystems };` — a bare re-export from `src/generator/dotnet/index.js`. So the helper wrapped it with nothing, exactly as M-T9.48 reported. The part the hand-off could not see is the consequence of a re-export: because the name was ALSO importable from `src/`, only **9 of the 39 caller files reached the helper at all** — **14 of the 150 call sites**. The other 30 files (136 call sites) imported the generator straight from `src/`, outside every gate this helper module has, present *or future*, so wrapping the re-export alone would have pinned a ratchet over a set nothing enforced. The `parseString` column was likewise **17 files**, not the two the hand-off knew about.
+
+**What landed.**
+- `generateDotnet` is now a real wrapper in the helper (`assertModelVerifies(model)`, then `generateDotnetProject(model, options)`), sharing the identical body `generateHono` calls so the two legacy paths cannot drift.
+- The 30 direct `src/` importers under `test/` (plus `dotnet-eventsourced-emission.test.ts`, which then left the path entirely — 31 import lines in all) were routed back through the helper, so the census can see them.
+- The `parseString` → `generateDotnet` hops migrated to `parseValid` — 17 files down to 5. Four of the five are a dedicated "parses + validates cleanly" case that asserts `errors` is empty itself; the fifth is `test/ir/collection-op-lambda-element-type.test.ts`, fenced to another packet. Two `parseString(SRC, { validate: false })` bypasses turned out to validate cleanly and lost the flag.
+- `test/system/legacy-generate-path-ratchet.test.ts` now runs its assertions per entry point over a `GATES` table — **`generateHono` 33 files / 62 call sites, `generateDotnet` 39 files / 150** — each with its own exact per-file counts, exact total, and `PARSE_STRING_ALONGSIDE` reasons. Per-gate rather than pooled because two conformance files import both, and a pooled total would let a call migrate from one path to the other without moving.
+
+**Blast radius: 12 tests across 4 files**, each dispositioned by running `ddd parse` on the fixture first:
+- `dotnet-projection-emission.test.ts` (4) — a genuine fixture bug: `create place(...)` is a NAMED create, refused by `loom.named-lifecycle-dropped` ("reaches no backend — it drives no route and no factory"). Fixture repaired: dropped the name.
+- `dotnet-eventsourced-emission.test.ts` (5) and `dotnet-dispatch-emission.test.ts` (1) — M-T9.48's hosted-capability trap, verbatim (`loom.event-sourcing-backend-unsupported`, `loom.audited-backend-unsupported`). Moved to `generateSystemFiles` with the deployable the fixtures always implied, map re-keyed to drop the deployable dir. The event-log config assertion moved with them from `ToTable("accounts_events")` to `ToTable("accounts_events", "accounts")` — a hosted context owns a schema, which is the emission a user can actually reach.
+- `retrieval-emit.test.ts` (2) — `loom.retrieval-loads-unsupported`, refused on every path with or without a deployable (verified both ways). Same disposition as its Hono twin: `generateSystemFilesUnchecked` with a stated reason, because emitting from the refused model IS the test's subject.
+
+**Verification (done).** Re-seeded M-T9.40's mutation (`enumName: undefined` in the context-local enum-value arm of `src/ir/lower/lower-expr.ts`; reverted by file copy, the working tree byte-identical to HEAD under `src/` afterwards) and measured both sides over `test/generator/dotnet` + `test/adapters/dotnet-orchestrator-rewire`: with the assertion, **79 tests across 11 files fail** on `IR verification failed for .ddd fixture — … enum-value ref 'Open' has no enumName — Shopping/Cart/isOpen (FunctionBodyIR.expr)`; with the assertion stripped from `generateDotnet` and the mutation still seeded, **19 across 5** fail, on unrelated string assertions. **60 previously-silent tests now fail.** The ratchet's own directions were mutation-proved too: a ghost pin fails STALE, a dropped pin fails NEW FILE, a bumped count fails both the exact-count and the total assertion, and a ghost reason fails stale-reason — five failures from four seeded defects.
+
+**The residue.** `generateDotnetForContexts` — the system-mode entry one rung below the wrapper — is still imported directly from `src/` by six files; it is out of this row's scope for the same reason the Hono ratchet gates `generateHono` and not `generateTypeScriptForContexts` (the wrapper is the legacy CLI path; the `ForContexts` entry is what the orchestrator itself calls). `test/ir/collection-op-lambda-element-type.test.ts` still reaches BOTH legacy generators from a bare `parseString`; it is fenced to another packet and carries its reason in both `PARSE_STRING_ALONGSIDE` tables. The 150 .NET call sites are a backlog, not an allowance — 66 of them are `generator-dotnet.test.ts` alone, which is also M-T9.42's largest promotion candidate.
+
+> Minted as `M-T9.45` on its branch; renumbered to **M-T9.49** on rebase because #2771's language-docs audit landed `M-T9.44`–`M-T9.47` first. The wave's PR body and commit messages may still say `M-T9.45` — this row is that work.
+
+Sources: [verification-waves-2026-09](../verification-waves-2026-09.md) Wave G2 packet 2.2. Relates to M-T9.48 (the Hono half this mirrors exactly), M-T9.40 (the verifier), M-T9.35 (the direct-orchestrator ratchet both are modelled on).
+
+## M-T9.36 — The numeric wire-codec seam: one decision per backend, enumerated boundaries — `done` ([#2770](https://github.com/Loom-Harness/Loc/pull/2770), wave-2/numeric-codec packet, merged 2026-09-10) · **L** · P2 ⭐ the structural end of the #2545→#2631 series
+
+**Re-verified on `main` after the merge (2026-09-10):** `src/generator/_numeric/{codec,target}.ts` exist, with all five leaf tables in place (`src/generator/{typescript,dotnet,java,python}/numeric-codec.ts` + `src/generator/elixir/vanilla/numeric-codec.ts`) and the enumeration gate at `test/generator/_numeric/boundary-census.test.ts`.
+
+Minted 2026-08-23 by the numeric-types audit (the [root cause](../../audits/numeric-types-audit-2026-08-23.md)). Five PRs in four days (#2545, #2560, #2575 ×3, #2631) fixed the same defect at five different read paths: the number wire contract (money = F4 string, decimal = float64 number, int/long = integer) is one cross-cutting decision implemented as scattered per-backend, per-path coercions — per-row DTO, projection `select`, aggregate, group key, dapper raw SQL. Each new path re-decides; some backends get it wrong; the diagnosis "no fixture exercised this path" was recorded per-bug five times and never made structural.
+
+**The work:** lift the decisions into one per-backend numeric codec table — the generalization of `aggregateCoercion` (`src/ir/util/projection-aggregate.ts`) and #2631's `aggregateLandsOnDouble` — consumed at *every* boundary, plus the gate that makes it stick: a completeness test enumerating the numeric boundaries per backend, so a new read path cannot ship without declaring its codec. Byte-identical-output gated, like every prior seam extraction (`_expr/target.ts` #843, the walker #607–#627).
+
+**Sequencing:** after M-T6.46 and M-T6.47 land — they finish the concrete divergences the seam generalizes, and doing the refactor under them would conflict in every wire emitter.
+
+**Verification when it lands.** Byte-identical emission across the refactor; the boundary-enumeration gate mutation-proved by adding an unregistered boundary.
+
+**Landed 2026-09-03 (#2770, `src/generator/_numeric/`).** `codec.ts` is the decision table verbatim (`NUMERIC_WIRE_CODEC`: money → fixed-scale string, decimal/int/long → number) and `target.ts` defines the `NumericTarget` contract over five boundary kinds (`repo-read` / `projection-read` / `dto-map` / `find-param` / `seed-read`) — the `_expr/target.ts` contract-plus-leaf-tables shape, one per-backend `numeric-codec.ts` leaf table per backend (`src/generator/{typescript,dotnet,java,python}/numeric-codec.ts`, `src/generator/elixir/vanilla/numeric-codec.ts`). Every already-duplicated literal this refactor could find via an exhaustive grep of the fenced trees now routes through it: TS/Hono's repository hydration (relational *and* document adapters), `wireProjectionValue`, the hono aggregate/group-key coercion, and the inbound `moneySchema` parse; .NET's `projectToResponse` and `csCoerce`'s EF aggregate arm (`csDecimalToWireDouble` now lives in the codec module); Java's `domainToWire`/`wireToDomain`, `jpqlCoerce`/`groupKeyCoerce`, and (found by the same grep) the channel-envelope and SSE-realtime money/decimal codecs; Python's `wireValue`/`hydrateScalar`, all six `money_str(...)` call sites, the event-sourced `fromData` decode, and (found the same way) the document-adapter `deserialize` and the in-process dispatcher's `fromPayload`; Elixir's `__money_round`/`__money_wire`/`__decimal_num` helper bodies across five emitter files, plus `coerceOpParam`'s find-param decode.
+`test/generator/_numeric/boundary-census.test.ts` is the enumeration gate: it scans every fenced source file for the extracted literal signatures and fails, naming file:line, on any occurrence outside the seam, with a small reasoned waiver list (each ExprTarget intrinsic table, two workflow zero-seeds, one out-of-scope projection accumulator, python's own `money_str` definition, one elixir LiveView display helper) that a second test asserts never goes stale. Mutation-proved three ways (an unregistered boundary, a deleted waiver, a rewritten-but-not-deleted waiver) — see the hand-off note.
+**Three genuinely-wrong boundaries turned up along the way and were fixed as separate commits, not folded into the pure extraction**: java's channel-envelope (`emit/channels.ts`) and SSE-realtime (`emit/realtime.ts`) money encoders, .NET's channel-envelope encoder (`emit/channels.ts`), and elixir's cross-deployable broker envelope encoder (`channels-emit.ts`), all formatted money via a bare `.toString()`/`.toPlainString()`/`Decimal.to_string` that echoed the domain value's own scale instead of the canonical RS-12 4dp every other read path pins — the exact #2549 class the audit's F18 flagged as witness-starved (no corpus fixture puts a money field on a channel or realtime payload). Each fix is mutation-proved against a new assertion in that backend's channel/realtime test.
+Byte-identical corpus/examples/web-examples diff verified across the pure-extraction commits (55 successfully-generated fixtures out of 128; the rest fail for pre-existing reasons unrelated to this change — legacy single-context sources, unsubstituted `__PLATFORM__` template fixtures, one malformed example); the only differences are the per-generation-run random `SECRET_KEY_BASE` secret in four elixir `docker-compose.yml` files. Local compile legs: .NET (`dotnet build /warnaserror`), Java (`gradle testClasses bootJar`, JDK 25 container), and Python (`ruff` + `mypy --strict` + `pytest`) all green against a fresh money/decimal/int-arithmetic fixture generated post-refactor; the five backend generator vitest suites (dotnet 699, java 535, python 488, elixir 1104, typescript+hono 697 — 3523 tests) all pass, as does `test/platform/pipeline-layering.test.ts`. Full detail: [`docs/new-plan/waves/handoffs/wave-2-numeric-codec.md`](../waves/handoffs/wave-2-numeric-codec.md).
+
+Sources: [numeric-types-audit-2026-08-23](../../audits/numeric-types-audit-2026-08-23.md), plan.json N15, #2545/#2560/#2575/#2631. Relates to M-T9.25 (intra-backend consistency gates).
+
+## M-T9.35 — The direct `generateSystems` callers the phase gate cannot reach — `done` ([#2604](https://github.com/Loom-Harness/Loc/pull/2604) drain + [#2647](https://github.com/Loom-Harness/Loc/pull/2647) ratchet, both merged 2026-08-24) · **M** · P1
+
+> **Status 2026-08-24.** **The drain shipped** ([#2604](https://github.com/lemmit/Loc/pull/2604), merged as `015a7bd`): re-measured on fresh `main` at **277** error-carrying generations across **62** files (the numbers below were 266/54 when this mission was written — `main` moved, as the mission's own "re-measure before starting" line predicted), all drained to **zero**, with **35 files migrated onto `generateSystemFiles`** so the phase ①/④/⑦ gate covers them from here. Done per file with the emission diff reviewed, not by codemod — the same conclusion the mission reached, re-reached by trying it. **Step 3, the ratchet, MERGED 2026-08-24 as [#2647](https://github.com/Loom-Harness/Loc/pull/2647)** — and the mission closes with it. Evidence on `main`: `test/system/direct-generate-systems-ratchet.test.ts` (AST census of every `test/**` importer of `generateSystems`/`generateSystemsFromLoom`, pinned shrink-only in both directions) and `scripts/direct-caller-census.mjs` (regenerates the pin paste-ready). It caught six direct callers on contact, arrived from #2637 and its neighbours while the stack was in flight; all six were **migrated** rather than pinned, so the baseline is still exactly the 200 the drain left. Mutation-proved against a file the drain actually migrated (`dotnet/dotnet-seed.test.ts`) — the first attempt used a still-legitimately-pinned file, passed, and proved nothing.
+
+**M-T9.34 gated the helper; this gates the rest.** 223 test files call `generateSystems` directly and never touch `generateSystemFiles`, so the phase ①/④/⑦ assertions cannot see them. Measuring rather than assuming — instrumenting `generateSystems` itself over one full `npm test` (**9,276 calls**) — puts the real damage at:
+
+| | |
+|---|---:|
+| error-carrying generations | **266** |
+| files | **54** |
+
+Far less than the 223-file surface implies: most direct callers parse through `parseValid` (which *does* assert phase ④, 54 of the 223) or simply have valid fixtures. By code:
+
+| count | code |
+|---:|---|
+| 201 | `loom.persistence-mode-unsupported` |
+| 20 | `loom.field-default-not-constant` |
+| 20 | `loom.named-lifecycle-dropped` |
+| 10 | `loom.workflow-unrecognised-statement` |
+| 6 | `loom.ui-id-ref-no-display` |
+| 6 | `loom.lifecycle-body-dropped` |
+| 2 | `loom.workflow-create-missing-field` |
+| 1 | `loom.guard-principal-without-auth` |
+
+Six of the eight are classes M-T9.34 already drained through the helper, so the fix shapes are known and written up in its slice commits (`storage`/`resource` + `dataSources:`; an emptied canonical `create` body; a canonical rather than named lifecycle action; `user { … }` + `auth: required`). Two are new here: `field-default-not-constant` and `workflow-create-missing-field`.
+
+**Do NOT codemod it.** That was tried against these 54 and reverted: one file stopped transforming and 30 tests failed, because *these* fixtures pin seed SQL, migration chains and saga dispatch — so binding a `resource` moves real emitted output (tables become schema-qualified, `pgTable(…)` → `<ctx>Schema.table(…)`, Ecto gains `prefix:`). Every such move is a real assertion change that needs reading, not a mechanical rewrite. Per file, with the emission diff reviewed.
+
+**Prerequisite, already landed:** `generateSystemResult(source, options?)` in `test/_helpers/generate.ts` returns the whole `SystemEmission` (not just `.files`) and takes `GenerateSystemOptions`, so migrating a direct caller is a one-line change rather than a capability loss. 260 of the direct call sites only wanted `.files`; the rest wanted the full result or `{ sourcemap: true }`.
+
+**Order:** drain the 54, migrate them to the helper, and only then add a ratchet forbidding `import { generateSystems }` in `test/**` with a shrink-only allowlist. A ratchet before the drain just blocks everyone.
+
+**The 54, by generation count** (re-measure before starting — `main` moves):
+
+`test/ir/provenance` 21 · `test/conformance/corpus-mutation` 20 · `test/generator/typescript/realtime-emission` 18 · `test/ir/audited` 13 · `java/java-workflow-dispatch` 11 · `test/platform/dotnet-fullstack` 10 · `hono/hono-seed` 10 · `hono/hono-wire-conformance` 10 · `dotnet/dotnet-wire-conformance` 10 · `java/java-workflow-instances` 7 · `dotnet/dotnet-seed` 7 · `dotnet/dotnet-showcase-compile-regressions` 7 · `java/java-workflow-command-surface` 6 · `python/message-clause` 6 · `hono/hono-destroy-route` 6 · then 39 files with ≤5 each across `elixir/`, `java/`, `python/`, `typescript/`, `test/system/`, `react/`, `flutter/`, `angular/`, `_walker/`.
+
+**How to re-measure** (the technique, since the numbers rot): temporarily add a `validateLoomModel(loom)` call inside `generateSystems` in `src/system/index.ts` behind an env var, append `{file, code}` per call (derive `file` from `new Error().stack`), run `npx vitest run`, tabulate, then **revert by file copy** — never `git checkout --`, which discards unrelated edits in the same file (retro §84, §87).
+
+Sources: M-T9.34's own measurement pass. Blocked-by: nothing — M-T9.34's helper half is landed.
+
+Sources: [test-coverage-audit-2026-08-13](../../audits/test-coverage-audit-2026-08-13.md) §3.2. Relates to #2354 (the parse-error half, already landed in this helper), #2489, #2512.
+
+> **ID note.** M-T9.36–M-T9.38 minted 2026-08-23 by the numeric-types audit. M-T9.35 was allocated to #2604's census drain (since landed above).

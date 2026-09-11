@@ -19,36 +19,6 @@
       "reason": "F9 — schemathesis counts an unknown QUERY parameter as a schema-violating request that the API accepted. Ignoring unrecognised query parameters is ordinary HTTP behaviour and deliberate here; recorded so the decision is visible rather than silently filtered out of the check set. Reproduces identically on every booted backend, which is the evidence that it is the DECISION and not one backend's router."
     },
     {
-      "id": "W11",
-      "findings": [
-        "F11"
-      ],
-      "check": "not_a_server_error",
-      "operations": "^POST /api/orders/\\{id\\}/add_line$",
-      "backends": [
-        "java"
-      ],
-      "kind": "bug",
-      "intermittent": true,
-      "intermittentReason": "Reaching the overflow needs TWO independent things in one run: an out-of-int32 `qty` (the declared `{type: integer}` permits it) AND a path `{id}` that resolves to a row the fuzzer created earlier — a random uuid 404s before the column is ever written. So its absence from a given run is not evidence of a fix; it reproduced on the discovery run and not on the next. Removing this exemption means pinning it as a deterministic case in the behavioral tier — the shape W6's fix took (#2615).",
-      "reason": "F11 — a declared `int` is an `int4` COLUMN, and the wire form did not say so. NARROWED to java on 2026-09-06: node is FIXED. Measured on booted apps of all four backends with the same body (`qty: 9543751572142`): node 500 -> 422, python 500 -> 422 (python was never reported here), while dotnet and java answered 400 both before and after — they have always published `format: int32` and reject the overflow at the binder. node now publishes `{type: integer, minimum, maximum, format: int32}` and python `{type: integer, format: int32}`, so all four state the bound the column has. Re-checked on 2026-09-07 while fixing F16, which shares this route: the dangling `productId` that explains W12 answered 409, not a 5xx, so it does NOT explain this rule. What `not_a_server_error` still catches on java here is therefore genuinely unknown, and the leg is what has to say. Re-triage against a nightly rather than deleting on a guess."
-    },
-    {
-      "id": "W12",
-      "findings": [
-        "F11"
-      ],
-      "check": "status_code_conformance",
-      "operations": "^POST /api/orders/\\{id\\}/add_line$",
-      "backends": [
-        "java"
-      ],
-      "kind": "bug",
-      "intermittent": true,
-      "intermittentReason": "The consequence half of W11 inherits its data dependency exactly: no overflow in a run means no 500, and no 500 means nothing for status_code_conformance to report. Exempt from the staleness ratchet for the same reason, and it graduates with W11.",
-      "reason": "The consequence half of W11, narrowed with it on 2026-09-06 and RE-DIAGNOSED on 2026-09-07. A very likely explanation has now been measured: this route's `productId` is a cross-aggregate `Product id`, so a generated uuid for a product that does not exist tripped the FK, and java's integrity advice answered it with the `ReferencedInUse` 409 — a status the add_line route does NOT declare, which is exactly what status_code_conformance reports. Measured on a booted Spring app: that body now answers the declared 422 (F16's fix — the advice tells `restrict_violation` 23001, the still-referenced delete, apart from `foreign_key_violation` 23503, the dangling reference, and only the former is a conflict). Kept rather than retired because the leg is what has to confirm it: W31 came back after being retired on exactly this kind of reasoning. Re-triage against a nightly."
-    },
-    {
       "id": "W27",
       "findings": [
         "F21"

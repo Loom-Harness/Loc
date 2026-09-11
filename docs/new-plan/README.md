@@ -4,7 +4,7 @@
 
 *Execution plan (**2026-09-02**): [`improvement-waves-2026-09.md`](improvement-waves-2026-09.md) — the quality/stability wave plan for the next agent fleets: the 2026-08-30 gap-ledger residue re-counted against the 29 merges since it was cut (after the Wave 1 ledger reconciliation: one open P0, the W1b `F2-ADP-3` gate handoff — the three P0s first listed were drained by #2668 itself), the in-flight PR fence, and five waves, one PR per wave to spare the shared CI pool (land the ready queue → close the P0/P1 residue by tree-fenced packet → class-level seams with byte-identical gates → runtime-value verification → process). Statuses stay in the track files; it forks nothing.*
 
-*Completion plan (**2026-09-10**): [`completion-waves-2026-09.md`](completion-waves-2026-09.md) — the review of the 583 commits / 193 merges since 08-17 and the wave plan to "all done" (no gaps, no debt, nothing unsupported on any target): the end state as a table of registers that must read zero (§1), the priority order (§2), eight rules added from `experience_gathered.md` §100–§112 (§3), and eight waves of dedicated Opus agents — C0 land/stabilise/true-the-ledgers, C1 the P0s + the silent class, C2 one packet per target until `MAX_OPEN_GAPS` counts zero live rows, C3 runtime-value verification, C4 the debt seams, C5 the fifteen blocking rulings + the three coordinated moments, C6 every product mission built or owner-dispositioned, C7 docs truth + the closing audit. It re-homes the unfinished items of the two earlier 2026-09 plans by id and forks no status table. Hygiene landed with it: the duplicate P0 `M-T6.60` is renumbered **M-T6.62**; the seven merged-but-unflipped missions (M-T1.28, M-T5.26, M-T5.27, M-T6.53, M-T1.29, M-T1.30, M-T5.29), the 18 `done` headings still in track files, and the out-of-repo `M-FT.1–31` field-test series are its Wave C0.4 — see that packet before trusting any of those rows.*
+*Completion plan (**2026-09-10**): [`completion-waves-2026-09.md`](completion-waves-2026-09.md) — the review of the 583 commits / 193 merges since 08-17 and the wave plan to "all done" (no gaps, no debt, nothing unsupported on any target): the end state as a table of registers that must read zero (§1), the priority order (§2), eight rules added from `experience_gathered.md` §100–§112 (§3), and eight waves of dedicated Opus agents — C0 land/stabilise/true-the-ledgers, C1 the P0s + the silent class, C2 one packet per target until `MAX_OPEN_GAPS` counts zero live rows, C3 runtime-value verification, C4 the debt seams, C5 the fifteen blocking rulings + the three coordinated moments, C6 every product mission built or owner-dispositioned, C7 docs truth + the closing audit. It re-homes the unfinished items of the two earlier 2026-09 plans by id and forks no status table. Hygiene landed with it: the duplicate P0 `M-T6.60` was renumbered **M-T6.62**, and **Wave C0.4 has since drained the rest** (2026-09-10) — the merged-but-unflipped missions flipped with their PR link and file:line evidence and archived, the 20 `done` headings moved to `archive/T<n>-done.md`, the stale "claimed by open PR" lines drained, and the out-of-repo `M-FT.1–31` field-test series reconstructed into [`archive/FT-done.md`](archive/FT-done.md) (18 merged ids) + [`missions/field-test-2026-09-register.md`](missions/field-test-2026-09-register.md) (13 with no definition anywhere in the repo).*
 
 *Last refreshed: **2026-09-02**, against `main` @ `36d8516`. This pass was a plan-hygiene audit and a layout change, not a feature pass:*
 
@@ -46,20 +46,42 @@ The unsupported-diagnostic register (`src/diagnostics/unsupported-register.ts`) 
 
 ## The tracks
 
-| Track | Theme | Live | Archived | Weight |
-|---|---|---|---|---|
-| [T1 — UI & frontend ceiling](T1-ui-frontend.md) | Data-heavy tables, upload, forms tail, state/async, i18n, a11y, extern parity, navigation, the numeric/money frontend seams | 26 | 5 | **P1 — highest product ROI** |
-| [T2 — Data & schema evolution](T2-data-evolution.md) | Rename intent, data migrations, baseline safety, seeding/uniqueness tails, storage config tail | 8 | 6 | **P1 — the "silent data loss" class** |
-| [T3 — Security, tenancy & governance](T3-security-governance.md) | `organizationContext`, OIDC depth, sensitivity, versioned-on, the read surface, lifecycle-gate goldens | 13 | 5 | **P1 — secure-by-default** |
-| [T4 — Eventing, workflow & temporal](T4-eventing-temporal.md) | Projections, channels/brokers, outbox completion, saga hardening, realtime contract, email/storage batteries — **scheduling is done** (`timerSource` `every:`/`cron:` on all five backends, M-T4.1 archived 2026-09-02; don't re-propose "temporal" features) | 8 | 4 | P2 |
-| [T5 — Language core & type system](T5-language-core.md) | Exception-less A4–A6, criterion/retrieval tails, payload P3/P5, stdlib tail, inheritance I4, lifecycle 3–5, surface hygiene, numeric RS-rulings | 26 | 6 | P2 |
-| [T6 — Backend parity & generated-code quality](T6-backend-parity.md) | Phoenix gaps register, adapter subsets, numeric ingress, saga/workflow emission holes, ES seeding | 20 | 38 | P1/P2 (small missions, wrong failure modes today) |
-| [T7 — Deployment & operations](T7-deployment-ops.md) | k8s hardening, proxy/networking, terraform, PaaS deploy | 8 | 1 | P2 |
-| [T8 — DX, tooling & the AI platform](T8-dx-tooling-ai.md) | Debugger frontier, sourcemaps, LSP tail, playground chat/agent loop, builder, packaging split, mutation testing | 13 | 2 | P2/P3 |
-| [T9 — Toolchain & process health](T9-toolchain-health.md) | Per-PR boot gates, test-coverage phases, the numeric wire-codec seam, `RouteTarget`, doc hygiene, the recurring sweeps | 28 | 9 | **P1 — prerequisite to trusting the matrix** |
-| [T10 — New targets](T10-new-targets.md) | Go/PHP/NestJS/Blazor/HTMX/Next.js studies **retired to design-record**; **matrix frozen — decided 2026-07-17, no more targets** | 7 (all `frozen`) | 0 | — (closed) |
+| Track | Theme | Weight |
+|---|---|---|
+| [T1 — UI & frontend ceiling](T1-ui-frontend.md) | Data-heavy tables, upload, forms tail, state/async, i18n, a11y, extern parity, navigation, the numeric/money frontend seams | **P1 — highest product ROI** |
+| [T2 — Data & schema evolution](T2-data-evolution.md) | Rename intent, data migrations, baseline safety, seeding/uniqueness tails, storage config tail | **P1 — the "silent data loss" class** |
+| [T3 — Security, tenancy & governance](T3-security-governance.md) | `organizationContext`, OIDC depth, sensitivity, versioned-on, the read surface, lifecycle-gate goldens | **P1 — secure-by-default** |
+| [T4 — Eventing, workflow & temporal](T4-eventing-temporal.md) | Projections, channels/brokers, outbox completion, saga hardening, realtime contract, email/storage batteries — **scheduling is done** (`timerSource` `every:`/`cron:` on all five backends, M-T4.1 archived 2026-09-02; don't re-propose "temporal" features) | P2 |
+| [T5 — Language core & type system](T5-language-core.md) | Exception-less A4–A6, criterion/retrieval tails, payload P3/P5, stdlib tail, inheritance I4, lifecycle 3–5, surface hygiene, numeric RS-rulings | P2 |
+| [T6 — Backend parity & generated-code quality](T6-backend-parity.md) | Phoenix gaps register, adapter subsets, numeric ingress, saga/workflow emission holes, ES seeding | P1/P2 (small missions, wrong failure modes today) |
+| [T7 — Deployment & operations](T7-deployment-ops.md) | k8s hardening, proxy/networking, terraform, PaaS deploy | P2 |
+| [T8 — DX, tooling & the AI platform](T8-dx-tooling-ai.md) | Debugger frontier, sourcemaps, LSP tail, playground chat/agent loop, builder, packaging split, mutation testing | P2/P3 |
+| [T9 — Toolchain & process health](T9-toolchain-health.md) | Per-PR boot gates, test-coverage phases, the numeric wire-codec seam, `RouteTarget`, doc hygiene, the recurring sweeps | **P1 — prerequisite to trusting the matrix** |
+| [T10 — New targets](T10-new-targets.md) | Go/PHP/NestJS/Blazor/HTMX/Next.js studies **retired to design-record**; **matrix frozen — decided 2026-07-17, no more targets** | — (closed; every heading is `frozen`) |
 
-Live = every heading that is not closed (`open` 72 · `partial` 64 · `in-flight` 4 · `blocked` 4 · `plan`/`deferred`/`recurring` 4 · `frozen` 7 · plus 18 `done` headings not yet archived and 2 non-legend statuses — **175** headings in all, 2026-09-10 count; the per-track table above is the 09-06 count and T6/T8/T9 have grown since; regenerate with `grep -c '^## M-T' docs/new-plan/T*.md` — a script for this number is Wave C0.4 of the completion plan). *The 2026-09-03 jump is the [language-docs audit](../audits/2026-09-03-language-docs-audit-findings.md): 18 missions minted from its 47 findings — M-T5.26–M-T5.29, M-T1.28–M-T1.31, M-T6.53–M-T6.58, M-T9.44–M-T9.47, one per packet of its [wave plan](../audits/2026-09-03-language-docs-audit-findings.waves.md). Wave 1 of that plan drained 2026-09-06 — M-T1.28/M-T5.26/M-T5.27/M-T6.53 are the four `in-flight` rows.*
+<!-- mission-counts:begin (generated by scripts/mission-counts.mjs) -->
+
+**152 live missions** across the ten track files, and **105** archived — counted by `node scripts/mission-counts.mjs` over the `## M-Tx.y` headings themselves, not typed by hand. By status: `open` 57 · `in-flight` 1 · `partial` 65 · `blocked` 15 · `deferred` 1 · `recurring` 2 · `frozen` 7 · `done` 2 · **2 outside the legend** (M-T4.12 `mostly done`, M-T9.42 `in progress`).
+
+| Track | Live | Archived |
+|---|---:|---:|
+| T1 | 19 | 12 |
+| T2 | 8 | 6 |
+| T3 | 13 | 5 |
+| T4 | 8 | 4 |
+| T5 | 23 | 9 |
+| T6 | 19 | 43 |
+| T7 | 8 | 1 |
+| T8 | 13 | 10 |
+| T9 | 34 | 15 |
+| T10 | 7 | 0 |
+| **all** | **152** | **105** |
+
+A track file should carry no `done` heading for long (see §Status legend); regenerate this block with `node scripts/mission-counts.mjs --write` whenever you archive one. `test/system/mission-counts.test.ts` fails if it drifts.
+
+<!-- mission-counts:end -->
+
+*The 2026-09-03 jump is the [language-docs audit](../audits/2026-09-03-language-docs-audit-findings.md): 18 missions minted from its 47 findings — M-T5.26–M-T5.29, M-T1.28–M-T1.31, M-T6.53–M-T6.58, M-T9.44–M-T9.47, one per packet of its [wave plan](../audits/2026-09-03-language-docs-audit-findings.waves.md). **Waves 1, 2 and 4 of that plan are drained** (2026-09-09/10): M-T1.29, M-T1.30, M-T5.26, M-T5.27, M-T5.29, M-T6.53, M-T9.44 and M-T9.45 are archived, and M-T1.28 stays live carrying only the residue #2786 opened (the `renderToast` seam + F50, the Svelte twin). What remains from the plan is W3.1 (M-T5.28), Wave 5 (M-T6.54–M-T6.57), Wave 6 (M-T6.58) and Wave 7 (M-T9.46, M-T9.47) — all `open`.*
 
 ## Sequencing — the load-bearing dependencies
 

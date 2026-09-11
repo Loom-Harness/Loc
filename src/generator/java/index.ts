@@ -821,6 +821,8 @@ function emitProjectFromContexts(
       {
         basePkg,
         pkg: pkgFor("workflow-service"),
+        statePkg: pkgFor("infra-persistence"),
+        stateRepoPkg: pkgFor("spring-data-repository"),
         routePrefix,
         resourceClasses: resourceEmission.classes,
         // Derived from the SAME binding query the client emitter uses, so the

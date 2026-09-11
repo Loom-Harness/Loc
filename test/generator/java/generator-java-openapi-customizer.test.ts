@@ -92,7 +92,7 @@ describe("java OpenApiCustomizer — list array wrappers", () => {
     // page/pageSize/sort/dir params natively.  The required set is pinned so the
     // parity gate sees all five envelope fields required.
     // …and it declares the 422 its parsed page controls answer (F6).
-    expect(c).toContain('new Route("get", "/api/orders", null, new int[] {422}, null)');
+    expect(c).toContain('new Route("get", "/api/orders", null, new int[] {422}, null, 0)');
     expect(c).toContain(
       'new RequiredSet("OrderPaged", List.of("items", "page", "pageSize", "total", "totalPages"))',
     );
@@ -101,7 +101,7 @@ describe("java OpenApiCustomizer — list array wrappers", () => {
   it("retargets a `T[]` find to the list wrapper", async () => {
     const c = await customizer();
     expect(c).toContain(
-      'new Route("get", "/api/orders/active", "OrderListResponse", new int[] {}, null)',
+      'new Route("get", "/api/orders/active", "OrderListResponse", new int[] {}, null, 0)',
     );
   });
 
@@ -124,32 +124,36 @@ describe("java OpenApiCustomizer — RFC 7807 error responses", () => {
 
   it("create → 400, 422", async () => {
     const c = await customizer();
-    expect(c).toContain('new Route("post", "/api/orders", null, new int[] {400, 415, 422}, null)');
+    expect(c).toContain(
+      'new Route("post", "/api/orders", null, new int[] {400, 415, 422}, null, 201)',
+    );
   });
 
   it("getById → 404; destroy → 404, 409", async () => {
     const c = await customizer();
     // Both parse a uuid `{id}`, so both declare the 422 they answer (F6).
-    expect(c).toContain('new Route("get", "/api/orders/{id}", null, new int[] {404, 422}, null)');
     expect(c).toContain(
-      'new Route("delete", "/api/orders/{id}", null, new int[] {404, 409, 422}, null)',
+      'new Route("get", "/api/orders/{id}", null, new int[] {404, 422}, null, 0)',
+    );
+    expect(c).toContain(
+      'new Route("delete", "/api/orders/{id}", null, new int[] {404, 409, 422}, null, 0)',
     );
   });
 
   it("plain operation → 400, 404, 422; a guarded operation adds 403", async () => {
     const c = await customizer();
     expect(c).toContain(
-      'new Route("post", "/api/orders/{id}/confirm", null, new int[] {400, 404, 415, 422}, null)',
+      'new Route("post", "/api/orders/{id}/confirm", null, new int[] {400, 404, 415, 422}, null, 0)',
     );
     expect(c).toContain(
-      'new Route("post", "/api/orders/{id}/archive", null, new int[] {400, 403, 404, 415, 422}, null)',
+      'new Route("post", "/api/orders/{id}/archive", null, new int[] {400, 403, 404, 415, 422}, null, 0)',
     );
   });
 
   it("a guarded workflow → 400, 403, 422", async () => {
     const c = await customizer();
     expect(c).toContain(
-      'new Route("post", "/api/workflows/place_order", null, new int[] {400, 403, 415, 422}, "placeOrderWorkflow")',
+      'new Route("post", "/api/workflows/place_order", null, new int[] {400, 403, 415, 422}, "placeOrderWorkflow", 0)',
     );
   });
 
@@ -157,7 +161,7 @@ describe("java OpenApiCustomizer — RFC 7807 error responses", () => {
     const c = await customizer();
     // The find declares a `code` query param, so it parses one — +422 (F6).
     expect(c).toContain(
-      'new Route("get", "/api/orders/by_code", null, new int[] {404, 422}, null)',
+      'new Route("get", "/api/orders/by_code", null, new int[] {404, 422}, null, 0)',
     );
   });
 });
@@ -236,7 +240,7 @@ describe("java OpenApiCustomizer — operationId overrides", () => {
     const c = await customizer();
     // The rename/confirm aggregate ops carry no operationId override.
     expect(c).toContain(
-      'new Route("post", "/api/orders/{id}/confirm", null, new int[] {400, 404, 415, 422}, null)',
+      'new Route("post", "/api/orders/{id}/confirm", null, new int[] {400, 404, 415, 422}, null, 0)',
     );
   });
 });

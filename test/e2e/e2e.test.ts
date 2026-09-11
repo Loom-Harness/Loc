@@ -18,6 +18,7 @@ import {
   renderReport,
 } from "../_helpers/response-diff.js";
 import { hasDocker } from "./support/docker-probe.js";
+import { writeExternUserModules } from "./support/extern-user-modules.js";
 import { installGeneratedProject } from "./support/npm-install.js";
 
 // ---------------------------------------------------------------------------
@@ -67,6 +68,37 @@ const SKIP_PHOENIX = process.env.LOOM_E2E_SKIP_PHOENIX === "1";
 
 const RUN = ENABLED && hasDocker();
 
+// A lane that ASKED for this tier and then skipped it is the worst outcome:
+// it reports green having proven nothing.  That is not hypothetical here —
+// before the shared probe landed (`support/docker-probe.ts`, which separates
+// "no docker" from "could not tell"), the nightly's five-second `docker info`
+// timed out under load, was read as absence, skipped the whole describe, and
+// finished GREEN in five minutes.  Runs 33953650250 (2026-09-05) and
+// 34020901813 (2026-09-06) are those five-minute greens; the first run after
+// the probe was fixed found a `tsc` break in the generated console_web that
+// had been there the whole time.
+//
+// So when `LOOM_E2E=1` is set, absence of docker is a FAILURE, not a skip.
+// `LOOM_E2E_ALLOW_NO_DOCKER=1` opts out for a deliberate local run.
+describe.runIf(ENABLED && !RUN && process.env.LOOM_E2E_ALLOW_NO_DOCKER !== "1")(
+  "e2e: precondition",
+  () => {
+    it("LOOM_E2E=1 requires a reachable docker daemon", () => {
+      // An assertion, not a bare `throw`, so the assertion-free ratchet
+      // (test/platform/assertion-free-tests.test.ts) sees a real check: inside
+      // this describe RUN is false by construction, so this always fails —
+      // with the reason in the message.
+      expect(
+        RUN,
+        "LOOM_E2E=1 asked for the full conformance tier, but no docker daemon is " +
+          "reachable, so every assertion below would have been skipped and this job " +
+          "would have reported green having proven nothing. Start docker, or set " +
+          "LOOM_E2E_ALLOW_NO_DOCKER=1 to accept the skip deliberately.",
+      ).toBe(true);
+    });
+  },
+);
+
 describe.skipIf(!RUN)("e2e: docker compose smoke", () => {
   let outDir: string;
 
@@ -75,6 +107,7 @@ describe.skipIf(!RUN)("e2e: docker compose smoke", () => {
     execSync(`node ${cli} generate system ${example} -o ${outDir}`, {
       stdio: "inherit",
     });
+    writeExternUserModules(outDir);
     injectProxyCAsIfPresent(outDir);
   }, 60_000);
 

@@ -22,11 +22,9 @@ import { typeIsFile } from "../../../ir/util/file-field.js";
 import { operationBody, operationBodyUsesCurrentUser } from "../../../ir/util/op-gates.js";
 import { lines } from "../../../util/code-builder.js";
 import { escapeCsharpIdent, plural, upperFirst } from "../../../util/naming.js";
-import {
-  constructionSeededDefaults,
-  isServerSourcedDefault,
-} from "../../_frontend/server-default.js";
+import { isServerSourcedDefault } from "../../_frontend/server-default.js";
 import type { UnionMember } from "../../_payload/union-wire.js";
+import { constructionSeededFields } from "../../construction-default.js";
 import { collectCsExprUsings, csNewIdValue, renderCsExpr, renderCsType } from "../render-expr.js";
 import {
   collectCsStmtUsings,
@@ -798,14 +796,17 @@ export function renderEntity(
     return `        e.${upperFirst(f.name)} = ${dflt === undefined ? arg : `${arg} ?? ${dflt}`};`;
   });
   // Server-seeded literal defaults (RS-11): fields outside the create-input set
-  // (`token`/`managed`/`internal`) whose default is a plain constant — the
-  // `versioned` capability's `version: int token = 1` is the canonical case.
-  // Without this the field falls to the CLR zero and the ORM writes it into the
-  // INSERT, so a created `versioned` aggregate reads back at version 0 (the DB
-  // column `DEFAULT 1` never fires).  Seeding it in the factory is persistence-
-  // agnostic (EF, Dapper, and document rebuild all flow through `Create`).
+  // (`token`/`managed`/`internal`) whose default is a construction-time
+  // constant — the `versioned` capability's `version: int token = 1` is the
+  // canonical case.  Without this the field falls to the CLR zero and the ORM
+  // writes it into the INSERT, so a created `versioned` aggregate reads back at
+  // version 0 (the DB column `DEFAULT 1` never fires).  Seeding it in the
+  // factory is persistence-agnostic (EF, Dapper, and document rebuild all flow
+  // through `Create`).  `money` counts: the seed is a factory-body STATEMENT,
+  // not a record-parameter default, so `renderCsExpr`'s `2.50m` is legal here
+  // (CS1736 constrains the wire DTO, not this).
   const createDefaultSeeds = isAgg(entity)
-    ? constructionSeededDefaults(entity.fields).map(
+    ? constructionSeededFields(entity.fields).map(
         (f) => `        e.${upperFirst(f.name)} = ${renderCsExpr(f.default, renderCtx)};`,
       )
     : [];

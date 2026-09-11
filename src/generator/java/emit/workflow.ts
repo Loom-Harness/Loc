@@ -18,6 +18,7 @@ import { lines } from "../../../util/code-builder.js";
 import { lowerFirst, plural, snake, upperFirst, workflowFnCamel } from "../../../util/naming.js";
 import { javaLogEvent } from "../../_obs/render-java.js";
 import { statementSubRegions } from "../../_trace/sourcemap.js";
+import { commandCreateCorrelationParam } from "../../_workflow/create-state.js";
 import {
   collectUnionFindLets,
   renderWorkflowStmtChunks,
@@ -32,14 +33,16 @@ import {
 import { renderJavaStatements } from "../render-stmt.js";
 import type { OpFragment } from "./entity.js";
 import {
+  bearsNestedRecord,
   collectWireImports,
   collectWireToDomainImports,
+  JAVA_PRIMITIVES,
   referencedValueObjects,
   wireJavaType,
   wireToDomain,
   wireToDomainGuards,
 } from "./wire.js";
-import { setterName } from "./workflow-state.js";
+import { setterName, workflowStateClass } from "./workflow-state.js";
 
 /** Render a variant-`match` whose scrutinee is a UNION-FIND binding: the
  *  repository returns the bare success aggregate (null on absence — no union
@@ -99,6 +102,14 @@ export interface WorkflowCtx {
   basePkg: string;
   /** Package of the workflow service + request records. */
   pkg: string;
+  /** Package the saga-state `@Entity` classes live in — a state-bearing
+   *  workflow's command method loads-or-allocates its correlation row (F58).
+   *  Optional so legacy/test callers that pass no saga packages keep the
+   *  pre-F58 (unbound-`this`) shape rather than emitting an unresolvable
+   *  import. */
+  statePkg?: string;
+  /** Package the Spring Data saga-state repositories live in — see `statePkg`. */
+  stateRepoPkg?: string;
   /** Route prefix ("/api" in fullstack mode). */
   routePrefix?: string;
   /** resourceName → client class, for `resource-op` calls. */
@@ -129,6 +140,12 @@ export interface WorkflowCtx {
 }
 
 const baseRenderCtx = { thisName: "this" };
+
+/** The saga-state repository field name (`fulfillmentStateRepository`) — the
+ *  same name `dispatch.ts` / `workflow-instances.ts` inject under. */
+function stateRepoField(wf: WorkflowIR): string {
+  return `${lowerFirst(wf.name)}StateRepository`;
+}
 
 /** Rides `walkWorkflowStmtExprsDeep` (M-T6.50 class, wave-2 packet 2.3): the
  *  hand-rolled `visit` this replaced had no arm for `assign` /
@@ -559,10 +576,28 @@ export function renderJavaWorkflows(
   // static `Service.op(...)` call whose CLASS the workflow file must import
   // (domain-services.md rev. 4; the reading tier injects a bean instead).
   const staticSvcs = new Set<string>();
+  // F58 — command-routed workflows that load-or-allocate a persisted saga row.
+  // Each injects its Spring Data `<Wf>StateRepository` into this shared
+  // `<Ctx>Workflows` bean; the packages come from `wctx` and are optional, so a
+  // caller that wires none keeps the pre-F58 shape rather than emitting an
+  // unresolvable import.
+  const sagaWorkflows: WorkflowIR[] =
+    wctx.statePkg && wctx.stateRepoPkg
+      ? cmdWorkflows.filter((w) => !!commandCreateCorrelationParam(w))
+      : [];
+  const isSaga = new Set(sagaWorkflows.map((w) => w.name));
   const methods: string[] = [];
 
   for (const wf of cmdWorkflows) {
     const usesUser = workflowUsesCurrentUser(wf);
+    // The own-state receiver: the loaded saga row, whose fields are
+    // package-private with record-style accessors — so READS go through the
+    // accessor (`accessorProps`) and WRITES through the JavaBean setter, the
+    // same seam `renderHandler` in dispatch.ts uses.
+    const corrParam = isSaga.has(wf.name) ? commandCreateCorrelationParam(wf) : undefined;
+    const wfRenderCtx = corrParam
+      ? { ...renderCtxFor(ctx, wctx), thisName: "state", accessorProps: true }
+      : renderCtxFor(ctx, wctx);
     for (const agg of reposUsed(wf, ctx)) repoAggs.add(agg);
     for (const s of readingServicesCalled(wf, ctx)) readingSvcs.add(s);
     for (const s of staticServicesCalled(wf, ctx)) staticSvcs.add(s);
@@ -570,9 +605,26 @@ export function renderJavaWorkflows(
     // Request record over the workflow params (wire types in, parsed here).
     if (wf.params.length > 0) {
       const reqImports = new Set<string>();
+      // The same wire-boundary refusal the create + operation bodies carry
+      // (F23): a REQUIRED workflow param that arrives null — absent key or
+      // explicit `null` — used to bind null and reach the workflow body, which
+      // dereferenced it (`Cannot invoke "MoneyRequest.amount()" because
+      // "request" is null` out of the generated `toMoney`) → 500, for a body
+      // the published contract already marks required.  `@Valid` on the nested
+      // record makes the walk DESCEND, and the controller's `@RequestBody`
+      // carries `@Valid` so this lands in the advice's 422 arm.
+      //
+      // A PRIMITIVE component gets no `@NotNull` — it can never be null, and
+      // the annotation would read as a guard it is not (dto.ts takes the same
+      // decision on the create body).
       const components = wf.params.map((p) => {
         collectWireImports(p.type, reqImports, "Request");
-        return `${wireJavaType(p.type, "Request")} ${p.name}`;
+        const javaType = wireJavaType(p.type, "Request");
+        const guardable = p.type.kind !== "optional" && !JAVA_PRIMITIVES.has(javaType);
+        if (guardable) reqImports.add("jakarta.validation.constraints.NotNull");
+        const nested = bearsNestedRecord(p.type);
+        if (nested) reqImports.add("jakarta.validation.Valid");
+        return `${guardable ? "@NotNull " : ""}${nested ? "@Valid " : ""}${javaType} ${p.name}`;
       });
       // A VO-typed param's `<Vo>Request` record lives in an aggregate's
       // application package, not `domain.valueobjects.*` — import it
@@ -620,7 +672,7 @@ export function renderJavaWorkflows(
       javaWorkflowStmtTarget(
         ctx,
         imports,
-        renderCtxFor(ctx, wctx),
+        wfRenderCtx,
         undefined,
         collectUnionFindLets(wf.statements),
       ),
@@ -636,7 +688,19 @@ export function renderJavaWorkflows(
         });
       }
     }
+    // Load-or-allocate the correlation row, keyed by the create param that
+    // name-matches the correlation field.  The param locals (`paramLets`) are
+    // already bound above, so the key is the domain-typed local itself.
+    const stateLoad = corrParam
+      ? [
+          `            var __key = ${corrParam.name};`,
+          `            var state = ${stateRepoField(wf)}.findById(__key).orElseGet(() -> ${workflowStateClass(wf)}._allocate(__key));`,
+        ]
+      : [];
     const saves = wf.savesAtExit.map((s) => `            ${repoField(s.aggName)}.save(${s.name});`);
+    // Persist the row (a fresh allocation, or a `this.<stateField>` write) so a
+    // later `on` reactor for the same key routes instead of dropping the event.
+    const stateSave = corrParam ? [`            ${stateRepoField(wf)}.save(state);`] : [];
     // The service carries a class-level `@Transactional`; a workflow that pins
     // an isolation level (`transactional(<level>)`, or its state dataSource's
     // `isolationLevel:`) overrides it per-method — parity with the .NET
@@ -657,8 +721,10 @@ export function renderJavaWorkflows(
       // identity (field `workflow`) across every backend.
       `            CatalogLog.event(${javaLogEvent("workflowStarted")}, "workflow", ${JSON.stringify(wf.name)});`,
       ...paramLets,
+      ...stateLoad,
       ...bodyLines,
       ...saves,
+      ...stateSave,
       // `workflow_completed` on the success tail — a thrown guard / domain
       // exception short-circuits before reaching here.
       `            CatalogLog.event(${javaLogEvent("workflowCompleted")}, "workflow", ${JSON.stringify(wf.name)});`,
@@ -730,6 +796,7 @@ export function renderJavaWorkflows(
   const readingServices = [...readingSvcs].sort();
   const ctorParams = [
     ...repoFields.map((a) => `${a}Repository ${repoField(a)}`),
+    ...sagaWorkflows.map((wf) => `${workflowStateClass(wf)}Repository ${stateRepoField(wf)}`),
     ...readingServices.map((s) => `${s} ${lowerFirst(s)}`),
     ...(anyUser ? [`CurrentUserAccessor currentUserAccessor`] : []),
   ].join(", ");
@@ -752,6 +819,10 @@ export function renderJavaWorkflows(
           repoPkg !== wctx.pkg ? `import ${repoPkg}.${a}Repository;` : null,
         ].filter((l): l is string => l !== null);
       }),
+      ...sagaWorkflows.flatMap((wf) => [
+        `import ${wctx.statePkg}.${workflowStateClass(wf)};`,
+        `import ${wctx.stateRepoPkg}.${workflowStateClass(wf)}Repository;`,
+      ]),
       anyUser ? `import ${wctx.basePkg}.auth.CurrentUserAccessor;` : null,
       anyUser ? `import ${wctx.basePkg}.auth.User;` : null,
       // The `.*` import covers BOTH resource-client classes and the typed
@@ -792,11 +863,15 @@ export function renderJavaWorkflows(
       `@Transactional`,
       `public class ${serviceName} {`,
       ...repoFields.map((a) => `    private final ${a}Repository ${repoField(a)};`),
+      ...sagaWorkflows.map(
+        (wf) => `    private final ${workflowStateClass(wf)}Repository ${stateRepoField(wf)};`,
+      ),
       ...readingServices.map((s) => `    private final ${s} ${lowerFirst(s)};`),
       anyUser ? `    private final CurrentUserAccessor currentUserAccessor;` : null,
       ``,
       `    public ${serviceName}(${ctorParams}) {`,
       ...repoFields.map((a) => `        this.${repoField(a)} = ${repoField(a)};`),
+      ...sagaWorkflows.map((wf) => `        this.${stateRepoField(wf)} = ${stateRepoField(wf)};`),
       ...readingServices.map((s) => `        this.${lowerFirst(s)} = ${lowerFirst(s)};`),
       anyUser ? `        this.currentUserAccessor = currentUserAccessor;` : null,
       `    }`,
@@ -812,7 +887,7 @@ export function renderJavaWorkflows(
     `    @PostMapping("/${snake(wf.name)}")`,
     `    @ResponseStatus(HttpStatus.NO_CONTENT)`,
     wf.params.length > 0
-      ? `    public void ${lowerFirst(wf.name)}(@RequestBody ${upperFirst(wf.name)}Request request) {`
+      ? `    public void ${lowerFirst(wf.name)}(@Valid @RequestBody ${upperFirst(wf.name)}Request request) {`
       : `    public void ${lowerFirst(wf.name)}() {`,
     `        workflows.${lowerFirst(wf.name)}(${wf.params.length > 0 ? "request" : ""});`,
     `    }`,
@@ -824,6 +899,7 @@ export function renderJavaWorkflows(
     content: lines(
       `package ${wctx.basePkg}.api;`,
       ``,
+      `import jakarta.validation.Valid;`,
       `import org.springframework.http.HttpStatus;`,
       `import org.springframework.web.bind.annotation.*;`,
       ``,

@@ -1,10 +1,16 @@
-import { emitsRestCreate, forCreateInput } from "../../../ir/enrich/wire-projection.js";
+import {
+  emitsRestCreate,
+  forCreateInput,
+  isRequiredCreateInput,
+} from "../../../ir/enrich/wire-projection.js";
 import type {
   EnrichedAggregateIR,
+  ExprIR,
   InvariantIR,
   TypeIR,
   ValueObjectIR,
 } from "../../../ir/types/loom-ir.js";
+import { walkExprDeep } from "../../../ir/util/walk.js";
 import {
   type ClassifyContext,
   classifyForWire,
@@ -21,7 +27,7 @@ import {
   collectJavaRegexLiterals,
   renderJavaExpr,
 } from "../render-expr.js";
-import { collectWireToDomainImports, wireToDomain } from "./wire.js";
+import { collectWireToDomainImports, wireComponentNullable, wireToDomain } from "./wire.js";
 
 // ---------------------------------------------------------------------------
 // Wire-boundary validators — ONE Spring `Validator` per command shape
@@ -67,7 +73,12 @@ export interface JavaCommandValidator {
 interface CommandSpec {
   className: string;
   requestType: string;
-  params: { name: string; type: TypeIR; optional?: boolean }[];
+  /** `nullable` is the DTO record's own answer for this slot: true when the
+   *  request component is a Java REFERENCE, so `name == null` compiles AND can
+   *  be true.  Carried rather than re-derived here because the boxing decision
+   *  differs per command shape (an operation body boxes every non-optional
+   *  param per RS-26; a create body does not) — see `wireComponentNullable`. */
+  params: { name: string; type: TypeIR; optional?: boolean; nullable: boolean }[];
   invariants: InvariantIR[];
   available: ReadonlySet<string>;
   /** VO-invariant → 422: the request's value-object-typed fields whose VO
@@ -134,7 +145,15 @@ function commandSpecs(
     specs.push({
       className: `Create${agg.name}Validator`,
       requestType: `Create${agg.name}Request`,
-      params: createInputs.map((f) => ({ name: f.name, type: f.type, optional: f.optional })),
+      // The create record leaves required inputs UNBOXED, so an `int` slot is
+      // a primitive here and a `Money` slot a record — `wireComponentNullable`
+      // is fed the same `!isRequiredCreateInput(f)` boxing dto.ts uses.
+      params: createInputs.map((f) => ({
+        name: f.name,
+        type: f.type,
+        optional: f.optional,
+        nullable: wireComponentNullable(f.type, !isRequiredCreateInput(f)),
+      })),
       invariants: agg.invariants,
       available: new Set(createInputs.map((f) => f.name)),
       voFields: voRequestFields(createInputs, voByName),
@@ -153,7 +172,13 @@ function commandSpecs(
     specs.push({
       className: `${upperFirst(op.name)}${agg.name}Validator`,
       requestType: `${upperFirst(op.name)}${agg.name}Request`,
-      params: op.params.map((p) => ({ name: p.name, type: p.type })),
+      // RS-26: an operation body BOXES every non-optional param, so even an
+      // `int qty` slot is an `Integer` that can arrive null.
+      params: op.params.map((p) => ({
+        name: p.name,
+        type: p.type,
+        nullable: wireComponentNullable(p.type, true),
+      })),
       // Field-level invariants (SYS-1): a mutating op's validator gets the SAME
       // wire constraints as create, plus its own preconditions; `available =
       // op.params` drops invariants over fields the op doesn't take.
@@ -211,7 +236,11 @@ export function renderJavaVoValidators(
       {
         className: `${vo.name}Validator`,
         requestType: `${vo.name}Request`,
-        params: vo.fields.map((f) => ({ name: f.name, type: f.type })),
+        params: vo.fields.map((f) => ({
+          name: f.name,
+          type: f.type,
+          nullable: wireComponentNullable(f.type, f.optional),
+        })),
         invariants: vo.invariants,
         available: new Set(vo.fields.map((f) => f.name)),
         voFields: [],
@@ -365,6 +394,8 @@ function buildChecks(
   const checks: string[] = [];
   const typeOf = (field: string): TypeIR | undefined =>
     spec.params.find((p) => p.name === field)?.type;
+  const nullableOf = (field: string): boolean =>
+    spec.params.find((p) => p.name === field)?.nullable ?? false;
 
   for (const inv of spec.invariants) {
     if (!classifyForWire(inv, ctx)) continue;
@@ -377,6 +408,7 @@ function buildChecks(
           single.field,
           single.pattern,
           typeOf(single.field),
+          nullableOf(single.field),
           message,
           code,
           regexFields,
@@ -410,10 +442,110 @@ function buildChecks(
     }
     const renderOpts = { thisName: "this", bareProps: true, regexFields } as const;
     const body = renderJavaExpr(inv.expr, renderOpts);
+    // #2857 (F19): a guarded invariant crosses the wire WITH its guard; C0.2a
+    // (F31): a nullable operand skips the bound rather than dereferencing null.
+    // Both compose — the null-skip wraps the guarded predicate, and its member
+    // walk covers the guard as well as the body.
     const predicate = inv.guard ? `!(${renderJavaExpr(inv.guard, renderOpts)}) || (${body})` : body;
-    checks.push(reject(path, code, message, predicate));
+    checks.push(reject(path, code, message, nullSkipRefs(predicate, spec, inv, regexFields)));
   }
   return checks;
+}
+
+/** F23's null-skip on the GENERIC-predicate arm.
+ *
+ *  `patternCheck` guards the single-field shapes, but an invariant whose
+ *  expression DEREFERENCES a nullable command value — `balance.amount >= 0`,
+ *  where `balance` is a required `Money` — falls through to the rendered
+ *  predicate, which had no guard at all:
+ *
+ *      var balance = request.balance();
+ *      if (!(balance.amount().compareTo(new BigDecimal("0")) >= 0)) …
+ *          NullPointerException: Cannot invoke "MoneyRequest.amount()"
+ *                                because "balance" is null            → 500
+ *
+ *  for a body the record's own `@NotNull` was about to answer 422. This
+ *  validator is a Spring `Validator` that Bean Validation runs ALONGSIDE those
+ *  annotations, not after them, so the predicate reaches the null first.
+ *  Skipping leaves the absence to the annotation that describes it — the same
+ *  decision F23 took for the single-field arms.
+ *
+ *  Guarded values are the REFERENCE-typed params the predicate names (a
+ *  primitive can never be null and `int == null` does not compile). An
+ *  invariant that mentions `null` ITSELF is left alone: it is asking about
+ *  absence, so skipping on absence would delete the check. */
+function nullSkipRefs(
+  predicate: string,
+  spec: CommandSpec,
+  inv: InvariantIR,
+  regexFields: Map<string, string>,
+): string {
+  if (mentionsNullLiteral(inv.expr) || (inv.guard && mentionsNullLiteral(inv.guard)))
+    return predicate;
+  const guards = new Map<number, Set<string>>();
+  const add = (depth: number, g: string): void => {
+    const at = guards.get(depth) ?? new Set<string>();
+    at.add(g);
+    guards.set(depth, at);
+  };
+  for (const p of spec.params) {
+    if (p.nullable && new RegExp(`\\b${p.name}\\b`).test(predicate)) add(0, `${p.name} == null`);
+  }
+  // …and every MEMBER STEP along a chain rooted at one of those params.
+  // `balance == null` alone still left `balance.amount()` returning null into
+  // `.compareTo(...)`: `{"balance": {"currency": ""}}` (the required `amount`
+  // simply omitted) threw
+  //   NullPointerException: … because the return value of
+  //   "MoneyRequest.amount()" is null
+  // — the nested `@NotNull` was about to answer 422 with `/balance/amount`.
+  const render = (e: ExprIR): string =>
+    renderJavaExpr(e, { thisName: "this", bareProps: true, regexFields });
+  // The guard (`invariant … when <guard>`, #2857) is rendered into the same
+  // predicate, so its chains need the same skips.
+  for (const root of [inv.expr, inv.guard]) {
+    if (!root) continue;
+    walkExprDeep(root, (e) => {
+      if (e.kind !== "member") return;
+      // A member off a SCALAR receiver is an intrinsic (`note.length`, rendered
+      // `((int) note.codePoints().count())`), not a record field: the depth-0
+      // param guard already covers its receiver, and `int == null` does not
+      // compile. Only record fields (VO / entity receivers) get a step guard.
+      const recv = e.receiverType.kind === "optional" ? e.receiverType.inner : e.receiverType;
+      if (recv.kind === "primitive") return;
+      const depth = chainDepth(e, spec);
+      if (depth === null) return;
+      // A PRIMITIVE accessor can never be null and `int == null` does not compile.
+      if (!wireComponentNullable(e.memberType, false)) return;
+      add(depth, `${render(e)} == null`);
+    });
+  }
+  // Shallow first: the guard for `a` has to short-circuit before `a.b()` runs.
+  const ordered = [...guards.entries()].sort((x, y) => x[0] - y[0]).flatMap(([, set]) => [...set]);
+  return ordered.length === 0 ? predicate : `${ordered.join(" || ")} || ${predicate}`;
+}
+
+/** How many member steps from a nullable command param this access sits at, or
+ *  null when the chain is not rooted at one (a literal, `this`, a call). */
+function chainDepth(e: ExprIR, spec: CommandSpec): number | null {
+  let depth = 1;
+  let cur: ExprIR = e;
+  for (;;) {
+    if (cur.kind !== "member") break;
+    cur = cur.receiver;
+    depth++;
+  }
+  if (cur.kind !== "ref") return null;
+  const param = spec.params.find((p) => p.name === cur.name);
+  return param?.nullable ? depth : null;
+}
+
+/** True when the expression contains a `null` literal anywhere. */
+function mentionsNullLiteral(expr: ExprIR): boolean {
+  let found = false;
+  walkExprDeep(expr, (e) => {
+    if (e.kind === "literal" && e.lit === "null") found = true;
+  });
+  return found;
 }
 
 /** `if (!(cond)) errors.rejectValue("field", "code", "message");` — the Spring
@@ -429,6 +561,7 @@ function patternCheck(
   field: string,
   pattern: SingleFieldPattern,
   type: TypeIR | undefined,
+  nullable: boolean,
   message: string,
   code: string,
   regexFields: Map<string, string>,
@@ -452,13 +585,16 @@ function patternCheck(
   // what .NET's FluentValidation arms already do (`v == null || …`, and its
   // built-in length validators return true for null).
   //
-  // Only where the Java type is a REFERENCE: `len-*` and `regex` are always
-  // String, and the numeric arms are only nullable in their BigDecimal form.
-  // Emitting `int == null` would not compile.
-  const nullSkip = (cond: string): string =>
-    moneyLike || pattern.kind.startsWith("len-") || pattern.kind === "regex"
-      ? `${field} == null || ${cond}`
-      : cond;
+  // Only where the Java type is a REFERENCE — `int == null` would not compile.
+  // That question is the DTO record's to answer, not this switch's: the first
+  // cut asked it of the PATTERN (`money`/`len-*`/`regex` are nullable, the rest
+  // are not), which is true of a create body's unboxed `int qty` and false of
+  // an operation body's, where RS-26 boxes every non-optional param. So
+  // `qty >= 1` on an `Integer qty` that arrived null unboxed to
+  // `Integer.intValue()` and threw — F23's 500 one command shape over (W11/W12
+  // on `POST /api/orders/{id}/add_line`). `nullable` is now carried from the
+  // record's own boxing decision (`wireComponentNullable`).
+  const nullSkip = (cond: string): string => (nullable ? `${field} == null || ${cond}` : cond);
   const fail = (cond: string): string => reject(field, code, message, nullSkip(cond));
   switch (pattern.kind) {
     case "min":

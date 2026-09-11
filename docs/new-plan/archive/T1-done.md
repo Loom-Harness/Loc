@@ -29,3 +29,98 @@ Found 2026-08-23 by the numeric-types audit ([S6](../../audits/numeric-types-aud
 **Landed 2026-08-24.** One owner — `MONEY_TEXT_SOURCE` in `src/generator/_frontend/money-format.ts` — is spliced into the `src/lib/format.*` all four Handlebars frontends already emit, and all **15** packs' money helper delegates to it. Default is **verbatim**: the wire's own digits, locale-neutral, no `Number()` hop, no symbol, no re-scale. `decimals: n` re-scales the digit string half-away-from-zero (never through a float, so `NUMERIC(19,4)`'s 19 digits survive); `currency:` prefixes the caller's code verbatim. Both stay the pre-existing, user-declared `Money(…)` arguments — no new pack knob. Witnessed by a transpile-and-execute behavioural test on `MONEY_TEXT_SOURCE` plus a cross-pack gate banning `"USD"` / `style: "currency"` / `Number(` on the money path in every pack, both mutation-proved. Deliberately excluded: Feliz (already conforms; its `decimals:` gap is unchanged), Flutter (M-T1.21 owns it), and `formatNumber`'s `Math.max(decimals, 2)` on plain `decimal` — same shape, different type, recorded not changed.
 
 Sources: [numeric-types-audit-2026-08-23](../../audits/numeric-types-audit-2026-08-23.md) S6, plan.json N5. Relates to M-T2.12 (currency dimension). Conflicts with M-T1.24 in the pack trees.
+
+## M-T1.29 — A page whose `body:` is a bare `match` is dropped entirely on React and Svelte, while Vue renders it — `done` ([#2830](https://github.com/Loom-Harness/Loc/pull/2830), merged 2026-09-09) · **M** · P1
+
+**Evidence on `main`:** `isWalkableLayoutBody` (`src/generator/_walker/walker-core.ts:394`) has the `match` arm — walkable when any arm or the `else` is, the same rule `ternary` already used — and the comment records why the predicate, not the rendering, was the fix. Pinned by `test/generator/_walker/walker-predicate-fail-open.test.ts` with **Vue as the control** (it never consulted the predicate, so a Vue regression would be a different bug): under the file-copy revert of the arm, 3 of 7 fail — react and svelte both `expected [] to not deeply equal []` (no file, no route), react also `expected '' to contain 'useState<number>(0)'`, and the Vue control stays green.
+
+Found 2026-09-03 by the language-docs audit ([F10](../../audits/2026-09-03-language-docs-audit-findings.md), P1) — independently by three auditors, and `page-metamodel.md` §7/§12 documented `body: match` as the wizard pattern. `isWalkableLayoutBody` (`src/generator/_walker/walker-core.ts:367`) admits only `call` and `ternary`, though the walker has full `match` arms: no file, no route, no diagnostic. Wrapping the same body in `Stack { match { … } }` emits it, and **Vue emits the bare form correctly** — one `.ddd`, three different frontend outcomes.
+
+**The fix:** the predicate, not new rendering — admit `variant-match` in `isWalkableLayoutBody`. Vue is the control: assert its output is unchanged.
+
+**Verification when it lands.** Mutation-proved on React *and* Svelte (the page vanishes again when the predicate is reverted by file copy), with a Vue byte-identity assertion beside it.
+
+Sources: [language-docs-audit-2026-09-03](../../audits/2026-09-03-language-docs-audit-findings.md) F10 + "Cross-cutting reading" §1, [wave plan](../../audits/2026-09-03-language-docs-audit-findings.waves.md) packet **W2.1**. Adopts the walker invariant proposed by whichever of M-T1.29/M-T1.30/M-T1.31 lands first (see M-T1.31).
+
+## M-T1.30 — A method call in a `KeyValueRow` value slot silently degrades to a comment — `done` ([#2830](https://github.com/Loom-Harness/Loc/pull/2830), merged 2026-09-09) · **S** · P1
+
+**Evidence on `main`:** element-position `walk` has the `method-call` arm (`src/generator/_walker/walker-core.ts:1195-1203`), mirroring the `member` case directly above it and routing through the same `renderInterpolation(emitExpr(...))` the `Text` twin uses. Pinned by `test/generator/_walker/walker-predicate-fail-open.test.ts` with the `Text` twin as the control (a regression shows up as the two disagreeing): under the file-copy revert, 3 of 7 fail — react, svelte and vue all `expected … not to contain 'unsupported expr: method-call'`.
+
+Found 2026-09-03 by the language-docs audit ([F12](../../audits/2026-09-03-language-docs-audit-findings.md), P1). `emitKeyValueRow` (`src/generator/_walker/primitives/text.ts:299-338`) routes the value through element-position `walk`, which has no method-call arm: `KeyValueRow { "Note", note.toUpper() }` emits `{/* unsupported expr: method-call */}` — the value vanishes — while `Text { note.toUpper() }` emits `note.toUpperCase()`. Same expression, same page, two answers.
+
+**The fix:** give element-position `walk` the method-call arm it lacks, so a `KeyValueRow` value behaves like a `Text` value; audit the other primitives routing through the same path while in the file.
+
+**Verification when it lands.** A walker test per affected primitive asserting the rendered call (and the *absence* of the `unsupported expr` comment); mutation-proved by file-copy revert.
+
+Sources: [language-docs-audit-2026-09-03](../../audits/2026-09-03-language-docs-audit-findings.md) F12 + "Cross-cutting reading" §1, [wave plan](../../audits/2026-09-03-language-docs-audit-findings.waves.md) packet **W2.2**. Adopts the walker invariant from M-T1.31.
+
+## M-T1.21 — Flutter money is broken end-to-end: every read crashes, every submit is rejected — `done` (2026-08-30) · **M** · P1 ⭐ compiles green, dies on the first list page
+
+Found 2026-08-23 by the numeric-types audit ([F1](../../audits/numeric-types-audit-2026-08-23.md)). Money crosses the wire as the RS-12 fixed-scale string (`"12.5000"`), but the generated Dart decodes it `(json['price'] as num).toDouble()` (`dartFromJson`, `src/generator/flutter/dart-types.ts`) — a runtime `type 'String' is not a subtype of type 'num'` on every list/detail/projection/dashboard read of a money-bearing model. Forms go wrong in the other direction: `double.tryParse` submits a JSON **number** (`src/generator/flutter/forms-emit.ts`), which every backend's string-typed money field rejects with 422/400.
+
+**Why every existing gate is green.** `generated-flutter-build.yml` is compile-only and its embedded fixture declares `price: int` plus a hand-rolled `valueobject Money { amount: int }` — the `money` *primitive* never reaches Flutter in any gate. Worse, the wrong decode is test-**pinned** in `test/generator/flutter/dart-model.test.ts`.
+
+**The fix** (proposed default, overridable in draft-PR review): money in Dart is the wire **string** with typed helpers — never `double` (which also caps money at ~15–17 significant digits against `NUMERIC(19,4)`). Decode takes the string as-is; forms keep text input and submit the string; display parses for formatting only. Re-pin `dart-model.test.ts` to the correct shape.
+
+**Verification when it lands.** The flutter CI fixture gains a money-primitive field (the F18 witness this class never had), the re-pinned suite is mutation-proved by restoring the `as num` decode, and M-T9.38's runtime leg is the eventual end-to-end proof.
+
+**Landed 2026-08-30.** In two steps, and the second is the one this mission is about. #2637 removed the CRASH by parsing the wire string into a `double` and re-formatting it with `toStringAsFixed(4)` — no more `String is not a subtype of num`, no more 422, but money still lived inside a binary float (~15–17 significant digits against `NUMERIC(19,4)`, re-quantized on every read→write round trip). The retype completes it: `money` in Dart IS the wire string, with a generated `lib/money.dart` (`LoomMoney`, BigInt scaled units) behind arithmetic, comparison and the six intrinsics; forms submit the typed text validated against the wire's own grammar; display/chart parse only to format. `decimal` stays a JSON number / Dart `double` — the control in every re-pinned test. One new optional walker seam (`exprMoneyBinary`) keeps every other target byte-identical. The showcase leg of `generated-flutter-build.yml` now carries a money primitive, an operation form, a charted money projection column, a money state cell and an intrinsic — the F18 witness — and `flutter analyze` on the generated app caught a real dangling-import bug before merge. Remaining: the JS-side `Table` money sort (M-T1.24 family) and M-T9.38's Flutter runtime leg.
+
+Sources: [numeric-types-audit-2026-08-23](../../audits/numeric-types-audit-2026-08-23.md) F1/F18, plan.json N1. Relates to M-T1.18 (Flutter residue), M-T9.38 (runtime leg).
+
+## M-T1.22 — Feliz numeric conformance: decimal encodes as a string, int `/` truncates, `long` is int32 — `done` (Wave 1, [#2674](https://github.com/lemmit/Loc/pull/2674), merged 2026-09-10) · **M** · P1
+
+Found 2026-08-23 by the numeric-types audit ([F2](../../audits/numeric-types-audit-2026-08-23.md)). Four defects, one target: (1) plain `decimal` request fields encode via Thoth `Encode.decimal`, which emits a JSON **string** — right for money, wrong for decimal (RS-24 says number) → 422 on node/.NET (`src/generator/feliz/wire.ts`; only the money arm is test-pinned). (2) `fs-expr.ts` has no `isIntDivWidenedToDecimal` arm, so a page-body `a / b` on ints **truncates** in F# where every other target yields 2.5. (3) `long` collapses to F# `int` + `Decode.int`, rejecting anything past int32. (4) No numeric validation runs before Fable's `int`/`decimal` conversion — a stray `2.5` in an int field throws an unhandled Elmish exception on submit.
+
+**Why every existing gate is green.** `generated-feliz-build.yml` is compile-only; all four defects are runtime- or wire-visible only. The Feliz *decode* side is actually the most precision-safe of the six frontends (F# `decimal` both ways) — the defects are all on the encode/expression side.
+
+**The fix:** split the encode arm (money string / decimal number); add the int-division widening arm to `FS_LEAVES`; decode `long` over the full int64 range; validate numeric text before conversion so bad input is a form error.
+
+**Verification when it lands.** `test/generator/feliz/createform.test.ts` gains the decimal-encode arm; an fs-expr division test; each arm mutation-proved.
+
+Sources: [numeric-types-audit-2026-08-23](../../audits/numeric-types-audit-2026-08-23.md) F2, plan.json N2. Relates to M-T1.16 (Feliz polish), M-T9.38 (runtime leg).
+
+## M-T1.23 — A money form input makes the generated React/Svelte app fail to build — `done` (Wave 1, [#2671](https://github.com/lemmit/Loc/pull/2671)) · **S–M** · P1 ⭐ duplicate `Decimal` import, hidden by a witness gap
+
+Found 2026-08-23 by the numeric-types audit ([F3](../../audits/numeric-types-audit-2026-08-23.md)). The page shell emits `import Decimal from "decimal.js"` when a page binds Decimal (`src/generator/react/walker/page-shell.ts`, Svelte twin), while every pack's `field-input-money` template *also* declares `{from: "decimal.js", named: ["Decimal"]}` — both land in the emitted page: `TS2300: Duplicate identifier 'Decimal'`, reproduced with tsc on emitted output. The generated app does not build.
+
+**Why every existing gate is green.** No build-matrix example renders a money-primitive form field (acme's `Money` is a value object of `decimal amount`), so `generated-react-build`/`-svelte-build` never reach the shape.
+
+**The fix:** one import owner — the shell's import collector absorbs (or skips) what the active pack already declares. Add a money-primitive create form to a build-matrix example in the same PR (the F18 witness), so the gate reaches the shape forever.
+
+**Verification when it lands.** A walker test pins single-import on a money-form page; the matrix example compiles; mutation-proved by re-duplicating the import.
+
+**Landed 2026-08-30.** `takeDecimalImport` in `src/generator/_walker/render-primitive.ts` (beside the `takeReactSpecifiers` precedent) drains the pack's declaration; the React and Svelte page shells stay the single emitter and OR the drained flag into their own fallback. Packs keep declaring, so an out-of-tree pack still works. The React **component** shell's dead `_decimalImport` (computed, never spliced — TS2304 on a `component` with a money `state {}`) was wired in the same change, because the drain removes the accident that was covering it. Witness: `page BuildDesk` in `examples/showcase.ddd`'s `ui Console` — the PR-time React build slice, red with TS2300 before / green after on `mantine@v9` + `shadcn@v4`. `test/generator/_walker/money-decimal-import.test.ts` now COUNTS the import lines per framework (presence is what passed while the app didn't build); seven mutation proofs recorded in the PR.
+
+**Three adjacent findings, all fixed here.** `CreateForm` renders `createInputFields(agg).filter(f => !f.optional)`, so an OPTIONAL money field never reaches a create form — the witness rides the crudish `update` `OperationForm` instead. The Svelte api module (`src/generator/svelte/api-builder.ts`) never emitted the dual `FormState`/`Payload` aliases its own form emitter imports (fixed, tested + mutation-proved). And the walker registered `<Action>FormState` as a VALUE import, which SvelteKit's `verbatimModuleSyntax` rejects (TS1484) — `addTypeImport` in `_walker/render-primitive.ts` now stores the inline `type X` import specifier, valid TS on every frontend, so the four FormState registrations in `_walker/primitives/forms.ts` ride it. That unblocked the Svelte matrix witness: `creditLimit: money?` on `examples/svelte-shop.ddd`'s crudish `Customer` puts `field-input-money` on the scaffolded Detail page's update form — red before the fixes / green after on `shadcnSvelte@v1` + `flowbite@v1`, so both PR-time Svelte packs now reach the shape.
+
+Sources: [numeric-types-audit-2026-08-23](../../audits/numeric-types-audit-2026-08-23.md) F3/F18, plan.json N3. Conflicts with M-T1.24 in the shared walker tree — sequence or stack.
+
+## M-T1.24 — Money form values must be strings/Decimals, never JS numbers: three seams violate it — `done` (Wave 1, [#2672](https://github.com/lemmit/Loc/pull/2672), merged 2026-09-03) · **M** · P1
+
+Found 2026-08-23 by the numeric-types audit ([F4+F5+F6](../../audits/numeric-types-audit-2026-08-23.md)), grouped because they are one contract violated at three seams. (1) **Svelte**: `createForm`'s `$state(structuredClone(defaults))` (`src/generator/svelte/emit-templates.ts`) strips the prototype off the money seed `new Decimal("0")` (`src/generator/_frontend/form-helpers.ts`) — the input renders `[object Object]` and an untouched default can never pass `moneySchema` (node-reproduced). (2) **Shared walker**: money inside a `VO[]` dynamic-row form registers `{valueAsNumber: true}` with a numeric `0` default (`NUMERIC` set in `src/generator/_walker/form-fields-vm.ts`) — the row always fails validation, and would wire a JSON number if it passed; flat money fields are correct, the array path diverges. (3) **Angular**: the request interface says `price: string` but `controlInit` seeds `new FormControl(0)` behind a `type="number"` input (`src/generator/angular/form-fields.ts`) — `TS2345` under `ng build`, and a JSON number if suppressed.
+
+**Why every existing gate is green.** Same witness gap as M-T1.23 — no matrix example has a money-primitive form; (1) is additionally masked by M-T1.23's build break.
+
+**The fix:** Decimal-safe default cloning (or string seeds) on Svelte; move `field-input-money` out of the `valueAsNumber` array-row path with a string zero seed; Angular seeds a string control behind a text input. Record the register-annex pack inconsistencies (some packs `parseInt`-truncate int input, Mantine caps decimal entry at 2dp) as acceptance observations while in the files.
+
+**Verification when it lands.** Per-seam generator tests, each mutation-proved; the M-T1.23 matrix example then exercises the whole path in the build gate.
+
+Sources: [numeric-types-audit-2026-08-23](../../audits/numeric-types-audit-2026-08-23.md) F4/F5/F6 + annex, plan.json N4. Conflicts with M-T1.23/M-T1.25 in shared trees.
+
+## M-T1.26 — `Image` / `Avatar` `src:` and `alt:` are still on the pre-A12 helper — a computed value is silently dropped, a param ref emits a template literal — `done` (Wave 1, #2752: react/svelte/feliz/flutter via `_walker/primitives/text.ts`, vue/angular via the pack templates + two `_packs/loader.ts` helpers; pinned by `test/generator/_walker/image-avatar-attr-cross-target.test.ts`) · **S** · P2
+
+Found 2026-08-30 re-verifying the [08-24 generator review](../../audits/generator-code-review-2026-08-24.md)'s follow-up register (row 17), on `main` @ `aa236ae`. Not claimed by #2668. The review's §A12 fixed exactly this class for `Anchor`/`Button` `to:` and left a note that the image slots share it; nobody picked the note up, and it is **four call sites, not the two the note recorded**.
+
+`stringOrRefArgValue` (`src/generator/_walker/walker-core.ts:2228`) accepts a string literal or a bare route-param ref and returns `undefined` for everything else. Its own doc-comment now describes it as the helper A12 replaced — but `emitImage` still reads both slots through it (`_walker/primitives/text.ts:172,178`) and so does `emitAvatar` (`:197,200`). Both A12 defects ride along:
+
+- **silent drop** — `Image { src: "/img/" + row.slug }` returns `undefined`, so `hasSrc` is false and the pack renders its placeholder: no image, no comment, no diagnostic. The degradation ratchet cannot see it (the drop leaves valid markup);
+- **invalid interpolation** — a route-param ref comes back as a JS **template literal** (`` `${id}` ``), which is not valid F# or Dart at all and is not valid in a markup attribute position on the JSX/Vue/Svelte/Angular targets either.
+
+`alt:` carries the extra sting: a dropped `alt` on a non-`decorative:` image is also an accessibility regression the a11y gates read as "author declared none".
+
+**The fix:** route both slots through the A12 machinery — `navArgValue`/`emitExpr` semantics, i.e. render any expression through the target's own leaf table, keeping the literal case byte-identical so no pack output moves. `src`/`alt` are attribute VALUES rather than nav destinations, so either generalise `navArgValue` (rename the `NavTarget` carrier, it is already `{expr, dynamic, literal?}`) or add the same-shaped `attrArgValue`; do not add a third spelling. Then delete `stringOrRefArgValue` if nothing else calls it — a live pre-A12 helper is how this recurs.
+
+**Verification when it lands.** A per-target walker test with a computed `src:` and a param-ref `alt:` on both primitives (seven targets — HEEx included, which already renders the dynamic form correctly and is the semantics oracle here, exactly as it was for A12); mutation-proved by file-copy revert. Assert the *absence* of `` `${ `` in the F#/Dart output, not just the presence of the attribute.
+
+Sources: [generator-code-review-2026-08-24](../../audits/generator-code-review-2026-08-24.md) §A12 (the fixed twin) + §Follow-up register (2026-08-30) row 17.

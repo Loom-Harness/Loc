@@ -26,8 +26,8 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  buildFrontend,
   buildServerModule,
-  findDistRoot,
   findFrontendDeployable,
   findNodeDeployable,
   outcomesFromPlaywrightJson,
@@ -91,9 +91,9 @@ async function main() {
     const e2eDir = join(frontendDir, "e2e");
 
     process.stdout.write("▶ building the generated frontend\n");
-    execFileSync(npm, ["install", "--no-audit", "--no-fund"], { cwd: frontendDir, stdio: "pipe" });
-    execFileSync(npm, ["run", "build"], { cwd: frontendDir, stdio: "pipe" });
-    const distDir = findDistRoot(frontendDir);
+    const distDir = buildFrontend(frontendDir, {
+      log: (m) => process.stdout.write(`    ${m}`),
+    });
 
     const { startServer } = await buildServerModule(deplDir, WORK);
     server = await startServer({ distDir });

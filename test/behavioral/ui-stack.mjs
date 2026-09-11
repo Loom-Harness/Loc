@@ -11,13 +11,20 @@
 // wiring is a second place for the origin/proxy/CORS invariant to drift —
 // and a drift there fails as a browser-level mystery, not a diff.
 
-import { build } from "esbuild";
-import { existsSync, readdirSync, writeFileSync } from "node:fs";
+// esbuild is loaded lazily inside the bundler step: the runtime legs have it
+// (the generated project installs it), but the fast suite that unit-tests this
+// module's pure helpers (test/harness/ui-stack-frontend-build.test.ts) must
+// not need it at import time.
+import { execFileSync } from "node:child_process";
+import { cpSync, existsSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 export const REPO = resolve(HERE, "..", "..");
+
+const npm = process.platform === "win32" ? "npm.cmd" : "npm";
+const npx = process.platform === "win32" ? "npx.cmd" : "npx";
 
 /** Recursively collect files under `dir` matching `pred`. */
 export function walk(dir, pred, out = []) {
@@ -76,6 +83,135 @@ export function findFrontendDeployable(genDir) {
     );
   }
   return dirs[0];
+}
+
+/** Everything a failed `execFileSync` knows, as one string.  `err.message`
+ *  carries stderr but NOT stdout, and npm writes a good half of its diagnosis
+ *  (the `npm error` block, the resolution log) to stdout — so a harness that
+ *  reports only `err.message` throws away the half that names the cause. */
+export function combinedOutput(err) {
+  const dec = (b) => (typeof b === "string" ? b : b?.toString?.("utf8"));
+  return [err?.message, dec(err?.stdout), dec(err?.stderr)].filter(Boolean).join("\n");
+}
+
+/** npm's optional-dependency hole (npm/cli#4828), as it reads from the other
+ *  side.  A registry blip while fetching a PLATFORM-SPECIFIC optional package
+ *  (`@rolldown/binding-linux-x64-gnu` for the vite 8 bundler, `@rollup/rollup-*`,
+ *  `@esbuild/*`, `@swc/*`, …) is NOT fatal to `npm install`: optional means
+ *  optional, so the install exits 0 having silently skipped it.  The damage
+ *  surfaces minutes later, in `npm run build`, as the bundler failing to load
+ *  its native binding — an error that names npm's bug and prescribes the fix
+ *  ("remove both package-lock.json and node_modules directory"), and has
+ *  nothing to do with the generated code under test.
+ *
+ *  Measured on this leg: the 2026-09-09 nightly lost BOTH the vue and the
+ *  svelte cell to it inside the same runner window
+ *  (`Cannot find module '@rolldown/binding-linux-x64-gnu'`), while the feliz
+ *  cell in the same run failed for an unrelated, real reason. */
+export const OPTIONAL_DEP_MISS_RE =
+  /Cannot find native binding|npm has a bug related to optional dependencies|Cannot find module '@(?:rolldown|rollup|esbuild|swc|napi-rs|parcel|tailwindcss)\/[^']*'/;
+
+/** Does this build output look like npm's optional-dependency hole? */
+export function isOptionalDepMiss(text) {
+  return OPTIONAL_DEP_MISS_RE.test(String(text ?? ""));
+}
+
+/** npm config that narrows the registry window this leg keeps falling into:
+ *  five fetch attempts instead of two, and a longer ceiling between them. */
+const FETCH_RETRY_FLAGS = ["--fetch-retries=5", "--fetch-retry-maxtimeout=120000"];
+
+/**
+ * Install + build a generated frontend with its OWN build script, and return
+ * the built SPA root.
+ *
+ * Shared by `run-ui.mjs` and `paged-ui.mjs` for the same reason the boot below
+ * is shared: two copies of "how a generated frontend is built" is two places
+ * for the optional-dependency heal to be missing from.
+ *
+ * `install` / `buildScript` / `clean` / `distRoot` are injection seams for the
+ * per-PR harness gate (test/harness/ui-stack-frontend-build.test.ts), which has
+ * to assert the heal WITHOUT a network, an npm, or a generated project.
+ * Production callers pass none of them.
+ */
+export function buildFrontend(frontendDir, opts = {}) {
+  const {
+    log = () => {},
+    install = (dir, extra = []) =>
+      execFileSync(npm, ["install", "--no-audit", "--no-fund", ...FETCH_RETRY_FLAGS, ...extra], {
+        cwd: dir,
+        stdio: "pipe",
+      }),
+    buildScript = (dir) => {
+      const pkg = JSON.parse(readFileSync(join(dir, "package.json"), "utf8"));
+      if (pkg.scripts?.build) execFileSync(npm, ["run", "build"], { cwd: dir, stdio: "pipe" });
+      else execFileSync(npx, ["vite", "build"], { cwd: dir, stdio: "pipe" });
+    },
+    clean = (dir) => {
+      rmSync(join(dir, "node_modules"), { recursive: true, force: true });
+      rmSync(join(dir, "package-lock.json"), { force: true });
+    },
+    distRoot = findDistRoot,
+  } = opts;
+
+  const attempt = () => {
+    install(frontendDir);
+    buildScript(frontendDir);
+  };
+
+  try {
+    attempt();
+  } catch (err) {
+    const out = combinedOutput(err);
+    // Only npm's own hole is retried, and only once.  Anything else is the
+    // generated code failing to build — the thing this leg exists to catch —
+    // and is rethrown WITH the stdout half of its diagnosis attached.
+    if (!isOptionalDepMiss(out)) {
+      err.message = out;
+      throw err;
+    }
+    log(
+      "loom-retry: the frontend build hit npm's optional-dependency hole " +
+        "(npm/cli#4828) — wiping node_modules + package-lock.json and reinstalling once.\n" +
+        `${out.split("\n").slice(0, 6).join("\n")}\n`,
+    );
+    clean(frontendDir);
+    try {
+      attempt();
+    } catch (err2) {
+      err2.message = combinedOutput(err2);
+      throw err2;
+    }
+  }
+  return distRoot(frontendDir);
+}
+
+/**
+ * Copy every `test-results` dir out of a generated tree into `workDir`.
+ *
+ * Playwright's evidence for a red cell — `trace.zip`, `test-failed-1.png`,
+ * `error-context.md` — is written under `<frontend>/e2e/test-results`, i.e.
+ * INSIDE the mkdtemp the runners unlink in their `finally`.  So the nightly
+ * leg's log named a trace file that no longer existed by the time the job
+ * ended, and every investigation had to start from the console tail.  `workDir`
+ * lives in the repo, where the workflow's `upload-artifact` step can reach it.
+ *
+ * Never throws: rescuing evidence must not replace the failure it documents.
+ */
+export function preserveArtifacts(genDir, workDir) {
+  const MARK = "/test-results";
+  try {
+    const roots = new Set(
+      walk(genDir, (p) => p.slice(genDir.length).includes(`${MARK}/`)).map((p) =>
+        p.slice(0, p.indexOf(`${MARK}/`) + MARK.length),
+      ),
+    );
+    for (const root of roots) {
+      cpSync(root, join(workDir, "test-results"), { recursive: true, force: true });
+    }
+    return [...roots];
+  } catch {
+    return [];
+  }
 }
 
 /** The bundled boot: createApp on PGlite, served (static dist + /api) over one HTTP origin. */
@@ -142,6 +278,7 @@ export async function buildServerModule(deplDir, workDir) {
   const entry = join(workDir, "server-entry.mts");
   const bundle = join(workDir, "server-bundle.mjs");
   writeFileSync(entry, serverEntrySource({ deplDir }));
+  const { build } = await import("esbuild");
   await build({
     entryPoints: [entry],
     outfile: bundle,

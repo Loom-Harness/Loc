@@ -60,7 +60,7 @@ export class Product {
       id: Ids.newProductId(),
       sku: input.sku,
       price: input.price,
-      version: 0,
+      version: 1,
     });
   }
 }

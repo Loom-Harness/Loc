@@ -20,12 +20,10 @@ import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { walkExprDeep, walkStmtExprsDeep } from "../../../ir/util/walk.js";
 import { lines } from "../../../util/code-builder.js";
 import { plural, snake } from "../../../util/naming.js";
-import {
-  constructionSeededDefaults,
-  isServerSourcedDefault,
-} from "../../_frontend/server-default.js";
+import { isServerSourcedDefault } from "../../_frontend/server-default.js";
 import type { UnionMember } from "../../_payload/union-wire.js";
 import type { SourceMapSubRegion } from "../../_trace/sourcemap.js";
+import { constructionSeededFields } from "../../construction-default.js";
 import { promotedFilters, sqlRestrictionFilters } from "../capability-filter.js";
 import {
   buildJavaRegexFields,
@@ -865,13 +863,16 @@ export function renderJavaEntity(
             return `        e.${f.name} = ${dflt === undefined ? f.name : `${f.name} != null ? ${f.name} : ${dflt}`};`;
           }),
           // Server-seeded literal defaults (RS-11): fields outside the create-
-          // input set (`token`/`managed`/`internal`) whose default is a plain
-          // constant — the `versioned` capability's `version: int token = 1` is
-          // the canonical case.  Setting it here (a non-"unsaved" value) makes
-          // Hibernate keep it as the seed and INSERT 1, so a created versioned
-          // aggregate reads back at version 1 rather than the primitive-int 0.
+          // input set (`token`/`managed`/`internal`) whose default is a
+          // construction-time constant — the `versioned` capability's
+          // `version: int token = 1` is the canonical case.  Setting it here (a
+          // non-"unsaved" value) makes Hibernate keep it as the seed and INSERT
+          // 1, so a created versioned aggregate reads back at version 1 rather
+          // than the primitive-int 0.  `money` counts: `renderJavaExpr` emits
+          // `new BigDecimal("2.50")`, so a `money managed = money("2.50")` no
+          // longer INSERTs a null into its NOT NULL column.
           ...(isAgg(entity)
-            ? constructionSeededDefaults(entity.fields).map(
+            ? constructionSeededFields(entity.fields).map(
                 (f) => `        e.${f.name} = ${renderJavaExpr(f.default, renderCtx)};`,
               )
             : []),
