@@ -52,6 +52,10 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.function-block-impure": "07-invariants-derived-functions.md#function--a-pure-helper",
   "loom.when-references-op-param":
     "06-behavior-and-statements.md#when-also-auto-exposes-get-idcan_op",
+  "loom.variant-match-placement":
+    "06-behavior-and-statements.md#match--the-effect-form-variant-match",
+  "loom.for-placement": "06-behavior-and-statements.md#for--if-let--workflow-bodies-only",
+  "loom.if-let-placement": "06-behavior-and-statements.md#for--if-let--workflow-bodies-only",
   "loom.abstract-aggregate-behavior":
     "08-inheritance-and-polymorphism.md#abstract-aggregate--the-base",
   "loom.abstract-repository": "08-inheritance-and-polymorphism.md#abstract-aggregate--the-base",

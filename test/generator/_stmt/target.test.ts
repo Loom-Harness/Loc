@@ -72,9 +72,15 @@ describe("StmtTarget — exhaustive StmtIR kind coverage", () => {
   });
 
   it("dispatches the shared spine's variant-match guard, naming the backend", () => {
+    // M-T5.28 turned this from the ONLY thing standing between a domain-body
+    // `match` and the emitters into an internal-invariant assertion: phase ④'s
+    // `loom.variant-match-placement` now refuses that source, so reaching here
+    // means the validator was bypassed.  The guard still THROWS (a silent skip
+    // would drop the statement's effects), still names the backend, and now
+    // names the code whose absence let the statement through.
     const { target } = recordingTarget("positional");
     expect(() => renderStmtsWith([stmt("variant-match")], target)).toThrow(
-      /variant-match statement is frontend-only; it must not reach the MOCK backend/,
+      /'variant-match' statement reached the MOCK statement renderer; loom\.variant-match-placement/,
     );
   });
 });

@@ -249,6 +249,36 @@ system S {
     }
     repository Orders for Order { }`),
 
+  // M-T5.28 — the three positional statements, each written in the one place
+  // its lowerer does NOT reach.  All three used to validate clean: the `match`
+  // then threw out of the shared statement dispatcher on all five backends, and
+  // `for` / `if let` lowered to the `<unknown>` call sentinel.
+  "loom.variant-match-placement": repoOnly(`    error NotFound { resource: string }
+    aggregate Order with crudish {
+      code: string
+      operation probe(): string or NotFound { return NotFound { resource: code } }
+      operation touch() {
+        match probe() {
+          NotFound e => { code := e.resource }
+          string s => { code := s }
+        }
+      }
+    }
+    repository Orders for Order { }`),
+
+  "loom.for-placement": repoOnly(`    aggregate Order with crudish {
+      code: string
+      notes: string[]
+      operation touch() { for n in notes { code := n } }
+    }
+    repository Orders for Order { }`),
+
+  "loom.if-let-placement": repoOnly(`    aggregate Order with crudish {
+      code: string
+      operation touch() { if let c = code { code := c } }
+    }
+    repository Orders for Order { }`),
+
   "loom.duplicate-find": repoOnly(`    aggregate Thing with crudish { name: string }
     repository Things for Thing {
       find byName(n: string): Thing[] where this.name == n
