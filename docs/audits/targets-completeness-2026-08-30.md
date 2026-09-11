@@ -34,9 +34,15 @@ reading the old text would have built the wrong thing:
 - **`static-subpath-405-node-only`** — the title is now exactly backwards. #2764 closed node, python,
   java and dotnet; **elixir** is the only arm left, answering 422 from `:__cast_path_id` where the
   others answer 405 + `Allow`.
-- **`F2-MT640-SORT-DEAD`** — filed as "sortable headers are a no-op refetch". There are no sortable
-  headers: the non-paged page emits no `phx-click` at all, just dead `sort_key`/`sort_dir` assigns
-  beside a zero-arg `list_orders()`.
+- **`F2-MT640-SORT-DEAD`** — filed as "sortable headers are a no-op refetch"; corrected once to "there
+  are no sortable headers, just dead `sort_key`/`sort_dir` assigns beside a zero-arg `list_orders()`";
+  **corrected again 2026-09-11 (wave C1, packet 1e)**, because the dead assigns are the residue, not
+  the defect. The scaffold macro passes `sortKey:`/`sortDir:`/`page:`/`pageSize: 10` to the Table in
+  BOTH modes, and the shared walker honours them CLIENT-side when the read is not server-paged
+  (`_walker/primitives/table.ts` — `serverControls` is true there, `renderSortedRows` sorts, the pager
+  slices). HEEx's parallel engine gates on `serverPaged` instead (`heex-primitives.ts:670`), so the
+  same `.ddd` sorts and pages on react/vue/svelte/angular and renders an unsorted, unpaged table on
+  Phoenix. The row is a cross-frontend capability gap (M), not an S-sized assign cleanup.
 - **`queryview-lambda-int-plus-literal-concat`** — filed against the JS frontends as a wrong string.
   It is also a **hard build break** on feliz (`int + string`) and flutter (`int + String`).
 - **`dapper-no-schema-evolution`** — the "silently unapplied" half is stale; a second generate exits 1.
@@ -59,20 +65,20 @@ premise was only ever true of one target. Re-verify per target, not per row.
 
 | metric | value |
 |---|---|
-| open rows | **153** |
+| open rows | **149** |
 | P0 | 0 |
-| P1 | 7 |
+| P1 | 3 |
 | P2 | 13 |
 | P3 | 32 |
 | P4 | 89 |
 | P5 | 12 |
-| kind: silent / honest / breadth / mission / stale-prose | 20 / 32 / 26 / 63 / 12 |
-| confidence: proven / likely / suspected | 29 / 123 / 1 |
+| kind: silent / honest / breadth / mission / stale-prose | 16 / 32 / 26 / 63 / 12 |
+| confidence: proven / likely / suspected | 25 / 123 / 1 |
 | class: faulty-fix / regression | 1 / 0 |
-| size S / M / L | 41 / 66 / 46 |
-| provenance: fleet1-only / fleet2-only / corroborated by both | 137 / 14 / 1 |
+| size S / M / L | 39 / 64 / 46 |
+| provenance: fleet1-only / fleet2-only / corroborated by both | 136 / 11 / 1 |
 | claimed by an open PR | 61 |
-| done / merged | 140 |
+| done / merged | 144 |
 | conflicts | 10 |
 | checkedOk entries | 146 |
 | rows scheduled into waves | 134 across 13 packets |
@@ -85,12 +91,8 @@ Sorted P0 (security / data-integrity, silent, proven) → P1 (other silent prove
 
 | P | id | kind/class | conf | targets | size | title |
 |---|---|---|---|---|---|---|
-| P1 | `F2-CB-C7-domainservice-in-requires-guard` | silent | prov | node, dotnet, java, python | S | A `domainService` call inside a `requires` authorization guard passes validation and emits an unresolvable reference on four of five backends |
-| P1 | `F2-MT640-SORT-DEAD` | silent | prov | elixir | S | M-T6.40 shipped as option (a) — the non-paged elixir list page now compiles, but its sortable headers are a no-op refetch (and the mission row still reads `open`) |
-| P1 | `F2-CB-C1-paged-nonrelational` | silent | prov | node, dotnet, python, elixir | M | `find … paged` on a non-relational aggregate (eventLog / document / embedded) emits a route built for the paged contract against a repository built for the unpaged one |
+| P1 | `F2-MT640-SORT-DEAD` | silent | prov | elixir | M | HEEx wires a Table's `sortKey`/`sortDir`/`page` ONLY when `serverPaged`, so a NON-paged scaffolded list silently loses the client-side sort + pagination all four JSX frontends render from the same `.ddd` — the dead `sort_key`/`sort_dir`/`page_num` assigns are the residue, not the defect |
 | P1 | `F2-CFE-1` | silent | prov | react, vue, svelte, angular, feliz, flutter, heex | M | `navigate(<Page>)` in a page `action` body — the only documented home for navigation — is broken on all 7 frontend targets (feliz hard-crashes codegen) |
-| P1 | `F2-XB-4` | silent | prov | node, dotnet, java, python, elixir | M | Every non-assignment statement in a folded-projection `on(e)` body is silently dropped on all five backends — and a `let` its own assignment references emits an undefined identifier |
-| P1 | `G2644-M-T6.48-numeric-ingress` | silent | prov | dotnet, java, python, elixir | M | #2644 F12 / M-T6.48 — malformed numeric input answers 500, not 4xx, on four backends |
 | P1 | `flutter-form-field-drops` | silent | prov | flutter | M | Four Flutter form-field drops are still emitted as Dart COMMENTS, not diagnostics — the parity freeze is unchanged since the 08-17 snapshot |
 | P2 ! | `G2646-open-projection-on-event-no-channel` | silent | like | dotnet, java, python, elixir | M | #2646 documented, NOT fixed: `projection … on(Event)` with no `channel` folds on node only; the other four silently never subscribe |
 | P2 ! | `M-T3.8-sensitivity-phases-2-4` | silent | like | node, dotnet, java, python, elixir | L | `sensitive(...)` reaches exactly one emitter — no wire masking, no sink classification, and no diagnostic saying so |
