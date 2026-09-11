@@ -92,6 +92,34 @@ const source = (body: string, t: (typeof TARGETS)[number]): string =>
 
 const PRIMITIVES = Object.keys(WALKER_PRIMITIVES);
 
+/** Every give-up code the sweep actually SAW, across all seven targets.
+ *  Accumulated by the per-target tests and checked by the last one — see there
+ *  for why a census of the codes is not the same thing as a census of the
+ *  sites. */
+const SEEN = new Set<string>();
+
+/** The give-up codes an ARGLESS body can reach — which is not the whole
+ *  family, and the difference is the point of writing the list down:
+ *
+ *   * `loom.page-ref-unreachable` needs a primitive that NAMES something
+ *     (`CreateForm { of: "Ghost" }`); argless spellings stop one step earlier,
+ *     at the missing argument.  Driven by the corpus witness beside this file.
+ *   * `loom.page-primitive-target-gap` fires per-FRONTEND, from the two
+ *     procedural packs' missing-renderer fallback and the HEEx engine's
+ *     unsupported-primitive arm — neither reachable by varying the BODY.
+ *     Driven by `test/generator/elixir/heex-unsupported-primitive.test.ts` and
+ *     the two `*-pack-groundwork` tests.
+ *   * `loom.page-expr-unrenderable` is `walker-core.ts`'s markup-position
+ *     expression backstop and has no known authored shape at all; it is pinned
+ *     as unreachable in `test/system/diagnostic-firing-census.test.ts`.
+ *
+ *  Listing any of those three here would make this assertion a wish rather
+ *  than a measurement. */
+const MUST_EXERCISE = [
+  "loom.page-primitive-arg-missing",
+  "loom.page-primitive-arg-invalid",
+] as const;
+
 async function errorsOf(src: string): Promise<readonly { code: string; message: string }[]> {
   const report = await validate(src);
   return report.diagnostics
@@ -255,6 +283,7 @@ describe("the body walker never declines without a code", () => {
             const code = GIVE_UP_RE.exec(line)?.[1];
             if (!code || !CATALOG.has(code))
               bad.push(`${path}:${i + 1}  uncatalogued code '${code}'`);
+            else SEEN.add(code);
           }
         }
       }
@@ -278,4 +307,24 @@ describe("the body walker never declines without a code", () => {
       ).toBeGreaterThan(0);
     }, 180_000);
   }
+
+  // Runs last, after every target has contributed to `SEEN`.
+  //
+  // The assertions above are about the SITES: whatever declined, named a code.
+  // This one is about the CODES: each of the four the walker can produce from
+  // an argless body is actually produced by this sweep.  They are different
+  // claims, and only the second one makes this file a real firing proof for
+  // those codes — which is what `diagnostic-firing-census.test.ts` points at
+  // when it credits them as DRIVEN_ELSEWHERE (they never come out of
+  // `validate()`, because codegen has no diagnostic channel).
+  it("exercises every give-up code the walker can reach from an argless body", () => {
+    const missing = MUST_EXERCISE.filter((c) => !SEEN.has(c));
+    expect(
+      missing,
+      "the sweep no longer produces these codes, so the firing proof the census credits to " +
+        "this file is gone. Either the emitter stopped using the code (delete it from the " +
+        "catalog and from the census bucket in the same PR) or the sweep stopped reaching " +
+        "the arm that raises it.",
+    ).toEqual([]);
+  });
 });

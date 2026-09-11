@@ -89,12 +89,12 @@ to the page body (`CtlE` precedes `CtlB` there). The render is always the last o
 
 ---
 
-## 3. Rule 13 — the corpus fixture
+## 3. Rule 13 — the fixture, and where the repo said it may NOT live
 
-`test/fixtures/corpus/walker-give-up-shapes.ddd` (+ manifest row) is the **first `.ddd` in the corpus
-that authors a give-up**. Until it landed, every one of the walker's decline paths was exercised only
-by hand-written probes inside individual unit tests, so the codes they now carry had no fixture that
-would notice them rotting. Five shapes, all of which validate `0 error(s)`:
+`test/fixtures/walker-give-up-shapes.ddd` is the first CHECKED-IN `.ddd` that authors a give-up.
+Until it landed, every one of the walker's decline paths was exercised only by probes written inline
+inside individual unit tests, so the codes they now carry had no fixture that would notice them
+rotting. Five shapes, each verified to validate `0 error(s)` before it went in:
 
 | shape | code |
 |---|---|
@@ -104,18 +104,27 @@ would notice them rotting. Five shapes, all of which validate `0 error(s)`:
 | `Icon { name: "no-such-glyph-…" }` | `loom.page-primitive-arg-invalid` |
 | `CreateForm { of: "Ghost" }` | `loom.page-ref-unreachable` |
 
-`backends: ["node"]`, `deployables: ["d", "web"]` — the give-ups live in the FRONTEND project, and
-`web` is recognised as an emitted project dir by the node marker (`package.json`) alone, so any other
-backend row would fail `corpus-coverage`'s emitted-dirs cross-check.
+**It is deliberately NOT under `test/fixtures/corpus/`, and the first attempt to put it there was
+right to fail.** Rule 13 names the corpus, but the corpus is a BACKEND feature matrix and two of its
+own gates say so normatively:
 
-Two codes are **deliberately not witnessed there**, and the fixture header says why rather than
-papering over it: `loom.page-primitive-target-gap` is per-FRONTEND (it cannot fire on the react host
-the fixture declares — the cross-target sweep covers it on all seven), and
-`loom.page-expr-unrenderable` is the markup-position expression backstop, which **no authored `.ddd`
-shape is known to reach today**. It is carried as a coded backstop, not claimed as a witnessed
-condition.
+* `test/system/clause-census.test.ts` — *"the corpus fixtures still carry no `ui` — the other half of
+  §82, stated"*, whose comment ends **"If this ever flips, the comment is wrong rather than the code
+  — read it before deleting the assertion."** The fixture flipped it;
+* `test/conformance/feature-doc-coverage.test.ts` — `FEATURE_DOCS` admits only docs describing an
+  authorable DOMAIN feature, and a `doc:` citation outside that set fails.
 
----
+Both caught it, which is the gates working. Forcing it in would have meant deleting a reviewed
+property to make a rule of thumb fit — so the fixture moved to `test/fixtures/`, beside
+`dispatch-sample.ddd` / `outbox-sample.ddd`, read directly by
+`test/generator/_walker/walker-give-up-corpus-shapes.test.ts`. **Note for the wave rules:** rule 13's
+"under `test/fixtures/corpus/`" is right for a domain/backend shape and wrong for a frontend one;
+the general form is "a checked-in `.ddd`, in the fixture home its subject belongs to".
+
+Two codes are not witnessed by this fixture, and the header says why rather than papering over it:
+`loom.page-primitive-target-gap` is per-FRONTEND (it cannot fire on the react host the fixture
+declares — the cross-target sweep covers it on all seven), and `loom.page-expr-unrenderable` is the
+markup-position expression backstop, which **no authored `.ddd` shape is known to reach today**.
 
 ## 4. Flipped
 
@@ -136,6 +145,40 @@ packet's fence and is the coordinator's C0.4-style sweep.
 | H2 | **HEEx named-icon parity gap.** `renderIcon` in `heex-primitives.ts` does `void name` and never consults the builtin glyph registry, so `Icon { name: "trash" }` — a perfectly valid icon that renders on all six JSX/markup targets — emits an empty `<span class="loom-icon">` on Phoenix. Only the *nothing-named-at-all* case was routed here (F6). | `src/generator/elixir/heex-primitives.ts` ~line 2210, beside the routed give-up. `lookupBuiltinIcon` is already imported in that file. | It is a PARITY defect, not a give-up-routing one, and closing it changes the emitted bytes of **every valid named icon** on Phoenix — a different blast radius and a different gate (`heex-parity.test.ts`). Smuggling it into a give-up drain would have hidden it. |
 | H3 | `loom.page-expr-unrenderable` (`walker-core.ts`'s markup-position `default:` arm) has **no known reachable `.ddd` shape**. Either prove it dead and make it a `never`-check, or find the shape and add a fixture. | `src/generator/_walker/walker-core.ts:~1206` | Proving unreachability needs an exhaustive `ExprIR.kind` argument over what the page-body lowerer can produce — a walk-census-shaped job, not a give-up-routing one. Left coded so it is honest either way. |
 | H4 | `src/diagnostics/unsupported-register.ts` has **no row for `loom.page-primitive-target-gap`**, which is a genuine per-target porting gap (7 sites: Timeline / ProvenanceInfo on feliz+flutter, the HEEx instance-op-form, both procedural packs' missing-renderer fallback). It escapes the register because the register keys on the `-unsupported` / `-backend` suffix and this code carries neither. | `src/diagnostics/unsupported-register.ts` | Naming it `*-unsupported` would have obliged a register row in a file outside the fence, and the register's own header is explicit that the classification is a **reviewed** field, not one derivable from the name. Flagging rather than deciding. |
+
+| H5 | **The cross-frontend matrix's `GAPS` is not ratcheted.** `test/platform/allowlist-ratchet.test.ts` pins the entry count of the showcase ALLOWLIST, the corpus compile-skip maps, the HEEx frozen set and `KNOWN_GAPS` — but NOT `frontend-showcase-render.test.ts`'s `GAPS`, the register that says "this frontend × ui cell does not render". A new frozen gap can therefore be added with no count moving anywhere. This packet added one (see below), which is exactly the event a ratchet exists to make visible. | `test/platform/allowlist-ratchet.test.ts` | Adding a register to that ratchet is a decision about the ratchet's scope, not part of a give-up drain — and doing it in the same PR that adds an entry would look like covering the tracks. |
+
+### The gap this drain REVEALED (not introduced)
+
+Routing the HEEx give-ups through `giveUpText` gave them the sentinel — and the cross-frontend
+matrix finds silent degradation *by* that sentinel, so one HEEx cell that had been passing went red:
+
+> `heex:Console does not render: MARKER "loom:unrendered" in fe_cell/lib/fe_cell_web/live/kitchen_live.ex`
+
+The gap is **older than this packet**. `Console`'s Kitchen page hands a standalone
+instance-qualified `OperationForm { row.<op> }` (inside a `single:` QueryView, no Modal) to the HEEx
+walker, which cannot render it — LiveView's op-form needs the `handle_event` + form-binding half
+`renderModal` owns. The emitter has *said so in the output* since #2652, and
+`heex-standalone-op-form-marker.test.ts` pins that marker deliberately. But the marker was built
+inline and carried **no sentinel**, so the matrix could not see it — the same blind spot as F4, one
+layer up.
+
+Recorded as a reasoned `GAPS` entry (`"heex:Console"`) with the closing recipe: **Flutter had the
+identical finding and closed it** when `renderModal` / `renderOperationForm` grew the
+instance-qualified arm, so the HEEx fix is the same shape — teach `renderForm`'s HEEx arm to emit
+the form plus its `handle_event` clause, then delete the entry.
+
+### The five gates that had to be taught about the new codes
+
+Worth listing, because each is a register this packet's authors would not have found by grepping:
+
+| Gate | What it wanted |
+|---|---|
+| `test/system/diagnostic-catalog.test.ts` | the orphan check scans `diagMessage(…)` call sites; a code named only at a `giveUp(…)` read as an orphan — taught it about give-up codes, in both directions |
+| `test/system/diagnostic-firing-census.test.ts` | every catalogued code in exactly one bucket: four went to `DRIVEN_ELSEWHERE` with CHECKED pointers, `loom.page-expr-unrenderable` to `UNREACHABLE_PINS` with its reason |
+| `test/generator/_walker/render-degradation.test.ts` | its `origins` pin the EXACT emitter template; the three that gained `giveUpText` now name the inner PROSE template (the outer expression also defeats its `${…}` substitution, which does not nest) |
+| `test/ir/api-caller-census.test.ts` + `test/system/gate-ledger.test.ts` | both demanded a signed reason for a corpus fixture with no `test e2e` block — moot once the fixture left the corpus, but they caught it first |
+| `test/conformance/frontend-showcase-render.test.ts` | see above |
 
 ### §18 sentinel overlap (for packet 1d-ii)
 
@@ -170,7 +213,7 @@ TODO/throw sentinels.
 | `test/system/diagnostic-catalog.test.ts` + `diagnostic-docs-anchors` + `unsupported-register` + routing | **145/145** |
 | `test/generator/elixir/` | **1109/1109** (one pre-existing marker pin updated for the code) |
 | `test/conformance/corpus-coverage.test.ts -t walker-give-up-shapes` | **1/1** |
-| `test/generator/{react,vue,svelte,angular,feliz,flutter,_walker}/`, `test/platform/`, `test/conformance/` | see §7 |
+| `test/generator/{react,vue,svelte,angular,feliz,flutter,_walker,elixir}/`, `test/platform/`, `test/conformance/`, `test/system/`, `test/ir/` | full sweep, green |
 | `npm run lint` | no findings in any file this packet touched (the repo-wide `biome ci` residue is pre-existing on the wave base — `dotnet/dto-mapping.ts`, `java/emit/*`, `ir/types/loom-ir.ts`, … — none of them in this diff) |
 | `node docs/build.mjs` | clean |
 

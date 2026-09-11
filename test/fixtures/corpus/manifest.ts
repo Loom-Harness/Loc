@@ -280,15 +280,6 @@ export const CORPUS: readonly CorpusFeature[] = [
     backends: ALL,
   },
   {
-    id: "walker-give-up-shapes",
-    title:
-      "body-walker GIVE-UP shapes — page bodies that validate clean and render nothing (`Timeline { }`, `IdLink { }`, `DestroyForm { }`, an unknown `Icon` name, `CreateForm { of: \"Ghost\" }`)",
-    doc: "page-metamodel",
-    backends: ["node"],
-    deployables: ["d", "web"],
-    note: "minted by M-T9.55: the walker's ~64 give-up sites now name a catalogued `loom.*` code, and NOTHING in the corpus authored a shape that reaches one — every give-up path was witnessed only by hand-written unit tests, so the codes could rot without a single fixture noticing.  node-only and two deployables because the give-ups live in the FRONTEND project: `web` is recognised as an emitted project dir by the node marker (`package.json`) alone, so any other backend row would fail corpus-coverage's emitted-dirs cross-check.  `loom.page-primitive-target-gap` (per-frontend) and `loom.page-expr-unrenderable` (a markup-position backstop no authored shape is known to reach) are deliberately absent — see the header",
-  },
-  {
     id: "collection-op-shapes",
     title:
       "collection-op / operator shapes no other fixture witnesses — arithmetic-λ `sum`, `distinct` over money, argless `any()`, DESCENDING `sortBy`, unary `-` on money, `-=` over an `int[]`",

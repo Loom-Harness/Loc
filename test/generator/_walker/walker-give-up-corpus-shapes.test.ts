@@ -1,12 +1,21 @@
 // ---------------------------------------------------------------------------
 // The corpus witness for the body-walker give-up codes (M-T9.55, rule 13).
 //
-// `walker-give-up-shapes.ddd` is the first `.ddd` in the corpus that AUTHORS a
-// give-up.  Until it landed, every one of the walker's ~64 decline paths was
-// exercised only by hand-written probes inside individual unit tests — so the
-// codes they now carry had no fixture that would notice them rotting, and the
-// silent-class shapes themselves (bodies that validate clean and render
-// nothing) were absent from the one corpus every compile tier reads.
+// `test/fixtures/walker-give-up-shapes.ddd` is the first CHECKED-IN `.ddd`
+// that authors a give-up.  Until it landed, every one of the walker's ~81
+// decline paths was exercised only by probes written inline inside individual
+// unit tests — so the codes they now carry had no fixture that would notice
+// them rotting, and the silent-class shapes themselves (bodies that validate
+// clean and render nothing) existed nowhere on disk.
+//
+// It sits in `test/fixtures/`, NOT `test/fixtures/corpus/`, and that is a
+// reviewed placement rather than a convenience: the corpus is a BACKEND
+// feature matrix, and two of its own gates say so normatively —
+// `clause-census.test.ts`'s "the corpus fixtures still carry no `ui`" (retro
+// §82) and `feature-doc-coverage.test.ts`'s FEATURE_DOCS, which admits only
+// docs describing an authorable DOMAIN feature.  A frontend give-up fixture
+// satisfies neither, and forcing it in would have flipped a stated property
+// to make a rule of thumb fit.
 //
 // Two things are asserted, and the second is the one that matters:
 //
@@ -20,11 +29,13 @@
 // re-spelled — the same rule that keeps the cross-frontend matrix honest.
 // ---------------------------------------------------------------------------
 
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { validate } from "../../../src/api/index.js";
 import { GIVE_UP_RE } from "../../../src/generator/_walker/give-up.js";
 import { generateSystemFiles } from "../../_helpers/generate.js";
-import { corpusSourceFor } from "../../fixtures/corpus/harness.js";
 
 /** shape → the code its give-up must name.  Keyed by a fragment of the
  *  give-up's own text, so a reworded message fails here instead of silently
@@ -57,7 +68,16 @@ const EXPECTED: readonly { text: string; code: string; why: string }[] = [
   },
 ];
 
-const SOURCE = corpusSourceFor("walker-give-up-shapes", "node");
+const SOURCE = readFileSync(
+  join(
+    dirname(fileURLToPath(import.meta.url)),
+    "..",
+    "..",
+    "fixtures",
+    "walker-give-up-shapes.ddd",
+  ),
+  "utf8",
+);
 
 describe("corpus: walker-give-up-shapes", () => {
   it("validates clean — every shape in it is the SILENT class, not a refusal", async () => {

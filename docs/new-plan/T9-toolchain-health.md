@@ -715,8 +715,16 @@ code; `UNCODED_GIVE_UPS` is shrink-only and EMPTY; a vacuity guard requires > 50
 files). `test/generator/_walker/walker-declines-with-a-code.test.ts` is the invariant W2.3 asked
 for — all 58 registry primitives spelled with no arguments, driven through all SEVEN targets, each
 bracketed by probe markers so a primitive that renders NOTHING is named rather than hidden in a
-joined body. `test/fixtures/corpus/walker-give-up-shapes.ddd` is the first corpus `.ddd` that
-authors a give-up.
+joined body. `test/fixtures/walker-give-up-shapes.ddd` is the first checked-in `.ddd` that authors a give-up —
+in `test/fixtures/`, NOT the corpus, because two corpus gates state normatively that the corpus is a
+BACKEND matrix (`clause-census`'s "the corpus fixtures still carry no `ui`", retro §82, and
+`feature-doc-coverage`'s FEATURE_DOCS). Both caught the first placement.
+
+**One gap REVEALED (not introduced).** Giving the HEEx give-ups a sentinel made the cross-frontend
+matrix able to see them, and one cell went red: `Console`'s standalone instance-qualified
+`OperationForm` is not rendered on LiveView (it needs the `handle_event` + form-binding half
+`renderModal` owns). The emitter has said so in the output since #2652; the marker simply carried no
+sentinel. Frozen as a reasoned `GAPS` entry with the closing recipe Flutter already used.
 
 **Residue (not this mission's).** Codegen has no diagnostic channel, so the codes reach the user in
 the generated comment, not on `ddd generate`'s stderr — lifting them into real CLI diagnostics is a

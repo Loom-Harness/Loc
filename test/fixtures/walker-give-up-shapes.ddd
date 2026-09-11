@@ -40,10 +40,19 @@
 //     is known to reach it today; it is carried as a coded backstop rather
 //     than claimed as a witnessed condition.
 //
-// `backends: [node]` and TWO deployables: the give-ups live in the FRONTEND
-// project, so the fixture needs a frontend deployable, and `web` is only
-// recognised as a project dir by the node marker (`package.json`) — declaring
-// any other backend would make the emitted-dirs cross-check disagree per row.
+// WHY IT IS NOT IN `test/fixtures/corpus/`.  The corpus is a BACKEND feature
+// matrix, and two of its own gates say so normatively: `clause-census.test.ts`
+// asserts "the corpus fixtures still carry no `ui`" (retro §82 — the corpus
+// compile legs can never reach a frontend feature no matter how many fixtures
+// they gain), and `feature-doc-coverage.test.ts`'s FEATURE_DOCS admits only
+// docs describing an authorable DOMAIN feature.  A frontend give-up fixture
+// satisfies neither.  Both gates caught the first attempt to put it there,
+// which is the gates working; it lives here instead, read directly by
+// `test/generator/_walker/walker-give-up-corpus-shapes.test.ts`.
+//
+// A concrete `platform: node` backend (not the corpus's `__PLATFORM__` token)
+// for the same reason: the backend deployable exists only to give the ui
+// something to fail to bind to, and nothing here varies with it.
 system WalkerGiveUpShapes {
   subdomain Work {
     context Ops {
@@ -73,7 +82,7 @@ system WalkerGiveUpShapes {
   storage primary { type: postgres }
   resource opsState { for: Ops, kind: state, use: primary }
   deployable d {
-    platform: __PLATFORM__
+    platform: node
     contexts: [Ops]
     dataSources: [opsState]
     serves: OpsApi
