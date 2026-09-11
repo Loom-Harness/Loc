@@ -585,6 +585,21 @@ export const DIAGNOSTIC_MESSAGES = {
   }) => `${p.label} expects ${p.length} argument${p.length2}, got ${p.argsLength}.`,
 
   // ----------------------------------------------------------------------
+  // src/language/validators/stmt-placement.ts
+  // ----------------------------------------------------------------------
+  // Two PERMANENT placement refusals and one HONEST GAP (M-T5.28, ruling
+  // D-FOR-IN-DOMAIN).  The two permanent messages deliberately prescribe no
+  // replacement construct: a placement rule that will never change reads
+  // better as a statement of where the construct lives than as advice that
+  // later goes stale.
+  "loom.variant-match-placement": (p: { owner: unknown }) =>
+    `A 'match' used for its EFFECTS (arms that run statements) is frontend-only — it lowers to a page / component / store 'action' handler and has no backend form — but this one is in ${p.owner}, which runs on the backend. Move the effect into the 'action' that invokes it. This is a permanent placement rule, not a missing feature.`,
+  "loom.if-let-placement": (p: { owner: unknown }) =>
+    `'if let' binds the optional result of a repository read and branches on its presence; only a workflow body ('create' / 'handle' / 'on') or a top-level 'commandHandler' / 'queryHandler' lowers it. This one is in ${p.owner}, which has no such lowering — do the optional read in a workflow or handler and pass the resolved value in. This is a permanent placement rule, not a missing feature.`,
+  "loom.for-placement": (p: { owner: unknown }) =>
+    `'for … in …' is lowered only inside a workflow body ('create' / 'handle' / 'on') or a top-level 'commandHandler' / 'queryHandler' — that lowering owns the per-iteration save the loop needs. This one is in ${p.owner}, where the loop would be dropped silently. Put it in a workflow or handler for now; this is a GAP, not a design rule — mission M-T5.30 tracks lowering 'for' into domain bodies.`,
+
+  // ----------------------------------------------------------------------
   // src/language/validators/structural.ts
   // ----------------------------------------------------------------------
   "loom.slot-out-of-position": (p: { where: unknown }) =>

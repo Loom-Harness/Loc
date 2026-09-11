@@ -196,13 +196,32 @@ function renderStmt(s: StmtIR, target: StmtTarget, ix: StmtIndex, counter: StmtC
         renderStmtChunks(s.thenBody, target, counter).join("\n"),
         s.elseBody ? renderStmtChunks(s.elseBody, target, counter).join("\n") : undefined,
       );
-    case "variant-match":
-      // Frontend-only effect statement (`match await op() { … }`,
-      // async-actions-and-effects.md Stage 2) — gated to page/component action
-      // bodies, never lowered into a backend body.  One guard for all four
-      // backends.
+    case "variant-match": {
+      // UNREACHABLE.  The effect form of `match` (`match await op() { … }`,
+      // async-actions-and-effects.md Stage 2) is frontend-only: it renders in a
+      // page / component / store action body and has no backend form.  Until
+      // M-T5.28 this arm was the ONLY thing standing between a domain-body
+      // `match` and the emitters, so a valid-looking source validated clean
+      // (`0 error(s), 0 warning(s)`) and then threw a stack trace on all five
+      // backends.  `loom.variant-match-placement` (phase ④,
+      // `src/language/validators/stmt-placement.ts`) now refuses that source
+      // before lowering, so reaching here means the validator was BYPASSED —
+      // a caller that generated without validating, or a check that regressed.
+      //
+      // Kept as an assertion rather than deleted or softened to a silent skip:
+      // a skip would drop the statement's effects on the floor, which is the
+      // failure mode the whole mission exists to remove.  The `default` arm
+      // below keeps the switch exhaustive the same way it was before.
       throw new Error(
-        `variant-match statement is frontend-only; it must not reach the ${target.backendName} backend`,
+        `internal: a 'variant-match' statement reached the ${target.backendName} statement renderer; ` +
+          `loom.variant-match-placement refuses this source at phase ④, so the validator was bypassed`,
       );
+    }
+    default: {
+      // A new `StmtIR.kind` with no arm is a COMPILE error here (and in every
+      // `StmtTarget` leaf table), exactly as it was before this arm existed.
+      const unreachable: never = s;
+      throw new Error(`internal: unhandled StmtIR kind ${JSON.stringify(unreachable)}`);
+    }
   }
 }

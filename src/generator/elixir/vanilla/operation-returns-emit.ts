@@ -1242,9 +1242,15 @@ export function renderReturningStmt(
       return `    _ = ${argTuple}  # vanilla: bare call to '${s.name}' (no callable target); record unchanged`;
     }
     case "variant-match":
-      // Frontend-only effect statement (Stage 2) — gated to action bodies.
+      // UNREACHABLE — the elixir twin of the shared spine's guard in
+      // `src/generator/_stmt/target.ts`.  The effect form of `match` is
+      // frontend-only (Stage 2) and is now refused at phase ④ by
+      // `loom.variant-match-placement` (M-T5.28), so reaching here means the
+      // validator was bypassed.  Kept as a throw, not softened to a skip: a
+      // skip drops the statement's effects silently.
       throw new Error(
-        "variant-match statement is frontend-only; it must not reach the vanilla Elixir backend",
+        "internal: a 'variant-match' statement reached the vanilla Elixir statement renderer; " +
+          "loom.variant-match-placement refuses this source at phase ④, so the validator was bypassed",
       );
     case "if":
       // The `if` STATEMENT is a node/.NET/java/python form today.  This body
