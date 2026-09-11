@@ -66,7 +66,27 @@ const MINIMAL: Case = {
 };
 
 /** Scaffolded ui — exercises the stub-page emitter + router across
- *  the scaffold-synthesised page set (list / new / detail / home). */
+ *  the scaffold-synthesised page set (list / new / detail / home).
+ *
+ *  It also carries every FORM-BINDING shape the 2026-09-10 e-shop audit (§P4)
+ *  measured `vue-tsc` red on — all of them scaffold-emitted, none of them
+ *  previously in this corpus, which is why `npm run build` failed on the
+ *  generated Vue app of any real model:
+ *
+ *    shipping: Address?      an optional VALUE OBJECT dereferenced by its own
+ *                            op-form group (`values.shipping.line1` — TS18049)
+ *    Address.line2: string?  an optional field INSIDE that value object, one
+ *                            level below where the null-strip used to stop
+ *    price: money            a `money` field on a form: the input model is a
+ *                            `Decimal`, and the pack template wrote a bare
+ *                            `string` into it (TS2322)
+ *    description: string?    an optional scalar bound to a typed input, which
+ *                            rejects `string | null | undefined` (TS2322)
+ *    tier: Tier?             the same, through the enum-select arm
+ *
+ *  Plus the PARAMETERLESS PAGED read (`find sellable(): Product paged`), whose
+ *  page calls `useSellableProduct()` with no argument — the Vue twin of the
+ *  Svelte arity defect (§P5), kept here so both frontends gate the shape. */
 const SCAFFOLD: Case = {
   name: "scaffold",
   vueDir: "web",
@@ -74,22 +94,57 @@ const SCAFFOLD: Case = {
     system Shop {
       subdomain Sales {
         context Orders {
+          valueobject Address { line1: string  line2: string?  city: string }
+          enum Tier { Bronze, Silver, Gold }
           aggregate Customer with crudish {
             name: string
             email: string
+            shipping: Address?
+            tier: Tier?
           }
           valueobject LineItem { sku: string  qty: int }
           aggregate Order with crudish {
             total: int
             items: LineItem[]
           }
+          aggregate Product with crudish {
+            name: string
+            price: money
+            description: string?
+            sellable: bool
+            derived display: string = name
+          }
+          repository Products for Product {
+            find sellable(): Product paged where this.sellable == true
+          }
         }
       }
-      ui WebApp with scaffold(subdomains: [Sales]) { }
+      api SalesApi from Sales
+      ui WebApp with scaffold(subdomains: [Sales]) {
+        api Sales: SalesApi
+        page ShopPage {
+          route: "/shop"
+          title: "Shop"
+          body: Stack {
+            QueryView {
+              of: Sales.Product.sellable,
+              data: rows => Table {
+                rows: rows,
+                Column { "Name", o => Text { o.name } }
+              }
+            }
+          }
+        }
+      }
       storage primary { type: postgres }
       resource ordersState { for: Orders, kind: state, use: primary }
-      deployable api { platform: node, contexts: [Orders], dataSources: [ordersState], port: 3000 }
-      deployable web { platform: vue, targets: api, ui: WebApp, port: 3003 }
+      deployable api { platform: node, contexts: [Orders], dataSources: [ordersState], serves: SalesApi, port: 3000 }
+      deployable web {
+        platform: vue
+        targets: api
+        ui: WebApp { Sales: api }
+        port: 3003
+      }
     }
   `,
 };

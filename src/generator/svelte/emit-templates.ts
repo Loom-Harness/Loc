@@ -29,20 +29,39 @@ type FileRefValue = { url: string; key: string; contentType: string; size: numbe
  *  without the null check the seed has already ruled out
  *  (\`'form.values.budget' is possibly 'null' or 'undefined'\`).
  *
- *  So: strip the outer \`null | undefined\` off each field.  ONE level — the
- *  member type itself is left alone, which keeps a \`money\` \`Decimal\` (and any
- *  other class instance) intact, and needs no recursion because a value
- *  object's own sub-fields are already required.  A \`File\` field is the one
- *  exception: "nothing uploaded yet" is a real state the form seeds as
- *  \`null\` and the upload handler assigns back, so it stays nullable.
+ *  So: strip \`null | undefined\` off every bound field, at EVERY depth.  It was
+ *  one level once, on the premise that "a value object's own sub-fields are
+ *  already required" — which an optional sub-field
+ *  (\`valueobject Address { line1: string  line2: string?  city: string }\`)
+ *  falsifies: \`form.values.shipping.line2\` came back \`string | null | undefined\`
+ *  and the input rejected it, one level below where the strip stopped.  The
+ *  seed is the reason this is sound at any depth — the form seeds every field it
+ *  RENDERS, nested optional sub-fields included (\`{ shipping: { line1: "",
+ *  line2: "", city: "" } }\`).
+ *
+ *  The recursion stops at CLASS INSTANCES, and \`Record<string, unknown>\` is what
+ *  stops it: a zod object infers to an anonymous object type, which TypeScript
+ *  gives an implicit index signature, while a CLASS or INTERFACE declaration
+ *  (a \`money\` \`Decimal\`, a \`Date\`) does not — so a class instance falls
+ *  through to the leaf arm untouched.  It has to: mapping over \`Decimal\`'s
+ *  members would strip its call signatures and break \`new Decimal(...)\`
+ *  assignment.  Naming the decimal package here instead would be
+ *  simpler and wrong: it is a CONDITIONAL dependency of the generated project
+ *  (each pack's package.json adds it only when the model \`usesMoney\`), and this
+ *  runtime file is emitted by money-free projects too — which is why not even
+ *  this comment spells the specifier.  A \`File\` request field is the one field
+ *  kept nullable: "nothing uploaded yet" is a real state the form seeds as
+ *  \`null\` and the upload handler assigns back.
  *
  *  The SCHEMA type is untouched — \`submit\`'s \`onValid\` still receives exactly
  *  what the wire declares. */
-export type FormValues<T> = {
-  [K in keyof T]-?: NonNullable<T[K]> extends FileRefValue
-    ? NonNullable<T[K]> | null
-    : NonNullable<T[K]>;
-};
+export type FormValues<T> = T extends FileRefValue
+  ? T | null
+  : T extends readonly (infer E)[]
+    ? FormValues<NonNullable<E>>[]
+    : T extends Record<string, unknown>
+      ? { [K in keyof T]-?: FormValues<NonNullable<T[K]>> }
+      : T;
 
 export interface LoomForm<T> {
   values: FormValues<T>;
