@@ -88,6 +88,14 @@ export const CORPUS: readonly CorpusFeature[] = [
   { id: "operation-returns", title: "exception-less `T or Error` operation returns", doc: "payloads", backends: ALL },
   { id: "union-find-absence", title: "union-returning finds (`Order or NotFound`, `Order option`)", doc: "payloads", backends: ALL },
   { id: "paged", title: "pagination — `find ... paged` Paged<T> envelope", doc: "payloads", backends: ALL },
+  {
+    id: "paged-nonrelational",
+    title:
+      "`find … paged` × a NON-RELATIONAL carrier — the paged contract over a `shape: document` and a `persistedAs: eventLog` repository, both of which page in memory",
+    doc: "payloads",
+    backends: ALL,
+    note: "Minted by ledger row F2-CB-C1.  Pagination and the storage shapes each had a fixture; their CROSSING did not, and that is exactly where it broke.  The route, the repository port and the response model all derive their contract from `pagedReturn(returnType)` and declared the 5-argument `Paged<T>` shape, while the document / event-log repository builders — which rehydrate and filter in app — had no paged branch and kept emitting the 1-argument unpaged method: CS0535 + CS0029 on .NET, a 5-arg call into a 1-arg `async def` (then `result.items`) on python.  No diagnostic anywhere — all five backends reported OK.  node / java / elixir already paged both carriers, which is the other half of why it stayed invisible: a fixture on any ONE of them would have passed.  `shape: embedded` is deliberately absent — it reuses the relational row table, so its paged find was always correct and `embedded.ddd` owns that shape.",
+  },
   { id: "single-containment", title: "single (non-collection) containment — hidden `_parent`", doc: "language", backends: ALL },
   { id: "value-collections", title: "value-object array (`Money[]`) stored inline", doc: "language", backends: ALL },
   { id: "document", title: "`shape: document` — whole aggregate in one jsonb column", doc: "language", backends: ALL },
