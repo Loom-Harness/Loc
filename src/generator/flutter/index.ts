@@ -63,6 +63,7 @@ import { flutterI18nEnabled, renderFlutterI18nModule } from "./i18n.js";
 import { collectBoundInputFields, uiUsesFileUpload } from "./inputs-emit.js";
 import { renderFlutterModalRuntime } from "./modal-runtime.js";
 import { renderFlutterMoneyRuntime, usesMoney } from "./money-runtime.js";
+import { FLUTTER_NAV_MARKER, renderFlutterNavRuntime } from "./nav-runtime.js";
 import { flutterPack, usesIntl, usesMath } from "./pack.js";
 import { dartPackageName } from "./package-name.js";
 import { collectFlutterReads, renderAppConfig, renderReadProviders } from "./reads-emit.js";
@@ -239,6 +240,15 @@ export function generateFlutterForContexts(
     aggregateNames: [...aggregatesByName.keys()],
     workflowNames: [...workflowsByName.keys()],
   };
+  // Page name → the route `main.dart` will register for it, derived by the
+  // SAME rule the router uses (`page.route ?? '/' + pageFileBase(...)`), so a
+  // `navigate(<Page>)` in a body or an action body pushes a key the routes map
+  // actually holds.  Flutter used to pass an empty map here, leaving the shared
+  // resolver on its `/<page-snake>` fallback — which is the router's key only
+  // by coincidence, and never for a `route: "/products/:id"` page.
+  const pageRoutes = new Map<string, string>(
+    pages.map((p) => [p.name, p.route ?? `/${pageFileBase(p, nameCtx)}`]),
+  );
   const usedComponents = new Set<string>();
   const rendered = pages.map((page) => {
     const r = renderPage(page, ui as UiIR, contexts, aggregatesByName, bcByAggregate, {
@@ -249,6 +259,7 @@ export function generateFlutterForContexts(
       storeMembers,
       authUi,
       nameCtx,
+      pageRoutes,
     });
     for (const name of r.usedComponents) usedComponents.add(name);
     return { page, ...r };
@@ -271,7 +282,9 @@ export function generateFlutterForContexts(
   if (authUi && sys.user) out.set("lib/auth.dart", renderFlutterAuthModule(sys.user));
 
   const persistedStores = flutterPersistedStores(ui);
-  const storesFile = ui ? renderFlutterStores(ui.stores, contexts, persistedStores) : undefined;
+  const storesFile = ui
+    ? renderFlutterStores(ui.stores, contexts, persistedStores, pageRoutes)
+    : undefined;
   if (storesFile) out.set("lib/stores.dart", storesFile);
   if (persistedStores.length > 0) {
     out.set("lib/store_persist.dart", renderStorePersistRuntime(persistedStores));
@@ -314,6 +327,12 @@ export function generateFlutterForContexts(
     urlSync: usesUrlStores(persistedStores),
     authGate: authUi && !!sys.user,
     realtime: hasRealtime,
+    // Sniffed over everything emitted SO FAR — the pages are written into `out`
+    // in the block just below, but `rendered` (and `stores.dart` /
+    // `components.dart`, already in `out`) is where a `navigateTo(` can appear.
+    navigatorKey:
+      rendered.some((r) => r.source.includes(FLUTTER_NAV_MARKER)) ||
+      [...out.values()].some((c) => c.includes(FLUTTER_NAV_MARKER)),
   };
   if (rendered.length > 0) {
     for (const r of rendered) {
@@ -379,6 +398,15 @@ export function generateFlutterForContexts(
   // `flutter analyze` on the generated showcase.
   if ([...out.values()].some((content) => usesMoney(content))) {
     out.set("lib/money.dart", renderFlutterMoneyRuntime());
+  }
+
+  // The out-of-tree navigation bridge (ledger row F2-CFE-1) — same use-driven
+  // rule and same last-position scan as the money runtime above, and for the
+  // same reason: `navigateTo(` lands in a PAGE's Notifier, in `stores.dart` (a
+  // store action navigating) and in `components.dart` (a stateful component's
+  // action), so the scan has to run after every one of those is written.
+  if ([...out.values()].some((content) => content.includes(FLUTTER_NAV_MARKER))) {
+    out.set("lib/nav.dart", renderFlutterNavRuntime());
   }
 
   return out;
@@ -595,6 +623,10 @@ function renderPage(
     /** Declaration names `pageEmitName` classifies the page against — the
      *  served aggregates + workflows.  Drives the widget class + file base. */
     nameCtx: PageNameCtx;
+    /** Page name → the route `main.dart` registers, so a `navigate(<Page>)` —
+     *  in the body walk AND in an action body — pushes the router's real key
+     *  instead of the resolver's `/<page-snake>` fallback. */
+    pageRoutes: ReadonlyMap<string, string>;
   },
 ): Omit<RenderedPage, "page"> {
   const {
@@ -605,6 +637,7 @@ function renderPage(
     storeMembers,
     authUi,
     nameCtx,
+    pageRoutes,
   } = workflows;
   // Identity comes from the page's EMIT NAME, never its bare `page.name`.  The
   // scaffold names aggregate pages by ROLE (`List` inside `area Products`), so
@@ -661,7 +694,7 @@ function renderPage(
       workflowsByName, // WorkflowForm(runs:) resolves the workflow's params here
       bcByWorkflow, // …and its owning BC for enum / value-object resolution
       new Map(), // paramTypes — Flutter resolves op instances through its own seams
-      new Map(), // pageRoutes
+      pageRoutes,
       new Set(), // externFunctions
       // `derived` bindings — read BARE (the `final`s hoisted into `build`
       // below), which is what `flutterTarget.renderDerivedRead` spells.
@@ -741,6 +774,7 @@ function renderPage(
         contexts,
         apiParamNames,
         emitName,
+        pageRoutes,
       )
     : renderStatelessPage(page, className, bodyWidget, {
         usesRouteId,
@@ -931,6 +965,8 @@ function renderConsumerPage(
   apiParamNames: ReadonlyMap<string, string>,
   /** The page's emit name — see `renderRiverpod`'s `emitName` param. */
   emitName: string,
+  /** Page name → route, for a `navigate(<Page>)` in an action body. */
+  pageRoutes: ReadonlyMap<string, string>,
 ): string {
   // Project reactive state / actions first — its `asyncEffectActions` decide
   // whether the page needs the route `id` (an async-effect method takes it).
@@ -938,7 +974,7 @@ function renderConsumerPage(
   let providerName = "";
   let asyncEffectActions = new Set<string>();
   if (b.stateful) {
-    const proj = renderRiverpod(page, contexts, apiParamNames, emitName);
+    const proj = renderRiverpod(page, contexts, apiParamNames, emitName, pageRoutes);
     projSource = proj.source;
     providerName = proj.providerName;
     asyncEffectActions = proj.asyncEffectActions;
@@ -1087,6 +1123,10 @@ function renderConsumerPage(
   // `min`/`max`/`round` scalar intrinsics route through `math.*` — over the
   // same `scan` (view body + Notifier source) the other content sniffs above use.
   if (usesMath(scan)) imports.push("import 'dart:math' as math;");
+  // `navigate(<Page>)` in an ACTION body — the Notifier has no `BuildContext`,
+  // so it pushes through the `lib/nav.dart` bridge (F2-CFE-1).  The view-body
+  // form stays `Navigator.pushNamed(context, …)` and needs no import.
+  if (scan.includes(FLUTTER_NAV_MARKER)) imports.push("import '../nav.dart';");
   // A FileUpload primitive picks a file via file_picker (the http / config /
   // models / dart:convert imports it also needs are added by the content scans
   // above — the widget emits `apiUri(` / `FileRef.fromJson` / `jsonDecode`).
@@ -1128,6 +1168,10 @@ interface AppBoot {
   /** Live-event handlers (channels.md Part I) — mount the SSE subscription for
    *  as long as the app is running. */
   realtime: boolean;
+  /** Some emitted Dart navigates from OUTSIDE the widget tree (a page/store/
+   *  component action — `navigate(<Page>)`, `lib/nav.dart`), so `MaterialApp`
+   *  has to carry the `navigatorKey` that bridge pushes through. */
+  navigatorKey: boolean;
 }
 
 const NO_BOOT: AppBoot = {
@@ -1135,6 +1179,7 @@ const NO_BOOT: AppBoot = {
   urlSync: false,
   authGate: false,
   realtime: false,
+  navigatorKey: false,
 };
 
 /** M-T1.8 — global error boundary + failure sink, the flutter arm.  Built on
@@ -1275,6 +1320,7 @@ function renderMainWithRoutes(
     "import 'package:flutter_riverpod/flutter_riverpod.dart';",
     "",
     pages.map((p) => `import 'pages/${p.fileBase}.dart';`),
+    boot.navigatorKey ? ["import 'nav.dart';"] : [],
     persistMainImports(boot),
     "",
     mainFn(boot),
@@ -1291,6 +1337,9 @@ function renderMainWithRoutes(
     `      title: '${escapeDart(title)}',`,
     "      theme: ThemeData(useMaterial3: true, colorSchemeSeed: Colors.indigo),",
     authGateBuilder(boot),
+    // The out-of-tree navigator (`lib/nav.dart`) — only for an app whose Dart
+    // actually calls `navigateTo(`, so a non-navigating app is byte-identical.
+    ...(boot.navigatorKey ? ["      navigatorKey: appNavigatorKey,"] : []),
     `      initialRoute: '${home.routePath}',`,
     ...(paramRoutePages(pages).length > 0 ? ["      onGenerateRoute: _generateRoute,"] : []),
     "      routes: {",

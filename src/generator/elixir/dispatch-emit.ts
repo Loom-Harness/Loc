@@ -17,7 +17,7 @@ import type {
 import type { OriginRef } from "../../ir/types/origin.js";
 import { durableEventTypes } from "../../ir/util/channels.js";
 import { resolveContextSchema } from "../../ir/util/resolve-datasource.js";
-import { plural, snake, upperFirst } from "../../util/naming.js";
+import { escapeElixirIdent, plural, snake, upperFirst } from "../../util/naming.js";
 import { renderPhoenixLogCall } from "../_obs/render-phoenix.js";
 import { lineCount, type SourceMapRecorder } from "../_trace/sourcemap.js";
 import { buildPhoenixResourceModules } from "./adapters/resource-clients.js";
@@ -732,19 +732,21 @@ function renderProjectionFoldHandler(
   // them, so the update actually writes.  The correlation `:=` (if the fold
   // spells it) is skipped: it's the immutable primary key, seeded at allocation
   // (parity with the java / hono / python folds).
-  const changeEntries = on.statements
-    .filter(
-      (s): s is Extract<StmtIR, { kind: "assign" }> =>
-        s.kind === "assign" && snake(s.target.segments[0] ?? "") !== snake(corr),
-    )
-    .map((s) => {
-      const field = snake(s.target.segments[0]!);
-      const rendered = renderExpr(s.value, renderCtx);
-      const value = datetimeFields.has(field)
-        ? `(${rendered}) |> then(&(&1 && DateTime.truncate(&1, :second)))`
-        : rendered;
-      return `${field}: ${value}`;
-    });
+  //
+  // A `let` binding is NOT a change entry — it is a real local, emitted as its
+  // own line BEFORE the changeset so the entries that reference it resolve
+  // (F2-XB-4: the `let` used to be filtered out while `at: stamped` survived,
+  // an "undefined variable" under `--warnings-as-errors`).  `+=` / `-=` fold
+  // into a change entry computed FROM the current row value, which is nil on
+  // the first event for a key, so both coalesce.
+  const letLines: string[] = [];
+  const changeEntries: string[] = [];
+  for (const s of on.statements) {
+    const piece = renderProjectionFoldStmt(s, proj, on, corr, renderCtx, datetimeFields);
+    if (piece === undefined) continue;
+    if (piece.kind === "binding") letLines.push(`    ${piece.text}`);
+    else changeEntries.push(piece.text);
+  }
   const changeset =
     changeEntries.length > 0
       ? `Ecto.Changeset.change(state, %{${changeEntries.join(", ")}})`
@@ -758,6 +760,7 @@ function renderProjectionFoldHandler(
     `        existing -> existing`,
     `      end`,
     "",
+    ...(letLines.length > 0 ? [...letLines, ""] : []),
     `    {:ok, _} = ${appModule}.Repo.insert_or_update(${changeset})`,
     `    :ok`,
   ];
@@ -770,6 +773,115 @@ ${body.join("\n")}
   end
 end
 `;
+}
+
+/** One rendered fold-body piece: either a real local `binding` line emitted
+ *  BEFORE the changeset, or a changeset `entry` (`field: value`). */
+type FoldPiece = { kind: "binding" | "entry"; text: string };
+
+/** Render ONE fold-body statement of a folded projection.
+ *
+ *  This used to be a `.filter(s => s.kind === "assign")`, so every other
+ *  statement kind a fold body can carry vanished from the emitted handler with
+ *  no diagnostic and no compile error (F2-XB-4): a `let` disappeared while its
+ *  USES survived (`at: stamped` with nothing binding `stamped` — "undefined
+ *  variable" under `--warnings-as-errors`), and `+=` / `-=` were dropped
+ *  outright, so the column was simply never written.
+ *
+ *  The four pure fold kinds `checkProjections`
+ *  (`src/ir/validate/checks/projection-checks.ts`) admits are now rendered here;
+ *  everything else is an internal invariant violation and THROWS, mirroring the
+ *  loud `default:` in `fold-stmt-emit.ts` and hono's `renderFoldStatement` — a
+ *  dropped statement is worse than a crash, because it ships. */
+function renderProjectionFoldStmt(
+  s: StmtIR,
+  proj: ProjectionIR,
+  on: ProjectionOnIR,
+  corr: string,
+  renderCtx: RenderCtx,
+  datetimeFields: ReadonlySet<string>,
+): FoldPiece | undefined {
+  const truncated = (field: string, rendered: string): string =>
+    datetimeFields.has(field)
+      ? `(${rendered}) |> then(&(&1 && DateTime.truncate(&1, :second)))`
+      : rendered;
+  switch (s.kind) {
+    case "assign": {
+      const field = snake(s.target.segments[0] ?? "");
+      // The correlation `:=` is the immutable primary key, seeded at allocation.
+      if (field === snake(corr)) return undefined;
+      return {
+        kind: "entry",
+        text: `${field}: ${truncated(field, renderExpr(s.value, renderCtx))}`,
+      };
+    }
+    case "let":
+      return {
+        kind: "binding",
+        text: `${escapeElixirIdent(snake(s.name))} = ${renderExpr(s.expr, renderCtx)}`,
+      };
+    case "add": {
+      const field = snake(s.target.segments[0] ?? "");
+      const value = renderExpr(s.value, renderCtx);
+      return {
+        kind: "entry",
+        text: s.collection
+          ? `${field}: (state.${field} || []) ++ [${value}]`
+          : `${field}: ${accumulateElixir(proj, s.target.segments[0] ?? "", field, "+", value)}`,
+      };
+    }
+    case "remove": {
+      const field = snake(s.target.segments[0] ?? "");
+      const value = renderExpr(s.value, renderCtx);
+      return {
+        kind: "entry",
+        text: s.collection
+          ? `${field}: List.delete(state.${field} || [], ${value})`
+          : `${field}: ${accumulateElixir(proj, s.target.segments[0] ?? "", field, "-", value)}`,
+      };
+    }
+    case "emit":
+    case "call":
+    case "precondition":
+    case "requires":
+    case "expression":
+    case "return":
+    case "variant-match":
+    case "if":
+      throw new Error(
+        `elixir projection fold: unsupported fold statement '${s.kind}' in ` +
+          `projection '${proj.name}' on(${on.param}: ${on.event}) — a fold applies pure ` +
+          `assignments / collection mutations / let bindings only; ` +
+          `'loom.projection-fold-impure' should have rejected this.`,
+      );
+    default: {
+      const _exhaustive: never = s;
+      return _exhaustive;
+    }
+  }
+}
+
+/** `state.<field> <op>= <value>` over a NULLABLE read-model column.  Elixir
+ *  models BOTH `money` and `decimal` as `Decimal` structs, which have no `+`
+ *  operator — they accumulate through `Decimal.add/2` / `Decimal.sub/2` (see the
+ *  DECIMAL == MONEY note in `render-expr.ts`).  Every non-key projection column
+ *  is nullable (the allocate seeds the key only), so the running total coalesces
+ *  first: otherwise the first event for a key folds `nil + n`. */
+function accumulateElixir(
+  proj: ProjectionIR,
+  declaredName: string,
+  field: string,
+  op: "+" | "-",
+  value: string,
+): string {
+  const t = proj.stateFields.find((f) => f.name === declaredName)?.type;
+  const inner = t?.kind === "optional" ? t.inner : t;
+  const cur = `state.${field}`;
+  if (inner?.kind === "primitive" && (inner.name === "money" || inner.name === "decimal")) {
+    const verb = op === "+" ? "add" : "sub";
+    return `Decimal.${verb}(${cur} || Decimal.new(0), ${value})`;
+  }
+  return `(${cur} || 0) ${op} ${value}`;
 }
 
 // ---------------------------------------------------------------------------

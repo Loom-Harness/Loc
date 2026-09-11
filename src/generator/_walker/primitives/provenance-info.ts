@@ -37,7 +37,11 @@ export function emitProvenanceInfo(
   const recordArg = namedArgValue(call, "of") ?? positionalArgs(call)[0];
   const field = stringNamed(call, "field");
   if (!recordArg || !field) {
-    return giveUp(ctx.target, "ProvenanceInfo: missing record or field");
+    return giveUp(
+      ctx.target,
+      "loom.page-primitive-arg-missing",
+      "ProvenanceInfo: missing record or field",
+    );
   }
   // `<record>.<field>.lineage` — the lineage half of the `Provenanced<T>` wire
   // carrier the response schema now carries (M-T6.12); the value half is
@@ -61,6 +65,7 @@ export function emitProvenanceInfo(
       // provenanced field still compiles (the value renders without the "?").
       return giveUp(
         ctx.target,
+        "loom.page-primitive-target-gap",
         `ProvenanceInfo: provenance disclosure not yet supported on ${ctx.target.framework} (value renders without the "?")`,
       );
   }

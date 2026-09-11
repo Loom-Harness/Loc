@@ -66,7 +66,7 @@ import { DURATION_UNIT_MS, type DurationUnit } from "../../util/temporal.js";
 import { USER_VISIBLE_SLOTS } from "../../util/user-visible-slots.js";
 import { tryRenderGate } from "../_frontend/gate-expr.js";
 import { PROVENANCE_VALUE_FIELD, provenancedFieldNames } from "../_payload/provenanced-wire.js";
-import { GIVE_UP_SENTINEL } from "../_walker/give-up.js";
+import { giveUpText } from "../_walker/give-up.js";
 import { icuFromConcat, messageKey } from "../_walker/i18n-extract.js";
 import { WALKER_PRIMITIVES } from "../_walker/registry.js";
 import { heexTarget, renderHeexStoreActionCall, renderHeexStoreFieldRead } from "./heex-target.js";
@@ -221,6 +221,22 @@ export interface QueryBinding {
    *  way to reach row 11.  Empty/undefined for a bare `all` → `list_<agg>s()`,
    *  byte-identical to before. */
   listArgs?: string[];
+  /** kind:"list", source:"aggregate" only — WHICH repository read the `of:`
+   *  call named, when it is not the auto-`findAll`.  `undefined` / `"all"` →
+   *  the paged `list_<agg>s`; anything else is a declared `find`, whose context
+   *  function is `<find>_<agg>` (`context-emit.ts`).
+   *
+   *  Before this the emitter called `list_<agg>s(<the find's args>)` for EVERY
+   *  list binding, so a filter find's argument landed in the paged list's
+   *  `page` slot: `list_wallets("")` → `offset = ("" - 1) * page_size` →
+   *  `ArithmeticError :erlang.-("", 1)`, a 500 on every load of a scaffolded
+   *  Phoenix list page with a filter bar (schemathesis elixir cell, E5). */
+  retrieval?: string;
+  /** kind:"list" only — the enclosing `match` arm's condition (handler-position
+   *  Elixir), when the `QueryView` sits inside one.  The load runs under
+   *  `if <gate> do … else socket end`, so only the arm the template actually
+   *  renders reaches the repository.  See `WalkContext.matchGate`. */
+  gate?: string;
 }
 
 /** Interactive controls a `Table(...)` in this body asked for — the HEEx leg of
@@ -381,6 +397,19 @@ export interface WalkContext {
   tableControls: TableControlBinding[];
   /** Current rendering position — see RenderPosition. */
   position: RenderPosition;
+  /** The `match` arm currently being rendered, as a HANDLER-position Elixir
+   *  boolean (`socket.assigns.x != ""`), already carrying the negation of every
+   *  earlier arm so first-match-wins holds.  Stamped onto any `QueryBinding`
+   *  pushed inside the arm, so `handle_params` runs THAT arm's read only when
+   *  the arm is the one the template renders.
+   *
+   *  Without it every arm's read ran on every load: a filter-bar list page
+   *  (`match { byOwner != "" => QueryView { of: …byOwner(byOwner) } else =>
+   *  QueryView { of: …all(page, …) } }`) loaded all three unconditionally into
+   *  the SAME assign, so the last one silently won — and the filter read ran
+   *  with the filter's own UNSET value, which is how schemathesis E5 reached
+   *  the repository at all.  Undefined outside a `match`. */
+  matchGate?: string;
   /** Module-qualified bounded-context name keyed by entity-part name
    *  (PascalCase) — e.g. `Line` → `PhoenixApp.Sales`.  Lets a page-body
    *  `new Part { … }` struct literal qualify like the domain emitter does
@@ -969,18 +998,18 @@ function externModuleFromPath(path: string): string {
 export function renderAction(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkContext): string {
   const opRef = expr.args.find((_, i) => !expr.argNames?.[i]);
   if (opRef?.kind !== "member" || opRef.receiver.kind !== "ref") {
-    return `<!-- Action: expected <instance>.<operation> -->`;
+    return `<!-- ${giveUpText("loom.page-primitive-arg-invalid", "Action: expected <instance>.<operation>")} -->`;
   }
   const instanceName = opRef.receiver.name;
   const opName = opRef.member;
   const aggName = ctx.instanceTypes?.get(instanceName);
   if (!aggName) {
-    return `<!-- Action(${instanceName}.${opName}): '${instanceName}' is not an in-scope aggregate instance -->`;
+    return `<!-- ${giveUpText("loom.page-ref-unreachable", `Action(${instanceName}.${opName}): '${instanceName}' is not an in-scope aggregate instance`)} -->`;
   }
   const agg = ctx.aggregatesByName.get(aggName);
   const op = agg?.operations.find((o) => o.name === opName && o.visibility === "public");
   if (!op) {
-    return `<!-- Action(${instanceName}.${opName}): no public operation '${opName}' on ${aggName} -->`;
+    return `<!-- ${giveUpText("loom.page-ref-unreachable", `Action(${instanceName}.${opName}): no public operation '${opName}' on ${aggName}`)} -->`;
   }
   const eventName = `${snake(opName)}_${snake(aggName)}`;
   const idExpr = `${renderExpr(opRef.receiver, { ...ctx, position: "template" })}.id`;
@@ -1129,7 +1158,7 @@ function renderCall(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkContext): 
   // positions (`isHEExCall` also keeps every registered primitive in markup
   // position, so the wrap does not arise).
   if (def) {
-    return `<%!-- ${GIVE_UP_SENTINEL} ${expr.name}: not supported by Phoenix LiveView target --%>`;
+    return `<%!-- ${giveUpText("loom.page-primitive-target-gap", `${expr.name}: not supported by Phoenix LiveView target`)} --%>`;
   }
   // Helper function call.
   if (expr.callKind === "function" || expr.callKind === "free") {
@@ -1244,6 +1273,21 @@ function armRendersMarkup(value: ExprIR, ctx: WalkContext): boolean {
   return value.kind === "match";
 }
 
+/** `!(c)` — Elixir's `!` is the truthy negation, so it holds for whatever a
+ *  rendered arm condition evaluates to, not only a strict boolean. */
+function notGate(cond: string): string {
+  return `!(${cond})`;
+}
+
+/** Join gate fragments with `&&`, dropping the undefined ones.  Returns
+ *  `undefined` when there is nothing to gate on, so an ungated binding stays
+ *  byte-identical to before. */
+function andGate(...parts: readonly (string | undefined)[]): string | undefined {
+  const kept = parts.filter((p): p is string => p !== undefined && p !== "");
+  if (kept.length === 0) return undefined;
+  return kept.map((p) => `(${p})`).join(" && ");
+}
+
 function renderMatch(expr: Extract<ExprIR, { kind: "match" }>, ctx: WalkContext): string {
   // `match { p => v; … else => f }` → Elixir `cond do … end`.
   //
@@ -1283,16 +1327,30 @@ function renderMatch(expr: Extract<ExprIR, { kind: "match" }>, ctx: WalkContext)
     // passes through, a plain term still gets its own `<%= … %>`. So a match
     // that MIXES markup and term arms stays valid.
     const lines: string[] = ["<%= cond do %>"];
+    // The same arm conditions, rendered for HANDLER position, threaded onto the
+    // arm's subtree so a `QueryView` inside it records the gate its load must
+    // run under (`WalkContext.matchGate`).  `cond` is first-match-wins, so an
+    // arm's gate carries the negation of every earlier arm and the fallback's
+    // gate is the negation of them all — otherwise two arms could both load
+    // into the same assign and the later one would win, which is the bug this
+    // gating exists to close.
+    const handlerConds: string[] = [];
     for (const a of expr.arms) {
       lines.push(`  <% ${renderExpr(a.cond, ctx)} -> %>`);
-      lines.push(`    ${renderChild(a.value, ctx)}`);
+      const mine = renderExpr(a.cond, { ...ctx, position: "handler" });
+      lines.push(
+        `    ${renderChild(a.value, { ...ctx, matchGate: andGate(ctx.matchGate, ...handlerConds.map(notGate), mine) })}`,
+      );
+      handlerConds.push(mine);
     }
     // `cond` raises CondClauseError when no arm matches, so the fallback is
     // not cosmetic. Without an authored `else` the page renders nothing rather
     // than crashing at request time.
     lines.push(`  <% true -> %>`);
     lines.push(
-      expr.otherwise !== undefined ? `    ${renderChild(expr.otherwise, ctx)}` : `    <%= nil %>`,
+      expr.otherwise !== undefined
+        ? `    ${renderChild(expr.otherwise, { ...ctx, matchGate: andGate(ctx.matchGate, ...handlerConds.map(notGate)) })}`
+        : `    <%= nil %>`,
     );
     lines.push(`<% end %>`);
     return lines.join("\n");

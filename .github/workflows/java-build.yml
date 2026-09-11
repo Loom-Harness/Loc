@@ -38,6 +38,7 @@ on:
       - 'package.json'
       - '.github/workflows/java-build.yml'
       - 'test/e2e/generated-java-build.test.ts'
+      - 'test/e2e/support/gradle.ts'
       - 'test/e2e/fixtures/java-build/**'
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
@@ -60,6 +61,7 @@ on:
       - 'package.json'
       - '.github/workflows/java-build.yml'
       - 'test/e2e/generated-java-build.test.ts'
+      - 'test/e2e/support/gradle.ts'
       - 'test/e2e/fixtures/java-build/**'
   workflow_dispatch:
   merge_group:
@@ -80,6 +82,16 @@ jobs:
     runs-on: ubuntu-latest
     # Cold Gradle runs download the Spring Boot dependency tree (~2min);
     # warm runs with the ~/.gradle cache below are ~30s per fixture.
+    #
+    # The leg runs gradle through the DAEMON (test/e2e/support/gradle.ts), so
+    # one JVM serves every fixture instead of each paying a cold JVM + Gradle
+    # bootstrap + Kotlin-DSL build-script warm-up.  Measured on a generated
+    # `core-domain` project in this image family (gradle:9-jdk25, warm
+    # dependency cache): 17.4 / 21.3 s with `--no-daemon` against 4.1 / 4.9 /
+    # 6.0 s on the daemon — ~3.9x, matching the ~4.1x wave C0 packet 0.2e
+    # measured on the behavioural java leg.  The cap is NOT retightened on a
+    # projection: it moves when a recorded p95 over >= 10 post-change runs says
+    # so (the sizing rule in test/behavioral/ci-budget-report.mjs).
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v6

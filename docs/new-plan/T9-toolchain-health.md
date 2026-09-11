@@ -499,27 +499,28 @@ Minted 2026-09-07, from the isolation leak [#2766](https://github.com/Loom-Harne
 
 Sources: [verification-waves-2026-09](verification-waves-2026-09.md) — the isolation-leak section. Relates to M-T9.8 (hollow work: a test asserting against leaked state is green for the wrong reason), M-T9.50 (the `test/` typecheck baseline, the other shrink-only census).
 
-## M-T9.55 — The give-up routing gate scans 40 of 140 walker files and reports green — `in-flight` ([#2843](https://github.com/Loom-Harness/Loc/pull/2843), open) · **S** to fix, **L** to drain · P0 ⭐
+## M-T9.55 — The give-up routing gate scans 40 of 140 walker files and reports green — `done` (2026-09-11) · P0 ⭐
 
 Found 2026-09-09 by the verification fleet ([F63](../audits/2026-09-03-language-docs-audit-findings.md)).
-`test/system/walker-give-up-routing.test.ts` enumerates its files by shelling
-`git ls-files 'src/generator/<target>/**/*.ts'`. **That pathspec matches subdirectories only.** Measured:
+`test/system/walker-give-up-routing.test.ts` enumerated its files by shelling
+`git ls-files 'src/generator/<target>/**/*.ts'`. **That pathspec matches subdirectories only** —
+40 of 140 files were scanned (flutter and feliz at ZERO each) and the test passed. The repo's own
+recurring failure shape (`experience_gathered.md` §59, §63): a check that never reaches the thing
+it names.
 
-| tree | `<t>/*.ts` | `<t>/**/*.ts` |
-|---|---:|---:|
-| `_walker` | 39 | 19 |
-| react | 22 | 9 |
-| flutter | 22 | **0** |
-| feliz | 13 | **0** |
+**Closed in three slices.**
 
-40 of 140 files are scanned. The unscanned 100 contain **28 direct `renderComment` / `renderNotice`
-give-ups** — six in the shared `walker-core.ts`, five in `flutter-target.ts`, three each in
-`feliz-target.ts` and the Angular destroy-form fork. The test passes.
+| Slice | What landed | Evidence |
+|---|---|---|
+| 1 — the glob | `WALKER_GLOBS` carries TWO entries per tree (`git ls-files` will not do it with one); the 26 hidden sites appeared | #2843 |
+| 2 — route them | all 26 through `giveUp()` — none earned a `NOT_A_GIVE_UP` row, every one is a genuine degradation | #2843 |
+| 3 — the drain + the invariant | every give-up now names a catalogued `loom.*` **code**, the tolerated set is **0**, and the walker invariant is a conformance gate | wave C1, packet 1d-i |
 
-This is the repo's own recurring failure shape (`experience_gathered.md` §59, §63): a check that never
-reaches the thing it names. **Land it first** — any conformance gate built on the `loom:unrendered`
-sentinel is a no-op until it does, including the "a walker never declines without a diagnostic" gate
-W2.3 is meant to produce.
+**Why slice 3 was needed at all.** Slices 1+2 made every decline FINDABLE and left all ~64 of them
+UNEXPLAINED — the reason was prose at the emission site, so the reader of a generated page got a
+sentence with nothing to look up. Measured before the slice: `body: Stack { CreateForm { } }` and
+`Stack { DestroyForm { } }` are valid `.ddd` (`ddd parse` → `0 error(s), 0 warning(s)`) and generate
+a page whose entire body is one `loom:unrendered` comment — a blank screen, no diagnostic anywhere.
 
 **Two slices.** (1) Fix `WALKER_GLOBS` to carry two entries per tree — `git ls-files` will not do it
 with one — and watch the 28 sites appear. (2) Drain them: route each through `giveUp()` or add a
@@ -540,7 +541,46 @@ varies only the glob: one unrouted give-up in `flutter-target.ts` (a file the ol
 makes the fixed glob **fail** naming `flutter-target.ts:601` while the old one **passes**. Same defect,
 same tree, opposite verdicts.
 
-## M-T9.56 — 130 validator conditions reach the user as one non-catalog code — `open` · **S/M** for the ratchet, ~**70-78 h** for the drain · P1
+**Landed by Wave C1 packet 1d-i (2026-09-11), on top of #2843:**
+
+`giveUp(target, code, text)` now takes a `DiagnosticMessageKey` (so an invented code fails `tsc`) and
+renders it into the comment: `loom:unrendered [loom.page-primitive-arg-missing] CreateForm(of: …): …`.
+Five codes minted (`page-primitive-arg-missing` / `-arg-invalid`, `page-ref-unreachable`,
+`page-expr-unrenderable`, `page-primitive-target-gap`), three existing ones reused where the
+condition already had one (`loom.unresolved-page-ref`, `loom.unknown-page-element`,
+`loom.sub-primitive-misplaced` — each is raised ahead of the walker by `ui-page-structure-checks.ts`,
+so those sites are a validator's backstop, not a new refusal).
+
+**A second blind spot closed with it.** The routing gate scans for `renderComment`/`renderNotice`
+CALLS, so it never saw the parallel HEEx engine, which builds fourteen `<!-- … -->` / `<%!-- … --%>`
+give-ups inline with no sentinel at all. Routing those surfaced two silent declines the cross-target
+sweep then caught: `QueryView { }` with no `of:` rendered an EMPTY `true ->` arm (a framed panel
+reading as "loaded, nothing to show"), and `Icon { }` with neither `name:` nor `svg:` emitted an
+empty `<span class="loom-icon">`.
+
+**Gates.** `walker-give-up-routing.test.ts` ratchets the census (every give-up names a catalogued
+code; `UNCODED_GIVE_UPS` is shrink-only and EMPTY; a vacuity guard requires > 50 sites over > 10
+files). `test/generator/_walker/walker-declines-with-a-code.test.ts` is the invariant W2.3 asked
+for — all 58 registry primitives spelled with no arguments, driven through all SEVEN targets, each
+bracketed by probe markers so a primitive that renders NOTHING is named rather than hidden in a
+joined body. `test/fixtures/walker-give-up-shapes.ddd` is the first checked-in `.ddd` that authors a give-up —
+in `test/fixtures/`, NOT the corpus, because two corpus gates state normatively that the corpus is a
+BACKEND matrix (`clause-census`'s "the corpus fixtures still carry no `ui`", retro §82, and
+`feature-doc-coverage`'s FEATURE_DOCS). Both caught the first placement.
+
+**One gap REVEALED (not introduced).** Giving the HEEx give-ups a sentinel made the cross-frontend
+matrix able to see them, and one cell went red: `Console`'s standalone instance-qualified
+`OperationForm` is not rendered on LiveView (it needs the `handle_event` + form-binding half
+`renderModal` owns). The emitter has said so in the output since #2652; the marker simply carried no
+sentinel. Frozen as a reasoned `GAPS` entry with the closing recipe Flutter already used.
+
+**Residue (not this mission's).** Codegen has no diagnostic channel, so the codes reach the user in
+the generated comment, not on `ddd generate`'s stderr — lifting them into real CLI diagnostics is a
+`src/system/` pass, tracked in the packet hand-off
+([`waves/handoffs/wave-c1-1d-giveup-drain.md`](waves/handoffs/wave-c1-1d-giveup-drain.md)) along with
+the HEEx named-icon parity gap the drain deliberately did not smuggle in.
+
+## M-T9.56 — 128 validator conditions reach the user as one non-catalog code (the gate half landed with Wave C1 packet 1g; the drain is Wave C4's) — `open` · ~**70-78 h** for the drain · P1
 
 Found 2026-09-09 ([F55](../audits/2026-09-03-language-docs-audit-findings.md), extended as F64). Across
 `src/language/validators/**` + `ddd-validator.ts`: **196 `accept` sites carry a code, 119 errors and 11
@@ -556,13 +596,41 @@ incoherent regardless — seven type-mismatch codes already exist, and the coded
 700 lines from six identical uncoded resolution errors.
 
 **A 130-entry waiver is the wrong instrument** (a code-less site has no stable key to waive; line
-numbers churn, message text rewords). Use a **12-row per-file EXACT count**, shrink-only, following
+numbers churn, message text rewords). Use a **per-file EXACT count**, shrink-only, following
 `test/system/legacy-generate-path-ratchet.test.ts`, as a fifth invariant inside
 `diagnostic-catalog.test.ts` — it already owns the scanners. Add, in the same slice, an assertion that
 no `FIRING_FIXTURES` fixture raises `loom.unknown`, and a length baseline for `UNDOCUMENTED_CODES`
-(368 entries, currently unpinned, so new codes can land wholly undocumented).
+(currently unpinned, so new codes can land wholly undocumented).
 
-Then ~10 drain slices; the triage, per-site cost and ordering are in the fleet plan.
+### Gate half — `done` (Wave C1 packet 1g)
+
+Measured on the tree, not from the audit: **129** uncoded sites (118 errors, 11 warnings) across **12**
+files — `deployable.ts` 24, `statements.ts` 23, `ui.ts` 21, `types.ts` 15, `match.ts` 12,
+`datasource.ts` 9, `traceability.ts` 9, `structural.ts` 7, `ddd-validator.ts` 6, `_shared.ts` 1,
+`repository.ts` 1, `toplevel-function.ts` 1. The IR check leaves, the macro expander and the `src/api/`
+entry points hold no row — they are already clean. Three gates landed, all shrink-only:
+
+- **invariant 5** in `diagnostic-catalog.test.ts`, over the per-file baseline
+  `test/system/diagnostic-uncoded-baseline.ts`. Grow a row → it fails naming the site; drain one without
+  lowering the row → it fails as STALE; a row reaching 0 is deleted, not left at 0.
+- **`diagnostic-firing-census.test.ts`** — no `FIRING_FIXTURES` fixture may raise `loom.unknown`. On its
+  first run it found exactly one (`loom.workflow-emit-unknown-field`'s fixture, hitting
+  `statements.ts`'s `checkEmit`); that site was drained here, so its waiver table
+  (`FIXTURES_RAISING_UNKNOWN`) ships **empty**. Separately measured: **357** standalone tracked `.ddd`
+  files raise `loom.unknown` **zero** times — the generic code reaches a user only through a defect
+  source, which is why the fixture population is the one that matters.
+- **`diagnostic-docs-anchors.test.ts`** — `UNDOCUMENTED_CODES`' LENGTH is pinned (369). Membership was
+  already gated, but membership alone is satisfied by appending the new code to the undocumented list.
+
+One site drained as the proof the drain path works end to end: `checkEmit`'s unknown-field arm now
+raises **`loom.emit-unknown-field`** (wording in `messages.ts`, anchor
+`06-behavior-and-statements.md#let--emit` in `code-docs.ts`, an aggregate-emit firing fixture — the half
+the workflow-only IR check never sees). **128 left.**
+
+### Drain half — `open` (Wave C4, ~10 slices)
+
+The triage, per-site cost and ordering are in the fleet plan. Each slice lowers its row in
+`diagnostic-uncoded-baseline.ts` in the same change; the whole file is deleted when the last row goes.
 
 ## M-T9.57 — `pr-gate` parks: two 2026-09-10 measurements disagree on whether tail `workflow_run` dispatches are dropped — `done` ([#2859](https://github.com/Loom-Harness/Loc/pull/2859) retired every branch-filtered claim; Wave C0 packet 0.3 ([#2863](https://github.com/Loom-Harness/Loc/pull/2863)) counted unfiltered and landed the bounded tail watch — **owner ruling pending on which reading stands**) · **S** · P1
 

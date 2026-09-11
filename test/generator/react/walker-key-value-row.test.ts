@@ -70,7 +70,7 @@ describe("KeyValueRow primitive", () => {
   it("loom:unrendered missing value emits a visible placeholder, no crash", async () => {
     const tsx = await emit(`KeyValueRow { "Status" }`);
     expect(tsx).toMatch(
-      /<KeyValueRow label=\{t\("[^"]*", "Status"\)\}>\{\/\* loom:unrendered missing value \*\/\}<\/KeyValueRow>/,
+      /<KeyValueRow label=\{t\("[^"]*", "Status"\)\}>\{\/\* loom:unrendered \[loom\.page-primitive-arg-missing\] missing value \*\/\}<\/KeyValueRow>/,
     );
   });
 

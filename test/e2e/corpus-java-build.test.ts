@@ -3,9 +3,10 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
-import { describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it } from "vitest";
 import { corpusProjectDirs, materializeCorpusFixture } from "../fixtures/corpus/harness.js";
 import { CORPUS } from "../fixtures/corpus/manifest.js";
+import { gradleCmd, stopGradleDaemon } from "./support/gradle.js";
 
 // ---------------------------------------------------------------------------
 // Phase 1 compile tier (docs/old/plans/global-test-coverage-plan.md) for the Java
@@ -48,6 +49,10 @@ const javaFeatures = CORPUS.filter((f) => f.backends.includes("java"))
   .map((f) => f.id);
 
 describe.skipIf(!ENABLED)("corpus features compile under gradle (Java/Spring Boot)", () => {
+  // One daemon serves every fixture in the leg (see `support/gradle.ts`), so it
+  // has to be reaped once at the end rather than per case.
+  afterAll(stopGradleDaemon);
+
   it.each(javaFeatures)("%s — generated java project compiles", (featureId) => {
     const outDir = fs.mkdtempSync(path.join(os.tmpdir(), `loom-corpus-java-${featureId}-`));
     try {
@@ -65,7 +70,7 @@ describe.skipIf(!ENABLED)("corpus features compile under gradle (Java/Spring Boo
             fs.existsSync(path.join(proj, "build.gradle.kts")),
           `${featureId}: java project '${dir}' emitted`,
         ).toBe(true);
-        execSync("gradle --no-daemon -q testClasses bootJar", {
+        execSync(gradleCmd("testClasses", "bootJar"), {
           cwd: proj,
           stdio: "inherit",
           timeout: 600_000,

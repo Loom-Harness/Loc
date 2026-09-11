@@ -20,6 +20,7 @@ import type {
   SystemIR,
   TypeIR,
 } from "../../types/loom-ir.js";
+import { walkStmtExprsDeep, walkStmtsDeep } from "../../util/walk.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
 import { walkExpr } from "./shared.js";
 
@@ -103,10 +104,50 @@ export function validateElixirOpSelfCallPosition(sys: SystemIR, diags: LoomDiagn
               });
             });
           }
+          // A BARE call statement to a private operation is emitted on vanilla
+          // as `record = __op_<name>(record, …)` — a pure struct transform in
+          // the caller's module (M-T6.55 F24).  That helper is `defp`-local and
+          // takes no actor, and the CALLER binds `current_user` only when its
+          // OWN body reads the principal, so a callee whose body reads
+          // `currentUser` would render an unbound `current_user` —
+          // `mix compile` fails with "undefined variable".  The threading is a
+          // real feature (every actor-arg site in the elixir emitter would have
+          // to become transitive over the private-op call graph); until then it
+          // is an HONEST refusal here rather than an emitted body that does not
+          // compile.  Independent of the call-position rule above: this one is
+          // about the CALLEE's body, not the call's syntactic slot.
+          for (const s of op.statements) {
+            walkStmtsDeep(s, (inner) => {
+              if (inner.kind !== "call" || inner.target !== "private-operation") return;
+              const callee = (agg.operations as OperationIR[]).find((o) => o.name === inner.name);
+              if (!callee || !callee.statements.some(stmtReadsCurrentUser)) return;
+              diags.push({
+                severity: "error",
+                code: "loom.vanilla-op-call-actor",
+                message: diagMessage("loom.vanilla-op-call-actor", {
+                  ctxName,
+                  name: agg.name,
+                  opName: op.name,
+                  eName: inner.name,
+                }),
+                source: `${sys.name}/${dep.name}`,
+              });
+            });
+          }
         }
       }
     }
   }
+}
+
+/** True when any expression this statement roots (at any depth) reads the
+ *  request principal. */
+function stmtReadsCurrentUser(s: StmtIR): boolean {
+  let found = false;
+  walkStmtExprsDeep(s, (e) => {
+    if (e.kind === "ref" && e.refKind === "current-user") found = true;
+  });
+  return found;
 }
 
 // `shape: embedded` reference collections (`X id[]`) map on java: the jsonb

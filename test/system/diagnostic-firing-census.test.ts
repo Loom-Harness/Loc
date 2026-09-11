@@ -27,6 +27,7 @@ import {
 import { parseBuiltinPlatformRef } from "../../src/platform/metadata.js";
 import { FLUTTER_UNRENDERED_PRIMITIVES } from "../../src/util/flutter-deferred-primitives.js";
 import { COVERED_ELSEWHERE, UNCOVERED } from "./diagnostic-firing-census.data.js";
+import { FIXTURES_RAISING_UNKNOWN } from "./diagnostic-uncoded-baseline.js";
 
 // ---------------------------------------------------------------------------
 // Diagnostic FIRING census (M-T9.33).
@@ -173,7 +174,77 @@ ${uiBody}
   deployable web { platform: react, targets: api, ui: WebApp { Sales: api }, port: 3001 }
 }`;
 
+/** The same shape, hosted by an ELIXIR deployable that also serves the ui — the
+ *  phoenixLiveView frontend, whose component HOISTING the two collision gates
+ *  describe. */
+const heexUi = (uiBody: string) => `
+system S {
+  subdomain Sales { context Orders {
+    aggregate Order { code: string  derived display: string = code }
+    repository Orders for Order { }
+  } }
+  api SalesApi from Sales
+  storage pg { type: postgres }
+  resource st { for: Orders, kind: state, use: pg }
+  ui WebApp {
+    api Sales: SalesApi
+${uiBody}
+  }
+  deployable api { platform: elixir, contexts: [Orders], dataSources: [st], serves: SalesApi, ui: WebApp { Sales: api }, port: 4000 }
+}`;
+
+/** A flutter-hosted ui — the self-hosting frontend whose Riverpod action-body
+ *  emitter the two `loom.flutter-action-body-unsupported` arms describe. */
+const flutterUi = (uiBody: string) => `
+system S {
+  api A from D
+  subdomain D { context C {
+    error Rejected { reason: string }
+    aggregate Order {
+      code: string
+      operation confirm(): Order or Rejected { code := "c" }
+    }
+    repository Orders for Order { }
+  } }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  ui App {
+    framework: flutter
+    api Shop: A
+${uiBody}
+  }
+  deployable api { platform: node, contexts: [C], dataSources: [st], serves: A, port: 8080 }
+  deployable app { platform: flutter, targets: api, ui: App { Shop: api }, port: 3006 }
+}`;
+
 const FIRING_FIXTURES: Record<string, string> = {
+  // --- phase ⑦ IR validate, elixir-only -----------------------------------
+  // A bare call to a PRIVATE operation whose body reads `currentUser`.  Vanilla
+  // lowers the call to a module-local `__op_<name>(record, …)` pure transform
+  // (M-T6.55 F24) and has no way to thread the request principal into it — the
+  // caller binds `current_user` only when its OWN body reads it.  Refused here
+  // rather than emitted as a body `mix compile` rejects.
+  "loom.vanilla-op-call-actor": `
+system VanillaActor {
+  user { id: guid  role: string }
+  subdomain Core { context Billing {
+    aggregate Invoice with crudish {
+      total: int
+      operation bump(by: int) {
+        total := total + by
+        recompute()
+      }
+      private operation recompute() {
+        requires currentUser.role == "admin"
+        total := total * 2
+      }
+    }
+  } }
+  api BillingApi from Core
+  storage pg { type: postgres }
+  resource st { for: Billing, kind: state, use: pg }
+  deployable d { platform: elixir, contexts: [Billing], dataSources: [st], serves: BillingApi, port: 4000, auth: required }
+}`,
   // --- phase ④ AST validate -----------------------------------------------
   // Two complete `system { }` blocks and NO top-level members — the shape that
   // slipped past the fold-triggered composition check, because with nothing to
@@ -246,6 +317,36 @@ system S {
   "loom.when-references-op-param": repoOnly(`    aggregate Order with crudish {
       total: int
       operation addLine(qty: int) when qty > 0 { total := total + qty }
+    }
+    repository Orders for Order { }`),
+
+  // M-T5.28 — the three positional statements, each written in the one place
+  // its lowerer does NOT reach.  All three used to validate clean: the `match`
+  // then threw out of the shared statement dispatcher on all five backends, and
+  // `for` / `if let` lowered to the `<unknown>` call sentinel.
+  "loom.variant-match-placement": repoOnly(`    error NotFound { resource: string }
+    aggregate Order with crudish {
+      code: string
+      operation probe(): string or NotFound { return NotFound { resource: code } }
+      operation touch() {
+        match probe() {
+          NotFound e => { code := e.resource }
+          string s => { code := s }
+        }
+      }
+    }
+    repository Orders for Order { }`),
+
+  "loom.for-placement": repoOnly(`    aggregate Order with crudish {
+      code: string
+      notes: string[]
+      operation touch() { for n in notes { code := n } }
+    }
+    repository Orders for Order { }`),
+
+  "loom.if-let-placement": repoOnly(`    aggregate Order with crudish {
+      code: string
+      operation touch() { if let c = code { code := c } }
     }
     repository Orders for Order { }`),
 
@@ -715,9 +816,34 @@ system P {
   "loom.workflow-name-collision": repoOnly(`    aggregate Thing with crudish { name: string }
     repository Things for Thing { }
     workflow Thing { create(n: string) { precondition n.length > 0 } }`),
+  // F58 / M-T6.62.  A correlation field exists, but the COMMAND create supplies
+  // it neither way: `oid` does not name-match `orderId`, and the body never
+  // assigns `orderId := oid` either — so the body would render against an
+  // unbound receiver on all five backends.
+  "loom.workflow-create-correlation-unsupplied":
+    repoOnly(`    aggregate Order with crudish { name: string }
+    repository Orders for Order { }
+    workflow W {
+      orderId: Order id
+      status: string
+      create(oid: Order id) { status := "Pending" }
+    }`),
   // The code whose "covered by message in validation.test.ts" claim outlived
   // the file it cited (M-T9.33's own opening finding).  It fires: an `emit`
   // supplying a field the event does not declare.
+  // The AST-phase (④) twin of `loom.workflow-emit-unknown-field`, and the one
+  // site M-T9.56's gate half drained as its proof that the drain path works.
+  // Deliberately an AGGREGATE emit, not a workflow one: the IR check below only
+  // walks workflow bodies, so this shape is the half of the condition that used
+  // to reach the user as `loom.unknown` with nothing else raised beside it.
+  "loom.emit-unknown-field": repoOnly(`    event Opened { account: Account id, owner: string }
+    aggregate Account persistedAs: eventLog {
+      owner: string
+      create open(owner: string) { emit Opened { account: id, owner: owner, bogus: owner } }
+      apply(e: Opened) { owner := e.owner }
+    }
+    repository Accounts for Account { }`),
+
   "loom.workflow-emit-unknown-field": repoOnly(`    aggregate Thing with crudish { name: string }
     repository Things for Thing { }
     event Happened { thing: Thing id, label: string }
@@ -1332,6 +1458,83 @@ system P {
     }`,
   ),
 
+  // Two pages of one ui sharing a `route:`.  Distinct names, distinct emit
+  // paths, distinct archetype slots — so neither collision gate above sees it,
+  // and only one of the two pages is reachable in any router (SvelteKit cannot
+  // emit them at all, and used to `throw` a bare `Error` mid-generate).
+  "loom.ui-page-route-collision": uiPages(
+    "",
+    `    page Alpha { route: "/dup" body: Stack { Heading { "Alpha", level: 1 } } }
+    page Beta { route: "/dup" body: Stack { Heading { "Beta", level: 1 } } }`,
+  ),
+
+  // A page `action` and a rendered component's `action` with one name, on a
+  // phoenixLiveView ui: a LiveView dispatches every `phx-click` BY NAME, so the
+  // lift would put two `handle_event("bump", …)` clauses in one module.
+  "loom.heex-handler-name-collision": heexUi(`
+    component Panel() {
+      state { n: int = 0 }
+      action bump() { n += 1 }
+      body: Button { "inc", onClick: bump }
+    }
+    page Home {
+      route: "/"
+      state { m: int = 0 }
+      action bump() { m += 7 }
+      body: Stack { Panel(), Button { "page inc", onClick: bump } }
+    }`),
+
+  // The same lift's other limit: one host assign per component NAME is one
+  // cell, so a `state`-declaring component rendered twice would have its two
+  // instances move together.
+  "loom.heex-stateful-component-reused": heexUi(`
+    component Counter() {
+      state { n: int = 0 }
+      action bump() { n += 1 }
+      body: Button { "inc", onClick: bump }
+    }
+    page Home { route: "/" body: Stack { Counter(), Counter() } }`),
+
+  // `navigate(…)` in a page action on a FLUTTER-hosted ui.  A Riverpod
+  // Notifier holds no BuildContext, so the emitter replaced the call with a
+  // `// TODO(flutter full-parity)` comment: the button was wired and did
+  // nothing.  (The `match await` on a standard agg op is the same code's other
+  // slug; one fixture per code is what the census asks for.)
+  "loom.flutter-action-body-unsupported": flutterUi(`    page Edit {
+      route: "/edit"
+      state { n: int = 0 }
+      action go() { toast("hi") }
+      body: Stack { Heading { "Edit", level: 1 }, Button { "go", onClick: go } }
+    }`),
+
+  // A `component` param whose declared type the shared TypeScript prop layer
+  // has no spelling for.  `money` rides the wire as a decimal string re-parsed
+  // to a `Decimal`, so this is portable work — until it lands it was a raw
+  // `Error: component prop: unsupported primitive 'money'.` mid-generate.
+  "loom.frontend-prop-type-unsupported": uiPages(
+    "",
+    `    component Price(amount: money) { body: Text { "price" } }
+    page Home {
+      route: "/"
+      state { total: money = 0.00 }
+      body: Stack { Heading { "Home", level: 1 }, Price(amount: total) }
+    }`,
+  ),
+
+  // A backend-body statement form in a ui action.  The sibling of
+  // `loom.if-stmt-page-body-unsupported`: same reasoning, three more kinds,
+  // each of which crashed the JS walker with a bare throw and emitted a silent
+  // no-op comment on Flutter.
+  "loom.ui-body-statement-kind": uiPages(
+    "",
+    `    page Home {
+      route: "/"
+      state { n: int = 0 }
+      action bump() { precondition n > 0 }
+      body: Button { "Go", onClick: bump }
+    }`,
+  ),
+
   // A `menu` link naming a page that does not exist.  The linker already
   // reports the bare unresolved reference; this check is the one that names
   // what IS linkable — and a scaffolded page is named by ROLE inside a
@@ -1408,6 +1611,22 @@ system S {
  * can re-test the claim instead of inheriting it.
  */
 const UNREACHABLE_PINS: Record<string, string> = {
+  // M-T9.55.  The one give-up code in its family with no known reachable shape:
+  // `walker-core.ts`'s markup-position expression `default:` arm, reached only
+  // by an `ExprIR.kind` that appears as a primitive's CHILD and has no arm in
+  // the child-position switch.  Every kind the page-body lowerer can put there
+  // today has one (`ref`, `match`, `ternary`, `member`, `method-call`, `call`,
+  // `literal`), so the arm is the backstop to that exhaustiveness rather than a
+  // condition an author can write.  Kept coded rather than converted to a
+  // `never`-check because the api toolkit and the playground can both hand the
+  // generator an un-validated model, where a throw would be a crash instead of
+  // a comment.
+  "loom.page-expr-unrenderable":
+    "`walker-core.ts`'s markup-position `default:` arm — every `ExprIR.kind` a page body can " +
+    "put in a child slot has an explicit arm above it, so the default is the exhaustiveness " +
+    "backstop, not an authorable condition.  Re-test when the walker grows a new " +
+    "child-position arm; see M-T9.55's hand-off H3 " +
+    "(docs/new-plan/waves/handoffs/wave-c1-1d-giveup-drain.md).",
   // The four below share ONE structure, and it is worth naming once: each gate
   // filters the platforms hosting a context against a SUPPORTED set, and
   // returns/skips when nothing is left over.  The hosting platforms come from
@@ -1554,6 +1773,20 @@ const UNREACHABLE_PINS: Record<string, string> = {
     "(it cannot drive generation).  Its own coverage — a census, a pinned vocabulary, and a " +
     "reachability suite calling the real renderer entry points directly with an out-of-" +
     "vocabulary ExprIR node — lives in test/generator/_expr/emission-mode.test.ts.",
+  "loom.flutter-action-statement-unsupported":
+    "Not a `validate()` diagnostic either, for the same structural reason as " +
+    "`loom.query-emission-invalid` above: it is a phase-⑧ GIVE-UP raised by " +
+    "src/generator/flutter/riverpod-emit.ts `renderNotifierStmt` when a page / store / " +
+    "component action statement has no Riverpod-Notifier-method form.  It does not `accept()` " +
+    "a diagnostic — it returns the wording as a sentinel-carrying `giveUp()` comment in the " +
+    "emitted Dart — so this census's harness (which drives `validate()` over a `.ddd`) cannot " +
+    "observe it no matter what source it constructs.  Its own coverage lives beside the " +
+    "emitter: test/generator/flutter/action-navigate.test.ts drives the one arm a well-formed " +
+    "`.ddd` can reach (`#navigate-route-param` — `navigate(<Page>)` at a page whose route " +
+    "carries a `:param` the call supplies no value for) through a real `generate system`, and " +
+    "asserts both the `loom:unrendered` sentinel and that the broken " +
+    "`navigateTo('/products/${id}')` interpolation is NOT emitted.  Re-test by deleting that " +
+    "arm: the Dart then references an unbound `id`.",
 
   // The two `loom.java-{workflow-instance,projection}-field-unsupported` pins
   // that sat here are GONE, because the codes are (M-T6.36).  This census
@@ -1742,6 +1975,24 @@ const DRIVEN_ELSEWHERE: Record<string, string> = {
   "loom.macro-threw": "test/macro/misbehaving-macro-diagnostics.test.ts",
   "loom.macro-non-ast-result": "test/macro/misbehaving-macro-diagnostics.test.ts",
   "loom.macro-escapes-host": "test/macro/misbehaving-macro-diagnostics.test.ts",
+  // The body-walker GIVE-UP codes (M-T9.55).  Reachable from ordinary `.ddd`
+  // source — `Stack { CreateForm { } }` reaches one — but never out of
+  // `validate()`: they are attached in phase 8 by `giveUp()` and rendered into
+  // the emitted page as `loom:unrendered [<code>] ...`, because codegen has no
+  // diagnostic channel.  The pointed-at file drives all four through all seven
+  // frontend targets and asserts each is produced (`MUST_EXERCISE`), so this
+  // pointer is the same kind of claim the macro trio's is.  They move to
+  // FIRING_FIXTURES the day `generate system` grows a give-up-reporting pass.
+  "loom.page-primitive-arg-missing": "test/generator/_walker/walker-declines-with-a-code.test.ts",
+  "loom.page-primitive-arg-invalid": "test/generator/_walker/walker-declines-with-a-code.test.ts",
+  // These two are NOT reachable by varying an argless page body, so they point
+  // at the tests that do reach them: a primitive that NAMES something the ui
+  // cannot serve (`CreateForm { of: "Ghost" }`, the corpus witness), and the
+  // per-FRONTEND porting gap, whose fire-points are the HEEx engine's
+  // unsupported-primitive arm and the two procedural packs' missing-renderer
+  // fallback.
+  "loom.page-ref-unreachable": "test/generator/_walker/walker-give-up-corpus-shapes.test.ts",
+  "loom.page-primitive-target-gap": "test/generator/elixir/heex-unsupported-primitive.test.ts",
 };
 
 const catalogueCodes = (): string[] => [
@@ -1969,6 +2220,68 @@ describe("diagnostic firing census", () => {
     expect(
       blank,
       `A pin without a real reason is a TODO wearing a gate's clothes: ${blank}`,
+    ).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// `loom.unknown` never reaches a user (M-T9.56, gate half).
+//
+// The buckets above account for every CATALOGUED code.  `loom.unknown` is in no
+// bucket because it is in no catalogue: `src/api/report.ts` synthesises it for
+// any diagnostic that arrived with no `loom.*` code of its own, so it is the
+// one string on the wire that means "129 different conditions, take your pick".
+//
+// The per-file census in `diagnostic-uncoded-baseline.ts` counts those SITES.
+// This counts their EFFECT, on the only population where a defect diagnostic is
+// actually produced: the firing fixtures.  Every one of them is a deliberately
+// broken `.ddd`, so if an uncoded condition is reachable at all, this is where
+// it surfaces — and a fixture that raises `loom.unknown` alongside the code it
+// is proving is a user, today, reading a diagnostic with no name.
+//
+// `FIXTURES_RAISING_UNKNOWN` is shrink-only and names the site each entry hits,
+// so the drain can aim at it; an entry that stops raising `loom.unknown` fails
+// as STALE, which is what makes the fix delete its own row.
+// ---------------------------------------------------------------------------
+
+describe("the generic code `loom.unknown` reaches no user", () => {
+  it("scans the real fixture population (guard against a vacuous pass)", () => {
+    expect(Object.keys(FIRING_FIXTURES).length).toBeGreaterThan(50);
+  });
+
+  for (const [code, source] of Object.entries(FIRING_FIXTURES)) {
+    it(`${code}'s fixture raises no uncoded diagnostic`, async () => {
+      const raised = (await validate(source)).diagnostics.filter((d) => d.code === "loom.unknown");
+      const waived = code in FIXTURES_RAISING_UNKNOWN;
+      if (waived) {
+        expect(
+          raised.length,
+          `${code} is listed in FIXTURES_RAISING_UNKNOWN but no longer raises\n` +
+            `loom.unknown — the site it named was drained.  Delete its row from\n` +
+            `test/system/diagnostic-uncoded-baseline.ts in the same change.`,
+        ).toBeGreaterThan(0);
+        return;
+      }
+      expect(
+        raised.map((d) => `${d.severity ?? "?"}: ${d.message}`),
+        `${code}'s fixture makes an UNCODED diagnostic reach the user.  ` +
+          `src/api/report.ts stamps it \`loom.unknown\`, which is not a catalogue key: ` +
+          `no wording entry, no docs anchor, no fix hint in the Problems panel.  Give ` +
+          `the validator site a \`loom.*\` code (see the invariant-5 message in ` +
+          `diagnostic-catalog.test.ts for the four edits), or — if the drain is not ` +
+          `this change's job — add the fixture to FIXTURES_RAISING_UNKNOWN naming the ` +
+          `site it hits.`,
+      ).toEqual([]);
+    });
+  }
+
+  it("carries no stale waiver", () => {
+    const notAFixture = Object.keys(FIXTURES_RAISING_UNKNOWN).filter(
+      (c) => !(c in FIRING_FIXTURES),
+    );
+    expect(
+      notAFixture,
+      "FIXTURES_RAISING_UNKNOWN names a code with no FIRING_FIXTURES entry — delete it.",
     ).toEqual([]);
   });
 });

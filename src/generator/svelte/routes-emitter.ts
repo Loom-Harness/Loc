@@ -21,6 +21,7 @@
 // Sibling of src/generator/react/pages-emitter.ts; the per-page
 // module assembly lives in walker/page-shell.ts.
 
+import { diagMessage } from "../../diagnostics/messages.js";
 import type {
   AggregateIR,
   BoundedContextIR,
@@ -100,6 +101,18 @@ function groupForLayout(page: PageIR): string {
   if (page.layout?.kind === "preset" && page.layout.name === "none") return "(bare)";
   if (page.layout?.kind === "named") return svelteLayoutGroup(page.layout.ref);
   return "(app)";
+}
+
+/** The scaffold's synthesised landing page — the one page kind whose route a
+ *  user page of the same address takes over.  Classified rather than stamped,
+ *  through the same `classifyPage` every other consumer uses.
+ *
+ *  The empty name context is deliberate and not a shortcut: `classifyPage`
+ *  decides `home` on the reserved NAME alone, before it consults any aggregate
+ *  or workflow names, and a hand-written `page Home` is meant to classify the
+ *  same way (the scaffold's override contract is by name). */
+function isScaffoldLandingPage(page: PageIR): boolean {
+  return classifyPage(page, { aggregateNames: [], workflowNames: [] }).kind === "home";
 }
 
 /** Emit path for a routable page. */
@@ -222,15 +235,62 @@ export function emitSveltePagesForUi(ui: UiIR, ctx: SveltePageEmitContext): Map<
     ctx.sourcemap?.file(componentPath, componentContent, c.origin, componentConstruct);
   }
 
+  // A scaffold-synthesised `Home` YIELDS its route to a user page claiming the
+  // same address — `classifyPage`'s override contract ("write `page Home { … }`
+  // to replace the generated landing page"), implemented on React by
+  // `app-shell.ts`'s `userHasRootRoute`.  SvelteKit could not honour it at all:
+  // both pages compute the same route DIRECTORY, so the emitter threw, on a
+  // model that validates clean and generates correctly on React.  Measured on
+  // this tree before this arm (a `with scaffold(...)` ui plus
+  // `page Dashboard { route: "/" }`):
+  //
+  //   svelte   Error: svelte pages 'Dashboard' and 'Home' both emit to
+  //            src/routes/(app)/+page.svelte
+  //   react    one `<Route path="/" element={<Dashboard />} />`
+  //   vue      BOTH `{ path: "/", component: Dashboard }` and `{ path: "/",
+  //            component: Home }` — the router matches the first and `Home` is
+  //            dead code
+  //   angular  the same, twice `{ path: "" }`
+  //
+  // Only React got it right; this arm is Svelte joining it.  The three
+  // remaining frontends (and the one-derivation fix that would retire all of
+  // these copies) are H6 of the packet-1d-ii hand-off.
+  const yieldedHomes = new Set<PageIR>();
+  {
+    const claimed = new Map<string, PageIR>();
+    for (const page of ui.pages) {
+      if (!page.route || isScaffoldLandingPage(page)) continue;
+      claimed.set(page.route, page);
+    }
+    for (const page of ui.pages) {
+      if (page.route && isScaffoldLandingPage(page) && claimed.has(page.route)) {
+        yieldedHomes.add(page);
+      }
+    }
+  }
+
   const seenPaths = new Map<string, string>();
   for (const page of ui.pages) {
     if (!isWalkableLayoutBody(page.body, userComponents)) continue;
+    if (yieldedHomes.has(page)) continue;
     const emitPath = sveltePagePath(page);
     if (!emitPath) continue;
     const prior = seenPaths.get(emitPath);
     if (prior) {
+      // UNREACHABLE on a validated model: `loom.ui-page-route-collision`
+      // (phase ⑦, `ui-page-identity-checks.ts`) refuses two pages of one ui
+      // sharing a `route:`, and this path is a pure function of the route plus
+      // the layout group — so a collision here means a strictly STRONGER
+      // collision was let through upstream.  Kept as an internal invariant
+      // (the api toolkit and the playground can hand a generator an
+      // unvalidated model) rather than deleted, and it names the gate that is
+      // supposed to have fired instead of re-explaining SvelteKit routing.
       throw new Error(
-        `svelte: pages '${prior}' and '${page.name}' both route to ${emitPath} — SvelteKit file routing needs distinct routes per page.`,
+        diagMessage("loom.ui-page-route-collision#svelte-emit-invariant", {
+          first: prior,
+          second: page.name,
+          path: emitPath,
+        }),
       );
     }
     seenPaths.set(emitPath, page.name);

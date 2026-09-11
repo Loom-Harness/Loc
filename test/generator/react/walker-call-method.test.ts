@@ -114,8 +114,15 @@ describe("function + method calls in walker bodies", () => {
         "a visible TODO placeholder rather than runtime-broken code",
     );
     const content = files.get("web/src/pages/x.tsx")!;
-    // Placeholder comment, NOT broken `undefined.create(...)` code.
-    expect(content).toMatch(/TODO: method-call Orders\.create\(draft\)/);
+    // A CODED give-up, NOT broken `undefined.create(...)` code.  Wave C1 packet
+    // 1d-ii replaced the bare `TODO … needs hooks {} binding` — which named a
+    // binding the language does not have — with the sentinel plus
+    // `loom.method-call-unresolved-receiver`, the phase-⑦ gate that makes this
+    // arm unreachable through `ddd generate` (hence `…Unchecked` above).
+    expect(content).toMatch(
+      /loom:unrendered \[loom\.method-call-unresolved-receiver\] method-call Orders\.create\(draft\): receiver did not resolve/,
+    );
+    expect(content).not.toMatch(/needs hooks \{\} binding/);
     expect(content).not.toMatch(/undefined\.create\(/);
   });
 
@@ -175,7 +182,9 @@ describe("function + method calls in walker bodies", () => {
         "path as the Orders.create case above, with multiple args",
     );
     const content = files.get("web/src/pages/x.tsx")!;
-    expect(content).toMatch(/TODO: method-call mixer\.combine\(a, b, "extra"\)/);
+    expect(content).toMatch(
+      /loom:unrendered \[loom\.method-call-unresolved-receiver\] method-call mixer\.combine\(a, b, "extra"\): receiver did not resolve/,
+    );
     expect(content).not.toMatch(/undefined\.combine\(/);
   });
 });

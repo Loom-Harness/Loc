@@ -262,9 +262,14 @@ export function renderPyAggregate(
   const bodyUsesCast = /\bcast\(/.test(body);
   // Domain-service calls render as bare functions (`quote(...)`), so the
   // aggregate module imports them by name from app.domain.services.* —
-  // collected from every operation / applier / es-create body.
+  // collected from every operation / applier / es-create body.  The BODY, not
+  // `op.statements`: an operation's LEADING `requires` run is hoisted to the
+  // calling route (op-gates.ts), which imports what the gate needs itself
+  // (`domainServiceImportLinesForExprs`, ledger row F2-CB-C7) — collecting it
+  // here too left `from app.domain.services.… import …` unused in the
+  // aggregate module (ruff F401 under the corpus python leg).
   const serviceImports = domainServiceImportLines([
-    ...shapes.flatMap((s) => s.operations.flatMap((op) => op.statements)),
+    ...shapes.flatMap((s) => s.operations.flatMap((op) => operationBody(op))),
     ...shapes.flatMap((s) => (s.appliers ?? []).flatMap((ap) => ap.statements)),
     ...shapes.flatMap((s) => s.esCreate?.statements ?? []),
   ]);

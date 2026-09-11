@@ -11,7 +11,7 @@
 // here; `generated-flutter-build.yml` owns the SDK gate.
 
 import { describe, expect, it } from "vitest";
-import { GIVE_UP_SENTINEL } from "../../../src/generator/_walker/give-up.js";
+import { giveUpText } from "../../../src/generator/_walker/give-up.js";
 import { generateSystemFiles } from "../../_helpers/generate.js";
 
 const PRELUDE = `
@@ -128,7 +128,9 @@ describe("flutter page-level derived bindings", () => {
     // M-T1.28 taught the shell to hoist that binding — `derived-store-read.test.ts`.)
     expect(source).not.toContain("final viaId");
     // …and the give-up sentinel stays a WIDGET — never Dart source printed as text.
-    expect(source).toContain(`const SizedBox.shrink() /* ${GIVE_UP_SENTINEL} ref: viaId */`);
+    expect(source).toContain(
+      `const SizedBox.shrink() /* ${giveUpText("loom.unresolved-page-ref", "ref: viaId")} */`,
+    );
     expect(source).not.toContain("Text('const SizedBox");
   });
 });

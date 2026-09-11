@@ -23,8 +23,14 @@
 // without `pageRoutes`, so even a working navigate resolved the fallback
 // `/<snake(Page)>` instead of the destination's declared `route:`.
 //
-// Flutter is the documented residue: a Riverpod `Notifier` method holds no
-// `BuildContext`, so it keeps its visible `TODO(flutter full-parity)` comment.
+// Flutter was the documented residue: a Riverpod `Notifier` method holds no
+// `BuildContext`, so it kept a visible `TODO(flutter full-parity)` comment
+// rather than emitting Dart that cannot compile.  Ledger row `F2-CFE-1` closed
+// that too — the Notifier pushes through a generated `lib/nav.dart` bridge
+// (`navigateTo`, backed by the `GlobalKey<NavigatorState>` `main.dart` installs)
+// while still resolving the ROUTE through the same shared resolver.  The
+// Flutter-side detail is covered by `test/generator/flutter/action-navigate.test.ts`;
+// this file keeps the cross-frontend arm.
 // ---------------------------------------------------------------------------
 
 import { describe, expect, it } from "vitest";
@@ -176,13 +182,17 @@ it("heex: emits a real push_navigate pipe step, not a call to an undefined fn", 
   );
 });
 
-it("flutter: the Notifier residue stays a VISIBLE, compiling TODO", async () => {
+it("flutter: navigates through the out-of-tree bridge, on the declared route", async () => {
   // A Riverpod `Notifier` method has no `BuildContext`, which is what
-  // `Navigator.pushNamed` needs — so Flutter keeps the honest marker rather
-  // than emitting Dart that cannot compile.  Pinned so the day it is fixed,
-  // this test says so.
+  // `Navigator.pushNamed` needs — so Flutter pushes through the generated
+  // `lib/nav.dart` bridge instead, resolving the destination through the SAME
+  // `tryRenderNavigateCall` every other frontend uses.  `OTHER_ROUTE` is not the
+  // resolver's `/<snake(Page)>` fallback, so this also pins that Flutter finally
+  // threads the route table.
   const src = await homePage("flutter");
-  expect(src).toMatch(/TODO\(flutter full-parity\).*navigate/);
+  expect(src).toContain(`navigateTo('${OTHER_ROUTE}');`);
+  expect(src, "the give-up marker must be gone").not.toMatch(/TODO\(flutter full-parity\)/);
+  expect(src).toContain("import '../nav.dart';");
 });
 
 it("a declared extern ui `function navigate` still wins over the built-in", async () => {

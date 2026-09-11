@@ -1406,7 +1406,13 @@ function renderHandler(
     // re-indents into the `try` — so the instance write commits (or rolls back)
     // with the aggregates the workflow orchestrates.
     const corrPascal = upperFirst(wf.correlationField as string);
-    stmtLines.push(`        var __key = command.${corrPascal};`);
+    // The key comes off the COMMAND PARAM (`corrParam`), which is only the
+    // correlation field's own name in the name-match spelling; in the
+    // `create start(order: Order id) { orderId := order }` spelling the record
+    // member is `Order`, and `command.OrderId` would be a CS1061 on a record
+    // with no such member.  The state-side comparison stays `corrPascal` —
+    // that IS the row's column.
+    stmtLines.push(`        var __key = command.${upperFirst(corrParam.name)};`);
     stmtLines.push(
       `        var state = await _sagaState.FindAsync(x => x.${corrPascal} == __key, cancellationToken);`,
     );

@@ -2,6 +2,12 @@ import type { BoundedContextIR, TypeIR } from "../../../ir/types/loom-ir.js";
 import { lines } from "../../../util/code-builder.js";
 import { provenancedTypeMembers } from "../../_payload/provenanced-wire.js";
 import {
+  MONEY_INTEGER_DIGITS,
+  MONEY_PRECISION,
+  MONEY_RANGE_MESSAGE,
+  MONEY_WIRE_SCALE,
+} from "../../money-scale.js";
+import {
   createFieldConstraints,
   createModelValidator,
   withFieldConstraint,
@@ -77,6 +83,16 @@ const PY_MONEY_STR_DEF = [
   "        # value containing braces would otherwise be re-interpreted as one.",
   "        raise PydanticCustomError(",
   '            "money_format", "Invalid decimal: {value}", {"value": json.dumps(value)}',
+  "        )",
+  "    # RANGE, not format: the grammar above already passed, and what is left is",
+  "    # a magnitude question the COLUMN answers.  Without this a 40-digit price",
+  "    # is a well-formed decimal string a str passthrough happily forwards, so it",
+  `    # reached NUMERIC(${MONEY_PRECISION},${MONEY_WIRE_SCALE}) and the DATABASE refused it — a 500 for a`,
+  "    # client fault (M-T6.60 divergence 3).  Counted on the digits rather than",
+  "    # computed, so a value too large to hold is never constructed.",
+  `    if len(value.lstrip("-").split(".")[0].lstrip("0") or "0") > ${MONEY_INTEGER_DIGITS}:`,
+  "        raise PydanticCustomError(",
+  `            "money_range", ${JSON.stringify(`${MONEY_RANGE_MESSAGE}: {value}`)}, {"value": json.dumps(value)}`,
   "        )",
   "    return value",
   "",

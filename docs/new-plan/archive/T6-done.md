@@ -981,3 +981,140 @@ An audit of every argument/parameter-passing call site (triggered by the `match 
 3. **Workflow `create` field TYPES** (names checked, types not — `workflow-checks.ts`, IR-level so no lexical env); **UI component prop passing** `Panel(amount: "x")` (missing/extra/wrong-type, unchecked); **store action calls** `Cart.add(42)` (unchecked); **criterion/policy-fn arg TYPES** — **first slice landed:** `freeCallPredicate` (type-system.ts) + `checkArgTypesPositional` (statements.ts) type-check criterion/policy-fn calls at the env-bearing sites `checkExprCallArgs` already walks (bodies / preconditions / requires / derived / …); arity stays owned by `checkCriteria`/`checkPolicyFns` (type-only, no double report); full suite green.  Remaining: the `from X(args)` / `where:` / `when` criterion sites (own env surfaces), plus the component-prop / store-action / workflow-create-field-type items above.
    HIGH regression risk — the whole example/test corpus constructs records and calls ops, so any resolver bug false-positives broadly; land incrementally (start with #1), run the FULL suite each slice, mirror `checkEmit`'s `unknown`-suppression + numeric-literal-promotion (`canPromoteLiteralTo`) to avoid ergonomic false positives.
 Sources: this session's parameter-passing validation audit (repros under the auditor's `/tmp/audit/`); `src/language/validators/{builder-call,statements,criterion,policy-fn}.ts`, `type-system.ts:742`, `src/ir/validate/checks/{ui-checks,workflow-checks}.ts`.
+## M-T6.51 — node document finds ignore `ignoring` — the A11 fix has no node twin — `done` (fixed by [#2705](https://github.com/lemmit/Loc/pull/2705); verified 2026-09-11) · **S** · P1
+
+**DONE — verified 2026-09-11 by GENERATING the mission's own shape on the Wave C1 base.** The fix is what the mission proposed: `documentFindMethod` recomputes the predicate PER FIND (`src/generator/typescript/repository-document-builder.ts:474-480`) by passing the find's own `{bypassAll, bypassCaps}` into `documentCapabilityBody`, which now routes through the same `allContextFilterEntries` the relational and MikroORM builders use — so all three adapters answer `ignoring` from one rule. The per-aggregate cache (`const cap = documentCapabilityBody(agg, "x")`) is gone; the synthesised query-time-projection reads carry the projection's own bypass on their `FindIR` (`projection-finds.ts`).
+
+From a `shape: document` aggregate `with crudish, softDeletable`:
+
+```
+find visibleRows(): Order[]                        -> const result = all.filter((x) => (!x.isDeleted));
+find allRows(): Order[] ignoring softDeletable     -> const result = all;
+find everything(): Order[] ignoring *              -> const result = all;
+```
+
+Gated by `test/generator/typescript/nonrelational-filter-bypass.test.ts` (absence-asserting, per the mission's own instruction that a presence-only check cannot see a retained conjunct). The `mikroorm-document.ts` and `repository-embedded-builder.ts` siblings carry the same fix with the mission id in their comments. Recorded in `docs/new-plan/waves/handoffs/wave-c1-1f-validator-drops.md`.
+
+Found 2026-08-30 (recorded as §D item 14 of the [08-24 review](../../audits/generator-code-review-2026-08-24.md), re-verified on `main` @ `aa236ae`). Not claimed by #2668.
+
+`documentFindMethod` computes the capability predicate once per aggregate — `const cap = documentCapabilityBody(agg, "x")` (`src/generator/typescript/repository-document-builder.ts:325`) — and reuses it for every find, with no access to that find's `bypassAll` / `bypassCaps`. So on a `shape: document` aggregate a declared `find … ignoring softDeletable` **still filters the soft-deleted rows out**: wrong data, fail-closed, no diagnostic. The synthesized query-time-projection reads assembled in the same file inherit it (`:89-90`), so a `projection … ignoring <Cap>` over a document source is likewise not bypassed on node.
+
+Both siblings already do it right: elixir's `renderDocFindFn` threads `bypass: { bypassAll: f.bypassAll, bypassCaps: f.bypassCaps }` (`elixir/vanilla/document-emit.ts:641` — the §A11 fix landed in #2667), and python's document `findMethod` recomputes with the find's own bypass.
+
+**The fix:** recompute the predicate per find, exactly as `renderDocFindFn` does — pass the find's bypass set into `documentCapabilityBody` (or a bypass-aware sibling) and drop the per-aggregate cache. Check the synthesized projection reads take the projection's own bypass, not the aggregate's default.
+
+**Verification when it lands.** A generator test per shape (declared find with `ignoring <Cap>`, `ignoring *`, and a projection over a document source), asserting the bypassed predicate is *absent* — and mutation-proved, since the failure mode here is a silently-retained conjunct, which a presence-only assertion cannot see.
+
+Sources: [generator-code-review-2026-08-24](../../audits/generator-code-review-2026-08-24.md) §D item 14 + §Follow-up register (2026-08-30) row 18. Sibling of §A11 (elixir, fixed #2667).
+
+## M-T6.54 — Java ignores `ignoring` for principal filters, and renders a guarded invariant on the wire without its guard — `done` (wave-c1 packet 1f; F19 by #2857) · **M** · P1
+
+**DONE — both rows closed 2026-09-11 (wave C1, packet 1f).**
+
+**F18 (both surfaces, fixed here).** `principalJpqlClause` now takes the read's own `FilterBypass` and omits a principal predicate whose `contextFilterOrigins[i]` the read names (a BARE `filter … currentUser …`, origin `undefined`, stays unbypassable) — the rule `emit/query-projection-reads.ts`'s `aggregationScope` already contained, reused. `jpqlWhere` threads the find's / retrieval's bypass; the root `findAll`/`findById` overrides keep the unconditional clause, as they carry no `ignoring` of their own.
+
+```
+find anyTenant(c: string): Order? where this.code == c ignoring tenantOwned
+
+before: @Query("select e from Order e where (e.code = :c) and (e.tenantId = :#{@currentUserAccessor.user()?.tenantId()})")
+after:  @Query("select e from Order e where e.code = :c")
+```
+
+The DOCUMENT half is the one the fleet note called awkward, and it carried a SECOND defect, fail-OPEN. The emitter hoisted every promoted capability out of `findAll()`/`findById()` and re-applied it per find — so a soft-deleted row became readable through `GET /<plural>` and by id the moment any UNRELATED find said `ignoring softDeletable`. The rehydrate is now split out as a private `rehydrateAll()` and every read — `findAll()` included — conjoins the capabilities it does not bypass; the shape is emitted only when some read on the aggregate actually bypasses something, so the no-bypass majority is byte-identical.
+
+A THIRD principal read surface was found and is PARTIALLY closed: a reified retrieval reads through `<Agg>Criteria.tenantScope(...)`, one factory over all principal predicates, so a retrieval whose `ignoring` drops EVERY principal capability now omits it while a PARTIAL drop keeps the whole scope (over-restricts, never widens). Splitting the factory per capability is `emit/criteria.ts` work; the reason is recorded inline at `tenantScopeAndFor` and handed off.
+
+The stale parity comment in `capability-filter.ts:26-32` is corrected in the same commit — it described the intent before it described the code, which is what let the gap sit under a `FILTER_BYPASS_FAMILIES` entry naming `java`.
+
+**F19 — verified, not rebuilt.** `buildChecks` (`java/emit/validator.ts:388-415`) renders `inv.guard ? `!(${guard}) || (${body})` : body`, and collects imports + regex literals from BOTH halves. Generated on this head from `invariant note.length > 0 when taxRate > 0`:
+
+```java
+if (!(!(taxRate > 0) || (((int) note.codePoints().count()) > 0))) errors.rejectValue("note", "loom.invariant", "Invariant violated: note.length > 0");
+```
+
+**Fixture (rule 13).** `test/fixtures/corpus/find-bypass.ddd` — `find … ignoring <Cap>` / `ignoring *` over a principal AND a non-principal capability, on a relational AND a `shape: document` aggregate. Generates on all five and compiles on all five (java `gradle testClasses bootJar` under JDK 25, elixir `mix compile --warnings-as-errors`, tsc, ruff+mypy, `dotnet build /warnaserror`).
+
+**Gate.** `test/generator/java/generator-java-find-bypass-principal.test.ts` — every assertion paired presence + ABSENCE, because the failure mode is a RETAINED conjunct. Mutation-proved three ways by file-copy revert (the pre-fix `jpqlWhere`; `survives()` returning true unconditionally; `capRec`/`capX` computed with `{bypassAll: true}`), each naming the assertion that failed. Full record: `docs/new-plan/waves/handoffs/wave-c1-1f-validator-drops.md`.
+
+**Bycatch, handed off:** the .NET document store ignores `ignoring` entirely (`_CapabilityVisible` is applied to every emitted find regardless of bypass) — the same shape on another backend, outside this packet's fence.
+
+Found 2026-09-03 by the language-docs audit ([F18](../../audits/2026-09-03-language-docs-audit-findings.md), [F19](../../audits/2026-09-03-language-docs-audit-findings.md), both P2). `jpqlWhere` (`src/generator/java/emit/repository.ts:361-392`) ANDs `principalClause` unconditionally with no `bypassAll`/`bypassCaps` check (`bypassAll` appears only at `:637`, the impl-side Hibernate wrapper), so both `find allRows(): Order[] ignoring *` and `ignoring tenantScoped` still emit `where (e.tenantId = :#{@currentUserAccessor.user()?.tenantId()})` — node/python/elixir drop the conjunct and dotnet emits `IgnoreQueryFilters`. It contradicts the comment at `src/generator/java/capability-filter.ts:26-29`, which claims parity with node. The fail-direction is safe (Java over-restricts rather than leaking), which is why this is not a Wave-1 packet — but the same `.ddd` returns a different row set on Java, and an operator reading the docs would conclude the bypass took effect. Separately, `buildChecks` (`src/generator/java/emit/validator.ts:366-395`) calls `renderJavaExpr(inv.expr, …)` with no `!(guard) ||` implication, which node/.NET/python all emit: `invariant note.length > 0 when taxRate > 0` becomes unconditional, so Java 422-rejects a request that is legal when `taxRate == 0`.
+
+**The fix:** `jpqlWhere` honours the find's `bypassAll`/`bypassCaps`; the wire validator emits the implication the other backends emit. Correct the stale parity comment in `capability-filter.ts` in the same PR.
+
+**Verification when it lands.** Generator tests asserting the *absence* of the principal conjunct under each bypass spelling (a presence-only assertion cannot see a retained conjunct) and the presence of the guard implication; both mutation-proved by file-copy revert.
+
+Sources: [language-docs-audit-2026-09-03](../../audits/2026-09-03-language-docs-audit-findings.md) F18/F19, [wave plan](../../audits/2026-09-03-language-docs-audit-findings.waves.md) packet **W5.1** (first in its wave — the one row there with a behavioural consequence). Sibling of M-T6.51 (the node document-find twin of the same "bypass silently retained" shape).
+
+> **Verified 2026-09-09 (fleet). Both rows hold; F18 is TWO surfaces, not one.** The relational
+> `@Query` path AND the document-shape `findAll()` path both keep the principal conjunct under
+> `ignoring`. Java already contains the CORRECT implementation for the aggregation path
+> (`emit/query-projection-reads.ts:161-166`), so this is a missed surface, not an undesigned feature —
+> and `capability-filter.ts:29-32` asserts the behaviour exists. **`FILTER_BYPASS_FAMILIES` includes
+> `java`, so `loom.filter-bypass-unsupported` certifies Java as honouring `ignoring` while two of its
+> four read surfaces do not.** Fail direction is safe (over-restricts). F19 is S: one arm of
+> `buildChecks`, with `dotnet/validator-emit.ts:167-171` as a line-for-line template. The
+> document-store half is the awkward one — the conjunct lives inside the SHARED `findAll()`, so a
+> per-read bypass needs it hoisted into each read's filter chain.
+
+## M-T6.55 — Phoenix drops a part-level `check`, a guarded single-field invariant, and a private-operation call — `done` (wave-c1 packet 1f) · **M** · P1
+
+**DONE 2026-09-11 (wave C1, packet 1f).** All three reproduced on the wave base first; the fork was resolved as the plan directed — EMIT, do not mint a refusal.
+
+**F14 — a part-level `check` / `invariant` is enforced in the part's own changeset.** `Line.changeset/2` only `cast`, and a part has no other enforcement site on Ecto. It now carries the same two-carrier split the aggregate changeset uses: a message-less unguarded single-field rule takes its native `validate_*` line (`partConstraintLines`, the `voConstraintLines` twin), everything else routes to the part's own `validate_invariants/1` (`renderInvariantValidatorFn`, whose parameter is now the structural `Pick<AggregateIR, "invariants" | "fields">` a part satisfies).
+
+```elixir
+|> cast(attrs, [:sku, :qty])
+|> validate_change(:sku, fn _, value -> if length(String.to_charlist(value)) >= 3, do: [], else: [...] end)
+|> validate_number(:qty, greater_than_or_equal_to: 1)
+```
+
+**F15 — a guarded single-field invariant emits its implication.** The root cause was one question asked in the wrong place: `singleFieldConstraints` returns null for ANY guarded rule (correct for the native path, which has nowhere to put an implication), and the residual carrier asked that same classifier — so both doors shut. `structRenderableShape` now asks it with the guard lifted, and `residualInvariants` admits every guarded rule outright. Unguarded rules are untouched (byte-identical), and the two carriers still cannot double-emit: `changeset-emit` renders `singleFieldConstraints(inv) ?? []`, null for a guarded rule.
+
+```elixir
+changeset =
+  if data.tax_rate > 0 do
+    if length(String.to_charlist(data.note)) > 0, do: changeset, else: add_error(changeset, :note, "must satisfy: note.length > 0")
+  else
+    changeset
+  end
+```
+
+The messaged twin keeps its `loom_code` metadata, which is the half the fleet note recorded as also dropped.
+
+**F24 — the private-operation call runs, and its write persists.** `_ = nil  # vanilla: bare call to 'recompute' (no callable target); record unchanged` is gone. A bare call now renders `record = __op_<name>(record, …)` against a `defp __op_<name>/n` the emitting module carries (`renderPrivateOpHelpers`) — a PURE struct transform, not the public `<op>_<agg>/2` context fn, which persists and would commit a partial write inside the caller's optimistic-lock window. Emitted into all three hosts that render op bodies (context facade, pure domain core, document path) and only for private ops actually called, so no unused-`defp` warning. `persistPutBodies` unions the callee's write set transitively (riding `walkStmtsDeep`, per the no-hand-rolled-walks rule), which is the second half: emitting the call alone computes the mutation and drops it at `Repo.update`.
+
+```elixir
+def bump_invoice(%D.Billing.Invoice{} = record, params) when is_map(params) do
+  with {:ok, by} <- __loom_int_param(record, :by, Map.get(params, "by")) do
+    record = %{record | tax_rate: record.tax_rate + by}
+    record = __op_recompute(record)
+    record
+    |> Ecto.Changeset.change(%{})
+    |> Ecto.Changeset.force_change(:tax_rate, record.tax_rate)
+    |> Ecto.Changeset.force_change(:total, record.total)
+    …
+```
+
+**One crossing is refused rather than emitted, and it is new.** A private operation whose body reads `currentUser`: the helper is `defp`-local and takes no actor, and the CALLER binds `current_user` only when its own body reads the principal, so the callee's reference would be unbound and `mix compile` would fail. Threading it means making every actor-arg site in the elixir emitter transitive over the private-op call graph (14 sites across 8 files, each with a caller on the other side). Until then `loom.vanilla-op-call-actor` says so, in `backend-syntax-checks.ts` beside its sibling `loom.vanilla-op-call-position`, with a firing fixture in the diagnostic census. Before this it was part of the same silent drop.
+
+**Fixture (rule 13).** `test/fixtures/corpus/part-rules-private-op.ddd` — all three rules in one aggregate, with `Invoice.total` assigned ONLY by the private operation so a HALF-fix still fails. Generates on all five and compiles on all five; the elixir leg (`mix compile --warnings-as-errors`) is the one a helper call to a nonexistent function would break.
+
+**Gate.** `test/generator/elixir/part-rules-private-op.test.ts` (9 cases). Mutation-proved four ways by file-copy revert — the part validate block emptied, `structRenderableShape` asking the guarded question again, the call arm restored to the `_ = nil` sentinel, and `persistPutBodies` walking only `op.statements` — each naming the assertion that failed. Full record: `docs/new-plan/waves/handoffs/wave-c1-1f-validator-drops.md`.
+
+Found 2026-09-03 by the language-docs audit ([F14](../../audits/2026-09-03-language-docs-audit-findings.md), [F15](../../audits/2026-09-03-language-docs-audit-findings.md), [F24](../../audits/2026-09-03-language-docs-audit-findings.md); P1/P1/P2). Three silent under-enforcements on one backend: `entity Line { qty: int check qty > 0 }` produces a `changeset/2` that only `cast`s `[:sku, :qty]` with no `validate_number` (root-level `check`/`invariant` do emit one, and node/dotnet/java/python all enforce the part-level form); a guarded single-field invariant is excluded by both `residualInvariants` (`src/generator/elixir/vanilla/changeset-invariant-emit.ts`) and the native path in `changeset-emit.ts`, so nothing enforces it; and a private-operation call renders `_ = nil  # vanilla: bare call to 'recompute' (no callable target); record unchanged` — compile-clean, behaviourally absent, signalled only by a comment in generated code.
+
+**The fix:** each either enforces or raises a `loom.*` code. F24's comment-only degrade is not an acceptable resting state — a comment in emitted output is not a diagnostic.
+
+**Verification when it lands.** A changeset test per shape plus a behavioural leg that submits the value the rule should reject; each mutation-proved by file-copy revert.
+
+Sources: [language-docs-audit-2026-09-03](../../audits/2026-09-03-language-docs-audit-findings.md) F14/F15/F24, [wave plan](../../audits/2026-09-03-language-docs-audit-findings.waves.md) packet **W5.2**. Relates to M-T6.2 (the vanilla-Phoenix gap register — the same "silent fallthrough vs honest gate" discipline).
+
+> **Verified 2026-09-09 (fleet). All three hold, two undercount, and F24's stated reason is false.**
+> F14 also drops part-level `invariant`, not just `check`. F15 also drops the MESSAGED guarded
+> invariant, so its `loom_code` wire key vanishes — contradicting `messagedRoutesToResidual`'s own
+> docblock. **F24's emitter comment says "no callable target" while `def recompute/2` is defined SIX
+> LINES ABOVE in the same module.** Fork resolved: **EMIT the call, do not mint a refusal** — a
+> validator gate is platform-independent and would reject a construct the other four backends have
+> shipped for months. The fix has TWO halves: `persistPutBodies` walks only `op.statements`, so
+> emitting the call alone computes the mutation and silently drops it at persist.

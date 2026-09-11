@@ -41,6 +41,7 @@ export function emitFor(call: ExprIR & { kind: "call" }, ctx: WalkContext, depth
   if (!collArg) {
     return giveUp(
       ctx.target,
+      "loom.page-primitive-arg-missing",
       `For: missing 'each:' collection expression (e.g. For { each: orders, o => … })`,
     );
   }
@@ -51,13 +52,18 @@ export function emitFor(call: ExprIR & { kind: "call" }, ctx: WalkContext, depth
   if (!itemLam) {
     return giveUp(
       ctx.target,
+      "loom.page-primitive-arg-missing",
       `For: missing item lambda (e.g. For { each: orders, o => Card { … } })`,
     );
   }
   if (!itemLam.body) {
     // Block-body lambdas have no markup result — a For item must be an
     // expression (markup).  Surface the gap rather than emit nothing.
-    return giveUp(ctx.target, `For: item lambda must be an expression body, not a block`);
+    return giveUp(
+      ctx.target,
+      "loom.page-primitive-arg-invalid",
+      `For: item lambda must be an expression body, not a block`,
+    );
   }
 
   const collExpr = emitExpr(collArg, ctx);

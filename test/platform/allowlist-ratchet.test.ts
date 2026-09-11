@@ -331,7 +331,25 @@ const REGISTERED: Ratchet[] = [
     // stale entry the moment `main` moved under this branch — the drain
     // direction working in the field rather than in a mutation, twice in two
     // days, which is the rate a hand-maintained matrix would have rotted at.
-    max: 12,
+    //
+    // 12 -> 13: `find-bypass` (M-T6.54 F18, wave-c1 packet 1f) — a NEW fixture,
+    // not a drained one regressing.  Its assertion ("does the OTHER tenant's row
+    // appear under `ignoring tenantOwned`?") needs the two-principal harness
+    // `projection-agg-filters` already waits on, and under one principal both
+    // spellings return the same set, i.e. a behavioural block would be GREEN over
+    // the retained conjunct the fixture exists to catch.  Its tracker is the same
+    // one (tenancy-e2e's two-principal harness); it drains with its neighbour.
+    //
+    // 13 -> 16: three more NEW fixtures folded in the same wave (C1), each a
+    // compile-tier proof of a fix whose runtime half is owed, and each carrying
+    // its drain condition in the register: `projection-fold-statements` and
+    // `paged-nonrelational` (ledger rows F2-XB-4 / F2-CB-C1, packet 1e-i — a
+    // dropped fold-body `let` is CS0103, the wrong paged carrier CS0535, so the
+    // corpus compile leg plus the two conformance matrices are the gate that
+    // mattered), and `workflow-primitive-params` (RS-26 boxing of a java
+    // workflow's primitive params, packet 1h — the behavioural runner cannot
+    // yet address a workflow's create surface).  Reviewed at the wave fold.
+    max: 16,
   },
 ];
 

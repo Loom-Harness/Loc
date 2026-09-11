@@ -117,3 +117,42 @@ describe("the undocumented-codes ratchet", () => {
     expect(new Set(UNDOCUMENTED_CODES).size, "no duplicates").toBe(UNDOCUMENTED_CODES.length);
   });
 });
+
+// ---------------------------------------------------------------------------
+// The LENGTH of the undocumented list is a ratchet too (M-T9.56).
+//
+// The two assertions above pin MEMBERSHIP — every catalog code is documented or
+// listed, no code is both, nothing is stale.  What they do not pin is the
+// list's SIZE, and membership alone is satisfied by adding the new code to the
+// undocumented list.  So the rule as written reads "document it OR do not", and
+// a new code could land wholly undocumented forever without any gate noticing:
+// the list grew by one, and nothing was looking at the total.
+//
+// Pinning the length turns that into a deliberate act.  Growing the list now
+// requires editing this number, in the same change, with the reviewer seeing
+// it — which is the difference between a backlog and a leak.
+// ---------------------------------------------------------------------------
+
+/** Measured 2026-09-11.  Shrink-only: documenting a code lowers it. */
+const UNDOCUMENTED_BASELINE = 369;
+
+describe("the undocumented-codes LENGTH ratchet", () => {
+  it("only shrinks", () => {
+    expect(
+      UNDOCUMENTED_CODES.length,
+      `The undocumented-code list GREW to ${UNDOCUMENTED_CODES.length} (pinned ` +
+        `${UNDOCUMENTED_BASELINE}).  A new \`loom.*\` code is owed a docs anchor in ` +
+        `src/diagnostics/code-docs.ts pointing at the language-reference section that ` +
+        `explains the construct — the Problems panel links it.  Parking it in ` +
+        `diagnostic-docs-undocumented.ts instead satisfies the membership check above ` +
+        `but ships a code the user cannot look up; if that is genuinely the right call ` +
+        `for this code, raise this baseline deliberately and say why in the PR.`,
+    ).toBeLessThanOrEqual(UNDOCUMENTED_BASELINE);
+    expect(
+      UNDOCUMENTED_BASELINE - UNDOCUMENTED_CODES.length,
+      `The list shrank to ${UNDOCUMENTED_CODES.length} but UNDOCUMENTED_BASELINE still ` +
+        `says ${UNDOCUMENTED_BASELINE}.  Lower it in the same PR — slack in a ratchet is ` +
+        `how it stops ratcheting (allowlist-ratchet.test.ts, same rule).`,
+    ).toBeLessThan(1);
+  });
+});

@@ -6,16 +6,17 @@ import type {
   ExprIR,
   ProjectionIR,
   ProjectionOnIR,
+  StmtIR,
   WorkflowIR,
   WorkflowStmtIR,
 } from "../../../ir/types/loom-ir.js";
 import { durableEventTypes } from "../../../ir/util/channels.js";
 import { lines } from "../../../util/code-builder.js";
-import { lowerFirst, upperFirst } from "../../../util/naming.js";
+import { escapeJavaIdent, lowerFirst, upperFirst } from "../../../util/naming.js";
 import { javaLogEvent } from "../../_obs/render-java.js";
 import { statementSubRegions } from "../../_trace/sourcemap.js";
 import { collectUnionFindLets, renderWorkflowStmtChunks } from "../../_workflow/stmt-target.js";
-import { collectJavaExprImports, renderJavaExpr } from "../render-expr.js";
+import { collectJavaExprImports, renderJavaExpr, renderJavaType } from "../render-expr.js";
 import type { OpFragment } from "./entity.js";
 import { projectionRowClass } from "./projection-state.js";
 import { javaWorkflowStmtTarget, repoField, reposUsed } from "./workflow.js";
@@ -123,12 +124,7 @@ function renderProjectionFold(
     `        var state = ${repo}.findById(__key).orElseGet(() -> ${cls}._allocate(__key));`,
   ];
   for (const stmt of on.statements) {
-    if (stmt.kind !== "assign") continue;
-    const segs = stmt.target.segments;
-    const field = segs[segs.length - 1];
-    if (field === corr) continue; // immutable @EmbeddedId key, seeded by _allocate
-    collectJavaExprImports(stmt.value, imports);
-    body.push(`        state.set${upperFirst(field)}(${renderJavaExpr(stmt.value, renderCtx)});`);
+    body.push(...renderProjectionFoldStmt(stmt, proj, on, corr, renderCtx, imports));
   }
   body.push(`        ${repo}.save(state);`);
   return [
@@ -138,6 +134,120 @@ function renderProjectionFold(
     `    }`,
     ``,
   ];
+}
+
+/** Java's own primitive spellings — a field rendered as one of these can never
+ *  be null, so a `+=` on it needs (and tolerates) no null guard, while `== null`
+ *  on it is a compile error (`incomparable types: int and <null>`). */
+const JAVA_PRIMITIVES = new Set(["int", "long", "double", "float", "short", "byte", "boolean"]);
+
+/** Render ONE fold-body statement against the read-model `state` row.
+ *
+ *  This used to be `if (stmt.kind !== "assign") continue;` — so every other
+ *  statement kind a fold body can carry vanished from the emitted listener with
+ *  no diagnostic and no compile error (F2-XB-4): a `let` binding disappeared
+ *  while its USES survived (`state.setAt(stamped);` → "cannot find symbol"),
+ *  and `+=` / `-=` were dropped outright, so the column was never written.
+ *
+ *  The four pure fold kinds `checkProjections`
+ *  (`src/ir/validate/checks/projection-checks.ts`) admits are now rendered here,
+ *  mirroring hono's `renderFoldStatement`
+ *  (`src/platform/hono/v4/projection-builder.ts`); everything else is an
+ *  internal invariant violation and THROWS, because a dropped statement is worse
+ *  than a crash — it ships. */
+function renderProjectionFoldStmt(
+  stmt: StmtIR,
+  proj: ProjectionIR,
+  on: ProjectionOnIR,
+  corr: string,
+  renderCtx: Parameters<typeof renderJavaExpr>[1],
+  imports: Set<string>,
+): string[] {
+  const expr = (e: ExprIR): string => {
+    collectJavaExprImports(e, imports);
+    return renderJavaExpr(e, renderCtx);
+  };
+  const field = (): string => {
+    const segs =
+      stmt.kind === "assign" || stmt.kind === "add" || stmt.kind === "remove"
+        ? stmt.target.segments
+        : [];
+    return segs[segs.length - 1] ?? "";
+  };
+  switch (stmt.kind) {
+    case "assign": {
+      const f = field();
+      // The correlation `:=` is the immutable @EmbeddedId key, seeded by `_allocate`.
+      if (f === corr) return [];
+      return [`        state.set${upperFirst(f)}(${expr(stmt.value)});`];
+    }
+    case "let":
+      // `let`-names may collide with a Java keyword; escape consistently with
+      // the matching `refKind: "let"` use sites in `render-expr.ts`.
+      return [`        var ${escapeJavaIdent(stmt.name)} = ${expr(stmt.expr)};`];
+    case "add": {
+      const f = field();
+      const value = expr(stmt.value);
+      if (stmt.collection) {
+        // Every non-key read-model column is NULLABLE (`_allocate` is an empty
+        // seed), so the list is materialised before the append — otherwise the
+        // first event for a key NPEs.
+        return [
+          `        if (state.${f}() == null) state.set${upperFirst(f)}(new java.util.ArrayList<>());`,
+          `        state.${f}().add(${value});`,
+        ];
+      }
+      return [`        state.set${upperFirst(f)}(${accumulateJava(proj, f, "+", value)});`];
+    }
+    case "remove": {
+      const f = field();
+      const value = expr(stmt.value);
+      if (stmt.collection) {
+        // `remove(int)` and `remove(Object)` are BOTH applicable for a
+        // `List<Integer>`, and overload resolution picks the INDEX one — box
+        // explicitly to reach the value overload (mirrors `render-stmt.ts`).
+        const boxed =
+          stmt.elementType.kind === "primitive" && stmt.elementType.name === "int"
+            ? `Integer.valueOf(${value})`
+            : value;
+        return [`        if (state.${f}() != null) state.${f}().remove(${boxed});`];
+      }
+      return [`        state.set${upperFirst(f)}(${accumulateJava(proj, f, "-", value)});`];
+    }
+    case "emit":
+    case "call":
+    case "precondition":
+    case "requires":
+    case "expression":
+    case "return":
+    case "variant-match":
+    case "if":
+      throw new Error(
+        `java projection fold: unsupported fold statement '${stmt.kind}' in ` +
+          `projection '${proj.name}' on(${on.param}: ${on.event}) — a fold applies pure ` +
+          `assignments / collection mutations / let bindings only; ` +
+          `'loom.projection-fold-impure' should have rejected this.`,
+      );
+    default: {
+      const _exhaustive: never = stmt;
+      return _exhaustive;
+    }
+  }
+}
+
+/** `state.<field> <op>= <value>` over a read-model column, in that column's own
+ *  Java representation: `BigDecimal` has no `+`, and a REFERENCE-typed column is
+ *  nullable while a primitive one cannot be. */
+function accumulateJava(proj: ProjectionIR, field: string, op: "+" | "-", value: string): string {
+  const t = proj.stateFields.find((f) => f.name === field)?.type;
+  const spelling = t ? renderJavaType(t) : "int";
+  const cur = `state.${field}()`;
+  if (spelling === "BigDecimal") {
+    const verb = op === "+" ? "add" : "subtract";
+    return `(${cur} == null ? java.math.BigDecimal.ZERO : ${cur}).${verb}(${value})`;
+  }
+  if (JAVA_PRIMITIVES.has(spelling)) return `${cur} ${op} ${value}`;
+  return `(${cur} == null ? 0 : ${cur}) ${op} ${value}`;
 }
 
 /** The handler body + correlation for one subscription (mirrors python's

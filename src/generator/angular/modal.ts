@@ -111,7 +111,11 @@ export function renderAngularModal(
   if (!formChild) return null;
   const resolved = resolveOpForm(formChild, ctx);
   if (!resolved) {
-    return giveUp(ctx.target, "Modal: could not resolve the OperationForm operation");
+    return giveUp(
+      ctx.target,
+      "loom.page-primitive-arg-invalid",
+      "Modal: could not resolve the OperationForm operation",
+    );
   }
   const { aggName, op, idExpr } = resolved;
 

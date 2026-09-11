@@ -57,7 +57,7 @@ describe("HEEx unsupported-primitive fallthrough", () => {
   it("emits an EEx-native comment, never an EEx-wrapped HTML comment", async () => {
     const heex = await landingHeex();
     expect(heex).toContain(
-      "<%!-- loom:unrendered Tab: not supported by Phoenix LiveView target --%>",
+      "<%!-- loom:unrendered [loom.page-primitive-target-gap] Tab: not supported by Phoenix LiveView target --%>",
     );
     // The exact uncompilable shape the old fallthrough produced.
     expect(heex).not.toContain("<%= <!--");
@@ -69,7 +69,7 @@ describe("HEEx unsupported-primitive fallthrough", () => {
     // a HEEx renderer.
     expect(heex).not.toContain("<%= <%!--");
     expect(heex).toMatch(
-      /^\s*<%!-- loom:unrendered Tab: not supported by Phoenix LiveView target --%>\s*$/m,
+      /^\s*<%!-- loom:unrendered \[loom\.page-primitive-target-gap\] Tab: not supported by Phoenix LiveView target --%>\s*$/m,
     );
     // The surrounding children still render.
     expect(heex).toContain("before");

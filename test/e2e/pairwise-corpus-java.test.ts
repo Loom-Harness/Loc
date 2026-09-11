@@ -66,6 +66,16 @@ describeCompileLeg({
       ...PROXY_ENV,
       JAVA_IMAGE,
       "gradle",
+      // NOT the daemon invocation its two sibling java compile legs use
+      // (`test/e2e/support/gradle.ts`), and deliberately so: this leg runs each
+      // fixture in its OWN `docker run --rm` container, so a daemon dies with
+      // the container that started it and the next fixture has nothing to
+      // reuse — the whole ~4x that wave C0 packet 0.2e measured comes from ONE
+      // daemon serving many projects back to back.  Making this leg benefit
+      // means reusing one long-lived container across fixtures, which is a
+      // different change with a different failure mode (a build's state leaking
+      // into the next fixture's), not a flag swap.  The `${GRADLE_HOME}` mount
+      // above is what this leg reuses instead: the dependency cache, not the JVM.
       "--no-daemon",
       "testClasses",
       "bootJar",

@@ -350,7 +350,7 @@ PR #2704. Builds directly on #2646.
 
 Sources: [language-docs-audit-2026-09-03](../audits/2026-09-03-language-docs-audit-findings.md) F3/F9 (both closed by #2786) + **F50** (open, this mission), [wave plan](../audits/2026-09-03-language-docs-audit-findings.waves.md) packet **W1.2**. The seam half shares `src/generator/_walker/target.ts` with any other `WalkerTarget` work — sequence, don't stack.
 
-## M-T1.31 — `DestroyForm` over a record binding and Flutter's missing extern hatch both vanish with no diagnostic — `open` · **M** · P1 ⚠ verify-first, carries the walker invariant
+## M-T1.31 — `DestroyForm` over a record binding and Flutter's missing extern hatch both vanish with no diagnostic — `open` (F17 landed 2026-09-11; F11 in flight) · **M** · P1 ⚠ verify-first, carries the walker invariant
 
 Found 2026-09-03 by the language-docs audit ([F11](../audits/2026-09-03-language-docs-audit-findings.md), [F17](../audits/2026-09-03-language-docs-audit-findings.md), both P1). `DestroyForm { of: <record> }` resolves `of:` through `ctx.aggregatesByName` (`src/generator/_walker/primitives/forms.ts:137`), so a `QueryView` binding renders `DestroyForm(of: p): aggregate not found` on every target and the delete button silently disappears. Flutter renders `const SizedBox.shrink() /* unknown layout component: X */` for an `extern` component where the other frontends have a hatch — again with no validator.
 
@@ -358,6 +358,35 @@ Found 2026-09-03 by the language-docs audit ([F11](../audits/2026-09-03-language
 
 **Carries the wave's shared deliverable:** the invariant that *the walker must never decline to render a declared element without a diagnostic* — a `_walker` conformance test enumerating the dispatch predicates is the obvious home. Whichever of the three walker missions finishes first proposes where it lives; the other two adopt it. That assertion, not the three individual fixes, is what stops a fifth instance ([F10](../audits/2026-09-03-language-docs-audit-findings.md), F11, F12, F17 are one defect in four costumes).
 
+**Status, 2026-09-11 — the two halves split.**
+
+* **F17 (Flutter's missing extern hatch) is DONE**, in Wave C1 packet 1d-ii ([hand-off](waves/handoffs/wave-c1-1d-sentinels.md)). `checkUserComponentSupport` no longer blanket-exempts `extern` components: the exemption is now the per-framework `EXTERN_COMPONENT_FRAMEWORKS` set, MEASURED by generating the same one-extern-component `.ddd` through each frontend (react / vue / svelte / angular emit `src/components/X.props.ts` plus the import; Feliz emits `open Components.X` + `(X {| … |})`; **Flutter emits nothing at all**). An `extern` component on a Flutter ui now raises `loom.user-component-deferred-target` — the code the mission asked for, reusing the existing one rather than minting a second name for the same condition ("the emitter filters this component out entirely"). Both halves are asserted in `test/ir/user-component-deferred.test.ts`: the gate fires, *and* the Flutter emitter really does drop it (`unknown layout component: P`), so the day Flutter grows a hatch the second assertion fails and the framework joins the set. Mutation-proved by re-widening the exemption to every frontend — **FAILED: "an extern component on a Flutter ui renders nothing and said nothing (M-T1.31 F17)", `expected [] to include 'loom.user-component-deferred-target'`**.
+* **F11 (`DestroyForm` over a record binding) is NOT done here** — it is in flight as PR **#2860** (`claude/fix-destroy-form-gate`), which packet 1d-ii was told not to duplicate. This mission closes when that lands.
+* **The walker invariant the mission carries was proposed and landed by packet 1d-i**, not here: `test/generator/_walker/walker-declines-with-a-code.test.ts` (all 58 registry primitives × all seven targets, with probe-marker bracketing so a primitive that renders *nothing at all* is visible). M-T1.29 / M-T1.30 adopt that file rather than inventing a second home.
+
 **Verification when it lands.** A negative validator test per shape; each gate mutation-proved by file-copy revert, reading *which* assertion fails.
 
 Sources: [language-docs-audit-2026-09-03](../audits/2026-09-03-language-docs-audit-findings.md) F11/F17 + "Cross-cutting reading" §1, [wave plan](../audits/2026-09-03-language-docs-audit-findings.waves.md) packet **W2.3**. Relates to M-T1.20 (the frontend per-target refusal register — a new code lands a row there).
+
+## M-T1.32 — Flutter action bodies drop a `toast` view effect and a standard-op `match await` — `open` · **M** · P1
+
+Minted 2026-09-11 by Wave C1 packet 1d-ii (the [§18 emitter-sentinel drain](waves/handoffs/wave-c1-1d-sentinels.md)), which **refused** both shapes rather than leaving them silent. Each was measured on a `.ddd` that `ddd parse` reported `0 error(s), 0 warning(s)` for:
+
+**Narrowed at the wave fold (coordinator, 2026-09-11):** `navigate(…)` is NOT part of this mission any more — Wave C1 packet 1e-ii landed it in the same wave through a generated `lib/nav.dart` bridge (`GlobalKey<NavigatorState>` on `MaterialApp`, ledger row F2-CFE-1 closed), so the phase-⑦ gate refuses `toast` and the standard-op `match await` only; the `navigate` row in the table below is the BEFORE picture. A `navigate` whose route carries a `:param` the call cannot supply is still refused, by `loom.flutter-action-statement-unsupported#navigate-route-param`.
+
+| shape | react | flutter (before) |
+|---|---|---|
+| `action go() { navigate("/other") }` | `const go = () => { navigate("/other"); };` over a real `useNavigate()` | `// TODO(flutter full-parity): 'private-operation' call 'navigate' in a Notifier method` |
+| `action say() { toast("hi") }` | `const say = () => { toast("hi"); };` | the same comment, for `toast` |
+| `action confirm() { match await Shop.Order.delete() { … } }` | the full await / reify / switch against the standard mutation hook | `// TODO(flutter full-parity): \`match await\` subject is not a resolvable remote op` — the request, the error reification and **every arm body** replaced by one comment |
+
+All three compiled: valid Dart, a clean `flutter analyze`, and a button wired to an action that does nothing. They now raise `loom.flutter-action-body-unsupported` at phase ⑦ (`validateFlutterActionBodies`, `src/ir/validate/checks/ui-framework-checks.ts`), with a row in `src/diagnostics/unsupported-register.ts` naming this mission as the drain.
+
+**The fix, in two independent halves:**
+
+1. **View effects out of the Notifier.** A Riverpod `Notifier` has no `BuildContext`, so it can reach neither the router nor a `ScaffoldMessenger` — that is the real constraint, not an oversight. The shape that works is a side-channel the widget layer drains: the Notifier records the intent on its state (a `pendingRoute` / `pendingToast` cell, or a small effect queue), and the page's `ConsumerWidget` uses `ref.listen` to consume it with the `BuildContext` it does have. `flutter-target.ts`'s `renderNavigate` already navigates fine from widget position, so only the action-body path needs this.
+2. **A standard-op `match await`.** `renderVariantMatchNotifier` (`riverpod-emit.ts`) resolves its op through `agg.operations`, which holds only DECLARED operations, so the five standard ops (`all` / `byId` / `create` / `update` / `delete`) never resolve. Their routes and payload shapes are already derivable the same way the form widgets derive them (`forms-emit.ts` posts `/(<coll>)` for `create` and `/(<coll>)/$id` for `update`/`delete`), so this is a resolution arm, not new transport.
+
+**Verification when it lands.** Per half: a generated-Dart assertion on the emitted page (the `ref.listen` consumer; the `http.delete` + switch), plus the register row deleted and `MAX_OPEN_GAPS` lowered in the same PR — the gate ratchets, so a stale row fails it. The negative probes live in `test/generator/flutter/action-body-gaps.test.ts` and must flip from "refused" to "emitted" together with the gate arm they name.
+
+Sources: Wave C1 packet 1d-ii hand-off (`docs/new-plan/waves/handoffs/wave-c1-1d-sentinels.md`), §18 of the gap survey in [`completion-waves-2026-09.md`](completion-waves-2026-09.md). Relates to M-T1.20 (the frontend per-target refusal register).

@@ -42,7 +42,13 @@ import {
   resolveMacroArgs,
 } from "../../src/macros/expander.js";
 import { lookupMacro, registerMacro } from "../../src/macros/registry.js";
+import { loadStdlibMacros } from "../../src/macros/stdlib/index.js";
 import { parseString } from "../_helpers/parse.js";
+
+// Boot the stdlib before registering at import time: the unit project runs
+// `isolate: false`, and `registry-unit.test.ts` asserts the stdlib heads the
+// shared registry (see `misbehaving-macro-diagnostics.test.ts`).
+loadStdlibMacros();
 
 /** Register once — the registry is process-global and throws on a duplicate. */
 function ensure(def: MacroDefinition): MacroDefinition {

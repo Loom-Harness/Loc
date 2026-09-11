@@ -6,6 +6,7 @@ import type {
   ExprIR,
   ProjectionIR,
   ProjectionOnIR,
+  StmtIR,
   SystemIR,
   TypeIR,
   WorkflowIR,
@@ -13,7 +14,7 @@ import type {
 } from "../../ir/types/loom-ir.js";
 import { durableEventTypes } from "../../ir/util/channels.js";
 import { lines } from "../../util/code-builder.js";
-import { snake } from "../../util/naming.js";
+import { escapePythonIdent, snake } from "../../util/naming.js";
 import { numericEncode } from "../_numeric/target.js";
 import { statementSubRegions } from "../_trace/sourcemap.js";
 import { renderWorkflowStmtChunks } from "../_workflow/stmt-target.js";
@@ -22,12 +23,7 @@ import { domainServiceImportLinesForWorkflow } from "./emit/domain-service.js";
 import { PY_NUMERIC, pyEventSourcedDecimalDecode } from "./numeric-codec.js";
 import { renderPyExpr } from "./render-expr.js";
 import { resourceImportLines } from "./resource-clients.js";
-import {
-  esEventRow,
-  esFns,
-  esWorkflowFoldBlock,
-  renderApplierStmt,
-} from "./workflow-eventsourced-emit.js";
+import { esEventRow, esFns, esWorkflowFoldBlock } from "./workflow-eventsourced-emit.js";
 import { collectUsedLetNames, pyWorkflowStmtTarget } from "./workflows-builder.js";
 
 // ---------------------------------------------------------------------------
@@ -556,13 +552,82 @@ function projectionHandlerFn(fn: string, proj: ProjectionIR, on: ProjectionOnIR)
     `        state = ${row}(${corr}=__key)`,
     "        session.add(state)",
   ];
-  for (const stmt of on.statements) {
-    if (stmt.kind === "assign" || stmt.kind === "add" || stmt.kind === "remove") {
-      out.push(renderApplierStmt(stmt, "    "));
-    }
-  }
+  for (const stmt of on.statements) out.push(renderProjectionFoldStmt(stmt, proj, on));
   out.push("    await session.flush()");
   return lines(...out);
+}
+
+/** Render ONE fold-body statement against the read-model `state` row.
+ *
+ *  This used to be `if (kind === "assign" || "add" || "remove")` delegating to
+ *  the ES-applier renderer, which was wrong twice (F2-XB-4).  A `let` was
+ *  silently DROPPED while its uses survived — `state.at = stamped` with no
+ *  `stamped = …` line, an `F821`/NameError in the generated app.  And `add` /
+ *  `remove` went through the applier's list-only spelling (`state.f.append(v)`),
+ *  which an ES applier can do because its state object is constructed with every
+ *  list initialised — but a projection ROW is nullable in every non-key column
+ *  (the allocate seeds the correlation key only), so `state.tags.append(v)` is
+ *  an `AttributeError` on the first event for a key, and a SCALAR `n += v`
+ *  (`collection: false`) called `.append` on an `int`.
+ *
+ *  The four pure fold kinds are now rendered here with the read-model's own
+ *  nullability, mirroring hono's `renderFoldStatement`
+ *  (`src/platform/hono/v4/projection-builder.ts`); every other kind is an
+ *  internal invariant violation, because `checkProjections`
+ *  (`src/ir/validate/checks/projection-checks.ts`) rejects it as impure. */
+function renderProjectionFoldStmt(stmt: StmtIR, proj: ProjectionIR, on: ProjectionOnIR): string {
+  const rctx = { thisName: "state" } as const;
+  const target = (segments: readonly string[]): string =>
+    `state.${segments.map((x) => snake(x)).join(".")}`;
+  switch (stmt.kind) {
+    case "assign":
+      return `    ${target(stmt.target.segments)} = ${renderPyExpr(stmt.value, rctx)}`;
+    case "let":
+      // `let`-names may collide with a Python keyword; escape consistently with
+      // the matching `refKind: "let"` use sites in `render-expr.ts`.
+      return `    ${escapePythonIdent(snake(stmt.name))} = ${renderPyExpr(stmt.expr, rctx)}`;
+    case "add": {
+      const path = target(stmt.target.segments);
+      const value = renderPyExpr(stmt.value, rctx);
+      return stmt.collection
+        ? `    ${path} = [*(${path} or []), ${value}]`
+        : `    ${path} = ${accumulatePy(path, "+", value)}`;
+    }
+    case "remove": {
+      const path = target(stmt.target.segments);
+      const value = renderPyExpr(stmt.value, rctx);
+      return stmt.collection
+        ? `    ${path} = [__e for __e in (${path} or []) if __e != (${value})]`
+        : `    ${path} = ${accumulatePy(path, "-", value)}`;
+    }
+    case "emit":
+    case "call":
+    case "precondition":
+    case "requires":
+    case "expression":
+    case "return":
+    case "variant-match":
+    case "if":
+      throw new Error(
+        `python projection fold: unsupported fold statement '${stmt.kind}' in ` +
+          `projection '${proj.name}' on(${on.param}: ${on.event}) — a fold applies pure ` +
+          `assignments / collection mutations / let bindings only; ` +
+          `'loom.projection-fold-impure' should have rejected this.`,
+      );
+    default: {
+      const _exhaustive: never = stmt;
+      return _exhaustive;
+    }
+  }
+}
+
+/** `state.<field> <op>= <value>` over a NULLABLE read-model column.  Every
+ *  non-key projection column is nullable (see `renderProjectionFoldStmt`), so
+ *  the running total coalesces first — otherwise the first event for a key
+ *  folds `None + n`.  `or 0` is representation-neutral in Python: `0 + Decimal`
+ *  is a `Decimal`, so money / decimal columns accumulate exactly. */
+function accumulatePy(path: string, op: "+" | "-", value: string): string {
+  return `(${path} or 0) ${op} ${value}`;
 }
 
 /** Allocation kwargs for a fresh instance: the correlation key plus a

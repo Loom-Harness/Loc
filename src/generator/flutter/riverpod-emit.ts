@@ -23,9 +23,22 @@
 // SCOPE: scalar/collection `:=`/`+=`/`-=` writes (including NESTED targets —
 // `order.shipping.zip := v` folds into a `copyWith` chain, see `nestedCopyWith`),
 // `let`, bare expression statements, sibling-action calls, cross-store action
-// calls (through the Notifier's own `ref`), and `match await` async effects.
-// Private-operation calls are the remaining `TODO(flutter full-parity)` item.
+// calls (through the Notifier's own `ref`), `navigate(<Page>)` (through the
+// generated `lib/nav.dart` bridge — a Notifier has no `BuildContext`, so the
+// route is pushed via a `GlobalKey<NavigatorState>` installed on `MaterialApp`;
+// Wave C1 packet 1e-ii, ledger row F2-CFE-1), and `match await` async effects.
+//
+// OUT OF SCOPE, and REFUSED at phase ⑦ rather than commented here (Wave C1
+// packet 1d-ii): `toast(…)` — the other view effect, which has no bridge yet —
+// and a `match await` on one of the five STANDARD aggregate ops, which this
+// module resolves through `agg.operations` and so cannot find.  Both carry
+// `loom.flutter-action-body-unsupported` and name M-T1.32; the arms that used
+// to emit `// TODO(flutter full-parity)` into the Dart are now internal floors,
+// because a comment in generated Dart is a silently dead button, not a gap
+// anyone reads.  The one give-up that remains is a `navigate` whose route
+// needs a `:param` the call cannot supply (`#navigate-route-param`).
 
+import { diagMessage } from "../../diagnostics/messages.js";
 import { variantTag } from "../../ir/stdlib/unions.js";
 import type {
   EnrichedAggregateIR,
@@ -40,10 +53,13 @@ import type {
 import { errorTypeUri } from "../../util/error-defaults.js";
 import { lowerFirst, plural, snake, upperFirst } from "../../util/naming.js";
 import { tryDetectApiHook } from "../_walker/api-hook-detector.js";
-import { emitExpr, type WalkContext } from "../_walker/walker-core.js";
+import { giveUp } from "../_walker/give-up.js";
+import type { WalkerTarget } from "../_walker/target.js";
+import { emitExpr, tryRenderNavigateCall, type WalkContext } from "../_walker/walker-core.js";
+import { copyWithChain } from "./copy-with.js";
 import { coerceDartMoneyInit, dartString, dartZeroValue, isMoneyType } from "./dart-expr.js";
 import { dartType } from "./dart-types.js";
-import { flutterTarget } from "./flutter-target.js";
+import { dartNavigateArgs, flutterTarget } from "./flutter-target.js";
 import { flutterPack } from "./pack.js";
 import { storeProviderName } from "./store-names.js";
 
@@ -95,6 +111,11 @@ export function stateCtx(opts: {
   paramNames?: ReadonlySet<string>;
   apiParamNames?: ReadonlyMap<string, string>;
   userComponents?: ReadonlyMap<string, readonly ParamIR[]>;
+  /** Page name → the route `main.dart` registers for it.  `navigate(<Page>)`
+   *  in an action body resolves the destination here; without it the shared
+   *  resolver falls back to `/<page-snake>`, which is the router's key only by
+   *  coincidence (a `route: "/products/:id"` page would get `/product_detail`). */
+  pageRoutes?: ReadonlyMap<string, string>;
 }): WalkContext {
   const { stateNames, derivedNames, aggregatesByName, locals } = opts;
   return {
@@ -135,8 +156,30 @@ export function stateCtx(opts: {
     usedExternFunctions: new Set(),
     usedActions: new Set(),
     usedStores: new Map(),
+    pageRoutes: opts.pageRoutes ?? new Map(),
   };
 }
+
+/** `flutterTarget` with the two seams that are POSITION-dependent swapped for
+ *  their notifier-method forms.  Everything else (expressions, naming, types)
+ *  is position-independent and comes straight from the view target.
+ *
+ *  - `renderNavigate`: the view spells `Navigator.pushNamed(context, …)`, which
+ *    a Riverpod `Notifier` cannot write — it is not in the widget tree and has
+ *    no `BuildContext`.  The Notifier pushes through `navigateTo(…)` instead
+ *    (`lib/nav.dart`, a `GlobalKey<NavigatorState>` the generated `MaterialApp`
+ *    installs).  Both share `dartNavigateArgs`, so the route and the
+ *    leftover-arg map cannot drift apart.
+ *  - `renderComment`: the view's give-up comment is a WIDGET
+ *    (`const SizedBox.shrink() / * … * /`) because it stands in markup-child
+ *    position; in a method body that is an expression with no `;`, i.e. Dart
+ *    that does not parse.  A method-body give-up is a `//` line instead. */
+const notifierStmtTarget: WalkerTarget = {
+  ...flutterTarget,
+  renderNavigate: (routeTemplate, args, stateExpr) =>
+    `navigateTo(${dartNavigateArgs(routeTemplate, args, stateExpr)})`,
+  renderComment: (text: string) => `// ${text}`,
+};
 
 /** Fold a (possibly nested) state-write target into the immutable `copyWith`
  *  rebuild.  Level `i` sets `seg[i]` on receiver `state.<seg[0..i)>`, built
@@ -146,12 +189,7 @@ export function stateCtx(opts: {
  *  case).  Every intermediate level is a wire model that carries its own
  *  `copyWith` (emitted by `dart-model-emit.ts`). */
 function nestedCopyWith(seg: readonly string[], value: string): string {
-  let expr = value;
-  for (let i = seg.length - 1; i >= 0; i--) {
-    const receiver = i === 0 ? "state" : `state.${seg.slice(0, i).join(".")}`;
-    expr = `${receiver}.copyWith(${seg[i]}: ${expr})`;
-  }
-  return expr;
+  return copyWithChain("state", seg, value);
 }
 
 /** Render one action-body statement into a Notifier-method line.  A state write
@@ -193,7 +231,50 @@ export function renderNotifierStmt(stmt: StmtIR, ctx: WalkContext, selfStore?: s
       // an in-class bare call re-enters the update path.  Extern ui functions
       // render the same bare form (the app supplies the binding).
       if (stmt.target === "private-operation") {
-        return `// TODO(flutter full-parity): '${stmt.target}' call '${stmt.name}' in a Notifier method`;
+        // `navigate(<Page>)` — the DOCUMENTED home for navigation
+        // (docs/actions.md §navigate; the lambda form is refused by
+        // `loom.effect-in-lambda`).  It lowers to `private-operation` (it
+        // resolves to no declaration), so before this arm it fell into the
+        // give-up below and the navigation was dropped: the other six
+        // frontends navigated and Flutter emitted a Dart comment (ledger row
+        // F2-CFE-1).  Routed through the SAME resolver the `then:` path and
+        // the page-body walker use — only the RECEIVER differs (see
+        // `notifierNavTarget`), so the two spellings agree by construction.
+        const navCtx: WalkContext = { ...ctx, target: notifierStmtTarget };
+        const nav = tryRenderNavigateCall(stmt.name, stmt.args, navCtx);
+        if (nav !== undefined) {
+          // A `:param` segment the call supplied no value for interpolates as a
+          // bare `${name}` — in a widget `build` that resolves to the shell's
+          // route-arg local, but a Notifier method has no route args in scope,
+          // so the same string is an UNBOUND identifier: Dart that does not
+          // compile, which is strictly worse than the dropped call this arm
+          // replaced.  Refuse it with a code instead, and say what does work
+          // (the literal-path form, `navigate("/products/" + …)`).
+          if (nav.includes("${")) {
+            return giveUp(
+              notifierStmtTarget,
+              "loom.flutter-action-statement-unsupported#navigate-route-param",
+              diagMessage("loom.flutter-action-statement-unsupported#navigate-route-param", {
+                page: stmt.args[0]?.kind === "ref" ? stmt.args[0].name : stmt.name,
+              }),
+            );
+          }
+          // `navCtx` is a shallow copy, so the resolver's flag lands there.
+          ctx.usesNavigate = navCtx.usesNavigate;
+          return `${nav};`;
+        }
+        // INTERNAL FLOOR.  A bare call in a ui action body that lowers to
+        // `private-operation` and is NOT `navigate` is refused before codegen:
+        // `toast` (the other view-effect builtin) by
+        // `loom.flutter-action-body-unsupported#view-effect` at phase ⑦, and
+        // any other unresolved name by `loom.unresolved-action-ref`.  Until
+        // then this arm silently dropped the effect: the button was wired and
+        // did nothing, forever, with a comment in the Dart nobody reads.
+        throw new Error(
+          diagMessage("loom.flutter-action-body-unsupported#emit-invariant", {
+            what: `a '${stmt.target}' call '${stmt.name}'`,
+          }),
+        );
       }
       const args = stmt.args.map((a) => emitExpr(a, ctx)).join(", ");
       // A `<Store>.<action>(…)` call reaches the store's Notifier through `ref`
@@ -207,9 +288,24 @@ export function renderNotifierStmt(stmt: StmtIR, ctx: WalkContext, selfStore?: s
       return `${stmt.name}(${args});`;
     }
     default:
-      // `variant-match` (async effect) + backend-only kinds — deferred, but never
-      // silently dropped (a visible TODO in the emitted Dart).
-      return `// TODO(flutter full-parity): unsupported action statement '${stmt.kind}'`;
+      // INTERNAL FLOOR.  Every statement kind that can still reach here is
+      // refused before codegen, and each was measured reaching this arm before
+      // its gate existed:
+      //
+      //   return / precondition / requires  loom.ui-body-statement-kind (⑦)
+      //   if                                loom.if-stmt-page-body-unsupported (⑦)
+      //   variant-match                     intercepted on the PAGE path by the
+      //                                     caller; on the COMPONENT path
+      //                                     loom.flutter-async-effect-unsupported (⑦)
+      //   emit                              unresolvable in ui scope — phase ③
+      //
+      // The comment this replaced was the silent half of the §18 class: valid
+      // `.ddd`, a clean build, and an action that does nothing.
+      throw new Error(
+        diagMessage("loom.flutter-action-body-unsupported#emit-invariant", {
+          what: `an action statement of kind '${stmt.kind}'`,
+        }),
+      );
   }
 }
 
@@ -235,7 +331,19 @@ function renderVariantMatchNotifier(
   const agg = detected ? ctx.aggregatesByName.get(detected.aggregateName) : undefined;
   const op = agg?.operations.find((o) => o.name === detected?.operation);
   if (!detected || !agg || !op) {
-    return ["// TODO(flutter full-parity): `match await` subject is not a resolvable remote op"];
+    // INTERNAL FLOOR.  An awaited subject that is not an api-rooted call is
+    // refused by `loom.method-call-unresolved-receiver` / the effect-marker
+    // gates; an api-rooted call naming one of the five STANDARD aggregate ops
+    // (which `agg.operations` never holds) by
+    // `loom.flutter-action-body-unsupported#match-await-standard-op`, both at
+    // phase ⑦.  Before that, `match await Shop.Order.delete() { … }` validated
+    // clean and the ENTIRE effect — request, error reification, every arm body
+    // — was replaced by this comment.
+    throw new Error(
+      diagMessage("loom.flutter-action-body-unsupported#emit-invariant", {
+        what: "a `match await` subject that is not a resolvable remote op",
+      }),
+    );
   }
   const bc = contexts.find((c) => c.aggregates.some((a) => a.name === agg.name));
   const coll = snake(plural(agg.name));
@@ -482,6 +590,9 @@ export function renderRiverpod(
    *  base had.  Defaults to `page.name` for a caller with no name-context (the
    *  unit tests). */
   emitName: string = page.name,
+  /** Page name → route, so a `navigate(<Page>)` in an action body targets the
+   *  page's REAL router key (see `stateCtx`'s `pageRoutes`). */
+  pageRoutes: ReadonlyMap<string, string> = new Map(),
 ): RiverpodProjection {
   const stateClass = `${upperFirst(emitName)}State`;
   const notifierClass = `${upperFirst(emitName)}Notifier`;
@@ -515,7 +626,14 @@ export function renderRiverpod(
     const param = action.params[0];
     const locals = new Map<string, string>();
     if (param) locals.set(param.name, param.name);
-    const ctx = stateCtx({ stateNames, derivedNames, aggregatesByName, locals, apiParamNames });
+    const ctx = stateCtx({
+      stateNames,
+      derivedNames,
+      aggregatesByName,
+      locals,
+      apiParamNames,
+      pageRoutes,
+    });
     const isAsync = actionHasAsyncEffect(action);
     // An async-effect action's op is instance-scoped, so its method takes the
     // route `id` (a leading param the page-shell closure supplies) and is
