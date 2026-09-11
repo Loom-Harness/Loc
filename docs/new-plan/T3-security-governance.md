@@ -116,3 +116,29 @@ Sources: `docs/auth.md` (D-AUTH-OIDC), `docs/tenancy.md`; pairs with M-T3.13 (st
 
 
 ---
+
+## M-T3.19 — `denyByDefault` leaves the synthesised `GET /<plural>/{id}` completely ungated, and says nothing — `open` · **M** · P1
+
+Found 2026-09-10 by the tracker dev-experience run (#2861, "Not fixed here"). Re-verified on `main` @ `4865581` with `auth { enforcement: denyByDefault }` + `user {}` + `auth: required` on the deployable, one aggregate, and `find all(): Product[] requires true`:
+
+```ts
+// GET /{id} — no gate, and no 403 in the response set
+responses: { 200: …, 404: …, 422: … },
+const found = await repo.findById(Ids.ProductId(id));
+
+// GET /   — gated, because `find all` carries a `requires`
+responses: { 200: …, 403: … },
+if (!(true)) throw new ForbiddenError("Forbidden: find all");
+```
+
+The model validates `0 error(s), 0 warning(s)`. So the list read is gated and the single-record read of the same aggregate is open to any authenticated caller — under the enforcement mode whose whole promise is that nothing is reachable unless it is gated. The list read has a recourse (`find all(): T[] requires <expr>`, documented in `docs/auth.md`); the byId read has no surface to attach a gate to at all.
+
+`with crudish` is the same shape on the write side and is being closed separately by #2877 (`crudish(requires: SomePolicy)`), after the maintainer rejected an inherited aggregate-level default gate — a default-deny rule invisible at the member it guards is the wrong trade. This mission must honour that ruling: the gate is **named at the declaration**, not inherited.
+
+**The fix:** a surface that gates the synthesised single-record read — the natural spelling being the `find` the repository can already declare (`find byId(id: T id): T? requires <expr>`) recognised as *the* byId read and used for the route, so the recourse is the one already documented for `find all` rather than a new concept.
+
+**Until then the hole is a diagnostic, not silence:** under `denyByDefault`, an aggregate whose byId route has no gate should raise `loom.default-deny-ungated` the way an ungated operation does. That is the smallest slice and should land first; it turns a silent open read into a refused build.
+
+**Verification when it lands.** A negative validator case per the deny-by-default fixture set; a 403 case on the byId route on all five backends; and the generated node project booted, asserting an ungated caller is refused. Mutation-proof by file-copy revert.
+
+Claimed by the #2861 author. Coordinate with #2877 — same ruling, adjacent surface, disjoint files.

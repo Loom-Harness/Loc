@@ -441,7 +441,16 @@ export function checkDeployableDesignPack(
     if (!DAISYUI_THEMES.includes(d.design)) {
       accept(
         "error",
-        `Design '${d.design}' on Feliz deployable '${d.name}' is not a daisyUI theme. Feliz's 'design:' selects a daisyUI theme; use one of: ${DAISYUI_THEMES.join(", ")}.`,
+        // The theme must be QUOTED.  `DesignPack` is a closed keyword set of
+        // pack families plus `STRING`, so a bare `design: light` is a PARSE
+        // error — this message used to list the themes bare, which meant
+        // pasting its own suggestion did not compile (the `dataSource`/
+        // `resource` mistake in another shape).  Show the spelling that works.
+        `Design '${d.design}' on Feliz deployable '${d.name}' is not a daisyUI theme. ` +
+          `Feliz's 'design:' selects a daisyUI theme, written as a QUOTED string ` +
+          `(\`design: "${DAISYUI_THEMES[0]}"\`) — a bare theme name does not parse, ` +
+          `because the unquoted form is reserved for the component-library pack ` +
+          `families. Use one of: ${DAISYUI_THEMES.join(", ")}.`,
         { node: d, property: "design" },
       );
     }

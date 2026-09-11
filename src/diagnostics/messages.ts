@@ -1847,6 +1847,14 @@ export const DIAGNOSTIC_MESSAGES = {
     `channel — the SSE relay can't legally serve those events, so the handler receives ` +
     `nothing. Host '${p.owner}' on '${p.relayName}', or add a channelSource for ` +
     `'${p.channelName}' to its 'channels:' clause.`,
+  "loom.create-params-not-wire": (p: { agg: unknown; missing: unknown; also: unknown }) =>
+    `Aggregate '${p.agg}': the canonical \`create\`'s parameter list is not the ` +
+    `request contract.  \`POST /<plural>\` takes the FIELD-DERIVED create input, ` +
+    `so ${p.missing} is REQUIRED on the wire even though the declared \`create\` ` +
+    `does not accept it — a client (or a \`test\` block) written from the ` +
+    `declaration gets a 422 naming a field the create never mentions.${p.also}  ` +
+    `List every create-input field, or drop the parameter list: a narrowed one ` +
+    `shapes nothing.`,
   "loom.persistence-mode-unsupported": (p: {
     name: unknown;
     ctxName: unknown;
@@ -1860,7 +1868,13 @@ export const DIAGNOSTIC_MESSAGES = {
     `(persistedAs: ${p.persistedAs}, ` +
     `needs dataSource kind: ${p.kind}) but lists no matching dataSource. ` +
     `Declare ` +
-    `\`dataSource ${p.ctxName2}${p.kind2} ` +
+    // The DECLARATION keyword is `resource`; `dataSource` is only the name of
+    // the deployable's `dataSources:` clause.  This read `dataSource`, so a
+    // reader who pasted the suggested line verbatim got a parse error
+    // ("Expecting token of type '}' but found `dataSource`") — the one thing a
+    // fix-it message must never do.  Its sibling `loom.datasource-unused` has
+    // always said "resource".
+    `\`resource ${p.ctxName2}${p.kind2} ` +
     `{ for: ${p.ctxName}, kind: ${p.kind}, use: <storage> }\` ` +
     `and add it to '${p.name}'\`s 'dataSources:' list.`,
   "loom.datasource-unused": (p: {
@@ -1883,7 +1897,11 @@ export const DIAGNOSTIC_MESSAGES = {
     `which has a \`File\` field ('${p.fileField}'), but binds no object-store ` +
     `dataSource.  A \`File\` stores its bytes in an object store — declare a ` +
     `\`storage <s> { type: localDisk }\` (or \`s3\`), a ` +
-    `\`dataSource <ds> { for: ${p.ctxName}, kind: objectStore, use: <s> }\`, and ` +
+    // `resource`, not `dataSource` — the same slip this file's
+    // `loom.persistence-mode-unsupported` carried.  `dataSource` names the
+    // deployable's `dataSources:` CLAUSE, never the declaration, so pasting the
+    // suggested line was a parse error.
+    `\`resource <ds> { for: ${p.ctxName}, kind: objectStore, use: <s> }\`, and ` +
     `add '<ds>' to '${p.name}'\`s 'dataSources:' list.`,
   "loom.saving-shape-unsupported": (p: {
     name: unknown;

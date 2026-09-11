@@ -69,6 +69,7 @@ import {
 } from "./capability-filter.js";
 import { denialOverrides, denialResponse } from "./denial.js";
 import { docFilterLambdaArg, docPredReadsRecord, isVanillaDocAgg } from "./document-emit.js";
+import { findParamRead } from "./find-controller.js";
 import { ELIXIR_NUMERIC } from "./numeric-codec.js";
 import { hasRefColls, preloadSuffix } from "./ref-collection-emit.js";
 import { renderWireSerialize } from "./wire-serialize.js";
@@ -331,8 +332,8 @@ defmodule ${moduleName} do
   alias ${appModule}.Repo
 
   @doc "Execute the grouped aggregation and return one projected row per group."
-  @spec run(any()) :: [map()]
-  def run(current_user \\\\ nil) do
+  ${runHead(proj).spec} :: [map()]
+  ${runHead(proj).head} do
 ${lines.filter((l) => l !== "").join("\n")}
   end
 ${
@@ -388,8 +389,8 @@ defmodule ${moduleName} do
   alias ${appModule}.Repo
 
   @doc "Execute the whole-table aggregation and return the single projected row."
-  @spec run(any()) :: map()
-  def run(current_user \\\\ nil) do
+  ${runHead(proj).spec} :: map()
+  ${runHead(proj).head} do
 ${lines.filter((l) => l !== "").join("\n")}
   end
 ${moneyWireHelper(aggregates)}end
@@ -553,8 +554,8 @@ defmodule ${moduleName} do
 ${ectoQueryImport}  alias ${appModule}.Repo
 
   @doc "Execute the query-time projection and return the projected rows."
-  @spec run(any()) :: [map()]
-  def run(current_user \\\\ nil) do
+  ${runHead(proj).spec} :: [map()]
+  ${runHead(proj).head} do
 ${body}
   end${projectionHelpers}${denyHelper}${
     usesMoneyRound
@@ -771,6 +772,20 @@ end
   }));
 }
 
+/** The `run/N` head of a projection module.
+ *
+ *  A parameterised projection's inlined `where` names its parameters, so they
+ *  must be BOUND — a `run/1` that took only `current_user` emitted
+ *  `where: record.owner == ^o` over an undefined `o`, which does not compile.
+ *  The declared params LEAD; `current_user` keeps its trailing default-arg
+ *  position (a default argument must come last in Elixir). */
+function runHead(proj: ProjectionIR): { spec: string; head: string } {
+  const names = proj.params.map((p) => snake(p.name));
+  const specArgs = [...names.map(() => "any()"), "any()"].join(", ");
+  const headArgs = [...names, "current_user \\\\ nil"].join(", ");
+  return { spec: `@spec run(${specArgs})`, head: `def run(${headArgs})` };
+}
+
 function renderQueryProjectionAction(
   ctx: EnrichedBoundedContextIR,
   proj: ProjectionIR,
@@ -790,9 +805,15 @@ function renderQueryProjectionAction(
         contextModule,
       })
     : null;
+  // A parameterised projection binds its parameters from the QUERY STRING,
+  // coerced by the same `__find_*` helpers a parameterised find's action uses
+  // (Phoenix delivers every query param as a string).  They LEAD `run/N`'s
+  // argument list, ahead of the trailing `current_user`.
+  const paramArg = proj.params.length > 0 ? "params" : "_params";
+  const runArgs = [...proj.params.map((p) => findParamRead(p)), "current_user"].join(", ");
   if (gate) {
     return `  @doc "GET /api/projections/${slug}"
-  def ${slug}(conn, _params) do
+  def ${slug}(conn, ${paramArg}) do
     current_user = Map.get(conn.assigns, :current_user)
 
     if not (${gate}) do
@@ -803,15 +824,15 @@ function renderQueryProjectionAction(
         `${webModule}.ProblemDetails`,
       )}
     else
-      data = ${projModule}.run(current_user)
+      data = ${projModule}.run(${runArgs})
       json(conn, data)
     end
   end`;
   }
   return `  @doc "GET /api/projections/${slug}"
-  def ${slug}(conn, _params) do
+  def ${slug}(conn, ${paramArg}) do
     current_user = Map.get(conn.assigns, :current_user)
-    data = ${projModule}.run(current_user)
+    data = ${projModule}.run(${runArgs})
     json(conn, data)
   end`;
 }

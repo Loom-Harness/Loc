@@ -12,6 +12,7 @@ import {
   type FindIR,
   findUsesCurrentUser,
   isQueryTimeProjection,
+  type ParamIR,
   type RepositoryIR,
   type RetrievalIR,
   type TypeIR,
@@ -25,6 +26,10 @@ import {
 export interface AggregateReadShape {
   name: string;
   source: { kind: "aggregate"; name: string };
+  /** The projection's declared parameters.  Its inlined `where` references
+   *  them by name, so the synthesised read must bind them — a parameterless
+   *  method rendered a predicate over a free variable. */
+  params?: ParamIR[];
   filter?: ExprIR;
   bypassAll?: boolean;
   bypassCaps?: string[];
@@ -621,6 +626,7 @@ export function queryProjectionViews(
     .map((p) => ({
       name: p.name,
       source: { kind: "aggregate" as const, name: agg.name },
+      params: p.params ?? [],
       ...(p.query?.filter ? { filter: p.query.filter } : {}),
       ...(p.query?.bypassAll ? { bypassAll: true } : {}),
       ...(p.query?.bypassCaps ? { bypassCaps: p.query.bypassCaps } : {}),
@@ -707,8 +713,10 @@ function viewFindMethod(
         })
       : filterPred;
   const where = rootWhere(pred, root, kind, methodFilterPred);
+  const viewParams = (view.params ?? []).map((p) => `${snake(p.name)}: ${renderPyType(p.type)}`);
+  const viewSig = ["self", ...viewParams].join(", ");
   return lines(
-    `    async def ${snake(view.name)}(self) -> list[${agg.name}]:`,
+    `    async def ${snake(view.name)}(${viewSig}) -> list[${agg.name}]:`,
     `        rows = (await self._session.execute(select(${root})${where})).scalars().all()`,
     `        items = ${hydrateListExpr(agg)}`,
     findExecutedLine(agg, view.name, "len(items)"),

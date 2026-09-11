@@ -178,3 +178,62 @@ Found 2026-09-03 by the language-docs audit ([F1](../audits/2026-09-03-language-
 **Also carries M-T5.27's residue (re-homed 2026-09-10, Wave C0.4).** [#2789](https://github.com/Loom-Harness/Loc/pull/2789) minted `loom.locator-matcher-receiver` in `src/language/validators/match.ts:151`, deliberately re-deriving the ui-e2e renderer's handle rule at the AST layer because `src/ir/validate/checks/**` was another packet's tree. Its proper home is `validateE2ETest` (`src/ir/validate/checks/test-checks.ts:132`), which already walks these statements with the resolved IR and today has no `locator` handling at all. Consolidate it here while in the file. The mutation proof makes the case that gate and renderer are genuinely independent: under the *renderer* mutation the validator still passed the source and the renderer crashed, so neither alone covers F6.
 
 Sources: [language-docs-audit-2026-09-03](../audits/2026-09-03-language-docs-audit-findings.md) F1/F4 + "Cross-cutting reading" §2, [wave plan](../audits/2026-09-03-language-docs-audit-findings.waves.md) packet **W3.1**; M-T5.27's `loom.locator-matcher-receiver` consolidation.
+
+## M-T5.31 — A `retrieval` reaches the repository and stops there: no HTTP route on any backend, and no `requires` clause — `open` · **L** · P1
+
+Found 2026-09-10 by the tracker dev-experience run (#2861, "Not fixed here"). Re-verified on `main` @ `4865581` with a four-declaration model (`aggregate` + `criterion` + `retrieval` + `repository`, `platform: node`):
+
+```
+out/api/domain/repository-ports.ts     runAvailableProducts(page?): Promise<Product[]>   ← emitted
+out/api/db/repositories/…-repository.ts  the implementation                              ← emitted
+out/api/http/product.routes.ts         GET /{id}, GET /                                  ← the retrieval is ABSENT
+```
+
+The read is fully lowered, typed and implemented, and then has no caller. A page cannot reach a repository, so a `retrieval` is unreachable from the generated frontend — and `find`, the one construct that *does* produce a route, is what `loom.repository-find-deprecated` tells the author to migrate away from. Following the validator's advice removes your read API. #2874 narrowed that warning to contexts that already declare a criterion or retrieval, which stops the tool contradicting its own scaffold; it does not give the migrated spelling anywhere to go, and its PR says so.
+
+The second half is the gate. `Retrieval` (`ddd.langium:1678`) has no `requires` slot — compare `FindDecl:1405`, which does. So the spelling the compiler recommends is also the one that cannot be gated, which blocks M-T3.19's story for the list read and leaves `scaffoldPaged` with `of:` and nothing else.
+
+**The fix, in the order the slices must land:**
+
+1. `Retrieval` gains `('requires' gate=Expression)?`, lowered to the same `ExprIR` position `FindDecl.gate` already occupies, so the five backends' existing gate renderers apply unchanged.
+2. A route per retrieval on all five backends, parameters bound from the retrieval's own `params` — the same threading `projection` reads now use after #2861 slice 1 (`src/platform/hono/v4/projection-query-routes-builder.ts` is the worked reference; the .NET/python/java/elixir twins are named in that commit).
+3. `scaffoldPaged` / `scaffoldPagedApi` retire: their reason to exist is that a retrieval had no route. #2877 explicitly declines to bolt a second gate parameter onto them for this reason.
+4. The interim narrowing in #2874 is deleted in the same PR that lands slice 2 — a waiver ratchets, so the fix removes it rather than leaving both rules standing.
+
+**Verification when it lands.** Per-backend route-emission cases (the five-case shape of `test/system/projection-param-threading.test.ts`), a gated-retrieval 403 case, and the generated node project booted against Postgres so the route is proved to answer a filtered read, not merely to exist. Mutation-proof each gate by file-copy revert.
+
+Claimed by the #2861 author; #2874 and #2877 both defer to this mission by name.
+
+## M-T5.32 — A declared `create`'s parameter list is not the request contract, and `loom.create-params-not-wire` only says so — `open` · **M** · P1 · blocked(#2882)
+
+The honest gate shipped in #2861 slice 4. It is a diagnostic standing in for a missing capability, so it is not a terminal state: this mission is what deletes it.
+
+Today `POST /<plural>` always takes the **field-derived** create input. A narrowed parameter list on a declared `create` shapes nothing, so an author who writes `create(title: string)` against a five-field aggregate gets a client for a contract they did not declare — the generated `test e2e` suite failed at runtime with a 422 naming a field the create does not accept. `loom.lifecycle-body-dropped` does not cover it: the ubiquitous `field := <same-named param>` idiom is exempt there, and that is exactly the shape that misleads.
+
+**The fix:** the declared parameter list becomes the create input — wire schema, route binding, and the frontend `CreateForm`'s field set all derive from it rather than from the aggregate's fields.
+
+**Why blocked.** Narrowing the input widens an existing bug: a `managed`/`internal` field's declared default is currently discarded by the create input and replaced with the type's zero value (`tier: int managed = 7` arrives as `0`), which #2882 is fixing. Narrowing first would make every field dropped from the input silently zero rather than defaulted. Land #2882, then this.
+
+**Verification when it lands.** A create-with-narrowed-params case per backend asserting the emitted wire schema has exactly the declared fields; a defaulted `managed` field asserted to arrive at its declared value, not the zero value; and `loom.create-params-not-wire` deleted in the same PR, with its `FIRING_FIXTURES` entry and docs anchor removed (`test/system/diagnostic-firing-census.test.ts` fails on an orphan, which is the ratchet that keeps this mission honest).
+
+## M-T5.33 — A page-body lambda parameter has no type, so every member off it resolves as `string` — `open` · **M** · P1
+
+`src/ir/lower/lower-expr.ts:1214` lowers a bare lambda with a hard-coded placeholder element type:
+
+```ts
+if (isLambda(expr)) {
+  // A bare lambda outside a collection-op call site has no known param
+  // type — the string placeholder matches the legacy behaviour.
+  return lowerLambda(expr, env, { kind: "primitive", name: "string" });
+}
+```
+
+The collection-op path two hundred lines up does it correctly (`collElem && isLambda(a.value) ? lowerLambda(a.value, env, collElem) : …`), so the element type is available — it is simply not threaded to the bare-lambda site. Every `receiverType` / `memberType` derived inside such a lambda is therefore wrong, which defeats the IR's central promise that backends never re-resolve.
+
+This is the enabling change for the formatter work: a per-type formatter table cannot route `Text`'s child while every page-body field types as `string`. #2871's D4 is downstream of it.
+
+**The fix:** thread the known element type to the bare-lambda call site the way `applySuffixToRecv` already does, and make the no-known-type case a diagnostic rather than a silent `string`.
+
+**Verification when it lands.** IR-level cases asserting `memberType` on a member access inside a page-body lambda over a non-string collection; the `string` placeholder removed rather than left beside the fix.
+
+Claimed by the #2861 author, offered to #2871 first as the enabling half of their D4.

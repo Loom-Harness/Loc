@@ -170,9 +170,17 @@ function crudDomain(): DomainBlock {
         project: Project id
       }
 
-      repository Tasks for Task {
-        find byProject(projectId: Project id): Task[] where this.project == projectId
+      // A list read is a criterion + retrieval pair, not a bespoke repository
+      // find: a list-returning "find byX(...)" is deprecated
+      // (loom.repository-find-deprecated), and the starter used to ship one — so
+      // a fresh "ddd new" warned on its own first parse.
+      criterion InProject(p: Project id) of Task = project == p
+      retrieval TasksInProject(p: Project id) of Task {
+        where: InProject(p)
+        sort: [title asc]
       }
+
+      repository Tasks for Task { }
     }
   }`,
   };
@@ -244,10 +252,28 @@ export function renderStarter(opts: {
 system ${sys} {
 
   // Authorization is opt-in in a fresh model.  When you wire real auth, prefer
-  // deny-by-default: every client-reachable command AND read (operations,
-  // creates, destroys, workflows, views, repository finds) must then declare a
-  // \`requires <expr>\` gate — \`requires true\` is the explicit "intentionally
-  // public" escape.  Mark the deployable \`auth: required\` to enforce it.
+  // deny-by-default: every client-reachable command (operations, creates,
+  // destroys, workflow starters + handlers) and every DECLARED read (repository
+  // finds, projections) must then carry a \`requires <expr>\` gate —
+  // \`requires true\` is the explicit "intentionally public" escape.  Mark the
+  // deployable \`auth: required\` to enforce it.
+  //
+  // Two limits to know before you turn it on.  The synthesised LIST read is
+  // coverable — declare \`find all(): <T>[] requires <expr>\` on the repository
+  // and the gate lands on \`GET /<plural>\`.  The synthesised BY-ID read is not:
+  // \`GET /<plural>/{id}\` has no author surface to attach a gate to, so under
+  // denyByDefault it still serves to any authenticated caller, and nothing
+  // warns (mission M-T3.19).  And \`with crudish\` generates its
+  // create/update/destroy, which likewise cannot carry a gate today:
+  // hand-write those three on any aggregate you want gated until
+  // \`crudish(requires: <Policy>)\` lands.  In both cases the gate is named at
+  // the declaration — an INHERITED aggregate-level default was rejected, because
+  // a deny rule invisible at the member it guards is the wrong trade.
+  //   user {
+  //     id: string
+  //     role: string
+  //     permissions: string[]
+  //   }
   //   auth {
   //     enforcement: denyByDefault
   //     oidc { issuer: env("OIDC_ISSUER") clientId: env("OIDC_CLIENT_ID") }

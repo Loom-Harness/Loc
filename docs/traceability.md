@@ -33,7 +33,7 @@ requirement AC-001 parent US-001 {
 }
 
 system Shop {
-  module Identity {
+  subdomain Identity {
     context Auth {
       aggregate LoginSession {
         operation start() {}
@@ -41,7 +41,14 @@ system Shop {
       }
     }
   }
-  deployable AuthApi { platform: node  modules: Identity }
+  storage primary { type: postgres }
+  resource authState { for: Auth, kind: state, use: primary }
+  deployable AuthApi {
+    platform: node
+    contexts: [Auth]
+    dataSources: [authState]
+    port: 3000
+  }
 }
 
 solution SOL-001 for US-001 {

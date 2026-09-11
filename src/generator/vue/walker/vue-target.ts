@@ -434,6 +434,16 @@ export const vueTarget: WalkerTarget = {
    *  escaped (`"`→`&quot;`) under a double-quote delimiter — Vue
    *  decodes the entity before compiling the binding, so the template
    *  stays well-formed and every valid `.ddd` expression renders. */
+  /** A pack template spells `v-for="…"` / `:key="…"` itself and keeps its
+   *  DOUBLE quotes, so the expression inside them must not carry one.  Vue
+   *  decodes HTML entities in an attribute value before compiling the
+   *  expression, so `&quot;` round-trips to the `"` the JS wanted — the same
+   *  mechanism `quoteAttrExpr`'s both-quote branch relies on.  `&` goes first so
+   *  a literal `&` cannot combine with the injected entity. */
+  escapeAttrExpr(jsExpr: string): string {
+    return jsExpr.replace(/&/g, "&amp;").replace(/"/g, "&quot;");
+  },
+
   renderAttrBinding(name: string, jsExpr: string): string {
     return ` :${name}=${quoteAttrExpr(jsExpr)}`;
   },

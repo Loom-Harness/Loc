@@ -3,6 +3,7 @@ import type {
   EnrichedAggregateIR,
   EnrichedBoundedContextIR,
   ExprIR,
+  ParamIR,
   ProjectionAggregateIR,
   ProjectionIR,
   TypeIR,
@@ -28,7 +29,12 @@ import {
   promotedCapabilities,
 } from "../capability-filter.js";
 import { JAVA_NUMERIC, javaMoneyProjectionKeyEncode } from "../numeric-codec.js";
-import { collectJavaExprImports, renderJavaExpr } from "../render-expr.js";
+import {
+  collectJavaExprImports,
+  javaValueTypeForId,
+  renderJavaExpr,
+  renderJavaType,
+} from "../render-expr.js";
 import {
   JPQL_INTRINSIC_SQL,
   type JpqlCtx,
@@ -78,7 +84,7 @@ export function queryProjectionFindsFor(
   ctx: EnrichedBoundedContextIR,
 ): {
   name: string;
-  params: never[];
+  params: ParamIR[];
   returnType: { kind: "array"; element: { kind: "entity"; name: string } };
   filter?: ExprIR;
   bypassAll?: boolean;
@@ -88,7 +94,10 @@ export function queryProjectionFindsFor(
     .filter((p) => isQueryTimeProjection(p) && p.query?.source === aggName)
     .map((p) => ({
       name: lowerFirst(p.name),
-      params: [] as never[],
+      // The projection's own parameters — its inlined `where` names them, so a
+      // parameterless read emitted `@Query("… = :o")` with no `@Param`, which
+      // compiles and then fails at Spring context startup.
+      params: p.params ?? [],
       returnType: { kind: "array" as const, element: { kind: "entity" as const, name: aggName } },
       ...(p.query?.filter ? { filter: p.query.filter } : {}),
       ...(p.query?.bypassAll ? { bypassAll: true } : {}),
@@ -277,6 +286,19 @@ export function renderJavaQueryProjections(
   for (const proj of projections) {
     const source = proj.query!.source!;
     const findName = lowerFirst(proj.name);
+    // A parameterised projection threads its parameters through all three
+    // layers: the controller binds them from the query string
+    // (`@RequestParam`), the service method forwards them, and the JPA
+    // interface binds them into the JPQL (`@Param`, from the synthesised find).
+    // `javaValueTypeForId` mirrors api.ts's find-param rule: an `X id` binds as
+    // its underlying value type, because Spring cannot bind a wrapper record.
+    const projParamDecls = proj.params.map((p) =>
+      p.type.kind === "id"
+        ? `${javaValueTypeForId(p.type.valueType)} ${p.name}`
+        : `${renderJavaType(p.type)} ${p.name}`,
+    );
+    const projRequestParams = projParamDecls.map((d) => `@RequestParam ${d}`);
+    const projArgNames = proj.params.map((p) => p.name);
     const rowName = `${upperFirst(proj.name)}Row`;
     const shape = proj.wireShape ?? [];
 
@@ -382,7 +404,7 @@ export function renderJavaQueryProjections(
       // The raw `Query` list needs the one @SuppressWarnings the untyped JPA API
       // forces, whichever row element type it carries.
       methods.push(
-        `    public List<${rowName}> ${findName}() {`,
+        `    public List<${rowName}> ${findName}(${projParamDecls.join(", ")}) {`,
         ...aggregationPrelude(scope, qpctx.basePkg),
         ...wrapAggregationBypass(scope.disableCaps, [
           `        @SuppressWarnings("unchecked")`,
@@ -464,7 +486,7 @@ export function renderJavaQueryProjections(
           })()
         : undefined;
       methods.push(
-        `    public List<${rowName}> ${findName}() {`,
+        `    public List<${rowName}> ${findName}(${projParamDecls.join(", ")}) {`,
         `        return ${repo}.findAll().stream()`,
         ...(filterLine ? [filterLine] : []),
         `            .map(x -> new ${rowName}(${args.join(", ")}))`,
@@ -500,7 +522,7 @@ export function renderJavaQueryProjections(
           })()
         : undefined;
       methods.push(
-        `    public List<${rowName}> ${findName}() {`,
+        `    public List<${rowName}> ${findName}(${projParamDecls.join(", ")}) {`,
         `        return ${repo}.findAll().stream()`,
         ...(filterLine ? [filterLine] : []),
         `            .map(x -> new ${rowName}(${args.join(", ")}))`,
@@ -558,9 +580,9 @@ export function renderJavaQueryProjections(
             });
 
       methods.push(
-        `    public List<${rowName}> ${findName}() {`,
+        `    public List<${rowName}> ${findName}(${projParamDecls.join(", ")}) {`,
         ...mapLines,
-        `        return ${repoField(source)}.${findName}().stream()`,
+        `        return ${repoField(source)}.${findName}(${projArgNames.join(", ")}).stream()`,
         `            .map(a -> new ${rowName}(${args.join(", ")}))`,
         `            .toList();`,
         `    }`,
@@ -590,9 +612,9 @@ export function renderJavaQueryProjections(
     const routeType = aggregates ? rowName : `List<${rowName}>`;
     routes.push(
       `    @GetMapping("/${snake(proj.name)}")`,
-      `    public ${routeType} ${findName}() {`,
+      `    public ${routeType} ${findName}(${projRequestParams.join(", ")}) {`,
       ...gateLines,
-      `        return queryProjections.${findName}();`,
+      `        return queryProjections.${findName}(${projArgNames.join(", ")});`,
       `    }`,
       ``,
     );

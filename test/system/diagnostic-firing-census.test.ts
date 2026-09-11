@@ -174,6 +174,25 @@ ${uiBody}
 }`;
 
 const FIRING_FIXTURES: Record<string, string> = {
+  // A canonical `create` whose parameter list OMITS a required create-input
+  // field.  `POST /things` still demands `secret` (no emitter reads
+  // `canonicalCreate.params`), so a client written from the declaration 422s on
+  // a field the create never mentions.  The body is the ubiquitous
+  // `field := <same-named param>` idiom, which `loom.lifecycle-body-dropped`
+  // deliberately exempts — that exemption is exactly why this shape was silent.
+  "loom.create-params-not-wire": `
+system P {
+  subdomain S { context C {
+    aggregate Thing {
+      name: string
+      secret: string
+      create(name: string) {
+        name := name
+      }
+    }
+    repository Things for Thing { }
+  } }
+}`,
   // --- phase ④ AST validate -----------------------------------------------
   // Two complete `system { }` blocks and NO top-level members — the shape that
   // slipped past the fold-triggered composition check, because with nothing to

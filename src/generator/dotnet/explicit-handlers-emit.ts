@@ -632,8 +632,10 @@ function pathActionParam(p: ParamIR): { actionParam: string; commandArg: string 
 }
 
 /** A `[FromQuery]` criterion param of a paged-run queryHandler: id → wire type
- *  coerced with `new <Agg>Id(...)`; scalar → the rendered domain type verbatim. */
-function queryActionParam(p: ParamIR): { actionParam: string; commandArg: string } {
+ *  coerced with `new <Agg>Id(...)`; scalar → the rendered domain type verbatim.
+ *  Shared with the query-time-projection controller, whose parameters bind from
+ *  the query string in exactly this shape. */
+export function queryActionParam(p: ParamIR): { actionParam: string; commandArg: string } {
   const t: TypeIR = p.type;
   const n = escapeCsharpIdent(p.name);
   if (t.kind === "id") {
