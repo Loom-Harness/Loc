@@ -407,6 +407,18 @@ export const felizTarget: WalkerTarget = {
   // line so it stays offside-safe inside a Feliz `[ … ]` list.
   renderConditionalChild: (cond, thenS, elseS) =>
     `(if ${oneLine(cond)} then ${oneLine(thenS)} else ${oneLine(elseS)})`,
+  // An optional VALUE splits on `Some`/`None`, not on truthiness (M-T1.33).
+  // `renderConditionalChild` above is useless for one: its `if` wants a `bool`
+  // and a `Location id?` decodes to `string option`, and even past a
+  // `Option.isSome` test the pack's `("/locations/" + <id>)` would still be a
+  // `string` + `string option`.  A `match` answers both halves at once — it
+  // tests and unwraps in the same construct — and the caller has already
+  // rendered `present` over the name this binds.  `None` renders the plain em
+  // dash, the same absent placeholder `renderFileLink` uses.  One line, like
+  // the ternary above: the walker does not re-indent seam output, and this
+  // lands inside a Feliz children list where the offside rule bites.
+  renderOptionalSplit: ({ value, bound, present }) =>
+    `(match ${oneLine(value)} with | Some ${bound} -> ${oneLine(present)} | None -> Html.text "—")`,
   // `For { each: coll, x => <markup> }` → `yield! coll |> List.map (fun x -> …)`
   // spliced into the enclosing Feliz children list (the `yield!` and its
   // bracket-delimited body are offside-safe there).  An `empty:` arm folds into

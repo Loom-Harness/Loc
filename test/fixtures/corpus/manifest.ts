@@ -304,6 +304,14 @@ export const CORPUS: readonly CorpusFeature[] = [
     note: "minted by the Fable field test (A1): node's zod refine rendered `==` as JS `===`, so an omitted optional key — `undefined`, the wire's OTHER spelling of absent — failed the guard and `POST /api/tasks` answered 422 where .NET and Python answered 201.  No corpus fixture omitted an optional field a rule then referenced, so the five-way wire golden could not see the divergence at all.  The aggregate is `Ticket`, not the `Task` the field test used: an aggregate named `Task` shadows `System.Threading.Tasks.Task` inside the generated .NET repository, so `ITaskRepository` and `TaskRepository` disagree on `SaveAsync(Task, CancellationToken)` and the project does not compile (CS0535/CS0738, reproduced on the behavioral-dotnet leg).  That BCL-name collision is real and unfixed — `loom.dotnet-name-collision` (#2737) refuses a member colliding with a SIBLING type, not an aggregate colliding with a type the emitter itself uses — but it is not what this fixture is for, and pinning it here would make the absent-optional row unreachable on .NET",
   },
   {
+    id: "optional-reference",
+    title:
+      "an OPTIONAL cross-aggregate reference (`lastKnownLocation: Location id?`) beside a required one — a nullable cross-aggregate FK",
+    doc: "language",
+    backends: ALL,
+    note: "minted by audit #2864 finding T4 (M-T1.33): every `X id` in the corpus was REQUIRED, so no fixture ever generated a page that had to render a reference which might not be there — and the reference-LINK path was the one place the frontends' null guard had never been applied.  Unguarded it broke all six frontends at once, two of them fatally (vue-tsc TS2345 on `:title`, an F# `string` + `string option` on Feliz); the other four compiled and linked to the literal path `/locations/null`.  The `origin` field is required deliberately: the guard applies to the optional reference ONLY, so a regression that guards every reference is caught by the same generation.  Backend-side this is an ordinary nullable FK, which is why the row is ALL — the fixture's value is the SHAPE, not a backend gap.  It carries NO `ui`: the corpus is a backend matrix (`clause-census.test.ts` states that), so the frontend half of the defect is gated by `test/generator/_walker/id-link-optional-cross-target.test.ts` plus the vue and feliz `scaffold` build cases, which now carry an optional reference each.",
+  },
+  {
     id: "validation-messages",
     title:
       "authored `message \"…\"` on invariant / field check / precondition / VO invariant + the per-backend message CATALOG the wire `code` resolves against",
