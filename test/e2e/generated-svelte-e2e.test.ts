@@ -5,6 +5,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { installGeneratedProject } from "./support/npm-install.js";
 
 // ---------------------------------------------------------------------------
 // Runtime e2e for the Svelte frontend (next-steps item 6).
@@ -90,7 +91,7 @@ describe.skipIf(!ENABLED)("generated svelte project runs (vite preview + Playwri
     expect(fs.existsSync(path.join(project, "svelte.config.js")), "svelte project emitted").toBe(
       true,
     );
-    run("npm install --no-audit --no-fund", project);
+    installGeneratedProject(project, { timeout: 900_000 });
     run("npx svelte-kit sync", project);
     run("npx vite build", project);
     expect(fs.existsSync(path.join(project, "build", "index.html")), "vite build output").toBe(
@@ -113,7 +114,7 @@ describe.skipIf(!ENABLED)("generated svelte project runs (vite preview + Playwri
       // smoke spec against the preview server.
       const e2e = path.join(project, "e2e");
       expect(fs.existsSync(path.join(e2e, "smoke.spec.ts")), "smoke spec emitted").toBe(true);
-      run("npm install --no-audit --no-fund", e2e);
+      installGeneratedProject(e2e, { timeout: 900_000 });
       run("npx playwright install --with-deps chromium", e2e);
       run(`E2E_BASE_URL=${baseUrl} npx playwright test smoke.spec.ts`, e2e);
     } finally {

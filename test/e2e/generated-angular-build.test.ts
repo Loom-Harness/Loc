@@ -4,6 +4,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, it } from "vitest";
+import { installGeneratedProject } from "./support/npm-install.js";
 
 // ---------------------------------------------------------------------------
 // Generator build gate for the Angular frontend (angular-frontend-plan.md
@@ -682,11 +683,7 @@ describe.skipIf(!ENABLED)("generated Angular project compiles + bundles (ng buil
           );
         }
       }
-      execSync(`npm install --silent --no-audit --no-fund`, {
-        cwd: projectDir,
-        stdio: "inherit",
-        timeout: 240_000,
-      });
+      installGeneratedProject(projectDir, { timeout: 240_000 });
       // `ng build` runs the Angular compiler (strict template typecheck) +
       // esbuild bundle in one step.
       //
