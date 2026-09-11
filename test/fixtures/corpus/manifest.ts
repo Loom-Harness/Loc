@@ -177,6 +177,13 @@ export const CORPUS: readonly CorpusFeature[] = [
   { id: "read-gates", title: "read-side requires gates — gated list read + folded and query-time projections", doc: "auth", backends: ALL },
   { id: "outbox", title: "durable channel / transactional outbox + relay", doc: "workflow", backends: ALL },
   {
+    id: "workflow-primitive-params",
+    title: "a command workflow's PRIMITIVE params at the wire boundary (RS-26) — every param kind in one create",
+    doc: "workflow",
+    backends: ALL,
+    note: "the shape no fixture carried: a scalar request component cannot express absence, so java's `TopUpRequest(int qty, …)` bound a missing key to `0` while its own RequiredSet published the field as required",
+  },
+  {
     id: "channels-broker",
     title: "broker-bound channel — channelSource binds `queue/work` to rabbitmq, real driver code emitted",
     doc: "channels",

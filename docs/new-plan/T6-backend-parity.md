@@ -335,3 +335,42 @@ this.owner = switch (r) { case HitOrNotFound_Hit h -> h.code(); case HitOrNotFou
 ```
 
 and the genuine optional twin still takes the presence-ternary path before `matchVariant` is reached (`var label = outcome is not null ? outcome.Code : outcome.Resource;`). No rebuild; the sequencing constraint on M-T5.28's messages is therefore satisfied — and those two messages prescribe no replacement construct at all, so they stay correct either way. **One adjacent gap surfaced by the repro and NOT owned here:** on elixir the same source is refused by `loom.vanilla-op-call-position` (a sibling-op call outside `return` tail position) — an honest coded gap, already named, no silent decline.
+
+## M-T6.69 — The elixir Schemathesis cell fuzzes the HTML routes, because elixir is the only backend that publishes a `servers` base path — `open` · **S** · P1 ⚠ verify-first
+
+Diagnosed 2026-09-11 while fixing E5 from the Wave C0 schemathesis hand-off
+([`waves/handoffs/wave-c0-schemathesis.md`](waves/handoffs/wave-c0-schemathesis.md)), statically, on the
+emitted `storefront-elixir` tree — the cell itself was not re-booted, so **verify by booting before acting**.
+
+`src/generator/elixir/vanilla/openapi-emit.ts:827` emits `servers: [%Server{url: "/api"}]`, and the vanilla
+router mounts the API under `scope "/api"`. It is the **only** backend that declares a `servers` entry —
+node/python/dotnet/java publish none and serve at the root. The harness passes schemathesis
+`--url http://127.0.0.1:<port>` (`test/behavioral/schemathesis-core.mjs:171`), which REPLACES the server
+base, path included. So every fuzzed request loses the `/api` prefix and lands on the **LiveView/HTML**
+scope (`live "/wallets"`, `live "/wallets/:id"`, then the `match :*, "/*path"` catch-all) — not on the
+contract under test.
+
+That one mismatch accounts for most of the cell's inventory: **E3** (undeclared success content-type —
+LiveView answers `text/html`), **E4** (wrong-verb 405 — the catch-all answers 404), and it is how **E5**
+(fixed in Wave C1, see below) was reachable over HTTP at all. **E1** (`TRACE` → 501) is below the app: the
+web server refuses the method, so it is a waiver shape on any backend.
+
+Two candidate fixes, and the choice is the mission: teach the harness to honour the spec's server base
+(`--url <base><servers[0].url>`, one line, but it silently changes what every backend fuzzes), or make the
+four other backends declare their own base so the axis is uniform. Until one lands, the elixir cell's
+findings are not statements about the elixir API surface, and it must stay `discovery: true`.
+
+## M-T6.70 — A non-UUID id in a Phoenix LiveView route raises `Ecto.Query.CastError` (500) where the controller answers 422 — `open` · **S** · P2 ⚠ verify-first
+
+Diagnosed 2026-09-11 alongside M-T6.69, statically on the emitted tree (E2 of the elixir schemathesis cell).
+
+The generated **controller** guards its path id — `plug :__cast_path_id` halts with the published 422
+(`vanilla/find-controller.ts`). The generated **LiveView** detail page does not: `wallet_detail_live.ex`
+calls `PhoenixApp.Storefront.get_wallet(socket.assigns.id)` straight through, so `Repo.get/2` raises
+`Ecto.Query.CastError` for anything that is not a UUID and the visitor gets a 500 where the page's own
+`:not_found` branch already exists for exactly this case.
+
+Shape to fix: cast in the repository's `find_by_id` (one site, every caller) and return `{:error,
+:not_found}`, or mirror the controller's plug in the LiveView `mount`. The first is cleaner but changes
+what the CONTROLLER would answer if its plug ever stopped firing (422 vs 404) — decide deliberately, and
+gate whichever you pick with a boot-verified request, not a compile.

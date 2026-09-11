@@ -155,10 +155,23 @@ describe("java — F32: the workflow body is a wire boundary like every other", 
     expect(req).toContain("@NotNull UUID walletId");
   });
 
-  it("a PRIMITIVE workflow param gets no @NotNull — it would be inert", async () => {
+  // SUPERSEDED by F32's own follow-up slice (RS-26 on the workflow body).  The
+  // original assertion here was "a PRIMITIVE workflow param gets no @NotNull —
+  // it would be inert", which was true of the annotation and wrong about the
+  // conclusion: the fix is not to drop the annotation but to BOX the component,
+  // so the annotation has a null to test.  Left unboxed, a missing `qty` bound
+  // to `0` and ran the workflow on a value the caller never sent, while the
+  // same project's `RequiredSet` published `qty` as required.  Full coverage of
+  // the rule (every param kind, the optional carve-out, the create body's
+  // inverse) is `workflow-primitive-param-boxing.test.ts`; this keeps the F32
+  // fixture honest about which side of it the workflow record is on.
+  it("a PRIMITIVE workflow param is BOXED so its @NotNull can fire", async () => {
     const req = await file("workflows/SettleRequest.java");
-    expect(req).toContain("int qty");
+    expect(req).toContain("@NotNull Integer qty");
     expect(req).not.toContain("@NotNull int qty");
+    expect(req, "an unboxed component takes Jackson's zero value for an absent key").not.toMatch(
+      /\bint qty\b/,
+    );
   });
 
   it("the workflow controller runs the walk — without @Valid the annotations are inert", async () => {

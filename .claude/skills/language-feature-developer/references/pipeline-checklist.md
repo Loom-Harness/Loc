@@ -123,9 +123,13 @@ tells you when it applies.
   methods to `WalkerTarget`, optional `ctx.*` side-channels in `walker-core.ts`,
   delegate-first in the shared `primitives/*.ts`, then implement in that
   frontend's `walker/*-target.ts` + `page-shell.ts` + new `*-builder.ts`.
-- **Design-pack output** (`.hbs`): under `designs/<pack>/` (Mantine/shadcn/mui/chakra
+- **Design-pack output** (`.hbs`): under `designs/<pack>/` (mantine/shadcn/mui/chakra
   for React, vuetify/shadcnVue for Vue, shadcnSvelte/flowbite for Svelte,
-  angularMaterial for Angular, ashPhoenix for HEEx).
+  angularMaterial/primeng/spartanNg for Angular, coreComponents/daisyui for HEEx —
+  `ls designs/` for the live inventory).  The HEEx packs own the SHELL surface,
+  not call-site primitive templates: LiveView has one component convention, so
+  the walker emits `<.button>`-style component calls inline.  Feliz and Flutter
+  have no `.hbs` pack pipeline at all.
 
 ### ⑨ System / artifacts — only if the feature changes a TypeIR kind or migrations
 - Each sibling of `src/system/index.ts` handles new TypeIR kinds in its `.loom/`

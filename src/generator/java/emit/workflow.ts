@@ -36,7 +36,6 @@ import {
   bearsNestedRecord,
   collectWireImports,
   collectWireToDomainImports,
-  JAVA_PRIMITIVES,
   referencedValueObjects,
   wireJavaType,
   wireToDomain,
@@ -614,17 +613,28 @@ export function renderJavaWorkflows(
       // record makes the walk DESCEND, and the controller's `@RequestBody`
       // carries `@Valid` so this lands in the advice's 422 arm.
       //
-      // A PRIMITIVE component gets no `@NotNull` — it can never be null, and
-      // the annotation would read as a guard it is not (dto.ts takes the same
-      // decision on the create body).
+      // RS-26, on the workflow body: a required PRIMITIVE param is BOXED, the
+      // way `dto.ts` boxes an operation's.  A primitive record component cannot
+      // express absence — Jackson binds a missing `int qty` to `0` and a
+      // missing `boolean flag` to `false` — so a command that omitted a
+      // required field ran the workflow on a value the caller never sent, and
+      // an explicit `null` reached the domain as a deserialization fault
+      // instead of the 422 the published contract promises for it.  Boxing
+      // gives `@NotNull` something to test; `@Valid` on the controller's
+      // `@RequestBody` lands it in the advice's 422 arm.  (The create body is
+      // the deliberate exception, not the model — it applies declared defaults,
+      // so absence there means "the default", RS-6.)
       const components = wf.params.map((p) => {
         collectWireImports(p.type, reqImports, "Request");
-        const javaType = wireJavaType(p.type, "Request");
-        const guardable = p.type.kind !== "optional" && !JAVA_PRIMITIVES.has(javaType);
-        if (guardable) reqImports.add("jakarta.validation.constraints.NotNull");
+        const required = p.type.kind !== "optional";
+        const javaType = wireJavaType(
+          required ? { kind: "optional", inner: p.type } : p.type,
+          "Request",
+        );
+        if (required) reqImports.add("jakarta.validation.constraints.NotNull");
         const nested = bearsNestedRecord(p.type);
         if (nested) reqImports.add("jakarta.validation.Valid");
-        return `${guardable ? "@NotNull " : ""}${nested ? "@Valid " : ""}${javaType} ${p.name}`;
+        return `${required ? "@NotNull " : ""}${nested ? "@Valid " : ""}${javaType} ${p.name}`;
       });
       // A VO-typed param's `<Vo>Request` record lives in an aggregate's
       // application package, not `domain.valueobjects.*` — import it

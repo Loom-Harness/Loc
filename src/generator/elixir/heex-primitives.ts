@@ -864,6 +864,18 @@ function resolveQueryAggregate(arg: ExprIR): string | undefined {
  *  Elixir.  Only a `method-call` carries args (`<api>.<Agg>.all(page, …)`); a
  *  plain member access (`<api>.<Agg>.all`) has none, so the load stays the
  *  parameterless `list_<agg>s()` it has always been. */
+/** The READ a `QueryView` `of:` call names — `all` for the auto-`findAll`,
+ *  otherwise the declared `find`'s name.  Both spellings the walker accepts
+ *  carry it in the same slot: `<api>.<Agg>.byOwner(x)` is a method-call whose
+ *  `member` is the find, `<api>.<Agg>.all` a member access whose `member` is
+ *  `all`.  A bare `ref` (the aggregate alone) names no read → `undefined`. */
+function queryRetrievalName(arg: ExprIR | undefined): string | undefined {
+  if (arg?.kind === "method-call") return arg.member;
+  if (arg?.kind === "member" && arg.receiver.kind === "member") return arg.member;
+  if (arg?.kind === "member" && arg.receiver.kind === "ref") return arg.member;
+  return undefined;
+}
+
 function queryCallArgs(arg: ExprIR | undefined, ctx: WalkContext): string[] | undefined {
   if (arg?.kind !== "method-call" || arg.args.length === 0) return undefined;
   return arg.args.map((a) => renderExpr(a, { ...ctx, position: "handler" }));
@@ -1045,6 +1057,13 @@ export function renderQueryView(expr: Extract<ExprIR, { kind: "call" }>, ctx: Wa
       // never moves off 1.  HANDLER position — the load block is a function
       // body, so state refs must render `socket.assigns.<f>`, not `@<f>`.
       listArgs: queryCallArgs(ofArgNode, ctx),
+      // WHICH read the `of:` named.  A filter-bar arm names a declared `find`,
+      // whose context function is `<find>_<agg>` — calling `list_<agg>s` with
+      // its argument put the filter value in the paged list's `page` slot
+      // (`("" - 1) * page_size` → ArithmeticError; schemathesis elixir E5).
+      retrieval: isSingle ? undefined : queryRetrievalName(ofArgNode),
+      // …and only when the enclosing `match` arm is the one being rendered.
+      gate: isSingle ? undefined : ctx.matchGate,
     });
   }
 
