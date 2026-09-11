@@ -1,5 +1,6 @@
 import { renderHonoLogCall, renderHonoStoreLogCall } from "../../../generator/_obs/render-hono.js";
 import { statementSubRegions } from "../../../generator/_trace/sourcemap.js";
+import { commandCreateCorrelationParam } from "../../../generator/_workflow/create-state.js";
 import {
   renderWorkflowStmtChunks,
   type WorkflowStmtTarget,
@@ -207,6 +208,18 @@ export function buildWorkflowsFile(
       helperDone.add(wf.name);
     }
   }
+  // F58 — a command route that load-or-allocates its saga row needs the same
+  // `load<Wf>` / `save<Wf>` helpers the reactor path uses.  Emitted here (and
+  // recorded in `helperDone`) so a workflow that is BOTH command-routed and
+  // subscribed declares them exactly once.  Unsubscribed, stateless and
+  // event-sourced workflows add nothing (byte-identical).
+  for (const wf of ctx.workflows) {
+    if (helperDone.has(wf.name)) continue;
+    if (!commandCreateCorrelationParam(wf)) continue;
+    body.push(...emitWorkflowStateHelpers(wf, usingMikro));
+    body.push("");
+    helperDone.add(wf.name);
+  }
 
   // A context whose only workflows are event-sourced sagas (invoked via the
   // dispatcher, never an HTTP route) emits an empty `workflowsRoutes` router
@@ -238,7 +251,9 @@ export function buildWorkflowsFile(
 
   for (const wf of ctx.workflows) {
     if (!emitsCommandRoute(wf)) continue;
-    body.push(...emitWorkflowRoute(wf, ctx, aggsByName, opFragments).map((l) => `  ${l}`));
+    body.push(
+      ...emitWorkflowRoute(wf, ctx, aggsByName, opFragments, usingMikro).map((l) => `  ${l}`),
+    );
     body.push("");
   }
 
@@ -694,6 +709,11 @@ function emitWorkflowRoute(
    *  files stay unmapped at the whole-file grain, but a fragment anchors by
    *  exact text regardless of what else shares the file). */
   opFragments?: OpFragment[],
+  /** `persistence: mikroorm` — the saga row this route load-or-allocates (F58)
+   *  is the Row ENTITY class, whose nullable `lastEventId` is a required
+   *  property under a durable channel; the allocate literal must spell it out.
+   *  Drizzle builds stay byte-identical. */
+  usingMikro = false,
 ): string[] {
   const reqName = `${upperFirst(wf.name)}Request`;
   const out: string[] = [];
@@ -832,6 +852,17 @@ function emitWorkflowRoute(
   if (hasEmit) {
     out.push(`    const workflowEvents: Events.DomainEvent[] = [];`);
   }
+  // F58 — a state-bearing workflow's COMMAND route must load-or-allocate the
+  // same persisted saga row its event-triggered starter does (`emitHandlerFn`),
+  // and render the body against it.  Without this the body's own-state writes
+  // rendered `this.<field>` inside an arrow function (TS2683) and the
+  // correlation row was never created, so a later `on` reactor for the same key
+  // logged `event_unrouted` forever.  The key is the create param that
+  // name-matches the correlation field — the command-side twin of the reactor's
+  // omitted-`by` rule.  Stateless / event-sourced / key-less workflows keep the
+  // `this` receiver and emit nothing here (byte-identical).
+  const corrParam = commandCreateCorrelationParam(wf);
+  const wfThis = corrParam ? "state" : "this";
   // Provenanced writes accumulated during the workflow's steps must be flushed
   // to provenance_records here — without it they are silently dropped (the
   // per-operation route flushes them, but a workflow calls ops inline).  A
@@ -882,15 +913,33 @@ function emitWorkflowRoute(
       subRegions: statementSubRegions(wf.statements, chunkTexts, `${ctx.name}.${wf.name}`),
     });
   };
+  // The saga-row load / save run on the SAME handle the body's repositories do
+  // (`tx` inside a transactional workflow), so the instance write commits or
+  // rolls back with the aggregates it orchestrates.
+  const stateLoad = (handle: string, ind: string): string[] =>
+    corrParam
+      ? [
+          `${ind}const state = (await load${upperFirst(wf.name)}(${handle}, ${corrParam.name})) ?? ${allocateLiteral(
+            wf,
+            {
+              keyExpr: corrParam.name,
+              mikroDurable: usingMikro && durableEventTypes(ctx).size > 0,
+            },
+          )};`,
+        ]
+      : [];
+  const stateSave = (handle: string, ind: string): string[] =>
+    corrParam ? [`${ind}await save${upperFirst(wf.name)}(${handle}, state);`] : [];
   if (wf.transactional) {
     const txOpts = wf.isolation ? `, { isolationLevel: "${pgIsolationLevel(wf.isolation)}" }` : ``;
     out.push(`${bi}await db.transaction(async (tx) => {${""}`);
     for (const r of reposNeeded) {
       out.push(`${bi}  const ${lowerFirst(r.repoName)} = new ${r.aggName}Repository(tx, events);`);
     }
+    out.push(...stateLoad("tx", `${bi}  `));
     const stmtChunks = renderWorkflowStmtChunks(
       wf.statements,
-      honoWorkflowStmtTarget(ctx, paramExprs, "this", { dbHandle: "tx", repoVarByAgg }),
+      honoWorkflowStmtTarget(ctx, paramExprs, wfThis, { dbHandle: "tx", repoVarByAgg }),
       `${bi}  `,
     );
     out.push(...stmtChunks.flat());
@@ -898,15 +947,17 @@ function emitWorkflowRoute(
     for (const save of wf.savesAtExit) {
       out.push(`${bi}  await ${lowerFirst(save.repoName)}.save(${save.name});`);
     }
+    out.push(...stateSave("tx", `${bi}  `));
     out.push(...renderProvFlush(provSaves, `${bi}  `, "tx"));
     out.push(`${bi}}${txOpts});`);
   } else {
     for (const r of reposNeeded) {
       out.push(`${bi}const ${lowerFirst(r.repoName)} = new ${r.aggName}Repository(db, events);`);
     }
+    out.push(...stateLoad("db", bi));
     const stmtChunks = renderWorkflowStmtChunks(
       wf.statements,
-      honoWorkflowStmtTarget(ctx, paramExprs, "this", { dbHandle: "db", repoVarByAgg }),
+      honoWorkflowStmtTarget(ctx, paramExprs, wfThis, { dbHandle: "db", repoVarByAgg }),
       bi,
     );
     out.push(...stmtChunks.flat());
@@ -914,6 +965,7 @@ function emitWorkflowRoute(
     for (const save of wf.savesAtExit) {
       out.push(`${bi}await ${lowerFirst(save.repoName)}.save(${save.name});`);
     }
+    out.push(...stateSave("db", bi));
     out.push(...renderProvFlush(provSaves, bi, "db"));
   }
   if (wrapsFrame) {
@@ -1498,9 +1550,14 @@ function emitWorkflowStateHelpers(wf: WorkflowIR, usingMikro = false): string[] 
  *  key plus a typed default for each required (non-optional) non-key saga state
  *  field, so the literal satisfies the row's insert type.  Optional fields are
  *  omitted (nullable columns). */
-function allocateLiteral(wf: WorkflowIR, opts: { mikroDurable?: boolean } = {}): string {
+function allocateLiteral(
+  wf: WorkflowIR,
+  opts: { mikroDurable?: boolean; keyExpr?: string } = {},
+): string {
   const corr = wf.correlationField as string;
-  const parts = [`${corr}: __key`];
+  // `__key` on the reactor path (it binds one); the command route allocates
+  // straight off the correlation param local, which is already domain-typed.
+  const parts = [`${corr}: ${opts.keyExpr ?? "__key"}`];
   for (const f of wf.stateFields ?? []) {
     if (f.name === corr || f.optional) continue;
     parts.push(`${f.name}: ${defaultLiteralFor(f.type)}`);
