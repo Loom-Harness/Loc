@@ -204,25 +204,38 @@ TODO/throw sentinels.
 
 ## 6. Gates run, with counts
 
-| Suite | Result |
+The final sweep, on the branch tip, after every fix above:
+
+```
+npx vitest run test/generator/{react,vue,svelte,angular,feliz,flutter,_walker,elixir}/ \
+               test/platform/ test/conformance/ test/system/ test/ir/
+
+  Test Files  962 passed | 1 skipped (963)
+       Tests  12200 passed | 31 skipped (12231)
+```
+
+| Gate | Result |
 |---|---|
 | `npx tsc -b` | clean |
-| `test/system/walker-give-up-routing.test.ts` | **6/6** |
-| `test/generator/_walker/walker-declines-with-a-code.test.ts` | **8/8** (7 targets + the partition test), ~110 s |
-| `test/generator/_walker/walker-give-up-corpus-shapes.test.ts` | **2/2** |
-| `test/system/diagnostic-catalog.test.ts` + `diagnostic-docs-anchors` + `unsupported-register` + routing | **145/145** |
-| `test/generator/elixir/` | **1109/1109** (one pre-existing marker pin updated for the code) |
-| `test/conformance/corpus-coverage.test.ts -t walker-give-up-shapes` | **1/1** |
-| `test/generator/{react,vue,svelte,angular,feliz,flutter,_walker,elixir}/`, `test/platform/`, `test/conformance/`, `test/system/`, `test/ir/` | full sweep, green |
-| `npm run lint` | no findings in any file this packet touched (the repo-wide `biome ci` residue is pre-existing on the wave base — `dotnet/dto-mapping.ts`, `java/emit/*`, `ir/types/loom-ir.ts`, … — none of them in this diff) |
+| the sweep above (every suite this packet can touch) | **962 files / 12 200 tests, green** |
+| `test/system/walker-give-up-routing.test.ts` | 6/6 — the census ratchet, `UNCODED_GIVE_UPS` empty |
+| `test/generator/_walker/walker-declines-with-a-code.test.ts` | 9/9 (7 targets + the partition test + the per-code coverage assertion), ~115 s |
+| `test/generator/_walker/walker-give-up-corpus-shapes.test.ts` | 2/2 |
+| `node scripts/test-typecheck.mjs` | ratchet OK — 182 files, 470 errors, `src/` clean (unchanged) |
+| `node scripts/ledger-counts.mjs --check` | `.md` matches the JSON |
 | `node docs/build.mjs` | clean |
-
-*One docs observation, pre-existing and not fixed here: `RENDERED_SUBDIRS` in `docs/build.mjs` lists `new-plan`, `new-plan/missions` and the two archive dirs but **not** `new-plan/waves` or `new-plan/waves/handoffs`, so every track-file link into a hand-off note 404s on the published site — `T9:265` → `wave-2-numeric-codec.md` and `T6:250` → `wave-2-seeder-contract.md` already do. The M-T9.55 heading's link to this note follows the same established pattern rather than inventing a different one; adding the two dirs to that list is a one-line fix for whoever owns `docs/build.mjs`.*
+| `npm run lint` | no finding in any file this packet touched. The repo-wide `biome ci` residue is PRE-EXISTING on the wave base (`dotnet/dto-mapping.ts`, `java/emit/{dto,service,workflow}.ts`, `python/routes-builder.ts`, `ir/types/loom-ir.ts`, `ir/validate/checks/ui-checks.ts`, `language/model-patch.ts`, `platform/hono/v4/routes-builder.ts`, `macros/stdlib/auto-paged-table.ts`, `scripts/measure-pack-spacing.mjs`, `test/ir/wire/wire-spec.test.ts` — none in this diff) and is flagged for the coordinator |
 
 *(`scripts/mission-counts.mjs` does not exist on this tree — the preamble names it, but only
-`scripts/ledger-counts.mjs` is present. Nothing to run; flagged for the coordinator.)*
+`scripts/ledger-counts.mjs` is present. Nothing to run; flagged.)*
 
----
+*One docs observation, pre-existing and not fixed here: `RENDERED_SUBDIRS` in `docs/build.mjs`
+lists `new-plan`, `new-plan/missions` and the two archive dirs but **not** `new-plan/waves` or
+`new-plan/waves/handoffs`, so every track-file link into a hand-off note 404s on the published
+site — `T9:265` → `wave-2-numeric-codec.md` and `T6:250` → `wave-2-seeder-contract.md` already do.
+The M-T9.55 heading's link to this note follows the same established pattern rather than inventing
+a different one; adding the two dirs to that list is a one-line fix for whoever owns
+`docs/build.mjs`.*
 
 ## 7. Contention with the in-flight PRs
 
