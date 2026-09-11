@@ -482,11 +482,11 @@ aggregate Order {
 
 ## Generic carriers — `paged`, `envelope`, `option`
 
-Three **carrier-bounded generic payloads** are built in, instantiated ML-postfix (the keyword follows its argument): `T paged`, `T envelope`, `T option`. A carrier may appear only in a **transport position** — a repository `find` return type, a `queryHandler` return type, or a payload field — never as a stored aggregate property (`loom.generic-position`: *A generic carrier ('paged') is a transport shape*). The argument must itself be a carrier (a primitive, an `X id`, an enum, a value object, or an aggregate, which projects through its `<Agg>Wire`); nesting two constructors (`Order envelope paged`) or a `slot` argument is rejected (`loom.generic-arg-not-carrier`). The pinned shapes:
+Three **carrier-bounded generic payloads** are built in, instantiated ML-postfix (the keyword follows its argument): `T paged`, `T envelope`, `T option`. A carrier may appear only in a **transport position** — a repository `find` return type, a `queryHandler` return type, or a payload field — never as a stored aggregate property (`loom.generic-position`: *A generic carrier ('paged') is a transport shape*). The argument must itself be a carrier (a primitive, an `X id`, an enum, a value object, or an aggregate, which projects through its `<Agg>Wire`); nesting two constructors (`Order envelope paged`) or a `slot` argument is rejected (`loom.generic-arg-not-carrier`). The pinned shapes — note that `envelope` is the odd one out: it is a *read cardinality*, not a wire wrapper (see [§ `envelope`](#envelope)):
 
 ```
 paged(T)    → { items: T[]; page: int; pageSize: int; total: int; totalPages: int }   # 1-based
-envelope(T) → { id: string; ts: datetime; body: T }
+envelope(T) → T                                    # a SINGLE-ROW find: the bare body, 404 when absent
 option(T)   → the 2-variant union  union[T, none]  (an untagged 200 / 404 as a find return)
 ```
 
@@ -548,32 +548,79 @@ end
 
 ### `envelope`
 
-The pinned contract is `envelope(T) → { id, ts, body }`. **Honest gap:** the repository layer knows the carrier (dotnet `public sealed record Envelope<T>(string Id, DateTime Ts, T Body)`, java `Envelope<Order> audit()`), but no backend projects the wrapper onto the route — node, dotnet, java and python return the bare body (`OrderResponse`, `404` when empty), and elixir's `audit/0` returns `Repo.all` → a JSON **array** of bodies:
+`find audit(): Order envelope` is a **single-row find**: the repository answers
+one `Order`, the route serialises the **bare body** at `200`, and an empty result
+set is the not-found rung — `404` ProblemDetails. It is wire-identical to
+`find audit(): Order`, and that is the whole of its meaning. All five backends
+agree by construction (`test/generator/envelope-carrier.test.ts` asserts that
+`T envelope` and `T` emit byte-identically; `test/fixtures/corpus/envelope.ddd`
+is the fixture the compile gates read).
 
 ::: tabs backend
 == node
 ```ts
-// http/order.routes.ts — the envelope find's route schema is bare OrderResponse,
-// not the { id, ts, body } wrapper
-200: { description: "OK", content: { "application/json": { schema: OrderResponse } } },
-// return c.json(repo.toWire(result) as z.infer<typeof OrderResponse>, 200);
+// db/repositories/order-repository.ts
+async audit(): Promise<Order> {
+  const rootRows = await this.db.select().from(schema.orders).limit(1);
+  if (rootRows.length === 0) throw new AggregateNotFoundError("not found");
+  return Order._rehydrate({ … });
+}
+// http/order.routes.ts — 200 OrderResponse | 404, no wrapper
 ```
 == dotnet
 ```csharp
-// Api/OrdersController.cs + Application/Orders/Queries/AuditQuery.cs
-[HttpGet("audit")]
-public async Task<ActionResult<OrderResponse>> AuditOrder()   // bare OrderResponse
+// Domain/Orders/IOrderRepository.cs
+Task<Order> Audit(CancellationToken cancellationToken = default);
+// Infrastructure — FirstOrDefaultAsync(…) ?? throw new AggregateNotFoundException("not_found")
+// Api/OrdersController.cs — ActionResult<OrderResponse>
+```
+== java
+```java
+// features/orders/OrderRepository.java
+Order audit();
+// OrderService.audit(): found == null ? null : OrderResponse.from(found)
+// OrdersController.auditOrder(): null → AggregateNotFoundException → 404
+```
+== python
+```python
+# app/db/repositories/order_repository.py
+async def audit(self) -> Order | None:
+    row = (await self._session.execute(select(OrderRow))).scalars().first()
+    return None if row is None else await self._hydrate(row)
+# app/http/order_routes.py — response_model=OrderResponse, 404 when absent
 ```
 == elixir
 ```elixir
-# lib/api_elixir_web/controllers/order_controller.ex — a list, not a body
-def audit(conn, _params) do
-  with {:ok, records} <- Orders.audit_order(), do: json(conn, Enum.map(records, &serialize/1))
-end
+# lib/api_elixir/orders/order_repository.ex
+@spec audit() :: {:ok, ApiElixir.Orders.Order.t() | nil} | {:error, term()}
+def audit(), do: {:ok, Repo.one(from(record in ApiElixir.Orders.Order))}
+# controller: {:ok, nil} → 404 ProblemDetails; {:ok, record} → json(conn, serialize(record))
 ```
 ::: end
 
-> Treat `{ id, ts, body }` as the carrier's intended contract, but do not rely on it: it is the least uniformly projected of the three carriers, and the five backends do not even agree on the unwrapped shape.
+> **What changed, and why the keyword now carries no distinct meaning.** This
+> section used to pin `envelope(T) → { id, ts, body }` and flag an "honest gap":
+> the repository layer knew the carrier while no backend projected the wrapper
+> onto the route. The gap was worse than honest. **java did not compile** — it
+> named `Envelope<Order>` in the repository port, the Spring Data interface and
+> the impl and declared the type *nowhere* (no class, no import), then called
+> `OrderResponse.from(…)` on it; a `@Query(…) Envelope<Order> audit();` is not a
+> Spring-Data-mappable return either. **dotnet did not compile** — it declared
+> `record Envelope<T>(string Id, DateTime Ts, T Body)` and then returned a bare
+> `Order` from a `Task<Envelope<Order>>` (**CS0029**). **elixir** answered a JSON
+> array of every row while its own published OpenAPI declared a single object.
+> Only node and python were coherent.
+>
+> The `{ id, ts, body }` wrapper could not be made to ship: nothing in the IR can
+> source `ts`. So the carrier was **ratified as the single-row find** node and
+> python already implemented (M-T6.57), the wrapper record was deleted from the
+> .NET emission, and `envelope` is unwrapped to its argument at each backend's
+> find-return seam. `envelope` is retained as documentation-in-the-signature —
+> "this read yields at most one row" — not as a wire shape.
+>
+> Nothing caught this for as long as it did because **no `.ddd` in the repository
+> instantiated the carrier**, so every compile gate was blind to it by
+> construction. `test/fixtures/corpus/envelope.ddd` is the fix for that half.
 
 ### `option`
 

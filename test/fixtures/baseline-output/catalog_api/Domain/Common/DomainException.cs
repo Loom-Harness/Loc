@@ -126,16 +126,12 @@ public interface IDomainEventDispatcher
 }
 
 /// <summary>
-/// Carrier-bounded generic payloads (payload-transport-layer.md, P3b).
-/// One generic record per blessed carrier; serializes camelCase to the
-/// same wire JSON as the Hono / React backends (items/page/pageSize/
-/// total/totalPages, id/ts/body).  Used both domain-side (Paged&lt;Order&gt;
-/// off the repository) and wire-side (Paged&lt;OrderResponse&gt; from the
-/// controller).
+/// The paged carrier (payload-transport-layer.md, P3b).  Serializes camelCase to
+/// the same wire JSON as the Hono / React backends (items/page/pageSize/total/
+/// totalPages).  Used both domain-side (Paged&lt;Order&gt; off the repository) and
+/// wire-side (Paged&lt;OrderResponse&gt; from the controller).
 /// </summary>
 public sealed record Paged<T>(IReadOnlyList<T> Items, int Page, int PageSize, int Total, int TotalPages);
-
-public sealed record Envelope<T>(string Id, DateTime Ts, T Body);
 
 /// <summary>
 /// Domain-termed read-scope bypass for a retrieval (the DSL <c>ignoring</c>

@@ -182,6 +182,8 @@ OpenApiSpex.schema(%{
 ::: end
 
 > **Elixir divergence.** The other four backends emit a dedicated VO type and flatten its columns (`total_amount` / `total_currency`); the Elixir backend stores the VO as a single `:map` (JSONB) column `total` — in its Ecto schema *and* in its Ecto migration (`add :total, :map`). The *wire* (a nested `{ amount, currency }` object) is the cross-backend contract; the column layout is not.
+>
+> This holds for **every** value object — `mapTypeToEcto` (`src/generator/elixir/vanilla/schema-emit.ts`) returns `":map"` for a `valueobject` unconditionally. There is no `embedded_schema` for a composite VO and no custom `Ecto.Type` for a single-field one; a VO carrying a `check` gets a *schemaless-changeset validator module* beside the owner (a `@types` map + `cast/3` + the invariant validators + `new/1`), and an unconstrained VO gets no module at all. [`generators.md`](../generators.md) claimed the `embedded_schema` / `Ecto.Type` split in two places until 2026-09-10; both rows now point back here.
 
 ## `entity` parts & `contains`
 

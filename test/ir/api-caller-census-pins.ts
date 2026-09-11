@@ -570,6 +570,22 @@ export const UNATTRIBUTED_CALLS: Record<string, readonly string[]> = {
 // classes decide the ORDER of the remaining drain, and re-deriving them costs
 // the next agent an hour (#2517).
 export const E2E_LESS_CORPUS_FIXTURES: readonly string[] = [
+  // COMPILE-TIER WITNESS (audit F57 / M-T6.57) — the `envelope` carrier, which
+  // NO `.ddd` in the repo instantiated before this fixture, so every compile
+  // gate was blind to it and java/dotnet emitted output that did not build.
+  // The oracle is a COMPILE one (the five corpus compile legs) plus the
+  // byte-identity gate in `test/generator/envelope-carrier.test.ts`: `envelope`
+  // is ratified as a single-row find, so `T envelope` must emit exactly what
+  // `T` emits, and a behavioural block would add no oracle the compile tier and
+  // that gate do not already give.
+  //
+  // It would also mint a wire golden across a divergence this PR did not drain:
+  // the find-miss 404 `detail` is `"not found"` on node and `"not_found"` on the
+  // other four (dotnet's own `projectionClauseFor` comment calls `"not_found"`
+  // "the canonical find-miss detail token on every backend").  A golden captured
+  // on the node leg would therefore redden the other four legs on main.  Author
+  // the block once THAT is ruled.
+  "envelope",
   // COMPILE-TIER WITNESS (generator review A5/A10–A14) — the previously
   // unwitnessed collection-op shapes (arithmetic-lambda `sum`, `distinct` over
   // money, argless `any()`, descending `sortBy`, unary minus on money, `-=` on

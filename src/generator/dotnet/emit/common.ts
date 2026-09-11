@@ -178,17 +178,21 @@ public interface IDomainEventDispatcher
         => Task.FromResult(events);
 }
 
-/// <summary>
-/// Carrier-bounded generic payloads (payload-transport-layer.md, P3b).
-/// One generic record per blessed carrier; serializes camelCase to the
-/// same wire JSON as the Hono / React backends (items/page/pageSize/
-/// total/totalPages, id/ts/body).  Used both domain-side (Paged&lt;Order&gt;
-/// off the repository) and wire-side (Paged&lt;OrderResponse&gt; from the
-/// controller).
+${
+  /* `Paged<T>`'s sibling carrier record, `Envelope<T>`, used to sit right here.
+     It was DEAD and worse than dead: `find x(): T envelope` declared
+     `Task<Envelope<Order>>` on the repository and returned a bare `Order`
+     (CS0029), and the query handler then read `domain.Id.Value` off it.
+     `envelope` is ratified as a SINGLE-ROW find (M-T6.57) — unwrapped to `T` by
+     `domainFindShape` in find-emit.ts — so no emitted C# names the type and the
+     record is gone.  Do not reintroduce it without a caller. */ ""
+}/// <summary>
+/// The paged carrier (payload-transport-layer.md, P3b).  Serializes camelCase to
+/// the same wire JSON as the Hono / React backends (items/page/pageSize/total/
+/// totalPages).  Used both domain-side (Paged&lt;Order&gt; off the repository) and
+/// wire-side (Paged&lt;OrderResponse&gt; from the controller).
 /// </summary>
 public sealed record Paged<T>(IReadOnlyList<T> Items, int Page, int PageSize, int Total, int TotalPages);
-
-public sealed record Envelope<T>(string Id, DateTime Ts, T Body);
 
 ${fileRef}/// <summary>
 /// Domain-termed read-scope bypass for a retrieval (the DSL <c>ignoring</c>
