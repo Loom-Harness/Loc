@@ -196,18 +196,18 @@ system Crm {
 
   it("publishes an enum field's declared values, in declaration order", async () => {
     const loom = await buildLoomModel(withValues("New Qualified Converted Lost"));
-    const lead = buildWireSpec(loom.systems[0]!).aggregates["Lead"]!;
-    expect(lead.properties["status"]).toEqual({
+    const lead = buildWireSpec(loom.systems[0]!).aggregates.Lead!;
+    expect(lead.properties.status).toEqual({
       type: "string",
       enum: ["New", "Qualified", "Converted", "Lost"],
     });
     // …through a collection and through an optional, too — the constraint
     // rides the same recursion the carrier type does.
-    expect(lead.properties["history"]).toEqual({
+    expect(lead.properties.history).toEqual({
       type: "array",
       items: { type: "string", enum: ["New", "Qualified", "Converted", "Lost"] },
     });
-    expect(lead.properties["previous"]).toEqual({
+    expect(lead.properties.previous).toEqual({
       type: "string",
       enum: ["New", "Qualified", "Converted", "Lost"],
     });

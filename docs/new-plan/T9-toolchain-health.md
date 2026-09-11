@@ -580,7 +580,7 @@ the generated comment, not on `ddd generate`'s stderr — lifting them into real
 ([`waves/handoffs/wave-c1-1d-giveup-drain.md`](waves/handoffs/wave-c1-1d-giveup-drain.md)) along with
 the HEEx named-icon parity gap the drain deliberately did not smuggle in.
 
-## M-T9.56 — 128 validator conditions reach the user as one non-catalog code — gate half `done`, drain half `open` · ~**70-78 h** for the drain · P1
+## M-T9.56 — 128 validator conditions reach the user as one non-catalog code (the gate half landed with Wave C1 packet 1g; the drain is Wave C4's) — `open` · ~**70-78 h** for the drain · P1
 
 Found 2026-09-09 ([F55](../audits/2026-09-03-language-docs-audit-findings.md), extended as F64). Across
 `src/language/validators/**` + `ddd-validator.ts`: **196 `accept` sites carry a code, 119 errors and 11
