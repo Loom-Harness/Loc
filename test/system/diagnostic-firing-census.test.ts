@@ -1052,6 +1052,27 @@ system S {
   deployable api { platform: node contexts: [C] dataSources: [st] serves: Api port: 3000 }
   deployable web { platform: static targets: api ui: WebApp { C: api } port: 3001 }
 }`,
+  // `DestroyForm { of: … }` whose `of:` is not an aggregate carrying a canonical
+  // destroy.  `Note` declares no `destroy { }` and is not `with crudish`, so the
+  // form has nothing to submit — five frontends drop it for a comment and Feliz
+  // dispatches a `Msg` case that does not exist.
+  "loom.destroy-form-of-unresolved": `
+system S {
+  subdomain Sub { context C {
+    aggregate Note { text: string }
+    repository Notes for Note { }
+  } }
+  api Api from Sub
+  ui WebApp {
+    framework: react
+    api C: Api
+    page A(id: Note id) { route: "/a/:id"  body: Stack { DestroyForm { of: Note } } }
+  }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable api { platform: node contexts: [C] dataSources: [st] serves: Api port: 3000 }
+  deployable web { platform: static targets: api ui: WebApp { C: api } port: 3001 }
+}`,
   // --- frontend deployable without a `ui:` binding ------------------------
   "loom.react-deployable-missing-ui": spaMissingUi("react"),
   "loom.svelte-deployable-missing-ui": spaMissingUi("svelte"),

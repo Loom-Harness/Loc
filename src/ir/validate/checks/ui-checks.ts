@@ -48,6 +48,7 @@ export { COMPONENT_DEFERRALS } from "./ui-component-deferral-checks.js";
 import {
   type CallableNames,
   checkAsyncEffectArgs,
+  checkDestroyFormOf,
   checkInstanceEffectRouteId,
   checkOpFormRouteId,
   checkScaffoldFilterParams,
@@ -195,6 +196,7 @@ export function validateUiBodies(loom: EnrichedLoomModel, diags: LoomDiagnostic[
         checkActionBodies(page.actions, ctx, diags);
         checkInstanceEffectRouteId(page, aggNames, apiParamNames, diags);
         checkOpFormRouteId(page, diags);
+        checkDestroyFormOf(page, pageWhere(page), aggByName, diags);
         checkFrontendCollectionOps(page, pageWhere(page), diags);
         checkUnknownPageElements(page, pageWhere(page), callableNames, diags);
         checkSlotOutsideComponent(page, pageWhere(page), diags);
@@ -254,6 +256,7 @@ export function validateUiBodies(loom: EnrichedLoomModel, diags: LoomDiagnostic[
         };
         checkBody(comp.body, ctx, diags);
         checkActionBodies(comp.actions, ctx, diags);
+        checkDestroyFormOf(comp, `component '${comp.name}'`, aggByName, diags);
         checkFrontendCollectionOps(comp, `component '${comp.name}'`, diags);
         checkUnknownPageElements(comp, `component '${comp.name}'`, callableNames, diags);
         checkUnresolvedPageRefs(comp, `component '${comp.name}'`, callableNames, diags);

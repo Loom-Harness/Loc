@@ -435,17 +435,28 @@ export const felizTarget: WalkerTarget = {
   // `DestroyForm(of: <Agg>)` → a delete button that DISPATCHES `Delete<Agg> id`
   // (the route id is bound by the detail page's view fn).  The mutation `Cmd` +
   // navigate-on-success live in `update` (wired by index.ts's `collectPage
-  // Mutations`); the view only dispatches.  Falls through to the shared comment
-  // path when the `of:` arg isn't a plain aggregate ref.
+  // Mutations`); the view only dispatches.
+  //
+  // The `of:` arg is resolved through `ctx.aggregatesByName` — the SAME map
+  // `formOfAggs` (`feliz/wire.ts`) filters by when it collects the `Msg` cases.
+  // Until M-T1.31 this seam only checked that the arg was a `ref` and
+  // interpolated its raw NAME, so a `DestroyForm { of: <not an aggregate> }`
+  // emitted `dispatch (Delete<Name> id)` against a `Msg` union with no such
+  // case — `dotnet fable` FS0039 (audit findings F11 / F62).  Returning `null`
+  // now genuinely falls through to the shared give-up comment path, which is
+  // what the old comment here claimed but a plain ref never did.
+  // `loom.destroy-form-of-unresolved` (phase ⑦) makes this unreachable from
+  // valid source; this is the defence in depth behind it.
   renderDestroyForm: (call, ctx) => {
     if (call.kind !== "call") return null;
     const names = call.argNames ?? [];
     const idx = names.indexOf("of");
     const ofArg = idx >= 0 ? call.args[idx] : undefined;
-    const agg = ofArg?.kind === "ref" ? ofArg.name : undefined;
+    if (ofArg?.kind !== "ref") return null;
+    const agg = ctx.aggregatesByName.get(ofArg.name);
     if (!agg) return null;
     ctx.usesRouteId = true; // the delete dispatches with the route `id`
-    return `Html.button [ prop.className "btn btn-error"; prop.onClick (fun _ -> dispatch (Delete${upperFirst(agg)} id)); prop.text "Delete ${upperFirst(agg)}" ]`;
+    return `Html.button [ prop.className "btn btn-error"; prop.onClick (fun _ -> dispatch (Delete${upperFirst(agg.name)} id)); prop.text "Delete ${upperFirst(agg.name)}" ]`;
   },
 
   // `FileLink(<file-ref>)` → a plain daisyUI download anchor.  Feliz forks the
