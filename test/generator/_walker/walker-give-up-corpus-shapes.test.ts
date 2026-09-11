@@ -23,8 +23,8 @@
 import { describe, expect, it } from "vitest";
 import { validate } from "../../../src/api/index.js";
 import { GIVE_UP_RE } from "../../../src/generator/_walker/give-up.js";
-import { corpusSourceFor } from "../../fixtures/corpus/harness.js";
 import { generateSystemFiles } from "../../_helpers/generate.js";
+import { corpusSourceFor } from "../../fixtures/corpus/harness.js";
 
 /** shape → the code its give-up must name.  Keyed by a fragment of the
  *  give-up's own text, so a reworded message fails here instead of silently

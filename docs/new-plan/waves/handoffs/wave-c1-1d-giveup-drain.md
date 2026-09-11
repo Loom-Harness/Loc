@@ -139,13 +139,18 @@ packet's fence and is the coordinator's C0.4-style sweep.
 
 ### §18 sentinel overlap (for packet 1d-ii)
 
-Per the packet brief, 1d-ii owns the §18 list. **One item overlaps and is now routed here — 1d-ii
-should skip it:**
+Per the packet brief, 1d-ii owns the §18 list. **Checked item by item: NOTHING on that list was
+touched.** Not one of them is a `giveUp` site, so the mechanical pass could not have reached them,
+and the diff confirms it — every hunk in `walker-core.ts` and `flutter-target.ts` is a single
+inserted code argument on an existing `giveUp(...)` call.
 
-* `flutter/pack.ts`'s and `feliz/pack.ts`'s `<pack> pack: no renderer for "<name>"` fallbacks now
-  carry `loom.page-primitive-target-gap` via `giveUpText`.
+One thing ADJACENT to the list is now routed, and 1d-ii should treat it as done rather than
+re-open it: `flutter/pack.ts`'s and `feliz/pack.ts`'s `<pack> pack: no renderer for "<name>"`
+fallbacks carry `loom.page-primitive-target-gap` via `giveUpText`. They are sentinel-bearing
+give-ups (they were already in `frontend-showcase-render.test.ts`'s `FALLBACK_MARKERS`), not §18
+TODO/throw sentinels.
 
-**Everything else on the §18 list was left untouched**, as instructed: `walker-core.ts`'s
+**Left untouched**, as instructed: `walker-core.ts`'s
 `TODO … hooks {}` (~2015), the three riverpod `TODO(flutter full-parity)` arms,
 `flutter-target.ts`'s nested state write, the drizzle predicate `TODO`, the
 `extern-functions.ts` / `component-prop-type.ts` throws, `svelte/routes-emitter.ts`'s throw,

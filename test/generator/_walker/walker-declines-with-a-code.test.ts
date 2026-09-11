@@ -43,9 +43,9 @@
 
 import { describe, expect, it } from "vitest";
 import { validate } from "../../../src/api/index.js";
+import { DIAGNOSTIC_MESSAGES } from "../../../src/diagnostics/messages.js";
 import { GIVE_UP_RE, GIVE_UP_SENTINEL } from "../../../src/generator/_walker/give-up.js";
 import { WALKER_PRIMITIVES } from "../../../src/generator/_walker/registry.js";
-import { DIAGNOSTIC_MESSAGES } from "../../../src/diagnostics/messages.js";
 import { generateSystemFiles } from "../../_helpers/generate.js";
 
 /** The catalogued codes a give-up may name. */
@@ -219,7 +219,10 @@ describe("the body walker never declines without a code", () => {
         const b = whole.lastIndexOf(`${MARK}${name}B`);
         const e = whole.lastIndexOf(`${MARK}${name}E`);
         if (b < 0 || e < 0 || e < b) return null;
-        return whole.slice(b + `${MARK}${name}B`.length, e).replace(/\s+/g, " ").trim();
+        return whole
+          .slice(b + `${MARK}${name}B`.length, e)
+          .replace(/\s+/g, " ")
+          .trim();
       };
       const control = between("Ctl");
       expect(
