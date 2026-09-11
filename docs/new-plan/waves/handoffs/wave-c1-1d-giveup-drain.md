@@ -174,6 +174,8 @@ TODO/throw sentinels.
 | `npm run lint` | no findings in any file this packet touched (the repo-wide `biome ci` residue is pre-existing on the wave base — `dotnet/dto-mapping.ts`, `java/emit/*`, `ir/types/loom-ir.ts`, … — none of them in this diff) |
 | `node docs/build.mjs` | clean |
 
+*One docs observation, pre-existing and not fixed here: `RENDERED_SUBDIRS` in `docs/build.mjs` lists `new-plan`, `new-plan/missions` and the two archive dirs but **not** `new-plan/waves` or `new-plan/waves/handoffs`, so every track-file link into a hand-off note 404s on the published site — `T9:265` → `wave-2-numeric-codec.md` and `T6:250` → `wave-2-seeder-contract.md` already do. The M-T9.55 heading's link to this note follows the same established pattern rather than inventing a different one; adding the two dirs to that list is a one-line fix for whoever owns `docs/build.mjs`.*
+
 *(`scripts/mission-counts.mjs` does not exist on this tree — the preamble names it, but only
 `scripts/ledger-counts.mjs` is present. Nothing to run; flagged for the coordinator.)*
 
