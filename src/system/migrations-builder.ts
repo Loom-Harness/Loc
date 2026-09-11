@@ -846,6 +846,20 @@ export function diffSchema(
   ];
 }
 
+/** True for a column the migration DIFF may act on.
+ *
+ *  Excludes the parent-table stand-in column a value-object *array* field
+ *  contributes (`charges: Money[]` → `charges`, tagged `valueArrayChildTable`).
+ *  That column is a carrier for the child-table name inside `TableShape`, not a
+ *  column any backend actually creates: `renderCreateTable` (sql-pg.ts) and the
+ *  Ecto initial/inline renderers all skip it, because the elements live in the
+ *  id-less `<agg>_<field>` child table emitted beside the parent.  Since no
+ *  CREATE TABLE ever lays it down, no ALTER may add, drop or alter it either.
+ *  See `diffTable` for the failure this guards (M-T2.15 / #2864 D1). */
+function isDiffableColumn(c: ColumnShape): boolean {
+  return c.valueArrayChildTable === undefined;
+}
+
 function diffTable(
   prev: TableShape,
   next: TableShape,
@@ -854,10 +868,27 @@ function diffTable(
 ): void {
   // ALTER/DROP steps target the table's CURRENT schema (where it now lives).
   const schema = next.schema;
+  // A value-object array's parent stand-in column (tagged `valueArrayChildTable`)
+  // is not a real column on ANY backend: the elements live in the id-less child
+  // table this same generation emits, so every renderer already skips it when it
+  // lays the table down (`renderCreateTable` in sql-pg.ts; the Ecto initial and
+  // inline paths in elixir/migrations-emit.ts).  It must therefore be invisible
+  // to the DIFF as well.  Left visible, adding a `LineVO[]` field to an aggregate
+  // already in the baseline emitted `ADD COLUMN lines JSONB[]` + `SET NOT NULL`
+  // *alongside* the correct child table — a column no ORM maps and nothing ever
+  // writes, so every later INSERT failed the NOT NULL constraint permanently (and
+  // on a populated table the `SET NOT NULL` failed outright).  Removing such a
+  // field was broken symmetrically: a `DROP COLUMN` for a column that was never
+  // created.  Filtering both sides HERE — rather than withholding the column from
+  // `TableShape` — is what keeps an already-stored baseline that carries the
+  // stand-in column diffing cleanly against a freshly derived schema.
+  // M-T2.15 / #2864 D1.
+  const prevColumns = prev.columns.filter(isDiffableColumn);
+  const nextColumns = next.columns.filter(isDiffableColumn);
   const prevCols = new Map<string, ColumnShape>();
-  for (const c of prev.columns) prevCols.set(c.name, c);
+  for (const c of prevColumns) prevCols.set(c.name, c);
   const nextCols = new Map<string, ColumnShape>();
-  for (const c of next.columns) nextCols.set(c.name, c);
+  for (const c of nextColumns) nextCols.set(c.name, c);
 
   // Explicit renames (M-T2.1) — resolved BEFORE the drop/add passes so a
   // renamed column is a `renameColumn` (+ a follow-on type/nullable alter when
@@ -875,7 +906,7 @@ function diffTable(
   if (renames.length > 0) {
     const edge = new Map<string, string>();
     for (const r of renames) edge.set(r.from, r.to);
-    for (const c of prev.columns) {
+    for (const c of prevColumns) {
       if (nextCols.has(c.name) || !edge.has(c.name)) continue; // persisted, or not renamed
       // Follow the rename chain (qty → quantity → amount) to the first hop
       // that is a real column of `next` — the actual target after any
@@ -943,13 +974,13 @@ function diffTable(
   }
 
   // Drops — iterate prev order so the op stream reads source-faithful.
-  for (const c of prev.columns) {
+  for (const c of prevColumns) {
     if (!nextCols.has(c.name) && !renamedPrev.has(c.name)) {
       buckets.dropColumn.push({ op: "dropColumn", table: next.name, schema, name: c.name });
     }
   }
   // Adds — iterate next order; attach FK if present.
-  for (const c of next.columns) {
+  for (const c of nextColumns) {
     if (!prevCols.has(c.name) && !renamedNext.has(c.name)) {
       const fk = next.foreignKeys.find((f) => f.column === c.name);
       buckets.addColumn.push(
@@ -960,7 +991,7 @@ function diffTable(
     }
   }
   // Type / nullable alters — only for columns present on both sides.
-  for (const c of next.columns) {
+  for (const c of nextColumns) {
     const p = prevCols.get(c.name);
     if (!p) continue;
     if (p.nullable !== c.nullable) {

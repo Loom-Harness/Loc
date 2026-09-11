@@ -39,7 +39,9 @@ export const repoRoot = path.resolve(here, "..", "..", "..");
 export const cli = path.join(repoRoot, "bin", "cli.js");
 const fixtureDir = path.join(repoRoot, "test", "e2e", "fixtures", "migration-evolution");
 
-export function readFixture(name: "base" | "evolved"): string {
+export function readFixture(
+  name: "base" | "evolved" | "vo-collection-base" | "vo-collection-evolved",
+): string {
   return fs.readFileSync(path.join(fixtureDir, `${name}.ddd`), "utf8");
 }
 
@@ -608,6 +610,119 @@ export async function runMoneyBoundsCatchUpGate(): Promise<void> {
     if (value !== "10.0000") {
       throw new Error(`expected the 6-dp row to survive rounded to 10.0000, got '${value}'`);
     }
+  } finally {
+    server?.stop();
+    try {
+      fs.rmSync(tree, { recursive: true, force: true });
+    } catch {
+      /* best-effort */
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Value-collection evolution gate (M-T2.15 / #2864 D1).
+//
+// Adding a value-object COLLECTION field to an aggregate already in the
+// baseline used to emit, alongside the correct id-less child table, a phantom
+// root column:
+//
+//   ALTER TABLE "ord"."orders" ADD COLUMN "lines" JSONB[] NULL;
+//   ALTER TABLE "ord"."orders" ALTER COLUMN "lines" SET NOT NULL;
+//
+// No backend creates that column on a fresh generate and no ORM maps it, so
+// nothing ever writes it — every INSERT after the migration failed the NOT NULL
+// constraint permanently.  On a POPULATED table the `SET NOT NULL` failed at
+// apply time instead, which is why this gate seeds a row BEFORE migrating: it
+// catches both halves of the defect, and only a live Postgres can show either.
+//
+// Deliberately does NOT boot the backend — the defect is in the emitted DDL, so
+// psql alone is a complete and much faster proof.
+// ---------------------------------------------------------------------------
+export async function runValueCollectionEvolutionGate(): Promise<void> {
+  const v1 = readFixture("vo-collection-base");
+  const v2 = readFixture("vo-collection-evolved");
+  const tree = fs.mkdtempSync(path.join(os.tmpdir(), "loom-mev-vo-collection-"));
+  let server: PgServer | undefined;
+  try {
+    generate(v1, "node", tree);
+    const migDir = path.join(tree, "d", "db", "migrations");
+    const initial = fs.readdirSync(migDir).find((f) => f.endsWith(".sql"));
+    if (!initial) throw new Error(`no initial migration emitted under ${migDir}`);
+
+    // The Initial migration is the control: it must already omit the phantom
+    // column.  If this ever fails the defect has moved into the create path and
+    // the rest of the gate would be testing the wrong thing.
+    const initialSql = fs.readFileSync(path.join(migDir, initial), "utf8");
+    expect(initialSql).not.toMatch(/"lines"/);
+
+    server = await startPgServer();
+    resetDatabase(server, "vocollection");
+    psql(server, "vocollection", initialSql);
+
+    // A pre-existing row — the state that turns the phantom `SET NOT NULL` from
+    // "every future insert fails" into "the migration itself fails".
+    psql(
+      server,
+      "vocollection",
+      `INSERT INTO "ord"."orders" ("id", "note", "version") ` +
+        `VALUES ('11111111-1111-1111-1111-111111111111', 'seeded', 1)`,
+    );
+
+    // (a) The evolution is NOT destructive.  Pre-fix this threw, naming
+    // `ADD COLUMN ord.orders.lines NOT NULL (no default)` — adding a
+    // value-collection field is a pure table add and needs no flag.
+    generate(v2, "node", tree);
+
+    const deltas = fs
+      .readdirSync(migDir)
+      .filter((f) => f.endsWith(".sql") && f !== initial)
+      .sort();
+    if (deltas.length !== 1) {
+      throw new Error(`expected exactly one delta migration, saw [${deltas.join(", ")}]`);
+    }
+    const deltaSql = fs.readFileSync(path.join(migDir, deltas[0]!), "utf8");
+
+    // (b) The delta creates the child table and touches no column on the root.
+    expect(deltaSql).toMatch(/CREATE TABLE "ord"\."order_lines"/);
+    expect(deltaSql).not.toMatch(/ALTER TABLE "ord"\."orders"/);
+    expect(deltaSql).not.toMatch(/"lines"/);
+
+    // (c) It applies to the POPULATED database.
+    psql(server, "vocollection", deltaSql);
+
+    // (d) `orders` still has exactly its v1 columns — no phantom `lines`.
+    const cols = psql(
+      server,
+      "vocollection",
+      `SELECT string_agg(column_name, ',' ORDER BY ordinal_position) ` +
+        `FROM information_schema.columns ` +
+        `WHERE table_schema = 'ord' AND table_name = 'orders'`,
+    );
+    expect(cols).toBe("id,note,version");
+
+    // (e) The seeded row survived, and a NEW row still inserts — the assertion
+    // the whole finding is about.
+    expect(psql(server, "vocollection", `SELECT "note" FROM "ord"."orders"`)).toBe("seeded");
+    psql(
+      server,
+      "vocollection",
+      `INSERT INTO "ord"."orders" ("id", "note", "version") ` +
+        `VALUES ('22222222-2222-2222-2222-222222222222', 'post-migration', 1)`,
+    );
+    psql(
+      server,
+      "vocollection",
+      `INSERT INTO "ord"."order_lines" ("order_id", "ordinal", "sku", "qty") ` +
+        `VALUES ('22222222-2222-2222-2222-222222222222', 0, 'SKU-1', 3)`,
+    );
+    const joined = psql(
+      server,
+      "vocollection",
+      `SELECT o."note" || '/' || l."sku" || '/' || l."qty" FROM "ord"."orders" o ` +
+        `JOIN "ord"."order_lines" l ON l."order_id" = o."id"`,
+    );
+    expect(joined).toBe("post-migration/SKU-1/3");
   } finally {
     server?.stop();
     try {
