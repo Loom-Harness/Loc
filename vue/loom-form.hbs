@@ -45,10 +45,11 @@ type FileRefValue = { url: string; key: string; contentType: string; size: numbe
  *  (a `money` `Decimal`, a `Date`) does not — so a class instance falls through
  *  to the leaf arm untouched.  It has to: mapping over `Decimal`'s members would
  *  strip its call signatures and break `new Decimal(...)` assignment.  Naming
- *  `Decimal` here instead would be simpler and wrong — `decimal.js` is a
+ *  the decimal package here instead would be simpler and wrong: it is a
  *  CONDITIONAL dependency of the generated project (each pack's package.json
- *  adds it only when the model `usesMoney`), and this runtime file is emitted by
- *  money-free projects too.  A `File` request field is the one field kept nullable: "nothing
+ *  adds it only when the model `usesMoney`), and this runtime file is emitted
+ *  by money-free projects too — which is why not even this comment spells the
+ *  specifier.  A `File` request field is the one field kept nullable: "nothing
  *  uploaded yet" is a real state the form seeds as `null` and the upload handler
  *  assigns back.
  *
