@@ -6363,3 +6363,42 @@ the pre-fix path and shows the only verdict ever published is `in_progress`.
 > The remedy paragraph above is unaffected: the tail watch is the fix for the
 > mechanism #2835 identified, and it happens to close the coverage half too,
 > because a merge-queue head takes the same single-SHA path a PR head does.
+
+## 115. Two agents in one fleet reached for `pkill -f vitest`, and both hit their siblings (2026-09-11)
+
+Eight agents ran concurrently in separate worktrees on one 4-core box. Two of
+them independently ran a broad pattern kill — `pkill -f "vitest run"` and
+`pkill -9 -f vitest` — to clear what each believed was its own stale run. The
+pattern matches every sibling's suite. Between them they killed at least four
+runs, including several of their own, and at least one agent then spent a long
+time investigating timeouts that its sibling had caused.
+
+Both owned it unprompted, which is the only reason the mechanism is legible at
+all: the victim agent recorded `EXIT=143` (SIGTERM) on three of six attempts and
+could not explain it until the killer said so in its PR body.
+
+**The rule: in a shared worktree fleet, kill by PID, never by pattern.** A
+pattern that names the tool (`vitest`, `node`, `tsc`, `vue-tsc`) cannot
+distinguish your process from a sibling's, and worktree paths do not help
+because the binary is the same.
+
+The second-order lesson is about what saturation does to evidence. At load 55-72
+on 4 cores, a local `npm test` produces only timeout-shaped noise — `new.test.ts`
+cases at 41-632 s, `expr-hints-cache` at 659 s — never an assertion failure. Three
+separate agents each spent an hour deciding whether their own diff was at fault.
+None was. Two of them ended up at the same correct policy independently:
+
+- run locally only what is cheap and decisive — `lint`, `tsc -b`, the targeted
+  suites for the changed code, and the mutation proof;
+- treat CI's `tests passed` on a clean runner as the authoritative full-suite
+  verdict;
+- and if you never saw a green rollup, **say so and leave the PR draft** rather
+  than claim a green you did not observe. Three PRs in this fleet did exactly
+  that, and in every case CI later agreed with the targeted runs.
+
+A sharded local rollup also misses set/count ratchets that live on one shard.
+PR #2869 passed locally and went red on CI for three of them —
+`gate-ledger.test.ts`, `api-caller-census.test.ts` (`E2E_LESS_CORPUS_FIXTURES`)
+and `allowlist-ratchet.test.ts`. **If you add a corpus fixture, run those three
+files directly before pushing**; they are seconds each and they are the ones a
+shard boundary hides.
