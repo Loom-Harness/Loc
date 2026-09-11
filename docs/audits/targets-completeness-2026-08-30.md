@@ -59,20 +59,20 @@ premise was only ever true of one target. Re-verify per target, not per row.
 
 | metric | value |
 |---|---|
-| open rows | **153** |
+| open rows | **151** |
 | P0 | 0 |
-| P1 | 7 |
+| P1 | 5 |
 | P2 | 13 |
 | P3 | 32 |
 | P4 | 89 |
 | P5 | 12 |
-| kind: silent / honest / breadth / mission / stale-prose | 20 / 32 / 26 / 63 / 12 |
-| confidence: proven / likely / suspected | 29 / 123 / 1 |
+| kind: silent / honest / breadth / mission / stale-prose | 18 / 32 / 26 / 63 / 12 |
+| confidence: proven / likely / suspected | 27 / 123 / 1 |
 | class: faulty-fix / regression | 1 / 0 |
-| size S / M / L | 41 / 66 / 46 |
-| provenance: fleet1-only / fleet2-only / corroborated by both | 137 / 14 / 1 |
+| size S / M / L | 41 / 64 / 46 |
+| provenance: fleet1-only / fleet2-only / corroborated by both | 136 / 13 / 1 |
 | claimed by an open PR | 61 |
-| done / merged | 140 |
+| done / merged | 142 |
 | conflicts | 10 |
 | checkedOk entries | 146 |
 | rows scheduled into waves | 134 across 13 packets |
@@ -88,10 +88,8 @@ Sorted P0 (security / data-integrity, silent, proven) → P1 (other silent prove
 | P1 | `F2-CB-C7-domainservice-in-requires-guard` | silent | prov | node, dotnet, java, python | S | A `domainService` call inside a `requires` authorization guard passes validation and emits an unresolvable reference on four of five backends |
 | P1 | `F2-MT640-SORT-DEAD` | silent | prov | elixir | S | M-T6.40 shipped as option (a) — the non-paged elixir list page now compiles, but its sortable headers are a no-op refetch (and the mission row still reads `open`) |
 | P1 | `F2-CB-C1-paged-nonrelational` | silent | prov | node, dotnet, python, elixir | M | `find … paged` on a non-relational aggregate (eventLog / document / embedded) emits a route built for the paged contract against a repository built for the unpaged one |
-| P1 | `F2-CFE-1` | silent | prov | react, vue, svelte, angular, feliz, flutter, heex | M | `navigate(<Page>)` in a page `action` body — the only documented home for navigation — is broken on all 7 frontend targets (feliz hard-crashes codegen) |
 | P1 | `F2-XB-4` | silent | prov | node, dotnet, java, python, elixir | M | Every non-assignment statement in a folded-projection `on(e)` body is silently dropped on all five backends — and a `let` its own assignment references emits an undefined identifier |
 | P1 | `G2644-M-T6.48-numeric-ingress` | silent | prov | dotnet, java, python, elixir | M | #2644 F12 / M-T6.48 — malformed numeric input answers 500, not 4xx, on four backends |
-| P1 | `flutter-form-field-drops` | silent | prov | flutter | M | Four Flutter form-field drops are still emitted as Dart COMMENTS, not diagnostics — the parity freeze is unchanged since the 08-17 snapshot |
 | P2 ! | `G2646-open-projection-on-event-no-channel` | silent | like | dotnet, java, python, elixir | M | #2646 documented, NOT fixed: `projection … on(Event)` with no `channel` folds on node only; the other four silently never subscribe |
 | P2 ! | `M-T3.8-sensitivity-phases-2-4` | silent | like | node, dotnet, java, python, elixir | L | `sensitive(...)` reaches exactly one emitter — no wire masking, no sink classification, and no diagnostic saying so |
 | P2 ! | `dapper-no-schema-evolution` | silent | like | dotnet | L | `persistence: dapper` has no ALTER path at all — every post-first-boot model change is silently unapplied (migrations-on-adapters slice 2) |
@@ -249,6 +247,7 @@ Sorted P0 (security / data-integrity, silent, proven) → P1 (other silent prove
 - **fresh-gate-probe** — `flutter-form-field-drops` · open · fresh-gate-probe calls it SILENT — the marker is a Dart COMMENT emitted by forms-emit.ts:184; `ddd parse` is clean and `flutter analyze` is clean, so no `loom.*` code exists
 - **pr-registers** — `G2646-open-flutter-form-field-drops` · open · pr-registers also files it SILENT
 - **resolution**: Merged into ONE open row (canonical `flutter-form-field-drops`) and recorded as kind=silent, because the disagreement is settled by fact: an emitted Dart comment is not a diagnostic. The honest-side reading (a test-level ratchet exists) is preserved in the merged evidence. The fresh-gate-probe fix recipe adds a step the other two lack: raise a real `loom.flutter-form-field-unsupported` first, then build the widgets.
+- **CLOSED** (wave C1, packet 1e): moot either way — all four shapes render real Dart widgets now, the four `KNOWN_FLUTTER_GAPS` pins are deleted and the freeze asserts the EMPTY set, so no marker and no refusal code is needed. The interim `loom.flutter-form-field-unsupported` step the recipe proposed was skipped on purpose: minting a refusal code and deleting it in the same wave buys nothing.
 
 ### HEEx/Flutter `DataGrid`: settled non-goal (done) vs open gap
 

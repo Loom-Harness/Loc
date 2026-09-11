@@ -136,62 +136,6 @@
       }
     },
     {
-      "id": "F2-CFE-1",
-      "title": "`navigate(<Page>)` in a page `action` body — the only documented home for navigation — is broken on all 7 frontend targets (feliz hard-crashes codegen)",
-      "kind": "silent",
-      "class": null,
-      "confidence": "proven",
-      "targets": [
-        "react",
-        "vue",
-        "svelte",
-        "angular",
-        "feliz",
-        "flutter",
-        "heex"
-      ],
-      "fileTrees": [
-        "src/generator/_walker/walker-core.ts",
-        "src/generator/_walker/primitives/controls.ts",
-        "src/generator/feliz/update-emit.ts",
-        "web/src/pages/home.tsx",
-        "web/src/pages/home.vue",
-        "web/src/routes/",
-        "web/src/app/pages/home.component.ts",
-        "web/lib/pages/home_page.dart"
-      ],
-      "evidence": [
-        {
-          "fleet": 2,
-          "id": "F2-CFE-1",
-          "bucket": "probe-combos-frontend",
-          "text": "ROOT: src/generator/_walker/walker-core.ts emitStmt `case \"call\"` (~1989-2020) has NO navigate arm — falls through to ``return `${stmt.name}(${args});` `` with emitExpr on the page ref returning the unresolved sentinel; the `then:` path routes through ctx.target.renderNavigate (src/generator/_walker/primitives/controls.ts:295). src/generator/feliz/update-emit.ts:622-628 throws on target==='private-operation'. EMITTED (fixture nav.ddd, `action go() { n := n + 1  navigate(Other) }`, `ddd parse` = 0 errors 0 warnings):\n- react  out-nav-react/web/src/pages/home.tsx:8  `const go = () => { setN((n + 1)); navigate(/* unresolved: Other */ undefined); };` and the file's only import is `import { useState } from \"react\"` — no useNavigate\n- vue    out-nav-vue/web/src/pages/home.vue:9  identical\n- svelte out-nav-svelte/web/src/routes/(app)/+page.svelte:5 identical\n- angular out-nav-angular/web/src/app/pages/home.component.ts:18 `go() { this.n.set(...); navigate(/* unresolved: Other */ undefined); }`\n- flutter out-nav-flutter/web/lib/pages/home_page.dart:22 `// TODO(flutter full-parity): 'private-operation' call 'navigate' in a Notifier method` (silently dropped)\n- heex   out-nav-heex/api/lib/api_web/live/home_live.ex:23 `|> tap(fn _ -> navigate(other) end)` — grep for `def navigate`/`defp navigate` across out-nav-heex/api/lib returns NOTHING and `other` is unbound\n- feliz  CRASH, no files written, non-zero exit: `Error: feliz: unsupported 'private-operation' call 'navigate' in the MVU update arm` at out/generator/feliz/update-emit.js:487\nASYMMETRY PROOF INSIDE ONE FILE (nav-then.ddd, same page, same call): out-nav-then/web/src/pages/home.tsx:10 `const navigate = useNavigate();`, :17 `then: navigate(Other)` → `navigate(\"/other\")` CORRECT, :13 action-body `navigate(Other)` → `navigate(/* unresolved: Other */ undefined)` BROKEN.\nDOCS say this is THE supported shape: docs/actions.md:42 (\"navigate ... lives in a named action\"), :55 (lambda form is an ERROR, loom.effect-in-lambda), docs/page-metamodel.md:335-336, and worked examples at :1012, :1028, :1033, :1040. NOT in src/diagnostics/unsupported-register.ts (grep 'navigate' = 0 hits, on main AND on PR #2646's branch, whose update-emit.ts still carries the same throw at line 622)."
-        }
-      ],
-      "repro": "scratchpad/fe-combos/nav.ddd (+ nav-{vue,svelte,angular,flutter,heex}.ddd, nav-then.ddd); `node bin/cli.js generate system nav-feliz.ddd -o out` crashes",
-      "impact": "The one documented way to navigate from a page action produces a TS2304/ReferenceError on react/vue/svelte/angular, an Elixir CompileError on HEEx, a silently-dropped navigation on flutter, and kills `ddd generate system` outright on feliz. `ddd parse` reports 0 errors, so nothing warns the author.",
-      "fix": "Add a `navigate` arm to walker-core `emitStmt case \"call\"` that routes through ctx.target.renderNavigate (the same helper emitActionThen already uses) and sets ctx.usesNavigate; add a Feliz `update-emit.ts` call arm emitting `Cmd.navigatePath(...)`; add a HEEx arm emitting `push_navigate(socket, to: ~p\"...\")`. Until then a `loom.*` gate would at least make it honest.",
-      "size": "M",
-      "sources": [
-        "fleet2:probe-combos-frontend"
-      ],
-      "related_to": [
-        "adjacent to #2667 §A12 (computed `to:` dropped) — different construct: the `navigate(<Page>)` STATEMENT in an action body"
-      ],
-      "securityClass": false,
-      "P": 1,
-      "verified": {
-        "date": "2026-09-03",
-        "against": "bd7aaeedc",
-        "method": "each row's own repro re-run; emitted output read",
-        "verdict": "partial",
-        "note": "react/vue/svelte/angular/feliz/heex all navigate. Flutter action bodies never reach the fixed `walker-core` arm — they are emitted by `riverpod-emit.ts`, whose `case \"call\"` still returns a TODO comment. `flutterTarget.renderNavigate` exists and nothing calls it",
-        "remainingTargets": [
-          "flutter"
-        ]
-      }
-    },
-    {
       "id": "F2-XB-4",
       "title": "Every non-assignment statement in a folded-projection `on(e)` body is silently dropped on all five backends — and a `let` its own assignment references emits an undefined identifier",
       "kind": "silent",
@@ -288,49 +232,6 @@
           "java",
           "python",
           "elixir"
-        ]
-      }
-    },
-    {
-      "id": "flutter-form-field-drops",
-      "title": "Four Flutter form-field drops are still emitted as Dart COMMENTS, not diagnostics — the parity freeze is unchanged since the 08-17 snapshot",
-      "kind": "silent",
-      "class": null,
-      "confidence": "proven",
-      "targets": [
-        "flutter"
-      ],
-      "fileTrees": [
-        "src/generator/flutter/forms-emit.ts",
-        "src/generator/flutter/pack.ts",
-        "src/ir/validate/checks/ui-checks.ts",
-        "test/generator/flutter/parity-freeze.test.ts"
-      ],
-      "evidence": [
-        {
-          "fleet": 1,
-          "id": "flutter-form-field-drops",
-          "text": "test/generator/flutter/parity-freeze.test.ts:74-98 `KNOWN_FLUTTER_GAPS` still carries all four entries, byte-identical since the audit base (`git diff be00f0b..origin/main -- test/generator/flutter/parity-freeze.test.ts` is EMPTY): nested VO sub-field (`addr.geo`), VO array with a non-scalar sub-field (`lines`), bool element array (`flags`), enum element array (`colors`) — all mission M-B. The drop marker is a Dart comment: src/generator/flutter/forms-emit.ts:184 ``return `// TODO(flutter form-field): ${field} — ${reason} dropped (deferred, M-B)`;`` (header at :37 calls this 'LOUDLY (M-A)'). A comment in emitted Dart is not a diagnostic — `ddd parse` is clean and `flutter analyze` is clean, so by this audit's rule it is a SILENT gap, not an honest one; there is no `loom.*` code for it (`grep -rn flutter src/ir/validate/checks/*.ts` returns only the store-lifetime and walker-primitive arms). Unclaimed by any of the seven open PRs.\n\n[ALSO REPORTED BY t1-frontend as `M-T1.18-form-field-drops` (kind=honest, size=M)]: test/generator/flutter/parity-freeze.test.ts:74-96 `KNOWN_FLUTTER_GAPS` pins exactly four marker strings: `addr.geo` nested value-object sub-field; `lines` value-object array with a non-scalar sub-field; `flags` bool element array; `colors` enum element array. Each carries a reason and mission M-B. The freeze asserts equality both ways (:104), so closing one fails the test until the entry is deleted — the ratchet is real. The `diagnostic` (pack no-renderer) family is asserted ABSENT (:113-120), confirming the standalone-primitive surface is complete.\n\n[ALSO REPORTED BY pr-registers as `G2646-open-flutter-form-field-drops` (kind=silent, size=M)]: VERIFIED still open on main and pinned as a freeze, not fixed. test/generator/flutter/parity-freeze.test.ts:75-93 pins exactly four TODO comments the emitter produces: 'TODO(flutter form-field): addr.geo — nested value-object sub-field dropped (deferred, M-B)', '… lines — value-object array with a non-scalar sub-field dropped', '… flags — bool element array dropped', '… colors — enum element array dropped'; the file header (:6-11) states the showcase passes only because it AVOIDS these form-fields. #2646's audit lists them as 'PARTIAL, open'. Not in its diff (its flutter work is index.ts +193 / pack.ts +24, the degradation/derived/match-await slices)."
-        }
-      ],
-      "repro": null,
-      "impact": null,
-      "fix": "Two-step. (1) Cheap and immediate: raise a real `loom.flutter-form-field-unsupported` from ui-checks.ts for the four shapes so `ddd parse` is honest, and register it in src/diagnostics/unsupported-register.ts against M-B; delete the matching Dart comment in the same PR (a marker and a diagnostic for the same thing is the drift risk). (2) M-B proper: build the missing Dart widgets — a recursive VO sub-form for nested value objects, and a row editor that renders bool (checkbox), enum (dropdown), datetime and nested-VO cells — then drain KNOWN_FLUTTER_GAPS. Gate the second half on `generated-flutter-build`.\n\n[ALTERNATE FIX RECIPE from t1-frontend/M-T1.18-form-field-drops]: Two Dart widgets close all four: a repeatable row editor generalised past text/number (checkbox row for bool, `DropdownButtonFormField` row for enum) in src/generator/flutter/forms-emit.ts's scalar-array path, and a recursive one-more-level flatten for a VO nested inside a VO sub-field in `createInputFields`/`prepareFields`. Delete the matching `KNOWN_FLUTTER_GAPS` entries in the same PR (the ratchet requires it) and verify with `flutter analyze` + the scaffold-parity leg of generated-flutter-build.yml.\n\n[ALTERNATE FIX RECIPE from pr-registers/G2646-open-flutter-form-field-drops]: Implement the four dropped field shapes in flutter/forms-emit.ts — nested VO sub-field, VO array with non-scalar sub-fields, bool element array, enum element array — deleting each parity-freeze pin in the same PR as it lands (the ratchet rule). Exercise them through the new #2663 flutter behavioral leg.",
-      "size": "M",
-      "sources": [
-        "fleet1:fresh-gate-probe"
-      ],
-      "related_to": [],
-      "securityClass": false,
-      "P": 1,
-      "verified": {
-        "date": "2026-09-03",
-        "against": "bd7aaeedc",
-        "method": "each row's own repro re-run; emitted output read",
-        "verdict": "open",
-        "note": "all four `TODO(flutter form-field)` comments still emitted; the parity freeze is unchanged since the audit base; no `loom.*` code",
-        "remainingTargets": [
-          "flutter"
         ]
       }
     },
@@ -7403,6 +7304,16 @@
       "note": "react/vue/svelte gated in #2734; angular and heex verified gated too. Feliz's ungated navbar is a DIFFERENT target this row never named — filed as `feliz-navbar-ignores-page-requires`",
       "closedBy": "verified 2026-09-03 against bd7aaeedc",
       "source": "fleet1:t3-t5-auth-lang"
+    },
+    {
+      "id": "F2-CFE-1",
+      "title": "`navigate(<Page>)` in a Flutter page `action` body now navigates — the last frontend where it was dropped. The Riverpod Notifier pushes through a generated `lib/nav.dart` bridge (`navigateTo`, backed by the `GlobalKey<NavigatorState>` `main.dart` installs, because a Notifier has no `BuildContext`), resolving the route through the SAME shared `tryRenderNavigateCall` the `then:` path and the other six frontends use. Flutter also finally threads `pageRoutes`, so the destination is the page's declared `route:` and not the `/<page-snake>` fallback. A destination whose route needs a `:param` the call cannot supply is refused with `loom.flutter-action-statement-unsupported#navigate-route-param` rather than emitted as Dart referencing an unbound `id`. Evidence: `test/generator/flutter/action-navigate.test.ts` (5 tests), the flutter arm of `test/generator/_walker/navigate-action-body.test.ts` rewritten from the TODO pin to the rendered form. Mutation-proved twice — removing the navigate arm fails 5 assertions (`expected … to contain \"navigateTo('/somewhere-else');\"`, `no lib/nav.dart: expected undefined to be defined`); emptying `pageRoutes` fails 3 (`expected … to contain \"navigateTo('/elsewhere');\"`).",
+      "source": "wave-c1-1e-ledger-flutter"
+    },
+    {
+      "id": "flutter-form-field-drops",
+      "title": "All four `KNOWN_FLUTTER_GAPS` pins closed with real Dart widgets and DELETED; the parity freeze now asserts the EMPTY set. (1) value-object flattening is recursive, so `addr.geo.lat` gets its own controller and the request body re-nests to the same depth (`objectKey: string` became `objectPath: string[]`, `bodyAssembly` builds a tree). (2) an object-array row slot is heterogeneous (`List<List<dynamic>>`): text/number cells keep their `TextEditingController`, bool / enum / datetime cells hold their value and render a checkbox / dropdown / date picker, so a VO array with a non-scalar sub-field no longer defers. (3)+(4) bool and enum element arrays are repeatable checkbox / dropdown row editors (`List<bool>` / `List<String>`). Wire shape unchanged and verified against the BACKEND's own zod request schema in the same generated tree, not the Flutter emitter. Evidence: `test/generator/flutter/{nested-vo-field,bool-enum-array}.test.ts` (11 tests) + the rewritten `parity-freeze.test.ts` (empty allowlist + a vacuity guard that the fixture still emits all four shapes). Mutation-proved three times, one per arm — restoring the one-level flatten fails 4 assertions (`expected … to contain \"_addrGeoLatController\"`, `expected [ Array(1) ] to deeply equal []`), narrowing object-array cells back to text/number fails 5, deferring bool/enum element arrays fails 5. A fourth mutation re-introduced the real off-by-one closing paren the new `dartBracketImbalance` sweep caught during development: `'[' opened at line 74 is closed by ')'`.",
+      "source": "wave-c1-1e-ledger-flutter"
     }
   ],
   "conflicts": [
