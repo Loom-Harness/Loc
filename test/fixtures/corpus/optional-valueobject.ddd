@@ -88,8 +88,8 @@ system OptionalValueObject {
     // code path than `getById`, so an optional VO dropped only in bulk (or
     // hydrated as a VO-of-nulls only in bulk) shows here and nowhere above.
     let listed = api.persons.all()
-    expect(listed.length).toBe(1)
-    expect(listed.first().office).toBe(null)
+    expect(listed.items.length).toBe(1)
+    expect(listed.items.first().office).toBe(null)
 
     // Present: `update` writes the optional VO, including its own optional
     // subfield and the money subfield the write path must dereference.
@@ -117,7 +117,7 @@ system OptionalValueObject {
 
     api.persons.destroy(p)
     let empty = api.persons.all()
-    expect(empty.length).toBe(0)
+    expect(empty.items.length).toBe(0)
   }
 
   deployable d {
