@@ -152,9 +152,9 @@ const BACKENDS: BackendCensus[] = [
     waivers: [
       {
         file: "src/generator/java/emit/common.ts",
-        contains: "return new BigDecimal(value);",
+        contains: "BigDecimal parsed = new BigDecimal(value);",
         reason:
-          "the emitted `WireFormatException.money(value, pointer)` helper — the SINGLE\n           java money-ingress funnel, which is what replaced the scattered bare\n           `new BigDecimal(expr)` at the call sites this census exists to find.\n           Waiving the seam, not a coercion: the validated parse and the javadoc\n           naming what it replaced both live here and nowhere else",
+          "the emitted `WireFormatException.money(value, pointer)` helper — the SINGLE\n           java money-ingress funnel, which is what replaced the scattered bare\n           `new BigDecimal(expr)` at the call sites this census exists to find.\n           Waiving the seam, not a coercion: the validated parse (bound to a local\n           since Wave C1 packet 1e-i added the integer-digit RANGE guard behind\n           it — the 40-digit-money row) and the javadoc naming what it replaced\n           both live here and nowhere else",
       },
       {
         file: "src/generator/java/emit/common.ts",
