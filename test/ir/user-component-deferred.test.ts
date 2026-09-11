@@ -529,14 +529,45 @@ describe("loom.user-component-deferred-target", () => {
     }
   }
 
-  it("an `extern` component is never gated — the emitter always wires that flavour", async () => {
-    const ui = `
+  // ---------------------------------------------------------------------
+  // M-T1.31 F17 — the extern hatch, per frontend.
+  //
+  // `extern` was blanket-EXEMPT here ("the emitter always wires that flavour"),
+  // which was true of every frontend the gate covered at the time and false of
+  // the one it had just gained.  Measured on this tree, one `.ddd` per
+  // frontend: react / vue / svelte / angular emit `src/components/P.props.ts`
+  // plus the import, Feliz emits `open Components.P` + `(P {| … |})` — and
+  // FLUTTER emits nothing at all, so the declaration and every call site vanish
+  // exactly like a filtered-out body component.  The exemption is therefore
+  // per-framework (`EXTERN_COMPONENT_FRAMEWORKS`), and both halves are asserted:
+  // the gate fires on Flutter, and the Flutter emitter really does drop it.
+  // ---------------------------------------------------------------------
+  const EXTERN_UI = `
     component P(head: slot) extern from "widgets/p"
     page Home { route: "/" body: Stack { P(head: Text { "hi" }) } }`;
-    for (const framework of Object.keys(COMPONENT_DEFERRALS)) {
-      expect(await diagCodes(sys(ui, framework))).not.toContain(CODE);
-    }
+
+  for (const framework of ["feliz", "angular"]) {
+    it(`${framework}: an \`extern\` component is wired by the emitter, so the gate stays quiet`, async () => {
+      expect(await diagCodes(sys(EXTERN_UI, framework))).not.toContain(CODE);
+    });
+  }
+
+  it("flutter: an `extern` component IS gated — there is no extern hatch there", async () => {
+    const codes = await diagCodes(sys(EXTERN_UI, "flutter"));
+    expect(
+      codes,
+      "an extern component on a Flutter ui renders nothing and said nothing (M-T1.31 F17)",
+    ).toContain(CODE);
   });
+
+  it("flutter: the emitter really DOES drop the extern component (the gate is not inventing it)", async () => {
+    const all = [...(await frontendSources(sys(EXTERN_UI, "flutter"))).values()].join("\n");
+    expect(
+      all,
+      "if Flutter has grown an extern-component hatch, add `flutter` to " +
+        "EXTERN_COMPONENT_FRAMEWORKS in ui-component-deferral-checks.ts in the same PR",
+    ).toContain("unknown layout component: P");
+  }, 120_000);
 
   it("names the component, the framework, the deployable and the emitter filter", async () => {
     const { model } = await parseString(

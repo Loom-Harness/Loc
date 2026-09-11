@@ -24,10 +24,19 @@
 // `order.shipping.zip := v` folds into a `copyWith` chain, see `nestedCopyWith`),
 // `let`, bare expression statements, sibling-action calls, cross-store action
 // calls (through the Notifier's own `ref`), `navigate(<Page>)` (through the
-// generated `lib/nav.dart` bridge — a Notifier has no `BuildContext`), and
-// `match await` async effects.  Anything else routes through `giveUp` with a
-// `loom.flutter-action-statement-unsupported` wording from the catalog, so a
-// decline is coded and sentinel-marked instead of a bare TODO comment.
+// generated `lib/nav.dart` bridge — a Notifier has no `BuildContext`, so the
+// route is pushed via a `GlobalKey<NavigatorState>` installed on `MaterialApp`;
+// Wave C1 packet 1e-ii, ledger row F2-CFE-1), and `match await` async effects.
+//
+// OUT OF SCOPE, and REFUSED at phase ⑦ rather than commented here (Wave C1
+// packet 1d-ii): `toast(…)` — the other view effect, which has no bridge yet —
+// and a `match await` on one of the five STANDARD aggregate ops, which this
+// module resolves through `agg.operations` and so cannot find.  Both carry
+// `loom.flutter-action-body-unsupported` and name M-T1.32; the arms that used
+// to emit `// TODO(flutter full-parity)` into the Dart are now internal floors,
+// because a comment in generated Dart is a silently dead button, not a gap
+// anyone reads.  The one give-up that remains is a `navigate` whose route
+// needs a `:param` the call cannot supply (`#navigate-route-param`).
 
 import { diagMessage } from "../../diagnostics/messages.js";
 import { variantTag } from "../../ir/stdlib/unions.js";
@@ -47,6 +56,7 @@ import { tryDetectApiHook } from "../_walker/api-hook-detector.js";
 import { giveUp } from "../_walker/give-up.js";
 import type { WalkerTarget } from "../_walker/target.js";
 import { emitExpr, tryRenderNavigateCall, type WalkContext } from "../_walker/walker-core.js";
+import { copyWithChain } from "./copy-with.js";
 import { coerceDartMoneyInit, dartString, dartZeroValue, isMoneyType } from "./dart-expr.js";
 import { dartType } from "./dart-types.js";
 import { dartNavigateArgs, flutterTarget } from "./flutter-target.js";
@@ -179,12 +189,7 @@ const notifierStmtTarget: WalkerTarget = {
  *  case).  Every intermediate level is a wire model that carries its own
  *  `copyWith` (emitted by `dart-model-emit.ts`). */
 function nestedCopyWith(seg: readonly string[], value: string): string {
-  let expr = value;
-  for (let i = seg.length - 1; i >= 0; i--) {
-    const receiver = i === 0 ? "state" : `state.${seg.slice(0, i).join(".")}`;
-    expr = `${receiver}.copyWith(${seg[i]}: ${expr})`;
-  }
-  return expr;
+  return copyWithChain("state", seg, value);
 }
 
 /** Render one action-body statement into a Notifier-method line.  A state write
@@ -258,11 +263,16 @@ export function renderNotifierStmt(stmt: StmtIR, ctx: WalkContext, selfStore?: s
           ctx.usesNavigate = navCtx.usesNavigate;
           return `${nav};`;
         }
-        return giveUp(
-          notifierStmtTarget,
-          "loom.flutter-action-statement-unsupported#private-operation",
-          diagMessage("loom.flutter-action-statement-unsupported#private-operation", {
-            name: stmt.name,
+        // INTERNAL FLOOR.  A bare call in a ui action body that lowers to
+        // `private-operation` and is NOT `navigate` is refused before codegen:
+        // `toast` (the other view-effect builtin) by
+        // `loom.flutter-action-body-unsupported#view-effect` at phase ⑦, and
+        // any other unresolved name by `loom.unresolved-action-ref`.  Until
+        // then this arm silently dropped the effect: the button was wired and
+        // did nothing, forever, with a comment in the Dart nobody reads.
+        throw new Error(
+          diagMessage("loom.flutter-action-body-unsupported#emit-invariant", {
+            what: `a '${stmt.target}' call '${stmt.name}'`,
           }),
         );
       }
@@ -278,14 +288,23 @@ export function renderNotifierStmt(stmt: StmtIR, ctx: WalkContext, selfStore?: s
       return `${stmt.name}(${args});`;
     }
     default:
-      // `variant-match` (async effect, handled by the caller) + backend-only
-      // statement kinds.  Never silently dropped: the give-up carries the
-      // shared sentinel (so the cross-frontend degradation matrix sees it) and
-      // a `loom.*`-coded wording from the catalog.
-      return giveUp(
-        notifierStmtTarget,
-        "loom.flutter-action-statement-unsupported#kind",
-        diagMessage("loom.flutter-action-statement-unsupported#kind", { kind: stmt.kind }),
+      // INTERNAL FLOOR.  Every statement kind that can still reach here is
+      // refused before codegen, and each was measured reaching this arm before
+      // its gate existed:
+      //
+      //   return / precondition / requires  loom.ui-body-statement-kind (⑦)
+      //   if                                loom.if-stmt-page-body-unsupported (⑦)
+      //   variant-match                     intercepted on the PAGE path by the
+      //                                     caller; on the COMPONENT path
+      //                                     loom.flutter-async-effect-unsupported (⑦)
+      //   emit                              unresolvable in ui scope — phase ③
+      //
+      // The comment this replaced was the silent half of the §18 class: valid
+      // `.ddd`, a clean build, and an action that does nothing.
+      throw new Error(
+        diagMessage("loom.flutter-action-body-unsupported#emit-invariant", {
+          what: `an action statement of kind '${stmt.kind}'`,
+        }),
       );
   }
 }
@@ -312,13 +331,19 @@ function renderVariantMatchNotifier(
   const agg = detected ? ctx.aggregatesByName.get(detected.aggregateName) : undefined;
   const op = agg?.operations.find((o) => o.name === detected?.operation);
   if (!detected || !agg || !op) {
-    return [
-      giveUp(
-        notifierStmtTarget,
-        "loom.flutter-action-statement-unsupported#match-await",
-        diagMessage("loom.flutter-action-statement-unsupported#match-await"),
-      ),
-    ];
+    // INTERNAL FLOOR.  An awaited subject that is not an api-rooted call is
+    // refused by `loom.method-call-unresolved-receiver` / the effect-marker
+    // gates; an api-rooted call naming one of the five STANDARD aggregate ops
+    // (which `agg.operations` never holds) by
+    // `loom.flutter-action-body-unsupported#match-await-standard-op`, both at
+    // phase ⑦.  Before that, `match await Shop.Order.delete() { … }` validated
+    // clean and the ENTIRE effect — request, error reification, every arm body
+    // — was replaced by this comment.
+    throw new Error(
+      diagMessage("loom.flutter-action-body-unsupported#emit-invariant", {
+        what: "a `match await` subject that is not a resolvable remote op",
+      }),
+    );
   }
   const bc = contexts.find((c) => c.aggregates.some((a) => a.name === agg.name));
   const coll = snake(plural(agg.name));

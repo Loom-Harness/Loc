@@ -101,14 +101,14 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.auth-ui-unsupported-framework",
     kind: "gap",
-    site: "src/ir/validate/checks/ui-framework-checks.ts:307",
+    site: "src/ir/validate/checks/ui-framework-checks.ts:425",
     what: "`auth: ui` ships on every frontend; the seam a NEW one gates on",
     mission: "M-T1.20",
   },
   {
     code: "loom.chart-unsupported-target",
     kind: "gap",
-    site: "src/ir/validate/checks/ui-framework-checks.ts:193",
+    site: "src/ir/validate/checks/ui-framework-checks.ts:311",
     what:
       "`Chart` renders on every shipping frontend (CHART_FRAMEWORKS names all seven) — latent " +
       "seam a NEW framework gates on until it ports",
@@ -148,7 +148,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.component-children-unsupported",
     kind: "gap",
-    site: "src/ir/validate/checks/ui-framework-checks.ts:574",
+    site: "src/ir/validate/checks/ui-framework-checks.ts:690",
     what:
       "a user component invoked WITH CHILDREN on angular.  Angular has no PascalCase component " +
       "tag, so a call site is `<ng-container [ngComponentOutlet]=…>`, and `ngComponentOutlet` " +
@@ -166,7 +166,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.page-form-locals-unsupported",
     kind: "gap",
-    site: "src/ir/validate/checks/ui-framework-checks.ts:614",
+    site: "src/ir/validate/checks/ui-framework-checks.ts:730",
     what:
       "two forms on ONE page whose generated page-local bindings collide.  Every JS frontend " +
       "splices a form's mutation hook + form handle in as page-scope consts named by the design " +
@@ -288,10 +288,38 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.flutter-primitive-unsupported",
     kind: "gap",
-    site: "src/ir/validate/checks/ui-framework-checks.ts:520",
+    site: "src/ir/validate/checks/ui-framework-checks.ts:638",
     what:
       "every page primitive now renders on Flutter — FLUTTER_UNRENDERED_PRIMITIVES " +
       "(src/util/flutter-deferred-primitives.ts) is EMPTY, so the gate is a dormant re-arm net",
+    mission: "M-T1.20",
+  },
+  {
+    code: "loom.flutter-action-body-unsupported",
+    kind: "gap",
+    site: "src/ir/validate/checks/ui-framework-checks.ts:822",
+    what:
+      "two Flutter action-body shapes every other frontend renders: a `toast(…)` view " +
+      "effect (a Riverpod Notifier holds no BuildContext, so it reaches no ScaffoldMessenger; " +
+      "`navigate(…)` reaches the router through the generated lib/nav.dart bridge since " +
+      "Wave C1 packet 1e-ii) and a `match await` on one of the five " +
+      "STANDARD aggregate ops (the async-effect emitter resolves its op through " +
+      "`agg.operations`, which holds only DECLARED ones). Both emitted a " +
+      "`// TODO(flutter full-parity)` comment into the Dart before Wave C1 1d-ii — the " +
+      "action was wired and silently did nothing",
+    mission: "M-T1.32",
+  },
+  {
+    code: "loom.frontend-prop-type-unsupported",
+    kind: "gap",
+    site: "src/ir/validate/checks/ui-framework-checks.ts:160",
+    what:
+      "a declared `component` param / `extern` function signature type the shared TypeScript " +
+      "prop layer has no spelling for — `money`, `File` and a `valueobject`, each of which " +
+      "HAS a wire shape (a decimal string re-parsed to Decimal, a fixed FileRef object, a " +
+      "VO DTO) and is therefore portable work rather than an impossibility. Before Wave C1 " +
+      "1d-ii these were the `default: throw` arms in `_frontend/component-prop-type.ts` / " +
+      "`extern-functions.ts`: a raw stack trace on `.ddd` that validated clean",
     mission: "M-T1.20",
   },
   {
@@ -572,7 +600,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.ui-projection-read-unsupported",
     kind: "gap",
-    site: "src/ir/validate/checks/ui-framework-checks.ts:261",
+    site: "src/ir/validate/checks/ui-framework-checks.ts:379",
     what:
       "a KEYED or FOLDED projection read from a page/component — not ui-consumable on ANY target " +
       "(ui-checks.ts:1538).  The per-framework half is fully ported: PROJECTION_READ_FRAMEWORKS " +
@@ -582,7 +610,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.ui-realtime-unsupported",
     kind: "gap",
-    site: "src/ir/validate/checks/ui-framework-checks.ts:446",
+    site: "src/ir/validate/checks/ui-framework-checks.ts:564",
     what: "`on <channel>.<Event>` handlers vs. a backend that serves no SSE wire",
     mission: "M-T1.20",
   },

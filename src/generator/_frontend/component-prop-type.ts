@@ -22,8 +22,24 @@
 // This is Vue's implementation, moved verbatim (its output is byte-identical)
 // and adopted by the other two.
 
+import { diagMessage } from "../../diagnostics/messages.js";
 import type { AggregateIR, ParamIR, TypeIR } from "../../ir/types/loom-ir.js";
 import { lowerFirst } from "../../util/naming.js";
+
+/** INTERNAL FLOOR for a prop type with no TS spelling.
+ *
+ *  Throwing (rather than emitting `any`) is the right call and always was — but
+ *  it used to be the ONLY thing standing between the author and a raw stack
+ *  trace, on `.ddd` that `ddd parse` reported clean: `component Price(amount:
+ *  money)` and `component Ship(at: Address)` both reached it.  Phase ⑦ now
+ *  refuses the declaration with `loom.frontend-prop-type-unsupported`
+ *  (`ui-framework-checks.ts`), so this is defence-in-depth for an unvalidated
+ *  model — and it names the gate that should have fired.  The two must stay in
+ *  step; `test/ir/frontend-prop-type-support.test.ts` pins them against each
+ *  other. */
+function propTypeFloor(what: string): Error {
+  return new Error(diagMessage("loom.frontend-prop-type-unsupported#emit-invariant", { what }));
+}
 
 /**
  * Map a Loom type to its component-prop TS spelling — the wire DTO for an
@@ -57,7 +73,7 @@ export function componentPropTsType(
         case "json":
           return "unknown";
         default:
-          throw new Error(`component prop: unsupported primitive '${t.name}'.`);
+          throw propTypeFloor(`primitive '${t.name}'`);
       }
     case "entity":
       if (aggregatesByName.has(t.name)) {
@@ -74,7 +90,7 @@ export function componentPropTsType(
     case "optional":
       return `${componentPropTsType(t.inner, aggregatesByName, dtoImports)} | undefined`;
     default:
-      throw new Error(`component prop: unsupported type kind '${t.kind}'.`);
+      throw propTypeFloor(`type kind '${t.kind}'`);
   }
 }
 

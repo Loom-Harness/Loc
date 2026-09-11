@@ -422,6 +422,43 @@ function flutterDeferrals(c: ComponentIR, ctx: DeferCtx): ComponentDeferral[] {
   return out;
 }
 
+/** Frontends that HAVE an extern-component hatch — a
+ *  `component X(...) extern from "<path>"` is wired to the author's own module
+ *  instead of being walked.  Measured on this tree (2026-09-11) by generating
+ *  the same one-extern-component `.ddd` through each frontend:
+ *
+ *    react / vue / svelte / angular  `src/components/X.props.ts` + the import
+ *    feliz                           `open Components.X` + `(X {| … |})`
+ *    phoenixLiveView                 `<.live_component module={Components.X}
+ *                                    id="x" score={3} />`
+ *    flutter                         NOTHING — the call site renders a
+ *                                    `const SizedBox.shrink()` carrying the
+ *                                    walker's `loom:unrendered
+ *                                    [loom.unknown-page-element] unknown layout
+ *                                    component: X` give-up comment
+ *
+ *  Flutter is the one frontend with no hatch (M-T1.31 F17), and the walker's
+ *  give-up is doubly misleading there: `unknown-page-element` reads as "you
+ *  mistyped a name" for a component the ui DECLARES.  The set is kept rather
+ *  than spelling `framework === "flutter"` so a new frontend that ports the
+ *  hatch joins ONE list, and `COMPONENT_FILTERING_FRAMEWORKS` members outside
+ *  it are gated automatically. */
+
+const EXTERN_COMPONENT_FRAMEWORKS: ReadonlySet<string> = new Set([
+  "react",
+  "vue",
+  "svelte",
+  "angular",
+  "feliz",
+  // Listed though `checkUserComponentSupport` never runs for it today (HEEx is
+  // not in `COMPONENT_FILTERING_FRAMEWORKS`): the set is the MEASURED record of
+  // which frontends honour the hatch, and leaving the one that does out of it
+  // would make a future reader re-measure.  `liveview-emit.ts` skips `c.extern`
+  // with "their rendering is a hand-written LiveComponent embedded via
+  // `<.live_component>`" — verified, not taken on trust.
+  "phoenixLiveView",
+]);
+
 /** Per-framework deferral analysers — one per member of
  *  `COMPONENT_FILTERING_FRAMEWORKS`, and the two are pinned against each other
  *  so a framework cannot join the set without an analyser (or vice versa). */
@@ -445,9 +482,33 @@ export function checkUserComponentSupport(
   diags: LoomDiagnostic[],
 ): void {
   for (const c of ui.components) {
-    // An `extern` component is a hand-written shim the emitter always wires,
-    // and a bodyless one has nothing to walk.
-    if (c.extern || c.body === undefined) continue;
+    // An `extern` component is a hand-written shim the emitter wires — on every
+    // frontend that HAS an extern hatch.  On one that does not (Flutter), the
+    // declaration is dropped and every call site renders an empty box, so the
+    // skip below would make the ONE frontend that cannot honour the hatch the
+    // only one with no diagnostic (M-T1.31 F17).
+    if (c.extern) {
+      if (EXTERN_COMPONENT_FRAMEWORKS.has(framework)) continue;
+      diags.push({
+        severity: "error",
+        code: "loom.user-component-deferred-target",
+        message: diagMessage("loom.user-component-deferred-target", {
+          name: c.name,
+          uiName: ui.name,
+          framework,
+          dName,
+          reason:
+            "is an `extern` component, and this frontend has no extern-component hatch — " +
+            "the declaration is dropped and every call site renders an empty box",
+          emitter:
+            "src/generator/flutter/component-emit.ts — no extern arm; the call site falls " +
+            "through to `walker-core.ts`'s `unknown layout component` give-up",
+        }),
+        source: `component '${c.name}'`,
+      });
+      continue;
+    }
+    if (c.body === undefined) continue;
     const deferrals = COMPONENT_DEFERRALS[framework]?.(c, ctx) ?? [];
     for (const d of deferrals) {
       diags.push({

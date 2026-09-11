@@ -84,7 +84,7 @@ import {
 import { escapeHtmlAttr } from "./a11y-emit.js";
 import { tryDetectApiHook } from "./api-hook-detector.js";
 import { registerApiHook } from "./api-hook-register.js";
-import { giveUp } from "./give-up.js";
+import { giveUp, giveUpText } from "./give-up.js";
 import { storeMemberLocal, upperFirstName } from "./js-target-helpers.js";
 import { emitUserComponent } from "./primitives/controls.js";
 import { WALKER_PRIMITIVES } from "./registry.js";
@@ -2003,20 +2003,33 @@ export function emitExpr(expr: ExprIR, ctx: WalkContext): string {
       // local `create` mutation hook inside a `CreateForm(of:)` page's
       // onSubmit lambda).  Emit the plain `recv.member(args)`
       // form when the receiver resolves cleanly (param / state /
-      // lambda param / shell local).  Receivers that emit as the
-      // `/* unresolved: X */ undefined` sentinel keep a visible TODO
-      // placeholder — emitting `undefined.<method>(...)` would be
-      // runtime-broken code.  This branch is now DEAD on valid `.ddd`:
-      // `loom.method-call-unresolved-receiver` (ui-checks.ts F2) rejects an
-      // unresolved method-call receiver at IR-validate time (phase ⑦), before
-      // codegen — so the placeholder is defence-in-depth for an unvalidated
-      // IR, not a silent generator gap.
+      // lambda param / shell local).  A receiver that emits as the
+      // `/* unresolved: X */ undefined` sentinel gives up instead —
+      // emitting `undefined.<method>(...)` would be runtime-broken code.
+      //
+      // DEAD on valid `.ddd`: `loom.method-call-unresolved-receiver`
+      // (`ui-action-body-checks.ts` F2) rejects an unresolved method-call
+      // receiver at IR-validate time (phase ⑦), before codegen — proven by
+      // `test/generator/_walker/unresolved-receiver-give-up.test.ts`, which
+      // drives every body position that reaches this arm and asserts the gate
+      // fires first.  So it is defence-in-depth for an UNVALIDATED IR (the api
+      // toolkit and the playground can both hand the generator one), and it
+      // says so by naming the gate rather than leaving a bare `TODO` with
+      // nothing to look up.  It stays a give-up rather than a throw for the
+      // same reason the walker's other backstops do (the drain's branch (b)):
+      // a codegen crash on an unvalidated model is strictly worse than a coded
+      // comment.  Expression position, so the sentinel text is wrapped in the
+      // target's own comment syntax rather than markup — hence `giveUpText`.
       const recv = emitExpr(expr.receiver, ctx);
       const argsList = expr.args.map((a) => emitExpr(a, ctx));
       const argsRendered = argsList.join(", ");
       if (recv.includes("/* unresolved:")) {
         const receiverDesc = describeReceiver(expr.receiver);
-        return `/* TODO: method-call ${receiverDesc}.${expr.member}(${argsRendered}) — needs hooks {} binding */ undefined`;
+        const text = giveUpText(
+          "loom.method-call-unresolved-receiver",
+          `method-call ${receiverDesc}.${expr.member}(${argsRendered}): receiver did not resolve`,
+        );
+        return `/* ${text} */ undefined`;
       }
       // A SCALAR INTRINSIC (`src/util/intrinsics.ts`) — Loom's spelling is its
       // own and must be translated, exactly as every backend translates it

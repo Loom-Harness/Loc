@@ -174,6 +174,49 @@ ${uiBody}
   deployable web { platform: react, targets: api, ui: WebApp { Sales: api }, port: 3001 }
 }`;
 
+/** The same shape, hosted by an ELIXIR deployable that also serves the ui — the
+ *  phoenixLiveView frontend, whose component HOISTING the two collision gates
+ *  describe. */
+const heexUi = (uiBody: string) => `
+system S {
+  subdomain Sales { context Orders {
+    aggregate Order { code: string  derived display: string = code }
+    repository Orders for Order { }
+  } }
+  api SalesApi from Sales
+  storage pg { type: postgres }
+  resource st { for: Orders, kind: state, use: pg }
+  ui WebApp {
+    api Sales: SalesApi
+${uiBody}
+  }
+  deployable api { platform: elixir, contexts: [Orders], dataSources: [st], serves: SalesApi, ui: WebApp { Sales: api }, port: 4000 }
+}`;
+
+/** A flutter-hosted ui — the self-hosting frontend whose Riverpod action-body
+ *  emitter the two `loom.flutter-action-body-unsupported` arms describe. */
+const flutterUi = (uiBody: string) => `
+system S {
+  api A from D
+  subdomain D { context C {
+    error Rejected { reason: string }
+    aggregate Order {
+      code: string
+      operation confirm(): Order or Rejected { code := "c" }
+    }
+    repository Orders for Order { }
+  } }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  ui App {
+    framework: flutter
+    api Shop: A
+${uiBody}
+  }
+  deployable api { platform: node, contexts: [C], dataSources: [st], serves: A, port: 8080 }
+  deployable app { platform: flutter, targets: api, ui: App { Shop: api }, port: 3006 }
+}`;
+
 const FIRING_FIXTURES: Record<string, string> = {
   // --- phase ⑦ IR validate, elixir-only -----------------------------------
   // A bare call to a PRIVATE operation whose body reads `currentUser`.  Vanilla
@@ -1412,6 +1455,83 @@ system P {
         route: "/workflows/ship-custom"
         body: Stack { Heading { "Ship", level: 1 }, testid: "ship" }
       }
+    }`,
+  ),
+
+  // Two pages of one ui sharing a `route:`.  Distinct names, distinct emit
+  // paths, distinct archetype slots — so neither collision gate above sees it,
+  // and only one of the two pages is reachable in any router (SvelteKit cannot
+  // emit them at all, and used to `throw` a bare `Error` mid-generate).
+  "loom.ui-page-route-collision": uiPages(
+    "",
+    `    page Alpha { route: "/dup" body: Stack { Heading { "Alpha", level: 1 } } }
+    page Beta { route: "/dup" body: Stack { Heading { "Beta", level: 1 } } }`,
+  ),
+
+  // A page `action` and a rendered component's `action` with one name, on a
+  // phoenixLiveView ui: a LiveView dispatches every `phx-click` BY NAME, so the
+  // lift would put two `handle_event("bump", …)` clauses in one module.
+  "loom.heex-handler-name-collision": heexUi(`
+    component Panel() {
+      state { n: int = 0 }
+      action bump() { n += 1 }
+      body: Button { "inc", onClick: bump }
+    }
+    page Home {
+      route: "/"
+      state { m: int = 0 }
+      action bump() { m += 7 }
+      body: Stack { Panel(), Button { "page inc", onClick: bump } }
+    }`),
+
+  // The same lift's other limit: one host assign per component NAME is one
+  // cell, so a `state`-declaring component rendered twice would have its two
+  // instances move together.
+  "loom.heex-stateful-component-reused": heexUi(`
+    component Counter() {
+      state { n: int = 0 }
+      action bump() { n += 1 }
+      body: Button { "inc", onClick: bump }
+    }
+    page Home { route: "/" body: Stack { Counter(), Counter() } }`),
+
+  // `navigate(…)` in a page action on a FLUTTER-hosted ui.  A Riverpod
+  // Notifier holds no BuildContext, so the emitter replaced the call with a
+  // `// TODO(flutter full-parity)` comment: the button was wired and did
+  // nothing.  (The `match await` on a standard agg op is the same code's other
+  // slug; one fixture per code is what the census asks for.)
+  "loom.flutter-action-body-unsupported": flutterUi(`    page Edit {
+      route: "/edit"
+      state { n: int = 0 }
+      action go() { toast("hi") }
+      body: Stack { Heading { "Edit", level: 1 }, Button { "go", onClick: go } }
+    }`),
+
+  // A `component` param whose declared type the shared TypeScript prop layer
+  // has no spelling for.  `money` rides the wire as a decimal string re-parsed
+  // to a `Decimal`, so this is portable work — until it lands it was a raw
+  // `Error: component prop: unsupported primitive 'money'.` mid-generate.
+  "loom.frontend-prop-type-unsupported": uiPages(
+    "",
+    `    component Price(amount: money) { body: Text { "price" } }
+    page Home {
+      route: "/"
+      state { total: money = 0.00 }
+      body: Stack { Heading { "Home", level: 1 }, Price(amount: total) }
+    }`,
+  ),
+
+  // A backend-body statement form in a ui action.  The sibling of
+  // `loom.if-stmt-page-body-unsupported`: same reasoning, three more kinds,
+  // each of which crashed the JS walker with a bare throw and emitted a silent
+  // no-op comment on Flutter.
+  "loom.ui-body-statement-kind": uiPages(
+    "",
+    `    page Home {
+      route: "/"
+      state { n: int = 0 }
+      action bump() { precondition n > 0 }
+      body: Button { "Go", onClick: bump }
     }`,
   ),
 

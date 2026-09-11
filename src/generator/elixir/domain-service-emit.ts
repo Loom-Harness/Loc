@@ -34,6 +34,7 @@
 // plain return is the bare value (Elixir's last-expression-is-the-result).
 // ---------------------------------------------------------------------------
 
+import { diagMessage } from "../../diagnostics/messages.js";
 import type {
   BoundedContextIR,
   DomainServiceIR,
@@ -70,10 +71,13 @@ import { opCallParamFields } from "./vanilla/workflow-execution-emit.js";
 // emitter SKIPS a reading op from the `Domain.Services` module (and skips the
 // whole module when every op is reading), and `context-emit.ts` ADDS the reading
 // op as a context fn via `renderReadingServiceContextFn`.  A reading op whose
-// read-ports span MORE THAN ONE context is OUT OF SCOPE for — it would
-// need a standalone module taking explicit `Repo`/context args; we keep it in
-// the `Domain.Services` module (so it still emits *something*) and flag it with a
-// `# loom.domain-service-multi-context-reading` note rather than crashing.
+// read-ports span MORE THAN ONE context would need a standalone module taking
+// explicit `Repo`/context args — but that shape is STRUCTURALLY UNREACHABLE
+// (see `readingIsSingleContext`), and the cross-context body that motivated it
+// is refused at phase ⑦ by `loom.domain-service-cross-context-read`.  It used
+// to emit a `def` whose body was a runtime `raise`; Wave C1 packet 1d-ii
+// replaced that with a generate-time internal floor, because shipping a
+// compiling landmine is strictly worse than failing the build.
 // ---------------------------------------------------------------------------
 
 /** True when a reading op's read-ports all resolve to ONE context (this
@@ -91,7 +95,12 @@ import { opCallParamFields } from "./vanilla/workflow-execution-emit.js";
  *  customers"), which is now rejected at phase ⑦ by
  *  `loom.domain-service-cross-context-read` (domain-service-checks.ts).  The
  *  guard below stays as a floor in case lowering ever widens the resolution
- *  scope; it is not the thing that closes the gap. */
+ *  scope; it is not the thing that closes the gap.  The tautology is ASSERTED
+ *  (not merely asserted in prose) by
+ *  `test/generator/elixir/domain-service-cross-context-floor.test.ts`, which
+ *  drives a two-context model that wants to cross and checks every read port —
+ *  so widening lowering's scope fails there rather than silently re-arming the
+ *  floor. */
 export function readingIsSingleContext(
   op: DomainServiceOperationIR,
   ctx: BoundedContextIR,
@@ -439,19 +448,28 @@ function renderOperation(
     .map((n) => `    _ = ${n}`);
 
   if (multiContextReading) {
-    // OUT OF SCOPE: a cross-context reading service.  Emit a guard
-    // raise + a visible flag note rather than a body whose repo reads name
-    // context fns that don't exist in this module.
-    const allDiscards = paramNames.map((n) => `    _ = ${n}`);
-    return `${specLine}
-  # loom.domain-service-multi-context-reading: '${op.name}' reads repositories
-  # across more than one context — only single-context reading is supported
-  # (domain-services.md rev. 4).  A cross-context reading service needs a
-  # standalone module taking explicit Repo/context args; not emitted here.
-  def ${fnName}(${paramNames.join(", ")}) do
-${allDiscards.join("\n")}
-    raise "domain service '${op.name}': cross-context reading not yet supported (domain-services.md rev. 4)"
-  end`;
+    // INTERNAL FLOOR.  This branch used to emit a `def` whose body was a
+    // runtime `raise` — the worst shape a gap can take: it compiles, ships, and
+    // blows up on the first call in production, carrying a message no `loom.*`
+    // code indexes.  It is also STRUCTURALLY UNREACHABLE (see
+    // `readingIsSingleContext` above): a read-port comes from a `repo-read`
+    // Call, and `lowerDomainService` builds `serviceRepos` from
+    // `env.ctx.members` alone, so a port can never name a repository outside
+    // this service's own context.  The body that MOTIVATED the branch — a
+    // service reading another context's repository — lowers to an unresolved
+    // `ref` instead, and is refused at phase ⑦ by
+    // `loom.domain-service-cross-context-read`.
+    //
+    // So: fail at GENERATE time rather than ship a landmine.  Pinned by
+    // `test/generator/elixir/domain-service-cross-context-floor.test.ts`.
+    throw new Error(
+      diagMessage("loom.domain-service-cross-context-read#elixir-emit-invariant", {
+        operation: op.name,
+        ports: readPortsForOperation(op)
+          .map((port) => port.repo)
+          .join(", "),
+      }),
+    );
   }
 
   const bodyLines = op.body.map((s) => renderStatement(s, ctx, renderCtx, isUnion));

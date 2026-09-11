@@ -76,13 +76,16 @@ import {
   validateFileFieldObjectStorage,
   validateFilterBypassSupport,
   validateFindPredicateAdapterSupport,
+  validateFlutterActionBodies,
   validateFlutterPrimitiveSupport,
   validateFormLocalCollisions,
+  validateFrontendPropTypes,
   validateGroupedProjectionBackend,
   validateGuardPrincipalWithoutAuth,
   validateHeexComponentHostState,
   validateInheritanceStorage,
   validateJavaReservedIdentifiers,
+  validateLiveViewHoisting,
   validateNeedCapabilities,
   validatePagedQueryHandlerBackend,
   validatePermissions,
@@ -97,6 +100,7 @@ import {
   validateStampSupport,
   validateSystem,
   validateTphFilterExpressibility,
+  validateUiBodyStatementKinds,
   validateUiProjectionReadFramework,
   validateUiRealtimeSupport,
   validateVanillaDocumentScope,
@@ -193,6 +197,10 @@ export function validateLoomModel(loom: EnrichedLoomModel): LoomDiagnostic[] {
     validateCurrentUserNeedsAuthUi(sys, diags);
     validateDataGridFramework(sys, diags);
     validateHeexComponentHostState(sys, diags);
+    validateLiveViewHoisting(sys, diags);
+    validateFrontendPropTypes(sys, diags);
+    validateFlutterActionBodies(sys, diags);
+    validateUiBodyStatementKinds(sys, diags);
     validateFormLocalCollisions(sys, diags);
     validateComponentChildrenSupport(sys, diags);
     validateChartSupport(sys, diags);

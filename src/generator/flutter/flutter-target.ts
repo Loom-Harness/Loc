@@ -10,8 +10,9 @@
 // `DART_LEAVES` (`./dart-expr.ts`).  State follows the Riverpod convention: reads
 // dereference the projected state record (`state.<field>`), writes call the
 // Notifier's generated `set<Field>` method (`notifier.set<Field>(…)`) — emitted
-// per state cell by `riverpod-emit.ts`, so the top-level write resolves (a nested
-// `a.b.c := v` write still carries a TODO in `renderNestedStateWrite`).  The
+// per state cell by `riverpod-emit.ts`, so the top-level write resolves; a nested
+// `a.b.c := v` write folds into the immutable `copyWith` chain (`copy-with.ts`,
+// shared with the Notifier-method path).  The
 // standalone controlled inputs (Field / MultilineField / PasswordField / Toggle /
 // SelectField) write through the same setters, bound as a page-shell tear-off.
 //
@@ -45,6 +46,7 @@ import type { ApiCallSite, RenderPosition, StateRef, WalkerTarget } from "../_wa
 import type { WalkContext } from "../_walker/walker-core.js";
 import { emitExpr, testidAttr, walk } from "../_walker/walker-core.js";
 import { opActionGate } from "./auth-gate.js";
+import { copyWithChain } from "./copy-with.js";
 import {
   DART_LEAVES,
   dartMoneyBinary,
@@ -241,12 +243,23 @@ export const flutterTarget: WalkerTarget = {
   // Notifier's generated `set<Field>` setter (emitted per state cell by
   // `riverpod-emit.ts`; the page shell binds `notifier`).
   renderStateWrite: (ref: StateRef, value: string) => `notifier.${setterName(ref.name)}(${value})`,
-  // A multi-segment write (`order.shipping.zip := v`) → a Notifier update on the
-  // root field; the projector fills the immutable rebuild.
+  // A multi-segment write (`order.shipping.zip := v`) → the root field's Notifier
+  // setter, handed the immutable inside-out `copyWith` rebuild of the path
+  // BELOW the root:
+  //
+  //   order.shipping.zip := v
+  //     → notifier.setOrder(state.order.copyWith(shipping: state.order.shipping.copyWith(zip: v)))
+  //
+  // Before this it emitted `notifier.setOrder(v)` plus a `/* TODO */` comment —
+  // which does not defer the write, it performs a DIFFERENT one, clobbering the
+  // whole root cell with the leaf value.  The comment made it look handled.
+  // The fold is `copyWithChain` (shared with `riverpod-emit.ts`'s
+  // `nestedCopyWith`, which builds the same chain rooted at `state` for the
+  // Notifier-method path).
   renderNestedStateWrite: (segments: readonly string[], valueJs: string) => {
     const [root, ...rest] = segments;
-    const path = rest.length ? `${root}.${rest.join(".")}` : (root ?? "");
-    return `notifier.${setterName(root ?? "")}(${valueJs}) /* TODO(flutter): nested write ${path} */`;
+    if (!root) return `notifier.${setterName("")}(${valueJs})`;
+    return `notifier.${setterName(root)}(${copyWithChain(`state.${root}`, rest, valueJs)})`;
   },
 
   // --- Store seam — a store is its own Riverpod provider (Stage 5) ---------
