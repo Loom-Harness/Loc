@@ -1258,6 +1258,16 @@ function renderQueryLoadBlock(
   listGate?: ListReadGate,
 ): string {
   const aggSnake = snake(qb.aggregate);
+  // WHICH function this read calls.  Resolved from the `of:` call's OPERATION by
+  // the walker (`contextReadFn` → `resolveAggregateRead`), never assumed from the
+  // read's shape: assuming it is what made every filtered read on this backend
+  // load `list_<agg>s()` — the whole table — while the JSX frontends loaded the
+  // filter the page named.  `undefined` = the operation named no declaration at
+  // all, which `loom.ui-read-unresolved` rejects upstream; the block below then
+  // refuses rather than substituting a read the page did not ask for.
+  const isAggregateRead = qb.source === undefined || qb.source === "aggregate";
+  if (isAggregateRead && qb.readFn === undefined) return renderUnresolvedRead(qb);
+  const readFn = qb.readFn ?? (qb.kind === "single" ? `get_${aggSnake}` : `list_${aggSnake}s`);
   if (qb.kind === "single") {
     const opAssigns = opFbs.map(
       (fb) =>
@@ -1274,9 +1284,24 @@ function renderQueryLoadBlock(
           |> assign(:${qb.assign}, record)
 ${opAssigns.map((a) => `  ${a}`).join("\n")}`
         : `        {:ok, record} -> assign(socket, :${qb.assign}, record)`;
+    // The read's ARGUMENT.  `byId(id)` on a scaffolded detail page renders
+    // `socket.assigns.id`, which is also the fallback for a read that passed
+    // none — but a SINGLE-shaped custom find (`find byName(n: string): Item?`)
+    // carries its own argument, and reaching for the route id instead both
+    // dropped the filter and read an assign such a page never binds.
+    const singleArgs = qb.listArgs?.length ? qb.listArgs.join(", ") : "socket.assigns.id";
+    // A single-shaped custom FIND wraps `Repo.one/1`, so absence is `{:ok, nil}`
+    // — not the `{:error, :not_found}` the by-id fetch returns.  Without this
+    // arm a miss falls into `{:ok, record}` and the page renders its DATA slot
+    // over `nil`.  Only emitted for the find (the by-id fetch never yields it),
+    // so the scaffolded detail page stays byte-identical.
+    const nilArm =
+      readFn === `get_${aggSnake}`
+        ? ""
+        : `        {:ok, nil} -> assign(socket, :${qb.assign}, :not_found)\n`;
     return `    socket =
-      case ${ctxModule}.get_${aggSnake}(socket.assigns.id) do
-${okArm}
+      case ${ctxModule}.${readFn}(${singleArgs}) do
+${nilArm}${okArm}
         {:error, :not_found} -> assign(socket, :${qb.assign}, :not_found)
         _ -> assign(socket, :${qb.assign}, :error)
       end`;
@@ -1290,7 +1315,7 @@ ${okArm}
   // `{:error, _}` arm maps to the `:error` sentinel the list `cond` renders as
   // the error slot.
   const listArgs = (qb.listArgs ?? []).join(", ");
-  const read = `      case ${ctxModule}.list_${aggSnake}s(${listArgs}) do
+  const read = `      case ${ctxModule}.${readFn}(${listArgs}) do
         {:ok, items} -> assign(socket, :${qb.assign}, items)
         _ -> assign(socket, :${qb.assign}, :error)
       end`;
@@ -1310,6 +1335,21 @@ ${read.replace(/^ {6}/gm, "        ")}
       else
         assign(socket, :${qb.assign}, :error)
       end`;
+}
+
+/** The load block for a read whose `of:` operation resolved to NO declaration.
+ *
+ *  The old emitter had no such case: an unrecognised operation fell through to
+ *  `list_<agg>s()`, so a typo'd or never-declared find quietly rendered the
+ *  whole table.  `loom.ui-read-unresolved` rejects that model in phase ⑦, so
+ *  this is the backstop for a codegen call that skipped validation — and its
+ *  contract is that the page shows its ERROR slot, never other rows.  The
+ *  comment names the operation so the generated source says why. */
+function renderUnresolvedRead(qb: import("./heex-walker.js").QueryBinding): string {
+  return `    # Loom: '${qb.aggregate}' read refused — the page's 'of:' names no repository
+    # operation on this aggregate, and substituting the unfiltered list would
+    # render rows the page never asked for.  See loom.ui-read-unresolved.
+    socket = assign(socket, :${qb.assign}, :error)`;
 }
 
 /** The `handle_params` load line for a `QueryView { of: <api>.<Projection> }`

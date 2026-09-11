@@ -1140,6 +1140,47 @@ reports the true `rows.total`, and — on Phoenix — asks emptiness of the rows
 rather than of the envelope map. Taking these from the flags alone is what made
 the same page render blank on the JSX frontends and raise on LiveView.
 
+### 9.3 What an `of:` read may name — and what happens if it names nothing
+
+A read primitive's `of:` (`QueryView`, `Chart`) resolves against a **closed** set
+of operations on the aggregate:
+
+| `of:` | the read |
+|---|---|
+| `X.all` (optionally `(page, size, sortKey, sortDir)`) | the auto-`findAll` — paged by default (§9.2) |
+| `X.byId(id)` | the by-id fetch |
+| `X.history(id)` | the derived entity trail, on an **audited** aggregate ([`audit.md`](audit.md)) |
+| `X.<find>(args…)` | any `find` declared on `X`'s repository — including the paged `findAllBy<Criterion>` that `scaffoldPaged` synthesizes |
+| `<apiHandle>.<Projection>` | a readable query-time projection ([`projections`](language.md)) |
+
+Anything else names no declaration, and is refused with
+**`loom.ui-read-unresolved`** — which lists what the aggregate does expose.
+
+The gate is target-agnostic because the failure was not. An unresolved read used
+to fail *differently* on each frontend: the JSX / Feliz / Flutter clients import
+a hook the api emitter never wrote (a build error — loud, but late), while
+Phoenix LiveView substituted `list_<agg>s()`, **the unfiltered table**, and
+rendered every row with no error at all. Same `.ddd`, two meanings.
+
+```ddd
+criterion Sellable of Product = status == Active && stockOnHand > 0
+page Storefront { route: "/shop"
+  body: QueryView { of: Product.findAllBySellable(), data: rows => … } }
+```
+
+```elixir
+# lib/api_web/live/storefront_live.ex — the read the page NAMED
+case Api.Catalog.find_all_by_sellable_product() do
+  {:ok, items} -> assign(socket, :items, items)
+  _ -> assign(socket, :items, :error)
+end
+```
+
+`find_all_by_sellable_product/4` is the `defdelegate` the context module emits
+beside `list_products/4`; a parameterised find (`of: Item.byState(Live)`) reaches
+`by_state_item/1` with the filter in its own parameter, not in `list/4`'s `page`
+slot.
+
 ---
 
 ## 10. `scaffold` — the macro family
@@ -1635,6 +1676,7 @@ semantics.  Per-construct mapping:
 | `CreateForm { of: T }` / `OperationForm` / `WorkflowForm` | `<.simple_form for={@form} phx-submit="save">` over `to_form(changeset)`. |
 | Scaffolded page bodies | the same macro-emitted walker body every other frontend gets, rendered through the HEEx engine into `render/1`. |
 | `Sales.Customer.create(args)` | a direct context call `<App>.Sales.create_customer!(args)` — no hook hoisting, since LiveView reads in `mount/3` / `handle_event/3`. |
+| `QueryView { of: <Agg>.<op>(…) }` | the context-module function that operation names — `list_<agg>s` (`all`), `get_<agg>` (`byId`), `<find>_<agg>` (a declared or synthesized find) — called in `handle_params/3`. Resolved from the OPERATION, never guessed from the read's shape (§9.3). |
 | Page object emission | unchanged — Playwright drives any rendered HTML, including LiveView, via the same testid-keyed page objects. |
 
 **HEEx does not ride the shared walker.**  Six frontends (react, vue, svelte,

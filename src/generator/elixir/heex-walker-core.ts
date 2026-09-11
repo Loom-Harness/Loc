@@ -221,6 +221,21 @@ export interface QueryBinding {
    *  way to reach row 11.  Empty/undefined for a bare `all` → `list_<agg>s()`,
    *  byte-identical to before. */
   listArgs?: string[];
+  /** `source: "aggregate"` only — the CONTEXT-MODULE FUNCTION this read calls,
+   *  resolved from the `of:` call's operation via `resolveAggregateRead`
+   *  (`src/ir/util/page-read.ts`): `list_<agg>s` for the auto-`findAll`,
+   *  `get_<agg>` for `byId`, `<find>_<agg>` for a declared or synthesized
+   *  repository find — the `defdelegate` the context module emits for each.
+   *
+   *  It exists because the emitter used to HARD-CODE `list_<agg>s` for every
+   *  list-shaped read and `get_<agg>` for every single-shaped one, so a page
+   *  naming a FILTERED read (`Product.findAllBySellable()`, `Item.byState(Live)`)
+   *  silently loaded the unfiltered list — the right rows on the JSX frontends,
+   *  every row on Phoenix, with no diagnostic.  Undefined ⇒ the operation named
+   *  no declaration at all; the emitter then REFUSES the read rather than
+   *  substituting one (`loom.ui-read-unresolved` rejects that model upstream, so
+   *  the refusal is a backstop, not the user-facing message). */
+  readFn?: string;
 }
 
 /** Interactive controls a `Table(...)` in this body asked for — the HEEx leg of

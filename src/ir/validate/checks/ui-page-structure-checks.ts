@@ -11,6 +11,7 @@ import { diagMessage } from "../../../diagnostics/messages.js";
 import { RENDERABLE_FILTER_PRIMITIVES } from "../../../util/filter-param-kinds.js";
 import {
   isWalkerPrimitive,
+  WALKER_READ_PRIMITIVES,
   WALKER_SUB_PRIMITIVE_PARENTS,
 } from "../../../util/walker-primitive-names.js";
 import type {
@@ -23,10 +24,11 @@ import type {
   StmtIR,
   TypeIR,
 } from "../../types/loom-ir.js";
+import { readableOperations, resolveAggregateRead } from "../../util/page-read.js";
 import { typeLabel } from "../../util/type-label.js";
 import { walkExprChildren, walkExprDeep, walkStmtExprsDeep } from "../../util/walk.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
-import { VIEW_EFFECT_BUILTINS, walkerRenderedExprs } from "./ui-checks-shared.js";
+import { namedArg, VIEW_EFFECT_BUILTINS, walkerRenderedExprs } from "./ui-checks-shared.js";
 
 // -------------------------------------------------------------------------
 // `loom.instance-effect-needs-route-id` (M-T6.17) — a page action whose body
@@ -688,4 +690,95 @@ function typeFamily(t: TypeIR): "numeric" | "string" | "bool" | undefined {
 
 export function pageWhere(p: PageIR): string {
   return `page '${p.name}'`;
+}
+
+// -------------------------------------------------------------------------
+// `loom.ui-read-unresolved` — a page read that names no operation.
+//
+// `QueryView { of: <Agg>.<op>(…) }` (and `Chart`'s `of:`) resolves at emit time
+// against a CLOSED set: the auto-`findAll` (`all`), `byId`, the derived
+// `history` read, or a `find` declared on the aggregate's repository.  Anything
+// else names nothing — and until this gate, nothing said so.  What happened
+// instead depended on the target, which is the worst possible shape for a
+// mistake this easy to make (a typo, a criterion whose `scaffoldPaged` was
+// never applied, a find deleted from the repository):
+//
+//   * the JSX / Feliz / Flutter clients import a hook the api emitter never
+//     wrote — `useFindAllBySellableProduct` against an `api/product.ts` that has
+//     no such export.  A BUILD error: loud, late, but findable.
+//   * Phoenix LiveView substituted `list_<agg>s()` — THE UNFILTERED TABLE — and
+//     rendered every row with no error at all.  A storefront page asking for
+//     in-stock published products showed drafts and discontinued ones.
+//
+// So the check is target-agnostic on purpose: one model, one verdict, refused
+// before it can mean two different things.  The Phoenix emitter no longer has
+// a fallback to reach for either (`liveview-emit.ts::renderUnresolvedRead`), so
+// the two halves agree — this is the message, that is the backstop.
+// -------------------------------------------------------------------------
+
+/** The aggregate + operation an `of:` read names, mirroring the walker's
+ *  detector patterns A/B (`<apiParam>.<Agg>.<op>`) and D/E (bare `<Agg>.<op>`),
+ *  in both their member and method-call forms.  Null for every other shape — a
+ *  projection read, a workflow-instance read, a bare ref — each of which has its
+ *  own gate. */
+
+function resolveOfRead(
+  of: ExprIR,
+  apiParamNames: ReadonlySet<string>,
+  aggNames: ReadonlySet<string>,
+): { aggregate: string; operation: string } | null {
+  const recv = of.kind === "member" || of.kind === "method-call" ? of.receiver : undefined;
+  const operation = of.kind === "member" ? of.member : of.kind === "method-call" ? of.member : "";
+  if (!recv) return null;
+  if (
+    recv.kind === "member" &&
+    recv.receiver.kind === "ref" &&
+    apiParamNames.has(recv.receiver.name) &&
+    aggNames.has(recv.member)
+  ) {
+    return { aggregate: recv.member, operation };
+  }
+  if (recv.kind === "ref" && aggNames.has(recv.name)) {
+    return { aggregate: recv.name, operation };
+  }
+  return null;
+}
+
+/** Reject every `of:` read whose operation resolves to no declaration. */
+
+export function checkOfReadResolves(
+  host: PageIR | ComponentIR,
+  where: string,
+  apiParamNames: ReadonlySet<string>,
+  aggNames: ReadonlySet<string>,
+  findsByAggregate: ReadonlyMap<string, ReadonlyMap<string, FindIR>>,
+  diags: LoomDiagnostic[],
+): void {
+  const seen = new Set<string>();
+  for (const root of walkerRenderedExprs(host)) {
+    walkExprDeep(root, (e) => {
+      if (e.kind !== "call" || !WALKER_READ_PRIMITIVES.has(e.name)) return;
+      const of = namedArg(e, "of");
+      if (!of) return;
+      const read = resolveOfRead(of, apiParamNames, aggNames);
+      if (!read) return;
+      const finds = findsByAggregate.get(read.aggregate);
+      if (resolveAggregateRead(read.operation, finds).kind !== "unresolved") return;
+      // One verdict per aggregate+operation: the same read bound twice on a page
+      // (a `Chart` and a `Table` over one query) is one mistake, not two.
+      const key = `${read.aggregate}.${read.operation}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      diags.push({
+        severity: "error",
+        code: "loom.ui-read-unresolved",
+        message: diagMessage("loom.ui-read-unresolved", {
+          aggregate: read.aggregate,
+          operation: read.operation,
+          known: `'${read.aggregate}' exposes: ${readableOperations(finds).join(", ")}.`,
+        }),
+        source: where,
+      });
+    });
+  }
 }
