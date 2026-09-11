@@ -66,6 +66,8 @@ const BEHAVIOURAL_ABSENT: Record<string, string> = {
   resources: "objectStore / queue / api / mailer clients need their containers",
   "api-call":
     "in-system api call; needs both deployables booted (the `api-call-e2e` leg does this outside the corpus tier)",
+  "workflow-primitive-params":
+    "the question is what a request body OMITS, and the `test e2e` vocabulary cannot pose it — a workflow call there is type-checked against the declared params, so an absent required field is not expressible; the compile tier proves every backend still builds with the boxed components, and the 422 itself is the Schemathesis legs' question",
   "collection-op-shapes":
     "collection-op VALUE semantics (empty sum, avg of none, sort stability) — the exact class a string assertion cannot see",
 };
