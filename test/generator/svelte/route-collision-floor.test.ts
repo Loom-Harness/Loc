@@ -45,6 +45,38 @@ describe("svelte route-directory collision", () => {
     );
   });
 
+  it("lets a user page take `/` from the scaffold's synthesised Home", async () => {
+    // The rule React has always implemented (`app-shell.ts`'s
+    // `userHasRootRoute`) and SvelteKit could not express: both pages compute
+    // the same route DIRECTORY.  Before this arm, a `with scaffold(...)` ui plus
+    // a hand-written `page Dashboard { route: "/" }` — valid `.ddd` that
+    // generates correctly on React — hit the floor above.
+    const files = await generateSystemFilesUnchecked(
+      `
+system ScaffoldYield {
+  subdomain Work { context Ops {
+    aggregate Job with crudish { name: string }
+  } }
+  api OpsApi from Work
+  storage pg { type: postgres }
+  resource st { for: Ops, kind: state, use: pg }
+  ui Console with scaffold(aggregates: [Job]) {
+    page Dashboard { route: "/" body: Stack { Heading { "Dashboard!", level: 1 } } }
+  }
+  deployable api { platform: node, contexts: [Ops], dataSources: [st], serves: OpsApi, port: 8080 }
+  deployable web { platform: svelte, targets: api, ui: Console, port: 3001 }
+}`,
+      "the scaffold-Home yield is the subject; nothing here is invalid",
+    );
+    const root = [...files.entries()].find(([k]) => k.endsWith("routes/(app)/+page.svelte"));
+    expect(root, "no root page emitted").toBeDefined();
+    // The USER page's body, not the scaffold landing page's.
+    expect(root![1]).toContain("Dashboard!");
+    // The scaffolded list/detail/new pages still emit — the yield drops exactly
+    // one page, not the scaffold.
+    expect([...files.keys()].filter((k) => k.endsWith("+page.svelte")).length).toBeGreaterThan(1);
+  }, 60_000);
+
   it("emits both pages when the routes differ (the control)", async () => {
     const files = await generateSystemFilesUnchecked(sys("/a", "/b"), WHY);
     const routes = [...files.keys()].filter((k) => k.endsWith("+page.svelte"));

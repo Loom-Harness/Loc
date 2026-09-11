@@ -43,7 +43,7 @@ Every row below carries the command that produced it.
 | F5 | `_frontend/extern-functions.ts` two `default: throw` arms | `function fmt(m: money): string extern from "./lib/fmt"` → `Error: extern function: unsupported primitive 'money' in signature.` | the same code — one gate, both emitters |
 | F6 | `flutter/riverpod-emit.ts` ~196, the `private-operation` arm | `action go() { navigate("/other") }` → react emits `const go = () => { navigate("/other"); };` over a real `useNavigate()`; **flutter** emits `// TODO(flutter full-parity): 'private-operation' call 'navigate' in a Notifier method`. Same for `toast("hi")` | **`loom.flutter-action-body-unsupported#view-effect`**, naming successor mission **M-T1.32** |
 | F7 | `flutter/riverpod-emit.ts` ~238, the `match await` arm | `match await Shop.Order.delete() { … }` validated clean; **the request, the error reification and every arm body** replaced by `// TODO(flutter full-parity): \`match await\` subject is not a resolvable remote op`. React renders it | **`loom.flutter-action-body-unsupported#match-await-standard-op`**, same mission |
-| F8 | `flutter/riverpod-emit.ts` ~212, the `default:` arm | `return` / `precondition` / `requires` in ANY ui action body: `// TODO(flutter full-parity): unsupported action statement 'return'` on Flutter, and on react a bare `Error: react: unsupported statement 'return' in a page event handler` | **`loom.ui-body-statement-kind`** — the sibling of `loom.if-stmt-page-body-unsupported`, gated once for every frontend |
+| F8 | `flutter/riverpod-emit.ts` ~212, the `default:` arm | `return` / `precondition` / `requires` in a ui action body: `// TODO(flutter full-parity): unsupported action statement 'return'` on Flutter, and on react a bare `Error: react: unsupported statement 'return' in a page event handler` | **`loom.ui-body-statement-kind`** — the sibling of `loom.if-stmt-page-body-unsupported`, but PER-FRAMEWORK; see §3b |
 
 ### 1b. Unreachable → an internal floor that names the gate
 
@@ -61,6 +61,7 @@ emitters where the alternative was shipping broken output, not a comment.
 
 | # | What | Why a fix and not a code |
 |---|---|---|
+| F13 | `svelte/routes-emitter.ts` — the scaffold-`Home` yield | SvelteKit could not express the rule React has always implemented, because both pages compute the same route DIRECTORY, so the emitter threw on `.ddd` that generates correctly on React. Now skipped the way `app-shell.ts`'s `userHasRootRoute` skips it, verified end to end: the emitted `src/routes/(app)/+page.svelte` carries the USER page's body, and the scaffolded list/detail/new pages still emit. Mutation-proved by removing the skip — **FAILED: "lets a user page take `/` from the scaffold's synthesised Home"** |
 | F11 | `flutter/flutter-target.ts` ~216 nested state write | It emitted `notifier.setOrder(v) /* TODO(flutter): nested write order.shipping.zip */` — **not a deferred write but a different one**, clobbering the whole `order` cell with the leaf value, under a comment that reads as "handled". The correct rendering is small and already existed one module away (`riverpod-emit.ts`'s `nestedCopyWith`), so implementing it beat refusing it. Both now share `src/generator/flutter/copy-with.ts` (`riverpod-emit.ts` imports `flutter-target.ts`, so the seam cannot import back — hence the leaf). `renderNestedStateWrite(["order","shipping","zip"], "v")` → `notifier.setOrder(state.order.copyWith(shipping: state.order.shipping.copyWith(zip: v)))` |
 
 ### 1d. Already closed — a flip with evidence
@@ -134,6 +135,66 @@ on valid `.ddd`" had been true-ish and wrong in one corner for as long as `deriv
 
 ---
 
+## 3b. The two things the gates got WRONG — found by running them wide
+
+Both gates above were built from measurements on **react and flutter**, and both
+over-claimed. The affected-suite sweep is what caught it, by refusing shapes that work.
+Recording them because the lesson generalises: *a sentinel tells you one frontend's answer, and
+generalising from two is how a honesty pass becomes a regression.*
+
+### `loom.ui-body-statement-kind` was universal; Phoenix LiveView renders all three
+
+`heex-walker-core.ts`'s hoisted-handler `renderStmt` has real arms for every kind the gate
+refused — `precondition` / `requires` (~2065) become a predicate that keeps the socket or
+flashes and halts the pipe, and `return` (~2165) becomes `|> tap(fn _ -> … end)`, since Elixir
+has no `return` and a page handler has no value sink. All of it pinned, deliberately, by
+`heex-page-stmt-coverage.test.ts` ("Bucket E2"), whose whole subject is that those arms replaced
+`# TODO <kind>` lines. Four of its tests failed against the universal gate.
+
+So the gate is now per-framework (`BACKEND_BODY_STMT_FRAMEWORKS = {phoenixLiveView}`), which is
+the shape its siblings (`DataGrid`, `Chart`, the flutter-primitive gate) already have, and it
+moved from `ui-action-body-checks.ts` to `ui-framework-checks.ts` where `mountedUis` lives.
+
+### `loom.ui-page-route-collision` refused the repo's own flagship example
+
+`web/src/examples/erp/main.ddd` declares `page Dashboard { route: "/" }` beside a
+`with scaffold(...)`-synthesised `Home`, which the scaffold also routes at `/`. That is a
+**documented language rule**, not a collision: `classifyPage`'s own comment says "write
+`page Home { … }` to replace the generated landing page", and React implements it —
+`app-shell.ts`'s `userHasRootRoute` skips the synthesised Home's import *and* its route.
+Measured on the pre-gate tree, the emitted `App.tsx` carries exactly one
+`<Route path="/" element={<Dashboard />} />`.
+
+Exempted, with one subtlety worth its own mutation proof: the page that actually MOUNTS owns the
+route afterwards, so a THIRD page at `/` still collides with the winner rather than with the
+yielded `Home`. Dropping that guard leaves the three-at-root fixture reporting nothing —
+**FAILED: `expected [] to include 'loom.ui-page-route-collision'`** — which is how it stopped
+being speculative.
+
+**And exempting it exposed a per-frontend gap the refusal had been hiding.** With the gate no
+longer in the way, the same model was generated through each frontend:
+
+| frontend | what `page Dashboard { route: "/" }` beside a scaffolded `Home` produces |
+|---|---|
+| react | one `<Route path="/" element={<Dashboard />} />` — correct |
+| **svelte** | `Error: svelte pages 'Dashboard' and 'Home' both emit to src/routes/(app)/+page.svelte` — a hard crash on `.ddd` that generates correctly on React |
+| vue | BOTH `{ path: "/", component: Dashboard }` and `{ path: "/", component: Home }` — the router matches the first; `Home` is dead code |
+| angular | the same, twice `{ path: "" }` |
+| feliz / flutter / heex | not read |
+
+Svelte's copy is fixed here (§1c, F13) because it CRASHED and the file is in this packet's fence.
+The other three, and the one-derivation fix that would retire all six copies, are **H6** in §6.
+
+### And the catalog gate caught the flutter gate twice
+
+`validateFlutterActionBodies` built its message key with a template literal
+(`` diagMessage(`loom.flutter-action-body-unsupported#${slug}`) ``). `diagnostic-catalog.test.ts`
+reads keys as STRING LITERALS to check each belongs to the `code:` beside it — so the site
+registered as inline wording *and* its three catalog entries as orphans. Keys are spelled out per
+call site now.
+
+---
+
 ## 4. Flipped
 
 | Mission | From | To | Evidence |
@@ -166,6 +227,7 @@ Five, and none of them would have been found by grepping for the code:
 | H3 | **`loom.page-expr-unrenderable` reachability** (inherited from packet 1d-i's H3). NOT resolved here: it is `walker-core.ts`'s markup-position `default:` arm, and this packet's §18 list did not include it. Still carried as a coded backstop with an `UNREACHABLE_PINS` entry. | `src/generator/_walker/walker-core.ts:~1206` | Proving it dead needs an exhaustive `ExprIR.kind` argument over what the page-body lowerer can produce — the same walk-census-shaped job 1d-i named. The technique this packet used for F10 (enumerate the POSITIONS, drive each one) is the obvious way in, and §3 shows it finds real holes. |
 | H4 | **The give-up codes still are not CLI diagnostics** (inherited from 1d-i's H1, and now MORE load-bearing). This packet moved eight conditions from "a comment in the output" to "a `loom.*` error", which sharpens the contrast: the remaining walker give-ups still exit `0 error(s), 0 warning(s)`. The phase-⑨ scan 1d-i described (`GIVE_UP_RE` over the emitted file map) needs no emitter change. | `src/system/` — outside this packet's fence | Fence. |
 | H5 | **`docs/build.mjs`'s `RENDERED_SUBDIRS` still omits `new-plan/waves` and `new-plan/waves/handoffs`**, so every track-file link into a hand-off note 404s on the published site — including the two this packet added (M-T1.31's and M-T1.32's). | `docs/build.mjs` | A one-line fix for whoever owns that file; 1d-i flagged it first and this packet followed the same established pattern rather than inventing a different link shape. |
+| H6 | **The scaffold-`Home`-yields rule is implemented per frontend, and three of six get it wrong.** MEASURED on a `with scaffold(...)` ui plus `page Dashboard { route: "/" }`: **react** one `<Route path="/" element={<Dashboard />} />` (correct); **svelte** was a hard crash and is now correct (fixed here — see §1c); **vue** emits BOTH `{ path: "/", component: Dashboard }` and `{ path: "/", component: Home }`, so the router matches the first and `Home` is dead code; **angular** the same, twice `{ path: "" }`; **feliz / flutter / heex** not read. React's own comment also claims "no synthesised Home file is emitted either" — but `home.tsx` IS written, a dangling unrouted module. | `src/generator/react/templating/preparers/app-shell.ts:216`, `src/generator/vue/…`, `src/generator/angular/…` — one route emitter each | Six copies of one rule is the defect; the fix is ONE derivation every frontend reads (the way `emitPath` already is), which is a design slice about scaffold-override semantics rather than a sentinel drain. Svelte was fixed here only because its copy CRASHED on valid `.ddd` and the file is in this packet's fence. |
 
 ---
 

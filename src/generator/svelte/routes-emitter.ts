@@ -103,6 +103,18 @@ function groupForLayout(page: PageIR): string {
   return "(app)";
 }
 
+/** The scaffold's synthesised landing page — the one page kind whose route a
+ *  user page of the same address takes over.  Classified rather than stamped,
+ *  through the same `classifyPage` every other consumer uses. */
+function isScaffoldLandingPage(page: PageIR, ui: UiIR): boolean {
+  return (
+    classifyPage(page, {
+      aggregateNames: [],
+      workflowNames: [],
+    }).kind === "home" && ui.pages.includes(page)
+  );
+}
+
 /** Emit path for a routable page. */
 export function sveltePagePath(page: PageIR): string | undefined {
   if (!page.route) return undefined;
@@ -223,9 +235,44 @@ export function emitSveltePagesForUi(ui: UiIR, ctx: SveltePageEmitContext): Map<
     ctx.sourcemap?.file(componentPath, componentContent, c.origin, componentConstruct);
   }
 
+  // A scaffold-synthesised `Home` YIELDS its route to a user page claiming the
+  // same address — `classifyPage`'s override contract ("write `page Home { … }`
+  // to replace the generated landing page"), implemented on React by
+  // `app-shell.ts`'s `userHasRootRoute`.  SvelteKit could not honour it at all:
+  // both pages compute the same route DIRECTORY, so the emitter threw, on a
+  // model that validates clean and generates correctly on React.  Measured on
+  // this tree before this arm (a `with scaffold(...)` ui plus
+  // `page Dashboard { route: "/" }`):
+  //
+  //   svelte   Error: svelte pages 'Dashboard' and 'Home' both emit to
+  //            src/routes/(app)/+page.svelte
+  //   react    one `<Route path="/" element={<Dashboard />} />`
+  //   vue      BOTH `{ path: "/", component: Dashboard }` and `{ path: "/",
+  //            component: Home }` — the router matches the first and `Home` is
+  //            dead code
+  //   angular  the same, twice `{ path: "" }`
+  //
+  // Only React got it right; this arm is Svelte joining it.  The three
+  // remaining frontends (and the one-derivation fix that would retire all of
+  // these copies) are H6 of the packet-1d-ii hand-off.
+  const yieldedHomes = new Set<PageIR>();
+  {
+    const claimed = new Map<string, PageIR>();
+    for (const page of ui.pages) {
+      if (!page.route || isScaffoldLandingPage(page, ui)) continue;
+      claimed.set(page.route, page);
+    }
+    for (const page of ui.pages) {
+      if (page.route && isScaffoldLandingPage(page, ui) && claimed.has(page.route)) {
+        yieldedHomes.add(page);
+      }
+    }
+  }
+
   const seenPaths = new Map<string, string>();
   for (const page of ui.pages) {
     if (!isWalkableLayoutBody(page.body, userComponents)) continue;
+    if (yieldedHomes.has(page)) continue;
     const emitPath = sveltePagePath(page);
     if (!emitPath) continue;
     const prior = seenPaths.get(emitPath);
