@@ -52,6 +52,7 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.function-block-impure": "07-invariants-derived-functions.md#function--a-pure-helper",
   "loom.when-references-op-param":
     "06-behavior-and-statements.md#when-also-auto-exposes-get-idcan_op",
+  "loom.vanilla-op-call-actor": "06-behavior-and-statements.md#operation--a-mutating-method",
   "loom.abstract-aggregate-behavior":
     "08-inheritance-and-polymorphism.md#abstract-aggregate--the-base",
   "loom.abstract-repository": "08-inheritance-and-polymorphism.md#abstract-aggregate--the-base",

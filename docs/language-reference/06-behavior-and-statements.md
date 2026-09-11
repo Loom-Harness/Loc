@@ -110,7 +110,7 @@ def confirm_order(%ExApi.Orders.Order{} = record, params) when is_map(params) do
   with :ok <- ensure(record.status == :Draft, {:disallowed, "operation 'confirm' is not allowed in the current state of Order."}),
        :ok <- ensure(is_mutable(record), {:precondition_failed, "Precondition failed: isMutable()"}),
        :ok <- ensure(Enum.count(record.lines) > 0, {:precondition_failed, "Precondition failed: lines.count > 0"}) do
-    _ = nil  # vanilla: bare call to 'recompute' (no callable target); record unchanged
+    record = __op_recompute(record)  # the private op as a module-local pure transform
     record = %{record | status: :Placed}
     changeset =
       record
@@ -133,7 +133,7 @@ end
 ```
 ::: end
 
-A `private operation` is invoked from another op as a bare call — `recompute()` lowers to `this.recompute()` (TS/.NET/Java), `self._recompute()` (Python). **Honest gap:** the Elixir context function renders that call as the `_ = nil  # … bare call to 'recompute' (no callable target)` line above — the private body does not run on Phoenix.
+A `private operation` is invoked from another op as a bare call — `recompute()` lowers to `this.recompute()` (TS/.NET/Java), `self._recompute()` (Python) and, on Elixir, to `record = __op_recompute(record)` against a module-local `defp __op_recompute/1` carrying the callee's body as a PURE struct transform (the caller's persist tail writes the columns it assigned). The public twin `recompute_order/2` is not used for this: it persists, and calling it mid-operation would commit a partial write inside the caller's optimistic-lock window. **One narrow refusal on Elixir:** a private operation whose body reads `currentUser` is rejected with `loom.vanilla-op-call-actor` — the helper takes no actor and the caller binds `current_user` only when its own body reads the principal, so the generated project would not compile. Move the `currentUser` read up into the routed operation.
 
 Modifiers: `extern` emits only the gates and hands the business decision to a user-registered handler — its body may contain nothing but `precondition` statements (`loom.extern-body-not-precondition`), and it can't be `private` (`loom.extern-on-private-operation`); see [Externs](21-externs.md). `audited` records an audit row around the call on all five backends (a context hosted elsewhere is `loom.audited-backend-unsupported`); an `audited` operation that also declares a return type is refused on **node** (`loom.audited-returning-operation-unsupported` — the Hono route emits only the void 204 handler for that combination). See [Capabilities](11-capabilities-filters-stamps.md) for `auditable`.
 
