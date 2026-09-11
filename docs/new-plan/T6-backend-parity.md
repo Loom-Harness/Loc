@@ -391,7 +391,7 @@ the correlation row, so a later `on` reactor logs `event_unrouted` forever.
 
 **Blocks [M-T6.58](#m-t658).** Do not build workflow entry points on a create path that does not compile.
 
-## M-T6.61 — A `match` expression drops an `error` variant's binding on .NET and Java — `open` · **M** · P0
+## M-T6.61 — A `match` expression drops an `error` variant's binding on .NET and Java — `done` (2026-09-10, [#2857](https://github.com/Loom-Harness/Loc/pull/2857); re-verified 2026-09-11) · **M** · P0
 
 Found 2026-09-09 by the verification fleet ([F59](../audits/2026-09-03-language-docs-audit-findings.md)),
 as bycatch while resolving W3.1's gate-vs-lower fork. For a union carrying an `error` variant, the arm
@@ -409,3 +409,14 @@ error-variant arm. Sites: `src/generator/dotnet/render-expr.ts:324`, `src/genera
 
 **Sequencing:** the W3.1 placement gate's message would tell users to switch to exactly this form. Either
 this lands first, or that message must not recommend it on .NET and Java.
+
+**Fixed by [#2857](https://github.com/Loom-Harness/Loc/pull/2857) (`f518e31`, 2026-09-10); re-verified 2026-09-11 by Wave C1 packet 1b BY GENERATING, before building anything on top of it.** Both leaves special-cased "exactly one non-error variant + at least one error variant" as a repository union find's OPTIONAL TWIN — an arity guess that also matches an ordinary `Hit | NotFound` DU, whose carriers do exist. The branch is gone on both. Repro (`payload Hit { code: string }` + `error NotFound { resource: string }`, a `Hit or NotFound` operation, `owner := match r { Hit h => h.code, NotFound n => n.resource }`) now emits the arm's binding on both backends:
+
+```csharp
+Owner = r switch { HitOrNotFound_Hit h => h.Code, HitOrNotFound_NotFound n => n.Resource, _ => throw … };
+```
+```java
+this.owner = switch (r) { case HitOrNotFound_Hit h -> h.code(); case HitOrNotFound_NotFound n -> n.resource(); default -> null; };
+```
+
+and the genuine optional twin still takes the presence-ternary path before `matchVariant` is reached (`var label = outcome is not null ? outcome.Code : outcome.Resource;`). No rebuild; the sequencing constraint on M-T5.28's messages is therefore satisfied — and those two messages prescribe no replacement construct at all, so they stay correct either way. **One adjacent gap surfaced by the repro and NOT owned here:** on elixir the same source is refused by `loom.vanilla-op-call-position` (a sibling-op call outside `return` tail position) — an honest coded gap, already named, no silent decline.
