@@ -1,7 +1,7 @@
 # Wave C1 hand-off — packet 1d-i, the give-up drain (M-T9.55) and the walker invariant
 
 *Branch: `claude/c1-1d-giveup-drain`. Commits: `87e1323a` (emitters), `e8adc473` (gates),
-`<fixture>` (corpus), `<docs>` (tracker + this note).*
+`1e6431c6` (corpus fixture), `261dc14d` (tracker + this note), `9b7a2ccd` (biome import order).*
 
 ---
 
@@ -45,11 +45,11 @@ packet drained.
 
 ### The classification, per the packet's (a)/(b)/(c)
 
-* **(a) genuine decline on valid input** — the overwhelming majority (74 of 81). Every "missing
+* **(a) genuine decline on valid input** — the overwhelming majority (**75 of 81**). Every "missing
   `of:` / `runs:` / entries / accessor", every "not an in-scope aggregate instance", every "aggregate
   not found", every per-frontend porting gap. Each now names one of the five new codes.
-* **(b) unreachable branch** — **not used as a `never`-assertion anywhere, deliberately.** Three
-  sites are the backstop to a validator that already refuses the shape
+* **(b) unreachable branch** — **not used as a `never`-assertion anywhere, deliberately.** Six
+  sites (5 + the one in H3 below) are the backstop to a validator that already refuses the shape
   (`walker-core.ts`'s `ref:` ×2 → `loom.unresolved-page-ref`, `unknown page element` /
   `unknown layout component` → `loom.unknown-page-element`, the registered-primitive-without-a-
   renderer arm → `loom.sub-primitive-misplaced`), and each of those three codes **already describes
