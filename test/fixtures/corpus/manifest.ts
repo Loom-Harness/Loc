@@ -168,6 +168,14 @@ export const CORPUS: readonly CorpusFeature[] = [
     note: "compile-tier by necessity: hono COMPILES the defect by structural typing, so only the strict backends (python mypy --strict, .NET) can see it",
   },
   {
+    id: "optional-valueobject",
+    title:
+      "an OPTIONAL value-object field (`office: Addr?`) beside a REQUIRED one — the same flattened leaf columns, merely nullable",
+    doc: "language",
+    backends: ALL,
+    note: "minted by the e-shop dev-experience audit (D5/P3): NOTHING in the corpus carried an optional VO, and two backends had left the required path behind.  node narrowed only the ONE leaf column its `== null` probe touched, leaving every other leaf `string | null` against a constructor wanting `string` (TS2345 per subfield per read path); dotnet did not take the owned path at all, emitting `Property(x => x.Office).HasColumnName(\"office\")` for a column the migration never creates — a complex type EF cannot map as a scalar, so the MODEL failed to build and every read and write of the aggregate died.  java/python/elixir were already correct and are carried here as the contrast.",
+  },
+  {
     id: "temporal",
     title:
       "duration arithmetic in both positions — in-app `dt − dt` against composed units, and an interval added to a datetime COLUMN inside a `find … where` (pushed to SQL)",

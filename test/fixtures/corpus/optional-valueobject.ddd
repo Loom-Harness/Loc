@@ -1,0 +1,130 @@
+// An OPTIONAL value-object field (`office: Addr?`) beside a REQUIRED one
+// (`home: Addr`) on the same aggregate — the two adjacent lines that diverged.
+//
+// A VO field has NO column of its own: it flattens into the owner table's leaf
+// columns (`home_line1`, `office_rent`).  Making it optional keeps that
+// flattening and merely makes every one of those leaves nullable — but two
+// backends read "optional" as "a different KIND of field" and left the required
+// path behind:
+//
+//   node    (root.office_line1 == null ? null
+//              : new Addr(root.office_line1, root.office_city, …))
+//           Only the probed leaf is narrowed; every other leaf stays
+//           `string | null` against a constructor wanting `string`
+//           → TS2345, once per subfield per read path (getById, findAll,
+//             every declared find).  Measured on the audit's model as eight
+//             errors across two repositories.
+//
+//   dotnet  builder.Property(x => x.Office).HasColumnName("office");
+//           while the migration beside it creates `office_line1` / `office_city`
+//           and NO column called `office`.  EF cannot map a complex type as a
+//           scalar without a converter, so the model fails to BUILD — every
+//           read and write of the aggregate dies, not just the optional field.
+//           The required sibling one line above took `OwnsOne` and was correct.
+//
+// The other three were already right, and are here as the contrast that makes
+// a regression in them visible in the same compile: java maps it with
+// `@Embedded` + `@AttributeOverride`, python flattens exactly as node does
+// (untyped, so the same shape never surfaced as an error), and elixir does not
+// flatten at all — a VO is one `:map` (jsonb) cell, so `null: true` on that one
+// column is the whole story.
+//
+// Two axes ride along deliberately, because each is a place the optional branch
+// can be got right shallowly and wrong one level down:
+//
+//   * `line2: string?` — optional INSIDE the VO.  It must stay nullable even
+//     when the VO is present, so the fix cannot be "assert every leaf non-null".
+//   * `rent: money` — a subfield the persistence side has to DEREFERENCE
+//     (`.toString()` for the `numeric(19,4)` column), not merely copy.  A guard
+//     threaded down as a per-hop ternary re-evaluates and then dereferences the
+//     RESULT, so this subfield is where the write path breaks while the plain
+//     string ones compile.
+system OptionalValueObject {
+  subdomain People {
+    context Directory {
+      valueobject Addr {
+        line1: string
+        line2: string?
+        city: string
+        rent: money
+      }
+
+      aggregate Person with crudish {
+        name: string
+        home: Addr
+        office: Addr?
+        derived display: string = name
+      }
+
+      repository Persons for Person { }
+    }
+  }
+
+  api DirectoryApi from People
+  storage primary { type: postgres }
+  resource directoryState { for: Directory, kind: state, use: primary }
+
+  // The runtime half.  The compile tiers prove the emitted mapping and
+  // hydration TYPE-CHECK (and, on .NET, that the EF model can be built at all);
+  // this proves the optional VO actually ROUND-TRIPS through both of its states
+  // and through both read loaders.
+  test e2e "an optional value object round-trips absent, then present, then absent again" against d {
+    // Absent: `office` omitted from the create body entirely.  On the flattening
+    // backends this is the all-null leaf group the hydrate must read back as one
+    // null, not as a VO of nulls.
+    let p = api.persons.create({
+      name: "ada",
+      home: { line1: "1 Main St", city: "Springfield", rent: "1200.00" }
+    })
+    let read = api.persons.getById(p)
+    expect(read.office).toBe(null)
+    expect(read.home.line1).toBe("1 Main St")
+    expect(read.home.rent).toBe("1200.0000")
+    // The optional subfield INSIDE the present VO — null, with the VO itself
+    // very much not null.
+    expect(read.home.line2).toBe(null)
+
+    // The BULK loader reads the same all-null leaf group through a different
+    // code path than `getById`, so an optional VO dropped only in bulk (or
+    // hydrated as a VO-of-nulls only in bulk) shows here and nowhere above.
+    let listed = api.persons.all()
+    expect(listed.length).toBe(1)
+    expect(listed.first().office).toBe(null)
+
+    // Present: `update` writes the optional VO, including its own optional
+    // subfield and the money subfield the write path must dereference.
+    api.persons.update(p, {
+      name: "ada",
+      home: { line1: "1 Main St", city: "Springfield", rent: "1200.00" },
+      office: { line1: "2 Side Rd", line2: "Floor 3", city: "Shelbyville", rent: "3400.50" }
+    })
+    let withOffice = api.persons.getById(p)
+    expect(withOffice.office.line1).toBe("2 Side Rd")
+    expect(withOffice.office.line2).toBe("Floor 3")
+    expect(withOffice.office.city).toBe("Shelbyville")
+    expect(withOffice.office.rent).toBe("3400.5000")
+
+    // Absent again: clearing it must null EVERY leaf of the group, not just the
+    // one the read path happens to probe — a backend that cleared only the
+    // probed leaf would still read back a VO here.
+    api.persons.update(p, {
+      name: "ada",
+      home: { line1: "1 Main St", city: "Springfield", rent: "1200.00" }
+    })
+    let cleared = api.persons.getById(p)
+    expect(cleared.office).toBe(null)
+    expect(cleared.home.line1).toBe("1 Main St")
+
+    api.persons.destroy(p)
+    let empty = api.persons.all()
+    expect(empty.length).toBe(0)
+  }
+
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Directory]
+    dataSources: [directoryState]
+    serves: DirectoryApi
+    port: 4000
+  }
+}

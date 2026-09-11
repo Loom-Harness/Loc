@@ -941,23 +941,27 @@ function fieldConfigLines(
       `${indent}${builder}.Property(x => x.${upperFirst(f.name)}).HasConversion<string>()${colName};`,
     ];
   }
-  if (f.type.kind === "valueobject") {
+  if (leaf.kind === "valueobject") {
     // Relational root: the value object flattens into the owner table's
     // columns (the migration emits `price_amount`, `price_currency`), so the
     // owned type's columns must be named to match — EF's default
     // (`Price_Amount`) would not line up with the migration.  In the
     // embedded shape the VO rides inside a JSONB blob, so no column names.
+    //
+    // An OPTIONAL VO field (`office: Addr?`) takes the SAME owned path: it
+    // flattens to the same leaf columns, merely nullable ones.  This arm used
+    // to test `f.type.kind`, so an optional VO fell through to the scalar
+    // `Property(x => x.Office).HasColumnName("office")` below — a column the
+    // migration never creates, and a complex type EF cannot map as a scalar
+    // without a converter, so the model failed to build and every read and
+    // write of the aggregate died.  EF reads the optionality off the CLR
+    // navigation's nullability (`Addr? Office` under `<Nullable>enable</Nullable>`)
+    // and makes exactly those leaf columns nullable — the same inference the
+    // required side already relies on for its NOT NULL columns.
     if (voLookup && !embedded) {
-      return ownedVoLines(
-        f.type.name,
-        upperFirst(f.name),
-        snake(f.name),
-        voLookup,
-        indent,
-        builder,
-      );
+      return ownedVoLines(leaf.name, upperFirst(f.name), snake(f.name), voLookup, indent, builder);
     }
-    return [`${indent}${builder}.OwnsOne<${f.type.name}>(x => x.${upperFirst(f.name)});`];
+    return [`${indent}${builder}.OwnsOne<${leaf.name}>(x => x.${upperFirst(f.name)});`];
   }
   // Plain scalar (string / int / bool / datetime / decimal / primitive
   // collection): EF needs an explicit column-name mapping to the migration's
