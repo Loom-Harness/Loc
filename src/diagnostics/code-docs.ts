@@ -116,6 +116,7 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.transactional-no-effect": "13-workflows.md#transactional--isolation",
   "loom.correlation-field-ambiguous": "13-workflows.md#workflow--state",
   "loom.workflow-correlation-required": "13-workflows.md#workflow--state",
+  "loom.workflow-create-correlation-unsupplied": "13-workflows.md#workflow--state",
   "loom.channel-key-missing-field": "14-apis-storage-resources-channels.md#channel--channelsource",
   "loom.reserved-not-emitted": "14-apis-storage-resources-channels.md#connection-sources",
   "loom.channelsource-incompatible":

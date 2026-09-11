@@ -3049,6 +3049,26 @@ export const DIAGNOSTIC_MESSAGES = {
   }) =>
     `workflow '${p.name}': ${p.label} omits 'by' but event '${p.event}' has no ` +
     `field named '${p.corrName}' to infer routing from. Add a 'by <expr>' clause.`,
+  "loom.workflow-create-correlation-unsupplied": (p: {
+    name: unknown;
+    corr: unknown;
+    params: unknown;
+  }) =>
+    `workflow '${p.name}': the command 'create' writes workflow state but supplies no value for ` +
+    `the correlation field '${p.corr}', so it addresses no instance. A create has no 'by' clause ` +
+    `(a 'by' makes it event-triggered) — supply the key as a parameter named '${p.corr}', or ` +
+    `assign it from one ('${p.corr} := <param>'). Parameters today: ${p.params}.`,
+  "loom.workflow-create-correlation-unsupplied#payload": (p: {
+    name: unknown;
+    corr: unknown;
+    param: unknown;
+    payload: unknown;
+  }) =>
+    `workflow '${p.name}': the command 'create' writes workflow state and its correlation key ` +
+    `'${p.corr}' is a field of '${p.payload}' (parameter '${p.param}'), not a parameter of the ` +
+    `create. A create routes by parameter — by name, or by a '${p.corr} := <param>' assignment — ` +
+    `and reads no nested field, so this addresses no instance. Add '${p.corr}' as a top-level ` +
+    `parameter: 'create(${p.corr}: …, ${p.param}: ${p.payload})'.`,
   "loom.workflow-unknown-name": (p: { name: unknown; kind: unknown; exprName: unknown }) =>
     `workflow '${p.name}': ${p.kind} references unknown name '${p.exprName}'.`,
   "loom.workflow-emit-unknown-event": (p: { name: unknown; eventName: unknown }) =>

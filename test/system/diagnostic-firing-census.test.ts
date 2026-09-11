@@ -715,6 +715,18 @@ system P {
   "loom.workflow-name-collision": repoOnly(`    aggregate Thing with crudish { name: string }
     repository Things for Thing { }
     workflow Thing { create(n: string) { precondition n.length > 0 } }`),
+  // F58 / M-T6.62.  A correlation field exists, but the COMMAND create supplies
+  // it neither way: `oid` does not name-match `orderId`, and the body never
+  // assigns `orderId := oid` either — so the body would render against an
+  // unbound receiver on all five backends.
+  "loom.workflow-create-correlation-unsupplied":
+    repoOnly(`    aggregate Order with crudish { name: string }
+    repository Orders for Order { }
+    workflow W {
+      orderId: Order id
+      status: string
+      create(oid: Order id) { status := "Pending" }
+    }`),
   // The code whose "covered by message in validation.test.ts" claim outlived
   // the file it cited (M-T9.33's own opening finding).  It fires: an `emit`
   // supplying a field the event does not declare.
