@@ -107,6 +107,13 @@ export const CORPUS: readonly CorpusFeature[] = [
   { id: "eventsourced-workflow", title: "event-sourced saga folding its own emitted events", doc: "workflow", backends: ALL },
   { id: "saga", title: "in-process dispatch / saga with persisted correlation", doc: "workflow", backends: ALL },
   { id: "projection", title: "folded projection — read model folded from aggregate events (keyed row + on() folds)", backends: ALL },
+  {
+    id: "projection-fold-statements",
+    title:
+      "folded-projection fold body — the FULL pure statement vocabulary (`let` read by a later assign, scalar `+=`/`-=` over int and money, collection `+=`/`-=`)",
+    backends: ALL,
+    note: "Minted by ledger row F2-XB-4.  Every corpus fold was `:=`-only, so the other THREE kinds `foldImpurity` admits were unexercised on every backend — and four of five mis-emitted them, silently: .NET / java / elixir filtered the body to `kind === \"assign\"` (a `let` vanished while its uses survived → CS0103 / 'cannot find symbol' / 'undefined variable'; `+=` was dropped outright, so the column never accumulated), and python delegated to the EVENT-SOURCED applier renderer, whose list-only `.append` spelling is wrong on a projection row (every non-key column is nullable, and a scalar `+=` is not a list at all).  The money `+=` arm is deliberate: three backends have no `+` operator on their money representation (`Decimal.add` / `BigDecimal.add` / decimal.js), so a fold that reached the generic integer spelling would not compile.",
+  },
   { id: "projection-aggregation", title: "whole-table aggregation — singleton query-time projection (count/sum/avg/min/max pushed to SQL)", doc: "language", backends: ALL },
   { id: "projection-groupby", title: "group by — grouped query-time projection (one row per group, key selects + per-group aggregates, GROUP BY/ORDER BY pushed to SQL)", doc: "language", backends: ALL },
   {
