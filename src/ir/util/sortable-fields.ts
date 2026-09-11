@@ -7,10 +7,19 @@
 // is derived from the aggregate's wire projection: the `id` token plus every
 // scalar `property` field (primitive- or enum-typed — those map to a single
 // root-table column).  Containments, derived fields, and value-object /
-// entity-typed properties are excluded (not single orderable columns).
+// entity-typed properties are excluded (not single orderable columns), and so
+// is every field the read surface hides — `secret`/`internal` access and
+// `mask unless` — because an accepted sort key over a hidden column is an
+// ordering side-channel, not just a useless option.
 //
-// Shared across every backend's route/repo emitter and the frontend hook so the
-// accepted sort keys agree end-to-end.
+// Shared across every backend's route/repo emitter, so the accepted sort keys
+// agree across backends.  The FRONTEND does not read this list: the scaffolded
+// list page marks every rendered column `sortable:` and posts its key straight
+// through, so a column this whitelist excludes emits a header the server
+// rejects.  That mismatch predates the `mask unless` exclusion — the default-on
+// `version` token below already had it — and closing it belongs in the scaffold
+// column builder (src/macros/stdlib/scaffold/_body-builders.ts), not here:
+// widening the whitelist to match the frontend is exactly the leak.
 
 import { wireFieldsForAggregate } from "../enrich/wire-projection.js";
 import type { AggregateIR } from "../types/loom-ir.js";
@@ -37,6 +46,13 @@ export function sortableFields(agg: AggregateIR): string[] {
     // into a controllable ordering oracle (binary-searchable via pagination).
     // Match exactly the set `forApiRead` hides.
     if (f.access === "secret" || f.access === "internal") continue;
+    // `mask unless <expr>` (authorization.md §5) redacts the value at the wire
+    // boundary for a caller the predicate rejects — but ORDERING by it leaks it
+    // anyway: `?sort=salary&dir=asc` plus pagination binary-searches a hidden
+    // column out of the row ORDER, without the value ever crossing the wire.
+    // The read-mask is per-caller and the enum is emitted once, so the only
+    // sound whitelist is one a masked field never enters.
+    if (f.maskUnless) continue;
     if (f.type.kind === "primitive" || f.type.kind === "enum") out.push(f.name);
   }
   // `id` is always sortable and the stable default; guarantee it leads even if a

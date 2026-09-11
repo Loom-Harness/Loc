@@ -59,8 +59,12 @@ import { collectUsedLetNames, pyWorkflowStmtTarget } from "./workflows-builder.j
 
 /** The broker tee (M-T4.4, design §4): publish broker-routed events, pass
  *  everything else to the wrapped dispatcher.  `innerType` is the annotation
- *  of the wrapped chain (`DomainEventDispatcher` in the saga shape, the Noop
- *  in the pure-producer shape). */
+ *  of the wrapped chain — the `DomainEventDispatcher` protocol in the saga and
+ *  pure-producer shapes, the forward-referenced `"OutboxDispatcher"` in the
+ *  durable pure-producer one (where the outbox is the whole chain).  It must be
+ *  wide enough for what `make_dispatcher` actually constructs: a broadcast
+ *  channel inserts a `RealtimeDispatcher` between the tee and the Noop, so the
+ *  concrete Noop was never the right annotation (M-T6.68). */
 function channelTeeClass(innerType: string): string {
   return lines(
     "class ChannelTeeDispatcher:",
@@ -212,10 +216,18 @@ export function buildPyDispatchFile(
       "from sqlalchemy.ext.asyncio import AsyncSession",
       "",
       "from app.channels import publish_event",
-      "from app.domain.events import DomainEvent, NoopDomainEventDispatcher",
+      "from app.domain.events import DomainEvent, DomainEventDispatcher, NoopDomainEventDispatcher",
       ...(hasRealtime ? ["from app.realtime import RealtimeDispatcher"] : []),
       "",
-      channelTeeClass("NoopDomainEventDispatcher"),
+      // The PROTOCOL, not the Noop (M-T6.68, audit #2864 T6).  What the factory
+      // below actually passes is the Noop OR — when a `delivery: broadcast`
+      // channel puts the realtime tee in the chain — a `RealtimeDispatcher`,
+      // which is not a `NoopDomainEventDispatcher`, so the narrower annotation
+      // made the file reject its own construction under mypy (`Argument 1 …
+      // has incompatible type "RealtimeDispatcher"`) and no channels-using
+      // Python backend could pass a strict type check.  The saga shape below
+      // already annotates the same parameter with the protocol.
+      channelTeeClass("DomainEventDispatcher"),
       "",
       "",
       "def make_dispatcher(_session: AsyncSession) -> ChannelTeeDispatcher:",
