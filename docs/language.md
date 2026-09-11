@@ -670,7 +670,11 @@ SelfType      = 'Self'                         // the host aggregate, inside a c
 PrimitiveType = 'int' | 'long' | 'decimal' | 'money' | 'string' | 'bool' | 'datetime' | 'guid' | 'json' | 'File'
 SlotType      = 'slot'                         // element-shaped param marker — UI-only
 ActionType    = 'action' ('(' TypeRef ')')?    // callback-shaped param marker — UI-only
-MoneyLit      = 'money' '(' STRING ')'         // precise-decimal literal
+// `money("10.50")` — the precise-decimal literal — has no rule of its own: it
+// is the STRING-argument arm of `PrimitiveConversion` (`money(x)`), which is
+// what tells it apart from the runtime conversion.  Two rules for one `money(`
+// prefix is an ambiguity no lookahead can resolve; see
+// `docs/language-reference/05-expressions.md` § Money literals vs money(x).
 ```
 
 The postfix carriers fold left (`string envelope paged` is
@@ -1052,8 +1056,11 @@ for high-magnitude / high-precision values).
 
 Everything else involving `money` (e.g. `money + decimal`, `money ×
 money`, `decimal ÷ money`) is **rejected** at the type-system layer.
-The only bridge between `decimal` and `money` is the `money("…")`
-constructor — which accepts a precise-decimal source string.
+The bridges between `decimal` and `money` are the `money("…")`
+constructor — which accepts a precise-decimal source string, checked at the
+source by `loom.money-literal-malformed` — and the `money(x)` / `decimal(x)`
+conversions for a typed value.  Both spell `money(`; the argument decides
+which you get.
 
 **Invariants and preconditions** on money are enforced
 server-side only (the aggregate's `_assertInvariants` runs the

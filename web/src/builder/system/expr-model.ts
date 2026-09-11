@@ -1,4 +1,5 @@
 import type { BuilderEntry, CallArg, Expression, ObjectFieldInit, Statement } from "../../../../src/language/generated/ast.js";
+import { moneyLiteralText } from "../../../../src/language/money-literal.js";
 import { printExpr } from "../../../../src/language/print/index.js";
 
 // ---------------------------------------------------------------------------
@@ -137,17 +138,21 @@ export function seedExpr(node: Expression): EExpr {
             holes: node.holes.map((h) => seedExpr(h.value)),
           }
         : { kind: "raw", text: printExpr(node) };
-    case "MoneyLit":
-      // Mirrors printMoney's `?? "0"` fallback for a half-typed literal.
-      return { kind: "money", amount: node.value ?? "0" };
     case "NowExpr":
       return { kind: "now" };
-    case "PrimitiveConversion":
+    case "PrimitiveConversion": {
+      // `money("10.50")` seeds the editor's `money` leaf, `money(someDecimal)`
+      // its `convert` node — ONE AST node carries both now (there is one
+      // grammar path for `money(`; see src/language/money-literal.ts), and the
+      // argument's shape is what tells them apart.
+      const amount = moneyLiteralText(node);
+      if (amount !== undefined) return { kind: "money", amount };
       // `target` / `value` are optional in the generated AST (a parse error
       // mid-construction leaves them unset) — that shape stays a raw leaf.
       return node.target && node.value
         ? { kind: "convert", target: node.target, inner: seedExpr(node.value) }
         : { kind: "raw", text: printExpr(node) };
+    }
     default:
       return { kind: "raw", text: printExpr(node) };
   }

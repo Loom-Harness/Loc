@@ -144,8 +144,10 @@ export function printExpr(node: Expression): string {
       return String(node.value);
     case "DecLit":
       return node.value;
-    case "MoneyLit":
-      return `money(${JSON.stringify(node.value ?? "0")})`;
+    // No `MoneyLit` case: `money("10.50")` is a `PrimitiveConversion` over a
+    // `StringLit` now (one grammar path for `money(` — see
+    // src/language/money-literal.ts), and that case below re-emits it
+    // byte-identically, `JSON.stringify` on the string included.
     case "BoolLit":
       return node.value;
     case "NullLit":

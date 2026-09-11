@@ -2,7 +2,7 @@
 
 The one expression language shared by invariants, derived fields, operation bodies, repository `find` filters, `criterion` predicates, projection `select` clauses, and page bodies. Every backend consumes the *same* fully-resolved `ExprIR` — names already carry a `refKind`, member accesses a `receiverType`, calls a `callKind` — so the only thing that differs across targets is leaf spelling: operator syntax, money arithmetic, and collection-op shape. This chapter shows that divergence directly.
 
-> **Grammar:** `Expression` (`Lambda` · `MatchExpr` · `TernaryExpr`), `OrExpr`..`MultiplicativeExpr`, `UnaryExpr`, `PostfixExpr` / `PostfixSuffix` (`MemberSuffix` / `CallSuffix`), `CallArg`, `PrimaryExpr` (`LiteralExpr`, `MoneyLit`, `NowExpr`, `ThisRef`, `IdRef`, `NameRef`, `ParenExpr`, `ListLit`, `TemplateString` / `TemplateHole`, `PrimitiveConversion`, `BuilderCall`, `ObjectLit`, `RetrievalLiteral`), `MatchSubject` (`AwaitExpr`), `VariantArm` · **Validators:** `loom.ternary-condition` / `loom.ternary-branches`, `loom.intrinsic-*`, `loom.interp-format-unknown` / `loom.interp-hole-type`, `loom.duration-arity` / `loom.duration-arg-type`, `loom.distinct-non-scalar` / `loom.avg-non-numeric` / `loom.join-non-string` / `loom.reduction-non-comparable` / `loom.bare-collection-accessor`, `loom.collection-op-in-ui` / `loom.frontend-collection-op-unsupported`, `loom.user-visible-concat`, `loom.match-*`, `loom.unknown-name` / `loom.unknown-member`, `loom.call-arg-count` / `loom.call-arg-type` (`src/language/validators/types.ts`, `temporal.ts`, `template.ts`, `match.ts`, `i18n-strings.ts`, `statements.ts`) · **Lowering:** [`lower-expr.ts`](../../src/ir/lower/lower-expr.ts); shared dispatch in [`_expr/target.ts`](../../src/generator/_expr/target.ts) · **Docs:** [`../stdlib.md`](../stdlib.md), [`../criterion.md`](../criterion.md), [`../language.md`](../language.md)
+> **Grammar:** `Expression` (`Lambda` · `MatchExpr` · `TernaryExpr`), `OrExpr`..`MultiplicativeExpr`, `UnaryExpr`, `PostfixExpr` / `PostfixSuffix` (`MemberSuffix` / `CallSuffix`), `CallArg`, `PrimaryExpr` (`LiteralExpr`, `NowExpr`, `ThisRef`, `IdRef`, `NameRef`, `ParenExpr`, `ListLit`, `TemplateString` / `TemplateHole`, `PrimitiveConversion`, `BuilderCall`, `ObjectLit`, `RetrievalLiteral`), `MatchSubject` (`AwaitExpr`), `VariantArm` · **Validators:** `loom.ternary-condition` / `loom.ternary-branches`, `loom.intrinsic-*`, `loom.interp-format-unknown` / `loom.interp-hole-type`, `loom.duration-arity` / `loom.duration-arg-type`, `loom.distinct-non-scalar` / `loom.avg-non-numeric` / `loom.join-non-string` / `loom.reduction-non-comparable` / `loom.bare-collection-accessor`, `loom.collection-op-in-ui` / `loom.frontend-collection-op-unsupported`, `loom.user-visible-concat`, `loom.match-*`, `loom.money-literal-malformed`, `loom.unknown-name` / `loom.unknown-member`, `loom.call-arg-count` / `loom.call-arg-type` (`src/language/validators/types.ts`, `temporal.ts`, `template.ts`, `match.ts`, `i18n-strings.ts`, `statements.ts`) · **Lowering:** [`lower-expr.ts`](../../src/ir/lower/lower-expr.ts); shared dispatch in [`_expr/target.ts`](../../src/generator/_expr/target.ts) · **Docs:** [`../stdlib.md`](../stdlib.md), [`../criterion.md`](../criterion.md), [`../language.md`](../language.md)
 
 How the rest of the pipeline sees an expression: the `ExprIR.kind` switch and **all** recursion live once in `renderExprWith` (`src/generator/_expr/target.ts`); each backend supplies only a leaf table (`TS_TARGET` / `CS_TARGET` / `JAVA_TARGET` / `PY_TARGET` / `ELIXIR_TARGET`). The union has **21 kinds** today — `literal`, `this`, `id`, `ref`, `member`, `method-call`, `call`, `action-ref`, `lambda`, `new`, `object`, `list`, `authz-filter`, `paren`, `unary`, `binary`, `ternary`, `convert`, `duration`, `i18nFormat`, `match` (`src/ir/types/loom-ir.ts`). The leaf-divergence axes are: operator spelling, name casing, **money arithmetic**, collection ops, `refColl.contains` membership, regex, `ref` role, and `callKind` call syntax. Every example below puts the expression inside a `derived` field or repository `find` so it actually emits; the outputs were generated from one scratch system with one deployable per backend (`node bin/cli.js generate system expr.ddd -o out`).
 
@@ -69,7 +69,7 @@ def seen_now(self) -> datetime:
 ```
 ::: end
 
-`money("10.50")` is its own literal (`MoneyLit`) — the string argument carries the precise decimal, parsed losslessly into each host's precise-decimal type (`decimal.js`, `System.Decimal`, `BigDecimal`, Python `Decimal`, Elixir `Decimal`). It is distinct from a lossy `decimal`; see [Money arithmetic](#money-arithmetic-closed).
+`money("10.50")` is the money literal — the string argument carries the precise decimal, parsed losslessly into each host's precise-decimal type (`decimal.js`, `System.Decimal`, `BigDecimal`, Python `Decimal`, Elixir `Decimal`). It is distinct from a lossy `decimal`; see [Money arithmetic](#money-arithmetic-closed) and [Money literals vs `money(x)` conversion](#money-literals-vs-moneyx-conversion).
 
 `[]` is one keyword token (the array marker in `string[]`), so an empty list literal is written either `[]` or `[ ]` — both parse (`ListLit`). A bare `{ a: 1 }` (`ObjectLit`) is only meaningful in e2e test bodies as a request payload; a typed construction is `Name { … }` (`BuilderCall`, see [Statements](06-behavior-and-statements.md#let--emit)).
 
@@ -673,6 +673,25 @@ def as_money(self) -> Decimal:
 ::: end
 
 `string(x)` is `String(x)` / `.ToString(InvariantCulture)` / `String.valueOf(x)` / `str(x)` / `to_string(x)`; `money(intField)` on .NET casts `(decimal)x`.
+
+### Money literals vs `money(x)` conversion
+
+`money(` has **one** grammar rule (`PrimitiveConversion`), and the argument decides which of two very different things you wrote:
+
+| you write | it is | it lowers to |
+|---|---|---|
+| `money("10.50")` | a **literal** — the precise decimal, fixed at compile time | `lit("money", "10.50")` |
+| `money(rate)` | a **conversion** — a typed `int`/`long`/`decimal` widened at runtime | `convert(target: money, from: decimal)` |
+
+A string argument is therefore never a `string → money` parse (that pair is not in the vocabulary above, and never was); it is the literal spelling. The two used to be separate grammar rules whose alternatives overlapped, which parsed correctly and made the parser generator report an unresolvable ambiguity to stderr on every model containing a money literal.
+
+Because the literal's string reaches each backend's precise-decimal constructor verbatim, it is checked at the source: `loom.money-literal-malformed` rejects anything that is not an optionally signed decimal, rather than letting it become a throw inside generated code on five backends.
+
+```ddd
+derived floor: money = money("2.50")     // literal
+derived scaled: money = money(taxRate)   // conversion
+derived bad: money = money("USD 2.50")   // loom.money-literal-malformed
+```
 
 ## `await`
 
