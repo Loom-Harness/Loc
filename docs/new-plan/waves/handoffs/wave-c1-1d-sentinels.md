@@ -102,8 +102,8 @@ grows a hatch, the second assertion fails and the framework has to join the set.
 
 | Gate | What it pins | Mutation proof — the assertion that failed |
 |---|---|---|
-| `test/ir/sentinel-gates.test.ts` (new, 23 tests) | every new phase-⑦ code fires on the measured shape AND stays quiet on the nearest shape that works — distinct routes, a spellable prop type, a DECLARED-op `match await`, feliz for the TS-only prop layer, react for the flutter-only arms | route gate disabled (`if (false as boolean)`, leaving the sibling emitPath/slot checks intact so a test that merely saw "some collision" would still pass) → **5 FAILED**: the four `fires on <framework>` rows with `expected [] to include 'loom.ui-page-route-collision'`, plus the census fixture |
-| the same file, statement-kind arm | `return` / `precondition` / `requires` refused on react AND flutter; `let` + a state write still admitted | `BACKEND_ONLY_UI_STMT_KINDS` emptied → **7 FAILED**, all six `refuses <kind> in a <fw> action body` rows plus `loom.ui-body-statement-kind fires` |
+| `test/ir/sentinel-gates.test.ts` (new, 26 tests) | every new phase-⑦ code fires on the measured shape AND stays quiet on the nearest shape that works — distinct routes, a spellable prop type, a DECLARED-op `match await`, feliz for the TS-only prop layer, react for the flutter-only arms | route gate disabled (`if (false as boolean)`, leaving the sibling emitPath/slot checks intact so a test that merely saw "some collision" would still pass) → **5 FAILED**: the four `fires on <framework>` rows with `expected [] to include 'loom.ui-page-route-collision'`, plus the census fixture |
+| the same file, statement-kind arm | `return` / `precondition` / `requires` refused on react AND flutter; `let` + a state write still admitted | `BACKEND_BODY_UI_STMT_KINDS` emptied → **7 FAILED**, all six `refuses <kind> in a <fw> action body` rows plus `loom.ui-body-statement-kind fires` |
 | `test/ir/frontend-prop-type-support.test.ts` (new, 46 tests) | the shared predicate compared **against both emitters by running them**, over a domain built from `PRIMITIVES` (so a new primitive joins automatically), with a vacuity guard that the verdicts actually SPLIT the domain | `money` added to `FRONTEND_PROP_PRIMITIVES` in the predicate only → **10 FAILED**, incl. `primitive money: predicate and component-prop emitter agree` with **"predicate says true, emitter says the opposite"**, and both `sentinel-gates` money rows. This is the exact drift the two-copies-across-a-layer-boundary arrangement invites |
 | `test/generator/_walker/unresolved-receiver-give-up.test.ts` (new, 7 tests) | five DIFFERENT body positions that can hold a method call, each refused by F2 before codegen; plus the arm driven directly still yields sentinel + code | `page.derived` un-walked again → **FAILED: "an unresolved method-call receiver in a \`derived\` binding reached codegen — the walker arm's claim that F2 precedes it is no longer true"** |
 | `test/generator/elixir/heex-component-state.test.ts` (rewritten arms) | both LiveView collisions refused at IR-validate, AND the emitter floor still fires on an unvalidated model | handler-collision gate narrowed to page-own actions → **2 FAILED**, and the more informative one is the emitter test: `expected [Function] to throw error matching /loom\.heex-handler-name-collision.../ but got 'internal: page 'Home' hoists two di…'` — i.e. the FLOOR caught what the gate stopped catching, proving both layers are live |
@@ -259,13 +259,14 @@ On the branch tip, after every fix:
 |---|---|
 | `npx tsc -b` | clean |
 | `npx vitest run test/ir/ test/generator/ test/platform/ test/system/ test/conformance/ test/language/` | **RESULT_PLACEHOLDER** |
-| `test/ir/sentinel-gates.test.ts` | 23/23 |
+| `test/ir/sentinel-gates.test.ts` | 26/26 |
 | `test/ir/frontend-prop-type-support.test.ts` | 46/46 |
 | `test/generator/_walker/unresolved-receiver-give-up.test.ts` | 7/7 |
 | `test/generator/elixir/domain-service-cross-context-floor.test.ts` | 3/3 |
 | `test/generator/flutter/action-body-gaps.test.ts` | 4/4 |
-| `test/generator/svelte/route-collision-floor.test.ts` | 2/2 |
-| `test/ir/user-component-deferred.test.ts` | 111/111 |
+| `test/generator/svelte/route-collision-floor.test.ts` | 3/3 |
+| `test/ir/user-component-deferred.test.ts` | 111/111 (F17's two arms + the existing matrix) |
+| `test/generator/svelte/` + `test/conformance/` (the yield fix's blast radius) | 75 files / 3 238 tests, green |
 | `test/system/{diagnostic-catalog,diagnostic-firing-census,diagnostic-docs-anchors,unsupported-register}` | all green |
 | `node scripts/test-typecheck.mjs` | ratchet OK — 182 files, 470 errors, `src/` clean (unchanged) |
 | `node scripts/ledger-counts.mjs --check` | `.md` matches the JSON |
