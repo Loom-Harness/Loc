@@ -1330,7 +1330,10 @@ on the generated repository plus a Mediator query in the .NET backend.
 > SQL-inlined — see [`criterion.md`](criterion.md)), so a bespoke list finder
 > on the repository is discouraged.  A unique-key find returning `T` / `T?`
 > is the intended shape.  (The `activeForCustomer` find above still generates;
-> it just carries the warning.)
+> it just carries the warning.)  **Interim scope:** the warning fires only in a
+> context that already declares a `criterion` or a `retrieval` — until the
+> replacement carries its own route, a model with neither has nothing of equal
+> power to migrate to ([`criterion.md`](criterion.md#advisories--the-compiler-steers-you-toward-criteria)).
 
 - **TypeScript**: when no `where` is given, parameters are equality-
   matched against aggregate columns and lowered to a Drizzle
