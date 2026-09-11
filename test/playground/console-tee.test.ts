@@ -44,6 +44,41 @@ describe("runtime console tee", () => {
     expect(logs[0].level).toBe("trace");
   });
 
+  it("structures the shape pino's BROWSER build actually emits", () => {
+    // The two tests above type the payload the way pino's NODE build writes
+    // it — one argument, `level` inside.  The generated backend does not run
+    // on that build here: the playground bundles it for a worker, so pino
+    // resolves its `browser` entry, which
+    //   (a) reads `formatters` off `opts.browser.formatters` (the generated
+    //       obs/log.ts sets the top-level `formatters`), so with neither
+    //       `browser.asObject` nor `browser.formatters` set it takes the
+    //       `write.apply(proto, args)` branch and the object carries NO
+    //       `level`; and
+    //   (b) prepends a child logger's bindings as their own argument, so the
+    //       per-request logger (`baseLogger.child({ request_id })`) calls
+    //       `console.info({ request_id }, { event: "request_end", … })`.
+    // Simulating (a)+(b) is the difference between a green test and a gate:
+    // with the single-argument probe this line was captured as plain text,
+    // `structured` was undefined, `aggregateRequestTraces` saw zero
+    // request_end lines, and the Runtime tab's Requests view rendered
+    // "No requests yet" after a real GET.
+    const con = fakeConsole();
+    installConsoleTee(con);
+    const logs: LogLine[] = [];
+    setLogSink(logs);
+    (con.info as (...a: unknown[]) => void)(
+      { request_id: "abc-123" },
+      { event: "request_end", method: "GET", path: "/api/products", status: 200, duration_ms: 3 },
+    );
+    setLogSink(null);
+
+    expect(logs).toHaveLength(1);
+    expect(logs[0].structured, "the browser-pino line must reach `structured`").toBeDefined();
+    expect(logs[0].structured?.event).toBe("request_end");
+    expect(logs[0].structured?.level).toBe("info");
+    expect(logs[0].structured?.request_id).toBe("abc-123");
+  });
+
   it("drops output (no throw) when no sink is active", () => {
     const con = fakeConsole();
     installConsoleTee(con);

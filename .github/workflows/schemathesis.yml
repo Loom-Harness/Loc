@@ -96,14 +96,23 @@ jobs:
             script: test:schemathesis-dotnet
           - backend: java
             script: test:schemathesis-java
-          # DISCOVERY CELL.  The elixir toolchain could not be run locally when
-          # this matrix landed (the hex image was unreachable), so its waiver
-          # register is EMPTY — every finding it makes will be unattributed and
-          # the leg will report red.  Running it anyway is the point: the first
-          # nightly produces the finding set a follow-up turns into root-cause
-          # rules (`LOOM_SCHEMATHESIS_UPDATE=1` writes observed.json).  Until
-          # then its verdict must not fail the workflow, and this line is what a
-          # reviewer deletes when the rules land.
+          # DISCOVERY CELL.  Its waiver register is EMPTY, so every finding it
+          # makes is unattributed and the leg reports red.  Running it anyway is
+          # the point: the nightly produces the finding set a follow-up turns
+          # into root-cause rules (`LOOM_SCHEMATHESIS_UPDATE=1` writes
+          # observed.json).  This line is what a reviewer deletes when they do.
+          #
+          # RE-ASKED 2026-09-10, on a run rather than on the old assumption.
+          # The original reason ("the elixir toolchain could not be run locally,
+          # the hex image was unreachable") is STALE — it runs fine now, in
+          # `hexpm/elixir:1.18.4-erlang-27.3.4-debian-bookworm-20260610-slim`
+          # under `--network host` with a `mix` shim on PATH.  The cell is still
+          # not binding for a MEASURED reason instead: 52 findings, 0 waived, 25
+          # distinct unhandled exceptions, across six root causes (TRACE→501, a
+          # non-uuid `{id}` reaching Ecto, an undeclared success Content-Type, a
+          # wrong-verb 405, an `:erlang.-("", 1)` 500 on a paged read, and F9's
+          # class).  Attributing those is a packet of its own; the inventory is
+          # in docs/audits/schemathesis-findings-2026-08.md → "The elixir leg".
           - backend: elixir
             script: test:schemathesis-elixir
             discovery: true

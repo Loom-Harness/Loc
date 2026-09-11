@@ -21,6 +21,7 @@ import {
   apiFetch,
   currentGateState,
   evaluate,
+  evaluateOnce,
   existingGateRunId,
   fetchCheckRuns,
   isRetryableStatus,
@@ -29,8 +30,13 @@ import {
   publishCheck,
   retryDelayMs,
   SELF_NAMES,
+  shouldWatchTail,
   sweepShouldPost,
+  TAIL_BUDGET_MS,
+  TAIL_PENDING_MAX,
+  TAIL_POLL_MS,
   verdict,
+  watchTail,
 } from "../../scripts/pr-gate.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -405,14 +411,20 @@ describe("pr-gate.yml concurrency does not cancel its own safety net", () => {
     ).toBe(true);
   });
 
-  it("cancel-in-progress is a flat false — no path cancels an evaluation", () => {
+  it("cancel-in-progress is a flat false — the RUNNING evaluation is never killed", () => {
     const { cancelInProgress } = concurrencyBlock();
     // A literal `false`, not an expression: every conditional spelling this
     // block has carried cancelled SOME path, and each one starved the verdict
     // on exactly the path it cancelled (the sweep first, then every SHA-keyed
-    // event).  There is no path that benefits from cancelling: a pending run
-    // holds no runner, so the only thing cancellation saves is the work of a
-    // run that has already claimed its slot.
+    // event).  There is no path that benefits from killing an evaluation that
+    // has already claimed its slot — it is the one about to publish.
+    //
+    // What this flag does NOT do, and this test used to be titled as though it
+    // did: stop GitHub cancelling a superseded PENDING run.  That happens
+    // regardless (measured 2026-09-10: 479 of 759 evaluations `cancelled`,
+    // sampled ones with zero jobs), and it is harmless — a pending run holds
+    // no runner, and the newest arrival, which is the tail evaluation, is
+    // never the evicted one.
     expect(
       cancelInProgress,
       `cancel-in-progress must be a flat \`false\`, got: ${cancelInProgress}. ` +
@@ -472,17 +484,19 @@ describe("pr-gate.yml re-evaluates on every other workflow's completion", () => 
 
 // ---------------------------------------------------------------------------
 // Park resilience — pinned.  A fully-green PR has been observed sitting at
-// in_progress with nothing left to wait for.  This block used to attribute
-// that to GitHub dropping `workflow_run` dispatches, citing #2464; that
-// attribution is retired, because a `workflow_run`-triggered run is attributed
-// to the DEFAULT BRANCH and so cannot be counted per PR head at all (see the
-// measurement trap on pr-gate.yml's `workflow_run:` trigger).  Cause
-// undiagnosed; the two defenses are worth pinning either way, and each rots
-// silently if removed:
+// in_progress with nothing left to wait for.  Two 2026-09-10 measurements
+// disagree on why (see the header of scripts/pr-gate.mjs): #2859 retired the
+// branch-filtered "GitHub drops dispatches" counts as an artifact, and the C0
+// unfiltered census counted 13 of 178 eligible completions producing no
+// evaluation run at all.  The tail watch at the bottom of this file is the
+// in-run answer either way; the two defenses pinned here are the older ones,
+// each of which rots silently if removed:
 //   1. `branches-ignore: [main]` on the workflow_run trigger — without it,
 //      every push:main heavy-set completion (~60 per merge) creates an eval
 //      run, a dispatch storm this gate has no reason to carry;
-//   2. the sweep — without it, a park lasts until a human pokes it.
+//   2. the sweep — a reconciler over open PRs for SHAs no watcher is still on.
+//      It rides the same event stream it protects against, so it is a backstop
+//      of last resort, not a cap on the outage.
 // ---------------------------------------------------------------------------
 
 /** The body of one job in pr-gate.yml, from its key to the next job (or EOF).
@@ -861,11 +875,12 @@ describe("publishCheck — one `pr-gate` run per SHA, updated in place", () => {
   it("BOTH call sites pass the id — a `null` there silently restores the bug", () => {
     // publishCheck is correct in isolation and useless if a caller hands it
     // `null`: the SHA grows a second run and the merge refusal comes back.
-    // The sweep is the call site that matters most — it is what finally
-    // published the green verdict on #2593 after the event-driven path
-    // stopped moving it.
+    // Two call sites: `evaluateOnce` (which every single-SHA evaluation and
+    // every tail-watch poll goes through) and the sweep — the sweep is what
+    // finally published the green verdict on #2593 after the event-driven
+    // path stopped moving it.
     const src = readFileSync(path.join(repoRoot, "scripts/pr-gate.mjs"), "utf8");
-    const wired = src.match(/publishCheck\([^)]*existingGateRunId\(runs\)\)/g) ?? [];
+    const wired = src.match(/publishCheck\([^)]*existingGateRunId\(runs\)/g) ?? [];
     expect(wired.length, "a publishCheck call site is not passing existingGateRunId(runs)").toBe(2);
   });
 
@@ -875,5 +890,272 @@ describe("publishCheck — one `pr-gate` run per SHA, updated in place", () => {
     await expect(publishCheck("o/r", "deadbeef", "t", V, 4242, opts)).rejects.toThrow(
       "GitHub API 422 posting check run",
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// THE TAIL WATCH — the park, measured, and the fix that closes it.
+//
+// MEASUREMENT (2026-09-10, repo-wide run listings with NO branch filter — the
+// branch-filtered call every earlier diagnosis rested on structurally cannot
+// see a `workflow_run`-triggered run, because GitHub attributes it to the
+// DEFAULT branch: F65):
+//
+//   * 178 completions of listed workflows on non-`main` branches in the six
+//     hours to 16:00Z produced 172 `PR gate` runs; 13 of those completions
+//     produced NO RUN AT ALL.  ~7% of dispatches are simply not delivered.
+//   * A drop on a SHA's LAST completion parks the gate.  #2819: the last
+//     check (`behavioral-java`) completed at 05:49:10Z, the last evaluation
+//     was created at 05:48:26Z, and the repo-wide run list is EMPTY from then
+//     until 06:35:29Z — 47 minutes, one eligible completion, zero evaluations.
+//     Ten of 22 measurable merged PRs parked >= 5 min fully green.
+//   * The two standing theories do not survive.  Cancellation: 479 of 759
+//     evaluations are still `cancelled` AFTER #2822 set
+//     `cancel-in-progress: false` (GitHub evicts a superseded PENDING run
+//     regardless), yet a sample of them had ZERO jobs — they cost no runner,
+//     and the NEWEST arrival, which is the tail one, is never the evicted one.
+//     A read-after-write race: an evaluation dispatched BY a completion reads
+//     the API strictly after it.
+//
+// Each arm below is a seeded-defect proof for one clause of the fix, and the
+// CONTROL arm is the mutation proof: replay the same measured timeline with
+// the watch removed and the gate never publishes anything but `in_progress`.
+// ---------------------------------------------------------------------------
+
+describe("shouldWatchTail — when an evaluation stops trusting the next dispatch", () => {
+  const snap = (total: number, pending: number, failed = 0) => ({
+    total,
+    pending: Array.from({ length: pending }, (_, i) => `p${i}`),
+    failed: Array.from({ length: failed }, (_, i) => `f${i}`),
+  });
+
+  it("arms on the measured park shapes — median 1 outstanding, max 7", () => {
+    // #2819 / #2674 / #2847 / #2832 / #2742 / #2747 / #2756 (1 outstanding),
+    // #2721 (2), #2846 (6), #2845 (7).  All ten must arm, or the fix does not
+    // reach the PRs it was measured on.
+    for (const outstanding of [1, 2, 6, 7]) {
+      expect(shouldWatchTail(snap(239, outstanding)), `${outstanding} outstanding`).toBe(true);
+    }
+  });
+
+  it("does not arm on a terminal snapshot — nothing to watch out", () => {
+    expect(shouldWatchTail(snap(10, 0))).toBe(false);
+    // A failure is final for this SHA: re-running the red check produces its
+    // own completion and its own evaluation.  Watching it would hold a runner
+    // to re-publish a verdict that cannot change.
+    expect(shouldWatchTail(snap(10, 2, 1))).toBe(false);
+  });
+
+  it("CONTROL — does not arm at PR-open time, which would be v1 all over again", () => {
+    // The `pull_request`-event evaluation fires when every check is queued and
+    // none has reported.  Without the `pending < total` conjunct this snapshot
+    // arms the watch and parks a runner slot for the PR's whole CI cycle —
+    // exactly the failure that killed v1 (six parked gates ~ a third of the
+    // ~20-slot pool, starving the jobs they waited for).
+    expect(shouldWatchTail(snap(5, 5))).toBe(false);
+    expect(shouldWatchTail({ total: 0, pending: [], failed: [] })).toBe(false);
+  });
+
+  it("does not arm beyond the near-green bound — the cost brake is real", () => {
+    expect(shouldWatchTail(snap(239, TAIL_PENDING_MAX))).toBe(true);
+    expect(shouldWatchTail(snap(239, TAIL_PENDING_MAX + 1))).toBe(false);
+  });
+});
+
+describe("watchTail — replaying #2819's dropped tail dispatch", () => {
+  interface Snap {
+    name: string;
+    status: string;
+    conclusion: string | null;
+  }
+  const done = (name: string): Snap => ({ name, status: "completed", conclusion: "success" });
+  const running = (name: string): Snap => ({ name, status: "in_progress", conclusion: null });
+
+  /** A GitHub double: serves a scripted sequence of check-run snapshots to the
+   *  GETs and records every check-run body the gate PUBLISHES.  Both halves
+   *  matter — a fix that reads correctly and never publishes is the bug. */
+  const gh = (snapshots: Snap[][]) => {
+    const published: { status: string; conclusion?: string; summary: string }[] = [];
+    let reads = 0;
+    const fetchImpl = async (url: string, init: RequestInit = {}) => {
+      if (url.includes("/check-runs?")) {
+        const runs = snapshots[Math.min(reads, snapshots.length - 1)];
+        reads += 1;
+        return {
+          ok: true,
+          status: 200,
+          text: async () => "",
+          json: async () => ({
+            total_count: runs.length,
+            check_runs: runs.map((r, i) => ({ ...r, id: i + 1, check_suite: { id: 7 } })),
+          }),
+        } as unknown as Response;
+      }
+      const body = JSON.parse(init.body as string);
+      published.push({
+        status: body.status,
+        conclusion: body.conclusion,
+        summary: body.output.summary,
+      });
+      return { ok: true, status: 200, text: async () => "" } as unknown as Response;
+    };
+    return { fetchImpl, published, readCount: () => reads };
+  };
+
+  /** A fake clock the injected `sleep` advances, so a 15-minute budget costs
+   *  no wall time and the poll count is exact rather than approximate. */
+  const clock = () => {
+    let t = 0;
+    return {
+      now: () => t,
+      sleep: async (ms: number) => {
+        t += ms;
+      },
+    };
+  };
+
+  // The measured timeline: 05:48:26Z evaluation, `behavioral-java` still
+  // running; 05:49:10Z it completes; NO dispatch follows for 47 minutes.
+  const TAIL_PENDING = [
+    done("tests passed"),
+    done("corpus-build-passed"),
+    running("behavioral-java"),
+  ];
+  const ALL_GREEN = [done("tests passed"), done("corpus-build-passed"), done("behavioral-java")];
+
+  it("CONTROL — without the watch, the only verdict ever published is in_progress", async () => {
+    // The mutation proof.  This is byte-for-byte what the gate did before the
+    // fix: one read, one publish, exit.  The completion at 05:49:10Z arrives
+    // afterwards, its dispatch is dropped, and nothing re-reads the SHA — so
+    // `pr-gate` sits at `in_progress` and branch protection reports
+    // "Required status check `pr-gate` is expected".
+    const { fetchImpl, published } = gh([TAIL_PENDING, ALL_GREEN]);
+    const { snapshot } = await evaluateOnce("o/r", "13871fcc", "t", {
+      fetchImpl,
+      sleep: async () => {},
+      onRetry: () => {},
+    });
+    expect(published.map((p) => p.status)).toEqual(["in_progress"]);
+    expect(published.some((p) => p.conclusion === "success")).toBe(false);
+    // …and the snapshot that produced it is exactly the one the fix arms on,
+    // so the control and the fix are proved against the SAME timeline.
+    expect(shouldWatchTail(snapshot)).toBe(true);
+  });
+
+  it("with the watch, the same timeline reaches success with no further dispatch", async () => {
+    const { fetchImpl, published } = gh([TAIL_PENDING, ALL_GREEN]);
+    const { now, sleep } = clock();
+    const opts = { fetchImpl, sleep, now, onRetry: () => {}, log: () => {} };
+    const { snapshot, verdict: v } = await evaluateOnce("o/r", "13871fcc", "t", opts);
+    expect(shouldWatchTail(snapshot)).toBe(true);
+    const final = await watchTail("o/r", "13871fcc", "t", v, opts);
+    expect(final.state).toBe("success");
+    expect(published.map((p) => p.status)).toEqual(["in_progress", "completed"]);
+    expect(published.at(-1)?.conclusion).toBe("success");
+  });
+
+  it("stops at the FIRST terminal verdict rather than burning the budget", async () => {
+    const { fetchImpl, published } = gh([ALL_GREEN]);
+    const { now, sleep } = clock();
+    const t0 = now();
+    await watchTail(
+      "o/r",
+      "sha",
+      "t",
+      { state: "pending", summary: "waiting" },
+      { fetchImpl, sleep, now, onRetry: () => {}, log: () => {} },
+    );
+    // One poll, not thirty: the watch is a tail, not a poller.
+    expect(now() - t0).toBe(TAIL_POLL_MS);
+    expect(published.length).toBe(1);
+  });
+
+  it("a red tail publishes the failure and exits — it does not wait it out", async () => {
+    const RED: Snap[] = [
+      done("tests passed"),
+      { name: "behavioral-java", status: "completed", conclusion: "failure" },
+    ];
+    const { fetchImpl, published } = gh([RED]);
+    const { now, sleep } = clock();
+    const final = await watchTail(
+      "o/r",
+      "sha",
+      "t",
+      { state: "pending", summary: "waiting" },
+      { fetchImpl, sleep, now, onRetry: () => {}, log: () => {} },
+    );
+    expect(final.state).toBe("failure");
+    expect(published.at(-1)?.conclusion).toBe("failure");
+  });
+
+  it("does not re-PATCH an unchanged verdict — many reads, one write", async () => {
+    // A watch that re-published every 30s would churn the check run and burn
+    // the per-repository token budget the sweep also draws on.
+    const { fetchImpl, published, readCount } = gh([TAIL_PENDING]);
+    const { now, sleep } = clock();
+    await watchTail(
+      "o/r",
+      "sha",
+      "t",
+      { state: "pending", summary: "waiting on 1/3: behavioral-java" },
+      { fetchImpl, sleep, now, onRetry: () => {}, log: () => {} },
+    );
+    expect(readCount()).toBe(TAIL_BUDGET_MS / TAIL_POLL_MS);
+    // The first read's verdict differs from the hand-written `initial` above,
+    // so exactly one publish happens; every identical one after it is skipped.
+    expect(published.length).toBe(1);
+  });
+
+  it("gives up at the budget instead of holding a runner forever", async () => {
+    const { fetchImpl } = gh([TAIL_PENDING]);
+    const { now, sleep } = clock();
+    const t0 = now();
+    const final = await watchTail(
+      "o/r",
+      "sha",
+      "t",
+      { state: "pending", summary: "waiting" },
+      { fetchImpl, sleep, now, onRetry: () => {}, log: () => {} },
+    );
+    expect(final.state).toBe("pending");
+    expect(now() - t0).toBe(TAIL_BUDGET_MS);
+  });
+});
+
+describe("the tail watch is actually wired in — a pure function nobody calls is not a fix", () => {
+  const script = () => readFileSync(path.join(repoRoot, "scripts/pr-gate.mjs"), "utf8");
+
+  it("the single-SHA path guards watchTail with shouldWatchTail", () => {
+    // §90's lesson: verifying that a mechanism EXISTS is not verifying it
+    // reaches the thing it names.  Every arm above would stay green with the
+    // call site deleted.
+    expect(script()).toMatch(
+      /if \(shouldWatchTail\(snapshot\)\) await watchTail\(repo, sha, token, v\)/,
+    );
+  });
+
+  it("the eval job's timeout leaves room for the whole budget", () => {
+    // A 10-minute timeout against a 15-minute budget kills the watch mid-tail
+    // and restores the park it exists to prevent.
+    const block = jobBlock("pr-gate-eval");
+    const m = block.match(/^\s*timeout-minutes:\s*(\d+)\s*$/m);
+    expect(m, "the pr-gate-eval job lost its timeout-minutes").toBeTruthy();
+    const minutes = Number((m as RegExpMatchArray)[1]);
+    expect(
+      minutes,
+      `timeout-minutes: ${minutes} is not above the ${TAIL_BUDGET_MS / 60_000}-minute tail budget`,
+    ).toBeGreaterThan(TAIL_BUDGET_MS / 60_000);
+  });
+
+  it("the knobs stay sized to the measurement", () => {
+    // Outstanding checks at the last DELIVERED evaluation, over the ten
+    // measured parks: median 1, max 7.  Minutes from that evaluation to the
+    // last completion: median 1.2, 9 of 10 within 5, max 16.9.
+    expect(TAIL_PENDING_MAX).toBeGreaterThanOrEqual(7);
+    expect(TAIL_BUDGET_MS).toBeGreaterThanOrEqual(15 * 60_000);
+    // …and bounded, because the watch holds a runner slot while it runs.
+    expect(TAIL_PENDING_MAX).toBeLessThanOrEqual(12);
+    expect(TAIL_BUDGET_MS).toBeLessThanOrEqual(20 * 60_000);
+    expect(TAIL_POLL_MS).toBeLessThanOrEqual(60_000);
   });
 });

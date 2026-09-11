@@ -38,7 +38,7 @@ RST-5 (added 2026-08-30, the 08-17 review's **B4**; **superseded 2026-09-07**): 
 Parallel agents sometimes *claim* done what isn't: dead code never wired in, gates softened/reverted to get CI green, skip-lists and allowlists that quietly grow, emitters that write `TODO` comments into compiling output, validators defined but unreachable, tests without assertions. Run an adversarial sweep for this class on a cadence (and after any large multi-agent push): (a) dead `render*/emit*/build*` exports in `src/generator/`+`src/platform/`; (b) every skip/allowlist + `HARD_GATE`-style flag audited against its justification; (c) generated-output TODO/placeholder strings vs honest fail-fast throws; (d) diagnostic codes defined but unemittable; (e) assertion-free tests; (f) parity gates that exclude the case they claim to cover (`LOOM_E2E_SKIP_*`, normalize filters). Confirmed hollow claims get a mission + a status correction here; the best generic checks graduate into permanent CI gates. First run 2026-07-13 found: the dead `renderSpaController` (→ M-T6.1), Feliz silent statement/expression drops (→ M-T6.15), the grown showcase allowlist over grammar-only kinds (→ M-T6.16), the guarded walker-core `undefined` fallthrough, and the Java `embedded` compile-skip. Three checks to graduate into CI (own slice, size S each) — **all three landed 2026-07-14 (PR #1897)** as vitest meta-tests in the fast per-PR suite (self-contained, no knip/ts-prune dep, riding `tests-passed`): (1) **dead-export gate** ✅ `test/platform/dead-generator-exports.test.ts` — fails on any exported `render*/emit*/build*` in `src/generator/`+`src/platform/` with zero cross-file importers; drained the 8 offenders it found — deleted 4 dead duplicates in `src/generator/elixir/shell/web.ts` (`renderWebModule`/`renderSpaController`/`renderErrorJson`/`renderErrorHtml`, superseded by the `renderVanilla*` emitters in `vanilla/shell-emit.ts` per M-T6.1, with a stale header comment) + un-exported 4 internal-only helpers; clean at zero. (2) **no-TODO-in-generated-output gate** ✅ `test/conformance/generated-output-sentinels.test.ts` — generates the shared corpus × 5 backends in-memory and fails on any emitter-written `TODO`/`FIXME`/`XXX`/`HACK`/`unsupported`/`unimplemented`; honest fail-fast throws (`extern` "not implemented") and prose "placeholder" deliberately excluded; clean at zero (146 cells). (3) **allowlist ratchet** ✅ `test/platform/allowlist-ratchet.test.ts` — snapshots every registered allowlist/skip-list's entry count (showcase ALLOWLIST, corpus compile-skip maps, heex frozen set, pipeline-layering ALLOWED, …) and fails CI on growth past the pinned baseline (with an anti-slack check forcing the baseline down on drain). Remaining audit residue (unblocked, not part of this slice): the walker-core `undefined` fallthrough + Java `embedded` compile-skip are M-T6.16; the diagnostic-codes / assertion-free-tests sweeps (d/e) stay recurring. **Added 2026-07-17 (realness audit):** two more silent-gap residues to drain here — (g) the ~17 Python import sites that recover import names by regex-scanning emitted source (`scan.match(/\b[A-Z]\w*Id\b/g)` etc.), fragile by construction — the `*Id`-ImportError instance was fixed in PR #1961, but the principled fix is a `used: Set<string>` populated during emission instead of a post-hoc scan; (h) non-exhaustive `default:` arms in the per-backend expression renderers that degrade silently rather than throwing (e.g. `elixir/render-expr.ts` binary-op fallthrough emits `${l} ${op} ${r}` for an unknown operator → possibly-invalid Elixir, no build error) — audit each against `assertNever`-style exhaustiveness.
 **Run 2026-07-27 (~#2226, after the ~300-PR push):** drained (h), dispositioned (g). **(h) — CONFIRMED SILENT BUG + fix.** Auditing every `default:` arm in the five backend `render-expr.ts` against reachability: all are benign (import-accumulators returning `into`, documented `refKind === "unknown"` verbatim-render, id-type fallbacks) *except* the money/decimal binary-op fallthrough the residue named — and it was **reachable and wrong**, not just fragile. `decimal % decimal` type-checks (numeric-widening chain, `type-system.ts:596`) and routes to the shared money/decimal method-renderer on **Java** (`renderMoneyBinary`) and **Elixir** (`renderDecimalBinary`), whose `%`-less `default:` emitted `${l} % ${r}` = `bigDecimal % bigDecimal` (uncompilable — BigDecimal has no `%`) / `%Decimal{} % %Decimal{}` (invalid Elixir). Verified end-to-end by generating: Java `Acct.java` → `this.balance % this.divisor`, Elixir `acct_controller.ex` → `record.balance % record.divisor`; both would fail their compile gates — but **no corpus/example fixture exercises decimal modulo**, so it shipped green. TS/.NET/Python were already correct (native `%` on `number`/`decimal`/`float`). **Fix:** added the proper `%` arm (Java `.remainder()` — exact, no MathContext; Elixir `Decimal.rem/2`) closing the parity gap on all five, and converted the three silent fallthroughs (`renderMoneyBinary` on Java + TS, `renderDecimalBinary` on Elixir) to loud `throw`s — the only ops that can still reach them are `&&`/`||`, which the type validator rejects on money/decimal, so a future reachable case now fails at codegen instead of emitting garbage. Regression pinned in `render-expr-kinds.test.ts` (Java) + `phoenix-render-expr.test.ts` (Elixir). **(g) — VERIFIED NOT A CURRENT BUG (no drain).** The ~20 Python regex-scan import sites are fragile-by-construction but currently correct: generated all 24 python-corpus features (907 `.py` files) and ran `ruff --select F821,F401` (undefined-name = missed import ∧ unused-import = spurious import) → **all pass**; the class is already continuously gated by `corpus-python-build.yml` (ruff + mypy `--strict`), which is exactly what catches a missed-import false-negative. The `*Id`-ImportError instance was already fixed (#1961). The principled `used: Set<string>`-threaded-through-emission refactor spans ~20 emitter files with real byte-identical risk — legitimate tech-debt, but not a "cheap, highest-integrity" audit drain and not a current false claim; left as tracked debt rather than force-fit into this pass. (d) diagnostic-codes / (e) assertion-free-tests sweeps remain recurring. **BOTH GRADUATED 2026-08-13** — (d) is now [M-T9.33](#m-t933--diagnostic-firing-census-prove-every-loom-gate-is-reached--partial-gate-landed-38-of-49-still-undrained--sm--p1--retires-a-recurring-manual-sweep)'s permanent gate (`test/system/diagnostic-firing-census.test.ts`; the manual sweep had been reasoning from a grep that over-reports 2.7x — 131 "uncovered" against a measured 49), and (e) is `test/platform/assertion-free-tests.test.ts` (the class was already drained: 35 of 16,584 cases, all reviewed-benign; pinned per file, both directions ratcheting). The same pass deleted 16 dead `export *` re-export shims and gave `dead-generator-exports.test.ts` a second half that catches them — the first one matched export NAMES, and a bare `export *` declares none. **(d) input from the M-T9.19 reachability pass (2026-07-28):** four `src/ir/validate/checks/workflow-checks.ts` codes are **unemittable from source** — ~~`loom.workflow-name-collision` (`:180`, preempted by `loom.duplicate-workflow`)~~ **— WRONG, corrected by M-T9.33's drain (2026-08-30).** The two gates test different things: `duplicate-workflow` fires on a REPEATED workflow name, `workflow-name-collision` on a clash with an aggregate / value object / enum / event / repository — and a workflow named after an aggregate trips only the second. It fires cleanly and now has a fixture. The other three below HELD, each re-driven rather than inherited, `loom.workflow-create-unknown-aggregate` (`:502`, preempted by correlation/scope resolution), and `loom.workflow-unknown-repository` (`:551`) + `loom.workflow-run-unknown-repository` (`:621`/`:674`) — an unknown repository name lowers to a generic `expr-let`, never the `repo-let`/`repo-run` these arms switch on. Audit for `assertNever`-style deadness or deletion (every reachable sibling arm now has a negative test in `test/ir/workflow-dataflow-checks.test.ts`).
 
-## M-T9.21 — Spec-driven API property fuzzing (Schemathesis) — `partial` (the Hono leg + nightly gate shipped [#2522](https://github.com/lemmit/Loc/pull/2522); the findings drain is under way [#2555](https://github.com/lemmit/Loc/pull/2555); the five-backend extension is **claimed by open PR [#2664](https://github.com/lemmit/Loc/pull/2664)**) · **M** · P2
+## M-T9.21 — Spec-driven API property fuzzing (Schemathesis) — `partial` (the Hono leg + nightly gate shipped [#2522](https://github.com/lemmit/Loc/pull/2522); the five-backend extension **merged 2026-08-24** as [#2664](https://github.com/Loom-Harness/Loc/pull/2664); the findings drain continues) · **M** · P2
 Every gate today drives backends with **example-shaped** inputs (the emitted api suite, the corpus fixtures) — the negative/edge space (out-of-range ints, missing required, malformed enums, boundary strings) is only ever exercised where a human wrote the case. That's the class the `journey/FINDINGS.md` silent-codegen bugs came from. **Feed each booted backend its *own* emitted `openapi.json` to Schemathesis**, which auto-derives thousands of cases from the schema and asserts the server never 500s, never violates its own declared response schema, and honors declared `required`/`format`/`enum`/bounds. Run **per-backend** (a divergence localizes to one target) as a nightly matrix over the booted stack the obs/tenancy e2e workflows already stand up. Complements M-T9.11: the differential checks backends against *each other*, this checks each backend against *its own published contract*.
 **Findings drain (2026-08-14, PR #2555):** the node leg's register [`schemathesis-findings-2026-08.md`](../audits/schemathesis-findings-2026-08.md) is down from 9 root causes to 6 — **F2** (non-UUID `X id` in a request body → 500), **F3** (its query-parameter twin) and **F4** (`page × pageSize` overflowing the SQL `OFFSET`) are fixed on all five backends together, since the emitted spec half is diffed by `conformance-parity`. Waivers W2/W3 deleted, W1/W5 narrowed to F1. Still open: F1 (non-JSON Content-Type skips body validation), F5–F9.
 **All five legs (2026-08-24):** the runner is generalized (`schemathesis-core.mjs` + `run-schemathesis-backend.mjs`) and `schemathesis.yml` is a backend matrix, so each backend is now fuzzed against its OWN published contract. **F14–F26** in the register: the headline is that F7 (declared type coerced), F8 (wrong verb on a static sub-path) and the `minLength` bound the node emitter fixed are STILL OPEN on python / java / dotnet — a per-backend fix reads as "closed" here while three backends answer the old way. Two spec-availability defects too: .NET 500s `/openapi.json` when two contexts emit a same-named request DTO (**F14**), and elixir publishes no spec at all without an explicit `serves:` (**F15**). Waiver rules are now scoped per backend. The elixir cell ships as a `continue-on-error` discovery leg until a nightly seeds its rules.
@@ -46,9 +46,15 @@ Every gate today drives backends with **example-shaped** inputs (the emitted api
 
 Sources: `journey/FINDINGS.md`, weak-spots §runtime-feedback; reuses the per-backend boot from M-T9.3.
 
-## M-T9.22 — Generative compiler-robustness fuzzing — `open` · **M** · P2
+## M-T9.22 — Generative compiler-robustness fuzzing — `partial` (both fuzz slices landed; the corpus-graduation loop is the remainder) · **M** · P2
 The corpus is a *fixed* fixture set — it proves the pipeline handles the models someone wrote, never the unbounded valid-input space. **Property-based generator emits random *valid* `.ddd` models** (grammar-driven, shrinking, seed-logged for replay) and asserts two invariants: (1) the pipeline never throws across parse→macro→lower→enrich→validate→codegen (a crash on valid input is always a bug — either a missing validator gate or a silent emitter hole), and (2) the output compiles on ≥1 backend. This is the inverse of the corpus (input space, not input list) and the automated form of the "compile the output by hand to find silent bugs" discipline in `journey/FINDINGS.md`. Nightly; every failure ships with its seed for a deterministic repro fixture that graduates into the corpus.
-Sources: `journey/FINDINGS.md`, `experience_gathered.md` (silent-codegen retros); pairs with M-T9.8 (hollow-work sweep — same "valid input, wrong/absent output" class, found generatively instead of by audit).
+**Slice 1 landed** — `test/system/pipeline-fuzz.test.ts`: 250 seeds × 1 backend each (~12s in the fast suite), a seeded PRNG with no `Math.random`, so a failure reproduces from its seed alone and the message carries the seed AND the generated source. The invariant is the mission's: a crash on valid input is always a bug — a missing validator gate or an emitter hole.
+
+**Slice 2 (FUZZ-1) landed 2026-09-03** (`eac596e3`, wave G of the [verification plan](verification-waves-2026-09.md)) — the DEEP arm: `test/system/pipeline-fuzz-deep.test.ts` over a generator grown 156 → 684 lines (`test/_helpers/ddd-model-generator.ts` — value objects with invariants, ui pages carrying real walker primitives, workflows/sagas, the three find shapes), plus a deterministic **structure-aware shrinker** (`test/_helpers/ddd-model-shrink.ts` `shrinkModel`) that reduces a failing model to the two or three declarations carrying the bug by removing whole declarations from a `ModelSpec` decision record and re-emitting — every candidate valid by construction, rather than shrinking a string by line deletion. `genModel(seed)` is byte-identical across the growth, so slice 1's seeds still reproduce.
+
+**Remainder:** the corpus-graduation loop the mission's own sentence promises — a failing seed's shrunk repro becoming a committed `test/e2e/fixtures/corpus/` fixture, not just a message — plus the second invariant (*the output compiles on ≥ 1 backend*), which neither slice asserts: both stop at "the pipeline did not throw".
+
+Sources: `journey/FINDINGS.md`, `experience_gathered.md` (silent-codegen retros); pairs with M-T9.8 (hollow-work sweep — same "valid input, wrong/absent output" class, found generatively instead of by audit) and M-T9.29 (the systematic sibling — the pairwise matrix hunts the same class by the opposite method).
 
 ## M-T9.23 — Generated-output size & boot budgets — `open` · **S/M** · P3
 Generators rot toward bloat silently — no gate notices when a template change adds 40% to every emitted frontend bundle or doubles backend cold-boot. Add a **nightly regression budget**: per-pack generated frontend bundle size (post-`vite build`) and per-backend cold-boot-to-`/ready` time, each with a pinned baseline + ratchet (fails on growth past a tolerance, forces the baseline *down* on genuine improvement — same anti-slack shape as the M-T9.8 allowlist ratchet). Cheap to stand up on the existing build/boot workflows; catches a class no correctness gate ever will.
@@ -140,14 +146,16 @@ The behavioral tier held exactly ONE identity, so the only authorization stateme
 
 **Slice 1 landed (#2515)** — a second principal in both auth flavours: `DEV_CLAIMS_UNAUTHORIZED` (same shape and same tenancy claims as `DEV_CLAIMS`, so only the authorization predicate differs) and `oidc.unauthorizedToken` (same issuer and signing key, so it *verifies* and is then *refused* — the 403 path, not the 401 path). Three consumers were on record as blocked on it: this census, M-T9.25 round 2's 401/403 problem-arm sweep, and M-T9.11's 4xx wire goldens ([#2541](https://github.com/lemmit/Loc/pull/2541), open).
 
-**Open half:** the census itself — for every emitted authorization gate (`requires`, `policy` ladder rung, `mask unless`, tenancy predicate), a runtime caller that is authenticated-but-unauthorized and must be REFUSED. The negative direction is the whole point: an authz test that only ever asserts the allowed case cannot distinguish an enforced gate from an absent one.
+**Slice 2 landed too — and it is the census, not the runtime drain.** [#2766](https://github.com/Loom-Harness/Loc/pull/2766) (the verification waves, merged 2026-09-09) shipped `test/ir/authz-gate-census.test.ts` + `test/ir/authz-gate-census-pins.ts`: it enumerates the four authorization surfaces `docs/auth.md` defines — `requires` (per surface: `operationGates`, `lifecycleGates`, `FindIR.requires`, a projection header's `query.requires`, `RepositoryIR.historyFind.requires`, `WorkflowIR.instanceReadGate`, and a `requires` statement in a workflow command entry or route-bound handler), the `policy` `authz-filter` sentinel, `mask unless`, and the tenancy predicate — **read off the enriched IR, never grepped from emitted source** — and asks, per gate, whether any caller exists that must be DENIED. So the denominator now exists and a newly-emitted gate with no refusing caller fails rather than passing silently. The old "Open half" paragraph read as though nothing had been built.
+
+**What is genuinely still open** is the *drain* the census enumerates: a runtime caller that is authenticated-but-unauthorized and must be REFUSED, for every gate the census lists (`requires`, each `policy` ladder rung, `mask unless`, the tenancy predicate). The negative direction is the whole point — an authz test that only ever asserts the allowed case cannot distinguish an enforced gate from an absent one — and the two principals slice 1 minted are what makes it writable. **Verify the census's current pin before starting; it moves with every gate added.** Its emitted-code sibling is M-T9.41, which owns the proof-on-emitted-code framing.
 
 Sources: [quality-audit-2026-08](../audits/quality-audit-2026-08.md) R3(a). Feeds M-T9.25 (round 2), M-T9.11 (4xx goldens). Related: M-T3.16 (the lifecycle write gate whose absence this class of blindness hid).
 
 ## M-T9.29 — Driven-primitive / combination census — `partial` (harness + CI wiring landed; the primitive census and the four non-node compile legs remain) · **M** · P2
 R5's other half. `test/ir/api-caller-census.test.ts` closed "every generated ROUTE has a runtime caller" (216 → 13 pins, #2448/#2468, residue owned by M-T9.13). The same question is unanswered one layer over: **which walker primitives, and which combinations of features, does any test actually drive?** Coverage is counted per-feature while holes live per-cell (audit §4.4) — bugs cluster at feature × backend × adapter × example intersections no single fixture crosses.
 
-**Slice 1 — the pairwise-combination corpus harness — is [#2512](https://github.com/lemmit/Loc/pull/2512), still open**, but it has already paid for itself: four of its findings merged ahead of the harness itself — [#2527](https://github.com/lemmit/Loc/pull/2527) (F1: `shape: document` × `policy` crashed codegen), [#2528](https://github.com/lemmit/Loc/pull/2528) (F2+F5: `mask unless` + principal filters never reached the non-relational repo builders), [#2529](https://github.com/lemmit/Loc/pull/2529) (F4: a line-leading soft keyword before `:` lexed as an identifier). Every one is a two-feature intersection that both features' own per-feature tests pass.
+**Slice 1 — the pairwise-combination corpus harness — [#2512](https://github.com/Loom-Harness/Loc/pull/2512), merged 2026-08-16** (`test/pairwise/` + the three oracles), and it had already paid for itself before it landed: four of its findings merged ahead of the harness itself — [#2527](https://github.com/lemmit/Loc/pull/2527) (F1: `shape: document` × `policy` crashed codegen), [#2528](https://github.com/lemmit/Loc/pull/2528) (F2+F5: `mask unless` + principal filters never reached the non-relational repo builders), [#2529](https://github.com/lemmit/Loc/pull/2529) (F4: a line-leading soft keyword before `:` lexed as an identifier). Every one is a two-feature intersection that both features' own per-feature tests pass.
 
 **Slice 1b — the harness reaches CI (`pairwise.yml`).** Slice 1 shipped the harness, the three
 oracles and three ratcheting registers, and then ran **nowhere**: no workflow invoked any of the
@@ -205,85 +213,6 @@ Parallel agents collide on claims. Two shapes are on record: #2349/#2351 were **
 
 Sources: [quality-audit-2026-08](../audits/quality-audit-2026-08.md) R12. Minted by [#2495](https://github.com/lemmit/Loc/pull/2495).
 
-## M-T9.35 — The direct `generateSystems` callers the phase gate cannot reach — `partial` (the drain landed; the ratchet is claimed) · **M** · P1
-
-> **Status 2026-08-24.** **The drain shipped** ([#2604](https://github.com/lemmit/Loc/pull/2604), merged as `015a7bd`): re-measured on fresh `main` at **277** error-carrying generations across **62** files (the numbers below were 266/54 when this mission was written — `main` moved, as the mission's own "re-measure before starting" line predicted), all drained to **zero**, with **35 files migrated onto `generateSystemFiles`** so the phase ①/④/⑦ gate covers them from here. Done per file with the emission diff reviewed, not by codemod — the same conclusion the mission reached, re-reached by trying it. **What remains is step 3, the ratchet** (forbid `import { generateSystems }` in `test/**` behind a shrink-only allowlist), and it is **claimed by open PR [#2647](https://github.com/lemmit/Loc/pull/2647)** — mutation-proved, and it caught six direct callers on contact. Do not duplicate it; the mission closes when that merges.
-
-**M-T9.34 gated the helper; this gates the rest.** 223 test files call `generateSystems` directly and never touch `generateSystemFiles`, so the phase ①/④/⑦ assertions cannot see them. Measuring rather than assuming — instrumenting `generateSystems` itself over one full `npm test` (**9,276 calls**) — puts the real damage at:
-
-| | |
-|---|---:|
-| error-carrying generations | **266** |
-| files | **54** |
-
-Far less than the 223-file surface implies: most direct callers parse through `parseValid` (which *does* assert phase ④, 54 of the 223) or simply have valid fixtures. By code:
-
-| count | code |
-|---:|---|
-| 201 | `loom.persistence-mode-unsupported` |
-| 20 | `loom.field-default-not-constant` |
-| 20 | `loom.named-lifecycle-dropped` |
-| 10 | `loom.workflow-unrecognised-statement` |
-| 6 | `loom.ui-id-ref-no-display` |
-| 6 | `loom.lifecycle-body-dropped` |
-| 2 | `loom.workflow-create-missing-field` |
-| 1 | `loom.guard-principal-without-auth` |
-
-Six of the eight are classes M-T9.34 already drained through the helper, so the fix shapes are known and written up in its slice commits (`storage`/`resource` + `dataSources:`; an emptied canonical `create` body; a canonical rather than named lifecycle action; `user { … }` + `auth: required`). Two are new here: `field-default-not-constant` and `workflow-create-missing-field`.
-
-**Do NOT codemod it.** That was tried against these 54 and reverted: one file stopped transforming and 30 tests failed, because *these* fixtures pin seed SQL, migration chains and saga dispatch — so binding a `resource` moves real emitted output (tables become schema-qualified, `pgTable(…)` → `<ctx>Schema.table(…)`, Ecto gains `prefix:`). Every such move is a real assertion change that needs reading, not a mechanical rewrite. Per file, with the emission diff reviewed.
-
-**Prerequisite, already landed:** `generateSystemResult(source, options?)` in `test/_helpers/generate.ts` returns the whole `SystemEmission` (not just `.files`) and takes `GenerateSystemOptions`, so migrating a direct caller is a one-line change rather than a capability loss. 260 of the direct call sites only wanted `.files`; the rest wanted the full result or `{ sourcemap: true }`.
-
-**Order:** drain the 54, migrate them to the helper, and only then add a ratchet forbidding `import { generateSystems }` in `test/**` with a shrink-only allowlist. A ratchet before the drain just blocks everyone.
-
-**The 54, by generation count** (re-measure before starting — `main` moves):
-
-`test/ir/provenance` 21 · `test/conformance/corpus-mutation` 20 · `test/generator/typescript/realtime-emission` 18 · `test/ir/audited` 13 · `java/java-workflow-dispatch` 11 · `test/platform/dotnet-fullstack` 10 · `hono/hono-seed` 10 · `hono/hono-wire-conformance` 10 · `dotnet/dotnet-wire-conformance` 10 · `java/java-workflow-instances` 7 · `dotnet/dotnet-seed` 7 · `dotnet/dotnet-showcase-compile-regressions` 7 · `java/java-workflow-command-surface` 6 · `python/message-clause` 6 · `hono/hono-destroy-route` 6 · then 39 files with ≤5 each across `elixir/`, `java/`, `python/`, `typescript/`, `test/system/`, `react/`, `flutter/`, `angular/`, `_walker/`.
-
-**How to re-measure** (the technique, since the numbers rot): temporarily add a `validateLoomModel(loom)` call inside `generateSystems` in `src/system/index.ts` behind an env var, append `{file, code}` per call (derive `file` from `new Error().stack`), run `npx vitest run`, tabulate, then **revert by file copy** — never `git checkout --`, which discards unrelated edits in the same file (retro §84, §87).
-
-Sources: M-T9.34's own measurement pass. Blocked-by: nothing — M-T9.34's helper half is landed.
-
-Sources: [test-coverage-audit-2026-08-13](../audits/test-coverage-audit-2026-08-13.md) §3.2. Relates to #2354 (the parse-error half, already landed in this helper), #2489, #2512.
-
-> **ID note.** M-T9.36–M-T9.38 minted 2026-08-23 by the numeric-types audit. M-T9.35 was allocated to #2604's census drain (since landed above).
-
-## M-T9.36 — The numeric wire-codec seam: one decision per backend, enumerated boundaries — `done` (#2770, wave-2/numeric-codec packet) · **L** · P2 ⭐ the structural end of the #2545→#2631 series
-
-Minted 2026-08-23 by the numeric-types audit (the [root cause](../audits/numeric-types-audit-2026-08-23.md)). Five PRs in four days (#2545, #2560, #2575 ×3, #2631) fixed the same defect at five different read paths: the number wire contract (money = F4 string, decimal = float64 number, int/long = integer) is one cross-cutting decision implemented as scattered per-backend, per-path coercions — per-row DTO, projection `select`, aggregate, group key, dapper raw SQL. Each new path re-decides; some backends get it wrong; the diagnosis "no fixture exercised this path" was recorded per-bug five times and never made structural.
-
-**The work:** lift the decisions into one per-backend numeric codec table — the generalization of `aggregateCoercion` (`src/ir/util/projection-aggregate.ts`) and #2631's `aggregateLandsOnDouble` — consumed at *every* boundary, plus the gate that makes it stick: a completeness test enumerating the numeric boundaries per backend, so a new read path cannot ship without declaring its codec. Byte-identical-output gated, like every prior seam extraction (`_expr/target.ts` #843, the walker #607–#627).
-
-**Sequencing:** after M-T6.46 and M-T6.47 land — they finish the concrete divergences the seam generalizes, and doing the refactor under them would conflict in every wire emitter.
-
-**Verification when it lands.** Byte-identical emission across the refactor; the boundary-enumeration gate mutation-proved by adding an unregistered boundary.
-
-**Landed 2026-09-03 (#2770, `src/generator/_numeric/`).** `codec.ts` is the decision table verbatim (`NUMERIC_WIRE_CODEC`: money → fixed-scale string, decimal/int/long → number) and `target.ts` defines the `NumericTarget` contract over five boundary kinds (`repo-read` / `projection-read` / `dto-map` / `find-param` / `seed-read`) — the `_expr/target.ts` contract-plus-leaf-tables shape, one per-backend `numeric-codec.ts` leaf table per backend (`src/generator/{typescript,dotnet,java,python}/numeric-codec.ts`, `src/generator/elixir/vanilla/numeric-codec.ts`). Every already-duplicated literal this refactor could find via an exhaustive grep of the fenced trees now routes through it: TS/Hono's repository hydration (relational *and* document adapters), `wireProjectionValue`, the hono aggregate/group-key coercion, and the inbound `moneySchema` parse; .NET's `projectToResponse` and `csCoerce`'s EF aggregate arm (`csDecimalToWireDouble` now lives in the codec module); Java's `domainToWire`/`wireToDomain`, `jpqlCoerce`/`groupKeyCoerce`, and (found by the same grep) the channel-envelope and SSE-realtime money/decimal codecs; Python's `wireValue`/`hydrateScalar`, all six `money_str(...)` call sites, the event-sourced `fromData` decode, and (found the same way) the document-adapter `deserialize` and the in-process dispatcher's `fromPayload`; Elixir's `__money_round`/`__money_wire`/`__decimal_num` helper bodies across five emitter files, plus `coerceOpParam`'s find-param decode.
-`test/generator/_numeric/boundary-census.test.ts` is the enumeration gate: it scans every fenced source file for the extracted literal signatures and fails, naming file:line, on any occurrence outside the seam, with a small reasoned waiver list (each ExprTarget intrinsic table, two workflow zero-seeds, one out-of-scope projection accumulator, python's own `money_str` definition, one elixir LiveView display helper) that a second test asserts never goes stale. Mutation-proved three ways (an unregistered boundary, a deleted waiver, a rewritten-but-not-deleted waiver) — see the hand-off note.
-**Three genuinely-wrong boundaries turned up along the way and were fixed as separate commits, not folded into the pure extraction**: java's channel-envelope (`emit/channels.ts`) and SSE-realtime (`emit/realtime.ts`) money encoders, .NET's channel-envelope encoder (`emit/channels.ts`), and elixir's cross-deployable broker envelope encoder (`channels-emit.ts`), all formatted money via a bare `.toString()`/`.toPlainString()`/`Decimal.to_string` that echoed the domain value's own scale instead of the canonical RS-12 4dp every other read path pins — the exact #2549 class the audit's F18 flagged as witness-starved (no corpus fixture puts a money field on a channel or realtime payload). Each fix is mutation-proved against a new assertion in that backend's channel/realtime test.
-Byte-identical corpus/examples/web-examples diff verified across the pure-extraction commits (55 successfully-generated fixtures out of 128; the rest fail for pre-existing reasons unrelated to this change — legacy single-context sources, unsubstituted `__PLATFORM__` template fixtures, one malformed example); the only differences are the per-generation-run random `SECRET_KEY_BASE` secret in four elixir `docker-compose.yml` files. Local compile legs: .NET (`dotnet build /warnaserror`), Java (`gradle testClasses bootJar`, JDK 25 container), and Python (`ruff` + `mypy --strict` + `pytest`) all green against a fresh money/decimal/int-arithmetic fixture generated post-refactor; the five backend generator vitest suites (dotnet 699, java 535, python 488, elixir 1104, typescript+hono 697 — 3523 tests) all pass, as does `test/platform/pipeline-layering.test.ts`. Full detail: [`docs/new-plan/waves/handoffs/wave-2-numeric-codec.md`](waves/handoffs/wave-2-numeric-codec.md).
-
-Sources: [numeric-types-audit-2026-08-23](../audits/numeric-types-audit-2026-08-23.md), plan.json N15, #2545/#2560/#2575/#2631. Relates to M-T9.25 (intra-backend consistency gates).
-
-## M-T9.37 — The wire-golden comparator can never fail on excess precision — `done` (Wave 1 follow-up, 2026-09-09) · **S–M** · P1 ⭐ the gate that was blind to M-T6.46, by construction
-
-Found 2026-08-23 by the numeric-types audit ([F16](../audits/numeric-types-audit-2026-08-23.md)). `toWireEntry` (`test/_helpers/wire-record.ts`) JSON-parses each body before diffing, collapsing every JSON number to a JS double: **deficient** precision (dapper's 15 digits, #2631) changes the parsed double and fails; **excess** precision (Java's 34-digit BigDecimals, M-T6.46) parses to the *identical* double and cannot fail — one-sided by construction. The direction that is currently broken on `main` is exactly the invisible one.
-
-**The fix:** capture each numeric leaf's RAW SOURCE TEXT alongside the parsed double (`WireEntry.numberFormats`, via the reviver's `context.source`) and compare that dimension too, as its own `number-format` divergence kind.
-
-**What "excess precision" turned out to mean — measured, and it is two rules, not one.** The first cut recorded every spelling that differed from `String(value)`, and running it reported **23 divergences on every python leg**: all of them `10.0` where node sends `10`, because Python renders a float64 with its fractional part and V8 does not. Same number under every parser including a decimal-preserving one, neither backend wrong — a bill payable only in waivers nobody could ever delete. The same rule flagged .NET/java rendering a `NUMERIC(19,4)` column at its declared scale (`12.5000`). So the predicate (`offContractNumber`) is **two independent rules**: the spelling denotes a *different exact decimal value* than the canonical rendering (java's `3.333333333333333333333333333333333` against node's `3.3333333333333335`), **or** it carries more than **17 significant digits** — float64's round-trip width — even when the value is identical. The second rule is load-bearing and was nearly dropped: the M-T6.46 mutation re-seeds `10.00000000000000000000000000000000`, which is exactly `10`, so rule 1 alone would have missed the very defect this mission exists for.
-
-`test/_helpers/wire-waivers.ts` stays **empty**. The 23 were the comparator over-reporting, not a backend bill, so nothing needed waiving — the sequencing worry in the original mission text did not materialise.
-
-One companion defect fixed in the same pass: `renderWireReport`'s `ORDER` table did not list `number-format`, so those divergences were **counted in the headline and printed nowhere** — the leg said "5 divergence(s)" and named none of them. A kind missing from that table is the same blind-gate defect one level up.
-
-**Verification when it lands.** The mutation-proof IS the test, and it was run end-to-end through a booted backend rather than at the unit level. Re-seeding the pre-M-T6.46 java shape (response field back to `BigDecimal`, `.doubleValue()` removed) and rebuilding made `core-domain` report **5 `number-format` divergences** naming the exact 34-digit spellings — while every value assertion still passed (`2 passed, 0 failed`), which is precisely the blindness being removed. Restored by file copy, md5-verified, green again.
-
-Measured clean on the restored tree: **python 52 cases / 0 divergences**, **java 52 cases / 0 divergences** (JDK 25 + Gradle 9 extracted from `gradle:9-jdk25`, real Postgres). Elixir's leg could not be run on this host — no matching toolchain, and the CI image tag does not exist — so its serializer was measured directly instead: `__decimal_num/1` is `Decimal.to_float/1` and `Jason` renders the shortest round-trip float, so every spelling it emits is ≤17 digits and canonical. dotnet/dapper/mikroorm were already green under the stricter first cut, and the shipped rule only ever records a subset of what that one did, so no previously-green leg can turn red.
-
-Sources: [numeric-types-audit-2026-08-23](../audits/numeric-types-audit-2026-08-23.md) F16, plan.json N16. Relates to M-T9.11 (the differential itself), M-T6.46.
-
 ## M-T9.38 — Flutter and Feliz have no runtime leg: a money crash ships behind a green compile gate — `open` (unblocked 2026-09-10) · **L** · P2
 
 Found 2026-08-23 by the numeric-types audit ([F17](../audits/numeric-types-audit-2026-08-23.md)). `generated-flutter-build.yml` / `generated-feliz-build.yml` are compile-only, and Dart's `(x as num)` on a wire string compiles clean — so F1's crash-on-first-read shipped green. React/Vue/Svelte/Angular have real e2e legs; the two self-hosting frontends (the pair M-T1.20 already flags as carrying most frontend residue) have none.
@@ -308,7 +237,17 @@ Minted 2026-08-30 from the [08-24 generator review](../audits/generator-code-rev
 
 Sources: [generator-code-review-2026-08-24](../audits/generator-code-review-2026-08-24.md) §F5, §A13, §D9; [generator-code-review-2026-08-17](../audits/generator-code-review-2026-08-17.md) §8 (the vacuous slot ratchet). Relates to [M-T1.11](T1-ui-frontend.md) (the i18n epic that owns the catalog).
 
-## M-T9.40 — `--verify-ir`: the resolved-IR contract has no verifier, and no check reaches every expression — `partial` (the denominator and the enumeration landed; the verifier and the partial-walk migration are open) · **M** · P1 ⭐ turns phase-⑧ forensics into a phase-⑤ assertion
+## M-T9.40 — `--verify-ir`: the resolved-IR contract has no verifier, and no check reaches every expression — `partial` (the census, the enumeration, the verifier and BOTH migrations landed; **only the production `--verify-ir` surface remains**) · **M** · P1 ⭐ turns phase-⑧ forensics into a phase-⑤ assertion
+
+> **Body reconciled 2026-09-10 (Wave C0.4).** This mission's status line and its "The work" list contradicted its own body: the line said "the verifier and the partial-walk migration are open" and the list said "(1) is done; (2) and (3) remain", while three paragraphs above them recorded the verifier landing, running on every fixture in the tree, and both migratable walks being migrated. Re-verified on `main` — **(1) and (2) are done and (3) is HALF done**, and the half that is missing is the one the mission is named after. See §Remaining below; the narrative that follows it is the landing record, kept verbatim.
+
+### Remaining — the production `--verify-ir` surface (the only open half)
+
+The verifier runs on every **test** generation and nowhere else. `assertLoomModelVerifies` (`src/ir/verify/verify-ir.ts:131`) has exactly two call sites, both in `test/_helpers/generate.ts` (`:38` inside `assertModelVerifies`, `:288` on the multi-file path) — `grep -rn "verify-ir\|verifyIr" src/cli bin src/system` is **empty**. So slice (3)'s two production halves are unbuilt: a `GenerateSystemOptions` flag (default OFF) and the CLI `--verify-ir` the mission's own title promises, which is what would let a user — or an agent authoring through the toolkit — get the contract checked on their own model rather than only on ours.
+
+**No longer open, contrary to the old text:** the `generateHono` bypass this body named as "worth its own slice" is **closed** — `test/_helpers/generate.ts:64` now wraps it (and `generateDotnet` at `:87`) in the shared `assertModelVerifies`, which runs the verifier before phase ⑦, pinned by `test/system/legacy-generate-path-ratchet.test.ts` (that was M-T9.48 / M-T9.49's work, not this mission's).
+
+**The follow-up this opened stays a separate mission, not a continuation:** a per-declaration check is only as complete as `validate.ts`'s fan-out — a check handed each `BoundedContextIR` cannot see a page body, because pages hang off the SYSTEM. Scope it from a measurement the way this one was, and *not* from the assumption that the remaining walkers are copies. They are not (see the classification table below).
 
 Minted 2026-08-31 by the [verification-architecture audit](../audits/verification-architecture-2026-08-31.md) §4 C2.
 
@@ -346,7 +285,7 @@ The two remaining `allContexts(loom)` loops in `structural-checks.ts` are not ex
 
 **What the classification opens instead.** The per-declaration checks are exactly as complete as `validate.ts`'s fan-out is: a check handed each `BoundedContextIR` cannot see a page body, because pages hang off the SYSTEM, not the context. So "does this check reach every expression" becomes "does the fan-out hand it every declaration of the kind it cares about" — the same question one level up, and one the census can now answer the same way. That is a follow-up mission, not a continuation of this one; it should be scoped from a measurement, the way this one was, and NOT from the assumption that the remaining walkers are copies. They are not.
 
-**The work.** (1) ~~`src/ir/util/model-exprs.ts` — ONE enumeration of every expression in a model with a source label, exhaustive over the declaration kinds (the `walkExprChildren` family already gives the intra-expression exhaustiveness; this is the missing outer loop). (2) `src/ir/verify/verify-ir.ts` — a pure `verifyEnrichedModel(model): string[]` over that enumeration plus the structural invariants `test/ir/properties.test.ts` currently asserts on four examples (`wireShape` present and `id`-first, VOs carrying neither `id` nor containment, every aggregate's repository leading with the auto `all`, deployable/module references resolving). (3) Wire it as a `GenerateSystemOptions` flag and a CLI `--verify-ir`, default OFF in production and ON in `test/_helpers/generate.ts`, so every fixture in the tree — plus the 250 fuzz seeds and the pairwise matrix — checks the contract for free.~~ (1) is done; (2) and (3) remain.
+**The landing record.** (1) ~~`src/ir/util/model-exprs.ts` — ONE enumeration of every expression in a model with a source label, exhaustive over the declaration kinds (the `walkExprChildren` family already gives the intra-expression exhaustiveness; this is the missing outer loop). (2) `src/ir/verify/verify-ir.ts` — a pure `verifyEnrichedModel(model): string[]` over that enumeration plus the structural invariants `test/ir/properties.test.ts` currently asserts on four examples (`wireShape` present and `id`-first, VOs carrying neither `id` nor containment, every aggregate's repository leading with the auto `all`, deployable/module references resolving). (3) Wire it as a `GenerateSystemOptions` flag and a CLI `--verify-ir`, default OFF in production and ON in `test/_helpers/generate.ts`, so every fixture in the tree — plus the 250 fuzz seeds and the pairwise matrix — checks the contract for free.~~ (1) and (2) are done; (3)'s TEST half is done (`test/_helpers/generate.ts`) and its PRODUCTION half — the `GenerateSystemOptions` flag and the CLI `--verify-ir` — is what §Remaining above carries.
 
 Sequence (3) last and behind a measurement: turning it on across ~985 generator test files will either be silent or surface a wave, and which one it is IS the finding. The partial walks in (1)'s consumers are then deletable, which is the point — the seam pays for itself in removed copies.
 
@@ -440,93 +379,6 @@ Minted 2026-09-03 to stop [M-T9.42](#m-t942--promote-the-duplicated-per-target-s
 
 Sources: [verification-architecture-2026-08-31](../audits/verification-architecture-2026-08-31.md) §1, §5 (the duplication ranking). Relates to M-T9.42 (the promotion campaign this unblocks for one of its six candidates), M-T9.13 (the behavioural matrix that owns the deep cases).
 
-## M-T9.44 — The diagnostic-catalog gate's two blind spots: shorthand syntax and a blanket forwarding exemption — `done` · **M** · P1 ⭐ the leverage packet
-
-Found 2026-09-03 by the language-docs audit ([F25](../audits/2026-09-03-language-docs-audit-findings.md), [F26](../audits/2026-09-03-language-docs-audit-findings.md), [F30](../audits/2026-09-03-language-docs-audit-findings.md), P3). `test/system/diagnostic-catalog.test.ts` fails on an inline literal, a mis-keyed message and an orphan entry — but it evidently does not walk `src/ir/validate/checks/**` or the AST validators, which is how two textbook instances survive: `loom.function-block-impure` is raised live with an inline message and **no catalog entry** (`src/ir/validate/checks/structural-checks.ts:1243`; referenced from `validators/structural.ts:327` and `types.ts:809`), and the `when`-gate-references-op-param check raises an inline message with **no `code` at all** (`src/language/validators/statements.ts:110-118`). A third rides along: `loom.projection-event-unkeyed` interpolates `proj.correlationField`, which is `undefined` for exactly the keyless case it fires on — *"…has no 'undefined' field to route by."* (`projection-checks.ts`, `validateHandlers` ~:90).
-
-**Why this is the leverage packet.** Extending the gate's reach retires the F25–F35 class rather than the three instances, and prevents the next one — the register's own "Cross-cutting reading" §3 makes the same argument. **The mutation proof is the deliverable:** the extended gate must FAIL on today's `main` before any of the fixes land, and the PR body must say which assertion failed.
-
-**The fix:** extend the walk, then repair everything it newly catches — mint `loom.function-block-impure`, give the `when`-gate check a code, stop the projection message interpolating `undefined`.
-
-Sources: [language-docs-audit-2026-09-03](../audits/2026-09-03-language-docs-audit-findings.md) F25/F26/F30 + "Cross-cutting reading" §3, [wave plan](../audits/2026-09-03-language-docs-audit-findings.waves.md) packet **W4.1**. M-T9.45 stacks on this branch rather than waiting for merge.
-
-> **Landed 2026-09-09. The premise in this row's title was wrong, and the correction is the
-> finding.** The gate has walked `src/ir/validate/checks/**` and the AST validators all along.
-> F25 and F26 survive for two unrelated reasons, both in the scanner rather than its reach:
-> `sitesIn` read only `ts.isPropertyAssignment`, so a diagnostic literal using **shorthand**
-> `message` was never recorded as a site (exactly two in the scanned surface — F25's, and
-> `loweringDiag`'s); and `isForwardedParam` **blanket-exempted** any site whose message is a
-> parameter of the enclosing function, a predicate that fired on **zero** sites and so had
-> never been exercised. It now retargets to the helper's own in-file call sites, which is what
-> makes F25's five inline template literals visible. Extended gate mutation-proved: with the
-> defect re-seeded it names all five sites by line under "has no inline wording".
->
-> F26's row understates its finding. A site with **no `code:` at all** is invisible to the
-> catalog's three invariants too, and that is not one site: **119 errors and 11 warnings**
-> against 195 coded sites across the Langium validator surface. Fixing the one site the
-> register names would have hidden a class 130 times larger, so the class is filed as audit
-> finding **F55** and wants its own mission; the IR check leaves are clean.
->
-> Shipped: the two scanner fixes; `loom.function-block-impure` as five `#`-slug variants (with
-> the `where` lead dropped — it duplicated `source`, which the gate's own invariant refuses);
-> `loom.when-references-op-param`; `loom.projection-event-unkeyed#singleton`, which asks for
-> `keyed by` instead of interpolating `undefined`. Refusing a keyless fold is intentional and
-> documented, so F30 was message-only exactly as recorded.
-
-## M-T9.45 — Messages that contradict their own gate, comments naming codes that do not exist, one dead gate, one orphan catalog entry — `done` · **M** · P3
-
-Found 2026-09-03 by the language-docs audit (F27–F29, F31–F35, P3). Eight rows, all text, each with a grep behind it: `loom.scaffold-filter-param-unsupported` says `bool`/`datetime`/`guid` "have no input at all" when since #2699 all three render — the gate reads the correct set, only the message (and its stale twin in a comment) lies (`messages.ts:2308-2315`; `ui-checks.ts:1097-1099`); `loom.flutter-primitive-unsupported` names `FileUpload` as "the one deferred primitive" while `FLUTTER_UNRENDERED_PRIMITIVES` is now empty (`messages.ts:1624`; `src/util/flutter-deferred-primitives.ts`); `loom.filter-bypass-unsupported` is unreachable — `FILTER_BYPASS_FAMILIES` holds all five families — and still names three backends as "the honoring backends" (`system-checks.ts:2712`; `messages.ts:1832-1842`); `loom.scaffold-unexpanded` blames "walker-primitive-expander", a pass that no longer exists, and names `view` as a resolvable target (`messages.ts:783`); three comments cite codes that do not exist at all — `loom.workflow-function-block-body` (`ddd.langium:1456`, `loom-ir.ts:1311`), `loom.intrinsic-not-queryable` (`src/util/intrinsics.ts:57`), `loom.spurious-effect-marker` (`src/ir/lower/lower-expr.ts:1080`); and `extern_handlers_registered` sits in the observability catalog with no backend emitting it (`src/generator/_obs/log-events.ts`).
-
-**The fix:** mostly text, but every edit carries the grep that proves the claim it replaces. **F29 needs a decision** — delete the dead gate or add the missing family; the wording is wrong either way.
-
-> **Landed 2026-09-09 (W4.2, stacked on M-T9.44's branch). Three of the eight rows were not
-> what they said.**
->
-> * **F27 was already half-fixed on `main`.** The message names the correct renderable set
->   today; only its comment twin in `ui-checks.ts` was still stale.
-> * **F29 needed no decision — the code had already made it.** The gate is a pinned
->   `LATENT_GATES` entry in the firing census (*"no deployable can reach the `!supported`
->   push"*), i.e. a deliberate dormant safety net, the same shape as F28's Flutter gate. Both
->   are reworded, neither deleted.
-> * **F34's symptom was wrong and the truth is much worse.** A stray `await` is not a parse
->   error: `match await <plain state field>` validates with **zero diagnostics** and the four
->   SPA walkers emit `await Promise.reject(new Error("no remote op for variant-match"))` — a
->   guaranteed runtime rejection on every invocation, plus an undefined setter. Root cause:
->   `loom.match-non-union-subject` guards the **expression** `match` only; a `match` in an
->   action body lowers to a `StmtIR` `variant-match` that its visitor never sees. Filed as
->   audit finding **F56** and routed to W2.3, since it is Wave 2's invariant rather than text.
->
-> **F56 re-scoped 2026-09-09 (fleet), twice.** (1) "A union-returning subject and a plain `string` one
-> carry byte-identical `subjectType`" holds only for the **awaited-call** shape — a `let`-bound subject
-> is a `ref`, takes `lowerMatchStmt`'s `subject.type` branch, and resolves to the real union. The
-> awaited api-handle call is the only shape Stage 2 `match await` exists for, so the canonical page form
-> is exactly the one that cannot be discriminated; the finding stands, the sentence generalised past it.
-> (2) **The fix is a promotion, not a type-resolution mission (audit F66).**
-> `classifyFelizAsyncEffect` (`src/ir/util/feliz-async-effect.ts`) is already an IR-pure, target-neutral
-> classifier of exactly the predicate the SPA walkers need, invoked behind
-> `if (dep.platform !== "feliz") continue` — the identical model is refused on a Feliz host and reports
-> `0 error(s), 0 warning(s)` on React. Resolving `subjectType` is an optional second half with a real
-> trap: fixing it on the EXPRESSION form un-blocks that form into walkers that cannot render it (a
-> variant match with `variantArms` and no `arms` falls through to
-> `otherwise ?? "/* empty match */ undefined"`), trading a false-positive error for a silent `undefined`.
->
-> **F32 was verified by running it, not by reading:** a block-bodied workflow `function`
-> parses clean and emits as a real workflow-scoped helper on all five backends, never inlined
-> — which also exposed the grammar comment's *second* false claim (that such helpers are
-> inlined at each call site), contradicted by the IR comment two files away.
->
-> **F35 shipped the class, not the instance.** `catalog-parity.test.ts` only ever checked
-> *emitted ⊆ catalogued*; the reverse — a catalog entry no backend emits — had no gate, which
-> is how `extern_handlers_registered` outlived its producer. The new orphan invariant scans
-> `src/` for each entry's key and event string (every emitter reaches the catalog by key, so
-> one grep covers all five backends with no generate and no docker), and holds the three
-> documented-reserved entries in a ratcheting `RESERVED_UNEMITTED` waiver that fails both ways.
-> Mutation-proved by restoring the deleted entry.
-
-**Verification when it lands.** The extended catalog gate from M-T9.44 stays green; the register-backed claims (`FLUTTER_UNRENDERED_PRIMITIVES`, `FILTER_BYPASS_FAMILIES`) are re-derived from code in the PR body rather than restated.
-
-Sources: [language-docs-audit-2026-09-03](../audits/2026-09-03-language-docs-audit-findings.md) F27–F29/F31–F35, [wave plan](../audits/2026-09-03-language-docs-audit-findings.waves.md) packet **W4.2** (stacks on W4.1). Relates to M-T9.27 (the `*-unsupported` register — a deleted gate deletes its row).
-
 ## M-T9.46 — Ten per-feature docs contradict the code — `open` · **M** · P3 ⚠ verify-first, docs-only, route to `status-refresh`
 
 Found 2026-09-03 by the language-docs audit (F37–F46, P4) — outside that audit's own scope (it covered the language surface docs), found in passing and each verified. `docs/capabilities.md` lists four built-ins with no `tenantRegistry`, presents `versioned` as opt-in where the expander applies it by default, and names three removed per-backend codes; `docs/inheritance.md` claims Java and .NET emit a polymorphic base reader (neither does), says the base emits no Ecto schema (under TPH it does), and uses the legacy `phoenix` platform literal; `docs/auth.md` carries pre-#2717 prose ("fails closed on four of five backends"), a `curl` example sending raw JSON where every stub base64-decodes, and a named-policy example putting `permissions { … }` in a `context` (a proven parse error — the block is a `Subdomain` member); `docs/tenancy.md` writes `crossTenant aggregate Plan` as a prefix (proven parse error — the grammar puts it in the header region after the name); `docs/actions.md` calls `loom.missing-effect-marker` a warning where the check raises `severity: "error"` (`ui-checks.ts:2320`); `docs/observability.md:20` claims the emitted `level` is `"warn"` on every backend where the Elixir `LogFormatter` stringifies `:warning` (`elixir/shell/runtime.ts:136`); `docs/resources.md` names `loom.resource-unknown-verb` where the catalog ships `loom.resource-verb-invalid`; `docs/macro-api.md` gives the wrong stdlib path shape and omits the `api` target and `apiVersion`; `docs/scaffold-macros.md` has no `scaffoldHandlers`/`scaffoldApi`/`scaffoldPaged`/`scaffoldPagedApi` sections though chapter 22 cross-links it as authoritative; and `CLAUDE.md` says "~55 primitives" where `WALKER_LAYOUT_PRIMITIVES` holds 56.
@@ -568,31 +420,6 @@ Minted 2026-09-03 by Wave G2 packet 2.1 of [verification-waves-2026-09](verifica
 
 Sources: [verification-waves-2026-09](verification-waves-2026-09.md) Wave G2 packet 2.1, [verification-architecture-2026-08-31](../audits/verification-architecture-2026-08-31.md) §4 C2. Relates to M-T9.40 (the verifier this puts on a second entry point), M-T9.35 (the direct-orchestrator ratchet this one is modelled on), M-T9.34 (the phase-⑦ flip on `generateSystemFiles`).
 
-## M-T9.49 — The .NET half of the same hole: `generateDotnet` was a bare re-export, so 136 of its 150 call sites never reached the helper at all — `done` · **M** · P1 ⭐
-
-Minted 2026-09-03 by Wave G2 packet 2.2 of [verification-waves-2026-09](verification-waves-2026-09.md), as the hand-off named in [M-T9.48](#m-t948--the-legacy-single-context-generate-path-asserted-nothing--partial-route-1-slice-2-and-the-ratchet-landed-the-residue-is-named-below)'s residue. Closed in the same PR.
-
-**The hole, and why it was bigger than the hand-off said.** `test/_helpers/generate.ts` ended in `export { generateDotnet, generateSystems };` — a bare re-export from `src/generator/dotnet/index.js`. So the helper wrapped it with nothing, exactly as M-T9.48 reported. The part the hand-off could not see is the consequence of a re-export: because the name was ALSO importable from `src/`, only **9 of the 39 caller files reached the helper at all** — **14 of the 150 call sites**. The other 30 files (136 call sites) imported the generator straight from `src/`, outside every gate this helper module has, present *or future*, so wrapping the re-export alone would have pinned a ratchet over a set nothing enforced. The `parseString` column was likewise **17 files**, not the two the hand-off knew about.
-
-**What landed.**
-- `generateDotnet` is now a real wrapper in the helper (`assertModelVerifies(model)`, then `generateDotnetProject(model, options)`), sharing the identical body `generateHono` calls so the two legacy paths cannot drift.
-- The 30 direct `src/` importers under `test/` (plus `dotnet-eventsourced-emission.test.ts`, which then left the path entirely — 31 import lines in all) were routed back through the helper, so the census can see them.
-- The `parseString` → `generateDotnet` hops migrated to `parseValid` — 17 files down to 5. Four of the five are a dedicated "parses + validates cleanly" case that asserts `errors` is empty itself; the fifth is `test/ir/collection-op-lambda-element-type.test.ts`, fenced to another packet. Two `parseString(SRC, { validate: false })` bypasses turned out to validate cleanly and lost the flag.
-- `test/system/legacy-generate-path-ratchet.test.ts` now runs its assertions per entry point over a `GATES` table — **`generateHono` 33 files / 62 call sites, `generateDotnet` 39 files / 150** — each with its own exact per-file counts, exact total, and `PARSE_STRING_ALONGSIDE` reasons. Per-gate rather than pooled because two conformance files import both, and a pooled total would let a call migrate from one path to the other without moving.
-
-**Blast radius: 12 tests across 4 files**, each dispositioned by running `ddd parse` on the fixture first:
-- `dotnet-projection-emission.test.ts` (4) — a genuine fixture bug: `create place(...)` is a NAMED create, refused by `loom.named-lifecycle-dropped` ("reaches no backend — it drives no route and no factory"). Fixture repaired: dropped the name.
-- `dotnet-eventsourced-emission.test.ts` (5) and `dotnet-dispatch-emission.test.ts` (1) — M-T9.48's hosted-capability trap, verbatim (`loom.event-sourcing-backend-unsupported`, `loom.audited-backend-unsupported`). Moved to `generateSystemFiles` with the deployable the fixtures always implied, map re-keyed to drop the deployable dir. The event-log config assertion moved with them from `ToTable("accounts_events")` to `ToTable("accounts_events", "accounts")` — a hosted context owns a schema, which is the emission a user can actually reach.
-- `retrieval-emit.test.ts` (2) — `loom.retrieval-loads-unsupported`, refused on every path with or without a deployable (verified both ways). Same disposition as its Hono twin: `generateSystemFilesUnchecked` with a stated reason, because emitting from the refused model IS the test's subject.
-
-**Verification (done).** Re-seeded M-T9.40's mutation (`enumName: undefined` in the context-local enum-value arm of `src/ir/lower/lower-expr.ts`; reverted by file copy, the working tree byte-identical to HEAD under `src/` afterwards) and measured both sides over `test/generator/dotnet` + `test/adapters/dotnet-orchestrator-rewire`: with the assertion, **79 tests across 11 files fail** on `IR verification failed for .ddd fixture — … enum-value ref 'Open' has no enumName — Shopping/Cart/isOpen (FunctionBodyIR.expr)`; with the assertion stripped from `generateDotnet` and the mutation still seeded, **19 across 5** fail, on unrelated string assertions. **60 previously-silent tests now fail.** The ratchet's own directions were mutation-proved too: a ghost pin fails STALE, a dropped pin fails NEW FILE, a bumped count fails both the exact-count and the total assertion, and a ghost reason fails stale-reason — five failures from four seeded defects.
-
-**The residue.** `generateDotnetForContexts` — the system-mode entry one rung below the wrapper — is still imported directly from `src/` by six files; it is out of this row's scope for the same reason the Hono ratchet gates `generateHono` and not `generateTypeScriptForContexts` (the wrapper is the legacy CLI path; the `ForContexts` entry is what the orchestrator itself calls). `test/ir/collection-op-lambda-element-type.test.ts` still reaches BOTH legacy generators from a bare `parseString`; it is fenced to another packet and carries its reason in both `PARSE_STRING_ALONGSIDE` tables. The 150 .NET call sites are a backlog, not an allowance — 66 of them are `generator-dotnet.test.ts` alone, which is also M-T9.42's largest promotion candidate.
-
-> Minted as `M-T9.45` on its branch; renumbered to **M-T9.49** on rebase because #2771's language-docs audit landed `M-T9.44`–`M-T9.47` first. The wave's PR body and commit messages may still say `M-T9.45` — this row is that work.
-
-Sources: [verification-waves-2026-09](verification-waves-2026-09.md) Wave G2 packet 2.2. Relates to M-T9.48 (the Hono half this mirrors exactly), M-T9.40 (the verifier), M-T9.35 (the direct-orchestrator ratchet both are modelled on).
-
 ## M-T9.50 — Nothing typechecks `test/`, and a bare `--noEmit` step cannot land — `partial` (the config, the baseline and the ratchet landed; the 768-error drain is open) · **L** · P1 ⭐
 
 Minted 2026-09-07 from [verification-waves-2026-09](verification-waves-2026-09.md) **§7.1**, which was handed to that wave as "a small follow-up" and turned out to be mission-sized on measurement.
@@ -627,7 +454,7 @@ Minted 2026-09-07 from [verification-waves-2026-09](verification-waves-2026-09.m
 
 Sources: [verification-waves-2026-09](verification-waves-2026-09.md), "Findings handed off, not fixed here". Relates to M-T9.3 (corpus/example coverage) and M-T9.8 (a fixture nothing executes is hollow).
 
-## M-T9.52 — `generateDotnetForContexts` is the remaining unwatched .NET entry point — `open` · **S** · P2
+## M-T9.52 — `generateDotnetForContexts` is the remaining unwatched .NET entry point — `blocked(D-MISC-C0)` (item 1: the boundary stays, M-T9.42's promotion goes first) · **S** · P2
 
 Minted 2026-09-07 as the explicit residue of [M-T9.49](#m-t949--the-net-half-of-the-same-hole-generatedotnet-was-a-bare-re-export-so-136-of-its-150-call-sites-never-reached-the-helper-at-all), which closed the *wrapper* and deliberately left the rung below it out of scope.
 
@@ -672,7 +499,7 @@ Minted 2026-09-07, from the isolation leak [#2766](https://github.com/Loom-Harne
 
 Sources: [verification-waves-2026-09](verification-waves-2026-09.md) — the isolation-leak section. Relates to M-T9.8 (hollow work: a test asserting against leaked state is green for the wrong reason), M-T9.50 (the `test/` typecheck baseline, the other shrink-only census).
 
-## M-T9.55 — The give-up routing gate scans 40 of 140 walker files and reports green — `open` · **S** to fix, **L** to drain · P0 ⭐
+## M-T9.55 — The give-up routing gate scans 40 of 140 walker files and reports green — `in-flight` ([#2843](https://github.com/Loom-Harness/Loc/pull/2843), open) · **S** to fix, **L** to drain · P0 ⭐
 
 Found 2026-09-09 by the verification fleet ([F63](../audits/2026-09-03-language-docs-audit-findings.md)).
 `test/system/walker-give-up-routing.test.ts` enumerates its files by shelling
@@ -696,8 +523,22 @@ W2.3 is meant to produce.
 
 **Two slices.** (1) Fix `WALKER_GLOBS` to carry two entries per tree — `git ls-files` will not do it
 with one — and watch the 28 sites appear. (2) Drain them: route each through `giveUp()` or add a
-reasoned `NOT_A_GIVE_UP` row. Mutation-prove by reverting the globs from a file copy and confirming the
-28 disappear again.
+reasoned `NOT_A_GIVE_UP` row.
+
+**Claimed by open PR [#2843](https://github.com/Loom-Harness/Loc/pull/2843)** (opened 2026-09-09,
+branch `claude/walker-giveup-glob`, 13 files; still open and `mergeable_state: blocked` at 2026-09-10 —
+per [the completion plan](completion-waves-2026-09.md) §4 Wave C0.1 it is red only on the playground
+spec #2848 fixes). It carries BOTH slices: the two-entries-per-tree glob fix, and all **26** exposed
+sites routed through `giveUp()` with **no** `NOT_A_GIVE_UP` waivers, because every one is a genuine
+degradation. Two are load-bearing beyond the tidy-up — `walker-core.ts`'s `unknown layout component`
+is where Flutter drops an `extern` component, so **F17**'s discoverability half closes with it, and the
+Angular destroy-form fork (**F62**) was emitting give-ups with no marker at all.
+
+**The mutation proof is the part to keep.** Reverting the glob *passes* once all 26 sites are fixed —
+neither glob has anything left to find, so that proof is worthless. The real proof seeds the defect and
+varies only the glob: one unrouted give-up in `flutter-target.ts` (a file the old glob scanned at zero)
+makes the fixed glob **fail** naming `flutter-target.ts:601` while the old one **passes**. Same defect,
+same tree, opposite verdicts.
 
 ## M-T9.56 — 130 validator conditions reach the user as one non-catalog code — `open` · **S/M** for the ratchet, ~**70-78 h** for the drain · P1
 
@@ -723,23 +564,81 @@ no `FIRING_FIXTURES` fixture raises `loom.unknown`, and a length baseline for `U
 
 Then ~10 drain slices; the triage, per-site cost and ordering are in the fleet plan.
 
-## M-T9.57 — Every "dropped `workflow_run` dispatch" claim rests on a measurement artifact — `done` ([#2859](https://github.com/Loom-Harness/Loc/pull/2859) — **the premise WAS the artifact; no code fix, prose retired**) · **S** · P1
+## M-T9.57 — `pr-gate` parks: two 2026-09-10 measurements disagree on whether tail `workflow_run` dispatches are dropped — `done` ([#2859](https://github.com/Loom-Harness/Loc/pull/2859) retired every branch-filtered claim; Wave C0 packet 0.3 ([#2863](https://github.com/Loom-Harness/Loc/pull/2863)) counted unfiltered and landed the bounded tail watch — **owner ruling pending on which reading stands**) · **S** · P1
 
-Found 2026-09-09 ([F65](../audits/2026-09-03-language-docs-audit-findings.md)).
-`workflow_run`-triggered runs are attributed to the repository's **default branch**, so
-`list_workflow_runs(branch=<pr-branch>)` structurally cannot return a `pr-gate` evaluation — it returns
-only the one `pull_request`-event run. Of the last 100 `event=workflow_run` runs of `pr-gate.yml`, **all
-100** carry `head_branch: main`.
+Opened 2026-09-09 as *"every dropped-dispatch claim rests on a measurement artifact"*
+([F65](../audits/2026-09-09-verification-fleet-plan.md)); **measured and closed 2026-09-10**. Title
+updated to what the measurement found. Seven PRs in ten days had shipped four incompatible explanations
+of one symptom (#2730, #2804, #2812, #2822, #2832, #2835, #2846); this replaces all of them.
 
-That call is the sole evidence behind the dropped-dispatch premise in `pr-gate.yml`'s header comments,
-in `docs/ci-gating.md`, in PR #2835, and in this session's own notes. **Re-measure without the filter
-before building anything on it.**
+**The artifact is real; this mission's accusation was not.** F65 is true of branch-filtered listings in
+general — a `workflow_run`-triggered run is attributed to the repository's default branch, so
+`list_workflow_runs(branch=<pr-branch>)` structurally cannot return a `pr-gate` evaluation, and all 100
+of the last 100 carry `head_branch: main`. It is **not** true of **#2835**, which this mission named as
+resting on it. #2835 listed `event=workflow_run` runs **unfiltered** and read them correctly: its #2819
+table (last evaluation created 05:48:26, last check completed 05:49:10, *"evaluations created after:
+none"*) is the same observation the census below reproduces at scale, and its conclusion — "this was
+delivery, not a missing name" — was right. **#2835 was right on mechanism and incomplete on coverage**:
+its sweep maps `/pulls?state=open` to head SHAs, so a `gh-readonly-queue/**` head cannot appear in it,
+and its own motivating case (the pr-2738 group, 42 min all-green, merged 30 s after one manual re-run)
+is exactly the case that sweep cannot reach. Re-measured **unfiltered**
+(`/actions/workflows/pr-gate.yml/runs?created=<window>`, matched on time), the picture is unambiguous:
 
-Better-fitting explanation for a stuck verdict: a read-after-write race. The final evaluation is
-dispatched by the last check's completion, sits queued 6-14 minutes under measured runner starvation,
-reads a check-runs snapshot in which that check still looks `in_progress`, publishes a non-terminal
-verdict and exits — with no further event coming. Fix is a bounded tail re-read on the near-green
-pending path (~25 lines), capped well under the queue's 180-min checks timeout.
+| measurement | result |
+|---|---|
+| eligible completions → evaluations, 2026-09-10T10:00–16:00Z | 178 completions of listed workflows on non-`main` branches → 172 `PR gate` runs; **13 produced no run at all** (never created — not cancelled, not skipped). ~7% drop rate, in multi-minute windows. 9 of the 13 were on `gh-readonly-queue/**` refs, against 71 of the 178 completions (40%) — over-represented, n too small for more than that |
+| parks, last 30 merged PRs | of the 22 whose gate never went red first, **10 parked ≥5 min fully green**: #2846 14 m, #2847 12 m, #2832 14 m, #2742 12 m, #2747 8 m, #2721 11 m, #2756 14 m, #2845 43 m, #2819 46 m, #2674 58 m |
+| each park's cause | one missing dispatch. #2819: last check completed 05:49:11Z, last evaluation created 05:48:26Z, **zero `PR gate` runs repo-wide until 06:35:29Z**, with exactly one eligible completion in that window |
+| tail size at the last delivered evaluation | outstanding checks median 1, max 7; minutes to the last completion median 1.2, 9 of 10 within 5, max 16.9 |
+| cancellation (#2822's premise) | **not the cause** — 479 of 759 evaluations still `cancelled` after `cancel-in-progress: false` (GitHub evicts a superseded *pending* run regardless), and a sample of 15 had zero jobs. The newest arrival, i.e. the tail one, is never the evicted one |
+| the read-after-write race (this mission's own hypothesis) | **not the cause** — an evaluation dispatched *by* a completion reads the check-runs API strictly after it |
+| the `*/15` cron | six consecutive `schedule` runs gapped 2.0 / 4.5 / 4.6 / 4.5 / 3.6 hours |
+
+
+### Wave C0 packet 0.3 — the unfiltered counter-measurement and the remedy that landed ([#2863](https://github.com/Loom-Harness/Loc/pull/2863))
+
+The census above is the packet's. Its remedy and proofs follow; #2859's own re-measurement, which
+disagrees with the census on whether any dispatch is dropped, is recorded after it. Both stand
+until the owner rules; the tail watch stays because it is bounded either way.
+
+**Remedy landed: the tail watch** (`scripts/pr-gate.mjs`). An evaluation that finds the SHA near-green —
+`shouldWatchTail`: ≤8 outstanding, none failed, at least one already reported — re-reads the SHA every
+30 s for up to 15 min, publishing every change and stopping at the first terminal verdict. The gate no
+longer depends on any *future* dispatch, only on the one it is already running in. Both knobs are sized
+off the table above; `pending < total` is the conjunct that stops it becoming v1's parked poller, and
+the SHA-keyed concurrency group bounds it to one watcher per SHA. `pr-gate.yml`'s eval job timeout
+went 10 → 20 min to fit the budget.
+
+**Mutation-proved** in `test/system/pr-gate.test.ts`: the CONTROL arm replays #2819's timeline through
+the pre-fix path and asserts the only verdict ever published is `in_progress`. Three seeded defects were
+run and each failed the intended arm — unwiring the call site (1 failure), forcing `shouldWatchTail`
+false (4), restoring `timeout-minutes: 10` (1).
+
+**Two claims deleted** from `pr-gate.yml`, `docs/ci-gating.md` and `experience_gathered.md` (§113,
+with addenda on §93 and §106): the lever table's *"re-running a red check does not re-evaluate the gate
+— the dispatch does fire but no verdict reaches the head SHA"* (it does **not** fire: on #2773 the
+re-run completed 14:41:09Z and no `PR gate` run exists repo-wide between 14:38:40Z and 14:43:27Z), and
+`pr-gate.yml`'s *"NOTHING here cancels"* (479 of 759 evaluations still cancelled — GitHub evicts a
+superseded *pending* run regardless of the flag; `docs/ci-gating.md` had this right already, via #2835).
+
+**The tail watch IS the in-queue backstop.** A merge-queue head receives evaluations on both paths a PR
+head does — the `merge_group: checks_requested` arm and `workflow_run` completions from inside the group
+(`branches-ignore` lists only `main`, deliberately) — and `scripts/pr-gate.mjs`'s single-SHA path is
+shared, so a queue head arms and runs the watch identically, bounded to one watcher per SHA by the same
+concurrency group. This closes the coverage gap #2835 left, which its own sweep structurally could not.
+
+**One residual, stated rather than fixed.** The formation evaluation cannot arm the watch: at
+`checks_requested` no check has reported, and `shouldWatchTail` requires `pending < total` — the
+conjunct that stops the watch parking a runner from PR-open. So an in-queue head needs at least one
+`workflow_run` dispatch to land while ≤8 checks are outstanding; with 22 gates wired into the queue
+there are ~22 chances, but that is a probability, not a guarantee. If every one is dropped the group
+parks and its only bound is the queue's 180-minute checks timeout, which ejects rather than heals. The
+fix, should in-queue parks survive this change, is a formation-time arm with its own budget — not
+another sweep. Honest bounds now: a near-green SHA converges in-run; a SHA that parks outside the
+watch's reach waits on repo activity (~10 evaluations per sweep) or the cron (~4 h median), and a queue
+head that parks waits on the checks timeout.
+
+### #2859 — the re-measurement that reads the same parks as latency, not loss
 
 Two further gaps found alongside: the sweep enumerates open PRs only, so **inside the merge queue there
 is no backstop at all** (a stalled group head's only bound is the timeout, which ejects rather than

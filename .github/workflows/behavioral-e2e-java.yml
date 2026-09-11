@@ -17,6 +17,38 @@ name: Behavioral e2e — Java (Spring Boot + JPA)
 # Reuses the proven boot recipe from java-obs-e2e.yml (gradle bootJar +
 # java -jar against SPRING_DATASOURCE_URL) and the harness wiring from
 # behavioral-e2e-dotnet.yml.
+#
+# COST MODEL — read this before adding a corpus fixture. (The BUDGET is a
+# separate question with its own rule; see the `timeout-minutes` comment below
+# and docs/ci-gating.md.)
+#
+# The leg is one flat per-case loop: `run-java.mjs` generates, builds, boots and
+# tears down ONE Spring Boot app per behavioural case, so its runtime is simply
+# (number of cases) x (per-case constant). Setup (checkout/node/java/gradle/
+# npm ci) is ~1 min and does not grow; the tier step is ~93% of the job. Read
+# off the step timestamps of run #2581 (main, 2026-09-10, 53 cases): job 15m35s,
+# tier step 14m25s, and every case between 15.5s and 17.5s with NO outlier. So a
+# slow leg here means "more cases" or "a slower per-case constant" — never one
+# pathological fixture, and profiling a single case tells you about all of them.
+#
+# That constant was dominated by `gradle --no-daemon`: 53 cold Gradle JVMs,
+# which did not even avoid the fork they name (the client heap does not meet the
+# build requirement, so Gradle forks a single-use daemon anyway). `run-java.mjs`
+# now builds on a warm daemon — the GRADLE_BASE comment there carries the
+# back-to-back measurement: mean 11.7s -> 2.84s steady state per project build
+# (~4.1x), i.e. ~8.9s off each case. On a quiet 4-core host the `--no-daemon`
+# arm reproduces this leg's own 16.2s-per-case constant almost exactly (11.7s of
+# build + ~4.5s of Spring Boot start, generate and dispatch), so the PROJECTION
+# is ~7.3s per case: tier step 14m25s -> ~6.5 min, job ~7.5 min. That is a
+# projection, not a reading — confirm it against the first green run's step
+# timestamps, then re-derive the budget (see the `timeout-minutes` comment).
+# After it, the per-case constant is BOOT-dominated, so the next real saving is
+# on the app-start side rather than the build side.
+#
+# When the cases outgrow the budget again, SPLIT THE LEG rather than widening the
+# cap further — but split it by DERIVING the shards from the same corpus manifest
+# `cases.mjs` reads (e.g. index % N), never a hand-written shard list, or a new
+# fixture named by no shard runs in neither half.
 
 on:
   push:
@@ -91,11 +123,18 @@ jobs:
     # because `run-java.mjs` pays a `gradle --no-daemon bootJar` — a cold JVM
     # and a full Spring compile — per corpus case, sequentially.  Its own
     # run-to-run spread is 13m02s–18m49s, a 5m47s swing that alone was 35x the
-    # 10s of headroom the 20m cap left.  Cutting that is a separate mission;
-    # splitting the leg instead would cost a second slot out of a saturated
-    # ~20-slot pool AND need a shard manifest, since `run-java.mjs` takes an
-    # explicit case list and a new corpus case would otherwise run in neither
-    # half.
+    # 10s of headroom the 20m cap left.  Splitting the leg instead would cost a
+    # second slot out of a saturated ~20-slot pool AND need a shard manifest,
+    # since `run-java.mjs` takes an explicit case list and a new corpus case
+    # would otherwise run in neither half.
+    #
+    # THAT ROOT CAUSE IS NOW FIXED — `run-java.mjs` builds on a warm Gradle
+    # daemon (mean 11.7s -> 2.84s per project build, measured back to back; see
+    # the COST MODEL note at the top of this file), projecting the job at ~7.5m.
+    # The budget deliberately stays at 30 anyway: the rule sizes from a RECORDED
+    # p95 over >=10 runs, and the post-fix sample does not exist yet.  Re-run
+    # `node test/behavioral/ci-budget-report.mjs` once it does and tighten then —
+    # this should come down two or three steps.
     #
     # Measured 2026-09-10, n=40 successful runs: p95 19m46s, max 19m50s.
     # Re-derive with `node test/behavioral/ci-budget-report.mjs`.
