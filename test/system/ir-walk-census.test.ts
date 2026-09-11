@@ -481,7 +481,6 @@ const WAIVERS: Record<string, string> = {
   "src/generator/java/render-criteria.ts#bool": THROWING_DISPATCHER,
   "src/generator/java/render-jpql.ts#render": THROWING_DISPATCHER,
   "src/generator/java/render-sql-restriction.ts#renderSqlRestriction": THROWING_DISPATCHER,
-  "src/generator/python/dispatch-builder.ts#projectionHandlerFn": THROWING_DISPATCHER,
   "src/generator/python/workflow-eventsourced-emit.ts#renderApplierStmt": THROWING_DISPATCHER,
   "src/generator/sql-pg-expr.ts#renderSqlScalarExpr": THROWING_DISPATCHER,
   "src/system/mermaid.ts#sequenceMessages": THROWING_DISPATCHER,
