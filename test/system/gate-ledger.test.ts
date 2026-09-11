@@ -68,6 +68,8 @@ const BEHAVIOURAL_ABSENT: Record<string, string> = {
     "in-system api call; needs both deployables booted (the `api-call-e2e` leg does this outside the corpus tier)",
   "collection-op-shapes":
     "collection-op VALUE semantics (empty sum, avg of none, sort stability) — the exact class a string assertion cannot see",
+  "workflow-command-payload":
+    "the defect (#2864 D7/T2) is on the WORKFLOW command route, and the e2e DSL has no form that calls one — a booted caller could only drive the two crudish aggregates, never the payload wire contract the fixture exists for; the five compile legs are its oracle (M-T9.13 owns the drain: POST the payload from an e2e block once the DSL can call a workflow)",
 };
 
 describe("gate ledger", () => {

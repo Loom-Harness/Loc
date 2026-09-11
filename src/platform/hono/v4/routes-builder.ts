@@ -2818,8 +2818,21 @@ export function wireToDomainExpr(expr: string, t: TypeIR, ctx?: BoundedContextIR
         .join(", ");
       return `new ${info.base}(${args})`;
     }
-    case "entity":
-      return expr;
+    case "entity": {
+      // A declared record PAYLOAD — the workflow explicit-command param
+      // (`create(c: FileClaim)`, #2864 D7/T2).  A payload has no domain CLASS
+      // on this backend, so its domain form is a plain object whose fields are
+      // each coerced: an `X id` field has to arrive branded, or the first
+      // `Agg.create({ ref: c.<idField> })` downstream is a TS2322
+      // (`string` is not assignable to `CargoId`).  Every other `entity` here
+      // is a containment part, which keeps the pass-through.
+      const pl = ctx?.payloads.find((p) => p.name === info.base && !p.variants);
+      if (!pl) return expr;
+      const entries = pl.fields
+        .map((f) => `${f.name}: ${wireToDomainExpr(`${expr}.${f.name}`, f.type, ctx)}`)
+        .join(", ");
+      return `{ ${entries} }`;
+    }
     case "provenanced":
       // Unreachable: request-side only (see `zodFor`).  The domain keeps the
       // scalar — the carrier is a serialization shape, not an in-memory one.

@@ -35,6 +35,7 @@ import { lines } from "../../../util/code-builder.js";
 import { resolveErrorStatus } from "../../../util/error-defaults.js";
 import { lowerFirst, snake, upperFirst } from "../../../util/naming.js";
 import { findUnionSpec, unionJsonSchema } from "../../_payload/union-wire.js";
+import { workflowParamPayloads } from "../../_payload/workflow-param-payloads.js";
 import { isPagedAutoAll, isPagedFind } from "./repository.js";
 import { returnUnionSpec } from "./unions.js";
 
@@ -454,6 +455,20 @@ export function buildJavaOpenApiContract(
       // <Wf>Request — required = command params (same op-param rule).
       for (const p of wf.params) noteEnumRefs(p.type, p.name);
       setRequired(`${upperFirst(wf.name)}Request`, requiredParams(wf.params));
+    }
+
+    // <Payload>Response — the wire record a payload-typed workflow param
+    // pulls in (#2864 D7/T2).  springdoc marks nothing required on a plain
+    // record, and the other four backends all publish a required set for this
+    // component (zod / pydantic derive it, .NET carries `[Required]`), so
+    // without this the new component lands as a fresh `required-only-java`
+    // row in the 5-way parity diff the day it is emitted.
+    for (const pl of workflowParamPayloads(ctx)) {
+      for (const f of pl.fields) noteEnumRefs(f.type, f.name);
+      setRequired(
+        `${pl.name}Response`,
+        pl.fields.filter((f) => !f.optional && !isOptionalType(f.type)).map((f) => f.name),
+      );
     }
 
     // Observable workflows — read-only instance endpoints

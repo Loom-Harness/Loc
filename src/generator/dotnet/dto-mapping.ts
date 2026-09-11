@@ -21,6 +21,7 @@ import { collectReachableTypes } from "../../ir/util/reachable-types.js";
 import { snake, upperFirst } from "../../util/naming.js";
 import { numericEncode } from "../_numeric/target.js";
 import { PROVENANCED_REQUEST_ERROR } from "../_payload/provenanced-wire.js";
+import { recordPayloadOf } from "../_payload/workflow-param-payloads.js";
 import { csProvSibling, PROVENANCED_CS_RECORD } from "./emit/provenance.js";
 import { CS_NUMERIC } from "./numeric-codec.js";
 import { renderCsExpr } from "./render-expr.js";
@@ -502,8 +503,27 @@ export function wireToCommandArgument(
         .join(", ");
       return `new ${info.base}(${args})`;
     }
-    case "entity":
-      return expr;
+    case "entity": {
+      // A declared record PAYLOAD reaching a command argument is the workflow
+      // explicit-command form (`create(c: FileClaim)`).  Its wire record and
+      // its domain record are two distinct types, so the value has to be
+      // materialized field by field exactly as a value object is — passing the
+      // wire record straight through was CS1503 the moment the domain record
+      // existed, and CS0246 before that (#2864 D7/T2).  Every OTHER `entity`
+      // here is a containment part, which no command argument carries, so it
+      // keeps the pass-through.
+      const pl = recordPayloadOf(t, ctx);
+      if (!pl) return expr;
+      const args = pl.fields
+        .map((f) =>
+          wireToCommandArgument(`${expr}.${upperFirst(f.name)}`, f.type, ctx, {
+            ...site,
+            pointer: `${site.pointer}/${f.name}`,
+          }),
+        )
+        .join(", ");
+      return `new ${pl.name}(${args})`;
+    }
     case "provenanced":
       throw new Error(PROVENANCED_REQUEST_ERROR);
   }
@@ -536,6 +556,13 @@ export function collectWireUsings(
   if (info.refKind === "valueObject") {
     const vo = ctx.valueObjects.find((v) => v.name === info.base);
     if (vo) for (const f of vo.fields) collectWireUsings(f.type, ctx, into);
+  }
+  // A payload param materializes field by field too (see the `entity` arm of
+  // `wireToCommandArgument`), so a `money` / `datetime` field inside one
+  // reaches the same `System.Globalization` parse helpers.
+  if (info.refKind === "entity") {
+    const pl = recordPayloadOf(t, ctx);
+    if (pl) for (const f of pl.fields) collectWireUsings(f.type, ctx, into);
   }
   return into;
 }

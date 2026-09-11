@@ -1,4 +1,8 @@
 import { renderHonoLogCall, renderHonoStoreLogCall } from "../../../generator/_obs/render-hono.js";
+import {
+  recordPayloadOf,
+  workflowParamPayloads,
+} from "../../../generator/_payload/workflow-param-payloads.js";
 import { statementSubRegions } from "../../../generator/_trace/sourcemap.js";
 import {
   renderWorkflowStmtChunks,
@@ -25,6 +29,7 @@ import {
   workflowIsGuarded,
   workflowUsesCurrentUser,
 } from "../../../ir/types/loom-ir.js";
+import { wireTypeInfo } from "../../../ir/types/wire-types.js";
 import {
   aggregatesHaveUniqueKeys,
   aggregatesNeedConcurrency,
@@ -159,7 +164,29 @@ export function buildWorkflowsFile(
       ),
     );
   }
-  if (workflowVOs.length > 0 || workflowEnumsUsed.length > 0) {
+  // Wire schemas for every declared record PAYLOAD a workflow param names —
+  // the `create(c: FileClaim)` explicit-command form (`docs/workflow.md`,
+  // `docs/payloads.md` §1).  A payload lowers to an `entity` TypeIR, whose
+  // request-side zod arm is `z.unknown()`; without a real schema here the
+  // request body carried NO contract and every downstream `c.<field>` read was
+  // `TS18046: 'c' is of type 'unknown'` (#2864 D7/T2).  The component is named
+  // `<Payload>Response` because that is the spelling .NET / java / python /
+  // elixir already reference from their own request DTOs (their shared
+  // wire-type mappers render an `entity` as `<Name>Response`), so all five
+  // backends publish ONE component name for this shape.
+  const workflowPayloads = workflowParamPayloads(ctx);
+  for (const pl of workflowPayloads) {
+    body.push(
+      ...emitWireSchema(
+        `const ${pl.name}Response`,
+        `${pl.name}Response`,
+        pl.fields.map((f) => ({ name: f.name, base: zodFor(f.type), optional: f.optional })),
+        [],
+        new Set(pl.fields.map((f) => f.name)),
+      ),
+    );
+  }
+  if (workflowVOs.length > 0 || workflowEnumsUsed.length > 0 || workflowPayloads.length > 0) {
     body.push("");
   }
 
@@ -171,7 +198,7 @@ export function buildWorkflowsFile(
     if (!emitsCommandRoute(wf)) continue;
     body.push(`const ${upperFirst(wf.name)}Request = z.object({`);
     for (const p of wf.params) {
-      body.push(`  ${p.name}: ${zodFor(p.type)},`);
+      body.push(`  ${p.name}: ${zodForWorkflowParam(p.type, ctx)},`);
     }
     body.push(`}).openapi("${upperFirst(wf.name)}Request");`);
   }
@@ -467,6 +494,14 @@ export function buildWorkflowsFile(
   imports.push(`import { ${problemNamed.join(", ")} } from "./problem-details";`);
   if (/\bHTTPException\b/.test(bodyStr))
     imports.push(`import { HTTPException } from "hono/http-exception";`);
+  // A `money` field inside a workflow param's VO / payload wire schema renders
+  // as the shared `moneySchema` (the string-encoded decimal every backend
+  // publishes).  It lives in `lib/schemas` and every per-aggregate routes file
+  // imports it; this file never did, so the schema referenced a free name.
+  // Body-scan-gated like every other import here, so a workflow file without a
+  // money-carrying param stays byte-identical.
+  if (/(?<!\.)\bmoneySchema\b/.test(bodyStr))
+    imports.push(`import { moneySchema } from "../lib/schemas";`);
   if (usesIds) imports.push(`import * as Ids from "../domain/ids";`);
   if (errorClasses.length > 0) {
     imports.push(`import { ${errorClasses.join(", ")} } from "../domain/errors";`);
@@ -2325,6 +2360,24 @@ function pgIsolationLevel(level: import("../../../ir/types/loom-ir.js").Isolatio
   }
 }
 
+/** Request-side zod for a workflow PARAMETER.  Identical to `zodFor` except
+ *  for a declared record payload, whose leaf is an `entity` TypeIR that
+ *  `zodFor` renders as `z.unknown()` — the shape it uses for a containment
+ *  part, which is never a request-body leaf.  A payload param IS one
+ *  (`create(c: FileClaim)`), so it resolves to the `<Payload>Response` schema
+ *  emitted alongside the request record instead of dropping the contract
+ *  (#2864 D7/T2).  Mirrors `routes-builder.zodForResponseField`, which makes
+ *  the same declared-payload exception on the response side. */
+function zodForWorkflowParam(t: TypeIR, ctx: BoundedContextIR): string {
+  const pl = recordPayloadOf(t, ctx);
+  if (!pl) return zodFor(t);
+  const info = wireTypeInfo(t, "request");
+  let z = `${pl.name}Response`;
+  if (info.isCollection) z = `z.array(${z})`;
+  if (info.isNullable) z = `${z}.nullish()`;
+  return z;
+}
+
 /** Value objects referenced by any workflow's parameters.  Same
  *  shape as `routes-builder.collectUsedValueObjects` but scoped to
  *  workflow params instead of aggregate-level surfaces.  Used to
@@ -2337,6 +2390,14 @@ function pgIsolationLevel(level: import("../../../ir/types/loom-ir.js").Isolatio
 function* workflowSchemaSeeds(ctx: BoundedContextIR): Generator<TypeIR> {
   for (const wf of ctx.workflows) {
     for (const p of wf.params) yield p.type;
+  }
+  // A payload param's own `<Payload>Response` schema body references the
+  // schema of each of ITS fields, and a payload is not a value object, so
+  // `collectReachableTypes` does not descend into it.  Seeding the fields
+  // directly keeps a payload holding a VO / enum from emitting a schema whose
+  // body names an undeclared `<Vo>Schema`.
+  for (const pl of workflowParamPayloads(ctx)) {
+    for (const f of pl.fields) yield f.type;
   }
 }
 

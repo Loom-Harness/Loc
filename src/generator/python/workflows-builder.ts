@@ -33,6 +33,7 @@ import { resolveErrorStatus } from "../../util/error-defaults.js";
 import { snake, upperFirst, workflowFnSnake } from "../../util/naming.js";
 import { numericEncode } from "../_numeric/target.js";
 import { LogEvents } from "../_obs/log-events.js";
+import { workflowParamPayloads } from "../_payload/workflow-param-payloads.js";
 import { statementSubRegions } from "../_trace/sourcemap.js";
 import { renderWorkflowStmtChunks, type WorkflowStmtTarget } from "../_workflow/stmt-target.js";
 import { zeroFor } from "./dispatch-builder.js";
@@ -126,6 +127,39 @@ export function buildPyWorkflowsFile(
     (wf) => workflowUsesCurrentUser(wf) || callsUserGatedOp(wf.statements, ctx),
   );
 
+  // The declared record payloads this context's command-workflow params name
+  // (`create(c: FileClaim)`).  Nothing else emits a model for one — a payload
+  // has no owning aggregate — so both halves are emitted here, ahead of the
+  // request models that reference them (#2864 D7/T2):
+  //
+  //   * the WIRE model `<P>Response`, the name `requestFieldDecl` already
+  //     produces for a payload param (`requestPyType`'s `entity` arm), and
+  //   * the DOMAIN dataclass `<P>`, which `pyWireToDomain`'s payload arm
+  //     builds and the body's `c.<field>` reads are typed against.
+  const payloads = workflowParamPayloads(ctx);
+  const payloadModels = payloads
+    .map((pl) =>
+      lines(
+        `class ${pl.name}Response(BaseModel):`,
+        pl.fields.length > 0
+          ? pl.fields.map((f) => `    ${f.name}: ${requestFieldDecl(f.type, f.optional, ctx)}`)
+          : ["    pass"],
+        "",
+        "",
+        `@dataclass(frozen=True)`,
+        `class ${pl.name}:`,
+        pl.fields.length > 0
+          ? pl.fields.map(
+              (f) =>
+                `    ${f.name}: ${renderPyType(f.type)}${f.optional && f.type.kind !== "optional" ? " | None" : ""}`,
+            )
+          : ["    pass"],
+        "",
+        "",
+      ),
+    )
+    .join("");
+
   const models = wfs
     .map((wf) =>
       lines(
@@ -152,7 +186,7 @@ export function buildPyWorkflowsFile(
   // bodies can call them.  Expression-bodied + pure over params (validator-guaranteed).
   const helperDefs = wfs.flatMap((wf) => workflowFnHelpers(wf)).join("\n\n");
   const helpersBlock = helperDefs ? `${helperDefs}\n\n\n` : "";
-  const body = `${models}${instanceModels}${helpersBlock}router = APIRouter(prefix="/workflows", tags=["workflows"])\n\n\n${routes}`;
+  const body = `${payloadModels}${models}${instanceModels}${helpersBlock}router = APIRouter(prefix="/workflows", tags=["workflows"])\n\n\n${routes}`;
 
   const scan = body.replace(/"(?:\\.|[^"\\])*"/g, '""');
   const refersTo = (n: string): boolean => new RegExp(`\\b${n}\\b`).test(scan);
@@ -180,6 +214,10 @@ export function buildPyWorkflowsFile(
     `"""Workflow routes.  Auto-generated."""`,
     "",
     refersTo("math") ? "import math" : null,
+    // The domain half of a payload param's record pair is a frozen dataclass
+    // (the VOs' own shape) — emitted only when a workflow param names a
+    // payload, so every other workflows file stays byte-identical.
+    refersTo("dataclass") ? "from dataclasses import dataclass" : null,
     // A5 temporal — workflow bodies render domain expressions, so
     // `timedelta` rides in on use (like UTC/datetime).
     refersTo("datetime") || refersTo("timedelta")
