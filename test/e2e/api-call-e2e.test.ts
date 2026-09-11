@@ -58,6 +58,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { mixDepsGet, mixLocalInstall } from "./support/mix-retry.js";
+import { installGeneratedProject } from "./support/npm-install.js";
 
 const ENABLED = process.env.LOOM_API_CALL_E2E === "1";
 
@@ -167,7 +168,7 @@ function dockerRun(
  *  use, because this environment has no host toolchain for them. */
 const CALLERS: Record<string, CallerSpec> = {
   node: {
-    install: (cwd) => sh("npm install --silent", cwd),
+    install: (cwd) => installGeneratedProject(cwd, { flags: [] }),
     boot: (cwd, port, pg, ordersUrl) => ({
       bin: join(cwd, "node_modules/.bin/tsx"),
       args: ["index.ts"],

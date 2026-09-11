@@ -5,6 +5,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { installGeneratedProject } from "./support/npm-install.js";
 
 // ---------------------------------------------------------------------------
 // Runtime e2e for the Angular frontend (angular-frontend-plan.md Slice 6 —
@@ -164,7 +165,7 @@ describe.skipIf(!ENABLED)("generated angular project runs (ng build + Playwright
     // The angular deployable is `web`.
     const project = path.join(work, "out", "web");
     expect(fs.existsSync(path.join(project, "angular.json")), "angular project emitted").toBe(true);
-    run("npm install --no-audit --no-fund", project);
+    installGeneratedProject(project, { timeout: 900_000 });
     run("npx ng build", project);
 
     // `@angular/build:application` emits the browser bundle to dist/browser/.
@@ -189,7 +190,7 @@ describe.skipIf(!ENABLED)("generated angular project runs (ng build + Playwright
       // spec against the served bundle.
       const e2e = path.join(project, "e2e");
       expect(fs.existsSync(path.join(e2e, "smoke.spec.ts")), "smoke spec emitted").toBe(true);
-      run("npm install --no-audit --no-fund", e2e);
+      installGeneratedProject(e2e, { timeout: 900_000 });
       run("npx playwright install --with-deps chromium", e2e);
       run(`E2E_BASE_URL=${baseUrl} npx playwright test smoke.spec.ts`, e2e);
     } finally {

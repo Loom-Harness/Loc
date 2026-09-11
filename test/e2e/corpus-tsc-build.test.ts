@@ -5,6 +5,7 @@ import * as path from "node:path";
 import { describe, expect, it } from "vitest";
 import { corpusProjectDirs, generateCorpusCase } from "../fixtures/corpus/harness.js";
 import { CORPUS } from "../fixtures/corpus/manifest.js";
+import { installGeneratedProject } from "./support/npm-install.js";
 
 // ---------------------------------------------------------------------------
 // Phase 1 compile tier (docs/old/plans/global-test-coverage-plan.md) for the
@@ -53,11 +54,7 @@ describe.skipIf(!ENABLED)("corpus features type-check under strict tsc (Hono/nod
           fs.existsSync(path.join(proj, "package.json")),
           `${featureId}: node project '${dir}' emitted`,
         ).toBe(true);
-        execSync("npm install --silent --no-audit --no-fund", {
-          cwd: proj,
-          stdio: "inherit",
-          timeout: 180_000,
-        });
+        installGeneratedProject(proj, { timeout: 180_000 });
         execSync("npx tsc --noEmit", { cwd: proj, stdio: "inherit", timeout: 120_000 });
       }
     } finally {

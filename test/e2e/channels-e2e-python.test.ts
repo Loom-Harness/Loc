@@ -17,6 +17,7 @@ import { appendFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { installGeneratedProject } from "./support/npm-install.js";
 
 const ENABLED = process.env.LOOM_CHANNELS_E2E_PYTHON === "1";
 
@@ -130,7 +131,7 @@ describe.skipIf(!ENABLED)("cross-backend broker delivery (channels-e2e, python c
       redisUrl = `redis://localhost:${REDIS_PORT}`;
     }
 
-    sh("npm install --silent", join(dir, "out", "sales_api"));
+    installGeneratedProject(join(dir, "out", "sales_api"), { flags: [], timeout: 420_000 });
     sh("uv sync --quiet", join(dir, "out", "ship_api"));
 
     const boot = (

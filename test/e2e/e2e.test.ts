@@ -18,6 +18,7 @@ import {
   renderReport,
 } from "../_helpers/response-diff.js";
 import { hasDocker } from "./support/docker-probe.js";
+import { installGeneratedProject } from "./support/npm-install.js";
 
 // ---------------------------------------------------------------------------
 // E2E smoke: generate the acme system, `docker compose build && up`, poll
@@ -202,11 +203,7 @@ describe.skipIf(!RUN)("e2e: docker compose smoke", () => {
         return;
       }
       // Install vitest in the e2e folder, run the generated suite.
-      execSync(`npm install --silent --no-audit --no-fund`, {
-        cwd: e2eDir,
-        stdio: "inherit",
-        timeout: 180_000,
-      });
+      installGeneratedProject(e2eDir, { timeout: 180_000 });
       // When the generated system requires auth (it ships a Keycloak realm
       // import), the generated harness must present a real bearer token or
       // every request 401s before reaching its create/validation/not-found
@@ -248,11 +245,7 @@ describe.skipIf(!RUN)("e2e: docker compose smoke", () => {
         // The frontend's e2e/ has its own package.json with
         // @playwright/test as a dev dep — keeping it out of the
         // runtime image.  Install it here.
-        execSync(`npm install --silent --no-audit --no-fund`, {
-          cwd: e2eDir,
-          stdio: "inherit",
-          timeout: 180_000,
-        });
+        installGeneratedProject(e2eDir, { timeout: 180_000 });
         // Browser binaries — `playwright install --with-deps` would
         // also pull system packages, but the proxy CA setup in this
         // sandbox already covers them.  PLAYWRIGHT_BROWSERS_PATH
