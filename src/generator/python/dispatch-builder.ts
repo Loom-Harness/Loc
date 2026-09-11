@@ -566,8 +566,10 @@ function projectionHandlerFn(fn: string, proj: ProjectionIR, on: ProjectionOnIR)
 }
 
 /** Allocation kwargs for a fresh instance: the correlation key plus a
- *  typed zero for each required non-key saga field. */
-function allocateKwargs(wf: WorkflowIR): string {
+ *  typed zero for each required non-key saga field.  Shared with the COMMAND
+ *  route's load-or-allocate (`workflows-builder.ts`, F58), which binds the same
+ *  `__key` local — one allocation shape for both entry points. */
+export function allocateKwargs(wf: WorkflowIR): string {
   const corr = wf.correlationField as string;
   const parts = [`${snake(corr)}=__key`];
   for (const f of wf.stateFields ?? []) {
