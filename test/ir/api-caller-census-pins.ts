@@ -586,6 +586,16 @@ export const E2E_LESS_CORPUS_FIXTURES: readonly string[] = [
   // cross-backend decimal-arithmetic divergence (F11 / M-T5.22) — that golden
   // waits for the owner ruling, not for this fixture.
   "numeric-operands",
+  // COMPILE + UNIT-TIER WITNESS (verification fleet F58 / M-T6.62) — a COMMAND
+  // `create(params)` on a workflow that carries `Property` state.  The defect
+  // it exists for is a TYPE ERROR in four of the five emitted projects (an
+  // unbound `this`/`state` receiver), so the per-backend compile legs are the
+  // oracle; the pure-domain `test` block rides every backend's unit tier.  The
+  // runtime half — POST the command, emit the event, read the saga row back
+  // through `/workflows/fulfillment/instances/{id}` — is expressible, but it
+  // mints a five-way wire golden for a cascade no golden covers yet, and
+  // capturing that needs the behavioural legs rather than this fixture's PR.
+  "workflow-create-state",
   // COMPILE-TIER WITNESS (generator review A1) — a projection aggregation over
   // a `tenantOwned` + `softDeletable` source; pins that the emitted aggregation
   // read carries the capability predicates.  The runtime half needs the
