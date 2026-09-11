@@ -223,20 +223,6 @@ Found 2026-08-30 re-verifying the [08-24 generator review](../audits/generator-c
 
 Sources: [generator-code-review-2026-08-24](../audits/generator-code-review-2026-08-24.md) §Follow-up register (2026-08-30) rows 14–16; §F3 (one ref-walker per IR family) is the durable fix for (3). Relates to §A16 (the three sibling collectors #2667 already migrated onto `src/ir/util/walk.ts`).
 
-## M-T6.51 — node document finds ignore `ignoring` — the A11 fix has no node twin — `open` · **S** · P1
-
-Found 2026-08-30 (recorded as §D item 14 of the [08-24 review](../audits/generator-code-review-2026-08-24.md), re-verified on `main` @ `aa236ae`). Not claimed by #2668.
-
-`documentFindMethod` computes the capability predicate once per aggregate — `const cap = documentCapabilityBody(agg, "x")` (`src/generator/typescript/repository-document-builder.ts:325`) — and reuses it for every find, with no access to that find's `bypassAll` / `bypassCaps`. So on a `shape: document` aggregate a declared `find … ignoring softDeletable` **still filters the soft-deleted rows out**: wrong data, fail-closed, no diagnostic. The synthesized query-time-projection reads assembled in the same file inherit it (`:89-90`), so a `projection … ignoring <Cap>` over a document source is likewise not bypassed on node.
-
-Both siblings already do it right: elixir's `renderDocFindFn` threads `bypass: { bypassAll: f.bypassAll, bypassCaps: f.bypassCaps }` (`elixir/vanilla/document-emit.ts:641` — the §A11 fix landed in #2667), and python's document `findMethod` recomputes with the find's own bypass.
-
-**The fix:** recompute the predicate per find, exactly as `renderDocFindFn` does — pass the find's bypass set into `documentCapabilityBody` (or a bypass-aware sibling) and drop the per-aggregate cache. Check the synthesized projection reads take the projection's own bypass, not the aggregate's default.
-
-**Verification when it lands.** A generator test per shape (declared find with `ignoring <Cap>`, `ignoring *`, and a projection over a document source), asserting the bypassed predicate is *absent* — and mutation-proved, since the failure mode here is a silently-retained conjunct, which a presence-only assertion cannot see.
-
-Sources: [generator-code-review-2026-08-24](../audits/generator-code-review-2026-08-24.md) §D item 14 + §Follow-up register (2026-08-30) row 18. Sibling of §A11 (elixir, fixed #2667).
-
 ## M-T6.52 — No backend can seed an event-sourced aggregate; three of five were wrong about it in two different ways — `done` (Wave 2 packet 2.5, PR #2770) · **M** · P1
 
 Found 2026-08-30 by the targets-completeness audit (`F2-SEED-EVENTSOURCED`), gated 2026-08-31 by [#2700](https://github.com/lemmit/Loc/pull/2700). `seed default { Account { owner: "seeded-alice" } }` on an `persistedAs: eventLog` aggregate parsed `0 error(s), 0 warning(s)` and then diverged: **elixir** dropped the row from the dataset (`seedableAggs` filter, `src/generator/elixir/vanilla/seed-emit.ts:83/92`) and still committed the dataset's `mark_seeded` ship-once marker, so the rows could never be applied on a later boot; **java** and **.NET** built the create call from `forCreateInput(agg.fields)` — every declared field — against a factory that takes only the declared `create open(owner: string)` parameters, i.e. `Account.create("seeded-alice", null)` against `create(String owner)` (javac "cannot be applied", CS1739+CS1501). node/python were accidentally correct because their factories are keyword-shaped.

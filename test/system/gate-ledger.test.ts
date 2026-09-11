@@ -68,6 +68,8 @@ const BEHAVIOURAL_ABSENT: Record<string, string> = {
     "in-system api call; needs both deployables booted (the `api-call-e2e` leg does this outside the corpus tier)",
   "collection-op-shapes":
     "collection-op VALUE semantics (empty sum, avg of none, sort stability) — the exact class a string assertion cannot see",
+  "find-bypass":
+    "`find … ignoring tenantOwned` is only observable across TWO principals (does the other tenant's row appear?); the behavioural runners authenticate as one, so a caller would read the same set either way — the same two-principal harness `projection-agg-filters` waits on",
 };
 
 describe("gate ledger", () => {

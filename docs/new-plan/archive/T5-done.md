@@ -41,3 +41,39 @@ Two costs, both now measured rather than hypothetical:
 Sources: found 2026-07-29 while landing RS-15 (#2300) — the five-place edit *was* the evidence. `src/util/error-defaults.ts`, `docs/old/proposals/exception-less.md` (A1, the table's origin), `docs/conformance-semantics.md` RS-15. Relates to M-T5.17 (which added the `httpStatus` surface this mission finishes wiring).
 
 **Regression + restoration (#2462 → #2340, recorded 2026-08-10):** main's route-derivation unification (#2462) re-derived the DECLARED response set but never re-threaded the `DomainError`/`Forbidden` `httpStatus` override into the four backends' runtime handlers — **silently reverting this mission's own feature** on four backends and elixir's per-op controller; #2340's rebase restored it. `denial-ladder-override-parity.test.ts` did not catch the revert — a default-emission census cannot distinguish "resolved to the default" from "hardcoded", which is exactly M-T9.25 round-2 item 1 (re-run the census UNDER AN OVERRIDE). Those bare returns were M-T6.30/M-T6.31's read-path envelope split, and draining them is what made the `NotFound` rung convertible (see above) — the mission is `done` as of 2026-08-18.
+
+## M-T5.25 — `ignoring` after `group by` parses and is then silently dropped — clause order is load-bearing and nothing says so — `done` (fixed by [#2699](https://github.com/lemmit/Loc/pull/2699); verified 2026-09-11) · **S** · P1
+
+**DONE — verified 2026-09-11 by RUNNING the mission's own repro on the Wave C1 base** (`main` + Wave C0). The proposed fix is what shipped: a phase-④ refusal, not a grammar move. `src/language/validators/bypass-placement.ts` raises `loom.ignoring-clause-placement` for a bypass clause in any position that drops it.
+
+```
+projection SalesByStatus { … group by o.status ignoring softDeletable … }
+  -> error: 'ignoring softDeletable' sits in a position that DROPS it. A capability-filter
+     bypass has three homes: a repository 'find … ignoring …', a query-time projection's
+     'where' slot (before 'join' / 'group by' / 'select'), or an inline read bound by a
+     'let' ('let xs = Repo.findAll(…) ignoring …'). Written on any other expression it
+     parses, binds to that expression, and is never read back — the read still applies
+     every filter you asked it to skip. Move the clause to the read it is meant to widen.
+  exit 1
+```
+
+(Pre-fix, the same source parsed `0 error(s), 0 warning(s)` and lowering dropped the clause.) The sibling positions the mission asked to audit are covered by the same gate — the rule is positional, not per-clause-kind. The heading had stayed `open` since the fix merged; this is the flip, with the transcript above as its evidence. Recorded in `docs/new-plan/waves/handoffs/wave-c1-1f-validator-drops.md`.
+
+Found 2026-08-30 re-verifying the [08-24 generator review](../../audits/generator-code-review-2026-08-24.md)'s follow-up register (row 13); **reproduced on `main` @ `aa236ae`**, no ledger row, no other owner.
+
+`ProjectionQueryClauses` fixes the bypass clause in the `where` position — `('where' filter=Expression)? IgnoringClause? (joins+=ProjectionJoin)* ('group' 'by' …)?` (`src/language/ddd.langium:1581-1586`). But a `group by` operand is an ordinary `Expression`, and `PostfixChain` admits its own trailing `IgnoringClause` (`:2322`, added so an inline `Repo.findAll(…) ignoring softDeletable` parses). So `group by o.status ignoring softDeletable` **parses clean**, binds the clause to the grouping expression, and lowering drops it — the author asked to see soft-deleted rows and silently keeps getting the filtered count.
+
+Reproduced from `test/fixtures/corpus/projection-groupby.ddd` + `softDeletable` on `Order`, generated to node:
+
+```
+group by o.status ignoring softDeletable   → .where(and(eq(status,"Confirmed"), not(eq(isDeleted,true))))
+where Confirmed / ignoring softDeletable   → .where(eq(status,"Confirmed"))
+```
+
+Same model, same intent, opposite data — decided by where in the clause list the word sits.
+
+**The fix (proposed, overridable):** refuse it. A `bypass`/`bypassAll` that survives on a `groupBys` (or `selects`, or a `join`'s `on`) expression after lowering is authoring error, not a feature — raise a `loom.*` code naming the legal position, from the phase-④ validator where the CST still carries the offending span. Moving the grammar instead (hoisting `IgnoringClause` to accept a trailing position too) is the wrong shape: the clause means "bypass the SOURCE's capability filters", which has no per-expression reading. Audit the sibling positions while in here — the same `PostfixChain` trailing clause is admissible anywhere an `Expression` is, including `where`-position sub-expressions and `select` bodies.
+
+**Verification when it lands.** A negative parse/validate test per admissible-but-illegal position; mutation-proved by deleting the gate and watching the fixture above go quiet again. Add the legal-position witness to the projection fixture so the *working* spelling is pinned too.
+
+Sources: [generator-code-review-2026-08-24](../../audits/generator-code-review-2026-08-24.md) §Follow-up register (2026-08-30) row 13. Relates to M-T4.2 (query-time projections), `named-filter-bypass.md` §11.

@@ -896,3 +896,29 @@ Found 2026-08-23 by the numeric-types audit ([F10](../../audits/numeric-types-au
 **Verified.** Emission suites extended to both new arms with the false case pinned too (int column keeps the plain cast, dapper grows no Parse); a "no emitted `double.Parse` shares a statement with a live `IQueryable`" scan over every emitted `.cs` file of a witness system, on both persistence adapters; `dotnet build /warnaserror` clean on a purpose-built witness project (efcore + dapper) and on the `projection-aggregation` (both adapters), `projection-groupby` and `core-domain` corpus fixtures; both arms mutation-proved by file-copy revert (four mutations: per-row hop, EF branch, the optional pattern-match shape, and the classifier's false case). **Not** done: the stored-17-digit runtime round-trip witness (no shared behavioral fixture carries a decimal column — F18's witness starvation).
 
 Sources: [numeric-types-audit-2026-08-23](../../audits/numeric-types-audit-2026-08-23.md) F10, plan.json N13, #2631/#2563/#2675.
+
+## M-T6.51 — node document finds ignore `ignoring` — the A11 fix has no node twin — `done` (fixed by [#2705](https://github.com/lemmit/Loc/pull/2705); verified 2026-09-11) · **S** · P1
+
+**DONE — verified 2026-09-11 by GENERATING the mission's own shape on the Wave C1 base.** The fix is what the mission proposed: `documentFindMethod` recomputes the predicate PER FIND (`src/generator/typescript/repository-document-builder.ts:474-480`) by passing the find's own `{bypassAll, bypassCaps}` into `documentCapabilityBody`, which now routes through the same `allContextFilterEntries` the relational and MikroORM builders use — so all three adapters answer `ignoring` from one rule. The per-aggregate cache (`const cap = documentCapabilityBody(agg, "x")`) is gone; the synthesised query-time-projection reads carry the projection's own bypass on their `FindIR` (`projection-finds.ts`).
+
+From a `shape: document` aggregate `with crudish, softDeletable`:
+
+```
+find visibleRows(): Order[]                        -> const result = all.filter((x) => (!x.isDeleted));
+find allRows(): Order[] ignoring softDeletable     -> const result = all;
+find everything(): Order[] ignoring *              -> const result = all;
+```
+
+Gated by `test/generator/typescript/nonrelational-filter-bypass.test.ts` (absence-asserting, per the mission's own instruction that a presence-only check cannot see a retained conjunct). The `mikroorm-document.ts` and `repository-embedded-builder.ts` siblings carry the same fix with the mission id in their comments. Recorded in `docs/new-plan/waves/handoffs/wave-c1-1f-validator-drops.md`.
+
+Found 2026-08-30 (recorded as §D item 14 of the [08-24 review](../../audits/generator-code-review-2026-08-24.md), re-verified on `main` @ `aa236ae`). Not claimed by #2668.
+
+`documentFindMethod` computes the capability predicate once per aggregate — `const cap = documentCapabilityBody(agg, "x")` (`src/generator/typescript/repository-document-builder.ts:325`) — and reuses it for every find, with no access to that find's `bypassAll` / `bypassCaps`. So on a `shape: document` aggregate a declared `find … ignoring softDeletable` **still filters the soft-deleted rows out**: wrong data, fail-closed, no diagnostic. The synthesized query-time-projection reads assembled in the same file inherit it (`:89-90`), so a `projection … ignoring <Cap>` over a document source is likewise not bypassed on node.
+
+Both siblings already do it right: elixir's `renderDocFindFn` threads `bypass: { bypassAll: f.bypassAll, bypassCaps: f.bypassCaps }` (`elixir/vanilla/document-emit.ts:641` — the §A11 fix landed in #2667), and python's document `findMethod` recomputes with the find's own bypass.
+
+**The fix:** recompute the predicate per find, exactly as `renderDocFindFn` does — pass the find's bypass set into `documentCapabilityBody` (or a bypass-aware sibling) and drop the per-aggregate cache. Check the synthesized projection reads take the projection's own bypass, not the aggregate's default.
+
+**Verification when it lands.** A generator test per shape (declared find with `ignoring <Cap>`, `ignoring *`, and a projection over a document source), asserting the bypassed predicate is *absent* — and mutation-proved, since the failure mode here is a silently-retained conjunct, which a presence-only assertion cannot see.
+
+Sources: [generator-code-review-2026-08-24](../../audits/generator-code-review-2026-08-24.md) §D item 14 + §Follow-up register (2026-08-30) row 18. Sibling of §A11 (elixir, fixed #2667).

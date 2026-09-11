@@ -591,6 +591,19 @@ export const E2E_LESS_CORPUS_FIXTURES: readonly string[] = [
   // read carries the capability predicates.  The runtime half needs the
   // two-principal harness (`tenancy-e2e.yml` owns that shape).
   "projection-agg-filters",
+  // COMPILE-TIER WITNESS (M-T6.54 F18), for the SAME reason as
+  // `projection-agg-filters` directly above — same capabilities, same missing
+  // harness.  The assertion this fixture wants is "a SECOND tenant's rows
+  // appear under `ignoring tenantOwned` and are absent without it", which needs
+  // two principals; the behavioural runners authenticate as one
+  // (`DEV_CLAIMS`), so the caller could only ever read its own rows and both
+  // spellings would return the same set — a green e2e over a retained conjunct,
+  // which is exactly the failure mode this fixture exists to catch.  The
+  // structural proof is `test/generator/java/generator-java-find-bypass-principal.test.ts`
+  // (paired presence + ABSENCE per conjunct, per read surface).  Drain: the
+  // two-principal harness `tenancy-e2e.yml` owns — the same one
+  // `projection-agg-filters` waits on.
+  "find-bypass",
   // COMPILE-TIER WITNESS (generator review A1, document half) — the row count
   // over a `shape: document` source, the one aggregation that shape can express.
   // The gate it exists for is a GENERATION one (four backends emit it, java is
