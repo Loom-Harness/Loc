@@ -16,13 +16,59 @@ import { reactive } from "vue";
 import { type TypedSchema, useForm } from "vee-validate";
 import type { z } from "zod";
 
+/** The wire shape of an uploaded file — the `File` request field's schema
+ *  (`_frontend/zod-schemas.ts`) is this object, `.nullable()`. */
+type FileRefValue = { url: string; key: string; contentType: string; size: number };
+
+/** The value shape a form BINDS — the Vue twin of the Svelte runtime's
+ *  `FormValues` (`src/generator/svelte/emit-templates.ts`).
+ *
+ *  A request field's optionality is a WIRE fact — "the client may omit it" —
+ *  and types as `T | null | undefined`.  It is not a fact about the bound
+ *  value: `useLoomForm` SEEDS every field the form renders, and a scalar's seed
+ *  is its type's zero (`""` / `0` / `false`), a value object's seed a whole
+ *  object.  Typing `values` straight off the schema therefore handed every
+ *  binding a `T | null | undefined`: a typed pack input rejected it
+ *  (`Type 'string | null | undefined' is not assignable to type 'string |
+ *  number | undefined'`) and an optional value object was unreadable without
+ *  the null check the seed has already ruled out
+ *  (`'updateForm.values.shipping' is possibly 'null' or 'undefined'`).
+ *
+ *  So: strip `null | undefined` off every bound field, at EVERY depth — a
+ *  nested optional sub-field (`valueobject Address { line1: string
+ *  line2: string?  city: string }`) is bound just like a top-level one, and is
+ *  seeded just like one.
+ *
+ *  The recursion stops at CLASS INSTANCES, and `Record<string, unknown>` is what
+ *  stops it: a zod object infers to an anonymous object type, which TypeScript
+ *  gives an implicit index signature, while a CLASS or INTERFACE declaration
+ *  (a `money` `Decimal`, a `Date`) does not — so a class instance falls through
+ *  to the leaf arm untouched.  It has to: mapping over `Decimal`'s members would
+ *  strip its call signatures and break `new Decimal(...)` assignment.  Naming
+ *  `Decimal` here instead would be simpler and wrong — `decimal.js` is a
+ *  CONDITIONAL dependency of the generated project (`{{#if usesMoney}}` in each
+ *  pack's package.json), and this runtime file is emitted by money-free projects
+ *  too.  A `File` request field is the one field kept nullable: "nothing
+ *  uploaded yet" is a real state the form seeds as `null` and the upload handler
+ *  assigns back.
+ *
+ *  The SCHEMA type is untouched — `handleSubmit`'s handler still receives
+ *  exactly what the wire declares. */
+export type FormValues<T> = T extends FileRefValue
+  ? T | null
+  : T extends readonly (infer E)[]
+    ? FormValues<NonNullable<E>>[]
+    : T extends Record<string, unknown>
+      ? { [K in keyof T]-?: FormValues<NonNullable<T[K]>> }
+      : T;
+
 export interface LoomForm<T extends Record<string, unknown>> {
   /** Reactive form values — field inputs bind `v-model="form.values.x"`.
    *  Held locally (not vee-validate's internal `values`, which is not
    *  meant to be mutated directly) so array push/splice + nested
    *  `v-model` writes the pack templates emit keep working; the current
    *  snapshot is pushed into vee-validate on each submit. */
-  values: T;
+  values: FormValues<T>;
   /** Per-field error messages keyed by dot-path; `__global` carries
    *  whole-form failures (server rejections that don't map to a
    *  field).  Inputs bind `:error-messages='form.errors["x"]'`. */
@@ -63,11 +109,12 @@ export function useLoomForm<T extends Record<string, unknown>>(
   schema: z.ZodType<T>,
   // DRAFT values, deliberately looser than T: an enum field starts
   // as "" and a user is mid-typing until submit — only the zod parse
-  // produces a real T.  `values` is exposed AS T so template
-  // bindings type-check against the wire shape.
+  // produces a real T.  `values` is exposed as `FormValues<T>` — the
+  // wire shape with each bound field's `null | undefined` stripped, which
+  // is what the seed below actually guarantees.
   initialValues: Record<string, unknown>,
 ): LoomForm<T> {
-  const values = reactive(initialValues) as T;
+  const values = reactive(initialValues) as unknown as FormValues<T>;
   const form = useForm({
     validationSchema: toTypedSchema(schema),
     initialValues: initialValues as Record<string, unknown>,
@@ -101,7 +148,7 @@ export function useLoomForm<T extends Record<string, unknown>>(
       // Feed the locally-held draft into vee-validate, then validate +
       // dispatch through its submit runner (which short-circuits when
       // invalid, leaving `errors` populated).
-      form.setValues(values as Record<string, unknown>, false);
+      form.setValues(values as unknown as Record<string, unknown>, false);
       await run(e);
     };
   }
