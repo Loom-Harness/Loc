@@ -1,4 +1,5 @@
 import { wireFieldsForAggregate } from "../../ir/enrich/wire-projection.js";
+import { pagedReturn } from "../../ir/stdlib/generics.js";
 import type {
   EnrichedAggregateIR,
   EnrichedBoundedContextIR,
@@ -20,6 +21,8 @@ import {
   authUserImport,
   emittableFinds,
   findExecutedLine,
+  PY_PAGED_FIND_PARAMS,
+  pyInMemoryPagedFind,
   toWireMaskedMethod,
   writeGuardInApp,
   writeGuardInAppUsesPrincipal,
@@ -206,6 +209,10 @@ export function buildPyEventSourcedRepositoryFile(
     `from app.domain.events import ${["DomainEvent", "DomainEventDispatcher", ...events.map((e) => e.name)].join(", ")}`,
     `from app.domain.ids import ${[...new Set([`${agg.name}Id`, ...idNamesOf(events)])].sort().join(", ")}`,
     `from app.domain.${snake(agg.name)} import ${agg.name}`,
+    // The shared paging carrier — demand-gated like every import here, so an
+    // event-log repository with no `find … paged` stays byte-identical
+    // (F2-CB-C1 taught the in-memory paged branch to this builder).
+    refersTo("PagedResult") ? "from app.domain.paging import PagedResult" : null,
     voEnumNames.length > 0
       ? `from app.domain.value_objects import ${voEnumNames.join(", ")}`
       : null,
@@ -236,6 +243,15 @@ function inMemoryFind(agg: EnrichedAggregateIR, find: FindIR): string {
   const params = find.params.map((p) => `${snake(p.name)}: ${pyParam(p.type)}`);
   const sig = ["self", ...params].join(", ");
   const pred = find.filter ? renderPyExpr(find.filter, { thisName: "a" }) : "True";
+  // `find … paged` over an event-log carrier — the four wire controls join the
+  // signature and the body pages in memory (`pyInMemoryPagedFind`, F2-CB-C1).
+  if (pagedReturn(find.returnType)) {
+    return pyInMemoryPagedFind(agg, find, {
+      sig: ["self", ...params, ...PY_PAGED_FIND_PARAMS].join(", "),
+      loadLines: ["        items = await self.all()"],
+      filteredExpr: `[a for a in items if ${pred}]`,
+    });
+  }
   if (find.returnType.kind === "array") {
     return lines(
       `    async def ${snake(find.name)}(${sig}) -> list[${agg.name}]:`,

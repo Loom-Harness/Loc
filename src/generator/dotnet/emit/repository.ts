@@ -3,6 +3,7 @@ import type {
   AggregateIR,
   AssociationIR,
   EnrichedAggregateIR,
+  FindIR,
   ParamIR,
   RepositoryIR,
   RetrievalIR,
@@ -766,13 +767,18 @@ export function renderDocumentRepositoryImpl(
       .replace(".FirstAsync(cancellationToken)", ".First()");
     const usesUser = findUsesCurrentUser(f);
     const rowsExpr = findRowsExpr(f.returnType);
+    // The capability filter narrows the visible set BEFORE the find's own
+    // predicate runs, so a find never returns a capability-hidden (foreign
+    // tenant, soft-deleted) document.
+    const loadAll = `var __all = (await _db.${setName}.ToListAsync(cancellationToken)).Select(__d => ${deser})${capPredicate ? ".Where(_CapabilityVisible)" : ""};`;
+    // `find … paged` over a document carrier — see `inMemoryPagedFindLines`.
+    if (pagedReturn(f.returnType)) {
+      return inMemoryPagedFindLines(agg, f, { loadAll, filter, usesUser });
+    }
     return [
       `    public async Task<${renderCsType(f.returnType)}> ${upperFirst(f.name)}(${renderParamsWithCt(f.params, usesUser)})`,
       "    {",
-      // The capability filter narrows the visible set BEFORE the find's own
-      // predicate runs, so a find never returns a capability-hidden (foreign
-      // tenant, soft-deleted) document.
-      `        var __all = (await _db.${setName}.ToListAsync(cancellationToken)).Select(__d => ${deser})${capPredicate ? ".Where(_CapabilityVisible)" : ""};`,
+      `        ${loadAll}`,
       `        var result = __all${filter}${projection};`,
       `        ${renderDotnetLogCall("findExecuted", [
         { name: "aggregate", valueExpr: `"${agg.name}"` },
@@ -1048,10 +1054,15 @@ export function renderEventSourcedRepositoryImpl(
       .replace(".FirstAsync(cancellationToken)", ".First()");
     const usesUser = findUsesCurrentUser(f);
     const rowsExpr = findRowsExpr(f.returnType);
+    const loadAll = "var __all = await _LoadAllAsync(cancellationToken);";
+    // `find … paged` over an event-log carrier — see `inMemoryPagedFindLines`.
+    if (pagedReturn(f.returnType)) {
+      return inMemoryPagedFindLines(agg, f, { loadAll, filter, usesUser });
+    }
     return [
       `    public async Task<${renderCsType(f.returnType)}> ${upperFirst(f.name)}(${renderParamsWithCt(f.params, usesUser)})`,
       "    {",
-      "        var __all = await _LoadAllAsync(cancellationToken);",
+      `        ${loadAll}`,
       `        var result = __all${filter}${projection};`,
       `        ${renderDotnetLogCall("findExecuted", [
         { name: "aggregate", valueExpr: `"${agg.name}"` },
@@ -1220,6 +1231,63 @@ export function renderEventSourcedRepositoryImpl(
  *  following `return result;` becomes **CS8603 Possible null reference return**,
  *  fatal under `/warnaserror`.  A `T?` find keeps the comparison: there the
  *  terminal really is `FirstOrDefault` and the return type admits null. */
+/**
+ * An IN-MEMORY paged find over a NON-RELATIONAL carrier (`shape: document`,
+ * `persistedAs: eventLog`) — ledger row `F2-CB-C1`.
+ *
+ * Both those repositories rehydrate the whole set and run the find's predicate
+ * as LINQ-to-objects, and neither had a paged branch: the interface, controller
+ * and query handler all read `pagedReturn(find.returnType)` and declared the
+ * 5-argument `Paged<T>` contract, while the implementation kept emitting the
+ * 1-argument unpaged method — CS0535 (interface member not implemented) plus
+ * CS0029 on the return.  The route was built for a contract the repository never
+ * offered, from a model that generates and validates clean.
+ *
+ * The semantics are java's shipped in-memory implementation
+ * (`AccountRepositoryImpl.byOwner` — filter, then a whitelisted sort, then
+ * skip/limit, with `total` counted BEFORE the page): `sortableFields` is the
+ * same allowlist the relational branch uses, so an unknown `?sort=` key can
+ * never reach a property name, and the default order is the id.  Sorting goes
+ * through ONE boxing key selector rather than a switch of lambdas, because the
+ * sortable set spans `string` / `int` / `decimal` / `DateTime` / enum and only
+ * `object?` unifies them; the id sorts on its `.Value`, since the generated id
+ * is a `readonly record struct` and record structs are not `IComparable`.
+ */
+function inMemoryPagedFindLines(
+  agg: EnrichedAggregateIR,
+  f: FindIR,
+  opts: { loadAll: string; filter: string; usesUser: boolean },
+): string[] {
+  const sortArms = sortableFields(agg)
+    .filter((wf) => wf !== "id")
+    .map((wf) => `"${wf}" => (object?)__x.${upperFirst(wf)}`)
+    .join(", ");
+  return [
+    `    public async Task<${renderCsType(f.returnType)}> ${upperFirst(f.name)}(${renderParamsWithCt(
+      f.params,
+      opts.usesUser,
+      ["int page", "int pageSize", "string sort", "string dir"],
+    )})`,
+    "    {",
+    `        ${opts.loadAll}`,
+    `        var __matched = __all${opts.filter}.ToList();`,
+    "        var __total = __matched.Count;",
+    "        var __totalPages = pageSize > 0 ? (int)System.Math.Ceiling((double)__total / pageSize) : 0;",
+    `        System.Func<${agg.name}, object?> __key = __x => sort switch { ${sortArms}${
+      sortArms ? ", " : ""
+    }_ => (object?)__x.Id.Value };`,
+    '        var __ordered = dir == "desc" ? __matched.OrderByDescending(__key) : __matched.OrderBy(__key);',
+    "        var items = __ordered.Skip((page - 1) * pageSize).Take(pageSize).ToList();",
+    `        ${renderDotnetLogCall("findExecuted", [
+      { name: "aggregate", valueExpr: `"${agg.name}"` },
+      { name: "find", valueExpr: `"${f.name}"` },
+      { name: "rows", valueExpr: "items.Count" },
+    ])}`,
+    `        return new Paged<${agg.name}>(items, page, pageSize, __total, __totalPages);`,
+    "    }",
+  ];
+}
+
 function findRowsExpr(returnType: TypeIR): string {
   if (returnType.kind === "array") return "result.Count";
   return returnType.kind === "optional" ? "result == null ? 0 : 1" : "1";
