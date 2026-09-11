@@ -1036,3 +1036,42 @@ not be run on this host: the generated project's Angular CLI requires Node
 clean; it claims only that Angular's emitters were not touched. Whether Angular's
 own form runtime carries the P4 defect is an open question, and answering it
 needs a box with a newer Node.
+
+---
+
+## P9 — nothing enforces all-null-or-all-present on a flattened value object
+
+Found while closing #2872, and measured rather than argued: a standalone
+Hibernate 7 + H2 probe reproducing the emitted java mapping exactly.
+
+| row shape | result |
+|---|---|
+| every leaf NULL (the absent optional VO) | loads as `null`, the compact constructor is never invoked — **correct** |
+| **partially** null | **NPE inside the compact constructor** running the VO's invariant |
+
+No application write path produces a partially-null row today, so this is latent
+rather than live — which is why #2872 correctly left it alone. But nothing in the
+schema prevents one: a flattened VO is N independent nullable columns, and any
+hand-written SQL, a bad migration backfill, or a future partial update can make
+one. The repair is a CHECK constraint (all-null or all-present) emitted for every
+flattened value object, and it lands on all four flattening backends at once —
+its own slice.
+
+### Correction to D5
+
+D5 called the node symptom a defect in "repository hydration". Precise version,
+established by reverting the fix and re-running the behavioral leg: the node
+defect is **purely a compile-time type error**. The emitted JavaScript behaves
+correctly and still matches the wire golden; `tsc` is what rejects it. So node's
+oracle for this bug is the `corpus-tsc-build` leg, not the behavioral tier —
+which is exactly why a corpus fixture, not an e2e, is the right gate for it.
+
+### And a note on what "added a fixture" has to mean
+
+The fixture #2872 inherited carried a `test e2e` block that had **never been
+executed**. It read a collection loader as `listed.length` / `listed.first()`,
+but a collection read returns the paged envelope, so the block died on its first
+assertion and the present-then-absent-again half — the entire point of the case —
+never ran. The three set/count ratchets were reporting precisely that, and the
+honest fix was to make the case run (`.items.length`), capture the wire golden and
+review it, rather than to register the fixture as a gap.
