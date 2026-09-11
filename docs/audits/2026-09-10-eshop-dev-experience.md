@@ -1101,3 +1101,28 @@ all outside that PR's claim and recorded in its body:
 Together: on Phoenix the scaffolded list page's filter bar is decorative. D7
 recorded that migrating a `find` to a criterion *loses* the filter bar on React;
 on Phoenix it never worked. Its own slice.
+
+---
+
+## P11 — a value object containing a value object is broken on python, and unsettled on dotnet
+
+Both found while shaping #2872's corpus fixture, and both deliberately left out
+of it rather than dragged into a CI gate on a guess.
+
+**python does not flatten a nested VO at all — on the REQUIRED case too.** Its
+SQLAlchemy schema and its migration both create `home_geo_lat` / `home_geo_lng`,
+while the repository writes `"home_geo": aggregate.home.geo` and reads
+`Addr(…, row.home_geo)` — a column that exists in neither. So **any aggregate
+whose value object carries a value object fails at runtime on python, on both
+the read and the write half.** Nothing to do with optionality. This is the most
+severe of the late findings and has no PR.
+
+**dotnet may emit a shadowed lambda parameter for the same shape.**
+`ownedVoLines` recurses with the builder name hard-coded to `o`, so a VO inside a
+VO emits `o.OwnsOne<Geo>(x => x.Geo, o => { … })` — the inner lambda parameter
+shadows the enclosing one, which reads as **CS0136**. It ships today and
+`test/generator/dotnet/part-valueobject-columns.test.ts:100` asserts that exact
+output for a VO on a containment part, so either the scoping reading is wrong or
+no corpus fixture reaches the shape. **Unsettled** — no .NET toolchain on this
+host — and correctly not put into a compile gate on a guess. Settling it needs
+one `dotnet build` on a box that has the SDK.
