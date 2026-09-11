@@ -21,12 +21,23 @@
 //   int 1.5                        4xx     4xx     4xx     4xx     4xx
 //   int "5"    (stringified)       4xx     4xx     4xx     ACCEPT  ACCEPT
 //   money 12.5 (JSON number)       4xx     4xx     4xx     4xx     ACCEPT
-//   money 40 digits                accept  4xx     accept  accept  accept
+//   money 40 digits                4xx     4xx     4xx     4xx     4xx
+//                                  ^ was "accept" on four until the range guard
 //
-// The first two rows are the mission's guarantee and are asserted as seams
-// below.  The last three are DIVERGENCES that the arms did not close, and they
-// are pinned here rather than left unrecorded — see the `DIVERGENCES` block at
-// the bottom of this file, which is what a future strictness ruling deletes.
+// Rows 1, 2 and 5 are guarantees and are asserted as seams below.  Row 5 was a
+// DIVERGENCE until wave C1 (ledger row `G2644` / M-T6.60 divergence 3): a
+// 40-digit money string is perfectly WELL-FORMED, so the format guard passed it
+// through to NUMERIC(19,4) and the DATABASE refused it — the same
+// client-fault-reported-as-server-fault this mission removed, arriving one layer
+// later.  Its fix is a RANGE check derived from the column's own precision
+// (`MONEY_INTEGER_DIGITS` in `src/generator/money-scale.ts`), not a second
+// format guard, which is why it was scheduled apart from rows 3 and 4.
+//
+// Rows 3 and 4 are the DIVERGENCES that remain: both are a backend being more
+// PERMISSIVE than the contract, and narrowing them breaks clients relying on
+// that lenience today — an owner ruling, not a codegen bug.  They are pinned in
+// the `DIVERGENCES` block at the bottom of this file, which is what that ruling
+// deletes.
 //
 // The gate is STATIC for the same reason RS-9's is: the emitted test suites
 // only make requests the API serves, so no runtime tier reaches malformed
@@ -294,6 +305,82 @@ const STRINGIFIED_NUMBER: Record<Platform, Seam[]> = {
   elixir: [],
 };
 
+/** Probe 5 — a money value too large for `NUMERIC(19,4)` ("<40 digits>").
+ *
+ *  NOT a format problem: the string is a well-formed decimal every parser
+ *  accepts, so it sailed past each backend's format guard, reached the column,
+ *  and the DATABASE refused it — a 500 for a client fault (M-T6.60 divergence
+ *  3).  The bound is derived ONCE, from the column's own precision
+ *  (`MONEY_INTEGER_DIGITS`), so one constant governs the guard and the DDL.
+ *
+ *  Each seam is the RANGE arm specifically — anchored on the refusal MESSAGE
+ *  (`Money out of range`, one text on all five so the wire-golden differential
+ *  sees no divergence) or on the bound itself, never on the format guard beside
+ *  it, so deleting the range check cannot be masked by the format check. */
+const MONEY_OUT_OF_RANGE: Record<Platform, Seam[]> = {
+  node: [
+    { why: "integer-digit bound in moneySchema", shape: /\.length > 15\)/ },
+    {
+      why: "its own typed issue",
+      shape: /message: `Money out of range: \$\{JSON\.stringify\(s\)\}`/,
+    },
+  ],
+  dotnet: [
+    {
+      why: "post-parse magnitude guard",
+      shape: /System\.Math\.Abs\(__wp_request_Price\) < 1000000000000000m/,
+      file: /Controller\.cs$/,
+    },
+    {
+      why: "its own WireFormatException message",
+      shape: /WireFormatException\("\/price", \$"Money out of range/,
+      file: /Controller\.cs$/,
+    },
+    // The nested value-object path is a separate emission and the arm most
+    // likely to be missed.
+    {
+      why: "value-object money range guard",
+      shape: /WireFormatException\("\/best\/price", \$"Money out of range/,
+      file: /Controller\.cs$/,
+    },
+  ],
+  java: [
+    {
+      why: "integer-digit bound off BigDecimal's own precision",
+      shape: /parsed\.precision\(\) - parsed\.scale\(\) > 15/,
+    },
+    {
+      why: "its own WireFormatException message",
+      shape: /throw new WireFormatException\(pointer, "Money out of range: " \+ quote\(value\)\)/,
+    },
+  ],
+  python: [
+    { why: "integer-digit bound in _money_str", shape: /\) > 15:/ },
+    { why: "its own PydanticCustomError code", shape: /"money_range", "Money out of range/ },
+  ],
+  elixir: [
+    // Elixir has TWO wire paths into a money column and they share no code:
+    // operation params never reach a changeset, and the create/update path
+    // never reaches the op-param guard.  Both are asserted.
+    {
+      why: "op-param range guard",
+      shape: /if __loom_money_in_range\?\(Decimal\.new\(value\)\) do/,
+    },
+    {
+      why: "op-param refusal message",
+      shape: /__loom_param_error\(record, field, value, "Money out of range"\)/,
+    },
+    {
+      why: "changeset-path validate_change on the money column",
+      shape: /\|> validate_change\(:price, &__loom_money_range\/2\)/,
+    },
+    {
+      why: "changeset-path bound",
+      shape: /Decimal\.lt\?\(Decimal\.abs\(value\), Decimal\.new\("1000000000000000"\)\)/,
+    },
+  ],
+};
+
 async function emit(platform: string): Promise<Map<string, string>> {
   return await generateSystemFiles(SOURCE(platform));
 }
@@ -324,6 +411,10 @@ describe("M-T6.48 — malformed numeric input answers a typed 4xx (all five back
 
     it(`${platform}: a fractional value for an int field is refused`, async () => {
       assertSeams(await emit(platform), platform, FRACTIONAL_INT[platform], "int 1.5");
+    });
+
+    it(`${platform}: a money value too large for NUMERIC(19,4) is refused`, async () => {
+      assertSeams(await emit(platform), platform, MONEY_OUT_OF_RANGE[platform], "money 40 digits");
     });
   }
 
@@ -429,22 +520,6 @@ describe("M-T6.48 — request-side numeric strictness still diverges (pinned)", 
     const elixir = scope(await emit("elixir"));
     expect(elixir, "elixir now guards cast-path money — delete this pin").not.toMatch(
       /__loom_money_field/,
-    );
-  });
-
-  it("only dotnet refuses a money value too large for its domain type", async () => {
-    // MEASURED: a 40-digit money string parses on node (decimal.js), java
-    // (BigDecimal), python (str passthrough) and elixir (Decimal); dotnet's
-    // `decimal.TryParse` returns false past ~29 significant digits, so dotnet
-    // alone answers 4xx.  On the other four the value reaches NUMERIC(19,4)
-    // and the DATABASE rejects it — a 500, not a typed 4xx.
-    //
-    // Closing this means a range check against the money column's precision at
-    // the wire boundary on four backends; it is a separate fix from the format
-    // guard this mission shipped.
-    const node = scope(await emit("node"));
-    expect(node, "node now range-checks money at ingress — delete this pin").not.toMatch(
-      /MONEY_MAX_PRECISION|money_out_of_range/,
     );
   });
 });
