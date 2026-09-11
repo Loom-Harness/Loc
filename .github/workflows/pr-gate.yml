@@ -14,7 +14,11 @@ name: PR gate
 #
 #   * `pull_request` events start the cycle (and re-arm it on `labeled` /
 #     `ready_for_review`, whose fan-outs add new checks to wait for);
-#   * `workflow_run: completed` of every other workflow re-evaluates.
+#   * `workflow_run: completed` of every other workflow re-evaluates.  Under
+#     load that flips the verdict LATE: the per-SHA concurrency group
+#     serialises evaluations, so a burst of ~40 completions advances the
+#     verdict about twice, not forty times (measured 2026-09-10, last-check-
+#     green to `pr-gate`-terminal: 14m18s on #2846, 11m48s on #2847).
 #
 # Each evaluation posts a check run named `pr-gate` on the head SHA via the
 # Checks API (checks: write): failure with culprits named, `in_progress`
@@ -26,8 +30,11 @@ name: PR gate
 #
 # THE ONE THING THAT BREAKS, AND THE ONE THING THAT FIXES IT.  This header used
 # to say "the LAST workflow to finish always triggers the final, green
-# evaluation".  It does not.  Measured 2026-09-10, without a branch filter,
-# over the whole repository (see docs/ci-gating.md → "The `pr-gate` check"):
+# evaluation".  Wave C0 packet 0.3 measured 2026-09-10, without a branch
+# filter, over the whole repository (see docs/ci-gating.md → "The `pr-gate`
+# check") that it does not always; #2859, measured the same day, holds that
+# the verdict flips LATE rather than never and that the park has no diagnosed
+# cause.  Both records are kept until the owner rules; the packet's figures:
 #
 #   * 178 completions of listed workflows on non-`main` branches in six hours
 #     produced 172 `PR gate` runs.  13 of those completions produced NO RUN AT
@@ -67,21 +74,38 @@ on:
     types: [checks_requested]
   # The SECOND line of defence, behind the tail watch in `scripts/pr-gate.mjs`.
   # The sweep re-derives every OPEN PR's verdict and posts only where it
-  # differs — a reconciler for SHAs no watcher is still on, not the answer to a
-  # dropped dispatch (it rides the same event stream, so the outage that
-  # swallows a tail dispatch swallows the sweeps with it).
+  # differs — a reconciler for SHAs no watcher is still on.
   #
-  # It does NOT cap the outage at one cron interval, and this comment used to
-  # claim it did.  GitHub runs this schedule far slower than asked: the 30 most
-  # recent `schedule` runs of this workflow span 135 HOURS — mean gap 4.7 h,
-  # median 4.6 h, and the shortest gap anywhere in that window 110 min.  Not
-  # one 15-minute gap in 29.  Re-measured 2026-09-10 over six consecutive
-  # schedule runs: 2.0 h, 4.5 h, 4.6 h, 4.5 h, 3.6 h.  Actions cron is
-  # best-effort, and a high-frequency schedule on a busy account is heavily
-  # deprioritised: the cron below is a request, not a guarantee.
+  # Whether GitHub drops `workflow_run` dispatches is CONTESTED between two
+  # 2026-09-10 measurements, and both are recorded (docs/ci-gating.md → "The
+  # `pr-gate` check").  #2859: a `workflow_run`-triggered run is attributed to
+  # the repository's DEFAULT BRANCH, so listing this workflow's runs filtered
+  # to a PR branch returns ONLY the one `pull_request`-event run, and the eval
+  # job's check run lands on `main`'s SHA — all 91 `event=workflow_run` runs
+  # of the last 100 carry `head_branch: main`, so no FILTERED count is
+  # evidence of a dropped dispatch.  Wave C0 packet 0.3: listed UNFILTERED and
+  # matched by time, 13 of 178 eligible completions in six hours produced no
+  # run at all.  What is observed either way is a green PR whose published
+  # verdict stays non-terminal long after its last check finished; the sweep
+  # rides the same event stream, so it is worth having but is not the answer
+  # to a dropped dispatch.
   #
-  # RECOVERY LEVERS, re-measured 2026-09-10 — and the three-row table that used
-  # to sit here is gone, because the measurement collapsed it to one cause.
+  # It does NOT cap that outage at one cron interval, and this comment used to
+  # claim it did.  GitHub runs this schedule far slower than asked: re-measured
+  # 2026-09-10, the 30 most recent `schedule` runs of this workflow span
+  # 100.9 HOURS — mean gap 3.48 h, median 3.49 h, shortest gap anywhere in that
+  # window 91 min.  Not one 15-minute gap in 29.  FIVE of those 30 are
+  # `failure`, not late (2026-09-09T21:55Z to 2026-09-10T13:37Z — the window in
+  # which the scheduled sweep collided with its own job-level concurrency
+  # group, #2835, fixed in #2846), so the idle backstop was absent, not slow,
+  # for those ~16 hours.  Actions cron is best-effort, and a high-frequency
+  # schedule on a busy account is heavily deprioritised: the cron below is a
+  # request, not a guarantee.  (Re-measure before trusting either figure — list
+  # this workflow's runs filtered to `event=schedule` and diff `created_at`.)
+  #
+  # So a park lasts HOURS, not minutes, if the sweep is what has to clear it.
+  # If you are waiting on a parked `pr-gate`, do not wait for the sweep.
+  # RECOVERY LEVERS, re-measured 2026-09-10:
   #
   #   a new SHA        WORKS (#2812, 2026-09-08).  Restarts ~50 workflows.
   #   re-run THIS      WORKS (#2773, 2026-09-09 15:57Z).  Cheapest: it
@@ -107,21 +131,34 @@ on:
   # PRs, and a `gh-readonly-queue/**` head is not one.  The tail watch closes
   # that half too, because a merge-group head takes the same single-SHA path.
   #
-  # Cancellation is NOT the cause either, and this file used to say it was.
-  # #2822 set `cancel-in-progress: false` and the ratio barely moved: 479 of
-  # 759 `workflow_run` evaluations in the 21 hours to 2026-09-10T17:30Z are
-  # still `cancelled`.  GitHub cancels the superseded PENDING run of a
-  # concurrency group unconditionally — see that block at the bottom of this
-  # file for why that is harmless.
+  # The suspected cause used to be named here as the SHA-keyed
+  # `cancel-in-progress: true` on the `concurrency` block at the bottom of this
+  # file.  It was verified (94 of 100 `workflow_run` evaluations cancelled, zero
+  # published) and FIXED in #2822 — nothing cancels a RUNNING evaluation now.
+  # Cancellations did not go to zero and were never going to (66 of 91 on
+  # 2026-09-10, with 20 successes; 479 of 759 over the 21 hours to 17:30Z):
+  # GitHub still cancels a superseded PENDING run, which is the serialisation
+  # working.  See that block.
+  #
+  # The red-check re-run hole SURVIVED that fix.  Measured on #2773: the last
+  # two red checks were re-run to green at 14:33Z and 14:41Z, every check on
+  # the head was then success or skipped, and the gate was still blocking at
+  # 15:57Z — 76 minutes with no verdict and no sweep.  Re-running this
+  # workflow's own run cleared it immediately.  Packet 0.3 reads it as the same
+  # dropped tail dispatch (the table above); #2859 leaves it undiagnosed.  What
+  # is established either way is which lever to reach for.
   schedule:
     - cron: '*/15 * * * *'
   workflow_dispatch:
   workflow_run:
     types: [completed]
     # `push: main` completions (a ~60-workflow heavy set per merge) used to
-    # create a skipped eval run EACH — the dispatch storm that got real events
-    # dropped.  Filtering by the triggering run's head branch stops those runs
-    # from being created at all, and that is why `main` is still ignored.
+    # create a skipped eval run EACH — a dispatch storm this gate has no reason
+    # to carry.  (It used to be described here as "the storm that got real
+    # events dropped"; that attribution is retired with the rest — see the
+    # measurement trap under `schedule:` above.)  Filtering by the triggering
+    # run's head branch stops those runs from being created at all, and that is
+    # why `main` is still ignored.
     #
     # Merge-queue refs are NOT ignored, and must not be.  The `merge_group:`
     # arm above posts one evaluation when the group FORMS, at which point every
@@ -210,7 +247,20 @@ permissions:
   # Sweep mode lists open PRs to reconcile their verdicts.
   pull-requests: read
 
-# THIS BLOCK DOES NOT CANCEL, AND GITHUB CANCELS ANYWAY.  Both halves matter.
+# NOTHING here cancels a RUNNING evaluation.  Runs are grouped per evaluated
+# SHA (and all sweeps share one key), and GitHub serialises each group at one
+# running + one pending — which is the property this gate needs on EVERY path,
+# not just the sweep's.
+#
+# Cancellations therefore do NOT go to zero, and a reader who expects that will
+# misread the run list.  GitHub cancels the previously PENDING run whenever a
+# newer one joins the group, so under a completion storm most evaluations for a
+# SHA are cancelled before they start: measured 2026-09-10, of the 100 most
+# recent runs here the 91 `event=workflow_run` ones were 66 cancelled,
+# 20 success, 5 queued.  That is the design working — the newest queued run
+# always survives and publishes — and it is also why the verdict lags: a SHA's
+# verdict advances about twice per storm, not once per completion (14m18s on
+# #2846, 11m48s on #2847, from last check completing to `pr-gate` terminal).
 #
 # `cancel-in-progress: false` protects the RUNNING evaluation.  It does not
 # stop GitHub from cancelling a PENDING one: a concurrency group holds at most
@@ -316,21 +366,28 @@ jobs:
   #
   # `sweep` re-derives every open PR's verdict and posts only where it
   # disagrees with what is already on the SHA (`sweepShouldPost`).  It exists
-  # because `workflow_run` delivery is best-effort: when the FINAL completion
-  # for a SHA is dropped, nothing is left to re-evaluate it and a fully green
-  # PR sits at `in_progress` forever.
+  # because the event-driven path has no self-correction: whatever the reason a
+  # SHA stops receiving evaluations, nothing else re-derives its verdict and a
+  # fully green PR sits at `in_progress` until a human pokes it.
   #
-  # Measured on #2819, 2026-09-09: last check completed 05:49:10, last
-  # evaluation created 05:48:26, none after — parked ~50 minutes with every one
-  # of its 241 checks green or skipped.  The workflow whose dispatch was
-  # dropped ('Behavioral e2e — Java (Spring Boot + JPA)') IS named in the
-  # `workflows:` list above, so this was delivery, not a missing name.
+  # Observed on #2819, 2026-09-09: every one of its 241 checks green or skipped
+  # and the gate still blocking.  Re-verified 2026-09-10 from that head's
+  # check-run record — the next evaluation VISIBLE on the head is a
+  # `pull_request`-event `pr-gate-eval` at 06:34:59Z (a hand re-run), 46 minutes
+  # after its last check completed at 05:49:10Z.  This comment used to add
+  # "last evaluation created 05:48:26, none after ... so this was delivery, not
+  # a missing name"; that is retired, because a `workflow_run` evaluation is
+  # attributed to `main` and cannot be seen on a PR head at all (see the
+  # measurement trap on the `workflow_run:` trigger above).  Park duration
+  # measured, park CAUSE undiagnosed.
   #
   # The `schedule:` trigger was the only thing meant to catch that, and it does
   # not: the cron asks for four sweeps an hour and Actions delivers a mean gap
-  # of 4.7 HOURS on this account (measured — see the comment on the trigger).
-  # So the sweep now also rides `workflow_run`, the one event stream this repo
-  # produces both reliably and in volume.
+  # of 3.48 HOURS on this account (re-measured 2026-09-10 — see the comment on
+  # the trigger).  So the sweep now also rides `workflow_run`, the one event
+  # stream this repo produces both reliably and in volume — though under load
+  # most sweep-eligible runs are cancelled as superseded pendings, so what it
+  # delivers is ~1 sweep per 18 min, not ~4/hour.
   #
   # TWO independent brakes, because an unthrottled sweep would exhaust the
   # per-repository GITHUB_TOKEN budget — a sweep costs one call to list the
@@ -339,15 +396,27 @@ jobs:
   #   * `endsWith(run_number, '0')` — one sweep per ten evaluations.  It costs
   #     no API call to decide, it is deterministic, and it scales with
   #     activity, which is the right correlate: a park can only happen where
-  #     events are flowing.  At the observed ~40 evaluations/hour that is ~4
-  #     sweeps/hour — the cadence the cron asks for and does not deliver.
-  #     (GitHub expressions have no arithmetic, so this is a string test on the
-  #     last digit, not a modulo.)
+  #     events are flowing.  (GitHub expressions have no arithmetic, so this is
+  #     a string test on the last digit, not a modulo.)
+  #
+  #     What it DELIVERS is well under what that arithmetic suggests, because a
+  #     sweep-eligible run is as cancellable as any other.  Measured 2026-09-10
+  #     under a fleet burst: 91 evaluations in 18.4 minutes (~300/h), of which
+  #     10 were sweep-eligible and exactly ONE survived — the other nine were
+  #     cancelled as superseded pending runs, taking their sweep job with them.
+  #     ~1 delivered sweep per 18 minutes under load, not ~4/hour.
   #   * a CONSTANT concurrency group.  The workflow-level one is keyed per SHA,
   #     so it would let sweeps for different SHAs pile up; this one holds every
   #     sweep in a single group, which GitHub caps at one running plus one
   #     pending, cancelling a superseded pending.  A burst can never stack
   #     sweeps, and nothing that has started is ever cancelled.
+  #
+  # ITS REACH IS OPEN PRs ONLY.  `sweep()` enumerates `GET /pulls?state=open`,
+  # and a head inside the merge QUEUE is not an open PR's head — so no sweep
+  # ever reconciles a merge-group verdict.  In the queue, the event-driven path
+  # (the `merge_group:` arm plus completions from inside the group) is the only
+  # mechanism, and its only bound is the queue's checks timeout, which ejects
+  # the entry rather than healing it.  That gap is known and unclosed.
   #
   # It never runs on `pull_request` or `merge_group`, so it never posts a check
   # run onto a SHA this gate evaluates.  On those events the job is SKIPPED,

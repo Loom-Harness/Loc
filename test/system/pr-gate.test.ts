@@ -350,9 +350,11 @@ function triggerList(): string[] {
 // ---------------------------------------------------------------------------
 // The sweep's concurrency, pinned.
 //
-// The gate is event-driven, and `workflow_run` delivery is best-effort — the
-// 15-minute cron sweep is the safety net that un-parks a PR whose final event
-// GitHub dropped.  That net was itself broken by the concurrency block, in a
+// The gate is event-driven, and the sweep is the safety net that un-parks a PR
+// whose verdict stopped advancing.  (It is NOT a 15-minute cap: the cron is
+// delivered at a ~3.5 h median, and the sweep also rides `workflow_run` — see
+// the `schedule:` comment in pr-gate.yml.)  That net was itself broken by the
+// concurrency block, in a
 // way nothing tested: a `schedule` payload carries neither `pull_request` nor
 // `workflow_run`, so the group key resolved to the literal `pr-gate-` and, with
 // `cancel-in-progress: true`, each cron tick cancelled the previous one.  Under
@@ -426,10 +428,12 @@ describe("pr-gate.yml concurrency does not cancel its own safety net", () => {
     expect(
       cancelInProgress,
       `cancel-in-progress must be a flat \`false\`, got: ${cancelInProgress}. ` +
-        "With it TRUE, a burst of check completions collapses to no published " +
-        "verdict at all (measured under that setting: 94 of 100 runs " +
-        "cancelled, 0 successful), which parks the gate and gets green " +
-        "merge-queue entries ejected.",
+        "Cancelling collapses a burst of check completions to no published " +
+        "verdict at all (measured under `true`: 94 of 100 runs cancelled, 0 " +
+        "successful), which parks the gate and gets green merge-queue entries " +
+        "ejected. Under `false` a superseded PENDING run is still cancelled " +
+        "(66 of 91 on 2026-09-10) — that is the design, because the newest " +
+        "queued run always survives and publishes.",
     ).toBe("false");
   });
 
@@ -479,15 +483,17 @@ describe("pr-gate.yml re-evaluates on every other workflow's completion", () => 
 });
 
 // ---------------------------------------------------------------------------
-// Dropped-event resilience — pinned.  `workflow_run` delivery is BEST-EFFORT,
-// and 2026-09-10 put a number on it: 13 of 178 eligible completions in a
-// six-hour census produced no evaluation run at all.  A drop on a SHA's LAST
-// completion parks a fully-green PR at in_progress.  The PRIMARY answer is the
-// tail watch at the bottom of this file; the two defenses pinned here are the
-// older ones, each of which rots silently if removed:
+// Park resilience — pinned.  A fully-green PR has been observed sitting at
+// in_progress with nothing left to wait for.  Two 2026-09-10 measurements
+// disagree on why (see the header of scripts/pr-gate.mjs): #2859 retired the
+// branch-filtered "GitHub drops dispatches" counts as an artifact, and the C0
+// unfiltered census counted 13 of 178 eligible completions producing no
+// evaluation run at all.  The tail watch at the bottom of this file is the
+// in-run answer either way; the two defenses pinned here are the older ones,
+// each of which rots silently if removed:
 //   1. `branches-ignore: [main]` on the workflow_run trigger — without it,
 //      every push:main heavy-set completion (~60 per merge) creates an eval
-//      run, and that dispatch storm is what got real events dropped;
+//      run, a dispatch storm this gate has no reason to carry;
 //   2. the sweep — a reconciler over open PRs for SHAs no watcher is still on.
 //      It rides the same event stream it protects against, so it is a backstop
 //      of last resort, not a cap on the outage.
@@ -569,12 +575,12 @@ describe("the sweep job can actually start on the cron", () => {
       `the sweep job's concurrency group (${jobGroup}) is the string the ` +
         "workflow-level group resolves to on schedule / workflow_dispatch. " +
         "GitHub fails such a job at startup — 0 steps, no logs — so the " +
-        "dropped-event safety net silently stops running. Rename either one.",
+        "safety net silently stops running. Rename either one.",
     ).not.toBe(workflowGroupWithoutSha());
   });
 });
 
-describe("pr-gate survives dropped workflow_run events", () => {
+describe("pr-gate survives a SHA whose evaluations stop arriving", () => {
   const src = readFileSync(path.join(workflowsDir, "pr-gate.yml"), "utf8");
 
   it("ignores main / merge-queue completions at the trigger (the storm source)", () => {
@@ -582,11 +588,12 @@ describe("pr-gate survives dropped workflow_run events", () => {
     expect(
       /branches-ignore:/.test(wrBlock) && /-\s*main\b/.test(wrBlock),
       "workflow_run must carry branches-ignore including main — every push:main " +
-        "completion otherwise creates an eval run, and that storm drops real events",
+        "completion otherwise creates an eval run — a dispatch storm this gate\n" +
+        "has no reason to carry",
     ).toBe(true);
   });
 
-  it("carries the scheduled sweep (the dropped-event safety net)", () => {
+  it("carries the scheduled sweep (the idle-repo safety net)", () => {
     expect(/^\s*schedule:/m.test(src), "pr-gate.yml lost its schedule trigger").toBe(true);
     expect(/cron:/.test(src)).toBe(true);
   });
@@ -614,9 +621,9 @@ describe("pr-gate survives dropped workflow_run events", () => {
   it("the sweep runs on ACTIVITY, not only on the cron that does not fire", () => {
     // The whole point of the 2026-09-09 change.  `schedule` alone is not a
     // safety net on this account: the cron asks for four sweeps an hour and
-    // Actions delivered a mean gap of 4.7 hours, so a dropped final
-    // `workflow_run` dispatch parked a green PR (#2819) for ~50 minutes with
-    // all 241 of its checks green.  Riding `workflow_run` is what closes it.
+    // Actions delivers a mean gap of ~3.5 hours (re-measured 2026-09-10), so a
+    // green PR (#2819) sat parked with all 241 of its checks green.  Riding
+    // `workflow_run` is what closes it.
     const guard = sweepJobGuard();
     expect(
       guard.includes("github.event_name == 'workflow_run'"),
@@ -869,7 +876,9 @@ describe("publishCheck — one `pr-gate` run per SHA, updated in place", () => {
     // publishCheck is correct in isolation and useless if a caller hands it
     // `null`: the SHA grows a second run and the merge refusal comes back.
     // Two call sites: `evaluateOnce` (which every single-SHA evaluation and
-    // every tail-watch poll goes through) and the sweep.
+    // every tail-watch poll goes through) and the sweep — the sweep is what
+    // finally published the green verdict on #2593 after the event-driven
+    // path stopped moving it.
     const src = readFileSync(path.join(repoRoot, "scripts/pr-gate.mjs"), "utf8");
     const wired = src.match(/publishCheck\([^)]*existingGateRunId\(runs\)/g) ?? [];
     expect(wired.length, "a publishCheck call site is not passing existingGateRunId(runs)").toBe(2);

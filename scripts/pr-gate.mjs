@@ -19,17 +19,34 @@
 //   - all triggered checks completed OK -> completed/success.
 //
 // v2 originally added: "the last workflow to complete always fires one final
-// evaluation, so the verdict flips green with no polling". That is the one
-// sentence in this file that was never true, and every parked gate since is
-// downstream of it. MEASURED 2026-09-10: ~7% of eligible completions produce
-// no `PR gate` run at all, and a drop on the LAST completion parks the SHA
-// until a human re-runs something — ten of 22 measured merged PRs parked ≥5
-// minutes with every check green, three of them 43-58 minutes.
+// evaluation, so the verdict flips green with no polling".  Two measurements
+// taken on 2026-09-10 disagree on how true that is, and BOTH are kept here
+// until the owner rules (docs/ci-gating.md → "The `pr-gate` check"):
 //
-// So v2 waits in exactly one place, and only when waiting is cheap: an
-// evaluation that finds the SHA NEAR-GREEN watches it out in-run rather than
-// trusting the next dispatch. That is `shouldWatchTail` / `watchTail` below,
-// where the measurement and the sizing of both knobs are written out in full.
+//   * #2859: a `workflow_run`-triggered run is attributed to the DEFAULT
+//     branch, so any branch-filtered count of evaluations is an artifact and
+//     cannot show a dropped dispatch.  Under load the verdict flips LATE, not
+//     never: the per-SHA concurrency group holds one running plus one pending
+//     evaluation, so a burst of ~40 completions advances it about twice
+//     (last-check-green to terminal: 14m18s on #2846, 11m48s on #2847).
+//   * Wave C0 packet 0.3 (#2863), listing this workflow's runs UNFILTERED and
+//     matching by time: 178 eligible completions in six hours produced 172
+//     `PR gate` runs of any event; 13 produced no run at all (~7%), in
+//     multi-minute windows.  A drop on a SHA's LAST completion parks it until
+//     a human re-runs something — ten of 22 measured merged PRs parked ≥5 min
+//     fully green, three of them 43–58 min.
+//
+// What this file does about it is bounded either way: an evaluation that finds
+// the SHA NEAR-GREEN watches it out in-run rather than trusting the next
+// dispatch — `shouldWatchTail` / `watchTail` below, where the sizing of both
+// knobs is written out in full.  If the second measurement is wrong the watch
+// costs one runner for ≤15 min on a SHA about to go terminal; if it is right,
+// it is what closes the park.
+//
+// A re-run of a red CHECK fires `workflow_run: completed` again, but that is
+// NOT a reliable way to recover a parked gate — measured three times, most
+// recently #2773.  The cheap lever is re-running this workflow's own
+// `pull_request`-event run for the head; see the lever table in `pr-gate.yml`.
 //
 // The API-posted check (not this job's own check) is what branch protection
 // requires: `workflow_run`-triggered jobs don't surface in the PR's checks UI,
@@ -562,8 +579,8 @@ export function currentGateState(runs) {
 }
 
 /** Sweep-mode posting rule: publish only when the fresh verdict DISAGREES with
- *  what is already on the SHA.  The sweep is a safety net for dropped
- *  `workflow_run` events, not a second event stream — re-publishing an
+ *  what is already on the SHA.  The sweep is a safety net for a SHA whose
+ *  evaluations stopped arriving, not a second event stream — re-publishing an
  *  identical verdict every cycle is churn with no information. */
 export function sweepShouldPost(current, fresh) {
   return current !== fresh.state;
@@ -579,27 +596,37 @@ async function fetchOpenPrHeads(repo, token) {
 }
 
 /** The SECOND line of defence, behind the tail watch.  It re-derives the
- *  verdict for every open PR and posts only where it differs.
+ *  verdict for every OPEN PR and posts only where it differs from what is
+ *  already published.
  *
- *  It exists because `workflow_run` delivery drops (measured: 13 of 178
- *  eligible completions in a 6-hour census produced no run at all), and it is
- *  not the primary answer to that, because it rides the SAME event stream: an
- *  outage that swallows a SHA's tail dispatch swallows the sweeps too.  The
- *  tail watch is what closes the park; this is what reconciles a SHA whose
- *  watcher had already exited — a re-run landing hours later, a verdict posted
- *  by an older revision of this script, an evaluation that died on a 5xx.
- *
- *  It reconciles OPEN PRS only.  A merge-queue group's SHA is not in that list,
- *  so in-queue the tail watch is the only backstop there is.
+ *  What it is a net FOR is contested (see the header of this file): #2859
+ *  showed that the branch-filtered evaluation counts this comment used to
+ *  cite (#2464) cannot demonstrate a dropped dispatch, and the C0 unfiltered
+ *  census counted 13 of 178 eligible completions producing no run.  What IS
+ *  observed either way is a green PR whose published verdict stays
+ *  non-terminal long after its last check finished, and the net is worth
+ *  having.  It is not the primary answer, because it rides the SAME event
+ *  stream: an outage that swallows a SHA's tail dispatch swallows the sweeps
+ *  too.  The tail watch is what closes a park in-run; this reconciles a SHA
+ *  whose watcher had already exited — a re-run landing hours later, a verdict
+ *  posted by an older revision of this script, an evaluation that died on a
+ *  5xx.
  *
  *  It does NOT cap an outage at one sweep interval — that claim was here, in
  *  `pr-gate.yml` and in `docs/ci-gating.md`, and none of the three had been
  *  measured.  GitHub runs the every-15-minutes schedule far slower than
- *  requested: the 30 most recent `schedule` runs span 135 HOURS (mean gap
- *  4.7 h, median 4.6 h, shortest gap in that window 110 min); re-measured
- *  2026-09-10 over six consecutive schedule runs, the gaps were 2.0, 4.5, 4.6,
- *  4.5 and 3.6 hours.  Treat the sweep as an eventual backstop on the order of
- *  hours, not a 15-minute cap.
+ *  requested: re-measured 2026-09-10, the 30 most recent `schedule` runs span
+ *  100.9 HOURS (mean gap 3.48 h, median 3.49 h, shortest gap in that window
+ *  91 min) — and five of the 30 are outright failures, from the window where
+ *  the scheduled sweep collided with its own concurrency group.  Treat the
+ *  sweep as an eventual backstop on the order of hours, not a 15-minute cap;
+ *  when a green PR is parked, force a fresh evaluation instead of waiting.
+ *
+ *  Open PRs are the whole reach: a head INSIDE the merge queue is not an open
+ *  PR's head, so nothing here ever reconciles it.  In-queue, event-driven
+ *  evaluation plus the tail watch (a merge-group head takes the same
+ *  single-SHA path) are the only mechanisms; the queue's checks timeout ejects
+ *  rather than heals.
  *
  *  (Spell that cadence out in words, never as the cron literal — the slash-star
  *  sequence closes this block comment and breaks the file.  Which is how this

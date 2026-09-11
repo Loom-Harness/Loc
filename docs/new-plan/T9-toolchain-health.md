@@ -25,6 +25,9 @@ This consolidation replaces three drifting status tables with one. Keep it true:
 - ~~**M-T9.28 – M-T9.32 have no mission bodies.**~~ **Drained (#2572)** — the first of the two ways out was taken: all five bodies are written below, with statuses re-derived from what actually shipped. One correction fell out of it: `README.md`'s mint line describes M-T9.28 as the repo-wide `.ddd`/clause census, but that shipped *unlabelled* in #2498 and the ID's only claim in code (#2515) is the **authorization-surface** census — first claim wins, so the stale description is flagged in M-T9.28's own ID note rather than silently reinterpreted.
 - ~~The stale "warning, not error" comment beside `checkUserVisibleConcat`~~ — corrected in the same PR; the rule has raised `"error"` since M-T1.11 item 8 landed, and 9 of that PR's 53 fixture fixes were tripping it.
 
+**Open item queued here 2026-09-10, from a deferred comment on merged [#2832](https://github.com/Loom-Harness/Loc/pull/2832#issuecomment-5609067588):**
+- **`docs/ci-gating.md`'s queue runbook has no honest "is my PR actually in the queue?" probe, and the obvious one is wrong.** An accepted queue entry has **no `gh-readonly-queue` ref until its batch forms**, so `ls-remote` for that ref answers "not queued" for a PR that is queued — which is exactly what sent #2832 down two dead diagnoses (the `cancel-in-progress` cancellation, already fixed by #2822; and a rejected auto-merge method, where the `405 Merge commits are not allowed` is about the direct merge API, not the queue). The probe that does answer is the merge API itself, which replies `405 Pull Request is in the merge queue`. One paragraph in the runbook, next to the existing lever table — **landed in [#2859](https://github.com/Loom-Harness/Loc/pull/2859)**, verified live rather than quoted. Two refinements on the filing above: `ls-remote` for `gh-readonly-queue/*` lists **running batches**, not membership — the ref embeds a batch base SHA and does not exist until the batch forms, so its silence proves nothing. And the merge-API answer must be read by its **message, not its status code**: `PUT /pulls/:n/merge` returned `405 Pull Request is in the merge queue.` for #2849 (queued) and `405 Pull Request is still a draft` for #2859 (open draft). Both are 405; only the first means queued. Cheap, and it retires a wrong diagnosis that has already cost one session ~95 minutes.
+
 Sources: weak-spots §5, old global-plan T1.4; test-coverage-audit-2026-08-13 §3.7.
 
 ## M-T9.7 — Repo-admin one-clicks — `blocked(admin)` · **S** · P3
@@ -561,7 +564,7 @@ no `FIRING_FIXTURES` fixture raises `loom.unknown`, and a length baseline for `U
 
 Then ~10 drain slices; the triage, per-site cost and ordering are in the fleet plan.
 
-## M-T9.57 — `pr-gate` parks because tail `workflow_run` dispatches are dropped — `done` · **S** · P1
+## M-T9.57 — `pr-gate` parks: two 2026-09-10 measurements disagree on whether tail `workflow_run` dispatches are dropped — `done` ([#2859](https://github.com/Loom-Harness/Loc/pull/2859) retired every branch-filtered claim; Wave C0 packet 0.3 ([#2863](https://github.com/Loom-Harness/Loc/pull/2863)) counted unfiltered and landed the bounded tail watch — **owner ruling pending on which reading stands**) · **S** · P1
 
 Opened 2026-09-09 as *"every dropped-dispatch claim rests on a measurement artifact"*
 ([F65](../audits/2026-09-09-verification-fleet-plan.md)); **measured and closed 2026-09-10**. Title
@@ -590,6 +593,13 @@ is exactly the case that sweep cannot reach. Re-measured **unfiltered**
 | cancellation (#2822's premise) | **not the cause** — 479 of 759 evaluations still `cancelled` after `cancel-in-progress: false` (GitHub evicts a superseded *pending* run regardless), and a sample of 15 had zero jobs. The newest arrival, i.e. the tail one, is never the evicted one |
 | the read-after-write race (this mission's own hypothesis) | **not the cause** — an evaluation dispatched *by* a completion reads the check-runs API strictly after it |
 | the `*/15` cron | six consecutive `schedule` runs gapped 2.0 / 4.5 / 4.6 / 4.5 / 3.6 hours |
+
+
+### Wave C0 packet 0.3 — the unfiltered counter-measurement and the remedy that landed ([#2863](https://github.com/Loom-Harness/Loc/pull/2863))
+
+The census above is the packet's. Its remedy and proofs follow; #2859's own re-measurement, which
+disagrees with the census on whether any dispatch is dropped, is recorded after it. Both stand
+until the owner rules; the tail watch stays because it is bounded either way.
 
 **Remedy landed: the tail watch** (`scripts/pr-gate.mjs`). An evaluation that finds the SHA near-green —
 `shouldWatchTail`: ≤8 outstanding, none failed, at least one already reported — re-reads the SHA every
@@ -627,3 +637,52 @@ fix, should in-queue parks survive this change, is a formation-time arm with its
 another sweep. Honest bounds now: a near-green SHA converges in-run; a SHA that parks outside the
 watch's reach waits on repo activity (~10 evaluations per sweep) or the cron (~4 h median), and a queue
 head that parks waits on the checks timeout.
+
+### #2859 — the re-measurement that reads the same parks as latency, not loss
+
+Two further gaps found alongside: the sweep enumerates open PRs only, so **inside the merge queue there
+is no backstop at all** (a stalled group head's only bound is the timeout, which ejects rather than
+heals); and the cron re-measures at a **3.3 h median** against its `*/15` schedule. Honest bounds to
+document: ~30 min active, ~3.3 h idle, unbounded in-queue today.
+
+**Packet P3 of [`missions/ci-harness-deferrals-fleet.md`](missions/ci-harness-deferrals-fleet.md)** — **closed by [#2859](https://github.com/Loom-Harness/Loc/pull/2859) on exactly the verify-first exit this row anticipated.**
+
+**Re-measured: the premise is an artifact, confirmed with numbers.** Of the 100 most recent `pr-gate.yml` runs, the **91** that were `event=workflow_run` **all** carry `head_branch: main` and `main`'s `head_sha`, whatever PR SHA they evaluated; the 8 `pull_request` runs carry their PR branch and the 1 `merge_group` run its queue ref. The check-runs view has the same hole — a `workflow_run` job's check run lands on `main`'s SHA, so a PR head carries exactly **one** `pr-gate-eval` no matter how many evaluations ran (verified on #2843 and #2819). No branch-filtered count can separate "no evaluation fired" from "evaluations fired and are invisible here". Parks are real; the dropped-delivery *attribution* was never evidence, and is now retired everywhere it appeared.
+
+**No tail re-read was built, and the reason is evidence, not caution.** Two green PRs measured the same day reached a terminal verdict with no human lever — #2846 at 14m18s and #2847 at 11m48s from last non-`pr-gate` check to terminal. The late evaluation reads a *fresh* snapshot and publishes `success`: that is latency, not staleness. The #2832 instance this row offered as the hypothesis' anchor rests on the same branch-filtered figure, so it cannot ground a fix. And a sleeping evaluation would re-introduce the runner parking v1 died of while holding the per-SHA concurrency group longer, delaying the next evaluation.
+
+**What the re-measurement found instead, correcting a live comment.** `cancel-in-progress: false` does not mean nothing cancels — GitHub still cancels the superseded *pending* run. Of those 91 evaluations: **66 cancelled, 20 success, 5 queued**. So roughly a fifth of dispatched evaluations execute and a SHA's verdict advances about twice per storm, which is the mechanism behind the 12–14 min lag that had been attributed to dropped dispatches. `pr-gate.yml` claimed "NOTHING here cancels"; it now says nothing cancels a *running* evaluation.
+
+**Part C re-verified rather than inherited** (all three claims came from the session whose central premise was under suspicion): the cron gap holds and is refreshed — 30 runs spanning 100.9 h, mean 3.48 h, median 3.49 h, min 91 min — and **5 of those 30 are `failure`**, 2026-09-09T21:55Z→09-10T13:37Z, the #2835 self-collision window, so the idle backstop was *absent* for ~16 h rather than slow. The open-PRs-only sweep holds, so in-queue the only bound is still the checks timeout, which ejects rather than heals. The "~30 min active" bound was **too generous**: 91 evaluations in 18.4 min yielded 10 sweep-eligible and **exactly 1 survivor** — about one delivered sweep per 18 min.
+
+## M-T9.58 — Every generated-project install runs `--silent`, so a dependency failure names no cause and gets no retry — `done` ([#2858](https://github.com/Loom-Harness/Loc/pull/2858)) · **S** · P1
+
+Minted 2026-09-10 from an audit of deferred comments on merged PRs. This one was **proposed four times across two PRs and picked up by neither** — [#2720](https://github.com/Loom-Harness/Loc/pull/2720#issuecomment-5603540482) ("no fix exists to port, and I am not widening this PR to write one"), [#2770](https://github.com/Loom-Harness/Loc/pull/2770#issuecomment-5621699381) ("I have not changed it here because it is outside this PR's scope"). Each author was right to defer it and wrong to assume someone else would file it; this row is that filing.
+
+**The measurement.** 49 call sites across **23 files**, all under `test/e2e/`, run the generated project's dependency install as `npm install --silent …`. `--silent` sets npm's loglevel to silent, so npm's own `npm error` lines never reach the log — `stdio: "inherit"` does not rescue them, because there is nothing on the stream to inherit. The emitted Dockerfiles are **not** affected (`RUN npm install --no-audit --no-fund`, unsilenced), so this is a CI-harness row, not an emitter one.
+
+**What that costs, twice measured.** On 2026-09-10 three cells failed one registry-resolution window: `generated-angular-build` (`grid × angularMaterial@v1`, `showcase × primeng@v1`) and `elixir-vanilla-build` (`vanilla-embed-angular`). The two Angular cells reported only `Command failed: npm install`. The elixir cell — whose harness is the one that leaves the install unsilenced — carried the actual cause:
+
+```
+npm error code ETARGET
+npm error notarget No matching version found for @angular-devkit/architect@0.2201.8.
+```
+
+One day earlier the same class hit `generated-react-build` (`file-scaffold-system.ddd × mantine@v9`), and there was no unsilenced sibling: the `ETARGET` diagnosis had to be **inferred from step timing** (3.0 s in the failing cell against 11–20 s in the seven that reached `tsc` and `vite`). A gate that can only be diagnosed by accident is the shape `experience_gathered.md` §59/§63 warns about, one rung out — the check reaches its subject, but its failure report does not.
+
+**The fix is two independent halves, and the second is not optional.**
+
+1. **Stop discarding npm's error output.** ~~Prefer capturing stderr and re-printing it on a non-zero exit over deleting `--silent`.~~ **That guidance was wrong, and [#2858](https://github.com/Loom-Harness/Loc/pull/2858) measured why before building to it:** at `--silent`, a failing `npm install` exits 1 with **0 bytes on both streams**, so there is nothing for a capture wrapper to capture. The loglevel itself has to change — `--loglevel=error` yields 356 bytes on the same failure — *and then* be captured. A green run still stays quiet, because `error` emits nothing on success; the volume worry the original guidance was protecting against does not exist at that level. The invariant is unchanged: a failed install names its own cause.
+2. **Retry the install once on a non-zero exit**, before failing the cell. This is exactly the "one re-run confirms a flake" rule the CI guidance already applies by hand, moved to where it costs seconds instead of a queue sweep. Once, not a loop — a retry loop laundering a genuinely broken manifest is the failure mode this must not create.
+
+Do both in one place: these 49 sites want a shared `installGeneratedProject(dir)` helper in `test/e2e/`, not 49 edited `execSync` calls. The helper is also where the existing `--prefer-offline` reasoning already written out at `test/e2e/generated-react-build.test.ts:212-219` belongs, instead of living in one file's comment.
+
+**Verification when it lands.** Mutation-prove **both halves separately**, by file copy, never `git checkout -- <path>` (§84):
+
+- *Half 1:* point a generated project's `package.json` at a version that cannot resolve, run one cell, and assert the harness's failure text contains npm's own `npm error code ETARGET` line. The control that stops this going vacuous: the same assertion must **fail** against the pre-fix harness, which reports only `Command failed: npm install`.
+- *Half 2:* count invocations. A transient failure (fail once, then succeed) must produce exactly two installs and a green cell; a deterministic failure must produce exactly two and a red one. Asserting only the green case cannot tell a once-retry from an unbounded loop.
+- Neither half may change a green cell's exit code or its wall time beyond the capture overhead.
+
+**Packet P1 of [`missions/ci-harness-deferrals-fleet.md`](missions/ci-harness-deferrals-fleet.md)** — **landed as [#2858](https://github.com/Loom-Harness/Loc/pull/2858)** (`test/e2e/support/npm-install.ts`, 67 call sites across 34 suites, both halves mutation-proved in both directions, plus a ratchet refusing a raw quoted `npm install` in `test/e2e/*.test.ts`). See §5 of the fleet doc for what its measurement corrected.
+
+Sources: deferred comments on merged PRs #2720 and #2770, re-verified on `main` @ `bc7ed8f` (49 sites, 23 files, still unfixed). Relates to M-T9.8 (a gate whose failure report names nothing is how hollow work stays hidden) and to `completion-waves-2026-09.md` wave C0.2, which owns the *flaky-leg* root causes but does not name this one.
