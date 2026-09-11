@@ -76,7 +76,30 @@ jobs:
     # for review -- see docs/ci-gating.md, "Draft PRs and the runner queue".
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # Budget per docs/ci-gating.md § "Sizing a job's `timeout-minutes`":
+    # 50 % margin over the measured p95, rounded up to 5 min, floor 10.
+    #
+    # This leg was the reason that rule exists.  At 20m it killed 13 of the
+    # ~74 runs that reached a verdict in the last 100 (~18 %), most recently on
+    # 2026-09-10 — and because a killed run is not a successful one, its own
+    # p95 (19m46s over n=40) is a LOWER BOUND: the cap deleted the tail it was
+    # being measured against.  30m is sized to stop the censoring, not to be a
+    # final answer; re-measure once the sample is uncensored and tighten.
+    #
+    # The deeper problem is that this leg is SLOW, not tight-budgeted: 17m56s
+    # median in the test step against 6m–10m for every other backend leg,
+    # because `run-java.mjs` pays a `gradle --no-daemon bootJar` — a cold JVM
+    # and a full Spring compile — per corpus case, sequentially.  Its own
+    # run-to-run spread is 13m02s–18m49s, a 5m47s swing that alone was 35x the
+    # 10s of headroom the 20m cap left.  Cutting that is a separate mission;
+    # splitting the leg instead would cost a second slot out of a saturated
+    # ~20-slot pool AND need a shard manifest, since `run-java.mjs` takes an
+    # explicit case list and a new corpus case would otherwise run in neither
+    # half.
+    #
+    # Measured 2026-09-10, n=40 successful runs: p95 19m46s, max 19m50s.
+    # Re-derive with `node test/behavioral/ci-budget-report.mjs`.
+    timeout-minutes: 30
 
     services:
       postgres:

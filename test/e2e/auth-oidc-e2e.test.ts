@@ -6,6 +6,7 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { hasDocker } from "./support/docker-probe.js";
+import { installGeneratedProject } from "./support/npm-install.js";
 
 // ---------------------------------------------------------------------------
 // OIDC runtime e2e (D-AUTH-OIDC).  Boots a REAL Keycloak (the bundled dev
@@ -80,11 +81,7 @@ describe.skipIf(!RUN)("auth OIDC e2e: real Keycloak token flow (LOOM_AUTH_E2E=1)
     outDir = fs.mkdtempSync(path.join(os.tmpdir(), "loom-auth-e2e-"));
     execSync(`node ${cli} generate system ${fixture} -o ${outDir}`, { stdio: "inherit" });
     const apiDir = path.join(outDir, "api");
-    execSync("npm install --loglevel=error --no-audit --no-fund", {
-      cwd: apiDir,
-      stdio: "inherit",
-      timeout: 240_000,
-    });
+    installGeneratedProject(apiDir, { timeout: 240_000 });
 
     const pgPort = await freePort();
     const kcPort = await freePort();
