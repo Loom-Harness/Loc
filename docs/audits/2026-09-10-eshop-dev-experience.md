@@ -978,3 +978,34 @@ This is the MORE common spelling of the two: a customer or tenant claim that is
 always present takes no `?`. Fix by constructing through the id factory
 (`Ids.CustomerId("000…")` / `new CustomerId(Guid.Empty)`) in the dev-stub tables,
 and add the un-suffixed shape to the same corpus fixture P2's fix introduced.
+
+---
+
+## P8 — `money` inside an array of value objects still fails, on Vue and Svelte
+
+Found while fixing P4/P5 (#2876) and verified pre-existing there: the shape
+produces the same errors with that PR's fix reverted, so it is a distinct defect.
+
+```ddd
+valueobject LineItem { sku: string  price: money }
+aggregate Order with crudish { items: LineItem[] }
+```
+
+`field-input-array.hbs` routes a `money` cell through its generic string arm, and
+`defaultRowValue` seeds it with the string `"0"` against a `Decimal` slot.
+
+Deliberately NOT fixed in #2876. The repair belongs in the shared
+`_walker/form-fields-vm.ts` row seed, which lands on all four JSX/markup
+frontends at once and wants the react and angular build gates alongside the vue
+and svelte ones. It is its own slice.
+
+## Angular remains unverified across this whole audit
+
+Stated plainly because two separate agents hit the same wall. `tsc -p
+tsconfig.app.json` is clean on the e-shop model, but `ng build` — which adds
+Angular's template typechecking, the half that would catch the P4 class — could
+not be run on this host: the generated project's Angular CLI requires Node
+≥ 22.22.3 and the host caps at 22.22.2. Nothing in this audit claims Angular is
+clean; it claims only that Angular's emitters were not touched. Whether Angular's
+own form runtime carries the P4 defect is an open question, and answering it
+needs a box with a newer Node.
