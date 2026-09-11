@@ -75,3 +75,62 @@ The playground does not boot on an iPhone: four field reports land on `died-in-p
 **Slices 1–3 + 5 shipped — eager JS 12.80 MB → 1.63 MB (-87%).** (1) The agent modules are imported type-only and `await import(...)`ed at their call sites, so `src/tools` → `src/api` → the compiler left the entry chunk (2.57 → 1.01 MB). (2) Every Monaco consumer — `LoomEditor`, `FileViewer`, `JsonBodyEditor`, `LoomLspClient`, `monacoModelHost` — is reached only through `web/src/layout/lazy-panels.ts` or a dynamic import, and mobile renders plain counterparts instead (`PlainEditor` — textarea + scroll-synced gutter + Tab-indents, same `EditorHandle`/`__loomSetSource` seam; `PlainFileViewer`; `PlainJsonBody`), with the markdown/mermaid viewers extracted to `preview/doc-viewers.tsx` over an injected code panel so both surfaces share them. (3) Mobile constructs no language client at all and takes Problems from `generate` via `lsp/build-diagnostics.ts` (same compiler, same `file:line`, reported on Run). **The finding worth remembering:** slice 2's lazy boundaries alone moved eager JS 12.80 → 11.23 MB, i.e. nothing — the real cause was `\0vite/preload-helper`, the helper every `await import(...)` compiles to, which is a VIRTUAL module, matched no `manualChunks` rule, and got placed in the `monaco` vendor chunk; the entry's static import of the helper was a static import of 9.56 MB, `<link rel="modulepreload">` and all. Pinning the helper to its own chunk is what moved the number. Fourth instance of the chunk-grouping hazard, and the first reached through a module we don't own — a correct `await import()` at every call site is not evidence a chunk is lazy, only the emitted graph is. (5) `check-eager-chunks.mjs` now gates three ways: chunk names (`monaco` added), source SIGNATURES checked both for presence in `dist/` and absence from the eager graph (so it cannot rot into a permanent pass), and a hard **2.5 MB eager byte budget**. All mutation-proved. **Slice 4 (entry split in `main.tsx`) is deferred, not dropped** — it was scoped to remove Monaco from mobile's graph, which 1–3 achieved without it; what remains for it is 0.18 MB of eager `xyflow`. **Still `partial`, and deliberately: no claim that the iPhone boot is fixed until a phase marker moves past `boot:ddl-meta`.** Four "this should help" fixes already failed that test; an 87% cut in resident JS is the fifth until a device says otherwise.
 Design: [M-T8.15-mobile-light-design](missions/M-T8.15-mobile-light-design.md). Sources: [playground.md](../playground.md), M-T8.14 (the phase-marker instrument this depends on).
 
+## M-T8.24 — Loom cannot be installed: the release surface — `open` · **M** · P1 for "done"
+
+Found 2026-09-10 by the [independent completeness audit](../audits/2026-09-10-independent-completeness-audit.md) (F4).
+This is the largest "done" gap in the repo and it touches no generator code.
+
+**Measured.** Nothing here produces an artifact anyone outside the repo can consume:
+
+| Signal | State |
+|---|---|
+| root `version` | `0.1.0`, unchanged |
+| `files` / `exports` / `types` / `publishConfig` / `repository` | all absent — a publish would ship the whole tree |
+| publish workflow | none of the 67 workflows publishes anything |
+| `packages/*` | all six at `0.0.0-experimental` |
+| `vscode/` extension | complete manifest at `0.1.0`, never packaged |
+| changelog / release notes | none |
+
+Everything a user needs is **built** — a CLI, an LSP server, an MCP server, a DAP server, a
+VS Code extension, six workspace packages. None of it is **shipped**.
+
+**The smallest set that closes it.** A real version and a changelog; `files`, `exports`,
+`types`, `repository`, `engines` on the root manifest; an `npm pack` smoke asserting the tarball
+carries `bin/`, `out/`, `designs/`, `stacks/` and the top-level `.hbs` trees and does **not**
+carry `test/` or `.claude/`; a tag-driven publish workflow (`--dry-run` until an owner flips it);
+the six `packages/*` off `0.0.0-experimental` onto one version policy; and `vsce package` as a
+release artifact.
+
+**Distinct from [M-T8.7](#m-t87)**, which is the module-boundary *split* (moving
+`platform/hono/v*` into `packages/`) and stays `blocked(browser discovery)`. Release engineering
+does not depend on that split — the CLI publishes as one package today.
+
+**Verification.** `npm pack`, install the tarball into an empty directory, and run
+`ddd new demo && ddd generate system demo/main.ddd -o out` from it. That is the whole gate, and
+nothing in the repo runs it today.
+
+## M-T8.25 — `ddd fmt`: one canonical form for a source three things write — `open` · **S–M** · P2
+
+Found 2026-09-10 by the [independent completeness audit](../audits/2026-09-10-independent-completeness-audit.md) (F10).
+[M-T8.9](#m-t89) notes in passing that *"`ddd fmt` stays a separate future proposal"*; nothing
+carries it. This is that mission.
+
+**Why it is not cosmetic.** `.ddd` is written by humans, by `ddd patch` (the AI authoring loop)
+and by the visual builder. Three writers, no canonical form, so every handoff between them can
+produce a diff that is pure formatting — which is exactly the noise that makes an agent's patch
+unreviewable.
+
+**The infrastructure already exists.** `src/language/print/` is a complete AST→source printer,
+pinned for completeness against the grammar's printable unions and for round-trip safety, and it
+already drives the LSP unfold-macro action. The work is wrapping, not building: `ddd fmt
+[--check]`, a Langium `DocumentFormattingProvider` so the LSP and the VS Code extension format on
+save, and routing `ddd patch` and the builder through the same printer.
+
+**The risk to manage** is fidelity on comments and blank lines — the printer round-trips
+*structure*, and `print-structural-roundtrip.test.ts` pins that, not trivia. Decide up front
+whether `fmt` preserves comment placement or normalizes it, and say so in the docs; a formatter
+that silently moves comments is worse than none.
+
+**Gate:** `ddd fmt --check` over the repo's own `.ddd` corpus, which also gives
+[M-T9.51](T9-toolchain-health.md#m-t951)'s widened example glob a second job.
+>>>>>>> a4e41edc8 (An independent audit, run without reading the ones already in the repo)

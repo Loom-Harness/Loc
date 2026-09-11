@@ -93,12 +93,12 @@ Static, on the emitted `storefront-elixir` tree; the cell was not re-booted (nee
 | cluster | shape | disposition |
 |---|---|---|
 | E1 `TRACE` → 501 ×29 | below the app — the web server refuses the method before any route | **waiver shape**, on any backend |
-| E2 non-uuid `{id}` → `Ecto.Query.CastError` ×7 | the CONTROLLER guards it (`plug :__cast_path_id` → 422); the LiveView detail route does not (`get_wallet(socket.assigns.id)` straight into `Repo.get/2`) | **defect** → **M-T6.70** (open, P2) |
+| E2 non-uuid `{id}` → `Ecto.Query.CastError` ×7 | the CONTROLLER guards it (`plug :__cast_path_id` → 422); the LiveView detail route does not (`get_wallet(socket.assigns.id)` straight into `Repo.get/2`) | **defect** → **M-T6.71** (open, P2) |
 | E3 undeclared success content-type ×7 | LiveView answers `text/html` for a path the contract describes as JSON | **harness shape**, see below |
 | E4 wrong-verb 405 ×6 | the router's `match :*, "/*path"` catch-all answers 404 where the others 405 | **harness shape**, same cause |
 | E5 | above | **fixed** |
 
-**E3 and E4 share one cause, and it is the cell's real finding.** `vanilla/openapi-emit.ts:827` emits `servers: [%Server{url: "/api"}]` and the router mounts the API under `scope "/api"`. Elixir is the **only** backend that declares a `servers` entry — node/python/dotnet/java publish none. The harness passes schemathesis `--url http://127.0.0.1:<port>` (`schemathesis-core.mjs:171`), which REPLACES the server base, path included, so every fuzzed request loses `/api` and lands on the LiveView/HTML scope. That is also how E5 was reachable over HTTP at all. Minted as **M-T6.69** (open, P1, ⚠ verify-first) with the two candidate fixes; until one lands the cell is not making statements about the elixir API surface and must stay `discovery: true`. **The elixir cell is not made binding here** — as the C0 note asked.
+**E3 and E4 share one cause, and it is the cell's real finding.** `vanilla/openapi-emit.ts:827` emits `servers: [%Server{url: "/api"}]` and the router mounts the API under `scope "/api"`. Elixir is the **only** backend that declares a `servers` entry — node/python/dotnet/java publish none. The harness passes schemathesis `--url http://127.0.0.1:<port>` (`schemathesis-core.mjs:171`), which REPLACES the server base, path included, so every fuzzed request loses `/api` and lands on the LiveView/HTML scope. That is also how E5 was reachable over HTTP at all. Minted as **M-T6.70** (open, P1, ⚠ verify-first) with the two candidate fixes; until one lands the cell is not making statements about the elixir API surface and must stay `discovery: true`. **The elixir cell is not made binding here** — as the C0 note asked.
 
 ---
 
@@ -162,8 +162,8 @@ The two remaining `ashPhoenix` strings under `.claude/skills/` are `parity-audit
 
 | # | finding | where |
 |---|---|---|
-| h1 | the elixir cell's base-path mismatch (E3/E4, and E5's reachability) | **M-T6.69**, `docs/new-plan/T6-backend-parity.md` |
-| h2 | a non-UUID id in a LiveView route raises `Ecto.Query.CastError` (500) where the controller answers 422 (E2) | **M-T6.70**, same file |
+| h1 | the elixir cell's base-path mismatch (E3/E4, and E5's reachability) | **M-T6.70**, `docs/new-plan/T6-backend-parity.md` |
+| h2 | a non-UUID id in a LiveView route raises `Ecto.Query.CastError` (500) where the controller answers 422 (E2) | **M-T6.71**, same file |
 | h3 | `phoenix/README.md` still says the shared HEEx slot is read "for a HEEx-format pack (currently only `ashPhoenix`)" and that "the ashPhoenix pack ships its shell files directly" — the same stale name, one directory outside row 5's fence | out of fence (`.claude/skills/**` only); one-line docs fix |
 | h4 | `pairwise-corpus-java.test.ts` can only get the ~4x by reusing one container across fixtures | reason recorded in the file; own slice |
 | h5 | the java-build cap (20 min) is now oversized by ~4x on the tier step, but the sizing rule wants >= 10 post-change runs | re-derive with `node test/behavioral/ci-budget-report.mjs` |

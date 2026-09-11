@@ -336,7 +336,43 @@ this.owner = switch (r) { case HitOrNotFound_Hit h -> h.code(); case HitOrNotFou
 
 and the genuine optional twin still takes the presence-ternary path before `matchVariant` is reached (`var label = outcome is not null ? outcome.Code : outcome.Resource;`). No rebuild; the sequencing constraint on M-T5.28's messages is therefore satisfied — and those two messages prescribe no replacement construct at all, so they stay correct either way. **One adjacent gap surfaced by the repro and NOT owned here:** on elixir the same source is refused by `loom.vanilla-op-call-position` (a sibling-op call outside `return` tail position) — an honest coded gap, already named, no silent decline.
 
-## M-T6.69 — The elixir Schemathesis cell fuzzes the HTML routes, because elixir is the only backend that publishes a `servers` base path — `open` · **S** · P1 ⚠ verify-first
+## M-T6.69 — A field named `amount` beside a value object named `Amount` is refused on .NET only — `open` · **S–M** · P1 ⚠ verify-first
+
+Found 2026-09-10 by the [independent completeness audit](../audits/2026-09-10-independent-completeness-audit.md) (F1),
+which the deep fuzz leg produced unprompted — three of 400 seeds reduce to this one shape.
+
+**The refusal.** An aggregate carrying both a field named `amount` and a field typed by a
+value object named `Amount` raises `loom.dotnet-name-collision` and is accepted on the other
+four backends. Reproduced from scratch:
+
+```
+valueobject Amount { scale: int }
+aggregate Claim with crudish { amount: decimal  price: Amount }
+deployable d { platform: dotnet … }   → 1 error   (loom.dotnet-name-collision)
+deployable d { platform: java   … }   → OK
+deployable d { platform: node   … }   → OK
+```
+
+A `Money`/`Amount` value object beside a scalar amount is the most canonical DDD shape there
+is; `examples/acme.ddd` escapes only because its value object is named `Money`. The
+diagnostic's own remedy is *"rename the declaration … or host this context on a node /
+python / elixir / java deployable"* — i.e. move off .NET, which is a portability break dressed
+as a naming rule.
+
+**It is an emitter bug.** The generated C# references the type by *simple* name, so a
+same-named member hides it (CS0119 / CS1061). Emitting the reference qualified — namespace
+qualified, or through a `using` alias — removes the condition entirely.
+
+**Fix, and delete the gate in the same PR.** A waiver that outlives its cause is the shape
+this repo already ratchets against. Mutation-prove by restoring the collision and confirming
+`dotnet build` fails without the fix and passes with it; add seed 45's shrunk model verbatim
+to `test/fixtures/corpus/` so all five backends compile it from then on.
+
+**Sequencing:** this closes the deep fuzz leg's only current failures, so it unblocks
+[M-T9.64](T9-toolchain-health.md#m-t964). Relates to [M-T6.36](#m-t636) (`loom.java-reserved-identifier-unsupported`
+— the same class on Java, which *does* have a mission) and to
+[M-T9.59](T9-toolchain-health.md#m-t959), which explains why this one did not.
+## M-T6.70 — The elixir Schemathesis cell fuzzes the HTML routes, because elixir is the only backend that publishes a `servers` base path — `open` · **S** · P1 ⚠ verify-first
 
 Diagnosed 2026-09-11 while fixing E5 from the Wave C0 schemathesis hand-off
 ([`waves/handoffs/wave-c0-schemathesis.md`](waves/handoffs/wave-c0-schemathesis.md)), statically, on the
@@ -360,9 +396,9 @@ Two candidate fixes, and the choice is the mission: teach the harness to honour 
 four other backends declare their own base so the axis is uniform. Until one lands, the elixir cell's
 findings are not statements about the elixir API surface, and it must stay `discovery: true`.
 
-## M-T6.70 — A non-UUID id in a Phoenix LiveView route raises `Ecto.Query.CastError` (500) where the controller answers 422 — `open` · **S** · P2 ⚠ verify-first
+## M-T6.71 — A non-UUID id in a Phoenix LiveView route raises `Ecto.Query.CastError` (500) where the controller answers 422 — `open` · **S** · P2 ⚠ verify-first
 
-Diagnosed 2026-09-11 alongside M-T6.69, statically on the emitted tree (E2 of the elixir schemathesis cell).
+Diagnosed 2026-09-11 alongside M-T6.70, statically on the emitted tree (E2 of the elixir schemathesis cell).
 
 The generated **controller** guards its path id — `plug :__cast_path_id` halts with the published 422
 (`vanilla/find-controller.ts`). The generated **LiveView** detail page does not: `wallet_detail_live.ex`
