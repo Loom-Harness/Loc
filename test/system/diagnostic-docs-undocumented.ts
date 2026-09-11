@@ -132,6 +132,7 @@ export const UNDOCUMENTED_CODES: readonly string[] = [
   "loom.findall-criterion-mismatch",
   "loom.findall-no-page",
   "loom.findall-unknown-criterion",
+  "loom.flutter-action-statement-unsupported",
   "loom.flutter-async-effect-unsupported",
   "loom.flutter-primitive-unsupported",
   "loom.frontend-collection-op-unsupported",

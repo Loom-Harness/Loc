@@ -1653,6 +1653,20 @@ const UNREACHABLE_PINS: Record<string, string> = {
     "(it cannot drive generation).  Its own coverage — a census, a pinned vocabulary, and a " +
     "reachability suite calling the real renderer entry points directly with an out-of-" +
     "vocabulary ExprIR node — lives in test/generator/_expr/emission-mode.test.ts.",
+  "loom.flutter-action-statement-unsupported":
+    "Not a `validate()` diagnostic either, for the same structural reason as " +
+    "`loom.query-emission-invalid` above: it is a phase-⑧ GIVE-UP raised by " +
+    "src/generator/flutter/riverpod-emit.ts `renderNotifierStmt` when a page / store / " +
+    "component action statement has no Riverpod-Notifier-method form.  It does not `accept()` " +
+    "a diagnostic — it returns the wording as a sentinel-carrying `giveUp()` comment in the " +
+    "emitted Dart — so this census's harness (which drives `validate()` over a `.ddd`) cannot " +
+    "observe it no matter what source it constructs.  Its own coverage lives beside the " +
+    "emitter: test/generator/flutter/action-navigate.test.ts drives the one arm a well-formed " +
+    "`.ddd` can reach (`#navigate-route-param` — `navigate(<Page>)` at a page whose route " +
+    "carries a `:param` the call supplies no value for) through a real `generate system`, and " +
+    "asserts both the `loom:unrendered` sentinel and that the broken " +
+    "`navigateTo('/products/${id}')` interpolation is NOT emitted.  Re-test by deleting that " +
+    "arm: the Dart then references an unbound `id`.",
 
   // The two `loom.java-{workflow-instance,projection}-field-unsupported` pins
   // that sat here are GONE, because the codes are (M-T6.36).  This census
