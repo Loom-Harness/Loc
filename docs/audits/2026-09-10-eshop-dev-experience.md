@@ -1075,3 +1075,29 @@ assertion and the present-then-absent-again half — the entire point of the cas
 never ran. The three set/count ratchets were reporting precisely that, and the
 honest fix was to make the case run (`.items.length`), capture the wire golden and
 review it, rather than to register the fixture as a gap.
+
+---
+
+## P10 — the Phoenix scaffold's filter bar never filters, in three independent ways
+
+Found while verifying the P1 fix (#2870) against real generated output. The P1
+fix does repair one of these — the filtered arm now calls `by_name_item(...)`
+where it called `list_items(<filter string>)`, which removes an
+`ArithmeticError`-on-load rather than merely wrong rows. Three gaps survive it,
+all outside that PR's claim and recorded in its body:
+
+1. **The load block is unguarded.** Both `match` arms load into
+   `handle_params/3`, with `allView()` last, so it overwrites `:items`. The
+   filtered read runs and is then discarded. The load block needs the same
+   `match` guard the markup already has.
+2. **The two arms disagree on shape.** The filtered arm's markup reads `@items`
+   as a plain list; the `all` arm reads the paged envelope (`@items.items`).
+3. **The filter input is inert.** It emits
+   `<.input name="_unbound" value="" disabled>`
+   (`src/generator/elixir/heex-primitives.ts:1824`, the
+   `!ctx.stateNames.has(bind)` path) even though `mount/3` assigns the backing
+   state — so the filtered branch is unreachable from the UI regardless of 1 and 2.
+
+Together: on Phoenix the scaffolded list page's filter bar is decorative. D7
+recorded that migrating a `find` to a criterion *loses* the filter bar on React;
+on Phoenix it never worked. Its own slice.
