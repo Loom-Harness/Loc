@@ -47,8 +47,8 @@ type FileRefValue = { url: string; key: string; contentType: string; size: numbe
  *  members would strip its call signatures and break \`new Decimal(...)\`
  *  assignment.  Naming \`Decimal\` here instead would be simpler and wrong —
  *  \`decimal.js\` is a CONDITIONAL dependency of the generated project
- *  (\`{{#if usesMoney}}\` in each pack's package.json), and this runtime file is
- *  emitted by money-free projects too.  A \`File\` request field is the one field
+ *  (each pack's package.json adds it only when the model \`usesMoney\`), and this
+ *  runtime file is emitted by money-free projects too.  A \`File\` request field is the one field
  *  kept nullable: "nothing uploaded yet" is a real state the form seeds as
  *  \`null\` and the upload handler assigns back.
  *

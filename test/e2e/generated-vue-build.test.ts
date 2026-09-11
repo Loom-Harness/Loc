@@ -139,7 +139,12 @@ const SCAFFOLD: Case = {
       storage primary { type: postgres }
       resource ordersState { for: Orders, kind: state, use: primary }
       deployable api { platform: node, contexts: [Orders], dataSources: [ordersState], serves: SalesApi, port: 3000 }
-      deployable web { platform: vue, targets: api, ui: WebApp { Sales: api }, port: 3003 }
+      deployable web {
+        platform: vue
+        targets: api
+        ui: WebApp { Sales: api }
+        port: 3003
+      }
     }
   `,
 };

@@ -75,9 +75,7 @@ describe("svelte paged find hook arity", () => {
     // `z.infer` makes page/pageSize/sort/dir REQUIRED (they carry wire
     // defaults); `z.input` is the caller-facing shape `() => ({})` satisfies.
     const client = (await files()).get("src/lib/api/product.ts")!;
-    expect(client).toContain(
-      "export type SellableQueryInput = z.input<typeof SellableQuery>;",
-    );
+    expect(client).toContain("export type SellableQueryInput = z.input<typeof SellableQuery>;");
   });
 
   it("leaves a find WITH parameters required", async () => {

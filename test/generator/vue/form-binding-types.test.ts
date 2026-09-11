@@ -82,9 +82,9 @@ describe("vue form runtime — the bound value type", () => {
   it("stops the recursion at class instances so a `Decimal` survives", async () => {
     // Mapping over `Decimal`'s members would strip its call signatures and
     // break `new Decimal(...)` assignment.  The guard is structural on purpose:
-    // `decimal.js` is a CONDITIONAL dependency of the generated project
-    // (`{{#if usesMoney}}` in each pack's package.json), so this runtime file —
-    // which money-free projects emit too — must not name it.
+    // `decimal.js` is a CONDITIONAL dependency of the generated project (each
+    // pack's package.json adds it only when the model uses money), so this
+    // runtime file — which money-free projects emit too — must not name it.
     const form = (await files()).get("src/lib/form.ts")!;
     expect(form).toContain("T extends Record<string, unknown>");
     expect(form).not.toContain(`from "decimal.js"`);
