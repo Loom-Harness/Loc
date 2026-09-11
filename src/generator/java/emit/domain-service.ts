@@ -59,10 +59,12 @@ import type {
   DomainServiceIR,
   DomainServiceOperationIR,
   EnrichedBoundedContextIR,
+  ExprIR,
   OperationIR,
   TypeIR,
 } from "../../../ir/types/loom-ir.js";
 import { readPortsForOperation } from "../../../ir/util/domain-service-read-ports.js";
+import { walkExprDeep } from "../../../ir/util/walk.js";
 import { lines } from "../../../util/code-builder.js";
 import { lowerFirst } from "../../../util/naming.js";
 import type { UnionMember } from "../../_payload/union-wire.js";
@@ -78,6 +80,32 @@ import { type JavaReturnUnionSpec, renderJavaDomainUnionFiles, returnUnionSpec }
 export interface DomainServiceFile {
   name: string;
   content: string;
+}
+
+/** True when any of these expressions invokes a domain service — the predicate
+ *  that decides whether a calling module needs `import <base>.domain.services.*`.
+ *
+ *  For the emission sites whose IR is a bare `ExprIR` rather than a statement
+ *  body: a hoisted `requires` authorization gate (`src/ir/util/op-gates.ts`), a
+ *  `when` state gate, a find's read gate.  Those render INTO the `<Agg>Service`
+ *  while the entity's `callsDomainService` sweep — the only collector that
+ *  existed — reads the operation BODIES the gates were hoisted OUT of, in a
+ *  DIFFERENT file.  Ledger row `F2-CB-C7`:
+ *  `if (!(Rules.fee(aggregate.quantity()) == 0))` in a service that never
+ *  imported `Rules`, javac "cannot find symbol", from `.ddd` that validates
+ *  clean.
+ *
+ *  Rides `walkExprDeep` rather than a local child enumeration, so a gate whose
+ *  service call hides inside a `match` arm or a list literal is still seen. */
+export function exprsCallDomainService(exprs: readonly (ExprIR | undefined)[]): boolean {
+  let found = false;
+  for (const e of exprs) {
+    if (!e) continue;
+    walkExprDeep(e, (x) => {
+      if (x.kind === "call" && x.callKind === "domain-service") found = true;
+    });
+  }
+  return found;
 }
 
 /** All domain-service files for one context: one calculator class per

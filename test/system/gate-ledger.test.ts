@@ -68,6 +68,10 @@ const BEHAVIOURAL_ABSENT: Record<string, string> = {
     "in-system api call; needs both deployables booted (the `api-call-e2e` leg does this outside the corpus tier)",
   "collection-op-shapes":
     "collection-op VALUE semantics (empty sum, avg of none, sort stability) — the exact class a string assertion cannot see",
+  "projection-fold-statements":
+    "ledger row F2-XB-4 — the COMPILE tier is the gate that mattered here (a dropped `let` is CS0103 / 'cannot find symbol'), and `test/conformance/projection-fold-statement-parity.test.ts` sweeps every admitted statement kind on all five per-PR.  What a behavioural block would add is the ACCUMULATED VALUE: a dropped `+=` compiles and leaves the column null forever, which only a booted read can tell from a correct fold.  Blocked on a wire golden per backend, not on the fixture",
+  "paged-nonrelational":
+    "ledger row F2-CB-C1 — the COMPILE tier is likewise the gate that mattered (CS0535 + CS0029 on .NET), with `test/conformance/paged-nonrelational-parity.test.ts` comparing the declaration, the implementation and the caller's arity per-PR.  What a behavioural block would add is the PAGE ITSELF: an in-memory pager that slices before it sorts, or counts the page instead of the match, compiles and answers plausible JSON.  Same blocker",
 };
 
 describe("gate ledger", () => {

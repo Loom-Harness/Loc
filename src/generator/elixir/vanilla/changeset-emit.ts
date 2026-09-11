@@ -30,6 +30,12 @@ import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { singleFieldConstraints } from "../../../ir/validate/invariant-classify.js";
 import { plural, snake, upperFirst } from "../../../util/naming.js";
 import { isServerSourcedDefault } from "../../_frontend/server-default.js";
+import {
+  MONEY_MAX_EXCLUSIVE,
+  MONEY_PRECISION,
+  MONEY_RANGE_MESSAGE,
+  MONEY_WIRE_SCALE,
+} from "../../money-scale.js";
 import { renderExpr as renderElixirExpr } from "../render-expr.js";
 import {
   aggregateHasResidualInvariants,
@@ -258,7 +264,43 @@ function renderChangeset(
           .filter((c) => castFields.has(snake(c.field)))
           .map((c) => ectoValidator(snake(c.field), c.pattern, inv.message?.text)),
   );
-  const validatorBlock = validatorLines.length > 0 ? `\n${validatorLines.join("\n")}` : "";
+  // Money RANGE (M-T6.60 divergence 3) — one `validate_change` per cast money
+  // COLUMN.  The create/update path never reaches `__loom_decimal_param` (the
+  // op-param guard): it casts straight onto the `:decimal` field, and
+  // `Ecto.Type.cast(:decimal, "<40 digits>")` succeeds, so the value reached
+  // NUMERIC(${MONEY_PRECISION},${MONEY_WIRE_SCALE}) and the DATABASE refused it — a 500 for a client fault.
+  // A value-object's money is deliberately NOT covered: it rides a jsonb column
+  // with no precision bound, so it cannot produce that failure.
+  const moneyColumns = allFields
+    .filter((f) => {
+      const t = f.type.kind === "optional" ? f.type.inner : f.type;
+      return t.kind === "primitive" && t.name === "money";
+    })
+    .map((f) => snake(f.name));
+  const moneyRangeLines = moneyColumns.map(
+    (f) => `    |> validate_change(:${f}, &__loom_money_range/2)`,
+  );
+  const moneyRangeHelper =
+    moneyColumns.length > 0
+      ? `
+
+  # The money column is NUMERIC(${MONEY_PRECISION},${MONEY_WIRE_SCALE}); a well-formed decimal string of any
+  # magnitude casts cleanly onto it, so without this the DATABASE is what
+  # refuses an over-large price — a 500 for a client fault.  The bound is
+  # derived from the column's own precision, so one constant governs the guard
+  # and the DDL (M-T6.60 divergence 3).
+  defp __loom_money_range(field, %Decimal{} = value) do
+    if Decimal.lt?(Decimal.abs(value), Decimal.new(${JSON.stringify(MONEY_MAX_EXCLUSIVE)})),
+      do: [],
+      else: [{field, ${JSON.stringify(MONEY_RANGE_MESSAGE)}}]
+  end
+
+  defp __loom_money_range(_field, _value), do: []`
+      : "";
+  const validatorBlock =
+    validatorLines.length > 0 || moneyRangeLines.length > 0
+      ? `\n${[...validatorLines, ...moneyRangeLines].join("\n")}`
+      : "";
 
   // Containments round-trip via `cast_embed` (embedded jsonb) or `cast_assoc`
   // (relational child table, §11c — `on_replace: :delete` gives
@@ -603,7 +645,7 @@ defmodule ${changesetMod} do
     ${voKeyNormalizeLine}${valueCollections.length > 0 ? "attrs = prepare_vc_attrs(attrs)\n\n    " : ""}struct
     |> cast(attrs, @all_fields)${defaultBlock}
     |> validate_required(@required_fields)${validatorBlock}${castEmbedBlock}${castAssocBlock}${voBlock}${uniqueBlock}${fkBlock}${invBlock}
-  end${updateChangesetBlock}${invariantFnBlock}${keyNormalizeHelper}${presenceHelper}${defaultHelper}${voHelper}${normalizeHelper}${ordinalHelper}
+  end${updateChangesetBlock}${invariantFnBlock}${keyNormalizeHelper}${presenceHelper}${defaultHelper}${moneyRangeHelper}${voHelper}${normalizeHelper}${ordinalHelper}
 
 ${actionHelpers}
 end

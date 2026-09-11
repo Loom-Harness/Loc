@@ -25,7 +25,16 @@ system DomainSvc {
       aggregate Account with crudish {
         holder: string
         balance: Money
-        operation withdraw(amount: Money) {
+        // The `requires` gate that calls a DOMAIN SERVICE (ledger row F2-CB-C7).
+        // A gate is HOISTED out of the operation body to the CALLER
+        // (`src/ir/util/op-gates.ts`), so it renders `FeeQuote.forAmount(...)`
+        // into the route / service module — a DIFFERENT file from the entity
+        // whose body sweep was every backend's only domain-service import
+        // collector.  Four of five emitted the call with no import (TS2304 /
+        // "cannot find symbol" / `F821` / CS0103) from a model that parses,
+        // validates and generates clean.  Always true, so the e2e below still
+        // reaches the operation: the point is the IMPORT, not the denial.
+        operation withdraw(amount: Money) requires FeeQuote.forAmount(balance).amount >= 0 {
           balance := Money { amount: balance.amount - amount.amount, currency: balance.currency }
         }
         operation deposit(amount: Money) {
