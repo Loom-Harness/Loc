@@ -31,8 +31,9 @@
 // Pinned by `diagnostic-catalog.test.ts` (invariant 5).  Measured 2026-09-11 on
 // the scanner that lives there: 129 sites (118 errors, 11 warnings) across 12
 // files; this slice drained one of them (`loom.emit-unknown-field`) as the proof
-// that the drain path works, leaving 128.  The IR check leaves (`src/ir/validate/checks/`), the macro expander
-// and the `src/api/` entry points are already clean and hold no row.
+// that the drain path works, leaving 128.  The IR check leaves
+// (`src/ir/validate/checks/`), the macro expander and the `src/api/` entry
+// points are already clean and hold no row.
 
 /**
  * `<file> → number of diagnostic sites in it that attach NO code`, exact.
