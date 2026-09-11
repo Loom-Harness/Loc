@@ -99,7 +99,6 @@ export function checkMarkupInCollectionLambda(
           severity: "error",
           code: "loom.markup-primitive-in-collection-lambda",
           message: diagMessage("loom.markup-primitive-in-collection-lambda", {
-            where,
             op: e.member,
             primitive,
             param: arg.param,
@@ -188,19 +187,24 @@ export function checkMoneyInTextSlot(
           // rather than picked by a ternary: `diagnostic-catalog.test.ts`
           // reads the key STATICALLY, and a computed one reads as inline
           // wording (invariant 1) and leaves both entries orphaned
-          // (invariant 3).
-          const params = {
-            where,
-            primitive: e.name,
-            path: field.path,
-            aggregate: field.aggregate,
-          };
+          // (invariant 3).  The param object is likewise spelled out TWICE
+          // rather than hoisted into a shared `const`: a `diagMessage(key,
+          // <variable>)` site is invisible to `diagnostic-message-hygiene`'s
+          // param-agreement check and would need a waiver entry instead.
           diags.push({
             severity: "error",
             code: "loom.money-in-text-slot",
             message: slot.nested
-              ? diagMessage("loom.money-in-text-slot#wrap", params)
-              : diagMessage("loom.money-in-text-slot#replace", params),
+              ? diagMessage("loom.money-in-text-slot#wrap", {
+                  primitive: e.name,
+                  path: field.path,
+                  aggregate: field.aggregate,
+                })
+              : diagMessage("loom.money-in-text-slot#replace", {
+                  primitive: e.name,
+                  path: field.path,
+                  aggregate: field.aggregate,
+                }),
             source: where,
           });
         }

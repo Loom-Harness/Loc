@@ -2346,7 +2346,6 @@ export const DIAGNOSTIC_MESSAGES = {
   // src/ir/validate/checks/ui-render-slot-checks.ts
   // ----------------------------------------------------------------------
   "loom.markup-primitive-in-collection-lambda": (p: {
-    where: unknown;
     op: unknown;
     primitive: unknown;
     param: unknown;
@@ -2367,7 +2366,6 @@ export const DIAGNOSTIC_MESSAGES = {
   // the call.  `Stat` / `KeyValueRow` walk a nested primitive in their value
   // slot on purpose, so the fix is to wrap in place.
   "loom.money-in-text-slot#replace": (p: {
-    where: unknown;
     primitive: unknown;
     path: unknown;
     aggregate: unknown;
@@ -2381,12 +2379,7 @@ export const DIAGNOSTIC_MESSAGES = {
     `is what the scaffolded table renders every money column through, so the amount also comes ` +
     `out WITH its currency.  \`${p.primitive} { Money { … } }\` does NOT work — a one-slot text ` +
     `primitive coerces its slot to a string and a nested primitive there renders empty.`,
-  "loom.money-in-text-slot#wrap": (p: {
-    where: unknown;
-    primitive: unknown;
-    path: unknown;
-    aggregate: unknown;
-  }) =>
+  "loom.money-in-text-slot#wrap": (p: { primitive: unknown; path: unknown; aggregate: unknown }) =>
     `\`${p.primitive}\`'s value slot renders a \`money\` value ` +
     `(\`${p.aggregate}.${String(p.path).split(".").pop()}\`) as TEXT.  \`money\` crosses the wire ` +
     `as a decimal string and deserialises client-side to a \`Decimal\` OBJECT, which is not a ` +
