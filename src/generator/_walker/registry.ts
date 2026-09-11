@@ -112,7 +112,7 @@ import type { A11yContract } from "./a11y.js";
 // takes `(call, ctx, depth)` and returns the JSX fragment.
 import { emitChart } from "./primitives/chart.js";
 import { emitCodeBlock } from "./primitives/code-block.js";
-import { emitAction, emitButton, emitIdLink, emitQueryView } from "./primitives/controls.js";
+import { emitAction, emitButton, emitQueryView } from "./primitives/controls.js";
 import { emitDataGrid } from "./primitives/data-grid.js";
 import {
   emitAlert,
@@ -134,6 +134,7 @@ import {
   emitWorkflowForm,
 } from "./primitives/forms.js";
 import { emitIcon } from "./primitives/icon.js";
+import { emitIdLink } from "./primitives/id-link.js";
 import {
   emitField,
   emitFileUpload,
@@ -586,7 +587,10 @@ export const WALKER_PRIMITIVES: Record<string, PrimitiveDef> = {
     heex: renderEnumBadgeHeex,
     a11y: "presentational",
   },
-  // A link to an entity — link text derived from the entity display.
+  // A link to an entity — link text derived from the entity display.  Dispatched
+  // through `primitives/id-link.ts`, which null-guards an OPTIONAL reference
+  // (`Location id?`) and delegates the link markup itself, unchanged, to the
+  // pack-contract emitter in `primitives/controls.ts` (M-T1.33).
   IdLink: {
     group: "layout",
     admissibleInSource: true,

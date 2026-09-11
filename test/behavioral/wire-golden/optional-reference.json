@@ -1,0 +1,211 @@
+{
+  "case": "optional-reference",
+  "oracle": "node",
+  "entries": [
+    {
+      "seq": 0,
+      "method": "POST",
+      "path": "/api/locations",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 1,
+      "method": "POST",
+      "path": "/api/cargos",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 2,
+      "method": "GET",
+      "path": "/api/cargos/{id}",
+      "status": 200,
+      "body": {
+        "code": "ABC-1",
+        "display": "ABC-1",
+        "id": "<volatile:key>",
+        "lastKnownLocation": null,
+        "origin": "<uuid>",
+        "version": 1
+      }
+    },
+    {
+      "seq": 3,
+      "method": "POST",
+      "path": "/api/cargos/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 4,
+      "method": "GET",
+      "path": "/api/cargos/{id}",
+      "status": 200,
+      "body": {
+        "code": "ABC-1",
+        "display": "ABC-1",
+        "id": "<volatile:key>",
+        "lastKnownLocation": "<uuid>",
+        "origin": "<uuid>",
+        "version": 2
+      }
+    },
+    {
+      "seq": 5,
+      "method": "GET",
+      "path": "/api/cargos",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "code": "ABC-1",
+            "display": "ABC-1",
+            "id": "<volatile:key>",
+            "lastKnownLocation": "<uuid>",
+            "origin": "<uuid>",
+            "version": 2
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 1,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 6,
+      "method": "GET",
+      "path": "/api/locations/{id}",
+      "status": 200,
+      "body": {
+        "display": "Hamburg",
+        "id": "<volatile:key>",
+        "name": "Hamburg",
+        "version": 1
+      }
+    },
+    {
+      "seq": 7,
+      "method": "POST",
+      "path": "/api/locations/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 8,
+      "method": "GET",
+      "path": "/api/locations/{id}",
+      "status": 200,
+      "body": {
+        "display": "Hamburg Hafen",
+        "id": "<volatile:key>",
+        "name": "Hamburg Hafen",
+        "version": 2
+      }
+    },
+    {
+      "seq": 9,
+      "method": "GET",
+      "path": "/api/locations",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "display": "Hamburg Hafen",
+            "id": "<volatile:key>",
+            "name": "Hamburg Hafen",
+            "version": 2
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 1,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 10,
+      "method": "DELETE",
+      "path": "/api/cargos/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 11,
+      "method": "GET",
+      "path": "/api/cargos/{id}",
+      "status": 404,
+      "body": {
+        "detail": "Cargo {id} not found",
+        "instance": "/api/cargos/{id}",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 12,
+      "method": "DELETE",
+      "path": "/api/locations/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 13,
+      "method": "GET",
+      "path": "/api/locations/{id}",
+      "status": 404,
+      "body": {
+        "detail": "Location {id} not found",
+        "instance": "/api/locations/{id}",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 14,
+      "method": "PATCH",
+      "path": "/api/locations",
+      "status": 405,
+      "body": {
+        "detail": "method PATCH is not supported for /api/locations",
+        "instance": "/api/locations",
+        "status": 405,
+        "title": "Method Not Allowed",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 15,
+      "method": "GET",
+      "path": "/__loom_no_such_path",
+      "status": 404,
+      "body": {
+        "detail": "no route for GET /__loom_no_such_path",
+        "instance": "/__loom_no_such_path",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 16,
+      "method": "POST",
+      "path": "/api/locations",
+      "status": 400,
+      "body": {
+        "detail": "Malformed JSON in request body",
+        "instance": "/api/locations",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      }
+    }
+  ]
+}

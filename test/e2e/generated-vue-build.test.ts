@@ -66,7 +66,16 @@ const MINIMAL: Case = {
 };
 
 /** Scaffolded ui — exercises the stub-page emitter + router across
- *  the scaffold-synthesised page set (list / new / detail / home). */
+ *  the scaffold-synthesised page set (list / new / detail / home).
+ *
+ *  `placedBy` is an OPTIONAL cross-aggregate reference, and it is here because
+ *  this gate is the one that would have caught M-T1.33 and did not: every
+ *  reference in the case was required, so no scaffolded page ever had to render
+ *  a reference that might be absent — and the unguarded link the packs emit for
+ *  one binds `:title="row.placedBy"`, which `vue-tsc` rejects with TS2345
+ *  because `RouterLink`'s `title` does not accept `null`.  The generated app
+ *  did not build.  `customer` beside it stays REQUIRED so the case still covers
+ *  the unguarded emission too. */
 const SCAFFOLD: Case = {
   name: "scaffold",
   vueDir: "web",
@@ -82,6 +91,8 @@ const SCAFFOLD: Case = {
           aggregate Order with crudish {
             total: int
             items: LineItem[]
+            placedBy: Customer id?
+            customer: Customer id
           }
         }
       }
