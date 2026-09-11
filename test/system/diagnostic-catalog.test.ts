@@ -67,6 +67,22 @@ function catalogedSources(): string[] {
   // invariants — appropriate, since this is a defensive backstop the IR
   // validator is meant to make unreachable, not a validator call site).
   out.push(path.join("src", "generator", "_expr", "target.ts"));
+  // The same shape, one packet later (Wave C1 packet 1d-ii): the §18 emitter
+  // sentinels that turned out to be UNREACHABLE on a validated model are kept
+  // as internal FLOORS — a `throw new Error(diagMessage("loom.…#…-invariant"))`
+  // naming the phase-⑦ gate that is supposed to have fired first.  They are
+  // scanned here for the same reason `_expr/target.ts` is: the wording lives in
+  // the catalog, so the orphan check must see the site.  A floor whose gate is
+  // deleted therefore has to lose its catalog entry too.
+  for (const f of [
+    path.join("src", "generator", "svelte", "routes-emitter.ts"),
+    path.join("src", "generator", "elixir", "liveview-emit.ts"),
+    path.join("src", "generator", "elixir", "domain-service-emit.ts"),
+    path.join("src", "generator", "_frontend", "component-prop-type.ts"),
+    path.join("src", "generator", "_frontend", "extern-functions.ts"),
+  ]) {
+    out.push(f);
+  }
   // Phase ① — the parser's own error text.  It attaches no `loom.*` code
   // (Langium stamps `parsing-error` and `src/api/report.ts` maps that to
   // `loom.parse-error`), so invariants 1/2/4 have nothing to check here; it

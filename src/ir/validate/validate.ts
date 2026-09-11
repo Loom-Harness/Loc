@@ -5,6 +5,7 @@ import { validateStampReadsBeforeFlush } from "./checks/capability-checks.js";
 import type { LoomDiagnostic } from "./checks/diagnostic.js";
 import { validateDomainServices } from "./checks/domain-service-checks.js";
 import { validateIfStatementPlacement } from "./checks/if-stmt-checks.js";
+import { validateUiBodyStatementKinds } from "./checks/ui-action-body-checks.js";
 import { validateIndexSuggestions } from "./checks/index-suggestion-checks.js";
 import {
   validateMigrationAdapterSupport,
@@ -76,13 +77,16 @@ import {
   validateFileFieldObjectStorage,
   validateFilterBypassSupport,
   validateFindPredicateAdapterSupport,
+  validateFlutterActionBodies,
   validateFlutterPrimitiveSupport,
   validateFormLocalCollisions,
+  validateFrontendPropTypes,
   validateGroupedProjectionBackend,
   validateGuardPrincipalWithoutAuth,
   validateHeexComponentHostState,
   validateInheritanceStorage,
   validateJavaReservedIdentifiers,
+  validateLiveViewHoisting,
   validateNeedCapabilities,
   validatePagedQueryHandlerBackend,
   validatePermissions,
@@ -193,6 +197,9 @@ export function validateLoomModel(loom: EnrichedLoomModel): LoomDiagnostic[] {
     validateCurrentUserNeedsAuthUi(sys, diags);
     validateDataGridFramework(sys, diags);
     validateHeexComponentHostState(sys, diags);
+    validateLiveViewHoisting(sys, diags);
+    validateFrontendPropTypes(sys, diags);
+    validateFlutterActionBodies(sys, diags);
     validateFormLocalCollisions(sys, diags);
     validateComponentChildrenSupport(sys, diags);
     validateChartSupport(sys, diags);
@@ -340,5 +347,6 @@ export function validateLoomModel(loom: EnrichedLoomModel): LoomDiagnostic[] {
   // elixir-hosted context and every ui body are refused here rather than
   // silently dropped by an emitter.
   validateIfStatementPlacement(loom, diags);
+  validateUiBodyStatementKinds(loom, diags);
   return diags;
 }

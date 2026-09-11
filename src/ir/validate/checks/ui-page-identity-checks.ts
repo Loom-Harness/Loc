@@ -38,7 +38,36 @@ export function validateUiPageIdentity(loom: EnrichedLoomModel, diags: LoomDiagn
     for (const ui of sys.uis) {
       const byPath = new Map<string, PageIR>();
       const bySlot = new Map<string, PageIR>();
+      const byRoute = new Map<string, PageIR>();
       for (const page of ui.pages) {
+        // ROUTE identity — the third way two pages can be indistinguishable,
+        // and the one that is NOT a function of `emitPath`.  Two pages with
+        // different names in different areas compute different emit paths and
+        // fill different archetype slots, yet a shared `route:` makes one of
+        // them unreachable in every router: React/Vue/Angular match the first
+        // declared `path`, and SvelteKit — whose route IS a directory — cannot
+        // even express it, so `svelte/routes-emitter.ts` used to `throw` a bare
+        // `Error` mid-generate (no code, a raw stack trace) on a `.ddd` that
+        // `ddd parse` had just called clean.  Checked here for the same reason
+        // the path/slot pairs above are: one derivation, every frontend.
+        if (page.route) {
+          const priorRoute = byRoute.get(page.route);
+          if (priorRoute) {
+            diags.push({
+              severity: "error",
+              message: diagMessage("loom.ui-page-route-collision", {
+                ui: ui.name,
+                first: pageLabel(priorRoute),
+                second: pageLabel(page),
+                route: page.route,
+              }),
+              source: sys.name,
+              code: "loom.ui-page-route-collision",
+            });
+          } else {
+            byRoute.set(page.route, page);
+          }
+        }
         const path = page.emitPath;
         if (path !== undefined) {
           const prior = byPath.get(path);

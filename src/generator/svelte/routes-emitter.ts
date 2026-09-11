@@ -21,6 +21,7 @@
 // Sibling of src/generator/react/pages-emitter.ts; the per-page
 // module assembly lives in walker/page-shell.ts.
 
+import { diagMessage } from "../../diagnostics/messages.js";
 import type {
   AggregateIR,
   BoundedContextIR,
@@ -229,8 +230,20 @@ export function emitSveltePagesForUi(ui: UiIR, ctx: SveltePageEmitContext): Map<
     if (!emitPath) continue;
     const prior = seenPaths.get(emitPath);
     if (prior) {
+      // UNREACHABLE on a validated model: `loom.ui-page-route-collision`
+      // (phase ⑦, `ui-page-identity-checks.ts`) refuses two pages of one ui
+      // sharing a `route:`, and this path is a pure function of the route plus
+      // the layout group — so a collision here means a strictly STRONGER
+      // collision was let through upstream.  Kept as an internal invariant
+      // (the api toolkit and the playground can hand a generator an
+      // unvalidated model) rather than deleted, and it names the gate that is
+      // supposed to have fired instead of re-explaining SvelteKit routing.
       throw new Error(
-        `svelte: pages '${prior}' and '${page.name}' both route to ${emitPath} — SvelteKit file routing needs distinct routes per page.`,
+        diagMessage("loom.ui-page-route-collision#svelte-emit-invariant", {
+          first: prior,
+          second: page.name,
+          path: emitPath,
+        }),
       );
     }
     seenPaths.set(emitPath, page.name);

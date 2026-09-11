@@ -90,9 +90,12 @@ export {
   validateComponentChildrenSupport,
   validateCurrentUserNeedsAuthUi,
   validateDataGridFramework,
+  validateFlutterActionBodies,
   validateFlutterPrimitiveSupport,
   validateFormLocalCollisions,
+  validateFrontendPropTypes,
   validateHeexComponentHostState,
+  validateLiveViewHoisting,
   validateUiProjectionReadFramework,
   validateUiRealtimeSupport,
 } from "./ui-framework-checks.js";

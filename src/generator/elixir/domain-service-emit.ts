@@ -41,6 +41,7 @@ import type {
   ExprIR,
   StmtIR,
 } from "../../ir/types/loom-ir.js";
+import { diagMessage } from "../../diagnostics/messages.js";
 import { readPortsForOperation } from "../../ir/util/domain-service-read-ports.js";
 import {
   aggregateOpResolver,
@@ -439,19 +440,28 @@ function renderOperation(
     .map((n) => `    _ = ${n}`);
 
   if (multiContextReading) {
-    // OUT OF SCOPE: a cross-context reading service.  Emit a guard
-    // raise + a visible flag note rather than a body whose repo reads name
-    // context fns that don't exist in this module.
-    const allDiscards = paramNames.map((n) => `    _ = ${n}`);
-    return `${specLine}
-  # loom.domain-service-multi-context-reading: '${op.name}' reads repositories
-  # across more than one context — only single-context reading is supported
-  # (domain-services.md rev. 4).  A cross-context reading service needs a
-  # standalone module taking explicit Repo/context args; not emitted here.
-  def ${fnName}(${paramNames.join(", ")}) do
-${allDiscards.join("\n")}
-    raise "domain service '${op.name}': cross-context reading not yet supported (domain-services.md rev. 4)"
-  end`;
+    // INTERNAL FLOOR.  This branch used to emit a `def` whose body was a
+    // runtime `raise` — the worst shape a gap can take: it compiles, ships, and
+    // blows up on the first call in production, carrying a message no `loom.*`
+    // code indexes.  It is also STRUCTURALLY UNREACHABLE (see
+    // `readingIsSingleContext` above): a read-port comes from a `repo-read`
+    // Call, and `lowerDomainService` builds `serviceRepos` from
+    // `env.ctx.members` alone, so a port can never name a repository outside
+    // this service's own context.  The body that MOTIVATED the branch — a
+    // service reading another context's repository — lowers to an unresolved
+    // `ref` instead, and is refused at phase ⑦ by
+    // `loom.domain-service-cross-context-read`.
+    //
+    // So: fail at GENERATE time rather than ship a landmine.  Pinned by
+    // `test/generator/elixir/domain-service-cross-context-floor.test.ts`.
+    throw new Error(
+      diagMessage("loom.domain-service-cross-context-read#elixir-emit-invariant", {
+        operation: op.name,
+        ports: readPortsForOperation(op)
+          .map((port) => port.repo)
+          .join(", "),
+      }),
+    );
   }
 
   const bodyLines = op.body.map((s) => renderStatement(s, ctx, renderCtx, isUnion));

@@ -24,8 +24,17 @@
 // `order.shipping.zip := v` folds into a `copyWith` chain, see `nestedCopyWith`),
 // `let`, bare expression statements, sibling-action calls, cross-store action
 // calls (through the Notifier's own `ref`), and `match await` async effects.
-// Private-operation calls are the remaining `TODO(flutter full-parity)` item.
+//
+// OUT OF SCOPE, and REFUSED at phase ⑦ rather than commented here (Wave C1
+// packet 1d-ii): a view-effect call (`navigate` / `toast`) — a Notifier has no
+// `BuildContext` — and a `match await` on one of the five STANDARD aggregate
+// ops, which this module resolves through `agg.operations` and so cannot find.
+// Both carry `loom.flutter-action-body-unsupported` and name M-T1.32; the three
+// arms that used to emit `// TODO(flutter full-parity)` into the Dart are now
+// internal floors, because a comment in generated Dart is a silently dead
+// button, not a gap anyone reads.
 
+import { diagMessage } from "../../diagnostics/messages.js";
 import { variantTag } from "../../ir/stdlib/unions.js";
 import type {
   EnrichedAggregateIR,
@@ -41,6 +50,7 @@ import { errorTypeUri } from "../../util/error-defaults.js";
 import { lowerFirst, plural, snake, upperFirst } from "../../util/naming.js";
 import { tryDetectApiHook } from "../_walker/api-hook-detector.js";
 import { emitExpr, type WalkContext } from "../_walker/walker-core.js";
+import { copyWithChain } from "./copy-with.js";
 import { coerceDartMoneyInit, dartString, dartZeroValue, isMoneyType } from "./dart-expr.js";
 import { dartType } from "./dart-types.js";
 import { flutterTarget } from "./flutter-target.js";
@@ -146,12 +156,7 @@ export function stateCtx(opts: {
  *  case).  Every intermediate level is a wire model that carries its own
  *  `copyWith` (emitted by `dart-model-emit.ts`). */
 function nestedCopyWith(seg: readonly string[], value: string): string {
-  let expr = value;
-  for (let i = seg.length - 1; i >= 0; i--) {
-    const receiver = i === 0 ? "state" : `state.${seg.slice(0, i).join(".")}`;
-    expr = `${receiver}.copyWith(${seg[i]}: ${expr})`;
-  }
-  return expr;
+  return copyWithChain("state", seg, value);
 }
 
 /** Render one action-body statement into a Notifier-method line.  A state write
@@ -193,7 +198,18 @@ export function renderNotifierStmt(stmt: StmtIR, ctx: WalkContext, selfStore?: s
       // an in-class bare call re-enters the update path.  Extern ui functions
       // render the same bare form (the app supplies the binding).
       if (stmt.target === "private-operation") {
-        return `// TODO(flutter full-parity): '${stmt.target}' call '${stmt.name}' in a Notifier method`;
+        // INTERNAL FLOOR.  Two ways a bare call in a ui action body lowers to
+        // `private-operation`, and BOTH are refused before codegen now:
+        // `navigate` / `toast` (the view-effect builtins) by
+        // `loom.flutter-action-body-unsupported#view-effect` at phase ⑦, and
+        // any other unresolved name by `loom.unresolved-action-ref`.  Until
+        // then this arm silently dropped the effect: the button was wired and
+        // did nothing, forever, with a comment in the Dart nobody reads.
+        throw new Error(
+          diagMessage("loom.flutter-action-body-unsupported#emit-invariant", {
+            what: `a '${stmt.target}' call '${stmt.name}'`,
+          }),
+        );
       }
       const args = stmt.args.map((a) => emitExpr(a, ctx)).join(", ");
       // A `<Store>.<action>(…)` call reaches the store's Notifier through `ref`
@@ -207,9 +223,24 @@ export function renderNotifierStmt(stmt: StmtIR, ctx: WalkContext, selfStore?: s
       return `${stmt.name}(${args});`;
     }
     default:
-      // `variant-match` (async effect) + backend-only kinds — deferred, but never
-      // silently dropped (a visible TODO in the emitted Dart).
-      return `// TODO(flutter full-parity): unsupported action statement '${stmt.kind}'`;
+      // INTERNAL FLOOR.  Every statement kind that can still reach here is
+      // refused before codegen, and each was measured reaching this arm before
+      // its gate existed:
+      //
+      //   return / precondition / requires  loom.ui-body-statement-kind (⑦)
+      //   if                                loom.if-stmt-page-body-unsupported (⑦)
+      //   variant-match                     intercepted on the PAGE path by the
+      //                                     caller; on the COMPONENT path
+      //                                     loom.flutter-async-effect-unsupported (⑦)
+      //   emit                              unresolvable in ui scope — phase ③
+      //
+      // The comment this replaced was the silent half of the §18 class: valid
+      // `.ddd`, a clean build, and an action that does nothing.
+      throw new Error(
+        diagMessage("loom.flutter-action-body-unsupported#emit-invariant", {
+          what: `an action statement of kind '${stmt.kind}'`,
+        }),
+      );
   }
 }
 
@@ -235,7 +266,19 @@ function renderVariantMatchNotifier(
   const agg = detected ? ctx.aggregatesByName.get(detected.aggregateName) : undefined;
   const op = agg?.operations.find((o) => o.name === detected?.operation);
   if (!detected || !agg || !op) {
-    return ["// TODO(flutter full-parity): `match await` subject is not a resolvable remote op"];
+    // INTERNAL FLOOR.  An awaited subject that is not an api-rooted call is
+    // refused by `loom.method-call-unresolved-receiver` / the effect-marker
+    // gates; an api-rooted call naming one of the five STANDARD aggregate ops
+    // (which `agg.operations` never holds) by
+    // `loom.flutter-action-body-unsupported#match-await-standard-op`, both at
+    // phase ⑦.  Before that, `match await Shop.Order.delete() { … }` validated
+    // clean and the ENTIRE effect — request, error reification, every arm body
+    // — was replaced by this comment.
+    throw new Error(
+      diagMessage("loom.flutter-action-body-unsupported#emit-invariant", {
+        what: "a `match await` subject that is not a resolvable remote op",
+      }),
+    );
   }
   const bc = contexts.find((c) => c.aggregates.some((a) => a.name === agg.name));
   const coll = snake(plural(agg.name));

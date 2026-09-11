@@ -173,6 +173,25 @@ ${uiBody}
   deployable web { platform: react, targets: api, ui: WebApp { Sales: api }, port: 3001 }
 }`;
 
+/** The same shape, hosted by an ELIXIR deployable that also serves the ui — the
+ *  phoenixLiveView frontend, whose component HOISTING the two collision gates
+ *  describe. */
+const heexUi = (uiBody: string) => `
+system S {
+  subdomain Sales { context Orders {
+    aggregate Order { code: string  derived display: string = code }
+    repository Orders for Order { }
+  } }
+  api SalesApi from Sales
+  storage pg { type: postgres }
+  resource st { for: Orders, kind: state, use: pg }
+  ui WebApp {
+    api Sales: SalesApi
+${uiBody}
+  }
+  deployable api { platform: elixir, contexts: [Orders], dataSources: [st], serves: SalesApi, ui: WebApp { Sales: api }, port: 4000 }
+}`;
+
 const FIRING_FIXTURES: Record<string, string> = {
   // --- phase ④ AST validate -----------------------------------------------
   // Two complete `system { }` blocks and NO top-level members — the shape that
@@ -1331,6 +1350,43 @@ system P {
       }
     }`,
   ),
+
+  // Two pages of one ui sharing a `route:`.  Distinct names, distinct emit
+  // paths, distinct archetype slots — so neither collision gate above sees it,
+  // and only one of the two pages is reachable in any router (SvelteKit cannot
+  // emit them at all, and used to `throw` a bare `Error` mid-generate).
+  "loom.ui-page-route-collision": uiPages(
+    "",
+    `    page Alpha { route: "/dup" body: Stack { Heading { "Alpha", level: 1 } } }
+    page Beta { route: "/dup" body: Stack { Heading { "Beta", level: 1 } } }`,
+  ),
+
+  // A page `action` and a rendered component's `action` with one name, on a
+  // phoenixLiveView ui: a LiveView dispatches every `phx-click` BY NAME, so the
+  // lift would put two `handle_event("bump", …)` clauses in one module.
+  "loom.heex-handler-name-collision": heexUi(`
+    component Panel() {
+      state { n: int = 0 }
+      action bump() { n += 1 }
+      body: Button { "inc", onClick: bump }
+    }
+    page Home {
+      route: "/"
+      state { m: int = 0 }
+      action bump() { m += 7 }
+      body: Stack { Panel(), Button { "page inc", onClick: bump } }
+    }`),
+
+  // The same lift's other limit: one host assign per component NAME is one
+  // cell, so a `state`-declaring component rendered twice would have its two
+  // instances move together.
+  "loom.heex-stateful-component-reused": heexUi(`
+    component Counter() {
+      state { n: int = 0 }
+      action bump() { n += 1 }
+      body: Button { "inc", onClick: bump }
+    }
+    page Home { route: "/" body: Stack { Counter(), Counter() } }`),
 
   // A `menu` link naming a page that does not exist.  The linker already
   // reports the bare unresolved reference; this check is the one that names

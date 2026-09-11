@@ -17,6 +17,7 @@
 // orchestrator splices into router.ex.
 // ---------------------------------------------------------------------------
 
+import { diagMessage } from "../../diagnostics/messages.js";
 import type {
   AggregateIR,
   BoundedContextIR,
@@ -627,8 +628,19 @@ function gatherComponentHandlers(
       const clash = byName.get(h.name);
       if (clash) {
         if (clash.body.join("\n") !== h.body.join("\n")) {
+          // INTERNAL FLOOR.  `loom.heex-handler-name-collision` (phase ⑦,
+          // `ui-framework-checks.ts`) refuses the cross-surface name collision
+          // on a validated model, so reaching here means the generator was
+          // handed an unvalidated one (the api toolkit and the playground both
+          // can).  Re-derived from the RENDERED clause bodies rather than from
+          // the validator's verdict — the two disagree loudly rather than one
+          // silently trusting the other.
           throw new Error(
-            `platform: elixir — page '${pageName}' hoists two different \`${h.name}\` handlers into one LiveView (component '${name}' collides with another handler of that name). Rename one of the \`action\`s: a LiveView dispatches every \`phx-click\` by name, so only one of them could ever run.`,
+            diagMessage("loom.heex-handler-name-collision#emit-invariant", {
+              page: pageName,
+              handler: h.name,
+              component: name,
+            }),
           );
         }
         continue;
@@ -694,8 +706,15 @@ function assertSingleInstancePerStatefulComponent(
   walk(pageUses, 1, []);
   for (const [name, count] of total) {
     if (count > 1 && (componentInfo.get(name)?.state.length ?? 0) > 0) {
+      // INTERNAL FLOOR — see the sibling note in `gatherComponentHandlers`.
+      // `loom.heex-stateful-component-reused` (phase ⑦) refuses this shape on
+      // a validated model.
       throw new Error(
-        `platform: elixir — page '${pageName}' renders component '${name}' ${count} times, but '${name}' declares \`state\`. A HEEx function component holds no state of its own, so Loom lifts it into the host LiveView's assigns — one cell per component, which ${count} instances would share. Render it once, or move the state into a page \`state { … }\` field passed down as a param.`,
+        diagMessage("loom.heex-stateful-component-reused#emit-invariant", {
+          page: pageName,
+          component: name,
+          count,
+        }),
       );
     }
   }

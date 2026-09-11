@@ -94,8 +94,17 @@ export const DRIZZLE_INTRINSIC_SQL: Record<string, (recv: string, args: string[]
 // operators (eq / ne / gt / gte / lt / lte / and / or / not), keyed
 // off `schema.<table>.<column>` references.  Returns null when the
 // expression contains shapes Drizzle can't represent in plain SQL
-// (collection ops, lambdas, member access into parts, etc.); the
-// caller then falls back to a TODO comment.
+// (collection ops, lambdas, member access into parts, etc.).
+//
+// The caller does NOT fall back to a comment — it used to, which is why §18 of
+// the gap survey lists a "drizzle predicate TODO fallback".  Re-verified on
+// this tree (Wave C1 packet 1d-ii): there is no such fallback left anywhere
+// under `src/platform/hono/**` or `src/generator/typescript/**`.  Every caller
+// holding a DECLARED filter routes the null through
+// `refuseOutOfVocabulary("drizzle-predicate", …)` (`_expr/target.ts`), which
+// throws a `QueryEmissionRefusal` carrying `loom.query-emission-invalid` — so
+// the condition is a coded refusal, not a silent comment.  This sentence was
+// the last trace of the old behaviour.
 // ---------------------------------------------------------------------------
 
 const COMPARE_OP_TO_DRIZZLE: Record<string, string> = {
