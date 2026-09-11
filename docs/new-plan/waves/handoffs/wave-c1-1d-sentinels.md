@@ -1,8 +1,10 @@
 # Wave C1 hand-off — packet 1d-ii, the §18 emitter sentinels and M-T1.31 F17
 
 *Branch: `claude/c1-1d-sentinels`, stacked on `claude/c1-1d-giveup-drain` (packet 1d-i).
-Commits: `f03408da` (the emitters + gates), `76123746` (tests, fixtures, registers, M-T1.32),
-`937ae8b1` (biome + the stale comment the drain left), plus the tracker + this note.*
+Commits: `f03408da` (the emitters + the phase-⑦ gates), `76123746` (tests, fixtures, registers,
+M-T1.32), `937ae8b1` (biome + the stale comment the drain left), `98736a80` (the measured HEEx
+extern hatch, M-T1.31's status, this note), `9e5fc869` (**the two gates that over-claimed** —
+see §3b), `9218c641` (Svelte joins React on the scaffold-`Home` yield).*
 
 ---
 
@@ -110,7 +112,12 @@ grows a hatch, the second assertion fails and the framework has to join the set.
 | `test/ir/user-component-deferred.test.ts` (F17 arms) | flutter gated, feliz/angular not; the flutter emitter really drops it | exemption re-widened to every frontend → **FAILED: "an extern component on a Flutter ui renders nothing and said nothing (M-T1.31 F17)"** |
 | `test/generator/flutter/flutter-target.test.ts` | the nested write is now an exact `toBe` on the copyWith chain, plus `not.toContain("TODO")` | the old assertion (`toContain("notifier.setOrder(v)")`) failed on the fix, which is how the silently-wrong write was confirmed |
 
-Six mutations, six file-copy reverts (never `git checkout --`), `tsc -b` clean afterwards each time.
+| `test/ir/sentinel-gates.test.ts`, the exemption arms (+3) | the scaffold-`Home` yield is exempt, the scaffold's own pages do not collide, and the page that MOUNTS owns the route afterwards | winner-ownership guard dropped (the yielded `Home` keeps the route in the map) → the three-at-root fixture reports nothing: **FAILED, `expected [] to include 'loom.ui-page-route-collision'`**. Worth recording that the FIRST version of this fixture passed under the same mutation — the scaffold's page order put `Home` last, so the guard was never on its path. Re-authored with three user pages in an explicit order, which is what made it discriminating |
+| `test/generator/svelte/route-collision-floor.test.ts` (+1) | Svelte yields `/` to a user page, like React | the skip removed → **FAILED: "lets a user page take `/` from the scaffold's synthesised Home"** |
+
+Nine mutations, nine file-copy reverts (never a checkout), `tsc -b` clean afterwards each time.
+One of them (the winner-ownership guard) passed on the first attempt and had to have its fixture
+re-authored before it proved anything — the rule working, not an inconvenience.
 
 ---
 
@@ -228,6 +235,19 @@ Five, and none of them would have been found by grepping for the code:
 | H4 | **The give-up codes still are not CLI diagnostics** (inherited from 1d-i's H1, and now MORE load-bearing). This packet moved eight conditions from "a comment in the output" to "a `loom.*` error", which sharpens the contrast: the remaining walker give-ups still exit `0 error(s), 0 warning(s)`. The phase-⑨ scan 1d-i described (`GIVE_UP_RE` over the emitted file map) needs no emitter change. | `src/system/` — outside this packet's fence | Fence. |
 | H5 | **`docs/build.mjs`'s `RENDERED_SUBDIRS` still omits `new-plan/waves` and `new-plan/waves/handoffs`**, so every track-file link into a hand-off note 404s on the published site — including the two this packet added (M-T1.31's and M-T1.32's). | `docs/build.mjs` | A one-line fix for whoever owns that file; 1d-i flagged it first and this packet followed the same established pattern rather than inventing a different link shape. |
 | H6 | **The scaffold-`Home`-yields rule is implemented per frontend, and three of six get it wrong.** MEASURED on a `with scaffold(...)` ui plus `page Dashboard { route: "/" }`: **react** one `<Route path="/" element={<Dashboard />} />` (correct); **svelte** was a hard crash and is now correct (fixed here — see §1c); **vue** emits BOTH `{ path: "/", component: Dashboard }` and `{ path: "/", component: Home }`, so the router matches the first and `Home` is dead code; **angular** the same, twice `{ path: "" }`; **feliz / flutter / heex** not read. React's own comment also claims "no synthesised Home file is emitted either" — but `home.tsx` IS written, a dangling unrouted module. | `src/generator/react/templating/preparers/app-shell.ts:216`, `src/generator/vue/…`, `src/generator/angular/…` — one route emitter each | Six copies of one rule is the defect; the fix is ONE derivation every frontend reads (the way `emitPath` already is), which is a design slice about scaffold-override semantics rather than a sentinel drain. Svelte was fixed here only because its copy CRASHED on valid `.ddd` and the file is in this packet's fence. |
+
+---
+
+## 6b. One pre-existing finding, not this packet's
+
+Parsing the whole example corpus against the new gates (`examples/*.ddd`,
+`web/src/examples/*.ddd`, `journey/*.ddd`) turned up exactly one file that does not parse at
+all — **`examples/sales-ui.ddd:133`, `Expecting token of type ')' but found ':'`**, on
+`Stat { api Sales.Order.all, format: "count" }`. That is a phase-① syntax error against the
+current grammar, so it predates every gate in this packet and none of them can reach it. It is
+also invisible to CI: `generated-react-build.yml`'s matrix iterates `examples/acme.ddd` plus
+everything under `web/src/examples/`, and `examples/sales-ui.ddd` is in neither. Flagged rather
+than fixed — it is a stale example, not a sentinel.
 
 ---
 
