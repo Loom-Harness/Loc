@@ -3248,6 +3248,21 @@ export const DIAGNOSTIC_MESSAGES = {
   "loom.query-emission-invalid": (p: { mode: unknown; what: unknown }) =>
     `${p.mode}: ${p.what} is outside the declared query-emission vocabulary — ` +
     `the IR validator should have rejected this filter before codegen reached it.`,
+  // src/language/validators/types.ts — the `money("…")` literal's argument.
+  //
+  // The string is handed verbatim to five backends' precise-decimal
+  // constructors (`new Decimal(…)`, `System.Decimal.Parse`, `Decimal.new/1`,
+  // `BigDecimal`, Python `Decimal`), so a non-numeric one is not a Loom error
+  // — it is a THROW inside generated code, at whatever moment the literal is
+  // first evaluated.  Checkable at the source, so it is checked at the source.
+  // ----------------------------------------------------------------------
+  "loom.money-literal-malformed": (p: { text: unknown }) =>
+    `money("${p.text}") is not a decimal amount. The string argument of a money ` +
+    `literal is parsed by each backend's precise-decimal type verbatim, so this ` +
+    `throws in the generated code rather than here. Write an optionally signed ` +
+    `decimal — money("10.50"), money("-3.25"), money("0") — with no currency ` +
+    `symbol, thousands separator or exponent. To convert a value at runtime ` +
+    `instead, pass the expression: money(someDecimal).`,
   // src/language/validators/types.ts — comparison operands
   // ----------------------------------------------------------------------
   "loom.compare-type-mismatch": (p: { op: unknown; lt: unknown; rt: unknown }) =>

@@ -2,9 +2,11 @@
 //
 // Source-level form: `string(age)` (int → string for concat),
 // `money(decimalField)` (typed bridge), `decimal(moneyValue)`
-// (lossy projection), etc.  Distinct from MoneyLit's `money("…")`
-// literal form: this is for converting a TYPED VALUE, not a
-// source-text literal.
+// (lossy projection), etc.  Distinct from the `money("…")` LITERAL
+// form: this is for converting a TYPED VALUE, not a source-text
+// literal.  Both spellings share ONE grammar rule and one AST node —
+// the argument's shape is what separates them, after the parse
+// (`src/language/money-literal.ts`).
 //
 // The validator admits only infallible (source, target) pairs:
 //   string  ← {int, long, decimal, money, bool}
@@ -201,12 +203,14 @@ describe("conversion vocabulary — IR carries (from, target)", () => {
 });
 
 describe('conversion vocabulary — disambiguation from `money("…")` literal', () => {
-  // `money("10.50")` is a MoneyLit (string-arg → compile-time literal).
-  // `money(decimalField)` is a PrimitiveConversion.  MoneyLit comes
-  // first in PrimaryExpr so the string-arg form wins the parse;
-  // PrimitiveConversion picks up the typed-value case.
+  // `money("10.50")` is the compile-time LITERAL; `money(decimalField)` is the
+  // conversion.  There used to be two grammar rules and a documented
+  // alternative ORDER settling which won — an ambiguity Chevrotain reported to
+  // stderr on every parse that reached it (M-T9.60).  One rule now, split on
+  // the argument's shape after the parse; the IR is unchanged, which is what
+  // these two cases assert.
 
-  it("`money(\"10.50\")` stays a MoneyLit (lowers to lit('money', '10.50'))", async () => {
+  it("`money(\"10.50\")` stays the literal (lowers to lit('money', '10.50'))", async () => {
     const loom = await buildLoomModel(`
       context X {
         aggregate Foo {
@@ -222,7 +226,7 @@ describe('conversion vocabulary — disambiguation from `money("…")` literal',
     expect(total.expr).toMatchObject({ kind: "literal", lit: "money", value: "10.50" });
   });
 
-  it("`money(decimalField)` is a PrimitiveConversion, not a MoneyLit", async () => {
+  it("`money(decimalField)` lowers to a conversion, not a literal", async () => {
     const loom = await buildLoomModel(`
       context X {
         aggregate Foo {

@@ -40,6 +40,7 @@ import {
   isTernaryExpr,
   isUi,
 } from "../generated/ast.js";
+import { isWellFormedMoneyLiteral, moneyLiteralText } from "../money-literal.js";
 import {
   absentRecordMember,
   arithmeticResult,
@@ -640,6 +641,23 @@ export function checkSinglePrimitiveConversion(
   node: PrimitiveConversion,
   accept: ValidationAcceptor,
 ): void {
+  // `money("10.50")` is the money LITERAL, not a string→money conversion.
+  // Both spellings reach this node — one grammar path for `money(`, separated
+  // after the parse by the argument's shape (src/language/money-literal.ts) —
+  // so the literal is checked as a literal here and never reaches the
+  // conversion table below, which admits `money ← {int, long, decimal}` and
+  // would reject its own source form.
+  const moneyText = moneyLiteralText(node);
+  if (moneyText !== undefined) {
+    if (!isWellFormedMoneyLiteral(moneyText)) {
+      accept("error", diagMessage("loom.money-literal-malformed", { text: moneyText }), {
+        node,
+        property: "value",
+        code: "loom.money-literal-malformed",
+      });
+    }
+    return;
+  }
   const env = envForNode(node);
   const valueType = typeOf(node.value, env);
   // Cascade suppression: upstream resolution failure already
