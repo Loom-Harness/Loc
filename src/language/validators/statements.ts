@@ -999,7 +999,14 @@ export function lvalueType(
   accept: ValidationAcceptor,
 ): DddType {
   // Resolve the head: a parameter, let-binding, or an aggregate property.
-  const headSym = env.resolve(lv.head);
+  //
+  // An EXPLICIT `this.` prefix takes the first two off the table.  Skipping
+  // `env.resolve` is the whole point of the spelling: in
+  // `operation rename(name: string) { this.name := name }` the head and the
+  // parameter share a name, and resolving the head against the parameter would
+  // type-check the assignment against the WRONG member — silently, whenever
+  // the two types happen to be compatible.
+  const headSym = lv.thisRef ? undefined : env.resolve(lv.head);
   let cur: DddType;
   if (headSym) {
     cur = headSym.type;

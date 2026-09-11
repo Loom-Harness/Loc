@@ -452,6 +452,10 @@ export function assignStmtPath(path: string[], value: Expression): AssignOrCallS
   const lv: LValue = tag(
     mkLValue({
       $type: "LValue",
+      // Macro-built paths use the implicit (un-prefixed) spelling — a
+      // synthesised assignment never shadows a parameter with the field it
+      // fills, so it needs no explicit `this.`.
+      thisRef: false,
       head: path[0]!,
       tail: path.slice(1),
       call: false,
@@ -484,6 +488,7 @@ export function callStmt(path: string[], args: Expression[] = []): AssignOrCallS
   const lv: LValue = tag(
     mkLValue({
       $type: "LValue",
+      thisRef: false,
       head: path[0]!,
       tail: path.slice(1),
       call: true,

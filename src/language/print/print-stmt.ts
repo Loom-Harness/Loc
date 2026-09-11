@@ -101,7 +101,10 @@ export function printStmt(node: Statement): string {
 }
 
 function printLValue(lv: LValue): string {
-  const path = [lv.head, ...lv.tail].join(".");
+  // An explicit `this.` prefix is part of the source the user wrote and part of
+  // what the path MEANS (it is what un-shadows a same-named parameter), so
+  // `unfold` must eject it verbatim rather than normalising it away.
+  const path = [...(lv.thisRef ? ["this"] : []), lv.head, ...lv.tail].join(".");
   return lv.call
     ? wrapArgList(
         path,

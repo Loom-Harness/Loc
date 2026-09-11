@@ -141,7 +141,7 @@ ThemeProp:
 // implicit aggregate identity) is admissible here.
 UserBlock:
     'user' '{'
-        fields+=UserField*
+        (fields+=UserField (','? fields+=UserField)* ','?)?
     '}';
 
 UserField:
@@ -987,7 +987,7 @@ EnumValue:
 
 ValueObject:
     'valueobject' name=ID '{'
-        members+=ValueObjectMember*
+        (members+=ValueObjectMember (','? members+=ValueObjectMember)* ','?)?
     '}';
 
 ValueObjectMember:
@@ -1063,7 +1063,7 @@ Aggregate:
           | (audited?='audited' ','?)
         )*
         withClause=WithClause? '{'
-        members+=AggregateMember*
+        (members+=AggregateMember (','? members+=AggregateMember)* ','?)?
     '}';
 
 // Inheritance table layout — a header colon modifier on aggregates
@@ -1321,7 +1321,7 @@ ExpectStmt:
 
 EntityPart:
     'entity' name=ID '{'
-        members+=EntityPartMember*
+        (members+=EntityPartMember (','? members+=EntityPartMember)* ','?)?
     '}';
 
 EntityPartMember:
@@ -2206,8 +2206,19 @@ AssignOrCallStmt:
 // `ui.workflows.placeOrder({...})` and `ui.views.activeOrders()` parse
 // cleanly when `ui` / `workflows` / `views` are reserved by the page-
 // metamodel grammar.
+// An optional `this.` prefix roots the path in the enclosing aggregate
+// EXPLICITLY.  `docs/language.md` has always described `:=` as "assignment to
+// a property reachable from `this`", and the un-prefixed spelling stays exactly
+// that — but a factory / setter parameter named after the field it fills
+// (`operation rename(name: string) { this.name := name }`) has no other way to
+// say which side is which.  The flag is load-bearing at lowering, not cosmetic:
+// a `thisRef` head resolves straight to a this-prop and must NOT be considered
+// for the action / function / private-operation / store / domain-service /
+// resource call arms, nor be shadowed by a local of the same name when the
+// target's type is computed.  `'this'` is already a token (`ThisRef`) and the
+// same `('this' '.')?` prefix is already spelled on `LoadPath`.
 LValue:
-    head=LValueIdent ('.' tail+=LValueIdent)*
+    (thisRef?='this' '.')? head=LValueIdent ('.' tail+=LValueIdent)*
       (call?='(' (args+=Expression (',' args+=Expression)*)? ')')?;
 
 LValueIdent returns string:

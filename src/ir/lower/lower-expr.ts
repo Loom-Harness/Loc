@@ -1975,14 +1975,7 @@ export function inferExprType(expr: Expression | undefined, env: Env): TypeIR {
     return { kind: "array", element: elementType };
   }
   if (isNowExpr(expr)) return { kind: "primitive", name: "datetime" };
-  if (isThisRef(expr)) {
-    if (env.part) return { kind: "entity", name: env.part.name };
-    if (env.aggregate) return { kind: "entity", name: env.aggregate.name };
-    if (env.valueObject) return { kind: "valueobject", name: env.valueObject.name };
-    if (env.workflow) return { kind: "entity", name: env.workflow.name };
-    if (env.projection) return { kind: "entity", name: env.projection.name };
-    return { kind: "primitive", name: "string" };
-  }
+  if (isThisRef(expr)) return thisTypeOf(env);
   if (isIdRef(expr)) {
     if (env.part) return { kind: "id", targetName: env.part.name, valueType: "guid" };
     if (env.aggregate) {
@@ -2893,12 +2886,40 @@ export function provSiteFor(
   };
 }
 
-export function pathType(path: PathIR, env: Env): TypeIR {
+/**
+ * Type of the `this` receiver in the current env — the enclosing entity part,
+ * aggregate, value object, workflow or projection, in that shadowing order.
+ * Shared by `inferExprType`'s `ThisRef` arm and the statement lowerer's
+ * `this.<prop>.<verb>(…)` path so the two cannot disagree about what `this` is.
+ */
+export function thisTypeOf(env: Env): TypeIR {
+  if (env.part) return { kind: "entity", name: env.part.name };
+  if (env.aggregate) return { kind: "entity", name: env.aggregate.name };
+  if (env.valueObject) return { kind: "valueobject", name: env.valueObject.name };
+  if (env.workflow) return { kind: "entity", name: env.workflow.name };
+  if (env.projection) return { kind: "entity", name: env.projection.name };
+  return { kind: "primitive", name: "string" };
+}
+
+/**
+ * Type of an assignment target path.
+ *
+ * `thisRooted` says the SOURCE spelled the path `this.x` rather than `x`.  A
+ * `PathIR` is always rooted in `this` either way (see its doc comment), but the
+ * two spellings resolve their HEAD differently: the implicit form has always
+ * consulted locals first — which is what lets `count := count + 1` read a
+ * `let count` — while the explicit form must not, because naming the field is
+ * the entire reason to write it.  Without the distinction,
+ * `this.total := 0.50` inside `operation adjust(total: decimal)` would take the
+ * PARAMETER's `decimal` as its target type and drop the money elaboration the
+ * `total: money` field calls for.
+ */
+export function pathType(path: PathIR, env: Env, thisRooted = false): TypeIR {
   if (path.segments.length === 0) return { kind: "primitive", name: "string" };
   const head = path.segments[0]!;
   let cur: TypeIR;
-  // Try locals
-  const local = env.locals.get(head);
+  // Try locals — unless the source rooted the path in `this.` explicitly.
+  const local = thisRooted ? undefined : env.locals.get(head);
   if (local) cur = local.type;
   else if (env.aggregate) cur = memberOnEntity(env.aggregate, head);
   else if (env.workflow) cur = memberOnWorkflow(env.workflow, head);
