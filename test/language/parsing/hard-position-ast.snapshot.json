@@ -233,6 +233,62 @@
     ],
     "imports": []
   },
+  "local": {
+    "$type": "Model",
+    "members": [
+      {
+        "$type": "BoundedContext",
+        "name": "C",
+        "members": [
+          {
+            "$type": "Aggregate",
+            "name": "Claim",
+            "members": [
+              {
+                "$type": "Property",
+                "name": "total",
+                "type": {
+                  "$type": "TypeRef",
+                  "base": {
+                    "$type": "PrimitiveType",
+                    "name": "int"
+                  },
+                  "alternatives": [],
+                  "array": false,
+                  "ctors": [],
+                  "optional": false
+                },
+                "provenanced": false
+              }
+            ],
+            "audited": false,
+            "crossTenant": false,
+            "isAbstract": false
+          },
+          {
+            "$type": "PolicyDecl",
+            "rules": [
+              {
+                "$type": "PolicyReadRule",
+                "effect": "allow",
+                "level": "local",
+                "target": "Claim"
+              },
+              {
+                "$type": "PolicyReadRule",
+                "effect": "allow",
+                "verb": "write",
+                "level": "local",
+                "target": "Claim"
+              }
+            ],
+            "params": []
+          }
+        ]
+      }
+    ],
+    "imports": []
+  },
   "global": {
     "$type": "Model",
     "members": [

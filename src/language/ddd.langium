@@ -1952,7 +1952,7 @@ CommonSoftKeywords returns string:
       'action' | 'allow' | 'asc' | 'body' | 'by' | 'canonical' | 'channels' | 'command' | 'config' | 'connection'
       | 'crossTenant' | 'dataSources' | 'deep' | 'deny' | 'desc' | 'description' | 'env' | 'envelope' | 'error' | 'eventLog'
       | 'every' | 'favicon' | 'filter' | 'global' | 'group' | 'handle' | 'immutable' | 'implements' | 'instance' | 'internal'
-      | 'isolationLevel' | 'join' | 'key' | 'keyPrefix' | 'kind' | 'literal' | 'loads' | 'mailer' | 'managed' | 'message' | 'migration' | 'money'
+      | 'isolationLevel' | 'join' | 'key' | 'keyPrefix' | 'kind' | 'literal' | 'loads' | 'local' | 'mailer' | 'managed' | 'message' | 'migration' | 'money'
       | 'objectStore' | 'of' | 'ogImage' | 'option' | 'or' | 'paged' | 'parent' | 'payload' | 'query'
       | 'persistence' | 'policy' | 'queue' | 'readonly' | 'replica' | 'resource' | 'response' | 'retain' | 'retrieval' | 'schema'
       | 'secret' | 'select' | 'service' | 'snapshot' | 'sort' | 'sql' | 'stamp' | 'state' | 'store' | 'tablePrefix'
@@ -1974,7 +1974,7 @@ LooseName returns string:
     // LooseName-only (soft here but not in every value position):
     | 'aggregates' | 'api' | 'await' | 'bind' | 'cache' | 'component' | 'contains'
     | 'contexts' | 'design' | 'directoryLayout' | 'framework' | 'from' | 'id' | 'ignoring'
-    | 'link' | 'local' | 'menu' | 'modules' | 'page' | 'permissions'
+    | 'link' | 'menu' | 'modules' | 'page' | 'permissions'
     | 'route' | 'section' | 'static' | 'targets' | 'transactional' | 'ui' | 'urlStyle'
     | 'views' | 'workflows';
 

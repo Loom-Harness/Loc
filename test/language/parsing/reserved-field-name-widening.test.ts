@@ -137,6 +137,22 @@ system S {
 }`,
   },
   {
+    // Not in the audit's list, but `local` is `deep`/`global`'s third
+    // `ReadLevel` sibling and `ReadLevel` is its ONLY hard position — so
+    // promoting the other two and leaving this one reproduces exactly the
+    // `allow`/`deny` asymmetry D4a is about, on a word (`local: bool`) at least
+    // as likely to be a domain field as either of them.
+    word: "local",
+    promoted: true,
+    hard: `context C {
+  aggregate Claim { total: int }
+  policy {
+    allow local on Claim
+    allow write local on Claim
+  }
+}`,
+  },
+  {
     word: "global",
     promoted: true,
     // `ReadLevel` — `global` parses on the write ladder too (it is an IR
@@ -328,10 +344,11 @@ system S {
         expect: [`{"$type":"Property","name":"persistence"`, `"persistence":"memory"`],
       },
       {
-        word: "allow / deny / deep / global",
+        word: "allow / deny / local / deep / global",
         src: `context C {
-  aggregate Claim { title: string  allow: bool  deny: bool  deep: int  global: bool }
+  aggregate Claim { title: string  allow: bool  deny: bool  local: bool  deep: int  global: bool }
   policy {
+    allow local on Claim
     allow deep on Claim
     allow global on Claim
     deny on Claim
@@ -340,9 +357,11 @@ system S {
         expect: [
           `{"$type":"Property","name":"allow"`,
           `{"$type":"Property","name":"deny"`,
+          `{"$type":"Property","name":"local"`,
           `{"$type":"Property","name":"deep"`,
           `{"$type":"Property","name":"global"`,
           `"effect":"deny"`,
+          `"level":"local"`,
           `"level":"global"`,
         ],
       },

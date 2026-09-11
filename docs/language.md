@@ -78,8 +78,9 @@ bare expression ref (it is the `match await` marker there); `api`, `route`,
 `component`, `menu`, `section`, `link`, `targets`, `framework`, `design`,
 `ui`, `page` … are admissible as parameter / argument names and expression
 refs but — apart from `page` — **not** as field names (`aggregate Order {
-route: string }` is a parse error).  `of`, `allow`, `deny`, `deep`, `global`,
-`policy` and `persistence` were soft only as parameter / clause names until
+route: string }` is a parse error).  `of`, `allow`, `deny`, `local`, `deep`,
+`global`, `policy` and `persistence` were soft only as parameter / clause
+names until
 audit finding D4; they are now in the shared set, so `aggregate Claim { policy:
 Policy id }` parses.  The source of truth is the rule set in
 `src/language/ddd.langium`, pinned by

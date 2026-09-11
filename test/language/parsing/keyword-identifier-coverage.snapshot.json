@@ -510,7 +510,13 @@
     "stateField"
   ],
   "local": [
-    "paramName"
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "nameRef",
+    "paramName",
+    "stateField"
   ],
   "localDisk": [],
   "log": [],
