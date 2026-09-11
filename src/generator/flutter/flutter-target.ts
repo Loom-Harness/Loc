@@ -977,6 +977,17 @@ export const flutterTarget: WalkerTarget = {
   // A conditional child → a ternary over two widgets (a single child expression,
   // valid anywhere a widget is expected).
   renderConditionalChild: (cond, thenS, elseS, _depth) => `(${cond} ? ${thenS} : ${elseS})`,
+  // An optional VALUE needs a null-check PATTERN, not the ternary above
+  // (M-T1.33).  `?:` wants a `bool` and a `Location id?` decodes to `String?`;
+  // and a property read off a model class is not type-promotable in Dart, so
+  // even `x != null ? … x … : …` leaves `x` nullable inside the true arm —
+  // which is how the pack's `'/locations/' + x.toString()` came to render the
+  // literal text "null".  The same switch-pattern binding `renderFileLink`
+  // uses solves both: `final __id?` matches only a non-null value and binds it
+  // promoted.  `_` renders the plain em dash, and `const` because the
+  // placeholder never varies.
+  renderOptionalSplit: ({ value, bound, present }) =>
+    `(switch (${value}) { final ${bound}? => ${present}, _ => const Text(${dartString("—")}) })`,
   // Flutter has no CSS `style` attribute — styling is per-widget.  Empty, like
   // Feliz.
   renderStyleAttr: () => "",

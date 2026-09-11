@@ -25,7 +25,7 @@ import {
   slugify,
   stringNamed,
 } from "../shared/args.js";
-import { isMoneyField } from "../shared/row-field-type.js";
+import { cellRowAggregate, extendRowScope, isMoneyField } from "../shared/row-field-type.js";
 import type { ClientPagingResult, ClientPagingSpec, PagerChrome, StateRef } from "../target.js";
 import type { WalkContext } from "../walker-core.js";
 import {
@@ -216,7 +216,12 @@ export function emitTable(
   const sortRefs = sortActive && sortKeyRef && sortDirRef ? { sortKeyRef, sortDirRef } : undefined;
   const cols = positionals
     .filter((a): a is ExprIR & { kind: "call" } => a.kind === "call" && a.name === "Column")
-    .map((c, i) => emitColumn(c, ctx, i, depth + 3, sortRefs));
+    // The row aggregate reaches the CELL scope too, not just the sort
+    // comparator, so a primitive inside a cell can resolve the row's real field
+    // types — which is how `IdLink` tells an optional reference from a required
+    // one (M-T1.33).  `cellRowAggregate` also sees through the `rows.items` of
+    // a server-paged list, which `sortRowAggregate` above does not.
+    .map((c, i) => emitColumn(c, ctx, i, depth + 3, cellRowAggregate(rowsArg, ctx), sortRefs));
 
   const rowVar = "row";
   let onRowClickJs: string | undefined;
@@ -350,6 +355,7 @@ function emitColumn(
   ctx: WalkContext,
   index: number,
   depth: number,
+  rowAggregate: string | undefined,
   sortRefs?: { sortKeyRef: StateRef; sortDirRef: StateRef },
 ): { header: string; headerMarkup: boolean; cellJsx: string; key: string } {
   const positionals = positionalArgs(call);
@@ -364,10 +370,9 @@ function emitColumn(
   const rowVar = "row";
   let cellJsx = giveUp(ctx.target, "missing accessor");
   if (accessorArg && accessorArg.kind === "lambda") {
-    const childCtx: WalkContext = {
-      ...ctx,
-      lambdaParams: extendLambdaParams(ctx, accessorArg.param, rowVar),
-    };
+    // Carries the row AGGREGATE alongside the row variable — see
+    // `extendRowScope`.  Without it every cell walked with an unknown row type.
+    const childCtx: WalkContext = extendRowScope(ctx, accessorArg.param, rowVar, rowAggregate);
     const body = accessorArg.body;
     if (body) {
       if (body.kind === "call") {
