@@ -1116,7 +1116,18 @@ MacroCall:
 // names — the same identifier surface the legacy `scaffold` directive
 // uses, which scaffold-replacement macros need to mirror.
 MacroArg:
-    name=LooseName ':' value=MacroArgValue;
+    name=MacroArgName ':' value=MacroArgValue;
+
+// Macro-arg names, and ONLY macro-arg names, additionally admit
+// `requires` — so `with crudish(requires: CatalogManager)` names the
+// authorization gate with the same word the gate itself uses.  It is
+// deliberately NOT folded into `LooseName`: that rule also backs
+// `Parameter.name`, `Property.name`, `CallArg.name` and friends, and
+// `requires` has to stay a hard keyword everywhere a statement or a
+// header gate clause can start.  Inside a macro call's parentheses
+// nothing else can begin with it, so the widening is ambiguity-free.
+MacroArgName returns string:
+    LooseName | 'requires';
 
 // Macro arg ref-list elements are bare IDs, not Langium cross-
 // references.  We don't use the [Target:ID] form because:

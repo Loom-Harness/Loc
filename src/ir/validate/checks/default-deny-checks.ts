@@ -7,7 +7,7 @@
 import { diagMessage } from "../../../diagnostics/messages.js";
 import { plural, snake } from "../../../util/naming.js";
 import type { SystemIR, WorkflowIR, WorkflowStmtIR } from "../../types/loom-ir.js";
-import { isMacroEmitted } from "../../types/origin.js";
+import { isMacroEmitted, macroNameOf } from "../../types/origin.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
 
 // Page/component `derived name: T = expr` bindings are supported on every
@@ -57,13 +57,26 @@ export function validateDefaultDeny(sys: SystemIR, diags: LoomDiagnostic[]): voi
         for (const op of [...a.operations, ...(a.creates ?? []), ...(a.destroys ?? [])]) {
           if (op.visibility !== "public") continue;
           if (!isGated(op.statements)) {
+            // A macro-emitted member has no declaration header of its own —
+            // an aggregate `create` / `destroy` carries its gate as a body
+            // STATEMENT, and that body belongs to the macro.  Telling the
+            // author to "add a `requires`" to it names a line they cannot
+            // edit, so point at the `with <macro>(...)` call they own
+            // instead (crudish / softDelete take `requires: <Policy>`).
+            const macroName = macroNameOf(op.origin);
             diags.push({
               severity: "error",
               code: "loom.default-deny-ungated",
-              message: diagMessage("loom.default-deny-ungated#denybydefault-is-reachable", {
-                name: a.name,
-                opName: op.name,
-              }),
+              message: macroName
+                ? diagMessage("loom.default-deny-ungated#denybydefault-is-reachable-macro", {
+                    name: a.name,
+                    opName: op.name,
+                    macroName,
+                  })
+                : diagMessage("loom.default-deny-ungated#denybydefault-is-reachable", {
+                    name: a.name,
+                    opName: op.name,
+                  }),
               source: `${a.name}/${op.name}`,
             });
           }

@@ -78,11 +78,23 @@ Each value is a `ParamType`:
 | `"refList"` | `readonly Node[]` | Defaults to `[]` when omitted. |
 
 `ref` / `refList`'s `of:` selects the AST kind the validator will
-cross-reference the argument against.  Accepted values:
+cross-reference the argument against (`NamedDeclKind` in
+`src/macros/api/define.ts`).  Accepted values:
 
 ```
-Aggregate | Module | BoundedContext | Workflow | View | ValueObject | EnumDecl
+Aggregate | Subdomain | BoundedContext | Workflow | ValueObject | EnumDecl
+  | Criterion | Policy
 ```
+
+`Policy` resolves the FUNCTION form only (`policy Name(): bool = …`) —
+never the anonymous / read-ladder `policy { … }` block, which has no
+name to call and is not a boolean gate.  It is what lets a macro splice
+an authorization gate into a body it owns: see
+`crudish(requires: <Policy>)` in
+[`scaffold-macros.md`](scaffold-macros.md#requires--gating-the-emitted-members).
+Note that `requires` is admissible as a macro-arg NAME (and only there —
+`MacroArgName` in the grammar), so the parameter can be spelled with the
+same word the gate itself uses.
 
 A user-typed `with myMacro(target: NonExistent)` errors at parse
 time with the same "no such X" diagnostic any other reference would.
@@ -126,6 +138,7 @@ carry `origin` metadata.  The full surface is `src/macros/api/`:
 | `nullLit()` | The literal `null`. |
 | `assignStmt(target, value)` | `target := value` (target is a single identifier). |
 | `assignStmtPath(path, value)` | `path := value` for a path expression. |
+| `requiresStmt(expr)` | `requires <expr>` — the in-body 403 authorization gate.  The ONLY surface a macro-emitted aggregate `create` / `destroy` has for one: neither carries a header `requires` clause.  Pair it with `callExpr(policyName, [])` for `requires <Policy>()`. |
 | `contextFilter(expr, opts?)` | A context-scope `filter` declaration; `opts.capability` adds the `for "<name>"` qualifier. |
 | `contextStamp(event, assignments, opts?)` | A context-scope `stamp` declaration; same `opts.capability` rule. |
 | `implementsCapability(name)` | An `implements "<name>"` declaration. |
