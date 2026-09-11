@@ -44,6 +44,7 @@ import { lowerFirst, plural, snake, upperFirst } from "../../util/naming.js";
 import { renderDotnetLogCall } from "../_obs/render-dotnet.js";
 import type { SourceMapRecorder } from "../_trace/sourcemap.js";
 import { statementSubRegions } from "../_trace/sourcemap.js";
+import { commandCreateCorrelationParam } from "../_workflow/create-state.js";
 import { renderWorkflowStmtChunks, type WorkflowStmtTarget } from "../_workflow/stmt-target.js";
 import { dotnetResourceAdapterFor, resourceClassName } from "./adapters/resource-clients.js";
 import {
@@ -1231,6 +1232,15 @@ function renderHandler(
   const cmdName = `${upperFirst(wf.name)}Command`;
   const handlerName = `${upperFirst(wf.name)}Handler`;
   const usesUser = workflowUsesCurrentUser(wf);
+  // F58 — a state-bearing workflow's COMMAND handler must load-or-allocate the
+  // same saga row `renderEventReactorHandler` does and render the body against
+  // it.  Without this the body's own-state writes rendered `this.<Field>` on a
+  // handler class that has no such member, and the correlation row was never
+  // created, so a later `on` reactor logged `event_unrouted` forever.  The key
+  // is the create param that name-matches the correlation field — the
+  // command-side twin of the reactor's omitted-`by` rule.
+  const corrParam = commandCreateCorrelationParam(wf);
+  const wfThis = corrParam ? "state" : "this";
   // Effective isolation: workflow's `transactional(<level>)` wins; else
   // the state-kind dataSource for this context's `isolationLevel:`; else
   // undefined (connection default applies at runtime).
@@ -1278,6 +1288,20 @@ function renderHandler(
     fields.push("    private readonly ICurrentUserAccessor _currentUser;");
     ctorParamPairs.push("ICurrentUserAccessor currentUser");
     ctorAssigns.push("_currentUser = currentUser");
+  }
+  if (corrParam) {
+    // Same domain-termed port the reactor injects — the EF adapter's
+    // `FindAsync` returns the TRACKED entity, so a `state.Prop = …` +
+    // `SaveChangesAsync()` persists.  `global::`-anchored for the same reason
+    // the reactor is (a deployable named `api` makes `ns === "Api"`).
+    fields.push(
+      `    private readonly global::${ns}.Domain.Common.ISagaStateStore<${workflowStateClass(wf)}> _sagaState;`,
+    );
+    ctorParamPairs.push(
+      `global::${ns}.Domain.Common.ISagaStateStore<${workflowStateClass(wf)}> sagaState`,
+    );
+    ctorAssigns.push("_sagaState = sagaState");
+    usings.add(`${ns}.Infrastructure.Persistence.Workflows`);
   }
   // Workflow lifecycle narrative (workflow_started / workflow_completed) — the
   // command handler always logs both, so inject the catalog logger
@@ -1373,9 +1397,25 @@ function renderHandler(
     // through the renderer.  The cmd-param rewrite only renames refs, so
     // the `matches` shape collectCsExprUsings keys off is unchanged.
     collectCsExprUsings(e, usings, ns);
-    return renderExprWithCmdParams(e, paramNames, resourceClasses, readingCall);
+    return renderExprWithCmdParams(e, paramNames, resourceClasses, readingCall, undefined, wfThis);
   };
 
+  if (corrParam) {
+    // Load-or-allocate, keyed by the correlation command field.  Inside the
+    // transactional path this rides `stmtLines`, which the tx branch below
+    // re-indents into the `try` — so the instance write commits (or rolls back)
+    // with the aggregates the workflow orchestrates.
+    const corrPascal = upperFirst(wf.correlationField as string);
+    stmtLines.push(`        var __key = command.${corrPascal};`);
+    stmtLines.push(
+      `        var state = await _sagaState.FindAsync(x => x.${corrPascal} == __key, cancellationToken);`,
+    );
+    stmtLines.push("        if (state is null)");
+    stmtLines.push("        {");
+    stmtLines.push(`            state = ${workflowAllocateInitializer(wf, "__key")};`);
+    stmtLines.push("            _sagaState.Add(state);");
+    stmtLines.push("        }");
+  }
   // Guard exactly the getById loads this command handler later dereferences
   // (op-call targets); loads only read to seed a `create` stay unguarded.
   const dereffedLoads = collectDereferencedLoads(wf.statements);
@@ -1414,6 +1454,8 @@ function renderHandler(
     const fieldName = `_${save.repoName.charAt(0).toLowerCase() + save.repoName.slice(1)}`;
     stmtLines.push(`        await ${fieldName}.SaveAsync(${save.name}, cancellationToken);`);
   }
+  // Persist the saga row (a fresh allocation, or a `this.<stateField>` write).
+  if (corrParam) stmtLines.push("        await _sagaState.SaveChangesAsync(cancellationToken);");
 
   // `workflow_started` at handler entry (before any tx begins); `workflow_completed`
   // on the success tail (after emits dispatch, before returning Unit) — a thrown
@@ -1942,6 +1984,11 @@ export function renderExprWithCmdParams(
    *  to the bare `command` (not `command.Cmd`) and its `.field` member access
    *  lands on `command.Field` — byte-identical to the flat-param form. */
   recordParams?: Set<string>,
+  /** The own-state receiver (F58).  `"state"` on a state-bearing workflow's
+   *  command handler, where `this.<stateField>` resolves against the loaded
+   *  saga row exactly as it does in the reactor path; `"this"` (the default)
+   *  everywhere else, byte-identical. */
+  thisName = "this",
 ): string {
   const rewritten = rewriteExprRefs(e, (r) => {
     if (r.refKind !== "param") return undefined;
@@ -1950,7 +1997,7 @@ export function renderExprWithCmdParams(
       return { ...r, name: `command.${upperFirst(r.name)}`, refKind: "let" };
     return undefined;
   });
-  return renderCsExpr(rewritten, { thisName: "this", resourceClasses, domainServiceReadingCall });
+  return renderCsExpr(rewritten, { thisName, resourceClasses, domainServiceReadingCall });
 }
 
 /** The distinct `reading`-tier domain SERVICES a workflow body calls

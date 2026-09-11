@@ -207,7 +207,7 @@ export const SEMANTICS_RULES: readonly SemanticsRule[] = [
     title: "A created `versioned` aggregate reads back at version 1",
     trigger: "a `versioned` aggregate created via POST, then read back",
     observable:
-      "the optimistic-concurrency `version` on the first read is 1 — the `versioned` capability declares `version: int token = 1` (src/macros/prelude.ts), mirrored to `version INTEGER NOT NULL DEFAULT 1`. All five backends honor it: node stamps it in its versioned save, elixir carries the Ecto `default: 1`, and dotnet/java/python seed it in the domain `create` factory (`constructionSeededDefaults`) since a `token` field is dropped from the create body.",
+      "the optimistic-concurrency `version` on the first read is 1 — the `versioned` capability declares `version: int token = 1` (src/macros/prelude.ts), mirrored to `version INTEGER NOT NULL DEFAULT 1`. All five backends honor it: elixir carries the Ecto `default: 1`, and node/dotnet/java/python seed it in the domain `create` factory (`constructionSeededFields`) since a `token` field is dropped from the create body — node additionally stamps it in its versioned save, which is why it read back at 1 even while its factory left the in-memory aggregate at 0 (M-T6.63).",
     // Canonical value is 1 per the capability's `= 1` default — NOT a majority
     // vote (three backends agreed on the WRONG value).  Closed by M-T6.11
     // (#2255); re-verified per-PR by the M-T9.11 wire-golden gate, which pins

@@ -91,10 +91,16 @@ import { walkExprDeep, walkWorkflowStmtChildren } from "../../../ir/util/walk.js
 import { snake, upperFirst } from "../../../util/naming.js";
 import { renderPhoenixLogCall } from "../../_obs/render-phoenix.js";
 import { lineCount, type SourceMapRecorder } from "../../_trace/sourcemap.js";
+import {
+  commandCreateCorrelationParam,
+  workflowBodyUsesOwnState,
+  workflowBodyWritesOwnState,
+} from "../../_workflow/create-state.js";
 import type { ApiRoute } from "../api-emit.js";
 import { inlineMutatingServiceCall } from "../domain-service-emit.js";
 import { internalCreateFn, internalDeleteFn } from "../lifecycle-seam.js";
 import { type RenderCtx, renderExpr } from "../render-expr.js";
+import { stateDefault } from "../state-default.js";
 import { renderControllerSerialize } from "./controller-serialize.js";
 import {
   contextsHaveWireDenials,
@@ -1386,7 +1392,15 @@ function referencedParams(wf: WorkflowIR): string[] {
  *  `{:ok, _} | {:error, _}`.  An emit-only `do`-branch ends with
  *  `:ok` so the workflow still satisfies the `{:ok, _} | {:error, _}`
  *  contract. */
-function assembleBody(lines: BodyLine[], completedCall: string): string {
+function assembleBody(
+  lines: BodyLine[],
+  completedCall: string,
+  /** F58 — the saga-row persist, 0-indented.  Runs on the SUCCESS path only
+   *  (inside the `with`-chain's `do`-branch when there is one), immediately
+   *  before `workflow_completed`, so a short-circuited `{:error, _}` leaves the
+   *  row as it was.  Empty for stateless / key-less workflows. */
+  persistLines: string[] = [],
+): string {
   const withClauses = lines.filter((l) => l.kind === "with-clause");
   const emitLines = lines.filter((l) => l.kind === "emit");
   const stmtLines = lines.filter((l) => l.kind === "stmt");
@@ -1398,20 +1412,28 @@ function assembleBody(lines: BodyLine[], completedCall: string): string {
   // Indented to match the `with ... do ... end` shape — 6 spaces under
   // `run_inner`.  The log fires only on success (the with-chain's do-branch),
   // never on an `{:error, _}` short-circuit.
-  const doBody =
-    emitLines.length > 0
-      ? `${emitLines.map((l) => `      ${l.text}`).join("\n")}\n      ${completedCall}\n      ${resultExpr}`
-      : `      ${completedCall}\n      ${resultExpr}`;
+  const at = (n: number, ls: string[]): string[] => ls.map((l) => `${" ".repeat(n)}${l}`);
+  const doBody = [
+    ...emitLines.map((l) => `      ${l.text}`),
+    ...at(6, persistLines),
+    `      ${completedCall}`,
+    `      ${resultExpr}`,
+  ].join("\n");
 
   if (stmtLines.length === 0 && withClauses.length === 0 && emitLines.length === 0) {
     // Empty body — keep the stub semantics; still announce completion.
-    return `    ${completedCall}\n    {:ok, params}`;
+    return [...at(4, persistLines), `    ${completedCall}`, "    {:ok, params}"].join("\n");
   }
 
   if (stmtLines.length === 0 && withClauses.length === 0 && emitLines.length > 0) {
     // Emit-only body — no with-chain to gate on, broadcasts run
     // unconditionally then return :ok.
-    return `${emitLines.map((l) => `    ${l.text}`).join("\n")}\n    ${completedCall}\n    {:ok, :emitted}`;
+    return [
+      ...emitLines.map((l) => `    ${l.text}`),
+      ...at(4, persistLines),
+      `    ${completedCall}`,
+      "    {:ok, :emitted}",
+    ].join("\n");
   }
 
   if (stmtLines.length === 0 && withClauses.length > 0) {
@@ -1429,12 +1451,14 @@ ${doBody}
   }
 
   if (withClauses.length === 0 && stmtLines.length > 0) {
-    return `    # Workflow body — incremental lowering (see workflow-execution-emit.ts).
-${stmtLines.map((l) => `    ${l.text}`).join("\n")}${
-  emitLines.length > 0 ? `\n${emitLines.map((l) => `    ${l.text}`).join("\n")}` : ""
-}
-    ${completedCall}
-    ${resultExpr}`;
+    return [
+      "    # Workflow body — incremental lowering (see workflow-execution-emit.ts).",
+      ...stmtLines.map((l) => `    ${l.text}`),
+      ...emitLines.map((l) => `    ${l.text}`),
+      ...at(4, persistLines),
+      `    ${completedCall}`,
+      `    ${resultExpr}`,
+    ].join("\n");
   }
 
   // Mixed: stmt lines first, then with-chain (emits in its do-branch).
@@ -1496,8 +1520,20 @@ function renderWorkflowModule(
   const isolation =
     transactional && ctx && sys ? resolveWorkflowIsolation(wf, ctx, sys) : wf.isolation;
 
+  // F58 — a state-bearing workflow's COMMAND route addresses the SAME persisted
+  // saga row its event-triggered starter does (`dispatch-emit.ts`
+  // `renderPersistedBody`).  Before this the body rendered own-state writes as
+  // `state <- (%{state | f: v})` with `state` bound NOWHERE in `run/1`, and
+  // own-state reads against a `record` that likewise does not exist — and the
+  // correlation row was never created, so a later `on` reactor for the same key
+  // logged `event_unrouted` forever.  The key is the create param that
+  // name-matches the correlation field (the command-side twin of the reactor's
+  // omitted-`by` rule); it is read off the raw `params` map so it binds
+  // regardless of whether the BODY happens to reference that param.
+  const corrParam = commandCreateCorrelationParam(wf);
+  const bindsState = !!corrParam && workflowBodyUsesOwnState(wf.statements ?? []);
   const renderCtx: RenderCtx = {
-    thisName: "record",
+    thisName: bindsState ? "state" : "record",
     contextModule: contextModuleFq,
     resourceModules,
     // Domain-service call wiring (domain-services.md rev. 4, Elixir
@@ -1567,7 +1603,47 @@ function renderWorkflowModule(
 
   def report_result(result), do: result`;
   const lines = lowerStatements(wf.statements ?? [], contextModuleFq, renderCtx, ctx);
-  const body = assembleBody(lines, completedCall);
+  // Load-or-allocate + persist, mirroring `renderPersistedBody`'s create arm.
+  // `__loom_state` keeps the row AS LOADED so the trailing changeset carries the
+  // body's writes as real CHANGES — Elixir rebinds `state` in place
+  // (`state = %{state | f: v}`), and `Ecto.Changeset.change(state, …)` against
+  // the already-updated struct would diff to nothing and the update would be a
+  // silent no-op (the trap `projection-fold` documents).
+  const stateMod = `${contextModuleFq}.Workflows.${wfPascal}State`;
+  const allocFields = corrParam
+    ? [
+        `${snake(wf.correlationField as string)}: key`,
+        ...(wf.stateFields ?? [])
+          .filter((f) => f.name !== wf.correlationField && !f.optional)
+          .map((f) => `${snake(f.name)}: ${stateDefault(f.type)}`),
+      ]
+    : [];
+  const statePrelude = corrParam
+    ? [
+        `    key = params[${JSON.stringify(corrParam.name)}]`,
+        `    ${bindsState ? "__loom_state" : "_"} =`,
+        `      case Repo.get(${stateMod}, key) do`,
+        `        nil -> Repo.insert!(%${stateMod}{${allocFields.join(", ")}})`,
+        `        existing -> existing`,
+        `      end`,
+        ...(bindsState ? ["", "    state = __loom_state"] : []),
+        "",
+      ].join("\n") + "\n"
+    : "";
+  const mutableStateFields = (wf.stateFields ?? [])
+    .filter((f) => f.name !== wf.correlationField)
+    .map((f) => `:${snake(f.name)}`);
+  // Only a body that WRITES own state has anything to persist — a read-only
+  // body's row is already durable (the allocate arm is a `Repo.insert!`), so an
+  // unconditional update would be an empty changeset that still bumps
+  // `updated_at`.
+  const persistLines =
+    bindsState && workflowBodyWritesOwnState(wf.statements ?? []) && mutableStateFields.length > 0
+      ? [
+          `Repo.update!(Ecto.Changeset.change(__loom_state, Map.take(state, [${mutableStateFields.join(", ")}])))`,
+        ]
+      : [];
+  const body = assembleBody(lines, completedCall, persistLines);
   // A workflow that names `currentUser` in a guard/body — or calls a
   // `currentUser`-gated op — threads `current_user \\ nil` into `run/1`
   // (and `run_inner` on the transactional path) so the rendered bare token
@@ -1612,7 +1688,7 @@ function renderWorkflowModule(
       : "";
   // `workflow_started` runs first thing in the body (before the destructure +
   // the with-chain), so it fires at run/1 entry on every invocation.
-  const finalBody = `    ${startedCall}\n` + paramDestructure + aliasedBody;
+  const finalBody = `    ${startedCall}\n` + paramDestructure + statePrelude + aliasedBody;
 
   const transactionalDoc = transactional
     ? "\n\n  Marked `transactional` — the body runs inside `Repo.transaction/1`;\n  a rejection result rolls the transaction back."
@@ -1672,7 +1748,7 @@ defmodule ${moduleName} do
   Workflow \`${wf.name}\` — plain Elixir.
   """
 
-  require Logger${hasContextCall ? `${contextAlias}\n` : ""}
+  require Logger${corrParam ? `\n  alias ${repoMod}` : ""}${hasContextCall ? `${contextAlias}\n` : ""}
 
   @spec run(map()${needsUser ? ", term()" : ""}) :: {:ok, term()} | {:error, term()}
   def run(params${userParam}) when is_map(params) do
