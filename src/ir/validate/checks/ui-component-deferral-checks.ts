@@ -429,6 +429,8 @@ function flutterDeferrals(c: ComponentIR, ctx: DeferCtx): ComponentDeferral[] {
  *
  *    react / vue / svelte / angular  `src/components/X.props.ts` + the import
  *    feliz                           `open Components.X` + `(X {| … |})`
+ *    phoenixLiveView                 `<.live_component module={Components.X}
+ *                                    id="x" score={3} />`
  *    flutter                         NOTHING — the call site renders a
  *                                    `const SizedBox.shrink()` carrying the
  *                                    walker's `loom:unrendered
@@ -448,6 +450,13 @@ const EXTERN_COMPONENT_FRAMEWORKS: ReadonlySet<string> = new Set([
   "svelte",
   "angular",
   "feliz",
+  // Listed though `checkUserComponentSupport` never runs for it today (HEEx is
+  // not in `COMPONENT_FILTERING_FRAMEWORKS`): the set is the MEASURED record of
+  // which frontends honour the hatch, and leaving the one that does out of it
+  // would make a future reader re-measure.  `liveview-emit.ts` skips `c.extern`
+  // with "their rendering is a hand-written LiveComponent embedded via
+  // `<.live_component>`" — verified, not taken on trust.
+  "phoenixLiveView",
 ]);
 
 /** Per-framework deferral analysers — one per member of
