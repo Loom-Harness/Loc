@@ -2343,6 +2343,69 @@ export const DIAGNOSTIC_MESSAGES = {
     `subdomain '${p.name}': permission '${p.pName}' is declared more than once.`,
 
   // ----------------------------------------------------------------------
+  // src/ir/validate/checks/ui-render-slot-checks.ts
+  // ----------------------------------------------------------------------
+  "loom.markup-primitive-in-collection-lambda": (p: {
+    op: unknown;
+    primitive: unknown;
+    param: unknown;
+  }) =>
+    `\`${p.primitive} { … }\` is built inside a \`.${p.op}(…)\` lambda, where it is not markup.  ` +
+    `A collection op is an EXPRESSION: every frontend renders its lambda body through the ` +
+    `expression renderer, not the body walker, so the primitive comes out as a bare function ` +
+    `call (\`${p.primitive}(…)\`) against a name no import provides — the generated frontend ` +
+    `fails to compile (\`Cannot find name '${p.primitive}'\`), it does not merely render wrong.  ` +
+    `Rendering a list of markup is what \`For\` is for: ` +
+    `\`For { each: <collection>, ${p.param} => ${p.primitive} { … } }\` emits properly keyed ` +
+    `elements.  A collection op is still fine in a VALUE position ` +
+    `(\`Text { rows.map(r => r.name).join(", ") }\`) — it is only the markup case that has ` +
+    `nowhere to go.`,
+  // The `money` value cannot be rendered as text; the two arms differ only in
+  // WHERE `Money { … }` goes.  A one-slot text primitive coerces its slot to a
+  // string, so a nested primitive there renders EMPTY — the fix is to replace
+  // the call.  `Stat` / `KeyValueRow` walk a nested primitive in their value
+  // slot on purpose, so the fix is to wrap in place.
+  "loom.money-in-text-slot#replace": (p: {
+    primitive: unknown;
+    path: unknown;
+    aggregate: unknown;
+  }) =>
+    `\`${p.primitive} { ${p.path} }\` renders a \`money\` value ` +
+    `(\`${p.aggregate}.${String(p.path).split(".").pop()}\`) as TEXT.  \`money\` crosses the wire ` +
+    `as a decimal string and deserialises client-side to a \`Decimal\` OBJECT, which is not a ` +
+    `renderable node — the generated frontend fails to TYPECHECK (\`TS2322: Type 'Decimal' is ` +
+    `not assignable to type 'ReactNode'\`), and the other frontends have the same hole in their ` +
+    `own wording.  Write \`Money { ${p.path} }\` instead: it is the formatter primitive, and it ` +
+    `is what the scaffolded table renders every money column through, so the amount also comes ` +
+    `out WITH its currency.  \`${p.primitive} { Money { … } }\` does NOT work — a one-slot text ` +
+    `primitive coerces its slot to a string and a nested primitive there renders empty.`,
+  "loom.money-in-text-slot#wrap": (p: { primitive: unknown; path: unknown; aggregate: unknown }) =>
+    `\`${p.primitive}\`'s value slot renders a \`money\` value ` +
+    `(\`${p.aggregate}.${String(p.path).split(".").pop()}\`) as TEXT.  \`money\` crosses the wire ` +
+    `as a decimal string and deserialises client-side to a \`Decimal\` OBJECT, which is not a ` +
+    `renderable node — the generated frontend fails to TYPECHECK (\`TS2322: Type 'Decimal' is ` +
+    `not assignable to type 'ReactNode'\`), and the other frontends have the same hole in their ` +
+    `own wording.  \`${p.primitive}\` walks a nested primitive in that slot, so wrap it in ` +
+    `place: \`Money { ${p.path} }\`.  That is also what renders the amount WITH its currency.`,
+
+  // ----------------------------------------------------------------------
+  // src/ir/validate/checks/ui-gate-checks.ts
+  // ----------------------------------------------------------------------
+  "loom.page-gate-not-client-evaluable": (p: {
+    uiName: unknown;
+    pageName: unknown;
+    offending: unknown;
+    why: unknown;
+    origin: unknown;
+  }) =>
+    `page '${p.pageName}' on ui '${p.uiName}': a page \`requires\` gate is re-evaluated ` +
+    `IN THE BROWSER against the verified session claims (it is what renders \`<Forbidden/>\` ` +
+    `instead of the body), so it may only touch \`currentUser\`, enum members, constants, ` +
+    `\`.contains(…)\`, comparison / boolean operators and a ternary — \`${p.offending}\` is ` +
+    `outside that set.${p.origin} ${p.why}.  Every frontend refuses to emit a gate it cannot ` +
+    `evaluate rather than degrade it to "always allowed", so this stops generation for all six.`,
+
+  // ----------------------------------------------------------------------
   // src/ir/validate/checks/ui-checks.ts
   // ----------------------------------------------------------------------
   "loom.ui-projection-read-unsupported#not-ui-consumable": (p: {
