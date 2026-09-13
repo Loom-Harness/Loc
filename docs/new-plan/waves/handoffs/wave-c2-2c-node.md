@@ -238,21 +238,25 @@ adapter in the gate) fixes node only. Either way `isColumnArgMembership` in
 | `npm run lint` | 0 errors, 23 warnings — all pre-existing on the base |
 | `node scripts/mission-counts.mjs --check` | up to date (regenerated: `open` 60 → 59, `partial` 66 → 67) |
 | `node scripts/ledger-counts.mjs --check` | `.md` matches the JSON |
-| `npm test` | ran on a machine at load 20-60 (six agents sharing it): the only assertion failure was `corpus/audit-history: the IR-derived caller set equals the requests actually made`, which my fixture change causes and which the re-captured golden below fixes — re-run green in isolation. Everything else that went red was a TIMEOUT under that load, each named below with its duration. |
+| `npm test` | ran on a machine at load 20-60 (several agents sharing it). ONE assertion failure — `corpus/audit-history: the IR-derived caller set equals the requests actually made` — caused by my fixture change and fixed by the re-captured golden (green in isolation). Every other red was a TIMEOUT under that load, and each is now **proven** so rather than asserted: re-run in isolation on the same tree, all seven pass (below). |
 | node compile leg, **both** adapters | `npm install` + `npx tsc --noEmit` clean on generated projects for: the audited-returning repro (drizzle + mikroorm), the provenanced-returning twin, the membership find (mikroorm), the extended `audit-history` corpus fixture, and `embedded, inheritanceUsing: ownTable` (drizzle + mikroorm) |
 | behavioural node leg | `cd test/behavioral && node run.mjs audit-history` — **1 passed, 0 failed** on the extended fixture |
 | runtime | five booted apps on a real `postgres:18-alpine` (not PGlite) — below |
 
-**The four timeouts, for the coordinator's re-run.** None is an assertion failure and none
-touches this packet's blast radius; each is the file's own per-test timeout blown by
-contention (the numbers are the recorded durations):
-`test/cli/new.test.ts` — `dotnet/crud` 36s, `elixir/blank` **560s**;
-`test/system/emitted-unbound-identifiers.test.ts` — `showcase.ddd` **598s** against a
-120 s timeout; `test/conformance/corpus-mutation.test.ts` — one of 2108 mutation cases at
-**525s**; `test/conformance/showcase-completeness.test.ts` — 41s (its own stdout says
-"all 170 AST kinds covered", i.e. the body succeeded);
-`test/cli/cli-tooling-truth.test.ts` — three cases at 31-52s. Re-run these six files on a
-quiet machine before reading anything into them.
+**The seven timeouts, re-run and proven.** None is an assertion failure and none touches this
+packet's blast radius; each was the file's own per-test timeout blown by contention (the
+first number is the recorded duration in the loaded run):
+
+| case | loaded run | isolation re-run, same tree |
+|---|---|---|
+| `emitted-unbound-identifiers` — `showcase.ddd` | **598s** against a 120s timeout | ✅ |
+| `showcase-completeness` — AST-node-kind coverage | 41s (its own stdout printed "all 170 AST kinds covered", i.e. the body had succeeded) | ✅ |
+| `cli-tooling-truth` — 3 cases (`--json` guidance, `--design angularMaterial`, `--design daisyui`) | 31-52s each | ✅ |
+| *(the three files above, together)* | — | **3 files, 53 tests, 0 failed** |
+| `new.test.ts` — `dotnet/crud`, `elixir/blank` | 36s / **560s** | **17/17 passed** (150s total) |
+| `corpus-mutation` — `core-domain x M1.valueObject.parent` | **525s** | **passed** (5s) |
+
+So the fast suite is green on this tree; what the loaded run measured was the machine.
 
 ### Booted-app proofs (rule 10)
 
