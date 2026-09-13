@@ -1,7 +1,7 @@
 # Wave C2 packet 2d — java / Spring / JPA — `claude/c2-java`
 
 Base: the wave C2 coordinator commit `29db198c1` (fast-forward from `main` @ `6d6c1a1`).
-Commit range: `29db198c1..6496df9` (10 commits, plus this note). Branch **not pushed**; the wave PR is the claim.
+Commit range: `29db198c1..HEAD` (12 commits). Branch **not pushed**; the wave PR is the claim.
 
 Tree fence: `src/generator/java/**` plus the tests, the corpus fixtures, the
 diagnostic catalogue / register rows, the Schemathesis waivers and the docs a
@@ -14,11 +14,11 @@ closed row requires. Two hunks land outside it; both are named below under
 
 | row | outcome | where |
 |---|---|---|
-| **M-T6.36** reserved identifiers | **implemented** — gate deleted, `MAX_OPEN_GAPS` 27 → 26 | `src/generator/java/java-ident.ts` (new funnel) + 22 emitters; `test/generator/java/java-reserved-identifier.test.ts:1`; `test/fixtures/corpus/java-reserved-words.ddd:1`; `test/system/unsupported-register.test.ts:286` |
-| **M-T4.2** java document-shaped aggregation | **implemented** — gate deleted, manifest row back to `ALL` | `src/generator/java/emit/query-projection-reads.ts:113` (`documentTableOf`), `:420`, `:353`; `src/generator/java/index.ts:1097`; `test/generator/java/query-projection-document-aggregation.test.ts:1` |
-| **`G2667-D3`** java projection-join arm | **already closed** — verified, not rebuilt | `src/generator/java/emit/query-projection-reads.ts:900` (the null-guarded lookup with the wire wrap INSIDE the guard); `test/generator/java/query-projection-join-missing.test.ts` — 5 passed on this head |
+| **M-T6.36** reserved identifiers | **implemented** — gate deleted, `MAX_OPEN_GAPS` 27 → 26 | `src/generator/java/java-ident.ts` (new funnel) + 22 emitters; `test/generator/java/java-reserved-identifier.test.ts:1`; `test/fixtures/corpus/java-reserved-words.ddd:1`; `test/system/unsupported-register.test.ts:295` |
+| **M-T4.2** java document-shaped aggregation | **implemented** — gate deleted, manifest row back to `ALL` | `src/generator/java/emit/query-projection-reads.ts:125` (`documentTableOf`), `:357` (grouped), `:432` (singleton); `src/generator/java/index.ts:1097`; `test/generator/java/query-projection-document-aggregation.test.ts:1` |
+| **`G2667-D3`** java projection-join arm | **already closed** — verified, not rebuilt | `src/generator/java/emit/query-projection-reads.ts:901` (the null-guarded lookup with the wire wrap INSIDE the guard); `test/generator/java/query-projection-join-missing.test.ts` — 5 passed on this head |
 | **Schemathesis F11** (W11/W12) | **already closed** — verified, not rebuilt | W11/W12 absent from `test/behavioral/schemathesis-waivers.json`; `test/generator/int32-wire-bound.test.ts` — 9 passed on this head; java has always published `format: int32` and rejected the overflow at the binder |
-| **Schemathesis F21** (W27/W34) | **W34 implemented + deleted**; W27 (dotnet) **handed off** | `src/generator/java/emit/common.ts:376`; `test/generator/java/wire-numeric-ingress.test.ts:105`; `docs/audits/schemathesis-findings-2026-08.md:1192` |
+| **Schemathesis F21** (W27/W34) | **W34 implemented + deleted**; W27 (dotnet) **handed off** | `src/generator/java/emit/common.ts:385`; `test/generator/java/wire-numeric-ingress.test.ts:121`; `docs/audits/schemathesis-findings-2026-08.md:1192` |
 | **`render-sql-restriction.ts:32`** principal-`scope` refusal | **proved unreachable, made a floor** | `test/generator/java/sql-restriction-scope-unreachable.test.ts:1` |
 | java arms of **`F2-XB-4`** / **`F2-CB-C7`** | **not handed off by C1 1e — both were FIXED there.** Verified on this head, not rebuilt | `test/conformance/projection-fold-statement-parity.test.ts` + `test/generator/domain-service-gate-import-parity.test.ts` — 38 passed together with the join test |
 
@@ -292,7 +292,7 @@ correcting it is that decision's business, not this packet's.
 | `node scripts/mission-counts.mjs --check` | OK (M-T6.36 archived to `archive/T6-done.md`) |
 | `node scripts/ledger-counts.mjs --check` | OK |
 | `node docs/build.mjs` | clean |
-| `npm test` | see below |
+| `npm test` | **2011 files / 23416 tests passed**, 0 failed (7 expected-fail, 1082 skipped) — see the two subsections below |
 | `npx vitest run test/generator/java` | 604 passed (100 files) |
 | corpus java compile, `java-reserved-words` | `gradle --no-daemon -q testClasses bootJar` clean |
 | corpus java compile, `projection-document-aggregation` | clean |
@@ -308,9 +308,9 @@ in `gradle:9-jdk25` — the image the emitted Dockerfile names — with
 `--network host` and the session's `JAVA_TOOL_OPTIONS`. Same command, same
 toolchain, different launcher.
 
-### What the first full `npm test` caught (both fixed in-tree)
+### What the full `npm test` caught that no targeted run did
 
-Worth recording, because both are ratchets that only bite from the WHOLE run:
+Four ratchets, all of which only bite from the WHOLE run, all fixed in-tree:
 
 * `direct-generate-systems-ratchet` — `java-reserved-identifier.test.ts` had
   inherited `parseHelper` + `generateSystems` from the sibling file it sat beside,
@@ -319,11 +319,30 @@ Worth recording, because both are ratchets that only bite from the WHOLE run:
 * `diagnostic-docs-anchors` `UNDOCUMENTED_BASELINE` 369 → 368 — deleting a code
   shrinks the undocumented list, and that ratchet only ratchets if the number
   comes down with it.
+* `unsupported-register` "resolves every cited mission to exactly one heading" —
+  this note's own `## M-T4.2 — …` heading made the id ambiguous under
+  `docs/new-plan/`. The note's headings now carry the id in parentheses.
+* `api-caller-census` — `crudish` derives an `update` route and the new corpus
+  fixture never called it, leaving the whole FULL-REPLACEMENT path untested for
+  every reserved-word component while `create` proved only the factory. A pin
+  would have recorded that as deliberate; it was not, so the e2e drives `update`
+  (and the later reads moved to observe the replaced row). Golden re-captured
+  from node, 11 → 13 requests, and re-verified on the booted java app.
 
-The last three commits (the funnel tail, the docs closure, the helper migration)
-landed after that run and were gated individually (`test/generator/java` 604
-passed, the two ratchets above, `tsc -b`, the typecheck ratchet, `biome ci`,
-`docs/build.mjs`); the full suite was then re-run from scratch on the final tree.
+### One environmental failure, NOT a defect
+
+`packaging-split-fs-discovery` / `packaging-split-core-pkg` (4 tests) fail in a
+bare **worktree**: `discoverBackendsFs(repoRoot)` reads the literal
+`<repoRoot>/node_modules`, and a worktree has none of its own — Node resolves
+up to the main checkout, that walk does not. Confirmed by symlinking
+`node_modules/@loom` from the main checkout into the worktree, after which all
+four pass; nothing in this packet's diff touches `packages/`, `fs-discovery.ts`,
+`registry.ts` or any `package.json`. Worth knowing for every worktree-based
+packet in this wave.
+
+Neither this nor the docker wrinkle below is in `experience_gathered.md`, and
+both cost real time here; that file is outside this packet's fence, so they are
+recorded here for whoever harvests the wave.
 
 **Docker, for whoever repeats this:** `dockerd` needed starting, the registry was
 reachable, but port 5432 (and 55432) were already bound by other agents' sidecars,
