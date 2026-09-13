@@ -250,12 +250,14 @@ the conforming backends, and the fix that established it.
   `version INTEGER NOT NULL DEFAULT 1`.
 - **Trigger.** A `versioned` aggregate created via `POST`, then read.
 - **Observable.** Every backend now reads back `1`. node stamps `version = 1`
-  in its versioned save; elixir carries the Ecto `field :version, :integer,
+  in its versioned save *and* (since M-T6.63) seeds it in the factory too, so the
+  in-memory aggregate no longer reports `0` while the row it wrote says `1`;
+  elixir carries the Ecto `field :version, :integer,
   default: 1`; dotnet/java/python originally seeded `0` — a `token` field is
   dropped from the create body, so the ORM inserted the persistence-layer zero
   and the DB `DEFAULT 1` never fired. The fix seeds the field's `= 1` IR default
-  in each domain `create` factory (`constructionSeededDefaults`,
-  `src/generator/_frontend/server-default.ts`), which is persistence-agnostic —
+  in each domain `create` factory (`constructionSeededFields`,
+  `src/generator/construction-default.ts`), which is persistence-agnostic —
   every create path flows through the factory (EF/Dapper/document, JPA, SQLAlchemy
   `aggregate.version`). Java's `version` was mapped `@Version` at the time, which
   keeps the factory's non-unsaved value; RS-20 later made it a plain column driven
