@@ -153,8 +153,8 @@ gate already encodes the row's claim, run the gate.
 | class: faulty-fix / regression | 1 / 0 |
 | size S / M / L | 34 / 58 / 43 |
 | provenance: fleet1-only / fleet2-only / corroborated by both | 123 / 10 / 1 |
-| claimed by an open PR | 61 |
-| done / merged | 153 |
+| claimed by an open PR | 60 |
+| done / merged | 154 |
 | declined (not a gap: stale / breadth / duplicate / decided) | 6 |
 | conflicts | 10 |
 | checkedOk entries | 146 |

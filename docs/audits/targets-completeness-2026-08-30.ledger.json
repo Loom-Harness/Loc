@@ -6116,11 +6116,6 @@
    "title": "Value-on-left comparison on persistence: mikroorm emits a runtime-throwing stub the capability gate promised couldn't exist"
   },
   {
-   "id": "G2667-A6-audited-returning-op-contract-drop",
-   "claimedBy": "#2667",
-   "title": "audited/provenanced on a RETURNING operation silently discards the whole return contract (node)"
-  },
-  {
    "id": "G2667-A20-nested-match-binding-clobber",
    "claimedBy": "#2667",
    "title": "Nested variant-`match` clobbers outer bindings in the shared expr dispatcher"
@@ -7318,6 +7313,11 @@
    "id": "flutter-form-field-drops",
    "title": "All four `KNOWN_FLUTTER_GAPS` pins closed with real Dart widgets and DELETED; the parity freeze now asserts the EMPTY set. (1) value-object flattening is recursive, so `addr.geo.lat` gets its own controller and the request body re-nests to the same depth (`objectKey: string` became `objectPath: string[]`, `bodyAssembly` builds a tree). (2) an object-array row slot is heterogeneous (`List<List<dynamic>>`): text/number cells keep their `TextEditingController`, bool / enum / datetime cells hold their value and render a checkbox / dropdown / date picker, so a VO array with a non-scalar sub-field no longer defers. (3)+(4) bool and enum element arrays are repeatable checkbox / dropdown row editors (`List<bool>` / `List<String>`). Wire shape unchanged and verified against the BACKEND's own zod request schema in the same generated tree, not the Flutter emitter. Evidence: `test/generator/flutter/{nested-vo-field,bool-enum-array}.test.ts` (11 tests) + the rewritten `parity-freeze.test.ts` (empty allowlist + a vacuity guard that the fixture still emits all four shapes). Mutation-proved three times, one per arm — restoring the one-level flatten fails 4 assertions (`expected … to contain \"_addrGeoLatController\"`, `expected [ Array(1) ] to deeply equal []`), narrowing object-array cells back to text/number fails 5, deferring bool/enum element arrays fails 5. A fourth mutation re-introduced the real off-by-one closing paren the new `dartBracketImbalance` sweep caught during development: `'[' opened at line 74 is closed by ')'`.",
    "source": "wave-c1-1e-ledger-flutter"
+  },
+  {
+   "id": "G2667-A6-audited-returning-op-contract-drop",
+   "title": "audited/provenanced on a RETURNING operation silently discards the whole return contract (node)",
+   "note": "Wave C2 packet 2c (node): the Hono operation route now dispatches an audited/provenanced RETURNING op to emitReturningOperationRoute with the audit/provenance transaction wrapped around it (src/platform/hono/v4/routes-builder.ts auditProvTxLines + the capture flag); loom.audited-returning-operation-unsupported retired with its gate, message, register row and census fixture."
   }
  ],
  "conflicts": [

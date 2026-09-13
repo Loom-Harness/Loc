@@ -97,13 +97,6 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
     mission: "M-T6.32",
   },
   {
-    code: "loom.audited-returning-operation-unsupported",
-    kind: "gap",
-    site: "src/ir/validate/checks/storage-inheritance-checks.ts:614",
-    what: "`audited`/`provenanced` × a RETURNING operation falls into node's void-204 handler",
-    mission: "M-T6.32",
-  },
-  {
     code: "loom.auth-ui-unsupported-framework",
     kind: "seam",
     site: "src/ir/validate/checks/ui-framework-checks.ts:425",
