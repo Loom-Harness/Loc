@@ -254,12 +254,25 @@ adapter in the gate) fixes node only. Either way `isColumnArgMembership` in
 | `npm run lint` | 0 errors, 23 warnings — all pre-existing on the base |
 | `node scripts/mission-counts.mjs --check` | up to date (regenerated: `open` 60 → 59, `partial` 66 → 67) |
 | `node scripts/ledger-counts.mjs --check` | `.md` matches the JSON |
-| `npm test` | ran on a machine at load 20-60 (several agents sharing it). **TWO** assertion failures, both now fixed: the stale `audit-history` wire golden (re-captured), and six cases in `test/ir/util/find-predicate-capability.test.ts` that I had not run and that commit `0ad9d790a` broke — see the correction below. Every other red was a TIMEOUT under that load, proven so by re-running each in isolation on the same tree. |
+| `npm test` | ran on a machine at load 20-60 (several agents sharing it): **17 files / 31 tests red**, fully accounted for below. THREE were real and are fixed; four were a missing workspace symlink in my worktree; the other 24 were 30s timeouts under that load, each re-run green or shown to carry `Test timed out in 30000ms` rather than an assertion. |
 | node compile leg, **both** adapters | `npm install` + `npx tsc --noEmit` clean on generated projects for: the audited-returning repro (drizzle + mikroorm), the provenanced-returning twin, the membership find (mikroorm), the extended `audit-history` corpus fixture, and `embedded, inheritanceUsing: ownTable` (drizzle + mikroorm) |
 | behavioural node leg | `cd test/behavioral && node run.mjs audit-history` — **1 passed, 0 failed** on the extended fixture |
 | runtime | five booted apps on a real `postgres:18-alpine` (not PGlite) — below |
 
-**The seven timeouts, re-run and proven.** None is an assertion failure and none touches this
+### The full red set from that run, and what each was
+
+Reading the rollup ONLY from the tail of a running log hid two of these from my first report;
+the list below is the whole `❯ … failed` set, which is what a later reader should trust.
+
+| what | files | disposition |
+|---|---|---|
+| **real, fixed** | `ir/api-caller-census` (2) | the stale `audit-history` wire golden — re-captured in `96e4daa7c` |
+| **real, fixed** | `ir/util/find-predicate-capability` (6) | `0ad9d790a` gutted the descriptor; restored in the follow-up commit, with five mutation proofs |
+| **real, fixed** | `system/diagnostic-docs-anchors` (1) | retiring `loom.audited-returning-operation-unsupported` shrank the undocumented list 369 → 368 and I did not lower `UNDOCUMENTED_BASELINE` with it. The ratchet did exactly its job; the baseline is now 368, mutation-proved by putting 369 back (fails *"only shrinks"*) |
+| **environmental, not code** | `platform/packaging-split-{core-pkg,fs-discovery}` (4) | `discoverBackendsFs` scans `node_modules/@loom/*`, which npm creates from the root `workspaces: ["packages/*"]`. That directory did not exist in my worktree, so discovery found no `node_modules/@loom/…` links. `ls -la node_modules/@loom` → ENOENT; after symlinking the six `packages/*` into it by hand, **146/146 pass**. No commit in this packet touches `packages/`, `fs-discovery.ts` or the root `package.json`. **If you see these red, run `npm install` at the repo root before reading anything into them.** |
+| **timeouts** | 11 files | below |
+
+**The timeouts, re-run and proven.** None is an assertion failure and none touches this
 packet's blast radius; each was the file's own per-test timeout blown by contention (the
 first number is the recorded duration in the loaded run):
 
@@ -272,7 +285,16 @@ first number is the recorded duration in the loaded run):
 | `new.test.ts` — `dotnet/crud`, `elixir/blank` | 36s / **560s** | **17/17 passed** (150s total) |
 | `corpus-mutation` — `core-domain x M1.valueObject.parent` | **525s** | **passed** (5s) |
 
-So the fast suite is green on this tree; what the loaded run measured was the machine.
+Plus, from the same run and re-checked afterwards: `cli/cli`, `cli/generate-diagnostic-parity`,
+`cli/migrations-destructive`, `cli/regen-prune`, `cli/verify-cli` and
+`system/playground-feature-examples` — 5 still-red cases across them on a re-run at load 26,
+**every one carrying `Test timed out in 30000ms`** and not one an assertion (a `.ddd` that
+parses in milliseconds was taking 74 s). These shell out to `node bin/cli.js`, which is what
+makes them the first to starve.
+
+So the fast suite is green on this tree once the three real failures above are fixed; the rest
+of what the loaded run measured was the machine, and four of it was my worktree's `npm
+install`.
 
 ### Booted-app proofs (rule 10)
 
