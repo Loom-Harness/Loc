@@ -232,7 +232,9 @@ describe("expression editor — primitive conversions", () => {
   });
 
   it('keeps `money("…")` (string argument) as the money literal, not a conversion', () => {
-    // MoneyLit wins the parse over PrimitiveConversion for a string argument.
+    // One AST node (`PrimitiveConversion`) carries both spellings — there is
+    // one grammar path for `money(` — and `seedExpr` splits them on the
+    // argument's shape, a STRING literal being the money literal.
     expect(seed('money("1.00")').kind).toBe("money");
     expect(seed("money(price)").kind).toBe("convert");
   });

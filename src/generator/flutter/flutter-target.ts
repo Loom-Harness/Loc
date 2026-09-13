@@ -10,8 +10,9 @@
 // `DART_LEAVES` (`./dart-expr.ts`).  State follows the Riverpod convention: reads
 // dereference the projected state record (`state.<field>`), writes call the
 // Notifier's generated `set<Field>` method (`notifier.set<Field>(…)`) — emitted
-// per state cell by `riverpod-emit.ts`, so the top-level write resolves (a nested
-// `a.b.c := v` write still carries a TODO in `renderNestedStateWrite`).  The
+// per state cell by `riverpod-emit.ts`, so the top-level write resolves; a nested
+// `a.b.c := v` write folds into the immutable `copyWith` chain (`copy-with.ts`,
+// shared with the Notifier-method path).  The
 // standalone controlled inputs (Field / MultilineField / PasswordField / Toggle /
 // SelectField) write through the same setters, bound as a page-shell tear-off.
 //
@@ -45,6 +46,7 @@ import type { ApiCallSite, RenderPosition, StateRef, WalkerTarget } from "../_wa
 import type { WalkContext } from "../_walker/walker-core.js";
 import { emitExpr, testidAttr, walk } from "../_walker/walker-core.js";
 import { opActionGate } from "./auth-gate.js";
+import { copyWithChain } from "./copy-with.js";
 import {
   DART_LEAVES,
   dartMoneyBinary,
@@ -165,6 +167,39 @@ function dartRoute(
   return `'/${rendered.join("/")}'`;
 }
 
+/** The ARGUMENT LIST of a Flutter navigation — `'/orders'`, or
+ *  `'/orders', arguments: {…}` — everything after the navigator receiver.
+ *
+ *  Split out of `renderNavigate` because there are TWO receivers, not one: a
+ *  widget `build` has a `BuildContext` and pushes through
+ *  `Navigator.pushNamed(context, …)`, while a Riverpod `Notifier` method (where
+ *  a page `action` body lands) has NO context and pushes through the generated
+ *  `navigateTo(…)` bridge in `lib/nav.dart`.  Both spellings must agree on the
+ *  route and on how leftover args travel, so the derivation lives here once
+ *  (`riverpod-emit.ts` is the other caller). */
+export function dartNavigateArgs(
+  routeTemplate: string,
+  args: ReadonlyArray<{ name: string; value: string }>,
+  stateExpr: string | undefined,
+): string {
+  const path = dartRoute(routeTemplate, args);
+  if (stateExpr !== undefined) return `${path}, arguments: ${stateExpr}`;
+  // Args consumed by a `:param` segment are already interpolated into the
+  // route; only the LEFTOVER args ride along as a Navigator arguments map.
+  const routeParams = new Set(
+    routeTemplate
+      .split("/")
+      .filter((s) => s.startsWith(":"))
+      .map((s) => s.slice(1)),
+  );
+  const extra = args.filter((a) => !routeParams.has(a.name));
+  const argMap =
+    extra.length > 0
+      ? `, arguments: {${extra.map((a) => `${dartString(a.name)}: ${a.value}`).join(", ")}}`
+      : "";
+  return `${path}${argMap}`;
+}
+
 /** The provider-local var a detected api call resolves to (`Customer` + `all` →
  *  `customerAll`).  Track D wires the matching Riverpod provider; the view only
  *  names the local it reads. */
@@ -208,12 +243,23 @@ export const flutterTarget: WalkerTarget = {
   // Notifier's generated `set<Field>` setter (emitted per state cell by
   // `riverpod-emit.ts`; the page shell binds `notifier`).
   renderStateWrite: (ref: StateRef, value: string) => `notifier.${setterName(ref.name)}(${value})`,
-  // A multi-segment write (`order.shipping.zip := v`) → a Notifier update on the
-  // root field; the projector fills the immutable rebuild.
+  // A multi-segment write (`order.shipping.zip := v`) → the root field's Notifier
+  // setter, handed the immutable inside-out `copyWith` rebuild of the path
+  // BELOW the root:
+  //
+  //   order.shipping.zip := v
+  //     → notifier.setOrder(state.order.copyWith(shipping: state.order.shipping.copyWith(zip: v)))
+  //
+  // Before this it emitted `notifier.setOrder(v)` plus a `/* TODO */` comment —
+  // which does not defer the write, it performs a DIFFERENT one, clobbering the
+  // whole root cell with the leaf value.  The comment made it look handled.
+  // The fold is `copyWithChain` (shared with `riverpod-emit.ts`'s
+  // `nestedCopyWith`, which builds the same chain rooted at `state` for the
+  // Notifier-method path).
   renderNestedStateWrite: (segments: readonly string[], valueJs: string) => {
     const [root, ...rest] = segments;
-    const path = rest.length ? `${root}.${rest.join(".")}` : (root ?? "");
-    return `notifier.${setterName(root ?? "")}(${valueJs}) /* TODO(flutter): nested write ${path} */`;
+    if (!root) return `notifier.${setterName("")}(${valueJs})`;
+    return `notifier.${setterName(root)}(${copyWithChain(`state.${root}`, rest, valueJs)})`;
   },
 
   // --- Store seam — a store is its own Riverpod provider (Stage 5) ---------
@@ -498,26 +544,8 @@ export const flutterTarget: WalkerTarget = {
   },
 
   // --- Navigation seam — Navigator.pushNamed -------------------------------
-  renderNavigate: (routeTemplate, args, stateExpr) => {
-    const path = dartRoute(routeTemplate, args);
-    if (stateExpr !== undefined) {
-      return `Navigator.pushNamed(context, ${path}, arguments: ${stateExpr})`;
-    }
-    // Args consumed by a `:param` segment are already interpolated into the
-    // route; only the LEFTOVER args ride along as a Navigator arguments map.
-    const routeParams = new Set(
-      routeTemplate
-        .split("/")
-        .filter((s) => s.startsWith(":"))
-        .map((s) => s.slice(1)),
-    );
-    const extra = args.filter((a) => !routeParams.has(a.name));
-    const argMap =
-      extra.length > 0
-        ? `, arguments: {${extra.map((a) => `${dartString(a.name)}: ${a.value}`).join(", ")}}`
-        : "";
-    return `Navigator.pushNamed(context, ${path}${argMap})`;
-  },
+  renderNavigate: (routeTemplate, args, stateExpr) =>
+    `Navigator.pushNamed(context, ${dartNavigateArgs(routeTemplate, args, stateExpr)})`,
   // `Button(to: "/products")` → the bare navigate call (bound as a statement by
   // `renderEventHandler`).  The dest arg is already rendered.
   renderNavigateExpr: (toArg: string) => `Navigator.pushNamed(context, ${toArg})`,
@@ -562,6 +590,7 @@ export const flutterTarget: WalkerTarget = {
       if (inst?.kind === "member") {
         return giveUp(
           flutterTarget,
+          "loom.page-ref-unreachable",
           `OperationForm(${inst.receiver.kind === "ref" ? inst.receiver.name : "?"}.${inst.member}): ` +
             "'" +
             (inst.receiver.kind === "ref" ? inst.receiver.name : "?") +
@@ -598,7 +627,11 @@ export const flutterTarget: WalkerTarget = {
     const argNames = call.argNames ?? [];
     const opRef = (call.args ?? []).find((_, i) => !argNames[i]);
     if (opRef?.kind !== "member" || opRef.receiver.kind !== "ref") {
-      return giveUp(flutterTarget, "Action: first argument must be <instance>.<operation>");
+      return giveUp(
+        flutterTarget,
+        "loom.page-primitive-arg-invalid",
+        "Action: first argument must be <instance>.<operation>",
+      );
     }
     const aggName = ctx.paramTypes?.get(opRef.receiver.name);
     const agg = aggName ? ctx.aggregatesByName.get(aggName) : undefined;
@@ -608,6 +641,7 @@ export const flutterTarget: WalkerTarget = {
     if (!agg || !op) {
       return giveUp(
         flutterTarget,
+        "loom.page-ref-unreachable",
         `Action(${opRef.receiver.name}.${opRef.member}): no parameter-less public operation in scope (use OperationForm for an op with parameters)`,
       );
     }
@@ -683,6 +717,7 @@ export const flutterTarget: WalkerTarget = {
     if (!resolved) {
       return giveUp(
         flutterTarget,
+        "loom.page-primitive-arg-invalid",
         "Modal: OperationForm child must name of: <Agg> and op: <public op>",
       );
     }
@@ -764,7 +799,11 @@ export const flutterTarget: WalkerTarget = {
     const fieldIdx = argNames.indexOf("field");
     const fieldArg = fieldIdx >= 0 ? call.args[fieldIdx] : undefined;
     if (!ofArg || fieldArg?.kind !== "literal") {
-      return giveUp(flutterTarget, "ProvenanceInfo: missing record or field");
+      return giveUp(
+        flutterTarget,
+        "loom.page-primitive-arg-missing",
+        "ProvenanceInfo: missing record or field",
+      );
     }
     const lineage = `${emitExpr(ofArg, ctx)}.${String(fieldArg.value)}.${PROVENANCE_LINEAGE_FIELD}`;
     const row = (label: string, value: string) =>

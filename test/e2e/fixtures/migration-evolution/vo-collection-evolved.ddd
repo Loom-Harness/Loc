@@ -1,0 +1,37 @@
+// Value-collection evolution gate (M-T2.15 / #2864 D1) — the EVOLVED model (v2).
+//
+// Paired with vo-collection-base.ddd (v1).  The ONLY difference is the added
+// field `lines: LineVO[]` — a value-object COLLECTION on an aggregate that is
+// already in the migration baseline.  It must lower to the id-less child table
+//
+// `order_lines`, and to NO column on `orders`: `orders` has no such column on
+// a fresh create, and no ORM maps one, so an `ADD COLUMN "lines" JSONB[]` in the
+// diff is a phantom that makes every later INSERT fail its NOT NULL constraint.
+//
+// `__PLATFORM__` is swapped per backend by the harness.  Deployable name `d`
+// matches the other e2e fixtures.
+system OrderEvo {
+  subdomain Ordering {
+    context Ord {
+      valueobject LineVO {
+        sku: string
+        qty: int
+      }
+      aggregate Order {
+        note: string
+        lines: LineVO[]
+      }
+      repository Orders for Order { }
+    }
+  }
+  api OrdApi from Ordering
+  storage primary { type: postgres }
+  resource ordState { for: Ord, kind: state, use: primary }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Ord]
+    dataSources: [ordState]
+    serves: OrdApi
+    port: 4000
+  }
+}

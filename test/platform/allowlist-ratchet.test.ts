@@ -349,7 +349,25 @@ const REGISTERED: Ratchet[] = [
     // `customer_id`.  So a future drainer should NOT spend a slot trying to
     // give this one an e2e block; the honest move if it ever becomes wrong is
     // to delete the fixture, not to boot it.
-    max: 13,
+    //
+    // 13 -> 14: `find-bypass` (M-T6.54 F18, wave-c1 packet 1f) — a NEW fixture,
+    // not a drained one regressing.  Its assertion ("does the OTHER tenant's row
+    // appear under `ignoring tenantOwned`?") needs the two-principal harness
+    // `projection-agg-filters` already waits on, and under one principal both
+    // spellings return the same set, i.e. a behavioural block would be GREEN over
+    // the retained conjunct the fixture exists to catch.  Its tracker is the same
+    // one (tenancy-e2e's two-principal harness); it drains with its neighbour.
+    //
+    // 14 -> 17: three more NEW fixtures folded in the same wave (C1), each a
+    // compile-tier proof of a fix whose runtime half is owed, and each carrying
+    // its drain condition in the register: `projection-fold-statements` and
+    // `paged-nonrelational` (ledger rows F2-XB-4 / F2-CB-C1, packet 1e-i — a
+    // dropped fold-body `let` is CS0103, the wrong paged carrier CS0535, so the
+    // corpus compile leg plus the two conformance matrices are the gate that
+    // mattered), and `workflow-primitive-params` (RS-26 boxing of a java
+    // workflow's primitive params, packet 1h — the behavioural runner cannot
+    // yet address a workflow's create surface).  Reviewed at the wave fold.
+    max: 17,
   },
 ];
 
