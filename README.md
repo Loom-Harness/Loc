@@ -74,7 +74,7 @@ system Acme {
 
       event OrderConfirmed { order: Order id, at: datetime }
 
-      aggregate Order {
+      aggregate Order with crudish {
         customerId: string
         status: OrderStatus
         placedAt: datetime
@@ -115,7 +115,7 @@ system Acme {
 
   subdomain Catalog {
     context Products {
-      aggregate Product {
+      aggregate Product with crudish {
         sku: string
         price: Money
         derived display: string = sku
