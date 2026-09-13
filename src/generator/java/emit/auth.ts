@@ -12,6 +12,7 @@ import {
 } from "../../../ir/util/tenant-stance.js";
 import { AUTH_BASE_PATH } from "../../../util/api-base.js";
 import { lines } from "../../../util/code-builder.js";
+import { claimsReferenceIds } from "../../_auth/claim-types.js";
 import { devClaimFields } from "../../_auth/dev-claims.js";
 import { renderJavaType } from "../render-expr.js";
 
@@ -68,6 +69,12 @@ export function renderAuthFiles(
   const actorIdField = fields.find((f) => f.name === "id") ?? fields[0];
 
   const imports = new Set<string>();
+  // An `X id?` claim NAMES a strong id (`CustomerId`) as a record component,
+  // and the strong-id classes are emitted into `<basePkg>.domain.ids` while
+  // this record lives in `<basePkg>.auth` — so without the import the whole
+  // project fails with `cannot find symbol` (D6/P2).  The wildcard matches
+  // every other java emitter that names an id (`emit/dto.ts`, `emit/api.ts`, …).
+  if (claimsReferenceIds(fields)) imports.add(`${basePkg}.domain.ids.*`);
   const components = fields
     .map((f) => {
       collectAuthImports(f.type, imports);

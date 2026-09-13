@@ -7,30 +7,46 @@
 // the ~20-slot pool), which starved the very jobs it was waiting for, which
 // burned its timeout, which required manual label re-arms.
 //
-// v2 never waits. `pr-gate.yml` triggers on `workflow_run: completed` of every
-// other workflow (list pinned by test/system/pr-gate.test.ts) plus the
-// pull_request events, and each run is one seconds-long EVALUATION that
-// publishes the check run named `pr-gate` on the head SHA via the Checks API
-// — ONE run per SHA, updated in place (see `publishCheck`):
+// v2 is event-driven. `pr-gate.yml` triggers on `workflow_run: completed` of
+// every other workflow (list pinned by test/system/pr-gate.test.ts) plus the
+// pull_request / merge_group events, and each run is one seconds-long
+// EVALUATION that publishes the check run named `pr-gate` on the head SHA via
+// the Checks API — ONE run per SHA, updated in place (see `publishCheck`):
 //
 //   - any triggered check failed        -> completed/failure (culprits named);
-//   - checks still running / none yet   -> in_progress ("re-evaluates on the
-//     next completion") — BLOCKS merge without claiming failure;
+//   - checks still running / none yet   -> in_progress — BLOCKS merge without
+//     claiming failure;
 //   - all triggered checks completed OK -> completed/success.
 //
-// The last workflow to complete fires one final evaluation, so the verdict
-// flips green with no polling, no timeout to tune, and no parked slot.  It
-// flips LATE, not instantly: the per-SHA concurrency group holds at most one
-// running plus one pending evaluation, so a burst of ~40 completions on one
-// SHA advances the verdict twice, not forty times.  Measured 2026-09-10, the
-// gap between a green PR's last check completing and `pr-gate` going terminal
-// was 14m18s (#2846) and 11m48s (#2847).
+// v2 originally added: "the last workflow to complete always fires one final
+// evaluation, so the verdict flips green with no polling".  Two measurements
+// taken on 2026-09-10 disagree on how true that is, and BOTH are kept here
+// until the owner rules (docs/ci-gating.md → "The `pr-gate` check"):
+//
+//   * #2859: a `workflow_run`-triggered run is attributed to the DEFAULT
+//     branch, so any branch-filtered count of evaluations is an artifact and
+//     cannot show a dropped dispatch.  Under load the verdict flips LATE, not
+//     never: the per-SHA concurrency group holds one running plus one pending
+//     evaluation, so a burst of ~40 completions advances it about twice
+//     (last-check-green to terminal: 14m18s on #2846, 11m48s on #2847).
+//   * Wave C0 packet 0.3 (#2863), listing this workflow's runs UNFILTERED and
+//     matching by time: 178 eligible completions in six hours produced 172
+//     `PR gate` runs of any event; 13 produced no run at all (~7%), in
+//     multi-minute windows.  A drop on a SHA's LAST completion parks it until
+//     a human re-runs something — ten of 22 measured merged PRs parked ≥5 min
+//     fully green, three of them 43–58 min.
+//
+// What this file does about it is bounded either way: an evaluation that finds
+// the SHA NEAR-GREEN watches it out in-run rather than trusting the next
+// dispatch — `shouldWatchTail` / `watchTail` below, where the sizing of both
+// knobs is written out in full.  If the second measurement is wrong the watch
+// costs one runner for ≤15 min on a SHA about to go terminal; if it is right,
+// it is what closes the park.
 //
 // A re-run of a red CHECK fires `workflow_run: completed` again, but that is
 // NOT a reliable way to recover a parked gate — measured three times, most
-// recently #2773 after the cancellation fix.  The cheap lever is re-running
-// this workflow's own `pull_request`-event run for the head; see the lever
-// table in `pr-gate.yml`.
+// recently #2773.  The cheap lever is re-running this workflow's own
+// `pull_request`-event run for the head; see the lever table in `pr-gate.yml`.
 //
 // The API-posted check (not this job's own check) is what branch protection
 // requires: `workflow_run`-triggered jobs don't surface in the PR's checks UI,
@@ -181,10 +197,98 @@ export function verdict({ total, pending, failed }) {
     const head = pending.slice(0, 10).join(", ");
     return {
       state: "pending",
-      summary: `waiting on ${pending.length}/${total}: ${head}${pending.length > 10 ? ", …" : ""} — re-evaluates when the next workflow completes`,
+      summary: `waiting on ${pending.length}/${total}: ${head}${pending.length > 10 ? ", …" : ""} — re-evaluates on the next completion; near-green tails are watched in-run`,
     };
   }
   return { state: "success", summary: `all ${total} triggered check(s) passed` };
+}
+
+// ---------------------------------------------------------------------------
+// THE TAIL WATCH — the one mechanism that keeps a green SHA from parking.
+//
+// MEASURED (2026-09-10, over the last 30 merged PRs and a 6-hour completion
+// census; the numbers are in docs/ci-gating.md and M-T9.57):
+//
+//   * `workflow_run` dispatch is delivered for ~93% of eligible completions.
+//     In the window 2026-09-10T10:00–16:00Z, 178 completions of listed
+//     workflows on non-`main` branches produced 172 `PR gate` runs, and 13
+//     completions produced NO run at all — not a cancelled one, not a skipped
+//     one: none was ever created.
+//   * A drop that lands on a SHA's LAST completion parks the gate, because
+//     nothing else re-evaluates that SHA.  Ten of the 22 measurable merged PRs
+//     parked ≥5 minutes with every check green; three parked 43, 46 and 58
+//     minutes.  Each park traces to exactly one missing dispatch (#2819's
+//     05:49:11 completion, #2845's 13:18:17, #2846's 15:36:35, #2674's
+//     14:11:17 — verified against the repo-wide run list, with no branch
+//     filter).
+//   * Nothing else explains a park.  Cancellation does not: 479 of 759
+//     `workflow_run` evaluations in 21 hours are still `cancelled` AFTER
+//     #2822's `cancel-in-progress: false`, because GitHub cancels the
+//     superseded PENDING run of a concurrency group unconditionally — but a
+//     cancelled pending run never claimed a runner, and the NEWEST arrival
+//     always survives, so the tail evaluation is never the cancelled one.
+//     A read-after-write race does not either: an evaluation dispatched by a
+//     completion reads the check-runs API strictly after it.
+//
+// So the gate must not depend on any single future dispatch.  An evaluation
+// that finds the SHA NEAR-GREEN (`shouldWatchTail`) stops being an event
+// handler and becomes a short watcher: it re-reads the SHA every
+// `TAIL_POLL_MS` until the verdict is terminal or `TAIL_BUDGET_MS` runs out,
+// publishing every change.  The dropped dispatch then costs nothing — the
+// evaluation that is already running observes the completion itself.
+//
+// The two knobs are sized from the same measurement, not guessed:
+//
+//   TAIL_PENDING_MAX  outstanding checks at the last DELIVERED evaluation, over
+//                     the ten measured parks: median 1, max 7.  8 covers all
+//                     ten.  It is also the cost brake — the watch must not arm
+//                     on a PR that has barely started.
+//   TAIL_BUDGET_MS    minutes from that evaluation to the last completion:
+//                     median 1.2, and 9 of 10 within 5.  15 min covers nine
+//                     outright; the tenth (#2721, 16.9 min) re-arms from the
+//                     next completion instead.
+//
+// Cost: the workflow-level concurrency group is keyed per SHA and serialises,
+// so at most ONE watcher runs per SHA, for at most `TAIL_BUDGET_MS`, and it
+// exits the moment the verdict goes terminal (median ~1 min).  That is the
+// bounded version of v1's parked poller, which waited up to 80 minutes for
+// EVERY PR from the moment it opened.
+// ---------------------------------------------------------------------------
+
+/** Outstanding checks at or below which an evaluation watches instead of exiting. */
+export const TAIL_PENDING_MAX = 8;
+/** Re-read cadence inside the watch. */
+export const TAIL_POLL_MS = 30_000;
+/** Hard cap on one watch.  `pr-gate.yml`'s `timeout-minutes` must exceed it. */
+export const TAIL_BUDGET_MS = 15 * 60_000;
+
+/**
+ * Is this snapshot near-green — few enough checks outstanding that this run
+ * should watch them out rather than trust the next dispatch to arrive?
+ *
+ * Every conjunct is a cost brake or a correctness brake:
+ *
+ *   * `failed.length === 0` — a failure is terminal.  Watching it would hold a
+ *     runner to re-publish a verdict that cannot change without a re-run, and a
+ *     re-run creates a fresh completion (and a fresh evaluation) anyway.
+ *   * `pending.length > 0` — nothing to wait for otherwise.
+ *   * `pending.length <= TAIL_PENDING_MAX` — the near-green bound above.
+ *   * `pending.length < total` — at least one check has REPORTED.  Without it
+ *     the `pull_request`-event evaluation, which fires when every check is
+ *     still queued, would arm the watch at PR-open time and park a slot for the
+ *     PR's whole CI cycle.  That is exactly v1's failure mode and this conjunct
+ *     is the only thing standing between v2 and it.
+ *
+ * @param {{total: number, pending: string[], failed: string[]}} snapshot
+ * @returns {boolean}
+ */
+export function shouldWatchTail({ total, pending, failed }) {
+  return (
+    failed.length === 0 &&
+    pending.length > 0 &&
+    pending.length <= TAIL_PENDING_MAX &&
+    pending.length < total
+  );
 }
 
 const API_HEADERS = (token) => ({
@@ -395,6 +499,66 @@ export async function publishCheck(repo, sha, token, v, existingId, opts = {}) {
 }
 
 /**
+ * One read → classify → publish cycle for a single SHA.
+ *
+ * The publish is CONDITIONAL on the verdict having changed, so the tail watch
+ * below can re-read every 30 seconds without PATCHing an identical body 30
+ * times.  `previous` is null on the first cycle, which always publishes — the
+ * gate must put a verdict on the SHA even when nothing has moved.
+ *
+ * @returns {Promise<{snapshot: {total: number, pending: string[], failed: string[]},
+ *                    verdict: {state: string, summary: string}, published: boolean}>}
+ */
+export async function evaluateOnce(repo, sha, token, opts = {}, previous = null) {
+  const runs = await fetchCheckRuns(repo, sha, token, opts);
+  const snapshot = evaluate(runs, SELF_NAMES);
+  const v = verdict(snapshot);
+  const changed = !previous || previous.state !== v.state || previous.summary !== v.summary;
+  if (changed) await publishCheck(repo, sha, token, v, existingGateRunId(runs), opts);
+  return { snapshot, verdict: v, published: changed };
+}
+
+/**
+ * Watch a near-green SHA to its terminal verdict instead of waiting for a
+ * dispatch that is dropped ~7% of the time (see the block above `shouldWatchTail`).
+ *
+ * Returns the last verdict it published or observed.  It stops at the FIRST
+ * terminal state — success and failure are both final for this SHA, and a
+ * re-run that changes either produces its own completion and its own
+ * evaluation.
+ *
+ * The clock and the sleep are injectable so the test can replay a measured
+ * timeline (#2819's 05:48:26 evaluation and 05:49:10 completion) without
+ * spending 44 seconds on it.
+ *
+ * @param {{sleep?: (ms: number) => Promise<void>, now?: () => number,
+ *          budgetMs?: number, pollMs?: number, log?: (m: string) => void}} [opts]
+ */
+export async function watchTail(repo, sha, token, initial, opts = {}) {
+  const {
+    sleep = sleepMs,
+    now = () => Date.now(),
+    budgetMs = TAIL_BUDGET_MS,
+    pollMs = TAIL_POLL_MS,
+    log = (m) => console.log(m),
+  } = opts;
+  const deadline = now() + budgetMs;
+  let last = initial;
+  log(
+    `  pr-gate: near-green — watching this SHA for up to ${Math.round(budgetMs / 60_000)}m rather than waiting for the next dispatch`,
+  );
+  while (now() < deadline) {
+    await sleep(pollMs);
+    const { verdict: v, published } = await evaluateOnce(repo, sha, token, opts, last);
+    if (published) log(`  pr-gate tail: ${v.state.toUpperCase()} — ${v.summary}`);
+    last = v;
+    if (v.state !== "pending") return last;
+  }
+  log("  pr-gate: tail watch budget spent — the next completion re-arms it");
+  return last;
+}
+
+/**
  * The state of the currently-published `pr-gate` check in a snapshot, so the
  * sweep can tell whether a fresh verdict would CHANGE anything.  Uses the same
  * fetched list the verdict uses, collapsed by `latestPerName` — the gate posts
@@ -431,25 +595,24 @@ async function fetchOpenPrHeads(repo, token) {
   return prs.map((p) => ({ number: p.number, sha: p.head.sha }));
 }
 
-/** The safety net.  It re-derives the verdict for every OPEN PR and posts only
- *  where it differs from what is already published.
+/** The SECOND line of defence, behind the tail watch.  It re-derives the
+ *  verdict for every OPEN PR and posts only where it differs from what is
+ *  already published.
  *
- *  What it is a net FOR is narrower than this comment used to say.  It said
- *  GitHub "demonstrably DROPS some dispatches", citing #2464 ("last checks
- *  completed 08:40–08:42, no eval fired").  That is not demonstrable by the
- *  call that produced it: a `workflow_run`-triggered run is attributed to the
- *  DEFAULT BRANCH, so listing this workflow's runs filtered to a PR branch
- *  returns only the one `pull_request`-event run, and the eval job's check run
- *  lands on `main`'s SHA rather than the SHA it evaluated.  Measured
- *  2026-09-10: of the 100 most recent runs of `pr-gate.yml`, all 91 that were
- *  `event=workflow_run` carry `head_branch: main`.  Neither view can tell "no
- *  evaluation fired" from "evaluations fired and are invisible here".
+ *  What it is a net FOR is contested (see the header of this file): #2859
+ *  showed that the branch-filtered evaluation counts this comment used to
+ *  cite (#2464) cannot demonstrate a dropped dispatch, and the C0 unfiltered
+ *  census counted 13 of 178 eligible completions producing no run.  What IS
+ *  observed either way is a green PR whose published verdict stays
+ *  non-terminal long after its last check finished, and the net is worth
+ *  having.  It is not the primary answer, because it rides the SAME event
+ *  stream: an outage that swallows a SHA's tail dispatch swallows the sweeps
+ *  too.  The tail watch is what closes a park in-run; this reconciles a SHA
+ *  whose watcher had already exited — a re-run landing hours later, a verdict
+ *  posted by an older revision of this script, an evaluation that died on a
+ *  5xx.
  *
- *  What IS observed is a green PR whose published verdict stays non-terminal
- *  long after its last check finished.  Cause undiagnosed; the net is worth
- *  having either way.
- *
- *  It does NOT cap that outage at one sweep interval — that claim was here, in
+ *  It does NOT cap an outage at one sweep interval — that claim was here, in
  *  `pr-gate.yml` and in `docs/ci-gating.md`, and none of the three had been
  *  measured.  GitHub runs the every-15-minutes schedule far slower than
  *  requested: re-measured 2026-09-10, the 30 most recent `schedule` runs span
@@ -461,8 +624,9 @@ async function fetchOpenPrHeads(repo, token) {
  *
  *  Open PRs are the whole reach: a head INSIDE the merge queue is not an open
  *  PR's head, so nothing here ever reconciles it.  In-queue, event-driven
- *  evaluation is the only mechanism, and its only bound is the queue's checks
- *  timeout — which ejects the entry rather than healing it.
+ *  evaluation plus the tail watch (a merge-group head takes the same
+ *  single-SHA path) are the only mechanisms; the queue's checks timeout ejects
+ *  rather than heals.
  *
  *  (Spell that cadence out in words, never as the cron literal — the slash-star
  *  sequence closes this block comment and breaks the file.  Which is how this
@@ -499,10 +663,11 @@ async function main() {
     return;
   }
 
-  const runs = await fetchCheckRuns(repo, sha, token);
-  const v = verdict(evaluate(runs, SELF_NAMES));
-  await publishCheck(repo, sha, token, v, existingGateRunId(runs));
+  const { snapshot, verdict: v } = await evaluateOnce(repo, sha, token);
   console.log(`pr-gate: ${v.state.toUpperCase()} — ${v.summary}`);
+  // A non-terminal verdict on a near-green SHA is the park: the dispatch that
+  // would clear it is the one that gets dropped.  Watch it out here instead.
+  if (shouldWatchTail(snapshot)) await watchTail(repo, sha, token, v);
   // The verdict lives in the posted `pr-gate` check; this job succeeds as long
   // as it evaluated and published (an API failure above exits non-zero).
 }
