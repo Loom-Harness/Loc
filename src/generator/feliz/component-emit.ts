@@ -480,7 +480,7 @@ function renderDerivedBinds(c: ComponentIR): string[] {
     const fs = renderFsExpr(d.expr, { stateNames, locals });
     // Visible to the NEXT derived — as a bare local, which is what a `let` is.
     locals.add(d.name);
-    return `    let ${d.name} = ${fs}`;
+    return `    let ${fsIdent(d.name)} = ${fs}`;
   });
 }
 

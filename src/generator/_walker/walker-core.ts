@@ -2319,7 +2319,10 @@ export function emitStmt(stmt: StmtIR, ctx: WalkContext): string {
         if (nav !== undefined) return `${nav};`;
       }
       const args = stmt.args.map((a) => emitExpr(a, ctx)).join(", ");
-      return `${stmt.name}(${args});`;
+      // The callee is a MODEL name (a sibling `action`, an extern ui function),
+      // so it takes the target's identifier spelling — the same one the binding
+      // site gets from `renderNamedHandler` (F-022).
+      return `${targetIdent(ctx, stmt.name)}(${args});`;
     }
     case "variant-match":
       return emitVariantMatch(stmt, ctx);

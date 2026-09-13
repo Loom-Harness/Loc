@@ -307,7 +307,7 @@ export const felizTarget: WalkerTarget = {
   // what is already in scope, emitted as an F# `let` ahead of the body (see
   // `component-emit.ts`).  So it reads BARE; `model.<Name>` (the pre-seam
   // default) named a record field the emitted `Model` never declares.
-  renderDerivedRead: (ref: StateRef, _pos: RenderPosition) => ref.name,
+  renderDerivedRead: (ref: StateRef, _pos: RenderPosition) => fsIdent(ref.name),
   // `currentUser.<claim>` in a body (D-AUTH-OIDC, the read-side of the gate) →
   // an option-match against the decoded claims on the Model; the None branch
   // (no session yet) yields the claim type's zero value so the expression stays
@@ -1151,8 +1151,8 @@ export const felizTarget: WalkerTarget = {
   // dispatches the Msg.  Ignores `bodyStmts` (they belong to `update`).
   renderNamedHandler: (name, param) =>
     param
-      ? `    let ${name} ${param} = dispatch (${msgCase(name)} ${param})`
-      : `    let ${name} () = dispatch ${msgCase(name)}`,
+      ? `    let ${fsIdent(name)} ${fsIdent(param)} = dispatch (${msgCase(name)} ${fsIdent(param)})`
+      : `    let ${fsIdent(name)} () = dispatch ${msgCase(name)}`,
 
   // --- Expression-syntax leaves (F#) — forwarded to the shared table ------
   exprLiteral: (lit, value) => FS_LEAVES.literal(lit, value),

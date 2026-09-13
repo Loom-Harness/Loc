@@ -110,7 +110,7 @@ export function emitButton(
       : local;
   } else if (onClickAction) {
     ctx.usedActions?.add(onClickAction.actionName);
-    const handler = actionHandlerName(onClickAction.actionName);
+    const handler = actionHandlerName(onClickAction.actionName, ctx.target);
     onClickHandler = ctx.target.renderEventHandler
       ? ctx.target.renderEventHandler([`${handler}();`], undefined)
       : handler;

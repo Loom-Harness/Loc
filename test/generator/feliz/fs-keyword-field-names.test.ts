@@ -36,12 +36,24 @@ const SYSTEM = `
       }
     }
     ui W with scaffold(subdomains: [S]) {
+      store Prefs {
+        state { member: string = "" }
+        action setMember(val: string) { member := val }
+      }
       component Row(member: string, plain: string) {
-        body: Stack { Text { member }, Text { plain } }
+        derived base: string = member
+        body: Stack { Text { member }, Text { plain }, Text { base } }
       }
       page Manual {
         route: "/manual"
-        body: Row { member: "a", plain: "b" }
+        state { member: string = "" }
+        derived struct: string = member
+        action begin() { member := "x" }
+        body: Stack {
+          Text { struct },
+          Button { "go", onClick: begin },
+          Row { member: "a", plain: "b" }
+        }
       }
     }
     storage primary { type: postgres }
@@ -115,6 +127,32 @@ describe("F-022 — a field named after an F# keyword", () => {
     // …and the param READ inside the component body.
     expect(src).toContain("string (``member``)");
     expect(src).not.toMatch(/\(string \(member\)\)/);
+  });
+
+  it("escapes a `derived` binding and its read, on both a page and a component", async () => {
+    const src = await appFs();
+    // Page: `derived struct: string = member` → the binding and the `Text` read.
+    expect(src).toContain("let ``struct`` = ");
+    expect(src).toContain("string (``struct``)");
+    // Component: `derived base: string = member`.
+    expect(src).toContain("let ``base`` = ");
+    expect(src).not.toMatch(/^\s+let (?:struct|base) = /m);
+  });
+
+  it("escapes an `action` at BOTH its dispatch binding and its call site", async () => {
+    const src = await appFs();
+    // `renderNamedHandler` emits the binding; `actionHandlerName` the reference.
+    expect(src).toMatch(/let ``begin`` \(\) = dispatch /);
+    expect(src).toContain("``begin``()");
+    expect(src).not.toMatch(/let begin \(\) = dispatch /);
+    expect(src).not.toMatch(/-> begin\(\)/);
+  });
+
+  it("escapes a store action's Msg-arm parameter binding", async () => {
+    const src = await appFs();
+    // `action setMember(val: string)` → `| PrefsSetMember ``val`` ->`.
+    expect(src).toMatch(/\| PrefsSetMember ``val`` ->/);
+    expect(src).not.toMatch(/\| PrefsSetMember val ->/);
   });
 
   it("leaves a non-keyword field byte-identical", async () => {

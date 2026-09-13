@@ -128,6 +128,19 @@ export interface FelizRead {
    *  `aggregate` carries the PROJECTION name for such a read — it is only ever
    *  used for naming (field / decoder / api fn), never to look an aggregate up. */
   projection?: boolean;
+  /** A read-only WORKFLOW-INSTANCE read (`<Wf>.instances.all` /
+   *  `<Wf>.instances.byId(id)`, workflow-instance-visibility.md) rather than an
+   *  aggregate read.  The scaffold synthesises `<Wf>InstancesList` /
+   *  `<Wf>InstanceDetail` pages for every observable workflow and their bodies
+   *  read exactly these two, so the collector must produce them: without this
+   *  branch the pages still WALKED (the view emits `model.AllWs`) while the
+   *  `Model` record — built from `reads` — declared no such field, and
+   *  `dotnet fable` refused the whole frontend with "The type 'Model' does not
+   *  define the field, constructor or member 'AllWs'".
+   *
+   *  `aggregate` carries the WORKFLOW name for such a read; like `projection`
+   *  it is used for naming only, never to look an aggregate up. */
+  workflowInstance?: boolean;
   /** SERVER-paged list read (M-T2.6) — present when the hosting `QueryView`'s
    *  `of:` threads page/sort controls, which is what a scaffolded list page
    *  emits.  Absent for a plain `.all` (an FK-select's option source, a
@@ -556,6 +569,64 @@ export function felizProjectionRead(proj: ProjectionIR): FelizRead {
     single: false,
     projection: true,
     listShaped: many,
+  };
+}
+
+/** The F# record a workflow-INSTANCE read decodes into (`FulfillmentInstance`)
+ *  — built from the workflow's `instanceWireShape`, the same shape the backends
+ *  serve `GET /api/workflows/<wf>/instances` from and the other frontends'
+ *  `<Wf>InstanceResponse` is built from, so the three cannot drift. */
+export function workflowInstanceType(workflow: string): string {
+  return `${upperFirst(workflow)}Instance`;
+}
+
+/** Collection base route for a workflow's instance reads
+ *  (`/api/workflows/fulfillment/instances`); the byId fetch appends `/%s`. */
+function workflowInstancesRoute(workflow: string): string {
+  return `${API_BASE_PATH}/workflows/${snake(workflow)}/instances`;
+}
+
+/** Build the `FelizRead` for `<Wf>.instances.all` — the list the scaffolded
+ *  `<Wf>InstancesList` page reads (workflow-instance-visibility.md).  Shaped
+ *  like a plain `.all`: init-fired, id-less, `Remote<'T list>`. */
+export function felizWorkflowInstancesRead(workflow: string): FelizRead {
+  const field = readFieldName(workflow);
+  const row = workflowInstanceType(workflow);
+  return {
+    field,
+    msgCase: `${field}Loaded`,
+    apiFn: lowerFirst(field),
+    aggregate: workflow,
+    resultType: `${row} list`,
+    decoderExpr: `(Decode.list Decoders.${fsIdent(lowerFirst(row))})`,
+    route: workflowInstancesRoute(workflow),
+    binding: lowerFirst(field),
+    single: false,
+    listShaped: true,
+    workflowInstance: true,
+  };
+}
+
+/** Build the `FelizRead` for `<Wf>.instances.byId(id)`, hosted by the `Page`
+ *  case `pageCase` — the scaffolded `<Wf>InstanceDetail` page.  Page-entry
+ *  keyed off the route id and `Remote<'T option>`, exactly like an aggregate
+ *  `byId`. */
+export function felizWorkflowInstanceByIdRead(workflow: string, pageCase: string): FelizRead {
+  const field = byIdFieldName(workflow);
+  const row = workflowInstanceType(workflow);
+  return {
+    field,
+    msgCase: `${field}Loaded`,
+    apiFn: lowerFirst(field),
+    aggregate: workflow,
+    resultType: `${row} option`,
+    decoderExpr: `(Decode.option Decoders.${fsIdent(lowerFirst(row))})`,
+    route: workflowInstancesRoute(workflow),
+    binding: lowerFirst(field),
+    single: true,
+    listShaped: false,
+    pageCase,
+    workflowInstance: true,
   };
 }
 
@@ -1445,6 +1516,7 @@ export function collectPageReads(
   bcByAggregate: ReadonlyMap<string, BoundedContextIR> = new Map(),
   projectionsByName: ReadonlySet<string> = new Set(),
   projectionIRs: ReadonlyMap<string, ProjectionIR> = new Map(),
+  workflowIRs: ReadonlyMap<string, WorkflowIR> = new Map(),
 ): FelizRead[] {
   if (!page.body) return [];
   // The byId read is keyed to the hosting page's `Page` case, which is the
@@ -1456,6 +1528,7 @@ export function collectPageReads(
     bcByAggregate,
     projectionsByName,
     projectionIRs,
+    workflowIRs,
   });
 }
 
@@ -1478,6 +1551,7 @@ export function collectComponentReads(
   bcByAggregate: ReadonlyMap<string, BoundedContextIR> = new Map(),
   projectionsByName: ReadonlySet<string> = new Set(),
   projectionIRs: ReadonlyMap<string, ProjectionIR> = new Map(),
+  workflowIRs: ReadonlyMap<string, WorkflowIR> = new Map(),
 ): FelizRead[] {
   if (!component.body) return [];
   return collectBodyReads(component.body, component, undefined, {
@@ -1486,6 +1560,7 @@ export function collectComponentReads(
     bcByAggregate,
     projectionsByName,
     projectionIRs,
+    workflowIRs,
   });
 }
 
@@ -1503,14 +1578,31 @@ function collectBodyReads(
     bcByAggregate: ReadonlyMap<string, BoundedContextIR>;
     projectionsByName: ReadonlySet<string>;
     projectionIRs: ReadonlyMap<string, ProjectionIR>;
+    workflowIRs: ReadonlyMap<string, WorkflowIR>;
   },
 ): FelizRead[] {
-  const { apiParamNames, aggregatesByName, bcByAggregate, projectionsByName, projectionIRs } =
-    lookups;
+  const {
+    apiParamNames,
+    aggregatesByName,
+    bcByAggregate,
+    projectionsByName,
+    projectionIRs,
+    workflowIRs,
+  } = lookups;
   // `projectionsByName` arms the detector's Pattern H (`<apiHandle>.<Proj>`).
   // Defaulted to empty so every existing caller keeps its output byte-identical:
   // absent, Pattern H is inert and only aggregate reads are collected.
-  const detCtx = { apiParamNames, aggregatesByName, projectionsByName };
+  // `workflowsByName` arms the detector's Patterns F/G (`<Wf>.instances.all` /
+  // `.byId(id)`).  Omitting it is what made the scaffolded workflow-instance
+  // pages walk into `model.All<Wf>s` with no Model field behind it — the
+  // detector simply never matched, so the collector produced no read while the
+  // VIEW (whose walk context DOES carry the workflows) rendered one.
+  const detCtx = {
+    apiParamNames,
+    aggregatesByName,
+    projectionsByName,
+    workflowsByName: workflowIRs,
+  };
   const pagedCtx = { ...detCtx, bcByAggregate };
   const out: FelizRead[] = [];
   const seen = new Set<string>();
@@ -1525,6 +1617,29 @@ function collectBodyReads(
       if (!out.some((r) => r.field === projRead.field)) {
         seen.add(projRead.field);
         out.push(projRead);
+      }
+      continue;
+    }
+    // A read-only WORKFLOW-INSTANCE read (Patterns F/G) — the two reads the
+    // scaffold's `<Wf>InstancesList` / `<Wf>InstanceDetail` pages issue.  Its
+    // row type is the workflow's `instanceWireShape`, emitted alongside the
+    // aggregate records by `renderWireTypes`.
+    if (detected?.kind === "workflow-instance") {
+      const wf = workflowIRs.get(detected.aggregateName);
+      // An observable workflow always carries the shape (the macro only
+      // scaffolds instance pages for one that does); without it there is no
+      // record to decode into, so skip rather than emit an undecodable read.
+      if (!wf || (wf.instanceWireShape ?? []).length === 0) continue;
+      const wfRead =
+        detected.operation === "all"
+          ? felizWorkflowInstancesRead(wf.name)
+          : pageCase !== undefined
+            ? felizWorkflowInstanceByIdRead(wf.name, pageCase)
+            : undefined;
+      if (!wfRead) continue;
+      if (!out.some((r) => r.field === wfRead.field)) {
+        seen.add(wfRead.field);
+        out.push(wfRead);
       }
       continue;
     }
@@ -2827,6 +2942,31 @@ export function renderWireTypes(
       typeName,
       decoderName: fsIdent(lowerFirst(typeName)),
       fields: (proj.wireShape ?? []).map((f) => ({
+        name: f.name,
+        type: f.type,
+        optional: f.optional,
+      })),
+    });
+  }
+
+  // Workflow-INSTANCE records (workflow-instance-visibility.md) — the row the
+  // scaffolded `<Wf>InstancesList` / `<Wf>InstanceDetail` pages decode, built
+  // from the workflow's `instanceWireShape` (the same shape the backends serve
+  // `GET /api/workflows/<wf>/instances` from).  Like the projection rows above,
+  // a workflow-instance read's `aggregate` is the WORKFLOW name and resolves to
+  // no aggregate, so its record is added here.
+  const wfByName = new Map<string, WorkflowIR>();
+  for (const c of contexts) for (const w of c.workflows) wfByName.set(w.name, w);
+  for (const r of reads) {
+    if (!r.workflowInstance) continue;
+    const wf = wfByName.get(r.aggregate);
+    const typeName = workflowInstanceType(r.aggregate);
+    if (!wf || seenRecord.has(typeName)) continue;
+    seenRecord.add(typeName);
+    records.push({
+      typeName,
+      decoderName: fsIdent(lowerFirst(typeName)),
+      fields: (wf.instanceWireShape ?? []).map((f) => ({
         name: f.name,
         type: f.type,
         optional: f.optional,
