@@ -68,7 +68,6 @@ export {
   FIELD_MASK_BACKENDS,
   maskLaunderingEvents,
   validateAuditedOperationSupport,
-  validateAuditedReturningOperationSupport,
   validateEventSourcedStorage,
   validateEventSourcedWorkflowStorage,
   validateFieldMask,

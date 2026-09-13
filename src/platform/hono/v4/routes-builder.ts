@@ -1733,6 +1733,118 @@ function emitCanOpRoute(
   return out;
 }
 
+/** The AUDITED / PROVENANCED write path of an operation route, emitted once and
+ *  shared by the void-204 handler and the returning (`X or NotFound`) one.
+ *
+ *  Load, mutate, save, then write the audit row and/or flush the provenance
+ *  history in ONE transaction (built on `db`, mirroring the workflow routes) so
+ *  the state change and its derived records commit or roll back atomically —
+ *  D-WRITE-TX's "state + audit + provenance in one tx; dispatch after commit".
+ *
+ *  `capture: true` makes the transaction RETURN the operation's tagged result
+ *  (`db.transaction` / `em.transactional` both resolve to their callback's
+ *  value), binding it to `result` outside the transaction so the caller can
+ *  translate an error variant to ProblemDetails AFTER the commit.  That is the
+ *  whole of what `loom.audited-returning-operation-unsupported` used to refuse:
+ *  the route shape was the void one, so the declared result was discarded.
+ *  Without it the block is byte-identical to what the void handler emitted
+ *  before this extraction. */
+function auditProvTxLines(args: {
+  agg: AggregateIR;
+  op: OperationIR;
+  ctx: BoundedContextIR;
+  audit: boolean;
+  prov: boolean;
+  usingMikro: boolean;
+  usesUser: boolean;
+  isVersionedUpdate: boolean;
+  mutation: (pad: string) => string[];
+  capture?: boolean;
+}): string[] {
+  const { agg, op, ctx, audit, prov, usingMikro, usesUser, isVersionedUpdate, mutation } = args;
+  const out: string[] = [];
+  if (audit) {
+    // Actor = the typed currentUser if the body already reads it, else
+    // the inbound claim via the untyped-key bridge (null when no auth).
+    const actorExpr = usesUser
+      ? "currentUser"
+      : `(c as unknown as { get(k: "currentUser"): unknown }).get("currentUser") ?? null`;
+    out.push(`    const actor = ${actorExpr};`);
+  }
+  // The request correlation id + frame scope id stamped onto every audit /
+  // provenance row, tying each to the request (and its causality position)
+  // that produced it.  Read from the ambient RequestContext opened by the
+  // request-id middleware.
+  out.push(`    const reqCtx = requestContext();`);
+  out.push(`    const __deferred = deferredDispatcher(events);`);
+  out.push(`    ${args.capture ? "const result = await" : "await"} ${txWrapperCall(usingMikro)}`);
+  out.push(`      const repoTx = new ${agg.name}Repository(tx, __deferred);`);
+  out.push(`      const aggregate = await repoTx.getById(Ids.${agg.name}Id(id));`);
+  if (isVersionedUpdate) {
+    out.push(`      const ifMatch = c.req.header("if-match");`);
+    out.push(`      const expectedVersion = parseIfMatch(ifMatch, aggregate.version);`);
+  }
+  out.push(...requiresGateLines(op, "      ", ctx));
+  out.push(...whenGateLine(agg, op, "      "));
+  if (audit) out.push(`      const before = repoTx.toWire(aggregate);`);
+  out.push(...mutation("      "));
+  out.push(
+    isVersionedUpdate
+      ? `      await repoTx.save(aggregate, expectedVersion);`
+      : `      await repoTx.save(aggregate);`,
+  );
+  if (audit) {
+    out.push(`      const after = repoTx.toWire(aggregate);`);
+    out.push(`      await ${historyInsertCall(usingMikro, "auditRecords")}`);
+    out.push(`        auditId: randomUUID(),`);
+    out.push(`        operationId: "${camelId(opOperation(agg.name, op.name))}",`);
+    out.push(`        action: "${op.name}",`);
+    out.push(`        targetType: "${agg.name}",`);
+    out.push(`        targetId: id,`);
+    out.push(`        actor,`);
+    out.push(`        before,`);
+    out.push(`        after,`);
+    out.push(`        at: new Date(),`);
+    out.push(`        status: "ok",`);
+    out.push(`        correlationId: reqCtx?.correlationId ?? null,`);
+    out.push(`        scopeId: reqCtx?.scopeId ?? null,`);
+    out.push(`        parentId: reqCtx?.parentId ?? null,`);
+    out.push(`      });`);
+    out.push(
+      `      ${renderHonoLogCall("auditRecorded", `action: "${op.name}", target: "${agg.name}", actor`)}`,
+    );
+  }
+  if (prov) {
+    // One history row per provenanced write captured during the mutation;
+    // traceId + at are stamped here so the domain layer stays pure.
+    out.push(`      const __prov = aggregate.drainProv();`);
+    out.push(`      for (const t of __prov) {`);
+    out.push(`        await ${historyInsertCall(usingMikro, "provenanceRecords")}`);
+    out.push(`          traceId: randomUUID(),`);
+    out.push(`          snapshotId: t.snapshotId,`);
+    out.push(`          targetType: t.target.type,`);
+    out.push(`          field: t.target.field,`);
+    out.push(`          inputs: t.inputs,`);
+    out.push(`          computedValue: t.computedValue,`);
+    out.push(`          at: new Date(),`);
+    out.push(`          correlationId: reqCtx?.correlationId ?? null,`);
+    out.push(`          scopeId: reqCtx?.scopeId ?? null,`);
+    out.push(`          actorId: reqCtx?.actorId ?? null,`);
+    out.push(`          parentId: reqCtx?.parentId ?? null,`);
+    out.push(`        });`);
+    out.push(`      }`);
+    out.push(`      if (__prov.length > 0) {`);
+    out.push(
+      `        ${renderHonoLogCall("provenanceRecorded", `aggregate: "${agg.name}", count: __prov.length`)}`,
+    );
+    out.push(`      }`);
+  }
+  if (args.capture) out.push(`      return __result;`);
+  out.push(`    });`);
+  out.push(`    await __deferred.flush();`);
+  return out;
+}
+
 function emitOperationRoute(
   agg: AggregateIR,
   op: OperationIR,
@@ -1749,10 +1861,16 @@ function emitOperationRoute(
   // Exception-less operation (`operation foo(): X or NotFound`): the route
   // captures the tagged-union result and translates an `error`-variant to an
   // RFC-7807 ProblemDetails status, a success to HTTP 200 (exception-less.md).
-  // The spike supports the plain repo path only (audit / prov / extern return-
-  // typed ops are a later slice); they fall through to the void handler.
-  if (op.returnType && !audit && !prov && !op.extern) {
-    return emitReturningOperationRoute(agg, op, ctx, entry, emitTrace);
+  //
+  // `audited` / `provenanced` returning ops take the SAME route, with the
+  // transactional audit/provenance block wrapped around the call and the result
+  // carried out of the transaction (M-T6.32 — retired
+  // `loom.audited-returning-operation-unsupported`, which existed because they
+  // used to fall through to the void-204 handler and lose the declared result).
+  // `extern` returning ops remain a separate (declared) seam — the body lives
+  // outside the toolchain.
+  if (op.returnType && !op.extern) {
+    return emitReturningOperationRoute(agg, op, ctx, entry, emitTrace, audit, prov, usingMikro);
   }
   // The canonical `update(...)` operation (crudish, or a hand-declared one of
   // the same name) is the one route that honours the client's optimistic-
@@ -1864,88 +1982,19 @@ function emitOperationRoute(
         : `    await repo.save(aggregate);`,
     );
   } else {
-    // Audited / provenanced: load, mutate, save, then write the audit row
-    // and/or flush the provenance history in ONE transaction (built on
-    // `db`, mirroring the workflow routes) so the state change and its
-    // derived records commit or roll back atomically.
-    if (audit) {
-      // Actor = the typed currentUser if the body already reads it, else
-      // the inbound claim via the untyped-key bridge (null when no auth).
-      const actorExpr = usesUser
-        ? "currentUser"
-        : `(c as unknown as { get(k: "currentUser"): unknown }).get("currentUser") ?? null`;
-      out.push(`    const actor = ${actorExpr};`);
-    }
-    // The request correlation id + frame scope id stamped onto every audit /
-    // provenance row, tying each to the request (and its causality position)
-    // that produced it.  Read from the ambient RequestContext opened by the
-    // request-id middleware.
-    out.push(`    const reqCtx = requestContext();`);
-    out.push(`    const __deferred = deferredDispatcher(events);`);
-    out.push(`    await ${txWrapperCall(usingMikro)}`);
-    out.push(`      const repoTx = new ${agg.name}Repository(tx, __deferred);`);
-    out.push(`      const aggregate = await repoTx.getById(Ids.${agg.name}Id(id));`);
-    if (isVersionedUpdate) {
-      out.push(`      const ifMatch = c.req.header("if-match");`);
-      out.push(`      const expectedVersion = parseIfMatch(ifMatch, aggregate.version);`);
-    }
-    out.push(...requiresGateLines(op, "      ", ctx));
-    out.push(...whenGateLine(agg, op, "      "));
-    if (audit) out.push(`      const before = repoTx.toWire(aggregate);`);
-    out.push(...mutation("      "));
     out.push(
-      isVersionedUpdate
-        ? `      await repoTx.save(aggregate, expectedVersion);`
-        : `      await repoTx.save(aggregate);`,
+      ...auditProvTxLines({
+        agg,
+        op,
+        ctx,
+        audit,
+        prov,
+        usingMikro,
+        usesUser,
+        isVersionedUpdate,
+        mutation,
+      }),
     );
-    if (audit) {
-      out.push(`      const after = repoTx.toWire(aggregate);`);
-      out.push(`      await ${historyInsertCall(usingMikro, "auditRecords")}`);
-      out.push(`        auditId: randomUUID(),`);
-      out.push(`        operationId: "${camelId(opOperation(agg.name, op.name))}",`);
-      out.push(`        action: "${op.name}",`);
-      out.push(`        targetType: "${agg.name}",`);
-      out.push(`        targetId: id,`);
-      out.push(`        actor,`);
-      out.push(`        before,`);
-      out.push(`        after,`);
-      out.push(`        at: new Date(),`);
-      out.push(`        status: "ok",`);
-      out.push(`        correlationId: reqCtx?.correlationId ?? null,`);
-      out.push(`        scopeId: reqCtx?.scopeId ?? null,`);
-      out.push(`        parentId: reqCtx?.parentId ?? null,`);
-      out.push(`      });`);
-      out.push(
-        `      ${renderHonoLogCall("auditRecorded", `action: "${op.name}", target: "${agg.name}", actor`)}`,
-      );
-    }
-    if (prov) {
-      // One history row per provenanced write captured during the mutation;
-      // traceId + at are stamped here so the domain layer stays pure.
-      out.push(`      const __prov = aggregate.drainProv();`);
-      out.push(`      for (const t of __prov) {`);
-      out.push(`        await ${historyInsertCall(usingMikro, "provenanceRecords")}`);
-      out.push(`          traceId: randomUUID(),`);
-      out.push(`          snapshotId: t.snapshotId,`);
-      out.push(`          targetType: t.target.type,`);
-      out.push(`          field: t.target.field,`);
-      out.push(`          inputs: t.inputs,`);
-      out.push(`          computedValue: t.computedValue,`);
-      out.push(`          at: new Date(),`);
-      out.push(`          correlationId: reqCtx?.correlationId ?? null,`);
-      out.push(`          scopeId: reqCtx?.scopeId ?? null,`);
-      out.push(`          actorId: reqCtx?.actorId ?? null,`);
-      out.push(`          parentId: reqCtx?.parentId ?? null,`);
-      out.push(`        });`);
-      out.push(`      }`);
-      out.push(`      if (__prov.length > 0) {`);
-      out.push(
-        `        ${renderHonoLogCall("provenanceRecorded", `aggregate: "${agg.name}", count: __prov.length`)}`,
-      );
-      out.push(`      }`);
-    }
-    out.push(`    });`);
-    out.push(`    await __deferred.flush();`);
   }
   out.push(`    return c.body(null, 204);`);
   out.push(`  },`);
@@ -1981,6 +2030,9 @@ function emitReturningOperationRoute(
   ctx: BoundedContextIR,
   entry: ApiOperationIR,
   emitTrace: boolean,
+  audit = false,
+  prov = false,
+  usingMikro = false,
 ): string[] {
   // Lifecycle stamps are applied persist-time in the drizzle save(); the
   // operation route does not stamp.
@@ -2047,13 +2099,38 @@ function emitReturningOperationRoute(
   }
   const baseCallArgs = op.params.map((p) => wireToDomainExpr(`body.${p.name}`, p.type, ctx));
   const callArgs = (usesUser ? [...baseCallArgs, "currentUser"] : baseCallArgs).join(", ");
-  out.push(`    const aggregate = await repo.getById(Ids.${agg.name}Id(id));`);
-  out.push(...requiresGateLines(op, "    ", ctx));
-  out.push(...whenGateLine(agg, op, "    "));
-  // Lifecycle stamps are applied persist-time in the drizzle save()
-  // — the handler does not stamp.
-  out.push(`    const result = aggregate.${lowerFirst(op.name)}(${callArgs});`);
-  out.push(`    await repo.save(aggregate);`);
+  if (audit || prov) {
+    // The audited / provenanced shape: the same transactional block the void
+    // handler emits, with the tagged result carried out of the transaction so
+    // the ProblemDetails translation below runs on the committed value.
+    out.push(
+      ...auditProvTxLines({
+        agg,
+        op,
+        ctx,
+        audit,
+        prov,
+        usingMikro,
+        usesUser,
+        // A returning `update` does not take the `If-Match` precondition path —
+        // the void handler owns the canonical crudish update; a hand-declared
+        // returning op of the same name keeps the write-time CAS fallback.
+        isVersionedUpdate: false,
+        mutation: (pad) => [
+          `${pad}const __result = aggregate.${lowerFirst(op.name)}(${callArgs});`,
+        ],
+        capture: true,
+      }),
+    );
+  } else {
+    out.push(`    const aggregate = await repo.getById(Ids.${agg.name}Id(id));`);
+    out.push(...requiresGateLines(op, "    ", ctx));
+    out.push(...whenGateLine(agg, op, "    "));
+    // Lifecycle stamps are applied persist-time in the drizzle save()
+    // — the handler does not stamp.
+    out.push(`    const result = aggregate.${lowerFirst(op.name)}(${callArgs});`);
+    out.push(`    await repo.save(aggregate);`);
+  }
   // Translate each error variant to a ProblemDetails before the success path.
   // Status / title / type come from the stdlib defaults (exception-less.md A1);
   // the error payload's own fields ride along as RFC-7807 §3.2 extension members

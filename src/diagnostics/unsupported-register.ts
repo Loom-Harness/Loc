@@ -97,13 +97,6 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
     mission: "M-T6.32",
   },
   {
-    code: "loom.audited-returning-operation-unsupported",
-    kind: "gap",
-    site: "src/ir/validate/checks/storage-inheritance-checks.ts:614",
-    what: "`audited`/`provenanced` × a RETURNING operation falls into node's void-204 handler",
-    mission: "M-T6.32",
-  },
-  {
     code: "loom.auth-ui-unsupported-framework",
     kind: "seam",
     site: "src/ir/validate/checks/ui-framework-checks.ts:425",
@@ -279,8 +272,15 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
     kind: "gap",
     site: "src/ir/validate/checks/orm-adapter-checks.ts:284",
     what:
-      "a find / retrieval / query-time-projection / capability-filter predicate outside the " +
-      "opt-in `persistence: dapper|mikroorm` SQL subset (EF Core + Drizzle lower it in full)",
+      "ONE shape is left on the opt-in `persistence: dapper|mikroorm` subsets (EF Core + " +
+      "Drizzle are the full-subset baseline): a reference-collection membership whose " +
+      "ARGUMENT is a column rather than a bindable value " +
+      "(`this.<refColl>.contains(<column>)`), which only a query-time projection `where` " +
+      "can produce since it has no parameters.  Dapper reached the baseline earlier; " +
+      "mikroorm's remaining narrowings drained in wave C2 (the queryable intrinsics and " +
+      "`currentUser` arms, then general membership — an uncorrelated `id in (select " +
+      "<ownerFk> from <joinTable> where <targetFk> = ?)` raw fragment, the FilterQuery " +
+      "mirror of Dapper's EXISTS subquery and of drizzle's own `inArray` subselect)",
     mission: "M-T6.35",
   },
   {
@@ -387,7 +387,15 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
       "on MikroORM: the two self-provisioning limits — declared migration steps and Postgres " +
       "schema placement (migration-checks.ts, `#migrations` / `#schema-split` / " +
       "`#schema-ignored`) — this adapter's boot-time `orm.schema.updateSchema()` schema owner " +
-      "genuinely cannot express.  Two prior residents drained: the root SCALAR/ENUM " +
+      "does not express today.  BOTH are OWNER-RULED as builds, not as permanent limits: " +
+      "`#migrations` by D-DAPPER-ALTER (its mikroorm twin is ruled the same way there) — " +
+      "render the MigrationsIR chain behind a `__loom_migrations` ledger and flip " +
+      "`!usingMikro` at `src/platform/hono/v4/emit.ts`, a named T2 mission, with the widened " +
+      "refusal landing first as the interim), and `#schema-*` by measurement (C2 packet 2c): " +
+      "a MikroORM `EntitySchema` takes a `schema:` key and `updateSchema` provisions it, so " +
+      "the gap is that `renderMikroEntities` is never handed the per-aggregate " +
+      "`resolveDataSourceConfig` the drizzle `renderSchema` already receives at the same call " +
+      "site (`emit.ts:705`).  Two prior residents drained: the root SCALAR/ENUM " +
       "scalar-array shape (`#scalar-array` — `columnsForType` grew a native-Postgres-array " +
       "column arm mirroring drizzle's; `validateMikroOrmSupport` and the reject itself are " +
       "gone) and the abstract-inheritance-base-with-`contains` shape (promoted to the " +

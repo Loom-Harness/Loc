@@ -51,7 +51,6 @@ import {
   backendPlatformsHostingEachContext,
   validateApiResourceBindings,
   validateAuditedOperationSupport,
-  validateAuditedReturningOperationSupport,
   validateAuth,
   validateAuthUiFramework,
   validateChannelWiring,
@@ -311,11 +310,6 @@ export function validateLoomModel(loom: EnrichedLoomModel): LoomDiagnostic[] {
     validateProvenancedStorage(c, diags, backendPlatformsByContext.get(c.name) ?? new Set());
     validateFieldMask(c, diags, backendPlatformsByContext.get(c.name) ?? new Set());
     validateAuditedOperationSupport(c, diags, backendPlatformsByContext.get(c.name) ?? new Set());
-    validateAuditedReturningOperationSupport(
-      c,
-      diags,
-      backendPlatformsByContext.get(c.name) ?? new Set(),
-    );
   }
   validateExprIntegrity(loom, diags);
   // Migration-block data steps (M-T2.3): expression renderability / target /

@@ -184,7 +184,11 @@ export function renderMikroEmbeddedRepository(
       // ride reads that have no such parameter.
       filter = withContextFilters(
         f.filter
-          ? whereToMikroFilter(f.filter, usesUser ? "currentUser" : AMBIENT_PRINCIPAL)
+          ? whereToMikroFilter(
+              f.filter,
+              usesUser ? "currentUser" : AMBIENT_PRINCIPAL,
+              agg.associations,
+            )
           : "{}",
         caps,
       );

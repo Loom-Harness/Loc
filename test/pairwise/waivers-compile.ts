@@ -15,55 +15,14 @@
 
 import type { Waiver } from "./waivers.js";
 
+// F11 (node × `shape: embedded` × TPH) lived at the head of this list and is
+// GONE — drained by wave C2 packet 2c, not by a compile fix.  The crossing it
+// waived cannot be written any more: `loom.es-tph-forced-own-table` now covers
+// `shape: embedded` alongside `document` / `eventLog` (D-EMBEDDED-TPH), so the
+// composer writes the forced `inheritanceUsing: ownTable` and the case the cover
+// generates is `embedded × ownTable`, which compiles on both node adapters.
+// That also removes the python twin's source (F13), whose own entry is 2e's.
 export const COMPILE_WAIVERS: readonly Waiver[] = [
-  {
-    // ---- F11 (W3) ------------------------------------------------------
-    // `shape: embedded` × TPH (`inheritanceUsing: sharedTable`).  The drizzle
-    // repository builder for the EMBEDDED shape names the aggregate's own
-    // pluralised table (`schema.things`); under TPH the row lives in the
-    // abstract base's shared table and the only export the schema module emits
-    // is `thingBases`.  19 × TS2339 per case.
-    //
-    // The relational builder already gets this right, through
-    // `tableOwnerName(agg, ctx.aggregates)` from `src/ir/util/inheritance.ts`,
-    // and even carries the comment naming the trap ("not the subtype's own
-    // pluralised name, which has no `schema` export").  The embedded builder
-    // was cloned before that fix and never picked it up — the same
-    // clone-and-diverge shape as F3/F5 (drizzle → MikroORM) one slice earlier.
-    //
-    // NOT fixed here, and the reason is that the repository is only half of it:
-    // the schema emitter does not put the embedded jsonb containment column on
-    // the TPH owner table either (it emits a relational `lines` child table
-    // instead), so re-pointing the repository would move the error rather than
-    // remove it.  Both halves, plus the phase-⑨ migration DDL, plus the same
-    // crossing on python (which emits BOTH tables) and .NET (which maps no
-    // containment at all) — a cross-emitter mission, not a harness slice.
-    // See docs/audits/pairwise-corpus-findings-2026-08.md § F11.
-    //
-    // SCOPE — deliberately narrow, and each `*` MEASURED rather than assumed.
-    // 50 of the 600 node/default source crossings hit this, and they are
-    // exactly `embedded × tph`: every capability, every authz, both reads, and
-    // NOT `tpc`.  So the entry pins shape+inheritance and stars the rest,
-    // rather than waiving `embedded` on node wholesale (which would hide the
-    // next embedded bug).
-    //
-    // `persistence: "*"` is checked, not lazy: MikroORM has the same defect one
-    // name over — `db/entities.ts` exports `ThingBaseRow` and `LineRow`, and
-    // the repository imports `ThingRow`.  A starred axis that turned out to be
-    // clean would fire the STALE arm on the day the cover sampled it, which is
-    // the register's own way of catching a waiver written wider than the bug.
-    platform: "node",
-    persistence: "*",
-    capability: "*",
-    shape: "embedded",
-    authz: "*",
-    inheritance: "tph",
-    read: "*",
-    reason:
-      "F11 — shape: embedded × TPH: the drizzle embedded repository targets " +
-      "schema.<own plural>, but a TPH concrete's row lives in the base's " +
-      "shared table and no such export exists (TS2339)",
-  },
   {
     // ---- F12 (W3) ------------------------------------------------------
     // `paged` × a NON-RELATIONAL saving shape.  The CALLER honours the carrier
@@ -138,7 +97,8 @@ export const COMPILE_WAIVERS: readonly Waiver[] = [
   //         repository straddled both.  Fixed by ordering the TPH arms first
   //         (matching the migration builder and the drizzle emitter) and
   //         routing a TPH concrete to the relational repository builder.
-  //         Gate: `test/generator/python/tph-embedded-storage.test.ts`.
+  //         The crossing itself was then refused at phase ④ by D-EMBEDDED-TPH
+  //         (2c), so the ordering is a floor and its python gate was retired.
   //
   //   F15 — `softDeletable` × TPH.  A TPH-nullable bool column in boolean
   //         position now renders `.is_(True)` / `.is_(False)` instead of a bare

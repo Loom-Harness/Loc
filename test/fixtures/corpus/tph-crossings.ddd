@@ -18,16 +18,15 @@
 // column is not expressible there.  That is an honest gate, not a gap, and the
 // row returns the day it closes.
 //
-// STILL MISSING, and named so the next agent widens rather than re-derives: the
-// sibling crossing `shape: embedded` × TPH (pairwise F13).  It belongs in this
-// fixture — a TPH concrete owns no table of its own, so the jsonb containment
-// column has nowhere to live and the phase-⑨ DDL emits a relational child table
-// instead.  It is held back only because the drizzle repository still targets
-// the concrete's own (non-existent) table on that crossing (pairwise F11, node),
-// so adding the concrete here would turn `corpus-tsc-build` red on a defect this
-// fixture is not about.  Add an `embedded` concrete to this hierarchy when F11
-// closes; python's half is gated meanwhile by
-// `test/generator/python/tph-embedded-storage.test.ts`.
+// NOT HERE, by decision: the sibling crossing `shape: embedded` × TPH (pairwise
+// F11 on node, F13 on python) is no longer a crossing at all — wave C2 packet 2c
+// pinned D-EMBEDDED-TPH, so an `embedded` concrete of a `sharedTable` base is
+// refused at phase ④ (`loom.es-tph-forced-own-table`) exactly like `document`
+// and `eventLog`, and the author declares `inheritanceUsing: ownTable`.  Both
+// waivers are deleted; the refusal is gated in
+// `test/language/parsing/aggregate-inheritance.test.ts`.  Python's emitters keep
+// the TPH-arms-first ordering 2e landed (mirroring the migrations builder) as a
+// floor no fixture can reach.
 system TphCrossings {
   subdomain Depot {
     context Depot {

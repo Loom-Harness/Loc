@@ -486,6 +486,10 @@ D-DOCUMENT-AXIS: a `shape: document` (document) concrete of a
 raises an error (not a silent coercion) so the author writes the
 forced modifier explicitly.
 
+**Extended by D-EMBEDDED-TPH** (wave C2): `shape: embedded` joins the
+forced set — the third non-relational shape, missed when this rule was
+generalised, and the one compile waivers F11 / F13 were recording.
+
 **Affects.** `aggregate-inheritance.md`; the persistence adapter's
 table-layout resolution.
 
@@ -3490,6 +3494,8 @@ the drizzle repository must target the owner table, not the concrete's own. The
 crossing enters the curated corpus with `tph-crossings.ddd`, whose header names
 the embedded half as the widening step once F11 closes.
 
+**Superseded in part at the wave fold (2026-09-13).** The follow-up this entry declined to take was taken in the same wave by packet 2c as [`D-EMBEDDED-TPH`](#d-embedded-tph--a-shape-embedded-concrete-of-a-sharedtable-base-is-forced-to-owntable-like-the-other-two-non-relational-shapes): `shape: embedded` under a `sharedTable` base is now REFUSED at phase ④ (`loom.es-tph-forced-own-table`), so the crossing this entry ruled on is unreachable from `.ddd` and there is no degrade left to be coherent about. What survives of this entry is its floor: the python schema emitter and repository builder test the TPH arms before the shape arms, mirroring `migrations-builder.ts`, so a TPH concrete can never again be handed a table phase ⑨ does not create. The python gate that drove the crossing (`tph-embedded-storage.test.ts`) was deleted at the fold because its fixture no longer validates; the ordering is pinned by the phase-④ refusal plus the migrations builder's own arm order, and the coordinator recorded the trade in `docs/new-plan/waves/wave-c2.md`.
+
 **Sources.** `src/system/migrations-builder.ts` `tablesForOneAggregate`;
 `src/ir/util/inheritance.ts` `tableOwnerName`;
 `src/language/validators/inheritance.ts` rule 4;
@@ -3539,3 +3545,67 @@ recorded here as the shape of that change, not scheduled.
 **Sources.** `src/platform/adapter-metadata.ts` (`BACKEND_ADAPTER_METADATA`, and
 its own note on python's absence); [`platforms.md`](platforms.md);
 `docs/audits/targets-completeness-2026-08-30.ledger.json`.
+## D-EMBEDDED-TPH — a `shape: embedded` concrete of a `sharedTable` base is forced to `ownTable`, like the other two non-relational shapes
+
+**Status:** proposed (default applies 48 h after merge unless overridden).
+
+**Question.** `shape: embedded` × TPH (`inheritanceUsing: sharedTable`) does not
+work on any backend that implements `embedded`. Is that a cross-emitter mission,
+or does the language refuse the crossing the way it already refuses the other two
+non-relational shapes under a shared table?
+
+**Options.** (a) build it — the TPH owner table grows one nullable jsonb column
+per embedded concrete's containment, on node (drizzle + mikroorm), python and
+.NET, plus the matching phase-⑨ DDL; (b) extend Rule 4's `forcesOwn` set with
+`embedded`, so the author declares `inheritanceUsing: ownTable` exactly as an
+event-sourced or document concrete must; (c) leave it — a recorded compile
+waiver per backend.
+
+**Decision.** (b).
+
+**Rationale.**
+
+- **The rule already exists and already covers the neighbours.** `persistedAs:
+  eventLog` and `shape: document` are forced to `ownTable` by
+  `loom.es-tph-forced-own-table` (`src/language/validators/inheritance.ts`
+  Rule 4, D-ES-TPH) for the same underlying reason: their truth is not a row in
+  a shared table. `embedded` is the third non-relational shape and was simply
+  missed — (b) adds one disjunct to a set, one word to a message and nothing to
+  the surface. (a) adds a per-backend feature nobody has asked for.
+- **What (c) was actually recording, measured.** On node, the drizzle embedded
+  repository named `schema.things` while a TPH concrete's row lives in
+  `schema.thingBases` (19 × TS2339 per case, compile waiver **F11**; MikroORM
+  had the same defect one name over, `ThingRow` vs `ThingBaseRow`) — and the
+  schema emitter did not put the jsonb containment column on the owner table
+  either: it emitted a relational `lines` CHILD TABLE, so re-pointing the
+  repository would have moved the error rather than removed it. Python emits
+  BOTH tables (**F13**); .NET maps no containment at all. Three backends, three
+  different wrong answers, and the phase-⑨ migration DDL mirrors the schema
+  emitter's mistake on all of them.
+- **(a) is a four-file change per backend for a shape with no demand.** Two
+  emitters and the phase-⑨ DDL on each of node/python/.NET, held together by a
+  drizzle-schema-vs-migration agreement nothing currently gates. The crossing
+  came from the pairwise MATRIX, not from a user: it is a cell the generator
+  enumerates, not a shape anyone wrote.
+- **The forced form is not a downgrade.** `embedded × ownTable` compiles and runs
+  on both node adapters today (verified: `tsc --noEmit` clean on the generated
+  project for drizzle and mikroorm), and it is what the author wanted anyway —
+  an aggregate whose containments fold into ITS row needs a row of its own.
+
+**Consequences.** `loom.es-tph-forced-own-table` gains `shape: embedded`; its
+message names the shape rather than only the event-sourced arm. `COMPILE_WAIVERS`
+entry **F11** is deleted (the crossing can no longer be written), and the pairwise
+composer writes the forced override for `embedded` as it already does for
+`document` / `eventLog`, so the cover reaches `embedded × ownTable` instead of
+spending its TPH cells on a validator floor. The python twin **F13** loses its
+source the same way — 2e deletes its own entry. M-T2.10's "`embedded` on Drizzle
+still emits relationally" clause is resolved by the same measurement: it emits
+jsonb correctly, and emitted relationally ONLY under TPH.
+
+**Reversible.** If a real model ever needs the crossing, (a) is unblocked by
+deleting one disjunct — nothing here bakes the refusal into an emitter.
+
+**Sources.** `test/pairwise/waivers-compile.ts` F11 (and F13);
+[`targets-completeness-2026-08-30.ledger.json`](audits/targets-completeness-2026-08-30.ledger.json);
+[`T2-data-evolution.md`](new-plan/T2-data-evolution.md) M-T2.10;
+[`inheritance.md`](inheritance.md); D-ES-TPH (the rule this extends).

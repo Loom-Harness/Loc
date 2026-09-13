@@ -751,17 +751,6 @@ system S {
       code: string
       operation dispatch() audited { code := "x" }
     }`),
-  // Needs the DEPLOYMENT side: the refusal is per-backend (node emits only the
-  // void-204 handler for an audited RETURNING operation; python emits both),
-  // so a declaration-only system raises nothing.
-  "loom.audited-returning-operation-unsupported": deployed(`      error NotFound { message: string }
-      aggregate Order with crudish {
-        qty: int
-        operation take(n: int) audited : Order or NotFound {
-          qty := qty - n
-          return this
-        }
-      }`),
   // A FOURTH of the same shape, found by reading `validateFieldMask` for the
   // `anyBackend` arm rather than trusting `FIELD_MASK_BACKENDS` (which does
   // list all five families).  `mask unless` on a context nothing hosts is the

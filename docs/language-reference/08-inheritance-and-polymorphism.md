@@ -468,7 +468,7 @@ Both strategies emit on **all five backends** (node/Hono, .NET, Phoenix, Python,
 | `loom.seed-abstract-aggregate` | a `seed` row names an abstract base (no create factory, no repository) |
 | `loom.polymorphic-id-ref-unsupported` | a `<Base> id` reference to an `ownTable` (TPC) base |
 | `loom.polymorphic-id-ref-mixed-strategy` | a `<Base> id` reference into a hierarchy with an `ownTable` override concrete |
-| `loom.es-tph-forced-own-table` | a `persistedAs: eventLog` / `shape: document` concrete under a TPH base must declare `inheritanceUsing: ownTable` explicitly |
+| `loom.es-tph-forced-own-table` | a `persistedAs: eventLog` / `shape: document` / `shape: embedded` concrete under a TPH base must declare `inheritanceUsing: ownTable` explicitly (the three non-relational shapes; D-ES-TPH + D-EMBEDDED-TPH) |
 | `loom.tph-own-override-unsupported` | a *voluntary* per-concrete `ownTable` override under a TPH base (mixed strategy) |
 | `loom.tph-filter-unsupported` | **.NET/EF only** (not the Dapper adapter — it splices predicates into raw SQL) — a TPH subtype `filter` reads a column the hierarchy root lacks |
 | `loom.tenancy-inherited-stance-conflict` | a subtype takes the opposite tenancy stance (`crossTenant`) from its `tenantOwned` base |

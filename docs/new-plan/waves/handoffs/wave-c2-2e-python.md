@@ -194,3 +194,13 @@ Nothing in this packet touches `routes-builder.ts`, `auth-emit.ts`,
 - **D-PYTHON-SINGLE-REALIZATION** — python ships one realization and that is a
   product statement, not an incomplete implementation. `scope`, owner: the T6
   backend track, on demand.
+
+## Coordinator addendum (fold, 2026-09-13)
+
+Packet 2c took the language-layer follow-up this note left to 2f: **D-EMBEDDED-TPH** refuses
+`shape: embedded` under a `sharedTable` base at phase ④, so F13's crossing is unreachable from
+`.ddd`. Composition at fold: the python emitter ordering (F13's fix) stays as the floor mirroring
+`migrations-builder.ts`; `test/generator/python/tph-embedded-storage.test.ts` was **deleted** (its
+fixture no longer validates — five assertions fail on the phase-④ error, not on the emitter);
+D-TPH-BEATS-SHAPE carries a "superseded in part" paragraph; the `tph-crossings.ddd` header no
+longer promises an embedded half.

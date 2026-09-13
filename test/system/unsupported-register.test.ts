@@ -282,8 +282,17 @@ const REGISTER_FILE = path.join(srcRoot, "diagnostics", "unsupported-register.ts
  *  / "dormant" / "fires only when no backend hosts the context" rows) moved to
  *  `kind: "seam"`, so this pin now counts exactly what the completion plan's
  *  exit criterion names: LIVE gaps on a shipping target.  The seam rows are
- *  pinned separately below (`LATENT_SEAMS`) so the move cannot hide a gap. */
-const MAX_OPEN_GAPS = 27;
+ *  pinned separately below (`LATENT_SEAMS`) so the move cannot hide a gap.
+ *
+ *  Wave C2 packet 2c (node): 27 → 26.  `loom.audited-returning-operation-
+ *  unsupported` DRAINED — the Hono operation route dispatches an `audited` /
+ *  `provenanced` returning operation to `emitReturningOperationRoute` with the
+ *  audit/provenance transaction wrapped around it and the tagged result carried
+ *  out of the transaction, so node emits both halves the other four backends
+ *  always did.  Gate, message, register row and firing-census fixture deleted
+ *  together (`test/generator/typescript/audited-returning-route.test.ts` is the
+ *  replacement, mutation-proved). */
+const MAX_OPEN_GAPS = 26;
 
 /** Exact count of `seam` rows.  Changes only for a reviewed reason: a gate
  *  deleted (down), a new target registered that turns a seam back into a live

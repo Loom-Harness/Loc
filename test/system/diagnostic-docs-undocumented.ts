@@ -24,7 +24,6 @@ export const UNDOCUMENTED_CODES: readonly string[] = [
   "loom.applier-impure-call",
   "loom.audit-history-ungated",
   "loom.audited-backend-unsupported",
-  "loom.audited-returning-operation-unsupported",
   "loom.auth-missing-client-id",
   "loom.auth-no-user-block",
   "loom.auth-ui-misplaced",

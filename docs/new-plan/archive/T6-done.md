@@ -472,9 +472,23 @@ The mission's own **first step was "re-verify"**, and the re-verify overturned i
 | `audited` operations | `loom.audited-backend-unsupported` | `AUDIT_OP_BACKENDS` = all five | `audit_records` side table on each — pinned per backend by `test/platform/backend-parity-gates.test.ts` (`marker` per backend) |
 | `provenanced` fields | `loom.provenanced-backend-unsupported` | `PROVENANCE_BACKENDS` = all five | `provenance_records` on each — same test, `marker` per backend |
 
-**One residue survives, and it is not on this mission's axis:**
+**Residues (one on this mission's axis, closed in C2; one on the adapter axis, still open):**
 
 1. ~~**elixir + `shape: document` capability filters**~~ — **closed (#2625).** It was the one unwired `(family, shape)` cell in `validateContextFilterSupport`; `renderDocRepository` now AND-s the predicate into `list` / `find_by_id` / `find_by_id_for_write` / every custom find, evaluated over the rehydrated `%<Agg>.Data{}` embed, with the `deep` sentinel rendered by `renderDeepScopeInApp` and a `current_user != nil` guard keeping an actor-less read fail-closed. With the last cell wired, the three deferral tables (`supportsPrincipalFilter` / `supportsNonRelationalFilter` / `supportsPrincipalNonRelationalFilter`) and the `#unsupported-predicate` message they raised were **deleted** — `validateContextFilterSupport` is now only the shape-independent "a principal filter needs `auth: required` + a `user {}` block" rule. The `policy-document` corpus row runs on all five backends, and `backend-parity-gates.test.ts` gained a `shape: document` filter row with a per-backend in-app marker.
+1b. ~~**`audited` / `provenanced` × a RETURNING operation on node**~~ — **closed (Wave C2 packet 2c).** A later
+   review (2026-08-24, A6) found a third residue on this mission's own axis: the Hono operation route dispatched to
+   `emitReturningOperationRoute` only when `!audit && !prov`, so `operation settle(fee: int): int or NotFound` marked
+   `audited` fell into the void-204 handler — the route declared 204 only and the declared result was discarded.  It was
+   gated honestly (`loom.audited-returning-operation-unsupported`) rather than fixed.  It is now fixed: the audit /
+   provenance transaction block is emitted by one shared helper (`auditProvTxLines` in
+   `src/platform/hono/v4/routes-builder.ts:1740`) that both handlers call, and the returning one passes `capture: true`
+   so the transaction RETURNS the tagged result (`db.transaction` / `em.transactional` both resolve to their callback's
+   value) and the ProblemDetails translation runs on the committed value.  Byte-identical on the void path, both
+   persistence adapters, and node now matches what python, .NET, java and elixir always emitted.  The gate, its message,
+   its register row and its firing-census fixture are deleted together; `MAX_OPEN_GAPS` 27 → 26.  Runtime-proven on a
+   booted app against a real Postgres, and pinned by the corpus fixture `audit-history.ddd` (the `settle` operation +
+   its third trail entry) on all five backends' behavioural legs.
+
 2. **`ignoring` under `persistence: dapper`** — an ADAPTER cell, not a platform one. `FILTER_BYPASS_FAMILIES` is keyed by family, so `dotnet` passes the gate whatever its adapter; but `src/generator/dotnet/emit/dapper.ts` applies `agg.contextFilters` and contains **zero** occurrences of bypass handling, so an `ignoring` clause is silently not honoured there. Tracked on the adapter axis by **M-T6.35**; the dapper adapter is also under active work in the in-flight M-T6.42 PR.
 
 The general lesson is the one M-T6.33 already recorded one row over: a register row classified `gap` and never re-verified decays into a claim about the past. Both of this track's "re-verify first" missions were overturned by the re-verify.
