@@ -1045,21 +1045,42 @@ aggregate Order with crudish { items: LineItem[] }
 `field-input-array.hbs` routes a `money` cell through its generic string arm, and
 `defaultRowValue` seeds it with the string `"0"` against a `Decimal` slot.
 
-Deliberately NOT fixed in #2876. The repair belongs in the shared
-`_walker/form-fields-vm.ts` row seed, which lands on all four JSX/markup
-frontends at once and wants the react and angular build gates alongside the vue
-and svelte ones. It is its own slice.
+Deliberately NOT fixed in #2876, and fixed in #2902.
 
-## Angular remains unverified across this whole audit
+> **CORRECTED 2026-09-13.** This entry said the repair "lands on all four
+> JSX/markup frontends at once". **It does not.** Angular builds its row controls
+> from its own `src/generator/angular/form-fields.ts`, where wire `money` is a
+> `string` end to end — it never consumed the shared `_walker/form-fields-vm.ts`
+> seed and never carried the defect. Its output is byte-identical under the fix.
+>
+> The more useful finding underneath: **React's build gate was structurally
+> blind to this, not merely passing.** React types its form on `z.input`, which
+> is `Decimal | string`, so a string row cell type-checks there. React is where
+> the row templates get edited, and its own gate could not see them drift — which
+> is why the shape belonged in React's corpus even though React was never broken.
 
-Stated plainly because two separate agents hit the same wall. `tsc -p
-tsconfig.app.json` is clean on the e-shop model, but `ng build` — which adds
-Angular's template typechecking, the half that would catch the P4 class — could
-not be run on this host: the generated project's Angular CLI requires Node
-≥ 22.22.3 and the host caps at 22.22.2. Nothing in this audit claims Angular is
-clean; it claims only that Angular's emitters were not touched. Whether Angular's
-own form runtime carries the P4 defect is an open question, and answering it
-needs a box with a newer Node.
+The real shape of the defect: a money ROW cell is a **second money renderer per
+pack**. The flat field renders through `field-input-money.hbs`; a row cell
+renders through `field-input-array.hbs`, which owns its own per-sub-field arms
+and shares no markup with the flat template. #2876 fixed every flat arm; the row
+arms kept falling through to the generic string arm.
+
+## Angular: the caveat was mine, and it was wrong
+
+> **CORRECTED 2026-09-13 by the agent fixing P8 (#2902).** This section used to
+> say Angular was unverifiable here because the generated project's Angular CLI
+> wants Node ≥ 22.22.3 and the host caps at 22.22.2. Three separate agents,
+> and I, repeated that as a standing limitation across two sessions.
+>
+> **It is not a wall.** A Node 24 tarball unpacked in the scratchpad and put
+> first on `PATH` runs `ng build` — and the whole Angular harness — unchanged.
+> The recipe is in #2902's body. All three Angular packs are `ng build`-green
+> with template typechecking, before and after that change.
+>
+> The lesson is not about Node. An environment limitation stated once becomes a
+> fact everyone downstream inherits; nobody re-tested it because it was written
+> down. It cost this audit its Angular coverage for two sessions, and the fix
+> was one download.
 
 ---
 
