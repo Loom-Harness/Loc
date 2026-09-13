@@ -478,6 +478,51 @@ A flutter case carries `"uiFlutter": true` **and** `"ui": false` in
 missing `e2e/playwright.config.ts`. Nightly: the `flutter` cell of
 `frontend-fullstack-e2e.yml`.
 
+### The numeric contract both self-hosting frontends assert (M-T9.38)
+
+The two SDK/toolchain-built frontends — Flutter here and Feliz through
+`run-ui.mjs` — are the pair whose compile gates are blindest to a WIRE
+mistake: Dart's `(x as num)` over a money STRING and F#'s
+`Decode.decimal` over a JSON number both typecheck, and the audit finding
+this leg exists for (**F1**) was exactly that. So both legs carry one
+numeric row on `Product` — `money` (a fixed-scale-4 STRING, RS-12),
+`decimal` (a JSON number, RS-24), `int` and `long` — and both assert the
+RENDERED value, not merely that the row appeared:
+
+| host | wire | seeded | Flutter renders | Feliz renders |
+|---|---|---|---|---|
+| `money` | `"98.7600"` (string) | `98.7600` | `98.76` | `98.7600` |
+| `decimal` | `1.25` (number) | `1.25` | `1.25` | `1.25` |
+| `int` | `4242` | `4242` | `4242` | `4242` |
+| `long` | `1234567890123456` | same | same | same |
+
+Three things are deliberate:
+
+- **One table, two legs.** The seed and the expectation are two halves of
+  one claim, so they live together in
+  [`numeric-ui-contract.mjs`](numeric-ui-contract.mjs) and both legs read
+  them from there. Held apart they drift, and a drifted pair does not go
+  red — it goes **vacuous**.
+- **The values discriminate.** `stock: 7` would render a bare `7`, which
+  the flutter probe's substring match finds inside any UUID on the page.
+  `4242` and the 16-digit barcode cannot. The ≥ 4-character floor is
+  asserted, not just intended.
+- **`long` stays under 2^53.** Past that the semantics are undecided
+  (M-T5.23 is `blocked(D-LONG-AVG-DEFAULTS)`), and a runtime leg must not
+  encode an open ruling as a pass.
+
+`money` rendering **diverges between the two frontends** — Flutter formats
+through `NumberFormat.decimalPattern()` and drops the scale, Feliz renders
+`string (decimal)` and keeps it. That is recorded in the table rather than
+smoothed over; whichever way it is later unified, the table is what changes.
+
+The fast-suite ratchet over all of this is
+[`numeric-ui-legs.test.ts`](numeric-ui-legs.test.ts): both fixtures still
+declare the four host types (read off the enriched IR), the flutter leg
+still derives both halves from the contract, and the feliz fixture still
+reads every field back. Without it, deleting a field from a fixture would
+leave two nightly legs green and pointless.
+
 ## The wire differential — every leg gates the same canonical bytes
 
 Every runner above (all five backends plus the `dapper` / `mikroorm`

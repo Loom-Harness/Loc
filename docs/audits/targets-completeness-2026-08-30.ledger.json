@@ -2845,51 +2845,6 @@
    "P": 4
   },
   {
-   "id": "G2644-M-T9.38-frontend-runtime-legs",
-   "title": "#2644 F17 / M-T9.38 — FELIZ still has no runtime leg at all, and neither it nor the landed flutter leg (#2663) is numeric-rich",
-   "kind": "breadth",
-   "class": null,
-   "confidence": "proven",
-   "targets": [
-    "feliz"
-   ],
-   "fileTrees": [
-    ".github/workflows/",
-    "test/behavioral/",
-    "test/e2e/"
-   ],
-   "evidence": [
-    {
-     "fleet": 1,
-     "id": "G2644-M-T9.38-frontend-runtime-legs",
-     "text": "PARTIALLY STALE — verified on main. The FLUTTER half landed after #2644's snapshot: #2663 (d12af43, 2026-08-24) added test/behavioral/run-ui-flutter.mjs, a full-stack leg that builds the Flutter web bundle and drives it with headless Chromium against the generated Hono/PGlite backend, asserting through Flutter's accessibility tree. FELIZ still has none — `ls .github/workflows | grep -i feliz` shows only generated-feliz-build.yml (compile-only: `dotnet fable` + vite), and `ls test/behavioral | grep -i feliz` is empty. Neither leg is numeric-rich: `grep -n 'money|decimal' test/behavioral/run-ui-flutter.mjs` finds nothing, so the money round-trip the mission exists to protect is still unexercised at runtime."
-    }
-   ],
-   "repro": null,
-   "impact": null,
-   "fix": "Two residual slices: (1) build the feliz twin of run-ui-flutter.mjs (boot + list-read + create-submit smoke against a real backend), wired to a run-* label per the post-merge-gate convention; (2) make BOTH legs' fixtures numeric-rich (money, decimal, int, long) so an F1/F2-class decode bug fails them. Mutation-prove by re-seeding the F1 decode bug in a scratch branch. The mission's original BLOCKED-on-M-T1.21 note is now moot (M-T1.21 is done).",
-   "size": "M",
-   "sources": [
-    "fleet1:pr-registers"
-   ],
-   "related_to": [
-    "M-T9.15-per-pr-nonreact-fullstack (coverage-t9) — adjacent: tiering of the non-React legs",
-    "M-T1.18-ios-and-ondevice (t1) — the Flutter on-device half"
-   ],
-   "securityClass": false,
-   "P": 4,
-   "reverified": {
-    "date": "2026-09-10",
-    "against": "bc7ed8f8",
-    "method": "reconciliation 3 (packet C0.5) — repro re-run on this head, emitted output read",
-    "verdict": "reproduces",
-    "note": "NARROWED TO FELIZ.  `test/behavioral/run-ui-flutter.mjs` exists (#2663); `test/behavioral/run-ui-feliz.mjs` does not.  Feliz still has no runtime leg, and neither leg is numeric-rich.",
-    "remainingTargets": [
-     "feliz"
-    ]
-   }
-  },
-  {
    "id": "G2667-D5-handler-atomicity-asymmetry",
    "title": "Debt: handler atomicity asymmetry — java handlers are class-@Transactional, .NET/node commit per SaveAsync",
    "kind": "mission",
@@ -7318,6 +7273,11 @@
    "id": "flutter-form-field-drops",
    "title": "All four `KNOWN_FLUTTER_GAPS` pins closed with real Dart widgets and DELETED; the parity freeze now asserts the EMPTY set. (1) value-object flattening is recursive, so `addr.geo.lat` gets its own controller and the request body re-nests to the same depth (`objectKey: string` became `objectPath: string[]`, `bodyAssembly` builds a tree). (2) an object-array row slot is heterogeneous (`List<List<dynamic>>`): text/number cells keep their `TextEditingController`, bool / enum / datetime cells hold their value and render a checkbox / dropdown / date picker, so a VO array with a non-scalar sub-field no longer defers. (3)+(4) bool and enum element arrays are repeatable checkbox / dropdown row editors (`List<bool>` / `List<String>`). Wire shape unchanged and verified against the BACKEND's own zod request schema in the same generated tree, not the Flutter emitter. Evidence: `test/generator/flutter/{nested-vo-field,bool-enum-array}.test.ts` (11 tests) + the rewritten `parity-freeze.test.ts` (empty allowlist + a vacuity guard that the fixture still emits all four shapes). Mutation-proved three times, one per arm — restoring the one-level flatten fails 4 assertions (`expected … to contain \"_addrGeoLatController\"`, `expected [ Array(1) ] to deeply equal []`), narrowing object-array cells back to text/number fails 5, deferring bool/enum element arrays fails 5. A fourth mutation re-introduced the real off-by-one closing paren the new `dartBracketImbalance` sweep caught during development: `'[' opened at line 74 is closed by ')'`.",
    "source": "wave-c1-1e-ledger-flutter"
+  },
+  {
+   "id": "G2644-M-T9.38-frontend-runtime-legs",
+   "title": "M-T9.38 — BOTH self-hosting frontends now have a numeric-rich real-backend leg. Half this row's premise was stale: its 'FELIZ still has none' rested on `ls test/behavioral | grep -i feliz` being empty, but feliz has had a BLOCKING real-backend cell in frontend-fullstack-e2e.yml since the testid-emission PR — it reuses the shared run-ui.mjs, so no file carries its name and a filename census cannot see it. What was genuinely missing, on both legs, was the numeric half: #2898 adds money/decimal/int/long to both fixtures, asserts each RENDERED value (so a silently-wrong decode fails, not only a throwing one), puts the seed and the expectations in one shared table both legs read, and ratchets all of it in the fast suite. Measured locally: feliz 11/11, flutter 4/4; mutation-proved on both sides (re-seeded F1 turns both money-bearing flutter probes red; a double-routed feliz money decoder renders 98.76 for an expected 98.7600).",
+   "source": "PR #2898 (2026-09-13)"
   }
  ],
  "conflicts": [

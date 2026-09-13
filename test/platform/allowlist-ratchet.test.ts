@@ -376,6 +376,26 @@ const REGISTERED: Ratchet[] = [
     // give this one an e2e block; the honest move if it ever becomes wrong is
     // to delete the fixture, not to boot it.
     //
+    // 13 -> 14 (#2864 D4/T3, M-T6.65 — `workflow-enum-state`).  A RAISE, and
+    // the same shape as the one above rather than a new M-T9.13 debt: the
+    // fixture's subject is a STATIC contract — a workflow whose persisted state
+    // field is an enum — and both defects that minted it are caught by the
+    // compile leg that already gates the cell.  node named `<Enum>Schema` with
+    // the name bound nowhere in the emitted tree (TS2304) and, underneath it,
+    // seeded a fresh saga row with `""` for a column drizzle types as a literal
+    // union (TS2345); `corpus-tsc` sees both before anything boots.  There is
+    // no runtime half to drain: the workflow is EVENT-TRIGGERED, so it has no
+    // command route, and its only api surface is the pair of read-only instance
+    // endpoints — reaching those at runtime needs a `ClaimFiled` emitter the
+    // fixture deliberately omits, because the shape under test is the enum in
+    // the state row, not the dispatch that fills it.  `saga` and
+    // `eventsourced-workflow` already boot that dispatch path, so a booted leg
+    // here would re-record their cascade and mint a golden that is an oracle
+    // for nothing this fixture is about.
+    //
+    // (That raise was authored against 13 on a base where this was the last
+    // entry; the wave-C1 raises below landed first, so it folds in as +1 on
+    // top of them rather than as the 13 -> 14 step it was written as.)
     // 13 -> 14: `find-bypass` (M-T6.54 F18, wave-c1 packet 1f) — a NEW fixture,
     // not a drained one regressing.  Its assertion ("does the OTHER tenant's row
     // appear under `ignoring tenantOwned`?") needs the two-principal harness
@@ -412,7 +432,10 @@ const REGISTERED: Ratchet[] = [
     // `"not_found"`) — a golden captured on the node leg would redden four legs
     // on `main`.  Drain this entry when that split is ruled; the entry's own
     // comment in `gate-ledger.test.ts` names the condition.
-    max: 19,
+    //
+    // 19 -> 20 (#2864 D4/T3, M-T6.65 — `workflow-enum-state`), reasoned about
+    // in the block above.
+    max: 20,
   },
 ];
 
