@@ -587,6 +587,19 @@ export const E2E_LESS_CORPUS_FIXTURES: readonly string[] = [
   // assertable at runtime either: the harness's mock issuer mints no
   // `customer_id`, so the claim would read null on every booted backend.
   "auth-id-claim",
+  // COMPILE-TIER WITNESS — the NON-optional twin of the entry above
+  // (`customerId: Customer id`, and no `auth { … }` block, so every backend
+  // emits its DEV-STUB principal).  The sibling cannot reach this arm: an
+  // optional claim short-circuits to null/None/nil before the stub's type table
+  // is consulted, and on node/python/elixir the OIDC verifier REPLACES the dev
+  // stub.  Four of the five stub tables wrote a raw scalar against a nominal id
+  // type, and the two loudest are hard compile errors the leg already gating
+  // this fixture catches: `TS2322` (corpus-tsc, against the `__brand`) and
+  // CS0029 (corpus-dotnet, against `readonly record struct CustomerId(Guid)`).
+  // No runtime-only half to witness: the id claim's VALUE is not settable from
+  // the harness either — `devClaimKind` carries `string` / `string[]` only, so
+  // `x-loom-dev-claims` leaves it at the built-in stub value on all five.
+  "auth-id-claim-stub",
   // COMPILE-TIER WITNESS (generator review A5/A10–A14) — the previously
   // unwitnessed collection-op shapes (arithmetic-lambda `sum`, `distinct` over
   // money, argless `any()`, descending `sortBy`, unary minus on money, `-=` on

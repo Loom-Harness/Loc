@@ -1,4 +1,5 @@
 import { claimsReferenceIds } from "../../../generator/_auth/claim-types.js";
+import { devStubIdExpr } from "../../../generator/_auth/dev-stub-id.js";
 import { renderTsType } from "../../../generator/typescript/render-expr.js";
 import type {
   AuthIR,
@@ -77,6 +78,7 @@ export function emitAuthFiles(sys: SystemIR, out: Map<string, string>): void {
  *  optional base64-JSON `x-loom-dev-claims` override merged over it. */
 function renderDevStubVerifier(user: UserIR): string {
   return `// Auto-generated.
+${idsImport(user).join("\n")}import type { UserClaims } from "./user-types";
 import { registerUserVerifier } from "./verifier";
 
 /** Register the DEV-STUB verifier — accepts every request as a built-in
@@ -92,7 +94,13 @@ import { registerUserVerifier } from "./verifier";
  *  get the generated OIDC verifier instead. */
 export function registerDevStubVerifier(): void {
   registerUserVerifier((req) => {
-    const base = ${indentBy(renderStubUserLiteral(user), "    ")};
+    // ANNOTATED on purpose.  Without \`: UserClaims\` this literal is checked
+    // only through the closure's inferred return type — and the header branch
+    // below spreads \`JSON.parse(...)\`, whose \`any\` widens that union to \`any\`
+    // and swallows the check entirely.  That is how a raw \`"0000…"\` string sat
+    // in a \`customerId: Ids.CustomerId\` slot and still passed \`tsc --noEmit\`.
+    // The annotation puts the declared claim shape back in the checker's way.
+    const base: UserClaims = ${indentBy(renderStubUserLiteral(user), "    ")};
     const injected = req.headers.get("x-loom-dev-claims");
     if (!injected) return base;
     try {
@@ -864,8 +872,11 @@ function stubValueForType(t: TypeIR): string {
         default:
           return `""`;
       }
+    // The id is a BRANDED string (`domain/ids.ts`), so a raw literal is
+    // `TS2322: Type 'string' is not assignable to type 'CustomerId'` — it must
+    // go through the emitted factory.
     case "id":
-      return `"00000000-0000-0000-0000-000000000000"`;
+      return devStubIdExpr(t, "ts");
     case "array":
       return "[]";
     default:

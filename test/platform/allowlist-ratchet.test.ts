@@ -349,7 +349,21 @@ const REGISTERED: Ratchet[] = [
     // `customer_id`.  So a future drainer should NOT spend a slot trying to
     // give this one an e2e block; the honest move if it ever becomes wrong is
     // to delete the fixture, not to boot it.
-    max: 13,
+    //
+    // 13 -> 14 (`auth-id-claim-stub`).  The second RAISE, and the same shape as
+    // the first: the NON-optional twin of that claim — the spelling that takes
+    // no `?`, and the only one that ever reaches the `id` arm of the five
+    // dev-stub principal VALUE tables (an optional claim short-circuits to
+    // null/None/nil before the type is consulted, and on node/python/elixir the
+    // OIDC verifier replaces the dev stub, so the sibling fixture structurally
+    // cannot cover it).  Four of five tables wrote a raw scalar against a
+    // nominal id type; two of those are hard compile errors on the leg that
+    // already gates the cell (`TS2322` against the `__brand`, CS0029 against
+    // `readonly record struct CustomerId(Guid)`).  Also NOT a drain candidate:
+    // the harness cannot even set an id claim — `devClaimKind` carries `string`
+    // and `string[]` only — so a booted leg would assert the same built-in stub
+    // value the compile tier reads straight off the emitted source.
+    max: 14,
   },
 ];
 

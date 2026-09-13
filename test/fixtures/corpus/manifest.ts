@@ -142,6 +142,14 @@ export const CORPUS: readonly CorpusFeature[] = [
     backends: ALL,
     note: "D6/P2 of docs/audits/2026-09-10-eshop-dev-experience.md — a claim naming a generated domain symbol broke four of five backends at once (doubled optional marker: `Ids.CustomerId | null | null` / `CustomerId | None | None` / a .NET `CustomerId??` that does not parse; plus a missing id import on node, java and python's OIDC verifier, where it is a per-call NameError rather than a type error).  The compile tier is the point of this fixture: java's leg is one line and catches the missing import outright.",
   },
+  {
+    id: "auth-id-claim-stub",
+    title:
+      "NON-optional id-typed user claim — `customerId: Customer id` with no `auth { … }` block, so every backend emits its DEV-STUB principal",
+    doc: "auth",
+    backends: ALL,
+    note: "the sibling `auth-id-claim` covers the OPTIONAL spelling under `auth { oidc }`, and structurally cannot reach this: an optional claim short-circuits to null/None/nil in every stub table before the type is consulted, and on node/python/elixir the OIDC verifier REPLACES the dev stub rather than joining it.  So the `id` arm of the five stub value tables was corpus-unreachable — and four of the five wrote a raw scalar against a nominal id type (node TS2322 against the `__brand`, dotnet CS0029 against `readonly record struct CustomerId(Guid)`, java a null strong id where the others carry the zero id, elixir right by construction but decided alone).  Fixed once in `src/generator/_auth/dev-stub-id.ts`; the compile tier is the oracle, two of the four symptoms being hard compile errors.",
+  },
   { id: "read-gates", title: "read-side requires gates — gated list read + folded and query-time projections", doc: "auth", backends: ALL },
   { id: "outbox", title: "durable channel / transactional outbox + relay", doc: "workflow", backends: ALL },
   {
