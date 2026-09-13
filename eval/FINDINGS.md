@@ -339,6 +339,20 @@ block, `currentUser` lowers to `{"kind":"ref","name":"currentUser","refKind":"un
    principal shapes, misses both, and falls through to a plain `renderExpr` — which renders the
    bare identifier.
 
+**WIDER THAN FIRST WRITTEN — it disabled at least TWO gates, not one.** Landing the fix turned
+`test/generator/elixir/menu-link-gate.test.ts` red, and the failure named a *second* diagnostic:
+**`loom.current-user-needs-auth-ui`** — *"page 'Admin' on ui 'Web' reads 'currentUser', but deployable
+'app' binds no verified session user, so the read emits a dangling reference (react
+`undefined.<claim>`, invalid Dart on flutter, an unbound match on feliz)"*. That gate exists, is
+well-written, and was blind for **the same one word**.
+
+And the behaviour it was failing to refuse is worse than a dangling reference. The suite's own case was
+named *"emits NO gating when the app has no auth (byte-identical)"*: the author writes
+`page Admin { requires currentUser.role == "agent" }` on a deployable without auth, and the Phoenix
+sidebar emitter **silently drops the gate**, emitting an ungated link. An authorization rule that never
+runs, with no diagnostic — and a passing test pinning it as correct. Both halves are fixed here: the
+model is now refused, and the suite carries a case asserting the refusal.
+
 **Why no gate caught it, precisely.** `test/generator/dotnet/dotnet-stamping.test.ts` *does* carry a
 case named "gates a currentUser stamp on a dotnet deployable WITHOUT auth fail-fast", and it passes.
 It builds its model from a **hand-written context-level `stamp onCreate { createdBy := currentUser }`**

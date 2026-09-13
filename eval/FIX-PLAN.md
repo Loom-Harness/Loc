@@ -303,6 +303,13 @@ That single word does two things. `exprUsesCurrentUser()` returns false, so `val
 `current-user` shapes, misses both, and falls through to a plain expression render — emitting the
 bare identifier.
 
+**It disabled at least TWO gates.** The fix turned `menu-link-gate.test.ts` red, naming a second
+diagnostic — **`loom.current-user-needs-auth-ui`**, blind for the same one word. Worse, the case it
+broke was named *"emits NO gating when the app has no auth (byte-identical)"*: a page gate reading
+`currentUser` without auth was **silently dropped** by the Phoenix sidebar emitter, so an authorization
+rule the author wrote never ran — and a green test pinned that as correct. Both halves now fixed, with
+the refusal asserted. A one-word lowering hole was switching off auth gates in more than one place.
+
 **Why no gate caught it — the sharpest instance of §5 in this whole document.** The gate is not
 missing, and it is not weak. `test/generator/dotnet/dotnet-stamping.test.ts` carries a case named
 *"gates a currentUser stamp on a dotnet deployable WITHOUT auth fail-fast"*, and **it passes**. It
