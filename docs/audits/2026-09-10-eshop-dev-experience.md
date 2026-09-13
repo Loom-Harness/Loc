@@ -1145,7 +1145,28 @@ all outside that PR's claim and recorded in its body:
 
 Together: on Phoenix the scaffolded list page's filter bar is decorative. D7
 recorded that migrating a `find` to a criterion *loses* the filter bar on React;
-on Phoenix it never worked. Its own slice.
+on Phoenix it never worked.
+
+> **Resolved by #2906 — and it found a FOURTH gap the first three hid.** With
+> 1–3 fixed the bar still would not filter: a LiveView has no client-side query
+> to invalidate, so typing in the box changed the assign and nothing re-ran the
+> load. The fix needed a `withQueryReload` making an `update_`/`toggle_<field>`
+> clause re-run the loads whose guard or arguments name that assign. **Shipping
+> the three known gaps alone would have produced a still-broken filter bar that
+> now looked correct in the source** — the worst possible outcome for a defect
+> whose whole character is that it fails silently.
+>
+> Gap 3 also had a different root cause than either option I offered. It was not
+> a missing state registration: `controlledInput` compared the `.ddd`'s camelCase
+> `bind:` name against a **snake-cased** `stateNames` set, so the membership test
+> could only succeed for a ONE-WORD field. `bind: q` worked; `bind: byNameN` did
+> not — and a scaffolded filter field is `<find><Param>` by construction, so it
+> is never one word. One `snake(bind)` call, matching every other `stateNames`
+> lookup in that walker.
+>
+> Gap 2 dissolved rather than being fixed: each arm's reading of `@items` is
+> correct *for its arm*, and they conflicted only because both loads ran. The
+> per-arm guard from gap 1 removes the conflict.
 
 ---
 
