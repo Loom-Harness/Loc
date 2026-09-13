@@ -4,6 +4,7 @@ import { lowerFirst } from "../../../util/naming.js";
 import type { BrokerBinding } from "../../_channels/bindings.js";
 import { numericEncode } from "../../_numeric/target.js";
 import { javaLogEvent } from "../../_obs/render-java.js";
+import { jid } from "../java-ident.js";
 import { JAVA_NUMERIC } from "../numeric-codec.js";
 
 // ---------------------------------------------------------------------------
@@ -842,7 +843,7 @@ export function renderJavaChannelFiles(
   const toArms = carried.map((ev) => {
     const puts = ev.fields.map(
       (f) =>
-        `                m.put(${JSON.stringify(f.name)}, ${toDataExpr(`e.${f.name}()`, f.type)});`,
+        `                m.put(${JSON.stringify(f.name)}, ${toDataExpr(`e.${jid(f.name)}()`, f.type)});`,
     );
     return [
       `            case ${ev.name} e -> {`,

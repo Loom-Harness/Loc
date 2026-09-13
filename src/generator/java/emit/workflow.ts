@@ -24,6 +24,7 @@ import {
   renderWorkflowStmtChunks,
   type WorkflowStmtTarget,
 } from "../../_workflow/stmt-target.js";
+import { jid } from "../java-ident.js";
 import {
   collectJavaExprImports,
   type JavaRenderContext,
@@ -468,7 +469,9 @@ function workflowVoMappers(
   return [...voNames].sort().flatMap((vo) => {
     const fields: readonly FieldIR[] = voLookup.get(vo) ?? [];
     const args = fields
-      .map((f) => wireToDomain(effType(f.type, !!f.optional), `request.${f.name}()`, `/${f.name}`))
+      .map((f) =>
+        wireToDomain(effType(f.type, !!f.optional), `request.${jid(f.name)}()`, `/${f.name}`),
+      )
       .join(", ");
     for (const f of fields) collectWireToDomainImports(f.type, imports, basePkg);
     return [

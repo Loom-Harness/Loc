@@ -898,7 +898,7 @@ function renderSelectWire(t: TypeIR, expr: ExprIR, aliasMap: Map<string, JoinMap
     const alias = aliasMap.get(expr.receiver.name);
     if (alias) {
       const lookup = `${alias.mapVar}.get(${alias.keyExpr})`;
-      return `${lookup} == null ? null : ${domainToWire(t, `${lookup}.${expr.member}()`)}`;
+      return `${lookup} == null ? null : ${domainToWire(t, `${lookup}.${jid(expr.member)}()`)}`;
     }
   }
   return domainToWire(t, renderJavaExpr(expr, { thisName: "a", accessorProps: true }));
@@ -926,7 +926,7 @@ function aggregateWireArgs(agg: EnrichedAggregateIR, domainVar: string): string[
   const args: string[] = [];
   for (const w of forApiRead(wireFieldsFor(agg))) {
     const t = w.source === "id" ? w.type : effOptional(w.type, w.optional);
-    args.push(domainToWire(t, `${domainVar}.${w.name}()`));
+    args.push(domainToWire(t, `${domainVar}.${jid(w.name)}()`));
   }
   for (const f of agg.fields.filter((pf) => pf.provenanced)) {
     args.push(`${domainVar}.${f.name}Provenance()`);

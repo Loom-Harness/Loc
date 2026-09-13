@@ -606,7 +606,7 @@ function payloadFieldJavaType(
  *  `domainToWire`, which would double-suffix (`LineResponseResponse::from`). */
 function payloadFieldToWire(f: FieldIR, payloads: readonly PayloadIR[]): string {
   const t = eff(f.type, f.optional);
-  const accessorExpr = `value.${f.name}()`;
+  const accessorExpr = `value.${jid(f.name)}()`;
   const base = t.kind === "array" ? t.element : t;
   if (base.kind === "entity" && isResponsePayloadName(payloads, base.name)) {
     if (t.kind === "array") return `${accessorExpr}.stream().map(${base.name}::from).toList()`;

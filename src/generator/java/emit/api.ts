@@ -233,7 +233,7 @@ export function renderJavaController(
               `                problem.setDetail(${JSON.stringify(a.title)});`,
               ...props.map(
                 (f) =>
-                  `                problem.setProperty(${JSON.stringify(f.name)}, v.${f.name}()${f.isId ? ".value()" : ""});`,
+                  `                problem.setProperty(${JSON.stringify(f.name)}, v.${jid(f.name)}()${f.isId ? ".value()" : ""});`,
               ),
               `                yield ResponseEntity.status(${a.status}).contentType(MediaType.APPLICATION_PROBLEM_JSON).body(problem);`,
               `            }`,
