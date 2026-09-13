@@ -104,60 +104,71 @@ describe("componentPropTsType — wrappers", () => {
 });
 
 describe("componentPropTsType — the loud-failure contract", () => {
+  // The throw is still the contract — emitting `any` would void the very check
+  // the generated props interface exists to perform — but the WORDING moved
+  // into the catalog (Wave C1 packet 1d-ii).  It now names the phase-⑦ gate
+  // that makes it unreachable through `ddd generate`
+  // (`loom.frontend-prop-type-unsupported`), so a reader of the stack trace has
+  // a code to look up instead of a sentence.
+  const FLOOR = /internal: the frontend prop layer has no TypeScript spelling for/;
+
   it("THROWS on a value-object param rather than emitting `string`", () => {
     expect(() =>
       componentPropTsType({ kind: "valueobject", name: "Address" }, aggs(), noImports()),
-    ).toThrow("component prop: unsupported type kind 'valueobject'");
+    ).toThrow(FLOOR);
+    expect(() =>
+      componentPropTsType({ kind: "valueobject", name: "Address" }, aggs(), noImports()),
+    ).toThrow(/type kind 'valueobject'/);
   });
 
   it("THROWS on a slot param — the call sites handle `slot` before delegating here", () => {
     expect(() => componentPropTsType({ kind: "slot" }, aggs(), noImports())).toThrow(
-      "component prop: unsupported type kind 'slot'",
+      /type kind 'slot'/,
     );
   });
 
-  it("THROWS on a `money` / `File` primitive (see the handed-off defect below)", () => {
+  it("THROWS on a `money` / `File` primitive", () => {
     expect(() => componentPropTsType(prim("money"), aggs(), noImports())).toThrow(
-      "component prop: unsupported primitive 'money'",
+      /primitive 'money'/,
     );
     expect(() => componentPropTsType(prim("File"), aggs(), noImports())).toThrow(
-      "component prop: unsupported primitive 'File'",
+      /primitive 'File'/,
     );
   });
 });
 
 // ---------------------------------------------------------------------------
-// DEFECT (handed off, NOT fixed here — this packet is test-only).
+// THE GAP, as of Wave C1 packet 1d-ii — and a correction to what stood here.
 //
-// `component Tag(v: money)` passes phases ①②③④⑤⑥⑦ — no validator rejects a
-// `money` component param — and then CRASHES React codegen:
+// This note used to say: "`File` and value-object params are HONEST gaps —
+// phase ④ rejects both, so they never reach the emitter; `money` is the hole."
+// MEASURED on this checkout, that was wrong in both directions:
 //
-//   Error: component prop: unsupported primitive 'money'.
-//     at componentPropTsType (src/generator/_frontend/component-prop-type.ts:60)
-//     at propType            (src/generator/react/walker/page-shell.ts:1164)
-//     at renderUserComponentFile (src/generator/react/walker/page-shell.ts:1166)
+//   component Price(amount: money)   0 error(s), 0 warning(s) → crash
+//   component Doc(f: File)           0 error(s), 0 warning(s) → crash
+//   component Ship(at: Address)      0 error(s), 0 warning(s) → crash
+//   function fmt(m: money): string extern from "./fmt"
+//                                    0 error(s), 0 warning(s) → crash
 //
-// Reproduced against this checkout with a minimal system (aggregate + repo +
-// api + `ui { component MoneyTag(v: money) { body: Text { "x" } } }` + a page
-// that calls it): `decimal` generates fine, `money` throws.  `File` and
-// value-object params are HONEST gaps — phase ④ rejects both, so they never
-// reach the emitter; `money` is the hole.
+// All four now raise `loom.frontend-prop-type-unsupported` at phase ⑦
+// (`validateFrontendPropTypes`, `ui-framework-checks.ts`), driven by the shared
+// predicate in `src/ir/util/frontend-prop-type.ts` — which is pinned AGAINST
+// this emitter, by running it, in `test/ir/frontend-prop-type-support.test.ts`.
+// So the crash is gone and the refusal is honest; what remains is the FEATURE.
 //
-// Proposed patch (one arm, `src/generator/_frontend/component-prop-type.ts`,
-// inside the `case "primitive"` switch), matching the widened `MoneyValue`
-// prop every React/Svelte pack already emits so a money prop can be handed
-// straight to the formatter:
-//
-//     case "money":
-//       return "number | string | { toString(): string }";
-//
-// The alternative — a `loom.component-param-unsupported` validator gate — is
-// worse: money in a component body is exactly what a price badge wants.
+// The register row (`src/diagnostics/unsupported-register.ts`,
+// `kind: "gap"`, mission M-T1.20) is the drain ticket: all three types have
+// wire shapes — a decimal string re-parsed to `Decimal`, a fixed `FileRef`
+// object, a VO DTO — so this is portable work, not an impossibility.  The
+// proposal below stands as one candidate spelling for the money arm; whichever
+// lands, it deletes the register row and lowers `MAX_OPEN_GAPS` in the same PR.
 // ---------------------------------------------------------------------------
-describe("componentPropTsType — handed-off defect", () => {
-  it.fails("SHOULD type a `money` component param instead of crashing codegen", () => {
-    // Expected once the arm above lands; `it.fails` so it flips green with the
-    // fix and stays honest (red-as-expected) until then.
+describe("componentPropTsType — the open gap", () => {
+  it.fails("SHOULD type a `money` component param instead of refusing it", () => {
+    // `it.fails` so it flips green with the fix and stays honest (red-as-
+    // expected) until then.  The exact spelling is the fix's to choose; this
+    // one matches the widened `MoneyValue` prop every React/Svelte pack already
+    // emits, so a money prop could be handed straight to the formatter.
     expect(componentPropTsType(prim("money"), aggs(), noImports())).toBe(
       "number | string | { toString(): string }",
     );

@@ -1,0 +1,97 @@
+// Folded projection — the FULL pure-fold statement vocabulary, not just `:=`.
+//
+// `checkProjections` (src/ir/validate/checks/projection-checks.ts, `foldImpurity`)
+// admits exactly FOUR statement kinds inside a `projection … on(e) { }` body:
+// `assign`, `let`, `add` (`+=`) and `remove` (`-=`).  Ledger row `F2-XB-4` found
+// that only hono rendered all four: .NET / java / elixir filtered the body down
+// to `kind === "assign"` and python delegated the rest to the EVENT-SOURCED
+// applier renderer.  Both shapes fail silently —
+//
+//   - a `let` was DROPPED while its uses survived, so the emitted handler named
+//     an identifier nothing bound (TS2304 / CS0103 / "cannot find symbol" /
+//     NameError / "undefined variable" under `--warnings-as-errors`);
+//   - `+=` / `-=` were dropped outright on three backends, so the column the
+//     model says accumulates was simply never written — no diagnostic, no
+//     compile error, a read model that silently lies;
+//   - python's ES-applier delegation called `.append` on BOTH forms, which an
+//     ES applier can do (its state object constructs every list) but a
+//     projection ROW cannot: every non-key column is NULLABLE, so `tags.append`
+//     is an AttributeError on the first event for a key and `total.append` is
+//     one on an `int` always.
+//
+// This fixture therefore drives every arm that divergence touched, in one fold:
+// a `let` READ BY a later assignment, a scalar `+=` and `-=` over an `int`, a
+// scalar `+=` over `money` (the representation that has no `+` operator on
+// three of five backends — `Decimal.add` / `BigDecimal.add` / `decimal.js`),
+// and a collection `+=` / `-=` over a `string[]` column that starts null.
+system FoldStatementsSys {
+  subdomain Ledger {
+    context Ledger {
+      enum BoardStatus { Opened Closed }
+
+      aggregate Account with crudish {
+        owner: string
+        status: string
+        operation openIt() {
+          precondition status == "Draft"
+          status := "Open"
+          emit AccountOpened { accountRef: id, at: now(), amount: 10, fee: 2.50, tag: "opened" }
+        }
+        operation closeIt() {
+          precondition status == "Open"
+          status := "Closed"
+          emit AccountClosed { accountRef: id, at: now(), amount: 4, fee: 1.25, tag: "opened" }
+        }
+      }
+      repository Accounts for Account { }
+
+      event AccountOpened { accountRef: Account id, at: datetime, amount: int, fee: money, tag: string }
+      event AccountClosed { accountRef: Account id, at: datetime, amount: int, fee: money, tag: string }
+
+      channel Lifecycle {
+        carries: AccountOpened, AccountClosed
+        delivery: broadcast
+        retention: ephemeral
+      }
+
+      projection AccountBoard keyed by accountRef {
+        accountRef: Account id
+        status: BoardStatus
+        at: datetime
+        // Accumulated, never assigned — a backend that drops `+=` leaves these
+        // columns null forever while the model says they count.
+        entries: int
+        charged: money
+        tags: string[]
+        on(e: AccountOpened) {
+          accountRef := e.accountRef
+          status := Opened
+          at := e.at
+          entries += e.amount
+          charged += e.fee
+          tags += e.tag
+        }
+        on(e: AccountClosed) {
+          // The `let` a later assignment READS — the shape whose drop emits an
+          // unbound identifier rather than a missing line.
+          let stamped = e.at
+          status := Closed
+          at := stamped
+          entries -= e.amount
+          charged += e.fee
+          tags -= e.tag
+        }
+      }
+    }
+  }
+  api LedgerApi from Ledger
+  storage pg { type: postgres }
+  resource ledgerState { for: Ledger, kind: state, use: pg }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Ledger]
+    dataSources: [ledgerState]
+    serves: LedgerApi
+    port: 4000
+  }
+}

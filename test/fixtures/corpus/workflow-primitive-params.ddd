@@ -1,0 +1,57 @@
+// A COMMAND workflow whose params are PRIMITIVE (`workflow.md` + RS-26).
+//
+// The shape no fixture carried, and the gap is why the java wire boundary went
+// unexamined here for a year: `create(qty: int, flag: bool, …)` emits a request
+// record whose components are the language's scalars, and a scalar is exactly
+// the slot that cannot express ABSENCE on a statically-typed backend.  Java's
+// `TopUpRequest(int qty, boolean flag, …)` let Jackson bind a missing key to
+// `0`/`false` — running the workflow on a value the caller never sent — while
+// the same project's `RequiredSet` published `qty` as required.  RS-26 already
+// settled that for an OPERATION body; the workflow body is the same kind of
+// command and now boxes the same way.
+//
+// Every param kind is present on purpose, because they take different paths
+// through the wire mapper: the boxable primitives (`int`/`long`/`bool`), the
+// ones that are already reference types (`decimal`, `datetime`, `string`, an
+// enum), an OPTIONAL one (which must NOT gain a required annotation), and a
+// value object (nested record — the descend-into case).
+system WfPrimSys {
+  subdomain Core {
+    context Wallet {
+      valueobject Money { amount: decimal  currency: string }
+      enum Tier { Gold, Silver }
+      aggregate Account with crudish {
+        holder: string
+        balance: int
+        active: bool
+        tier: Tier
+      }
+      repository Accounts for Account { }
+      workflow topUp {
+        create(
+          holder: string,
+          qty: int,
+          serial: long,
+          flag: bool,
+          ratio: decimal,
+          at: datetime,
+          tier: Tier,
+          amount: Money,
+          memo: string?
+        ) {
+          let acct = Account.create({ holder: holder, balance: qty, active: flag, tier: tier })
+        }
+      }
+    }
+  }
+  api WalletApi from Core
+  storage pg { type: postgres }
+  resource walletState { for: Wallet, kind: state, use: pg }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Wallet]
+    dataSources: [walletState]
+    serves: WalletApi
+    port: 4000
+  }
+}

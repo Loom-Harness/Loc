@@ -1,0 +1,76 @@
+// A workflow started by an EXPLICIT COMMAND — `create(c: FileClaim)`, where
+// `FileClaim` is a declared `command` payload.  `docs/workflow.md` documents
+// this form, and `docs/payloads.md` §1 names a workflow `create` / `handle`
+// parameter as the FIRST position where a payload is admissible as a type.
+//
+// Nothing in the corpus reached it before this fixture, and that is exactly
+// why all five backends shipped it broken (#2864 D7/T2): every backend emitted
+// a request record naming a wire type for the payload, and NO backend emitted
+// that type — `z.object({ c: z.unknown() })` on node (compiles, no contract,
+// every downstream `c.<field>` read TS18046), an undefined `FileClaimResponse`
+// on python / java / dotnet / elixir, plus an undefined DOMAIN `FileClaim` on
+// dotnet.  A payload record is a flat record — the same shape a value object
+// already gets a wire type for — so the fix is to emit it.
+//
+// The workflow is deliberately STATELESS (no state fields, no correlation
+// field).  A payload param never name-matches a correlation field, so this
+// shape sits outside #2850's command-create receiver fix either way; keeping
+// the workflow stateless means this fixture exercises the request/DTO wire
+// contract and nothing else.
+//
+// The payload's field set is chosen to cross every wire-coercion class the
+// request record has to get right: an `X id` reference (a uuid on the wire, a
+// branded/`XId` value in the domain), a plain string, a `money` (a decimal
+// STRING on the wire, a Decimal/BigDecimal/decimal in the domain), an `int`,
+// and an OPTIONAL string.  A backend that emits the record but drops the
+// wire→domain coercion fails to compile at `Claim.create(...)`, so the
+// coercion is pinned by the same fixture as the record.
+system ClaimIntake {
+  subdomain Claims {
+    context Claims {
+      aggregate Cargo with crudish {
+        code: string
+      }
+      repository Cargos for Cargo { }
+
+      aggregate Claim with crudish {
+        cargo: Cargo id
+        description: string
+        amount: money
+        priority: int
+        note: string?
+      }
+      repository Claims for Claim { }
+
+      command FileClaim {
+        cargo: Cargo id
+        description: string
+        amount: money
+        priority: int
+        note: string?
+      }
+
+      workflow ClaimHandling {
+        create(c: FileClaim) {
+          let claim = Claim.create({
+            cargo: c.cargo,
+            description: c.description,
+            amount: c.amount,
+            priority: c.priority,
+            note: c.note
+          })
+        }
+      }
+    }
+  }
+  api ClaimsApi from Claims
+  storage pg { type: postgres }
+  resource claimsState { for: Claims, kind: state, use: pg }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Claims]
+    dataSources: [claimsState]
+    serves: ClaimsApi
+    port: 4000
+  }
+}
