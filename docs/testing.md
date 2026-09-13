@@ -190,7 +190,7 @@ fails the fast suite.
 | `k8s-build.yml` | `npm run test:k8s` (helm + kubeconform on PATH) | — |
 | `k8s-e2e.yml` | `kind create cluster` then `npm run test:k8s-e2e` (kind + kubectl + helm) | docker |
 | `generated-a11y.yml` | `LOOM_A11Y_E2E=1 LOOM_A11Y_PACK=<pack> npx vitest run test/e2e/generated-a11y-e2e.test.ts` (Playwright chromium) | — |
-| `frontend-fullstack-e2e.yml` | `cd test/behavioral && node run-ui.mjs <case>` (non-React cases); the **flutter** cell is `npm run test:ui-flutter` (= `node test/behavioral/run-ui-flutter.mjs`) and needs the Flutter SDK on `PATH` (or `FLUTTER=/path/to/flutter`) plus `npx playwright install chromium` | — |
+| `frontend-fullstack-e2e.yml` | `cd test/behavioral && node run-ui.mjs <case>` (non-React cases); the **flutter** cell is `npm run test:ui-flutter` (= `node test/behavioral/run-ui-flutter.mjs`) and needs the Flutter SDK on `PATH` (or `FLUTTER=/path/to/flutter`) plus `npx playwright install chromium`. **Both SDK cells run on the sandbox host** — `docs/tools.md` § "Compiling generated FRONTENDS locally" has the two recipes (a scratchpad `dotnet-install.sh --channel 8.0` for the **feliz** cell, a `FLUTTER=` shim forwarding to `ghcr.io/cirruslabs/flutter:stable` for the flutter one), both measured green 2026-09-13; neither is CI-only | — |
 | `playground-e2e.yml` | `cd web && npm ci && npm run e2e` (network-gated: esm.sh/jsdelivr/npm) | network |
 | `playground-e2e-no-network.yml` | `cd web && npx playwright test --project=chromium <workspace/history/builder/requirements/editor specs>` + `node scripts/check-eager-chunks.mjs` | — |
 | `playground-realm-check.yml` | `cd web && npm run e2e:realm` | — |
