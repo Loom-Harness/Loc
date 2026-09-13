@@ -332,14 +332,15 @@ const REGISTERED: Ratchet[] = [
     // direction working in the field rather than in a mutation, twice in two
     // days, which is the rate a hand-maintained matrix would have rotted at.
     //
-    // TWO INDEPENDENT RAISES LANDED IN THE SAME WINDOW, so this is 12 -> 14,
-    // not 12 -> 13 twice.  #2869 and #2886 each added a corpus fixture whose
-    // subject is a STATIC contract, and each argued its own line below.  They
-    // were written against a `main` where the other did not exist; the merge
-    // keeps both arguments rather than letting the second silently inherit the
-    // first's slot, which is exactly the hollowing-out this ratchet is for.
+    // THEN THE DIRECTION REVERSED.  Six raises landed across two waves, each a
+    // NEW fixture whose subject the compile tier genuinely gates rather than a
+    // drained entry regressing — 12 -> 18 in total.  They were written against
+    // `main`s where the others did not exist, so each merge keeps every
+    // argument rather than letting a later one silently inherit an earlier
+    // one's slot: that inheritance is precisely the hollowing-out this ratchet
+    // is for, and it is invisible in a count that only ever moves by one.
     //
-    // 12 -> 13 (#2864 D7/T2, mission M-T6.67a) — the first RAISE, and the
+    // (#2864 D7/T2, mission M-T6.67a) — a RAISE, and the
     // reviewed line in the diff this ratchet exists to force.  The new corpus
     // fixture `workflow-command-payload` cannot carry a `test e2e` block:
     // its defect is on the WORKFLOW command route, and the e2e DSL has no form
@@ -354,10 +355,10 @@ const REGISTERED: Ratchet[] = [
     // Drain (M-T9.13, which owns authoring these blocks): when the e2e DSL
     // gains a workflow-invocation form, POST the payload and read the created
     // aggregate back — that reaches the one thing the compile tier cannot, the
-    // wire CONTRACT (node's pre-fix `z.unknown()` accepted anything). Lower
-    // this back to 12 in the same PR.
+    // wire CONTRACT (node's pre-fix `z.unknown()` accepted anything).  Lower
+    // this by one in the same PR.
     //
-    // 12 -> 13 (#2869, dev-experience audit D6/P2 — `auth-id-claim`).  A RAISE,
+    // (#2869, dev-experience audit D6/P2 — `auth-id-claim`).  A RAISE,
     // so it is spelled out.  Every other entry here is a behavioural-tier GAP
     // waiting on M-T9.13's drain: something the compile tier structurally
     // cannot see (a wrong aggregate COUNT, an async outbox delivery, a
@@ -374,7 +375,33 @@ const REGISTERED: Ratchet[] = [
     // `customer_id`.  So a future drainer should NOT spend a slot trying to
     // give this one an e2e block; the honest move if it ever becomes wrong is
     // to delete the fixture, not to boot it.
-    max: 14,
+    //
+    // 13 -> 14: `find-bypass` (M-T6.54 F18, wave-c1 packet 1f) — a NEW fixture,
+    // not a drained one regressing.  Its assertion ("does the OTHER tenant's row
+    // appear under `ignoring tenantOwned`?") needs the two-principal harness
+    // `projection-agg-filters` already waits on, and under one principal both
+    // spellings return the same set, i.e. a behavioural block would be GREEN over
+    // the retained conjunct the fixture exists to catch.  Its tracker is the same
+    // one (tenancy-e2e's two-principal harness); it drains with its neighbour.
+    //
+    // 14 -> 17: three more NEW fixtures folded in the same wave (C1), each a
+    // compile-tier proof of a fix whose runtime half is owed, and each carrying
+    // its drain condition in the register: `projection-fold-statements` and
+    // `paged-nonrelational` (ledger rows F2-XB-4 / F2-CB-C1, packet 1e-i — a
+    // dropped fold-body `let` is CS0103, the wrong paged carrier CS0535, so the
+    // corpus compile leg plus the two conformance matrices are the gate that
+    // mattered), and `workflow-primitive-params` (RS-26 boxing of a java
+    // workflow's primitive params, packet 1h — the behavioural runner cannot
+    // yet address a workflow's create surface).  Reviewed at the wave fold.
+    //
+    // 17 -> 18: `workflow-command-payload` (#2864 D7/T2, M-T6.67a) — argued in
+    // full above.  Its neighbour `workflow-primitive-params` just above reached
+    // the same conclusion independently and for the same structural reason
+    // ("the behavioural runner cannot yet address a workflow's create
+    // surface"), which is worth noting: two fixtures, two waves, one missing
+    // capability.  Whoever gives the e2e DSL a workflow-invocation form drains
+    // BOTH, and should lower this by two.
+    max: 18,
   },
 ];
 
