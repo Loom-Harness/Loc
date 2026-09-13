@@ -412,7 +412,16 @@ const REGISTERED: Ratchet[] = [
     // `"not_found"`) — a golden captured on the node leg would redden four legs
     // on `main`.  Drain this entry when that split is ruled; the entry's own
     // comment in `gate-ledger.test.ts` names the condition.
-    max: 19,
+    //
+    // 19 -> 18: wave-3 row 3.3 drained `projection-agg-filters`.  Its signed
+    // reason argued the leak "is a RUNTIME value; the compile tier cannot see a
+    // wrong number" — which was an argument FOR a behavioural block, not
+    // against one.  The real blocker was undocumented and narrower: with the
+    // `softDeletable` CAPABILITY alone nothing could set `isDeleted` through
+    // the api (a capability is a pure mixin and supplies no operation), so the
+    // conjunct was unobservable at any tier; composing the `softDelete` MACRO
+    // made it assertable with one principal.
+    max: 18,
   },
 ];
 

@@ -52,10 +52,18 @@ import { BACKENDS } from "../fixtures/corpus/backends.js";
 const BEHAVIOURAL_ABSENT: Record<string, string> = {
   "auth-id-claim":
     "an `X id?` user claim is a STATIC contract, and all four of its symptoms are compile-visible on the tier that already gates it: TS2503 (tsc), `cannot find symbol` (gradle), a `CustomerId??` that does not parse (dotnet build), and — the one that reads as a runtime bug — python's missing import, which `corpus-python-build` catches as ruff F821 + mypy `name-defined` before anything boots.  A behavioural block would boot a CRUD round-trip wearing an OIDC hat, which `auth-oidc` already records, and mint a wire golden with no oracle of its own.  NOT a drain candidate for M-T9.13 (docs/audits/2026-09-10-eshop-dev-experience.md §D6/P2, #2869): unlike every sibling here it is not a tier gap, so the honest move if it ever stops paying for itself is to delete the fixture, not to boot it",
-  "projection-agg-filters":
-    "aggregation × capability filters — the cross-tenant COUNT/SUM leak audit A1 minted this fixture for is a RUNTIME value; the compile tier cannot see a wrong number",
+  // `projection-agg-filters` LEFT this list in wave-3 row 3.3.  Its signature
+  // said the leak "is a RUNTIME value; the compile tier cannot see a wrong
+  // number" — true, and it argued for a behavioural block rather than against
+  // one.  What actually blocked it was narrower and undocumented: `softDeletable`
+  // is a pure mixin with no operation, so nothing could set `isDeleted` through
+  // the api and the conjunct was unobservable whatever the tier.  Composing the
+  // `softDelete` macro made it assertable with ONE principal, and the fixture
+  // now runs `OrderVolume` vs `AllTimeVolume` at the behavioural tier.  The
+  // TENANT conjunct still needs two principals and stays with the generator
+  // tests — a narrower claim than the one this entry used to make.
   "projection-document-aggregation":
-    "count(*) over a document source — same shape as projection-agg-filters, same blindness",
+    "count(*) over a document source — same shape as projection-agg-filters, and the same blindness the compile tier has to a wrong number.  Unlike its sibling this one is NOT unblocked by the `softDelete` macro: its source is `shape: document`, so the aggregation is the one shape that source can express and the row count is the assertion; the drain still waits on seeded rows the behavioural runners set up per-fixture",
   outbox: "relay delivery is asynchronous; needs a booted leg that drains the outbox",
   "channels-broker":
     "needs a broker container (the channels-e2e legs boot one; the corpus case does not)",
