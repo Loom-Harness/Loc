@@ -1,0 +1,8 @@
+system B { subdomain S { context C {
+  enum E { Red, Green }
+  aggregate A { e: E  derived display: string = "a"
+    operation go() { e := Blue }
+  }
+  repository As for A {}
+} } storage db { type: postgres } resource r { for: C, kind: state, use: db }
+deployable api { platform: node, contexts: [C], dataSources: [r], port: 3000 } }
