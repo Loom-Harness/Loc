@@ -38,6 +38,7 @@ import {
 } from "../../../ir/util/projection-aggregate.js";
 import { resolveErrorStatus } from "../../../util/error-defaults.js";
 import { lowerFirst, plural, snake, upperFirst } from "../../../util/naming.js";
+import { wireToDomainExpr, zodFor } from "./routes-builder.js";
 
 // ---------------------------------------------------------------------------
 // Hono query-time projection routes emission (read-path-architecture.md
@@ -297,6 +298,19 @@ export function buildQueryProjectionsFile(
         ? `const ${T}Response = ${T}Row.openapi("${T}Response");`
         : `const ${T}Response = z.array(${T}Row).openapi("${T}Response");`,
     );
+    // A parameterised projection binds its parameters from the QUERY STRING —
+    // the same wire position a parameterised repository `find` uses, and the
+    // same `zodFor(..., "query")` coercion, so `?p=<uuid>` / `?min=3` parse
+    // identically on both reads.  Without this the parameters were dropped
+    // wholesale: the route took no input and the synthesised repo method read a
+    // free variable (see `synthProjectionFinds`).
+    if (p.params.length > 0) {
+      lines.push(`const ${T}Query = z.object({`);
+      for (const param of p.params) {
+        lines.push(`  ${param.name}: ${zodFor(param.type, "query")},`);
+      }
+      lines.push(`}).openapi("${T}Query");`);
+    }
   }
   lines.push("");
 
@@ -431,6 +445,9 @@ function emitQueryProjectionRoute(
   out.push(`    path: "/${snake(p.name)}",`);
   out.push(`    tags: ["projections", "${aggSlug}"],`);
   out.push(`    operationId: "projection${T}",`);
+  if (p.params.length > 0) {
+    out.push(`    request: { query: ${T}Query },`);
+  }
   out.push(`    responses: {`);
   out.push(
     `      200: { description: "OK", content: { "application/json": { schema: ${T}Response } } },`,
@@ -445,6 +462,12 @@ function emitQueryProjectionRoute(
   // aggregate's own `wireProjectionValue`.
   const rowFieldType = new Map(p.stateFields.map((f) => [f.name, f.type] as const));
   out.push(`  async (httpCtx) => {`);
+  // The projection's own parameters, validated + coerced by the `<T>Query`
+  // schema above.  Bound BEFORE the gate: a `requires` predicate may read a
+  // parameter, exactly as a find's gate may.
+  if (p.params.length > 0) {
+    out.push(`    const params = httpCtx.req.valid("query");`);
+  }
   // The `requires` gate (and any currentUser-scoped filter) needs the request
   // principal in scope; a failing gate denies with 403 (ForbiddenError → 403)
   // BEFORE the query runs.
@@ -652,7 +675,14 @@ function emitQueryProjectionRoute(
     return out;
   }
   out.push(`    const repo = new ${source}Repository(db, events);`);
-  out.push(`    const rows = await repo.${lowerFirst(p.name)}(${usesUser ? "currentUser" : ""});`);
+  // Argument order matches the synthesised find's signature: the projection's
+  // declared params, then the trailing `currentUser` a principal-reading
+  // predicate adds — the same order `findQueryMethod` emits.
+  const projArgs = [
+    ...p.params.map((param) => wireToDomainExpr(`params.${param.name}`, param.type, ctx)),
+    ...(usesUser ? ["currentUser"] : []),
+  ];
+  out.push(`    const rows = await repo.${lowerFirst(p.name)}(${projArgs.join(", ")});`);
   // Bulk-load every `join` follow (dependency-ordered), then project.  Each
   // join binds an ALIAS (`c`) to the loaded-by-id map; a `select` reads through
   // that alias (`c.name`), rewritten to `<mapVar>.get(<idRowExpr> as string)!`.

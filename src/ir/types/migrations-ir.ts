@@ -55,6 +55,38 @@ export interface ColumnShape {
    *  normally (the column's `array(json)` type already lowers to
    *  `{:array, :map}`).  Absent on ordinary columns. */
   valueArrayChildTable?: string;
+  /** A DSL field default (`status: string = "pending"`) rendered as a Postgres
+   *  scalar literal — carried for the **add-column diff alone** (M-T2.16 /
+   *  #2864 G1, decision D-3).  It is NOT a column default and must never be
+   *  read as one:
+   *
+   *   - no `CREATE TABLE` renderer reads it, so the initial DDL stays exactly
+   *     as it is today (`renderColumnDef` / `renderEctoColumn` read `default`);
+   *   - `diffTable` never compares it, so editing a `.ddd` default on a column
+   *     that already exists emits nothing — there is no DB default to alter;
+   *   - the one consumer is `applyDestructivePolicy`, which copies it into the
+   *     `addColumn` step's `default` so Postgres backfills the existing rows,
+   *     then emits `alterColumnDefault … to: undefined` in the SAME migration
+   *     to drop it again.
+   *
+   *  The value the domain layer owns therefore never becomes a second source
+   *  of truth in the schema — the column ends up identical to one a fresh
+   *  `CREATE TABLE` lays down, which is the whole of D-3's middle path.
+   *
+   *  Restricted to what a column default can actually hold: literals and enum
+   *  values (`sqlLiteralColumnDefault`).  A sibling-field ref is admissible in
+   *  a *backfill* but not here — Postgres forbids a column default that
+   *  references another column — and `now()` is a function call, not a literal.
+   *
+   *  Deliberately NOT persisted: `serializeSnapshot` strips it, because a
+   *  snapshot records the schema as it existed last time we generated and this
+   *  describes the SOURCE — the column it is attached to provably has no
+   *  default.  Every generation re-derives it, so nothing reads a baseline's
+   *  copy.  (Contrast `savingShape` / `valueArrayChildTable`, which ARE read
+   *  back from the baseline and so are written out.)  Optional ⇒
+   *  `schemaVersion` stays 1, and an existing project's committed snapshot is
+   *  byte-unchanged by this feature. */
+  addColumnDefault?: string;
 }
 
 export interface FKShape {

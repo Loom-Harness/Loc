@@ -47,9 +47,20 @@ const BASE_TIMESTAMP = 20260101000000;
  *  error).  A plain literal (number/boolean, e.g. `0`) stays bare. */
 function ectoDefaultClause(def: string | undefined): string {
   if (def === undefined) return "";
+  const d = def.trim();
   // A SQL function-call default (`now()`, `gen_random_uuid()`) → fragment.
-  const isSqlExpr = /^[a-z_][a-z0-9_]*\s*\(.*\)$/i.test(def.trim());
-  return isSqlExpr ? `, default: fragment(${JSON.stringify(def)})` : `, default: ${def}`;
+  const isSqlExpr = /^[a-z_][a-z0-9_]*\s*\(.*\)$/i.test(d);
+  // A SQL *string* literal (`'pending'`) → fragment too.  Single quotes mean
+  // something else entirely in Elixir: a bare `default: 'pending'` is a
+  // CHARLIST, not a string, so Ecto would emit a Postgres integer array
+  // (`{112,101,110,...}`) into the DDL.  Passing the SQL text straight through
+  // `fragment/1` also keeps the doubled-quote escaping (`'it''s'`) that
+  // `sqlStr` produced byte-for-byte, so the DEFAULT Phoenix writes is the one
+  // the four SQL backends write (M-T2.16 / #2864 G1).
+  const isSqlString = /^'(?:[^']|'')*'$/.test(d);
+  return isSqlExpr || isSqlString
+    ? `, default: fragment(${JSON.stringify(def)})`
+    : `, default: ${def}`;
 }
 
 /** Ecto option string for a table / index / reference that lives in a
@@ -605,9 +616,15 @@ export function renderEctoStep(step: MigrationStep): string[] {
       const decl = step.fk
         ? `references(:${step.fk.refTable}${prefix}, type: ${ectoPrimaryKeyType(c.type)}, on_delete: :${step.fk.onDelete === "cascade" ? "delete_all" : "restrict"})`
         : `${ectoColumnType(c.type)}${ectoColumnOpts(c.type)}`;
+      // The column's `default` is load-bearing on an ADD, not cosmetic: it is
+      // what backfills the pre-existing rows so a NOT-NULL add succeeds at all
+      // (M-T2.16 / #2864 G1).  Dropping it here left Phoenix emitting a bare
+      // `add …, null: false` where the four SQL backends emitted
+      // `ADD COLUMN … NOT NULL DEFAULT …` — the same step, one backend failing.
+      // Same clause `renderEctoColumn` uses for the CREATE TABLE path.
       return [
         `alter table(:${step.table}${prefix}) do`,
-        `  add :${c.name}, ${decl}, null: ${c.nullable}`,
+        `  add :${c.name}, ${decl}, null: ${c.nullable}${ectoDefaultClause(c.default)}`,
         `end`,
       ];
     }
