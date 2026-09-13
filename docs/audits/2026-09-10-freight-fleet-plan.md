@@ -94,7 +94,26 @@ Also free, now, no mission needed: **`docs/language.md:435`** still says a
 `create` body "populates a fresh `this`", which is backwards for the default
 persistence mode. #2862's docs-fence ratchet will not catch prose. One line.
 
-## The decisions that gate waves 2 and 3
+## DECIDED 2026-09-11 — all four taken as recommended
+
+The owner took every recommendation below. They are settled; the missions
+implementing them are in flight. Recorded here so no agent re-litigates them.
+
+| decision | taken | landing in |
+|---|---|---|
+| **D-1** `handle` continuations | **(c)** mint the diagnostic now, defer the emitter — the silence is the bug; the emitter is a feature call that should not be made under time pressure | M-T5.30 |
+| **D-2** entity-part parameters | **reject** with a code pointing at value objects. The payload half needed no ruling and is #2886 | M-T5.30 (reject) / #2886 (payload) |
+| **D-3** field defaults in the DDL | **the middle path** — emit the `DEFAULT` only inside the add-column diff, then `DROP DEFAULT` in the same migration, so the schema is unchanged and the friction disappears | M-T2.16 |
+| **D-4** re-price M-T3.16 | docs correction landed; the mission is re-priced upward, on the strength of four independent audits reaching for the same workaround and the workflow escape hatch itself being leaky | done / tracker |
+
+Two further rulings joined D-1 and D-2 in the same packet, because all four mint
+codes in the one shared catalog and four PRs editing it would conflict on every
+merge: **G2** (a workflow with reactors but no starter is a silent runtime
+no-op) and **#2850's deferred case (B)** (a command `create` that does not
+supply the correlation key — its own header calls that "a validator ruling, not
+an emitter decision, tracked separately").
+
+## The decisions as originally posed
 
 ### D-1 — `handle` continuations: implement, or reject? (gates mission 12)
 

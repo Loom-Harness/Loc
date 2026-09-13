@@ -43,11 +43,6 @@ const WAIVERS: ReadonlyArray<{ name: string; file: RegExp; mission: string }> = 
     mission: "M-T6.64 — the value-object emitter omits its `Ids` import (#2864 D3)",
   },
   {
-    name: "Ids",
-    file: /\/auth\/(?:user-types|oidc)\.ts$/,
-    mission: "#2862 D6 — an `X id?` claim in `user {}` omits its `Ids` import",
-  },
-  {
     name: "ClaimStateSchema",
     file: /\/http\/workflows\.ts$/,
     mission: "M-T6.65 — an enum-stated workflow references an unemitted `<Enum>Schema` (#2864 D4)",
@@ -114,13 +109,29 @@ system ScopeWf {
 }
 `;
 
-const FIXTURES: ReadonlyArray<{ label: string; source: string; expect: string }> = [
-  { label: "a value object holding an `X id`", source: VO_WITH_ID, expect: "Ids" },
-  { label: "a `user {}` claim typed `X id?`", source: USER_ID_CLAIM, expect: "Ids" },
+/** A fixture is either still-broken (its defect must remain REACHABLE, so the
+ *  waiver it justifies cannot go vacuous) or fixed (the name must now be BOUND,
+ *  so the fixture keeps earning its place as a regression guard rather than
+ *  being deleted along with the bug).
+ *
+ *  The flip from one to the other is the ratchet's whole point, and it has now
+ *  happened once in the field: #2869 landed the `user {}` id-claim import, this
+ *  gate reported its own waiver stale on the next run against fresh `main`, and
+ *  the row was deleted here in response. */
+const FIXTURES: ReadonlyArray<{
+  label: string;
+  source: string;
+  name: string;
+  state: "broken" | "fixed";
+}> = [
+  { label: "a value object holding an `X id`", source: VO_WITH_ID, name: "Ids", state: "broken" },
+  // Fixed by #2869 (audit D6/P2) — four backends, not the one it was filed as.
+  { label: "a `user {}` claim typed `X id?`", source: USER_ID_CLAIM, name: "Ids", state: "fixed" },
   {
     label: "a workflow with an enum state field",
     source: ENUM_STATED_WORKFLOW,
-    expect: "ClaimStateSchema",
+    name: "ClaimStateSchema",
+    state: "broken",
   },
 ];
 
@@ -133,13 +144,23 @@ describe("the emitted backend tree binds every name it references", () => {
 
       const refs = unboundIdentifiers(files);
 
-      // The shape this fixture exists to hold must still be REACHED — a
-      // fixture that stopped producing its own defect would waive nothing and
-      // read as a pass, which is the vacuity failure this repo keeps hitting.
-      expect(
-        refs.map((r) => r.name),
-        `fixture no longer reaches its shape: expected \`${fixture.expect}\` to appear`,
-      ).toContain(fixture.expect);
+      if (fixture.state === "broken") {
+        // The shape this fixture exists to hold must still be REACHED — a
+        // fixture that stopped producing its own defect would waive nothing
+        // and read as a pass, which is the vacuity failure this repo keeps
+        // hitting.  When it stops, that is the signal to flip it to "fixed"
+        // and delete its waiver, not to relax the check.
+        expect(
+          refs.map((r) => r.name),
+          `fixture no longer reaches its shape: \`${fixture.name}\` is now bound — ` +
+            `flip this fixture to state "fixed" and delete its waiver row`,
+        ).toContain(fixture.name);
+      } else {
+        expect(
+          refs.map((r) => r.name),
+          `\`${fixture.name}\` came back unbound — a fixed shape regressed`,
+        ).not.toContain(fixture.name);
+      }
 
       const unwaived = refs.filter((r) => !waived(r.path, r.name));
       expect(
