@@ -1878,7 +1878,7 @@ process.on("SIGINT", () => void shutdown("SIGINT"));
 
 // Multi-stage Dockerfile: build stage installs all deps and compiles
 // TypeScript; runtime stage uses a smaller production-only image.
-const DOCKERFILE_TS = `# syntax=docker/dockerfile:1
+export const DOCKERFILE_TS = `# syntax=docker/dockerfile:1
 # Auto-generated.
 
 FROM node:24-alpine AS build
@@ -1908,7 +1908,13 @@ COPY --from=build /app/package.json ./package.json
 # "Can't find meta/_journal.json file".
 COPY --from=build /app/db/migrations ./db/migrations
 EXPOSE 3000
-CMD ["node", "dist/index.js"]
+# --enable-source-maps: the runtime entry is the BUNDLE (dist/index.js), so
+# without it every stack-trace frame names dist/index.js and \`ddd trace\`
+# resolves none of them ("no frame matched the sourcemap").  With it, V8 reads
+# the emitted dist/index.js.map and frames come back as the real \`api/domain/
+# <agg>.ts:<line>\`, which is what the .loom/sourcemap.json keys are cut
+# against.  The flag costs a one-off map parse on first throw.
+CMD ["node", "--enable-source-maps", "dist/index.js"]
 `;
 
 const DOCKERIGNORE_TS = `# Auto-generated.

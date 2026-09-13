@@ -64,12 +64,12 @@ component Footer(copyright: string) {
     Group {
       Text { copyright },
       Group {
-        Anchor { "Language",      to: "https://github.com/lemmit/loc/blob/main/docs/language.md" },
-        Anchor { "Generators",    to: "https://github.com/lemmit/loc/blob/main/docs/generators.md" },
-        Anchor { "Architecture",  to: "https://github.com/lemmit/loc/blob/main/docs/technical.md" },
-        Anchor { "Observability", to: "https://github.com/lemmit/loc/blob/main/docs/observability.md" },
-        Anchor { "Tools",         to: "https://github.com/lemmit/loc/blob/main/docs/tools.md" },
-        Anchor { "GitHub",        to: "https://github.com/lemmit/loc" }
+        Anchor { "Language",      to: "https://github.com/Loom-Harness/loc/blob/main/docs/language.md" },
+        Anchor { "Generators",    to: "https://github.com/Loom-Harness/loc/blob/main/docs/generators.md" },
+        Anchor { "Architecture",  to: "https://github.com/Loom-Harness/loc/blob/main/docs/technical.md" },
+        Anchor { "Observability", to: "https://github.com/Loom-Harness/loc/blob/main/docs/observability.md" },
+        Anchor { "Tools",         to: "https://github.com/Loom-Harness/loc/blob/main/docs/tools.md" },
+        Anchor { "GitHub",        to: "https://github.com/Loom-Harness/loc" }
       }
     },
     size: "xl"
@@ -117,7 +117,7 @@ system LoomLanding {
               // walked slot and injects `const navigate = useNavigate()`
               // at the top of the wrapper function, so this works
               // inside a layout slot now.
-              Button { "GitHub", to: "https://github.com/lemmit/loc" }
+              Button { "GitHub", to: "https://github.com/Loom-Harness/loc" }
             }
           },
           size: "xl"
@@ -130,12 +130,12 @@ system LoomLanding {
         Group {
           Text { "© Loom contributors · FSL-1.1-Apache-2.0" },
           Group {
-            Anchor { "Language",      to: "https://github.com/lemmit/loc/blob/main/docs/language.md" },
-            Anchor { "Generators",    to: "https://github.com/lemmit/loc/blob/main/docs/generators.md" },
-            Anchor { "Architecture",  to: "https://github.com/lemmit/loc/blob/main/docs/technical.md" },
-            Anchor { "Observability", to: "https://github.com/lemmit/loc/blob/main/docs/observability.md" },
-            Anchor { "Tools",         to: "https://github.com/lemmit/loc/blob/main/docs/tools.md" },
-            Anchor { "GitHub",        to: "https://github.com/lemmit/loc" }
+            Anchor { "Language",      to: "https://github.com/Loom-Harness/loc/blob/main/docs/language.md" },
+            Anchor { "Generators",    to: "https://github.com/Loom-Harness/loc/blob/main/docs/generators.md" },
+            Anchor { "Architecture",  to: "https://github.com/Loom-Harness/loc/blob/main/docs/technical.md" },
+            Anchor { "Observability", to: "https://github.com/Loom-Harness/loc/blob/main/docs/observability.md" },
+            Anchor { "Tools",         to: "https://github.com/Loom-Harness/loc/blob/main/docs/tools.md" },
+            Anchor { "GitHub",        to: "https://github.com/Loom-Harness/loc" }
           }
         },
         size: "xl"
@@ -198,8 +198,8 @@ system LoomLanding {
             Group {
               Button { "Try in browser",     to: "/app",                                             variant: "primary",   icon: "arrow-right", iconPosition: "right" },
               Button { "Get started",        to: "#cli",                                             variant: "secondary" },
-              Button { "View on GitHub",     to: "https://github.com/lemmit/loc",                    variant: "secondary", icon: "github",      iconPosition: "left"  },
-              Anchor { "Language reference", to: "https://github.com/lemmit/loc/blob/main/docs/language.md" }
+              Button { "View on GitHub",     to: "https://github.com/Loom-Harness/loc",                    variant: "secondary", icon: "github",      iconPosition: "left"  },
+              Anchor { "Language reference", to: "https://github.com/Loom-Harness/loc/blob/main/docs/language.md" }
             },
 
             // Meta pips — three quick claims with a leading dot glyph.
@@ -464,9 +464,9 @@ system LoomLanding {
             Text { "Loom is source-available under the FSL-1.1-Apache-2.0 license — free for any non-competing use, with an Apache 2.0 future license two years after publication." },
             Group {
               Button { "Try in browser",             to: "/app" },
-              Button { "Clone on GitHub",            to: "https://github.com/lemmit/loc" },
-              Anchor { "Read the language reference",to: "https://github.com/lemmit/loc/blob/main/docs/language.md" },
-              Anchor { "Per-platform feature matrix",to: "https://github.com/lemmit/loc/blob/main/docs/generators.md" }
+              Button { "Clone on GitHub",            to: "https://github.com/Loom-Harness/loc" },
+              Anchor { "Read the language reference",to: "https://github.com/Loom-Harness/loc/blob/main/docs/language.md" },
+              Anchor { "Per-platform feature matrix",to: "https://github.com/Loom-Harness/loc/blob/main/docs/generators.md" }
             }
           },
           size: "xl"

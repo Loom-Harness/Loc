@@ -118,11 +118,11 @@ oracle move, and a conflict on the goldens blocks the whole packet. Treat it as
 a fourth coordinated moment alongside the three in
 [completion-waves-2026-09](completion-waves-2026-09.md) (A4 `getById`,
 `denyByDefault`, `organizationContext`). Note the move is more visible than it
-was before [#2807](https://github.com/lemmit/Loc/pull/2807): the differential
+was before [#2807](https://github.com/Loom-Harness/Loc/pull/2807): the differential
 now compares number FORMATS as well as values, so an oracle shift diverges on
 spelling too, not only on magnitude.
 
-**Verification when it lands.** The new corpus case green on all five behavioral legs; the RS entry in the registry; mutation-proved by reverting one exact-side backend. **Every leg is locally runnable** — including elixir, whose toolchain lifts out of the `hexpm/elixir` image onto the host (`docs/tools.md` → "Running `mix` on the HOST"); verified 2026-09-10 by running `node run-elixir.mjs core-domain` that way (`2 passed, 0 failed`, 0 divergences), which corrects [#2807](https://github.com/lemmit/Loc/pull/2807)'s body where it claims the elixir leg does not run on a sandbox host. It does. Re-capture the goldens against a leg you have RUN, never against CI alone.
+**Verification when it lands.** The new corpus case green on all five behavioral legs; the RS entry in the registry; mutation-proved by reverting one exact-side backend. **Every leg is locally runnable** — including elixir, whose toolchain lifts out of the `hexpm/elixir` image onto the host (`docs/tools.md` → "Running `mix` on the HOST"); verified 2026-09-10 by running `node run-elixir.mjs core-domain` that way (`2 passed, 0 failed`, 0 divergences), which corrects [#2807](https://github.com/Loom-Harness/Loc/pull/2807)'s body where it claims the elixir leg does not run on a sandbox host. It does. Re-capture the goldens against a leg you have RUN, never against CI alone.
 
 Sources: [numeric-types-audit-2026-08-23](../audits/numeric-types-audit-2026-08-23.md) F11 + annex, plan.json N7. Relates to M-T6.46/M-T6.47 (the response-narrowing halves), RS-24.
 

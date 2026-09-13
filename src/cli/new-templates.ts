@@ -344,8 +344,8 @@ in \`.loomignore\` so it survives (see the comments in that file).
 
 ## Learn more
 
-- Language reference: https://github.com/lemmit/loc/blob/main/docs/language.md
-- CLI & workflow:     https://github.com/lemmit/loc/blob/main/docs/tools.md
+- Language reference: https://github.com/Loom-Harness/loc/blob/main/docs/language.md
+- CLI & workflow:     https://github.com/Loom-Harness/loc/blob/main/docs/tools.md
 `;
 }
 
@@ -354,7 +354,7 @@ in \`.loomignore\` so it survives (see the comments in that file).
 export function renderLoomignore(): string {
   return `# .loomignore — pin files you hand-edit so \`ddd generate system\` leaves
 # them alone. gitignore syntax; paths are relative to this directory.
-# See https://github.com/lemmit/loc/blob/main/docs/tools.md#loomignore
+# See https://github.com/Loom-Harness/loc/blob/main/docs/tools.md#loomignore
 #
 # Uncomment the entrypoints/config you customise:
 # Program.cs
@@ -385,13 +385,13 @@ export const GENERATED_OUTPUT_LICENSE = `MIT License
 
 Copyright (c) ${new Date().getFullYear()} the authors of this generated project.
 
-This project was scaffolded by Loom (https://github.com/lemmit/loc), a
+This project was scaffolded by Loom (https://github.com/Loom-Harness/loc), a
 source-available DDD code generator licensed under FSL-1.1-Apache-2.0.
 The generator's license does NOT extend to this output: every file in
 this directory is licensed to you under the MIT License below.  Any
 runtime helper snippets that Loom embedded verbatim into this project
 are dual-licensed MIT OR Apache-2.0 in this context.  See
-https://github.com/lemmit/loc/blob/main/docs/license-faq.md for the
+https://github.com/Loom-Harness/loc/blob/main/docs/license-faq.md for the
 full posture.
 
 Permission is hereby granted, free of charge, to any person obtaining

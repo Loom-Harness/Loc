@@ -4,8 +4,8 @@ The playground is Loom running entirely in your browser: type a `.ddd`
 source, watch the multi-project tree regenerate, then bundle and boot the
 generated Hono backend on an in-process Postgres and click through the
 generated React app — no server, no install, no Docker. It is live at
-<https://lemmit.github.io/Loc/playground/> (landing page at
-<https://lemmit.github.io/Loc/>) and lives in the `web/` workspace.
+<https://loom-harness.github.io/Loc/playground/> (landing page at
+<https://loom-harness.github.io/Loc/>) and lives in the `web/` workspace.
 
 The headline point: it runs **the exact same toolchain the `ddd` CLI
 runs**. There is no second, browser-flavoured compiler — `web/` imports
@@ -249,7 +249,7 @@ stack resolvable (rebuild that commit).
 fallbacks, on the "crashed last session" notice, and in the Diagnostics
 stream. Copy puts the complete markdown report on the clipboard **and renders
 it on screen** so you can read exactly what you are about to share. *Report on
-GitHub* opens the [crash-report issue form](https://github.com/lemmit/Loc/issues/new?template=crash-report.yml)
+GitHub* opens the [crash-report issue form](https://github.com/Loom-Harness/Loc/issues/new?template=crash-report.yml)
 with the report prefilled (abridged to fit the URL — the clipboard copy is
 always complete); it is an ordinary link, nothing is sent until you submit.
 

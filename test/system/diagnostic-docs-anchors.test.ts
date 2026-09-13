@@ -77,7 +77,7 @@ describe("codeDocsUrl — every anchor resolves", () => {
       "language-reference/04-type-system.md#x-id--cross-aggregate-references",
     );
     expect(codeDocsUrl("loom.bare-aggregate-in-type")).toBe(
-      "https://lemmit.github.io/Loc/language-reference/04-type-system.html#x-id--cross-aggregate-references",
+      "https://loom-harness.github.io/Loc/language-reference/04-type-system.html#x-id--cross-aggregate-references",
     );
     expect(codeDocsUrl("loom.no-such-code")).toBeUndefined();
     expect(codeDocsUrl("loom.blank-message")).toBeUndefined();

@@ -70,6 +70,7 @@ import {
 import { denialOverrides, denialResponse } from "./denial.js";
 import { docFilterLambdaArg, docPredReadsRecord, isVanillaDocAgg } from "./document-emit.js";
 import { findParamRead } from "./find-controller.js";
+import { effectiveGate } from "./gate.js";
 import { ELIXIR_NUMERIC } from "./numeric-codec.js";
 import { hasRefColls, preloadSuffix } from "./ref-collection-emit.js";
 import { renderWireSerialize } from "./wire-serialize.js";
@@ -799,8 +800,9 @@ function renderQueryProjectionAction(
   // before the query runs when the `currentUser`-only predicate fails — the
   // read-side analogue of a repository `find … requires <gate>` (mirrors
   // `renderFindActions`).  Ungated projections stay byte-identical.
-  const gate = proj.query?.requires
-    ? renderExpr(proj.query.requires, {
+  const projGate = effectiveGate(proj.query?.requires);
+  const gate = projGate
+    ? renderExpr(projGate, {
         thisName: "record",
         contextModule,
       })

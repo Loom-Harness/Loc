@@ -982,14 +982,19 @@ it as the trailing argument to the aggregate method.
 
 Until you register a real verifier, every backend ships an **accept-all dev
 stub** so the stack boots and the routes are reachable in local dev. The stub
-reads an optional **`x-loom-dev-claims`** request header — a JSON object of user
-claims — and projects it onto the `User` shape, so you can exercise
+reads an optional **`x-loom-dev-claims`** request header — **base64-encoded
+JSON** — and overlays it on the `User` shape, so you can exercise
 `currentUser`/`requires` gates without wiring an identity provider:
 
 ```bash
-curl -H 'x-loom-dev-claims: {"id":"u-1","role":"manager","tenantId":"t-1"}' \
+curl -H "x-loom-dev-claims: $(echo -n '{"id":"u-1","role":"manager","tenantId":"t-1"}' | base64)" \
   http://localhost:8080/api/orders
 ```
+
+> **The encoding is load-bearing.** The stub decodes inside a `try/catch` that
+> falls back to the built-in identity, so a **raw-JSON** header does not fail —
+> it is silently ignored, and the request runs as the built-in `admin`. A gate
+> that then passes looks like your claims were applied when they never were.
 
 With no header the stub returns its **built-in identity**: one value per field
 the `user { … }` block declares — `"admin"` for a `string`, the all-zero uuid

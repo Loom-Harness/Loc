@@ -281,6 +281,67 @@ Time lost: 40 min.
 > **Reclassify: SILENT (read-only form) + HONEST-but-misdirecting (mutating form).** Severity S2 holds
 > for the refusal; the silent form is S1 by the register's own rubric (generated code does not compile).
 
+### F-046 — `auditable` without `auth:` emits an unbound `current_user` — the whole Elixir project fails to compile
+Severity: **S1** (generated backend does not build)   Class: **SILENT**
+Area: ir/lower + ir/validate (shared) → every backend emitter (symptom)
+Found: 2026-09-13, while verifying the wave-0 fixes. **Not one of the original 45.**
+**Scope: all five backends**, measured — the same 10-line model on each:
+
+| target | emitted | verified |
+|---|---|---|
+| **elixir** | `put_change(:created_by, current_user)` in a 1-arity `insert/1` | `mix compile` → `** (CompileError) undefined variable "current_user"` ×3 |
+| **node** | `createdBy: currentUser` (`db/audit-stamp.ts:10`) | `tsc --noEmit` → `TS2304: Cannot find name 'currentUser'` ×3 |
+| **dotnet** | `.CurrentValue = currentUser` (`AuditableInterceptor.cs:42`) | source-evidenced (CS0103); not compiled |
+| **python** | `self._created_by = currentUser` (`domain/foo.py:72`) | source-evidenced — a **`NameError` at request time**, not a build error |
+| **java** | `@CreatedDate @Column(name="created_by") UserId createdBy;` | **two defects**: `UserId` is emitted by no file in the tree (`grep -rn "class UserId\|record UserId"` → empty ⇒ `cannot find symbol`), and the principal field carries `@CreatedDate` (the *timestamp* annotation) rather than `@CreatedBy` |
+
+Repro (`/tmp/w0/elx-aud-noauth.ddd`, 10 lines) — one aggregate `with crudish, auditable`, on a
+`platform: elixir` deployable with **no `user { }` block and no `auth:` clause**:
+```
+$ node bin/cli.js parse …                → 0 error(s), 0 warning(s).
+$ node bin/cli.js generate system …      → Wrote 60 file(s)
+$ mix compile --force --warnings-as-errors
+    error: undefined variable "current_user"      (×3)
+== Compilation error in file lib/api/c/foo_repository.ex ==
+** (CompileError) cannot compile module Api.C.FooRepository (errors have been logged)
+```
+Emitted:
+```elixir
+def insert(attrs) when is_map(attrs) do          # ← arity 1: no current_user parameter
+  ...
+  |> Ecto.Changeset.put_change(:created_by, current_user)   # ← never bound
+```
+With `auth: required` + a `user { }` block the same model is correct
+(`def insert(attrs, current_user \\ nil)` and `current_user && current_user.id`), so this is
+specifically the **no-principal** case.
+
+**Root cause — one level up from the emitter, and it is the interesting part.** Without a `user { }`
+block, `currentUser` lowers to `{"kind":"ref","name":"currentUser","refKind":"unknown"}` instead of
+`refKind:"current-user"` (dumped from `buildLoomModel`; with auth the same field lowers to
+`refKind:"current-user"`). Two things follow from that one word:
+1. `exprUsesCurrentUser()` returns **false**, so `validateStampSupport`
+   (`src/ir/validate/checks/principal-guard-checks.ts:76`) never raises
+   **`loom.stamp-principal-without-auth`** — the gate whose existence **three backends cite in
+   comments as their upstream guarantee** (`dotnet/emit/auditable-interceptor.tpl.ts:32,73,175`,
+   `java/emit/entity.ts:366`, `dotnet/index.ts:1620`).
+2. The elixir `renderStampValue` (`vanilla/stamp-emit.ts:102-124`) tests for exactly those two
+   principal shapes, misses both, and falls through to a plain `renderExpr` — which renders the
+   bare identifier.
+
+**Why no gate caught it, precisely.** `test/generator/dotnet/dotnet-stamping.test.ts` *does* carry a
+case named "gates a currentUser stamp on a dotnet deployable WITHOUT auth fail-fast", and it passes.
+It builds its model from a **hand-written context-level `stamp onCreate { createdBy := currentUser }`**
+in a system that still declares `user { }`, and only strips `auth: required` from the deployable. The
+**macro-injected** spelling — `with auditable` in a system with no `user { }` block at all — takes a
+different lowering path and has never been handed to the gate. A hand-written `currentUser` read in a
+find filter *is* refused today; the same read injected by a prelude capability is not.
+Reach, not power — the same shape as F-025, F-030, F-033 and F-035.
+
+Correct fix is upstream and single-site (lower `currentUser` to `refKind:"current-user"`
+unconditionally, so the existing gate refuses the model with its existing message), **not** a
+per-backend patch to `renderStampValue` — which would paper over a missing refusal by stamping nil.
+Planned as slice 2; see `FIX-PLAN.md` §3.8.
+
 ### F-010 — Deny-by-default forces you to write the exact construct the linter deprecates
 Severity: S3 (friction)   Class: HONEST (two rules, both documented, that contradict each other)
 Area: auth × repository lint

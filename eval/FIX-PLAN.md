@@ -1,13 +1,52 @@
 # Loom — fix plan for the defects found in the FieldOps evaluation
 
-**Base:** fresh `main` @ `9a8f2fe0` (93 commits after the `09427a5` the evaluation ran on).
+**Base:** re-synced to fresh `main` @ `2d2a87d32` for the fix work (the plan was written against
+`9a8f2fe0`; `main` moved another 126 commits under it, and every wave-0 defect was re-verified on the
+newer base before being touched).
 **Method:** every finding was **re-verified against fresh main before any fix was planned**, and
 cross-checked against the ~30 open PRs for an existing claim. Nothing here is planned from memory of
 the evaluation; a finding that no longer reproduces is marked FIXED and dropped.
 
-> **Status: complete.** Ten agents re-verified and root-caused in parallel, one per subsystem; all ten
-> reported and their per-cluster plans are in [`eval/fix-plans/`](fix-plans/). **This is a plan, not an
-> implementation** — nothing in the Loom tree was modified and no pull request was opened.
+> **Status: planned in full; wave 0 implemented.** Ten agents re-verified and root-caused in
+> parallel, one per subsystem; their per-cluster plans are in [`eval/fix-plans/`](fix-plans/).
+> §0 records what has actually landed and how each fix was proved. Waves 1–5 are still plans.
+
+---
+
+## 0. Progress
+
+**Wave 0 is landed** (PR #2911). Nine defects, each verified against fresh `main` before the fix,
+each with a test **mutation-proved to fail when the fix is reverted** (reverted by file copy, never
+`git checkout --`), and — where a real toolchain could answer — each **compiled**:
+
+| Finding | Fix | Proof |
+|---|---|---|
+| **F-035** .NET drops a second `onCreate` stamp | `.find()` → `.filter().flatMap()` in `auditable-interceptor.tpl.ts` | `dotnet build` in `sdk:10.0`: `Build succeeded, 0 Error(s)`. Mutation → `AssertionError: create stamp for CreatedAt was dropped`, other 4 cases still green. |
+| **F-025 + F-025b** .NET unqualified namespace | `global::` at both sites | `dotnet build` **before**: `CS0234 … in the namespace 'Api.Api'` ×2 → **after**: `0 Error(s)`. |
+| **F-030A** elixir underscored-but-read bindings | `__dt`/`__s`/`__d`/`__other` → plain names | `mix compile --warnings-as-errors` in `hexpm/elixir` via the repo's own hex mirror. |
+| **F-030B** elixir dead `if not (true)` | new `vanilla/gate.ts`; `requires true` emits no guard, at **all six** gate sites | **before**: `EXIT=1`, `typing violation … 106 │ if not (true) do`. Output is byte-identical to the ungated spelling. |
+| **F-017** mantine `Chart` emits `={{{` | 4 lines across `mantine/v{7,9}` | `tsc` **before**: 7 parse errors → **after**: 0. |
+| **F-020** compose pulls a withdrawn image | `minio/minio` → `quay.io/minio/minio` | `docker manifest inspect`: `minio/minio` **GONE**, `quay.io/minio/minio` **OK**. All 11 compose images now resolve. |
+| **F-042** `ddd trace` blind in production | `--enable-source-maps` on the bundled node CMD | invariant over every emitted Dockerfile. |
+| **F-043 / F-045 / F-021** doc drift | stale-org URLs (26 live files incl. **every scaffolded project's** `new-templates.ts` and the playground's crash-report target), the LICENSE claim, the base64 dev-claims header | `lemmit.github.io/Loc/ → 404`, `loom-harness.github.io/Loc/ → 200`; `ddd new` emits `LICENSE`, `generate system` does not. |
+
+**Three of the four gates §5 asked for landed with it**, each mutation-proved:
+`test/generator/_packs/tsx-parse-gate.test.ts` (TSX **syntax** floor over all 8 React packs — no
+`npm install`, fast tier), `test/system/compose-images.test.ts` (pin table + an opt-in
+`LOOM_IMAGE_CHECK=1` registry leg), `test/generator/dotnet/dotnet-namespace-qualification.test.ts`
+(a **sweep** for unpinned root-namespace refs, not the two lines that were wrong), plus
+`test/generator/elixir/vanilla-compile-hygiene.test.ts`.
+
+**Two goldens had frozen the broken output and had to be rewritten** — which is why the defects
+survived: `phoenix-find-gate.test.ts` asserted `if not (true) do` (output that does not compile under
+the project's own strict flag), and `storage-sidecars.test.ts` asserted `image: minio/minio:latest`.
+A third gap: the node/Hono Dockerfile is a `const`, not a renderer, so it sat outside
+`generation-defaults.test.ts`'s `allDockerfiles()` sweep and inherited none of its invariants. It is
+in the list now.
+
+**One new S1 was found while verifying — F-046** (`auditable` without `auth:` emits an unbound
+`currentUser` on **all five** backends). Root-caused to a single word in lowering; planned in §3.8,
+deliberately **not** bundled into wave 0.
 
 ---
 
@@ -239,6 +278,47 @@ That asymmetry is the argument for (A).
 | 33 | **F-031** the Feliz `design:` message suggests barewords when the grammar takes **quoted** strings — and carries **no `loom.*` code at all**, so it is outside `diagnostic-catalog.test.ts` *and* `diagnostic-docs-anchors.test.ts`. `validators/deployable.ts:441-449`. | Quote the suggestions; give the message a code and a catalog entry. |
 | 34 | **F-006 doc half** `docs/language.md:435` over-generalises the event-sourced rule. `docs/language-reference/06-...:360` is already correct. | One line. (Code half is #2861's.) |
 | 35–37 | Agent J's own mechanical sweep found four more in ten minutes: `observability.md:153` doubly-dead link, `channels.md:19` broken link, an undocumented `asyncapi.yaml`, and a `ddd new --help` omission. | **These are a sample, not the set** — see §5. |
+
+### 3.8 F-046 — a macro-injected `currentUser` evades the gate that refuses the hand-written one
+
+**Found while verifying wave 0, not during the evaluation.** An aggregate carrying `auditable` on a
+deployable with **no `user { }` block and no `auth:`** validates `0 error(s), 0 warning(s)` and then
+fails to build on **all five backends** (elixir `CompileError`, node `TS2304`, dotnet `CS0103`, java
+`cannot find symbol: UserId` *plus* `@CreatedDate` on a principal field, python a request-time
+`NameError`). Full evidence table: `FINDINGS.md` → F-046.
+
+**Root cause, one level above every emitter.** Without a `user { }` block, `currentUser` lowers to
+`refKind: "unknown"` rather than `"current-user"`:
+
+```
+no user{}:  {"kind":"ref","name":"currentUser","refKind":"unknown"}
+with user{}:{"kind":"ref","name":"currentUser","refKind":"current-user","type":{"kind":"entity","name":"__User__"}}
+```
+
+That single word does two things. `exprUsesCurrentUser()` returns false, so `validateStampSupport`
+(`ir/validate/checks/principal-guard-checks.ts:76`) never raises **`loom.stamp-principal-without-auth`**
+— the diagnostic **three backends cite in comments as their upstream guarantee**
+(`dotnet/emit/auditable-interceptor.tpl.ts:32,73,175`, `java/emit/entity.ts:366`,
+`dotnet/index.ts:1620`). And each backend's principal-stamp renderer tests for exactly the two
+`current-user` shapes, misses both, and falls through to a plain expression render — emitting the
+bare identifier.
+
+**Why no gate caught it — the sharpest instance of §5 in this whole document.** The gate is not
+missing, and it is not weak. `test/generator/dotnet/dotnet-stamping.test.ts` carries a case named
+*"gates a currentUser stamp on a dotnet deployable WITHOUT auth fail-fast"*, and **it passes**. It
+builds its model from a hand-written context-level `stamp onCreate { createdBy := currentUser }`, in a
+system that still declares `user { }`, with only `auth: required` removed from the deployable. The
+**macro-injected** spelling — `with auditable`, in a system with no `user { }` at all — takes a
+different lowering path and has never been handed to it. A hand-written `currentUser` read *is*
+refused today; the same read injected by a prelude capability is not.
+
+**Fix — upstream, single-site.** Lower `currentUser` to `refKind: "current-user"` unconditionally, so
+the existing gate refuses the model with its existing message and **no emitter changes on any
+backend**. Explicitly **not** a per-backend patch to each `renderStampValue`: that would paper over a
+missing refusal by stamping nil into NOT NULL columns. Needs a corpus sweep first (newly-resolved
+`currentUser` refs could newly trip other principal gates), so it is wave-4 shaped, batched with the
+other new-gate work. The java half carries two extra emitter defects (`UserId` referenced but never
+emitted; `@CreatedDate` where `@CreatedBy` belongs) that survive either ruling and are java's to fix.
 
 ### 3.7 What is genuinely structural (agent I's ruling)
 

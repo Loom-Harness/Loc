@@ -29,6 +29,7 @@ import { describe, expect, it } from "vitest";
 import { renderDockerfile as renderDotnetDockerfile } from "../../src/generator/dotnet/emit/program.js";
 import { renderDockerfile as renderElixirDockerfile } from "../../src/generator/elixir/shell/project.js";
 import { renderDockerfile as renderJavaDockerfile } from "../../src/generator/java/emit/program.js";
+import { DOCKERFILE_TS as HONO_DOCKERFILE } from "../../src/platform/hono/v4/emit.js";
 import { generateSystemFiles } from "../_helpers/generate.js";
 
 /** Parse + validate + compose, through the shared helper — which asserts
@@ -218,6 +219,10 @@ function allDockerfiles(): Array<{ name: string; text: string }> {
       name: "elixir+spa(feliz)",
       text: renderElixirDockerfile("app", true, "dist", false, "feliz", false),
     },
+    // The node/Hono backend's Dockerfile is a CONST, not a renderer — which is
+    // why it sat outside this list (and therefore outside both invariants
+    // below) until the `--enable-source-maps` finding went looking for it.
+    { name: "node/hono", text: HONO_DOCKERFILE },
     { name: "dotnet", text: renderDotnetDockerfile("Api") },
     { name: "dotnet+spa(vite)", text: renderDotnetDockerfile("Api", { hasEmbeddedSpa: true }) },
     {
@@ -270,6 +275,38 @@ describe("G7b — no emitted Dockerfile runs `npm ci`", () => {
         expect(line.trim(), name).toBe("RUN npm install --no-audit --no-fund");
       }
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// A bundled node entrypoint runs with --enable-source-maps.
+//
+// The runtime CMD is the BUNDLE (`dist/index.js`), so without the flag every
+// stack-trace frame names `dist/index.js` and `ddd trace` resolves none of
+// them — "no frame matched the sourcemap (0 of 2 stack frame(s))".  With it,
+// V8 reads the emitted `dist/index.js.map` and frames come back as the real
+// `api/domain/<agg>.ts:<line>`, which is what `.loom/sourcemap.json` is keyed
+// against.  Written as a sweep so a future bundling backend inherits the rule.
+// ---------------------------------------------------------------------------
+describe("a bundled node entrypoint enables source maps", () => {
+  it.each(allDockerfiles())("$name", ({ name, text }) => {
+    for (const line of instructions(text)) {
+      const cmd = /^\s*CMD\s+\[(.+)\]\s*$/.exec(line);
+      if (!cmd) continue;
+      const argv = cmd[1]!.split(",").map((a) => a.trim().replace(/^"|"$/g, ""));
+      if (argv[0] !== "node") continue;
+      // Only a BUNDLED entry needs the flag: running the .ts/.js sources
+      // directly already yields real file names.
+      if (!argv.some((a) => a.startsWith("dist/"))) continue;
+      expect(argv, `${name}: ${line}`).toContain("--enable-source-maps");
+    }
+  });
+
+  it("reaches at least one bundled node CMD (non-vacuity)", () => {
+    const bundled = allDockerfiles().filter(({ text }) =>
+      instructions(text).some((l) => /^\s*CMD\s+\["node",/.test(l) && l.includes("dist/")),
+    );
+    expect(bundled.map((b) => b.name)).toContain("node/hono");
   });
 });
 

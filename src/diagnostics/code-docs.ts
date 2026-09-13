@@ -29,7 +29,7 @@ export function githubHeadingSlug(heading: string): string {
 }
 
 /** The docs root every entry is relative to (the published site). */
-export const DOCS_SITE = "https://lemmit.github.io/Loc/";
+export const DOCS_SITE = "https://loom-harness.github.io/Loc/";
 
 const CHAPTER_DIR = "language-reference";
 
