@@ -349,7 +349,24 @@ const REGISTERED: Ratchet[] = [
     // `customer_id`.  So a future drainer should NOT spend a slot trying to
     // give this one an e2e block; the honest move if it ever becomes wrong is
     // to delete the fixture, not to boot it.
-    max: 13,
+    //
+    // 13 -> 14 (#2864 D4/T3, M-T6.65 — `workflow-enum-state`).  A RAISE, and
+    // the same shape as the one above rather than a new M-T9.13 debt: the
+    // fixture's subject is a STATIC contract — a workflow whose persisted state
+    // field is an enum — and both defects that minted it are caught by the
+    // compile leg that already gates the cell.  node named `<Enum>Schema` with
+    // the name bound nowhere in the emitted tree (TS2304) and, underneath it,
+    // seeded a fresh saga row with `""` for a column drizzle types as a literal
+    // union (TS2345); `corpus-tsc` sees both before anything boots.  There is
+    // no runtime half to drain: the workflow is EVENT-TRIGGERED, so it has no
+    // command route, and its only api surface is the pair of read-only instance
+    // endpoints — reaching those at runtime needs a `ClaimFiled` emitter the
+    // fixture deliberately omits, because the shape under test is the enum in
+    // the state row, not the dispatch that fills it.  `saga` and
+    // `eventsourced-workflow` already boot that dispatch path, so a booted leg
+    // here would re-record their cascade and mint a golden that is an oracle
+    // for nothing this fixture is about.
+    max: 14,
   },
 ];
 

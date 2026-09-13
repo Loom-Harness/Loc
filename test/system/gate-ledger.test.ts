@@ -70,6 +70,8 @@ const BEHAVIOURAL_ABSENT: Record<string, string> = {
     "in-system api call; needs both deployables booted (the `api-call-e2e` leg does this outside the corpus tier)",
   "collection-op-shapes":
     "collection-op VALUE semantics (empty sum, avg of none, sort stability) — the exact class a string assertion cannot see",
+  "workflow-enum-state":
+    'an enum-typed workflow STATE field — both defects it exists for are STATIC and land on the compile tier that already gates it: node named `<Enum>Schema` with the name bound nowhere in the tree (TS2304) and then seeded the fresh saga row with `""` for a column drizzle types as a literal union (TS2345), both caught by corpus-tsc.  The workflow is EVENT-TRIGGERED, so it has no command route to POST and its only api surface is the pair of read-only instance endpoints; reaching them at runtime needs a `ClaimFiled` emitter this fixture deliberately does not have, because the shape under test is the enum in the state row, not the dispatch that fills it — `saga` and `eventsourced-workflow` already boot that dispatch path (#2864 D4/T3)',
 };
 
 describe("gate ledger", () => {

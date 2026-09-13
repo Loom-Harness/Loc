@@ -51,8 +51,21 @@ describe("React workflows api module — instance hooks", () => {
     expect(mod).toMatch(/await api\.get\(`\/workflows\/fulfillment\/instances\/\$\{seg\(id\)\}`\)/);
     // useQuery is imported once an observable workflow exists.
     expect(mod).toContain('import { useMutation, useQuery } from "@tanstack/react-query";');
-    // The enum schema the response references is imported.
-    expect(mod).toMatch(/import \{ FulfillmentStatusSchema \} from "\.\/order";/);
+    // The enum schema the response references is BOUND — and here that means
+    // declared in this module, not imported.
+    //
+    // This assertion used to read `import { FulfillmentStatusSchema } from
+    // "./order"`, and that was pinning the #2864 T3 defect as if it were the
+    // contract.  `Order` is `{ total: int }`: it does not use
+    // `FulfillmentStatus`, so `api/order.ts` emits no schema for it and that
+    // import resolved to nothing (`vue-tsc` TS2305, `svelte-check`).  The
+    // resolver reached `./order` only through an `aggregates[0]` fallback that
+    // fired precisely when no aggregate owned the type.  An enum reachable only
+    // from a workflow's persisted state is owned by no aggregate module, so the
+    // workflows module declares it — the same thing the Hono workflow router
+    // does with its own `const <Enum>Schema`.
+    expect(mod).toContain('export const FulfillmentStatusSchema = z.enum(["Pending", "Shipped"]);');
+    expect(mod).not.toContain('from "./order"');
   });
 
   it("emits no instance hooks (and no useQuery import) for a command-only workflow", async () => {
