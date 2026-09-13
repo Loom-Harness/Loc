@@ -28,6 +28,7 @@
 
 import { wireFieldsForAggregate } from "../../../ir/enrich/wire-projection.js";
 import {
+  envelopeReturn,
   PAGED_DEFAULT_PAGE,
   PAGED_DEFAULT_PAGE_SIZE,
   pagedReturn,
@@ -485,6 +486,9 @@ ${sortArms}${sortArms ? "\n" : ""}            _ -> a.id
 function isSingleReturn(t: TypeIR): boolean {
   if (t.kind === "optional" && t.inner.kind === "entity") return true;
   if (t.kind === "entity") return true;
+  // `T envelope` — a single-row find (M-T6.57); the ES fold yields the FIRST
+  // match rather than every one.
+  if (envelopeReturn(t)) return true;
   return false;
 }
 

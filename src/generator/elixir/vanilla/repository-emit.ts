@@ -13,6 +13,7 @@
 // ---------------------------------------------------------------------------
 
 import {
+  envelopeReturn,
   PAGED_DEFAULT_PAGE,
   PAGED_DEFAULT_PAGE_SIZE,
   pagedReturn,
@@ -106,6 +107,11 @@ function isSingleReturn(t: TypeIR): boolean {
   if (t.kind === "optional" && t.inner.kind === "entity") return true;
   if (t.kind === "entity") return true;
   if (t.kind === "union") return true;
+  // `T envelope` is a SINGLE-ROW find (M-T6.57, ratified).  It fell through to
+  // the LIST arm here, so `audit/0` ran `Repo.all(query)` — EVERY row — and the
+  // controller answered a JSON ARRAY, while this app's own published OpenAPI
+  // declares a single object plus a 404.
+  if (envelopeReturn(t)) return true;
   return false;
 }
 
