@@ -30,6 +30,7 @@ import {
   renderFsIntrinsic,
   storeModelField,
 } from "./fs-expr.js";
+import { fsIdent, isFsKeyword } from "./fs-ident.js";
 import { fsZeroValue } from "./type-fs.js";
 import {
   byIdFieldName,
@@ -846,7 +847,7 @@ export const felizTarget: WalkerTarget = {
         if (named === undefined && cursor === params.length) cursor -= 1;
         continue;
       }
-      fields.push(`${param.name} = ${emitExpr(arg, ctx)}`);
+      fields.push(`${fsIdent(param.name)} = ${emitExpr(arg, ctx)}`);
     }
     for (const p of params) {
       if (p.type.kind !== "slot") continue;
@@ -860,7 +861,7 @@ export const felizTarget: WalkerTarget = {
           : walked.length === 1
             ? walked[0]!
             : `React.fragment [ ${walked.join("; ")} ]`;
-      fields.push(`${p.name} = ${value}`);
+      fields.push(`${fsIdent(p.name)} = ${value}`);
     }
     // PAREN-WRAPPED.  An F# function application is not self-delimiting, so a
     // bare `Panel model dispatch {| … |}` spliced into a child slot is (a)
@@ -948,12 +949,22 @@ export const felizTarget: WalkerTarget = {
    *
    *  This mirrors the method-call mapping `fs-expr.ts` applies on the update
    *  path — the same members, reached from the view side. */
+  /** F# spelling for a model-derived identifier — a page/component param, a
+   *  shell local, a `let` binding.  ~70 F# keywords are legal Loom field and
+   *  param names (`member`, `end`, `val`, `base`, …) and the bare emit is a
+   *  parse error, so those take the double-backtick spelling; everything else
+   *  falls through `undefined` and is emitted unchanged.  F-022. */
+  escapeIdent: (name: string) => (isFsKeyword(name) ? fsIdent(name) : undefined),
+
   renderMemberRead: ({ receiver, member }) => {
     switch (member) {
       case "length":
         return `(${receiver}.Length)`;
       default:
-        return undefined;
+        // A wire-record field named after an F# keyword (`member`, `end`, `val`,
+        // …) must be read through the double-backtick spelling — `row.member` is
+        // a parse error, `` row.``member`` `` is the same field.  F-022.
+        return isFsKeyword(member) ? `${receiver}.${fsIdent(member)}` : undefined;
     }
   },
 
@@ -1015,7 +1026,12 @@ export const felizTarget: WalkerTarget = {
   renderSortedRows({ rowsExpr, sortKey, sortDir, columns }) {
     const k = `model.${upperFirst(sortKey.name)}`;
     const d = `model.${upperFirst(sortDir.name)}`;
-    const arms = columns.map((f) => `| "${f}" -> compare a.${f} b.${f}`).join(" ");
+    // The match LABEL is the wire column name; the two field READS are F#
+    // identifiers, so a column named after an F# keyword needs the
+    // double-backtick spelling (`compare a.``member`` b.``member``).  F-022.
+    const arms = columns
+      .map((f) => `| "${f}" -> compare a.${fsIdent(f)} b.${fsIdent(f)}`)
+      .join(" ");
     // No sortable column resolved a field → nothing to sort by; leave the rows
     // alone rather than emitting a `match` whose only arm is the wildcard.
     if (arms === "") return rowsExpr;

@@ -118,6 +118,7 @@ import {
   FELIZ_MODEL_PARAM,
   renderFsExpr,
 } from "./fs-expr.js";
+import { fsIdent } from "./fs-ident.js";
 import { felizPack } from "./pack.js";
 import { msgCase } from "./update-emit.js";
 import { pageMetaFieldName, wireFieldType } from "./wire.js";
@@ -409,11 +410,14 @@ function renderOne(
     .map((a) => {
       const p = a.params[0]?.name;
       return p
-        ? `    let ${a.name} ${p} = dispatch (${msgCase(a.name)} ${p})`
-        : `    let ${a.name} () = dispatch ${msgCase(a.name)}`;
+        ? `    let ${fsIdent(a.name)} ${fsIdent(p)} = dispatch (${msgCase(a.name)} ${fsIdent(p)})`
+        : `    let ${fsIdent(a.name)} () = dispatch ${msgCase(a.name)}`;
     });
   const takesDispatch = actionBinds.length > 0 || callsMarker(FELIZ_DISPATCH_PARAM);
-  const fields = c.params.map((p) => `${p.name}: ${propType(p, ctx.emittedRecords)}`);
+  // Anonymous-record FIELD names are F# identifiers — escaped when a param is
+  // named after an F# keyword, matching the call site's `{| ``member`` = … |}`
+  // (`felizTarget.renderUserComponent`) and the `let` binding below.  F-022.
+  const fields = c.params.map((p) => `${fsIdent(p.name)}: ${propType(p, ctx.emittedRecords)}`);
   // A body containing `Slot { }` reads `props.children` (the `renderChildrenSlot`
   // seam), so the props record has to CARRY it — otherwise the F# names an
   // absent field.  One `ReactElement`, not a list: the slot renders in element
@@ -442,7 +446,7 @@ function renderOne(
   const derivedFs = derivedBinds.join("\n");
   const binds = c.params
     .filter((p) => result.usedParams.has(p.name) || new RegExp(`\\b${p.name}\\b`).test(derivedFs))
-    .map((p) => `    let ${p.name} = props.${p.name}`);
+    .map((p) => `    let ${fsIdent(p.name)} = props.${fsIdent(p.name)}`);
   return {
     decl: [
       head,

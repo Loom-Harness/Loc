@@ -239,9 +239,14 @@ export function findFieldName(aggregate: string, findName: string): string {
  *  the parameter's F# spelling and the expression that turns it into its query
  *  string value. */
 export interface FelizFindParam {
-  /** Declared parameter name — also the query-string key the backends read
-   *  (`GET /<aggs>/<find>?<name>=…`, the contract the JS clients already call). */
+  /** Declared parameter name — also the query-string KEY the backends read
+   *  (`GET /<aggs>/<find>?<name>=…`, the contract the JS clients already call).
+   *  Never escaped: the wire key is the declared name. */
   name: string;
+  /** The same parameter as an F# BINDER — `name`, double-backtick-escaped when
+   *  it collides with an F# keyword (`find byMember(member: string)` binds
+   *  `` ``member`` ``).  `queryValue` is phrased in terms of this. (F-022.) */
+  fsName: string;
   /** F# type of the parameter in the api fn signature (`string` / `int` / …),
    *  spelled off the WIRE type so an enum arrives as its string name. */
   fsType: string;
@@ -430,8 +435,9 @@ export function felizFindRead(
   }
   const params = find.params.map((p) => ({
     name: p.name,
+    fsName: fsIdent(p.name),
     fsType: wireFieldType(p.type),
-    queryValue: findParamQueryValue(p.type, agg, find.name, p.name),
+    queryValue: findParamQueryValue(p.type, agg, find.name, fsIdent(p.name)),
   }));
   if (argExprs.length !== params.length) {
     throw new Error(
@@ -2347,7 +2353,7 @@ function felizAsyncEffect(
   const params: FelizAsyncParam[] = op.params.map((p, i) => ({
     // The op param name reads best as the F# binder (`note`), except when it
     // collides with the route `id` param already curried into the api fn.
-    name: p.name === "id" ? "idArg" : p.name,
+    name: p.name === "id" ? "idArg" : fsIdent(p.name),
     fsType: wireFieldType(p.type),
     encoder: paramEncoder(p.type),
     jsonKey: p.name,
@@ -2857,7 +2863,11 @@ export function renderWireTypes(
       "  {",
       ...r.fields.map((f) => {
         const base = wireFieldType(fieldBase(f));
-        return `    ${f.name}: ${fieldOptional(f) ? `${base} option` : base}`;
+        // The F# FIELD NAME is escaped (`` ``member`` ``) when it collides with
+        // an F# keyword; the JSON key it decodes from (below) is NOT — a
+        // double-backtick identifier is lexically the same name, so the wire is
+        // untouched.  F-022.
+        return `    ${fsIdent(f.name)}: ${fieldOptional(f) ? `${base} option` : base}`;
       }),
       "  }",
     ]),
@@ -2877,7 +2887,7 @@ export function renderWireTypes(
         // module is being defined); `decoderExprFor` qualifies it for external
         // callers, so strip the self-module prefix here.
         const dec = decoderExprFor(fieldBase(f)).replaceAll("Decoders.", "");
-        return `        ${f.name} = ${
+        return `        ${fsIdent(f.name)} = ${
           fieldOptional(f)
             ? `get.Optional.Field "${f.name}" ${dec}`
             : `get.Required.Field "${f.name}" ${dec}`
@@ -2903,7 +2913,7 @@ function renderApiFn(r: FelizRead): (string | undefined)[] {
   // single-RECORD find still folds `404` to `Ok None` like a byId.
   if (r.find) {
     const ps = r.find.params;
-    const sig = ps.length === 0 ? "()" : ps.map((p) => `(${p.name}: ${p.fsType})`).join(" ");
+    const sig = ps.length === 0 ? "()" : ps.map((p) => `(${p.fsName}: ${p.fsType})`).join(" ");
     const url =
       ps.length === 0
         ? `"${r.route}"`
