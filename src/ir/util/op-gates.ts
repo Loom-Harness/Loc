@@ -94,6 +94,40 @@ export function lifecycleGates(action: OperationIR | null | undefined): Requires
   return (action?.statements ?? []).filter((s): s is RequiresStmtIR => s.kind === "requires");
 }
 
+/** The aggregate shape `callerGates` reads — structural, so both the enriched
+ *  and the bare `AggregateIR` satisfy it without this module importing either. */
+export interface GatedAggregate {
+  readonly operations: readonly OperationIR[];
+  readonly canonicalCreate?: OperationIR | null;
+  readonly canonicalDestroy?: OperationIR | null;
+}
+
+/**
+ * EVERY `requires` gate an aggregate hoists out of the domain entity — the
+ * operation gates plus both lifecycle gates, in one list.
+ *
+ * The per-site helpers above answer "which gates does THIS emission point
+ * render"; this answers "what does the CALLING MODULE, as a whole, end up
+ * containing" — which is the question an import/using collector asks, and the
+ * one nobody was asking.  Ledger row `F2-CB-C7`: a `domainService` call inside a
+ * `requires` gate rendered `Rules.fee(…)` into the route / service module while
+ * that module's import block was derived only from the operation BODIES the
+ * gates had just been hoisted OUT of — TS2304 on node, "cannot find symbol" on
+ * java, `F821` on python, all from valid `.ddd` that generates and validates
+ * clean.
+ *
+ * A collector that re-enumerates the gate sites itself goes stale the moment a
+ * sixth one appears (the defect was born exactly that way), so the enumeration
+ * lives here, beside the split that creates it.
+ */
+export function callerGates(agg: GatedAggregate): RequiresStmtIR[] {
+  return [
+    ...agg.operations.flatMap(operationGates),
+    ...lifecycleGates(agg.canonicalCreate),
+    ...lifecycleGates(agg.canonicalDestroy),
+  ];
+}
+
 /** True when any lifecycle gate of `action` reads `currentUser` — so the caller
  *  must bind a principal before evaluating them.  Twin of
  *  `operationGatesUseCurrentUser`. */
