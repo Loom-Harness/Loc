@@ -312,13 +312,27 @@ system that still declares `user { }`, with only `auth: required` removed from t
 different lowering path and has never been handed to it. A hand-written `currentUser` read *is*
 refused today; the same read injected by a prelude capability is not.
 
-**Fix — upstream, single-site.** Lower `currentUser` to `refKind: "current-user"` unconditionally, so
-the existing gate refuses the model with its existing message and **no emitter changes on any
-backend**. Explicitly **not** a per-backend patch to each `renderStampValue`: that would paper over a
-missing refusal by stamping nil into NOT NULL columns. Needs a corpus sweep first (newly-resolved
-`currentUser` refs could newly trip other principal gates), so it is wave-4 shaped, batched with the
-other new-gate work. The java half carries two extra emitter defects (`UserId` referenced but never
-emitted; `@CreatedDate` where `@CreatedBy` belongs) that survive either ruling and are java's to fix.
+**Fixed — upstream, single-site, no new diagnostic.** `resolveNameRef` now resolves `currentUser` to
+`refKind: "current-user"` as its **last** step, when nothing else binds the name — so a real local or
+field named `currentUser` still shadows it in a system without auth, and only the case that
+previously dangled moves. The existing gate then refuses the model on all five backends, with its
+existing message, and **no emitter changed**.
+
+The corpus sweep the plan asked for was run first and is what made this safe: across all **461**
+tracked `.ddd`, exactly **two** read `currentUser` with no visible `user { }` — `examples/sales-ui.ddd`
+(already pinned UNPARSEABLE) and `web/src/examples/erp/hr.ddd`, whose block lives in the project entry
+that imports it. The fall-through was protecting nothing.
+
+Mutation proof: reverting the resolution fails all five refusal cases plus the root-cause pin, while
+the five auth-carrying controls and the shadowing case stay green — so the mutation is shown to hit
+the no-auth path, not lowering in general.
+
+**Correction to this section as first written:** it claimed java carried two extra emitter defects
+(`UserId` referenced but never emitted; `@CreatedDate` on a principal field) that would survive the
+ruling. Regenerating the same model *with* auth shows java emits `@CreatedBy`/`@LastModifiedBy` and
+`String createdBy` correctly — both oddities were produced only by the un-refused tree and are
+unreachable once it is refused. Second java mis-call of this evaluation (see F-035); both came from
+reading emitted source without generating the passing control.
 
 ### 3.9 F-047 — 122 AST-layer diagnostics carry no code, so all three diagnostic gates skip them
 

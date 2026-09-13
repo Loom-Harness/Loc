@@ -293,7 +293,7 @@ Found: 2026-09-13, while verifying the wave-0 fixes. **Not one of the original 4
 | **node** | `createdBy: currentUser` (`db/audit-stamp.ts:10`) | `tsc --noEmit` → `TS2304: Cannot find name 'currentUser'` ×3 |
 | **dotnet** | `.CurrentValue = currentUser` (`AuditableInterceptor.cs:42`) | source-evidenced (CS0103); not compiled |
 | **python** | `self._created_by = currentUser` (`domain/foo.py:72`) | source-evidenced — a **`NameError` at request time**, not a build error |
-| **java** | `@CreatedDate @Column(name="created_by") UserId createdBy;` | **two defects**: `UserId` is emitted by no file in the tree (`grep -rn "class UserId\|record UserId"` → empty ⇒ `cannot find symbol`), and the principal field carries `@CreatedDate` (the *timestamp* annotation) rather than `@CreatedBy` |
+| **java** | `@CreatedDate @Column(name="created_by") UserId createdBy;` — `UserId` is emitted by no file in the tree (`cannot find symbol`), and the principal field carries `@CreatedDate`, the *timestamp* annotation | source-evidenced; see the correction below — **both are artefacts of this same path, not separate java defects** |
 
 Repro (`/tmp/w0/elx-aud-noauth.ddd`, 10 lines) — one aggregate `with crudish, auditable`, on a
 `platform: elixir` deployable with **no `user { }` block and no `auth:` clause**:
@@ -314,6 +314,17 @@ def insert(attrs) when is_map(attrs) do          # ← arity 1: no current_user 
 With `auth: required` + a `user { }` block the same model is correct
 (`def insert(attrs, current_user \\ nil)` and `current_user && current_user.id`), so this is
 specifically the **no-principal** case.
+
+> **CORRECTION (2026-09-13, while fixing it).** As first written this entry claimed java carried
+> **two extra emitter defects** that would survive the ruling. It does not. Regenerating the same
+> model **with** `auth: required` and a `user { }` block, java emits exactly the right thing —
+> `@CreatedBy`/`@LastModifiedBy` on the principal fields, `@CreatedDate`/`@LastModifiedDate` on the
+> timestamps, and `String createdBy` (no `UserId` anywhere). Both oddities I recorded were produced
+> **only** by the un-refused no-auth tree, so both become unreachable the moment the model is
+> refused — they were symptoms of this finding, not siblings of it.
+> That is the **second** time in this evaluation I have mis-called java from reading emitted source
+> without regenerating the control (see F-035). The lesson is the same one, and it is cheap: before
+> attributing a defect to a backend, generate the *passing* variant too and diff.
 
 **Root cause — one level up from the emitter, and it is the interesting part.** Without a `user { }`
 block, `currentUser` lowers to `{"kind":"ref","name":"currentUser","refKind":"unknown"}` instead of

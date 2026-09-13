@@ -1909,6 +1909,47 @@ function resolveNameRef(name: string, env: Env, node?: AstNode): ExprIR {
       };
     }
   }
+  // `currentUser` that resolved to NOTHING — no user block, and no local,
+  // property, enum value or any other binding of that name.  It still lowers as
+  // the PRINCIPAL ref, not as `unknown`.
+  //
+  // The `env.user` arm near the top of this function handles the ordinary case
+  // and types the ref against the declared `user { … }` shape.  Reaching here
+  // means the system declares no such block, and the historical behaviour was
+  // to fall through to `refKind: "unknown"` so "source files without auth still
+  // parse normally".  That protects nothing — across all 461 tracked `.ddd` the
+  // only two that read `currentUser` without a visible `user { }` are
+  // `examples/sales-ui.ddd` (pinned UNPARSEABLE) and `web/src/examples/erp/
+  // hr.ddd`, whose block lives in the project entry that imports it — and it
+  // costs a whole class of silent breakage:
+  //
+  //   `exprUsesCurrentUser()` tests `refKind === "current-user"`, so an
+  //   `unknown` here makes `loom.stamp-principal-without-auth` (phase ⑦,
+  //   principal-guard-checks.ts) blind to the very model it exists to refuse.
+  //   `aggregate X with auditable` on a deployable with no auth then validated
+  //   `0 error(s), 0 warning(s)` and emitted a DANGLING principal reference on
+  //   all five backends — elixir `undefined variable "current_user"`, node
+  //   `TS2304`, dotnet `CS0103`, java `cannot find symbol`, python a
+  //   request-time `NameError`.
+  //
+  // The gate was never weak: `dotnet-stamping.test.ts` asserts it fires, and it
+  // does — for a HAND-WRITTEN `stamp onCreate { createdBy := currentUser }` in
+  // a system that declares `user { }`.  A capability macro injects the same
+  // read into a system that declares none, and that spelling took this path.
+  // Resolving it here is what puts the macro-injected form in front of the
+  // gate; the diagnostic, and its wording, are already written.
+  //
+  // Deliberately LAST: an actual local/property/enum named `currentUser` still
+  // shadows it in a system without auth, exactly as before.  Only the case that
+  // previously dangled changes.
+  if (name === "currentUser") {
+    return {
+      kind: "ref",
+      name: "currentUser",
+      refKind: "current-user",
+      type: { kind: "entity", name: USER_SHAPE_NAME },
+    };
+  }
   return { kind: "ref", name, refKind: "unknown" };
 }
 
