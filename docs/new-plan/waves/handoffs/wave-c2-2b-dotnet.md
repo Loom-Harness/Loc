@@ -2,9 +2,10 @@
 
 **Branch** `claude/c2-dotnet` (local; never pushed, never a PR — the wave PR is
 the claim and the coordinator folds this branch).
-**Range** `29db198c1..01a25eb20`, five commits, plus one merge of `origin/main`
-@ `9a8f2fe00` (`7e6cdabde`) so every gate below ran on the FOLDED tree (§3 rule
-14).
+**Range** `29db198c1..HEAD` — five code/disposition commits, a merge of
+`origin/main` @ `9a8f2fe00` (`7e6cdabde`) so every gate below ran on the FOLDED
+tree (§3 rule 14), and three tail commits (this note, the two doc indexes the new
+leg has to appear in, and one visibility-only tidy).
 **Fence** `src/generator/dotnet/**` plus the tests, corpus fixtures, register /
 message-catalog rows, docs and ledger a closed row requires. Every edit outside
 that is listed in §5 with its reason.
@@ -27,7 +28,11 @@ that is listed in §5 with its reason.
 | pairwise F12 dotnet | **drained** — the waiver was stale; measured, then narrowed to python |
 | `G2646-open-projection-on-event-no-channel` dotnet arm | **HAND-OFF** — the dotnet arm is a no-op; the whole change is one line in 2f's fence (measured, §5) |
 
-`MAX_OPEN_GAPS` 27 → **26**.
+`MAX_OPEN_GAPS` 27 → **26**.  `node scripts/completion-denominators.mjs` on the
+folded tree: register **26** `gap` + 24 `seam` + **12** `scope` (was 27/24/11);
+targets ledger open **134** (was 135); pairwise compile waivers **4** (was 5, and
+zero of them name dotnet); live missions **160** (was 158 — M-T2.17 and M-T6.72
+minted).
 
 ---
 
@@ -290,4 +295,10 @@ Run after `git merge origin/main` @ `9a8f2fe00`, per §3 rule 14. Result appende
 below by the packet before hand-off; the wave log
 (`docs/new-plan/waves/wave-c2.md`) is the live status.
 
-**Result: green** — see the final message of the packet run for the counts.
+One caveat on the run, stated rather than smoothed over: this container hosts
+several wave packets at once, and a `npm test` started while two other sessions'
+full runs were in flight reported a mass of `FAIL … [ file ]` transform errors
+that all passed individually seconds later — resource contention, not a
+regression. The reported run below is the one taken with the tree final.
+
+**Result: green** — counts in the packet's final message.
