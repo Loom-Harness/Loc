@@ -40,7 +40,8 @@ function run(args: string[]): { stderr: string; status: number } {
 
 /** A model that generates CLEANLY but is not diagnostic-free — the exact case
  *  the defect hid.  `find open(): Order[]` raises the AST-layer (phase ④)
- *  wire-shaped-list-query warning, and filtering on `status` with no `index:`
+ *  wire-shaped-list-query warning (the context declares a `criterion`, which is
+ *  what puts that warning in scope), and filtering on `status` with no `index:`
  *  raises the advisory phase-⑦ `loom.index-suggestion`. */
 const WARNED = `
 system Shop {
@@ -54,6 +55,11 @@ system Shop {
       repository Orders for Order {
         find open(): Order[] where this.status == OrderStatus.Open
       }
+      // The list-find deprecation is scoped to contexts that already declare a
+      // criterion or a retrieval (audit §D7 — a model with neither has no
+      // equal-power replacement to migrate to).  This context declares one so
+      // the fixture keeps raising BOTH diagnostics it is here to compare.
+      criterion IsOpen of Order = status == OrderStatus.Open
     }
   }
   storage pg { type: postgres }

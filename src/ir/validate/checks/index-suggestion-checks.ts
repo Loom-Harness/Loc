@@ -4,9 +4,12 @@
 // The compiler NEVER auto-derives a performance index from finders — an infra
 // decision (write-amplification, cardinality, the composite a DBA actually
 // wants) it can't see.  Instead it SUGGESTS: a column read on a filter path
-// (`find ... where`, or a reified `filter`) that has no covering leading-column
-// index gets a `loom.index-suggestion` WARNING naming the fix — the author opts
-// in via `resource index: Entity.col` (§3.2) if they agree.
+// (`find ... where`, a reified `filter`, a `criterion` body, or a `retrieval`'s
+// `where`) that has no covering leading-column index gets a
+// `loom.index-suggestion` WARNING naming the fix — the author opts in via
+// `resource index: Entity.col` (§3.2) if they agree.  Every spelling of one
+// query counts: migrating a `find … where` to the criterion / retrieval form
+// must not silently drop the advice.
 //
 // Delivery: a WARNING-severity `loom.index-suggestion` pushed onto the normal
 // `validateLoomModel` diagnostics — the same IR-warning channel every surface
@@ -39,8 +42,8 @@ import type { LoomDiagnostic } from "./diagnostic.js";
 import { walkExpr } from "./shared.js";
 
 /** Aggregate-field names read as `this.<field>` anywhere in a filter
- *  predicate (a find `where` or a reified `filter`) — the columns a query
- *  filters on. */
+ *  predicate (a find `where`, a reified `filter`, a `criterion` body or a
+ *  `retrieval` `where`) — the columns a query filters on. */
 function collectFilterColumns(expr: ExprIR | undefined, out: Set<string>): void {
   walkExpr(expr, (n) => {
     if (n.kind === "member" && n.receiver.kind === "this") out.add(n.member);
@@ -80,6 +83,14 @@ function baseType(t: TypeIR): TypeIR {
   return t.kind === "optional" ? t.inner : t;
 }
 
+/** Does this `of <T>` candidate type name the given aggregate?  A criterion
+ *  over `of bool` (a pure ambient predicate) has no candidate and never
+ *  matches. */
+function candidateIs(t: TypeIR, aggName: string): boolean {
+  const b = baseType(t);
+  return b.kind === "entity" && b.name === aggName;
+}
+
 /** A boolean column is a poor standalone-index candidate (low selectivity) —
  *  never suggested; a partial/composite there is a human call. */
 function isBooleanField(t: TypeIR): boolean {
@@ -101,12 +112,25 @@ export function validateIndexSuggestions(sys: EnrichedSystemIR, diags: LoomDiagn
         if (ds && ds.kind !== "state") continue;
 
         // Filter columns: every finder's `where` + the aggregate's reified
-        // filters (capability + hand-written), read on every / some read.
+        // filters (capability + hand-written), read on every / some read —
+        // PLUS the criterion / retrieval spelling of the same query.  A
+        // `find … where` migrated to `criterion` + `retrieval` (the migration
+        // `loom.repository-find-deprecated` recommends) filters the same
+        // columns, so it must keep earning the same suggestion; scanning finds
+        // alone made the advice vanish on the migration the tool told you to
+        // make (audit 2026-09-10 §D7).
         const filterColumns = new Set<string>();
         for (const find of repoByAgg.get(agg.name)?.finds ?? []) {
           collectFilterColumns(find.filter, filterColumns);
         }
         for (const f of agg.contextFilters ?? []) collectFilterColumns(f, filterColumns);
+        for (const crit of ctx.criteria) {
+          if (candidateIs(crit.targetType, agg.name))
+            collectFilterColumns(crit.body, filterColumns);
+        }
+        for (const ret of ctx.retrievals) {
+          if (candidateIs(ret.targetType, agg.name)) collectFilterColumns(ret.where, filterColumns);
+        }
 
         const covered = coveredColumns(agg, ctx, sys);
         const fieldByName = new Map(agg.fields.map((f) => [f.name, f] as const));
