@@ -1,0 +1,124 @@
+// A value object whose OWN field is a value object (`Addr.geo: Geo`) — the
+// shape nothing in the corpus reached, and the one that made two backends
+// disagree with the schema sitting beside them.
+//
+// A VO field has no column of its own: it flattens into the owner table's leaf
+// columns.  Nesting one inside another simply means the flattening RECURSES —
+// `home: Addr` with `Addr.geo: Geo` is `home_line1`, `home_geo_lat`,
+// `home_geo_lng`, and nothing called `home_geo`.  Every emitter that flattens a
+// VO therefore has TWO recursions to keep in step (the schema/DDL one and the
+// repository's), and python's stopped one level short:
+//
+//   python  app/db/schema.py and the migration both create `home_geo_lat` /
+//           `home_geo_lng`, while person_repository.py bound
+//             "home_geo": aggregate.home.geo
+//           on insert, `root["home_geo"]` on upsert, and read
+//             Addr(row.home_line1, row.home_geo)
+//           on hydrate — a column that exists in NEITHER.  Not a type error
+//           anywhere (the bind site is untyped and `row.home_geo` is an `Any`
+//           attribute read), so nothing caught it until the statement reached
+//           the database.  EVERY read and EVERY write of the aggregate failed,
+//           on the plain REQUIRED case — optionality had nothing to do with it.
+//
+//   dotnet  `ownedVoLines` recurses with the builder lambda parameter hard-coded
+//           to `o`, so the nested VO emits
+//             o.OwnsOne<Geo>(x => x.Geo, o => { … })
+//           whose inner parameter shadows the enclosing one.  Whether that is
+//           CS0136 or legal was UNSETTLED on the audit host (no .NET SDK), and
+//           is deliberately left for THIS gate's `corpus × dotnet` leg to
+//           answer rather than guessed at in the emitter.
+//
+// The other three are here as the contrast that makes a regression in them
+// visible in the same compile: node hydrates `new Addr(root.home_line1, new
+// Geo(Number(root.home_geo_lat), …))` and java overrides the nested path
+// (`@AttributeOverride(name = "geo.lat", column = @Column(name =
+// "home_geo_lat"))`), both already correct; elixir does not flatten at all — a
+// VO is one `:map` (jsonb) cell — so nesting is free there and the fixture
+// proves it stays free.
+//
+// Two axes ride along deliberately:
+//
+//   * `geo: Geo` is REQUIRED, and so is `home`.  The plainest possible case is
+//     the subject, because that is where python broke — a fixture that only
+//     nested an optional VO would have let the required break through.
+//   * `lat`/`lng` are `decimal`, a type the persistence side must DEREFERENCE
+//     (`Decimal(str(...))` / `Number(...)`) rather than copy.  A one-level
+//     flattening that bound the VO object itself would still "work" for a
+//     string subfield on a forgiving driver; on a numeric one it cannot.
+system NestedValueObject {
+  subdomain People {
+    context Directory {
+      valueobject Geo {
+        lat: decimal
+        lng: decimal
+      }
+
+      valueobject Addr {
+        line1: string
+        geo: Geo
+      }
+
+      aggregate Person with crudish {
+        name: string
+        home: Addr
+        derived display: string = name
+      }
+
+      repository Persons for Person { }
+    }
+  }
+
+  api DirectoryApi from People
+  storage primary { type: postgres }
+  resource directoryState { for: Directory, kind: state, use: primary }
+
+  // The runtime half.  The compile tiers prove the emitted mapping and
+  // hydration TYPE-CHECK; only this proves the columns the repository names are
+  // the columns the migration created — python's defect was invisible to every
+  // type checker and fatal to every request.
+  test e2e "a nested value object round-trips through the flattened leaf columns" against d {
+    let p = api.persons.create({
+      name: "ada",
+      home: { line1: "1 Main St", geo: { lat: 51.5, lng: -0.12 } }
+    })
+
+    // The write reached the database at all — on python the insert named a
+    // column that does not exist, so this line was the one that died.
+    let read = api.persons.getById(p)
+    expect(read.name).toBe("ada")
+    expect(read.home.line1).toBe("1 Main St")
+    // The NESTED value object survives the round trip as a nested object, not
+    // as a flattened `home_geo_lat` key and not as null.
+    expect(read.home.geo.lat).toBe(51.5)
+    expect(read.home.geo.lng).toBe(-0.12)
+
+    // The BULK loader hydrates through a different code path than `getById`, so
+    // a nested VO dropped only in bulk shows here and nowhere above.
+    let listed = api.persons.all()
+    expect(listed.items.length).toBe(1)
+    expect(listed.items.first().home.geo.lat).toBe(51.5)
+
+    // An UPDATE rewrites every leaf of the group — a write path that bound the
+    // intermediate VO would fail here even if the insert somehow survived.
+    api.persons.update(p, {
+      name: "ada",
+      home: { line1: "2 Side Rd", geo: { lat: 48.85, lng: 2.35 } }
+    })
+    let moved = api.persons.getById(p)
+    expect(moved.home.line1).toBe("2 Side Rd")
+    expect(moved.home.geo.lat).toBe(48.85)
+    expect(moved.home.geo.lng).toBe(2.35)
+
+    api.persons.destroy(p)
+    let empty = api.persons.all()
+    expect(empty.items.length).toBe(0)
+  }
+
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Directory]
+    dataSources: [directoryState]
+    serves: DirectoryApi
+    port: 4000
+  }
+}
