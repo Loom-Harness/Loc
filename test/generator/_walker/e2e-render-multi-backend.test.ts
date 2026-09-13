@@ -30,7 +30,7 @@ const BANK_THREE_BACKEND = `
   system Bank {
     subdomain Accounts {
       context Banking {
-        aggregate Account {
+        aggregate Account with crudish {
           balance: int
           derived display: string = "acct"
           operation deposit(amount: int) { balance := balance + amount }
@@ -40,7 +40,7 @@ const BANK_THREE_BACKEND = `
     }
     subdomain Marketing {
       context Promo {
-        aggregate Campaign {
+        aggregate Campaign with crudish {
           name: string
           derived display: string = name
         }
@@ -138,7 +138,7 @@ const TO_THROW = `
   system Pay {
     subdomain Accounts {
       context Banking {
-        aggregate Account {
+        aggregate Account with crudish {
           balance: int
           invariant balance >= 0
           derived display: string = "acct"
