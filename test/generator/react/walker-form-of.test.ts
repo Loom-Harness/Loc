@@ -234,7 +234,7 @@ describe("CreateForm { of: <Aggregate> } auto-dispatch", () => {
     const tsx = files.get("web/src/pages/broken.tsx")!;
     expect(tsx).toBeDefined();
     expect(tsx).toMatch(
-      /\{\/\* loom:unrendered CreateForm\(of: …\): missing 'of:' aggregate ref \*\/\}/,
+      /\{\/\* loom:unrendered \[loom\.page-primitive-arg-missing\] CreateForm\(of: …\): missing 'of:' aggregate ref \*\/\}/,
     );
   });
 });

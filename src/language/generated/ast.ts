@@ -1417,7 +1417,7 @@ export function isExpectStmt(item: unknown): item is ExpectStmt {
     return reflection.isInstance(item, ExpectStmt.$type);
 }
 
-export type Expression = AwaitExpr | BinaryChain | BuilderCall | IdRef | Lambda | ListLit | LiteralExpr | MatchExpr | MoneyLit | NameRef | NowExpr | ObjectLit | ParenExpr | PostfixChain | PrimitiveConversion | RetrievalLiteral | TemplateStr | TernaryExpr | ThisRef | UnaryExpr;
+export type Expression = AwaitExpr | BinaryChain | BuilderCall | IdRef | Lambda | ListLit | LiteralExpr | MatchExpr | NameRef | NowExpr | ObjectLit | ParenExpr | PostfixChain | PrimitiveConversion | RetrievalLiteral | TemplateStr | TernaryExpr | ThisRef | UnaryExpr;
 
 export const Expression = {
     $type: 'Expression'
@@ -1990,7 +1990,7 @@ export function isLValueIdent(item: unknown): item is LValueIdent {
 export interface MacroArg extends langium.AstNode {
     readonly $container: MacroCall;
     readonly $type: 'MacroArg';
-    name: LooseName;
+    name: MacroArgName;
     value: MacroArgValue;
 }
 
@@ -2032,6 +2032,12 @@ export const MacroArgInt = {
 
 export function isMacroArgInt(item: unknown): item is MacroArgInt {
     return reflection.isInstance(item, MacroArgInt.$type);
+}
+
+export type MacroArgName = 'requires' | LooseName;
+
+export function isMacroArgName(item: unknown): item is MacroArgName {
+    return isLooseName(item) || item === 'requires';
 }
 
 export interface MacroArgRef extends langium.AstNode {
@@ -2326,21 +2332,6 @@ export const ModelMember = {
 
 export function isModelMember(item: unknown): item is ModelMember {
     return reflection.isInstance(item, ModelMember.$type);
-}
-
-export interface MoneyLit extends langium.AstNode {
-    readonly $container: AssignOrCallStmt | AwaitExpr | BinaryChain | BodyProp | BuilderEntry | CallArg | ColumnStep | Component | Criterion | DerivedProp | EmitField | ExpectStmt | FilterDecl | FindDecl | ForStmt | FunctionDecl | HandleDecl | IfLetStmt | IfStmt | Invariant | LValue | Lambda | LayoutNamedSlot | LetStmt | ListLit | MatchArm | MatchExpr | MatchStmt | MenuLinkProp | MenuMetaEntry | ObjectFieldInit | OnDecl | Operation | Parameter | ParenExpr | PolicyDecl | PostfixChain | PreconditionStmt | PrimitiveConversion | Projection | ProjectionJoin | ProjectionOn | ProjectionSelect | Property | RequirementProp | RequiresProp | RequiresStmt | Retrieval | RetrievalLiteral | ReturnStmt | StateField | TemplateHole | TernaryExpr | TitleProp | UnaryExpr | VariantArm | Workflow | WorkflowCreateDecl;
-    readonly $type: 'MoneyLit';
-    value?: string;
-}
-
-export const MoneyLit = {
-    $type: 'MoneyLit',
-    value: 'value'
-} as const;
-
-export function isMoneyLit(item: unknown): item is MoneyLit {
-    return reflection.isInstance(item, MoneyLit.$type);
 }
 
 export type NamedDecl = Aggregate | EntityPart | EnumDecl | EventDecl | PayloadDecl | ValueObject;
@@ -4424,7 +4415,6 @@ export type DddAstType = {
     MigrationStepDecl: MigrationStepDecl
     Model: Model
     ModelMember: ModelMember
-    MoneyLit: MoneyLit
     NameRef: NameRef
     NamedDecl: NamedDecl
     NamedType: NamedType
@@ -6143,16 +6133,6 @@ export class DddAstReflection extends langium.AbstractAstReflection {
             properties: {
             },
             superTypes: []
-        },
-        MoneyLit: {
-            name: MoneyLit.$type,
-            properties: {
-                value: {
-                    name: MoneyLit.value,
-                    optional: true
-                }
-            },
-            superTypes: [Expression.$type]
         },
         NameRef: {
             name: NameRef.$type,

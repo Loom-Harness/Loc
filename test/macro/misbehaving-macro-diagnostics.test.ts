@@ -31,6 +31,15 @@ import { describe, expect, it } from "vitest";
 import { validate } from "../../src/api/index.js";
 import type { MacroDefinition } from "../../src/macros/api/define.js";
 import { lookupMacro, registerMacro } from "../../src/macros/registry.js";
+import { loadStdlibMacros } from "../../src/macros/stdlib/index.js";
+
+// The unit project runs with `isolate: false`, so this file can share a worker
+// (and the process-global registry) with `registry-unit.test.ts`, which asserts
+// the stdlib sits at the HEAD of `allMacros()` — exactly as it does in
+// production, where the stdlib boots before any project macro.  Registering the
+// test macros below at import time, before anything had booted the stdlib,
+// put them at the head instead whenever this file happened to load first.
+loadStdlibMacros();
 
 /** Register once — the registry is process-global and throws on a duplicate. */
 function ensure(def: MacroDefinition): string {

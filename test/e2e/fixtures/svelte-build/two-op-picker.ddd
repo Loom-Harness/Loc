@@ -1,0 +1,75 @@
+// Two operations on one aggregate that each reference the SAME other aggregate
+// (#2864 T5, M-T1.34).
+//
+// Every form on a Svelte page shares one page-level `<script>` (a .svelte file
+// holds exactly one component), so each op form's `const __<targets> =
+// useAll<Targets>()` picker declaration lands in the same lexical scope.  Two
+// ops taking a `Location id` therefore used to declare `__locations` twice —
+// `[PARSE_ERROR] Identifier '__locations' has already been declared`, which
+// fails BOTH halves of the generated app's `npm run build` (svelte-check and
+// `vite build`).  React scopes each form to its own component and Vue dedupes
+// at its page shell, so this shard is the only place the collision is visible.
+//
+//   assignTo(at: Location id, voyage: Voyage id)   both targets REQUIRED
+//   sightAt (at: Location id, voyage: Voyage id?)  the same two, one OPTIONAL
+//
+// The optional half matters: an `X id?` picker renders through a different
+// field template than an `X id` one, and both must bind the ONE surviving
+// declaration.  `Cargo.origin: Location id` adds the third claimant: the
+// scaffolded UPDATE form renders it as a picker too, so `Cargo`'s detail page
+// carries three forms over two naming families (`form-op-decls` and
+// `form-of-decls`) all wanting `__locations`.  That page is what this shard
+// compiles.
+system Freight {
+  subdomain Core {
+    context Shipping {
+      aggregate Location with crudish {
+        name: string
+        derived display: string = name
+      }
+
+      aggregate Voyage with crudish {
+        code: string
+        derived display: string = code
+      }
+
+      aggregate Cargo with crudish {
+        code: string
+        origin: Location id
+        derived display: string = code
+
+        operation assignTo(at: Location id, voyage: Voyage id) {
+          origin := at
+        }
+
+        operation sightAt(at: Location id, voyage: Voyage id?) {
+          origin := at
+        }
+      }
+    }
+  }
+
+  api ShippingApi from Core
+
+  ui WebApp with scaffold(subdomains: [Core]) {
+    api Shipping: ShippingApi
+  }
+
+  storage primary { type: postgres }
+  resource shippingState { for: Shipping, kind: state, use: primary }
+
+  deployable api {
+    platform: node
+    contexts: [Shipping]
+    dataSources: [shippingState]
+    serves: ShippingApi
+    port: 3000
+  }
+
+  deployable web {
+    platform: svelte
+    targets: api
+    ui: WebApp { Shipping: api }
+    port: 3001
+  }
+}

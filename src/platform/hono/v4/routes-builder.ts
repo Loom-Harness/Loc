@@ -28,6 +28,7 @@ import {
   historySelectStatement,
   renderHistoryEntryMapper,
 } from "../../../generator/typescript/emit/audit-history.js";
+import { domainServiceNamesInExprs } from "../../../generator/typescript/emit/domain-service.js";
 import { TS_NUMERIC } from "../../../generator/typescript/numeric-codec.js";
 import { renderTsExpr } from "../../../generator/typescript/render-expr.js";
 import { aggHasFieldMask } from "../../../generator/typescript/repository-wire-builder.js";
@@ -91,6 +92,7 @@ import {
 } from "../../../ir/util/api-surface.js";
 import { partsChildrenFirst } from "../../../ir/util/containment-parent.js";
 import {
+  callerGates,
   lifecycleGates,
   lifecycleGatesReadRow,
   lifecycleGatesUseCurrentUser,
@@ -509,6 +511,22 @@ export function buildRoutesFile(
     ...(hasExternOp ? ["NotImplementedError"] : []),
   ];
   lines.push(`import { ${errorNames.join(", ")} } from "../domain/errors";`);
+  // Domain-service namespaces the module's GATE expressions call.  A
+  // `requires` gate is HOISTED out of the operation body to the caller
+  // (`src/ir/util/op-gates.ts`), so it renders `Rules.fee(...)` INTO this file
+  // while every other collector here only ever looked at operation bodies —
+  // ledger row `F2-CB-C7`, a TS2304 in a project that generated clean.  The
+  // gate set comes from `callerGates` rather than a local re-enumeration, so a
+  // sixth gate site cannot reintroduce the hole; the `when` state gates and the
+  // find read-gates render into the same file and join it.
+  const gateServices = domainServiceNamesInExprs([
+    ...callerGates(agg).map((g) => g.expr),
+    ...agg.operations.map((o) => o.when),
+    ...(repo?.finds ?? []).map((f) => f.requires),
+  ]);
+  if (gateServices.length > 0) {
+    lines.push(`import { ${gateServices.join(", ")} } from "../domain/services";`);
+  }
   // `when` gates (and their auto-exposed can-query companions) render enum
   // values like `OrderStatus.Shipped` in the route file; import those enums
   // from value-objects so the predicate type-checks (else TS2304).
@@ -2818,8 +2836,21 @@ export function wireToDomainExpr(expr: string, t: TypeIR, ctx?: BoundedContextIR
         .join(", ");
       return `new ${info.base}(${args})`;
     }
-    case "entity":
-      return expr;
+    case "entity": {
+      // A declared record PAYLOAD — the workflow explicit-command param
+      // (`create(c: FileClaim)`, #2864 D7/T2).  A payload has no domain CLASS
+      // on this backend, so its domain form is a plain object whose fields are
+      // each coerced: an `X id` field has to arrive branded, or the first
+      // `Agg.create({ ref: c.<idField> })` downstream is a TS2322
+      // (`string` is not assignable to `CargoId`).  Every other `entity` here
+      // is a containment part, which keeps the pass-through.
+      const pl = ctx?.payloads.find((p) => p.name === info.base && !p.variants);
+      if (!pl) return expr;
+      const entries = pl.fields
+        .map((f) => `${f.name}: ${wireToDomainExpr(`${expr}.${f.name}`, f.type, ctx)}`)
+        .join(", ");
+      return `{ ${entries} }`;
+    }
     case "provenanced":
       // Unreachable: request-side only (see `zodFor`).  The domain keeps the
       // scalar — the carrier is a serialization shape, not an in-memory one.

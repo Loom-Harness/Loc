@@ -56,3 +56,35 @@ export function sqlRenderableExpr(e: ExprIR): true | { reason: string } {
       };
   }
 }
+
+/** Is `e` a **scalar literal** — the strictly narrower subset a Postgres
+ *  *column default* may hold (M-T2.16 / #2864 G1, decision D-3)?
+ *
+ *  `sqlRenderableExpr` above admits everything a *backfill* `UPDATE` may use,
+ *  which is deliberately wider: an `UPDATE` runs per row and may read the row's
+ *  other columns, so a sibling-field ref (`this-prop`), arithmetic over one, and
+ *  the ternary are all fine there.  A column default is evaluated with no row in
+ *  scope, so Postgres rejects any reference to another column outright
+ *  (`cannot use column reference in DEFAULT expression`).  This predicate is
+ *  therefore not a style choice — it is the boundary of what the DDL accepts.
+ *
+ *  Admitted: the literal kinds that render to a self-contained constant, and an
+ *  enum value (stored as its text).  Excluded, each for its own reason:
+ *
+ *   - `now` — renders `now()`, a function call, not a literal.  D-3 keeps it
+ *     out: a `DEFAULT now()` briefly stamps every pre-existing row with the
+ *     migration's clock, which is a domain fact the app layer owns.
+ *   - `null` — a NULL default on the NOT-NULL column this feeds is a
+ *     contradiction; it would leave the add blocking anyway.
+ *   - `this-prop` / `this-vo-prop` and every compound form — the column
+ *     reference Postgres refuses (and, for the VO leaf, not portable besides;
+ *     see `sqlRenderableExpr`).
+ *   - anything else (`currentUser.*`, calls, …) — never a literal.
+ *
+ *  Callers render an admitted expression with `renderSqlScalarExpr`, which is
+ *  total over this subset and never consults its `SqlExprContext` for it (the
+ *  context is reached only through `this-prop`, which is rejected here). */
+export function sqlLiteralColumnDefault(e: ExprIR): boolean {
+  if (e.kind === "literal") return e.lit !== "now" && e.lit !== "null";
+  return e.kind === "ref" && e.refKind === "enum-value";
+}

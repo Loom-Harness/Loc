@@ -46,7 +46,10 @@ describe("java workflow value-object params + int money-literals", () => {
     const files = await gen();
     const req = fileEndingWith(files, "TopUpRequest.java");
     // The component references MoneyRequest...
-    expect(req).toContain("public record TopUpRequest(MoneyRequest amount)");
+    // F32: the workflow body is a wire boundary — the required VO param carries
+    // `@NotNull @Valid`, so an omitted `amount` is a 422 and not an NPE in the
+    // generated `toMoney`.
+    expect(req).toContain("public record TopUpRequest(@NotNull @Valid MoneyRequest amount)");
     // ...which lives in the aggregate's application package, so it's imported
     // (not left to the `domain.valueobjects.*` wildcard, where it isn't).
     expect(req).toContain("import com.loom.api.features.accounts.MoneyRequest;");
