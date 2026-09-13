@@ -394,7 +394,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.paged-query-handler-unsupported-backend",
     kind: "seam",
-    site: "src/ir/validate/checks/projection-backend-checks.ts:321",
+    site: "src/ir/validate/checks/projection-backend-checks.ts:247",
     what:
       "a `paged` queryHandler return ships on all five backends (PAGED_QH_SUPPORTED) — latent " +
       "seam for a NEW backend",
@@ -433,7 +433,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.projection-query-time-unsupported",
     kind: "seam",
-    site: "src/ir/validate/checks/projection-backend-checks.ts:348",
+    site: "src/ir/validate/checks/projection-backend-checks.ts:274",
     what:
       "query-time projections ship on all five backends (PROJECTION_QT_SUPPORTED) — latent seam " +
       "for a NEW backend",
@@ -442,7 +442,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.projection-source-unsupported-backend",
     kind: "seam",
-    site: "src/ir/validate/checks/projection-backend-checks.ts:434",
+    site: "src/ir/validate/checks/projection-backend-checks.ts:360",
     what:
       "a projection sourced from another projection's rows ships on all five backends " +
       "(PROJECTION_PROJ_SOURCE_SUPPORTED) — latent seam for a NEW backend",
@@ -460,7 +460,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.projection-workflow-source-unsupported-backend",
     kind: "seam",
-    site: "src/ir/validate/checks/projection-backend-checks.ts:391",
+    site: "src/ir/validate/checks/projection-backend-checks.ts:317",
     what:
       "a projection sourced from a workflow's instance rows ships on all five backends " +
       "(PROJECTION_WF_SOURCE_SUPPORTED) — latent seam for a NEW backend",

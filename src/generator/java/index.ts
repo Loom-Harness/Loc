@@ -1090,6 +1090,20 @@ function emitProjectFromContexts(
       entityPkgOf: (a) => pkgFor("entity", a),
       repoPkgOf: (a) => pkgFor("repository-interface", a),
       stateRepoPkg: pkgFor("spring-data-repository"),
+      // M-T4.2 — a `shape: document` source's `(id, data, version)` table, the
+      // one thing an aggregation over it CAN name: there is no JPA entity, so
+      // the query runs native.  Mirrors the document repository's own table
+      // resolution (`renderJavaDocumentRepositoryImpl`).
+      documentTableOf: (aggName) => {
+        const a = ctx.aggregates.find((x) => x.name === aggName);
+        if (!a) return undefined;
+        const cfg = system?.sys ? resolveDataSourceConfig(a, ctx, system.sys) : undefined;
+        if (effectiveSavingShape(a, cfg) !== "document" || a.persistedAs === "eventLog") {
+          return undefined;
+        }
+        const bare = plural(snake(a.name));
+        return cfg?.schema ? `${cfg.schema}.${bare}` : bare;
+      },
     });
     if (queryProjectionFiles) {
       const qpRowOrigin = new Map<string, ProjectionIR>(

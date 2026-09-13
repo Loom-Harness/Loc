@@ -1664,48 +1664,12 @@ export const DIAGNOSTIC_MESSAGES = {
     platform: unknown;
   }) =>
     `projection '${p.name}': 'select ${p.field} = ${p.op}(…)' is a whole-table aggregation, which deployable '${p.dName}' (platform '${p.platform}') can't generate yet — only the node (Hono) backend has ported it. Host the projection on a supported deployable, or express the read per-row.`,
-  // The SAME gap, narrowed to the SOURCE SHAPE rather than the backend's
-  // aggregation port as a whole.  All five backends emit the whole-table
-  // aggregation over a relational source; four of them emit it over a
-  // `shape: document` source too, since `count(*)` over the `(id, data,
-  // version)` triple is a real query.  Java cannot: its aggregation runs JPQL
-  // through the `EntityManager` (`select count(e) from Order e`) and a document
-  // aggregate has no JPA `@Entity` anywhere in the emitted project — it
-  // round-trips one jsonb column through a `JdbcTemplate` repository — so
-  // Hibernate fails with "could not resolve root entity" at request time.
-  "loom.projection-whole-table-aggregation-unsupported#document": (p: {
-    name: unknown;
-    source: unknown;
-    dName: unknown;
-    platform: unknown;
-  }) =>
-    `projection '${p.name}' aggregates the whole table of 'shape: document' aggregate ` +
-    `'${p.source}', which deployable '${p.dName}' (platform '${p.platform}') can't generate ` +
-    `yet: its aggregation runs JPQL through the EntityManager, and a document aggregate has ` +
-    `no JPA entity to name (it round-trips one jsonb column through a JdbcTemplate ` +
-    `repository), so the query would fail at runtime. Store '${p.source}' relationally, fold ` +
-    `the number into a materialized projection ('on(e: …)'), express the read per-row, or ` +
-    `host the projection on a deployable whose backend aggregates document tables.`,
   "loom.projection-groupby-unsupported-backend": (p: {
     name: unknown;
     dName: unknown;
     platform: unknown;
   }) =>
     `projection '${p.name}' uses 'group by' (the grouped read model), which deployable '${p.dName}' (platform '${p.platform}') can't generate yet. Host the projection on a supported deployable, or express the read per-row.`,
-  // Grouped twin of the `#document` variant above — same source shape, same
-  // missing JPA entity, the other direct-table arm.
-  "loom.projection-groupby-unsupported-backend#document": (p: {
-    name: unknown;
-    source: unknown;
-    dName: unknown;
-    platform: unknown;
-  }) =>
-    `projection '${p.name}' groups over 'shape: document' aggregate '${p.source}', which ` +
-    `deployable '${p.dName}' (platform '${p.platform}') can't generate yet: its grouped read ` +
-    `runs JPQL through the EntityManager, and a document aggregate has no JPA entity to name ` +
-    `(it round-trips one jsonb column through a JdbcTemplate repository), so the query would ` +
-    `fail at runtime. Store '${p.source}' relationally, or host the projection on a ` +
-    `deployable whose backend aggregates document tables.`,
   "loom.paged-query-handler-unsupported-backend": (p: {
     name: unknown;
     dName: unknown;

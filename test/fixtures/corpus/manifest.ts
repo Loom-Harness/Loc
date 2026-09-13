@@ -38,24 +38,6 @@ const ALL: readonly Backend[] = BACKENDS;
  *  `deep` sentinel rendered by `renderDeepScopeInApp`. */
 const IN_APP_DOCUMENT_FILTER: readonly Backend[] = ALL;
 
-/** The backends that can AGGREGATE a `shape: document` table in SQL.
- *
- *  A document aggregate is `(id, data, version)`, so the only aggregation it
- *  can express is the row count — and four backends emit exactly that: drizzle
- *  / mikroorm `count()` over the row table, SQLAlchemy `func.count()` over
- *  `<Agg>Row`, Ecto `count(record.id)` over the document schema, and both .NET
- *  adapters over `DbSet<<Agg>Document>` / the raw table.
- *
- *  `java` is absent, and this is the NAME of that exclusion.  Its aggregation
- *  runs JPQL through the `EntityManager` (`select count(e) from Article e`),
- *  and a document aggregate has no JPA `@Entity` anywhere in the emitted
- *  project — it round-trips one jsonb column through a `JdbcTemplate`
- *  repository — so Hibernate fails the query with "could not resolve root
- *  entity" at request time.  Refused honestly by
- *  `loom.projection-whole-table-aggregation-unsupported#document`; the key returns
- *  here the day that emitter learns to read a document table (a native
- *  `select count(*) from <schema>.<table>`). */
-const DOCUMENT_TABLE_AGGREGATION: readonly Backend[] = ALL.filter((b) => b !== "java");
 
 export interface CorpusFeature {
   /** Matches `<id>.ddd` in this directory. */
@@ -161,8 +143,8 @@ export const CORPUS: readonly CorpusFeature[] = [
     title:
       "whole-table aggregation over a `shape: document` source — the row count (`count(*)` over the `(id, data, version)` triple), beside the per-row arm over the same source",
     doc: "language",
-    backends: DOCUMENT_TABLE_AGGREGATION,
-    note: "minted by audit A1: `loom.projection-columnless-source` deliberately allows `count()` over a document source, and NOTHING pinned that the allowed cell still emits — while java's cell was broken outright.  The filtered crossing is refused universally (`loom.projection-document-source-capability-filtered`); both negatives live in `test/ir/projection-document-aggregation.test.ts`.",
+    backends: ALL,
+    note: "minted by audit A1: `loom.projection-columnless-source` deliberately allows `count()` over a document source, and NOTHING pinned that the allowed cell still emits — while java's cell was broken outright.  Java JOINED the row 2026-09-13 (M-T4.2, wave C2 packet 2d): its aggregation over a document source runs the same query NATIVE (`createNativeQuery`, `select count(*) from <schema>.<table> e`) instead of as JPQL over an `@Entity` a document aggregate does not have, so the per-backend gate and its two `#document` message variants are deleted.  Proved on a BOOTED Spring Boot app against Postgres 18: the singleton arm answers `{\"articles\":0}` then `{\"articles\":3}` after three creates, and the grouped arm answers one row per id — numbers from the database, not from the emitter.  The filtered crossing is still refused universally (`loom.projection-document-source-capability-filtered`); that negative lives in `test/ir/projection-document-aggregation.test.ts`.",
   },
   {
     id: "projection-join",

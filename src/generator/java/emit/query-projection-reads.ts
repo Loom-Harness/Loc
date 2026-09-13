@@ -110,6 +110,19 @@ export interface QueryProjectionCtx {
    *  projection reads the `<Wf>StateRepository`, and a `from <Projection>`-sourced
    *  projection reads the source folded projection's `<Src>RowRepository`. */
   stateRepoPkg: string;
+  /** M-T4.2 — for a `shape: document` aggregate, its `(id, data, version)`
+   *  TABLE, schema-qualified; `undefined` for a relationally-mapped one.
+   *
+   *  A document aggregate has NO JPA `@Entity` (it round-trips one jsonb column
+   *  through a `JdbcTemplate` repository), so `select count(e) from Article e`
+   *  fails with "could not resolve root entity" at request time.  An
+   *  aggregation over such a source therefore runs the SAME query as a NATIVE
+   *  one — `createNativeQuery`, same binding and bypass machinery, only the
+   *  text differs: `count(*)` for `count(e)`, and the table for the entity
+   *  name.  Only `id` is nameable on such a table
+   *  (`columnlessProjectionSource`), and `e.id` reads the same in JPQL and in
+   *  SQL, so the `where` renderer is shared. */
+  documentTableOf: (aggName: string) => string | undefined;
 }
 
 interface JoinMap {
@@ -205,14 +218,15 @@ function aggregationScope(
 /** The `entityManager.createQuery(<jpql>)` chain for an aggregation, with each
  *  principal claim bound off the static ambient accessor.  Rendered as one
  *  expression so the caller keeps its single-statement read. */
-function aggregationQueryExpr(jpql: string, scope: AggregationScope): string {
+function aggregationQueryExpr(jpql: string, scope: AggregationScope, native = false): string {
   const binds = scope.binds
     .map(
       (a) =>
         `.setParameter(${JSON.stringify(principalParamName(a))}, ${principalBindExpr(a, "__cu")})`,
     )
     .join("");
-  return `entityManager.createQuery(${JSON.stringify(jpql)})${binds}`;
+  const factory = native ? "createNativeQuery" : "createQuery";
+  return `entityManager.${factory}(${JSON.stringify(jpql)})${binds}`;
 }
 
 /** Method-body prelude for an aggregation: the ambient principal read every
@@ -340,15 +354,18 @@ export function renderJavaQueryProjections(
         }
         return sql(col, []);
       };
+      const docTable = qpctx.documentTableOf(source);
       const keyCols = grouped.keys.map((k) => keyCol(k.expr));
       const groupCols = grouped.groupBy.map(keyCol);
-      const aggCols = grouped.aggregates.map((a) => jpqlAggregate(a.aggregate));
+      const aggCols = grouped.aggregates.map((a) =>
+        jpqlAggregate(a.aggregate, docTable !== undefined),
+      );
       // The projection's own `where` AND the source aggregate's capability
       // filters — the read reads the table directly, so nothing else applies
       // them (see `aggregationScope`).
       const scope = aggregationScope(proj, ctx, `${qpctx.basePkg}.domain.enums`, imports);
       const jpql =
-        `select ${[...keyCols, ...aggCols].join(", ")} from ${source} e${scope.where}` +
+        `select ${[...keyCols, ...aggCols].join(", ")} from ${docTable ?? source} e${scope.where}` +
         ` group by ${groupCols.join(", ")} order by ${groupCols.join(", ")}`;
       // A TRANSFORMED key rides HQL's `function(…)` escape, for which Hibernate
       // has no static return type — the driver may hand back a
@@ -387,7 +404,7 @@ export function renderJavaQueryProjections(
         ...aggregationPrelude(scope, qpctx.basePkg),
         ...wrapAggregationBypass(scope.disableCaps, [
           `        @SuppressWarnings("unchecked")`,
-          `        List<${groupedCols === 1 ? "Object" : "Object[]"}> rows = ${aggregationQueryExpr(jpql, scope)}.getResultList();`,
+          `        List<${groupedCols === 1 ? "Object" : "Object[]"}> rows = ${aggregationQueryExpr(jpql, scope, docTable !== undefined)}.getResultList();`,
           `        return rows.stream()`,
           `            .map(r -> new ${rowName}(${args.join(", ")}))`,
           `            .toList();`,
@@ -410,10 +427,15 @@ export function renderJavaQueryProjections(
       usesEntityManager = true;
       imports.add("jakarta.persistence.EntityManager");
       imports.add("jakarta.persistence.PersistenceContext");
-      const cols = aggregates.map((a) => jpqlAggregate(a.aggregate)).join(", ");
+      // M-T4.2 — a `shape: document` source has no JPA entity to name, so the
+      // SAME query runs NATIVE over its `(id, data, version)` table.
+      const docTable = qpctx.documentTableOf(source);
+      const cols = aggregates
+        .map((a) => jpqlAggregate(a.aggregate, docTable !== undefined))
+        .join(", ");
       // Same scoping as the grouped arm — see `aggregationScope`.
       const scope = aggregationScope(proj, ctx, `${qpctx.basePkg}.domain.enums`, imports);
-      const jpql = `select ${cols} from ${source} e${scope.where}`;
+      const jpql = `select ${cols} from ${docTable ?? source} e${scope.where}`;
       // `getSingleResult()` returns an `Object[]` only for a MULTI-column
       // selection; a SINGLE `select` (`select total = count()`) hands back the
       // bare scalar, so the `(Object[])` cast would ClassCastException → 500 on
@@ -427,8 +449,8 @@ export function renderJavaQueryProjections(
         ...aggregationPrelude(scope, qpctx.basePkg),
         ...wrapAggregationBypass(scope.disableCaps, [
           single
-            ? `        Object r = ${aggregationQueryExpr(jpql, scope)}.getSingleResult();`
-            : `        Object[] r = (Object[]) ${aggregationQueryExpr(jpql, scope)}.getSingleResult();`,
+            ? `        Object r = ${aggregationQueryExpr(jpql, scope, docTable !== undefined)}.getSingleResult();`
+            : `        Object[] r = (Object[]) ${aggregationQueryExpr(jpql, scope, docTable !== undefined)}.getSingleResult();`,
           `        return new ${rowName}(${args.join(", ")});`,
         ]),
         `    }`,
@@ -730,8 +752,10 @@ export function renderJavaQueryProjections(
 
 /** The JPQL aggregate call for one `select`.  `count` counts ROWS (no column);
  *  the rest take the aggregated column off the entity alias `e`. */
-function jpqlAggregate(agg: ProjectionAggregateIR): string {
-  if (agg.op === "count" || !agg.arg) return "count(e)";
+function jpqlAggregate(agg: ProjectionAggregateIR, native = false): string {
+  // `count(e)` counts the ENTITY; native SQL has no entity to name, so the
+  // row count is `count(*)` there (M-T4.2 document arm).
+  if (agg.op === "count" || !agg.arg) return native ? "count(*)" : "count(e)";
   const arg = agg.arg;
   if (arg.kind !== "member") {
     throw new Error(
