@@ -227,6 +227,17 @@ system S {
     criterion Open() of Task = this.status != Done
     repository Tasks for Task { }`),
 
+  // A `money("…")` literal whose string is not a decimal.  One grammar rule now
+  // serves both `money("10.50")` (the literal) and `money(x)` (the conversion)
+  // — see `src/language/money-literal.ts` — and the STRING arm is checked as a
+  // literal rather than run through the conversion table, because the string
+  // reaches each backend's precise-decimal constructor verbatim (M-T9.60).
+  "loom.money-literal-malformed": repoOnly(`    aggregate Invoice with crudish {
+      subtotal: money
+      derived floor: money = money("USD 2.50")
+    }
+    repository Invoices for Invoice { }`),
+
   // --- structural ---------------------------------------------------------
   // A block-bodied `function` that mutates aggregate state.  The purity gate had
   // no catalog entry and no firing proof at all until W4.1 — the scanner never
