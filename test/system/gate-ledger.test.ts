@@ -74,6 +74,8 @@ const BEHAVIOURAL_ABSENT: Record<string, string> = {
     "the question is what a request body OMITS, and the `test e2e` vocabulary cannot pose it — a workflow call there is type-checked against the declared params, so an absent required field is not expressible; the compile tier proves every backend still builds with the boxed components, and the 422 itself is the Schemathesis legs' question",
   "collection-op-shapes":
     "collection-op VALUE semantics (empty sum, avg of none, sort stability) — the exact class a string assertion cannot see",
+  "workflow-enum-state":
+    'an enum-typed workflow STATE field — both defects it exists for are STATIC and land on the compile tier that already gates it: node named `<Enum>Schema` with the name bound nowhere in the tree (TS2304) and then seeded the fresh saga row with `""` for a column drizzle types as a literal union (TS2345), both caught by corpus-tsc.  The workflow is EVENT-TRIGGERED, so it has no command route to POST and its only api surface is the pair of read-only instance endpoints; reaching them at runtime needs a `ClaimFiled` emitter this fixture deliberately does not have, because the shape under test is the enum in the state row, not the dispatch that fills it — `saga` and `eventsourced-workflow` already boot that dispatch path (#2864 D4/T3)',
   "workflow-command-payload":
     "the defect (#2864 D7/T2) is on the WORKFLOW command route, and the e2e DSL has no form that calls one — a booted caller could only drive the two crudish aggregates, never the payload wire contract the fixture exists for; the five compile legs are its oracle (M-T9.13 owns the drain: POST the payload from an e2e block once the DSL can call a workflow)",
   "projection-fold-statements":
