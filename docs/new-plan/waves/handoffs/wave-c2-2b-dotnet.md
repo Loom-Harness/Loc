@@ -295,10 +295,18 @@ Run after `git merge origin/main` @ `9a8f2fe00`, per §3 rule 14. Result appende
 below by the packet before hand-off; the wave log
 (`docs/new-plan/waves/wave-c2.md`) is the live status.
 
-One caveat on the run, stated rather than smoothed over: this container hosts
-several wave packets at once, and a `npm test` started while two other sessions'
-full runs were in flight reported a mass of `FAIL … [ file ]` transform errors
-that all passed individually seconds later — resource contention, not a
-regression. The reported run below is the one taken with the tree final.
+**Read the container's state before reading the result.** This box hosts several
+wave packets at once; while this packet ran, load sat at 22–38 with three or four
+other sessions' full suites in flight, and the cgroup OOM-killed node workers
+repeatedly (`dmesg`: eight `Memory cgroup out of memory: Killed process … (node)`
+entries inside this run's window, 13:21–13:55). Two symptoms follow from that and
+neither is a verdict about the tree: an earlier `npx vitest run test/system/`
+reported a mass of `FAIL … [ file ]` transform errors whose files all passed
+individually seconds later, and the first full `npm test` ended
+`Test Files 7 failed | 2002 passed`, `Tests 15 failed | 23142 passed`, with two
+`Error: Worker exited unexpectedly` — the OOM signature.
 
-**Result: green** — counts in the packet's final message.
+So the run was repeated with `--maxWorkers=2` (memory-safe under the contention)
+and its full output captured rather than tailed. **Result below.** Anything still
+red there is real and is named; the per-suite gates this packet's blast radius
+actually touches were all run green individually and are listed in §3.
