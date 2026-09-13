@@ -1,0 +1,25 @@
+// F-014 — the react page emitter writes `/* unresolved: X */ undefined` into a
+// scaffolded dashboard page and still reports "0 error(s), 0 warning(s)".
+system DashGap {
+  subdomain S {
+    context C {
+      aggregate Job {
+        cost: money
+        derived display: string = `job {cost}`
+      }
+      repository Jobs for Job { }
+      // hand-written <Agg>Totals — docs/scaffold-macros.md says this one wins
+      projection JobTotals {
+        rowCount: int
+        costSum: money
+        from Job as j
+        select rowCount = count(), costSum = sum(j.cost)
+      }
+    }
+  }
+  ui Web with scaffold(subdomains: [S]) { }
+  storage primary { type: postgres }
+  resource st { for: C, kind: state, use: primary }
+  deployable api { platform: node contexts: [C] dataSources: [st] port: 3000 }
+  deployable web { platform: react targets: api ui: Web port: 3001 design: mantine }
+}

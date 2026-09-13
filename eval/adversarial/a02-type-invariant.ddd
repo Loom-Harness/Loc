@@ -1,0 +1,6 @@
+system A { subdomain S { context C {
+  aggregate Order { total: int  name: string  derived display: string = name
+    invariant name > 0 }
+  repository Orders for Order { } } }
+  storage p { type: postgres }  resource st { for: C, kind: state, use: p }
+  deployable api { platform: node contexts: [C] dataSources: [st] port: 3000 } }

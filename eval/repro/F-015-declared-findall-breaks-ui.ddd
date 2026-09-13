@@ -1,0 +1,24 @@
+// F-015 — declaring `find all(): T[] requires …` (the ONLY documented way to put
+// an authorization gate on the list route) switches the generated API client from
+// a paged envelope to a bare array, but the page emitter still writes `.data.items`.
+// Result: the generated frontend does not compile. Loom reports 0 errors.
+system FindAllGap {
+  user { id: string  role: string }
+  auth { enforcement: opt  oidc { issuer: env("I") clientId: env("C") } }
+  subdomain S {
+    context C {
+      aggregate Doc { title: string  derived display: string = title }
+      repository Docs for Doc {
+        find all(): Doc[] requires true          // <- the documented list gate
+      }
+      workflow touch {
+        create(doc: Doc id) { let d = Docs.getById(doc) }
+      }
+    }
+  }
+  ui Web with scaffold(subdomains: [S]) { }
+  storage primary { type: postgres }
+  resource st { for: C, kind: state, use: primary }
+  deployable api { platform: node contexts: [C] dataSources: [st] auth: required port: 3000 }
+  deployable web { platform: react targets: api ui: Web auth: ui port: 3001 design: mantine }
+}

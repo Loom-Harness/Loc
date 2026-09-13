@@ -1,0 +1,17 @@
+// F-017 — a `managed` money field has no default and no stamp, so it is NULL
+// after create; the wire serializer calls .toString() on it -> HTTP 500.
+system ManagedGap {
+  subdomain S {
+    context C {
+      aggregate Thing with crudish {
+        label: string
+        total: money managed
+        derived display: string = label
+      }
+      repository Things for Thing { }
+    }
+  }
+  storage primary { type: postgres }
+  resource st { for: C, kind: state, use: primary }
+  deployable api { platform: node contexts: [C] dataSources: [st] port: 3000 }
+}

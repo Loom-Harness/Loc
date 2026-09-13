@@ -1,0 +1,17 @@
+// F-030 — a `money` field with a literal default emits `new Decimal("…")` into a
+// routes file that never imports Decimal. Same family as F-009 (missing import).
+system MoneyDefault {
+  subdomain S {
+    context C {
+      aggregate Item with crudish {
+        label:  string
+        weight: money = money("0.00")
+        derived display: string = label
+      }
+      repository Items for Item { }
+    }
+  }
+  storage primary { type: postgres }
+  resource st { for: C, kind: state, use: primary }
+  deployable api { platform: node contexts: [C] dataSources: [st] port: 3000 }
+}

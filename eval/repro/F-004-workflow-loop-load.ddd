@@ -1,0 +1,51 @@
+// F-004 — a `for` loop body in a workflow cannot load another aggregate.
+// The "decrement stock for each line of an order" pattern has no expression.
+system LoopLoad {
+  subdomain S {
+    context C {
+      aggregate Part {
+        onHand: int
+        derived display: string = `part {onHand}`
+        operation consume(qty: int) {
+          precondition onHand >= qty
+          onHand := onHand - qty
+        }
+      }
+      repository Parts for Part { }
+
+      aggregate Usage {
+        part: Part id
+        quantity: int
+        used: bool = false
+        derived display: string = `usage {quantity}`
+        operation markUsed() { used := true }
+      }
+      repository Usages for Usage { }
+
+      criterion Unused() of Usage = used == false
+      retrieval UnusedUsages() of Usage { where: Unused() }
+
+      // (a) calling an op on the loop variable — works
+      workflow markAll transactional {
+        create() {
+          let us = Usages.run(UnusedUsages())
+          for u in us { u.markUsed() }
+        }
+      }
+
+      // (b) loading a second aggregate inside the loop — REJECTED
+      workflow consumeAll transactional {
+        create() {
+          let us = Usages.run(UnusedUsages())
+          for u in us {
+            let p = Parts.getById(u.part)
+            p.consume(u.quantity)
+          }
+        }
+      }
+    }
+  }
+  storage primary { type: postgres }
+  resource st { for: C, kind: state, use: primary }
+  deployable api { platform: node, contexts: [C], dataSources: [st], port: 3000 }
+}

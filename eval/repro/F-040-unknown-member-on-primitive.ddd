@@ -1,0 +1,22 @@
+// F-040 — an INVENTED member on any primitive passes validation with
+// "0 error(s), 0 warning(s)" and is emitted verbatim.
+// This is the direct counter-example to the README's "LLM-safe by construction …
+// Validation gates catch hallucinated fields … before any code is emitted."
+system Hallucinate {
+  subdomain S { context C {
+    aggregate A with crudish {
+      s: string
+      n: int
+      m: money
+      label: string
+      derived display: string = label
+      derived bad1: string = s.totallyMadeUpMember      // string
+      derived bad2: string = n.alsoInvented             // int
+      derived bad3: string = m.amount                   // money has no .amount
+      invariant m.amount > 0                            // an invariant that can never fire
+    }
+    repository As for A { }
+  } }
+  storage p { type: postgres } resource st { for: C, kind: state, use: p }
+  deployable api { platform: node contexts: [C] dataSources: [st] port: 3000 }
+}

@@ -1,0 +1,167 @@
+// FieldOps — slice 1: tenancy skeleton + Customer -> Site -> Asset.
+system FieldOps {
+
+  user {
+    id: string
+    email: string
+    role: string
+    tenantId: string
+  }
+
+  auth {
+    enforcement: opt
+    oidc {
+      issuer:   env("OIDC_ISSUER")
+      clientId: env("OIDC_CLIENT_ID")
+    }
+  }
+
+  tenancy by user.tenantId of Organization
+
+  subdomain Field {
+
+    context Accounts {
+      aggregate Organization {
+        name: string
+        derived display: string = name
+      }
+      repository Organizations for Organization { }
+    }
+
+    context Ops {
+      aggregate Customer with tenantOwned {
+        name: string
+        billingEmail: string
+        derived display: string = name
+      }
+      repository Customers for Customer { }
+
+      aggregate Site with tenantOwned {
+        customer: Customer id
+        label: string
+        addressLine: string
+        derived display: string = label
+      }
+      repository Sites for Site { }
+
+      enum Skill { Electrical, Plumbing, HVAC, Refrigeration }
+
+      aggregate Asset with tenantOwned {
+        site: Site id
+        serial: string
+        model: string
+        requiredSkill: Skill
+        derived display: string = serial
+      }
+      repository Assets for Asset { }
+
+      aggregate Technician with tenantOwned {
+        name: string
+        skills: Skill[]
+        costRate: money
+        derived display: string = name
+      }
+      repository Technicians for Technician { }
+
+      enum WorkOrderStatus { Draft, Scheduled, InProgress, Completed, Cancelled }
+      enum LineKind { Labour, Part }
+
+      valueobject Money {
+        amount: money
+        currency: string
+        invariant currency.length == 3
+      }
+
+      event WorkOrderCompleted {
+        workOrder: WorkOrder id
+        asset:     Asset id
+        at:        datetime
+      }
+
+      aggregate WorkOrder with tenantOwned {
+        asset:       Asset id
+        technician:  Technician id?
+        status:      WorkOrderStatus = Draft
+        scheduledAt: datetime?
+        startedAt:   datetime?
+        completedAt: datetime?
+        createdAt:   datetime managed
+
+        contains lines: WorkOrderLine[]
+
+        derived total: Money =
+          Money { amount: lines.sum(l => l.subtotal.amount), currency: currency }
+        derived currency: string =
+          lines.count > 0 ? lines.first.unitPrice.currency : "USD"
+        derived display: string = `WO {status}`
+
+        // all line items must share one currency
+        invariant lines.all(l => l.unitPrice.currency == currency)
+          message "All work-order lines must share one currency"
+
+        function isDraft(): bool = status == Draft
+
+        operation addLine(kind: LineKind, description: string, qty: int, unitPrice: Money) {
+          precondition isDraft()
+          lines += WorkOrderLine { kind: kind, description: description, quantity: qty, unitPrice: unitPrice }
+        }
+
+        operation schedule(tech: Technician id, at: datetime) when status == Draft {
+          precondition lines.count > 0
+          technician  := tech
+          scheduledAt := at
+          status      := Scheduled
+        }
+
+        operation start() when status == Scheduled {
+          startedAt := now()
+          status    := InProgress
+        }
+
+        operation complete() when status == InProgress {
+          completedAt := now()
+          status      := Completed
+          emit WorkOrderCompleted { workOrder: id, asset: asset, at: now() }
+        }
+
+        operation cancel(reason: string) when status != Completed {
+          status := Cancelled
+        }
+
+        entity WorkOrderLine {
+          kind:        LineKind
+          description: string
+          quantity:    int
+          unitPrice:   Money
+          derived subtotal: Money =
+            Money { amount: unitPrice.amount * quantity, currency: unitPrice.currency }
+          invariant quantity > 0
+        }
+      }
+      repository WorkOrders for WorkOrder { }
+    }
+  }
+
+  storage primary { type: postgres }
+  resource accountsState { for: Accounts, kind: state, use: primary }
+  resource opsState      { for: Ops,      kind: state, use: primary }
+
+  ui Web with scaffold(subdomains: [Field]) { }
+
+  deployable api {
+    platform: node
+    contexts: [Accounts, Ops]
+    dataSources: [accountsState, opsState]
+    auth: required
+    port: 3000
+  }
+
+  deployable web {
+    platform: react
+    targets: api
+    ui: Web
+    auth: ui
+    port: 3001
+    design: mantine
+  }
+}

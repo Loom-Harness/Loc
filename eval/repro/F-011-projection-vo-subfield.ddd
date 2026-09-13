@@ -1,0 +1,24 @@
+// F-011 — aggregating a value-object SUB-FIELD in a projection emits
+// `schema.<table>.<voField>`, which is not a column (VOs are flattened).
+system VoProj {
+  subdomain S {
+    context C {
+      valueobject Money { amount: money  currency: string }
+      aggregate Bill {
+        amount: Money
+        derived display: string = currency
+        derived currency: string = amount.currency
+      }
+      repository Bills for Bill { }
+      projection BillTotals {
+        n: int
+        total: money
+        from Bill as b
+        select n = count(), total = sum(b.amount.amount)
+      }
+    }
+  }
+  storage primary { type: postgres }
+  resource st { for: C, kind: state, use: primary }
+  deployable api { platform: node contexts: [C] dataSources: [st] port: 3000 }
+}

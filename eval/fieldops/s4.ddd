@@ -1,0 +1,240 @@
+// FieldOps — slice 1: tenancy skeleton + Customer -> Site -> Asset.
+system FieldOps {
+
+  user {
+    id: string
+    email: string
+    role: string
+    tenantId: string
+  }
+
+  auth {
+    enforcement: opt
+    oidc {
+      issuer:   env("OIDC_ISSUER")
+      clientId: env("OIDC_CLIENT_ID")
+    }
+  }
+
+  tenancy by user.tenantId of Organization
+
+  subdomain Field {
+
+    permissions {
+      readAll
+      dispatch
+      invoice
+      unmaskCost
+      admin implies [readAll, dispatch, invoice, unmaskCost]
+    }
+
+    context Accounts {
+      aggregate Organization {
+        name: string
+        derived display: string = name
+      }
+      repository Organizations for Organization { }
+    }
+
+    context Ops {
+      aggregate Customer with tenantOwned {
+        name: string
+        billingEmail: string
+        derived display: string = name
+      }
+      repository Customers for Customer { }
+
+      aggregate Site with tenantOwned {
+        customer: Customer id
+        label: string
+        addressLine: string
+        derived display: string = label
+      }
+      repository Sites for Site { }
+
+      enum Skill { Electrical, Plumbing, HVAC, Refrigeration }
+
+      aggregate Asset with tenantOwned {
+        site: Site id
+        serial: string
+        model: string
+        requiredSkill: Skill
+        derived display: string = serial
+      }
+      repository Assets for Asset { }
+
+      aggregate Technician with tenantOwned {
+        name: string
+        userId: string
+        skills: Skill[]
+        costRate: money mask unless currentUser.permissions.contains(permissions.unmaskCost)
+        derived display: string = name
+      }
+      repository Technicians for Technician { }
+
+      enum WorkOrderStatus { Draft, Scheduled, InProgress, Completed, Cancelled }
+      enum LineKind { Labour, Part }
+
+      valueobject Money {
+        amount: money
+        currency: string
+        invariant currency.length == 3
+      }
+
+      event WorkOrderCompleted {
+        workOrder: WorkOrder id
+        asset:     Asset id
+        at:        datetime
+      }
+
+      aggregate WorkOrder with tenantOwned {
+        asset:       Asset id
+        technician:  Technician id?
+        status:      WorkOrderStatus = Draft
+        scheduledAt: datetime?
+        startedAt:   datetime?
+        completedAt: datetime?
+        createdAt:   datetime managed
+        assignedUserId: string?
+
+        contains lines: WorkOrderLine[]
+
+        derived total: Money =
+          Money { amount: lines.sum(l => l.subtotal.amount), currency: currency }
+        derived currency: string =
+          lines.count > 0 ? lines.first.unitPrice.currency : "USD"
+        derived display: string = `WO {status}`
+
+        // all line items must share one currency
+        invariant lines.all(l => l.unitPrice.currency == currency)
+          message "All work-order lines must share one currency"
+
+        function isDraft(): bool = status == Draft
+
+        operation addLine(kind: LineKind, description: string, qty: int, unitPrice: Money) {
+          precondition isDraft()
+          lines += WorkOrderLine { kind: kind, description: description, quantity: qty, unitPrice: unitPrice }
+        }
+
+        operation schedule(tech: Technician id, at: datetime) requires currentUser.permissions.contains(permissions.dispatch) when status == Draft {
+          precondition lines.count > 0
+          technician  := tech
+          scheduledAt := at
+          status      := Scheduled
+        }
+
+        operation start() when status == Scheduled {
+          startedAt := now()
+          status    := InProgress
+        }
+
+        operation complete() when status == InProgress {
+          completedAt := now()
+          status      := Completed
+          emit WorkOrderCompleted { workOrder: id, asset: asset, at: now() }
+        }
+
+        operation cancel(reason: string) when status != Completed {
+          status := Cancelled
+        }
+
+        entity WorkOrderLine {
+          kind:        LineKind
+          part:        Part id?
+          description: string
+          quantity:    int
+          unitPrice:   Money
+          derived subtotal: Money =
+            Money { amount: unitPrice.amount * quantity, currency: unitPrice.currency }
+          invariant quantity > 0
+        }
+      }
+      // NOTE: the typed `permissions.<x>` catalogue is NOT queryable in a read
+      // filter, so the row-level rule falls back to a raw claim compare.
+      criterion MineOrAll() of WorkOrder =
+        currentUser.role != "technician" || assignedUserId == currentUser.id
+
+      repository WorkOrders for WorkOrder {
+        find all(): WorkOrder[] requires true where MineOrAll()
+      }
+
+      aggregate Part with tenantOwned {
+        sku:      string
+        onHand:   int
+        unitCost: Money
+        derived display: string = sku
+
+        invariant onHand >= 0
+
+        operation consume(qty: int) {
+          precondition qty > 0
+          precondition onHand >= qty  message "Insufficient stock"
+          onHand := onHand - qty
+        }
+      }
+      repository Parts for Part { }
+
+      // ---- the scheduling rule: skills must cover the asset's requirement
+      workflow scheduleWorkOrder transactional {
+        create(workOrder: WorkOrder id, technician: Technician id, at: datetime) {
+          let wo   = WorkOrders.getById(workOrder)
+          let tech = Technicians.getById(technician)
+          let asset = Assets.getById(wo.asset)
+          precondition tech.skills.contains(asset.requiredSkill)
+            message "Technician does not hold the skill this asset requires"
+          wo.schedule(technician, at)
+        }
+      }
+
+      // WORKAROUND: part usage lifted out of WorkOrderLine into its own
+      // aggregate, because a workflow cannot iterate a contained collection.
+      aggregate PartUsage with tenantOwned {
+        workOrder: WorkOrder id
+        part:      Part id
+        quantity:  int
+        derived display: string = `usage {quantity}`
+      }
+      repository PartUsages for PartUsage { }
+
+      criterion UsagesFor(w: WorkOrder id) of PartUsage = workOrder == w
+      retrieval UsagesOfWorkOrder(w: WorkOrder id) of PartUsage {
+        where: UsagesFor(w)
+      }
+
+      // BLOCKED (F-004): a `for` body cannot load a second aggregate, so
+      // "decrement each used part, transactionally" has no expression.
+      // Degraded to single-part consumption so the slice compiles.
+      workflow completeWorkOrder transactional {
+        create(workOrder: WorkOrder id, part: Part id, qty: int) {
+          let wo = WorkOrders.getById(workOrder)
+          let p  = Parts.getById(part)
+          p.consume(qty)
+          wo.complete()
+        }
+      }
+    }
+  }
+
+  storage primary { type: postgres }
+  resource accountsState { for: Accounts, kind: state, use: primary }
+  resource opsState      { for: Ops,      kind: state, use: primary }
+
+  ui Web with scaffold(subdomains: [Field]) { }
+
+  deployable api {
+    platform: node
+    contexts: [Accounts, Ops]
+    dataSources: [accountsState, opsState]
+    auth: required
+    port: 3000
+  }
+
+  deployable web {
+    platform: react
+    targets: api
+    ui: Web
+    auth: ui
+    port: 3001
+    design: mantine
+  }
+}

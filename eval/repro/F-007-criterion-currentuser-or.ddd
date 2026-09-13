@@ -1,0 +1,23 @@
+// F-007 — a read filter the validator accepts and the generator refuses.
+// `ddd parse` → 0 errors. `ddd generate system` → uncaught QueryEmissionRefusal.
+system CritOr {
+  user { id: string  role: string }
+  auth { enforcement: opt  oidc { issuer: env("I") clientId: env("C") } }
+  subdomain S {
+    context C {
+      aggregate Doc {
+        ownerUserId: string
+        title: string
+        derived display: string = title
+      }
+      criterion Visible() of Doc =
+        currentUser.role != "technician" || ownerUserId == currentUser.id
+      repository Docs for Doc {
+        find all(): Doc[] requires true where Visible()
+      }
+    }
+  }
+  storage primary { type: postgres }
+  resource st { for: C, kind: state, use: primary }
+  deployable api { platform: node contexts: [C] dataSources: [st] auth: required port: 3000 }
+}

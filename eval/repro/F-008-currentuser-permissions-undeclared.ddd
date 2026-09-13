@@ -1,0 +1,23 @@
+// F-008 — `currentUser.permissions` type-checks against a `user {}` shape that
+// has no `permissions` field. The emitted auth gate does not compile.
+system PermGap {
+  user { id: string  role: string }          // <-- NO `permissions` field
+  auth { enforcement: opt  oidc { issuer: env("I") clientId: env("C") } }
+  subdomain S {
+    permissions { unmask }
+    context C {
+      aggregate Person {
+        name: string
+        salary: money mask unless currentUser.permissions.contains(permissions.unmask)
+        derived display: string = name
+        operation raise(to: money) requires currentUser.permissions.contains(permissions.unmask) {
+          salary := to
+        }
+      }
+      repository People for Person { }
+    }
+  }
+  storage primary { type: postgres }
+  resource st { for: C, kind: state, use: primary }
+  deployable api { platform: node contexts: [C] dataSources: [st] auth: required port: 3000 }
+}

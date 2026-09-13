@@ -1,0 +1,43 @@
+// F-019 — a cross-deployable event carrying a `datetime` is published fine and
+// then dropped by the consumer with `value.toISOString is not a function`.
+// The consumer loop spreads JSON.parse output straight into the typed event via
+// `as unknown as DomainEvent`, so the datetime arrives as a string.
+// Runtime proof is in EVAL-LOG.md (Phase 2); this file is the generating model.
+system BrokerDt {
+  subdomain S {
+    context Producer {
+      event Done { job: Job id, at: datetime }
+      aggregate Job with crudish {
+        state: string = "open"
+        derived display: string = state
+        operation finish() {
+          state := "done"
+          emit Done { job: id, at: now() }
+        }
+      }
+      repository Jobs for Job { }
+      channel Lifecycle { carries: Done  delivery: broadcast  retention: ephemeral }
+    }
+    context Consumer {
+      aggregate Receipt with crudish {
+        job: Job id
+        seenAt: datetime
+        derived display: string = `r {job}`
+      }
+      repository Receipts for Receipt { }
+      workflow onDone {
+        jobId: Job id
+        create(e: Done) by e.job {
+          let r = Receipt.create({ job: e.job, seenAt: e.at })
+        }
+      }
+    }
+  }
+  storage primary { type: postgres }
+  storage bus { type: redis }
+  resource pState { for: Producer, kind: state, use: primary }
+  resource cState { for: Consumer, kind: state, use: primary }
+  channelSource lifecycleBus { for: Lifecycle, use: bus }
+  deployable prod { platform: node contexts: [Producer] dataSources: [pState] channels: [lifecycleBus] port: 3000 }
+  deployable cons { platform: node contexts: [Consumer] dataSources: [cState] channels: [lifecycleBus] port: 3002 }
+}

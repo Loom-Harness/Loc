@@ -1,0 +1,16 @@
+// F-040 — member access on the `money` PRIMITIVE type-checks in the DSL and
+// emits `.amount` on a decimal.js Decimal, which does not compile.
+system MoneyMember {
+  subdomain S { context C {
+    aggregate Cover with crudish {
+      limit: money
+      deductible: money
+      derived display: string = "c"
+      invariant limit.amount > deductible.amount     // `money` has no `.amount`
+    }
+    repository Covers for Cover { }
+  } }
+  storage primary { type: postgres }
+  resource st { for: C, kind: state, use: primary }
+  deployable api { platform: node contexts: [C] dataSources: [st] port: 3000 }
+}

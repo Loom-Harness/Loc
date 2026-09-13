@@ -1,0 +1,26 @@
+// F-010 — an OPTIONAL cross-aggregate reference on a contained entity part is
+// emitted as a REQUIRED constructor parameter; omitting it fails to compile.
+system OptGap {
+  subdomain S {
+    context C {
+      aggregate Tag { label: string  derived display: string = label }
+      repository Tags for Tag { }
+      aggregate Note {
+        title: string
+        derived display: string = title
+        contains lines: NoteLine[]
+        operation addLine(text: string) {
+          lines += NoteLine { text: text }      // `tag` is optional — omitted
+        }
+        entity NoteLine {
+          text: string
+          tag: Tag id?                          // OPTIONAL
+        }
+      }
+      repository Notes for Note { }
+    }
+  }
+  storage primary { type: postgres }
+  resource st { for: C, kind: state, use: primary }
+  deployable api { platform: node contexts: [C] dataSources: [st] port: 3000 }
+}

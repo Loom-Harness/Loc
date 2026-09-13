@@ -1,0 +1,189 @@
+// Clearline — claims handling. Built to probe the language features FieldOps
+// didn't reach: abstract aggregates, extends, TPH vs TPC, polymorphic reads,
+// discriminated unions, and an authority-limit rule that depends on BOTH the
+// record's amount and the actor's limit.
+system Clearline {
+
+  user {
+    id: string
+    email: string
+    role: string
+    authorityLimit: decimal      // the actor's own limit, as a claim
+    permissions: string[]
+  }
+
+  auth {
+    enforcement: opt
+    oidc { issuer: env("OIDC_ISSUER") clientId: env("OIDC_CLIENT_ID") }
+  }
+
+  subdomain Claims {
+
+    permissions {
+      intake
+      adjust
+      supervise
+      legal
+      sio implies [intake, adjust, supervise, legal]
+    }
+
+    context Underwriting {
+      aggregate Policy with crudish {
+        number: string
+        holder: string
+        derived display: string = number
+        contains coverages: Coverage[]
+
+        entity Coverage {
+          peril:      string
+          limit:      money
+          deductible: money
+          invariant limit.amount > deductible.amount
+        }
+      }
+      repository Policies for Policy { }
+    }
+
+    context Handling {
+
+      enum ClaimStatus { Intake, UnderReview, Approved, Denied, Closed }
+      enum Peril { Fire, Flood, Collision, Theft, Liability }
+
+      valueobject Money { amount: money  currency: string
+        invariant currency.length == 3 }
+
+      // ---- decision outcomes as a discriminated union
+      payload Approved        { amount: Money }
+      payload DeniedWithReason { reason: string }
+      payload NeedsMoreInfo    { fields: string }
+      payload Decision = Approved | DeniedWithReason | NeedsMoreInfo
+
+      event ClaimDecided { claim: Claim id, at: datetime }
+
+      // ---- the abstract base + three concrete kinds, one lifecycle, one queue
+      abstract aggregate Claim inheritanceUsing: ownTable {
+        policyRef: Policy id
+        reference: string
+        status:    ClaimStatus = Intake
+        reportedAt: datetime
+        fraudScore: decimal = 0.0
+        derived display: string = reference
+        derived isOpen: bool = status != Closed
+      }
+
+      aggregate AutoClaim extends Claim with crudish {
+        vehicleVin:      string
+        driverName:      string
+        policeReportNo:  string?
+      }
+
+      aggregate PropertyClaim extends Claim with crudish {
+        addressLine:        string
+        peril:              Peril
+        contractorEstimate: Money
+      }
+
+      aggregate LiabilityClaim extends Claim with crudish {
+        thirdParty:   string
+        legalCounsel: string?
+      }
+
+
+      // ---- reserve history retained, payouts partial, subrogation recovery
+      aggregate Reserve with crudish {
+        claim:    Claim id
+        amount:   Money
+        setAt:    datetime
+        supersededAt: datetime?
+        derived display: string = `reserve ` + string(amount.amount)
+      }
+      repository Reserves for Reserve { }
+
+      aggregate Payout with crudish {
+        claim:  Claim id
+        amount: Money
+        paidAt: datetime
+        derived display: string = `payout ` + string(amount.amount)
+      }
+      repository Payouts for Payout { }
+
+      aggregate Subrogation with crudish {
+        claim:     Claim id
+        recovered: Money
+        derived display: string = `subro {recovered.amount}`
+      }
+      repository Subrogations for Subrogation { }
+
+      // ---- the authority-limit rule: the RECORD's amount vs the ACTOR's limit
+      aggregate ApprovalStep with crudish {
+        claim:      Claim id
+        stepNumber: int
+        amount:     Money
+        answeredAt: datetime?
+        openedAt:   datetime
+        escalated:  bool = false
+        derived display: string = `step {stepNumber}`
+
+        // NOT EXPRESSIBLE: `derived withinMyAuthority: bool = amount.amount <=
+        // money(currentUser.authorityLimit)` -> loom.currentuser-not-in-request-scope.
+        // The rule can gate the write (requires, below) but the UI cannot ask
+        // "may I approve this?" — `requires` has no can_* companion, only `when` does.
+
+        // the authorization decision depends on the record AND the actor
+        operation approve() requires amount.amount <= money(currentUser.authorityLimit) {
+          answeredAt := now()
+        }
+
+        operation escalate() when escalated == false {
+          escalated := true
+        }
+      }
+      repository ApprovalSteps for ApprovalStep { }
+
+      criterion OpenSteps() of ApprovalStep = answeredAt == null
+      retrieval PendingSteps() of ApprovalStep { where: OpenSteps() sort: [openedAt asc] }
+
+      // ---- the shared queue over all three claim kinds (polymorphic read)
+      criterion OpenClaims() of Claim = status != Closed
+      retrieval ClaimQueue() of Claim { where: OpenClaims() sort: [reportedAt asc] }
+
+      // ---- reporting
+      projection OpenByStatus {
+        status: ClaimStatus
+        openCount: int
+        from AutoClaim as c
+        group by c.status
+        select status = c.status, openCount = count()
+      }
+    }
+  }
+
+  storage primary { type: postgres }
+  storage ocr     { type: restApi, config: { baseUrl: "https://ocr.example.com" } }
+  storage scoring { type: restApi, config: { baseUrl: "https://fraud.example.com" } }
+  storage docs    { type: s3, config: { bucket: "clearline-docs", region: "eu-west-1" } }
+
+  resource uwState   { for: Underwriting, kind: state, use: primary }
+  resource hdState   { for: Handling,     kind: state, use: primary }
+  resource fraudApi  { for: Handling, kind: api,         use: scoring }
+  resource docStore  { for: Handling, kind: objectStore, use: docs }
+
+  ui Web with scaffold(subdomains: [Claims]) { }
+
+  deployable api {
+    platform: node
+    contexts: [Underwriting, Handling]
+    dataSources: [uwState, hdState, fraudApi, docStore]
+    auth: required
+    port: 3100
+  }
+
+  deployable web {
+    platform: react
+    targets: api
+    ui: Web
+    auth: ui
+    port: 3101
+    design: shadcn
+  }
+}

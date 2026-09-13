@@ -1,0 +1,6 @@
+system A { subdomain S { context C {
+  aggregate Order { price: money  qty: decimal  derived display: string = "o"
+    derived bad: money = price + qty }
+  repository Orders for Order { } } }
+  storage p { type: postgres }  resource st { for: C, kind: state, use: p }
+  deployable api { platform: node contexts: [C] dataSources: [st] port: 3000 } }

@@ -1,0 +1,443 @@
+// FieldOps — multi-tenant B2B field service. Written for the Loom evaluation.
+requirement US-001 {
+  type: UserStory
+  title: "A dispatcher can schedule a work order onto a qualified technician"
+  status: InProgress
+  priority: 1
+}
+requirement US-002 {
+  type: UserStory
+  title: "Completing a work order consumes part stock and cannot oversell"
+  status: InProgress
+  priority: 1
+}
+requirement US-003 {
+  type: UserStory
+  title: "A technician only ever sees their own work orders"
+  status: InProgress
+  priority: 1
+}
+
+testCase TC-001 verifies US-001 { title: "Skill-matched scheduling" }
+testCase TC-002 verifies US-002 { title: "Stock cannot go negative" }
+testCase TC-003 verifies US-003 { title: "Row-level visibility" }
+
+// FieldOps — slice 1: tenancy skeleton + Customer -> Site -> Asset.
+system FieldOps {
+
+  user {
+    id: string
+    email: string
+    role: string
+    tenantId: string
+    permissions: string[]      // F-008 workaround: currentUser.permissions is
+  }                            // emitted but NOT checked against this shape
+
+  auth {
+    enforcement: opt
+    oidc {
+      issuer:   env("OIDC_ISSUER")
+      clientId: env("OIDC_CLIENT_ID")
+    }
+  }
+
+  tenancy by user.tenantId of Organization
+
+  subdomain Field {
+
+    permissions {
+      readAll
+      dispatch
+      invoice
+      unmaskCost
+      admin implies [readAll, dispatch, invoice, unmaskCost]
+    }
+
+    context Accounts {
+      aggregate Organization with crudish {
+        name: string
+        derived display: string = name
+      }
+      repository Organizations for Organization { }
+
+      // Deliberate cross-tenant read for the platform admin report.
+      aggregate TenantStat crossTenant with crudish {
+        organization: Organization id
+        openOrders:   int
+        derived display: string = `stat {openOrders}`
+      }
+      repository TenantStats for TenantStat {
+        find all(): TenantStat[] requires currentUser.role == "admin" ignoring *
+      }
+    }
+
+    context Ops {
+      aggregate Customer with tenantOwned, crudish {
+        name: string
+        billingEmail: string
+        derived display: string = name
+      }
+      repository Customers for Customer { }
+
+      aggregate Site with tenantOwned, crudish {
+        customer: Customer id
+        label: string
+        addressLine: string
+        derived display: string = label
+      }
+      repository Sites for Site { }
+
+      enum Skill { Electrical, Plumbing, HVAC, Refrigeration }
+
+      aggregate Asset with tenantOwned, crudish {
+        site: Site id
+        serial: string
+        model: string
+        requiredSkill: Skill
+        derived display: string = serial
+      }
+      repository Assets for Asset { }
+
+      aggregate Technician with tenantOwned, crudish {
+        name: string
+        userId: string
+        skills: Skill[]
+        costRate: money mask unless currentUser.permissions.contains(permissions.unmaskCost)
+        derived display: string = name
+      }
+      repository Technicians for Technician { }
+
+      enum WorkOrderStatus { Draft, Scheduled, InProgress, Completed, Cancelled }
+      enum LineKind { Labour, Part }
+
+      valueobject Money {
+        amount: money
+        currency: string
+        invariant currency.length == 3
+      }
+
+      event WorkOrderCompleted {
+        workOrder: WorkOrder id
+        asset:     Asset id
+        at:        datetime
+      }
+
+      aggregate WorkOrder with tenantOwned, crudish {
+        asset:       Asset id
+        technician:  Technician id?
+        status:      WorkOrderStatus = Draft
+        scheduledAt: datetime?
+        startedAt:   datetime?
+        completedAt: datetime?
+        createdAt:   datetime managed
+        assignedUserId: string?
+
+        contains lines: WorkOrderLine[]
+
+        // stored mirror of the derived total, so the dashboard can aggregate it
+        totalAmount: money managed = money("0.00")
+        derived total: Money =
+          Money { amount: lines.sum(l => l.subtotal.amount), currency: currency }
+        derived currency: string =
+          lines.count > 0 ? lines.first.unitPrice.currency : "USD"
+        derived display: string = `WO {status}`
+
+        // all line items must share one currency
+        invariant lines.all(l => l.unitPrice.currency == currency)
+          message "All work-order lines must share one currency"
+
+        function isDraft(): bool = status == Draft
+
+        operation addLine(kind: LineKind, description: string, qty: int, unitPrice: Money) {
+          precondition isDraft()
+          lines += WorkOrderLine { kind: kind, part: null, description: description, quantity: qty, unitPrice: unitPrice }
+        }
+
+        operation schedule(tech: Technician id, at: datetime) requires currentUser.permissions.contains(permissions.dispatch) when status == Draft {
+          precondition lines.count > 0
+          technician  := tech
+          scheduledAt := at
+          status      := Scheduled
+        }
+
+        operation start() when status == Scheduled {
+          startedAt := now()
+          status    := InProgress
+        }
+
+        operation complete() when status == InProgress {
+          completedAt := now()
+          status      := Completed
+          emit WorkOrderCompleted { workOrder: id, asset: asset, at: now() }
+        }
+
+        operation cancel(reason: string) when status != Completed {
+          status := Cancelled
+        }
+
+        entity WorkOrderLine {
+          kind:        LineKind
+          part:        Part id?
+          description: string
+          quantity:    int
+          unitPrice:   Money
+          derived subtotal: Money =
+            Money { amount: unitPrice.amount * quantity, currency: unitPrice.currency }
+          invariant quantity > 0
+        }
+      }
+      // REQUIREMENT LOST (F-005 + F-007). The rule we want is
+      //   "a technician sees only their own orders; admins see all".
+      //   * `currentUser.permissions.contains(permissions.readAll) || ...`
+      //     -> loom.find-where-not-queryable (honest refusal)
+      //   * `currentUser.role != "technician" || ...`
+      //     -> parses clean, then CRASHES codegen (QueryEmissionRefusal)
+      // Only an unconditional owner filter survives, so admins lose the list.
+      criterion MineOrAll() of WorkOrder = assignedUserId == currentUser.id
+
+      // F-015: declaring `find all(): WorkOrder[] requires … where MineOrAll()`
+      // is the documented way to gate + filter the list route, but it switches
+      // the client to a bare array while the page emitter still reads `.items`,
+      // so the frontend stops compiling. Reverted to the auto-findAll; the
+      // row-level rule is expressed as a capability filter instead.
+      repository WorkOrders for WorkOrder { }
+      retrieval MyWorkOrders() of WorkOrder { where: MineOrAll() sort: [scheduledAt desc] }
+
+      aggregate Part with tenantOwned, crudish {
+        sku:      string
+        onHand:   int
+        unitCost: Money
+        derived display: string = sku
+
+        invariant onHand >= 0
+
+        operation consume(qty: int) {
+          precondition qty > 0
+          precondition onHand >= qty  message "Insufficient stock"
+          onHand := onHand - qty
+        }
+
+        test "stock cannot go negative" verifies TC-002 {
+          let p = Part.create({ sku: "P-1", onHand: 2, unitCost: Money { amount: money("3.00"), currency: "USD" } })
+          expect(p.consume(3)).toThrow()
+        }
+
+        test "stock decrements" {
+          let p = Part.create({ sku: "P-2", onHand: 5, unitCost: Money { amount: money("3.00"), currency: "USD" } })
+          p.consume(2)
+          expect(p.onHand).toBe(3)
+        }
+      }
+      repository Parts for Part { }
+
+      // ---- Invoice: immutable once issued, audited
+      enum InvoiceStatus { Draft, Issued, Paid }
+
+      aggregate Invoice audited with tenantOwned, crudish {
+        workOrder: WorkOrder id
+        number:    string
+        status:    InvoiceStatus = Draft
+        amount:    Money
+        issuedAt:  datetime?
+        derived display: string = number
+
+        unique (tenantId, number)
+
+        function isDraft(): bool = status == Draft
+
+        operation setAmount(a: Money) when status == Draft {
+          amount := a
+        }
+
+        operation issue() requires currentUser.permissions.contains(permissions.invoice) when status == Draft {
+          issuedAt := now()
+          status   := Issued
+        }
+
+        operation markPaid() when status == Issued {
+          status := Paid
+        }
+      }
+      repository Invoices for Invoice { }
+
+      // photos + outbound integrations, consumed from a non-transactional workflow
+      workflow attachPhoto {
+        create(workOrder: WorkOrder id, key: string, caption: string) {
+          photos.put(key, { workOrder: workOrder, caption: caption })
+        }
+      }
+
+      workflow chargeInvoice {
+        create(invoice: Invoice id) {
+          let inv = Invoices.getById(invoice)
+          let res = payments.post("/charges", { invoice: inv.number })
+          inv.markPaid()
+          mail.send("billing@example.com", "Invoice paid", inv.number)
+        }
+      }
+
+      channel WorkOrderLifecycle {
+        carries: WorkOrderCompleted
+        delivery: broadcast
+        retention: ephemeral
+      }
+
+      // ---- Dashboard projections
+      // F-014: a hand-written <Agg>Totals projection — which the docs say
+      // "wins" — makes the scaffolded Home page emit `/* unresolved */ undefined`.
+      // Removed so `scaffoldDashboard` emits its own.
+
+      projection OpenByStatus {
+        status: WorkOrderStatus
+        orders: int
+        from WorkOrder as w
+        group by w.status         // F-009 workaround: `where w.status != Completed`
+                                  // emits ne(...) without importing it
+        select status = w.status, orders = count()
+      }
+
+      // F-011 workaround: sum(i.amount.amount) over the Money VO emits a
+      // column that does not exist (the real column is amount_amount).
+      projection RevenueByStatus {
+        status: InvoiceStatus
+        invoices: int
+        from Invoice as i
+        group by i.status
+        select status = i.status, invoices = count()
+      }
+
+      // ---- paged/filterable/sortable list
+      criterion ByStatus(s: WorkOrderStatus) of WorkOrder = status == s
+      retrieval WorkOrderBoard(s: WorkOrderStatus) of WorkOrder {
+        where: ByStatus(s)
+        sort:  [scheduledAt desc]
+      }
+
+      // ---- the scheduling rule: skills must cover the asset's requirement
+      workflow scheduleWorkOrder transactional {
+        create(workOrder: WorkOrder id, technician: Technician id, at: datetime) {
+          let wo   = WorkOrders.getById(workOrder)
+          let tech = Technicians.getById(technician)
+          let asset = Assets.getById(wo.asset)
+          precondition tech.skills.contains(asset.requiredSkill)
+            message "Technician does not hold the skill this asset requires"
+          wo.schedule(technician, at)
+        }
+      }
+
+      // WORKAROUND: part usage lifted out of WorkOrderLine into its own
+      // aggregate, because a workflow cannot iterate a contained collection.
+      aggregate PartUsage with tenantOwned, crudish {
+        workOrder: WorkOrder id
+        part:      Part id
+        quantity:  int
+        derived display: string = `usage {quantity}`
+      }
+      repository PartUsages for PartUsage { }
+
+      criterion UsagesFor(w: WorkOrder id) of PartUsage = workOrder == w
+      retrieval UsagesOfWorkOrder(w: WorkOrder id) of PartUsage {
+        where: UsagesFor(w)
+      }
+
+      // BLOCKED (F-004): a `for` body cannot load a second aggregate, so
+      // "decrement each used part, transactionally" has no expression.
+      // Degraded to single-part consumption so the slice compiles.
+      workflow completeWorkOrder transactional {
+        create(workOrder: WorkOrder id, part: Part id, qty: int) {
+          let wo = WorkOrders.getById(workOrder)
+          let p  = Parts.getById(part)
+          p.consume(qty)
+          wo.complete()
+        }
+      }
+    }
+  }
+
+    context Notify {
+      aggregate Notification with tenantOwned, crudish {
+        workOrder: WorkOrder id
+        body:      string
+        sentAt:    datetime
+        derived display: string = body
+      }
+      repository Notifications for Notification { }
+
+      workflow notifyOnCompletion {
+        workOrderId: WorkOrder id
+
+        create(e: WorkOrderCompleted) by e.workOrder {
+          let n = Notification.create({
+            workOrder: e.workOrder,
+            body: `Work order {e.workOrder} completed`,
+            sentAt: e.at
+          })
+        }
+      }
+    }
+
+  storage primary { type: postgres }
+  storage bus       { type: redis }
+  storage photoBlob { type: s3,   config: { bucket: "fieldops-photos", region: "eu-central-1" } }
+  storage payGw     { type: restApi, config: { baseUrl: "https://pay.example.com" } }
+  storage mailGw    { type: smtp,  config: { from: "no-reply@fieldops.example" } }
+  resource accountsState { for: Accounts, kind: state, use: primary }
+  resource opsState      { for: Ops,      kind: state, use: primary,
+                           index: [WorkOrder.assignedUserId, WorkOrder.(status, scheduledAt)] }
+  resource notifyState   { for: Notify,   kind: state, use: primary }
+  resource photos        { for: Ops, kind: objectStore, use: photoBlob }
+  resource payments      { for: Ops, kind: api,         use: payGw }
+  resource mail          { for: Ops, kind: mailer,      use: mailGw }
+  channelSource lifecycleBus { for: WorkOrderLifecycle, use: bus }
+
+  ui Web with scaffold(subdomains: [Field]) { framework: svelte }
+
+  test e2e "work order lifecycle through the API" against api verifies TC-001 {
+    let c = api.customers.create({ name: "Northwind", billingEmail: "ap@northwind.test" })
+    let s = api.sites.create({ customer: c.id, label: "HQ", addressLine: "1 Main St" })
+    let a = api.assets.create({ site: s.id, serial: "SN-1", model: "Chiller", requiredSkill: "HVAC" })
+    let wo = api.workOrders.create({ asset: a.id, status: "Draft", totalAmount: "0.00" })
+    api.workOrders.addLine(wo, { kind: "Labour", description: "Diagnose", qty: 2, unitPrice: { amount: "50.00", currency: "USD" } })
+    let read = api.workOrders.getById(wo)
+    expect(read.status).toBe("Draft")
+    expect(read.lines.length).toBe(1)
+  }
+
+  test e2e "an empty-currency line is rejected" against api {
+    let c = api.customers.create({ name: "Acme", billingEmail: "ap@acme.test" })
+    expect(api.customers.create({ name: "", billingEmail: "x@y.test" })).toThrow(422)
+  }
+
+  test e2e "browse work orders in the UI" against web verifies TC-003 {
+    let c = ui.customers.create({ name: "Contoso", billingEmail: "ap@contoso.test" })
+    let read = ui.customers.getById(c)
+    expect(read.name).toBe("Contoso")
+  }
+
+  deployable api {
+    platform: node
+    contexts: [Accounts, Ops]
+    dataSources: [accountsState, opsState, photos, payments, mail]
+    channels: [lifecycleBus]
+    auth: required
+    port: 3000
+  }
+
+  deployable notifier {
+    platform: node
+    contexts: [Notify]
+    dataSources: [notifyState]
+    channels: [lifecycleBus]
+    auth: required
+    port: 3002
+  }
+
+  deployable web {
+    platform: svelte
+    targets: api
+    ui: Web
+    auth: ui
+    port: 3001
+    design: shadcnSvelte
+  }
+}

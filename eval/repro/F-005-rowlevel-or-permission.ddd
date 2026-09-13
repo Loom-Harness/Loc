@@ -1,0 +1,31 @@
+// F-005 — "admins see all rows, technicians see only their own" has no
+// expression as a row-level read filter: the permission half is not queryable.
+system RowLevel {
+  user { id: string  role: string  tenantId: string }
+  auth { enforcement: opt  oidc { issuer: env("I") clientId: env("C") } }
+  subdomain S {
+    permissions { readAll }
+    context C {
+      aggregate Doc {
+        ownerUserId: string
+        title: string
+        derived display: string = title
+      }
+      // (a) plain owner filter — queryable?
+      repository DocsA for Doc {
+        find mine(): Doc[] where ownerUserId == currentUser.id
+      }
+      // (b) owner OR permission — the shape actually wanted
+      repository DocsB for Doc {
+        find visible(): Doc[] where currentUser.permissions.contains(permissions.readAll) || ownerUserId == currentUser.id
+      }
+      // (c) owner OR role string compare — does a plain claim compare work?
+      repository DocsC for Doc {
+        find visible2(): Doc[] where currentUser.role == "admin" || ownerUserId == currentUser.id
+      }
+    }
+  }
+  storage primary { type: postgres }
+  resource st { for: C, kind: state, use: primary }
+  deployable api { platform: node contexts: [C] dataSources: [st] auth: required port: 3000 }
+}

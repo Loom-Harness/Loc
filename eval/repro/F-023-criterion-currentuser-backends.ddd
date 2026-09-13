@@ -1,0 +1,21 @@
+// F-023 — a `criterion` referencing `currentUser` (the row-level security rule)
+// emits an UNBOUND `current_user` on python and elixir, and compiles only on node.
+system CritUser {
+  user { id: string  role: string }
+  auth { enforcement: opt  oidc { issuer: env("I") clientId: env("C") } }
+  subdomain S {
+    context C {
+      aggregate Doc with crudish {
+        ownerUserId: string
+        title: string
+        derived display: string = title
+      }
+      repository Docs for Doc { }
+      criterion Mine() of Doc = ownerUserId == currentUser.id
+      retrieval MyDocs() of Doc { where: Mine() }
+    }
+  }
+  storage primary { type: postgres }
+  resource st { for: C, kind: state, use: primary }
+  deployable api { platform: node contexts: [C] dataSources: [st] auth: required port: 3000 }
+}

@@ -1,0 +1,79 @@
+// FieldOps — slice 1: tenancy skeleton + Customer -> Site -> Asset.
+system FieldOps {
+
+  user {
+    id: string
+    email: string
+    role: string
+    tenantId: string
+  }
+
+  auth {
+    enforcement: opt
+    oidc {
+      issuer:   env("OIDC_ISSUER")
+      clientId: env("OIDC_CLIENT_ID")
+    }
+  }
+
+  tenancy by user.tenantId of Organization
+
+  subdomain Field {
+
+    context Accounts {
+      aggregate Organization {
+        name: string
+        derived display: string = name
+      }
+      repository Organizations for Organization { }
+    }
+
+    context Ops {
+      aggregate Customer with tenantOwned {
+        name: string
+        billingEmail: string
+        derived display: string = name
+      }
+      repository Customers for Customer { }
+
+      aggregate Site with tenantOwned {
+        customer: Customer id
+        label: string
+        addressLine: string
+        derived display: string = label
+      }
+      repository Sites for Site { }
+
+      aggregate Asset with tenantOwned {
+        site: Site id
+        serial: string
+        model: string
+        derived display: string = serial
+      }
+      repository Assets for Asset { }
+    }
+  }
+
+  storage primary { type: postgres }
+  resource accountsState { for: Accounts, kind: state, use: primary }
+  resource opsState      { for: Ops,      kind: state, use: primary }
+
+  ui Web with scaffold(subdomains: [Field]) { }
+
+  deployable api {
+    platform: node
+    contexts: [Accounts, Ops]
+    dataSources: [accountsState, opsState]
+    auth: required
+    port: 3000
+  }
+
+  deployable web {
+    platform: react
+    targets: api
+    ui: Web
+    auth: ui
+    port: 3001
+    design: mantine
+  }
+}

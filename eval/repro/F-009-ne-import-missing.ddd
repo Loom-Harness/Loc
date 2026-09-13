@@ -1,0 +1,25 @@
+// F-009 — a `!=` comparison in a projection's where-clause emits `ne(...)`
+// into a repository file that never imports `ne`.
+system NeGap {
+  subdomain S {
+    context C {
+      enum Status { Open, Closed }
+      aggregate Ticket {
+        status: Status
+        derived display: string = `t {status}`
+      }
+      repository Tickets for Ticket { }
+      projection OpenTickets {
+        status: Status
+        n: int
+        from Ticket as t
+        where t.status != Closed
+        group by t.status
+        select status = t.status, n = count()
+      }
+    }
+  }
+  storage primary { type: postgres }
+  resource st { for: C, kind: state, use: primary }
+  deployable api { platform: node contexts: [C] dataSources: [st] port: 3000 }
+}
