@@ -54,10 +54,12 @@ build or did not work** — a missing import, a private method called from gener
 reserved word used as a variable, a triple brace in JSX, a missing dependency injection, an unbound
 Ecto variable, a namespace that cannot resolve. Every one was shallow (a 1–3 line fix). None was
 caught by anything Loom runs. Three further inputs crashed the generator outright with a raw Node stack trace.
-Beyond that, three structural limits shape how you would have to model: a `create` cannot run any
+Beyond that, three limits shape how you would have to model: a `create` cannot run any
 logic, a workflow cannot reach a repository in another bounded context (so bounded contexts collapse),
 and the recommended security posture (`denyByDefault`) is incompatible with the CRUD macro and with
-the scaffolded UI's reference pickers.
+the scaffolded UI's reference pickers. **Only the second is permanent** — see the correction at §7;
+the third is claimed by an open PR, and the underlying cross-context *refusal* turns out to be worse
+than a limit: the read-only spelling is not refused at all and ships five non-compiling backends.
 
 **The one-sentence version.** *Loom is a finished compiler wrapped in an unfinished product* — which
 is, word for word, the verdict of the maintainers' own internal audit dated three days before this
@@ -80,7 +82,7 @@ Every claim is quoted verbatim from `README.md`. **Verified** = I executed it an
 | 7 | "No drift between layers." | **Contradicted** | Three measured drifts: the deny-by-default `find all(): T[]` shape breaks every scaffolded FK picker (**F-018**); a `ui` scaffolding an unserved subdomain emits pages against an api client that was never generated (**F-019**, a *documented* validator obligation that does not fire); the .NET EF interceptor's `onCreate` stamp omits the columns the same tool marked `NOT NULL` (**F-035**). |
 | 8 | "Thirteen design packs … swap any time" | **Verified** (React), partially elsewhere | 4 React packs generated and typechecked **0 errors** each. vuetify / shadcnSvelte / angularMaterial generate. The pack↔framework validator is excellent; the Feliz one suggests a value the grammar rejects (**F-031**). |
 | 9 | "Pick a runtime per deployable. Switch any time." | **Partially verified** | The *switch* really is one line (`platform:`) — verified on all five backends and six frontends. The cost is not the switch; it is that the target you switch to may not compile (claims 3–4). |
-| 10 | "Identical API contracts" | **Partially verified** | node vs python, same model, both booted, one identical probe: **every status code, the paged envelope, the full field set, money precision, enums, nulls, containment, tenancy 404s and field masking matched exactly.** Two diverged: `decimal` serialises `2` vs `2.0`, and python returns Pydantic's raw message (echoing the regex) instead of Loom's derived text. **F-034**. Sample: 2 of 5, at runtime. |
+| 10 | "Identical API contracts" | **Partially verified** | node vs python, same model, both booted, one identical probe: **every status code, the paged envelope, the full field set, money precision, enums, nulls, containment, tenancy 404s and field masking matched exactly.** Two diverged, but **only one is a defect**: python returns Pydantic's raw message (echoing the regex) instead of Loom's derived text (**F-034b**). The `2` vs `2.0` decimal spelling is a **deliberate, already-adjudicated tolerance** (`test/_helpers/wire-record.ts:352`) — I withdrew that half. Sample: 2 of 5, at runtime. |
 | 11 | "Built-in traceability … `ddd verify` … per-requirement Definition-of-Done verdicts" | **Verified** | `requirement`/`solution`/`testCase` parse; `ddd verify` produced `.loom/verification.{json,md,mmd}`, a correct rollup, and **exit 1** on a failing requirement. You write the runner-JSON adapter yourself (documented). |
 | 12 | "LLM-safe by construction … Validation gates catch hallucinated fields … before any code is emitted" | **Partially verified** | True **at the model layer**: a hallucinated field is rejected (`ok:false`) through `loom_validate`; 14 agent tools work. **Not true of the output**: 16 of my findings are models that validate `ok:true` and then fail to compile — and 3 crash the generator *after* validation passes. |
 | 13 | "Browser playground … typed editor … visual system builder … live preview … in-browser test runner" | **Partially verified** | The advertised URL is **404** — the project changed GitHub org and the README didn't (**F-043**). Built and served it locally: loads clean, validates (0 errors) and generates **107 files in the browser**, with Explorer/Diagrams/API/Traceability/Builder/Chat tabs and no page errors. "Boot" showed *blocked*. **Smoke-tested only** — I could not drive a 600-line paste through Monaco headlessly. |
@@ -108,7 +110,7 @@ One model (`eval/fieldops/main-devauth.ddd`, 594 lines). Toolchains run in docke
 |---|---|---|---|
 | react · mantine / shadcn / mui / chakra | ✅ | ✅ **0 tsc errors, all four packs** | the real path |
 | svelte · shadcnSvelte | ✅ | ✅ `npm run build` — 0 errors, 0 warnings | |
-| vue · vuetify | ✅ | ❌ `vue-tsc` fails on a nullable `X id` (F-032) | |
+| vue · vuetify | ✅ | ❌ `vue-tsc` fails on a nullable `X id` (F-032) — **FIXED on fresh `main` by `d8b5f7c1`/#2885; re-verified green** | |
 | angular · angularMaterial | ✅ | ❌ `ng build` fails on a `string[]` field (F-033) | also needs Node ≥ 22.22.3 |
 | feliz (F#/Fable) | ✅ 118 files | **unverified** | no Fable toolchain in this environment |
 | flutter (Dart) | ✅ 142 files | **unverified** | no Flutter SDK in this environment |
@@ -149,7 +151,25 @@ Three diagnostics caught real modelling bugs I made naturally — `unique (seria
 tenants; `GET /invoices/{id}/history` was reachable by any authenticated caller; 21 commands and
 reads were ungated. I would not have caught the second one in review.
 
-**Where the ceiling is** — three structural limits, not bugs:
+**Where the ceiling is** — three limits, not bugs:
+
+> **CORRECTION (2026-09-13, after re-verification on fresh `main`).** This framing was too generous to
+> two of the three. **Only limit 2 is architectural** — *there is no transactional consistency across a
+> bounded context, and there never will be.* That is orthodox DDD, ruled on in writing
+> (`docs/domain-services.md:130`, "permanent by design"), and correct. The adoption consequence
+> sharpens rather than softens: **context boundaries in Loom are transaction boundaries you cannot
+> renegotiate later** — getting them wrong is a re-architecture, not a refactor.
+> **Limit 3 is transitional, not structural:** #2877 is open and adds `with crudish(requires: <Policy>)`,
+> which closes F-008 fully.
+> And the *communication* of limit 2 is itself a defect worth more than the limit: the one doc that
+> rules on it says cross-context orchestration *"belongs in workflows"* (`docs/domain-services.md:130`)
+> — which reads as permission; the workflow surface then refuses it with a diagnostic that blames a
+> `let`; and the **read-only spelling refuses nothing at all**, emitting a dangling receiver on all
+> five backends from a model that parses `0 error(s), 0 warning(s)`. Fix the diagnostic and the docs;
+> keep the limit. Two further items I framed as structural are ordinary defects — **F-002** (one
+> validator arm that forgot what its sibling already does; all five backends emit correct code today)
+> and **F-003** (a flag set at 1 of 3 call sites). Full reasoning: [`fix-plans/I-language-design.md`](fix-plans/I-language-design.md).
+
 1. **A `create` body cannot assign** (F-007). "A work order always starts in `Draft`", "stamp
    `issuedAt` server-side", "derive the invoice number" are not expressible at construction. Real
    construction logic becomes a `workflow` with its own HTTP route. 33 errors on my model from this
@@ -214,7 +234,7 @@ Thirteen are "the generated code does not compile"; three are "it compiles, boot
 | F-025 | .NET channel transport emits an unqualified namespace that binds to the wrong one | .NET + any broker |
 | F-028 | java never injects a repository used inside `for`→`if let` | java + the shape F-002 forces on you |
 | F-029 | elixir emits an **unbound** `current_user` in an Ecto query (the other four are correct) | row-level visibility on Phoenix |
-| F-032 | vue: a nullable `X id` breaks `vue-tsc` | any optional FK |
+| F-032 | vue: a nullable `X id` breaks `vue-tsc` — **FIXED, `d8b5f7c1`/#2885** | any optional FK |
 | F-033 | angular: a `string[]` field initialises to `null` | any tags/skills/roles field |
 
 ### S2 — major (16)
@@ -401,6 +421,12 @@ Read only after the evaluation was complete.
 
 ## 12. Top 10 fixes, ranked by adoption impact
 
+> **Follow-up (2026-09-13).** Every finding has since been re-verified against fresh `main` and planned
+> out at `file:line`, one agent per subsystem — see **[`FIX-PLAN.md`](FIX-PLAN.md)** and the ten
+> per-cluster reports in [`fix-plans/`](fix-plans/). Two items below moved: **#7's Vue half is FIXED**
+> (`d8b5f7c1`/#2885), and **#2 needs sharpening** — see the note after item 10.
+
+
 1. **Fix F-035** — `tenantOwned + auditable` must write on .NET. One line:
    `dotnet/emit/auditable-interceptor.tpl.ts:157-158` uses `.find()` where every other consumer uses
    `.filter().flatMap()`. Today the most common B2B aggregate shape 500s on that backend.
@@ -424,6 +450,22 @@ Read only after the evaluation was complete.
    runtime.
 10. **Fix the docs a buyer reads first**: the 404 live-site links, the LICENSE claim, the dev-claims
     example, the tenancy-bootstrap example, and the five-backends/six-frontends framing.
+
+> **Sharpening #2 and #6, after ten agents each asked "why did no gate catch this?".** They converged
+> on one answer, and it is not the one I wrote here. **The gates fail on REACH, not on POWER.** The
+> per-PR corpus *does* compile generated output on every backend. `test/system/pipeline-fuzz.test.ts`
+> *does* assert "a crash on a valid model is always a bug", in 13 seconds, on every PR. Neither is
+> missing. What they have never been handed is an input that reaches the code under test: **F-025**
+> fires only when the deployable is *named* `api` (67 corpus fixtures name theirs `d`; `ddd new`
+> scaffolds `api`); **F-033**'s Angular gate contains the literal `string[]` in a position that
+> structurally cannot reach the code it names; **F-035**'s broken output *compiles green*; and the fuzz
+> generator's name pool is **eight single-word names**, which makes F-012 unreachable by construction.
+> Zero corpus fixtures use `!=` in a projection `where`, contain both a `workflow` and a `function`,
+> put `currentUser` in a find filter, or contain `requires true`.
+> So the durable fix is **seven fixture-and-reach changes, not eighty patches** — each an edit to a gate
+> that already exists, none adding a CI leg but one. `FIX-PLAN.md` §5 has them costed. The cheapest is
+> three words added to one array (multi-word names in the fuzz generator), and it would have caught
+> F-012 and an unknown number of its siblings.
 
 ---
 

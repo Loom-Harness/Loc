@@ -1,7 +1,22 @@
 # Loom evaluation — findings register
 
-**45 findings — 16 S1 · 16 S2 · 12 S3 · 1 S4.**
+**45 findings as filed — 16 S1 · 16 S2 · 12 S3 · 1 S4.**
 **Class split: 25 SILENT · 10 HONEST · 3 CRASH-where-a-diagnostic-belongs · 3 CONTRADICTED-doc · 2 DOCUMENTED · 2 other.**
+
+> **Post-filing corrections (2026-09-13).** Every finding was re-verified against fresh `main`
+> (`9a8f2fe0`, 93 commits after the evaluation's base) by a nine-agent fleet before any fix was
+> planned. The register now stands at **43 live findings**: **2 withdrawn or fixed** — F-032 FIXED by
+> `d8b5f7c1`/#2885, F-034(a) WITHDRAWN as a deliberate, already-adjudicated tolerance — and **4
+> corrected in place** — F-035 (the Java half was my unsound static inference; .NET stands and is
+> root-caused), F-031 (a message-text bug, not a grammar gap — but the message carries no `loom.*`
+> code at all), F-030 (the README's CI claim is true; the defect is an uncovered fixture shape), and
+> F-009 (**worse** than filed: a read-only cross-context body is not refused at all and emits a
+> dangling receiver on all five backends). Each correction is a dated block above the finding it
+> amends; nothing was quietly edited. Two findings were confirmed **wider** than filed: F-040 breaks
+> four of five backends and makes the fifth emit an infinitely-recursive wire schema; F-004's
+> `emit`-inside-`for` shape falsifies the diagnostic's own wording.
+> Per-cluster re-verification evidence and fix plans: `eval/fix-plans/` (10 reports). Aggregate:
+> `eval/FIX-PLAN.md`.
 
 > The ratio is the headline. A mature generator refuses what it cannot do; Loom's honest refusals are
 > excellent, but its **dominant** failure mode is exit code 0 over output that does not compile or
@@ -251,6 +266,20 @@ Inventory into Field**. Repeat that a few times and the bounded-context decompos
 DSL is named after — erodes into one mega-context. A buyer should assume Loom's real consistency
 boundary is the *context*, not the aggregate, and design contexts accordingly from day one.
 Time lost: 40 min.
+
+> **CORRECTION (2026-09-13, fleet re-verification — this is WORSE than filed).** I reported a wrong
+> diagnostic on a refusal. There is a second form that is not refused at all: a **read-only**
+> cross-context body (`let x = Foos.getById(f)` with no subsequent mutating call) validates
+> `0 error(s), 0 warning(s)` and then emits a **dangling receiver on all five backends** — the
+> repository is never injected and the generated code references a name that does not exist. The
+> refusal I hit is triggered by the *use* of the binding, not by the cross-context read itself; drop
+> the use and the whole thing goes silent. Root cause: `src/ir/lower/lower-workflow.ts:96-103` builds
+> `reposByName` from the enclosing context only, and a miss yields no binding rather than a
+> diagnostic.
+> Compounding it: `docs/domain-services.md:130` tells the reader that cross-context orchestration
+> *"belongs in workflows"* — pointing at the one construct that cannot do it.
+> **Reclassify: SILENT (read-only form) + HONEST-but-misdirecting (mutating form).** Severity S2 holds
+> for the refusal; the silent form is S1 by the register's own rubric (generated code does not compile).
 
 ### F-010 — Deny-by-default forces you to write the exact construct the linter deprecates
 Severity: S3 (friction)   Class: HONEST (two rules, both documented, that contradict each other)
@@ -842,6 +871,16 @@ enforces.
 Impact on adoption: low functionally; but it means a team cannot turn on the strict compile flag
 their Elixir CI would normally use, and it is a small, checkable contradiction of a README claim.
 
+> **CORRECTION (2026-09-13, after fleet re-verification on fresh `main`).** The **defect is confirmed
+> live on both halves** (`__dt`/`__s`/`__d`/`__other` read-after-underscore ×6 from
+> `src/generator/elixir/vanilla/context-emit.ts:243`, plus `if not (true)` from `requires true`, which
+> Elixir 1.18 reports as a *typing violation*, not a style warning). **But the README claim I filed it
+> against is not false.** `elixir-vanilla-build.yml` and `corpus-elixir-build.yml` both genuinely run
+> `mix deps.get` + `mix compile --warnings-as-errors` in `hexpm/elixir`. The gate exists and runs; what
+> it lacks is a fixture that reaches either site — `grep -rln "requires true" test/fixtures/corpus/`
+> → **0 of 68**. Reclassify: **SILENT (uncovered shape)**, not "contradicts a stated CI claim". This is
+> the same reach-not-power pattern as F-025, F-033 and F-035 (§5 of `FIX-PLAN.md`).
+
 ### F-031 — The Feliz `design:` diagnostic offers a fix that does not parse
 Severity: S3 (friction)   Class: HONEST diagnostic with an **invalid fixit**
 Area: language / validator vs grammar (feliz design packs)
@@ -858,6 +897,18 @@ Observed: the validator's suggested vocabulary is not in the grammar. The only w
 delete the `design:` clause entirely (which works).
 Impact on adoption: minutes, but it is the kind of thing that erodes trust in diagnostics — and the
 diagnostic here is otherwise excellent.
+
+> **CORRECTION (2026-09-13, after fleet re-verification on fresh `main`).** **My diagnosis was wrong;
+> the symptom is real.** I reported this as a validator-vs-grammar gap. It is not: `DesignPack`
+> (`src/language/ddd.langium:434-435`) ends in `| STRING`, so the **quoted** form `design: "dark"`
+> parses and validates clean (`0 error(s), 0 warning(s)`), and `design: "not-a-theme"` correctly
+> errors. Only the *bareword* fails. So this is a **one-line message-text bug** — the diagnostic should
+> quote its own suggestions — not a grammar change. I never tried the quoted form.
+> **One thing got worse, though.** The message at `src/language/validators/deployable.ts:441-449` is an
+> inline string literal carrying **no `loom.*` code at all** — so it is invisible to
+> `test/system/diagnostic-catalog.test.ts` (which exists precisely to fail on inline literals) *and* to
+> `diagnostic-docs-anchors.test.ts`. A codeless diagnostic is outside every gate the repo built for
+> diagnostics. That is the finding worth keeping.
 
 ### F-032 — `vue`: a nullable `X id` in a scaffolded page breaks `npm run build` (`vue-tsc`)
 Severity: **S1** (generated Vue frontend does not build)   Class: **SILENT**
@@ -876,6 +927,13 @@ Expected: `:title="row.assetId ?? undefined"`.
 Workaround: make the reference non-optional (a domain change) or hand-fix each page.
 Impact on adoption: optional foreign keys are ordinary; on FieldOps this produced 6 build errors
 across 3 pages. Anyone choosing Vue hits it on their first optional reference.
+
+> **FIXED (2026-09-13) by commit `d8b5f7c1` / PR #2885** — re-verified on fresh `main`: the same repro
+> now emits a `v-if`-guarded `<router-link>` via the new `src/generator/_walker/primitives/id-link.ts`,
+> and `npm run build` in the generated `web/` exits 0 (`vue-tsc` narrows through the guard). #2885 also
+> landed the gate that would have caught it, by adding the missing *shape* — `placedBy: Customer id?`
+> — to `test/e2e/generated-vue-build.test.ts`'s scaffold case. That is the correct shape of fix, and
+> it is the precedent §5 of `FIX-PLAN.md` generalises.
 
 ### F-033 — `angular`: a `string[]` field initialises its form control to `null` → `ng build` fails
 Severity: **S1** (generated Angular frontend does not build)   Class: **SILENT**
@@ -929,6 +987,24 @@ not translatable through the message catalog, and it **echoes the validation reg
 Impact on adoption: a shared client, a contract test, or a UI that renders `errors[].message` is not
 portable across backends. "Identical API contracts" is **partially verified** — identical in shape and
 status, not in every value. Sample: 2 of 5 backends, driven at runtime.
+
+> **CORRECTION (2026-09-13, after fleet re-verification on fresh `main`).** This finding has two
+> halves and they now part company.
+> **(a) `"quantity": 2` vs `2.0` — WITHDRAWN.** Not a defect. The repo has already adjudicated exactly
+> this divergence, in prose, at `test/_helpers/wire-record.ts:352`: *"python renders a float64 as
+> `10.0` where V8 renders `10` … Same value, well inside float64's width, and no client can tell after
+> parsing. Those produced 23 divergences per python run on the first cut of this field — a bill payable
+> only in permanent waivers, since neither backend is wrong."* The upstream hydration is equally
+> deliberate and symmetric: `src/generator/python/numeric-codec.ts:31` and
+> `src/generator/typescript/numeric-codec.ts:40` document the same lossy-`float` split, so node and
+> python have **identical precision** and only the JSON spelling differs. No golden in
+> `test/behavioral/wire-golden/` carries a `numberFormats` key, confirming the tolerance is active and
+> intended. I filed a deliberate, documented tolerance as a defect.
+> **(b) the validation-message text — STANDS, and is the whole finding now.** Python emits
+> `Field(pattern=r"…")` (`customer_routes.py:50`) and returns pydantic's default message, where node
+> emits `.regex(/…/, { message: "Billing Email is not in the expected format" })`. Divergent
+> user-facing text, untranslatable through the message catalog, and it echoes the regex to the client.
+> Severity for (b) is unchanged. The register's S2 count is unaffected; the *scope* of F-034 narrows.
 
 ### F-035 — `dotnet`: two capabilities contributing `onCreate` stamps → one is dropped → every create 500s
 Severity: **S1** (runtime; every write fails on a multi-tenant audited aggregate)   Class: **SILENT**
