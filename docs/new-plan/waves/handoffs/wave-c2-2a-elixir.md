@@ -286,8 +286,16 @@ Run **after** `git merge origin/main` (`7534696f9`), per rule 14.
 | `node scripts/mission-counts.mjs --check` | up to date |
 | `node scripts/ledger-counts.mjs --check` | `.md` matches the JSON |
 | `node docs/build.mjs` | OK |
-| `npm test` | GREEN (filled in below once the run reported) |
+| `npm test` | **green** — 2017 files, 23538 passed, 7 expected-fail, 0 failed |
 | elixir compile leg (`LOOM_PHOENIX_VANILLA_BUILD=1 LOOM_HEX_MIRROR=1`) | `vanilla-if-stmt`, `vanilla-derived-chain`, `vanilla-workflow-form`, `vanilla-document` (extended), `vanilla-finds` — each `mix compile --warnings-as-errors` green |
+
+**One environment note for the coordinator, not a code finding.** On the first full run four cases
+in `test/platform/packaging-split-core-pkg.test.ts` / the fs-discovery suite failed because this
+worktree had **no `node_modules/@loom/` link set** — `discoverBackendsFs` walks
+`node_modules` and found no workspace package at all, so even the sanity assertion ("the real
+backend is still found") was false. Symlinking the four `@loom/*` workspaces makes all 465
+`test/platform` cases pass. Nothing in this packet touches `src/platform/**` or `packages/**`; if a
+fold run shows the same four, re-link rather than bisect.
 
 Three fixtures were ADDED to `test/e2e/fixtures/elixir-vanilla-build/` (`vanilla-if-stmt.ddd`,
 `vanilla-derived-chain.ddd`, `vanilla-workflow-form.ddd`) and one EXTENDED (`vanilla-document.ddd`),
