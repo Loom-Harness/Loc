@@ -298,7 +298,16 @@ const REGISTER_FILE = path.join(srcRoot, "diagnostics", "unsupported-register.ts
  *  being half-built work on a shipping target: the EF-only refusal is true and
  *  narrow (the same model generates under `persistence: dapper`), and its drain
  *  is a ~30-site read-path rewrite whose failure mode is a silent leak. */
-const MAX_OPEN_GAPS = 25;
+/** 25 -> 24 at the fold (wave C2 packet 2d, M-T6.36, written as 27 → 26 on its own branch).  `loom.java-reserved-identifier-unsupported`
+ *  is DRAINED, not reclassified — a `.ddd` member / parameter / operation named
+ *  after a Java reserved word now emits a mangled host identifier plus an
+ *  explicit `@JsonProperty` (and, for an enum value, a JPA `AttributeConverter`)
+ *  at every wire site, so the JSON body, the springdoc schema, the query
+ *  parameter, the RFC-7807 error pointer and the stored column all keep the
+ *  `.ddd` spelling.  Compile- and BOOT-proved on a real Postgres
+ *  (`test/generator/java/java-reserved-identifier.test.ts`,
+ *  `test/fixtures/corpus/java-reserved-words.ddd`). */
+const MAX_OPEN_GAPS = 24;
 
 /** Exact count of `seam` rows.  Changes only for a reviewed reason: a gate
  *  deleted (down), a new target registered that turns a seam back into a live

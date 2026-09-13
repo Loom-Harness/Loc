@@ -166,14 +166,6 @@ The non-default persistence adapters reject shapes their EF/Ecto siblings accept
 
 Sources: M-T9.27 register rows. Relates to M-T6.23 (mikroorm) and M-T6.25 (dapper query-time projections) — the same axis, already missioned.
 
-## M-T6.36 — Java emitter shape gaps — `open` (rewritten 2026-08-31) · **M** · P1
-**The two codes this mission was written about were PHANTOMS, and are gone.** `loom.java-projection-field-unsupported` and `loom.java-workflow-instance-field-unsupported` refused an ENTITY (containment-part) typed read-model field. Probing the premise before implementing showed there is nothing to implement: a part type resolves only inside its own aggregate (`src/language/ddd-scope.ts`), so `projection P { line: Line }` and `workflow W { line: Line }` both fail at phase ③ with `Could not resolve reference to NamedDecl named 'Line'` — on EVERY platform, before any java check runs. Two backend-named codes for a shape the LANGUAGE refuses: java read as uniquely limited, and the M-T9.27 register carried two rows nothing could ever drain. Both codes, their register rows, their catalogue entries and their census entries were deleted; the emitters keep their `guardInstanceField` / `guardProjectionField` throws as internal invariants, and `test/generator/java/generator-java-readmodel-gates.test.ts` now pins the unreachability AT THE SCOPE LAYER, so a widening of that rule fails a test instead of crashing codegen. `MAX_OPEN_GAPS` came down accordingly. (The VO-typed half of the original gap was already implemented by M-T6.4.)
-
-**What the mission now owns** is the one REAL java shape gap, inherited from F2-ADP-7's java arm: `loom.java-reserved-identifier-unsupported`. A `.ddd` field / param / operation named after a **Java reserved word** (`case`, `do`, `new`, `int`, …) used to emit `String case;` / `public String case() {` / `record TicketResponse(String case, …)` — uncompilable Java, with zero diagnostics, so the failure surfaced only in a compile tier. It is now refused (java-hosted contexts only; the other four backends are untouched).
-
-Draining it means EMITTING the name instead of refusing it, and the reason that is real work rather than a one-line escape is the language asymmetry the .NET arm hides: C# has verbatim identifiers, so `@case` is lexically `case` and the JSON property System.Text.Json derives is unchanged. Java has none (JLS §3.9), so the only escape is a rename — and a Java record component name IS the Jackson property name. So the fix is a mangled host identifier (`case_`, the spelling `escapeJavaIdent` already uses for LOCALS) **plus an explicit `@JsonProperty("case")` at every wire site**, applied consistently enough that no DTO is missed — a missed site is a silent wire divergence on java alone, which is strictly worse than the compile error. Delete the register row and lower `MAX_OPEN_GAPS` when it lands.
-Sources: M-T9.27 register rows; the 2026-08-30 targets ledger rows `M-T6.36` (premise found stale) and `F2-ADP-7` (java arm).
-
 ## M-T6.60 — Request-side numeric strictness diverges three ways: TWO need an owner ruling; the third (40-digit money → database 500) was an ordinary defect and is CLOSED by Wave C1 packet 1e-i — `blocked(D-NUMERIC-INGRESS-STRICT)` · **M** · P2
 
 Found 2026-09-08 by M-T6.48's cross-backend ingress matrix (`test/conformance/numeric-ingress-parity.test.ts`). M-T6.48 made *malformed* numeric input answer a typed 4xx on all five backends. It did not make *lenient* input answer the same way, because nothing had ever compared the five. The matrix did, against the real deserializers rather than by reading emitters, and found three rows that still disagree. All three are pinned in that file's second `describe` block as characterizations — each fails the day a backend moves in either direction — so this mission's first act is deleting the pin it closes.
@@ -396,8 +388,11 @@ this repo already ratchets against. Mutation-prove by restoring the collision an
 to `test/fixtures/corpus/` so all five backends compile it from then on.
 
 **Sequencing:** this closes the deep fuzz leg's only current failures, so it unblocks
-[M-T9.64](T9-toolchain-health.md#m-t964). Relates to [M-T6.36](#m-t636) (`loom.java-reserved-identifier-unsupported`
-— the same class on Java, which *does* have a mission) and to
+[M-T9.64](T9-toolchain-health.md#m-t964). Relates to [M-T6.36](archive/T6-done.md#m-t636-java-emitter-shape-gaps--done-2026-09-13-wave-c2-packet-2d---m--p1)
+(the same class on Java, DRAINED 2026-09-13: a mangled host identifier plus an
+explicit `@JsonProperty` / `@RequestParam` / enum converter at every wire site —
+the shape this row could follow if the C# collision ever needs emitting rather
+than refusing) and to
 [M-T9.59](T9-toolchain-health.md#m-t959), which explains why this one did not.
 ## M-T6.70 — The elixir Schemathesis cell fuzzes the HTML routes, because elixir is the only backend that publishes a `servers` base path — `open` · **S** · P1 ⚠ verify-first
 

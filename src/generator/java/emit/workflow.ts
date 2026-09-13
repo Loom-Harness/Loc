@@ -29,6 +29,7 @@ import {
   renderWorkflowStmtChunks,
   type WorkflowStmtTarget,
 } from "../../_workflow/stmt-target.js";
+import { jid } from "../java-ident.js";
 import {
   collectJavaExprImports,
   collectJavaTypeImports,
@@ -478,7 +479,9 @@ function workflowVoMappers(
   return [...voNames].sort().flatMap((vo) => {
     const fields: readonly FieldIR[] = voLookup.get(vo) ?? [];
     const args = fields
-      .map((f) => wireToDomain(effType(f.type, !!f.optional), `request.${f.name}()`, `/${f.name}`))
+      .map((f) =>
+        wireToDomain(effType(f.type, !!f.optional), `request.${jid(f.name)}()`, `/${f.name}`),
+      )
       .join(", ");
     for (const f of fields) collectWireToDomainImports(f.type, imports, basePkg);
     return [
@@ -737,7 +740,7 @@ export function renderJavaWorkflows(
     }
     const paramLets = wf.params.map((p) => {
       collectWireToDomainImports(p.type, imports, wctx.basePkg);
-      return `            var ${p.name} = ${wireToDomain(p.type, `request.${p.name}()`, `/${p.name}`, payloadNames)};`;
+      return `            var ${jid(p.name)} = ${wireToDomain(p.type, `request.${jid(p.name)}()`, `/${p.name}`, payloadNames)};`;
     });
     // Chunked (one lines-array per top-level statement) rather than the
     // pre-flattened `renderWorkflowStmts` — byte-identical either way

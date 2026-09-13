@@ -374,20 +374,6 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
     verified: true,
   },
   {
-    code: "loom.java-reserved-identifier-unsupported",
-    kind: "gap",
-    site: "src/ir/validate/checks/backend-syntax-checks.ts:287",
-    what:
-      "a `.ddd` field / param / operation named after a JAVA reserved word (`case`, `do`, " +
-      '`new`, …). The SQL half is quoted (`@Column(name = "`case`")`); the host-identifier ' +
-      "half emits `String case;` / `public String case() {`, which javac rejects. Refused " +
-      "rather than escaped because Java has no verbatim identifier and a rename would move " +
-      "the JSON property on java alone — drained by emitting a mangled field plus an explicit " +
-      "`@JsonProperty` at every wire site",
-    mission: "M-T6.36",
-    verified: true,
-  },
-  {
     code: "loom.mikroorm-unsupported",
     kind: "gap",
     site: "src/ir/validate/checks/migration-checks.ts:257",
@@ -424,7 +410,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.paged-query-handler-unsupported-backend",
     kind: "seam",
-    site: "src/ir/validate/checks/projection-backend-checks.ts:321",
+    site: "src/ir/validate/checks/projection-backend-checks.ts:247",
     what:
       "a `paged` queryHandler return ships on all five backends (PAGED_QH_SUPPORTED) — latent " +
       "seam for a NEW backend",
@@ -463,7 +449,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.projection-query-time-unsupported",
     kind: "seam",
-    site: "src/ir/validate/checks/projection-backend-checks.ts:348",
+    site: "src/ir/validate/checks/projection-backend-checks.ts:274",
     what:
       "query-time projections ship on all five backends (PROJECTION_QT_SUPPORTED) — latent seam " +
       "for a NEW backend",
@@ -472,7 +458,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.projection-source-unsupported-backend",
     kind: "seam",
-    site: "src/ir/validate/checks/projection-backend-checks.ts:434",
+    site: "src/ir/validate/checks/projection-backend-checks.ts:360",
     what:
       "a projection sourced from another projection's rows ships on all five backends " +
       "(PROJECTION_PROJ_SOURCE_SUPPORTED) — latent seam for a NEW backend",
@@ -490,7 +476,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.projection-workflow-source-unsupported-backend",
     kind: "seam",
-    site: "src/ir/validate/checks/projection-backend-checks.ts:391",
+    site: "src/ir/validate/checks/projection-backend-checks.ts:317",
     what:
       "a projection sourced from a workflow's instance rows ships on all five backends " +
       "(PROJECTION_WF_SOURCE_SUPPORTED) — latent seam for a NEW backend",

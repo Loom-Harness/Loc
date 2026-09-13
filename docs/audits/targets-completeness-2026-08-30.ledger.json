@@ -6637,13 +6637,6 @@
       "note": "fixed: the event-sourced write-scope repository port member is now implemented on both adapters; dedicated gate test/generator/dotnet/repository-port-implemented.test.ts (cites F2-ADP-4) walks the whole port shape matrix and passes."
     },
     {
-      "id": "F2-ADP-7",
-      "title": "A `.ddd` field named after a TARGET-LANGUAGE keyword emits uncompilable C# and Java \u2014 the host-identifier twin the M-T6.42/M-T6.43 quoting fixes left open",
-      "pr": "#2668 (dotnet) + #2703 (java)",
-      "sha": "e0aff5a / 84c2291",
-      "note": "fixed on both named backends: a target-language-keyword field now emits a verbatim `@identifier` on C# (test/generator/dotnet/cs-reserved-identifiers.test.ts) and an escaped identifier on java (test/generator/java/java-reserved-identifier.test.ts)."
-    },
-    {
       "id": "F2-ADP-5",
       "title": "drizzle \u2014 the DEFAULT node adapter \u2014 enforces `writeScopeFilter` only on the relational shape; mikroorm (the adapter that got the fix) enforces all four",
       "pr": "#2668",
@@ -7008,13 +7001,6 @@
       "note": "fixed: java's declared paged find now returns the concrete `<Agg>Paged` record instead of the springdoc-flattened generic (test/generator/java/paged-envelope-name.test.ts)."
     },
     {
-      "id": "M-T6.36",
-      "title": "Java emitter shape gaps \u2014 two narrow honest rejections still live",
-      "pr": "#2703",
-      "sha": "84c2291",
-      "note": "gated: entity-typed read-model fields are refused with `loom.java-*-field-unsupported` instead of being silently unreachable (test/generator/java/generator-java-readmodel-gates.test.ts)."
-    },
-    {
       "id": "G2646-open-feliz-honest-residue",
       "title": "#2646 documented, NOT fixed: feliz `.map(\u03bb)` has no lambda seam; component-host `match await` gated; three of four newly-throwing sub-shapes still lack validator gates",
       "pr": "#2698",
@@ -7288,6 +7274,20 @@
       "title": "`tenancy-hierarchy` is the sole surviving `DAPPER_UNSUPPORTED` entry \u2014 hierarchical tenancy's capability filter is outside the Dapper SQL subset",
       "note": "fixed (wave C2 packet 2b): the claim was false. `authzFilterToSql`'s `scope` arm (src/generator/dotnet/emit/dapper.ts) renders the descendant-or-self subtree predicate as raw Postgres \u2014 the MikroORM `raw()` twin, anchored `strpos(col, anchor || '.') = 1` recheck plus the sargable escaped LIKE prefilter plus the NULL-`data_key` flat-tenant fallback. What genuinely blocked it was one layer out, exactly as the row's `fix` field guessed for the M-T6.23/M-T6.29 precedents: `collectFilterPrincipalRefs` hand-rolled a four-kind recursion that could not see the sentinel (which carries no child `currentUser.<claim>` node at all \u2014 the claims are derived from the `scope` decision). It now rides `walkExprDeep` and contributes the four bindings by kind, and its `ir-walk-census` waiver is gone. The `DAPPER_UNSUPPORTED` corpus entry and its `allowlist-ratchet` pin both drained to zero in the same commit. Booting the fixture also surfaced and fixed a second, compile-invisible defect on the same path: the registry self-scope comparison rendered `id = @__cu_tenantId`, i.e. `uuid = text`, so every read of the registry answered 42883. Proof: `test/e2e/tenancy-hierarchy-dapper.test.ts` (new leg, wired into tenancy-e2e.yml) runs the shared subtree / delimiter-trap / wildcard-trap / NULL-dataKey assertions against a booted Dapper backend on a real Postgres.",
       "source": "wave-c2:2b-dotnet"
+    },
+    {
+      "id": "F2-ADP-7",
+      "title": "A `.ddd` field named after a TARGET-LANGUAGE keyword emits uncompilable C# and Java \u2014 the host-identifier twin the M-T6.42/M-T6.43 quoting fixes left open",
+      "pr": "#2668 (dotnet) + #2703 (java gate) + wave C2 packet 2d (java drain)",
+      "sha": "e0aff5a / 84c2291",
+      "note": "fixed on both named backends, but DIFFERENTLY, and the first note here said otherwise: C# emits a verbatim `@identifier` (lexically the same identifier, so the wire never moved \u2014 test/generator/dotnet/cs-reserved-identifiers.test.ts), while java could only RENAME, and a Java record component name is also the Jackson property \u2014 so the java arm shipped as a REFUSAL (`loom.java-reserved-identifier-unsupported`), not as an escape.  DRAINED 2026-09-13 (wave C2 packet 2d, M-T6.36): java now emits a mangled host identifier plus an explicit `@JsonProperty` / `@RequestParam` / enum `AttributeConverter` at every wire site, the gate and its register row are deleted, and the round trip is boot-proved on Postgres 18 (test/generator/java/java-reserved-identifier.test.ts, test/fixtures/corpus/java-reserved-words.ddd)."
+    },
+    {
+      "id": "M-T6.36",
+      "title": "Java emitter shape gaps \u2014 two narrow honest rejections still live",
+      "pr": "#2703 + wave C2 packet 2d",
+      "sha": "84c2291",
+      "note": "gated 2026-08 (#2703), then RESOLVED: the two codes this row was written about were phantoms and were deleted, and the one real gap it inherited \u2014 `loom.java-reserved-identifier-unsupported` \u2014 was DRAINED 2026-09-13 (wave C2 packet 2d).  A `.ddd` field / param / operation / derived member / part field / helper function / ENUM VALUE named after a Java reserved word now emits; MAX_OPEN_GAPS 27 -> 26.  The enum-value arm was a second, previously silent gap found while draining the first."
     }
   ],
   "conflicts": [

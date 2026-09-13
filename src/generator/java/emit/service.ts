@@ -27,6 +27,7 @@ import { lines } from "../../../util/code-builder.js";
 import { upperFirst } from "../../../util/naming.js";
 import { isServerSourcedDefault } from "../../_frontend/server-default.js";
 import { javaLogEvent } from "../../_obs/render-java.js";
+import { jid } from "../java-ident.js";
 import {
   collectJavaExprImports,
   collectJavaTypeImports,
@@ -122,7 +123,7 @@ export function renderJavaService(
     ctx.esCreateParams ?? createInputs;
   for (const f of createParams) collectWireToDomainImports(f.type, imports, ctx.basePkg);
   const createLets = createParams.map((f) => {
-    const raw = `request.${f.name}()`;
+    const raw = `request.${jid(f.name)}()`;
     // A create-input field with a declared default (`field: T = <expr>`) is
     // boxed/nullable in the request record (see dto.ts): an omitted key arrives
     // null, so materialize the declared default here — parity with node/python
@@ -133,7 +134,7 @@ export function renderJavaService(
     // are — it is not a construction rule the domain could apply.
     if (dflt && isServerSourcedDefault(dflt)) {
       collectJavaExprImports(dflt, imports);
-      return `        var ${f.name} = ${raw} != null ? ${wireToDomain(f.type, raw, `/${f.name}`)} : ${renderJavaExpr(dflt)};`;
+      return `        var ${jid(f.name)} = ${raw} != null ? ${wireToDomain(f.type, raw, `/${f.name}`)} : ${renderJavaExpr(dflt)};`;
     }
     // Every OTHER default belongs to the factory (`javaFactoryDefault` in
     // emit/entity.ts), which reads `null` as "the caller omitted this".  The
@@ -141,11 +142,11 @@ export function renderJavaService(
     // places is what produces cross-backend default drift.  So an omittable
     // input passes straight through, null and all.
     if (!ctx.esCreateParams && !isRequiredCreateInput(f as FieldIR)) {
-      return `        var ${f.name} = ${wireToDomain(eff(f.type, true), raw, `/${f.name}`)};`;
+      return `        var ${jid(f.name)} = ${wireToDomain(eff(f.type, true), raw, `/${f.name}`)};`;
     }
-    return `        var ${f.name} = ${wireToDomain(eff(f.type, !!f.optional), raw, `/${f.name}`)};`;
+    return `        var ${jid(f.name)} = ${wireToDomain(eff(f.type, !!f.optional), raw, `/${f.name}`)};`;
   });
-  const createArgs = createParams.map((f) => f.name).join(", ");
+  const createArgs = createParams.map((f) => jid(f.name)).join(", ");
   // A `currentUser.*` create-field default coalesces to the ambient principal
   // (`... : currentUser.<claim>()`), so the create method needs `currentUser`
   // bound off the accessor — the same binding the operations use.  (A bare
@@ -314,8 +315,8 @@ export function renderJavaService(
   const findLines = declaredFinds(repo)
     .map((f) => unionFindAsOptionalTwin(f, agg.name))
     .flatMap((f) => {
-      const params = f.params.map((p) => `${renderJavaType(p.type)} ${p.name}`).join(", ");
-      const args = f.params.map((p) => p.name).join(", ");
+      const params = f.params.map((p) => `${renderJavaType(p.type)} ${jid(p.name)}`).join(", ");
+      const args = f.params.map((p) => jid(p.name)).join(", ");
       // Finder params are DOMAIN-typed (`renderJavaType`) and passed straight
       // through to the repository — collect the domain-type import (BigDecimal
       // for decimal, UUID for a bare guid, …) to match the rendered signature,
@@ -328,8 +329,8 @@ export function renderJavaService(
         const pagedArgs = [args, "page, pageSize, sort, dir"].filter(Boolean).join(", ");
         return [
           `    @Transactional(readOnly = true)`,
-          `    public Paged<${agg.name}Response> ${f.name}(${pagedParams}) {`,
-          `        var result = repository.${f.name}(${pagedArgs});`,
+          `    public Paged<${agg.name}Response> ${jid(f.name)}(${pagedParams}) {`,
+          `        var result = repository.${jid(f.name)}(${pagedArgs});`,
           `        return new Paged<>(result.items().stream().map(${agg.name}Response::${respFrom}).toList(),`,
           `            result.page(), result.pageSize(), result.total(), result.totalPages());`,
           `    }`,
@@ -339,8 +340,8 @@ export function renderJavaService(
       if (f.returnType.kind !== "array") {
         return [
           `    @Transactional(readOnly = true)`,
-          `    public ${agg.name}Response ${f.name}(${params}) {`,
-          `        var found = repository.${f.name}(${args});`,
+          `    public ${agg.name}Response ${jid(f.name)}(${params}) {`,
+          `        var found = repository.${jid(f.name)}(${args});`,
           `        return found == null ? null : ${agg.name}Response.${respFrom}(found);`,
           `    }`,
           ``,
@@ -348,8 +349,8 @@ export function renderJavaService(
       }
       return [
         `    @Transactional(readOnly = true)`,
-        `    public List<${agg.name}Response> ${f.name}(${params}) {`,
-        `        return repository.${f.name}(${args}).stream().map(${agg.name}Response::${respFrom}).toList();`,
+        `    public List<${agg.name}Response> ${jid(f.name)}(${params}) {`,
+        `        return repository.${jid(f.name)}(${args}).stream().map(${agg.name}Response::${respFrom}).toList();`,
         `    }`,
         ``,
       ];
@@ -451,16 +452,17 @@ export function renderJavaService(
         (hasParams ? `${idClass} id, ${reqType} request` : `${idClass} id`) + ifMatchParam;
       const lets = op.params.map(
         (p) =>
-          `        var ${p.name} = ${wireToDomain(p.type, `request.${p.name}()`, `/${p.name}`)};`,
+          `        var ${jid(p.name)} = ${wireToDomain(p.type, `request.${jid(p.name)}()`, `/${p.name}`)};`,
       );
       for (const p of op.params) collectWireToDomainImports(p.type, imports, ctx.basePkg);
       const usesUser =
         !!ctx.authed && (operationBodyUsesCurrentUser(op) || operationGatesUseCurrentUser(op));
       // Only what REMAINS of the body still takes the trailing argument.
       const passUser = !!ctx.authed && operationBodyUsesCurrentUser(op);
-      const args = [...op.params.map((p) => p.name), ...(passUser ? ["currentUser"] : [])].join(
-        ", ",
-      );
+      const args = [
+        ...op.params.map((p) => jid(p.name)),
+        ...(passUser ? ["currentUser"] : []),
+      ].join(", ");
       if (op.extern) {
         // Extern op (extern-domain-extension-point.md §3a): the op is a
         // real aggregate method now — it runs its preconditions, delegates to the
@@ -469,14 +471,14 @@ export function renderJavaService(
         // guards, calls, saves, drains — identical to a plain void operation; the
         // injected handler + `ExternHandlerException` wrap are gone.
         return [
-          `    public void ${op.name}(${paramSig}) {`,
+          `    public void ${jid(op.name)}(${paramSig}) {`,
           ...lets,
           usesUser ? `        var currentUser = currentUserAccessor.user();` : null,
           `        var aggregate = repository.getById(id);`,
           ifMatchGuard,
           ...requiresGateLines(op),
           whenGateLine(op),
-          `        aggregate.${op.name}(${args});`,
+          `        aggregate.${jid(op.name)}(${args});`,
           `        repository.save(aggregate);`,
           `        publishEvents(aggregate);`,
           `    }`,
@@ -508,7 +510,7 @@ export function renderJavaService(
       // / scope / parent ids are stamped from the ambient RequestContext.
       const audited = !!op.audited;
       return [
-        `    public ${retType} ${op.name}(${paramSig}) {`,
+        `    public ${retType} ${jid(op.name)}(${paramSig}) {`,
         ...lets,
         usesUser ? `        var currentUser = currentUserAccessor.user();` : null,
         `        var aggregate = repository.getById(id);`,
@@ -517,8 +519,8 @@ export function renderJavaService(
         whenGateLine(op),
         audited ? `        var __before = ${agg.name}Response.from(aggregate);` : null,
         returnsValue
-          ? `        var result = aggregate.${op.name}(${args});`
-          : `        aggregate.${op.name}(${args});`,
+          ? `        var result = aggregate.${jid(op.name)}(${args});`
+          : `        aggregate.${jid(op.name)}(${args});`,
         `        repository.save(aggregate);`,
         audited ? `        var __after = ${agg.name}Response.from(aggregate);` : null,
         audited ? `        auditRecords.save(new AuditRecord(` : null,
@@ -599,7 +601,7 @@ export function renderJavaService(
   const voMappers = [...voNames].sort().flatMap((vo) => {
     const fields = voLookup.get(vo) ?? [];
     const args = fields
-      .map((f) => wireToDomain(eff(f.type, f.optional), `request.${f.name}()`, `/${f.name}`))
+      .map((f) => wireToDomain(eff(f.type, f.optional), `request.${jid(f.name)}()`, `/${f.name}`))
       .join(", ");
     for (const f of fields) collectWireToDomainImports(f.type, imports, ctx.basePkg);
     return [
