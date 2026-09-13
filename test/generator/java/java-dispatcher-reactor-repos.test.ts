@@ -111,8 +111,8 @@ describe("java dispatcher injects the repositories its reactor bodies use", () =
     const used = new Set(
       [...d.matchAll(/\b([a-z][A-Za-z0-9]*Repository)\.\w+\(/g)].map((m) => m[1] as string),
     );
-    expect(
-      [...used].filter((name) => !new RegExp(`private final \\w+ ${name};`).test(d)),
-    ).toEqual([]);
+    expect([...used].filter((name) => !new RegExp(`private final \\w+ ${name};`).test(d))).toEqual(
+      [],
+    );
   });
 });
