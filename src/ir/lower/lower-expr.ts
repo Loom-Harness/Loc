@@ -901,6 +901,42 @@ function applySuffixToRecv(
         return { recv: orExpr, recvType: bool };
       }
     }
+    // `this.<fn>(args)` / `this.<op>(args)` — an EXPLICIT self-call on an
+    // aggregate-local `function` or `operation`.  The bare spelling
+    // (`strictfp(x)`) lowers above to a `call` with `callKind: "function"` /
+    // `"private-operation"`, which every backend renders against the helper's
+    // DEF-SITE name (python `self._strictfp`, java `this.strictfp_`, elixir
+    // `strictfp(record, …)`).  The dotted spelling used to fall through to a
+    // generic `method-call` on a `this` receiver, so the backends whose def-site
+    // name differs from the declared one rendered a member that does not exist
+    // (python `AttributeError: 'Ticket' object has no attribute 'strictfp'`,
+    // elixir `record.strictfp(x)` on a struct) — the two spellings of one call
+    // must produce one IR shape.  A `this.<collectionOp>(…)` (e.g. a VO with a
+    // `contains` member) is left to the collection-op path, and an unresolved
+    // name stays a `method-call` so the validator can report it.
+    if (recv.kind === "this" && !collectionOp) {
+      const selfKind = resolveCallKind(ms.member, env);
+      if (selfKind === "function" || selfKind === "private-operation") {
+        const callIR: ExprIR = {
+          kind: "call",
+          callKind: selfKind,
+          name: ms.member,
+          args,
+          ...(argNames.some((n) => n !== undefined) ? { argNames } : {}),
+          ...(selfKind === "private-operation"
+            ? { targetPrivate: findOperationInEnv(env, ms.member)?.private ?? false }
+            : {}),
+        };
+        const fn = findFunctionInEnv(env, ms.member);
+        const op = fn ? undefined : findOperationInEnv(env, ms.member);
+        const resultType: TypeIR = fn
+          ? lowerType(fn.returnType)
+          : op?.returnType
+            ? lowerType(op.returnType, env)
+            : { kind: "primitive", name: "string" };
+        return { recv: callIR, recvType: resultType };
+      }
+    }
     const mcIR: ExprIR = {
       kind: "method-call",
       receiver: recv,

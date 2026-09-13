@@ -1011,8 +1011,16 @@ export function renderJavaEntity(
   const promotedCaps =
     isRoot && isAgg(entity) ? (options.promotedCaps ?? new Set<string>()) : new Set<string>();
   const contextFilters = isRoot && isAgg(entity) ? sqlRestrictionFilters(entity, promotedCaps) : [];
+  // A TPH CONCRETE never carries its own `@SQLRestriction`: Hibernate refuses
+  // the annotation on a subclass of a SINGLE_TABLE hierarchy (the restriction
+  // is a property of the shared table's mapping, and only its root may declare
+  // it — `AnnotationException` at boot).  The fragment is hoisted onto the
+  // abstract base, discriminator-guarded (`kind <> '<Sub>' or (<fragment>)`)
+  // so it scopes to this subtype's rows only — see
+  // `renderJavaAbstractBaseEntity`'s `subtypeRestrictions` (the java twin of
+  // the EF adapter's discriminator-guarded root filter).
   const sqlRestriction =
-    persistence && contextFilters.length > 0
+    persistence && contextFilters.length > 0 && !superType?.sharesIdentity
       ? `@SQLRestriction(${JSON.stringify(contextFilters.map(renderSqlRestriction).join(" and "))})`
       : null;
   // Promoted capabilities → bypassable Hibernate named filters.  `autoEnabled`
@@ -1116,9 +1124,24 @@ export function renderJavaAbstractBaseEntity(
       voLookup: ReadonlyMap<string, readonly FieldIR[]>;
       mangledEnums?: ReadonlySet<string>;
     };
+    /** TPH only: each concrete's static capability-filter fragment (the SQL
+     *  `renderJavaEntity` would have put in the concrete's own
+     *  `@SQLRestriction`), keyed by its discriminator value.  Hibernate refuses
+     *  `@SQLRestriction` on a SINGLE_TABLE subclass, so the root declares ONE
+     *  restriction that guards every fragment by discriminator —
+     *  `(kind <> 'Parcel' or (not (is_deleted)))` — and a sibling kind's rows
+     *  are untouched by a filter that is not theirs. */
+    subtypeRestrictions?: readonly { kind: string; condition: string }[];
   } = {},
 ): string {
   const renderCtx: JavaRenderContext = { thisName: "this", agg: base };
+  const subtypeRestrictions = options.tph ? (options.subtypeRestrictions ?? []) : [];
+  const hoistedRestriction =
+    options.persistence && subtypeRestrictions.length > 0
+      ? `@SQLRestriction(${JSON.stringify(
+          subtypeRestrictions.map((r) => `(kind <> '${r.kind}' or (${r.condition}))`).join(" and "),
+        )})`
+      : null;
   const persistence = options.persistence;
   const javaImports = new Set<string>();
   for (const f of base.fields) collectJavaTypeImports(f.type, javaImports);
@@ -1209,6 +1232,7 @@ export function renderJavaAbstractBaseEntity(
     persistence && needsHibernateTypes(base.fields)
       ? `import org.hibernate.annotations.JdbcTypeCode;`
       : null,
+    hoistedRestriction ? `import org.hibernate.annotations.SQLRestriction;` : null,
     persistence && needsHibernateTypes(base.fields) ? `import org.hibernate.type.SqlTypes;` : null,
     persistence ? `` : null,
     `import ${basePkg}.domain.common.*;`,
@@ -1228,6 +1252,7 @@ export function renderJavaAbstractBaseEntity(
           `@Table(name = "${hbIdent(plural(snake(base.name)))}"${persistence.schema ? `, schema = "${persistence.schema}"` : ""})`,
           `@Inheritance(strategy = InheritanceType.SINGLE_TABLE)`,
           `@DiscriminatorColumn(name = "kind")`,
+          ...(hoistedRestriction ? [hoistedRestriction] : []),
         ]
       : []),
     persistence && !options.tph ? `@MappedSuperclass` : null,

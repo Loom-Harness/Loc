@@ -68,9 +68,12 @@ function derivedRenderable(
   /** `this-derived` names already being resolved — breaks a (validator-
    *  prevented) cycle instead of recursing forever. */
   stack: ReadonlySet<string> = new Set(),
+  /** Whether `name` is a DERIVED of the shape being serialized — the
+   *  explicit-receiver `member` arm needs it (see there). */
+  isDerived: (name: string) => boolean = () => false,
 ): boolean {
   const rec = (x: ExprIR, sc: ReadonlySet<string> = scope): boolean =>
-    derivedRenderable(x, sc, resolveDerived, stack);
+    derivedRenderable(x, sc, resolveDerived, stack, isDerived);
   switch (e.kind) {
     case "literal":
     case "id":
@@ -106,13 +109,30 @@ function derivedRenderable(
           if (stack.has(e.name)) return false;
           const target = resolveDerived(e.name);
           if (!target) return false;
-          return derivedRenderable(target, scope, resolveDerived, new Set([...stack, e.name]));
+          return derivedRenderable(
+            target,
+            scope,
+            resolveDerived,
+            new Set([...stack, e.name]),
+            isDerived,
+          );
         }
         default:
           // helper-fn, current-user, resource, param, unknown, match-binding.
           return false;
       }
     case "member":
+      // The EXPLICIT-receiver spelling of a field read — `this.synchronized`
+      // lowers to a `member` on a `this` node where the bare `synchronized` is
+      // a `this-prop` ref — and the renderer emits the same `record.<field>`
+      // for both, so it projects exactly when the bare form does.  Declining
+      // it here (a bare `this` receiver is unrenderable on its own) silently
+      // dropped every derived spelled with `this.` off the wire — the
+      // `java-reserved-words` corpus e2e read `throws` back as undefined on
+      // this backend alone.  A `this.<derived>` read still declines: the
+      // renderer does not inline the member spelling (only the `this-derived`
+      // ref), so it would emit a `KeyError`-raising `record.<derived>`.
+      if (e.receiver.kind === "this") return !isDerived(e.member);
       return rec(e.receiver);
     case "method-call":
       return rec(e.receiver) && e.args.every((a) => rec(a));
@@ -366,7 +386,11 @@ export function renderWireSerialize(
           derived === aggDerived
             ? (name: string): ExprIR | undefined => aggDerived.get(name)?.expr
             : undefined;
-        if (!d || !derivedRenderable(d.expr, new Set(), resolve)) continue;
+        if (
+          !d ||
+          !derivedRenderable(d.expr, new Set(), resolve, new Set(), (name) => derived.has(name))
+        )
+          continue;
         ve = renderExpr(d.expr, derivedRc);
       } else if (wf.source === "id") {
         ve = idExprLocal;
