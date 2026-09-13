@@ -49,11 +49,22 @@ export interface ColumnShape {
   voGroup?: string;
   /** Set on the parent-table column standing in for a value-object
    *  *array* field (`charges: Money[]`).  Names the id-less child table the
-   *  elements actually live in.  Relational backends (Drizzle / EF) **skip**
-   *  this column — the data is in the child table — while Phoenix, which
-   *  models the array as a single `{:array, :map}` column, renders it
-   *  normally (the column's `array(json)` type already lowers to
-   *  `{:array, :map}`).  Absent on ordinary columns. */
+   *  elements actually live in.
+   *
+   *  **EVERY backend skips this column, and so does the diff.**  It is a
+   *  carrier for the child-table name, not a column anything creates:
+   *  `renderCreateTable` (sql-pg.ts) skips it, the Ecto emitter drops it at
+   *  all three of its create sites (`elixir/migrations-emit.ts`), and
+   *  `diffTable` filters it off both sides of the column diff
+   *  (`isDiffableColumn`).  Absent on ordinary columns.
+   *
+   *  Treat that as an invariant, not an incidental.  Phoenix DID once store
+   *  the array inline as a single `{:array, :map}` column and render this one
+   *  normally; it now emits the child table like everyone else.  Letting the
+   *  column back into any DDL path resurrects M-T2.15 (#2864 D1): the diff
+   *  emitted `ADD COLUMN … JSONB[]` + `SET NOT NULL` for it beside the correct
+   *  child table, and since no ORM maps the column, every later INSERT failed
+   *  the NOT NULL constraint permanently. */
   valueArrayChildTable?: string;
 }
 
