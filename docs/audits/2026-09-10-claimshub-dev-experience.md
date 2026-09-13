@@ -12,6 +12,12 @@ had its emitted **backend and frontend actually `npm install` + `tsc
 
 Re-verified on fresh `main` @ `93bc82d` (2026-09-10) right before filing this.
 
+**Status re-check 2026-09-13.** Three of the four defects now have a fix in
+flight; **all three PRs are still open, so every claim below is still true of
+`main`.** Each defect carries its own status line. Per-defect status lives
+here; the disposition row is
+[`docs/new-plan/coverage.md`](../new-plan/coverage.md) § Audits.
+
 ## Overlap — read before picking anything up
 
 Three parallel dev-experience sessions ran the same exercise on other
@@ -31,6 +37,8 @@ is bypassable today even without `denyByDefault` turned on. Whoever picks up
 ## Defects
 
 ### D1 (bug, confirmed live on `main` today) — scaffolded `softDelete` button ships a `tsc` error; `journey/04-saas.ddd` already has it
+
+**Status 2026-09-13:** fix in flight — **[#2878](https://github.com/Loom-Harness/Loc/pull/2878)** (the one-line `?? ""` at the site named below, proved on react/vue/svelte against `journey/04-saas.ddd`). Open, not merged; the root-cause line below is unchanged on `main`.
 
 The scaffold's Detail page wires the soft-delete button's mutation hook as:
 
@@ -74,6 +82,8 @@ without losing the safety property (by click time `data` has always
 resolved).
 
 ### D2 (bug, confirmed live on `main` today) — `currentUser.<undeclared-field>` compiles clean, breaks `tsc`; the comment claiming a safety net is wrong
+
+**Status 2026-09-13:** fix in flight — **[#2884](https://github.com/Loom-Harness/Loc/pull/2884)** (a new `loom.unknown-user-claim` raised in phase ④ off the enumerable `user { }` claim set, rather than the IR-validate check this section looked for). Open, not merged; no such check exists on `main` today.
 
 Minimal repro (independent of the claims model):
 
@@ -129,6 +139,8 @@ next to, not covered by, that work.
 
 ### D3 (design gap, no diagnostic — adjacent to #2862 slice 1) — `crudish`'s generic `update` bypasses hand-written `requires` gates on the same aggregate
 
+**Status 2026-09-13:** **no fix in flight, no mission** — the one row here still unowned. It stays folded onto #2862 slice 1's crudish-gate axis (commented there) rather than forked into a mission of its own; whoever takes that slice should take both angles together.
+
 ```ddd
 aggregate Claim with crudish, auditable {
   status: ClaimStatus
@@ -159,6 +171,8 @@ shouldn't be blanket-writable via the generic update" — this would be the
 natural sequel to that existing, working test.
 
 ### D4 (papercut — `policy` intentional-but-undiagnosed, `deny` likely an oversight)
+
+**Status 2026-09-13:** fix in flight — **[#2883](https://github.com/Loom-Harness/Loc/pull/2883)**, which goes further than this section asks: rather than adding a special-cased diagnostic, it promotes `policy`, `deny` and six siblings (`of`, `allow`, `local`, `deep`, `global`, `persistence`) into `CommonSoftKeywords`, so `policy: Policy id` simply becomes a legal field name. Open, not merged — on `main` today both halves below still reproduce. **One half stays unfixed even after it lands:** the literal repro `operation deny()` is a *declaration* name, and `Operation.name` is `(ID | 'write')` — `operation state()` fails identically — so widening declaration names is a separate decision, pinned by a test there rather than silently left.
 
 - A field literally named `policy` fails to parse:
   `` Expecting token of type '}' but found `policy` ``. **Intentional** —
