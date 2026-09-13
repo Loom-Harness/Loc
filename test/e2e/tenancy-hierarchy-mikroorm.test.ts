@@ -4,6 +4,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, it } from "vitest";
+import { installGeneratedProject } from "./support/npm-install.js";
 import {
   assertHierarchyIsolation,
   freePort,
@@ -70,11 +71,7 @@ describe.skipIf(!ENABLED)(
         pg = await startPostgres("hier-mikro");
         const pgUrl = `postgres://${pg.user}:${pg.password}@${pg.host}:${pg.port}/${pg.db}`;
 
-        execSync("npm install --silent --no-audit --no-fund", {
-          cwd: appDir,
-          stdio: "pipe",
-          timeout: 180_000,
-        });
+        installGeneratedProject(appDir, { timeout: 180_000 });
         const port = await freePort();
         child = spawn("npx", ["tsx", "index.ts"], {
           cwd: appDir,

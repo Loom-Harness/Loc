@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { requireDocker } from "./support/docker-probe.js";
 import { mixDepsGet, mixLocalInstall } from "./support/mix-retry.js";
+import { installGeneratedProject } from "./support/npm-install.js";
 
 // ---------------------------------------------------------------------------
 // Phoenix/LiveView UI smoke — runtime end-to-end guard.
@@ -180,11 +181,7 @@ describe.skipIf(!ENABLED)("Phoenix LiveView UI smoke — runtime e2e (LOOM_PHOEN
       });
 
       // 6. Run the emitted Playwright smoke against the live server.
-      execSync("npm install --no-audit --no-fund", {
-        cwd: e2eDir,
-        stdio: "pipe",
-        timeout: 300_000,
-      });
+      installGeneratedProject(e2eDir, { timeout: 300_000 });
       execSync("npx playwright install --with-deps chromium", {
         cwd: e2eDir,
         stdio: "pipe",

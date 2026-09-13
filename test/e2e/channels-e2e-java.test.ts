@@ -24,6 +24,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { installGeneratedProject } from "./support/npm-install.js";
 
 const ENABLED = process.env.LOOM_CHANNELS_E2E_JAVA === "1";
 
@@ -141,7 +142,7 @@ describe.skipIf(!ENABLED)("cross-backend broker delivery (channels-e2e, java con
       redisUrl = `redis://localhost:${REDIS_PORT}`;
     }
 
-    sh("npm install --silent", join(dir, "out", "sales_api"));
+    installGeneratedProject(join(dir, "out", "sales_api"), { flags: [], timeout: 600_000 });
     sh("gradle --no-daemon -q bootJar", join(dir, "out", "ship_api"));
     const jar = readdirSync(join(dir, "out", "ship_api", "build", "libs")).find(
       (f) => f.endsWith(".jar") && !f.endsWith("-plain.jar"),

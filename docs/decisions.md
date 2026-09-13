@@ -2480,3 +2480,962 @@ the two checks are the same predicate and the same message.
 `generator/java/emit/service.ts`, `generator/python/routes-builder.ts` are
 unchanged. Pinned by `test/generator/when-gate-domain-entry.test.ts`;
 documented in [`language-reference/06-behavior-and-statements.md`](language-reference/06-behavior-and-statements.md).
+
+---
+
+# Wave C0.6 — the fifteen rulings batch (drafted 2026-09-10)
+
+The fifteen entries below were batched by packet **C0.6** of Wave C0 in
+[`new-plan/completion-waves-2026-09.md`](new-plan/completion-waves-2026-09.md)
+(the table that used to live in that plan's Wave C5 now points here). They are
+drafted so the owner can sign the batch off in one sitting: each carries the
+question in one sentence, the options that were on the table, a **default**, its
+reason grounded in the code as it stands on `main` @ `bc7ed8f`, what it unblocks
+(mission id + wave packet), and Sources.
+
+**How the defaults work.** Every entry is `proposed`. Thirteen carry *default
+applies 48 h after merge unless overridden* — an absent owner does not stall the
+fleet. **Two are `owner-only, no default`** and nothing may proceed on them
+without a signature: **D-HANDLE-REMOVAL** (it deletes surface syntax) and
+**D-NUMERIC-INGRESS-STRICT** (it is a breaking narrowing on a shipping wire).
+When a default is taken, flip that entry's Status to `PINNED` and date it; when
+the owner overrides, rewrite the Decision rather than adding a second one beside
+it.
+
+| # | tag | default in one line |
+|---|---|---|
+| 1 | `D-ENVELOPE-RATIFY` | `X envelope` = a single-row find; the `{id, ts, body}` carrier is dropped |
+| 2 | `D-HANDLE-REMOVAL` | remove workflow `handle` / named `create` — **owner-only** |
+| 3 | `D-FOR-IN-DOMAIN` | `for` in a domain body = honest gap + named successor; `variant-match` / `if let` = permanent refusals |
+| 4 | `D-NUMERIC-INGRESS-STRICT` | strict on both real narrowings — **owner-only** |
+| 5 | `D-DECIMAL-EXACT-MOMENT` | one PR: node + python + all 54 goldens re-captured; mint **RS-35** |
+| 6 | `D-WRITE-TX` | state + outbox + audit + provenance in one tx; dispatch after commit |
+| 7 | `D-CROSSTENANT-ACK` | `policy { deny on X }` is the acknowledgment; `allow global` stays refused |
+| 8 | `D-READ-SURFACE-ORDER` | re-verify, then projection masking, then the two small gates, then system reads |
+| 9 | `D-LONG-AVG-DEFAULTS` | declared 2^53 ceiling for `long`; projection `avg` over money retypes to `money` |
+| 10 | `D-DAPPER-ALTER` | build the ALTER path in phase ⑨; the widened refusal lands first |
+| 11 | `D-PROJECTION-IMPLICIT-SUB` | an `on(Event)` subscribes in-process with or without a channel |
+| 12 | `D-FIRST-ON-EMPTY` | `first` is partial and fails on empty; `firstOrNull` is total; mint **RS-36** |
+| 13 | `D-ABSENT-JOIN-DATETIME-WIRE` | absent join value = wire `null` everywhere (RS-34 ratified); datetimes ship milliseconds; mint **RS-37** |
+| 14 | `D-FLUTTER-BEARER` | Flutter native = bearer, Flutter web = cookie (a RULE 2 amendment) |
+| 15 | `D-MISC-C0` | four small rulings: the .NET entry-point boundary, `connection:` semantics, per-op OpenAPI tags, `scopeId` |
+
+---
+
+## D-ENVELOPE-RATIFY — `X envelope` is a single-row find, not an `{id, ts, body}` carrier
+
+**Status:** proposed (default applies 48 h after merge unless overridden).
+
+**Question.** Does `find audit(): Order envelope` mean a wrapped
+`{id, ts, body}` payload, a single-row read, or nothing at all until the carrier
+is built?
+
+**Options.** (L) build the `{id, ts, body}` carrier on all five backends — it
+needs a `ts` source in the IR that nothing supplies; (M) ratify the single-row
+meaning node and python already ship and drop the distinct carrier meaning;
+(S) refuse `envelope` until it is built.
+
+**Decision.** (M) — **`envelope` is arity sugar for a find that returns exactly
+one row.** This diverges from the completion plan's proposed default (S, "refuse
+until built"); the reason is in the Rationale, and PR
+[#2852](https://github.com/Loom-Harness/Loc/pull/2852) is already open on `main`
+taking this option.
+
+**Rationale.**
+
+- **A wrapper would contradict a PINNED decision.** D-ENVELOPE fixes every HTTP
+  response to one of four shapes — bare value, `Paged<T>`, ProblemDetails,
+  event-frame `{ kind, occurredAt, correlationId, data }`. An `{ id, ts, body }`
+  wrapper is a fifth shape, and the event-frame is already the carrier for "an
+  event plus its metadata".
+- **Nothing supplies the carrier's own fields.** `GENERIC_SHAPES.envelope`
+  (`src/ir/stdlib/generics.ts:74-77`) declares `{ id: string, ts: datetime,
+  body: P }` and `monomorphizeGenericInstances` (`src/ir/enrich/enrichments.ts:1446-1458`)
+  synthesizes an `OrderEnvelope` payload from it — but **no emitter has a single
+  arm for the ctor**: `grep '"envelope"' src/` matches only the grammar, the
+  `GenericCtorName` union and that shape table. Java and .NET render it
+  structurally through their `TypeTarget` as `Envelope<T>`
+  (`java/render-expr.ts:1007`, `dotnet/render-expr.ts:1221`); .NET declares the
+  record exactly once (`dotnet/emit/common.ts:191`) and returns a bare `T` from a
+  `Task<Envelope<T>>` signature (CS0029), java declares it **nowhere** (three
+  references, zero definitions), elixir returns a JSON array. Building the
+  carrier means inventing a `ts` value five times.
+- **Refusal costs the same emitter surgery as ratification** and still leaves the
+  grammar, the stdlib shape table and `docs/generators.md:66`'s five ticks
+  promising a carrier no author can use. Zero `.ddd` in the repo uses the keyword
+  (the reason every compile gate was blind), so ratification breaks no model
+  either.
+
+**Consequences.** `X envelope` means one row — the bare aggregate/payload wire
+shape, 404 when absent. The `envelope` arm of `GENERIC_SHAPES` and its
+monomorphized `<Arg>Envelope` payload go with the emitter change, or reduce to an
+`envelopeReturn()` recogniser beside `pagedReturn`; leaving the `{id, ts, body}`
+field list in the stdlib while no backend emits it is exactly the drift this
+ruling removes. Java/.NET drop `Envelope<T>` from ports and impls (and delete the
+now-dead record); elixir's find-controller reads and serialises ONE record
+instead of `Repo.all`. A corpus fixture (`test/fixtures/corpus/envelope.ddd`)
+enters the compile matrix in the same PR, because the gates cannot see the
+carrier without one (rule 13). If a real event-envelope carrier is wanted later
+it is a NEW ctor with a designed `ts` source, not this one.
+
+**Unblocks.** M-T6.57 (P0) → wave **C1 packet 1c**; retires M-T6.14's DEBT-08
+`envelope` deferral.
+
+**Sources.** [`T6-backend-parity.md`](new-plan/T6-backend-parity.md) M-T6.57 +
+its 2026-09-09 fleet note (F57);
+[`2026-09-03-language-docs-audit-findings.md`](audits/2026-09-03-language-docs-audit-findings.md)
+F21; PR #2852; `src/ir/stdlib/generics.ts`, `src/ir/enrich/enrichments.ts`,
+`src/generator/{java,dotnet}/render-expr.ts`,
+`src/generator/dotnet/emit/common.ts`.
+
+---
+
+## D-HANDLE-REMOVAL — workflow `handle` and named `create` are removed, not routed
+
+**Status:** proposed — **owner-only, no default.** Nothing proceeds on M-T6.58
+without a signature; this entry deletes surface syntax.
+
+**Question.** Does the workflow `handle name(...) { … }` declaration become a
+shipping HTTP entry point on all five backends, or is it removed as redundant
+with `commandHandler`?
+
+**Options.** (a) emit a route per `handle` on all five and design the addressing
+surface it lacks; (b) remove the declaration — grammar, lowering, and the
+diagnostic that promises it — and point authors at `commandHandler`; (c) keep it
+parsing behind an honest refusal.
+
+**Decision (proposed).** (b) — remove. (c) is the acceptable transitional step in
+the same PR if the grammar removal cannot land in one go.
+
+**Rationale.**
+
+- **The addressing surface does not exist.** `HandleDecl`
+  (`src/language/ddd.langium:1488-1491`) is
+  `'handle' name '(' params ')' ('requires' gate)? '{' body '}'` — **no `by`
+  clause**, unlike its sibling `WorkflowCreateDecl` (`:1473-1476`, which carries
+  `('by' correlation=CorrelationExpr)?`) and unlike `OnDecl`, whose `by` was
+  deferred *with a written reason*. `HandleIR`
+  (`src/ir/types/loom-ir.ts:1361-1368`) carries `name`/`params`/`statements`/
+  `savesAtExit` and no correlation. So even a fully built route cannot say WHICH
+  saga instance it runs against: option (a) is not "write five emitters", it is
+  "design a correlation surface first, then write five emitters".
+- **`commandHandler` already covers the use case**, with a full emitter on all
+  five and an explicit-handler route surface.
+- **Three places promise routing and zero deliver.** Lowering fills
+  `WorkflowIR.handlers` (`src/ir/lower/lower-workflow.ts:124-174`),
+  `test/ir/workflow-handle.test.ts` pins it, and `loom.duplicate-handler`
+  (`src/diagnostics/messages.ts:314-317`) tells the author that
+  "a `route -> <Ctx>.<name>` would be ambiguous" — while every emitter drops it
+  through the same fail-open `if (!h) continue;`. Named `create` is dropped by a
+  different mechanism (`lowerWorkflow` picks one primary).
+- **Owner-only** because a default must never take a keyword out of the language
+  unattended.
+
+**Consequences.** `handle` and the named `create` form stop parsing; `HandleIR`,
+`WorkflowIR.handlers` and `lowerHandle` are deleted; `loom.duplicate-handler`
+loses its workflow-`handle` clause and keeps the handler-vs-handler arm; the
+removal ships with a migration note naming `commandHandler` as the replacement.
+If the owner picks (a) instead, the correlation surface (`handle f(…) by <expr>`)
+is designed FIRST as its own mission and this tag is superseded rather than
+edited. Either way the work is **blocked behind M-T6.62** — option (a) would be
+built on a workflow-`create` path that miscompiles on all five backends.
+
+**Unblocks.** M-T6.58 → wave **C1 packet 1a**.
+
+**Sources.** [`T6-backend-parity.md`](new-plan/T6-backend-parity.md) M-T6.58 + its
+2026-09-09 fleet note;
+[`2026-09-03-language-docs-audit-findings.md`](audits/2026-09-03-language-docs-audit-findings.md)
+F13; `src/language/ddd.langium`, `src/ir/types/loom-ir.ts`,
+`src/ir/lower/lower-workflow.ts`, `src/diagnostics/messages.ts`.
+
+---
+
+## D-FOR-IN-DOMAIN — `for` in a domain body is an honest gap with a successor; `variant-match` and `if let` outside their home are permanent refusals
+
+**Status:** proposed (default applies 48 h after merge unless overridden).
+
+**Question.** `for`, `if let` and `variant-match` all parse inside an operation
+body but lower only inside a workflow (or a page) — is each a permanent refusal,
+or a refusal today with lowering promised?
+
+**Options.** Gate all three permanently; lower all three; or split them.
+
+**Decision.** Split, as the 2026-09-09 fleet recommended. **`variant-match`
+outside a ui action → permanent refusal. `if let` outside a workflow → permanent
+refusal. `for` in a domain body → honest gap: a refusal code today, with a NAMED
+successor mission to lower it.**
+
+**Rationale.**
+
+- **All three are silent today, so a code is the floor under every option.**
+  `src/ir/lower/lower-stmt.ts` (the domain-body lowerer) has no `ForStmt` or
+  `IfLetStmt` arm at all and ends in
+  `return { stmt: { kind: "call", target: "function", name: "<unknown>", args: [] } }`
+  (`:374-378`), so `operation touch() { for n in notes { owner := n } }` reports
+  `0 error(s), 0 warning(s)` and emits `this.<unknown>();`. `variant-match`
+  reaches `src/generator/_stmt/target.ts` and throws.
+- **`for` differs in KIND, not only in cost.** `ForStmt` sits in the shared
+  `Statement` union (`ddd.langium:2075-2091`), and `lower-workflow.ts:588`
+  already lowers it with a per-iteration save — iterating a collection inside an
+  operation is an ordinary domain shape the language cannot otherwise express.
+  `variant-match` is frontend-shaped by construction (its arms render event
+  handlers) and `if let` is the workflow's `repo-let` narrowing; both have a home
+  the author is being pointed back to, and `for` does not.
+- A "permanent" refusal on `for` would be re-opened the first time somebody
+  models a bulk operation. Naming the successor now costs one heading and stops
+  the code being read as a decision that iteration is unwanted.
+
+**Consequences.** Three codes in `src/diagnostics/messages.ts` (C1 packet 1b is
+the only packet permitted to mint), each with a `code-docs.ts` anchor and a
+firing fixture. The `for` code's message says *not yet lowered in a domain body*
+and names its successor; the other two say *by design* and name the construct's
+home. Neither message may recommend the .NET/Java `match`-error form until
+M-T6.61's binding fix is in. The `<unknown>` fallback in `lower-stmt.ts` is
+itself a silent sentinel of the M-T9.55 class and is routed through the give-up
+gate in the same wave.
+
+**Unblocks.** M-T5.28 → wave **C1 packet 1b**.
+
+**Sources.** [`T5-language-core.md`](new-plan/T5-language-core.md) M-T5.28;
+[`2026-09-03-language-docs-audit-findings.md`](audits/2026-09-03-language-docs-audit-findings.md)
+F1/F4; `src/ir/lower/lower-stmt.ts`, `src/ir/lower/lower-workflow.ts`,
+`src/generator/_stmt/target.ts`, `src/language/ddd.langium`.
+
+---
+
+## D-NUMERIC-INGRESS-STRICT — request-side numeric lenience is narrowed to match the strict majority
+
+**Status:** proposed — **owner-only, no default.** It is a breaking narrowing on
+a shipping wire; no client can be signed up to it by a timer.
+
+**Question.** python and elixir accept request values the other three refuse — a
+stringified number for an `int` field, and (elixir alone) a JSON number for a
+`money` field. Narrow them, or ratify the lenience?
+
+**Options.** (a) strict everywhere — refuse a string where a number is declared,
+refuse a JSON number where `money` is declared; (b) lenient everywhere — widen
+node/.NET/java to coerce; (c) leave the skew and document it.
+
+**Decision (proposed).** (a) strict, on **both** rows.
+
+**Rationale.**
+
+- **The contract is already strict on the majority and in the published schema.**
+  node emits `z.number().int()`, .NET's `System.Text.Json` refuses String→Number
+  without `AllowReadingFromString`, and java's `WireNumberStrictness` fails the
+  `LogicalType.Integer` string coercion — the one backend that was *moved* there
+  deliberately, by M-T6.48. python's acceptance is pydantic 2 lax mode and
+  elixir's is `Ecto.Type.cast(:integer, "5")`: two framework defaults nobody
+  chose.
+- **The money row is worse than a skew.** Four backends type a `money` request
+  field as a STRING (`z.string()`, `string Price`, `String price`,
+  `Annotated[str, …]`), so a JSON number never reaches a guard. Elixir's
+  create/update path casts straight onto the `:decimal` column, so nothing types
+  the wire value and `Ecto.Type.cast(:decimal, 12.5)` succeeds. RS-12 governs the
+  RESPONSE direction only — it says how money serializes, not what a request may
+  carry — which is why no existing gate saw this.
+- **Owner-only** because a client sending `{"qty":"5"}` to a python or elixir
+  deployable starts getting a 4xx it did not get before. Nothing in the repo can
+  make that call for a downstream consumer.
+
+**Consequences.** `ConfigDict(strict=True)` on python request models — or
+per-field `Strict()`, which is narrower and leaves datetime parsing alone — and a
+pre-`cast/3` wire-type guard on the elixir changeset path
+(`__loom_int_field` / `__loom_money_field`, answering through the existing
+`__loom_param_error` responder the op-param arm already emits). The
+characterization pins in the second `describe` of
+`test/conformance/numeric-ingress-parity.test.ts` are deleted and replaced by the
+same assertions inverted, in the same diff, so the contract is visibly moving;
+the file's header measurement table is **re-measured against the real
+deserializers**, not edited.
+
+**Not in this ruling — the third divergence is an ordinary defect.** M-T6.60 also
+records a 40-digit money string parsing on node/java/python/elixir, reaching
+`NUMERIC(19,4)`, and 500-ing from the database (only .NET refuses it, because
+`decimal.TryParse` stops at ~29 significant digits). A 500 is never the right
+answer, so there is nothing to rule: it is a **defect**, bounded from
+`MONEY_WIRE_SCALE` + the `NUMERIC(19,4)` precision in
+`src/generator/money-scale.ts` so one constant governs both the wire guard and
+the column, and it drains with wave **C1 packet 1e**'s `G2644` numeric-ingress
+residue row rather than waiting on a signature.
+
+**Unblocks.** M-T6.60 → wave **C2 packet 2f**; Schemathesis F11.
+
+**Sources.** [`T6-backend-parity.md`](new-plan/T6-backend-parity.md) M-T6.60;
+[`numeric-types-audit-2026-08-23.md`](audits/numeric-types-audit-2026-08-23.md)
+F12 annex; M-T6.48 and `test/conformance/numeric-ingress-parity.test.ts`; RS-12,
+RS-24.
+
+---
+
+## D-DECIMAL-EXACT-MOMENT — decimal exactness ships as ONE PR with every wire golden re-captured
+
+**Status:** proposed (default applies 48 h after merge unless overridden). The
+*semantic* ruling was already given by the owner on 2026-09-07 (`decimal`
+arithmetic is EXACT) and is **not** re-opened here; what this entry rules is the
+rule NUMBER and the shipping shape.
+
+**Question.** The owner ruled `decimal` arithmetic exact — under which RS number,
+and how does a change that MOVES the oracle every other backend is compared
+against actually land?
+
+**Options.** (i) node first, then python, re-capturing goldens twice; (ii) one PR
+carrying node + python + every re-captured golden; (iii) freeze the goldens and
+compare against a second oracle.
+
+**Decision.** (ii) — **one coordinated PR**, and mint **RS-35** (not RS-31; see
+Consequences).
+
+**Rationale.**
+
+- **The oracle is not one golden's property, it is every golden's.**
+  `jq -r .oracle test/behavioral/wire-golden/*.json` answers `node` for **all 54
+  files** (measured 2026-09-10). Any PR that changes node's decimal arithmetic
+  moves all 54 at once, so a partial landing leaves the differential tier
+  comparing four backends against an oracle that no longer describes node —
+  green exactly where it should be red.
+- Splitting by backend also splits the review. The mission demands the goldens be
+  reviewed diff-by-diff and never as a drive-by rebaseline; that review is only
+  meaningful once, against the final oracle.
+- `LOOM_WIRE_UPDATE=1` is the capture path, and it is a single command over the
+  whole set — sequencing buys nothing it does not cost twice.
+
+**Consequences.**
+
+- **The plan's "mint RS-31" is stale.** `docs/conformance-semantics.md` already
+  carries RS-31 (code-point `.length`), RS-32, RS-33 and RS-34. Under that file's
+  own *"Claim the NUMBER before you build"* protocol the next free number is
+  **RS-35**, and no open PR claims it (checked against the 11 open PRs on
+  2026-09-10). RS-36 and RS-37 are claimed inside this same batch by
+  D-FIRST-ON-EMPTY and D-ABSENT-JOIN-DATETIME-WIRE — take RS-38 next.
+- The PR body states that **historical rows are not rewritten**, so values
+  persisted before the change may disagree with values persisted after, and it
+  carries the migration note.
+- The blast-radius items the mission attached ride the same PR: node's
+  `decimal.js` running at the default 20 significant digits (no `Decimal.set`
+  emitted) against 28+ elsewhere, the inbound decimal precision-acceptance skew
+  (java unlimited / .NET 28–29 / double-clamped), and the
+  `sum → decimal` catalog signature in `src/util/collection-ops.ts` disagreeing
+  with `type-system.ts`'s body-type rule.
+- Scope the node implementation BEFORE writing it and report the finding: python
+  already has `Decimal` on the column side (M-T6.45), so its gap may be narrow,
+  while node likely needs a decimal library threaded through the domain layer and
+  the derived-field evaluator.
+
+**Unblocks.** M-T5.22 → wave **C2 packet 2f**.
+
+**Sources.** [`T5-language-core.md`](new-plan/T5-language-core.md) M-T5.22 (the
+2026-09-07 ruling);
+[`numeric-types-audit-2026-08-23.md`](audits/numeric-types-audit-2026-08-23.md)
+F11 + annex; [`conformance-semantics.md`](conformance-semantics.md) RS-24 and the
+claim-the-number protocol; `test/behavioral/wire-golden/*.json`.
+
+---
+
+## D-WRITE-TX — one write transaction: state + outbox + audit + provenance; dispatch after commit
+
+**Status:** proposed (default applies 48 h after merge unless overridden).
+
+**Question.** Which writes and which emits share a transaction, and what does a
+write path with no enclosing transaction do instead?
+
+**Options.** (a) one transaction per aggregate save carrying the outbox, audit
+and provenance rows, with in-process dispatch after the commit; (b) a transaction
+per statement, relying on the relay to repair; (c) leave it per adapter, as
+today.
+
+**Decision.** (a). **The rule, stated once:** an aggregate save opens exactly ONE
+database transaction; the durable-event outbox rows, the audit rows and the
+provenance rows written for that save commit INSIDE it; the remaining (ephemeral)
+events are dispatched in-process AFTER the commit, never inside it. A write path
+with no enclosing transaction — a workflow step, an `extern` handler, a timer —
+opens one for the same set rather than inserting outside one.
+
+**Rationale.**
+
+- **The shape already exists and is proven; the ruling ratifies the majority
+  rather than inventing a rule.** node/drizzle drains `aggregate.pullEvents()`
+  BEFORE the write transaction, records the durable ones on that same `tx`
+  handle, and dispatches only the remainder after commit
+  (`src/generator/typescript/repository-save-builder.ts:247-255`). .NET's
+  relational path does the same, with the reason written into the emitter:
+  *"DispatchAsync AFTER the commit, on a second SaveChangesAsync, loses an
+  event"* (`src/generator/dotnet/emit/repository.ts:455-463`).
+- **Dispatch-inside-the-transaction is the worse failure.** A handler that throws
+  rolls back a write that had already succeeded, and a handler that reads sees
+  rows the caller can still roll back.
+- **Implementers: half of M-T4.3 item 5's text is stale on this head.** The
+  mikroorm save now wraps in
+  `this.em.fork({ keepTransactionContext: true }).transactional(async (em) => …)`
+  and records durable events on that callback's own `em`
+  (`src/generator/typescript/emit/mikroorm.ts:1022-1067`,
+  `MIKRO_OUTBOX_DRAIN_LINES` / `MIKRO_OUTBOX_RECORD_LINE`) — `G2667-C4` landed.
+  What still reproduces: **.NET's document and event-sourced repositories**
+  dispatch after `SaveChangesAsync` with no `RecordDurableAsync` at all
+  (`dotnet/emit/repository.ts:909-921` and `:1155-1178`); node's workflow-step /
+  extern-handler / timer emits are deliberately fenced outside any transaction
+  (`src/platform/hono/v4/workflow-builder.ts:1239-1244`); and java's
+  class-`@Transactional` command handlers against .NET/node's per-`SaveAsync`
+  commit is the §D5 asymmetry. Verify each before fixing (RUNBOOK §1).
+
+**Consequences.** `G2667-C4` / `G2667-C5` / `G2667-D5` close against a written
+contract, so every remaining deviation is a defect rather than an undecided fork.
+A cross-backend gate asserts the ORDER in the emitted source per adapter
+(record-before-commit, dispatch-after-commit) and, wherever a runtime leg exists,
+a booted-app proof of the crash window (rule 10) — a constant read back out of
+the emitter proves consistency, not correctness (rule 12).
+
+**Unblocks.** M-T4.3 item 5 → wave **C2 packets 2b / 2c**.
+
+**Sources.** [`T4-eventing-temporal.md`](new-plan/T4-eventing-temporal.md) M-T4.3
+item 5; [`generator-code-review-2026-08-24.md`](audits/generator-code-review-2026-08-24.md)
+§Follow-up register rows 2–3 and §D5; ledger rows `G2667-C4` / `G2667-C5` /
+`G2667-D5`; [`dispatch-delivery-semantics.md`](old/proposals/dispatch-delivery-semantics.md).
+
+---
+
+## D-CROSSTENANT-ACK — `policy { deny on X }` is the `crossTenant` acknowledgment; `allow global` stays refused
+
+**Status:** proposed (default applies 48 h after merge unless overridden).
+
+**Question.** What does an author write to acknowledge that a `crossTenant`
+aggregate is deliberately unscoped, so that a `loom.crosstenant-needs-policy`
+gate has something to require?
+
+**Options.** (a) relax `loom.policy-target-not-tenant-owned` so
+`policy { allow global on ExchangeRate }` is accepted as acknowledgment-only;
+(b) accept an explicit `policy { deny on X }` (and any ordinary authorization
+rule naming the target); (c) mint a new clause
+(`crossTenant acknowledged` / `unscoped:`).
+
+**Decision.** (b).
+
+**Rationale.**
+
+- **(a) carries a live trap.** The ladder's `allow global` lowers to a `scope`
+  sentinel over the `dataKey` and `tenantId` COLUMNS — columns the `tenantOwned`
+  capability provides and a `crossTenant` aggregate does not have. Admitting the
+  rule therefore ALSO requires teaching enrichment to treat it as
+  acknowledgment-only and derive no filter; miss that and the emitters reference
+  columns that are not in the table (a codegen crash, or worse, DDL-valid but
+  wrong SQL). `deny`'s always-false sentinel touches no column, so (b) has no
+  such half.
+- **(c) adds surface for a statement the policy block can already make**, plus a
+  grammar rule, a printer arm and a per-backend no-op.
+- **(b) keeps `loom.policy-target-not-tenant-owned` meaning what it says** — the
+  read/write ladder is for tenant-owned targets — instead of acquiring an
+  exception whose semantics differ from identical syntax on the next aggregate.
+
+**Consequences.** A new `loom.crosstenant-needs-policy` requires every
+`crossTenant` aggregate under a `tenancy by` system to carry an explicit
+authorization rule naming it; a `deny` rule satisfies it, and so does any
+`allow`/`policy` rule that names the target. Two fixtures gain the line
+(`tenancy-owned.ddd`, `policy-deny.ddd`). D-TENANCY-SCOPE's safety note —
+*"`crossTenant` is fail-open at the tenancy layer"* — finally gets its
+enforcement: the fail-open stance becomes unwritable by accident, which is the
+whole point of the acknowledgment.
+
+**Unblocks.** M-T3.6 item (6) → wave **C6**.
+
+**Sources.** [`T3-security-governance.md`](new-plan/T3-security-governance.md)
+M-T3.6 (6); [`tenancy-authorization-final-surface.md`](old/proposals/tenancy-authorization-final-surface.md);
+`src/diagnostics/messages.ts` `loom.policy-target-not-tenant-owned#read|#write`;
+D-TENANCY-SCOPE, D-TENANCY-DEFAULT.
+
+---
+
+## D-READ-SURFACE-ORDER — projection masking first, then the two small gates, then the system-read construct
+
+**Status:** proposed (default applies 48 h after merge unless overridden).
+
+**Question.** M-T3.15 has sat at `plan (awaiting sequencing sign-off)` while its
+premise moved under it — in what order do its remaining items land?
+
+**Options.** Masking first; the system-read construct first; the two small
+security gates first.
+
+**Decision.** In this order: **(1) re-verify the mission body against the merged
+head** — #2523 landed the read-gate slice and #2766 moved more of it; **(2)
+projection masking** (the `loom.field-mask-projection-source` launder, what is
+left of root cause B); **(3) the two small, independent, security-relevant items
+in the same wave** — gating the workflow-instance reads and the
+`commandHandler`/`queryHandler` route gate; **(4) the system-read construct
+last**, as its own mission.
+
+**Rationale.**
+
+- **Masking is what other work waits on.** Whether `sensitive-wire-unsupported`
+  becomes M-T3.8 phases 2–4 or a recorded `scope` decision depends on whether a
+  gated projection can carry `mask unless` at all — and that is a row in wave C2
+  packet 2f. Masking first unblocks a drain; masking second means a second wave.
+- **The launder is a security bug wearing documentation clothes.**
+  `loom.field-mask-projection-source` makes gated projections and `mask unless`
+  mutually exclusive, and *its own remedy points authors back at the ungated CRUD
+  routes*. That should not sit behind a new-surface design.
+- **The system-read construct is the only item that ADDS surface.** Under the
+  standing owner directive (gaps and bugs outrank architectural improvements,
+  which outrank new surface area) it goes last — and it is cheaper once masking
+  has settled what a compiler-owned read may return.
+- **(1) is not ceremony.** The mission header already says "premise partly
+  stale", and two of its four root causes have been closed by merged PRs. The
+  RUNBOOK requires the re-verification before any of (2)–(4).
+
+**Consequences.** M-T3.15's status line carries this order, and the two small
+gates may be split into their own headings if the wave needs the tree fence. If
+the re-verification in (1) finds masking already resolved, the order collapses to
+(3) then (4) and this tag is amended, not ignored.
+
+**Unblocks.** M-T3.15 → wave **C6**; and the `sensitive-wire-unsupported` row in
+wave **C2 packet 2f**.
+
+**Sources.** [`T3-security-governance.md`](new-plan/T3-security-governance.md)
+M-T3.15; [`M-T3.15 plan`](new-plan/missions/M-T3.15-read-surface-and-system-reads-plan.md);
+PRs #2523, #2766; `src/diagnostics/messages.ts`
+`loom.field-mask-projection-source`.
+
+---
+
+## D-LONG-AVG-DEFAULTS — `long` gets a declared 2^53 ceiling; projection `avg` over money is typed `money`
+
+**Status:** proposed (default applies 48 h after merge unless overridden).
+
+**Question.** Two numeric rows whose proposed defaults were recorded but never
+signed off: what is `long`'s contract, and what type does a query-time
+projection's `avg` over a money column carry?
+
+**Options (`long`).** (a) declare and enforce a 2^53 safe-integer ceiling now;
+(b) upgrade the representation (BigInt / string wire) on node and python; (c)
+leave it. **Options (`avg`).** (a) retype to `money`; (b) keep `decimal` and
+document the divergence from the in-memory `avg`.
+
+**Decision.** (a) and (a).
+
+**Rationale (`long`).**
+
+- Today node stores `long` as a JS `number`
+  (`bigint(col, { mode: "number" })` in `src/generator/typescript/emit/schema.ts`;
+  mikroorm `ts: "number"`) and python routes declared int/long sums through
+  `float()` — both corrupt **silently** past 2^53, while .NET/Java/Elixir carry
+  int64 exactly. There is no validator and no doc caveat.
+- Aggregate overflow is three-way divergent for one `.ddd`: java's
+  `((Number) x).intValue()` **wraps silently**, .NET's `(int)` cast **throws**
+  (a 500), the rest pass the too-big value through. The unification takes .NET's
+  behaviour: a value that does not fit is an ERROR. Java's silent wrap is the one
+  shape that produces a wrong ANSWER instead of a failure.
+- The ceiling is the honest floor at **S** cost: it converts silent corruption
+  into a refusal today. The representation upgrade (b) is a wire change on two
+  backends for a bound nobody has yet hit — it becomes a named follow-up mission
+  only if the ceiling pinches.
+
+**Rationale (`avg`).**
+
+- `src/ir/lower/lower-projection.ts` stamps query-time `avg → decimal` even over
+  a money column, so the mean of exact money crosses the wire as a float64 JSON
+  number — while the **in-memory** `avg` of the same field types `money?`
+  (`type-system.ts`) and ships the RS-12 four-decimal string. One word, two
+  semantics, no gate.
+- The retype is a lowering change, not five emitters: `aggregateCoercion`'s
+  `isMoney` arm (`src/ir/util/projection-aggregate.ts`) already knows how to
+  format money on all five backends.
+
+**Consequences.** python's declared-int/long aggregates route through `int()`; a
+`> 2^53` witness fixture proves the exact backends carry it and the ceiling
+refuses on the others. The `avg` retype MOVES wire goldens, so it rides
+D-DECIMAL-EXACT-MOMENT's single re-capture if both land in the same wave —
+otherwise it carries its own reviewed re-capture, never a drive-by rebaseline.
+Each arm is mutation-proved by file-copy revert.
+
+**Unblocks.** M-T5.23 and M-T5.24 → wave **C2 packet 2f**.
+
+**Sources.** [`T5-language-core.md`](new-plan/T5-language-core.md) M-T5.23,
+M-T5.24; [`numeric-types-audit-2026-08-23.md`](audits/numeric-types-audit-2026-08-23.md)
+F13, F14; RS-12; `src/ir/lower/lower-projection.ts`,
+`src/ir/util/projection-aggregate.ts`, `src/generator/typescript/emit/schema.ts`.
+
+---
+
+## D-DAPPER-ALTER — dapper and mikroorm get a real ALTER path in phase ⑨; the widened refusal lands first
+
+**Status:** proposed (default applies 48 h after merge unless overridden).
+
+**Question.** `persistence: dapper` (and its mikroorm twin) has no ALTER path at
+all — is that a permanent `scope` row, or a phase-⑨ build?
+
+**Options.** (a) a permanent `scope` row with a D-tag: "self-provisioning
+adapters are CREATE-only by design"; (b) widen the honest gate so any
+post-baseline schema change refuses; (c) render the `MigrationsIR` chain for
+these adapters.
+
+**Decision.** (c) — **build it** — with (b) landing FIRST, in the same wave, as
+the interim.
+
+**Rationale.**
+
+- **(a) is not honest for a shipping adapter.** `renderDapperSchema`
+  (`src/generator/dotnet/emit/dapper.ts:2229-2233`) is documented as "a
+  self-applied CREATE TABLE IF NOT EXISTS per aggregate", and
+  `grep -c 'ALTER TABLE|ADD COLUMN' src/generator/dotnet/emit/dapper.ts` is
+  **0**. So on a dapper deployable: add a field to a live database and the column
+  is never created (the app 500s); drop one and it lingers; change a type and
+  nothing happens.
+- **And the existing gate mostly does not fire.**
+  `validateMigrationAdapterSupport`
+  (`src/ir/validate/checks/migration-checks.ts:203-260`) raises
+  `loom.dapper-unsupported#migrations` only when the model DECLARES a `migration`
+  block — it indexes the rename/backfill/SQL-step intents and returns early when
+  they are all empty. The common case is silent.
+- **The build is bounded.** `emitDotnetMigrations` already produces
+  platform-neutral Postgres through `src/generator/sql-pg.ts`. What is missing is
+  emitting it as an ordered `.sql` set applied by `DbSchema.EnsureAsync` behind a
+  `__loom_migrations` ledger, then flipping
+  `const hasMigrations = !usingDapper && …` (`src/generator/dotnet/index.ts:990`).
+  The mikroorm twin is `!usingMikro` at `src/platform/hono/v4/emit.ts:1067` and
+  is ruled the same way here.
+- **(b) first because (c) is L and a user can lose a column today.** The widened
+  gate fires when a self-provisioning deployable is regenerated against an
+  existing baseline whose derived diff is non-empty — the snapshot store is
+  already threaded into phase ⑨ via `fsSnapshotStore(outDir)`.
+
+**Consequences.** A named **T2 mission** owns the build, with a
+`test:migration-evolution-dapper` (and `-mikroorm`) leg added to
+`migration-evolution-e2e.yml` — today all five legs run on the default
+efcore/drizzle adapters. `loom.dapper-unsupported#migrations`,
+`loom.mikroorm-unsupported#migrations` and the ledger row
+`dapper-no-schema-evolution` close when that leg is green, **not** when the gate
+widens. Note what the widened gate replaces: today a second generate exits 1 on
+snapshot drift with an error that names neither the adapter limitation nor a
+remedy, and `--allow-rebaseline` does not clear it.
+
+**Unblocks.** `dapper-no-schema-evolution` → wave **C2 packet 2b** (the mikroorm
+arm in **2c**); M-T6.35's `#migrations` sub-code.
+
+**Sources.** [`targets-completeness-2026-08-30.ledger.json`](audits/targets-completeness-2026-08-30.ledger.json)
+row `dapper-no-schema-evolution` (fix field: both options, sized);
+[`T6-backend-parity.md`](new-plan/T6-backend-parity.md) M-T6.35;
+`src/ir/validate/checks/migration-checks.ts`, `src/generator/dotnet/emit/dapper.ts`,
+`src/generator/dotnet/index.ts`, `src/platform/hono/v4/emit.ts`.
+
+---
+
+## D-PROJECTION-IMPLICIT-SUB — an `on(Event)` handler subscribes in-process whether or not a channel carries the event
+
+**Status:** proposed (default applies 48 h after merge unless overridden).
+
+**Question.** Does a `projection … { on(e: E) { … } }` whose `E` is carried by no
+declared `channel` fold, or not? (Today node folds it; python, java, .NET and
+elixir never subscribe. This is register/ledger row B20 /
+`G2646-open-projection-on-event-no-channel`.)
+
+**Options.** (a) it folds — a channel is TRANSPORT, the `on` declaration is the
+subscription; (b) it does not, and node's leniency becomes a refusal; (c) a
+diagnostic requires the channel.
+
+**Decision.** (a) — **implicit in-process subscription on every backend.**
+
+**Rationale.**
+
+- **(b) removes a working behaviour from a shipping backend to reach parity** —
+  the shape D-WHEN-GATE-DOMAIN already rejected for the same reason.
+- **`on(e: E)` reads as the subscription.** Nothing in the projection's own
+  syntax mentions transport, and requiring a `channel` makes a read model's
+  correctness depend on a declaration in a different block whose stated purpose
+  (`docs/channels.md`) is cross-deployable delivery and durability.
+- **The mechanism is one early return.** `deriveEventSubscriptions` opens with
+  `if (!channels || channels.length === 0) return []`
+  (`src/ir/enrich/enrichments.ts:1303`) and then keeps only events some channel
+  `carries:`, so python emits no `app/dispatch.py` at all and java/.NET/elixir
+  emit no fold, while `src/generator/typescript/emit/routes.ts` folds off the
+  projection directly. The divergence is not a considered position on four
+  backends; it is a guard nobody revisited.
+- **Scope, stated so it is not re-litigated per handler kind.** The same
+  derivation feeds workflow reactors (`on` and `create … by`), so the rule is
+  written once for both: *an in-process handler in a deployable that also hosts
+  the emitter subscribes implicitly.* A `channel` remains required for delivery
+  ACROSS deployables and for durability (`retention:`) — which is what it is for.
+
+**Consequences.** The early return is replaced by an implicit subscription
+carrying no channel, and every backend's dispatcher builder learns the
+channel-less subscription (python must emit `dispatch.py` in that case). No
+diagnostic is needed on either side: the losing behaviour disappears rather than
+being refused. A corpus fixture carrying a projection with NO channel — the shape
+the audit had to construct by deleting a block from `projection.ddd` — enters the
+fixture set in the same wave (rule 13), because a compile gate over a corpus that
+lacks the shape proves nothing.
+
+**Unblocks.** `G2646-open-projection-on-event-no-channel` (B20) → wave **C2
+packets 2b / 2c / 2d / 2e**.
+
+**Sources.** [`behavioral-parity-bugs-2026-07.md`](audits/behavioral-parity-bugs-2026-07.md)
+B20; [`language-gaps-2026-08.md`](audits/language-gaps-2026-08.md) (the
+"needs a semantics decision" row); `src/ir/enrich/enrichments.ts:1284-1340`;
+`src/generator/typescript/emit/routes.ts`.
+
+---
+
+## D-FIRST-ON-EMPTY — `first` is partial and fails on an empty collection; `firstOrNull` is the total form
+
+**Status:** proposed (default applies 48 h after merge unless overridden).
+
+**Question.** `.first` on an empty collection throws on three backends and yields
+an `undefined`/`nil` typed as non-optional on two — which is the contract?
+
+**Options.** (a) `first: T` is PARTIAL and fails on empty everywhere;
+(b) `first` becomes `T?` (total), and every model reading `.first.x` must change;
+(c) leave it per target.
+
+**Decision.** (a). `first: T` keeps its non-optional type and **fails** on an
+empty receiver on every target; `firstOrNull: T?` is the total form, and the
+failure message names it.
+
+**Rationale.**
+
+- **(b) contradicts the declared signature.** `src/util/collection-ops.ts:23`
+  already declares `first` as returning a non-optional `T`, and (b) would break
+  every `lines.first.sku` in the language for a case authors can already express
+  with `firstOrNull`.
+- **The two degrading targets are the ones violating their own declared type.**
+  node renders `${recv}[0]` (`src/generator/_expr/js-collection-ops.ts:67` →
+  `undefined`) and elixir renders `List.first(${recv})` for **both** `first` and
+  `firstOrNull` (`src/generator/elixir/render-expr.ts:905-906` — literally the
+  same snippet), so a `string`-typed getter returns `nil`/`undefined` and the
+  wrong value flows onto the wire or dies later somewhere that does not mention
+  the collection. The three that fail — dotnet `.First()` (`:948`), java
+  `.get(0)` (`:634`), python `[0]` (`:577`) — at least fail at the point of the
+  mistake.
+- **A failure at the read is diagnosable; a null that ships is not.** This is the
+  same argument RS-34 makes for the absent-join case, reaching the opposite
+  conclusion only because there the absent value has a MEANING (no joined row)
+  and here it does not — the model asserted a first element exists.
+
+**Consequences.** Mints **RS-36** in `docs/conformance-semantics.md` (RS-35 is
+claimed by D-DECIMAL-EXACT-MOMENT in this batch). elixir moves `first` to `hd/1`
+and keeps `List.first/1` for `firstOrNull`; node emits an explicit guard that
+throws instead of `[0]`. The failure surfaces as the sanitized **500** RS-28
+already governs — it is not a domain-floor 422, because the request was valid and
+the model's assumption was not. The frontends follow the same rule under
+`frontend-collection-op-unsupported` (wave C2 packet 2g) rather than degrading to
+`undefined` in a page body; the seven emitters render the raise and the error
+boundary shows it. The contract is pinned in `src/util/collection-ops.ts` the way
+`src/util/intrinsics.ts` pins scalar edge behaviour, plus a per-backend arm test.
+
+**Unblocks.** ledger row `F2-EXPR-7` → wave **C2 packet 2g** (frontend half:
+M-T1.20).
+
+**Sources.** [`targets-completeness-2026-08-30.ledger.json`](audits/targets-completeness-2026-08-30.ledger.json)
+row `F2-EXPR-7` (its `fix` field poses exactly this fork);
+[`conformance-semantics.md`](conformance-semantics.md) RS-28, RS-34;
+`src/util/collection-ops.ts`, `src/util/intrinsics.ts`, the five
+`render-expr.ts` leaf tables and `src/generator/_expr/js-collection-ops.ts`.
+
+---
+
+## D-ABSENT-JOIN-DATETIME-WIRE — an absent join value is wire `null` on every target; sub-second datetimes ship as milliseconds
+
+**Status:** proposed (default applies 48 h after merge unless overridden).
+
+**Question.** Two wire-form questions the `G2667-D3` row left open: what does a
+LEFT-JOINed field carry when the join target is absent, and what fractional-second
+form does a `datetime` take on the wire?
+
+**Options (join).** wire `null` everywhere / each language's own zero default /
+drop the source row. **Options (datetime).** node's minimal-digit trim (`.12Z`) /
+exactly three digits when a fraction is present (`.120Z`) / microseconds
+(`.120000Z`).
+
+**Decision.** **Join = wire `null`, on every backend and every field type** —
+RS-34 already pins this and is ratified here, *including* the .NET value-typed
+case its own "Open" section leaves unfixed. **Datetime = milliseconds: at most
+three fractional digits, and a whole-second instant carries no fraction at all**
+(RS-4's canonical `…00Z` is preserved).
+
+**Rationale (join).** RS-34 is already in the registry with all five arms landed
+and mutation-proven; the only fork left is .NET's `default!` on a value-typed
+joined field, where a joined `int`/`bool`/`decimal`/`datetime` reads
+`0`/`false`/`DateTime.MinValue` instead of `null`. That is not a second
+semantics, it is an unfinished arm — and RS-34's own reason (wire `null` is the
+only value that means the same thing on every backend and needs no per-type
+default table) already decides it.
+
+**Rationale (datetime).**
+
+- **The observed triple has one mechanism per backend.** node canonicalises with
+  `${date}.toISOString().replace(/\.?0+Z$/, "Z")`
+  (`src/generator/typescript/repository-wire-builder.ts:139`), which strips ALL
+  trailing zeros, so `.120` spells `.12Z`; java's `Instant.toString()` emits
+  digits in groups of three (`.120Z`); python's `isoformat()` emits six
+  (`.120000Z`); elixir emits none at all, because its column is `:utc_datetime`
+  (second precision) where every other backend's is `TIMESTAMP WITH TIME ZONE`
+  (ledger `F2-W-06`).
+- **Milliseconds is the only precision every target can carry end to end.** node's
+  `Date` is millisecond-resolution by construction, so a microsecond contract
+  needs a NEW datetime carrier on node (a string or a decimal) — a far larger
+  change than truncating four backends.
+- **Three digits rather than node's minimal trim**, because `.12Z` and `.120Z`
+  are the same instant spelled two ways: a differential tier comparing strings
+  then has to normalise, and normalisation is exactly what hid `F2-W-05` and
+  `F2-W-06`.
+- **Correction to the plan's proposed default.** "millisecond precision, three
+  digits, on every backend" as written contradicts **RS-4**, which is PINNED,
+  conforming on all five, and says a whole-second instant spells `…00Z` with the
+  zero fraction trimmed. This ruling therefore keeps RS-4's whole-second form and
+  applies "exactly three digits" only when a fraction is present.
+
+**Consequences.** Mints **RS-37** for the datetime wire form (RS-35 and RS-36 are
+claimed elsewhere in this batch). RS-34 gains its .NET value-typed arm and its
+"Open" section closes — the absent branch stops being `default!` and the
+Response schema widens that joined member to nullable. Elixir moves declared
+datetime columns to `:utc_datetime_usec` with the matching `timestamptz`
+migration column **and deletes the truncation machinery that exists only because
+of the old type** (`__truncate_dt/1` in `vanilla/context-emit.ts`,
+`stampFieldIsDatetime` in `stamp-emit.ts`, the operation-returns `force_change`
+wrap) — leaving it in place would truncate on the wider column and half-fix the
+row. Sub-millisecond input is **truncated at ingress, not rounded**, so the
+stored value and the wire value agree and a read-back equals the write (RS-4);
+rounding can carry a value into the next second. The `<timestamp>` normalisation
+that masks this in the differential tier is narrowed in the same PR, or the fix
+cannot be seen.
+
+**Unblocks.** `G2667-D3` (.NET value-typed arm) → wave **C2 packet 2d**;
+`F2-W-06` → wave **C2 packet 2a**.
+
+**Sources.** [`conformance-semantics.md`](conformance-semantics.md) RS-4, RS-34
+(its Open section); [`targets-completeness-2026-08-30.ledger.json`](audits/targets-completeness-2026-08-30.ledger.json)
+rows `G2667-D3-projection-join-unguarded-index` and `F2-W-06` (with the W1b
+elixir note that sizes it);
+`src/generator/typescript/repository-wire-builder.ts`,
+`src/generator/dotnet/query-projection-emit.ts`,
+`src/generator/elixir/vanilla/context-emit.ts`.
+
+---
+
+## D-FLUTTER-BEARER — Flutter native authenticates with a bearer token; Flutter web keeps the cookie
+
+**Status:** proposed (default applies 48 h after merge unless overridden).
+
+**Question.** RULE 2 of the realtime contract says a stream carries the same
+HttpOnly `session` cookie as an ordinary API call from the same frontend — a
+mobile client cannot hold one. What credential does Flutter use?
+
+**Options.** (a) bearer on native, cookie on web — two credentials in one client;
+(b) bearer everywhere, so the Flutter web build drops the cookie too; (c) a
+short-lived query-param token for the stream on native.
+
+**Decision.** (a) — recorded as a **plan amendment to RULE 2**, not a port.
+
+**Rationale.**
+
+- An HttpOnly cookie **cannot exist** on an Android/iOS client, so RULE 2's
+  stated credential is unavailable there by construction. RULE 2's own reasoning
+  ("the SPA never sees the raw token") does not hold for a native app, whose OIDC
+  client necessarily holds the token itself.
+- **Server-side the change costs nothing.** Four of five backends already accept
+  the `session` cookie *alongside* `Authorization: Bearer`, and node grew the
+  cookie read in the same wave — bearer is the credential every backend has
+  always accepted.
+- **(c) puts a credential in URLs**, and therefore in access logs, proxies and
+  `Referer` — the reason the query-param token lost the first time.
+- **(b) would make the web build of a Flutter app diverge from every other
+  generated SPA** for no gain; `BrowserClient()..withCredentials = true` is one
+  line.
+
+**Consequences.** The fix is **upstream of the stream**: Flutter's ORDINARY API
+calls are bare top-level `http.get`/`http.post` with no client at all
+(`src/generator/flutter/reads-emit.ts`, `forms-emit.ts`, `auth-gate.ts:90`,
+`flutter-target.ts:621`), so there is no credential path for the stream to
+inherit and fixing only the stream would be theatre. Order: **(i)** an
+authenticated http client — `BrowserClient()..withCredentials = true` on web, a
+bearer store fed by the app's OIDC client on native; **(ii)** thread the
+credential into `renderFlutterRealtime` and emit
+`web.EventSource(uri.toString(), web.EventSourceInit(withCredentials: true))` in
+the web transport plus the bearer header in the IO transport (so
+`REALTIME_SOURCE_WEB_DART` / `REALTIME_SOURCE_IO_DART` stop being const strings);
+**(iii)** `realtimeStreamCredential` (`src/ir/util/realtime-rooms.ts`) gains the
+native value, so the gate stays ONE predicate rather than two. `auth: none`
+deployables stay byte-identical.
+
+**Unblocks.** M-T4.12 item (1) → wave **C2 packet 2j**.
+
+**Sources.** [`T4-eventing-temporal.md`](new-plan/T4-eventing-temporal.md)
+M-T4.12 (Wave 1 packet 1g note, RULE 1 / RULE 2 and "Still open under this ID"
+item 1); [`auth.md`](auth.md) ("Session depth");
+`src/ir/util/realtime-rooms.ts`, `src/generator/_frontend/realtime.ts`,
+`src/generator/flutter/realtime.ts`.
+
+---
+
+## D-MISC-C0 — four small rulings that needed a name, not a debate
+
+**Status:** proposed (default applies 48 h after merge unless overridden).
+
+**Question.** Four rows whose proposed answers nobody disputes, but which no tag
+records — so each is re-decided by whoever picks the row up.
+
+**Decisions.**
+
+1. **`generateDotnetForContexts` (M-T9.52).** The boundary **stays where M-T9.49
+   drew it**: the ratchet gates the WRAPPER (`generateDotnet`), mirroring Hono's
+   (which gates `generateHono`, not `generateTypeScriptForContexts`). Sequence
+   M-T9.42's corpus promotion of `generator-dotnet.test.ts` FIRST — it is 66 of
+   the 150 pinned .NET call sites and M-T9.42's largest single candidate, so
+   doing it first shrinks this row by nearly half and shrinks the ratchet's pins
+   in the same move. Re-measure the remaining direct `ForContexts` importers
+   afterwards, and only then decide whether the rung below needs its own
+   assertion. Verification is **two-sided** per M-T9.40 (re-seed the
+   `enumName: undefined` mutation and report the count with AND without the new
+   assertion) — a one-sided "N tests fail" number does not distinguish a working
+   instrument from an unrelated string assertion.
+2. **`connection:` on a `storage` (M-T7.9) — the two semantics.** *(a)*
+   `service(x)` **names** a service the composer is already synthesising; it
+   selects and labels, it does not create a second one, so `service(db)` and no
+   clause at all describe the same topology and the declaration's only effect is
+   on the emitted reference (the secret/env key). *(b)* Where the declared source
+   **contradicts** the derived topology, **the declaration wins** and the
+   composer emits what was declared — a heuristic that silently overrides an
+   explicit author statement is unexplainable at the point of failure, and the
+   current `Host=db;` classifier in `src/system/kubernetes.ts` is exactly such a
+   heuristic. `literal("postgres://user:pass@…")` stays legal and keeps its
+   warning (it is a real escape hatch for an already-public external endpoint);
+   revisit only if a model needs it silenced.
+3. **OpenAPI tag grouping (M-T6.13), decision (f).** Emit an explicit lowercase
+   per-op `tags: ["<slug>"]` on **.NET and Java too**. They emit no explicit
+   per-op tag today, so this is not a regression — it aligns them with the other
+   three. Without it, Swashbuckle/springdoc default the per-op tag to the
+   CONTROLLER name (`"Orders"`), which `x-tagGroups`'s `"orders"` reference does
+   not match, so the feature would silently not group on exactly two of five
+   backends. **Verify the default-tag value on a booted app**, not from the
+   framework docs — the proposal itself flags the value as extrapolated
+   (rule 12).
+4. **`scopeId` (M-T3.11).** `scopeId` denotes the **business boundary** a frame
+   belongs to; `parentId` denotes **call structure** ("who invoked me") — the two
+   axes `execution-context.md` separates and that are easy to conflate. Loom pins
+   the DEFAULT rather than leaving it to configuration: **one scope per inbound
+   request, or per workflow RUN, whichever opened the outermost frame; a
+   sub-workflow opens its own scope, a helper call does not.** Leaving it "to the
+   system author" is what let five backends differ. Not author-configurable in
+   v1. The ambient carrier keeps its D-CTX-SHAPE field set (`correlationId`,
+   `scopeId`, `parentId`, plus `currentUser`/`locale`/`startedAt`); the genealogy
+   detail (`operationId`, `nodeId`, `kind`, `timestamp`) stays on the emitted
+   scope event.
+
+**Rationale.** Each of the four has a recorded leaning that survived a
+code-check, and none has a second defensible answer that anyone has argued for;
+what they lack is a NAME, so each is re-litigated by the next agent to open the
+row. Item 4 is the most judgement-laden of the four — the proposal explicitly
+left it open — and is the one most worth an owner glance.
+
+**Consequences.** Four mission bodies stop carrying an undecided fork. Item 1
+imposes a SEQUENCE (M-T9.42's promotion before M-T9.52), which the C3 packet must
+honour. Item 2 deletes the `storage-connection` row from `RESERVED_SURFACES` when
+the wiring lands, and the k8s emitter's `Host=db;` classifier is replaced by the
+declared source rather than extended.
+
+**Unblocks.** M-T9.52 → wave **C3 packet 3d**; M-T7.9, M-T6.13 and M-T3.11 →
+wave **C6**.
+
+**Sources.** [`T9-toolchain-health.md`](new-plan/T9-toolchain-health.md) M-T9.52;
+[`T7-deployment-ops.md`](new-plan/T7-deployment-ops.md) M-T7.9;
+[`api-openapi-tag-grouping.md`](old/proposals/api-openapi-tag-grouping.md)
+§Open decisions (f);
+[`T3-security-governance.md`](new-plan/T3-security-governance.md) M-T3.11 and
+[`execution-context.md`](old/proposals/execution-context.md) §Open questions;
+D-CTX-SHAPE.

@@ -4,6 +4,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { installGeneratedProject } from "./support/npm-install.js";
 
 // ---------------------------------------------------------------------------
 // Extern-component end-to-end gate (Tier 1).  Proves the escape hatch's
@@ -87,11 +88,7 @@ describe.skipIf(!ENABLED)("extern component end-to-end (LOOM_REACT_BUILD)", () =
       fs.mkdirSync(path.dirname(widgetPath), { recursive: true });
       fs.writeFileSync(widgetPath, GOOD_WIDGET);
 
-      execSync(`npm install --silent --no-audit --no-fund`, {
-        cwd: projectDir,
-        stdio: "inherit",
-        timeout: 240_000,
-      });
+      installGeneratedProject(projectDir, { timeout: 240_000 });
 
       // 1. Correct widget → tsc clean.
       execSync(`npx tsc --noEmit`, { cwd: projectDir, stdio: "inherit", timeout: 90_000 });

@@ -5,6 +5,7 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { CORPUS_DEPLOYABLE, materializeCorpusFixture } from "../fixtures/corpus/harness.js";
+import { installGeneratedProject } from "./support/npm-install.js";
 
 // ---------------------------------------------------------------------------
 // Generator regression test: emit each example, install deps, run
@@ -79,11 +80,7 @@ describe.skipIf(!ENABLED)(
           stdio: "inherit",
           cwd: repoRoot,
         });
-        execSync(`npm install --silent --no-audit --no-fund`, {
-          cwd: outDir,
-          stdio: "inherit",
-          timeout: 180_000,
-        });
+        installGeneratedProject(outDir, { timeout: 180_000 });
         // Type-check (tsup is build-only with `dts: false`).
         execSync(`npx tsc --noEmit`, {
           cwd: outDir,
@@ -125,11 +122,7 @@ describe.skipIf(!ENABLED)(
         // Sanity: the layout actually relocated files under features/.
         expect(fs.existsSync(path.join(proj, "features", "order", "order.ts"))).toBe(true);
         expect(fs.existsSync(path.join(proj, "domain", "order.ts"))).toBe(false);
-        execSync(`npm install --silent --no-audit --no-fund`, {
-          cwd: proj,
-          stdio: "inherit",
-          timeout: 180_000,
-        });
+        installGeneratedProject(proj, { timeout: 180_000 });
         execSync(`npx tsc --noEmit`, { cwd: proj, stdio: "inherit", timeout: 60_000 });
         execSync(`npm run build`, { cwd: proj, stdio: "inherit", timeout: 60_000 });
         expect(fs.existsSync(path.join(proj, "dist", "index.js"))).toBe(true);
@@ -165,11 +158,7 @@ describe.skipIf(!ENABLED)(
         expect(routes).not.toContain("OrderRepository(db, events);\n      const rows");
         // One row out, so the response is the row — not an array of one.
         expect(routes).toContain("const SalesTotalsResponse = SalesTotalsRow.openapi(");
-        execSync(`npm install --silent --no-audit --no-fund`, {
-          cwd: proj,
-          stdio: "inherit",
-          timeout: 180_000,
-        });
+        installGeneratedProject(proj, { timeout: 180_000 });
         execSync(`npx tsc --noEmit`, { cwd: proj, stdio: "inherit", timeout: 60_000 });
         execSync(`npm run build`, { cwd: proj, stdio: "inherit", timeout: 60_000 });
         expect(fs.existsSync(path.join(proj, "dist", "index.js"))).toBe(true);
@@ -201,11 +190,7 @@ describe.skipIf(!ENABLED)(
         const router = fs.readFileSync(path.join(proj, "http", "salesApi-routes.ts"), "utf8");
         expect(router).toContain('import { OrderResponse } from "./order.routes";');
         expect(router).toContain("schema: OrderResponse");
-        execSync(`npm install --silent --no-audit --no-fund`, {
-          cwd: proj,
-          stdio: "inherit",
-          timeout: 180_000,
-        });
+        installGeneratedProject(proj, { timeout: 180_000 });
         execSync(`npx tsc --noEmit`, { cwd: proj, stdio: "inherit", timeout: 60_000 });
         execSync(`npm run build`, { cwd: proj, stdio: "inherit", timeout: 60_000 });
         expect(fs.existsSync(path.join(proj, "dist", "index.js"))).toBe(true);
@@ -237,11 +222,7 @@ describe.skipIf(!ENABLED)(
           { stdio: "inherit", cwd: repoRoot },
         );
         const proj = path.join(outDir, "api");
-        execSync(`npm install --silent --no-audit --no-fund`, {
-          cwd: proj,
-          stdio: "inherit",
-          timeout: 180_000,
-        });
+        installGeneratedProject(proj, { timeout: 180_000 });
         execSync(`npx tsc --noEmit`, { cwd: proj, stdio: "inherit", timeout: 60_000 });
         execSync(`npm run build`, { cwd: proj, stdio: "inherit", timeout: 60_000 });
         expect(fs.existsSync(path.join(proj, "dist", "index.js"))).toBe(true);
@@ -289,11 +270,7 @@ describe.skipIf(!ENABLED)(
           expect(repoSrc).toContain("stampInsert({");
           expect(repoSrc).toContain("stampUpdate({");
         }
-        execSync(`npm install --silent --no-audit --no-fund`, {
-          cwd: proj,
-          stdio: "inherit",
-          timeout: 180_000,
-        });
+        installGeneratedProject(proj, { timeout: 180_000 });
         execSync(`npx tsc --noEmit`, { cwd: proj, stdio: "inherit", timeout: 120_000 });
         execSync(`npm run build`, { cwd: proj, stdio: "inherit", timeout: 60_000 });
         expect(fs.existsSync(path.join(proj, "dist", "index.js"))).toBe(true);
@@ -338,11 +315,7 @@ describe.skipIf(!ENABLED)(
         expect(fs.readFileSync(path.join(proj, "db", "schema.ts"), "utf8")).toContain(
           'jsonb("blob")',
         );
-        execSync(`npm install --silent --no-audit --no-fund`, {
-          cwd: proj,
-          stdio: "inherit",
-          timeout: 180_000,
-        });
+        installGeneratedProject(proj, { timeout: 180_000 });
         execSync(`npx tsc --noEmit`, { cwd: proj, stdio: "inherit", timeout: 120_000 });
         execSync(`npm run build`, { cwd: proj, stdio: "inherit", timeout: 60_000 });
         expect(fs.existsSync(path.join(proj, "dist", "index.js"))).toBe(true);
@@ -376,11 +349,7 @@ describe.skipIf(!ENABLED)(
         expect(router).toContain("const cmd = {");
         expect(router).toContain("const query = {");
         expect(router).toMatch(/\.map\(\(__e\) => \w+\.toWire\(__e\)\)/);
-        execSync(`npm install --silent --no-audit --no-fund`, {
-          cwd: proj,
-          stdio: "inherit",
-          timeout: 180_000,
-        });
+        installGeneratedProject(proj, { timeout: 180_000 });
         execSync(`npx tsc --noEmit`, { cwd: proj, stdio: "inherit", timeout: 120_000 });
         execSync(`npm run build`, { cwd: proj, stdio: "inherit", timeout: 60_000 });
         expect(fs.existsSync(path.join(proj, "dist", "index.js"))).toBe(true);
@@ -407,11 +376,7 @@ describe.skipIf(!ENABLED)(
           cwd: repoRoot,
         });
         const proj = path.join(outDir, "hono_api");
-        execSync(`npm install --silent --no-audit --no-fund`, {
-          cwd: proj,
-          stdio: "inherit",
-          timeout: 180_000,
-        });
+        installGeneratedProject(proj, { timeout: 180_000 });
         execSync(`npx tsc --noEmit`, { cwd: proj, stdio: "inherit", timeout: 120_000 });
         execSync(`npm run build`, { cwd: proj, stdio: "inherit", timeout: 60_000 });
         expect(fs.existsSync(path.join(proj, "dist", "index.js"))).toBe(true);
@@ -437,11 +402,7 @@ describe.skipIf(!ENABLED)(
         // Sanity: the OIDC files were actually emitted into this project.
         expect(fs.existsSync(path.join(proj, "auth", "oidc.ts"))).toBe(true);
         expect(fs.existsSync(path.join(proj, "auth", "handshake.ts"))).toBe(true);
-        execSync(`npm install --silent --no-audit --no-fund`, {
-          cwd: proj,
-          stdio: "inherit",
-          timeout: 180_000,
-        });
+        installGeneratedProject(proj, { timeout: 180_000 });
         execSync(`npx tsc --noEmit`, { cwd: proj, stdio: "inherit", timeout: 60_000 });
         execSync(`npm run build`, { cwd: proj, stdio: "inherit", timeout: 60_000 });
         expect(fs.existsSync(path.join(proj, "dist", "index.js"))).toBe(true);
@@ -474,11 +435,7 @@ describe.skipIf(!ENABLED)(
         );
         const proj = path.join(outDir, "api");
         expect(fs.existsSync(path.join(proj, "auth", "middleware.ts"))).toBe(true);
-        execSync(`npm install --silent --no-audit --no-fund`, {
-          cwd: proj,
-          stdio: "inherit",
-          timeout: 180_000,
-        });
+        installGeneratedProject(proj, { timeout: 180_000 });
         execSync(`npx tsc --noEmit`, { cwd: proj, stdio: "inherit", timeout: 120_000 });
       } finally {
         try {
@@ -510,11 +467,7 @@ describe.skipIf(!ENABLED)(
         // The criterion fn binds the ambient principal — no unbound `currentUser`.
         expect(repo).toMatch(/requireCurrentUser\(\)\.tenantId/);
         expect(repo).not.toMatch(/eq\(schema\.accounts\.tenantId, currentUser\./);
-        execSync(`npm install --silent --no-audit --no-fund`, {
-          cwd: proj,
-          stdio: "inherit",
-          timeout: 180_000,
-        });
+        installGeneratedProject(proj, { timeout: 180_000 });
         execSync(`npx tsc --noEmit`, { cwd: proj, stdio: "inherit", timeout: 120_000 });
       } finally {
         try {
@@ -549,11 +502,7 @@ describe.skipIf(!ENABLED)(
         // The principal weave is present in the embedded repository.
         expect(repo).toContain('import { requireCurrentUser } from "../../auth/middleware"');
         expect(repo).toContain("requireCurrentUser().tenantId");
-        execSync(`npm install --silent --no-audit --no-fund`, {
-          cwd: proj,
-          stdio: "inherit",
-          timeout: 180_000,
-        });
+        installGeneratedProject(proj, { timeout: 180_000 });
         execSync(`npx tsc --noEmit`, { cwd: proj, stdio: "inherit", timeout: 120_000 });
       } finally {
         try {
@@ -590,11 +539,7 @@ describe.skipIf(!ENABLED)(
         expect(repo).toContain('import { requireCurrentUser } from "../../auth/middleware"');
         expect(repo).toContain("const currentUser = requireCurrentUser();");
         expect(repo).toContain("rec.tenantId === currentUser.tenantId");
-        execSync(`npm install --silent --no-audit --no-fund`, {
-          cwd: proj,
-          stdio: "inherit",
-          timeout: 180_000,
-        });
+        installGeneratedProject(proj, { timeout: 180_000 });
         execSync(`npx tsc --noEmit`, { cwd: proj, stdio: "inherit", timeout: 120_000 });
       } finally {
         try {
@@ -619,11 +564,7 @@ describe.skipIf(!ENABLED)(
         const proj = path.join(outDir, "web");
         expect(fs.existsSync(path.join(proj, "src", "auth", "AuthGate.tsx"))).toBe(true);
         expect(fs.existsSync(path.join(proj, "src", "auth", "session.ts"))).toBe(true);
-        execSync(`npm install --silent --no-audit --no-fund`, {
-          cwd: proj,
-          stdio: "inherit",
-          timeout: 180_000,
-        });
+        installGeneratedProject(proj, { timeout: 180_000 });
         execSync(`npx tsc --noEmit`, { cwd: proj, stdio: "inherit", timeout: 120_000 });
       } finally {
         try {
@@ -656,11 +597,7 @@ describe.skipIf(!ENABLED)(
         expect(fs.readFileSync(path.join(proj, "domain", "account.ts"), "utf8")).toContain(
           "_fromEvents",
         );
-        execSync(`npm install --silent --no-audit --no-fund`, {
-          cwd: proj,
-          stdio: "inherit",
-          timeout: 180_000,
-        });
+        installGeneratedProject(proj, { timeout: 180_000 });
         execSync(`npx tsc --noEmit`, { cwd: proj, stdio: "inherit", timeout: 60_000 });
       } finally {
         try {
@@ -696,11 +633,7 @@ describe.skipIf(!ENABLED)(
         const wf = fs.readFileSync(path.join(proj, "http", "workflows.ts"), "utf8");
         expect(wf).toContain("function foldOrderFulfillment");
         expect(wf).toContain("appendOrderFulfillmentEvents");
-        execSync(`npm install --silent --no-audit --no-fund`, {
-          cwd: proj,
-          stdio: "inherit",
-          timeout: 180_000,
-        });
+        installGeneratedProject(proj, { timeout: 180_000 });
         execSync(`npx tsc --noEmit`, { cwd: proj, stdio: "inherit", timeout: 60_000 });
       } finally {
         try {
@@ -734,11 +667,7 @@ describe.skipIf(!ENABLED)(
         );
         // Sanity: it hosts the cross-file ambient Money VO + a generated test.
         expect(fs.existsSync(path.join(proj, "domain", "salesOrder.test.ts"))).toBe(true);
-        execSync(`npm install --silent --no-audit --no-fund`, {
-          cwd: proj,
-          stdio: "inherit",
-          timeout: 180_000,
-        });
+        installGeneratedProject(proj, { timeout: 180_000 });
         execSync(`npx tsc --noEmit`, { cwd: proj, stdio: "inherit", timeout: 120_000 });
         execSync(`npm run build`, { cwd: proj, stdio: "inherit", timeout: 60_000 });
         expect(fs.existsSync(path.join(proj, "dist", "index.js"))).toBe(true);
@@ -772,11 +701,7 @@ describe.skipIf(!ENABLED)(
         expect(fs.existsSync(path.join(proj, "db", "entities.ts"))).toBe(true);
         expect(fs.existsSync(path.join(proj, "mikro-orm.config.ts"))).toBe(true);
         expect(fs.existsSync(path.join(proj, "db", "schema.ts"))).toBe(false);
-        execSync(`npm install --silent --no-audit --no-fund`, {
-          cwd: proj,
-          stdio: "inherit",
-          timeout: 180_000,
-        });
+        installGeneratedProject(proj, { timeout: 180_000 });
         execSync(`npx tsc --noEmit`, { cwd: proj, stdio: "inherit", timeout: 60_000 });
         execSync(`npm run build`, { cwd: proj, stdio: "inherit", timeout: 60_000 });
         expect(fs.existsSync(path.join(proj, "dist", "index.js"))).toBe(true);
@@ -808,11 +733,7 @@ describe.skipIf(!ENABLED)(
         expect(
           fs.readFileSync(path.join(proj, "db", "repositories", "account-repository.ts"), "utf8"),
         ).toContain("_fromEvents");
-        execSync(`npm install --silent --no-audit --no-fund`, {
-          cwd: proj,
-          stdio: "inherit",
-          timeout: 180_000,
-        });
+        installGeneratedProject(proj, { timeout: 180_000 });
         execSync(`npx tsc --noEmit`, { cwd: proj, stdio: "inherit", timeout: 60_000 });
       } finally {
         try {
@@ -837,11 +758,7 @@ describe.skipIf(!ENABLED)(
         const entities = fs.readFileSync(path.join(proj, "db", "entities.ts"), "utf8");
         // No pivot Row entity for the folded reference collection.
         expect(entities).not.toContain("SquadRosterRow");
-        execSync(`npm install --silent --no-audit --no-fund`, {
-          cwd: proj,
-          stdio: "inherit",
-          timeout: 180_000,
-        });
+        installGeneratedProject(proj, { timeout: 180_000 });
         execSync(`npx tsc --noEmit`, { cwd: proj, stdio: "inherit", timeout: 60_000 });
       } finally {
         try {
@@ -867,11 +784,7 @@ describe.skipIf(!ENABLED)(
         // No relational child tables for the folded containment tree.
         expect(entities).not.toContain("BoxRow");
         expect(entities).not.toContain("ItemRow");
-        execSync(`npm install --silent --no-audit --no-fund`, {
-          cwd: proj,
-          stdio: "inherit",
-          timeout: 180_000,
-        });
+        installGeneratedProject(proj, { timeout: 180_000 });
         execSync(`npx tsc --noEmit`, { cwd: proj, stdio: "inherit", timeout: 60_000 });
       } finally {
         try {
@@ -899,11 +812,7 @@ describe.skipIf(!ENABLED)(
         // No pivot Row entity — the reference collection folds onto the root.
         expect(entities).not.toContain("TeamRosterRow");
         expect(entities).toContain("roster!: string[];");
-        execSync(`npm install --silent --no-audit --no-fund`, {
-          cwd: proj,
-          stdio: "inherit",
-          timeout: 180_000,
-        });
+        installGeneratedProject(proj, { timeout: 180_000 });
         execSync(`npx tsc --noEmit`, { cwd: proj, stdio: "inherit", timeout: 60_000 });
       } finally {
         try {
@@ -931,11 +840,7 @@ describe.skipIf(!ENABLED)(
         // Row of its own under TPH (they FK the shared base row).
         expect(entities).toContain("export class ChargeRow");
         expect(entities).toContain("export class SplitRow");
-        execSync(`npm install --silent --no-audit --no-fund`, {
-          cwd: proj,
-          stdio: "inherit",
-          timeout: 180_000,
-        });
+        installGeneratedProject(proj, { timeout: 180_000 });
         execSync(`npx tsc --noEmit`, { cwd: proj, stdio: "inherit", timeout: 60_000 });
       } finally {
         try {
@@ -973,11 +878,7 @@ describe.skipIf(!ENABLED)(
         // declares — which is why the manifest has to install their types.
         const suite = fs.readFileSync(path.join(proj, "E2EProject.e2e.test.ts"), "utf8");
         expect(suite).toContain("process.env.E2E_API_BASE");
-        execSync(`npm install --silent --no-audit --no-fund`, {
-          cwd: proj,
-          stdio: "inherit",
-          timeout: 180_000,
-        });
+        installGeneratedProject(proj, { timeout: 180_000 });
         execSync(`npx tsc --noEmit -p .`, { cwd: proj, stdio: "inherit", timeout: 60_000 });
       } finally {
         try {

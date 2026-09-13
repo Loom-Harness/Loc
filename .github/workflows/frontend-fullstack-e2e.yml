@@ -154,3 +154,25 @@ jobs:
       - name: Run ${{ matrix.frontend }} full-stack UI round-trip
         working-directory: test/behavioral
         run: node ${{ matrix.runner }} ${{ matrix.case }}
+
+      # A red cell used to leave NOTHING behind: the runner generates into a
+      # mkdtemp and unlinks it in a `finally`, so the `trace.zip` the Playwright
+      # reporter names in the log was already deleted when the job ended.  Every
+      # investigation therefore started from the console tail alone.  run-ui.mjs
+      # now rescues `test-results/` (traces, screenshots, error-context) into
+      # `test/behavioral/.work-ui/<case>/` before that delete; this uploads it.
+      - name: Upload Playwright evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-${{ matrix.frontend }}
+          path: |
+            test/behavioral/.work-ui/**/test-results/**
+            test/behavioral/.work-ui/**/report.json
+          # `.work-ui` is a DOT directory, and upload-artifact@v4 skips hidden
+          # paths by default — without this the step would succeed having
+          # shipped nothing, which is the failure mode this whole change exists
+          # to stop (workflow-artifact-uploads.test.ts caught it).
+          include-hidden-files: true
+          if-no-files-found: ignore
+          retention-days: 14

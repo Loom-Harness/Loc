@@ -179,8 +179,8 @@ const packId = (p: PackUnderTest) => `${p.family}@${p.version}`;
 /** Structural concerns a sibling mission owns, same ratchet as the numeric
  *  ones: the entry asserts the pack still FAILS, so the fix deletes it. */
 const KNOWN_STRUCTURAL_DEVIATIONS: readonly { pack: string; concern: string; owner: string }[] = [
-  { pack: "flowbite@v1", concern: "container.size", owner: "M-FT.19 (#2750)" },
-  { pack: "flowbite@v1", concern: "main.padding", owner: "M-FT.19 (#2750)" },
+  { pack: "flowbite@v1", concern: "container.size", owner: "M-T1.12 (flowbite pack tail)" },
+  { pack: "flowbite@v1", concern: "main.padding", owner: "M-T1.12 (flowbite pack tail)" },
 ];
 
 function structuralDeviation(pack: string, concern: string): boolean {
@@ -195,19 +195,38 @@ interface KnownDeviation {
 }
 
 const KNOWN_DEVIATIONS: readonly KnownDeviation[] = [
-  // M-FT.19 (#2750) owns designs/flowbite/** entire.  It has since LANDED, and
-  // the ratchet fired on rebase for the two concerns it actually paid —
-  // `card.padding` (now `p-4`) and the structural `main.contained` — so both
-  // entries are gone.  What remains is what #2750 did NOT address.
+  // OWNER RE-ASSIGNED 2026-09-10 (Wave C0.4 of the completion plan).  These five
+  // rows named `M-FT.19 (#2750)`, which MERGED on 2026-09-07 — so every one of
+  // them cited a closed PR as its owner, which is a waiver with nobody behind
+  // it.  #2750 did pay two concerns (`card.padding` → `p-4` and the structural
+  // `main.contained`) and the ratchet duly fired on rebase and deleted those
+  // entries; what is below is what #2750 did NOT address, and it now belongs to
+  // **M-T1.12**, the live mission that owns the remaining `designs/flowbite/**`
+  // work (its own open list already names "the raw flowbite/native field aria").
+  // The rows are restated in M-T1.12's body in docs/new-plan/T1-ui-frontend.md,
+  // so the mission and the ratchet cannot drift apart.
+  //
+  // Owner line only — no behaviour, no threshold and no assertion changed here.
+  //
   // (M-FT.20 #2748 and M-FT.18 #2745 landed earlier and emptied their entries
   // the same way: the entry asserts the pack still FAILS, so a fix deletes it.)
-  { pack: "flowbite@v1", concern: "group.gap", actualPx: 16, owner: "M-FT.19 (#2750)" },
-  { pack: "flowbite@v1", concern: "keyValueRow.gap", actualPx: 16, owner: "M-FT.19 (#2750)" },
+  {
+    pack: "flowbite@v1",
+    concern: "group.gap",
+    actualPx: 16,
+    owner: "M-T1.12 (flowbite pack tail)",
+  },
+  {
+    pack: "flowbite@v1",
+    concern: "keyValueRow.gap",
+    actualPx: 16,
+    owner: "M-T1.12 (flowbite pack tail)",
+  },
   {
     pack: "flowbite@v1",
     concern: "formSubmitRow.marginTop",
     actualPx: null,
-    owner: "M-FT.19 (#2750)",
+    owner: "M-T1.12 (flowbite pack tail)",
   },
 ];
 
