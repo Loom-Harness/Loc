@@ -167,14 +167,14 @@ export function validateEventChannelAmbiguous(
 export function validateWorkflows(
   ctx: BoundedContextIR,
   diags: LoomDiagnostic[],
-  allEvents?: EventIR[],
-  allCtxs?: readonly BoundedContextIR[],
+  allEvents: EventIR[],
+  /** Every context in the model — the cross-context-repository gate's input.
+   *  REQUIRED, not optional: an omitted list would silently disable that gate,
+   *  which is the exact failure shape it exists to close. */
+  allCtxs: readonly BoundedContextIR[],
 ): void {
-  // Repository names this context does NOT declare but a sibling does — the
-  // input to the cross-context gate below.  Empty when the caller passes no
-  // context list (legacy single-context callers), which simply disables the
-  // gate rather than mis-firing.
-  const foreignRepos = foreignRepositoryOwners(ctx, allCtxs ?? []);
+  // Repository names this context does NOT declare but a sibling does.
+  const foreignRepos = foreignRepositoryOwners(ctx, allCtxs);
   // Reserved-name guard: workflows share the context namespace with
   // aggregates, value objects, enums, events, repositories.
   const namesUsed = new Map<string, string>();
