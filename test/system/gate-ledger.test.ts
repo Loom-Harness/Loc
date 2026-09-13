@@ -72,6 +72,8 @@ const BEHAVIOURAL_ABSENT: Record<string, string> = {
     "the question is what a request body OMITS, and the `test e2e` vocabulary cannot pose it — a workflow call there is type-checked against the declared params, so an absent required field is not expressible; the compile tier proves every backend still builds with the boxed components, and the 422 itself is the Schemathesis legs' question",
   "collection-op-shapes":
     "collection-op VALUE semantics (empty sum, avg of none, sort stability) — the exact class a string assertion cannot see",
+  "workflow-command-payload":
+    "the defect (#2864 D7/T2) is on the WORKFLOW command route, and the e2e DSL has no form that calls one — a booted caller could only drive the two crudish aggregates, never the payload wire contract the fixture exists for; the five compile legs are its oracle (M-T9.13 owns the drain: POST the payload from an e2e block once the DSL can call a workflow)",
   "projection-fold-statements":
     "ledger row F2-XB-4 — the COMPILE tier is the gate that mattered here (a dropped `let` is CS0103 / 'cannot find symbol'), and `test/conformance/projection-fold-statement-parity.test.ts` sweeps every admitted statement kind on all five per-PR.  What a behavioural block would add is the ACCUMULATED VALUE: a dropped `+=` compiles and leaves the column null forever, which only a booted read can tell from a correct fold.  Blocked on a wire golden per backend, not on the fixture",
   "paged-nonrelational":
