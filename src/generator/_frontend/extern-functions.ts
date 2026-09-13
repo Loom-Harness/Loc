@@ -18,8 +18,18 @@
 // difference is where the wire-DTO api modules live (react `src/api/`,
 // SvelteKit `src/lib/api/`), threaded as `apiImportRoot`.
 
+import { diagMessage } from "../../diagnostics/messages.js";
 import type { TypeIR, UiFunctionIR } from "../../ir/types/loom-ir.js";
 import { lowerFirst, upperFirst } from "../../util/naming.js";
+
+/** INTERNAL FLOOR for a signature type with no TS spelling — the twin of
+ *  `component-prop-type.ts`'s `propTypeFloor`, refused at phase ⑦ by the same
+ *  `loom.frontend-prop-type-unsupported` gate.  Measured before that gate
+ *  existed: `function fmt(m: money): string extern from "./fmt"` validated
+ *  `0 error(s), 0 warning(s)` and then died here with a raw stack trace. */
+function signatureFloor(what: string): Error {
+  return new Error(diagMessage("loom.frontend-prop-type-unsupported#emit-invariant", { what }));
+}
 
 /** Map a Loom type to its wire-side TS spelling for the signature.
  *  Aggregates use the wire DTO (`<Agg>Response`, recorded into
@@ -43,7 +53,7 @@ function wireTsType(t: TypeIR, dtoImports: Map<string, string>, apiImportRoot: s
         case "json":
           return "unknown";
         default:
-          throw new Error(`extern function: unsupported primitive '${t.name}' in signature.`);
+          throw signatureFloor(`primitive '${t.name}'`);
       }
     case "entity":
       dtoImports.set(`${t.name}Response`, `${apiImportRoot}/${lowerFirst(t.name)}`);
@@ -57,9 +67,7 @@ function wireTsType(t: TypeIR, dtoImports: Map<string, string>, apiImportRoot: s
     case "optional":
       return `${wireTsType(t.inner, dtoImports, apiImportRoot)} | undefined`;
     default:
-      throw new Error(
-        `extern function: unsupported type kind '${t.kind}' in signature — use primitives, enums, ids, aggregates, arrays, or optionals.`,
-      );
+      throw signatureFloor(`type kind '${t.kind}'`);
   }
 }
 

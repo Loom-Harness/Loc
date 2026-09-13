@@ -79,6 +79,19 @@ system SalesSystem {
         // re-seeding that defect leaves this leg green.  Optional, so the
         // fixture seeding needs no upload.
         spec: File?
+        // The NUMERIC surface (M-T9.38).  Four host types whose WIRE spellings
+        // differ: `money` is a fixed-scale-4 STRING (RS-12), `decimal` a JSON
+        // number (RS-24), `int` and `long` JSON integers.  They are here so the
+        // leg actually reaches the Dart decoders for each — F1, the audit
+        // finding this mission was minted from, is `(x as num)` over the money
+        // STRING: it compiles clean, passes `flutter analyze`, and throws on the
+        // first read.  The probes assert each value as RENDERED TEXT, so a
+        // decoder that silently rounds (`double` for money) or truncates
+        // (`int` for a 2^50-scale `long`) fails here too, not only a throwing one.
+        listPrice: money
+        weight: decimal
+        stock: int
+        barcode: long
         invariant sku.length > 0
         derived display: string = sku
       }
@@ -191,13 +204,13 @@ system SalesSystem {
   // for them to select (see the header).  The flutter leg's UI round-trip is
   // asserted by `run-ui-flutter.mjs` at the wire layer instead.
   test e2e "create a product and read it back" against api {
-    let p = api.products.create({ sku: "WIDGET-1", price: { amount: 9.99, currency: "USD" } })
+    let p = api.products.create({ sku: "WIDGET-1", price: { amount: 9.99, currency: "USD" }, listPrice: money("12.5000"), weight: 1.25, stock: 7, barcode: 1234567890123456 })
     let read = api.products.getById(p)
     expect(read.sku).toBe("WIDGET-1")
   }
 
   test e2e "create, add a line to, and confirm an order" against api {
-    let prod = api.products.create({ sku: "WIDGET-2", price: { amount: 5.00, currency: "USD" } })
+    let prod = api.products.create({ sku: "WIDGET-2", price: { amount: 5.00, currency: "USD" }, listPrice: money("5.0000"), weight: 0.50, stock: 3, barcode: 1234567890123457 })
     let cust = api.customers.create({ name: "Buyer", email: "buyer@acme.test" })
     let ord = api.orders.create({ customerId: cust.id, status: "Draft", placedAt: "2024-01-01T00:00:00Z" })
     api.orders.addLine(ord, { productId: prod.id, qty: 3 })

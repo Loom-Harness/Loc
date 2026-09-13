@@ -1,5 +1,5 @@
-// Construction-seedable defaults — the DOMAIN-factory sibling of
-// `_frontend/server-default.ts`'s `constructionSeededDefaults`.
+// Construction-seedable defaults — which `= default` the domain `create`
+// factory materializes itself.
 //
 // A `field: T = <expr>` whose access modifier keeps it OFF the create input
 // (`managed` / `internal` / `token`) still carries a declared default, and a

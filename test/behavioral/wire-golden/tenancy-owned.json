@@ -245,6 +245,105 @@
         "id": "<volatile:key>",
         "tenantId": "<volatile:key>"
       }
+    },
+    {
+      "seq": 21,
+      "method": "POST",
+      "path": "/api/invoices",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 22,
+      "method": "GET",
+      "path": "/api/invoices",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "amountDue": 100,
+            "id": "<volatile:key>",
+            "number": "LADDER-1",
+            "version": 1
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 1,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 23,
+      "method": "GET",
+      "path": "/api/invoices",
+      "status": 200,
+      "body": {
+        "items": [],
+        "page": 1,
+        "pageSize": 20,
+        "total": 0,
+        "totalPages": 0
+      }
+    },
+    {
+      "seq": 24,
+      "method": "GET",
+      "path": "/api/invoices",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "amountDue": 100,
+            "id": "<volatile:key>",
+            "number": "LADDER-1",
+            "version": 1
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 1,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 25,
+      "method": "GET",
+      "path": "/api/invoices/{id}",
+      "status": 200,
+      "body": {
+        "amountDue": 100,
+        "id": "<volatile:key>",
+        "number": "LADDER-1",
+        "version": 1
+      }
+    },
+    {
+      "seq": 26,
+      "method": "GET",
+      "path": "/api/invoices/{id}",
+      "status": 404,
+      "body": {
+        "detail": "Invoice {id} not found",
+        "instance": "/api/invoices/{id}",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 27,
+      "method": "GET",
+      "path": "/api/invoices/{id}",
+      "status": 200,
+      "body": {
+        "amountDue": 100,
+        "id": "<volatile:key>",
+        "number": "LADDER-1",
+        "version": 1
+      }
     }
   ]
 }

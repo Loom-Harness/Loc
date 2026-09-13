@@ -1,0 +1,75 @@
+// A workflow whose PERSISTED STATE carries an enum (#2864 D4 / T3).
+//
+// The correlation-state row's wire shape — `instanceWireShape`, the thing the
+// read-only `GET /workflows/<wf>/instances` endpoints answer with — is built
+// from the workflow's state fields.  When one of those fields is an `enum`, the
+// instance-response DTO names `<Enum>Schema`, and every emitter that writes
+// that reference has to BIND it: the Hono router by declaring
+// `const <Enum>Schema = z.enum([…])` locally (exactly as the per-aggregate
+// routes file already does), the frontends by importing it from the module that
+// exports it — or, when no aggregate module does, declaring it themselves.
+//
+// Until this fixture landed there was no corpus `.ddd` with an enum-typed
+// workflow state field at all, which is why the compile tier never saw that
+// node emitted `claimState: ClaimStateSchema` against a name defined NOWHERE in
+// the generated tree (TS2304), and four frontends emitted an import aimed at an
+// unrelated aggregate's module.
+//
+// Deliberate shape choices, each pinning a distinct half of the defect:
+//
+//   * `Agency` is declared FIRST and does not use the enum.  The broken
+//     frontend resolver fell back to "the first aggregate in the context", so
+//     the bad import read `from "./agency"` — a module that exports no such
+//     name.  Agency existing, and being first, is what makes that regression
+//     observable rather than theoretical.
+//   * `claimState` is reached ONLY from the workflow.  An enum any aggregate
+//     also used would be exported by that aggregate's module and the import
+//     would resolve by luck, hiding the bug.
+//   * the create is EVENT-TRIGGERED (`create(e: ClaimFiled) by e.claim`), so
+//     this rides the saga path `docs/new-plan/T4-eventing-temporal.md` records
+//     as runtime-proven at five-backend parity — the path whose proof could not
+//     have included a node `tsc --noEmit` of an enum-stated saga.
+system ClaimReview {
+  subdomain Claims {
+    context Review {
+      enum ClaimState { Filed, UnderReview, Approved }
+
+      // Declared first, and enum-free — the "first aggregate in the context"
+      // the broken frontend import resolution aimed at.
+      aggregate Agency with crudish {
+        name: string
+      }
+      repository Agencies for Agency { }
+
+      aggregate Claim with crudish {
+        reference: string
+      }
+      repository Claims for Claim { }
+
+      event ClaimFiled { claim: Claim id, at: datetime }
+      channel ClaimLifecycle {
+        carries: ClaimFiled
+        delivery: broadcast
+        retention: ephemeral
+      }
+
+      // The enum-stated saga.  `claimState` is the field whose `<Enum>Schema`
+      // reference every backend + frontend has to bind.
+      workflow Review {
+        claim: Claim id
+        claimState: ClaimState
+        create(e: ClaimFiled) by e.claim { claimState := Filed }
+      }
+    }
+  }
+  api ReviewApi from Claims
+  storage pg { type: postgres }
+  resource reviewState { for: Review, kind: state, use: pg }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Review]
+    dataSources: [reviewState]
+    serves: ReviewApi
+    port: 4000
+  }
+}

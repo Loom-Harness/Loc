@@ -25,10 +25,34 @@ page.on("pageerror", (e) => errors.push(String(e)));
 /** Every `/api/products` query string the app has issued, in order. */
 const queries = [];
 
+// Every REQUIRED wire field the scaffold case declares has to be here: the
+// envelope decodes `items` with `Decode.list Decoders.product`, so ONE row
+// missing one required field fails the whole response, the list renders its
+// error arm, and the pager below it never mounts — indistinguishable, from the
+// outside, from a pager that is simply broken. `display` is required because
+// the case's optional self-reference (`related: Product id?`) obliges Product
+// to carry a `derived display` (loom.ui-id-ref-no-display).
+//
+// `related` is deliberately ABSENT: it is the OPTIONAL reference, so leaving it
+// out draws the em-dash arm of the null guard (M-T1.33) on every row here.
 function rowsFor(pageNum) {
   return [
-    { id: `p${pageNum}a`, name: `Item ${pageNum}A`, price: "1.00", tags: [], version: 1 },
-    { id: `p${pageNum}b`, name: `Item ${pageNum}B`, price: "2.00", tags: [], version: 1 },
+    {
+      id: `p${pageNum}a`,
+      name: `Item ${pageNum}A`,
+      display: `Item ${pageNum}A`,
+      price: "1.00",
+      tags: [],
+      version: 1,
+    },
+    {
+      id: `p${pageNum}b`,
+      name: `Item ${pageNum}B`,
+      display: `Item ${pageNum}B`,
+      price: "2.00",
+      tags: [],
+      version: 1,
+    },
   ];
 }
 

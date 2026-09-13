@@ -21,7 +21,7 @@ import { lines } from "../../util/code-builder.js";
 import { snake } from "../../util/naming.js";
 import { refuseOutOfVocabulary } from "../_expr/target.js";
 import { numericEncode } from "../_numeric/target.js";
-import { responsePyType, wireModelImport } from "./emit/http-models.js";
+import { paramPyType, responsePyType, wireModelImport } from "./emit/http-models.js";
 import {
   contextFilterPredicate,
   lowerProjectionFilterToSqlAlchemy,
@@ -34,6 +34,7 @@ import { PY_NUMERIC } from "./numeric-codec.js";
 import { rowClassName } from "./py-columns.js";
 import { renderPyExpr, renderPyNegatedGuard } from "./render-expr.js";
 import { authUserImport, wireValue } from "./repository-builder.js";
+import { pyWireToDomain } from "./routes-builder.js";
 
 /** Conjoin a projection's own `where` with the source aggregate's capability
  *  filters — either may be absent; two present become one `and_(...)`. */
@@ -326,7 +327,17 @@ function projectionRoute(
   // `requires` gate.
   const gate = proj.query!.requires;
   const needsUser = queryProjectionUsesCurrentUser(proj) || !!gate;
-  const sig = [...(needsUser ? ["request: Request"] : []), "session: SessionDep"].join(", ");
+  // A parameterised projection binds its parameters from the QUERY STRING —
+  // FastAPI infers that from a plain scalar function parameter, exactly as a
+  // parameterised `find` route does.  They lead the signature so the
+  // `request` / `session` dependencies keep their trailing position.
+  const projParams = proj.params.map((p) => `${snake(p.name)}: ${paramPyType(p.type, ctx)}`);
+  const sig = [
+    ...projParams,
+    ...(needsUser ? ["request: Request"] : []),
+    "session: SessionDep",
+  ].join(", ");
+  const projArgs = proj.params.map((p) => pyWireToDomain(snake(p.name), p.type, ctx)).join(", ");
   const out: string[] = [
     `@router.get("/${fn}", response_model=${proj.name}Response, operation_id="projection${proj.name}")`,
     `async def ${fn}_projection(${sig}) -> list[dict[str, object]]:`,
@@ -340,7 +351,7 @@ function projectionRoute(
         ]
       : []),
     `    repo = ${source}Repository(session, ${dispatcherExpr})`,
-    `    rows = await repo.${fn}()`,
+    `    rows = await repo.${fn}(${projArgs})`,
   ].filter((l): l is string => l != null);
   // join alias → { mapVar, idRow } and the bulk-load lines (dependency order).
   const aliasMap = new Map<string, { mapVar: string; idRow: string }>();
