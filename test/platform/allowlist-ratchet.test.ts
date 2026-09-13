@@ -331,7 +331,25 @@ const REGISTERED: Ratchet[] = [
     // stale entry the moment `main` moved under this branch — the drain
     // direction working in the field rather than in a mutation, twice in two
     // days, which is the rate a hand-maintained matrix would have rotted at.
-    max: 12,
+    //
+    // 12 -> 13 (#2869, dev-experience audit D6/P2 — `auth-id-claim`).  A RAISE,
+    // so it is spelled out.  Every other entry here is a behavioural-tier GAP
+    // waiting on M-T9.13's drain: something the compile tier structurally
+    // cannot see (a wrong aggregate COUNT, an async outbox delivery, a
+    // row-visibility ladder).  This one is not that shape and has nothing to
+    // drain.  Its fixture's whole subject is a STATIC contract — an id-typed
+    // `user { … }` claim — and each of the four symptoms that minted it is
+    // caught by the compile leg that already gates the cell: `TS2503`,
+    // `cannot find symbol`, a `CustomerId??` that does not parse, and (the one
+    // that reads runtime) python's missing import, which corpus-python's
+    // `ruff check` flags F821 and `mypy --strict` flags `name-defined` before
+    // anything boots.  Booting it would re-record `auth-oidc`'s CRUD
+    // round-trip and mint a golden that is an oracle for nothing, and the
+    // claim VALUE is unassertable anyway — the harness's mock issuer mints no
+    // `customer_id`.  So a future drainer should NOT spend a slot trying to
+    // give this one an e2e block; the honest move if it ever becomes wrong is
+    // to delete the fixture, not to boot it.
+    max: 13,
   },
 ];
 

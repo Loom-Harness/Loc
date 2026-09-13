@@ -3,6 +3,9 @@
 // Exercises every shape money should appear in:
 //   * field on an aggregate root              (wire round-trip)
 //   * `money("…")` constructor literal        (precise-decimal source form)
+//   * `money(<decimal expr>)` conversion      (the typed bridge — same
+//                                              `money(` spelling, different
+//                                              argument, different lowering)
 //   * literal promotion in money context      (bare `0` / `0.00` in
 //                                              a money-typed position
 //                                              elaborates to money —
@@ -33,10 +36,26 @@ context Billing {
   aggregate Invoice with crudish {
     subtotal: money
     taxRate: decimal
+    surcharge: decimal
 
     // money × decimal → money (commutative); money ± money → money.
     derived tax:   money = subtotal * taxRate
     derived total: money = subtotal + tax
+
+    // The two `money(` forms, which for a long time this fixture claimed to
+    // cover and did not — the header above lists the constructor literal
+    // FIRST, and it appeared nowhere outside a comment.  That is why nobody
+    // noticed that every parse reaching one printed four lines of Chevrotain
+    // grammar advice to stderr (audit #2864 § Papercuts / M-T9.60): the file
+    // whose job was to exercise the shape never exercised it.
+    //
+    //   `money("…")`  — STRING argument, the compile-time LITERAL.  Lowers to
+    //                   `lit("money", "2.50")`; the text reaches each backend's
+    //                   precise-decimal constructor without a float in between.
+    derived floor: money = money("2.50")
+    //   `money(x)`    — expression argument, the CONVERSION (decimal → money).
+    //                   Lowers to `convert(target: money, from: decimal)`.
+    derived surchargeAmount: money = money(surcharge)
 
     // Money comparison + assignment.  Numeric literals (`0`, `0.00`)
     // in money-typed positions elaborate to money via the lowering's
@@ -46,6 +65,13 @@ context Billing {
       precondition amount > 0
       precondition amount <= subtotal
       subtotal := subtotal - amount
+    }
+
+    // A money literal in STATEMENT position, not just a derived initialiser —
+    // the arm that reaches each backend's `render-stmt` rather than its
+    // derived-field emitter.
+    operation addHandlingFee() {
+      subtotal := subtotal + money("1.95")
     }
 
     // Money invariant — every backend emits a comparable check.
