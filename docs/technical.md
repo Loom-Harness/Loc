@@ -1167,9 +1167,9 @@ Rough recipe:
 
 Many precedents in tree — five backends (`generator/typescript/`,
 `generator/dotnet/`, `generator/elixir/`, `generator/java/`,
-`generator/python/`) and five frontends (`generator/react/`,
+`generator/python/`) and six frontends (`generator/react/`,
 `generator/vue/`, `generator/svelte/`, `generator/angular/`,
-`generator/feliz/` — F#/Fable).  A few worth reading first:
+`generator/feliz/` — F#/Fable, `generator/flutter/` — Dart/Flutter).  A few worth reading first:
 
 - `generator/typescript/` — Hono.  Procedural emitters for fixed
   shapes (`emit/*.ts`); larger procedural builders (`*-builder.ts`)
