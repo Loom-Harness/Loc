@@ -303,8 +303,35 @@ export interface ActionMutationState {
   /** camelCase aggregate name — the api module to import from
    *  (`<prefix>api/<aggCamel>`). */
   aggCamel: string;
-  /** JS expression for the instance id to mutate (e.g. `order.id`). */
-  idExpr: string;
+  /** JS expression for the instance id to mutate (e.g. `order.id`).
+   *
+   *  ABSENT (`undefined`) means the hook takes NO hook-time argument at
+   *  all — `DestroyForm` hoists `useDelete<Agg>()`, whose id goes to
+   *  `mutateAsync` instead, unlike `use<Op><Agg>(<id>)`.  That is a
+   *  different thing from an id that renders to the empty string, and it
+   *  must stay a distinct value rather than `""`: a shell that decorates
+   *  a PRESENT id (svelte wraps it in an accessor thunk) turns `""` into
+   *  `useDeleteOrder(() => )`, a syntax error.  Render the argument with
+   *  `renderActionMutationArg` rather than interpolating this field. */
+  idExpr?: string;
+}
+
+/** Render an action-mutation hook's hook-time ARGUMENT LIST.
+ *
+ *  The one place that knows what an absent `idExpr` means, shared by every
+ *  shell that declares `const <localVar> = <hookName>(<arg>)`.  An absent id
+ *  renders as the EMPTY argument list (`useDelete<Agg>()`); a present one is
+ *  shaped by the framework's `wrap` — svelte's api factories take the id as an
+ *  accessor, so it wraps in a thunk, while react passes it straight through.
+ *
+ *  Frameworks differ only in how they decorate a present id, never in whether
+ *  an absent one may be decorated — which is why the check lives here and not
+ *  in each shell. */
+export function renderActionMutationArg(
+  m: ActionMutationState,
+  wrap: (idExpr: string) => string = (idExpr) => idExpr,
+): string {
+  return m.idExpr === undefined ? "" : wrap(m.idExpr);
 }
 
 /** A single auto-injected React Query hook call.  Generated when
