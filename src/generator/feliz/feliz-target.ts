@@ -131,7 +131,7 @@ function fieldTestid(base: string, fld: FelizFormField): string {
  *  `orders-op-addLine` / `workflow-place_order`); the input carries
  *  `<base>-input-<field>` via `prop.custom` so the shared page objects drive it. */
 function renderFormInput(formField: string, fld: FelizFormField, base: string): string {
-  const value = `model.${formField}.${fld.wireName}`;
+  const value = `model.${formField}.${fld.fsName}`;
   const tidP = `prop.custom("data-testid", "${fieldTestid(base, fld)}"); `;
   if (fld.inputKind === "checkbox") {
     // A bool checkbox is always a legitimate value (checked/unchecked) — no
@@ -182,7 +182,7 @@ function renderFormInput(formField: string, fld: FelizFormField, base: string): 
     // writes `Some fileRef` into the cell.  The name of the file already chosen
     // shows below the input, so a re-render after upload is visible.
     const pick = formFileSelectMsg(formField, fld.wireName);
-    const chosen = `Html.span [ prop.className "label-text-alt"; prop.text (match model.${formField}.${fld.wireName} with | Some __f -> __f.key | None -> "") ]`;
+    const chosen = `Html.span [ prop.className "label-text-alt"; prop.text (match model.${formField}.${fld.fsName} with | Some __f -> __f.key | None -> "") ]`;
     const input = `Html.input [ ${tidP}prop.className "file-input file-input-bordered w-full"; prop.type'.file; prop.onChange (fun (file: Browser.Types.File) -> dispatch (${pick} file))${onBlur}${aria} ]`;
     return wrap(`Html.div [ prop.className "w-full"; prop.children [ ${input}; ${chosen} ] ]`);
   }
@@ -210,7 +210,7 @@ function renderFormInput(formField: string, fld: FelizFormField, base: string): 
  *  and dispatching the INDEXED setter `<setMsg> (i, v)`.  One line (offside-safe
  *  inside the row's Feliz children list). */
 function renderRowInput(fld: FelizRowField): string {
-  const value = `row.${fld.wireName}`;
+  const value = `row.${fld.fsName}`;
   const set = (v: string): string => `dispatch (${fld.setMsg} (i, ${v}))`;
   if (fld.inputKind === "checkbox") {
     return `Html.input [ prop.className "checkbox"; prop.type'.checkbox; prop.isChecked (${value} = "true"); prop.onChange (fun (v: bool) -> ${set('if v then "true" else "false"')}) ]`;
