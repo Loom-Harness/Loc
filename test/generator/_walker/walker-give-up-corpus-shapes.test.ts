@@ -51,11 +51,11 @@ const EXPECTED: readonly { text: string; code: string; why: string }[] = [
     code: "loom.page-primitive-arg-missing",
     why: "`IdLink { }` — no `of:`",
   },
-  {
-    text: "DestroyForm: expected (of: <Agg>)",
-    code: "loom.page-primitive-arg-invalid",
-    why: "`DestroyForm { }` — the `of:` is absent, so the shape is unreadable",
-  },
+  // `DestroyForm { }` used to sit here.  It is REFUSED at phase ⑦ now
+  // (`loom.destroy-form-of-unresolved#not-a-ref`, M-T1.31), which is the good
+  // news this file's first assertion is written to force: the silent class got
+  // smaller, so the shape moved out rather than being re-pinned here.  Its
+  // coverage lives in `test/ir/destroy-form-of-unresolved.test.ts`.
   {
     text: "unknown icon name",
     code: "loom.page-primitive-arg-invalid",

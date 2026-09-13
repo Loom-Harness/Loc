@@ -63,7 +63,8 @@ remaining gaps + sequencing are in
 | Event-sourced **workflow** (saga appliers) | ✓ | ✓ | ✓ | ✓ | ✓ | `EVENT_SOURCING_WORKFLOW_BACKENDS` |
 | TPH inheritance `inheritanceUsing: sharedTable` | ✓ | ✓ | ✓ | ✓ | ✓ | `TPH_CAPABLE` |
 | TPC inheritance `inheritanceUsing: ownTable` | ✓ | ✓ | ✓ | ✓ | ✓ | (universal) |
-| Discriminated unions / generic carriers (`paged`/`envelope`) | ✓ | ✓ | ✓ | ✓ | ✓ | `SUPPORTED_UNION_BACKENDS` |
+| Discriminated unions / the `paged` carrier | ✓ | ✓ | ✓ | ✓ | ✓ | `SUPPORTED_UNION_BACKENDS` |
+| The `envelope` carrier — a **single-row find** (see below) | ✓ | ✓ | ✓ | ✓ | ✓ | corpus `envelope` + `test/generator/envelope-carrier.test.ts` |
 | `when` canCommand gate + `can_<op>` query | ✓ | ✓ | ✓ | ✓ | ✓ | `SUPPORTED_WHEN_BACKENDS` |
 | Exception-less returns (`op(): X or NotFound`) | ✓ | ✓ | ✓ | ✓ | ✓ | `SUPPORTED_RETURN_BACKENDS` |
 | Capability `filter` — relational (non-principal) | ✓ | ✓ | ✓ | ✓ | ✓ | `LIMITED_FAMILIES` |
@@ -72,6 +73,23 @@ remaining gaps + sequencing are in
 | Per-operation `audited` | ✓ | ✓ | ✓ | ✓ | ✓ | `AUDIT_OP_BACKENDS` |
 | Audited **lifecycle** (`audited create`/`destroy`) | ✓ | ✓ | ✓ | ✓ | ✓ | `AUDIT_LIFECYCLE_BACKENDS` |
 | Audit/context stamping (`with audit`) | ✓ | ✓ | ✓ | ✓ | ✓ | (universal) |
+
+> **`envelope` is a single-row find (M-T6.57, ratified 2026-09-10).** `find
+> audit(): Order envelope` means "read at most one `Order`": the repository
+> answers `Order`, the route serialises the **bare body**, and an empty result
+> set is the not-found rung (404). It carries **no distinct wire shape** — the
+> `{ id, ts, body }` wrapper was the P3 design and never shipped, because
+> nothing in the IR can source `ts`. `T envelope` and `T` therefore emit
+> identically on every backend, which is what the gate on that row asserts.
+>
+> Until that landed, the row above carried **five ticks on output that did not
+> build**: java named `Envelope<Order>` in the repository port, the Spring Data
+> interface and the impl and declared it *nowhere*; .NET returned a bare `Order`
+> from a `Task<Envelope<Order>>` (CS0029); Elixir `Repo.all`-ed every row and
+> answered a JSON array against its own single-object OpenAPI. Only node and
+> python were honest. Nothing caught it because **no `.ddd` in the repo
+> instantiated the carrier** — every compile gate was blind to it by
+> construction, which is why `test/fixtures/corpus/envelope.ddd` now exists.
 
 **Re-verified 2026-08-23 against `src/ir/validate/checks/system-checks.ts`: every
 gate set in this table now holds all five backends** — `EVENT_SOURCING_WORKFLOW_BACKENDS`,
@@ -993,7 +1011,9 @@ phoenix_app/
 │       ├── order.ex
 │       ├── order_line.ex                         # entity-part as embedded_schema
 │       ├── order_status.ex                       # enums as Ecto.Enum
-│       ├── money.ex                              # value objects as embedded_schema / custom Ecto.Type
+│       ├── email.ex                              # a CONSTRAINED value object → a schemaless-changeset
+│                                                #   validator module.  An UNCONSTRAINED VO (Money) emits
+│                                                #   no module at all — it is a :map column on the owner.
 │       ├── events/order_confirmed.ex             # plain defstruct modules
 │       ├── workflows/place_order.ex              # context fns wrapping Repo.transaction
 │       ├── dispatcher.ex                         # in-process event router (when a channel carries a subscribed event)
@@ -1028,7 +1048,7 @@ Aggregate IR maps onto Ecto/Phoenix:
 | `derived total: Money = expr` | a `def total(record)` function over the struct (`<lowered>`) |
 | `invariant <pred> when <guard>` | a `validate_change` / conditional validator in `base_changeset` |
 | `operation op(args) { body }` | a context function `def <snake_op>(record, params)` (precondition + `put_change` + `Repo.update`) |
-| `valueobject Money { … }` | embedded `embedded_schema` (composite) or a custom `Ecto.Type` (single-field) |
+| `valueobject Money { … }` | **A `:map` (JSONB) column on the owner's schema** — `field :total, :map`, `add :total, :map` in the migration — never an `embedded_schema`, never a custom `Ecto.Type` (`mapTypeToEcto` in `vanilla/schema-emit.ts` returns `":map"` for a `valueobject` unconditionally). A VO carrying a `check` additionally gets a **schemaless-changeset validator module** (`@types` map + `cast/3` + the invariant validators + `new/1`); an unconstrained VO gets no module at all. The *wire* shape stays the nested `{ amount, currency }` object every backend agrees on — the column layout is a deliberate divergence, recorded in [`language-reference/03-domain-modeling.md` § `valueobject`](language-reference/03-domain-modeling.md#valueobject). |
 | `event LineAdded { … }` | plain `defstruct` module under `<Ctx>.Events.<Event>` |
 | `repository finds: find byCustomer(...) where ...` | a context query function `def by_customer(customer_id) = Repo.all(from … where: …)` |
 | `workflow placeOrder(...) { ... }` | a context function wrapping `Repo.transaction(fn -> with … end)` |
