@@ -195,6 +195,63 @@ Nothing in this packet touches `routes-builder.ts`, `auth-emit.ts`,
   product statement, not an incomplete implementation. `scope`, owner: the T6
   backend track, on demand.
 
+## Post-hand-off fix — the census the pre-check missed
+
+The full `npm test` rollup, still running when this note was first written, found
+**one real failure introduced by this packet**, and it is worth recording as a
+process finding rather than only a fixed bug.
+
+`test/ir/api-caller-census.test.ts > corpus/tph-crossings` failed in **197 ms**:
+four derived api operations on the new fixture had no caller in its `test e2e`
+block — `updateParcel` (POST `/api/parcels/{id}/update`), `allParcel` (GET
+`/api/parcels`), `destroyCrate` (DELETE `/api/crates/{id}`) and `updateCrate`
+(POST `/api/crates/{id}/update`). The census ratchets on any corpus fixture
+carrying a `test e2e` block, and `crudish` on `Crate` plus
+`crudish(updateOnly:)` on `Parcel` derive routes the block never exercised.
+
+**Why the pre-check missed it.** Every suite run individually was chosen from
+this packet's own blast radius — the python generator tree, the pairwise suite,
+the three coverage gates, the register/ledger/denominator gates. `test/ir/` is
+not in that radius *for an emitter change*, but it is for a **corpus fixture**
+addition, and the fixture was the one artifact in the packet whose gate lives
+somewhere else entirely. Adding a fixture pulls in `test/ir/api-caller-census`,
+`golden-coverage` and `behavioural-coverage` — the first of those was the gap.
+
+**Closed by adding callers, not pins.** The gate offers both, and a pin would
+have been the wrong precedent in a fixture written the same day: an uncalled
+route is an untested route, and each of the four had a real assertion to carry.
+The block now also proves what those routes are *for* on a shared table — the
+subtype `update` writes only its own column and leaves the base columns intact
+(read back through the filtered paged find, so the write has to reach the column
+the `WHERE` reads); the auto-`findAll` is a second derivation that needs the
+`kind` predicate and the capability filter independently of the declared find;
+and the hard `destroy` must remove exactly one row out of the shared table, with
+the soft-deleted (still physically present) Parcel row as the witness that a
+kind-less DELETE would also take. Ordering is load-bearing: updates and both
+`all()` reads before the soft delete, `destroy` last because it 404s the reads
+above.
+
+The request sequence changed from 12 to **22** requests, so the wire golden was
+recaptured from **node** (the oracle) and re-verified against python.
+
+| gate | result |
+|---|---|
+| `npx vitest run test/ir/api-caller-census.test.ts` | 119 passed (was 1 failed) |
+| `npx vitest run test/ir` | **264 files / 3097 passed**, 1 skipped |
+| `corpus-coverage` + `behavioural-coverage` + `golden-coverage` | 586 passed |
+| `cd test/behavioral && LOOM_WIRE_UPDATE=1 node run.mjs tph-crossings` | 1 passed — golden rebaselined from node, 22 requests |
+| `node run-python.mjs tph-crossings` (real Postgres) | 1 passed, `wire: matches golden`, 0 divergences |
+| `npm run lint` | 0 errors, 23 pre-existing warnings |
+
+**Everything else in that rollup was SIGTERM cascade, not failure.** The run was
+killed mid-flight to free the shared CPU, and the kill reported eight
+`test/cli/new` cases at 1–5 ms plus six unit cases at 30 s–14 min. The durations
+are the tell, and the one fast-looking cluster was re-run clean:
+`test/cli/new.test.ts` passes 17/17. Recorded because a killed run's output
+reads exactly like a verdict about its subject, which is the failure mode the
+pairwise leg's own infra-vs-finding classifier exists to prevent — the same
+discipline applies to reading a rollup someone stopped.
+
 ## Coordinator addendum (fold, 2026-09-13)
 
 Packet 2c took the language-layer follow-up this note left to 2f: **D-EMBEDDED-TPH** refuses
