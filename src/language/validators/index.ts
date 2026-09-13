@@ -40,6 +40,7 @@ export {
 } from "./match.js";
 export { checkMigrations } from "./migration.js";
 export { checkUnknownNameRefs } from "./names.js";
+export { checkIntegerLiteralPrecision } from "./numeric-literals.js";
 export { checkPayloads } from "./payload.js";
 export { checkPermissionImplies } from "./permissions.js";
 export { checkPolicyFns } from "./policy-fn.js";

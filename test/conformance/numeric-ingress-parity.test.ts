@@ -23,6 +23,31 @@
 //   money 12.5 (JSON number)       4xx     4xx     4xx     4xx     ACCEPT
 //   money 40 digits                4xx     4xx     4xx     4xx     4xx
 //                                  ^ was "accept" on four until the range guard
+//   long 2^53  (past the ceiling)  4xx     accept  accept  accept  accept
+//
+// ## The `long` row (added 2026-09-13, M-T5.23 / `D-LONG-AVG-DEFAULTS`)
+//
+// MEASURED against the real zod, both majors the two hono packages pin:
+// zod 4's `.int()` ALREADY refuses anything outside ±(2^53−1)
+// (`Too big: expected int to be <=9007199254740991`), while zod 3's accepts
+// `1e19` — so the v5 package enforced the declared `long` ceiling by accident
+// of its zod major and the v4 package wrote a corrupted value into a bigint
+// column.  `LONG_SAFE` (`hono/v4/routes-builder.ts`) states it on both, as a
+// `.refine` so it is enforced WITHOUT being published (node-only bounds in the
+// OpenAPI would make one `.ddd` publish two contracts).
+//
+// The other four ACCEPT past the ceiling and carry the value exactly (int64
+// columns, arbitrary-precision or 64-bit integers), and that is the ruling's
+// own shape: option (a) declared the ceiling and enforced it "on the affected
+// paths" — the paths whose REPRESENTATION cannot hold more — rather than
+// upgrade node to BigInt (option (b)) or narrow four working backends.  The
+// residual is real and recorded in the pins below: a value written through
+// java and read back through node rounds.  Closing it is either the
+// representation upgrade or a uniform ingress narrowing, and the second is the
+// owner-only class `D-NUMERIC-INGRESS-STRICT` covers.  Note this row is NOT the
+// money one above it: the money range guard (wave C1) closed a defect nobody
+// relied on, while narrowing `long` on the other four would take away values
+// they carry correctly today.
 //
 // Rows 1, 2 and 5 are guarantees and are asserted as seams below.  Row 5 was a
 // DIVERGENCE until wave C1 (ledger row `G2644` / M-T6.60 divergence 3): a
@@ -521,5 +546,34 @@ describe("M-T6.48 — request-side numeric strictness still diverges (pinned)", 
     expect(elixir, "elixir now guards cast-path money — delete this pin").not.toMatch(
       /__loom_money_field/,
     );
+  });
+
+  it("node refuses a `long` past the declared ceiling; the other four accept it", async () => {
+    // The node half is a SEAM (the contract this packet added), the other four
+    // are pinned CHARACTERIZATIONS of the residual the ruling accepted.
+    //
+    // MEASURED with the real deserializers: zod 3.25.76 `z.number().int()`
+    // accepts `9007199254740993` and `1e19`; with the emitted
+    // `.refine(...)` it refuses both.  zod 4.4.3's `.int()` already refused
+    // them, so the refine is the explicit statement of a contract v5 held only
+    // by accident.
+    const node = scope(await emit("node"));
+    expect(node, "node no longer bounds an inbound `long` to the safe-integer range").toMatch(
+      /long[\s\S]*?refine\(\(n: number\) => n >= -9007199254740991 && n <= 9007199254740991\)|sold: z\.number\(\)\.int\(\)\.refine/,
+    );
+    // Unpublished on purpose — a `.min`/`.max` pair would appear in the
+    // OpenAPI and make node's published contract narrower than java's for the
+    // same `.ddd`.
+    expect(node, "the long bound is published — it must stay enforced-only").not.toMatch(
+      /\.min\(-9007199254740991\)/,
+    );
+    // The four that carry int64 exactly declare no such bound; each would need
+    // a wire guard, which is the narrowing `D-NUMERIC-INGRESS-STRICT` owns.
+    for (const platform of ["dotnet", "java", "python", "elixir"] as const) {
+      expect(
+        scope(await emit(platform)),
+        `${platform} now bounds an inbound long — the ceiling went uniform, update the matrix row and delete this pin`,
+      ).not.toMatch(/9007199254740991/);
+    }
   });
 });

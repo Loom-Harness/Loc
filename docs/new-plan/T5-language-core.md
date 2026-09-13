@@ -126,26 +126,6 @@ spelling too, not only on magnitude.
 
 Sources: [numeric-types-audit-2026-08-23](../audits/numeric-types-audit-2026-08-23.md) F11 + annex, plan.json N7. Relates to M-T6.46/M-T6.47 (the response-narrowing halves), RS-24.
 
-## M-T5.23 — `long` has no contract: silent corruption past 2^53 on node/python, 3-way divergent overflow — `blocked(D-LONG-AVG-DEFAULTS)` · **M** · P2
-
-Found 2026-08-23 by the numeric-types audit ([F13](../audits/numeric-types-audit-2026-08-23.md)). Node stores `long` as a JS `number` (`bigint(col, {mode: "number"})`, `src/generator/typescript/emit/schema.ts`; mikroorm `ts: "number"`) and python's aggregate arm routes declared int/long sums through `float()` — both silently corrupt past 2^53 while .NET/Java/Elixir carry int64 exactly. Aggregate int-overflow behavior is three-way divergent for the same `.ddd`: Java `((Number) x).intValue()` **wraps silently**, .NET's `(int)` cast **throws** (500), the rest pass the too-big value through. No validator, no doc caveat anywhere.
-
-**The work (proposed default, overridable):** document + validator-enforce a 2^53 safe-integer ceiling for `long` on the affected paths now — an honest `loom.*` diagnostic instead of silent corruption; a representation upgrade (BigInt / string wire) becomes a named follow-up mission only if the ceiling pinches. Route python's declared-int/long aggregates through `int()`. Unify overflow behavior (proposed: Java's wraparound becomes an error like .NET's).
-
-**Verification when it lands.** Validator tests; a >2^53 witness proving the exact backends carry it; python aggregate int test; each mutation-proved.
-
-Sources: [numeric-types-audit-2026-08-23](../audits/numeric-types-audit-2026-08-23.md) F13 + annex, plan.json N8.
-
-## M-T5.24 — Projection `avg` over money is typed `decimal`: the mean of exact money leaves as a lossy double — `blocked(D-LONG-AVG-DEFAULTS)` · **S** · P2
-
-Found 2026-08-23 by the numeric-types audit ([F14](../audits/numeric-types-audit-2026-08-23.md)). `src/ir/lower/lower-projection.ts` stamps query-time `avg → decimal` even over a money column, so the mean of exact money crosses the wire as a float64 JSON number — while the **in-memory** `avg` of the same field types `money?` (`type-system.ts`) and ships the 4-dp string. Same word, two semantics, no gate.
-
-**The work (proposed default, overridable):** retype projection `avg` over a money column to `money` — `aggregateCoercion`'s `isMoney` arm (`src/ir/util/projection-aggregate.ts`) already knows how to format it on all five backends; update the wire-golden capture with the retype.
-
-**Verification when it lands.** A lowering test plus a behavioral golden for an avg-over-money projection; mutation-proved through the coercion.
-
-Sources: [numeric-types-audit-2026-08-23](../audits/numeric-types-audit-2026-08-23.md) F14, plan.json N9. Relates to RS-12, #2560.
-
 ## M-T5.28 — `variant-match` off a page crashes all five backends; `for`/`if let` off a workflow emits `this.<unknown>()` — neither is gated — `done` (2026-09-11, Wave C1 packet 1b) · **M** · P1
 
 Found 2026-09-03 by the language-docs audit ([F1](../audits/2026-09-03-language-docs-audit-findings.md), [F4](../audits/2026-09-03-language-docs-audit-findings.md), both P0). A `match` over a union in a domain body reports `0 error(s)` and then throws `variant-match statement is frontend-only; it must not reach the <X> backend` from `src/generator/_stmt/target.ts:160` on node, dotnet, java, python and elixir alike — no IR check covers `variant-match` outside a page (`src/ir/validate/checks/store-checks.ts` handles only the page case), and non-exhaustive arms are unchecked too. Symmetrically, `src/ir/lower/lower-stmt.ts` has no arm for `ForStmt`/`IfLetStmt` outside a workflow and no validator rejects them: `operation touch() { for n in notes { owner := n } }` reports `0 error(s), 0 warning(s)` and emits `this.<unknown>();`.
