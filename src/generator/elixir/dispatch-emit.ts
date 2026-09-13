@@ -1155,14 +1155,24 @@ function retrievalRunCall(
   return `${contextModule}.run_${snake(st.retrievalName)}_${snake(st.aggName)}(${args.join(", ")})`;
 }
 
-/** Is `name` read anywhere inside a loop body?  Rides `walkWorkflowStmtExprsDeep`
- *  so a reference nested in an `if-let` branch, a `match` arm or a `list`
- *  literal counts — a hand-rolled shallow scan would underscore a variable the
- *  body actually reads, and Elixir then warns on the read of an underscored
- *  binding (`--warnings-as-errors`). */
+/** Is `name` read anywhere inside a loop body?
+ *
+ *  Rides `walkWorkflowStmtExprsDeep` (so a reference nested in an `if-let`
+ *  branch, a `match` arm or a `list` literal counts) PLUS the `op-call` TARGET,
+ *  which is not an expression: it is the bound aggregate the call mutates
+ *  (`n.markSeen()`), so it has no child-expression slot for the walker to hand
+ *  over.  Missing it is not cosmetic — the loop var reads as unused, the
+ *  callback binds `fn _n, _acc ->`, and the body the renderer emits still says
+ *  `mark_seen_note(n, %{})`: `** (CompileError) undefined variable "n"` on
+ *  every `mix compile`.  The vanilla command path carries the same carve-out
+ *  (`collectWorkflowStmtParamRefsAll`). */
 function loopBindUsed(name: string, body: WorkflowStmtIR[]): boolean {
   let used = false;
+  const visit = (s: WorkflowStmtIR): void => {
+    if (s.kind === "op-call" && s.target === name) used = true;
+  };
   for (const s of body) {
+    walkWorkflowStmtsDeep(s, visit);
     walkWorkflowStmtExprsDeep(s, (e) => {
       if (e.kind === "ref" && e.name === name) used = true;
     });

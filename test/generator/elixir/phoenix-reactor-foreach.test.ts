@@ -180,3 +180,50 @@ describe("phoenix reactor loop body: guard, emit and saga-state read", () => {
     expect(col(nextClause)).toBe(col(withLine) + "with ".length);
   });
 });
+
+// The mutate-each-element loop: the body's ONLY use of the loop variable is as
+// an `op-call` TARGET.  That target is not an expression — it is the bound
+// aggregate the call mutates — so it has no child-expression slot for
+// `walkWorkflowStmtExprsDeep` to hand over.  Missing it makes the loop var read
+// as unused, and the emitted callback then binds `fn _n, _acc ->` while its own
+// body still says `mark_seen_note(n, %{})`:
+//
+//   error: undefined variable "n"
+//   ** (CompileError) lib/…/on_post_published.ex: cannot compile module …
+//
+// (verified against `MIX_ENV=prod mix compile --warnings-as-errors`).  The
+// vanilla command path carries the same carve-out in
+// `collectWorkflowStmtParamRefsAll`; this is its reactor twin.
+const OPCALL = `system S { subdomain D { context Community {
+  aggregate Member { handle: string  derived display: string = handle }
+  aggregate Post { author: Member id  title: string  derived display: string = title }
+  aggregate Note { member: Member id  post: Post id  seen: bool  derived display: string = "n"
+    operation markSeen() { seen := true } }
+  repository Members for Member { }
+  repository Posts for Post { }
+  repository Notes for Note { }
+  criterion NotesFor(p: Post id) of Note = post == p
+  event PostPublished { post: Post id, author: Member id }
+  channel Feed { carries: PostPublished }
+  workflow SeenAll {
+    postId: Post id
+    on(e: PostPublished) by e.post {
+      let ns = Notes.run(NotesFor(e.post), page: { offset: 0, limit: 100 })
+      for n in ns {
+        n.markSeen()
+      }
+    }
+  }
+} } api A from D storage pg { type: postgres }
+  resource st { for: Community, kind: state, use: pg }
+  deployable api { platform: elixir contexts: [Community] serves: A dataSources: [st] port: 4000 } }`;
+
+describe("phoenix reactor loop: the loop var used only as an op-call target", () => {
+  it("keeps the loop variable bound, so the op-call's receiver is defined", async () => {
+    const files = await generateSystemFiles(OPCALL);
+    const src = [...files.entries()].find(([k]) => k.endsWith("on_post_published.ex"))![1];
+    expect(src).toContain("Enum.reduce_while(ns, {:ok, nil}, fn n, _acc ->");
+    expect(src).not.toContain("fn _n, _acc ->");
+    expect(src).toContain("Api.Community.mark_seen_note(n, %{})");
+  });
+});
