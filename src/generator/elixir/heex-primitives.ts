@@ -1048,6 +1048,8 @@ export function renderQueryView(expr: Extract<ExprIR, { kind: "call" }>, ctx: Wa
       assign: assignName,
       aggregate: projectionRead,
       source: "projection",
+      // The `match` arm this read sits in, if any — see `QueryBinding.guard`.
+      guard: ctx.loadGuard,
     });
   }
   if (historyRead) {
@@ -1061,6 +1063,7 @@ export function renderQueryView(expr: Extract<ExprIR, { kind: "call" }>, ctx: Wa
       aggregate: historyRead,
       source: "history",
       listArgs: queryCallArgs(ofArgNode, ctx),
+      guard: ctx.loadGuard,
     });
   }
   const aggName =
@@ -1083,6 +1086,11 @@ export function renderQueryView(expr: Extract<ExprIR, { kind: "call" }>, ctx: Wa
       // WHICH context function this read calls.  Resolved from the `of:` call's
       // OPERATION, not assumed from the read's shape — see `contextReadFn`.
       readFn: contextReadFn(aggName, isSingle, ctx, detected),
+      // WHETHER this read runs at all.  A `QueryView` inside a `match` arm — the
+      // scaffolded list page's whole filter bar — must load only in the arm that
+      // renders it; unguarded, every arm's read ran and the last write to the
+      // shared assign won.  See `QueryBinding.guard`.
+      guard: ctx.loadGuard,
     });
   }
 
@@ -1819,7 +1827,19 @@ function controlledInput(
       ? ` label="${label.replace(/&/g, "&amp;").replace(/"/g, "&quot;")}"`
       : "";
   const testidAttr = testIdAttr(expr, ctx);
-  if (!bind || !ctx.stateNames.has(bind)) {
+  // `bind:` carries the state field's `.ddd` spelling (camelCase); `stateNames`
+  // is keyed by the SNAKE-CASED assign name (built once at walker entry from
+  // `page.state`).  Comparing the two spellings directly is a membership test
+  // that can only succeed for a single-word field — `bind: query` matched,
+  // `bind: byNameN` did not — so every multi-word bound input silently fell
+  // through to the unbound stub below and rendered `disabled`, with the backing
+  // assign sitting in `mount/3` unread.  That is how the scaffolded list page's
+  // whole filter bar came out inert (its fields are `<find><Param>` by
+  // construction, never one word).  `snake` here is what every other
+  // `stateNames` lookup in the walker already does — `stateRefArg`,
+  // `renderFileUpload`, `renderStateRef`.
+  const bound = bind ? snake(bind) : undefined;
+  if (!bound || !ctx.stateNames.has(bound)) {
     const opt = type === "select" ? ` options={[]}` : "";
     return `<.input type="${type}" name="_unbound"${labelAttr}${opt} value="" disabled${testidAttr} />`;
   }
@@ -1827,7 +1847,7 @@ function controlledInput(
   // namespaced name (heex-walker-core `hostStateAssign`), and the write-back
   // clause hoisted just below runs THERE — so the assign, the form field name
   // and the `phx-change` payload key all spell that one name.
-  const field = hostStateAssign(ctx.stateOwner, bind);
+  const field = hostStateAssign(ctx.stateOwner, bound);
   const isCheckbox = type === "checkbox";
   const eventName = isCheckbox ? `toggle_${field}` : `update_${field}`;
   // Hoist the write-back handler once per bound field.
@@ -2327,6 +2347,7 @@ export function renderChart(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkCo
     assign,
     aggregate: projection,
     source: "projection",
+    guard: ctx.loadGuard,
   });
   ctx.chartUsed.value = true;
 

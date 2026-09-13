@@ -236,6 +236,27 @@ export interface QueryBinding {
    *  substituting one (`loom.ui-read-unresolved` rejects that model upstream, so
    *  the refusal is a backstop, not the user-facing message). */
   readFn?: string;
+  /** HANDLER-position Elixir predicate that must hold for this read to run —
+   *  the `match` arm the `QueryView` sits in, if any (`undefined` = an
+   *  unconditional read, the shape every binding had before).
+   *
+   *  It exists because the markup is a `cond` but the LOADS were not: every
+   *  arm's read was pushed into `handle_params/3` unconditionally, in body
+   *  order, all writing the SAME assign — so the last one (the scaffold's `all`
+   *  fallback) overwrote whatever the filtered arm had just fetched.  The
+   *  filtered query ran, hit the database, and had its result discarded one
+   *  line later; the page then rendered the unfiltered table while the markup's
+   *  `cond` was in the filtered arm.  That is also what made the two arms look
+   *  like they disagreed on SHAPE — the filtered arm's markup reads `@items` as
+   *  a plain list and the `all` arm reads the paged envelope (`@items.items`),
+   *  which is right for each arm and wrong only because both loads ran.  Giving
+   *  each load the guard its own markup arm carries makes exactly one of them
+   *  execute, so the assign always holds the shape the rendering arm expects.
+   *
+   *  First-match-wins, like the `cond` it mirrors: arm N's guard excludes every
+   *  earlier arm's predicate, and the `else` arm's guard is the negation of all
+   *  of them. */
+  guard?: string;
 }
 
 /** Interactive controls a `Table(...)` in this body asked for — the HEEx leg of
@@ -329,6 +350,12 @@ export interface WalkContext {
   ui: UiIR;
   /** Local name set for `state { … }` fields (snake-cased). */
   stateNames: Set<string>;
+  /** HANDLER-position Elixir predicate guarding everything rendered below this
+   *  point — the conjunction of the enclosing `match` arms' conditions, set by
+   *  `renderMatch` while it walks each arm and read by the `QueryView` /
+   *  projection binding pushes (see `QueryBinding.guard`).  Undefined at the
+   *  body root: an unconditional region. */
+  loadGuard?: string;
   /** Per-field StateFieldIR keyed by snake-cased name.  Drives
    *  `heexTarget.renderStateRead` delegation — the contract's
    *  `StateRef` carries the full field, which the bare `stateNames` set
@@ -1259,6 +1286,21 @@ function armRendersMarkup(value: ExprIR, ctx: WalkContext): boolean {
   return value.kind === "match";
 }
 
+/** The walk context for arm `index` of a markup `match` — `ctx` plus the
+ *  `loadGuard` that arm's reads must run under.  `index === conds.length` is
+ *  the `else` arm.
+ *
+ *  First-match-wins, mirroring the `cond` the arms render into: arm N runs when
+ *  its own predicate holds AND no earlier arm's did, and the `else` arm runs
+ *  when none held.  A nested `match` conjoins onto the guard it inherited, so a
+ *  `QueryView` two arms deep loads only in the region that renders it. */
+function armCtx(ctx: WalkContext, conds: readonly string[], index: number): WalkContext {
+  const earlier = conds.slice(0, index).map((c) => `not (${c})`);
+  const own = index < conds.length ? [conds[index]!] : [];
+  const parts = [...(ctx.loadGuard ? [ctx.loadGuard] : []), ...earlier, ...own];
+  return parts.length > 0 ? { ...ctx, loadGuard: parts.join(" and ") } : ctx;
+}
+
 function renderMatch(expr: Extract<ExprIR, { kind: "match" }>, ctx: WalkContext): string {
   // `match { p => v; … else => f }` → Elixir `cond do … end`.
   //
@@ -1297,17 +1339,29 @@ function renderMatch(expr: Extract<ExprIR, { kind: "match" }>, ctx: WalkContext)
     // `renderChild` gives each arm the right treatment individually: markup
     // passes through, a plain term still gets its own `<%= … %>`. So a match
     // that MIXES markup and term arms stays valid.
+    // The markup below is a `cond`; the LOADS the arms register are not — each
+    // `QueryView` in an arm pushes a QueryBinding that `handle_params/3` runs
+    // as a flat statement sequence.  Carry each arm's predicate down as
+    // `ctx.loadGuard` so the load can be wrapped in the same condition its
+    // markup is (see `QueryBinding.guard`); without it every arm's read ran and
+    // the last write to the shared assign won, so the filter bar's query was
+    // executed and then thrown away.  Handler position: a load block is a
+    // function body, so a state ref must render `socket.assigns.<f>`, not
+    // `@<f>`.
+    const handlerConds = expr.arms.map((a) => renderExpr(a.cond, { ...ctx, position: "handler" }));
     const lines: string[] = ["<%= cond do %>"];
-    for (const a of expr.arms) {
+    for (const [i, a] of expr.arms.entries()) {
       lines.push(`  <% ${renderExpr(a.cond, ctx)} -> %>`);
-      lines.push(`    ${renderChild(a.value, ctx)}`);
+      lines.push(`    ${renderChild(a.value, armCtx(ctx, handlerConds, i))}`);
     }
     // `cond` raises CondClauseError when no arm matches, so the fallback is
     // not cosmetic. Without an authored `else` the page renders nothing rather
     // than crashing at request time.
     lines.push(`  <% true -> %>`);
     lines.push(
-      expr.otherwise !== undefined ? `    ${renderChild(expr.otherwise, ctx)}` : `    <%= nil %>`,
+      expr.otherwise !== undefined
+        ? `    ${renderChild(expr.otherwise, armCtx(ctx, handlerConds, expr.arms.length))}`
+        : `    <%= nil %>`,
     );
     lines.push(`<% end %>`);
     return lines.join("\n");

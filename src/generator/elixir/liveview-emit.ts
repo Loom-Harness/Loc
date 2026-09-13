@@ -864,7 +864,18 @@ function renderLiveView(a: RenderArgs): { source: string; usesChart: boolean } {
   // (`/customers/new` → `/customers`).
   const createSuccessRoute = page.route ? page.route.replace(/\/new$/, "") : null;
   const handleEventClauses =
-    renderHandleEventClauses([...handlers, ...actionHandlers, ...componentHandlers]) +
+    renderHandleEventClauses([
+      ...withQueryReload(
+        handlers,
+        walked.queryBindings,
+        contextModuleByAggName,
+        a.projectionReads,
+        a.listReadGateByAggName,
+        a.historyReads,
+      ),
+      ...actionHandlers,
+      ...componentHandlers,
+    ]) +
     renderCreateEventClauses(
       walked.formBindings,
       contextModuleByAggName,
@@ -1251,6 +1262,32 @@ interface ListReadGate {
   usesUser: boolean;
 }
 
+/** Assemble one load statement — `socket = <value>` — wrapped in the read's
+ *  `match`-arm guard when it carries one (`QueryBinding.guard`).
+ *
+ *  `handle_params/3` runs the page's loads as a FLAT sequence, but the markup
+ *  they feed is a `cond`: on the scaffolded list page the filtered arm's read
+ *  and the `all` fallback both wrote `:items`, in body order, so the fallback
+ *  landed last and threw the filter's rows away — the filter bar queried the
+ *  database and changed nothing on screen.  Guarding each load with its own
+ *  arm's predicate makes exactly one of them run, which also settles the shape
+ *  question: the assign now always holds what the rendering arm reads (a plain
+ *  list in the filtered arm, the paged envelope in the `all` arm).
+ *
+ *  Unguarded reads keep the statement they always emitted, byte for byte.
+ *
+ *  `prefix` carries any lines that must run BEFORE the assignment (the gated
+ *  read's `current_user` bind); `value` is the right-hand side at indent 6. */
+function loadStatement(guard: string | undefined, prefix: string, value: string): string {
+  if (!guard) return `${prefix}    socket =\n${value}`;
+  return `${prefix}    socket =
+      if ${guard} do
+${value.replace(/^ {6}/gm, "        ")}
+      else
+        socket
+      end`;
+}
+
 function renderQueryLoadBlock(
   qb: import("./heex-walker.js").QueryBinding,
   ctxModule: string,
@@ -1299,12 +1336,15 @@ ${opAssigns.map((a) => `  ${a}`).join("\n")}`
       readFn === `get_${aggSnake}`
         ? ""
         : `        {:ok, nil} -> assign(socket, :${qb.assign}, :not_found)\n`;
-    return `    socket =
-      case ${ctxModule}.${readFn}(${singleArgs}) do
+    return loadStatement(
+      qb.guard,
+      "",
+      `      case ${ctxModule}.${readFn}(${singleArgs}) do
 ${nilArm}${okArm}
         {:error, :not_found} -> assign(socket, :${qb.assign}, :not_found)
         _ -> assign(socket, :${qb.assign}, :error)
-      end`;
+      end`,
+    );
   }
   // List read.  A bare `list_<agg>s()` returns `{:ok, list}` (the repo wraps
   // `Repo.all/1`); the paged auto-`findAll` (M-T2.6) takes
@@ -1319,7 +1359,7 @@ ${nilArm}${okArm}
         {:ok, items} -> assign(socket, :${qb.assign}, items)
         _ -> assign(socket, :${qb.assign}, :error)
       end`;
-  if (!listGate) return `    socket =\n${read}`;
+  if (!listGate) return loadStatement(qb.guard, "", read);
   // Gated list read — denial takes the same `:error` sentinel the projection
   // loader uses, so the page renders its error slot instead of the rows.  The
   // gate is evaluated BEFORE the query, matching the `index` action's contract:
@@ -1329,12 +1369,15 @@ ${nilArm}${okArm}
   const cuBind = listGate.usesUser
     ? "    current_user = Map.get(socket.assigns, :current_user)\n"
     : "";
-  return `${cuBind}    socket =
-      if ${listGate.expr} do
+  return loadStatement(
+    qb.guard,
+    cuBind,
+    `      if ${listGate.expr} do
 ${read.replace(/^ {6}/gm, "        ")}
       else
         assign(socket, :${qb.assign}, :error)
-      end`;
+      end`,
+  );
 }
 
 /** The load block for a read whose `of:` operation resolved to NO declaration.
@@ -1346,16 +1389,21 @@ ${read.replace(/^ {6}/gm, "        ")}
  *  contract is that the page shows its ERROR slot, never other rows.  The
  *  comment names the operation so the generated source says why. */
 function renderUnresolvedRead(qb: import("./heex-walker.js").QueryBinding): string {
-  return `    # Loom: '${qb.aggregate}' read refused — the page's 'of:' names no repository
+  const comment = `    # Loom: '${qb.aggregate}' read refused — the page's 'of:' names no repository
     # operation on this aggregate, and substituting the unfiltered list would
-    # render rows the page never asked for.  See loom.ui-read-unresolved.
-    socket = assign(socket, :${qb.assign}, :error)`;
+    # render rows the page never asked for.  See loom.ui-read-unresolved.`;
+  // Guarded, the refusal has to be guarded too: an unconditional `:error` assign
+  // would clobber whatever the arm that IS rendering just loaded.
+  if (!qb.guard) return `${comment}\n    socket = assign(socket, :${qb.assign}, :error)`;
+  return `${comment}\n${loadStatement(qb.guard, "", `      assign(socket, :${qb.assign}, :error)`)}`;
 }
 
 /** The `handle_params` load line for a `QueryView { of: <api>.<Projection> }`
  *  (M-T1.3) — a call into the page-private loader below. */
 function renderProjectionLoadBlock(qb: import("./heex-walker.js").QueryBinding): string {
-  return `    socket = assign(socket, :${qb.assign}, ${projectionLoaderName(qb.aggregate)}(socket))`;
+  const load = `assign(socket, :${qb.assign}, ${projectionLoaderName(qb.aggregate)}(socket))`;
+  if (!qb.guard) return `    socket = ${load}`;
+  return loadStatement(qb.guard, "", `      ${load}`);
 }
 
 /** The page-private loader function name for one projection read. */
@@ -1438,7 +1486,9 @@ function historyLoaderName(aggregate: string): string {
  *  to `socket.assigns.id` anyway. */
 function renderHistoryLoadBlock(qb: import("./heex-walker.js").QueryBinding): string {
   const id = qb.listArgs?.[0] ?? "socket.assigns.id";
-  return `    socket = assign(socket, :${qb.assign}, ${historyLoaderName(qb.aggregate)}(socket, ${id}))`;
+  const load = `assign(socket, :${qb.assign}, ${historyLoaderName(qb.aggregate)}(socket, ${id}))`;
+  if (!qb.guard) return `    socket = ${load}`;
+  return loadStatement(qb.guard, "", `      ${load}`);
 }
 
 /** The page-private loader + mapper for each entity trail a page reads
@@ -1504,28 +1554,22 @@ ${read.mapperSource}`);
   return fns.length > 0 ? `\n${fns.join("\n\n")}\n` : "";
 }
 
-function renderHandleParams(
-  page: PageIR,
-  ui: UiIR,
-  appModule: string,
-  queryBindings: import("./heex-walker.js").QueryBinding[],
-  formBindings: import("./heex-walker.js").FormBinding[],
+/** The page's record-load statements, in body order — one per QueryBinding.
+ *  Shared by `handle_params/3` (initial load) and the state-write reload below,
+ *  so a reload can never run a DIFFERENT read from the one that first populated
+ *  the assign.
+ *
+ *  `formBindings` re-seeds operation forms in a single read's `{:ok, record}`
+ *  arm; a data-only reload passes `[]` (forms untouched), matching what the
+ *  sort/page control clauses already do. */
+function renderLoadBlocks(
+  queryBindings: readonly import("./heex-walker.js").QueryBinding[],
+  formBindings: readonly import("./heex-walker.js").FormBinding[],
   contextModuleByAggName: ReadonlyMap<string, string>,
   projectionReads: ReadonlyMap<string, ProjectionRead>,
   listReadGateByAggName: ReadonlyMap<string, ListReadGate>,
   historyReads: ReadonlyMap<string, HistoryRead>,
-): string {
-  const paramAssigns: string[] = [];
-  for (const p of page.params) {
-    paramAssigns.push(`assign(:${snake(p.name)}, params["${lowerFirst(p.name)}"])`);
-  }
-
-  // QueryView record loading.  The scaffold detail/list page reads
-  // @data / @items in its `cond`, but nothing populates them unless
-  // we load here (handle_params runs after @id is bound from the
-  // route).  `single` → load one record via `get_<agg>(id)`
-  // (`{:ok, record} | {:error, :not_found}`); `list` → the collection
-  // via `list_<agg>s()` (`{:ok, list}`).
+): string[] {
   const loadBlocks: string[] = [];
   // A page may read the SAME projection more than once — a `Chart` and a
   // `Table` over one grouped read is the ordinary dashboard shape — and every
@@ -1556,6 +1600,99 @@ function renderHandleParams(
       renderQueryLoadBlock(qb, ctxModule, opFbs, listReadGateByAggName.get(qb.aggregate)),
     );
   }
+  return loadBlocks;
+}
+
+/** Does this read depend on the page-state assign `field`?  True when the field
+ *  appears in the read's `match`-arm guard or in the arguments the `of:` call
+ *  passes — the two places a state assign can reach a query. */
+function readDependsOnState(qb: import("./heex-walker.js").QueryBinding, field: string): boolean {
+  const re = new RegExp(`\\bsocket\\.assigns\\.${field}\\b`);
+  return re.test(qb.guard ?? "") || (qb.listArgs ?? []).some((a) => re.test(a));
+}
+
+/** Make each state-bound input's write-back clause RE-RUN the reads that depend
+ *  on the assign it just wrote.
+ *
+ *  `controlledInput` hoists `update_<field>` / `toggle_<field>` clauses that do
+ *  one thing: `assign(socket, :<field>, value)`.  That is enough for a field
+ *  only the MARKUP reads, and not enough for one a QUERY reads — typing in the
+ *  scaffolded list page's filter box flipped the render `cond` into the filtered
+ *  arm while `@items` still held the `all` arm's paged envelope, so the arm that
+ *  reads it as a plain list got a map.  Nothing refetched, because a LiveView
+ *  has no `useQuery` to invalidate: the reload is a statement the handler must
+ *  run, exactly as the sort/page control clauses already do.
+ *
+ *  Only clauses whose field some read actually depends on are rewritten; every
+ *  other handler is returned untouched (byte-identical output). */
+function withQueryReload(
+  handlers: readonly HandleEventClause[],
+  queryBindings: readonly import("./heex-walker.js").QueryBinding[],
+  contextModuleByAggName: ReadonlyMap<string, string>,
+  projectionReads: ReadonlyMap<string, ProjectionRead>,
+  listReadGateByAggName: ReadonlyMap<string, ListReadGate>,
+  historyReads: ReadonlyMap<string, HistoryRead>,
+): HandleEventClause[] {
+  return handlers.map((h) => {
+    const field = /^(?:update|toggle)_(.+)$/.exec(h.name)?.[1];
+    if (!field) return h;
+    // Data reload only — operation forms stay as they are, so a half-typed form
+    // beside the filter box survives the refetch.
+    const dependents = queryBindings.filter((qb) => readDependsOnState(qb, field));
+    if (dependents.length === 0) return h;
+    const reload = renderLoadBlocks(
+      queryBindings,
+      [],
+      contextModuleByAggName,
+      projectionReads,
+      listReadGateByAggName,
+      historyReads,
+    ).join("\n\n");
+    if (reload === "") return h;
+    // The write first, so the reload's guards and arguments read the NEW value.
+    return {
+      ...h,
+      body: [
+        ...h.body.map((l) => l.replace(/^(\s*)\{:noreply, (.+)\}$/, "$1socket = $2")),
+        "",
+        reload,
+        "",
+        "    {:noreply, socket}",
+      ],
+    };
+  });
+}
+
+function renderHandleParams(
+  page: PageIR,
+  ui: UiIR,
+  appModule: string,
+  queryBindings: import("./heex-walker.js").QueryBinding[],
+  formBindings: import("./heex-walker.js").FormBinding[],
+  contextModuleByAggName: ReadonlyMap<string, string>,
+  projectionReads: ReadonlyMap<string, ProjectionRead>,
+  listReadGateByAggName: ReadonlyMap<string, ListReadGate>,
+  historyReads: ReadonlyMap<string, HistoryRead>,
+): string {
+  const paramAssigns: string[] = [];
+  for (const p of page.params) {
+    paramAssigns.push(`assign(:${snake(p.name)}, params["${lowerFirst(p.name)}"])`);
+  }
+
+  // QueryView record loading.  The scaffold detail/list page reads
+  // @data / @items in its `cond`, but nothing populates them unless
+  // we load here (handle_params runs after @id is bound from the
+  // route).  `single` → load one record via `get_<agg>(id)`
+  // (`{:ok, record} | {:error, :not_found}`); `list` → the collection
+  // via `list_<agg>s()` (`{:ok, list}`).
+  const loadBlocks = renderLoadBlocks(
+    queryBindings,
+    formBindings,
+    contextModuleByAggName,
+    projectionReads,
+    listReadGateByAggName,
+    historyReads,
+  );
 
   const hasParams = paramAssigns.length > 0;
   const hasLoad = loadBlocks.length > 0;
