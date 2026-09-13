@@ -1,0 +1,156 @@
+{
+  "case": "tph-crossings",
+  "oracle": "node",
+  "entries": [
+    {
+      "seq": 0,
+      "method": "POST",
+      "path": "/api/parcels",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 1,
+      "method": "POST",
+      "path": "/api/crates",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 2,
+      "method": "GET",
+      "path": "/api/parcels/by_courier?c=DHL&page=1&pageSize=10",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "courier": "DHL",
+            "deletedAt": null,
+            "id": "<volatile:key>",
+            "reference": "REF-1",
+            "version": 1
+          }
+        ],
+        "page": 1,
+        "pageSize": 10,
+        "total": 1,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 3,
+      "method": "POST",
+      "path": "/api/parcels/{id}/soft_delete",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 4,
+      "method": "GET",
+      "path": "/api/parcels/{id}",
+      "status": 404,
+      "body": {
+        "detail": "Parcel {id} not found",
+        "instance": "/api/parcels/{id}",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 5,
+      "method": "GET",
+      "path": "/api/parcels/by_courier?c=DHL&page=1&pageSize=10",
+      "status": 200,
+      "body": {
+        "items": [],
+        "page": 1,
+        "pageSize": 10,
+        "total": 0,
+        "totalPages": 0
+      }
+    },
+    {
+      "seq": 6,
+      "method": "POST",
+      "path": "/api/parcels/{id}/restore",
+      "status": 404,
+      "body": {
+        "detail": "Parcel {id} not found",
+        "instance": "/api/parcels/{id}/restore",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 7,
+      "method": "GET",
+      "path": "/api/crates",
+      "status": 200,
+      "body": [
+        {
+          "id": "<volatile:key>",
+          "reference": "REF-2",
+          "version": 1,
+          "weightKg": 40
+        }
+      ]
+    },
+    {
+      "seq": 8,
+      "method": "GET",
+      "path": "/api/crates/{id}",
+      "status": 200,
+      "body": {
+        "id": "<volatile:key>",
+        "reference": "REF-2",
+        "version": 1,
+        "weightKg": 40
+      }
+    },
+    {
+      "seq": 9,
+      "method": "PATCH",
+      "path": "/api/parcels",
+      "status": 405,
+      "body": {
+        "detail": "method PATCH is not supported for /api/parcels",
+        "instance": "/api/parcels",
+        "status": 405,
+        "title": "Method Not Allowed",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 10,
+      "method": "GET",
+      "path": "/__loom_no_such_path",
+      "status": 404,
+      "body": {
+        "detail": "no route for GET /__loom_no_such_path",
+        "instance": "/__loom_no_such_path",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 11,
+      "method": "POST",
+      "path": "/api/parcels",
+      "status": 400,
+      "body": {
+        "detail": "Malformed JSON in request body",
+        "instance": "/api/parcels",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      }
+    }
+  ]
+}
