@@ -141,20 +141,20 @@ gate already encodes the row's claim, run the gate.
 
 | metric | value |
 |---|---|
-| open rows | **135** |
+| open rows | **134** |
 | P0 | 0 |
 | P1 | 1 |
 | P2 | 11 |
-| P3 | 34 |
+| P3 | 33 |
 | P4 | 80 |
 | P5 | 9 |
-| kind: silent / honest / breadth / mission / stale-prose | 12 / 34 / 22 / 58 / 9 |
-| confidence: proven / likely / suspected | 23 / 111 / 1 |
+| kind: silent / honest / breadth / mission / stale-prose | 12 / 33 / 22 / 58 / 9 |
+| confidence: proven / likely / suspected | 23 / 110 / 1 |
 | class: faulty-fix / regression | 1 / 0 |
-| size S / M / L | 34 / 58 / 43 |
-| provenance: fleet1-only / fleet2-only / corroborated by both | 123 / 10 / 1 |
+| size S / M / L | 34 / 58 / 42 |
+| provenance: fleet1-only / fleet2-only / corroborated by both | 122 / 10 / 1 |
 | claimed by an open PR | 61 |
-| done / merged | 153 |
+| done / merged | 154 |
 | declined (not a gap: stale / breadth / duplicate / decided) | 6 |
 | conflicts | 10 |
 | checkedOk entries | 146 |
@@ -206,7 +206,6 @@ Sorted P0 (security / data-integrity, silent, proven) → P1 (other silent prove
 | P3 | `M-T5.8-lifecycle-operations` | honest | prov | dotnet, elixir, java, language, node, python | L | Lifecycle-operations phases 3–5 — named lifecycle actions are now REFUSED rather than silently dropped, but still not emitted as routes |
 | P3 | `M-T6.35` | honest | prov | dotnet, node, elixir | L | Persistence-adapter capability gaps — five honest gates still live |
 | P3 | `columnless-directtable-projection-emitters` | honest | like | node, dotnet, java, python, elixir | L | Direct-table query-time projections still cannot read event-log / document-jsonb / TPC-base storage on ANY backend — the universal gate is the whole answer |
-| P3 | `dapper-tenancy-hierarchy-unsupported` | honest | like | dotnet | L | `tenancy-hierarchy` is the sole surviving `DAPPER_UNSUPPORTED` entry — hierarchical tenancy's capability filter is outside the Dapper SQL subset |
 | P3 | `heex-datagrid-gap` | honest | like | flutter, phoenixLiveView | L | `DataGrid` is still the one TSX-rendered primitive with no HEEx renderer |
 | P3 | `job-construct-unbuilt` | honest | like | node, dotnet, elixir, python, java | L | M-T4.6 — the `job` construct and templated/HTML email (4.6-email-c) are designed but unbuilt |
 | P3 | `m-t4-8-contract-typed-resources` | honest | like | node, dotnet, elixir, python, java | L | M-T4.8 residual — the `contract` typed-resource declaration (inbound `from openapi(...)` clients) is unbuilt; `need ⊆ sourceType` activation is substantially shipped |

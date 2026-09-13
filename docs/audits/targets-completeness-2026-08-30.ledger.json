@@ -71,7 +71,7 @@
    ],
    "repro": null,
    "impact": null,
-   "fix": "Two options. Honest (S, do first): widen `validateMigrationAdapterSupport` beyond declared-intent — when a self-provisioning deployable is regenerated against an EXISTING baseline snapshot whose derived diff is non-empty, raise the same `#migrations` error (the snapshot store is already threaded into phase ⑨ via `fsSnapshotStore(outDir)`, src/cli/main.ts:~500). Real (L): render the MigrationsIR chain for dapper — `emitDotnetMigrations` already produces platform-neutral Postgres via src/generator/sql-pg.ts; emit it as a plain ordered `.sql` set applied by `DbSchema.EnsureAsync` with a `__loom_migrations` ledger, then flip `hasMigrations` to `!!system?.migrations?.length` at src/generator/dotnet/index.ts:990. Add a `test:migration-evolution-dapper` leg.",
+   "fix": "OWNED (wave C2 packet 2b): D-DAPPER-ALTER rules option (c) — build the chain — with the widened refusal (b) as the interim, and requires a named T2 mission to own it. That mission is now minted: M-T2.17 (docs/new-plan/T2-data-evolution.md), slices (b) the phase-9 widened refusal, (c) the ordered .sql set applied by DbSchema.EnsureAsync behind a __loom_migrations ledger + flipping the two `hasMigrations` guards, and (d) the Postgres schema-PLACEMENT twin (`#schema-split` / `#schema-ignored`), folded in because it is the same boot-time schema owner slice (c) has to rewrite. Packet 2b did NOT build any of it: slice (b) lives in phase 9 (`src/system/**`), outside the packet's `src/generator/dotnet/**` fence. Closes when `test:migration-evolution-dapper` is green, per the decision's Consequences — not when the gate widens. Two options. Honest (S, do first): widen `validateMigrationAdapterSupport` beyond declared-intent — when a self-provisioning deployable is regenerated against an EXISTING baseline snapshot whose derived diff is non-empty, raise the same `#migrations` error (the snapshot store is already threaded into phase ⑨ via `fsSnapshotStore(outDir)`, src/cli/main.ts:~500). Real (L): render the MigrationsIR chain for dapper — `emitDotnetMigrations` already produces platform-neutral Postgres via src/generator/sql-pg.ts; emit it as a plain ordered `.sql` set applied by `DbSchema.EnsureAsync` with a `__loom_migrations` ledger, then flip `hasMigrations` to `!!system?.migrations?.length` at src/generator/dotnet/index.ts:990. Add a `test:migration-evolution-dapper` leg.",
    "size": "L",
    "sources": [
     "fleet1:t2-t4-data-workflow"
@@ -1826,47 +1826,6 @@
     "method": "reconciliation 3 (packet C0.5) — repro re-run on this head, emitted output read",
     "verdict": "reproduces",
     "note": "RE-DERIVED: `columnlessProjectionSource` in `src/ir/util/query-projection-arm.ts` still refuses all three column-less source kinds; nothing narrows it per backend."
-   }
-  },
-  {
-   "id": "dapper-tenancy-hierarchy-unsupported",
-   "title": "`tenancy-hierarchy` is the sole surviving `DAPPER_UNSUPPORTED` entry — hierarchical tenancy's capability filter is outside the Dapper SQL subset",
-   "kind": "honest",
-   "class": null,
-   "confidence": "likely",
-   "targets": [
-    "dotnet"
-   ],
-   "fileTrees": [
-    "src/generator/dotnet/",
-    "src/ir/validate/checks/system-checks.ts"
-   ],
-   "evidence": [
-    {
-     "fleet": 1,
-     "id": "dapper-tenancy-hierarchy-unsupported",
-     "text": "test/e2e/corpus-dotnet-dapper-build.test.ts:89-96 — `DAPPER_UNSUPPORTED = { \"tenancy-hierarchy\": \"hierarchical tenancy's capability filter is outside the Dapper SQL subset; the validator says so with loom.dapper-unsupported. …\" }`, and nothing else. Honest by the file's own oracle (:105-140 asserts every entry's diagnostic really fires). Its sibling `DAPPER_COMPILE_SKIP` DRAINED to `{}` in-window (:72, was `{ \"policy-document\": … }` at the audit base — see the 2->0/0->1/1->0 history comment at :47-71). Register row for the code: src/diagnostics/unsupported-register.ts:104-110 (kind `gap`, mission M-T6.35). Unclaimed by any of the seven open PRs."
-    }
-   ],
-   "repro": null,
-   "impact": null,
-   "fix": "Port the deep/global subtree filter to raw Npgsql the way M-T6.25 ported the four direct-table projection arms — the `DapperOrgPathResolver.cs` that #2652's sibling work added (reading the registry's `data_key` with one raw statement) is the missing half's foundation. Delete the `DAPPER_UNSUPPORTED` entry and the `validateDapperSupport` arm in the same PR; the oracle at :105 fails a stale entry.",
-   "size": "L",
-   "sources": [
-    "fleet1:fresh-gate-probe"
-   ],
-   "related_to": [],
-   "securityClass": false,
-   "P": 3,
-   "reverified": {
-    "date": "2026-09-10",
-    "against": "bc7ed8f8",
-    "method": "reconciliation 3 (packet C0.5) — repro re-run on this head, emitted output read",
-    "verdict": "reproduces",
-    "note": "RE-DERIVED: `DAPPER_UNSUPPORTED` in `test/e2e/corpus-dotnet-dapper-build.test.ts` still holds exactly one entry, `tenancy-hierarchy`, and the file's own oracle asserts its diagnostic really fires.",
-    "remainingTargets": [
-     "dotnet"
-    ]
    }
   },
   {
@@ -7318,6 +7277,12 @@
    "id": "flutter-form-field-drops",
    "title": "All four `KNOWN_FLUTTER_GAPS` pins closed with real Dart widgets and DELETED; the parity freeze now asserts the EMPTY set. (1) value-object flattening is recursive, so `addr.geo.lat` gets its own controller and the request body re-nests to the same depth (`objectKey: string` became `objectPath: string[]`, `bodyAssembly` builds a tree). (2) an object-array row slot is heterogeneous (`List<List<dynamic>>`): text/number cells keep their `TextEditingController`, bool / enum / datetime cells hold their value and render a checkbox / dropdown / date picker, so a VO array with a non-scalar sub-field no longer defers. (3)+(4) bool and enum element arrays are repeatable checkbox / dropdown row editors (`List<bool>` / `List<String>`). Wire shape unchanged and verified against the BACKEND's own zod request schema in the same generated tree, not the Flutter emitter. Evidence: `test/generator/flutter/{nested-vo-field,bool-enum-array}.test.ts` (11 tests) + the rewritten `parity-freeze.test.ts` (empty allowlist + a vacuity guard that the fixture still emits all four shapes). Mutation-proved three times, one per arm — restoring the one-level flatten fails 4 assertions (`expected … to contain \"_addrGeoLatController\"`, `expected [ Array(1) ] to deeply equal []`), narrowing object-array cells back to text/number fails 5, deferring bool/enum element arrays fails 5. A fourth mutation re-introduced the real off-by-one closing paren the new `dartBracketImbalance` sweep caught during development: `'[' opened at line 74 is closed by ')'`.",
    "source": "wave-c1-1e-ledger-flutter"
+  },
+  {
+   "id": "dapper-tenancy-hierarchy-unsupported",
+   "title": "`tenancy-hierarchy` is the sole surviving `DAPPER_UNSUPPORTED` entry — hierarchical tenancy's capability filter is outside the Dapper SQL subset",
+   "note": "fixed (wave C2 packet 2b): the claim was false. `authzFilterToSql`'s `scope` arm (src/generator/dotnet/emit/dapper.ts) renders the descendant-or-self subtree predicate as raw Postgres — the MikroORM `raw()` twin, anchored `strpos(col, anchor || '.') = 1` recheck plus the sargable escaped LIKE prefilter plus the NULL-`data_key` flat-tenant fallback. What genuinely blocked it was one layer out, exactly as the row's `fix` field guessed for the M-T6.23/M-T6.29 precedents: `collectFilterPrincipalRefs` hand-rolled a four-kind recursion that could not see the sentinel (which carries no child `currentUser.<claim>` node at all — the claims are derived from the `scope` decision). It now rides `walkExprDeep` and contributes the four bindings by kind, and its `ir-walk-census` waiver is gone. The `DAPPER_UNSUPPORTED` corpus entry and its `allowlist-ratchet` pin both drained to zero in the same commit. Booting the fixture also surfaced and fixed a second, compile-invisible defect on the same path: the registry self-scope comparison rendered `id = @__cu_tenantId`, i.e. `uuid = text`, so every read of the registry answered 42883. Proof: `test/e2e/tenancy-hierarchy-dapper.test.ts` (new leg, wired into tenancy-e2e.yml) runs the shared subtree / delimiter-trap / wildcard-trap / NULL-dataKey assertions against a booted Dapper backend on a real Postgres.",
+   "source": "wave-c2:2b-dotnet"
   }
  ],
  "conflicts": [

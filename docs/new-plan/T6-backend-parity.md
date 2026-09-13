@@ -137,7 +137,26 @@ over-requires. It has no caller in generated code (every write path goes
 through `base_changeset`); threading defaults onto crudish create params would
 ripple through every param-driven surface on all five backends.
 
-## M-T6.35 — Persistence-adapter capability gaps — `open`; the `#migrations` sub-code is `blocked(D-DAPPER-ALTER)` · **M** · P2
+## M-T6.35 — Persistence-adapter capability gaps — `open`; the `#migrations` + `#schema-*` sub-codes moved to M-T2.17 · **M** · P2
+
+> **Wave C2 packet 2b drained two of this mission's clauses and re-homed three.**
+> **`loom.dapper-unsupported#deep-scope` is CLOSED** — a hierarchical
+> (`deep`/`global`) tenancy scope filter renders on the Dapper adapter
+> (`authzFilterToSql`'s `scope` arm, `src/generator/dotnet/emit/dapper.ts`), the
+> `DAPPER_UNSUPPORTED` corpus entry and its `allowlist-ratchet` pin drained to
+> zero with it, and `test/e2e/tenancy-hierarchy-dapper.test.ts` proves the subtree
+> / delimiter-trap / wildcard-trap reads on a booted backend against a real
+> Postgres. The refusal's stated reason — that the sentinel's principal claims
+> could not be bound — was a property of the hand-rolled principal-ref collector,
+> not of raw SQL; the collector now rides `walkExprDeep` and contributes them by
+> kind. **`loom.find-predicate-unsupported` on DAPPER was already drained** before
+> this review and is not work: `DAPPER_SUBSET = FULL_SUBSET`
+> (`src/ir/util/find-predicate-capability.ts`), so that code narrows mikroorm
+> only. **`#migrations` and `#schema-split`/`#schema-ignored` moved to
+> [M-T2.17](T2-data-evolution.md#m-t217)** — they are one seam (the boot-time
+> schema owner), the ruling on them is `D-DAPPER-ALTER`, and they close on a
+> `test:migration-evolution-dapper` leg rather than on anything in this mission.
+
 The non-default persistence adapters reject shapes their EF/Ecto siblings accept: `loom.dapper-unsupported` (features Dapper does not emit), `loom.find-predicate-unsupported` (a find predicate the active adapter cannot lower), `loom.saving-shape-unsupported` (a `shape(...)` the hosting backend cannot persist — **re-classified 2026-09-03**: dormant, not live — every platform key in `PLATFORM_SAVING_SHAPES` already lists all three shapes, and a platform absent from the map is skipped rather than flagged, so this is an unreachable backstop, not a seam any live target trips), `loom.vanilla-document-unsupported` (`shape: document` only partly emitted on Elixir), and — **inherited 2026-08-24 from the now-`done` M-T6.23** — `loom.mikroorm-unsupported`, whose only surviving raiser is the migration-chain one (`migration-checks.ts` `#migrations`: neither MikroORM's `orm.schema.updateSchema()` nor Dapper's boot-time `CREATE TABLE IF NOT EXISTS` can apply a declared migration step, so a rename resolves as DROP + ADD or silently never runs — the `loom.dapper-unsupported#migrations` twin is the same shape). The adapter axis is where "all targets support the whole surface" costs the most, because each adapter multiplies the matrix again — worth confirming per row whether the adapter *cannot* express the shape (a permanent limit, so a rename) or merely *does not yet* (a gap). **`loom.persistence-mode-unsupported` moved OFF this mission 2026-09-03** — it never fit here: `validateDataSourceCoverage` refuses a hosted aggregate whose deployable declares no matching `dataSource` at all, which is a missing binding, not an adapter capability limit. It is now owned by M-T2.9 (the storage-config tail, where the `dataSource`-binding axis already lives).
 Sources: M-T9.27 register rows. Relates to M-T6.23 (mikroorm) and M-T6.25 (dapper query-time projections) — the same axis, already missioned.
 

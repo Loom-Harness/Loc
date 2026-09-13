@@ -145,7 +145,10 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
     what:
       "the .NET Dapper residue after full EF parity: an AGGREGATING query-time projection over a " +
       "document/event-sourced source, and the two self-provisioning limits — declared migration " +
-      "steps and Postgres schema placement (migration-checks.ts, " +
+      "steps (`#migrations`, owned by M-T2.17 per D-DAPPER-ALTER: it closes when the " +
+      "`test:migration-evolution-dapper` leg is green, NOT when the gate widens) and Postgres " +
+      "schema placement (`#schema-split` / `#schema-ignored`, the twin limit of the same " +
+      "boot-time schema owner — also M-T2.17) (migration-checks.ts, " +
       "`validateMigrationAdapterSupport` / `validateSelfProvisioningSchemaSupport`).  The " +
       "hierarchical (deep/global) tenancy `#deep-scope` clause DRAINED in wave C2 packet 2b: " +
       "`authzFilterToSql` renders the descendant-or-self fragment as raw Postgres and " +
@@ -283,7 +286,11 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
     site: "src/ir/validate/checks/orm-adapter-checks.ts:284",
     what:
       "a find / retrieval / query-time-projection / capability-filter predicate outside the " +
-      "opt-in `persistence: dapper|mikroorm` SQL subset (EF Core + Drizzle lower it in full)",
+      "opt-in `persistence: mikroorm` FilterQuery subset (EF Core + Drizzle lower it in full).  " +
+      "The DAPPER arm drained before this row was last reviewed and is not work: " +
+      "`find-predicate-capability.ts` sets `DAPPER_SUBSET = FULL_SUBSET`, so the gate is silent " +
+      "for that adapter (`whereToSql` lowers the whole queryable subset, membership subquery " +
+      "included).  One narrowing is left, on mikroorm only: `this.<refColl>.contains(x)`",
     mission: "M-T6.35",
   },
   {
