@@ -1,0 +1,11 @@
+system S {
+  subdomain D { context C {
+    aggregate Post { title: string  body: string  derived display: string = title }
+    repository Posts for Post { }
+  } }
+  storage primary { type: postgres }
+  storage searchIdx { type: meilisearch }
+  resource cState { for: C, kind: state, use: primary }
+  resource cSearch { for: C, kind: replica, use: searchIdx }
+  deployable api { platform: node, contexts: [C], dataSources: [cState, cSearch], port: 3000 }
+}

@@ -1,0 +1,322 @@
+// Commons — slice 3: adds Media + scanning, notifications, GDPR erasure,
+// moderation audit trail, and the auth/role surface.
+system Commons {
+
+  subdomain Social {
+
+    permissions {
+      read
+      post
+      moderate
+      admin implies [read, post, moderate]
+    }
+
+    context Community {
+
+      policy CanRead(): bool  = currentUser.permissions.contains(permissions.read)
+      policy CanPost(): bool  = currentUser.permissions.contains(permissions.post)
+      policy CanMod(): bool   = currentUser.permissions.contains(permissions.moderate)
+      policy IsAdmin(): bool  = currentUser.role == "admin"
+
+
+      enum Visibility { Public, MembersOnly, GroupOnly }
+      enum GroupRole { Owner, Moderator, Member }
+      enum ReactionKind { Like, Celebrate, Insightful }
+      enum MediaState { Pending, Clean, Infected }
+
+      event PostPublished { post: Post id, author: Member id, at: datetime }
+      event CommentAdded { comment: Comment id, post: Post id, author: Member id, replyTo: Member id?, at: datetime }
+      event MemberErased { member: Member id, at: datetime }
+
+      aggregate Member with auditable, crudish(requires: CanRead) {
+        displayName: string
+        email: string mask unless currentUser.role == "admin"
+        phone: string? mask unless currentUser.role == "admin"
+        about: string?
+        pronouns: string?
+        timezone: string = "UTC"
+        erased: bool internal = false
+        derived display: string = displayName
+        invariant displayName.length > 0
+
+        // GDPR erasure: scrub PII in place, keep the row so FKs survive.
+        operation erase() {
+          requires IsAdmin()
+          precondition !erased
+          displayName := "[deleted member]"
+          email := ""
+          phone := null
+          about := null
+          erased := true
+          emit MemberErased { member: id, at: now() }
+        }
+      }
+
+      aggregate Group with crudish(requires: CanPost) {
+        name: string
+        description: string
+        contains members: GroupMembership[]
+        derived display: string = name
+        derived memberCount: int = members.count
+
+        operation addMember(who: Member id, role: GroupRole) {
+          requires CanPost()
+          precondition members.all(m => m.who != who)
+          members += GroupMembership { who: who, role: role, joinedAt: now() }
+        }
+
+        entity GroupMembership {
+          who: Member id
+          role: GroupRole
+          joinedAt: datetime
+        }
+      }
+
+      aggregate Follow with crudish(requires: CanPost) {
+        follower: Member id
+        followee: Member id
+        at: datetime managed
+        unique (follower, followee)
+      }
+
+      aggregate Media with crudish(requires: CanPost) {
+        uploader: Member id
+        caption: string
+        derived display: string = caption
+        file: File
+        state: MediaState = Pending
+        scannedAt: datetime?
+        derived visible: bool = state == Clean
+
+        operation markClean() {
+          requires CanMod()
+          precondition state == Pending
+          state := Clean
+          scannedAt := now()
+        }
+        operation markInfected() {
+          requires CanMod()
+          precondition state == Pending
+          state := Infected
+          scannedAt := now()
+        }
+      }
+
+      aggregate Post with softDeletable, crudish(requires: CanPost) {
+        author: Member id
+        group: Group id?
+        title: string
+        body: string
+        visibility: Visibility
+        media: Media id[]
+        publishedAt: datetime managed
+        derived display: string = title
+        invariant title.length > 0
+
+        operation publish() {
+          requires CanPost()
+          emit PostPublished { post: id, author: author, at: now() }
+        }
+      }
+
+      aggregate Comment with softDeletable, crudish(requires: CanPost) {
+        post: Post id
+        parent: Comment id?
+        author: Member id
+        body: string
+        depth: int = 0
+        createdAt: datetime managed
+        derived display: string = body
+        invariant body.length > 0
+      }
+
+      aggregate Reaction with crudish(requires: CanPost) {
+        post: Post id
+        who: Member id
+        kind: ReactionKind
+        at: datetime managed
+        unique (post, who)
+      }
+
+      aggregate Notification with crudish(requires: CanRead) {
+        member: Member id
+        post: Post id
+        seen: bool = false
+        at: datetime managed
+        derived display: string = "notification"
+      }
+
+      channel Feed { carries: PostPublished }
+
+      criterion FollowersOf(who: Member id) of Follow = followee == who
+
+      // Fan out a new post to every follower of its author.
+      workflow FanOutPost requires currentUser.role == "admin" {
+        postId: Post id
+        on(e: PostPublished) by e.post {
+          for f in Follows.run(FollowersOf(e.author)) {
+            let n = Notification.create({ member: f.follower, post: e.post })
+          }
+        }
+      }
+
+      repository Notifications for Notification { }
+      repository Members for Member { }
+      repository Groups for Group { }
+      repository Follows for Follow { }
+      // "Search across posts" is a PREFIX match on one column: the queryable
+      // subset rejects `.contains` (loom.find-where-not-queryable) and no
+      // resource kind accepts the advertised `meilisearch`/`elastic` storages.
+      criterion TitleMatches(q: string) of Post = title.startsWith(q)
+
+      repository Posts for Post {
+        find byAuthor(a: Member id): Post paged requires currentUser.role != "" where this.author == a
+      }
+      repository Comments for Comment {
+        find forPost(p: Post id): Comment paged requires currentUser.role != "" where this.post == p
+      }
+      repository Reactions for Reaction { }
+      repository Medias for Media { }
+    }
+
+    // Moderation lives in its own context: its decisions must SURVIVE the
+    // erasure of the member they are about.
+    context Moderation {
+
+      policy CanRead(): bool  = currentUser.permissions.contains(permissions.read)
+      policy CanPost(): bool  = currentUser.permissions.contains(permissions.post)
+      policy CanMod(): bool   = currentUser.permissions.contains(permissions.moderate)
+      policy IsAdmin(): bool  = currentUser.role == "admin"
+
+
+      enum ReportReason { Spam, Harassment, Illegal, Other }
+      enum ModerationOutcome { Pending, Upheld, Dismissed }
+      enum AppealState { None, Requested, Granted, Denied }
+
+      aggregate Report audited with crudish(requires: CanPost) {
+        post: Post id?
+        comment: Comment id?
+        reporter: Member id
+        reason: ReportReason
+        detail: string
+        outcome: ModerationOutcome = Pending
+        decidedBy: Member id?
+        decidedAt: datetime?
+        createdAt: datetime managed
+
+        function isOpen(): bool = outcome == Pending
+
+        operation uphold(moderator: Member id, note: string) audited {
+          requires CanMod()
+          precondition isOpen()
+          outcome := Upheld
+          decidedBy := moderator
+          decidedAt := now()
+        }
+
+        operation dismiss(moderator: Member id, note: string) audited {
+          requires CanMod()
+          precondition isOpen()
+          outcome := Dismissed
+          decidedBy := moderator
+          decidedAt := now()
+        }
+      }
+
+      aggregate Ban audited with crudish(requires: CanMod) {
+        who: Member id
+        reason: string
+        startedAt: datetime
+        endsAt: datetime
+        appeal: AppealState = None
+        appealNote: string?
+
+        derived active: bool = now() < endsAt
+        invariant endsAt > startedAt
+
+        operation requestAppeal(note: string) {
+          requires CanRead()
+          precondition appeal == None
+          appeal := Requested
+          appealNote := note
+        }
+
+        operation decideAppeal(grant: bool) audited {
+          requires CanMod()
+          precondition appeal == Requested
+          appeal := grant ? Granted : Denied
+        }
+      }
+
+      repository Reports for Report {
+        find all(): Report[] requires currentUser.role == "moderator" || currentUser.role == "admin"   // F-005 workaround
+      }
+      repository Bans for Ban {
+        find all(): Ban[] requires currentUser.role == "moderator" || currentUser.role == "admin"   // F-005 workaround
+      }
+    }
+  }
+
+  user {
+    id: string
+    role: string
+    sub: string
+    permissions: string[]
+  }
+
+  auth {
+    provider: keycloak
+    oidc {
+      issuer: env("OIDC_ISSUER")
+      clientId: "commons-web"
+      clientSecret: env("OIDC_CLIENT_SECRET")
+      audience: "commons-api"
+      scopes: ["openid", "profile", "email"]
+    }
+    enforcement: denyByDefault
+    sessions: cookie
+    claims: {
+      role: "role",
+      permissions: "realm_access.roles"
+    }
+  }
+
+  storage primary { type: postgres }
+  storage blobs   { type: localDisk }
+  storage bus     { type: redis }
+
+  resource communityState  { for: Community,  kind: state, use: primary }
+  resource moderationState { for: Moderation, kind: state, use: primary }
+  resource mediaStore      { for: Community,  kind: objectStore, use: blobs }
+
+  deployable api {
+    platform: node
+    contexts: [Community, Moderation]
+    dataSources: [communityState, moderationState, mediaStore]
+    channels: [feedBus]
+    auth: required
+    port: 3000
+  }
+
+  channelSource feedBus { for: Feed, use: bus }
+
+  deployable notifier {
+    platform: node
+    contexts: [Community]
+    dataSources: [communityState, mediaStore]
+    channels: [feedBus]
+    auth: required
+    port: 3002
+  }
+
+  ui Web with scaffold(subdomains: [Social]) { }
+
+  deployable web {
+    platform: react
+    targets: api
+    ui: Web
+    design: mantine
+    auth: ui
+    port: 3001
+  }
+}

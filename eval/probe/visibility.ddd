@@ -1,0 +1,18 @@
+context C {
+  enum Visibility { Public, MembersOnly, GroupOnly }
+  aggregate Member { displayName: string  derived display: string = displayName }
+  aggregate Group { name: string  contains members: GM[]  derived display: string = name
+    entity GM { who: Member id } }
+  aggregate Post {
+    author: Member id
+    group: Group id?
+    visibility: Visibility
+    title: string
+    derived display: string = title
+    // A: public-only filter (single column) -- expected OK
+    filter this.visibility == Public
+  }
+  repository Posts for Post { }
+  repository Members for Member { }
+  repository Groups for Group { }
+}

@@ -1,0 +1,30 @@
+context Community {
+  aggregate Member { displayName: string  derived display: string = displayName }
+  aggregate Follow { follower: Member id  followee: Member id }
+  aggregate Post { author: Member id  title: string
+    derived display: string = title
+    operation publish() { emit PostPublished { post: id, author: author, at: now() } } }
+  aggregate Notification {
+    member: Member id
+    post: Post id
+    seen: bool = false
+    derived display: string = "n"
+  }
+  event PostPublished { post: Post id, author: Member id, at: datetime }
+  channel Feed { carries: PostPublished }
+
+  criterion FollowersOf(who: Member id) of Follow = followee == who
+
+  workflow FanOut {
+    postId: Post id
+    on(e: PostPublished) by e.post {
+      for f in Follows.run(FollowersOf(e.author)) {
+        let n = Notification.create({ member: f.follower, post: e.post })
+      }
+    }
+  }
+  repository Members for Member { }
+  repository Posts for Post { }
+  repository Follows for Follow { }
+  repository Notifications for Notification { }
+}

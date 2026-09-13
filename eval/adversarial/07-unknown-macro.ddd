@@ -1,0 +1,21 @@
+system Adv {
+  subdomain S {
+    context C {
+      enum Status { Draft, Live }
+      valueobject Money { amount: money  currency: string }
+      aggregate Item with crudsh {
+        name: string
+        status: Status
+        price: Money
+        qty: int
+        derived display: string = name
+        invariant qty > 0
+        operation bump(by: int) { precondition by > 0  qty := qty + by }
+      }
+      repository Items for Item { }
+    }
+  }
+  storage primary { type: postgres }
+  resource cState { for: C, kind: state, use: primary }
+  deployable api { platform: node, contexts: [C], dataSources: [cState], port: 3000 }
+}

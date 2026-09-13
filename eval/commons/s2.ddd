@@ -1,0 +1,135 @@
+// Commons — slice 2: adds Group + membership roles, Follow, Reaction,
+// Report -> moderation queue, Ban + appeal.
+context Community {
+
+  enum Visibility { Public, MembersOnly, GroupOnly }
+  enum GroupRole { Owner, Moderator, Member }
+  enum ReactionKind { Like, Celebrate, Insightful }
+  enum ReportReason { Spam, Harassment, Illegal, Other }
+  enum ModerationOutcome { Pending, Upheld, Dismissed }
+  enum AppealState { None, Requested, Granted, Denied }
+
+  aggregate Member {
+    displayName: string
+    email: string
+    phone: string?
+    joinedAt: datetime managed
+    derived display: string = displayName
+    invariant displayName.length > 0
+  }
+
+  aggregate Group {
+    name: string
+    description: string
+    contains members: GroupMembership[]
+    derived display: string = name
+    derived memberCount: int = members.count
+
+    operation addMember(who: Member id, role: GroupRole) {
+      precondition members.all(m => m.who != who)
+      members += GroupMembership { who: who, role: role, joinedAt: now() }
+    }
+
+    entity GroupMembership {
+      who: Member id
+      role: GroupRole
+      joinedAt: datetime
+    }
+  }
+
+  // Follow: a directed relationship between two members.
+  aggregate Follow {
+    follower: Member id
+    followee: Member id
+    at: datetime managed
+    unique (follower, followee)
+  }
+
+  aggregate Post {
+    author: Member id
+    group: Group id?
+    title: string
+    body: string
+    visibility: Visibility
+    createdAt: datetime managed
+    derived display: string = title
+    invariant title.length > 0
+  }
+
+  aggregate Comment {
+    post: Post id
+    parent: Comment id?
+    author: Member id
+    body: string
+    createdAt: datetime managed
+    invariant body.length > 0
+  }
+
+  aggregate Reaction {
+    post: Post id
+    who: Member id
+    kind: ReactionKind
+    at: datetime managed
+    unique (post, who)
+  }
+
+  aggregate Report {
+    post: Post id?
+    comment: Comment id?
+    reporter: Member id
+    reason: ReportReason
+    detail: string
+    outcome: ModerationOutcome = Pending
+    decidedBy: Member id?
+    decidedAt: datetime?
+    createdAt: datetime managed
+
+    function isOpen(): bool = outcome == Pending
+
+    operation uphold(moderator: Member id, note: string) {
+      precondition isOpen()
+      outcome := Upheld
+      decidedBy := moderator
+      decidedAt := now()
+    }
+
+    operation dismiss(moderator: Member id, note: string) {
+      precondition isOpen()
+      outcome := Dismissed
+      decidedBy := moderator
+      decidedAt := now()
+    }
+  }
+
+  aggregate Ban {
+    who: Member id
+    reason: string
+    startedAt: datetime
+    endsAt: datetime
+    appeal: AppealState = None
+    appealNote: string?
+
+    derived active: bool = now() < endsAt
+    invariant endsAt > startedAt
+
+    operation requestAppeal(note: string) {
+      precondition appeal == None
+      appeal := Requested
+      appealNote := note
+    }
+
+    operation decideAppeal(grant: bool) {
+      precondition appeal == Requested
+      appeal := grant ? Granted : Denied
+    }
+  }
+
+  repository Members for Member { }
+  repository Posts for Post { }
+  repository Comments for Comment { }
+  repository Follows for Follow { }
+  repository Reports for Report { }
+  repository Bans for Ban { }
+  repository Groups for Group { }
+  repository Reactions for Reaction { }
+}

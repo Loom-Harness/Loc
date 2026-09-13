@@ -1,0 +1,16 @@
+context C {
+  enum Visibility { Public, MembersOnly, GroupOnly }
+  aggregate Member { displayName: string  derived display: string = displayName }
+  aggregate Group { name: string  members: Member id[]  derived display: string = name }
+  aggregate Post {
+    author: Member id
+    group: Group id?
+    visibility: Visibility
+    title: string
+    derived display: string = title
+    filter this.visibility == Public || this.author == currentUser.id
+  }
+  repository Posts for Post { }
+  repository Members for Member { }
+  repository Groups for Group { }
+}

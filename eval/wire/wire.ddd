@@ -1,0 +1,32 @@
+// Wire-parity probe: one model, two backends, real values.
+valueobject Money { amount: money  currency: string  invariant currency.length == 3 }
+system Wire {
+  subdomain S {
+    context C {
+      enum Kind { Alpha, Beta, Gamma }
+      aggregate Thing with crudish {
+        name: string
+        kind: Kind
+        ratio: decimal
+        qty: int
+        big: long
+        price: Money
+        at: datetime
+        note: string?
+        contains rows: Row[]
+        derived display: string = name
+        derived total: Money = Money { amount: price.amount * qty, currency: price.currency }
+        invariant qty > 0
+        operation bump(by: int) { precondition by > 0  qty := qty + by }
+        entity Row { label: string  weight: decimal }
+      }
+      repository Things for Thing { }
+    }
+  }
+  storage primary { type: postgres }
+  resource cState { for: C, kind: state, use: primary }
+  deployable apiNode { platform: node,   contexts: [C], dataSources: [cState], port: 3100 }
+  deployable apiNet  { platform: dotnet, contexts: [C], dataSources: [cState], port: 3101 }
+  deployable apiPy   { platform: python, contexts: [C], dataSources: [cState], port: 3102 }
+  deployable apiJava { platform: java,   contexts: [C], dataSources: [cState], port: 3103 }
+}

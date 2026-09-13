@@ -1,0 +1,39 @@
+// Commons — slice 1: Member, Post, and an arbitrarily-deep Comment tree.
+context Community {
+
+  enum Visibility { Public, MembersOnly, GroupOnly }
+
+  aggregate Member {
+    displayName: string
+    email: string sensitive(pii)
+    phone: string? sensitive(pii)
+    joinedAt: datetime managed
+    derived display: string = displayName
+    invariant displayName.length > 0
+  }
+
+  aggregate Post {
+    author: Member id
+    title: string
+    body: string
+    visibility: Visibility
+    createdAt: datetime managed
+    derived display: string = title
+    invariant title.length > 0
+  }
+
+  // The hard case: a comment replies to a post, OR to another comment,
+  // to arbitrary depth.
+  aggregate Comment {
+    post: Post id
+    parent: Comment id?
+    author: Member id
+    body: string
+    createdAt: datetime managed
+    invariant body.length > 0
+  }
+
+  repository Members for Member { }
+  repository Posts for Post { }
+  repository Comments for Comment { }
+}
