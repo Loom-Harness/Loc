@@ -1539,14 +1539,30 @@ export function renderDivider(expr: Extract<ExprIR, { kind: "call" }>, ctx: Walk
 /** `Image(src, alt)` → `<img src=… alt=… />`.  Literal attrs render as
  *  quoted strings; refs render as `{@assign}` HEEx expressions. */
 export function renderImage(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkContext): string {
-  let srcAttr = "";
-  let altAttr = "";
+  // M-T6.56 / audit F22 — this read ONLY the named `src:`/`alt:`, so the
+  // POSITIONAL shorthand every other target renders (`Image { "/logo.png" }` /
+  // `Image { row.thumbnailUrl }`, the same first-positional-is-the-value rule
+  // Text / Money / EnumBadge follow) emitted an `<img>` with NO `src` on
+  // LiveView alone.  `decorative: true` is read too, for the same reason: the
+  // JSX walker turns it into an explicit empty `alt`, and dropping it here left
+  // a decorative image announcing itself to assistive tech.
+  let srcArg: ExprIR | undefined;
+  let altArg: ExprIR | undefined;
+  let decorative = false;
+  let positional: ExprIR | undefined;
   for (let i = 0; i < expr.args.length; i++) {
     const name = expr.argNames?.[i];
     const arg = expr.args[i]!;
-    if (name === "src") srcAttr = ` src=${attrValue(arg, ctx)}`;
-    else if (name === "alt") altAttr = ` alt=${attrValue(arg, ctx)}`;
+    if (name === "src") srcArg = arg;
+    else if (name === "alt") altArg = arg;
+    else if (name === "decorative" && arg.kind === "literal")
+      decorative = String(arg.value) === "true";
+    else if (name === undefined && positional === undefined) positional = arg;
   }
+  // A named `src:` wins over the shorthand, matching `emitImage`.
+  const src = srcArg ?? positional;
+  const srcAttr = src ? ` src=${attrValue(src, ctx)}` : "";
+  const altAttr = altArg ? ` alt=${attrValue(altArg, ctx)}` : decorative ? ` alt=""` : "";
   const testidAttr = testIdAttr(expr, ctx);
   return `<img${srcAttr}${altAttr}${testidAttr} />`;
 }
@@ -2221,27 +2237,28 @@ export function renderIcon(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkCon
     } else if (argName === "decorative" && arg.kind === "literal")
       decorative = String(arg.value) === "true";
   }
-  // User-supplied SVG wins; falls back to the builtin registry (same
-  // precedence as the TSX emitter at `walker/primitives/icon.ts:32`).
-  // Walker doesn't import the registry today — pages that pass `name:`
-  // without `svg:` against an unknown builtin surface as an empty
-  // icon.  Acceptable for v0; a future change can import the registry
-  // and emit a `<!-- unknown icon: <name> -->` comment for unresolved
-  // names matching the TSX shape.
+  // User-supplied SVG wins; falls back to the builtin registry — the SAME
+  // precedence, and now the same lookup, as the TSX emitter
+  // (`_walker/primitives/icon.ts`).
   //
-  // NARROW give-up (M-T9.55): the case where the author named NOTHING at all.
-  // `Icon { }` carries no `name:` and no `svg:`, so there is no glyph to look
-  // up on any target — the JSX walker gives up (`Icon needs name: or svg:`)
-  // while HEEx emitted `<span class="loom-icon" aria-hidden="true"></span>`,
-  // an empty element that reads as a rendered icon.  The WIDER gap above (a
-  // `name:` the builtin registry does not resolve still emits an empty span
-  // here, because this emitter does not consult the registry) is a HEEx parity
-  // defect, not a give-up routing one, and is handed off rather than smuggled
-  // into this drain — closing it changes the bytes of every valid named icon.
-  if (customSvg === undefined && name === undefined)
-    return `<!-- ${giveUpText("loom.page-primitive-arg-missing", "Icon needs name: or svg:")} -->`;
-  void name;
-  const svg = customSvg ?? "";
+  // M-T6.56 / audit F22.  This emitter used to `void name` and render
+  // `<span class="loom-icon">` with an EMPTY body, so `Icon { name: "check" }`
+  // — the ordinary spelling, and the one every other target renders — produced
+  // an empty span on LiveView alone.  The registry was already imported here
+  // (`renderButton`'s `icon:` arm resolves through it), so the divergence was a
+  // missing call, not a missing capability.
+  //
+  // Both refusals now match the JSX walker arm for arm: an author who named
+  // NOTHING (`Icon { }` — no glyph to look up on any target) and a `name:` the
+  // builtin registry does not resolve are separate give-ups with separate
+  // codes, rather than one silently-empty element that reads as a rendered
+  // icon.
+  const svg = customSvg ?? (name !== undefined ? lookupBuiltinIcon(name) : undefined);
+  if (svg === undefined) {
+    return name === undefined
+      ? `<!-- ${giveUpText("loom.page-primitive-arg-missing", "Icon needs name: or svg:")} -->`
+      : `<!-- ${giveUpText("loom.page-primitive-arg-invalid", `unknown icon name '${name}'`)} -->`;
+  }
   const sizeClass = size ? ` loom-icon-${size}` : "";
   const testidAttr = testIdAttr(expr, ctx);
   // Decorative-by-default (icon a11y contract): hidden from assistive tech
