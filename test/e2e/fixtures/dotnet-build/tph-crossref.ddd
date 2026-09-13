@@ -1,0 +1,75 @@
+// M-T5.7 — a CROSS-AGGREGATE `X id` reference to a TPH CONCRETE, on the .NET
+// backend.  Sibling of `tph.ddd`, which covers the hierarchy's own emission;
+// this one covers the identity type that crosses OUT of it.
+//
+// EF-native TPH keys the whole hierarchy on the base's `PartyId`, and the
+// application layer threads that everywhere it handles a concrete BY ITS OWN
+// id (`ICustomerRepository.GetByIdAsync(PartyId)`, the command/query records,
+// the controller route param).  A reference TO the concrete from another
+// aggregate did NOT follow: every emitter renders an id type as
+// `${targetName}Id` from the IR's own `targetName`, independently, in about
+// twenty places, so `Invoice.customer`, the `InvoiceRaised` event record, the
+// create/update commands and the EF value-converter all said `CustomerId`
+// while the repository port said `PartyId`.
+//
+// The two only MEET when generated code passes one to the other, which needs a
+// third construct — hence the reactor below, whose `Customers.getById(
+// e.customer)` was the line that failed:
+//
+//   DunningOnInvoiceRaisedHandler.cs(37,50): error CS1503: Argument 1: cannot
+//   convert from 'D.Domain.Ids.CustomerId' to 'D.Domain.Ids.PartyId'
+//
+// `ddd parse` reported 0 errors, and no existing fixture crossed the three
+// (TPH × cross-aggregate ref × a handler that loads through it), so every gate
+// was green.  `<Concrete>Id` is now a global alias for the root's id, which is
+// what makes this compile — so REMOVING that alias must make this fixture fail,
+// and `dotnet build /warnaserror` is the decisive gate.
+system TphRef {
+  subdomain Registry {
+    context Parties {
+      abstract aggregate Party inheritanceUsing: sharedTable {
+        name: string
+        email: string
+      }
+      aggregate Customer extends Party { creditLimit: int }
+      aggregate Vendor extends Party { rating: int }
+
+      // The referring aggregate: `customer: Customer id` is the cross-aggregate
+      // reference to a TPH concrete.
+      aggregate Invoice with crudish {
+        customer: Customer id
+        amount: int
+      }
+
+      repository Customers for Customer { }
+      repository Vendors for Vendor { }
+      repository Invoices for Invoice { }
+
+      event InvoiceRaised { invoice: Invoice id, customer: Customer id }
+      channel Bus { carries: InvoiceRaised }
+
+      // The construct that makes the two identity types MEET: a reactor that
+      // loads the concrete through its repository using the referring
+      // aggregate's id field.
+      workflow Dunning {
+        invoiceRef: Invoice id
+        on(e: InvoiceRaised) by e.invoice {
+          let cust = Customers.getById(e.customer)
+          let inv = Invoices.getById(e.invoice)
+        }
+      }
+    }
+  }
+
+  api PartiesApi from Registry
+  storage pg { type: postgres }
+  resource partiesState { for: Parties, kind: state, use: pg }
+
+  deployable api {
+    platform: dotnet
+    contexts: [Parties]
+    dataSources: [partiesState]
+    serves: PartiesApi
+    port: 8080
+  }
+}

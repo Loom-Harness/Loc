@@ -23,66 +23,16 @@ import type { Waiver } from "./waivers.js";
 // generates is `embedded × ownTable`, which compiles on both node adapters.
 // That also removes the python twin's source (F13), whose own entry is 2e's.
 export const COMPILE_WAIVERS: readonly Waiver[] = [
-  {
-    // ---- F12 (W3) ------------------------------------------------------
-    // `paged` × a NON-RELATIONAL saving shape.  The CALLER honours the carrier
-    // (five query params in, `.items` / `.page` / `.page_size` / `.total` /
-    // `.total_pages` out); the document and event-sourced repository builders
-    // DROP it.  Two backends, one defect, two ways of showing it:
-    //
-    //   python  `async def by_label(self, l: str) -> Thing` — not even a list.
-    //           mypy `Too many arguments for "by_label"` + 5 × `attr-defined`.
-    //   dotnet  the repository PORT declares the paged signature and the
-    //           implementation emits the plain one:
-    //           CS0535 'ThingRepository' does not implement interface member
-    //           'IThingRepository.ByLabel(string, int, int, string, string,
-    //           CancellationToken)'.  ALL FIVE of the .NET cover's
-    //           document/eventLog × paged rows, both adapters (efcore + dapper).
-    //
-    // MEASURED across the shapes, because "python's paging is broken" would
-    // have been the wrong summary: relational × paged is CORRECT (imports
-    // `PagedResult`, returns the envelope), embedded × paged emitted the
-    // envelope but forgot the import (F13, since fixed), document / eventLog
-    // dropped the carrier entirely.  One construct, three behaviours, one
-    // backend — the pairwise thesis stated as a bug.
-    //
-    // PYTHON IS DRAINED (wave C2 packet 2e, re-measured on fresh `main`).
-    // `F2-CB-C1: page the non-relational carriers on .NET and python` fixed the
-    // python half; all FIVE python cells this entry covered
-    // (`none-document-requires-tph-paged`, `none-eventLog-mask-paged`,
-    // `softDeletable-document-policyAllow-paged`,
-    // `tenantOwned-document-none-tph-paged`, `none-document-deny-tph-paged`) now
-    // pass `uv sync` + `ruff check` + `mypy --strict` + `pytest`, so the
-    // platform narrows to `dotnet` rather than the entry being deleted.
-    //
-    // The .NET half is left for packet 2b, which owns that tree, but it looks
-    // drained too: on `none-document-requires-tph-paged` the port
-    // (`Domain/Things/IThingRepository.cs:15`) and the implementation
-    // (`Infrastructure/Repositories/ThingRepository.cs:89`) now declare the SAME
-    // `Task<Paged<Thing>> ByLabel(string, int, int, string, string,
-    // CancellationToken)`, which is the signature pair CS0535 was about.  Read
-    // off the emitted source, NOT compiled — 2b compiles it and deletes this
-    // entry.
-    //
-    // Node and Java both get every shape right; Phoenix got it wrong a THIRD
-    // way (F14: the document-shape repository defined `by_label/3` while the
-    // context delegate declared arity 5, and the event-sourced one dropped the
-    // carrier entirely) — recorded from source here because the elixir leg was
-    // not run, confirmed red on `main` by the first scheduled run (#2797), and
-    // FIXED rather than waived.  `test/generator/elixir/paged-find-arity.test.ts`
-    // is the per-PR oracle that now stands in for the 78-minute leg.
-    platform: "dotnet",
-    persistence: "*",
-    capability: "*",
-    shape: "document|eventLog",
-    authz: "*",
-    inheritance: "*",
-    read: "paged",
-    reason:
-      "F12 — paged × document/eventLog on dotnet: the caller expects the " +
-      "envelope, the non-relational repository builders drop the carrier " +
-      "(CS0535).  The python half is drained (wave C2 packet 2e)",
-  },
+  // ---- F12 (W3) — DELETED at the wave C2 fold --------------------------
+  // `paged` × document/eventLog on dotnet + python (the caller expects the
+  // envelope, the non-relational repository builders dropped the carrier:
+  // CS0535 / mypy call-arg).  Both halves were fixed by wave C1 packet 1e
+  // (ledger row `F2-CB-C1-paged-nonrelational`) and each was then MEASURED
+  // drained by its own packet in wave C2 — 2e narrowed the entry to dotnet
+  // after compiling all five python cover cells it covered; 2b dropped the
+  // dotnet half after `LOOM_PAIRWISE=1 LOOM_DOTNET_BUILD=1` failed this
+  // entry's REVERSE ratchet on all five matching dotnet cases.  The two
+  // narrowings met at the fold as an empty entry, so the entry is gone.
   // F13 and F15 were the register's other two python entries and are DELETED
   // here — both fixed in wave C2 packet 2e, both re-measured over every cell of
   // the python cover they covered (`uv sync` + `ruff check` + `mypy --strict` +

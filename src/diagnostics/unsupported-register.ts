@@ -137,10 +137,16 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
     site: "src/ir/validate/checks/orm-adapter-checks.ts:51",
     what:
       "the .NET Dapper residue after full EF parity: an AGGREGATING query-time projection over a " +
-      "document/event-sourced source, a hierarchical (deep/global) tenancy scope filter, and the " +
-      "two self-provisioning limits — declared migration steps and Postgres schema placement " +
-      "(migration-checks.ts, `validateMigrationAdapterSupport` / " +
-      "`validateSelfProvisioningSchemaSupport`)",
+      "document/event-sourced source, and the two self-provisioning limits — declared migration " +
+      "steps (`#migrations`, owned by M-T2.17 per D-DAPPER-ALTER: it closes when the " +
+      "`test:migration-evolution-dapper` leg is green, NOT when the gate widens) and Postgres " +
+      "schema placement (`#schema-split` / `#schema-ignored`, the twin limit of the same " +
+      "boot-time schema owner — also M-T2.17) (migration-checks.ts, " +
+      "`validateMigrationAdapterSupport` / `validateSelfProvisioningSchemaSupport`).  The " +
+      "hierarchical (deep/global) tenancy `#deep-scope` clause DRAINED in wave C2 packet 2b: " +
+      "`authzFilterToSql` renders the descendant-or-self fragment as raw Postgres and " +
+      "`collectFilterPrincipalRefs` (now on `walkExprDeep`) binds its four params, proven on a " +
+      "booted Dapper backend by `test/e2e/tenancy-hierarchy-dapper.test.ts`",
     mission: "M-T6.35",
   },
   {
@@ -272,15 +278,17 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
     kind: "gap",
     site: "src/ir/validate/checks/orm-adapter-checks.ts:284",
     what:
-      "ONE shape is left on the opt-in `persistence: dapper|mikroorm` subsets (EF Core + " +
-      "Drizzle are the full-subset baseline): a reference-collection membership whose " +
-      "ARGUMENT is a column rather than a bindable value " +
+      "ONE shape is left on the opt-in `persistence: mikroorm` FilterQuery subset (EF Core + " +
+      "Drizzle are the full-subset baseline; the DAPPER arm drained before this row was last " +
+      "reviewed and is not work: `find-predicate-capability.ts` sets `DAPPER_SUBSET = FULL_SUBSET`, " +
+      "so `whereToSql` lowers the whole queryable subset, membership subquery included): a " +
+      "reference-collection membership whose ARGUMENT is a column rather than a bindable value " +
       "(`this.<refColl>.contains(<column>)`), which only a query-time projection `where` " +
-      "can produce since it has no parameters.  Dapper reached the baseline earlier; " +
-      "mikroorm's remaining narrowings drained in wave C2 (the queryable intrinsics and " +
-      "`currentUser` arms, then general membership — an uncorrelated `id in (select " +
-      "<ownerFk> from <joinTable> where <targetFk> = ?)` raw fragment, the FilterQuery " +
-      "mirror of Dapper's EXISTS subquery and of drizzle's own `inArray` subselect)",
+      "can produce since it has no parameters.  mikroorm's remaining narrowings drained in " +
+      "wave C2 (the queryable intrinsics and `currentUser` arms, then general membership — an " +
+      "uncorrelated `id in (select <ownerFk> from <joinTable> where <targetFk> = ?)` raw " +
+      "fragment, the FilterQuery mirror of Dapper's EXISTS subquery and of drizzle's own " +
+      "`inArray` subselect)",
     mission: "M-T6.35",
   },
   {
@@ -593,7 +601,13 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   },
   {
     code: "loom.tph-filter-unsupported",
-    kind: "gap",
+    // `gap` -> `scope` (D-TPH-SUBTYPE-FILTER, wave C2 packet 2b).  Not
+    // half-built work on a shipping target: the refusal is true and narrow (the
+    // EF adapter only — Dapper generates the identical model), and the drain is
+    // a read-path rewrite whose failure mode is a silent leak of a declared read
+    // restriction across ~30 emitter sites with no compiler help.  Commissioned
+    // as M-T6.72 with a booted-app acceptance instead of swept up in a drain.
+    kind: "scope",
     site: "src/ir/validate/checks/storage-inheritance-checks.ts:148",
     what:
       "a TPH SUBTYPE's capability `filter` reading a column the hierarchy ROOT does not declare, " +
@@ -608,7 +622,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
       "guarded, and are NOT gated.  Replaces a silent drop (`tph ? [] :`, F2-CB-C2).  Drains if " +
       "the .NET read path moves capability filters off HasQueryFilter onto the per-read LINQ " +
       "`.Where(...)`, which is per-DbSet and therefore subtype-typed",
-    mission: "M-T5.7",
+    mission: "M-T6.72",
   },
   {
     code: "loom.ui-projection-read-unsupported",

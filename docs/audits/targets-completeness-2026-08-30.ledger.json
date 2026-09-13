@@ -49,59 +49,6 @@
       }
     },
     {
-      "id": "dapper-no-schema-evolution",
-      "title": "`persistence: dapper` has no ALTER path at all \u2014 every post-first-boot model change is silently unapplied (migrations-on-adapters slice 2)",
-      "kind": "silent",
-      "class": null,
-      "confidence": "likely",
-      "targets": [
-        "dotnet"
-      ],
-      "fileTrees": [
-        "src/generator/dotnet/emit/dapper.ts",
-        "src/generator/dotnet/index.ts",
-        "src/ir/validate/checks/migration-checks.ts"
-      ],
-      "evidence": [
-        {
-          "fleet": 1,
-          "id": "dapper-no-schema-evolution",
-          "text": "Slice 1 (the honest gate) DID land: src/ir/validate/checks/migration-checks.ts:201 `SELF_PROVISIONING_ADAPTERS = new Set([\"dapper\", \"mikroorm\"])` and :203-260 `validateMigrationAdapterSupport` raise `loom.dapper-unsupported#migrations` / `loom.mikroorm-unsupported#migrations` \u2014 but ONLY when the model declares a `migration` block (it indexes `loom.renameIntents` / `tableRenameIntents` / `backfillIntents` / `sqlMigrationSteps` and returns early at :225 when all are empty). Slice 2 (running the MigrationsIR chain on these adapters) did NOT land: src/generator/dotnet/index.ts:990 `const hasMigrations = !usingDapper && \u2026` and src/platform/hono/v4/emit.ts:1067 `const hasMigrations = !usingMikro && \u2026` still suppress it. For dapper the fallback is CREATE-only: src/generator/dotnet/emit/dapper.ts:2229-2233 `renderDapperSchema` is documented as 'a self-applied CREATE TABLE IF NOT EXISTS per aggregate', and `grep -c 'ALTER TABLE|ADD COLUMN' src/generator/dotnet/emit/dapper.ts` = 0. So on a dapper deployable: add a field to an existing DB \u2192 the column is never created and the app 500s; drop a field \u2192 the column lingers; change a type \u2192 nothing. No diagnostic fires because no `migration` block was declared. There is also no dapper/mikroorm leg in the migration-evolution gate (`.github/workflows/migration-evolution-e2e.yml`; the five npm scripts are test:migration-evolution{,-dotnet,-elixir,-java,-python}, all on the default efcore/drizzle adapters)."
-        }
-      ],
-      "repro": null,
-      "impact": null,
-      "fix": "Two options. Honest (S, do first): widen `validateMigrationAdapterSupport` beyond declared-intent \u2014 when a self-provisioning deployable is regenerated against an EXISTING baseline snapshot whose derived diff is non-empty, raise the same `#migrations` error (the snapshot store is already threaded into phase \u2468 via `fsSnapshotStore(outDir)`, src/cli/main.ts:~500). Real (L): render the MigrationsIR chain for dapper \u2014 `emitDotnetMigrations` already produces platform-neutral Postgres via src/generator/sql-pg.ts; emit it as a plain ordered `.sql` set applied by `DbSchema.EnsureAsync` with a `__loom_migrations` ledger, then flip `hasMigrations` to `!!system?.migrations?.length` at src/generator/dotnet/index.ts:990. Add a `test:migration-evolution-dapper` leg.",
-      "size": "L",
-      "sources": [
-        "fleet1:t2-t4-data-workflow"
-      ],
-      "related_to": [],
-      "securityClass": true,
-      "P": 2,
-      "note": "Packet 1b (dotnet-adapters): premise partly stale -- a second dapper run exits 1 via the M-T2.2 baseline guard with a misdirected error, not silently. The silent half is the CREATE-only runtime schema (no ALTER path); the gate belongs in src/system/migrations-builder.ts (phase 9). Handed off from packet 1b; the gate-vs-build decision is still pending.",
-      "verified": {
-        "date": "2026-09-03",
-        "against": "bd7aaeedc",
-        "method": "each row's own repro re-run; emitted output read",
-        "verdict": "open",
-        "note": "the SILENT half of the premise is stale \u2014 a second generate exits 1. But it fails on snapshot drift, which names neither the dapper limitation nor a remedy, and `--allow-rebaseline` does not clear it. No ALTER path, `hasMigrations` still gated off, no dapper CI leg",
-        "remainingTargets": [
-          "dotnet"
-        ]
-      },
-      "reverified": {
-        "date": "2026-09-10",
-        "against": "bc7ed8f8",
-        "method": "reconciliation 3 (packet C0.5) \u2014 repro re-run on this head, emitted output read",
-        "verdict": "reproduces",
-        "note": "RE-DERIVED at the code path: `src/generator/dotnet/index.ts:1014 const hasMigrations = !usingDapper && \u2026` \u2014 the migration path is still gated OFF for dapper by construction, so there is no ALTER path at all.  The 09-03 correction stands: the second generate does exit 1, but on snapshot drift, which names neither the dapper limitation nor a remedy.",
-        "remainingTargets": [
-          "dotnet"
-        ]
-      }
-    },
-    {
       "id": "F2-W-06",
       "title": "elixir persists `datetime` at SECOND precision (`:utc_datetime`) where the other four use TIMESTAMPTZ(\u00b5s)",
       "kind": "silent",
@@ -1659,47 +1606,6 @@
         "method": "reconciliation 3 (packet C0.5) \u2014 repro re-run on this head, emitted output read",
         "verdict": "reproduces",
         "note": "RE-DERIVED: `columnlessProjectionSource` in `src/ir/util/query-projection-arm.ts` still refuses all three column-less source kinds; nothing narrows it per backend."
-      }
-    },
-    {
-      "id": "dapper-tenancy-hierarchy-unsupported",
-      "title": "`tenancy-hierarchy` is the sole surviving `DAPPER_UNSUPPORTED` entry \u2014 hierarchical tenancy's capability filter is outside the Dapper SQL subset",
-      "kind": "honest",
-      "class": null,
-      "confidence": "likely",
-      "targets": [
-        "dotnet"
-      ],
-      "fileTrees": [
-        "src/generator/dotnet/",
-        "src/ir/validate/checks/system-checks.ts"
-      ],
-      "evidence": [
-        {
-          "fleet": 1,
-          "id": "dapper-tenancy-hierarchy-unsupported",
-          "text": "test/e2e/corpus-dotnet-dapper-build.test.ts:89-96 \u2014 `DAPPER_UNSUPPORTED = { \"tenancy-hierarchy\": \"hierarchical tenancy's capability filter is outside the Dapper SQL subset; the validator says so with loom.dapper-unsupported. \u2026\" }`, and nothing else. Honest by the file's own oracle (:105-140 asserts every entry's diagnostic really fires). Its sibling `DAPPER_COMPILE_SKIP` DRAINED to `{}` in-window (:72, was `{ \"policy-document\": \u2026 }` at the audit base \u2014 see the 2->0/0->1/1->0 history comment at :47-71). Register row for the code: src/diagnostics/unsupported-register.ts:104-110 (kind `gap`, mission M-T6.35). Unclaimed by any of the seven open PRs."
-        }
-      ],
-      "repro": null,
-      "impact": null,
-      "fix": "Port the deep/global subtree filter to raw Npgsql the way M-T6.25 ported the four direct-table projection arms \u2014 the `DapperOrgPathResolver.cs` that #2652's sibling work added (reading the registry's `data_key` with one raw statement) is the missing half's foundation. Delete the `DAPPER_UNSUPPORTED` entry and the `validateDapperSupport` arm in the same PR; the oracle at :105 fails a stale entry.",
-      "size": "L",
-      "sources": [
-        "fleet1:fresh-gate-probe"
-      ],
-      "related_to": [],
-      "securityClass": false,
-      "P": 3,
-      "reverified": {
-        "date": "2026-09-10",
-        "against": "bc7ed8f8",
-        "method": "reconciliation 3 (packet C0.5) \u2014 repro re-run on this head, emitted output read",
-        "verdict": "reproduces",
-        "note": "RE-DERIVED: `DAPPER_UNSUPPORTED` in `test/e2e/corpus-dotnet-dapper-build.test.ts` still holds exactly one entry, `tenancy-hierarchy`, and the file's own oracle asserts its diagnostic really fires.",
-        "remainingTargets": [
-          "dotnet"
-        ]
       }
     },
     {
@@ -5451,6 +5357,59 @@
       ],
       "securityClass": false,
       "P": 3
+    },
+    {
+      "id": "dapper-no-schema-evolution",
+      "title": "`persistence: dapper` has no ALTER path at all \u2014 every post-first-boot model change is silently unapplied (migrations-on-adapters slice 2)",
+      "kind": "silent",
+      "class": null,
+      "confidence": "likely",
+      "targets": [
+        "dotnet"
+      ],
+      "fileTrees": [
+        "src/generator/dotnet/emit/dapper.ts",
+        "src/generator/dotnet/index.ts",
+        "src/ir/validate/checks/migration-checks.ts"
+      ],
+      "evidence": [
+        {
+          "fleet": 1,
+          "id": "dapper-no-schema-evolution",
+          "text": "Slice 1 (the honest gate) DID land: src/ir/validate/checks/migration-checks.ts:201 `SELF_PROVISIONING_ADAPTERS = new Set([\"dapper\", \"mikroorm\"])` and :203-260 `validateMigrationAdapterSupport` raise `loom.dapper-unsupported#migrations` / `loom.mikroorm-unsupported#migrations` \u2014 but ONLY when the model declares a `migration` block (it indexes `loom.renameIntents` / `tableRenameIntents` / `backfillIntents` / `sqlMigrationSteps` and returns early at :225 when all are empty). Slice 2 (running the MigrationsIR chain on these adapters) did NOT land: src/generator/dotnet/index.ts:990 `const hasMigrations = !usingDapper && \u2026` and src/platform/hono/v4/emit.ts:1067 `const hasMigrations = !usingMikro && \u2026` still suppress it. For dapper the fallback is CREATE-only: src/generator/dotnet/emit/dapper.ts:2229-2233 `renderDapperSchema` is documented as 'a self-applied CREATE TABLE IF NOT EXISTS per aggregate', and `grep -c 'ALTER TABLE|ADD COLUMN' src/generator/dotnet/emit/dapper.ts` = 0. So on a dapper deployable: add a field to an existing DB \u2192 the column is never created and the app 500s; drop a field \u2192 the column lingers; change a type \u2192 nothing. No diagnostic fires because no `migration` block was declared. There is also no dapper/mikroorm leg in the migration-evolution gate (`.github/workflows/migration-evolution-e2e.yml`; the five npm scripts are test:migration-evolution{,-dotnet,-elixir,-java,-python}, all on the default efcore/drizzle adapters)."
+        }
+      ],
+      "repro": null,
+      "impact": null,
+      "fix": "OWNED (wave C2 packet 2b): D-DAPPER-ALTER rules option (c) \u2014 build the chain \u2014 with the widened refusal (b) as the interim, and requires a named T2 mission to own it. That mission is now minted: M-T2.17 (docs/new-plan/T2-data-evolution.md), slices (b) the phase-9 widened refusal, (c) the ordered .sql set applied by DbSchema.EnsureAsync behind a __loom_migrations ledger + flipping the two `hasMigrations` guards, and (d) the Postgres schema-PLACEMENT twin (`#schema-split` / `#schema-ignored`), folded in because it is the same boot-time schema owner slice (c) has to rewrite. Packet 2b did NOT build any of it: slice (b) lives in phase 9 (`src/system/**`), outside the packet's `src/generator/dotnet/**` fence. Closes when `test:migration-evolution-dapper` is green, per the decision's Consequences \u2014 not when the gate widens. Two options. Honest (S, do first): widen `validateMigrationAdapterSupport` beyond declared-intent \u2014 when a self-provisioning deployable is regenerated against an EXISTING baseline snapshot whose derived diff is non-empty, raise the same `#migrations` error (the snapshot store is already threaded into phase \u2468 via `fsSnapshotStore(outDir)`, src/cli/main.ts:~500). Real (L): render the MigrationsIR chain for dapper \u2014 `emitDotnetMigrations` already produces platform-neutral Postgres via src/generator/sql-pg.ts; emit it as a plain ordered `.sql` set applied by `DbSchema.EnsureAsync` with a `__loom_migrations` ledger, then flip `hasMigrations` to `!!system?.migrations?.length` at src/generator/dotnet/index.ts:990. Add a `test:migration-evolution-dapper` leg.",
+      "size": "L",
+      "sources": [
+        "fleet1:t2-t4-data-workflow"
+      ],
+      "related_to": [],
+      "securityClass": true,
+      "P": 2,
+      "note": "Packet 1b (dotnet-adapters): premise partly stale -- a second dapper run exits 1 via the M-T2.2 baseline guard with a misdirected error, not silently. The silent half is the CREATE-only runtime schema (no ALTER path); the gate belongs in src/system/migrations-builder.ts (phase 9). Handed off from packet 1b; the gate-vs-build decision is still pending.",
+      "verified": {
+        "date": "2026-09-03",
+        "against": "bd7aaeedc",
+        "method": "each row's own repro re-run; emitted output read",
+        "verdict": "open",
+        "note": "the SILENT half of the premise is stale \u2014 a second generate exits 1. But it fails on snapshot drift, which names neither the dapper limitation nor a remedy, and `--allow-rebaseline` does not clear it. No ALTER path, `hasMigrations` still gated off, no dapper CI leg",
+        "remainingTargets": [
+          "dotnet"
+        ]
+      },
+      "reverified": {
+        "date": "2026-09-10",
+        "against": "bc7ed8f8",
+        "method": "reconciliation 3 (packet C0.5) \u2014 repro re-run on this head, emitted output read",
+        "verdict": "reproduces",
+        "note": "RE-DERIVED at the code path: `src/generator/dotnet/index.ts:1014 const hasMigrations = !usingDapper && \u2026` \u2014 the migration path is still gated OFF for dapper by construction, so there is no ALTER path at all.  The 09-03 correction stands: the second generate does exit 1, but on snapshot drift, which names neither the dapper limitation nor a remedy.",
+        "remainingTargets": [
+          "dotnet"
+        ]
+      }
     }
   ],
   "checkedOk": [
@@ -7323,6 +7282,12 @@
       "id": "G2667-A6-audited-returning-op-contract-drop",
       "title": "audited/provenanced on a RETURNING operation silently discards the whole return contract (node)",
       "note": "Wave C2 packet 2c (node): the Hono operation route now dispatches an audited/provenanced RETURNING op to emitReturningOperationRoute with the audit/provenance transaction wrapped around it (src/platform/hono/v4/routes-builder.ts auditProvTxLines + the capture flag); loom.audited-returning-operation-unsupported retired with its gate, message, register row and census fixture."
+    },
+    {
+      "id": "dapper-tenancy-hierarchy-unsupported",
+      "title": "`tenancy-hierarchy` is the sole surviving `DAPPER_UNSUPPORTED` entry \u2014 hierarchical tenancy's capability filter is outside the Dapper SQL subset",
+      "note": "fixed (wave C2 packet 2b): the claim was false. `authzFilterToSql`'s `scope` arm (src/generator/dotnet/emit/dapper.ts) renders the descendant-or-self subtree predicate as raw Postgres \u2014 the MikroORM `raw()` twin, anchored `strpos(col, anchor || '.') = 1` recheck plus the sargable escaped LIKE prefilter plus the NULL-`data_key` flat-tenant fallback. What genuinely blocked it was one layer out, exactly as the row's `fix` field guessed for the M-T6.23/M-T6.29 precedents: `collectFilterPrincipalRefs` hand-rolled a four-kind recursion that could not see the sentinel (which carries no child `currentUser.<claim>` node at all \u2014 the claims are derived from the `scope` decision). It now rides `walkExprDeep` and contributes the four bindings by kind, and its `ir-walk-census` waiver is gone. The `DAPPER_UNSUPPORTED` corpus entry and its `allowlist-ratchet` pin both drained to zero in the same commit. Booting the fixture also surfaced and fixed a second, compile-invisible defect on the same path: the registry self-scope comparison rendered `id = @__cu_tenantId`, i.e. `uuid = text`, so every read of the registry answered 42883. Proof: `test/e2e/tenancy-hierarchy-dapper.test.ts` (new leg, wired into tenancy-e2e.yml) runs the shared subtree / delimiter-trap / wildcard-trap / NULL-dataKey assertions against a booted Dapper backend on a real Postgres.",
+      "source": "wave-c2:2b-dotnet"
     }
   ],
   "conflicts": [

@@ -39,8 +39,10 @@ Disposition unchanged: don't build speculatively — each slot fills when its ow
 Doc-level `x-tagGroups` per served `api` across the five backends (design audited + simulated; resolve decision (f) on .NET/Java per-op tags first).
 Sources: [api-openapi-tag-grouping](../old/proposals/api-openapi-tag-grouping.md), ddd-review api-grouping gap.
 
-## M-T6.14 — Small parity leftovers — `open` · **S** · P3
-DEBT-12 Phoenix `verify_token` niche; DEBT-08 `envelope` carrier (deferred — no live use; signpost via M-T5.9a); saga/projection EF `HasColumnName` correlation-column bug (from S7 Slice C review); domain-seam log-catalog §3 residue ⚠ partly stale.
+## M-T6.14 — Small parity leftovers — `partial` · **S** · P3
+DEBT-12 Phoenix `verify_token` niche; DEBT-08 `envelope` carrier (deferred — no live use; signpost via M-T5.9a); domain-seam log-catalog §3 residue ⚠ partly stale.
+
+- **saga/projection EF `HasColumnName` correlation-column bug (S7 Slice C) — DONE**, verified on fresh `main` in wave C2 packet 2b rather than taken from the mission text. The emission had already landed: `src/generator/dotnet/workflow-state-emit.ts:129` and `src/generator/dotnet/projection-state-emit.ts:121` give EVERY column (correlation key included) an explicit `.HasColumnName(snake(f.name))`. What was missing was a gate that could see it: the only pin was a spot `toContain` for a literal the emitter itself writes (`test/generator/dotnet/dotnet-projection-emission.test.ts:86`), which verifies consistency, not correctness, and says nothing about a column the config forgets. `test/generator/dotnet/statetable-column-correlation.test.ts` now sweeps every `*(State|Row)Configuration.cs` in the emitted tree and asserts its `HasColumnName` set EQUALS the column list parsed out of the emitted migration DDL — an expected value from outside the EF emitter (phase ⑨ `MigrationsIR` → `sql-pg.ts`). Mutation-proved on both arms: dropping the saga correlation column's `HasColumnName` fails with `expected [ 'attempts' ] to deeply equal [ 'attempts', 'order_id' ]`; spelling the projection's columns with the raw camelCase field name fails with `expected [ 'at', 'orderRef', 'status' ] to deeply equal [ 'at', 'order_ref', 'status' ]`.
 
 ## M-T6.26 — `= default` / required-input parity across create & update paths — `partial` · **S** · P2
 *(Renumbered from the placeholder "M-T6.x" and re-statused 2026-08-05 — `landed` isn't a legend status. Create-path parity is done (below, #2377); the update-path halves landed via #2392 ("a default never relaxes an update" — Elixir enforced less than promised, Java rejected what it advertised); the remaining residue is fixed and awaiting merge as PR #2440 — Elixir accepts a PUT that omits a required field (presence is a deserialization question there too), with retro §80 (PR #2415, also awaiting merge) as its documentation twin.)*
@@ -135,7 +137,26 @@ over-requires. It has no caller in generated code (every write path goes
 through `base_changeset`); threading defaults onto crudish create params would
 ripple through every param-driven surface on all five backends.
 
-## M-T6.35 — Persistence-adapter capability gaps — `partial`; the `#migrations` sub-codes are `blocked(D-DAPPER-ALTER)` · **M** · P2
+## M-T6.35 — Persistence-adapter capability gaps — `open`; the `#migrations` + `#schema-*` sub-codes moved to M-T2.17 · **M** · P2
+
+> **Wave C2 packet 2b drained two of this mission's clauses and re-homed three.**
+> **`loom.dapper-unsupported#deep-scope` is CLOSED** — a hierarchical
+> (`deep`/`global`) tenancy scope filter renders on the Dapper adapter
+> (`authzFilterToSql`'s `scope` arm, `src/generator/dotnet/emit/dapper.ts`), the
+> `DAPPER_UNSUPPORTED` corpus entry and its `allowlist-ratchet` pin drained to
+> zero with it, and `test/e2e/tenancy-hierarchy-dapper.test.ts` proves the subtree
+> / delimiter-trap / wildcard-trap reads on a booted backend against a real
+> Postgres. The refusal's stated reason — that the sentinel's principal claims
+> could not be bound — was a property of the hand-rolled principal-ref collector,
+> not of raw SQL; the collector now rides `walkExprDeep` and contributes them by
+> kind. **`loom.find-predicate-unsupported` on DAPPER was already drained** before
+> this review and is not work: `DAPPER_SUBSET = FULL_SUBSET`
+> (`src/ir/util/find-predicate-capability.ts`), so that code narrows mikroorm
+> only. **`#migrations` and `#schema-split`/`#schema-ignored` moved to
+> [M-T2.17](T2-data-evolution.md#m-t217)** — they are one seam (the boot-time
+> schema owner), the ruling on them is `D-DAPPER-ALTER`, and they close on a
+> `test:migration-evolution-dapper` leg rather than on anything in this mission.
+
 The non-default persistence adapters reject shapes their EF/Ecto siblings accept: `loom.dapper-unsupported` (features Dapper does not emit), `loom.find-predicate-unsupported` (a find predicate the active adapter cannot lower), `loom.saving-shape-unsupported` (a `shape(...)` the hosting backend cannot persist — **re-classified 2026-09-03**: dormant, not live — every platform key in `PLATFORM_SAVING_SHAPES` already lists all three shapes, and a platform absent from the map is skipped rather than flagged, so this is an unreachable backstop, not a seam any live target trips), `loom.vanilla-document-unsupported` (`shape: document` only partly emitted on Elixir), and — **inherited 2026-08-24 from the now-`done` M-T6.23** — `loom.mikroorm-unsupported`, whose only surviving raiser is the migration-chain one (`migration-checks.ts` `#migrations`: neither MikroORM's `orm.schema.updateSchema()` nor Dapper's boot-time `CREATE TABLE IF NOT EXISTS` can apply a declared migration step, so a rename resolves as DROP + ADD or silently never runs — the `loom.dapper-unsupported#migrations` twin is the same shape). The adapter axis is where "all targets support the whole surface" costs the most, because each adapter multiplies the matrix again — worth confirming per row whether the adapter *cannot* express the shape (a permanent limit, so a rename) or merely *does not yet* (a gap). **`loom.persistence-mode-unsupported` moved OFF this mission 2026-09-03** — it never fit here: `validateDataSourceCoverage` refuses a hosted aggregate whose deployable declares no matching `dataSource` at all, which is a missing binding, not an adapter capability limit. It is now owned by M-T2.9 (the storage-config tail, where the `dataSource`-binding axis already lives).
 **Wave C2 packet 2c — the mikroorm rows, re-verified by RUNNING each repro and dispositioned one at a time** (2026-09-13):
 - **`loom.find-predicate-unsupported` on mikroorm: drained to one true shape.** The general `this.<refColl>.contains(x)` membership narrowing is GONE — its recorded reason ("needs a correlated join the adapter emits nowhere") was a claim about the EXISTS spelling, not the adapter. `containsMembershipFragment` (`src/generator/typescript/emit/mikroorm-filter.ts`) renders an uncorrelated `id in (select <ownerFk> from <joinTable> where <targetFk> = ?)` `raw()` fragment — the FilterQuery mirror of Dapper's EXISTS subquery and of drizzle's own `inArray` subselect — and the owning aggregate's `associations` are threaded to every site that can carry one (relational + embedded finds, retrievals, query-time projection filters, capability filters). Runtime-proven on a booted app against a real Postgres, with the drizzle adapter run as the oracle on the identical scenario (both answer the same two rows). What is LEFT is strictly smaller and true: a membership whose ARGUMENT is a column (`where o.tags.contains(o.id)`), which only a query-time projection `where` can produce, having no parameters to bind.
@@ -416,3 +437,56 @@ Shape to fix: cast in the repository's `find_by_id` (one site, every caller) and
 :not_found}`, or mirror the controller's plug in the LiveView `mount`. The first is cleaner but changes
 what the CONTROLLER would answer if its plug ever stopped firing (422 vs 404) — decide deliberately, and
 gate whichever you pick with a boot-verified request, not a compile.
+
+## M-T6.72 — Move the .NET capability filters that cannot be model-hosted onto the per-read query — `open` · **L** · P3
+
+Minted 2026-09-13 by wave C2 packet 2b as the named successor
+[`D-TPH-SUBTYPE-FILTER`](../decisions.md#d-tph-subtype-filter--a-tph-subtypes-capability-filter-is-a-declared-v1-limit-on-the-ef-adapter-not-a-gap)
+requires. It owns the `scope` row `loom.tph-filter-unsupported`.
+
+**The limit.** EF Core registers every query filter in an inheritance hierarchy
+on the ROOT entity type, so a `sharedTable` (TPH) SUBTYPE's capability `filter`
+reading a column only that subtype declares is not registrable at all. Both
+workarounds fail once the query source is a SIBLING subtype (measured on EF Core
+10.0.10: a CLR downcast → "No coercion operator is defined between types 'Truck'
+and 'Car'"; `EF.Property` → "the specified property does not exist on the entity
+type"). `validateTphFilterExpressibility` refuses the model rather than dropping
+the restriction silently, which is what the emitter used to do (`tph ? [] :`,
+F2-CB-C2). Scoped to the EF adapter: Dapper splices the same predicate into raw
+SQL against the shared table, where a subtype column is just a column.
+
+**The build.** Emit the affected filters as a per-read LINQ `.Where(...)` on the
+CONCRETE's `DbSet`, which is subtype-typed, instead of a model-level
+`HasQueryFilter`.
+
+**Why it is L and not S — the part to get right.** The predicate must reach
+EVERY read of that aggregate, and a missed site is neither a compile error nor a
+wrong-shaped answer: it is one read path returning rows a declared restriction
+excludes. Measured on the emitter: `_db.${setName}` appears 19 times in
+`src/generator/dotnet/emit/repository.ts`, and `find-emit.ts`,
+`criteria-emit.ts`, `query-projection-emit.ts` and `spec-emit.ts` hold 11 more
+`_db.` reads. The sites that must each be threaded: the by-id read, the bulk
+by-ids load, the write-scope existence pre-guard, every declared find (a paged
+one's COUNT query as well as its PAGE query), every retrieval, every criterion
+Specification, every direct-table aggregation, and the polymorphic
+`find all <Base>` reader — which must apply each concrete's own filter per
+concrete rather than one predicate over the base.
+
+**Scope discipline, from the decision.** Move only the filters that CANNOT be
+model-hosted. A model filter is enforced by EF for every query against the
+entity, including hand-written ones the customization gradient invites; a
+per-read `.Where` is enforced only where the emitter put it. Migrating the whole
+adapter would trade a framework-enforced guarantee for an emitter-enforced one
+across the board to reach one subtype shape.
+
+**Acceptance.** A booted .NET app on a real Postgres (not a compile) showing the
+subtype filter applied on every read path and absent from none — the shape
+`tenancy-hierarchy-dapper.test.ts` uses for the Dapper subtree predicate, whose
+failure mode is identical. Delete the register row, drop `MAX_OPEN_GAPS` and
+close this mission together.
+
+Sources: [`decisions.md`](../decisions.md) D-TPH-SUBTYPE-FILTER;
+`src/ir/validate/checks/storage-inheritance-checks.ts`,
+`src/ir/util/inheritance.ts` (`nonRootFilterFields`),
+`src/generator/dotnet/emit/efcore.ts`. Relates to
+[M-T5.7](T5-language-core.md#m-t57) (the inheritance tail).

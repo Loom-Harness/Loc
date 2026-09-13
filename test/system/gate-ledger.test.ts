@@ -134,14 +134,20 @@ describe("gate ledger", () => {
     // These pin the two readers that could do that.
 
     it("skipKeys reads a POPULATED register — it can see keys at all", () => {
-      // Every COMPILE_SKIP map in the tree is currently drained to empty, so a
-      // parser that returned `[]` unconditionally would pass every other
-      // assertion in this file while scoring the whole matrix as compiled.
-      // `DAPPER_UNSUPPORTED` is the one populated register of this exact shape,
-      // and it is what makes the drained readings below mean something.
-      expect(skipKeys("test/e2e/corpus-dotnet-dapper-build.test.ts", "DAPPER_UNSUPPORTED")).toEqual(
-        ["tenancy-hierarchy"],
-      );
+      // Every corpus COMPILE_SKIP / UNSUPPORTED map in the tree is now drained
+      // to empty, so a parser that returned `[]` unconditionally would pass
+      // every other assertion in this file while scoring the whole matrix as
+      // compiled.  The subject MOVED here in wave C2 packet 2b: it used to be
+      // `DAPPER_UNSUPPORTED`, whose last entry (`tenancy-hierarchy`) drained
+      // when the Dapper adapter learned the hierarchical subtree predicate —
+      // draining the very register that made the drained readings mean
+      // something.  `KNOWN_HEEX_GAPS` is the replacement because it is the one
+      // register of this exact shape that is SETTLED rather than pending
+      // (`DataGrid` on HEEx is a decided non-goal, D-DATAGRID-TARGETS), so it
+      // cannot drain out from under this guard the way a TODO register does.
+      expect(skipKeys("test/generator/elixir/heex-parity.test.ts", "KNOWN_HEEX_GAPS")).toEqual([
+        "DataGrid",
+      ]);
     });
 
     it("skipKeys is not fooled by the prose a drained register leaves behind", () => {

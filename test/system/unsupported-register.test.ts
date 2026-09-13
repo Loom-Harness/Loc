@@ -292,7 +292,13 @@ const REGISTER_FILE = path.join(srcRoot, "diagnostics", "unsupported-register.ts
  *  always did.  Gate, message, register row and firing-census fixture deleted
  *  together (`test/generator/typescript/audited-returning-route.test.ts` is the
  *  replacement, mutation-proved). */
-const MAX_OPEN_GAPS = 26;
+/** 26 -> 25 at the fold (wave C2 packet 2b, written as 27 -> 26 on its own branch): `loom.tph-filter-unsupported` re-classified
+ *  `gap` -> `scope` under D-TPH-SUBTYPE-FILTER, owner M-T6.72.  A re-class, not
+ *  a drain — the code still fires, and the pin moves because the row stopped
+ *  being half-built work on a shipping target: the EF-only refusal is true and
+ *  narrow (the same model generates under `persistence: dapper`), and its drain
+ *  is a ~30-site read-path rewrite whose failure mode is a silent leak. */
+const MAX_OPEN_GAPS = 25;
 
 /** Exact count of `seam` rows.  Changes only for a reviewed reason: a gate
  *  deleted (down), a new target registered that turns a seam back into a live

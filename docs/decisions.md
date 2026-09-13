@@ -3609,3 +3609,84 @@ deleting one disjunct — nothing here bakes the refusal into an emitter.
 [`targets-completeness-2026-08-30.ledger.json`](audits/targets-completeness-2026-08-30.ledger.json);
 [`T2-data-evolution.md`](new-plan/T2-data-evolution.md) M-T2.10;
 [`inheritance.md`](inheritance.md); D-ES-TPH (the rule this extends).
+## D-TPH-SUBTYPE-FILTER — a TPH subtype's capability filter is a declared v1 limit on the EF adapter, not a gap
+
+**Status:** proposed (default applies 48 h after merge unless overridden).
+Raised by wave C2 packet 2b, which was asked to "build or decide" this row.
+
+**Question.** `loom.tph-filter-unsupported` refuses a `sharedTable` (TPH)
+SUBTYPE whose capability `filter` reads a column the hierarchy ROOT does not
+declare, on `platform: dotnet` + `persistence: efcore`. Is that a gap to drain
+or a declared limit?
+
+**Options.** (a) leave it a `gap` and drain it by moving the .NET read path's
+capability filters off `HasQueryFilter` onto a per-read LINQ `.Where(...)`,
+which is per-`DbSet` and therefore subtype-typed; (b) re-class it a `scope` row
+with a named successor, keeping the honest refusal until someone commissions
+(a); (c) refuse it permanently and rename the code out of the `-unsupported`
+suffix.
+
+**Decision.** (b) — **`scope`, with M-T6.72 as the named successor.** NOT (c):
+the shape is expressible, on this very adapter, by a different read strategy;
+and NOT (a) inside a per-target drain packet, for the reason below.
+
+**Rationale.**
+
+- **The refusal is TRUE, and narrow.** It is scoped to the EF adapter, not to
+  `platform: dotnet` — Dapper splices the same predicate into raw SQL against
+  the shared table, where a subtype column is just a column, so the identical
+  model generates there. Filters reading ROOT columns (the common
+  `tenantOwned`-on-the-base case) are emitted, discriminator-guarded, and are
+  not gated. The diagnostic names all three ways out (move the field to the
+  base, `inheritanceUsing: ownTable`, or host the context elsewhere).
+- **EF's restriction is real and was measured, not assumed.** EF Core registers
+  every query filter in an inheritance hierarchy on the ROOT entity type, and
+  both workarounds fail once the query source is a SIBLING subtype (verified
+  against EF Core 10.0.10: a CLR downcast gives "No coercion operator is defined
+  between types 'Truck' and 'Car'"; `EF.Property` gives "the specified property
+  does not exist on the entity type"). The gate replaced a SILENT drop (`tph ?
+  [] :` — every declared read restriction on a subtype discarded with no error,
+  F2-CB-C2), so the honest refusal is already a large improvement over what it
+  replaced.
+- **(a) is an L-sized read-path rewrite whose failure mode is a security-shaped
+  silent leak, which is exactly what a drain packet must not risk.** Measured on
+  the emitter rather than estimated: `_db.${setName}` appears **19** times in
+  `src/generator/dotnet/emit/repository.ts` and the sibling read emitters
+  (`find-emit.ts`, `criteria-emit.ts`, `query-projection-emit.ts`,
+  `spec-emit.ts`) hold **11** more `_db.` reads. Every one must route through
+  the new per-read predicate — the paged find's COUNT query as well as its PAGE
+  query, the by-id read, the bulk by-ids load, the write-scope existence guard,
+  each retrieval, each criterion Specification, each direct-table aggregation,
+  and the polymorphic `find all <Base>` reader, which must apply each concrete's
+  own filter per concrete. A site missed is not a compile error and not a wrong
+  answer a test would notice by shape: it is one read path that returns rows a
+  declared restriction excludes. That asymmetry — 30 sites, no compiler help,
+  the failure indistinguishable from success without a purpose-built runtime
+  probe — is what makes it a commissioned mission with a booted-app acceptance
+  rather than a row in a per-target sweep.
+- **And the move has a second cost worth pricing before it is paid.** A model
+  filter is enforced by EF for EVERY query against the entity, including ones no
+  Loom emitter wrote (a raw `_db.Set<Car>()` in hand-written code the
+  customization gradient invites). A per-read `.Where` is enforced only where
+  the emitter put it. Moving the whole adapter's filters off the model to reach
+  one subtype shape would trade a framework-enforced guarantee for an
+  emitter-enforced one across the board; the successor should therefore move
+  only the filters that CANNOT be model-hosted, and say so.
+
+**Consequences.** The register row's `kind` becomes `scope` and `MAX_OPEN_GAPS`
+drops by one — the row is no longer counted as an undone gap on a shipping
+target, which is the honest reading: nothing here is half-built. The code, its
+message and its `code-docs.ts` anchor are unchanged, so nothing a user sees
+moves. `M-T6.72` owns the build; its acceptance is a booted .NET app on a real
+Postgres showing the subtype filter applied on every read path AND absent from
+none — the compile tier cannot see a missing `.Where`.
+
+**Unblocks.** `loom.tph-filter-unsupported` → wave **C2 packet 2b** (this
+re-class); the build → **M-T6.72**.
+
+**Sources.** `src/ir/validate/checks/storage-inheritance-checks.ts`
+(`validateTphFilterExpressibility`), `src/ir/util/inheritance.ts`
+(`nonRootFilterFields`), `src/generator/dotnet/emit/efcore.ts` (the
+`isTphConcreteCfg` filter host), `src/diagnostics/unsupported-register.ts`;
+[`T5-language-core.md`](new-plan/T5-language-core.md) M-T5.7 (the inheritance
+tail this sits beside); the F2-CB-C2 silent-drop row it replaced.
