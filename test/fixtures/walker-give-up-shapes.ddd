@@ -13,8 +13,10 @@
 //                                 → loom.page-primitive-arg-missing
 //   IdLink { }                    no `of:` aggregate ref
 //                                 → loom.page-primitive-arg-missing
-//   DestroyForm { }               `of:` present in neither form
-//                                 → loom.page-primitive-arg-invalid
+//   (DestroyForm { } was here — REFUSED at phase ⑦ since M-T1.31 by
+//    loom.destroy-form-of-unresolved#not-a-ref, so it is no longer the silent
+//    class this fixture covers.  Its coverage moved to
+//    test/ir/destroy-form-of-unresolved.test.ts.)
 //   Icon { name: "…" }            a name outside the builtin glyph registry
 //                                 → loom.page-primitive-arg-invalid
 //   CreateForm { of: "Ghost" }    names an aggregate this ui cannot reach
@@ -71,7 +73,6 @@ system WalkerGiveUpShapes {
         Heading { "Give-up shapes", level: 1 },
         Timeline { },
         IdLink { },
-        DestroyForm { },
         Icon { name: "no-such-glyph-in-the-builtin-registry" },
         CreateForm { of: "Ghost" }
       }

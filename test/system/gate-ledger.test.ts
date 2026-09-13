@@ -80,6 +80,8 @@ const BEHAVIOURAL_ABSENT: Record<string, string> = {
     "ledger row F2-CB-C1 — the COMPILE tier is likewise the gate that mattered (CS0535 + CS0029 on .NET), with `test/conformance/paged-nonrelational-parity.test.ts` comparing the declaration, the implementation and the caller's arity per-PR.  What a behavioural block would add is the PAGE ITSELF: an in-memory pager that slices before it sorts, or counts the page instead of the match, compiles and answers plausible JSON.  Same blocker",
   "find-bypass":
     "`find … ignoring tenantOwned` is only observable across TWO principals (does the other tenant's row appear?); the behavioural runners authenticate as one, so a caller would read the same set either way — the same two-principal harness `projection-agg-filters` waits on",
+  envelope:
+    'the `envelope` carrier is a COMPILE defect (java named an undeclared `Envelope<Order>`, dotnet returned a bare `Order` from `Task<Envelope<Order>>`); the five compile legs plus the byte-identity gate in `test/generator/envelope-carrier.test.ts` are its oracle, and a booted leg would mint a wire golden across the un-drained find-miss 404 `detail` split (`"not found"` on node, `"not_found"` on the other four)',
 };
 
 describe("gate ledger", () => {

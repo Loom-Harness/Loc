@@ -401,7 +401,18 @@ const REGISTERED: Ratchet[] = [
     // surface"), which is worth noting: two fixtures, two waves, one missing
     // capability.  Whoever gives the e2e DSL a workflow-invocation form drains
     // BOTH, and should lower this by two.
-    max: 18,
+    // 18 -> 19 (M-T6.57 / audit F57): `envelope`.  A RAISE, deliberately — the
+    // corpus fixture that finally instantiates the `envelope` carrier (nothing
+    // in the repo did, which is why java and dotnet shipped output that did not
+    // compile) stops at the compile tier.  Its oracle IS a compile one: five
+    // compile legs plus the byte-identity gate in
+    // `test/generator/envelope-carrier.test.ts`.  A `test e2e` block was
+    // authored and withdrawn because it mints a wire golden, and the find-miss
+    // 404 `detail` is not uniform yet (node `"not found"`, the other four
+    // `"not_found"`) — a golden captured on the node leg would redden four legs
+    // on `main`.  Drain this entry when that split is ruled; the entry's own
+    // comment in `gate-ledger.test.ts` names the condition.
+    max: 19,
   },
 ];
 
