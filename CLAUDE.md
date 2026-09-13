@@ -85,7 +85,7 @@ node bin/cli.js generate ts     <file.ddd> -o <out>    # single Hono project (le
 node bin/cli.js generate dotnet <file.ddd> -o <out>    # single .NET project (legacy)
 node bin/cli.js generate system <file.ddd> -o <out>    # full multi-deployable tree + docker-compose.yml
 node bin/cli.js snapshot        <file.ddd> -o <out>    # capture immutable .loom/snapshots/<ts>-<guid>.loomsnap.json (provenance rule snapshot — like `ef migrations add`, run deliberately)
-node bin/cli.js verify          <file.ddd> --results <results.json> [--out <dir>]  # join an existing test-results JSON onto the requirements graph → .loom/verification.{json,md} (gates the exit code; does NOT run the suites itself)
+node bin/cli.js verify          <file.ddd> (--results <results.json> | --from-vitest <report.json>) [--out <dir>] [--allow-missing]  # join an existing test-results JSON onto the requirements graph → .loom/verification.{json,md} (gates the exit code — a declared test with NO result fails it unless --allow-missing; does NOT run the suites itself)
 node bin/cli.js trace           <logfile>                              # translate a runtime stack-trace back to .ddd source via .loom/sourcemap.json
 node bin/cli.js breakpoints     <file.ddd> --line <n>                  # resolve a .ddd source line to the generated file:line(s) it produced, or file:line:col when it's a fine expression region — the reverse of `ddd trace`
 node bin/cli.js patch           <file.ddd> …                           # apply node-addressed model patches to a .ddd source (JSON in/out via --json; the AI-authoring-loop surface)
