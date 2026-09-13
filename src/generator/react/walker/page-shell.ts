@@ -81,7 +81,9 @@ function renderActionMutations(
     .map(([mod, names]) => `import { ${[...names].sort().join(", ")} } from "${mod}";\n`)
     .join("");
   const decls = actionMutations
-    .map((m) => `  const ${m.localVar} = ${m.hookName}(${renderActionMutationArg(m)});\n`)
+    .map(
+      (m) => `  const ${m.localVar} = ${m.hookName}(${renderActionMutationArg(m, (id) => id)});\n`,
+    )
     .join("");
   return { imports, decls };
 }

@@ -326,10 +326,17 @@ export interface ActionMutationState {
  *
  *  Frameworks differ only in how they decorate a present id, never in whether
  *  an absent one may be decorated — which is why the check lives here and not
- *  in each shell. */
+ *  in each shell.
+ *
+ *  `wrap` is REQUIRED, with no identity default: a shell that silently got the
+ *  identity because it forgot the argument would emit an UNDECORATED id and
+ *  compile clean, which is the same silent-degradation shape this helper exists
+ *  to close (and what `test/platform/optional-context-param-sweep.test.ts`
+ *  guards).  A shell that genuinely passes the id through spells that out as
+ *  `(id) => id`. */
 export function renderActionMutationArg(
   m: ActionMutationState,
-  wrap: (idExpr: string) => string = (idExpr) => idExpr,
+  wrap: (idExpr: string) => string,
 ): string {
   return m.idExpr === undefined ? "" : wrap(m.idExpr);
 }
