@@ -141,20 +141,20 @@ gate already encodes the row's claim, run the gate.
 
 | metric | value |
 |---|---|
-| open rows | **135** |
+| open rows | **134** |
 | P0 | 0 |
 | P1 | 1 |
 | P2 | 11 |
 | P3 | 34 |
-| P4 | 80 |
+| P4 | 79 |
 | P5 | 9 |
-| kind: silent / honest / breadth / mission / stale-prose | 12 / 34 / 22 / 58 / 9 |
-| confidence: proven / likely / suspected | 23 / 111 / 1 |
+| kind: silent / honest / breadth / mission / stale-prose | 12 / 34 / 21 / 58 / 9 |
+| confidence: proven / likely / suspected | 22 / 111 / 1 |
 | class: faulty-fix / regression | 1 / 0 |
-| size S / M / L | 34 / 58 / 43 |
-| provenance: fleet1-only / fleet2-only / corroborated by both | 123 / 10 / 1 |
+| size S / M / L | 34 / 57 / 43 |
+| provenance: fleet1-only / fleet2-only / corroborated by both | 122 / 10 / 1 |
 | claimed by an open PR | 61 |
-| done / merged | 153 |
+| done / merged | 154 |
 | declined (not a gap: stale / breadth / duplicate / decided) | 6 |
 | conflicts | 10 |
 | checkedOk entries | 146 |
@@ -232,7 +232,6 @@ Sorted P0 (security / data-integrity, silent, proven) → P1 (other silent prove
 | P4 | `m-t2-9-datasource-bindings-done` | mission | like | node, dotnet, elixir, python, java | S | M-T2.9 — `dataSources:` bindings and the capability matrix both ship (relocated, not missing); only per-deployable outbox overrides remain |
 | P4 | `style-adapter-dead-emit-methods` | breadth | like | node, dotnet, java, elixir | S | M-T9.2's dead-`emit*` class recurs one adapter over: `StyleAdapter.emitEndpoint/emitHandlerOrService/emitDi` reach the emit path zero times |
 | P4 | `G2644-M-T5.23-long-contract` | mission | like | node, python, java, dotnet | M | #2644 F13 / M-T5.23 — `long` has no contract: JS-number storage and float() aggregates corrupt past 2^53; int-overflow is 3-way divergent |
-| P4 | `G2644-M-T9.38-frontend-runtime-legs` | breadth | prov | feliz | M | #2644 F17 / M-T9.38 — FELIZ still has no runtime leg at all, and neither it nor the landed flutter leg (#2663) is numeric-rich |
 | P4 | `G2667-D5-handler-atomicity-asymmetry` | mission | like | java, dotnet, node | M | Debt: handler atomicity asymmetry — java handlers are class-@Transactional, .NET/node commit per SaveAsync |
 | P4 | `G2667-F4-realtime-plan-contract` | mission | like | node, dotnet, java, python, elixir | M | Architecture: give realtime a plan-level contract (streams inherit deployable auth; durable events tee at write-time) |
 | P4 | `M-T1.10-phoenix-sse-no-rooms` | mission | like | elixir | M | M-T1.10 — the Phoenix SSE relay implements no tenant ROOMS: every tenant-scoped event degrades to a broadcast refetch ticket |

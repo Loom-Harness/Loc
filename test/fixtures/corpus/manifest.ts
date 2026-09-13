@@ -89,6 +89,13 @@ export const CORPUS: readonly CorpusFeature[] = [
   { id: "union-find-absence", title: "union-returning finds (`Order or NotFound`, `Order option`)", doc: "payloads", backends: ALL },
   { id: "paged", title: "pagination — `find ... paged` Paged<T> envelope", doc: "payloads", backends: ALL },
   {
+    id: "envelope",
+    title: "`find … : T envelope` — the single-row find carrier (M-T6.57)",
+    doc: "payloads",
+    backends: ALL,
+    note: "Minted by audit F57.  NO `.ddd` in the repo instantiated `envelope` before this fixture, so every compile gate was blind to the carrier by construction — java emitted an UNDECLARED `Envelope<Order>` in three signatures (port, Spring-Data interface, impl) and dotnet returned a bare `Order` from a `Task<Envelope<Order>>` (CS0029), while elixir `Repo.all`-ed EVERY row and answered a JSON array against its own single-object OpenAPI.  The carrier is ratified as a single-row find, so the point of the fixture is that `T envelope` emits exactly what `T` emits.",
+  },
+  {
     id: "paged-nonrelational",
     title:
       "`find … paged` × a NON-RELATIONAL carrier — the paged contract over a `shape: document` and a `persistedAs: eventLog` repository, both of which page in memory",
@@ -114,6 +121,13 @@ export const CORPUS: readonly CorpusFeature[] = [
   { id: "event-sourcing", title: "`persistedAs: eventLog` — append-only stream + appliers", doc: "workflow", backends: ALL },
   { id: "eventsourced-workflow", title: "event-sourced saga folding its own emitted events", doc: "workflow", backends: ALL },
   { id: "saga", title: "in-process dispatch / saga with persisted correlation", doc: "workflow", backends: ALL },
+  {
+    id: "workflow-enum-state",
+    title: "workflow whose persisted state field is an enum — the instance-response DTO names <Enum>Schema",
+    doc: "workflow",
+    backends: ALL,
+    note: "No corpus .ddd carried an enum-typed workflow STATE field before this one, so the compile tier never reached the emitters that name <Enum>Schema off instanceWireShape: node emitted 'claimState: ClaimStateSchema' with that name bound nowhere in the tree (TS2304), and react/vue/svelte imported it from whichever aggregate happened to be declared first (#2864 D4/T3).",
+  },
   {
     id: "workflow-command-payload",
     title:

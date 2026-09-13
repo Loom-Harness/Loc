@@ -587,6 +587,22 @@ export const E2E_LESS_CORPUS_FIXTURES: readonly string[] = [
   // assertable at runtime either: the harness's mock issuer mints no
   // `customer_id`, so the claim would read null on every booted backend.
   "auth-id-claim",
+  // COMPILE-TIER WITNESS (audit F57 / M-T6.57) — the `envelope` carrier, which
+  // NO `.ddd` in the repo instantiated before this fixture, so every compile
+  // gate was blind to it and java/dotnet emitted output that did not build.
+  // The oracle is a COMPILE one (the five corpus compile legs) plus the
+  // byte-identity gate in `test/generator/envelope-carrier.test.ts`: `envelope`
+  // is ratified as a single-row find, so `T envelope` must emit exactly what
+  // `T` emits, and a behavioural block would add no oracle the compile tier and
+  // that gate do not already give.
+  //
+  // It would also mint a wire golden across a divergence this PR did not drain:
+  // the find-miss 404 `detail` is `"not found"` on node and `"not_found"` on the
+  // other four (dotnet's own `projectionClauseFor` comment calls `"not_found"`
+  // "the canonical find-miss detail token on every backend").  A golden captured
+  // on the node leg would therefore redden the other four legs on main.  Author
+  // the block once THAT is ruled.
+  "envelope",
   // COMPILE-TIER WITNESS (generator review A5/A10–A14) — the previously
   // unwitnessed collection-op shapes (arithmetic-lambda `sum`, `distinct` over
   // money, argless `any()`, descending `sortBy`, unary minus on money, `-=` on
@@ -763,6 +779,23 @@ export const E2E_LESS_CORPUS_FIXTURES: readonly string[] = [
   // blocker as `R.tenantRegistryRow`; drain them together.  Runtime home today:
   // `tenancy-e2e.yml`'s hierarchy legs (label/post-merge).
   "tenancy-hierarchy",
+  // COMPILE-TIER WITNESS (#2864 D4/T3) — a workflow whose persisted STATE field
+  // is an enum.  Both halves of what it pins are STATIC, and both are caught by
+  // legs that already gate this fixture: the node backend named `<Enum>Schema`
+  // with that name bound nowhere in the emitted tree (TS2304, corpus-tsc) and
+  // then, underneath it, seeded a fresh saga row with `""` for an enum column
+  // whose Drizzle type is a literal union (TS2345, same leg); the four frontends
+  // imported the schema from whichever aggregate happened to be declared first
+  // (`vue-tsc` TS2305 / `svelte-check`, the generated-{vue,svelte}-build gates,
+  // which carry their own inline case for this shape).
+  //
+  // A behavioural block would add nothing an oracle can read.  The workflow is
+  // EVENT-TRIGGERED, so it has no command route to POST; its only api surface is
+  // the pair of read-only instance endpoints, and reaching them at runtime needs
+  // a `ClaimFiled` emitter this fixture deliberately does not have — the shape
+  // under test is the enum in the state row, not the dispatch that fills it,
+  // and `saga`/`eventsourced-workflow` already boot that dispatch path.
+  "workflow-enum-state",
   // COMPILE-TIER WITNESS, and NOT EXPRESSIBLE at the behavioural tier besides.
   // The bug class this fixture was minted for (#2864 D7/T2) is "the emitted
   // project names a wire type nothing emits" — `z.unknown()` with no contract
