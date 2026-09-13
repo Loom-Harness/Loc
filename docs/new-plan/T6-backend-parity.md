@@ -16,6 +16,29 @@ Two adjacent gaps drained with it: (a) a `Money[]` value-object *collection* on 
 Remaining rows of the old gap register (re-verified 2026-07-13): **§12 residual** document-shape gate still rejects audited/provenanced ops, collection mutation, derived reads (blocked on shared bug #1765), dereferenced-entity members, paged/union finds — drain or leave honestly gated; **§14 tail** audit `wireSnapshot` + `WorkflowsController` `serialize/1` snake_case leak; **§13** LiveView action-button auth not actor-threaded from `socket.assigns`; Phoenix OpenAPI surface for workflow-instance views.
 
 **Register re-verified again 2026-08-14** (docs-only pass, `ae0cb24`) — two corrections to the paragraph above: (a) the **§14 tail is four sites, not two** — `workflow-execution-emit.ts` and `audit-emit.ts` as listed, **plus** `explicit-handlers-emit.ts` (the same `defp serialize(%_{} = struct)` dump on the explicit query/command-handler controller; the file postdates the original count) and a deliberate, in-code-documented carve-out in `eventsourced-emit.ts` (an ES aggregate carrying a **ref collection** keeps the raw dump, because `__ref_ids/1`'s Ecto-assoc semantics don't hold for an in-memory fold). The workflow + explicit-handler serializers are being drained now. (b) the **§12 collection-mutation** clause can no longer lean on "gated upstream by `loom.vanilla-containment-unsupported` anyway" — that gate is retired (see the §11c drain above), so the clause stands on its own. Also confirmed spent and marked as such in the archived doc: §11's "To restore the gate" block (the 5-backend `conformance-parity` flip has landed — `examples/showcase.ddd` carries `platform: elixir`, no skip variable in the workflow), §2's remaining ask (now **inverted** — the wire settled on an *untagged* success record and `union-wire-parity.test.ts` pins that, so acting on the row would regress union parity) and §4's dead-Ash-arm cleanup (done; `relationshipNameFor` has zero occurrences).
+
+> **§13 and §14 RE-VERIFIED DRAINED 2026-09-13 (wave C2, packet 2a); no code.** Both were re-run
+> against emitted output on this head rather than read off a PR body.
+>
+> **§14 (`serialize/1` snake_case tail) — drained at all four sites.** The deployable-level
+> controllers now DISPATCH per aggregate through `wireShape`: `controller-serialize.ts` emits one
+> `defp serialize(%<App>.<Ctx>.<Agg>{} = record), do: serialize_<ctx>_<agg>(record)` head per hosted
+> aggregate ahead of the `%_{}` raw-struct clause, which survives only as the last-resort arm for a
+> NON-aggregate struct a handler can return. Generated `workflows_controller.ex` confirms the
+> shape. The audit arm is drained the same way: every live `wireSnapshot(...)` call site
+> (`context-emit.ts:1203,1392`, `operation-returns-emit.ts:713,909`, `document-emit.ts:914,946,1068,1145`)
+> passes `appModule`, so the function's legacy raw-dump branch is unreachable and the snapshot rides
+> `<App>.Audit.Wire.wire/1` — the same `wireShape` dispatcher the create/destroy snapshot uses. The
+> `eventsourced-emit.ts` ref-collection carve-out stays, documented in code.
+>
+> **§13 (LiveView action-button auth not actor-threaded) — drained on both halves.** The BUTTON is
+> gated (`heex-walker-core.ts:1073` `gateActionButton` wraps it in
+> `<%= if (@current_user.role == "manager") do %>` when every `requires` on the op is
+> currentUser-only), and the HANDLER threads the actor:
+> `PhoenixApp.Sales.confirm_customer!(record, Map.get(socket.assigns, :current_user))`. Re-derived
+> by generating `vanilla-auth-op-gate.ddd` and reading `detail_live.ex`, not from the fixture's own
+> comment. §12's document clauses are the live remainder — see M-T6.35, whose DERIVED-read clause
+> drained in the same packet.
 Sources: [vanilla-phoenix-gaps](../old/plans/vanilla-phoenix-gaps.md) §11c/§12/§13/§14, [vanilla-document-route-a](../old/plans/vanilla-document-route-a.md).
 
 ## M-T6.11 — Reserved compose slots (was: `PlatformSurface` hooks, DEBT-27) — `blocked(T3/T4 features)` · — · P3
