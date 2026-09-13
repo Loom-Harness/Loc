@@ -2844,6 +2844,21 @@ system P {
     ]);
   });
 
+  it("a NULL -> NOT NULL flip is NOT covered — only the add-column diff is", async () => {
+    // The scope boundary D-3 draws, pinned so it is not mistaken for an
+    // oversight.  Making an EXISTING nullable column required is not an add:
+    // the rows are already there holding NULL, and no column default can reach
+    // them — `SET DEFAULT` governs future inserts only.  Fixing those rows
+    // needs an `UPDATE`, which is exactly what a `migration` block backfill is
+    // for, so the flip stays destructive without one.
+    const prev = await snapOf(src('name: string  status: string? = "pending"'));
+    const raw = diffSchema(prev, await snapOf(EVOLVED));
+    expect(raw.map((s) => s.op)).toEqual(["alterColumnNullable"]);
+    expect(() =>
+      applyDestructivePolicy(raw, prev, { allowDestructive: false, module: "S" }),
+    ).toThrow(MigrationDestructiveError);
+  });
+
   it("the carrier never reaches the persisted snapshot", async () => {
     // A snapshot records the schema as it existed last time we generated, and
     // is a checked-in file an operator reads.  `addColumnDefault` describes the
