@@ -366,6 +366,12 @@ export async function fuzzLeg({ backend, cases, work, boot, argv = process.argv.
   /** Every finding observed this run, for the UPDATE rebaseline. */
   const observed = [];
   let bad = 0;
+  /** Cases whose backend never got to answer a fuzzed request — a boot failure,
+   *  a toolchain fetch that timed out, a spec the server would not publish.
+   *  They are already counted in `bad`; what they additionally do is make the
+   *  STALENESS half of the ratchet meaningless, which is why they are tracked
+   *  separately (see the guard below). */
+  const notRun = [];
 
   for (const c of selected) {
     process.stdout.write(`\n▶ ${c.name}  [${backend}]\n`);
@@ -395,6 +401,7 @@ export async function fuzzLeg({ backend, cases, work, boot, argv = process.argv.
     } catch (err) {
       process.stdout.write(`  ERROR: ${err?.message ?? err}\n`);
       bad++;
+      notRun.push(c.name);
       await booted?.stop().catch(() => {});
       continue;
     }
@@ -445,7 +452,26 @@ export async function fuzzLeg({ backend, cases, work, boot, argv = process.argv.
 
   // Staleness is judged over the WHOLE leg, not per case: a rule covers a root
   // cause, and a root cause can surface under either fixture.
-  for (const r of rules) {
+  //
+  // …but ONLY when the leg actually ran.  A case that never booted produced no
+  // findings, so every rule "matched nothing" — and the ratchet then printed
+  // `✗ STALE WAIVER … drop this leg from the rule's backends`, which is an
+  // instruction to DELETE A WAIVER on the evidence of a network timeout.
+  // Observed 2026-09-10: a `uv sync` that could not fetch a wheel from
+  // pythonhosted turned a clean python leg into "3 problem(s)", two of which
+  // were the boot errors and the third that false staleness verdict.  The
+  // run is already failing on the boot errors; what must not happen is the
+  // register being edited because of them.
+  const ranClean = notRun.length === 0;
+  if (!ranClean) {
+    process.stdout.write(
+      `\nstaleness NOT judged this run — ${notRun.length} case(s) never reached the fuzzer ` +
+        `(${notRun.join(", ")}).\n` +
+        "    A case that did not run produces no findings, so every rule would read as stale.\n" +
+        "    Fix the boot/toolchain failure above and re-run before touching any waiver.\n",
+    );
+  }
+  for (const r of ranClean ? rules : []) {
     if (r.hits) continue;
     // `intermittent` rules opt out of the staleness half — and ONLY that half;
     // they still absorb their findings, so a new bug on the same surface is

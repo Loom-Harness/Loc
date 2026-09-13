@@ -60,10 +60,69 @@ export function formatLogArg(a: unknown): string {
   }
 }
 
+/** Is `a` a plain object (not null, not an array, not an Error)? */
+function isPlainObject(a: unknown): a is Record<string, unknown> {
+  return typeof a === "object" && a !== null && !Array.isArray(a) && !(a instanceof Error);
+}
+
+const LEVEL_LABELS: readonly StructuredLogPayload["level"][] = [
+  "trace",
+  "debug",
+  "info",
+  "warn",
+  "error",
+];
+
+function asLevelLabel(v: unknown): StructuredLogPayload["level"] | undefined {
+  return LEVEL_LABELS.find((l) => l === v);
+}
+
+/** Read a structured catalog payload out of ONE console call's arguments.
+ *
+ *  Why this is not just `asStructuredPayload(args[0])`: pino's BROWSER build
+ *  (`pino/browser.js`) is not the node build the envelope was designed
+ *  against, and it diverges in two ways that both defeat a single-argument,
+ *  level-carrying probe:
+ *
+ *    1. `formatters` / `timestamp` are read from `opts.browser.formatters`,
+ *       NOT the top-level `opts.formatters` the generated `obs/log.ts` sets
+ *       (browser.js: `formatters: opts.browser.formatters`).  With neither
+ *       `browser.asObject` nor `browser.formatters` set, the write path is
+ *       the bare `write.apply(proto, args)` branch — so the object reaches
+ *       `console.info` with NO `level` field at all.
+ *    2. A child logger's bindings are PREPENDED as their own argument
+ *       (`prependBindingsInArguments`), so the per-request logger
+ *       (`baseLogger.child({ request_id })`) calls
+ *       `console.info({ request_id }, { event: "request_end", … })` — two
+ *       arguments, neither one complete.
+ *
+ *  So: merge the leading plain objects into one payload, and take the level
+ *  from the payload when it carries one, else from the console METHOD that
+ *  was called (the only level information a browser-pino line has).  Still
+ *  strict — every argument must be a plain object and the merged result must
+ *  carry an `event` string, so `console.log("x", {y})` and `console.log({y})`
+ *  stay unstructured. */
+export function structuredFromConsoleArgs(
+  args: readonly unknown[],
+  method: LogLine["level"],
+): StructuredLogPayload | undefined {
+  if (args.length === 0) return undefined;
+  if (!args.every(isPlainObject)) return undefined;
+  const merged: Record<string, unknown> = {};
+  for (const a of args) Object.assign(merged, a);
+  if (typeof merged.event !== "string") return undefined;
+  const level = asLevelLabel(merged.level) ?? asLevelLabel(method) ?? "info";
+  return { ...merged, level, event: merged.event } as StructuredLogPayload;
+}
+
 /** Detect a pino log payload — a plain object carrying both a known
  *  level label AND an `event` string (the catalog envelope).  This is
  *  stricter than "is it an object" so unrelated log args that happen
- *  to be objects (e.g. `console.log({result})`) aren't misclassified. */
+ *  to be objects (e.g. `console.log({result})`) aren't misclassified.
+ *
+ *  Used where only the payload is in hand; a capture that also knows which
+ *  console method was called should prefer `structuredFromConsoleArgs`,
+ *  which admits the browser-pino shape this predicate rejects. */
 export function asStructuredPayload(a: unknown): StructuredLogPayload | undefined {
   if (typeof a !== "object" || a === null) return undefined;
   const obj = a as Record<string, unknown>;

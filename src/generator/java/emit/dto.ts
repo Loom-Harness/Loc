@@ -23,8 +23,10 @@ import { snake, upperFirst } from "../../../util/naming.js";
 import { javaValueTypeForId, renderJavaExpr } from "../render-expr.js";
 import { JAVA_PROVENANCED_RECORD, javaProvSibling } from "./provenance.js";
 import {
+  bearsNestedRecord,
   collectWireImports,
   domainToWire,
+  JAVA_PRIMITIVES,
   referencedValueObjects,
   type WireDir,
   wireJavaType,
@@ -365,30 +367,6 @@ function bearsWireString(t: TypeIR): boolean {
       return bearsWireString(t.element);
     case "optional":
       return bearsWireString(t.inner);
-    default:
-      return false;
-  }
-}
-
-/** The Java primitives a wire component can be. `@NotNull` on one of these is
- *  inert — a primitive is never null — so the emitter skips it rather than
- *  shipping an annotation that reads as a guard and is not one. */
-const JAVA_PRIMITIVES = new Set(["int", "long", "double", "float", "boolean", "short", "byte"]);
-
-/** True when the wire form of this type is a nested RECORD — a value object or
- *  an entity — so a Bean Validation walk needs `@Valid` to descend into it.
- *  Without that the outer `@NotNull` is checked and the members inside are not,
- *  which is the difference between refusing `{"price":{"amount":null}}` and
- *  NPE-ing on it. */
-function bearsNestedRecord(t: TypeIR): boolean {
-  switch (t.kind) {
-    case "valueobject":
-    case "entity":
-      return true;
-    case "array":
-      return bearsNestedRecord(t.element);
-    case "optional":
-      return bearsNestedRecord(t.inner);
     default:
       return false;
   }
