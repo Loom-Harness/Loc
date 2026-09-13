@@ -197,6 +197,9 @@ export function buildPyWorkflowsFile(
     .map((wf) => stateLoader(wf))
     .join("\n\n");
   const loadersBlock = sagaLoaders ? `${sagaLoaders}\n\n\n` : "";
+  // `payloadModels` leads: the `<Wf>Request` models in `models` reference the
+  // `<Payload>Response` classes it declares, and Python resolves an annotation
+  // at class-definition time.
   const body = `${payloadModels}${models}${instanceModels}${loadersBlock}${helpersBlock}router = APIRouter(prefix="/workflows", tags=["workflows"])\n\n\n${routes}`;
 
   const scan = body.replace(/"(?:\\.|[^"\\])*"/g, '""');

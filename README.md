@@ -60,7 +60,7 @@ runtimes, an end-to-end test:
 
 ```ddd
 system Acme {
-  module Sales {
+  subdomain Sales {
     context Orders {
 
       enum OrderStatus { Draft, Confirmed, Shipped, Cancelled }
@@ -81,7 +81,7 @@ system Acme {
         contains lines: OrderLine[]
 
         derived total: Money =
-          Money(lines.sum(l => l.subtotal.amount), "USD")
+          Money { amount: lines.sum(l => l.subtotal.amount), currency: "USD" }
 
         invariant lines.count > 0 when status == Confirmed
 
@@ -94,37 +94,52 @@ system Acme {
           emit OrderConfirmed { order: id, at: now() }
         }
 
+        operation addLine(productId: Product id, qty: int, price: Money) {
+          precondition isMutable()
+          lines += OrderLine { productId: productId, quantity: qty, unitPrice: price }
+        }
+
         entity OrderLine {
           productId: Product id
           quantity: int
           unitPrice: Money
           derived subtotal: Money =
-            Money(unitPrice.amount * quantity, unitPrice.currency)
+            Money { amount: unitPrice.amount * quantity, currency: unitPrice.currency }
           invariant quantity > 0
         }
       }
 
-      repository Orders for Order {
-        find byCustomer(customerId: string): Order[]
-      }
+      repository Orders for Order { }
     }
   }
 
-  module Catalog {
+  subdomain Catalog {
     context Products {
-      aggregate Product { sku: string, price: Money }
+      aggregate Product {
+        sku: string
+        price: Money
+        derived display: string = sku
+      }
+      repository Products for Product { }
     }
   }
+
+  storage primary { type: postgres }
+  resource orderState   { for: Orders,   kind: state, use: primary }
+  resource productState { for: Products, kind: state, use: primary }
 
   // Pick a runtime per deployable.  Switch any time.
-  deployable api    { platform: node,            modules: Sales, Catalog, port: 3000 }
-  deployable apiNet { platform: dotnet,          modules: Sales, Catalog, port: 8080 }
-  deployable apiPhx { platform: elixir, modules: Sales, Catalog, port: 4000 }
+  deployable api    { platform: node,   contexts: [Orders, Products], dataSources: [orderState, productState], port: 3000 }
+  deployable apiNet { platform: dotnet, contexts: [Orders, Products], dataSources: [orderState, productState], port: 8080 }
+  deployable apiPhx { platform: elixir, contexts: [Orders, Products], dataSources: [orderState, productState], port: 4000 }
+
+  ui WebApp with scaffold(subdomains: [Sales, Catalog]) { }
 
   // React frontend targets any backend; design pack swappable.
   deployable webApp {
     platform: react
     targets:  api          // switch to apiNet or apiPhx anytime
+    ui:       WebApp
     design:   shadcn       // or mantine, mui, chakra
     port:     3001
   }
@@ -132,11 +147,11 @@ system Acme {
   test e2e "create and confirm an order" against api {
     let prod = api.products.create({ sku: "W-1", price: { amount: 5.0, currency: "USD" } })
     let ord  = api.orders.create({ customerId: "c-1", status: "Draft", placedAt: "2024-01-01T00:00:00Z" })
-    api.orders.addLine(ord, { productId: prod.id, qty: 3 })
+    api.orders.addLine(ord, { productId: prod.id, qty: 3, price: { amount: 5.0, currency: "USD" } })
     api.orders.confirm(ord)
     let read = api.orders.getById(ord)
-    expect read.status == "Confirmed"
-    expect read.lines.length == 1
+    expect(read.status).toBe("Confirmed")
+    expect(read.lines.length).toBe(1)
   }
 }
 ```
