@@ -1,0 +1,35 @@
+// REFUSED SHAPE — `loom.variant-match-placement` (M-T5.28 / audit F1).
+//
+// The effect form of `match` in an aggregate `operation` body.  Before the gate
+// this validated clean (`0 error(s), 0 warning(s)`) and then threw
+// `variant-match statement is frontend-only; it must not reach the <X> backend`
+// out of `src/generator/_stmt/target.ts` on node, dotnet, elixir, java AND
+// python — a stack trace, not a diagnostic.
+//
+// It lives here rather than in `test/fixtures/corpus/` because that corpus is a
+// POSITIVE matrix: every `<id>.ddd` there must generate cleanly on each backend
+// its manifest row declares, so a source the compiler refuses has no row shape
+// to take.  Refusal fixtures live beside their validator test.
+system VariantMatchPlacement {
+  subdomain D {
+    context Shop {
+      error NotFound { resource: string }
+      aggregate Order {
+        code: string
+        reserved: bool
+        operation probe(): string or NotFound { return NotFound { resource: code } }
+        operation touch() {
+          match probe() {
+            NotFound e => { code := e.resource }
+            string s => { code := s }
+          }
+        }
+      }
+      repository Orders for Order { }
+    }
+  }
+  api A from D
+  storage primary { type: postgres }
+  resource st { for: Shop, kind: state, use: primary }
+  deployable d { platform: node, contexts: [Shop], dataSources: [st], serves: A, port: 4000 }
+}

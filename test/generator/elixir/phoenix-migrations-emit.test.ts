@@ -570,3 +570,70 @@ describe("initial data-migrations file (M-T2.3)", () => {
     for (const f of tableFiles) expect(dataPath! > f).toBe(true);
   });
 });
+
+// ---------------------------------------------------------------------------
+// M-T2.16 / #2864 G1 — an `addColumn` step's `default` is load-bearing on
+// Phoenix too.
+//
+// D-3 makes a NOT-NULL column add non-destructive by putting the value in the
+// ADD itself (`… NOT NULL DEFAULT 'pending'`), so Postgres fills the existing
+// rows, then dropping the default in the same migration.  The Ecto `addColumn`
+// arm used to discard `default` outright — it only ever saw the system tables'
+// `now()` / `gen_random_uuid()`, which arrive via `createTable`.  Left alone,
+// Phoenix would have emitted a bare `add …, null: false` where the four SQL
+// backends emitted the defaulted add: the same MigrationsIR step, and one
+// backend failing on any populated table.
+// ---------------------------------------------------------------------------
+describe("phoenix migrations-emit — a defaulted column add (M-T2.16)", () => {
+  const addWithDefault = (def: string): string => {
+    const ir: MigrationsIR = {
+      module: "Sales",
+      storageName: "",
+      baseline: EMPTY_SNAP,
+      next: EMPTY_SNAP,
+      steps: [
+        {
+          op: "addColumn",
+          table: "orders",
+          schema: "ord",
+          column: { name: "status", type: { kind: "text" }, nullable: false, default: def },
+        },
+        {
+          op: "alterColumnDefault",
+          table: "orders",
+          schema: "ord",
+          name: "status",
+          from: def,
+          to: undefined,
+        },
+      ],
+      version: "20260101000001",
+      name: "Migrate",
+    };
+    return [...emit(ir).values()].join("\n");
+  };
+
+  it("carries the default onto the add, then drops it — the D-3 pair", () => {
+    const body = addWithDefault("'pending'");
+    expect(body).toContain(`add :status, :text, null: false, default: fragment("'pending'")`);
+    expect(body).toContain(
+      `execute("ALTER TABLE \\"ord\\".\\"orders\\" ALTER COLUMN \\"status\\" DROP DEFAULT")`,
+    );
+  });
+
+  it("routes a SQL string literal through fragment/1 — a bare one is a CHARLIST", () => {
+    // `default: 'pending'` in Elixir is the charlist [112, 101, 110, ...], which
+    // Ecto would emit as a Postgres integer array, not a text default.  The
+    // fragment also preserves `sqlStr`'s doubled-quote escaping byte for byte,
+    // so the DEFAULT Phoenix writes is the one the four SQL backends write.
+    const body = addWithDefault("'it''s'");
+    expect(body).toContain(`default: fragment("'it''s'")`);
+    expect(body).not.toMatch(/default: '/);
+  });
+
+  it("still leaves a numeric literal bare — the pre-existing contract is intact", () => {
+    const body = addWithDefault("0");
+    expect(body).toContain("default: 0");
+    expect(body).not.toContain('fragment("0")');
+  });
+});

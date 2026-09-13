@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 
-import type { SchemaSnapshot } from "../ir/types/migrations-ir.js";
+import type { SchemaSnapshot, TableShape } from "../ir/types/migrations-ir.js";
 
 // ---------------------------------------------------------------------------
 // Snapshot store — reads `.loom/snapshots/<Subdomain>.snapshot.json` from
@@ -86,7 +86,34 @@ function snapshotPath(root: string, module: string): string {
  *  name (the builder already does this; we re-sort defensively), columns
  *  and indexes in declared order.  Two-space indent for diff-friendliness. */
 export function serializeSnapshot(snapshot: SchemaSnapshot): string {
-  const tables = [...snapshot.tables].sort((a, b) => a.name.localeCompare(b.name));
+  const tables = [...snapshot.tables]
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .map(stripDerivationOnlyFields);
   const payload: SchemaSnapshot = { ...snapshot, tables };
   return JSON.stringify(payload, null, 2) + "\n";
+}
+
+/** Drop the column stamps that describe the SOURCE rather than the database.
+ *
+ *  A snapshot records the schema as it existed last time we generated, and is
+ *  a checked-in file an operator reads.  `ColumnShape.addColumnDefault` (the
+ *  `.ddd` field default M-T2.16 lends to an add-column diff) is not part of
+ *  that schema in any sense: no `CREATE TABLE` renders it, the diff never
+ *  compares it, and the one step that consumes it drops the DEFAULT again in
+ *  the same migration — so the column it describes provably has no default.
+ *  Writing it out would put a value in the file that contradicts the database
+ *  the file is describing, and would rewrite every existing project's
+ *  committed snapshot on the first regen after upgrade for no behavioural
+ *  reason.  Every generation re-derives it from source, so nothing reads the
+ *  baseline's copy.
+ *
+ *  Contrast `savingShape` and `valueArrayChildTable`, which stay: both ARE
+ *  read back from the baseline (reshape detection; the value-collection diff
+ *  filter), so they are part of what the snapshot is for. */
+function stripDerivationOnlyFields(t: TableShape): TableShape {
+  if (!t.columns.some((c) => c.addColumnDefault !== undefined)) return t;
+  return {
+    ...t,
+    columns: t.columns.map(({ addColumnDefault: _dropped, ...c }) => c),
+  };
 }

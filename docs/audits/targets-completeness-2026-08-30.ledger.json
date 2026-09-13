@@ -1,63 +1,8 @@
 {
  "open": [
   {
-   "id": "F2-CB-C7-domainservice-in-requires-guard",
-   "title": "A `domainService` call inside a `requires` authorization guard passes validation and emits an unresolvable reference on node, java and python (dotnet fixed in #2708; elixir always fully-qualified)",
-   "kind": "silent",
-   "class": null,
-   "confidence": "proven",
-   "targets": [
-    "node",
-    "java",
-    "python"
-   ],
-   "fileTrees": [],
-   "evidence": [
-    {
-     "fleet": 2,
-     "id": "F2-CB-C7-domainservice-in-requires-guard",
-     "bucket": "probe-combos-backend",
-     "text": "node: `d/http/order.routes.ts:113  if (!((currentUser.permissions).includes(\"sales.manage\") && Rules.isCancellable(__loaded.quantity))) throw new ForbiddenError(…)` — and the file's import block (`:1-9`) never imports `../domain/services`, where `Rules` lives (`d/domain/services.ts:4 export namespace Rules`) → TS2304. python: `d/app/http/order_routes.py:100  if not (\"sales.manage\" in current_user.permissions and is_cancellable(__loaded.quantity)):` with no `from app.domain.services.rules import is_cancellable` in the module's imports (`:3-21`) → F821 / NameError at the first DELETE. java: `features/orders/OrderService.java:70  … && Rules.isCancellable(aggregate.quantity())` with no `import com.loom.d.domain.services.Rules` (imports at `:3-19`) → cannot find symbol. dotnet: `Application/Orders/Commands/DestroyOrderHandler.cs:28  … && Rules.IsCancellable(aggregate.Quantity)` with no `using D.Domain.Services;` (usings at `:2-10`) → CS0103. elixir is correct: `lib/d/sales.ex:27  D.Domain.Services.Rules.is_cancellable(record.quantity)` (fully qualified)."
-    }
-   ],
-   "repro": "scratchpad/combo/f-domsvc-in-requires.ddd — `destroy { requires currentUser.permissions.contains(permissions.manage) && Rules.isCancellable(quantity) }` with `domainService Rules { operation isCancellable(q: int): bool { return q == 0 } }`. Generates OK on all five.",
-   "impact": "An authorization guard that calls a shared rule — a natural thing to write, and the reason domainServices exist — produces a project that does not build on four of five backends. Same family as the corpus `handler-resource-ops` note (\"four of five emitters could not render this LEGAL site\"), at a site the corpus does not cover: `lifecycle-guard.ddd` uses only `currentUser` + `this` in its guards.",
-   "fix": "Route the guard's expression through the same import/using collection the aggregate-body renderer uses (java/.NET/python already do it for op bodies — see C8), i.e. add the domain-service module to the route/service/handler emitters' import walk when a gate expression carries a `callKind: \"domain-service\"` call.",
-   "size": "S",
-   "sources": [
-    "fleet2:probe-combos-backend"
-   ],
-   "related_to": [],
-   "securityClass": false,
-   "P": 1,
-   "verified": {
-    "date": "2026-09-03",
-    "against": "bd7aaeedc",
-    "method": "each row's own repro re-run; emitted output read",
-    "verdict": "partial",
-    "note": "dotnet emits the using (#2708); elixir was always fully-qualified. node/java/python still emit `Rules.…` with no import — TS2304 / cannot-find-symbol / NameError",
-    "remainingTargets": [
-     "node",
-     "java",
-     "python"
-    ]
-   },
-   "reverified": {
-    "date": "2026-09-10",
-    "against": "bc7ed8f8",
-    "method": "reconciliation 3 (packet C0.5) — repro re-run on this head, emitted output read",
-    "verdict": "reproduces",
-    "note": "RE-RUN: `destroy { requires currentUser.permissions.contains(permissions.manage) && Rules.isCancellable(quantity) }`, generated on all five.  node `d/http/order.routes.ts:108`, java `OrderService.java:59`, python `order_routes.py:94` all emit the `Rules.…` / `is_cancellable(…)` call with NO import in the file's import block → TS2304 / cannot-find-symbol / NameError.  dotnet is FIXED (`using D.Domain.Services;` at DestroyOrderHandler.cs:10, #2708); elixir was always fully-qualified.  `targets` still listed dotnet and now does not.",
-    "remainingTargets": [
-     "node",
-     "java",
-     "python"
-    ]
-   }
-  },
-  {
    "id": "F2-MT640-SORT-DEAD",
-   "title": "The non-paged elixir list page assigns dead `sort_key`/`sort_dir`/`page_num` state no template reads — M-T6.40 shipped option (a) and left the assigns behind",
+   "title": "HEEx wires a Table's `sortKey`/`sortDir`/`page` ONLY when `serverPaged`, so a NON-paged scaffolded list silently loses the client-side sort + pagination all four JSX frontends render from the same `.ddd` — the dead `sort_key`/`sort_dir`/`page_num` assigns are the residue, not the defect",
    "kind": "silent",
    "class": null,
    "confidence": "proven",
@@ -65,9 +10,9 @@
     "elixir"
    ],
    "fileTrees": [
-    "web/live/order_list_live.ex",
-    "docs/new-plan/T6-backend-parity.md",
-    "test/e2e/fixtures/elixir-vanilla-build/"
+    "src/generator/elixir/heex-primitives.ts",
+    "src/generator/elixir/liveview-emit.ts",
+    "src/generator/_walker/primitives/table.ts"
    ],
    "evidence": [
     {
@@ -75,12 +20,18 @@
      "id": "F2-MT640-SORT-DEAD",
      "bucket": "fix-elixir",
      "text": "The arity bug the mission names IS fixed — out-nonpaged/phoenix_app/lib/phoenix_app_web/live/order_list_live.ex:23,51,75 all call `PhoenixApp.Sales.list_orders()` and phoenix_app/lib/phoenix_app/sales.ex:12 defines `defdelegate list_orders(), to: …OrderRepository, as: :list`; the paged twin (out-paged, same fixture unmodified) threads state: live:23 `list_orders(socket.assigns.page_num, 10, socket.assigns.sort_key, socket.assigns.sort_dir)` against sales.ex:12 `defdelegate list_orders(page \\\\ 1, page_size \\\\ 20, sort \\\\ \"id\", dir \\\\ \"asc\")`. What ships instead is silently-unsorted UI: order_list_live.ex:36-58 `handle_event(\"loom-sort\", %{\"key\" => key}, socket)` reassigns `:sort_key`/`:sort_dir` and then refetches with the same argument-free `list_orders()`, while the template still renders `<.table … sort_key={@sort_key} sort_dir={@sort_dir}>` with `sort_field=\"id\"/\"code\"/\"total\"/\"version\"` on every `<:col>` — clickable headers that flip an arrow and change nothing. docs/new-plan/T6-backend-parity.md:917 still carries this row as `open` and still quotes the `list_orders/4` vs `list_orders/0` transcript as current."
+    },
+    {
+     "fleet": 2,
+     "id": "F2-MT640-SORT-DEAD",
+     "bucket": "wave-c1:1e-ledger-backend",
+     "text": "RE-DIAGNOSED 2026-09-11 on the wave-C1 tree.  Repro re-run (`vanilla-list-read-gate.ddd` with `find all(): Order paged` -> `Order[]`): `out-nonpaged/phoenix_app/lib/phoenix_app_web/live/order_list_live.ex` mounts `assign(:sort_key, \"\") |> assign(:sort_dir, \"\") |> assign(:page_num, 1)` and the template reads NONE of them — no `phx-click`, no `handle_event(\"loom-sort\")`, no pager.  But the assigns are not the bug: the scaffold macro passes `sortKey:`/`sortDir:`/`page:`/`pageSize: 10` to the Table in BOTH modes (`_body-builders.ts` `makeTable`), and the SHARED walker honours them client-side when not server-paged (`_walker/primitives/table.ts`: `serverControls = !serverPaged || …` is true, so `renderSortedRows` sorts and the pager `.slice`s).  HEEx's parallel engine gates on `serverPaged` instead (`heex-primitives.ts:670` `const sortKey = serverPaged ? stateRefArg(…) : undefined`), so Phoenix renders an unsorted, unpaged table for a `.ddd` that sorts and pages on react/vue/svelte/angular.  The row is therefore a CROSS-FRONTEND CAPABILITY GAP (size M: port client-side sort + page into the HEEx walker), not the S-sized assign cleanup it was filed as."
     }
    ],
    "repro": "scratchpad/elixir-audit/nonpaged.ddd = test/e2e/fixtures/elixir-vanilla-build/vanilla-list-read-gate.ddd with `find all(): Order paged requires …` changed to `find all(): Order[] requires …`; `node bin/cli.js generate system … -o out-nonpaged`.",
    "impact": "The compile break is genuinely closed, so this is not a regression — but option (a) (\"silently un-pages the UI\") was taken without the parity decision the mission row says it needs, and the residue is a control surface that lies to the user. Anyone reading the register plans work that is already done, against a transcript that no longer reproduces.",
-   "fix": "Either drop the sort/page affordances from the scaffolded list page when the author's `find all` is non-paged (so the UI stops advertising a capability the repository does not expose), or take decision (b) and gate the pairing. Update the T6-backend-parity.md:917 row to `done` with the option-(a) rationale either way, and add the non-paged pairing to test/e2e/fixtures/elixir-vanilla-build/ so the compile tier keeps reaching it.",
-   "size": "S",
+   "fix": "Port the client-side arm into the HEEx walker: drop the `serverPaged` gate on `sortKey`/`sortDir` in `heex-primitives.ts`, sort the assign list in the `handle_event(\"loom-sort\")` clause `liveview-emit.ts` already emits (it currently refetches, which is right for server mode and wrong for client mode), and slice `pageSize`.  THEN the three mount assigns stop being dead.  The alternative — dropping the affordances from the scaffolded page when the read is non-paged — is cheaper but makes Phoenix a lesser frontend for the same model, which is the parity decision M-T6.40 deferred.",
+   "size": "M",
    "sources": [
     "fleet2:fix-elixir"
    ],
@@ -88,257 +39,12 @@
    "securityClass": false,
    "P": 1,
    "verified": {
-    "date": "2026-09-03",
-    "against": "bd7aaeedc",
-    "method": "each row's own repro re-run; emitted output read",
-    "verdict": "open",
-    "note": "TITLE IS WRONG: the non-paged list page emits NO sort headers at all — no `phx-click` anywhere — alongside dead `sort_key`/`sort_dir` assigns and a zero-arg `list_orders()`. Not 'a no-op refetch'. The paged twin threads all four arguments correctly",
+    "date": "2026-09-11",
+    "against": "wave-c1 branch head",
+    "method": "row's own repro re-run; emitted LiveView read; both walker engines compared",
+    "verdict": "reproduces, re-diagnosed",
     "remainingTargets": [
      "elixir"
-    ]
-   },
-   "reverified": {
-    "date": "2026-09-10",
-    "against": "bc7ed8f8",
-    "method": "reconciliation 3 (packet C0.5) — repro re-run on this head, emitted output read",
-    "verdict": "reproduces",
-    "note": "RE-RUN on `test/e2e/fixtures/elixir-vanilla-build/vanilla-list-nonpaged.ddd`.  The 09-03 correction holds and NARROWS further: the non-paged list page emits NO sort affordance at all (no `phx-click`, no `sort_field` on any `<:col>`) and `list_orders()` is zero-arg matching the repository, so neither the 'no-op refetch' of the title NOR an arity break exists.  What survives is three DEAD assigns — `order_list_live.ex:9-11` assigns `:sort_key`/`:sort_dir`/`:page_num` in `mount/3` and no `@sort_key`/`@sort_dir`/`@page_num` is read anywhere in the module.  Cosmetic dead state, not a broken control: an implementer reading the P1 tier should expect a one-line deletion, not a feature.",
-    "remainingTargets": [
-     "elixir"
-    ]
-   },
-   "owner": "Wave C2 elixir packet / mission M-T6.2",
-   "note": "Owner reassigned 2026-09-10: M-T6.40 is archived, so the row is picked up by the elixir packet of Wave C2 (mission M-T6.2, the vanilla-Phoenix drain)."
-  },
-  {
-   "id": "F2-CB-C1-paged-nonrelational",
-   "title": "`find … paged` on an eventLog / document aggregate emits a paged route against an unpaged repository on dotnet and python (node, java and elixir fixed; the `embedded` arm fixed everywhere)",
-   "kind": "silent",
-   "class": null,
-   "confidence": "proven",
-   "targets": [
-    "dotnet",
-    "python"
-   ],
-   "fileTrees": [
-    "web/controllers/account_controller.ex",
-    "src/generator/typescript/repository-document-builder.ts"
-   ],
-   "evidence": [
-    {
-     "fleet": 2,
-     "id": "F2-CB-C1-paged-nonrelational",
-     "bucket": "probe-combos-backend",
-     "text": "eventLog/node: `d/db/repositories/account-repository.ts:109  async byOwner(owner: string): Promise<Account> { … all.find((x) => x.owner === owner)! }` and `d/domain/repository-ports.ts:12  byOwner(owner: string): Promise<Account>;` vs `d/http/account.routes.ts:97 schema: AccountPaged` / `:103 await repo.byOwner(params.owner, params.page, params.pageSize, params.sort, params.dir)` / `:104 result.items.map(...)` → TS2554 (1 vs 5 args) + TS2339 (`items` on `Account`). eventLog/dotnet: `d/Domain/Accounts/IAccountRepository.cs:14  Task<Paged<Account>> ByOwner(string owner, int page, int pageSize, string sort, string dir, CancellationToken)` vs `d/Infrastructure/Repositories/AccountRepository.cs:126  public async Task<Paged<Account>> ByOwner(string owner, CancellationToken …)` whose body is `var result = __all.Where(x => x.Owner == owner).First(); return result;` → CS0535 + CS0029. eventLog/python: `d/app/db/repositories/account_repository.py:58  async def by_owner(self, owner: str) -> Account | None` vs `d/app/http/account_routes.py:77  result = await repo.by_owner(owner, page, pageSize, sort, dir)` + `:79 result.items`. eventLog/elixir: `d/lib/d/accounts.ex:22  defdelegate by_owner_account(owner), to: D.Accounts.AccountRepository, as: :by_owner` vs `d/lib/d_web/controllers/account_controller.ex:26  Accounts.by_owner_account(params[\"owner\"], page_arg, page_size_arg, Map.get(params,\"sort\",\"id\"), Map.get(params,\"dir\",\"asc\"))` → by_owner_account/5 undefined. document: same shape — node `order-repository.ts:74 async inRegion(region: string): Promise<Order>` vs `order.routes.ts:106` 5-arg call; dotnet `IOrderRepository.cs:15` (6 params) vs `OrderRepository.cs:89 InRegion(string region, CancellationToken)`; python `order_repository.py:43 -> Order`; elixir `lib/d/orders.ex:26 defdelegate in_region_order(region, page \\\\ 1, page_size \\\\ 20, sort \\\\ \"id\", dir \\\\ \"asc\")` vs `lib/d/orders/order_repository.ex:65 def in_region(region, page \\\\ 1, page_size \\\\ 20)` → in_region/4,/5 undefined (--warnings-as-errors). embedded: node only (dotnet/python/java/elixir correct). java is correct on all three shapes (`AccountRepositoryImpl.java:119 public Paged<Account> byOwner(String owner, int page, int pageSize, String sort, String dir)` pages + counts). Emitter cause (node): `src/generator/typescript/repository-document-builder.ts:306-307` classifies only `array` / `optional` return kinds, so a `paged` return falls through to the single-get branch at `:320` (`.find(pred)!`)."
-    }
-   ],
-   "repro": "scratchpad/combo/i-paged-eventlog.ddd (`find byOwner(owner: string): Account paged` on `persistedAs: eventLog`), j-paged-document.ddd (`shape: document`), j2-paged-embedded.ddd (`shape: embedded`); `node bin/cli.js generate system <f>.ddd -o <dir>` per platform. All five report OK — nothing is rejected.",
-   "impact": "A `.ddd` that declares a paged find on any non-relational saving shape produces a project that does not compile (node/dotnet), or blows up at first request (python TypeError, elixir UndefinedFunctionError). No `loom.*` diagnostic. docs/generators.md:1036 still claims elixir refuses paged document finds via `loom.vanilla-document-unsupported`, but src/ir/validate/checks/system-checks.ts:1929-1932 documents them as supported and the gate does not fire — the honest rejection was replaced by a silent mismatch.",
-   "fix": "Derive the repository method's arity+return from the same `pagedReturn(find.returnType)` fact the route/controller layer already uses (the relational builder does — `repository-builder.ts:72`). Either implement the paged branch in the document / embedded / eventsourced repository builders on each backend, or gate `paged` × non-relational shape with a named diagnostic. Java's `AccountRepositoryImpl.byOwner` is the reference implementation (filter → sort allowlist → skip/limit → total).",
-   "size": "M",
-   "sources": [
-    "fleet2:probe-combos-backend"
-   ],
-   "related_to": [],
-   "securityClass": false,
-   "P": 1,
-   "note": "Wave 1 packet 1c: all four node shapes carry the paged arm on both adapters; dotnet/python/elixir arms open.",
-   "verified": {
-    "date": "2026-09-03",
-    "against": "bd7aaeedc",
-    "method": "each row's own repro re-run; emitted output read",
-    "verdict": "partial",
-    "note": "embedded fixed everywhere; node and java fully correct. eventLog + document still arity-mismatched on dotnet/python/elixir (interface vs impl, 5-arg call into 1-arg def, defdelegate/impl arity skew)",
-    "remainingTargets": [
-     "dotnet",
-     "python"
-    ]
-   },
-   "reverified": {
-    "date": "2026-09-10",
-    "against": "bc7ed8f8",
-    "method": "reconciliation 3 (packet C0.5) — repro re-run on this head, emitted output read",
-    "verdict": "reproduces",
-    "note": "RE-RUN both arms.  DOCUMENT arm (`shape: document` + `find byOwner(...): Article paged`): dotnet `IArticleRepository.cs:15` declares `ByOwner(string, int, int, string, string, CT)` while `ArticleRepository.cs:89` implements `ByOwner(string, CT)` (CS0535); python `article_routes.py:82` calls `repo.by_owner(owner, page, pageSize, sort, dir)` into `article_repository.py:43 async def by_owner(self, owner)`.  EVENTLOG arm (corpus `event-sourcing.ddd` with `find byOwner … Account paged`): identical shape on the same two.  node and java were already correct; ELIXIR IS NOW FIXED on both arms — `article_repository.ex:67 def by_owner(owner, page \\\\ 1, page_size \\\\ 20, sort \\\\ \"id\", dir \\\\ \"asc\")` filters, sorts, slices and returns the paged map, and the context `defdelegate` matches its arity.  embedded stays fixed everywhere.",
-    "remainingTargets": [
-     "dotnet",
-     "python"
-    ]
-   }
-  },
-  {
-   "id": "F2-CFE-1",
-   "title": "`navigate(<Page>)` in a page `action` body is still dropped as a Dart comment on FLUTTER — the other six frontends navigate (the feliz codegen crash this row named is fixed)",
-   "kind": "silent",
-   "class": null,
-   "confidence": "proven",
-   "targets": [
-    "flutter"
-   ],
-   "fileTrees": [
-    "src/generator/_walker/walker-core.ts",
-    "src/generator/_walker/primitives/controls.ts",
-    "src/generator/feliz/update-emit.ts",
-    "web/src/pages/home.tsx",
-    "web/src/pages/home.vue",
-    "web/src/routes/",
-    "web/src/app/pages/home.component.ts",
-    "web/lib/pages/home_page.dart"
-   ],
-   "evidence": [
-    {
-     "fleet": 2,
-     "id": "F2-CFE-1",
-     "bucket": "probe-combos-frontend",
-     "text": "ROOT: src/generator/_walker/walker-core.ts emitStmt `case \"call\"` (~1989-2020) has NO navigate arm — falls through to ``return `${stmt.name}(${args});` `` with emitExpr on the page ref returning the unresolved sentinel; the `then:` path routes through ctx.target.renderNavigate (src/generator/_walker/primitives/controls.ts:295). src/generator/feliz/update-emit.ts:622-628 throws on target==='private-operation'. EMITTED (fixture nav.ddd, `action go() { n := n + 1  navigate(Other) }`, `ddd parse` = 0 errors 0 warnings):\n- react  out-nav-react/web/src/pages/home.tsx:8  `const go = () => { setN((n + 1)); navigate(/* unresolved: Other */ undefined); };` and the file's only import is `import { useState } from \"react\"` — no useNavigate\n- vue    out-nav-vue/web/src/pages/home.vue:9  identical\n- svelte out-nav-svelte/web/src/routes/(app)/+page.svelte:5 identical\n- angular out-nav-angular/web/src/app/pages/home.component.ts:18 `go() { this.n.set(...); navigate(/* unresolved: Other */ undefined); }`\n- flutter out-nav-flutter/web/lib/pages/home_page.dart:22 `// TODO(flutter full-parity): 'private-operation' call 'navigate' in a Notifier method` (silently dropped)\n- heex   out-nav-heex/api/lib/api_web/live/home_live.ex:23 `|> tap(fn _ -> navigate(other) end)` — grep for `def navigate`/`defp navigate` across out-nav-heex/api/lib returns NOTHING and `other` is unbound\n- feliz  CRASH, no files written, non-zero exit: `Error: feliz: unsupported 'private-operation' call 'navigate' in the MVU update arm` at out/generator/feliz/update-emit.js:487\nASYMMETRY PROOF INSIDE ONE FILE (nav-then.ddd, same page, same call): out-nav-then/web/src/pages/home.tsx:10 `const navigate = useNavigate();`, :17 `then: navigate(Other)` → `navigate(\"/other\")` CORRECT, :13 action-body `navigate(Other)` → `navigate(/* unresolved: Other */ undefined)` BROKEN.\nDOCS say this is THE supported shape: docs/actions.md:42 (\"navigate ... lives in a named action\"), :55 (lambda form is an ERROR, loom.effect-in-lambda), docs/page-metamodel.md:335-336, and worked examples at :1012, :1028, :1033, :1040. NOT in src/diagnostics/unsupported-register.ts (grep 'navigate' = 0 hits, on main AND on PR #2646's branch, whose update-emit.ts still carries the same throw at line 622)."
-    }
-   ],
-   "repro": "scratchpad/fe-combos/nav.ddd (+ nav-{vue,svelte,angular,flutter,heex}.ddd, nav-then.ddd); `node bin/cli.js generate system nav-feliz.ddd -o out` crashes",
-   "impact": "The one documented way to navigate from a page action produces a TS2304/ReferenceError on react/vue/svelte/angular, an Elixir CompileError on HEEx, a silently-dropped navigation on flutter, and kills `ddd generate system` outright on feliz. `ddd parse` reports 0 errors, so nothing warns the author.",
-   "fix": "Add a `navigate` arm to walker-core `emitStmt case \"call\"` that routes through ctx.target.renderNavigate (the same helper emitActionThen already uses) and sets ctx.usesNavigate; add a Feliz `update-emit.ts` call arm emitting `Cmd.navigatePath(...)`; add a HEEx arm emitting `push_navigate(socket, to: ~p\"...\")`. Until then a `loom.*` gate would at least make it honest.",
-   "size": "M",
-   "sources": [
-    "fleet2:probe-combos-frontend"
-   ],
-   "related_to": [
-    "adjacent to #2667 §A12 (computed `to:` dropped) — different construct: the `navigate(<Page>)` STATEMENT in an action body"
-   ],
-   "securityClass": false,
-   "P": 1,
-   "verified": {
-    "date": "2026-09-03",
-    "against": "bd7aaeedc",
-    "method": "each row's own repro re-run; emitted output read",
-    "verdict": "partial",
-    "note": "react/vue/svelte/angular/feliz/heex all navigate. Flutter action bodies never reach the fixed `walker-core` arm — they are emitted by `riverpod-emit.ts`, whose `case \"call\"` still returns a TODO comment. `flutterTarget.renderNavigate` exists and nothing calls it",
-    "remainingTargets": [
-     "flutter"
-    ]
-   },
-   "reverified": {
-    "date": "2026-09-10",
-    "against": "bc7ed8f8",
-    "method": "reconciliation 3 (packet C0.5) — repro re-run on this head, emitted output read",
-    "verdict": "reproduces",
-    "note": "RE-RUN: a page `action` body containing `navigate(OrderList)`, generated on six frontends.  react `home.tsx:10 navigate(\"/orders\")`, vue `router.push(\"/orders\")`, svelte `navigate(\"/orders\")`, angular `this.router.navigateByUrl(\"/orders\")` and feliz `App.fs:105 model, Cmd.navigatePath(\"orders\")` all navigate.  FLUTTER still emits `home_page.dart:22  // TODO(flutter full-parity): 'private-operation' call 'navigate' in a Notifier method` — `riverpod-emit.ts`'s `case \"call\"` never reaches the fixed walker-core arm, and `flutterTarget.renderNavigate` has no caller.  Still SILENT: no `loom.*` code.  `targets` narrowed from all seven to flutter.",
-    "remainingTargets": [
-     "flutter"
-    ]
-   }
-  },
-  {
-   "id": "F2-XB-4",
-   "title": "A `let` in a folded-projection `on(e)` body has its DECLARATION dropped and its USE kept on dotnet, java, python and elixir — the shape the impure-fold gate explicitly blesses (node fixed)",
-   "kind": "silent",
-   "class": null,
-   "confidence": "proven",
-   "targets": [
-    "dotnet",
-    "java",
-    "python",
-    "elixir"
-   ],
-   "fileTrees": [
-    "src/platform/hono/v4/projection-builder.ts",
-    "src/generator/python/dispatch-builder.ts",
-    "src/generator/elixir/vanilla/fold-stmt-emit.ts",
-    "src/ir/validate/checks/"
-   ],
-   "evidence": [
-    {
-     "fleet": 2,
-     "id": "F2-XB-4",
-     "bucket": "fix-crosscut",
-     "text": "src/platform/hono/v4/projection-builder.ts:208 — `for (const stmt of h.statements) { if (stmt.kind === \"assign\") { … } }`: no else, no diagnostic. The twins: src/generator/python/dispatch-builder.ts:552 (`if (stmt.kind === \"assign\" || \"add\" || \"remove\")`), src/generator/elixir/vanilla/fold-stmt-emit.ts:156, plus the .NET/java fold emitters. Nothing in src/ir/validate/checks/ rejects a non-assign statement in a `projection … on(e) { }` body.\nProbe A (silent drop) — corpus/projection.ddd with `on(e: OrderShipped) { salesFiles.put(\"k\", \"v\")  status := Shipped  at := e.at }`:\n  parse → `0 error(s), 0 warning(s). OK`; generate → succeeds on all five; `grep -r salesFiles` over each emitted tree outside `resources/` returns NOTHING on all five. The declared effect does not exist anywhere.\nProbe B (broken emission) — `on(e: OrderShipped) { let stamped = e.at  status := Shipped  at := stamped }`, parse clean on all five:\n  node    d/http/projections.ts:52   `state.at = stamped;`                      (the `const stamped = …` was dropped)  → TS2304\n  dotnet  d/Application/Workflows/OrderBoardOnOrderShippedHandler.cs:32  `state.At = stamped;`                → CS0103\n  java    …/application/workflows/OrdersDispatcher.java:42  `state.setAt(stamped);`                       → cannot find symbol\n  python  d/app/dispatch.py:39       `state.at = stamped`                                                    → NameError\n  elixir  …/projections/order_board/on_order_shipped.ex:14  `%{status: :Shipped, at: (stamped) |> then(…)}` → undefined variable"
-    }
-   ],
-   "repro": "cp test/fixtures/corpus/projection.ddd, rewrite the OrderShipped fold to `{ let stamped = e.at  status := Shipped  at := stamped }`, swap __PLATFORM__, `node bin/cli.js parse` (clean) then `generate system` on all five and grep `stamped`.",
-   "impact": "Two failure modes from one hole. (a) An author's statement in a projection fold — a resource effect, a `let`, any call — is accepted by every phase and emitted by none: the model says something the running system does not do, with no diagnostic, on all five backends at once (the silent-governance shape, applied to projections). (b) The moment the dropped `let` is USED by a surviving assignment, all five backends emit a reference to a name they just deleted, so `ddd generate system` reports success and the generated project does not compile on ANY backend. No wire differential can see either: (a) produces no error body, (b) never boots.",
-   "fix": "Either lower the full statement list through the shared `_stmt/target.ts` spine in the fold emitters (a fold is an ordinary pure body; `let` has an obvious rendering), or add an IR gate that refuses any non-assign statement in a `ProjectionIR` handler with an honest `loom.*` code. Do NOT ship one without the other — dropping the statement is the current bug, and dropping it while emitting its references is the worse half. Mutation-prove whichever gate lands by reverting it and watching probe B's five compile failures reappear.",
-   "size": "M",
-   "sources": [
-    "fleet2:fix-crosscut"
-   ],
-   "related_to": [],
-   "securityClass": false,
-   "P": 1,
-   "verified": {
-    "date": "2026-09-03",
-    "against": "bd7aaeedc",
-    "method": "each row's own repro re-run; emitted output read",
-    "verdict": "partial",
-    "note": "the impure-fold half is now an honest gate on all five (`loom.projection-fold-impure`). The `let` half — which that gate explicitly blesses — still drops the declaration while keeping its use on four backends",
-    "remainingTargets": [
-     "dotnet",
-     "java",
-     "python",
-     "elixir"
-    ]
-   },
-   "reverified": {
-    "date": "2026-09-10",
-    "against": "bc7ed8f8",
-    "method": "reconciliation 3 (packet C0.5) — repro re-run on this head, emitted output read",
-    "verdict": "reproduces",
-    "note": "RE-RUN: corpus `projection.ddd` with the OrderShipped fold rewritten to `{ let stamped = e.at  status := Shipped  at := stamped }`.  node is FIXED (`d/http/projections.ts:51 const stamped = e.at;` then `:53 state.at = stamped;`).  The other four emit the USE with no DECLARATION: dotnet `OrderBoardOnOrderShippedHandler.cs:32 state.At = stamped;`, java `OrdersDispatcher.java:42 state.setAt(stamped);`, python `dispatch.py:39 state.at = stamped`, elixir `on_order_shipped.ex:14 … at: (stamped) |> …`.  `stamped` is declared nowhere in any of the four files — the exact 'drop the declaration, keep its use' half the impure-fold gate (`loom.projection-fold-impure`) explicitly blesses.",
-    "remainingTargets": [
-     "dotnet",
-     "java",
-     "python",
-     "elixir"
-    ]
-   }
-  },
-  {
-   "id": "flutter-form-field-drops",
-   "title": "Four Flutter form-field drops are still emitted as Dart COMMENTS, not diagnostics — the parity freeze is unchanged since the 08-17 snapshot",
-   "kind": "silent",
-   "class": null,
-   "confidence": "proven",
-   "targets": [
-    "flutter"
-   ],
-   "fileTrees": [
-    "src/generator/flutter/forms-emit.ts",
-    "src/generator/flutter/pack.ts",
-    "src/ir/validate/checks/ui-checks.ts",
-    "test/generator/flutter/parity-freeze.test.ts"
-   ],
-   "evidence": [
-    {
-     "fleet": 1,
-     "id": "flutter-form-field-drops",
-     "text": "test/generator/flutter/parity-freeze.test.ts:74-98 `KNOWN_FLUTTER_GAPS` still carries all four entries, byte-identical since the audit base (`git diff be00f0b..origin/main -- test/generator/flutter/parity-freeze.test.ts` is EMPTY): nested VO sub-field (`addr.geo`), VO array with a non-scalar sub-field (`lines`), bool element array (`flags`), enum element array (`colors`) — all mission M-B. The drop marker is a Dart comment: src/generator/flutter/forms-emit.ts:184 ``return `// TODO(flutter form-field): ${field} — ${reason} dropped (deferred, M-B)`;`` (header at :37 calls this 'LOUDLY (M-A)'). A comment in emitted Dart is not a diagnostic — `ddd parse` is clean and `flutter analyze` is clean, so by this audit's rule it is a SILENT gap, not an honest one; there is no `loom.*` code for it (`grep -rn flutter src/ir/validate/checks/*.ts` returns only the store-lifetime and walker-primitive arms). Unclaimed by any of the seven open PRs.\n\n[ALSO REPORTED BY t1-frontend as `M-T1.18-form-field-drops` (kind=honest, size=M)]: test/generator/flutter/parity-freeze.test.ts:74-96 `KNOWN_FLUTTER_GAPS` pins exactly four marker strings: `addr.geo` nested value-object sub-field; `lines` value-object array with a non-scalar sub-field; `flags` bool element array; `colors` enum element array. Each carries a reason and mission M-B. The freeze asserts equality both ways (:104), so closing one fails the test until the entry is deleted — the ratchet is real. The `diagnostic` (pack no-renderer) family is asserted ABSENT (:113-120), confirming the standalone-primitive surface is complete.\n\n[ALSO REPORTED BY pr-registers as `G2646-open-flutter-form-field-drops` (kind=silent, size=M)]: VERIFIED still open on main and pinned as a freeze, not fixed. test/generator/flutter/parity-freeze.test.ts:75-93 pins exactly four TODO comments the emitter produces: 'TODO(flutter form-field): addr.geo — nested value-object sub-field dropped (deferred, M-B)', '… lines — value-object array with a non-scalar sub-field dropped', '… flags — bool element array dropped', '… colors — enum element array dropped'; the file header (:6-11) states the showcase passes only because it AVOIDS these form-fields. #2646's audit lists them as 'PARTIAL, open'. Not in its diff (its flutter work is index.ts +193 / pack.ts +24, the degradation/derived/match-await slices)."
-    }
-   ],
-   "repro": null,
-   "impact": null,
-   "fix": "Two-step. (1) Cheap and immediate: raise a real `loom.flutter-form-field-unsupported` from ui-checks.ts for the four shapes so `ddd parse` is honest, and register it in src/diagnostics/unsupported-register.ts against M-B; delete the matching Dart comment in the same PR (a marker and a diagnostic for the same thing is the drift risk). (2) M-B proper: build the missing Dart widgets — a recursive VO sub-form for nested value objects, and a row editor that renders bool (checkbox), enum (dropdown), datetime and nested-VO cells — then drain KNOWN_FLUTTER_GAPS. Gate the second half on `generated-flutter-build`.\n\n[ALTERNATE FIX RECIPE from t1-frontend/M-T1.18-form-field-drops]: Two Dart widgets close all four: a repeatable row editor generalised past text/number (checkbox row for bool, `DropdownButtonFormField` row for enum) in src/generator/flutter/forms-emit.ts's scalar-array path, and a recursive one-more-level flatten for a VO nested inside a VO sub-field in `createInputFields`/`prepareFields`. Delete the matching `KNOWN_FLUTTER_GAPS` entries in the same PR (the ratchet requires it) and verify with `flutter analyze` + the scaffold-parity leg of generated-flutter-build.yml.\n\n[ALTERNATE FIX RECIPE from pr-registers/G2646-open-flutter-form-field-drops]: Implement the four dropped field shapes in flutter/forms-emit.ts — nested VO sub-field, VO array with non-scalar sub-fields, bool element array, enum element array — deleting each parity-freeze pin in the same PR as it lands (the ratchet rule). Exercise them through the new #2663 flutter behavioral leg.",
-   "size": "M",
-   "sources": [
-    "fleet1:fresh-gate-probe"
-   ],
-   "related_to": [],
-   "securityClass": false,
-   "P": 1,
-   "verified": {
-    "date": "2026-09-03",
-    "against": "bd7aaeedc",
-    "method": "each row's own repro re-run; emitted output read",
-    "verdict": "open",
-    "note": "all four `TODO(flutter form-field)` comments still emitted; the parity freeze is unchanged since the audit base; no `loom.*` code",
-    "remainingTargets": [
-     "flutter"
-    ]
-   },
-   "reverified": {
-    "date": "2026-09-10",
-    "against": "bc7ed8f8",
-    "method": "reconciliation 3 (packet C0.5) — repro re-run on this head, emitted output read",
-    "verdict": "reproduces",
-    "note": "RE-DERIVED from the ratchet rather than a one-off generate, which is stronger: `test/generator/flutter/parity-freeze.test.ts` still pins all FOUR `TODO(flutter form-field): …` markers in `KNOWN_FLUTTER_GAPS` (nested VO sub-field, VO array with a non-scalar sub-field, bool element array, enum element array), and `grep -rn 'flutter-form-field' src/` finds no `loom.*` code.  Unchanged since the 08-17 snapshot.",
-    "remainingTargets": [
-     "flutter"
     ]
    }
   },
@@ -7587,6 +7293,31 @@
    "pr": null,
    "closedBy": "re-derived 2026-09-10 against bc7ed8f8 (reconciliation 3, packet C0.5)",
    "source": "fleet1:t6-backend"
+  },
+  {
+   "id": "F2-CB-C7-domainservice-in-requires-guard",
+   "title": "A `domainService` call inside a `requires` authorization guard emits an unresolvable reference — CLOSED on all five (wave C1, packet 1e)",
+   "source": "wave-c1:1e-ledger-backend"
+  },
+  {
+   "id": "F2-CB-C1-paged-nonrelational",
+   "title": "`find … paged` on a non-relational aggregate emits a route built for the paged contract against a repository built for the unpaged one — CLOSED on all five (wave C1, packet 1e)",
+   "source": "wave-c1:1e-ledger-backend"
+  },
+  {
+   "id": "F2-XB-4",
+   "title": "Every non-assignment statement in a folded-projection `on(e)` body is silently dropped — CLOSED on all five (wave C1, packet 1e)",
+   "source": "wave-c1:1e-ledger-backend"
+  },
+  {
+   "id": "F2-CFE-1",
+   "title": "`navigate(<Page>)` in a Flutter page `action` body now navigates — the last frontend where it was dropped. The Riverpod Notifier pushes through a generated `lib/nav.dart` bridge (`navigateTo`, backed by the `GlobalKey<NavigatorState>` `main.dart` installs, because a Notifier has no `BuildContext`), resolving the route through the SAME shared `tryRenderNavigateCall` the `then:` path and the other six frontends use. Flutter also finally threads `pageRoutes`, so the destination is the page's declared `route:` and not the `/<page-snake>` fallback. A destination whose route needs a `:param` the call cannot supply is refused with `loom.flutter-action-statement-unsupported#navigate-route-param` rather than emitted as Dart referencing an unbound `id`. Evidence: `test/generator/flutter/action-navigate.test.ts` (5 tests), the flutter arm of `test/generator/_walker/navigate-action-body.test.ts` rewritten from the TODO pin to the rendered form. Mutation-proved twice — removing the navigate arm fails 5 assertions (`expected … to contain \"navigateTo('/somewhere-else');\"`, `no lib/nav.dart: expected undefined to be defined`); emptying `pageRoutes` fails 3 (`expected … to contain \"navigateTo('/elsewhere');\"`).",
+   "source": "wave-c1-1e-ledger-flutter"
+  },
+  {
+   "id": "flutter-form-field-drops",
+   "title": "All four `KNOWN_FLUTTER_GAPS` pins closed with real Dart widgets and DELETED; the parity freeze now asserts the EMPTY set. (1) value-object flattening is recursive, so `addr.geo.lat` gets its own controller and the request body re-nests to the same depth (`objectKey: string` became `objectPath: string[]`, `bodyAssembly` builds a tree). (2) an object-array row slot is heterogeneous (`List<List<dynamic>>`): text/number cells keep their `TextEditingController`, bool / enum / datetime cells hold their value and render a checkbox / dropdown / date picker, so a VO array with a non-scalar sub-field no longer defers. (3)+(4) bool and enum element arrays are repeatable checkbox / dropdown row editors (`List<bool>` / `List<String>`). Wire shape unchanged and verified against the BACKEND's own zod request schema in the same generated tree, not the Flutter emitter. Evidence: `test/generator/flutter/{nested-vo-field,bool-enum-array}.test.ts` (11 tests) + the rewritten `parity-freeze.test.ts` (empty allowlist + a vacuity guard that the fixture still emits all four shapes). Mutation-proved three times, one per arm — restoring the one-level flatten fails 4 assertions (`expected … to contain \"_addrGeoLatController\"`, `expected [ Array(1) ] to deeply equal []`), narrowing object-array cells back to text/number fails 5, deferring bool/enum element arrays fails 5. A fourth mutation re-introduced the real off-by-one closing paren the new `dartBracketImbalance` sweep caught during development: `'[' opened at line 74 is closed by ')'`.",
+   "source": "wave-c1-1e-ledger-flutter"
   }
  ],
  "conflicts": [
@@ -7858,24 +7589,24 @@
   }
  ],
  "counts": {
-  "open": 140,
+  "open": 135,
   "byPriority": {
    "P0": 0,
-   "P1": 6,
+   "P1": 1,
    "P2": 11,
    "P3": 34,
    "P4": 80,
    "P5": 9
   },
   "byKind": {
-   "silent": 17,
+   "silent": 12,
    "honest": 34,
    "mission": 58,
    "breadth": 22,
    "stale-prose": 9
   },
   "byConfidence": {
-   "proven": 28,
+   "proven": 23,
    "likely": 111,
    "suspected": 1
   },
@@ -7884,9 +7615,9 @@
    "faulty-fix": 1
   },
   "bySize": {
-   "S": 36,
-   "M": 61,
-   "L": 43
+   "M": 58,
+   "L": 43,
+   "S": 34
   },
   "bySourceFleet": {
    "fleet2only": 14,
@@ -7895,7 +7626,7 @@
    "unknown": 1
   },
   "claimed": 61,
-  "done": 148,
+  "done": 153,
   "conflicts": 10,
   "checkedOk": 146,
   "waveRows": 134,

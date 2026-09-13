@@ -58,6 +58,7 @@ export {
   checkStatement,
   checkStoreActionCallArgs,
 } from "./statements.js";
+export { checkStatementPlacement } from "./stmt-placement.js";
 export {
   checkActionTypePosition,
   checkAggregate,
