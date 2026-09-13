@@ -272,8 +272,15 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
     kind: "gap",
     site: "src/ir/validate/checks/orm-adapter-checks.ts:284",
     what:
-      "a find / retrieval / query-time-projection / capability-filter predicate outside the " +
-      "opt-in `persistence: dapper|mikroorm` SQL subset (EF Core + Drizzle lower it in full)",
+      "ONE shape is left on the opt-in `persistence: dapper|mikroorm` subsets (EF Core + " +
+      "Drizzle are the full-subset baseline): a reference-collection membership whose " +
+      "ARGUMENT is a column rather than a bindable value " +
+      "(`this.<refColl>.contains(<column>)`), which only a query-time projection `where` " +
+      "can produce since it has no parameters.  Dapper reached the baseline earlier; " +
+      "mikroorm's remaining narrowings drained in wave C2 (the queryable intrinsics and " +
+      "`currentUser` arms, then general membership — an uncorrelated `id in (select " +
+      "<ownerFk> from <joinTable> where <targetFk> = ?)` raw fragment, the FilterQuery " +
+      "mirror of Dapper's EXISTS subquery and of drizzle's own `inArray` subselect)",
     mission: "M-T6.35",
   },
   {

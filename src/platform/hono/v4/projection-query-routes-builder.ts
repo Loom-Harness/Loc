@@ -209,9 +209,10 @@ export function buildQueryProjectionsFile(
   if (usingMikro) {
     for (const p of projections) {
       const f = p.query?.filter;
-      const parts = [...(f ? [mikroFilterFor(f)] : []), ...mikroCapabilityFilters(p, ctx)].filter(
-        (x): x is string => x !== undefined,
-      );
+      const parts = [
+        ...(f ? [mikroFilterFor(f, p, ctx)] : []),
+        ...mikroCapabilityFilters(p, ctx),
+      ].filter((x): x is string => x !== undefined);
       mikroWheres.set(
         p.name,
         parts.length === 0
@@ -755,8 +756,16 @@ function mikroRowClassFor(p: ProjectionIR, source: string): string {
  *  predicate is an internal contradiction, exactly like `aggregateColumn`'s
  *  non-column argument.  Swallowing it would drop the filter and answer a
  *  plausible WRONG number. */
-function mikroFilterFor(filter: ExprIR): string {
-  return whereToMikroFilter(filter);
+function mikroFilterFor(filter: ExprIR, p: ProjectionIR, ctx: EnrichedBoundedContextIR): string {
+  // The source aggregate's associations travel with the predicate so a
+  // `this.<refColl>.contains(x)` membership can name its join table — the same
+  // handle the repository finds pass.  A raw-table source (`from <Workflow>` /
+  // `from <Projection>`) carries none, and cannot express the shape anyway.
+  return whereToMikroFilter(
+    filter,
+    undefined,
+    projectionSourceAggregate(p, ctx)?.associations ?? [],
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -829,7 +838,7 @@ function mikroCapabilityFilters(p: ProjectionIR, ctx: EnrichedBoundedContextIR):
   const agg = projectionSourceAggregate(p, ctx);
   if (!agg) return [];
   return allContextFilterEntries(agg, projectionBypass(p)).map((e) =>
-    whereToMikroFilter(e.predicate),
+    whereToMikroFilter(e.predicate, undefined, agg.associations),
   );
 }
 

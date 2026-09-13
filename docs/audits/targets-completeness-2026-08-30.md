@@ -141,17 +141,17 @@ gate already encodes the row's claim, run the gate.
 
 | metric | value |
 |---|---|
-| open rows | **135** |
+| open rows | **136** |
 | P0 | 0 |
 | P1 | 1 |
 | P2 | 11 |
-| P3 | 34 |
+| P3 | 35 |
 | P4 | 80 |
 | P5 | 9 |
-| kind: silent / honest / breadth / mission / stale-prose | 12 / 34 / 22 / 58 / 9 |
-| confidence: proven / likely / suspected | 23 / 111 / 1 |
+| kind: silent / honest / breadth / mission / stale-prose | 13 / 34 / 22 / 58 / 9 |
+| confidence: proven / likely / suspected | 24 / 111 / 1 |
 | class: faulty-fix / regression | 1 / 0 |
-| size S / M / L | 34 / 58 / 43 |
+| size S / M / L | 35 / 58 / 43 |
 | provenance: fleet1-only / fleet2-only / corroborated by both | 123 / 10 / 1 |
 | claimed by an open PR | 60 |
 | done / merged | 154 |
@@ -303,6 +303,7 @@ Sorted P0 (security / data-integrity, silent, proven) → P1 (other silent prove
 | P5 | `register-site-pointers-stale` | stale-prose | like | dotnet, elixir, java, node, python, register | S | Four register rows still cite a stale `file:line` emission site (down from 36 of 46) — the gate only checks the string SHAPE, so nothing catches the drift |
 | P5 | `surface-dangling-emit-hooks` | stale-prose | like | node, dotnet, java, python, elixir | S | `PlatformSurface` doc comments still reference `emitAuditInit` / `emitI18nAdapter`, hooks that do not exist |
 | P5 | `t6-duplicate-heading-M-T6.43` | stale-prose | like | node, dotnet, java, python, elixir | S | T6 carries TWO `## M-T6.60` headings — the sixth dup-ID incident (the M-T6.43 instance this row was filed against was fixed; the class was not) |
+| P3 | `drizzle-projection-membership-column-arg-crash` | silent | prov | node | S | A query-time `projection … where <alias>.<refColl>.contains(<column>)` validates clean on a bare `platform: node` deployable and then CRASHES codegen ("internal: where-clause for projection 'X' could not lower to Drizzle, but the validator should have caught this") |
 
 ## Conflicts (10)
 
