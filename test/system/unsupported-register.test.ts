@@ -283,7 +283,13 @@ const REGISTER_FILE = path.join(srcRoot, "diagnostics", "unsupported-register.ts
  *  `kind: "seam"`, so this pin now counts exactly what the completion plan's
  *  exit criterion names: LIVE gaps on a shipping target.  The seam rows are
  *  pinned separately below (`LATENT_SEAMS`) so the move cannot hide a gap. */
-const MAX_OPEN_GAPS = 27;
+/** 27 -> 26 (wave C2 packet 2b): `loom.tph-filter-unsupported` re-classified
+ *  `gap` -> `scope` under D-TPH-SUBTYPE-FILTER, owner M-T6.72.  A re-class, not
+ *  a drain — the code still fires, and the pin moves because the row stopped
+ *  being half-built work on a shipping target: the EF-only refusal is true and
+ *  narrow (the same model generates under `persistence: dapper`), and its drain
+ *  is a ~30-site read-path rewrite whose failure mode is a silent leak. */
+const MAX_OPEN_GAPS = 26;
 
 /** Exact count of `seam` rows.  Changes only for a reviewed reason: a gate
  *  deleted (down), a new target registered that turns a seam back into a live

@@ -595,7 +595,13 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   },
   {
     code: "loom.tph-filter-unsupported",
-    kind: "gap",
+    // `gap` -> `scope` (D-TPH-SUBTYPE-FILTER, wave C2 packet 2b).  Not
+    // half-built work on a shipping target: the refusal is true and narrow (the
+    // EF adapter only — Dapper generates the identical model), and the drain is
+    // a read-path rewrite whose failure mode is a silent leak of a declared read
+    // restriction across ~30 emitter sites with no compiler help.  Commissioned
+    // as M-T6.72 with a booted-app acceptance instead of swept up in a drain.
+    kind: "scope",
     site: "src/ir/validate/checks/storage-inheritance-checks.ts:148",
     what:
       "a TPH SUBTYPE's capability `filter` reading a column the hierarchy ROOT does not declare, " +
@@ -610,7 +616,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
       "guarded, and are NOT gated.  Replaces a silent drop (`tph ? [] :`, F2-CB-C2).  Drains if " +
       "the .NET read path moves capability filters off HasQueryFilter onto the per-read LINQ " +
       "`.Where(...)`, which is per-DbSet and therefore subtype-typed",
-    mission: "M-T5.7",
+    mission: "M-T6.72",
   },
   {
     code: "loom.ui-projection-read-unsupported",

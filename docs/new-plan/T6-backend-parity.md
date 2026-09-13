@@ -431,3 +431,56 @@ Shape to fix: cast in the repository's `find_by_id` (one site, every caller) and
 :not_found}`, or mirror the controller's plug in the LiveView `mount`. The first is cleaner but changes
 what the CONTROLLER would answer if its plug ever stopped firing (422 vs 404) — decide deliberately, and
 gate whichever you pick with a boot-verified request, not a compile.
+
+## M-T6.72 — Move the .NET capability filters that cannot be model-hosted onto the per-read query — `open` · **L** · P3
+
+Minted 2026-09-13 by wave C2 packet 2b as the named successor
+[`D-TPH-SUBTYPE-FILTER`](../decisions.md#d-tph-subtype-filter--a-tph-subtypes-capability-filter-is-a-declared-v1-limit-on-the-ef-adapter-not-a-gap)
+requires. It owns the `scope` row `loom.tph-filter-unsupported`.
+
+**The limit.** EF Core registers every query filter in an inheritance hierarchy
+on the ROOT entity type, so a `sharedTable` (TPH) SUBTYPE's capability `filter`
+reading a column only that subtype declares is not registrable at all. Both
+workarounds fail once the query source is a SIBLING subtype (measured on EF Core
+10.0.10: a CLR downcast → "No coercion operator is defined between types 'Truck'
+and 'Car'"; `EF.Property` → "the specified property does not exist on the entity
+type"). `validateTphFilterExpressibility` refuses the model rather than dropping
+the restriction silently, which is what the emitter used to do (`tph ? [] :`,
+F2-CB-C2). Scoped to the EF adapter: Dapper splices the same predicate into raw
+SQL against the shared table, where a subtype column is just a column.
+
+**The build.** Emit the affected filters as a per-read LINQ `.Where(...)` on the
+CONCRETE's `DbSet`, which is subtype-typed, instead of a model-level
+`HasQueryFilter`.
+
+**Why it is L and not S — the part to get right.** The predicate must reach
+EVERY read of that aggregate, and a missed site is neither a compile error nor a
+wrong-shaped answer: it is one read path returning rows a declared restriction
+excludes. Measured on the emitter: `_db.${setName}` appears 19 times in
+`src/generator/dotnet/emit/repository.ts`, and `find-emit.ts`,
+`criteria-emit.ts`, `query-projection-emit.ts` and `spec-emit.ts` hold 11 more
+`_db.` reads. The sites that must each be threaded: the by-id read, the bulk
+by-ids load, the write-scope existence pre-guard, every declared find (a paged
+one's COUNT query as well as its PAGE query), every retrieval, every criterion
+Specification, every direct-table aggregation, and the polymorphic
+`find all <Base>` reader — which must apply each concrete's own filter per
+concrete rather than one predicate over the base.
+
+**Scope discipline, from the decision.** Move only the filters that CANNOT be
+model-hosted. A model filter is enforced by EF for every query against the
+entity, including hand-written ones the customization gradient invites; a
+per-read `.Where` is enforced only where the emitter put it. Migrating the whole
+adapter would trade a framework-enforced guarantee for an emitter-enforced one
+across the board to reach one subtype shape.
+
+**Acceptance.** A booted .NET app on a real Postgres (not a compile) showing the
+subtype filter applied on every read path and absent from none — the shape
+`tenancy-hierarchy-dapper.test.ts` uses for the Dapper subtree predicate, whose
+failure mode is identical. Delete the register row, drop `MAX_OPEN_GAPS` and
+close this mission together.
+
+Sources: [`decisions.md`](../decisions.md) D-TPH-SUBTYPE-FILTER;
+`src/ir/validate/checks/storage-inheritance-checks.ts`,
+`src/ir/util/inheritance.ts` (`nonRootFilterFields`),
+`src/generator/dotnet/emit/efcore.ts`. Relates to
+[M-T5.7](T5-language-core.md#m-t57) (the inheritance tail).
