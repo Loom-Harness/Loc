@@ -213,6 +213,43 @@ The two differences that follow from the table shape:
 - **Nullability.** TPH forces every per-concrete column nullable (a `Customer` row has no `rating`); TPC keeps them `NOT NULL` because each table is homogeneous.
 - **Discriminator.** TPH adds a non-null `kind` column that every concrete repo stamps and filters on (`where: record.kind == "Customer"` in the Ecto reads, `put_change(:kind, "Customer")` on insert); TPC has none — the table name *is* the type.
 
+### `sharedTable` beats the `shape:` modifier
+
+A concrete carries its own storage modifiers (`shape:`, `persistedAs:`), and under `sharedTable` they collide with the strategy: the concrete owns no table of its own, so there is nowhere to put a document column. The rule is **TPH wins** ([D-TPH-BEATS-SHAPE](../decisions.md)), and the language splits the three shapes by whether they *can* degrade:
+
+| concrete declares | under a `sharedTable` base |
+|---|---|
+| `shape: relational` (default) | the ordinary TPH concrete — columns on the shared table, containments as child tables FK'd to it |
+| `shape: embedded` | **allowed, and degrades**: its root already is a queryable row, so the row joins the shared table and its containments become the same relational child tables — no jsonb column anywhere |
+| `shape: document` | **refused** — `loom.es-tph-forced-own-table`: a whole-aggregate jsonb blob has no queryable root row to share. Declare `inheritanceUsing: ownTable` on the concrete. |
+| `persistedAs: eventLog` | **refused**, same code and same remedy — an event stream is not a row at all |
+
+```ddd
+abstract aggregate Shipment inheritanceUsing: sharedTable { reference: string }
+
+aggregate Container extends Shipment shape: embedded {   // legal; `embedded` does not apply
+  harbour: string
+  contains packages: Package[]
+  entity Package { sku: string  qty: int }
+}
+```
+
+```sql
+-- No `containers` table and no jsonb column: the row is a `shipments` row,
+-- and the containment is a child table hanging off the SHARED id.
+CREATE TABLE "depot"."shipments" (
+  "id" UUID NOT NULL, "kind" TEXT NOT NULL, "reference" TEXT NOT NULL,
+  "version" INTEGER NOT NULL, "harbour" TEXT NULL, PRIMARY KEY ("id")
+);
+CREATE TABLE "depot"."packages" (
+  "id" UUID NOT NULL, "shipment_id" UUID NOT NULL,
+  "sku" TEXT NOT NULL, "qty" INTEGER NOT NULL, PRIMARY KEY ("id"),
+  FOREIGN KEY ("shipment_id") REFERENCES "depot"."shipments" ON DELETE CASCADE
+);
+```
+
+Phase ⑨ is the authority here — `MigrationsIR` decides what tables exist, and it tests the inheritance strategy before the saving shape — so every backend's schema and repository emission is measured against that DDL, not against the modifier.
+
 ### .NET — `HasDiscriminator` vs `Ignore<Base>`
 
 .NET maps the hierarchy through EF Core, so the strategy shows up in the entity configuration, not just the raw SQL.

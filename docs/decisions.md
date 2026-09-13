@@ -3439,3 +3439,103 @@ wave **C6**.
 [`T3-security-governance.md`](new-plan/T3-security-governance.md) M-T3.11 and
 [`execution-context.md`](old/proposals/execution-context.md) §Open questions;
 D-CTX-SHAPE.
+
+---
+
+## D-TPH-BEATS-SHAPE — a TPH concrete's `shape:` never reaches storage
+
+**Status:** PINNED (2026-09-13, wave C2 packet 2e).
+
+**Question.** What does `aggregate Container extends Shipment shape: embedded`
+mean when `Shipment` is `inheritanceUsing: sharedTable`? Two header modifiers
+each claim to decide where the concrete's row lives, and nothing said which wins
+— so each emitter answered on its own, and three of them answered differently.
+
+**What the code already ruled, before anyone wrote it down.** Phase ⑨ decides
+what tables EXIST, and `tablesForOneAggregate`
+(`src/system/migrations-builder.ts`) tests `isTphConcrete`/`isTphBase` **before**
+the shape arms: a TPH concrete gets the shared base table plus RELATIONAL child
+tables for its containments, and **no jsonb column anywhere**. The drizzle
+schema emitter agrees. So the DDL a `shape: embedded` TPH concrete runs against
+has never had a place to put an embedded document, on any backend.
+
+**Decision.** **TPH wins.** A concrete that shares its base's table owns no table
+of its own, therefore has nowhere to put a jsonb containment column, therefore
+its `shape:` modifier does not apply: containments persist relationally, FK'd to
+the shared row. Every backend's schema emitter and repository builder must agree
+with the phase-⑨ DDL, which is the single authority on what exists.
+
+This is the same rule `loom.es-tph-forced-own-table` already enforces for the two
+shapes that CANNOT degrade — `persistedAs: eventLog` and `shape: document` have
+no queryable root row to share, so the validator makes the author write
+`inheritanceUsing: ownTable` explicitly. `embedded` is the one shape that *can*
+degrade (its root already is a queryable row), which is why it is allowed through
+rather than refused.
+
+**Follow-up, deliberately NOT taken here.** A silent degrade is still a silent
+degrade: the author wrote `shape: embedded` and got relational children. The
+honest alternative is to extend rule 4 of `src/language/validators/inheritance.ts`
+so `shape: embedded` under a `sharedTable` base is refused the same way, with the
+same "declare `inheritanceUsing: ownTable`" remedy. That is a **language-layer**
+change touching every backend's expectations at once (it would also close
+pairwise F11 on node by deleting the crossing), so it belongs to the packet that
+owns `src/ir/**` + `src/language/**` — wave **C2 packet 2f** — not to a
+per-backend packet. Until it is taken, the degrade is at least *coherent*: every
+target does the same thing, and the same thing is what the DDL creates.
+
+**Consequences.** Pairwise **F13** closes as a python conformance fix (the schema
+emitter's TPH arms move ahead of the shape arms; a TPH concrete takes the
+relational repository builder). Pairwise **F11** on node is re-read the same way:
+the drizzle repository must target the owner table, not the concrete's own. The
+crossing enters the curated corpus with `tph-crossings.ddd`, whose header names
+the embedded half as the widening step once F11 closes.
+
+**Sources.** `src/system/migrations-builder.ts` `tablesForOneAggregate`;
+`src/ir/util/inheritance.ts` `tableOwnerName`;
+`src/language/validators/inheritance.ts` rule 4;
+[`inheritance.md`](inheritance.md);
+`docs/audits/pairwise-corpus-findings-2026-08.md` §F11/§F13.
+
+---
+
+## D-PYTHON-SINGLE-REALIZATION — python ships one realization, and that is not a gap
+
+**Status:** PINNED (2026-09-13, wave C2 packet 2e).
+
+**Question.** Ledger row `G2646-open-python-no-realization-axes` reads python's
+absence from `src/platform/adapter-metadata.ts` as debt: `persistence:` and
+`directoryLayout:` "offer no choice on that backend while node (drizzle/mikroorm)
+and dotnet (EF/dapper) do". Sized **L**, unowned, and re-opened by every parity
+sweep.
+
+**Measured, on fresh `main`.** The asymmetry the row describes is not
+python-vs-the-rest — it is *two adapters vs one*. `BACKEND_ADAPTER_METADATA`
+lists `elixir` with exactly one persistence adapter (`ecto`) and `java` with
+exactly one (`jpa`); neither offers a choice either. Three of five backends ship
+a single realization. Python's only real difference is that it is ABSENT from the
+mirror rather than present with a single-valued menu — and the file says that
+absence is deliberate and matches the live surface (its `PlatformSurface` omits
+`adapters()`).
+
+**Decision.** **Python ships one realization — SQLAlchemy 2 async over asyncpg,
+one directory layout — and that is a product statement, not an incomplete
+implementation.** The row is re-classed `scope`. A second python persistence
+adapter (Tortoise, Piccolo, raw asyncpg) is a T6-track *mission* to be minted
+when a user need names the adapter, with the same bar every adapter carries: its
+own pairwise cover cell, its own corpus compile leg, its own behavioural leg.
+Nothing about the current state is silent — there is no gate to add, because
+there is no `persistence:` value a user can write that python drops.
+
+**Owner.** The T6 backend track, on demand. Not a completeness row, and not wave
+C2's: no packet closes it by building, and leaving it `open` guarantees it is
+re-derived by the next sweep.
+
+**Consequences.** `G2646-open-python-no-realization-axes` moves out of the
+ledger's `open` bucket. If python ever does grow a second adapter, the honest
+first step is the `adapter-metadata.ts` entry (a single-valued menu, like java's
+and elixir's), so the mirror stops being read as a completeness signal —
+recorded here as the shape of that change, not scheduled.
+
+**Sources.** `src/platform/adapter-metadata.ts` (`BACKEND_ADAPTER_METADATA`, and
+its own note on python's absence); [`platforms.md`](platforms.md);
+`docs/audits/targets-completeness-2026-08-30.ledger.json`.

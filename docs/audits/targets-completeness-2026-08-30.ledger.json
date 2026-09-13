@@ -263,14 +263,13 @@
   },
   {
    "id": "M-T5.14-reading-service-readport-not-threaded",
-   "title": "A `reading` domain service called from an explicit `commandHandler`/`queryHandler` emits a port-less call that does not compile on dotnet, java, python and elixir (node threads it; the workflow caller is correct everywhere; the aggregate-body caller is honestly refused)",
+   "title": "A `reading` domain service called from an explicit `commandHandler`/`queryHandler` emits a port-less call that does not compile on dotnet, java and elixir (node and python thread it; the workflow caller is correct everywhere; the aggregate-body caller is honestly refused)",
    "kind": "silent",
    "class": null,
    "confidence": "likely",
    "targets": [
     "dotnet",
     "java",
-    "python",
     "elixir"
    ],
    "fileTrees": [
@@ -297,7 +296,7 @@
    ],
    "securityClass": false,
    "P": 2,
-   "note": "Wave 1 packet 1c: node arm verified fixed; python/java/.NET/elixir arms open — see handoffs/wave-1-node-ts.md for the per-backend shape.",
+   "note": "Wave 1 packet 1c: node arm verified fixed. Wave C2 packet 2e: PYTHON arm fixed — `explicit-handlers-emit.ts` now builds its render context with `readPortArgs: pyReadPortResolver(ctx)`, folds `collectServiceReadPorts(h.statements, ctx)` into the repo set it constructs, and emits the `app.domain.services.*` import line it had never had at all (src/generator/python/explicit-handlers-emit.ts). Both helpers are the workflow builder's, exported rather than copied, over the shared `readPortsForOperation` (src/ir/util/domain-service-read-ports.ts). Gated by test/generator/python/handler-domain-service-read-port.test.ts (3 mutations named) and verified on a booted app against a real Postgres. dotnet/java/elixir arms remain open — wave C2 packet 2f owns them; see handoffs/wave-c2-2e-python.md for the per-backend shape.",
    "verified": {
     "date": "2026-09-03",
     "against": "bd7aaeedc",
@@ -312,15 +311,14 @@
     ]
    },
    "reverified": {
-    "date": "2026-09-10",
-    "against": "bc7ed8f8",
-    "method": "reconciliation 3 (packet C0.5) — repro re-run on this head, emitted output read",
-    "verdict": "reproduces",
-    "note": "RE-RUN at the row's OWN call site — an explicit `queryHandler` calling a reading-tier domainService (corpus `handler-triad.ddd` + `queryHandler IsFree(code) { return Registration.isFree(code) }`).  node threads the port (`a-routes.ts:99 await Registration.isFree(orders, code)`).  The other four do not, and the shapes are sharper than the 09-03 note: dotnet `IsFreeHandler.cs:19 return Registration.IsFree(command.Code);` — a STATIC call on an instance class whose method is `IsFreeAsync(string, CT)`, un-awaited, no `using D.Domain.Services` (CS0103/CS1061); java `IsFreeHandler.java:15 return Registration.isFree(code);` — static call on an instance `@Service` bean, no import; python `is_free.py:7 async def is_free(session, code): return is_free(code)` — INFINITE SELF-RECURSION, the module-local name shadows the service, plus no import and arity-short; elixir `is_free.ex:11 D.Domain.Services.Registration.is_free(code)` — that module is NEVER EMITTED (`d/lib/d/domain/services/` does not exist; the reading service is emitted as `D.Sales.is_free/1` on the context facade).  Note for the implementer: the WORKFLOW caller is correct on all five (corpus `domain-services.ddd` re-run), and the AGGREGATE-body caller is now honestly refused (`loom.domain-service-infra-call-from-aggregate`) — it is the explicit command/query handler, and only that, which is broken.",
+    "date": "2026-09-13",
+    "against": "6d6c1a1 + wave C2 coordinator commit",
+    "method": "wave C2 packet 2e — repro re-run on this head (a `reading` service called from a queryHandler), emitted output read, then booted",
+    "verdict": "partial",
+    "note": "python arm CLOSED; the remaining three are dotnet, java and elixir",
     "remainingTargets": [
      "dotnet",
      "java",
-     "python",
      "elixir"
     ]
    }
@@ -4178,37 +4176,6 @@
    "P": 4
   },
   {
-   "id": "G2646-open-python-no-realization-axes",
-   "title": "#2646 documented, NOT fixed: python has no realization axes (no directoryLayout: menu, no second persistence adapter)",
-   "kind": "mission",
-   "class": null,
-   "confidence": "likely",
-   "targets": [
-    "python"
-   ],
-   "fileTrees": [
-    "src/platform/adapter-metadata.ts",
-    "src/generator/python/"
-   ],
-   "evidence": [
-    {
-     "fleet": 1,
-     "id": "G2646-open-python-no-realization-axes",
-     "text": "Documented by #2646's audit python row as MATURITY: src/platform/adapter-metadata.ts has no python key at all, so `persistence:` and `directoryLayout:` offer no choice on that backend while node (drizzle/mikroorm) and dotnet (EF/dapper) do. Not addressed by its diff."
-    }
-   ],
-   "repro": null,
-   "impact": null,
-   "fix": "Roadmap-scale: decide whether python gets a second persistence adapter and a layout menu at all. If not, record it as a settled non-goal in adapter-metadata.ts + docs/platforms.md so it stops reading as debt; if yes, mint the mission with the adapter choice named.",
-   "size": "L",
-   "sources": [
-    "fleet1:pr-registers"
-   ],
-   "related_to": [],
-   "securityClass": false,
-   "P": 4
-  },
-  {
    "id": "G2667-C5-outbox-insert-outside-tx",
    "title": "08-17 register #5: workflow/extern/timer outbox inserts sit outside any transaction (node AND .NET)",
    "kind": "mission",
@@ -7687,6 +7654,39 @@
    "reason": "DELIBERATELY PARKED, by the track's own text.  `docs/new-plan/T2-data-evolution.md:43-45` calls `encryptedAtRest` a 'Deliberately parked stub' needing a full proposal first (key management, deterministic-encryption / blind-index finds, per-backend matrix).  The modifier is a hard parse error, so the gap is honest; what is missing is a PROPOSAL, which is a docs/new-plan item, not a completeness row.",
    "declinedBy": "reconciliation 3 (packet C0.5), 2026-09-10 against bc7ed8f8",
    "source": "fleet1:t2-t4-data-workflow"
+  },
+  {
+   "id": "G2646-open-python-no-realization-axes",
+   "title": "#2646 documented, NOT fixed: python has no realization axes (no directoryLayout: menu, no second persistence adapter)",
+   "kind": "mission",
+   "class": null,
+   "confidence": "likely",
+   "targets": [
+    "python"
+   ],
+   "fileTrees": [
+    "src/platform/adapter-metadata.ts",
+    "src/generator/python/"
+   ],
+   "evidence": [
+    {
+     "fleet": 1,
+     "id": "G2646-open-python-no-realization-axes",
+     "text": "Documented by #2646's audit python row as MATURITY: src/platform/adapter-metadata.ts has no python key at all, so `persistence:` and `directoryLayout:` offer no choice on that backend while node (drizzle/mikroorm) and dotnet (EF/dapper) do. Not addressed by its diff."
+    }
+   ],
+   "repro": null,
+   "impact": null,
+   "fix": "Roadmap-scale: decide whether python gets a second persistence adapter and a layout menu at all. If not, record it as a settled non-goal in adapter-metadata.ts + docs/platforms.md so it stops reading as debt; if yes, mint the mission with the adapter choice named.",
+   "size": "L",
+   "sources": [
+    "fleet1:pr-registers"
+   ],
+   "related_to": [],
+   "securityClass": false,
+   "P": 4,
+   "reason": "SCOPE, decided — D-PYTHON-SINGLE-REALIZATION (docs/decisions.md, wave C2 packet 2e). Re-measured on fresh `main`: the asymmetry this row describes is TWO adapters vs ONE, not python vs the rest. `BACKEND_ADAPTER_METADATA` lists elixir with exactly one persistence adapter (`ecto`) and java with exactly one (`jpa`); neither offers a choice either, so three of five backends ship a single realization. Python's only real difference is being ABSENT from the mirror rather than present with a single-valued menu, and adapter-metadata.ts says that absence is deliberate and matches the live surface (its PlatformSurface omits `adapters()`). Nothing is silent: there is no `persistence:` or `directoryLayout:` value a user can write that python drops. A second python adapter is a T6-track mission to mint when a user need names the adapter, carrying the usual bar (pairwise cover cell, corpus compile leg, behavioural leg) — not a completeness row.",
+   "declinedBy": "wave C2 packet 2e, 2026-09-13 — re-classed `scope` under D-PYTHON-SINGLE-REALIZATION"
   }
  ]
 }
