@@ -80,8 +80,13 @@ export function validateE2ERouteContract(
   for (const call of collectMagicCalls(test.statements, "api")) {
     checkApiVerb(call, contexts, source, diags);
   }
-  for (const call of collectMagicCalls(test.statements, "ui")) {
-    checkUiVerb(call, contexts, source, diags);
+  // The `ui.` half is scoped to a ui-kind test, mirroring `test-checks.ts`'s
+  // single-`magicId` walk: only there does the body actually lower to page
+  // objects, so only there is "drives no page object" the right complaint.
+  if (test.kind === "ui") {
+    for (const call of collectMagicCalls(test.statements, "ui")) {
+      checkUiVerb(call, contexts, source, diags);
+    }
   }
 }
 

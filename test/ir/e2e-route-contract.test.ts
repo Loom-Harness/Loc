@@ -179,3 +179,78 @@ describe("e2e route contract — it does not fire on what it cannot route-check"
     expect(codes).not.toContain("loom.e2e-unrouted-verb");
   });
 });
+
+// ---------------------------------------------------------------------------
+// The `ui` half — page objects, not routes.
+// ---------------------------------------------------------------------------
+
+/** A system with a react frontend, so `test e2e … against web` classifies as a
+ *  `ui` test and its body lowers to Playwright page objects. */
+const uiSys = (orderDecl: string, body: string) => `
+  system U {
+    subdomain D { context Sales {
+      aggregate ${orderDecl} {
+        code: string
+        derived display: string = code
+        operation bump() { }
+      }
+      repository Orders for Order { }
+    } }
+    storage pg { type: postgres }
+    resource st { for: Sales, kind: state, use: pg }
+    deployable api {
+      platform: node
+      contexts: [Sales]
+      dataSources: [st]
+      port: 4300
+    }
+    ui W with scaffold(subdomains: [D]) { }
+    deployable web { platform: react, targets: api, ui: W, port: 4301 }
+    test e2e "t" against web {
+      ${body}
+    }
+  }
+`;
+
+async function uiCodesFor(orderDecl: string, body: string): Promise<string[]> {
+  const { model, errors } = await parseString(uiSys(orderDecl, body));
+  expect(errors).toEqual([]);
+  return validateLoomModel(toLoomModel(model))
+    .filter((d) => d.severity === "error")
+    .map((d) => d.code ?? "<uncoded>");
+}
+
+describe("e2e route contract — the ui page-object vocabulary", () => {
+  it("refuses `ui.<agg>.create` when the aggregate has no create surface", async () => {
+    // The same `emitsRestCreate` gate drops the scaffolded `New` page, so the
+    // List → New → Detail flow the renderer emits has no New page to drive.
+    expect(await uiCodesFor("Order", `let o = ui.orders.create({ code: "c" })`)).toContain(
+      "loom.e2e-unrouted-verb",
+    );
+  });
+
+  it("NON-VACUITY: `with crudish` keeps the New page and the verb", async () => {
+    expect(
+      await uiCodesFor("Order with crudish", `let o = ui.orders.create({ code: "c" })`),
+    ).toEqual([]);
+  });
+
+  it("leaves `getById` and a public operation alone", async () => {
+    expect(
+      await uiCodesFor(
+        "Order with crudish",
+        `let o = ui.orders.create({ code: "c" })
+      let r = ui.orders.getById(o)
+      ui.orders.bump(o)`,
+      ),
+    ).toEqual([]);
+  });
+
+  it("refuses a find verb — the harness drives no page object for one", async () => {
+    // `test-checks.ts` accepts a find for EITHER magic id; the ui renderer then
+    // throws at phase ⑨ ("unknown method"), which is a crash rather than a
+    // diagnostic.  This turns it into one.
+    const codes = await uiCodesFor("Order with crudish", `let xs = ui.orders.all()`);
+    expect(codes).toContain("loom.e2e-unrouted-verb");
+  });
+});
