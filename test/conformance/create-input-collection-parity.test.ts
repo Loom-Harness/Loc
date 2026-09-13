@@ -166,4 +166,26 @@ describe("a collection create-input field may be omitted (#2864 G4)", () => {
     // A scalar array IS a cast field on the row, so it takes the default.
     expect(src).toContain("__default(:tags, [])");
   });
+
+  // The OpenAPI required-set is where this change is VISIBLE to a client, and
+  // where a backend that re-derives required-ness instead of consuming the seam
+  // silently disagrees with the other four.  Elixir did exactly that: it
+  // hand-rolled the bool arm of `hasImplicitDefault`, so it went on advertising
+  // the collections as required in the CREATE request while its own runtime
+  // accepted their omission — `required-only-elixir=[legs,tags]`.  These two
+  // backends are the ones that emit the required-set STATICALLY (node and python
+  // derive theirs at runtime from zod / Pydantic), so they are the pair a static
+  // gate can compare.
+  it("java and elixir agree on the create required-set, and both keep update intact", async () => {
+    const java = await emitted("java", "OpenApiContractCustomizer.java");
+    expect(java).toContain('new RequiredSet("CreateVoyageRequest", List.of("code"))');
+    expect(java).toContain(
+      'new RequiredSet("UpdateVoyageRequest", List.of("code", "legs", "tags"))',
+    );
+
+    const create = await emitted("elixir", "schemas/create_voyage_request.ex");
+    expect(create).toContain("required: [:code]");
+    const update = await emitted("elixir", "schemas/update_voyage_request.ex");
+    expect(update).toMatch(/required: \[:code, :legs, :tags\]|required: \[:code, :legs/);
+  });
 });
