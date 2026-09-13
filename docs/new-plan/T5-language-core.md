@@ -54,6 +54,9 @@ Sources: [multi-file-source](../old/plans/multi-file-source.md), [implicit-syste
 
 ## M-T5.14 — Domain-services Shape B — `open` · **M** · P3
 The coordinator shape (Phase 2); Shape C stays deferred. Plus shipped-tier refinements (read-port shape, `audited` on service ops).
+
+**Read-port shape — the explicit-handler caller.** A `reading`-tier operation declares one read-port repository parameter per repository it reads, and the ORCHESTRATOR supplies the handle. A `workflow` is not the only orchestrator: an explicit `commandHandler`/`queryHandler` can call one too, and no backend's handler emitter threaded it (ledger `M-T5.14-reading-service-readport-not-threaded`, issue #2649). **node** closed in improvement wave 1 (packet 1c); **python** closed in completion wave C2 (packet 2e) — `src/generator/python/explicit-handlers-emit.ts` builds its render context with `readPortArgs: pyReadPortResolver(ctx)`, folds `collectServiceReadPorts(h.statements, ctx)` into the repo set it constructs, and emits the `app.domain.services.*` import line the module had never had at all; both helpers are the workflow builder's, exported rather than copied, over the shared `readPortsForOperation` (`src/ir/util/domain-service-read-ports.ts`). Gate: `test/generator/python/handler-domain-service-read-port.test.ts`. **dotnet, java and elixir remain open** — wave C2 packet 2f owns them, and the python diff is the template (three defects in one emitter: no import, no port, no `await`).
+
 Sources: [domain-services](../old/proposals/domain-services.md).
 
 ## M-T5.16 — Compiler-internal fragility guards — `open` · **M** · P2
