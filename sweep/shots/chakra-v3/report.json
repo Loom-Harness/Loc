@@ -1,0 +1,646 @@
+[
+  {
+    "pack": "chakra-v3",
+    "page": "home",
+    "route": "/",
+    "viewport": "desktop",
+    "scheme": "light",
+    "file": "sweep/shots/chakra-v3/home-desktop.png",
+    "err": "",
+    "consoleErrors": [
+      "Failed to load resource: net::ERR_CONNECTION_RESET",
+      "Failed to load resource: net::ERR_CONNECTION_RESET"
+    ],
+    "failedReqs": [
+      "GET https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/github-dark.min.css",
+      "GET https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js"
+    ],
+    "chars": 250,
+    "nodes": 90,
+    "hOverflow": false,
+    "focusables": 11,
+    "headings": 2,
+    "sample": "Skip to content Probe Ui PROBE Layout Display Inputs New product Products Empty state PAGES ProductRegister Home Dashboard Probe dashboard Products 42 Revenue U"
+  },
+  {
+    "pack": "chakra-v3",
+    "page": "layout",
+    "route": "/layout",
+    "viewport": "desktop",
+    "scheme": "light",
+    "file": "sweep/shots/chakra-v3/layout-desktop.png",
+    "err": "",
+    "consoleErrors": [
+      "Failed to load resource: net::ERR_CONNECTION_RESET",
+      "Failed to load resource: net::ERR_CONNECTION_RESET"
+    ],
+    "failedReqs": [
+      "GET https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/github-dark.min.css",
+      "GET https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js"
+    ],
+    "chars": 247,
+    "nodes": 70,
+    "hOverflow": false,
+    "focusables": 16,
+    "headings": 1,
+    "sample": "Skip to content Probe Ui PROBE Layout Display Inputs New product Products Empty state PAGES ProductRegister Layout PA Group puts children in a row Owner platfor"
+  },
+  {
+    "pack": "chakra-v3",
+    "page": "display",
+    "route": "/display",
+    "viewport": "desktop",
+    "scheme": "light",
+    "file": "sweep/shots/chakra-v3/display-desktop.png",
+    "err": "",
+    "consoleErrors": [
+      "Failed to load resource: net::ERR_CONNECTION_RESET",
+      "Failed to load resource: net::ERR_CONNECTION_RESET"
+    ],
+    "failedReqs": [
+      "GET https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/github-dark.min.css",
+      "GET https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js"
+    ],
+    "chars": 259,
+    "nodes": 59,
+    "hOverflow": false,
+    "focusables": 11,
+    "headings": 1,
+    "sample": "Skip to content Probe Ui PROBE Layout Display Inputs New product Products Empty state PAGES ProductRegister Typography Plain text Bold text Italic text ddd gene"
+  },
+  {
+    "pack": "chakra-v3",
+    "page": "inputs",
+    "route": "/inputs",
+    "viewport": "desktop",
+    "scheme": "light",
+    "file": "sweep/shots/chakra-v3/inputs-desktop.png",
+    "err": "",
+    "consoleErrors": [
+      "Failed to load resource: net::ERR_CONNECTION_RESET",
+      "Failed to load resource: net::ERR_CONNECTION_RESET"
+    ],
+    "failedReqs": [
+      "GET https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/github-dark.min.css",
+      "GET https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js"
+    ],
+    "chars": 231,
+    "nodes": 68,
+    "hOverflow": false,
+    "focusables": 18,
+    "headings": 1,
+    "sample": "Skip to content Probe Ui PROBE Layout Display Inputs New product Products Empty state PAGES ProductRegister Inputs Name Quantity Password Bio Visibility Private"
+  },
+  {
+    "pack": "chakra-v3",
+    "page": "products",
+    "route": "/products",
+    "viewport": "desktop",
+    "scheme": "light",
+    "file": "sweep/shots/chakra-v3/products-desktop.png",
+    "err": "",
+    "consoleErrors": [
+      "Failed to load resource: net::ERR_CONNECTION_RESET",
+      "Failed to load resource: net::ERR_CONNECTION_RESET"
+    ],
+    "failedReqs": [
+      "GET https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/github-dark.min.css",
+      "GET https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js"
+    ],
+    "chars": 135,
+    "nodes": 39,
+    "hOverflow": false,
+    "focusables": 10,
+    "headings": 0,
+    "sample": "Skip to content Probe Ui PROBE Layout Display Inputs New product Products Empty state PAGES ProductRegister Couldn't load products"
+  },
+  {
+    "pack": "chakra-v3",
+    "page": "new",
+    "route": "/products/new",
+    "viewport": "desktop",
+    "scheme": "light",
+    "file": "sweep/shots/chakra-v3/new-desktop.png",
+    "err": "",
+    "consoleErrors": [
+      "Failed to load resource: net::ERR_CONNECTION_RESET",
+      "Failed to load resource: net::ERR_CONNECTION_RESET"
+    ],
+    "failedReqs": [
+      "GET https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/github-dark.min.css",
+      "GET https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js"
+    ],
+    "chars": 208,
+    "nodes": 65,
+    "hOverflow": false,
+    "focusables": 16,
+    "headings": 1,
+    "sample": "Skip to content Probe Ui PROBE Layout Display Inputs New product Products Empty state PAGES ProductRegister Create product Name Price Stock Visibility — select "
+  },
+  {
+    "pack": "chakra-v3",
+    "page": "empty",
+    "route": "/nothing",
+    "viewport": "desktop",
+    "scheme": "light",
+    "file": "sweep/shots/chakra-v3/empty-desktop.png",
+    "err": "",
+    "consoleErrors": [
+      "Failed to load resource: net::ERR_CONNECTION_RESET",
+      "Failed to load resource: net::ERR_CONNECTION_RESET"
+    ],
+    "failedReqs": [
+      "GET https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/github-dark.min.css",
+      "GET https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js"
+    ],
+    "chars": 131,
+    "nodes": 36,
+    "hOverflow": false,
+    "focusables": 10,
+    "headings": 0,
+    "sample": "Skip to content Probe Ui PROBE Layout Display Inputs New product Products Empty state PAGES ProductRegister Nothing here yet."
+  },
+  {
+    "pack": "chakra-v3",
+    "page": "home",
+    "route": "/",
+    "viewport": "tablet",
+    "scheme": "light",
+    "file": "sweep/shots/chakra-v3/home-tablet.png",
+    "err": "",
+    "consoleErrors": [
+      "Failed to load resource: net::ERR_CONNECTION_RESET",
+      "Failed to load resource: net::ERR_CONNECTION_RESET"
+    ],
+    "failedReqs": [
+      "GET https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/github-dark.min.css",
+      "GET https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js"
+    ],
+    "chars": 250,
+    "nodes": 90,
+    "hOverflow": false,
+    "focusables": 11,
+    "headings": 2,
+    "sample": "Skip to content Probe Ui PROBE Layout Display Inputs New product Products Empty state PAGES ProductRegister Home Dashboard Probe dashboard Products 42 Revenue U"
+  },
+  {
+    "pack": "chakra-v3",
+    "page": "layout",
+    "route": "/layout",
+    "viewport": "tablet",
+    "scheme": "light",
+    "file": "sweep/shots/chakra-v3/layout-tablet.png",
+    "err": "",
+    "consoleErrors": [
+      "Failed to load resource: net::ERR_CONNECTION_RESET",
+      "Failed to load resource: net::ERR_CONNECTION_RESET"
+    ],
+    "failedReqs": [
+      "GET https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/github-dark.min.css",
+      "GET https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js"
+    ],
+    "chars": 247,
+    "nodes": 70,
+    "hOverflow": false,
+    "focusables": 16,
+    "headings": 1,
+    "sample": "Skip to content Probe Ui PROBE Layout Display Inputs New product Products Empty state PAGES ProductRegister Layout PA Group puts children in a row Owner platfor"
+  },
+  {
+    "pack": "chakra-v3",
+    "page": "display",
+    "route": "/display",
+    "viewport": "tablet",
+    "scheme": "light",
+    "file": "sweep/shots/chakra-v3/display-tablet.png",
+    "err": "",
+    "consoleErrors": [
+      "Failed to load resource: net::ERR_CONNECTION_RESET",
+      "Failed to load resource: net::ERR_CONNECTION_RESET"
+    ],
+    "failedReqs": [
+      "GET https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/github-dark.min.css",
+      "GET https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js"
+    ],
+    "chars": 259,
+    "nodes": 59,
+    "hOverflow": false,
+    "focusables": 11,
+    "headings": 1,
+    "sample": "Skip to content Probe Ui PROBE Layout Display Inputs New product Products Empty state PAGES ProductRegister Typography Plain text Bold text Italic text ddd gene"
+  },
+  {
+    "pack": "chakra-v3",
+    "page": "inputs",
+    "route": "/inputs",
+    "viewport": "tablet",
+    "scheme": "light",
+    "file": "sweep/shots/chakra-v3/inputs-tablet.png",
+    "err": "",
+    "consoleErrors": [
+      "Failed to load resource: net::ERR_CONNECTION_RESET",
+      "Failed to load resource: net::ERR_CONNECTION_RESET"
+    ],
+    "failedReqs": [
+      "GET https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/github-dark.min.css",
+      "GET https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js"
+    ],
+    "chars": 231,
+    "nodes": 68,
+    "hOverflow": false,
+    "focusables": 18,
+    "headings": 1,
+    "sample": "Skip to content Probe Ui PROBE Layout Display Inputs New product Products Empty state PAGES ProductRegister Inputs Name Quantity Password Bio Visibility Private"
+  },
+  {
+    "pack": "chakra-v3",
+    "page": "products",
+    "route": "/products",
+    "viewport": "tablet",
+    "scheme": "light",
+    "file": "sweep/shots/chakra-v3/products-tablet.png",
+    "err": "",
+    "consoleErrors": [
+      "Failed to load resource: net::ERR_CONNECTION_RESET",
+      "Failed to load resource: net::ERR_CONNECTION_RESET"
+    ],
+    "failedReqs": [
+      "GET https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/github-dark.min.css",
+      "GET https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js"
+    ],
+    "chars": 135,
+    "nodes": 39,
+    "hOverflow": false,
+    "focusables": 10,
+    "headings": 0,
+    "sample": "Skip to content Probe Ui PROBE Layout Display Inputs New product Products Empty state PAGES ProductRegister Couldn't load products"
+  },
+  {
+    "pack": "chakra-v3",
+    "page": "new",
+    "route": "/products/new",
+    "viewport": "tablet",
+    "scheme": "light",
+    "file": "sweep/shots/chakra-v3/new-tablet.png",
+    "err": "",
+    "consoleErrors": [
+      "Failed to load resource: net::ERR_CONNECTION_RESET",
+      "Failed to load resource: net::ERR_CONNECTION_RESET"
+    ],
+    "failedReqs": [
+      "GET https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/github-dark.min.css",
+      "GET https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js"
+    ],
+    "chars": 208,
+    "nodes": 65,
+    "hOverflow": false,
+    "focusables": 16,
+    "headings": 1,
+    "sample": "Skip to content Probe Ui PROBE Layout Display Inputs New product Products Empty state PAGES ProductRegister Create product Name Price Stock Visibility — select "
+  },
+  {
+    "pack": "chakra-v3",
+    "page": "empty",
+    "route": "/nothing",
+    "viewport": "tablet",
+    "scheme": "light",
+    "file": "sweep/shots/chakra-v3/empty-tablet.png",
+    "err": "",
+    "consoleErrors": [
+      "Failed to load resource: net::ERR_CONNECTION_RESET",
+      "Failed to load resource: net::ERR_CONNECTION_RESET"
+    ],
+    "failedReqs": [
+      "GET https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/github-dark.min.css",
+      "GET https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js"
+    ],
+    "chars": 131,
+    "nodes": 36,
+    "hOverflow": false,
+    "focusables": 10,
+    "headings": 0,
+    "sample": "Skip to content Probe Ui PROBE Layout Display Inputs New product Products Empty state PAGES ProductRegister Nothing here yet."
+  },
+  {
+    "pack": "chakra-v3",
+    "page": "home",
+    "route": "/",
+    "viewport": "phone",
+    "scheme": "light",
+    "file": "sweep/shots/chakra-v3/home-phone.png",
+    "err": "",
+    "consoleErrors": [
+      "Failed to load resource: net::ERR_CONNECTION_RESET",
+      "Failed to load resource: net::ERR_CONNECTION_RESET"
+    ],
+    "failedReqs": [
+      "GET https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/github-dark.min.css",
+      "GET https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js"
+    ],
+    "chars": 164,
+    "nodes": 90,
+    "hOverflow": false,
+    "focusables": 11,
+    "headings": 2,
+    "sample": "Skip to content Probe Ui Home Dashboard Probe dashboard Products 42 Revenue USD 1999.50 Last import Jan 02, 2026, 03:04 AM Slotted children passed through Slot"
+  },
+  {
+    "pack": "chakra-v3",
+    "page": "layout",
+    "route": "/layout",
+    "viewport": "phone",
+    "scheme": "light",
+    "file": "sweep/shots/chakra-v3/layout-phone.png",
+    "err": "",
+    "consoleErrors": [
+      "Failed to load resource: net::ERR_CONNECTION_RESET",
+      "Failed to load resource: net::ERR_CONNECTION_RESET"
+    ],
+    "failedReqs": [
+      "GET https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/github-dark.min.css",
+      "GET https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js"
+    ],
+    "chars": 161,
+    "nodes": 70,
+    "hOverflow": false,
+    "focusables": 16,
+    "headings": 1,
+    "sample": "Skip to content Probe Ui Layout PA Group puts children in a row Owner platform-team Surfaces Save Overview Details Overview body Done — Layout rendered."
+  },
+  {
+    "pack": "chakra-v3",
+    "page": "display",
+    "route": "/display",
+    "viewport": "phone",
+    "scheme": "light",
+    "file": "sweep/shots/chakra-v3/display-phone.png",
+    "err": "",
+    "consoleErrors": [
+      "Failed to load resource: net::ERR_CONNECTION_RESET",
+      "Failed to load resource: net::ERR_CONNECTION_RESET"
+    ],
+    "failedReqs": [
+      "GET https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/github-dark.min.css",
+      "GET https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js"
+    ],
+    "chars": 173,
+    "nodes": 59,
+    "hOverflow": false,
+    "focusables": 11,
+    "headings": 1,
+    "sample": "Skip to content Probe Ui Typography Plain text Bold text Italic text ddd generate system Beta Public Loom docs Sample let x = 1 12.3456 Jan 02, 2026, 03:04 AM a"
+  },
+  {
+    "pack": "chakra-v3",
+    "page": "inputs",
+    "route": "/inputs",
+    "viewport": "phone",
+    "scheme": "light",
+    "file": "sweep/shots/chakra-v3/inputs-phone.png",
+    "err": "",
+    "consoleErrors": [
+      "Failed to load resource: net::ERR_CONNECTION_RESET",
+      "Failed to load resource: net::ERR_CONNECTION_RESET"
+    ],
+    "failedReqs": [
+      "GET https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/github-dark.min.css",
+      "GET https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js"
+    ],
+    "chars": 145,
+    "nodes": 68,
+    "hOverflow": false,
+    "focusables": 18,
+    "headings": 1,
+    "sample": "Skip to content Probe Ui Inputs Name Quantity Password Bio Visibility Private Internal Public Notifications Attachment Save password too short"
+  },
+  {
+    "pack": "chakra-v3",
+    "page": "products",
+    "route": "/products",
+    "viewport": "phone",
+    "scheme": "light",
+    "file": "sweep/shots/chakra-v3/products-phone.png",
+    "err": "",
+    "consoleErrors": [
+      "Failed to load resource: net::ERR_CONNECTION_RESET",
+      "Failed to load resource: net::ERR_CONNECTION_RESET"
+    ],
+    "failedReqs": [
+      "GET https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/github-dark.min.css",
+      "GET https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js"
+    ],
+    "chars": 49,
+    "nodes": 39,
+    "hOverflow": false,
+    "focusables": 10,
+    "headings": 0,
+    "sample": "Skip to content Probe Ui Couldn't load products"
+  },
+  {
+    "pack": "chakra-v3",
+    "page": "new",
+    "route": "/products/new",
+    "viewport": "phone",
+    "scheme": "light",
+    "file": "sweep/shots/chakra-v3/new-phone.png",
+    "err": "",
+    "consoleErrors": [
+      "Failed to load resource: net::ERR_CONNECTION_RESET",
+      "Failed to load resource: net::ERR_CONNECTION_RESET"
+    ],
+    "failedReqs": [
+      "GET https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/github-dark.min.css",
+      "GET https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js"
+    ],
+    "chars": 122,
+    "nodes": 65,
+    "hOverflow": false,
+    "focusables": 16,
+    "headings": 1,
+    "sample": "Skip to content Probe Ui Create product Name Price Stock Visibility — select — Private Internal Public Created At Create"
+  },
+  {
+    "pack": "chakra-v3",
+    "page": "empty",
+    "route": "/nothing",
+    "viewport": "phone",
+    "scheme": "light",
+    "file": "sweep/shots/chakra-v3/empty-phone.png",
+    "err": "",
+    "consoleErrors": [
+      "Failed to load resource: net::ERR_CONNECTION_RESET",
+      "Failed to load resource: net::ERR_CONNECTION_RESET"
+    ],
+    "failedReqs": [
+      "GET https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/github-dark.min.css",
+      "GET https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js"
+    ],
+    "chars": 44,
+    "nodes": 36,
+    "hOverflow": false,
+    "focusables": 10,
+    "headings": 0,
+    "sample": "Skip to content Probe Ui Nothing here yet."
+  },
+  {
+    "pack": "chakra-v3",
+    "page": "home",
+    "route": "/",
+    "viewport": "desktop",
+    "scheme": "dark",
+    "file": "sweep/shots/chakra-v3/home-desktop-dark.png",
+    "err": "",
+    "consoleErrors": [
+      "Failed to load resource: net::ERR_CONNECTION_RESET",
+      "Failed to load resource: net::ERR_CONNECTION_RESET"
+    ],
+    "failedReqs": [
+      "GET https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/github-dark.min.css",
+      "GET https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js"
+    ],
+    "chars": 250,
+    "nodes": 90,
+    "hOverflow": false,
+    "focusables": 11,
+    "headings": 2,
+    "sample": "Skip to content Probe Ui PROBE Layout Display Inputs New product Products Empty state PAGES ProductRegister Home Dashboard Probe dashboard Products 42 Revenue U"
+  },
+  {
+    "pack": "chakra-v3",
+    "page": "layout",
+    "route": "/layout",
+    "viewport": "desktop",
+    "scheme": "dark",
+    "file": "sweep/shots/chakra-v3/layout-desktop-dark.png",
+    "err": "",
+    "consoleErrors": [
+      "Failed to load resource: net::ERR_CONNECTION_RESET",
+      "Failed to load resource: net::ERR_CONNECTION_RESET"
+    ],
+    "failedReqs": [
+      "GET https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/github-dark.min.css",
+      "GET https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js"
+    ],
+    "chars": 247,
+    "nodes": 70,
+    "hOverflow": false,
+    "focusables": 16,
+    "headings": 1,
+    "sample": "Skip to content Probe Ui PROBE Layout Display Inputs New product Products Empty state PAGES ProductRegister Layout PA Group puts children in a row Owner platfor"
+  },
+  {
+    "pack": "chakra-v3",
+    "page": "display",
+    "route": "/display",
+    "viewport": "desktop",
+    "scheme": "dark",
+    "file": "sweep/shots/chakra-v3/display-desktop-dark.png",
+    "err": "",
+    "consoleErrors": [
+      "Failed to load resource: net::ERR_CONNECTION_RESET",
+      "Failed to load resource: net::ERR_CONNECTION_RESET"
+    ],
+    "failedReqs": [
+      "GET https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/github-dark.min.css",
+      "GET https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js"
+    ],
+    "chars": 259,
+    "nodes": 59,
+    "hOverflow": false,
+    "focusables": 11,
+    "headings": 1,
+    "sample": "Skip to content Probe Ui PROBE Layout Display Inputs New product Products Empty state PAGES ProductRegister Typography Plain text Bold text Italic text ddd gene"
+  },
+  {
+    "pack": "chakra-v3",
+    "page": "inputs",
+    "route": "/inputs",
+    "viewport": "desktop",
+    "scheme": "dark",
+    "file": "sweep/shots/chakra-v3/inputs-desktop-dark.png",
+    "err": "",
+    "consoleErrors": [
+      "Failed to load resource: net::ERR_CONNECTION_RESET",
+      "Failed to load resource: net::ERR_CONNECTION_RESET"
+    ],
+    "failedReqs": [
+      "GET https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/github-dark.min.css",
+      "GET https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js"
+    ],
+    "chars": 231,
+    "nodes": 68,
+    "hOverflow": false,
+    "focusables": 18,
+    "headings": 1,
+    "sample": "Skip to content Probe Ui PROBE Layout Display Inputs New product Products Empty state PAGES ProductRegister Inputs Name Quantity Password Bio Visibility Private"
+  },
+  {
+    "pack": "chakra-v3",
+    "page": "products",
+    "route": "/products",
+    "viewport": "desktop",
+    "scheme": "dark",
+    "file": "sweep/shots/chakra-v3/products-desktop-dark.png",
+    "err": "",
+    "consoleErrors": [
+      "Failed to load resource: net::ERR_CONNECTION_RESET",
+      "Failed to load resource: net::ERR_CONNECTION_RESET"
+    ],
+    "failedReqs": [
+      "GET https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/github-dark.min.css",
+      "GET https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js"
+    ],
+    "chars": 135,
+    "nodes": 39,
+    "hOverflow": false,
+    "focusables": 10,
+    "headings": 0,
+    "sample": "Skip to content Probe Ui PROBE Layout Display Inputs New product Products Empty state PAGES ProductRegister Couldn't load products"
+  },
+  {
+    "pack": "chakra-v3",
+    "page": "new",
+    "route": "/products/new",
+    "viewport": "desktop",
+    "scheme": "dark",
+    "file": "sweep/shots/chakra-v3/new-desktop-dark.png",
+    "err": "",
+    "consoleErrors": [
+      "Failed to load resource: net::ERR_CONNECTION_RESET",
+      "Failed to load resource: net::ERR_CONNECTION_RESET"
+    ],
+    "failedReqs": [
+      "GET https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/github-dark.min.css",
+      "GET https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js"
+    ],
+    "chars": 208,
+    "nodes": 65,
+    "hOverflow": false,
+    "focusables": 16,
+    "headings": 1,
+    "sample": "Skip to content Probe Ui PROBE Layout Display Inputs New product Products Empty state PAGES ProductRegister Create product Name Price Stock Visibility — select "
+  },
+  {
+    "pack": "chakra-v3",
+    "page": "empty",
+    "route": "/nothing",
+    "viewport": "desktop",
+    "scheme": "dark",
+    "file": "sweep/shots/chakra-v3/empty-desktop-dark.png",
+    "err": "",
+    "consoleErrors": [
+      "Failed to load resource: net::ERR_CONNECTION_RESET",
+      "Failed to load resource: net::ERR_CONNECTION_RESET"
+    ],
+    "failedReqs": [
+      "GET https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/github-dark.min.css",
+      "GET https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js"
+    ],
+    "chars": 131,
+    "nodes": 36,
+    "hOverflow": false,
+    "focusables": 10,
+    "headings": 0,
+    "sample": "Skip to content Probe Ui PROBE Layout Display Inputs New product Products Empty state PAGES ProductRegister Nothing here yet."
+  }
+]

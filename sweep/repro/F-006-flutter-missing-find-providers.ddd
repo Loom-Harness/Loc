@@ -1,0 +1,21 @@
+// F-006 (SILENT, Flutter): a custom repository `find` makes the scaffolded
+// Flutter list page grow a filter bar that reads `<agg>AllProvider` and
+// `<agg><Find>Provider`, NEITHER of which `lib/reads.dart` ever emits
+// (it emits only `<agg>ByIdProvider`).  `flutter build web` fails.
+//   node bin/cli.js generate system sweep/repro/F-006-flutter-missing-find-providers.ddd -o /tmp/f006
+//   docker run --rm --network host -v /tmp/f006/web_app:/src -w /src \
+//     ghcr.io/cirruslabs/flutter:stable sh -c 'flutter pub get && flutter build web --release'
+//   -> Error: The method 'thingAllProvider' isn't defined for the type 'ThingListPage'.
+// Drop the `find` line and the same model builds clean, so the find is the trigger.
+system FLfind {
+  subdomain S { context C {
+    aggregate Thing with crudish { label: string  weight: int }
+    repository Things for Thing { find heavierThan(limit: int): Thing[] where this.weight > limit }
+  } }
+  api CApi from S
+  ui WebApp with scaffold(subdomains: [S]) { api C: CApi }
+  storage primary { type: postgres }
+  resource cState { for: C, kind: state, use: primary }
+  deployable api { platform: node, contexts: [C], dataSources: [cState], serves: CApi, port: 3000 }
+  deployable webApp { platform: flutter, targets: api, ui: WebApp { C: api }, port: 3001 }
+}

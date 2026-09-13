@@ -1,0 +1,758 @@
+[
+  {
+    "tier": "T1",
+    "id": "node__react",
+    "backend": "node",
+    "frontend": "react",
+    "gen_ok": true,
+    "gen_ms": 2262,
+    "gen_err": "",
+    "projects": {
+      "api": {
+        "hash": "6db950af60e196ba",
+        "bytes": 136578,
+        "files": 37
+      },
+      "web_app": {
+        "hash": "c9f3c9e787696938",
+        "bytes": 145790,
+        "files": 43
+      }
+    }
+  },
+  {
+    "tier": "T1",
+    "id": "node__vue",
+    "backend": "node",
+    "frontend": "vue",
+    "gen_ok": true,
+    "gen_ms": 2159,
+    "gen_err": "",
+    "projects": {
+      "api": {
+        "hash": "6db950af60e196ba",
+        "bytes": 136578,
+        "files": 37
+      },
+      "web_app": {
+        "hash": "c4e0057410004ffc",
+        "bytes": 139219,
+        "files": 44
+      }
+    }
+  },
+  {
+    "tier": "T1",
+    "id": "node__svelte",
+    "backend": "node",
+    "frontend": "svelte",
+    "gen_ok": true,
+    "gen_ms": 2302,
+    "gen_err": "",
+    "projects": {
+      "api": {
+        "hash": "6db950af60e196ba",
+        "bytes": 136578,
+        "files": 37
+      },
+      "web_app": {
+        "hash": "94700871e4ce0d4a",
+        "bytes": 157252,
+        "files": 46
+      }
+    }
+  },
+  {
+    "tier": "T1",
+    "id": "node__angular",
+    "backend": "node",
+    "frontend": "angular",
+    "gen_ok": true,
+    "gen_ms": 2156,
+    "gen_err": "",
+    "projects": {
+      "api": {
+        "hash": "6db950af60e196ba",
+        "bytes": 136578,
+        "files": 37
+      },
+      "web_app": {
+        "hash": "f64bd85a6eebd3e7",
+        "bytes": 149942,
+        "files": 43
+      }
+    }
+  },
+  {
+    "tier": "T1",
+    "id": "node__feliz",
+    "backend": "node",
+    "frontend": "feliz",
+    "gen_ok": true,
+    "gen_ms": 2132,
+    "gen_err": "",
+    "projects": {
+      "api": {
+        "hash": "6db950af60e196ba",
+        "bytes": 136578,
+        "files": 37
+      },
+      "web_app": {
+        "hash": "753d01740a01ea7d",
+        "bytes": 148823,
+        "files": 18
+      }
+    }
+  },
+  {
+    "tier": "T1",
+    "id": "node__flutter",
+    "backend": "node",
+    "frontend": "flutter",
+    "gen_ok": true,
+    "gen_ms": 2186,
+    "gen_err": "",
+    "projects": {
+      "api": {
+        "hash": "6db950af60e196ba",
+        "bytes": 136578,
+        "files": 37
+      },
+      "web_app": {
+        "hash": "caee711708e7f8b2",
+        "bytes": 132055,
+        "files": 25
+      }
+    }
+  },
+  {
+    "tier": "T1",
+    "id": "node-v4__react",
+    "backend": "node@v4",
+    "frontend": "react",
+    "gen_ok": true,
+    "gen_ms": 2153,
+    "gen_err": "",
+    "projects": {
+      "api": {
+        "hash": "40210a519a1ce7d3",
+        "bytes": 136559,
+        "files": 37
+      },
+      "web_app": {
+        "hash": "c9f3c9e787696938",
+        "bytes": 145790,
+        "files": 43
+      }
+    }
+  },
+  {
+    "tier": "T1",
+    "id": "node-v4__vue",
+    "backend": "node@v4",
+    "frontend": "vue",
+    "gen_ok": true,
+    "gen_ms": 2135,
+    "gen_err": "",
+    "projects": {
+      "api": {
+        "hash": "40210a519a1ce7d3",
+        "bytes": 136559,
+        "files": 37
+      },
+      "web_app": {
+        "hash": "c4e0057410004ffc",
+        "bytes": 139219,
+        "files": 44
+      }
+    }
+  },
+  {
+    "tier": "T1",
+    "id": "node-v4__svelte",
+    "backend": "node@v4",
+    "frontend": "svelte",
+    "gen_ok": true,
+    "gen_ms": 2177,
+    "gen_err": "",
+    "projects": {
+      "api": {
+        "hash": "40210a519a1ce7d3",
+        "bytes": 136559,
+        "files": 37
+      },
+      "web_app": {
+        "hash": "94700871e4ce0d4a",
+        "bytes": 157252,
+        "files": 46
+      }
+    }
+  },
+  {
+    "tier": "T1",
+    "id": "node-v4__angular",
+    "backend": "node@v4",
+    "frontend": "angular",
+    "gen_ok": true,
+    "gen_ms": 2264,
+    "gen_err": "",
+    "projects": {
+      "api": {
+        "hash": "40210a519a1ce7d3",
+        "bytes": 136559,
+        "files": 37
+      },
+      "web_app": {
+        "hash": "f64bd85a6eebd3e7",
+        "bytes": 149942,
+        "files": 43
+      }
+    }
+  },
+  {
+    "tier": "T1",
+    "id": "node-v4__feliz",
+    "backend": "node@v4",
+    "frontend": "feliz",
+    "gen_ok": true,
+    "gen_ms": 2091,
+    "gen_err": "",
+    "projects": {
+      "api": {
+        "hash": "40210a519a1ce7d3",
+        "bytes": 136559,
+        "files": 37
+      },
+      "web_app": {
+        "hash": "753d01740a01ea7d",
+        "bytes": 148823,
+        "files": 18
+      }
+    }
+  },
+  {
+    "tier": "T1",
+    "id": "node-v4__flutter",
+    "backend": "node@v4",
+    "frontend": "flutter",
+    "gen_ok": true,
+    "gen_ms": 2033,
+    "gen_err": "",
+    "projects": {
+      "api": {
+        "hash": "40210a519a1ce7d3",
+        "bytes": 136559,
+        "files": 37
+      },
+      "web_app": {
+        "hash": "caee711708e7f8b2",
+        "bytes": 132055,
+        "files": 25
+      }
+    }
+  },
+  {
+    "tier": "T1",
+    "id": "dotnet__react",
+    "backend": "dotnet",
+    "frontend": "react",
+    "gen_ok": true,
+    "gen_ms": 2237,
+    "gen_err": "",
+    "projects": {
+      "api": {
+        "hash": "f08fd5023e17929e",
+        "bytes": 189894,
+        "files": 97
+      },
+      "web_app": {
+        "hash": "1b88811ecebedc32",
+        "bytes": 145790,
+        "files": 43
+      }
+    }
+  },
+  {
+    "tier": "T1",
+    "id": "dotnet__vue",
+    "backend": "dotnet",
+    "frontend": "vue",
+    "gen_ok": true,
+    "gen_ms": 2214,
+    "gen_err": "",
+    "projects": {
+      "api": {
+        "hash": "85955477dfbbb6ad",
+        "bytes": 189854,
+        "files": 97
+      },
+      "web_app": {
+        "hash": "5e7551283e5ba5ec",
+        "bytes": 139219,
+        "files": 44
+      }
+    }
+  },
+  {
+    "tier": "T1",
+    "id": "dotnet__svelte",
+    "backend": "dotnet",
+    "frontend": "svelte",
+    "gen_ok": true,
+    "gen_ms": 2166,
+    "gen_err": "",
+    "projects": {
+      "api": {
+        "hash": "3542e1118c10bc1d",
+        "bytes": 189914,
+        "files": 97
+      },
+      "web_app": {
+        "hash": "136cbda2802f196e",
+        "bytes": 157252,
+        "files": 46
+      }
+    }
+  },
+  {
+    "tier": "T1",
+    "id": "dotnet__angular",
+    "backend": "dotnet",
+    "frontend": "angular",
+    "gen_ok": true,
+    "gen_ms": 2188,
+    "gen_err": "",
+    "projects": {
+      "api": {
+        "hash": "562f222ccec2943b",
+        "bytes": 189934,
+        "files": 97
+      },
+      "web_app": {
+        "hash": "bf3ab3f277fa0370",
+        "bytes": 149942,
+        "files": 43
+      }
+    }
+  },
+  {
+    "tier": "T1",
+    "id": "dotnet__feliz",
+    "backend": "dotnet",
+    "frontend": "feliz",
+    "gen_ok": true,
+    "gen_ms": 2115,
+    "gen_err": "",
+    "projects": {
+      "api": {
+        "hash": "0d54e98cc9f7832f",
+        "bytes": 189894,
+        "files": 97
+      },
+      "web_app": {
+        "hash": "753d01740a01ea7d",
+        "bytes": 148823,
+        "files": 18
+      }
+    }
+  },
+  {
+    "tier": "T1",
+    "id": "dotnet__flutter",
+    "backend": "dotnet",
+    "frontend": "flutter",
+    "gen_ok": true,
+    "gen_ms": 2110,
+    "gen_err": "",
+    "projects": {
+      "api": {
+        "hash": "b2bb59d277fa3ed9",
+        "bytes": 189934,
+        "files": 97
+      },
+      "web_app": {
+        "hash": "caee711708e7f8b2",
+        "bytes": 132055,
+        "files": 25
+      }
+    }
+  },
+  {
+    "tier": "T1",
+    "id": "elixir__react",
+    "backend": "elixir",
+    "frontend": "react",
+    "gen_ok": true,
+    "gen_ms": 2214,
+    "gen_err": "",
+    "projects": {
+      "api": {
+        "hash": "90c1772767217aa3",
+        "bytes": 147234,
+        "files": 71
+      },
+      "web_app": {
+        "hash": "65c58bbeaf9665f7",
+        "bytes": 145790,
+        "files": 43
+      }
+    }
+  },
+  {
+    "tier": "T1",
+    "id": "elixir__vue",
+    "backend": "elixir",
+    "frontend": "vue",
+    "gen_ok": true,
+    "gen_ms": 2256,
+    "gen_err": "",
+    "projects": {
+      "api": {
+        "hash": "90c1772767217aa3",
+        "bytes": 147234,
+        "files": 71
+      },
+      "web_app": {
+        "hash": "9cbc5b3635ebc9ae",
+        "bytes": 139219,
+        "files": 44
+      }
+    }
+  },
+  {
+    "tier": "T1",
+    "id": "elixir__svelte",
+    "backend": "elixir",
+    "frontend": "svelte",
+    "gen_ok": true,
+    "gen_ms": 2168,
+    "gen_err": "",
+    "projects": {
+      "api": {
+        "hash": "90c1772767217aa3",
+        "bytes": 147234,
+        "files": 71
+      },
+      "web_app": {
+        "hash": "ee821813a3606066",
+        "bytes": 157252,
+        "files": 46
+      }
+    }
+  },
+  {
+    "tier": "T1",
+    "id": "elixir__angular",
+    "backend": "elixir",
+    "frontend": "angular",
+    "gen_ok": true,
+    "gen_ms": 2161,
+    "gen_err": "",
+    "projects": {
+      "api": {
+        "hash": "90c1772767217aa3",
+        "bytes": 147234,
+        "files": 71
+      },
+      "web_app": {
+        "hash": "d60c7926d0c41a74",
+        "bytes": 149942,
+        "files": 43
+      }
+    }
+  },
+  {
+    "tier": "T1",
+    "id": "elixir__feliz",
+    "backend": "elixir",
+    "frontend": "feliz",
+    "gen_ok": true,
+    "gen_ms": 2036,
+    "gen_err": "",
+    "projects": {
+      "api": {
+        "hash": "90c1772767217aa3",
+        "bytes": 147234,
+        "files": 71
+      },
+      "web_app": {
+        "hash": "753d01740a01ea7d",
+        "bytes": 148823,
+        "files": 18
+      }
+    }
+  },
+  {
+    "tier": "T1",
+    "id": "elixir__flutter",
+    "backend": "elixir",
+    "frontend": "flutter",
+    "gen_ok": true,
+    "gen_ms": 2088,
+    "gen_err": "",
+    "projects": {
+      "api": {
+        "hash": "90c1772767217aa3",
+        "bytes": 147234,
+        "files": 71
+      },
+      "web_app": {
+        "hash": "caee711708e7f8b2",
+        "bytes": 132055,
+        "files": 25
+      }
+    }
+  },
+  {
+    "tier": "T1",
+    "id": "python__react",
+    "backend": "python",
+    "frontend": "react",
+    "gen_ok": true,
+    "gen_ms": 2216,
+    "gen_err": "",
+    "projects": {
+      "api": {
+        "hash": "c1cf073e1ebca611",
+        "bytes": 111748,
+        "files": 44
+      },
+      "web_app": {
+        "hash": "0ba048f65de20326",
+        "bytes": 145790,
+        "files": 43
+      }
+    }
+  },
+  {
+    "tier": "T1",
+    "id": "python__vue",
+    "backend": "python",
+    "frontend": "vue",
+    "gen_ok": true,
+    "gen_ms": 2091,
+    "gen_err": "",
+    "projects": {
+      "api": {
+        "hash": "c1cf073e1ebca611",
+        "bytes": 111748,
+        "files": 44
+      },
+      "web_app": {
+        "hash": "f72a335c03b5a03c",
+        "bytes": 139219,
+        "files": 44
+      }
+    }
+  },
+  {
+    "tier": "T1",
+    "id": "python__svelte",
+    "backend": "python",
+    "frontend": "svelte",
+    "gen_ok": true,
+    "gen_ms": 2167,
+    "gen_err": "",
+    "projects": {
+      "api": {
+        "hash": "c1cf073e1ebca611",
+        "bytes": 111748,
+        "files": 44
+      },
+      "web_app": {
+        "hash": "2368497de0a7b843",
+        "bytes": 157252,
+        "files": 46
+      }
+    }
+  },
+  {
+    "tier": "T1",
+    "id": "python__angular",
+    "backend": "python",
+    "frontend": "angular",
+    "gen_ok": true,
+    "gen_ms": 2200,
+    "gen_err": "",
+    "projects": {
+      "api": {
+        "hash": "c1cf073e1ebca611",
+        "bytes": 111748,
+        "files": 44
+      },
+      "web_app": {
+        "hash": "7b67c0e6fe94fd02",
+        "bytes": 149942,
+        "files": 43
+      }
+    }
+  },
+  {
+    "tier": "T1",
+    "id": "python__feliz",
+    "backend": "python",
+    "frontend": "feliz",
+    "gen_ok": true,
+    "gen_ms": 2108,
+    "gen_err": "",
+    "projects": {
+      "api": {
+        "hash": "c1cf073e1ebca611",
+        "bytes": 111748,
+        "files": 44
+      },
+      "web_app": {
+        "hash": "753d01740a01ea7d",
+        "bytes": 148823,
+        "files": 18
+      }
+    }
+  },
+  {
+    "tier": "T1",
+    "id": "python__flutter",
+    "backend": "python",
+    "frontend": "flutter",
+    "gen_ok": true,
+    "gen_ms": 2199,
+    "gen_err": "",
+    "projects": {
+      "api": {
+        "hash": "c1cf073e1ebca611",
+        "bytes": 111748,
+        "files": 44
+      },
+      "web_app": {
+        "hash": "caee711708e7f8b2",
+        "bytes": 132055,
+        "files": 25
+      }
+    }
+  },
+  {
+    "tier": "T1",
+    "id": "java__react",
+    "backend": "java",
+    "frontend": "react",
+    "gen_ok": true,
+    "gen_ms": 2155,
+    "gen_err": "",
+    "projects": {
+      "api": {
+        "hash": "6a39e7d05c332fcf",
+        "bytes": 134235,
+        "files": 82
+      },
+      "web_app": {
+        "hash": "f9986ba0387c3c7a",
+        "bytes": 145790,
+        "files": 43
+      }
+    }
+  },
+  {
+    "tier": "T1",
+    "id": "java__vue",
+    "backend": "java",
+    "frontend": "vue",
+    "gen_ok": true,
+    "gen_ms": 2163,
+    "gen_err": "",
+    "projects": {
+      "api": {
+        "hash": "6a39e7d05c332fcf",
+        "bytes": 134235,
+        "files": 82
+      },
+      "web_app": {
+        "hash": "24c78b7c6333078e",
+        "bytes": 139219,
+        "files": 44
+      }
+    }
+  },
+  {
+    "tier": "T1",
+    "id": "java__svelte",
+    "backend": "java",
+    "frontend": "svelte",
+    "gen_ok": true,
+    "gen_ms": 2209,
+    "gen_err": "",
+    "projects": {
+      "api": {
+        "hash": "6a39e7d05c332fcf",
+        "bytes": 134235,
+        "files": 82
+      },
+      "web_app": {
+        "hash": "b5ea76cce2afcc79",
+        "bytes": 157252,
+        "files": 46
+      }
+    }
+  },
+  {
+    "tier": "T1",
+    "id": "java__angular",
+    "backend": "java",
+    "frontend": "angular",
+    "gen_ok": true,
+    "gen_ms": 2213,
+    "gen_err": "",
+    "projects": {
+      "api": {
+        "hash": "6a39e7d05c332fcf",
+        "bytes": 134235,
+        "files": 82
+      },
+      "web_app": {
+        "hash": "95240875eab60b6f",
+        "bytes": 149942,
+        "files": 43
+      }
+    }
+  },
+  {
+    "tier": "T1",
+    "id": "java__feliz",
+    "backend": "java",
+    "frontend": "feliz",
+    "gen_ok": true,
+    "gen_ms": 2174,
+    "gen_err": "",
+    "projects": {
+      "api": {
+        "hash": "6a39e7d05c332fcf",
+        "bytes": 134235,
+        "files": 82
+      },
+      "web_app": {
+        "hash": "753d01740a01ea7d",
+        "bytes": 148823,
+        "files": 18
+      }
+    }
+  },
+  {
+    "tier": "T1",
+    "id": "java__flutter",
+    "backend": "java",
+    "frontend": "flutter",
+    "gen_ok": true,
+    "gen_ms": 2103,
+    "gen_err": "",
+    "projects": {
+      "api": {
+        "hash": "6a39e7d05c332fcf",
+        "bytes": 134235,
+        "files": 82
+      },
+      "web_app": {
+        "hash": "caee711708e7f8b2",
+        "bytes": 132055,
+        "files": 25
+      }
+    }
+  }
+]

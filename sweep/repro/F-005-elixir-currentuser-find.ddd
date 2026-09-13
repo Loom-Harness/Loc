@@ -1,0 +1,22 @@
+// F-005 (SILENT, Elixir/Phoenix): a repository `find` whose WHERE references
+// `currentUser` (row-level visibility) emits an Ecto query with a BARE
+// `current_user` variable, which Ecto rejects at compile time.
+//   node bin/cli.js generate system sweep/repro/F-005-elixir-currentuser-find.ddd -o /tmp/f005
+//   docker run --rm --network host -v /tmp/f005/api:/src -w /src \
+//     -e HEX_CACERTS_PATH=/root/.ccr/ca-bundle.crt -v /root/.ccr:/root/.ccr:ro \
+//     hexpm/elixir:1.18.4-... sh -c 'mix local.hex --force && mix deps.get && mix compile'
+//   → ** (Ecto.Query.CompileError) unbound variable `current_user` in query.
+// The same model compiles on .NET, Java, Python and Hono.
+system F005 {
+  user { id: string  role: string }
+  subdomain S { context C {
+    aggregate Thing with crudish { label: string  owner: string }
+    repository Things for Thing {
+      find mine(): Thing[] where this.owner == currentUser.id
+    }
+  } }
+  api CApi from S
+  storage primary { type: postgres }
+  resource cState { for: C, kind: state, use: primary }
+  deployable api { platform: elixir, contexts: [C], dataSources: [cState], serves: CApi, port: 4000, auth: required }
+}

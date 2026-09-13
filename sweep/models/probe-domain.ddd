@@ -1,0 +1,169 @@
+// ---------------------------------------------------------------------------
+// probe-domain.ddd — the T1 constant model for the target-matrix sweep.
+//
+// Held CONSTANT across every backend x frontend cell; only the two
+// `deployable` blocks at the bottom are rewritten per cell (by
+// sweep/render.mjs), so any difference between cells is attributable to
+// the platform axis alone.
+//
+// Exercises, deliberately:
+//   two contexts . contained entities . enum . optional field . collection
+//   field . value object with invariants . derived fields . guarded
+//   operation emitting an event . repository custom find . cross-aggregate
+//   `X id` reference . money + decimal . workflow . auth (user claims,
+//   permissions, `requires`, row-level find) . scaffolded UI.
+// ---------------------------------------------------------------------------
+
+system Probe {
+
+  theme {
+    primary: "#2563eb"
+    neutral: "#475569"
+    radius: "md"
+    fontFamily: "Inter, system-ui, sans-serif"
+  }
+
+  // JWT claim shape — `currentUser.<field>` type-checks against this.
+  user {
+    id: string
+    role: string
+    permissions: string[]
+  }
+
+  subdomain Catalog {
+
+    permissions {
+      productsWrite
+    }
+
+    context Products {
+
+      valueobject Dimensions {
+        width: decimal
+        height: decimal
+        invariant width > 0
+        invariant height > 0
+      }
+
+      aggregate Product with crudish {
+        sku: string
+        name: string
+        price: money
+        weight: decimal
+        size: Dimensions
+        discontinuedAt: datetime?          // optional scalar
+        tags: string[]                     // collection field
+        invariant sku.length > 0
+        derived display: string = name
+        derived footprint: decimal = size.width * size.height
+
+        operation rename(newName: string) {
+          requires currentUser.permissions.contains(permissions.productsWrite)
+          precondition newName.length > 0
+          name := newName
+        }
+      }
+
+      repository Products for Product {
+        find bySku(sku: string): Product? where this.sku == sku
+        find heavierThan(limit: int): Product[] where this.weight > limit
+      }
+    }
+  }
+
+  subdomain Sales {
+    context Orders {
+
+      enum OrderStatus { Draft, Confirmed, Shipped, Cancelled }
+
+      event OrderConfirmed { order: Order id, at: datetime }
+
+      aggregate Order with crudish {
+        customerRef: string
+        status: OrderStatus
+        placedAt: datetime
+        note: string?
+        contains lines: OrderLine[]        // contained entities
+
+        invariant lines.count > 0 when status == Confirmed
+
+        function isMutable(): bool = status == Draft
+        derived display: string = customerRef
+        derived lineCount: int = lines.count
+
+        // Guarded operation that emits an event.
+        operation confirm() {
+          requires currentUser.role != "readonly"
+          precondition isMutable()
+          precondition lines.count > 0
+          status := Confirmed
+          emit OrderConfirmed { order: id, at: now() }
+        }
+
+        operation addLine(product: Product id, qty: int, unitPrice: money) {
+          precondition isMutable()
+          precondition qty > 0
+          lines += OrderLine {
+            product: product, quantity: qty, unitPrice: unitPrice
+          }
+        }
+
+        entity OrderLine {
+          product: Product id                // cross-aggregate reference
+          quantity: int
+          unitPrice: money
+          invariant quantity > 0
+        }
+      }
+
+      repository Orders for Order {
+        find byCustomer(customerRef: string): Order[]
+          where this.customerRef == customerRef
+        // Row-level visibility via currentUser.
+        find mine(): Order[] where this.customerRef == currentUser.id
+      }
+
+      workflow placeOrder {
+        create(customerRef: string, product: Product id, quantity: int, unitPrice: money) {
+          precondition quantity > 0
+          let order = Order.create({
+            customerRef: customerRef,
+            status: Draft,
+            placedAt: now()
+          })
+          order.addLine(product, quantity, unitPrice)
+        }
+      }
+    }
+  }
+
+  api CatalogApi from Catalog
+  api SalesApi   from Sales
+
+  storage primary { type: postgres }
+  resource productsState { for: Products, kind: state, use: primary }
+  resource ordersState   { for: Orders,   kind: state, use: primary }
+
+  ui WebApp with scaffold(subdomains: [Catalog, Sales]) {
+__UI_FRAMEWORK__    api Catalog: CatalogApi
+    api Sales:   SalesApi
+  }
+
+  // --- deployables: rewritten per sweep cell ------------------------------
+  deployable api {
+    platform: __BACKEND__
+    contexts: [Products, Orders]
+    dataSources: [productsState, ordersState]
+    serves: CatalogApi, SalesApi
+    port: __BACKEND_PORT__
+    auth: required
+  }
+
+  deployable webApp {
+    platform: __FRONTEND__
+    targets: api
+    ui: WebApp { Catalog: api, Sales: api }
+    port: 3001
+__FRONTEND_EXTRA__
+  }
+}

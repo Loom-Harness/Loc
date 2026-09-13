@@ -1,0 +1,121 @@
+[
+  {
+    "pack": "chakra@v2",
+    "fw": "react",
+    "id": "chakra-v2",
+    "gen_ok": true,
+    "gen_err": ""
+  },
+  {
+    "pack": "chakra@v3",
+    "fw": "react",
+    "id": "chakra-v3",
+    "gen_ok": true,
+    "gen_err": ""
+  },
+  {
+    "pack": "mantine@v7",
+    "fw": "react",
+    "id": "mantine-v7",
+    "gen_ok": true,
+    "gen_err": ""
+  },
+  {
+    "pack": "mantine@v9",
+    "fw": "react",
+    "id": "mantine-v9",
+    "gen_ok": true,
+    "gen_err": ""
+  },
+  {
+    "pack": "mui@v5",
+    "fw": "react",
+    "id": "mui-v5",
+    "gen_ok": true,
+    "gen_err": ""
+  },
+  {
+    "pack": "mui@v7",
+    "fw": "react",
+    "id": "mui-v7",
+    "gen_ok": true,
+    "gen_err": ""
+  },
+  {
+    "pack": "shadcn@v3",
+    "fw": "react",
+    "id": "shadcn-v3",
+    "gen_ok": true,
+    "gen_err": ""
+  },
+  {
+    "pack": "shadcn@v4",
+    "fw": "react",
+    "id": "shadcn-v4",
+    "gen_ok": true,
+    "gen_err": ""
+  },
+  {
+    "pack": "shadcnVue@v1",
+    "fw": "vue",
+    "id": "shadcnVue-v1",
+    "gen_ok": true,
+    "gen_err": ""
+  },
+  {
+    "pack": "vuetify@v3",
+    "fw": "vue",
+    "id": "vuetify-v3",
+    "gen_ok": true,
+    "gen_err": ""
+  },
+  {
+    "pack": "flowbite@v1",
+    "fw": "svelte",
+    "id": "flowbite-v1",
+    "gen_ok": true,
+    "gen_err": ""
+  },
+  {
+    "pack": "shadcnSvelte@v1",
+    "fw": "svelte",
+    "id": "shadcnSvelte-v1",
+    "gen_ok": true,
+    "gen_err": ""
+  },
+  {
+    "pack": "angularMaterial@v1",
+    "fw": "angular",
+    "id": "angularMaterial-v1",
+    "gen_ok": true,
+    "gen_err": ""
+  },
+  {
+    "pack": "primeng@v1",
+    "fw": "angular",
+    "id": "primeng-v1",
+    "gen_ok": true,
+    "gen_err": ""
+  },
+  {
+    "pack": "spartanNg@v1",
+    "fw": "angular",
+    "id": "spartanNg-v1",
+    "gen_ok": true,
+    "gen_err": ""
+  },
+  {
+    "pack": "coreComponents@v3",
+    "fw": "elixir",
+    "id": "coreComponents-v3",
+    "gen_ok": true,
+    "gen_err": ""
+  },
+  {
+    "pack": "daisyui@v1",
+    "fw": "elixir",
+    "id": "daisyui-v1",
+    "gen_ok": true,
+    "gen_err": ""
+  }
+]

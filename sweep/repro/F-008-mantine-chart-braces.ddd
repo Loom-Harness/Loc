@@ -1,0 +1,43 @@
+// F-008 (SILENT, mantine@v7 AND mantine@v9): the Chart pack template escapes one
+// brace too many, so the generated page does not PARSE as TSX.
+//   designs/mantine/v{7,9}/primitive-chart.hbs:9-10
+//     … withLegend{{#if hasIntegerAxis}} yAxisProps={\{{ allowDecimals: … }}{{/if}} />
+//   `={` + the escaped `{{` yields `yAxisProps={{{ … }}` — three opens, two closes.
+//   node bin/cli.js generate system sweep/repro/F-008-mantine-chart-braces.ddd -o /tmp/f008
+//   cd /tmp/f008/web_app && npm i && npm run build
+//   -> src/pages/home.tsx: error TS1136: Property assignment expected.
+//   -> src/pages/home.tsx: error TS1382: Unexpected token. Did you mean `{'>'}`?
+// Swap `design: mantine` for shadcn / mui / chakra and the same model builds.
+// Mantine is the CLI DEFAULT pack (`ddd new --design` defaults to it).
+system F008 {
+  subdomain S { context C {
+    enum Visibility { Private, Public }
+    aggregate Product with crudish {
+      name: string
+      price: money
+      visibility: Visibility
+      derived display: string = name
+    }
+    repository Products for Product { }
+    projection SalesByVisibility {
+      visibility: Visibility
+      productCount: int
+      revenue: money
+      from Product as p
+      group by p.visibility
+      select visibility = p.visibility, productCount = count(), revenue = sum(p.price)
+    }
+  } }
+  api CApi from S
+  ui WebApp {
+    api C: CApi
+    page Home {
+      route: "/"
+      body: Chart { kind: "bar", of: C.SalesByVisibility, x: r => r.visibility, y: r => r.productCount }
+    }
+  }
+  storage primary { type: postgres }
+  resource cState { for: C, kind: state, use: primary }
+  deployable api { platform: node, contexts: [C], dataSources: [cState], serves: CApi, port: 3000 }
+  deployable webApp { platform: react, targets: api, ui: WebApp { C: api }, port: 3001, design: mantine }
+}

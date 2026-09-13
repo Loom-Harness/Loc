@@ -1,0 +1,27 @@
+// F-009 (SILENT on vue/svelte/angular/HEEx; HONEST on flutter; OK on react):
+// `toast(…)` in a page `action` body emits a bare `toast` symbol the generated
+// project never declares.  Flip `platform:` on the frontend deployable:
+//   react   -> compiles
+//   vue     -> src/pages/p.vue: error TS2304: Cannot find name 'toast'.
+//   svelte  -> +page.svelte: "Cannot find name 'toast'."
+//   angular -> TS2304: Cannot find name 'toast'.   (all 3 packs)
+//   elixir  -> error: undefined function toast/1 … ApiWeb.PLive   (both HEEx packs)
+//   flutter -> REFUSED at validation: loom.flutter-action-body-unsupported
+// `toast(…)` is documented (docs/page-metamodel.md §8) and shipped in
+// web/src/examples/store-showcase.ddd, which calls it out as a fixed React bug.
+system F009 {
+  subdomain S { context C { aggregate T with crudish { label: string } repository Ts for T { } } }
+  api CApi from S
+  ui W {
+    api C: CApi
+    page P {
+      route: "/"
+      action save() { toast("Saved") }
+      body: Stack { Button { "Save", onClick: save } }
+    }
+  }
+  storage primary { type: postgres }
+  resource cs { for: C, kind: state, use: primary }
+  deployable api { platform: node, contexts: [C], dataSources: [cs], serves: CApi, port: 3000 }
+  deployable w { platform: vue, targets: api, ui: W { C: api }, port: 3001 }
+}
