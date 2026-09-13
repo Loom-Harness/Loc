@@ -929,7 +929,7 @@ const CLAIM_GUID_HELPER =
   "Guid.TryParse(__s, out var __g) ? __g : (Guid?)null;";
 
 /** `CLAIM_GUID_HELPER` when any of `refs` binds through it, else nothing. */
-export function claimGuidHelperLines(refs: readonly FilterPrincipalRef[]): string[] {
+function claimGuidHelperLines(refs: readonly FilterPrincipalRef[]): string[] {
   return refs.some((r) => r.needsGuidParse) ? ["", CLAIM_GUID_HELPER] : [];
 }
 
