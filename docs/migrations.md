@@ -442,6 +442,14 @@ where there is nothing to validate.
 Phoenix emits none — Ecto stores a value object as one `:map` cell, so the group
 cannot be half-written and the leaf columns the constraint names do not exist.
 
+Checks are derived for the **domain** tables only: the aggregate root, its TPH
+shared table, its contained-part tables, and its value-collection child table —
+the rows a repository hydrates back into a real value object. The projection
+read-model and workflow-state tables also flatten, but both make their non-key
+columns nullable *on purpose* (a fold or a workflow step upserts only the fields
+the event it is handling carries), so a half-filled row there is the designed
+state and a constraint could fail on legitimate data.
+
 **Reference collections → join tables.** A `X id[]` field never produces a column.
 Enrichment derives one `AssociationIR` per such field, and the builder lays down a
 join table keyed by `(owner_fk, target_fk)` with both FKs `ON DELETE CASCADE` plus

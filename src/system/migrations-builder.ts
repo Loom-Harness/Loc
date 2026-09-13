@@ -2776,7 +2776,20 @@ interface DerivedCheck {
  *  can't resolve (it collapses to one `json` column, nothing to split), and a
  *  value-object ARRAY field (its elements live in the id-less child table —
  *  see {@link valueCollectionTableShape}, which derives its own) all
- *  contribute nothing. */
+ *  contribute nothing.
+ *
+ *  Called from the DOMAIN tables only — the aggregate root, its TPH shared
+ *  table, its contained-part tables and its value-collection child table.
+ *  Those are the rows a repository hydrates back into a real value object,
+ *  which is where the partial-row crash lives.  The two other builders that
+ *  flatten through `columnsForField` are deliberately excluded:
+ *  `projectionTableShape` makes every non-key column nullable ON PURPOSE — a
+ *  fold upserts only the fields the event it is folding carries, so a
+ *  half-filled read-model row is the DESIGNED state, and a constraint there
+ *  could fail a fold on legitimate data — and `workflowStateTableShape` is
+ *  written incrementally by the same kind of partial upsert.  Rejecting valid
+ *  data is strictly worse than the gap being closed, so both stay out until
+ *  someone measures that their writes really are whole-VO. */
 function checksForFields(
   table: string,
   fields: readonly FieldIR[],
