@@ -408,13 +408,28 @@ describe("multi-file projects — verify / snapshot follow `import`", () => {
 // D7 — a `--json` verb's stdout is a single parseable document
 // ---------------------------------------------------------------------------
 
+// `money("1.50")` — the shape whose parse USED to make Chevrotain's ALL(*)
+// lookahead print a four-line prefix-ambiguity notice through `console.log`,
+// mid-payload, on stdout.  That witness is gone: M-T9.60 removed the ambiguity
+// at the source (one grammar path for `money(` — see
+// `src/language/money-literal.ts` and `test/cli/parse-money-parser-noise.ts`),
+// so nothing in the toolchain writes to stdout during a `--json` verb today.
+//
+// WHAT THAT COSTS THIS BLOCK, stated plainly: these cases no longer PROVE the
+// `withJsonStdout` diversion — they would pass with it deleted, because there
+// is nothing left for it to divert.  They still gate the contract they name
+// (stdout is one parseable document, and nothing else), and the fixture keeps
+// its money literal so the block re-acquires its witness the moment any
+// dependency starts printing on that path again.  Restoring a live witness
+// means seeding a stdout write from inside the run; nothing in-tree does that
+// today, and inventing one here would test the seed, not the CLI.
 const MONEY_DDL = `
   system Shop {
     subdomain Sales {
       context Orders {
         aggregate Order {
           subtotal: money
-          derived fee: money = money("USD 1.50")
+          derived fee: money = money("1.50")
         }
         repository Orders for Order { }
       }
@@ -431,8 +446,6 @@ describe("--json verbs keep stdout parseable", () => {
     ddd = path.join(project("money", { "shop.ddd": MONEY_DDL }), "shop.ddd");
   });
 
-  // `money("…")` is the input that makes Chevrotain's ALL(*) lookahead print a
-  // prefix-ambiguity notice through console.log — mid-payload, on stdout.
   it("generate system --json parses", () => {
     const r = run(["generate", "system", ddd, "--json"]);
     const report = JSON.parse(r.stdout) as { ok: boolean };
@@ -445,11 +458,14 @@ describe("--json verbs keep stdout parseable", () => {
     expect(report.ok).toBe(true);
   });
 
-  it("the diverted warning is not swallowed — it lands on stderr", () => {
+  it("stdout is the JSON document and NOTHING else", () => {
+    // The `| jq` contract, asserted structurally rather than by naming one
+    // string that must be absent: re-serialising the parsed document has to
+    // reproduce stdout exactly, so any prose before, after or between —
+    // whatever writes it — fails this.
     const r = run(["generate", "system", ddd, "--json"]);
-    expect(r.stdout).not.toContain("Ambiguous Alternatives Detected");
-    // (stderr is only captured on a non-zero exit by `run`, so this asserts
-    // the absence from stdout — the contract that matters for `| jq`.)
+    const report = JSON.parse(r.stdout) as unknown;
+    expect(r.stdout).toBe(`${JSON.stringify(report, null, 2)}\n`);
   });
 
   it("verify --json prints only the verification document on stdout", () => {

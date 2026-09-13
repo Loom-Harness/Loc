@@ -106,8 +106,12 @@ describe("java — F19: a malformed wire string is refused, not parsed into a 50
     expect(ex).toContain("public static java.time.Instant instant(String value, String pointer)");
     expect(ex).toContain("public static BigDecimal money(String value, String pointer)");
     // Wrapping, not re-implementing: the parse itself must stay the same one.
+    // `money` binds its result now (the RANGE guard added by ledger row `G2644`
+    // reads `parsed.precision() - parsed.scale()` before returning), so the
+    // assertion is on the PARSE, not on the statement that used to hold it —
+    // otherwise it pins the shape of the guard rather than the parse it claims.
     expect(ex).toContain("java.time.Instant.parse(value)");
-    expect(ex).toContain("return new BigDecimal(value);");
+    expect(ex).toContain("new BigDecimal(value)");
   });
 
   it("the advice answers 422 with the field's own pointer", async () => {
@@ -223,8 +227,12 @@ async function guardedFile(suffix: string): Promise<string> {
 describe("java — a guarded invariant crosses the wire WITH its guard", () => {
   it("the generic predicate is the `!(guard) || (body)` implication", async () => {
     const validator = await guardedFile("orders/CreateOrderValidator.java");
+    // `note == null ||` in front is C0.2a's F31 rule composing with this one:
+    // `note` is reference-typed, its absence belongs to the `@NotNull` that
+    // describes it, and the validator runs alongside that annotation — so the
+    // implication is null-skipped rather than dereferencing `note` first.
     expect(validator).toContain(
-      "if (!(!(taxRate > 0) || (((int) note.codePoints().count()) > 0)))",
+      "if (!(note == null || !(taxRate > 0) || (((int) note.codePoints().count()) > 0)))",
     );
   });
 

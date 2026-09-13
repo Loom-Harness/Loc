@@ -85,6 +85,7 @@ export {
   primType,
   query,
   queryHandler,
+  requiresStmt,
   response,
   returnStmt,
   route,

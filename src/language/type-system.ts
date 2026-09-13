@@ -63,7 +63,6 @@ import {
   isLetStmt,
   isMemberSuffix,
   isModel,
-  isMoneyLit,
   isNamedType,
   isNameRef,
   isNowExpr,
@@ -660,7 +659,6 @@ function typeOfExpr(expr: Expression | undefined, env: Env): DddType {
   if (isTemplateStr(expr)) return T.prim("string");
   if (isIntLit(expr)) return T.prim("int");
   if (isDecLit(expr)) return T.prim("decimal");
-  if (isMoneyLit(expr)) return T.prim("money");
   if (isPrimitiveConversion(expr)) return T.prim(expr.target as PrimitiveName);
   if (isBoolLit(expr)) return T.prim("bool");
   if (isNullLit(expr)) return T.opt(T.never);

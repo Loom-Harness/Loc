@@ -55,8 +55,8 @@ with **ML-postfix** syntax — the carrier keyword follows its type argument:
 
 ```
 repository Orders for Order {
-  find recent(): Order paged                 # paged(Order)
-  find latest(): OrderPlaced envelope        # envelope(OrderPlaced)
+  find recent(): Order paged                 # paged(Order)   — the { items, page, … } wrapper
+  find latest(): OrderPlaced envelope        # envelope(…)    — a single-row read; the BARE body
 }
 ```
 
@@ -70,8 +70,18 @@ closed, blessed set (`loom.generic-*` codes guard the rules).
 
 ```
 paged(T)    → { items: T[]; page: int; pageSize: int; total: int; totalPages: int }
-envelope(T) → { id: string; ts: datetime; body: T }
+envelope(T) → T          # NOT a wrapper — a SINGLE-ROW find (see below)
 ```
+
+**`envelope` is a read cardinality, not a wire shape** (M-T6.57, ratified
+2026-09-10). `find latest(): OrderPlaced envelope` means "read at most one
+`OrderPlaced`": the repository answers the bare `OrderPlaced`, the route
+serialises it directly at `200`, and an empty result set is a `404`. The
+`{ id, ts, body }` wrapper this document used to pin was the P3 design and never
+shipped on any backend — nothing in the IR can source `ts` — and two backends
+emitted code that did not compile while carrying its type in their signatures.
+`T envelope` and `T` now emit identically everywhere; see
+[`language-reference/04-type-system.md` § `envelope`](language-reference/04-type-system.md#envelope).
 
 `paged` is **1-based** (`page` starts at 1) and offset-based; `totalPages` is
 included so clients don't recompute it. A paged find auto-gains `page` /

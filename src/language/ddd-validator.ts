@@ -75,6 +75,7 @@ import {
   checkSelfType,
   checkSlotMemberAccess,
   checkSlotTypePosition,
+  checkStatementPlacement,
   checkStoreActionCallArgs,
   checkTemplateHoles,
   checkTenancyDecls,
@@ -184,6 +185,11 @@ export class DddValidator {
     // Unit-test placement: a hoisted `test` (context/root) must name its home
     // aggregate with `for`; a nested one must not restate it (test-placement.md).
     guard("test-placement", model, () => checkTestPlacement(model, accept));
+    // Statement PLACEMENT (M-T5.28): the effect form of `match` is frontend-only,
+    // and `for` / `if let` lower only inside a workflow / handler body.  Outside
+    // those homes the first THREW at emission on all five backends and the other
+    // two lowered to a `<unknown>` call sentinel — both after `0 error(s)`.
+    guard("stmt-placement", model, () => checkStatementPlacement(model, accept));
     // Match expressions: warn on a missing `else` arm.
     // Type-checking arm conditions is best-effort here (the lowering's
     // type system is the source of truth); structural checks run

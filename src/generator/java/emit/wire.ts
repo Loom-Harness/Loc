@@ -26,6 +26,51 @@ import { JAVA_PROVENANCED_RECORD } from "./provenance.js";
 
 export type WireDir = "Request" | "Response";
 
+/** The Java primitives a wire component can be. `@NotNull` on one of these is
+ *  inert — a primitive is never null — and so is a `x == null` guard, which
+ *  additionally does not COMPILE. Every emitter that asks "can this component
+ *  actually be null?" reads this one set. */
+export const JAVA_PRIMITIVES: ReadonlySet<string> = new Set([
+  "int",
+  "long",
+  "double",
+  "float",
+  "boolean",
+  "short",
+  "byte",
+]);
+
+/** True when the request component for `t` is a Java REFERENCE — i.e. it can
+ *  hold `null`, so `component == null` both compiles and can be true.
+ *
+ *  `boxed` is the DTO's own boxing decision for this slot (an operation body
+ *  boxes every non-optional param per RS-26; a create body leaves them
+ *  unboxed), passed in rather than re-derived so the answer cannot drift from
+ *  the record the validator is actually reading. */
+export function wireComponentNullable(t: TypeIR, boxed: boolean): boolean {
+  const inner: TypeIR = boxed && t.kind !== "optional" ? { kind: "optional", inner: t } : t;
+  return !JAVA_PRIMITIVES.has(wireJavaType(inner, "Request"));
+}
+
+/** True when the wire form of this type is a nested RECORD — a value object or
+ *  an entity — so a Bean Validation walk needs `@Valid` to descend into it.
+ *  Without that the outer `@NotNull` is checked and the members inside are not,
+ *  which is the difference between refusing `{"price":{"amount":null}}` and
+ *  NPE-ing on it. */
+export function bearsNestedRecord(t: TypeIR): boolean {
+  switch (t.kind) {
+    case "valueobject":
+    case "entity":
+      return true;
+    case "array":
+      return bearsNestedRecord(t.element);
+    case "optional":
+      return bearsNestedRecord(t.inner);
+    default:
+      return false;
+  }
+}
+
 /** The Java type a domain type takes inside a request/response record. */
 export function wireJavaType(t: TypeIR, dir: WireDir, boxed = false): string {
   switch (t.kind) {
@@ -200,7 +245,19 @@ function elementMapper(element: TypeIR): string | null {
  *  is the point — a new call site cannot reintroduce a bare, un-pointed parse
  *  by simply forgetting to pass it.  (The .NET arm took the same decision for
  *  the same reason.) */
-export function wireToDomain(t: TypeIR, expr: string, pointer: string): string {
+export function wireToDomain(
+  t: TypeIR,
+  expr: string,
+  pointer: string,
+  /** Names of the declared record PAYLOADS whose `to<Payload>(...)` mapper is
+   *  in scope at the call site.  A payload lowers to an `entity` TypeIR, which
+   *  the default arm passes through — correct for a containment part, wrong
+   *  for a workflow's `create(c: FileClaim)` param, whose domain record has to
+   *  be built from the wire record before the body's `c.<field>` reads are
+   *  domain-typed (#2864 D7/T2).  Omitted everywhere a payload cannot appear,
+   *  so those call sites stay byte-identical. */
+  payloads?: ReadonlySet<string>,
+): string {
   switch (t.kind) {
     case "primitive":
       // Total, and pointed: `new BigDecimal("12,50")` threw
@@ -219,11 +276,15 @@ export function wireToDomain(t: TypeIR, expr: string, pointer: string): string {
       return `new ${t.targetName}Id(${expr})`;
     case "valueobject":
       return `to${t.name}(${expr})`;
+    case "entity":
+      // Only a declared record payload converts; every other `entity` is a
+      // containment part, which keeps the pass-through the default arm gives.
+      return payloads?.has(t.name) ? `to${t.name}(${expr})` : expr;
     case "array": {
       const el = t.element;
       // The element pointer keeps the RFC 6901 index wildcard shape the
       // nested-errors work (M-T9.25) established for collections.
-      const mapped = wireToDomain(el, "__x", `${pointer}/0`);
+      const mapped = wireToDomain(el, "__x", `${pointer}/0`, payloads);
       if (mapped === "__x") return expr;
       // MUTABLE copy, not `Stream.toList()`.  This value is assigned straight
       // onto a domain field, and on a value-object collection that field is a
@@ -238,7 +299,7 @@ export function wireToDomain(t: TypeIR, expr: string, pointer: string): string {
       return `new java.util.ArrayList<>(${expr}.stream().map(__x -> ${mapped}).toList())`;
     }
     case "optional": {
-      const inner = wireToDomain(t.inner, expr, pointer);
+      const inner = wireToDomain(t.inner, expr, pointer, payloads);
       if (inner === expr) return expr;
       return `${expr} == null ? null : ${inner}`;
     }

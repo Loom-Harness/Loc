@@ -185,6 +185,15 @@ export const R = {
   notABehaviouralCase:
     "not a behavioural case — no runner boots this source, so no ladder can name a caller of " +
     "either polarity; its gates are watched at the compile tier only",
+  /** The `requires` predicate is a PRINCIPAL-FREE domain-service calculation
+   *  that no input can turn false (`FeeQuote.forAmount(balance).amount >= 0`):
+   *  it exists to gate the IMPORT the guard needs (ledger row F2-CB-C7, Wave C1
+   *  packet 1e-i — `domain-service-gate-import-parity.test.ts`), not to refuse
+   *  anyone, so there is no refused caller to name. */
+  importGateOnly:
+    "the `requires` predicate is a principal-free domain-service calculation no input turns " +
+    "false — it gates the guard's IMPORT (F2-CB-C7), not a caller; the emitted import is the " +
+    "assertion, in `domain-service-gate-import-parity.test.ts`",
 } as const;
 
 /**
@@ -200,6 +209,11 @@ export const AUTHZ_GATE_PINS: Record<string, Record<string, string>> = {
   // control arm drives two of them with the second identity and records the
   // redacted body; what it cannot do is assert a refusal, because there is not
   // one.  See `R.maskIsNotAStatus` and finding 5.
+  // ── a guard that cannot refuse: the domain-service IMPORT is the subject ──
+  "corpus/domain-services": {
+    "operation POST /api/accounts/{id}/withdraw": R.importGateOnly,
+  },
+
   "corpus/field-mask": {
     "find GET /api/employees": R.maskIsNotAStatus,
     "find GET /api/employees/by_name": R.maskIsNotAStatus,
@@ -372,6 +386,7 @@ export const PIN_CLASS_CENSUS: Readonly<Record<string, number>> = {
   maskIsNotAStatus: 4,
   notABehaviouralCase: 11,
   oneSeededId: 1,
+  importGateOnly: 1,
   principalFreeGate: 17,
   sharedTenancyIdentity: 51,
 };

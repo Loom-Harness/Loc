@@ -1,0 +1,98 @@
+// Repository `find … ignoring <Cap>` / `ignoring *` — the capability-filter
+// BYPASS on the row-shaped read path, crossed with the two filter shapes a
+// backend has to implement differently:
+//
+//   * a NON-PRINCIPAL capability (`softDeletable` → `not is_deleted`), which
+//     rides a static always-on device on the SQL backends (Hibernate
+//     `@SQLRestriction`, EF `HasQueryFilter`, an Ecto default scope), and
+//   * a PRINCIPAL one (`tenantOwned` → `tenant_id = <caller's claim>`), which
+//     has no static form and must be AND-ed into each query at request time.
+//
+// …and with the two PERSISTENCE shapes, because a document aggregate has no
+// queryable columns at all: every predicate is evaluated in-app over the
+// rehydrated blob, off a SHARED rehydrate the bypassing read must not inherit.
+//
+// This crossing is what no other corpus fixture made.  `projection-agg-filters`
+// covers `ignoring` on a query-time PROJECTION; the tenancy fixtures cover the
+// filters with no bypass anywhere.  The row-shaped `find … ignoring` on a
+// principal filter was therefore unwitnessed — and Java kept the tenant
+// conjunct on BOTH read surfaces (the relational `@Query` JPQL and the
+// document `findAll()`), so the same `.ddd` returned a different row set there
+// while `loom.filter-bypass-unsupported`'s family list certified it as
+// honouring the clause (M-T6.54 F18).  Both halves matter independently:
+//
+//   * `ignoring tenantOwned` must drop the TENANT conjunct and KEEP the
+//     not-deleted one,
+//   * `ignoring *` must drop BOTH,
+//   * a find with no clause must keep BOTH,
+//   * and the root reads (`findAll` / by-id) — which carry no clause — must
+//     keep BOTH no matter what any OTHER read on the same aggregate bypasses.
+//     That last one is the fail-OPEN direction: hoisting a bypassable predicate
+//     out of the shared read is how a soft-deleted row becomes visible through
+//     `GET /<plural>` because some unrelated find said `ignoring`.
+//
+// COMPILE-TIER ONLY — no `test e2e` block, for the same reason
+// `projection-agg-filters.ddd` has none: the assertion this fixture wants (a
+// second tenant's rows APPEAR under `ignoring tenantOwned` and are ABSENT
+// without it) needs a two-principal harness the behavioural runners do not
+// have, and its wire goldens cannot be captured without one.  The proof is
+// carried by per-backend generator tests asserting the presence AND ABSENCE of
+// each conjunct in the emitted read — a retained conjunct is invisible to a
+// presence-only assertion, which is how this survived.
+system FindBypass {
+  user { id: guid  tenantId: string }
+
+  tenancy by user.tenantId of Organization
+
+  subdomain Sales {
+    context Orders {
+      // RELATIONAL: the predicates are columns, so each backend pushes them
+      // into the query it emits for the find.
+      aggregate Order with tenantOwned, softDeletable, crudish {
+        code: string
+        total: money
+      }
+
+      // DOCUMENT: one jsonb blob, no queryable columns — every predicate is
+      // evaluated in-app over the rehydrated aggregate, and the bypassing find
+      // needs an unfiltered rehydrate that is NOT the scoped root read.
+      aggregate Note shape: document with tenantOwned, softDeletable, crudish {
+        body: string
+      }
+
+      repository Orders for Order {
+        // No clause: BOTH conjuncts.
+        find scoped(c: string): Order? where this.code == c
+        // Named bypass: the tenant conjunct goes, not-deleted stays.
+        find anyTenant(c: string): Order? where this.code == c ignoring tenantOwned
+        // `ignoring *`: both conjuncts go.
+        find unfiltered(c: string): Order? where this.code == c ignoring *
+      }
+
+      repository Notes for Note {
+        find scopedNote(b: string): Note? where this.body == b
+        find anyTenantNote(b: string): Note? where this.body == b ignoring tenantOwned
+        find unfilteredNote(b: string): Note? where this.body == b ignoring *
+      }
+    }
+    context Accounts {
+      aggregate Organization with crudish {
+        name: string
+      }
+    }
+  }
+
+  api OrdersApi from Sales
+
+  storage pg { type: postgres }
+  resource ordersState { for: Orders, kind: state, use: pg }
+  resource accountsState { for: Accounts, kind: state, use: pg }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Orders, Accounts]
+    dataSources: [ordersState, accountsState]
+    serves: OrdersApi
+    port: 4000
+    auth: required
+  }
+}

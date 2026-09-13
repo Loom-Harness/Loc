@@ -25,10 +25,8 @@ import { operationBody, operationBodyUsesCurrentUser } from "../../../ir/util/op
 import { walkStmtExprsDeep } from "../../../ir/util/walk.js";
 import { lines } from "../../../util/code-builder.js";
 import { snake } from "../../../util/naming.js";
-import {
-  constructionSeededDefaults,
-  isServerSourcedDefault,
-} from "../../_frontend/server-default.js";
+import { isServerSourcedDefault } from "../../_frontend/server-default.js";
+import { constructionSeededFields } from "../../construction-default.js";
 import { provColumn, provenancedFieldsOf } from "../emit/provenance.js";
 import { externHookCall, externHookModuleName } from "../extern-builder.js";
 import { emptyPyTypeImports, visitPyTypeImports } from "../py-type-imports.js";
@@ -264,9 +262,14 @@ export function renderPyAggregate(
   const bodyUsesCast = /\bcast\(/.test(body);
   // Domain-service calls render as bare functions (`quote(...)`), so the
   // aggregate module imports them by name from app.domain.services.* —
-  // collected from every operation / applier / es-create body.
+  // collected from every operation / applier / es-create body.  The BODY, not
+  // `op.statements`: an operation's LEADING `requires` run is hoisted to the
+  // calling route (op-gates.ts), which imports what the gate needs itself
+  // (`domainServiceImportLinesForExprs`, ledger row F2-CB-C7) — collecting it
+  // here too left `from app.domain.services.… import …` unused in the
+  // aggregate module (ruff F401 under the corpus python leg).
   const serviceImports = domainServiceImportLines([
-    ...shapes.flatMap((s) => s.operations.flatMap((op) => op.statements)),
+    ...shapes.flatMap((s) => s.operations.flatMap((op) => operationBody(op))),
     ...shapes.flatMap((s) => (s.appliers ?? []).flatMap((ap) => ap.statements)),
     ...shapes.flatMap((s) => s.esCreate?.statements ?? []),
   ]);
@@ -823,12 +826,15 @@ function renderEntity(
         : `${snake(f.name)}: ${renderPyType(f.type)}`;
     });
     // Server-seeded literal defaults (RS-11): a field outside the create-input
-    // set (`token`/`managed`/`internal`) whose default is a plain constant —
-    // the `versioned` capability's `version: int token = 1` is the canonical
-    // case — must be constructed at its declared default, not the type zero, or
-    // the created aggregate reads back at version 0 instead of 1.
+    // set (`token`/`managed`/`internal`) whose default is a construction-time
+    // constant — the `versioned` capability's `version: int token = 1` is the
+    // canonical case — must be constructed at its declared default, not the
+    // type zero, or the created aggregate reads back at version 0 instead of 1.
+    // `money` counts: `renderPyExpr` emits `Decimal("2.50")`, so a
+    // `mm: money managed = money("2.50")` no longer lands as `None` under a
+    // `Decimal` annotation.
     const defaultSeeds = new Map(
-      constructionSeededDefaults(e.fields).map((f) => [f.name, renderPyExpr(f.default)]),
+      constructionSeededFields(e.fields).map((f) => [f.name, renderPyExpr(f.default)]),
     );
     const fieldInit = (f: FieldIR): string => {
       if (inputNames.has(f.name)) {
