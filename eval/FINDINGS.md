@@ -342,6 +342,54 @@ unconditionally, so the existing gate refuses the model with its existing messag
 per-backend patch to `renderStampValue` — which would paper over a missing refusal by stamping nil.
 Planned as slice 2; see `FIX-PLAN.md` §3.8.
 
+### F-047 — 122 of the AST layer's 320 diagnostics carry no `loom.*` code, so all three diagnostic gates skip them
+Severity: S2 (major — a gate that cannot see 38% of its own surface)   Class: **SILENT**
+Area: language/validators × the diagnostic-quality gates
+Found: 2026-09-13, following the F-031 correction. **Not one of the original 45.**
+
+F-031's message-text half has since been **fixed on `main`** (the Feliz `design:` diagnostic now
+says the theme must be a QUOTED string and shows `design: "light"`). The other half of that
+correction — *"the message is an inline literal carrying **no `loom.*` code at all**, so it is
+invisible to `diagnostic-catalog.test.ts` and `diagnostic-docs-anchors.test.ts`"* — is still true,
+and is not one message.
+
+Measured with the TypeScript AST over exactly the files `diagnostic-catalog.test.ts` scans
+(`catalogedSources()` → `src/language/validators/` + `src/ir/validate/checks/`), counting
+`accept("<severity>", …)` call sites and asking whether any argument is an object literal with a
+`code` property:
+```
+sites scanned:                320
+…attaching NO `code:` at all: 122      (38%)
+
+  24  src/language/validators/deployable.ts
+  22  src/language/validators/statements.ts
+  21  src/language/validators/ui.ts
+  15  src/language/validators/types.ts
+  12  src/language/validators/match.ts
+   9  src/language/validators/datasource.ts
+   9  src/language/validators/traceability.ts
+   7  src/language/validators/structural.ts
+   …
+```
+**All 122 are in the AST layer (phase ④). `src/ir/validate/checks/` (phase ⑦) is 100% coded.** So
+this is not a design decision that some diagnostics are codeless — it is one layer that was never
+migrated, while the other was.
+
+**Why the gates miss them — it is the conditional, not an oversight.** `diagnostic-catalog.test.ts`
+invariant 1 is *"a diagnostic site that **attaches a `loom.* code**` must render its text from
+`src/diagnostics/messages.ts`"*. A site with **no** code satisfies it vacuously. Same for
+`diagnostic-docs-anchors.test.ts` (keyed by code) and `diagnostic-firing-census.test.ts` (a firing
+fixture **per code**). The repo built three gates for diagnostic quality and 38% of the surface is
+outside all three — which is why F-031's message could ship advice that did not parse, and why
+`test/system/diagnostic-catalog.test.ts` stayed green while it did.
+
+For the user this is not cosmetic: a codeless diagnostic cannot be suppressed, documented, looked up,
+or asserted on by code in a test — `ddd parse` prints it as prose and nothing else can address it.
+
+Mission-sized (122 sites, each needing a code, a catalog entry, a docs anchor and a firing fixture),
+so not bundled into wave 0. The cheap first move is the **ratchet**: add an invariant asserting the
+codeless count never rises, with today's 122 as the pinned baseline — then it can only fall.
+
 ### F-010 — Deny-by-default forces you to write the exact construct the linter deprecates
 Severity: S3 (friction)   Class: HONEST (two rules, both documented, that contradict each other)
 Area: auth × repository lint

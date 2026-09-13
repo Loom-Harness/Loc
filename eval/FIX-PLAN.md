@@ -320,6 +320,33 @@ missing refusal by stamping nil into NOT NULL columns. Needs a corpus sweep firs
 other new-gate work. The java half carries two extra emitter defects (`UserId` referenced but never
 emitted; `@CreatedDate` where `@CreatedBy` belongs) that survive either ruling and are java's to fix.
 
+### 3.9 F-047 — 122 AST-layer diagnostics carry no code, so all three diagnostic gates skip them
+
+**Found after the F-031 correction, not during the evaluation.** F-031's message-text half is now
+**fixed on `main`** — the Feliz `design:` diagnostic says the theme must be a QUOTED string and shows
+`design: "light"`. The other half stands and is much larger than one message.
+
+Measured with the TypeScript AST over exactly the files `diagnostic-catalog.test.ts` scans:
+**122 of 320** `accept("<severity>", …)` sites attach no `code:` at all — `deployable.ts` 24,
+`statements.ts` 22, `ui.ts` 21, `types.ts` 15, `match.ts` 12, … **All 122 are in the AST layer;
+`src/ir/validate/checks/` is 100% coded.** One layer was never migrated while its sibling was.
+
+The gates miss them by construction, not by oversight: catalog invariant 1 is *"a site that
+**attaches a code** must render from the catalog"*, and a codeless site satisfies it vacuously — as
+do the docs-anchor gate (keyed by code) and the firing census (a fixture per code). Three gates for
+diagnostic quality; 38% of the surface outside all three. That is why F-031 could ship advice that
+did not parse with `diagnostic-catalog.test.ts` green.
+
+**Landed now: the ratchet** — `test/system/diagnostic-code-coverage.test.ts`, one file, no source
+change, no CI leg. It pins today's count per layer and fails if it *rises*; when a PR adds a code it
+must lower the baseline in the same PR (a stale baseline fails too, the repo's own waiver
+convention). It also pins `src/ir/validate/checks/` at **zero**, which is both the proof the target
+is achievable and the thing the AST layer migrates toward.
+
+**Not landed: the migration.** 122 sites × (code + catalog entry + docs anchor + firing fixture) is
+mission-sized and should be minted as one, drained per-file. `deployable.ts`, `statements.ts` and
+`ui.ts` are 67 of the 122 between them.
+
 ### 3.7 What is genuinely structural (agent I's ruling)
 
 Agent I was asked to plan fixes for the seven "structural limits" in the report. Its ruling materially
