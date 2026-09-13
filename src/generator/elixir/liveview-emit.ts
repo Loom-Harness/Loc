@@ -44,7 +44,7 @@ import {
 } from "../../ir/util/page-kind.js";
 import { isFrontendReadableProjection } from "../../ir/util/projection-read.js";
 import { listReadGate } from "../../ir/util/read-gates.js";
-import { lowerFirst, plural, snake, upperFirst } from "../../util/naming.js";
+import { elixirString, lowerFirst, plural, snake, upperFirst } from "../../util/naming.js";
 import {
   E2E_FIXTURES_TS,
   E2E_PACKAGE_JSON_PHOENIX,
@@ -1785,7 +1785,11 @@ function renderWorkflowEventClauses(
       ? `%{\n${params
           .map(
             (pp) =>
-              `      ${JSON.stringify(pp.name)} => __wf_param(Map.get(raw, ${JSON.stringify(
+              // Through the backend's escape funnel, not `JSON.stringify` — the
+              // census's rule, and these two ARE Elixir string literals (the
+              // wire key the workflow module destructures, and the form field
+              // name the browser submits).
+              `      ${elixirString(pp.name)} => __wf_param(Map.get(raw, ${elixirString(
                 snake(pp.name),
               )}), :${wfParamKind(pp.type)})`,
           )

@@ -497,7 +497,6 @@ const WAIVERS: Record<string, string> = {
   "src/generator/elixir/dispatch-emit.ts#visitStmt": TRAVERSAL_TIME_BOXED,
   "src/generator/elixir/vanilla/explicit-handlers-emit.ts#collectRecordFieldsInStmt":
     TRAVERSAL_TIME_BOXED,
-  "src/generator/elixir/vanilla/function-emit.ts#bodyExprs": TRAVERSAL_TIME_BOXED,
   "src/generator/elixir/vanilla/provenance-emit.ts#collectVanillaLeaves": TRAVERSAL_TIME_BOXED,
   "src/generator/elixir/vanilla/tests-emit.ts#childExprs": TRAVERSAL_TIME_BOXED,
   "src/generator/elixir/vanilla/workflow-execution-emit.ts#collectParamRefs": TRAVERSAL_TIME_BOXED,

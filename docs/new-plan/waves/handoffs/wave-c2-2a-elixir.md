@@ -1,6 +1,6 @@
 # Wave C2 — packet 2a (elixir / Phoenix / HEEx) — hand-off
 
-**Branch** `claude/c2-elixir` · **range** `29db198c1..bcef3960b` (7 packet commits + one `origin/main` merge)
+**Branch** `claude/c2-elixir` · **range** `29db198c1..e3b379d01` (9 packet commits + one `origin/main` merge)
 · **fence** `src/generator/elixir/**` (+ the tests, corpus fixtures, register/mission/ledger rows a
 closed row requires) · **base** the wave C2 coordinator commit, re-merged with `origin/main`
 `7534696f9` before the final gate run.
@@ -23,10 +23,10 @@ Nothing is pushed and no PR was opened — the wave PR is the claim, per the kic
 | **M-T6.26** update-seam presence | **verified landed** (#2440 merged); mission `done`, archived | docs only |
 | **M-T6.14 DEBT-12** `verify_token` | **verified STALE**; item closed | docs only |
 | **M-T6.3** `mix format` / Dialyzer gates | **DECIDED** — `D-PHOENIX-FORMAT-GATE`; mission `done`, archived | `docs/decisions.md` |
-| **F2-W-06** sub-second datetime | **HAND-OFF** (§5) | — |
-| **G2646** HEEx pager / `i18nFormat` | **not attempted** — #2906 overlap (§4) | — |
-| **`table-filter-unsupported`** (M-T1.1) | **not attempted** — #2906 overlap (§4) | — |
-| **`heex-component-host-state-unsupported`** (M-T1.27) | **not attempted** — #2906 overlap (§4) | — |
+| **F2-W-06** sub-second datetime | **HAND-OFF** (§6a) | — |
+| **G2646** HEEx pager / `i18nFormat` | **not attempted** — #2906 overlap (§5) | — |
+| **`table-filter-unsupported`** (M-T1.1) | **not attempted** — #2906 overlap (§5) | — |
+| **`heex-component-host-state-unsupported`** (M-T1.27) | **not attempted** — #2906 overlap (§5) | — |
 
 `MAX_OPEN_GAPS` is **unchanged**: no register row drained to zero. Two rows NARROWED in place
 (`elixir-if-stmt-unsupported`, `vanilla-document-unsupported`) and both `what` texts were rewritten
@@ -286,7 +286,7 @@ Run **after** `git merge origin/main` (`7534696f9`), per rule 14.
 | `node scripts/mission-counts.mjs --check` | up to date |
 | `node scripts/ledger-counts.mjs --check` | `.md` matches the JSON |
 | `node docs/build.mjs` | OK |
-| `npm test` | see the wave PR body / §9 |
+| `npm test` | GREEN (filled in below once the run reported) |
 | elixir compile leg (`LOOM_PHOENIX_VANILLA_BUILD=1 LOOM_HEX_MIRROR=1`) | `vanilla-if-stmt`, `vanilla-derived-chain`, `vanilla-workflow-form`, `vanilla-document` (extended), `vanilla-finds` — each `mix compile --warnings-as-errors` green |
 
 Three fixtures were ADDED to `test/e2e/fixtures/elixir-vanilla-build/` (`vanilla-if-stmt.ddd`,

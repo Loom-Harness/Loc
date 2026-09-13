@@ -257,34 +257,50 @@ function validateElixirIfSupport(loom: EnrichedLoomModel, diags: LoomDiagnostic[
         // `diagMessage("<key>", …)` (or a two-arm ternary of them), so a
         // slug chosen in a local variable would read as inline wording.
         const push = (where: string, slug: ElixirIfRefusal): void => {
-          const params = { where, name: depName };
+          // Each `diagMessage` takes an OBJECT LITERAL rather than a shared
+          // `params` variable: `diagnostic-message-hygiene.test.ts` checks that
+          // the params a site passes agree with the ones the catalog entry
+          // reads, and a variable is opaque to that check (it would need a
+          // waiver instead).
           const source = `${ctx.name}/${where}`;
           if (slug === "return-in-branch") {
             diags.push({
               severity: "error",
               code: "loom.elixir-if-stmt-unsupported",
-              message: diagMessage("loom.elixir-if-stmt-unsupported#return-in-branch", params),
+              message: diagMessage("loom.elixir-if-stmt-unsupported#return-in-branch", {
+                where,
+                name: depName,
+              }),
               source,
             });
           } else if (slug === "guard-in-branch") {
             diags.push({
               severity: "error",
               code: "loom.elixir-if-stmt-unsupported",
-              message: diagMessage("loom.elixir-if-stmt-unsupported#guard-in-branch", params),
+              message: diagMessage("loom.elixir-if-stmt-unsupported#guard-in-branch", {
+                where,
+                name: depName,
+              }),
               source,
             });
           } else if (slug === "event-sourced") {
             diags.push({
               severity: "error",
               code: "loom.elixir-if-stmt-unsupported",
-              message: diagMessage("loom.elixir-if-stmt-unsupported#event-sourced", params),
+              message: diagMessage("loom.elixir-if-stmt-unsupported#event-sourced", {
+                where,
+                name: depName,
+              }),
               source,
             });
           } else {
             diags.push({
               severity: "error",
               code: "loom.elixir-if-stmt-unsupported",
-              message: diagMessage("loom.elixir-if-stmt-unsupported#branch-statement", params),
+              message: diagMessage("loom.elixir-if-stmt-unsupported#branch-statement", {
+                where,
+                name: depName,
+              }),
               source,
             });
           }
