@@ -67,6 +67,7 @@ What was actually executed:
 | `npx tsc --noEmit` on the generated backend | ❌ 3 errors (F1, F2) |
 | `uv run mypy` on the generated backend | ❌ 6 errors (F1, F2) |
 | Mutation proofs (domain guard / projection fold / rendered field) | ✅ all three tiers go red |
+| `docker compose up -d --build` of the generated stack | ⛔ **not completed** — `npm install` inside the image fails `SELF_SIGNED_CERT_IN_CHAIN` against the sandbox's agent proxy. A documented environment limitation (`/root/.ccr/README.md` § "docker build"), not a Loom defect; the fix would require editing the generated Dockerfile, i.e. no longer testing the shipped artifact. The backend and frontend were booted natively instead. |
 
 ---
 
