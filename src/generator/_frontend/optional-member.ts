@@ -49,9 +49,27 @@ function receiverIsOptional(spec: MemberReadSpec): boolean {
 function apiReadFieldType(spec: MemberReadSpec): TypeIR | undefined {
   const recv = spec.receiverExpr;
   const ctx = spec.ctx;
-  if (!recv || !ctx || recv.kind !== "member") return undefined;
-  const agg = recordAggregate(recv.receiver, ctx);
-  return agg?.fields.find((f) => f.name === recv.member)?.type;
+  if (!recv || !ctx) return undefined;
+  return apiReadMemberType(recv, ctx);
+}
+
+/** The DECLARED field type behind an api-read member expression — `row.origin`
+ *  off a list row, `cargoById.data.lastKnownLocation` off a detail page's
+ *  `byId` binding — or `undefined` when the chain resolves to no known
+ *  aggregate field.
+ *
+ *  The public half of the resolution {@link optionalChainedMemberRead}
+ *  performs on a read's RECEIVER, exported because the same question — "is the
+ *  value this page-body expression reads declared optional?" — is what the
+ *  `IdLink` null guard (`_walker/primitives/id-link.ts`) has to answer about a
+ *  cross-aggregate reference before it decides whether to emit a link at all.
+ *  Answering it off the aggregate registry rather than the IR's `memberType`
+ *  is not an optimisation: a page body's record chain is UNTYPED in the IR, so
+ *  an optional `Location id?` and a required one both arrive as `string`. */
+export function apiReadMemberType(expr: ExprIR, ctx: WalkContext): TypeIR | undefined {
+  if (expr.kind !== "member") return undefined;
+  const agg = recordAggregate(expr.receiver, ctx);
+  return agg?.fields.find((f) => f.name === expr.member)?.type;
 }
 
 /** The aggregate an expression evaluates to ONE RECORD of, or undefined. */

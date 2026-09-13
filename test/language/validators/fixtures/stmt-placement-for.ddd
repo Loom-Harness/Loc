@@ -1,0 +1,29 @@
+// REFUSED SHAPE — `loom.for-placement` (M-T5.28 / audit F4).
+//
+// `for … in …` in an aggregate `operation` body.  Before the gate this
+// validated clean and every backend emitted a call to a method that does not
+// exist: `this.<unknown>()` (node / .NET / Java), `self._<unknown>()` (Python),
+// `_ = <unknown>(record)` (Elixir).
+//
+// This is the HONEST-GAP half of the mission (ruling D-FOR-IN-DOMAIN): the
+// refusal names its successor mission (M-T5.30) rather than claiming a design
+// rule.  See the sibling `stmt-placement-variant-match.ddd` header for why
+// refusal fixtures do not live in `test/fixtures/corpus/`.
+system ForPlacement {
+  subdomain D {
+    context Shop {
+      aggregate Order {
+        code: string
+        notes: string[]
+        operation touch() {
+          for n in notes { code := n }
+        }
+      }
+      repository Orders for Order { }
+    }
+  }
+  api A from D
+  storage primary { type: postgres }
+  resource st { for: Shop, kind: state, use: primary }
+  deployable d { platform: node, contexts: [Shop], dataSources: [st], serves: A, port: 4000 }
+}

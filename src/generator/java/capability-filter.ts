@@ -26,7 +26,16 @@
 // PRINCIPAL (tenancy) filters are excluded from this module: they can't ride
 // `@SQLRestriction` (no static principal), so they are AND-ed into the per-query
 // JPQL in `emit/repository.ts`; their bypass is handled there by omitting the
-// conjunct (exactly like node), keyed on `contextFilterOrigins`.
+// conjunct (exactly like node), keyed on `contextFilterOrigins`.  The same rule
+// runs IN-APP in `emit/document-store.ts` (a jsonb blob has no queryable
+// columns, so every predicate — principal or not — is a stream `.filter`).
+// This paragraph described the intent before it described the code: until
+// M-T6.54 F18 both of those sites ANDed the principal conjunct unconditionally,
+// so `find … ignoring tenantOwned` silently kept returning only the caller's
+// tenant while `FILTER_BYPASS_FAMILIES` listed `java`.  Keep the claim and the
+// code together — `test/generator/java/generator-java-find-bypass-principal.test.ts`
+// asserts the ABSENCE of the conjunct per surface, which is the only assertion
+// shape that can see a retained one.
 //
 // The triage is a DERIVED fact (read-decls × `contextFilterOrigins`), computed
 // here at codegen — never stamped on the IR.  The bypass SET (capability names)

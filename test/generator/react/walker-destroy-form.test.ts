@@ -5,7 +5,7 @@
 // via `then: navigate(<Page>)`).
 
 import { describe, expect, it } from "vitest";
-import { generateSystemFiles } from "../../_helpers/index.js";
+import { generateSystemFiles, generateSystemFilesUnchecked } from "../../_helpers/index.js";
 
 const sys = (body: string, aggExtras = ""): string => `
   system S {
@@ -68,7 +68,14 @@ describe("DestroyForm — canonical destroy confirmation", () => {
   });
 
   it("renders a visible placeholder for an aggregate without a canonical destroy", async () => {
-    const files = await generateSystemFiles(`
+    // Emitting from a REJECTED model on purpose: `loom.destroy-form-of-unresolved`
+    // (M-T1.31) now rejects `DestroyForm { of: <no canonical destroy> }` at
+    // phase ⑦, and this leg's subject is precisely what the walker does when it
+    // is reached anyway — the give-up comment is the belt to that brace, so it
+    // must keep being asserted.  (Same pattern as `flutter/store.test.ts`'s
+    // `genUnchecked`.)
+    const files = await generateSystemFilesUnchecked(
+      `
       system S {
         subdomain M { context C {
           aggregate Note { text: string }
@@ -88,7 +95,9 @@ describe("DestroyForm — canonical destroy confirmation", () => {
           ui: WebApp
           port: 3001 }
       }
-    `);
+    `,
+      "the give-up branch under test is only reachable from a model loom.destroy-form-of-unresolved rejects",
+    );
     const page = files.get("web/src/pages/note_admin.tsx")!;
     expect(page).toContain("DestroyForm(of: Note): no canonical destroy");
   });
