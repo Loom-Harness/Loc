@@ -1183,12 +1183,28 @@ whose value object carries a value object fails at runtime on python, on both
 the read and the write half.** Nothing to do with optionality. This is the most
 severe of the late findings and has no PR.
 
-**dotnet may emit a shadowed lambda parameter for the same shape.**
-`ownedVoLines` recurses with the builder name hard-coded to `o`, so a VO inside a
-VO emits `o.OwnsOne<Geo>(x => x.Geo, o => { … })` — the inner lambda parameter
-shadows the enclosing one, which reads as **CS0136**. It ships today and
-`test/generator/dotnet/part-valueobject-columns.test.ts:100` asserts that exact
-output for a VO on a containment part, so either the scoping reading is wrong or
-no corpus fixture reaches the shape. **Unsettled** — no .NET toolchain on this
-host — and correctly not put into a compile gate on a guess. Settling it needs
-one `dotnet build` on a box that has the SDK.
+**dotnet — the CS0136 reading was WRONG, and is now settled.**
+
+> **CORRECTED 2026-09-13 by #2901.** I read `ownedVoLines`' hard-coded `o`
+> builder name as a shadowing error (`o.OwnsOne<Geo>(x => x.Geo, o => { … })`).
+> Settled empirically rather than argued: the fixture's project builds
+> `/warnaserror` on `mcr.microsoft.com/dotnet/sdk:10.0` with **0 errors**, and a
+> minimal `Run(o => { Run(o => {…}); })` repro builds clean — nested
+> lambda-parameter shadowing is legal on this language version. The shape had
+> already shipped via containment-part VOs, which is why the existing test
+> asserted it. **No emitter change.** A test now records the settlement and pins
+> what the compile does *not* prove: the accumulated column prefix
+> (`home_geo_lat`), asserted against the migration from the same emission.
+
+**java — a NEW defect the fixture found, which the audit had cleared.**
+
+> Also 2026-09-13. `collectVoNames` (`src/generator/java/emit/service.ts`) walked
+> `array` and `optional` but **not a VO's own fields**, so `toAddr` called a
+> `toGeo` that was never emitted — `javac: cannot find symbol: method
+> toGeo(GeoRequest)`.
+>
+> The audit had read java as **correct** on nested VOs. It was correct about the
+> half it looked at — the JPA `@AttributeOverride` persistence mapping really is
+> right. The break is on the **request → domain** path, which that inspection
+> never reached. Checking one half of a backend and reporting the backend is the
+> same mistake as trusting a reduction: the sample was not the population.
