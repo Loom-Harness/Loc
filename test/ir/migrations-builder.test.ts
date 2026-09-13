@@ -2596,3 +2596,277 @@ system P {
     expect(renderEctoStep(orders).join("\n")).not.toContain("lines");
   });
 });
+
+// ---------------------------------------------------------------------------
+// M-T2.16 / #2864 G1 — a scalar-literal field default reaches the DDL, inside
+// the ADD-COLUMN diff and nowhere else (decision D-3, the middle path).
+//
+// `status: string = "pending"` used to emit `"status" TEXT NOT NULL` with no
+// DEFAULT anywhere, so the obvious way to add a required column to a live table
+// tripped the destructive gate: the author had to pass --allow-destructive and
+// hand-fill the `-- TODO backfill` comment, or restate the same value in a
+// `migration "…" { A.status = "pending" }` block.
+//
+// D-3 rejects a persistent column default — it would be a second source of
+// truth for a value the domain layer owns, and rows written outside the app
+// would silently acquire domain semantics — and takes the middle path: emit the
+// DEFAULT only inside the add-column diff, so Postgres backfills the existing
+// rows in the one statement, then DROP DEFAULT in the SAME migration.  Three
+// things must therefore hold at once, which is what this block pins:
+//
+//   1. the initial CREATE TABLE is UNCHANGED — no DEFAULT;
+//   2. the add-column diff carries DEFAULT, then drops it;
+//   3. the add is not destructive — no flag, no TODO comment;
+//
+// and the column that results is identical to one a fresh CREATE TABLE lays
+// down, so a database grown by migration and one built from scratch agree.
+// ---------------------------------------------------------------------------
+describe("field defaults reach the add-column diff only (M-T2.16)", () => {
+  const src = (aggBody: string, extra = "") => `
+system P {
+  subdomain S {
+    context C {
+      enum Tier { Free, Pro }
+      aggregate A { ${aggBody} }
+      repository As for A { }
+    }
+  }
+  deployable api { platform: node, contexts: [C], port: 3000 }
+}
+${extra}
+`;
+  const BASE = src("name: string");
+  const EVOLVED = src('name: string  status: string = "pending"');
+
+  async function snapOf(s: string) {
+    const loom = await buildLoomModel(s);
+    return schemaFromModule(loom.systems[0]!.subdomains[0]!);
+  }
+  /** The diff as the CLI finally emits it — through the same policy gate
+   *  `buildMigrations` applies, with the destructive flag OFF. */
+  async function evolve(from: string, to: string) {
+    const prev = await snapOf(from);
+    return applyDestructivePolicy(diffSchema(prev, await snapOf(to)), prev, {
+      allowDestructive: false,
+      module: "S",
+    });
+  }
+
+  it("the initial CREATE TABLE gains NO default — the column is as it was", async () => {
+    const steps = diffSchema(null, await snapOf(EVOLVED));
+    const create = steps.find((s) => s.op === "createTable" && s.table.name === "as") as Extract<
+      MigrationStep,
+      { op: "createTable" }
+    >;
+    // The literal IS on the derived shape — otherwise this passes for the
+    // wrong reason — it just isn't the column's `default`, which is the only
+    // field any CREATE TABLE renderer reads.
+    const status = create.table.columns.find((c) => c.name === "status")!;
+    expect(status.addColumnDefault).toBe("'pending'");
+    expect(status.default).toBeUndefined();
+    expect(renderPgStep(create)).toContain(`"status" TEXT NOT NULL`);
+    expect(renderPgStep(create)).not.toContain("DEFAULT 'pending'");
+    expect(renderEctoStep(create).join("\n")).not.toContain("pending");
+  });
+
+  it("the add-column diff sets the DEFAULT and drops it in the same migration", async () => {
+    const steps = await evolve(BASE, EVOLVED);
+    expect(steps.map((s) => s.op)).toEqual(["addColumn", "alterColumnDefault"]);
+    expect(steps.map(renderPgStep)).toEqual([
+      `ALTER TABLE "as" ADD COLUMN "status" TEXT NOT NULL DEFAULT 'pending';`,
+      `ALTER TABLE "as" ALTER COLUMN "status" DROP DEFAULT;`,
+    ]);
+  });
+
+  it("the add is NOT destructive — no --allow-destructive, no TODO backfill", async () => {
+    const prev = await snapOf(BASE);
+    const raw = diffSchema(prev, await snapOf(EVOLVED));
+    expect(() =>
+      applyDestructivePolicy(raw, prev, { allowDestructive: false, module: "S" }),
+    ).not.toThrow();
+    const steps = await evolve(BASE, EVOLVED);
+    expect(steps.some((s) => s.op === "sqlComment")).toBe(false);
+    // The control: the same add WITHOUT a default is still gated, so the test
+    // above is measuring the default and not some unrelated leniency.
+    const prev2 = await snapOf(BASE);
+    const rawNoDefault = diffSchema(prev2, await snapOf(src("name: string  status: string")));
+    expect(() =>
+      applyDestructivePolicy(rawNoDefault, prev2, { allowDestructive: false, module: "S" }),
+    ).toThrow(MigrationDestructiveError);
+  });
+
+  it("the column ends up exactly as a fresh CREATE TABLE lays it down", async () => {
+    // The point of the DROP DEFAULT: a database grown by migration and one
+    // built from scratch must not disagree about the schema.
+    const evolved = await snapOf(EVOLVED);
+    const grown = await evolve(BASE, EVOLVED);
+    const drop = grown.at(-1) as Extract<MigrationStep, { op: "alterColumnDefault" }>;
+    expect(drop).toMatchObject({ op: "alterColumnDefault", name: "status", to: undefined });
+    // `to: undefined` is what makes the renderers say DROP DEFAULT rather than
+    // SET DEFAULT NULL — a real NULL default and no default are different things.
+    const fresh = evolved.tables.find((t) => t.name === "as")!;
+    expect(fresh.columns.find((c) => c.name === "status")!.default).toBeUndefined();
+    // Re-deriving after the migration is a no-op: nothing keeps churning.
+    expect(diffSchema(evolved, evolved)).toEqual([]);
+  });
+
+  it("all five DB backends agree — four via renderPgStep, Ecto on the same steps", async () => {
+    // The four SQL backends (node/Drizzle, .NET/EF, java, python) all render the
+    // shared MigrationsIR through `renderPgStep`, so agreement there is
+    // structural.  Phoenix is the one that renders independently — and its
+    // `addColumn` arm dropped `default` on the floor before M-T2.16, which would
+    // have left Phoenix emitting a bare NOT-NULL add that fails on populated
+    // data while the other four succeeded.
+    const steps = await evolve(BASE, EVOLVED);
+    const ecto = steps.map((s) => renderEctoStep(s).join("\n"));
+    // A SQL string literal must reach Ecto through `fragment/1`: single quotes
+    // are a CHARLIST in Elixir, so a bare `default: 'pending'` would emit a
+    // Postgres integer array into the DDL.
+    expect(ecto[0]).toContain(`default: fragment("'pending'")`);
+    expect(ecto[0]).not.toMatch(/default: 'pending'/);
+    // The drop is the shared SQL verbatim, so the statement is identical to the
+    // one the four Postgres backends emit.
+    expect(ecto[1]).toBe(`execute("ALTER TABLE \\"as\\" ALTER COLUMN \\"status\\" DROP DEFAULT")`);
+  });
+
+  it("int, bool and enum defaults come through; the literal is SQL-quoted", async () => {
+    const withAll = src(
+      'name: string  hits: int = 0  live: bool = true  tier: Tier = Tier.Free  note: string = "it\'s"',
+    );
+    const steps = await evolve(BASE, withAll);
+    expect(steps.filter((s) => s.op === "addColumn").map(renderPgStep)).toEqual([
+      `ALTER TABLE "as" ADD COLUMN "hits" INTEGER NOT NULL DEFAULT 0;`,
+      `ALTER TABLE "as" ADD COLUMN "live" BOOLEAN NOT NULL DEFAULT TRUE;`,
+      `ALTER TABLE "as" ADD COLUMN "tier" TEXT NOT NULL DEFAULT 'Free';`,
+      // A quote in the value doubles, exactly as `sqlStr` writes it everywhere
+      // else — the default is SQL text, not an interpolated string.
+      `ALTER TABLE "as" ADD COLUMN "note" TEXT NOT NULL DEFAULT 'it''s';`,
+    ]);
+    // Each add is paired with its own drop, so no column keeps a default.
+    expect(steps.filter((s) => s.op === "alterColumnDefault").map(renderPgStep)).toEqual([
+      `ALTER TABLE "as" ALTER COLUMN "hits" DROP DEFAULT;`,
+      `ALTER TABLE "as" ALTER COLUMN "live" DROP DEFAULT;`,
+      `ALTER TABLE "as" ALTER COLUMN "tier" DROP DEFAULT;`,
+      `ALTER TABLE "as" ALTER COLUMN "note" DROP DEFAULT;`,
+    ]);
+  });
+
+  it("a non-literal default stays out — `now()` still trips the gate", async () => {
+    // D-3 restricts this to the scalar-literal subset.  `now()` is a function
+    // call, not a literal: `DEFAULT now()` would stamp every pre-existing row
+    // with the migration's clock, a domain fact the app layer owns.  It is also
+    // the boundary Postgres itself enforces for the other exclusions — a column
+    // default is evaluated with no row in scope, so it may not reference a
+    // sibling column the way a backfill UPDATE freely can.
+    const withNow = src("name: string  seenAt: datetime = now()");
+    const prev = await snapOf(BASE);
+    const raw = diffSchema(prev, await snapOf(withNow));
+    expect(
+      (raw[0] as Extract<MigrationStep, { op: "addColumn" }>).column.addColumnDefault,
+    ).toBeUndefined();
+    expect(() =>
+      applyDestructivePolicy(raw, prev, { allowDestructive: false, module: "S" }),
+    ).toThrow(MigrationDestructiveError);
+  });
+
+  it("an optional field's default is inert — a nullable add needs no backfill", async () => {
+    const steps = await evolve(BASE, src('name: string  status: string? = "pending"'));
+    expect(steps.map((s) => s.op)).toEqual(["addColumn"]);
+    expect(renderPgStep(steps[0]!)).toBe(`ALTER TABLE "as" ADD COLUMN "status" TEXT NULL;`);
+  });
+
+  it("a declared `migration` backfill WINS over a field default", async () => {
+    // Both could apply here.  The block wins: it is the author's explicit,
+    // reviewed statement about THIS migration, where a field default is a
+    // standing statement about every future row — and only the block can carry
+    // the per-row forms (a sibling-field ref, a ternary) a column default
+    // cannot hold at all.  So the add stays the block's nullable → UPDATE →
+    // SET NOT NULL sequence, with no DEFAULT and no DROP DEFAULT anywhere.
+    // Through `buildMigrations`, since that is what resolves the block.
+    const loom = await buildLoomModel(
+      src('name: string  status: string = "pending"', 'migration "m1" { A.status = "from-block" }'),
+    );
+    const sys = loom.systems[0]!;
+    const baseline: SchemaSnapshot = {
+      ...(await snapOf(BASE)),
+      lastVersion: BASE_TIMESTAMP,
+    };
+    const steps = buildMigrations(sys, memorySnapshotStore({ S: baseline }), {
+      backfillIntents: loom.backfillIntents,
+    })[0]!.steps;
+    expect(steps.map((s) => s.op)).toEqual(["addColumn", "backfillColumn", "alterColumnNullable"]);
+    expect(steps.map(renderPgStep)).toEqual([
+      `ALTER TABLE "as" ADD COLUMN "status" TEXT NULL;`,
+      `UPDATE "as" SET "status" = 'from-block' WHERE "status" IS NULL;`,
+      `ALTER TABLE "as" ALTER COLUMN "status" SET NOT NULL;`,
+    ]);
+    // The carrier is still on the step's column shape — it is simply never
+    // read once the block claimed the column, which is the honest shape of
+    // "the block wins": nothing downstream renders it.
+    expect(steps.map(renderPgStep).join("\n")).not.toContain("pending");
+    expect(steps.map((s) => renderEctoStep(s).join("\n")).join("\n")).not.toContain("pending");
+  });
+
+  it("reaches an entity PART's table, and a money literal keeps its scale", async () => {
+    // `mapField` is shared by every table the module derives, so a part table
+    // gets the same treatment as the root — the friction G1 describes is the
+    // same friction there.  `money` is the literal kind with a type of its own:
+    // it must land bare (not quoted) so the DECIMAL(19,4) column accepts it.
+    const withPart = (agg: string, part: string) => `
+system P {
+  subdomain S {
+    context C {
+      aggregate A {
+        name: string ${agg}
+        contains legs: Leg[]
+        entity Leg { code: string ${part} }
+      }
+      repository As for A { }
+    }
+  }
+  deployable api { platform: node, contexts: [C], port: 3000 }
+}
+`;
+    const prev = await snapOf(withPart("", ""));
+    const steps = applyDestructivePolicy(
+      diffSchema(prev, await snapOf(withPart('fee: money = money("10.50")', 'note: string = "x"'))),
+      prev,
+      { allowDestructive: false, module: "S" },
+    );
+    // Each add is immediately followed by its OWN drop — the rewrite expands
+    // one step in place, so the pair can never be separated by another table's
+    // DDL or left half-applied by a failure in between.
+    expect(steps.map(renderPgStep)).toEqual([
+      `ALTER TABLE "as" ADD COLUMN "fee" DECIMAL(19, 4) NOT NULL DEFAULT 10.50;`,
+      `ALTER TABLE "as" ALTER COLUMN "fee" DROP DEFAULT;`,
+      `ALTER TABLE "legs" ADD COLUMN "note" TEXT NOT NULL DEFAULT 'x';`,
+      `ALTER TABLE "legs" ALTER COLUMN "note" DROP DEFAULT;`,
+    ]);
+  });
+
+  it("the carrier never reaches the persisted snapshot", async () => {
+    // A snapshot records the schema as it existed last time we generated, and
+    // is a checked-in file an operator reads.  `addColumnDefault` describes the
+    // SOURCE — the column it hangs off provably has NO default once the
+    // migration is through — so writing it out would state something the
+    // database contradicts, and would rewrite every existing project's
+    // committed snapshot on the first regen after upgrade.
+    const evolved = await snapOf(EVOLVED);
+    expect(
+      evolved.tables.find((t) => t.name === "as")!.columns.find((c) => c.name === "status")!
+        .addColumnDefault,
+    ).toBe("'pending'"); // it IS on the in-memory shape the diff reads…
+    expect(serializeSnapshot(evolved)).not.toContain("addColumnDefault"); // …and not on disk
+    expect(serializeSnapshot(evolved)).not.toContain("pending");
+  });
+
+  it("editing a default on an EXISTING column emits nothing", async () => {
+    // There is no DB default to alter — the column never had one.  The new
+    // value governs rows the domain layer writes from here on, which is a
+    // runtime concern, not a schema one.
+    const v1 = src('name: string  status: string = "pending"');
+    const v2 = src('name: string  status: string = "queued"');
+    expect(diffSchema(await snapOf(v1), await snapOf(v2))).toEqual([]);
+    expect(await evolve(v1, v2)).toEqual([]);
+  });
+});
