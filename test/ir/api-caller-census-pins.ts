@@ -704,6 +704,14 @@ export const E2E_LESS_CORPUS_FIXTURES: readonly string[] = [
   // `extern` throws honest fail-fast, and asserting that 500 would pin the
   // scaffold instead of the feature.
   "extern",
+  // `extern-handlers` shares the fixture-shape blocker above but NOT its exit.
+  // Its whole surface is two ROUTED extern handlers (`route POST "/orders" ->
+  // Sales.PlaceOrder`, `route GET "/quotes/{sku}" -> Sales.GetQuote`), and a
+  // `test e2e` block cannot address a routed handler — see the measured
+  // `loom.e2e-unknown-aggregate` refusal recorded on `handler-triad` below.
+  // `extern`'s own drain is unaffected, because the half it names is aggregate
+  // OPERATIONS (`confirm` / `flag` / `cancel`), which `api.orders.<op>()`
+  // reaches once a row can be minted.
   "extern-handlers",
   // SIDECAR-BOUND, like `channels-broker`/`outbox`: the two routed handlers
   // exist precisely to issue objectStore / queue / mailer I/O, and the node
@@ -728,8 +736,27 @@ export const E2E_LESS_CORPUS_FIXTURES: readonly string[] = [
   // nothing can mint a row for `LoadOrder` / `CodeStatus` to read (the same
   // shape as `extern`'s pin).  The oracles that DO reach the bugs are the five
   // compile legs plus `test/generator/handler-triad.test.ts` (per backend,
-  // mutation-proven).  Drain: give `Order` a create, then drive `Echo` / `Sum`
-  // — the two pure-computation routes need no data at all.
+  // mutation-proven).
+  //
+  // THE DRAIN THIS ENTRY USED TO PRESCRIBE DOES NOT WORK, and the correction is
+  // the useful part of this note.  It said: "give `Order` a create, then drive
+  // `Echo` / `Sum` — the two pure-computation routes need no data at all".  The
+  // second half is true and irrelevant: a `test e2e` block cannot ADDRESS a
+  // routed handler at all.  `api.<slug>.<method>()` resolves to a projection or
+  // an aggregate and to nothing else (`matchApiCall` → `findProjectionBySlug` /
+  // `findAggregateBySlug` in `src/system/e2e-render.ts`), so `api.echo…` is
+  // refused outright — measured, not reasoned:
+  //
+  //     loom.e2e-unknown-aggregate: e2e: unknown aggregate 'api.echo' on this
+  //     deployable. Available aggregates: orders.
+  //
+  // So giving `Order` a create unblocks the two FIND-backed routes and still
+  // leaves `Echo`, `Sum` and `CountReplacing` undrivable — every route this
+  // fixture declares is a routed handler.  The real blocker is that routed
+  // handlers are a NOT-YET-LIFTED route class on the e2e surface, alongside the
+  // projection reads and workflow runs already in `UNATTRIBUTED_CALLS`; lifting
+  // them is an e2e-surface change and its own mission, not a fixture edit.
+  // (Found by wave-3 row 3.3 while picking this up as "the cheapest drain".)
   "handler-triad",
   // `lifecycle-guard` DRAINED — and, like `policy-document` before it, only
   // after the thing it was hiding was FIXED.  Its two named blockers both fell,
