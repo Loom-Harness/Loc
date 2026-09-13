@@ -89,6 +89,16 @@ interface RouteContract {
   successRef?: string;
   /** RFC 7807 error responses, ascending by status. */
   errors: RouteError[];
+  /** The 2xx this route actually ANSWERS, when springdoc's inferred one is
+   *  wrong.  springdoc reads the declared return type — a create returns
+   *  `ResponseEntity<Create<Agg>Response>`, so it published `200` while
+   *  `ResponseEntity.created(...)` answers `201`, a status the contract
+   *  declared nowhere (node/python/dotnet all publish `201`).
+   *  `@ResponseStatus` is what springdoc reads for the 204 routes; it is
+   *  IGNORED at runtime on a method returning `ResponseEntity`, so putting one
+   *  on the create would fix the document by annotating a lie.  Re-keying the
+   *  inferred success response here keeps the controller honest. */
+  successStatus?: number;
   /** operationId override — the canonical id the other backends emit, when
    *  springdoc's controller-derived default diverges (workflow command routes
    *  carry a `Workflow` suffix).  Undefined for
@@ -248,6 +258,7 @@ export function buildJavaOpenApiContract(
           method: "post",
           path: pathOf(createEntry),
           errors: err([...createEntry.errorStatuses]),
+          successStatus: 201,
         });
         const createInput = agg.createInput ?? [];
         for (const c of createInput) noteEnumRefs(c.field.type, c.field.name);
@@ -559,7 +570,8 @@ export function renderJavaOpenApiCustomizer(basePkg: string, contract: Contract)
     const wrapperRef = r.listWrapper ?? r.successRef;
     const wrapperArg = wrapperRef ? JSON.stringify(wrapperRef) : "null";
     const opIdArg = r.operationId ? JSON.stringify(r.operationId) : "null";
-    return `        new Route(${JSON.stringify(r.method)}, ${JSON.stringify(r.path)}, ${wrapperArg}, ${statusArr}, ${opIdArg}),`;
+    const successArg = String(r.successStatus ?? 0);
+    return `        new Route(${JSON.stringify(r.method)}, ${JSON.stringify(r.path)}, ${wrapperArg}, ${statusArr}, ${opIdArg}, ${successArg}),`;
   });
   const wrapperLiterals = contract.wrappers.map(
     (w) => `        new Wrapper(${JSON.stringify(w.wrapper)}, ${JSON.stringify(w.element)}),`,
@@ -629,7 +641,7 @@ export function renderJavaOpenApiCustomizer(basePkg: string, contract: Contract)
     `    private static final String PROBLEM_JSON = ${JSON.stringify(PROBLEM_JSON)};`,
     `    private static final String PROBLEM_SCHEMA = ${JSON.stringify(PROBLEM_SCHEMA)};`,
     ``,
-    `    private record Route(String method, String path, String wrapper, int[] statuses, String operationId) {}`,
+    `    private record Route(String method, String path, String wrapper, int[] statuses, String operationId, int successStatus) {}`,
     `    private record Wrapper(String name, String element) {}`,
     `    private record EnumComponent(String name, List<String> values) {}`,
     `    private record EnumProp(String property, String enumName) {}`,
@@ -678,6 +690,7 @@ export function renderJavaOpenApiCustomizer(basePkg: string, contract: Contract)
     `                Operation op = operationFor(item, route.method());`,
     `                if (op == null) continue;`,
     `                normalizeSuccess(op, route.wrapper());`,
+    `                retargetSuccess(op, route.successStatus());`,
     `                addErrors(op, route.statuses());`,
     `                if (route.operationId() != null) op.setOperationId(route.operationId());`,
     `            }`,
@@ -712,6 +725,34 @@ export function renderJavaOpenApiCustomizer(basePkg: string, contract: Contract)
     `            normalized.addMediaType(JSON, media);`,
     `            resp.setContent(normalized);`,
     `        }`,
+    `    }`,
+    ``,
+    `    /** Re-key the inferred 2xx to the status the route actually answers.`,
+    `     *  springdoc derives it from the controller's return TYPE, which cannot`,
+    `     *  see ResponseEntity.created(...) — so a create published 200 and then`,
+    `     *  answered an undeclared 201. */`,
+    `    private static void retargetSuccess(Operation op, int status) {`,
+    `        if (status == 0 || op.getResponses() == null) return;`,
+    `        ApiResponses responses = op.getResponses();`,
+    `        String want = String.valueOf(status);`,
+    `        if (responses.containsKey(want)) return;`,
+    `        String found = null;`,
+    `        for (String code : responses.keySet()) {`,
+    `            if (code.startsWith("2")) { found = code; break; }`,
+    `        }`,
+    `        if (found == null) return;`,
+    `        ApiResponse resp = responses.remove(found);`,
+    `        resp.setDescription(successTitleFor(status));`,
+    `        responses.addApiResponse(want, resp);`,
+    `    }`,
+    ``,
+    `    private static String successTitleFor(int status) {`,
+    `        return switch (status) {`,
+    `            case 201 -> "Created";`,
+    `            case 202 -> "Accepted";`,
+    `            case 204 -> "No Content";`,
+    `            default -> "OK";`,
+    `        };`,
     `    }`,
     ``,
     `    /** Declare the RFC 7807 error responses for an operation. */`,

@@ -51,16 +51,56 @@ describe("gap ledger counts are derived, not hand-typed (§91)", () => {
     expect(md).toContain(`| open rows | **${counts.open}** |`);
   });
 
-  it("every open/done/claimed id is unique and every id started in exactly one bucket", () => {
+  it("every open/done/claimed/declined id is unique and every id sits in exactly one bucket", () => {
     const ledger = loadLedger();
     const seen = new Map<string, string>();
-    for (const bucket of ["open", "done", "claimed"] as const) {
-      for (const row of ledger[bucket] as Array<{ id: string }>) {
+    for (const bucket of ["open", "done", "claimed", "declined"] as const) {
+      for (const row of (ledger[bucket] ?? []) as Array<{ id: string }>) {
         const prior = seen.get(row.id);
         expect(prior, `"${row.id}" appears in both "${prior}" and "${bucket}"`).toBeUndefined();
         seen.set(row.id, bucket);
       }
     }
+  });
+
+  // `declined` (Reconciliation 3, 2026-09-10) is the fourth disposition: a row
+  // that is neither open nor fixed — stale prose that no longer applies,
+  // breadth nobody will build, a duplicate of another row, or a decision the
+  // plan already recorded.  It is a BUCKET, not a deletion, precisely so the
+  // call stays greppable and reversible; a declined row with no stated reason
+  // is indistinguishable from one quietly dropped, which is what these two
+  // assertions forbid.
+  describe("the `declined` bucket", () => {
+    it("counts as code, and the `.md` prints the number the JSON holds", () => {
+      const ledger = loadLedger();
+      const counts = computeCounts(ledger);
+      expect(counts.declined).toBe((ledger.declined ?? []).length);
+      const md = fs.readFileSync(mdPath, "utf8");
+      expect(md).toContain(
+        `| declined (not a gap: stale / breadth / duplicate / decided) | ${counts.declined} |`,
+      );
+    });
+
+    it("every declined row states WHY and WHO declined it", () => {
+      const ledger = loadLedger();
+      const declined = (ledger.declined ?? []) as Array<{
+        id: string;
+        reason?: string;
+        declinedBy?: string;
+      }>;
+      expect(declined.length, "Reconciliation 3 declined six rows").toBeGreaterThan(0);
+      for (const row of declined) {
+        expect(row.reason, `"${row.id}" must carry a reason`).toBeTruthy();
+        expect(
+          (row.reason ?? "").length,
+          `"${row.id}"'s reason must say more than a word`,
+        ).toBeGreaterThan(40);
+        expect(
+          row.declinedBy,
+          `"${row.id}" must record who declined it and against what`,
+        ).toBeTruthy();
+      }
+    });
   });
 
   it("F2-ADP-3 is closed by #2708 — W1b landed the gate the reconciliation had recorded as deferred", () => {

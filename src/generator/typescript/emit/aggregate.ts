@@ -26,6 +26,7 @@ import { stmtHasProv } from "../../../ir/util/prov-id.js";
 import { lines } from "../../../util/code-builder.js";
 import { lowerFirst } from "../../../util/naming.js";
 import { isServerSourcedDefault } from "../../_frontend/server-default.js";
+import { constructionSeededFields } from "../../construction-default.js";
 import { renderTsExpr, renderTsType } from "../render-expr.js";
 import {
   renderTsStatementChunks,
@@ -691,6 +692,18 @@ function renderEntity(
     if (omission.kind === "false") return "false";
     return undefined; // plain optional — the `?? null` path below already covers it
   };
+  // Server-seeded literal defaults (RS-11): a field outside the create-input
+  // set (`token`/`managed`/`internal`) whose default is a construction-time
+  // constant.  Hono used to ignore these entirely and seed the TYPE ZERO, so
+  // `nm: int managed = 7` constructed at `0` and `mm: money managed =
+  // money("2.50")` at `null` — the latter not even type-correct against the
+  // non-nullable `Decimal` in the ctor state literal (TS2322).  The ORM
+  // backends already seeded the plain-literal half of this; seeding it here
+  // closes the node gap and the shared predicate closes the `money` half on
+  // all four.
+  const defaultSeeds = new Map(
+    constructionSeededFields(e.fields).map((f) => [f.name, renderTsExpr(f.default)]),
+  );
   const fieldInit = (f: FieldIR): string => {
     if (createInputNames.has(f.name)) {
       const dflt = factoryDefault(f);
@@ -700,9 +713,12 @@ function renderEntity(
       return f.optional ? `input.${f.name} ?? null` : `input.${f.name}`;
     }
     // Outside the create input (managed/token/internal): server-initialised.
-    // An optional field may simply be null; a non-optional one is server-
-    // stamped (e.g. a `datetime managed` placement timestamp) and needs a
-    // type-correct seed so the all-fields ctor state literal type-checks —
+    // A DECLARED default wins — it is a construction rule the server owns.
+    const seeded = defaultSeeds.get(f.name);
+    if (seeded !== undefined) return seeded;
+    // Otherwise: an optional field may simply be null; a non-optional one is
+    // server-stamped (e.g. a `datetime managed` placement timestamp) and needs
+    // a type-correct seed so the all-fields ctor state literal type-checks —
     // `null` against a non-nullable `Date`/`number` is the bug.  The .NET
     // backend sidesteps this by leaving such fields at their property
     // default; Hono's state object has to name every field, so it seeds one.
