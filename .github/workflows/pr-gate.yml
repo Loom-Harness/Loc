@@ -6,19 +6,19 @@ name: PR gate
 # your branch in seconds so a red PR never spends a queue slot and a full
 # heavy run before being ejected.
 #
-# v2 — EVENT-DRIVEN.  v1 was one long-polling job that waited (up to 80min)
-# for every other check while itself holding a runner slot; under load the
-# parked gates starved the jobs they were waiting for and timed out.  v2 runs
-# a seconds-long EVALUATION on every completion event instead:
+# v2 — EVENT-DRIVEN, PLUS A TAIL WATCH.  v1 was one long-polling job that
+# waited (up to 80min) for every other check while itself holding a runner
+# slot; under load the parked gates starved the jobs they were waiting for and
+# timed out.  v2 runs a seconds-long EVALUATION on every completion event
+# instead:
 #
 #   * `pull_request` events start the cycle (and re-arm it on `labeled` /
 #     `ready_for_review`, whose fan-outs add new checks to wait for);
-#   * `workflow_run: completed` of every other workflow re-evaluates — the
-#     LAST workflow to finish triggers the final, green evaluation.  It does
-#     so LATE under load: the per-SHA concurrency group serialises
-#     evaluations, so a burst of ~40 completions advances the verdict about
-#     twice, not forty times.  Measured 2026-09-10, last-check-green to
-#     `pr-gate`-terminal was 14m18s (#2846) and 11m48s (#2847).
+#   * `workflow_run: completed` of every other workflow re-evaluates.  Under
+#     load that flips the verdict LATE: the per-SHA concurrency group
+#     serialises evaluations, so a burst of ~40 completions advances the
+#     verdict about twice, not forty times (measured 2026-09-10, last-check-
+#     green to `pr-gate`-terminal: 14m18s on #2846, 11m48s on #2847).
 #
 # Each evaluation posts a check run named `pr-gate` on the head SHA via the
 # Checks API (checks: write): failure with culprits named, `in_progress`
@@ -28,9 +28,30 @@ name: PR gate
 # jobs don't surface in the PR checks UI, so the job is `pr-gate-eval` and
 # the canonical `pr-gate` name comes from the posted check on every path.
 #
-# No polling, no timeout to tune, no parked slot.  A re-run of a red check does
-# fire `workflow_run: completed` again — but that is NOT enough to recover a
-# parked gate; see the lever table under `schedule:` below.
+# THE ONE THING THAT BREAKS, AND THE ONE THING THAT FIXES IT.  This header used
+# to say "the LAST workflow to finish always triggers the final, green
+# evaluation".  Wave C0 packet 0.3 measured 2026-09-10, without a branch
+# filter, over the whole repository (see docs/ci-gating.md → "The `pr-gate`
+# check") that it does not always; #2859, measured the same day, holds that
+# the verdict flips LATE rather than never and that the park has no diagnosed
+# cause.  Both records are kept until the owner rules; the packet's figures:
+#
+#   * 178 completions of listed workflows on non-`main` branches in six hours
+#     produced 172 `PR gate` runs.  13 of those completions produced NO RUN AT
+#     ALL — not cancelled, not skipped: never created.  ~7% of dispatches are
+#     dropped, in multi-minute windows rather than one at a time.
+#   * When the drop lands on a SHA's LAST completion, nothing re-evaluates that
+#     SHA and the gate parks at `in_progress` — which branch protection reports
+#     as *"Required status check `pr-gate` is expected"*.  Ten of the 22
+#     measurable merged PRs parked ≥5 minutes fully green; #2845 43 min, #2819
+#     46 min, #2674 58 min.  Each traces to exactly one missing dispatch.
+#
+# The fix is in `scripts/pr-gate.mjs`: an evaluation that finds the SHA
+# NEAR-GREEN (≤8 checks outstanding, none failed, at least one reported) stops
+# being an event handler and watches the SHA to its terminal verdict, re-reading
+# every 30s for up to 15 minutes.  The gate then never depends on a specific
+# future dispatch — only on the one it is already running in.  `timeout-minutes`
+# on the eval job must stay above that budget.
 #
 # The `workflows:` list below must name every other workflow (else a gate's
 # completion stops re-evaluating and a PR can stick at in_progress until the
@@ -51,22 +72,23 @@ on:
   # whole sweep, and then sat with zero runs left, waiting on this check.
   merge_group:
     types: [checks_requested]
-  # The safety net.  It re-derives every OPEN PR's verdict and posts only where
-  # it differs.
+  # The SECOND line of defence, behind the tail watch in `scripts/pr-gate.mjs`.
+  # The sweep re-derives every OPEN PR's verdict and posts only where it
+  # differs — a reconciler for SHAs no watcher is still on.
   #
-  # MEASUREMENT TRAP, and it invalidates the claim this comment used to open
-  # with ("GitHub drops dispatches — #2464, 08:42Z").  A `workflow_run`-
-  # triggered run is attributed to the repository's DEFAULT BRANCH, so listing
-  # this workflow's runs filtered to a PR branch returns ONLY the one
-  # `pull_request`-event run, and the eval job's check run lands on `main`'s
-  # SHA rather than the SHA it evaluated.  Measured 2026-09-10: of the 100 most
-  # recent runs here, all 91 that were `event=workflow_run` carry
-  # `head_branch: main`.  Neither view can tell "no evaluation fired" from
-  # "evaluations fired and are invisible here", so no filtered count is
-  # evidence of a dropped dispatch.  What IS observed is a green PR whose
-  # published verdict stays non-terminal long after its last check finished;
-  # cause undiagnosed, and the net is worth having either way.  To count
-  # evaluations, list this workflow's runs UNFILTERED and read `event`.
+  # Whether GitHub drops `workflow_run` dispatches is CONTESTED between two
+  # 2026-09-10 measurements, and both are recorded (docs/ci-gating.md → "The
+  # `pr-gate` check").  #2859: a `workflow_run`-triggered run is attributed to
+  # the repository's DEFAULT BRANCH, so listing this workflow's runs filtered
+  # to a PR branch returns ONLY the one `pull_request`-event run, and the eval
+  # job's check run lands on `main`'s SHA — all 91 `event=workflow_run` runs
+  # of the last 100 carry `head_branch: main`, so no FILTERED count is
+  # evidence of a dropped dispatch.  Wave C0 packet 0.3: listed UNFILTERED and
+  # matched by time, 13 of 178 eligible completions in six hours produced no
+  # run at all.  What is observed either way is a green PR whose published
+  # verdict stays non-terminal long after its last check finished; the sweep
+  # rides the same event stream, so it is worth having but is not the answer
+  # to a dropped dispatch.
   #
   # It does NOT cap that outage at one cron interval, and this comment used to
   # claim it did.  GitHub runs this schedule far slower than asked: re-measured
@@ -82,41 +104,49 @@ on:
   # this workflow's runs filtered to `event=schedule` and diff `created_at`.)
   #
   # So a park lasts HOURS, not minutes, if the sweep is what has to clear it.
-  # If you are waiting on a parked `pr-gate`, do not wait for the sweep.  THREE
-  # levers have been measured, and they do not all work:
+  # If you are waiting on a parked `pr-gate`, do not wait for the sweep.
+  # RECOVERY LEVERS, re-measured 2026-09-10:
   #
-  #   a new SHA        WORKS.  Measured on #2812 (2026-09-08): parked on
-  #                    `5e0995d`, unparked the moment `027454e` was pushed.
-  #   re-run THIS      WORKS.  Measured on #2773 (2026-09-09, 15:57Z): the
-  #   workflow's own   `pull_request`-event `PR gate` run for the parked head
-  #   run              (34356460700) re-run by hand; the PR entered the merge
-  #                    queue ~3 minutes later.  This is the cheap one — it
-  #                    re-evaluates the same SHA and costs no other CI.
-  #   re-run the RED   DOES NOT.  Measured three times — #2812, #2792, and
-  #   check's workflow #2773 after the cancellation fix below.
-  #                    `rerun_workflow_run` returns 201 and the dispatch does
-  #                    fire, but no verdict reaches the head SHA and the merge
-  #                    stays refused with
-  #                    `Required status check "pr-gate" is expected`.
+  #   a new SHA        WORKS (#2812, 2026-09-08).  Restarts ~50 workflows.
+  #   re-run THIS      WORKS (#2773, 2026-09-09 15:57Z).  Cheapest: it
+  #   workflow's own   re-evaluates the same SHA and costs no other CI.
+  #   `PR gate` run
+  #   re-run the RED   Was recorded here as "DOES NOT WORK — the dispatch does
+  #   check's workflow  fire, but no verdict reaches the head SHA."  Both halves
+  #                    were wrong.  The dispatch does NOT fire: on #2773 the
+  #                    re-run of `Behavioral e2e — Java` completed at
+  #                    14:41:09Z and the repo-wide `PR gate` run list has NO
+  #                    run between 14:38:40Z and 14:43:27Z.  There is no
+  #                    separate red-check-re-run hole; it is the same dropped
+  #                    tail dispatch, and the tail watch closes it.
   #
-  # This comment used to offer the first two as interchangeable, and then to
-  # know only the first.  The difference costs hours: on a red-check re-run you
-  # wait, conclude it worked, and find the PR still unmergeable.
+  # HOW TO CHECK ANY OF THIS YOURSELF, and the one way not to: list this
+  # workflow's runs UNFILTERED and match on time.  Never filter by branch — a
+  # `workflow_run`-triggered run is attributed to the DEFAULT branch, so
+  # filtering by the PR's branch returns only the `pull_request`-event run and
+  # can never show an evaluation (F65).  That trap is a property of the call,
+  # not an indictment of any particular investigation: #2835's own #2819
+  # diagnosis listed `event=workflow_run` unfiltered and got the mechanism
+  # right.  What it lacked was merge-queue COVERAGE — its sweep enumerates open
+  # PRs, and a `gh-readonly-queue/**` head is not one.  The tail watch closes
+  # that half too, because a merge-group head takes the same single-SHA path.
   #
   # The suspected cause used to be named here as the SHA-keyed
   # `cancel-in-progress: true` on the `concurrency` block at the bottom of this
   # file.  It was verified (94 of 100 `workflow_run` evaluations cancelled, zero
   # published) and FIXED in #2822 — nothing cancels a RUNNING evaluation now.
   # Cancellations did not go to zero and were never going to (66 of 91 on
-  # 2026-09-10, with 20 successes): GitHub still cancels a superseded PENDING
-  # run, which is the serialisation working.  See that block.
+  # 2026-09-10, with 20 successes; 479 of 759 over the 21 hours to 17:30Z):
+  # GitHub still cancels a superseded PENDING run, which is the serialisation
+  # working.  See that block.
   #
-  # The red-check re-run hole SURVIVED that fix, and is NOT explained by it.
-  # Measured on #2773: the last two red checks were re-run to green at 14:33Z
-  # and 14:41Z, every check on the head was then success or skipped, and the
-  # gate was still blocking at 15:57Z — 76 minutes with no verdict and no sweep.
-  # Re-running this workflow's own run cleared it immediately.  So the mechanism
-  # is still undiagnosed; what is established is which lever to reach for.
+  # The red-check re-run hole SURVIVED that fix.  Measured on #2773: the last
+  # two red checks were re-run to green at 14:33Z and 14:41Z, every check on
+  # the head was then success or skipped, and the gate was still blocking at
+  # 15:57Z — 76 minutes with no verdict and no sweep.  Re-running this
+  # workflow's own run cleared it immediately.  Packet 0.3 reads it as the same
+  # dropped tail dispatch (the table above); #2859 leaves it undiagnosed.  What
+  # is established either way is which lever to reach for.
   schedule:
     - cron: '*/15 * * * *'
   workflow_dispatch:
@@ -232,23 +262,32 @@ permissions:
 # verdict advances about twice per storm, not once per completion (14m18s on
 # #2846, 11m48s on #2847, from last check completing to `pr-gate` terminal).
 #
-# This block used to read `cancel-in-progress: <true for the SHA-keyed events>`,
-# on the theory that a burst of completions should "collapse to the newest
-# evaluation".  Measured 2026-09-08, it collapsed to NOTHING: of the last 100
-# `workflow_run`-triggered runs, 94 were `cancelled`, 4 queued, 2 pending, and
-# ZERO succeeded.  An evaluation takes ~2m20s but sits QUEUED far longer while
-# the pool is busy, so the next completing check superseded it before it ever
-# reached `publishCheck`.  With ~40 checks feeding one SHA-keyed group — and
-# three such groups at once while a merge queue batch runs — the stream never
-# ended and no verdict was ever published.  Every parked gate that day traces
-# here: PR heads stuck at `in_progress`, merge-queue entries ejected green, and
-# the two "recoveries" that did work (a NEW SHA, a RE-RUN) working only because
-# each is a single event with no burst behind it to cancel it.
+# `cancel-in-progress: false` protects the RUNNING evaluation.  It does not
+# stop GitHub from cancelling a PENDING one: a concurrency group holds at most
+# one running plus one pending, and a newer arrival evicts the pending
+# incumbent whatever this flag says.  Measured 2026-09-10, well after #2822 set
+# the flag: 479 of 759 `workflow_run` evaluations `cancelled`, and a sample of
+# 15 of them had ZERO jobs — cancelled before a runner was ever claimed.
 #
-# Cancellation buys nothing anyway.  A pending run costs no runner; it is the
-# CANCELLED ones that waste the slot they had already claimed.  Serialising
-# keeps at most two evaluations per SHA, the in-flight one always publishes, and
-# the newest queued one always runs after it.
+# That is harmless, and this file used to say otherwise.  The NEWEST arrival in
+# a group is never the one evicted, so a SHA's tail evaluation always survives
+# the collapse; an evicted pending run costs no runner and carries no
+# information a later read would not have.  Cancellation was named here as the
+# cause of the parked gates — it is not, and the ratio barely moving across
+# #2822 is the proof.  The cause is a dropped tail dispatch (see the header),
+# and the tail watch in `scripts/pr-gate.mjs` is what closes it.
+#
+# Note the tail watch makes the collapse MORE visible, by design: a watcher
+# holds its SHA's group for up to 15 minutes, so completions arriving behind it
+# queue and evict each other.  They lose nothing — the watcher is re-reading
+# the same SHA every 30 seconds and publishing every change — and when it
+# exits, the surviving pending evaluation runs and confirms the verdict.
+#
+# The setting this block must NOT go back to is `cancel-in-progress: true`.
+# Measured 2026-09-08 under it: 94 of the last 100 `workflow_run` runs
+# cancelled, 4 queued, 2 pending, ZERO successful — an evaluation takes ~2m20s
+# but sits queued far longer under load, so with the flag on the RUNNING one
+# was killed too and no verdict was ever published at all.
 #
 # The two properties this block must keep, both pinned by
 # `test/system/pr-gate.test.ts`:
@@ -302,7 +341,13 @@ jobs:
       && (github.event.workflow_run.event == 'pull_request'
       || github.event.workflow_run.event == 'merge_group'))
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # Must exceed `TAIL_BUDGET_MS` in scripts/pr-gate.mjs (15 min) plus the
+    # checkout/setup preamble, or the watch is killed mid-tail and the park it
+    # exists to prevent comes straight back.  Pinned by
+    # test/system/pr-gate.test.ts.  Most evaluations still take ~30 seconds:
+    # only a near-green SHA arms the watch, and it exits the moment the verdict
+    # goes terminal (median ~1 min over the measured parks).
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v6
 

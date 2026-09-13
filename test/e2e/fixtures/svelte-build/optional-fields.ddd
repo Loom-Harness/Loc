@@ -9,8 +9,21 @@
 //                             a null dereference at runtime and a svelte-check
 //                             error at build; its op-form renders a nested
 //                             field group off `form.values.budget`
+//   Budget.memo: string?      an optional field INSIDE that value object — one
+//                             level below where the `FormValues` null-strip used
+//                             to stop, so `form.values.budget.memo` came back
+//                             `string | null | undefined` and the input rejected
+//                             it (2026-09-10 e-shop audit, P4)
+//   fee: money                a MONEY field on a form — its input holds a
+//                             `Decimal`, and a pack template that wrote a bare
+//                             string into it did not typecheck
 //   attachment: File?         an optional FILE — the upload handler assigns the
 //                             returned ref back and clears to `null`
+//
+// `find open()` is the PARAMETERLESS PAGED read (audit P5): the page below calls
+// `useOpenProject()` with no argument, so the emitted hook must default its
+// query accessor — a paged find was the one shape left un-defaulted
+// ("Expected 1 arguments, but got 0").
 //
 // The `fund` operation is what puts the optional value object on a form (an
 // op-modal seeds and binds every parameter), so the shard covers the READ side
@@ -21,6 +34,7 @@ system OptFields {
       valueobject Budget {
         amount: decimal
         currency: string
+        memo: string?
       }
 
       aggregate Project with crudish {
@@ -28,14 +42,20 @@ system OptFields {
         note: string?
         estimate: int?
         dueAt: datetime?
+        fee: money
         budget: Budget?
         attachment: File?
+        open: bool
 
         derived display: string = name
 
         operation fund(amount: decimal, currency: string) {
           budget := Budget { amount: amount, currency: currency }
         }
+      }
+
+      repository Projects for Project {
+        find open(): Project paged where this.open == true
       }
     }
   }
@@ -44,6 +64,21 @@ system OptFields {
 
   ui WebApp with scaffold(subdomains: [Core]) {
     api Tracking: TrackingApi
+
+    // The parameterless paged read — `useOpenProject()`, no argument.
+    page OpenProjects {
+      route: "/open"
+      title: "Open projects"
+      body: Stack {
+        QueryView {
+          of: Tracking.Project.open,
+          data: rows => Table {
+            rows: rows,
+            Column { "Name", p => Text { p.name } }
+          }
+        }
+      }
+    }
   }
 
   storage primary { type: postgres }
