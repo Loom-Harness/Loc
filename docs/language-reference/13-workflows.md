@@ -215,6 +215,17 @@ The workflow body draws from a narrowed statement set — distinct from an aggre
 
 A loaded aggregate is saved **only if** an operation was invoked on it inside the body; fresh `Agg.create` results always save. See [`../workflow.md`](../workflow.md) §"Save + event drain semantics".
 
+**A repository read is a STATEMENT, never a sub-expression.** Every repository form above is spelled `let x = Repo.…` — that binding is what makes the backend instantiate the repository. The same call written inline inside another expression is rejected with `loom.workflow-inline-repository-call`:
+
+```ddd
+// rejected — `Assets` is reached inline, so no repository is ever instantiated
+precondition tech.skills.contains(Assets.getById(job.assetId).requiredSkill)
+
+// correct — bind the read first, then reference the binding
+let asset = Assets.getById(job.assetId)
+precondition tech.skills.contains(asset.requiredSkill)
+```
+
 ## `function` — the private pure helper
 
 `function name(params): T = expr` (or a `{ … }` block) is the aggregate-parity helper member: a private, pure calculation over its **parameters**. Reading the workflow's own state from one is `loom.workflow-function-uses-state` — pass the value in as an argument. Each backend emits it as a workflow-scoped helper (not an inlined expression), and a call to it lowers to `callKind: "workflow-fn"`.

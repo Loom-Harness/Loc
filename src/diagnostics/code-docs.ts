@@ -109,6 +109,7 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.workflow-load-array-unsupported": "13-workflows.md#body-vocabulary",
   "loom.workflow-private-operation": "13-workflows.md#body-vocabulary",
   "loom.workflow-unrecognised-statement": "13-workflows.md#body-vocabulary",
+  "loom.workflow-inline-repository-call": "13-workflows.md#body-vocabulary",
   "loom.canonical-create-duplicate-workflow":
     "13-workflows.md#create--handle--starters--continuations",
   "loom.create-name-conflict-workflow": "13-workflows.md#create--handle--starters--continuations",
