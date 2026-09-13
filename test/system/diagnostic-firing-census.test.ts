@@ -405,6 +405,25 @@ system S {
   }
 }`,
 
+  // An integer literal the `INT` terminal cannot hold: `9007199254740993`
+  // reaches the AST as `…92`, so the value the author wrote is already gone
+  // before any emitter runs (M-T5.23).  The fixture writes it in a `derived`
+  // body — the position where it survived all the way into emitted source.
+  "loom.integer-literal-imprecise": `
+system S {
+  subdomain D { context C {
+    aggregate Thing with crudish {
+      name: string
+      derived big: long = 9007199254740993
+    }
+    repository Things for Thing { }
+  } }
+  api Api from D
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable d { platform: node contexts: [C] dataSources: [st] serves: Api port: 3000 }
+}`,
+
   // A declared row field whose type disagrees with the aggregation filling it
   // (M-T5.24): `avg` over a MONEY column is money, and the declaration says
   // `decimal` — which is what every backend's coercion reads, so the exact

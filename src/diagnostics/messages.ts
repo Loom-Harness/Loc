@@ -1253,6 +1253,13 @@ export const DIAGNOSTIC_MESSAGES = {
     `computed expression. An aggregation argument must be a plain column of the ` +
     `'${p.source}' source, written '<alias>.<field>' (e.g. '${p.op}(o.total)') — ` +
     `SQL aggregates a column, not a per-row computation.`,
+  "loom.integer-literal-imprecise": (p: { written: unknown; held: unknown; ceiling: unknown }) =>
+    `integer literal ${p.written} is outside the range Loom carries exactly ` +
+    `(±${p.ceiling}, 2^53−1) — the toolchain reads it as ${p.held}, and every ` +
+    `backend would emit THAT value. That ceiling is 'long''s declared contract ` +
+    `(it persists as a bigint but is carried as a JS number on the node backend), ` +
+    `and the same bound is enforced at the wire boundary. Use a 'string' field if ` +
+    `the digits must survive verbatim.`,
   "loom.projection-aggregate-type-mismatch": (p: {
     name: unknown;
     field: unknown;
