@@ -52,6 +52,7 @@ import {
   resolveDataSourceConfig,
   resolveDataSourceForAggregate,
 } from "../ir/util/resolve-datasource.js";
+import { sqlLiteralColumnDefault } from "../ir/util/sql-renderable-expr.js";
 import {
   isValueCollectionType,
   type ValueCollectionIR,
@@ -1178,7 +1179,13 @@ function qualifiedName(schema: string | undefined, name: string): string {
 /** True for a NOT-NULL column add without a default.  Because `diffTable`
  *  only emits `addColumn` for tables present on BOTH sides (new tables carry
  *  their columns inline via `createTable`), such an add always targets a
- *  previously-existing table — the exact case that fails on populated data. */
+ *  previously-existing table — the exact case that fails on populated data.
+ *
+ *  A step whose column carries a `default` is NOT blocking: Postgres fills every
+ *  existing row from it as part of the ADD.  That is what makes the M-T2.16
+ *  rewrite (field default → add-with-default + DROP DEFAULT) clear this gate
+ *  without a `--allow-destructive` flag or a TODO comment — the rewrite is
+ *  applied upstream of this predicate, in the weaving pass. */
 function isBlockingNotNullAdd(s: MigrationStep): boolean {
   return s.op === "addColumn" && !s.column.nullable && s.column.default === undefined;
 }
@@ -1188,7 +1195,11 @@ function isBlockingNotNullAdd(s: MigrationStep): boolean {
  *  add or a NULL→NOT-NULL flip WITH a matching backfill becomes the safe
  *  add-nullable → UPDATE → SET NOT NULL sequence and does NOT trip the gate;
  *  without one, both are destructive (the flip fails on any row holding NULL
- *  — previously ungated).  Returns the final step list (possibly rewritten
+ *  — previously ungated).  A NOT-NULL add with NO backfill but a scalar-literal
+ *  field default (`addColumnDefault`) instead becomes add-WITH-DEFAULT →
+ *  DROP DEFAULT, which is likewise non-destructive and leaves the column with
+ *  no DB default (M-T2.16 / #2864 G1, D-3); a declared backfill takes
+ *  precedence over it.  Returns the final step list (possibly rewritten
  *  for the `--allow-destructive` NOT-NULL path), or throws
  *  {@link MigrationDestructiveError} when a destructive step remains and the
  *  flag is off.  First-run (baseline null) migrations are returned untouched. */
@@ -1319,6 +1330,49 @@ export function applyDestructivePolicy(
           out.push(flip);
         }
         return out;
+      }
+      // No declared backfill — but the field may carry a `.ddd` default
+      // (`status: string = "pending"`).  Add the column WITH that default so
+      // Postgres backfills every existing row in the one statement, then drop
+      // the default again in the SAME migration (M-T2.16 / #2864 G1, D-3).
+      //
+      // Ordering matters and is not incidental: the declared-backfill branch
+      // above returns first, so a `migration "…" { A.status = … }` block always
+      // WINS over a field default.  The block is the author's explicit,
+      // reviewed statement about this one migration — a field default is a
+      // standing statement about every future row — and only the block can
+      // express the per-row forms (a sibling-field ref, a ternary) that a
+      // column default cannot hold at all.  Running both would be redundant
+      // anyway: the block's UPDATE is `WHERE <col> IS NULL`, and a default-
+      // backfilled column has no NULLs left for it to touch.
+      //
+      // Why the DROP DEFAULT: D-3's whole point is that the column must end up
+      // EXACTLY as it is today — identical to what a fresh `CREATE TABLE` lays
+      // down — so a redeploy from a clean database and one grown by migration
+      // agree, and a row written outside the app does not silently acquire
+      // domain semantics.  The default exists only for the width of this
+      // migration, purely to make the backfill automatic.
+      //
+      // Guarded on `blocking` (NOT NULL, no default of its own): a nullable add
+      // needs no backfill to succeed, and a column that legitimately carries a
+      // DB default (`gen_random_uuid()` on a system table) must keep it.
+      if (isBlockingNotNullAdd(s) && s.column.addColumnDefault !== undefined) {
+        const lit = s.column.addColumnDefault;
+        const withDefault: ColumnShape = { ...s.column, default: lit };
+        const add: MigrationStep = s.fk
+          ? { op: "addColumn", table: s.table, schema: s.schema, column: withDefault, fk: s.fk }
+          : { op: "addColumn", table: s.table, schema: s.schema, column: withDefault };
+        return [
+          add,
+          {
+            op: "alterColumnDefault",
+            table: s.table,
+            schema: s.schema,
+            name: s.column.name,
+            from: lit,
+            to: undefined,
+          },
+        ];
       }
       return [s];
     }
@@ -2616,10 +2670,39 @@ function flattenValueObject(
 
 function mapField(f: FieldIR): MappedColumn {
   const { type, fkRefTable } = mapTypeToColumn(f.type);
+  const addColumnDefault = addColumnDefaultFor(f);
   return {
-    column: { name: snake(f.name), type, nullable: f.optional },
+    column:
+      addColumnDefault === undefined
+        ? { name: snake(f.name), type, nullable: f.optional }
+        : { name: snake(f.name), type, nullable: f.optional, addColumnDefault },
     fkRefTable,
   };
+}
+
+/** Render a field's declared default (`status: string = "pending"`) as a
+ *  Postgres scalar literal for the **add-column diff**, or undefined when the
+ *  field has no default or the default is outside the literal subset a column
+ *  DEFAULT may hold (M-T2.16 / #2864 G1, decision D-3).
+ *
+ *  This is the ONLY place a `.ddd` default enters `MigrationsIR`, and it lands
+ *  on `addColumnDefault` — deliberately NOT on `default`, which is what every
+ *  `CREATE TABLE` renderer reads.  So the initial DDL is untouched: the column
+ *  keeps its current `"status" TEXT NOT NULL` spelling, and the default the
+ *  domain layer owns does not become a second source of truth in the schema.
+ *  `applyDestructivePolicy` is the sole consumer; see `ColumnShape.addColumnDefault`.
+ *
+ *  `sqlLiteralColumnDefault` is narrower than the backfill subset
+ *  (`sqlRenderableExpr`) on purpose — a column default is evaluated with no row
+ *  in scope, so Postgres refuses any reference to another column.  Everything it
+ *  admits, `renderSqlScalarExpr` renders without ever calling `columnFor` (that
+ *  path is reached only through `this-prop`, which the predicate rejects), which
+ *  is why the context below can refuse outright rather than resolve a name. */
+function addColumnDefaultFor(f: FieldIR): string | undefined {
+  if (!f.default || !sqlLiteralColumnDefault(f.default)) return undefined;
+  return renderSqlScalarExpr(f.default, {
+    columnFor: () => undefined, // unreachable: the predicate admits no column ref
+  });
 }
 
 function mapTypeToColumn(t: TypeIR): {
