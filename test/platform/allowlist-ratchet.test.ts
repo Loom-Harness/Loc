@@ -75,7 +75,18 @@ const REGISTERED: Ratchet[] = [
     // found by the new "allowlisted kinds are genuinely absent" ratchet in
     // `showcase-completeness.test.ts` — a per-ENTRY ratchet, where this one is
     // a per-COUNT ratchet; they backstop different failures.
-    max: 14,
+    //
+    // 14 -> 15 (M-T5.34, audit #2864 D5): +HandleDecl.  Unlike every entry
+    // above, this one is not "the showcase declines to exercise a kind" — it is
+    // "no VALID `.ddd` may exercise it any more".  `handle name(…) { … }` is now
+    // refused by `loom.workflow-handle-unsupported` because no backend has ever
+    // emitted a route, a handler or a method for it, and showcase.ddd's own
+    // contract is "parses + validates with zero errors", so the two
+    // requirements became mutually exclusive and the showcase gave up its
+    // `handle reset()`.  Draining this entry does NOT mean adding the kind back
+    // to showcase.ddd — it means landing the EMITTER (mission M-T6.58), which
+    // makes the declaration legal again; the entry cites it.
+    max: 15,
   },
   // Walker primitives with a TSX renderer but no HEEx one.  Empty: the last
   // entry — `ProvenanceInfo`, the provenance "?" disclosure — landed its HEEx

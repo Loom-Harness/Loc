@@ -78,7 +78,14 @@ describe("model-wide expression enumeration", () => {
         "QueryHandlerIR.returnValue",
         "CreateIR.statements",
         "OnIR.statements",
-        "HandleIR.statements",
+        // `HandleIR.statements` USED to be proven here by showcase.ddd's
+        // `handle reset()`.  M-T5.34 made `handle` a hard error
+        // (`loom.workflow-handle-unsupported`, audit #2864 D5) and the showcase
+        // — whose contract is "validates with zero errors" — dropped it, so no
+        // VALID example can reach this site any more.  The walk still declares
+        // and visits it (see the `declared`/`census` assertion above, which is
+        // what keeps the site honest); only the "arrived over a real example"
+        // half is unprovable.  Restore this line with the emitter (M-T6.58).
         "TestIR.statements",
         "TestStmtIR.expr",
         "TestE2EIR.statements",

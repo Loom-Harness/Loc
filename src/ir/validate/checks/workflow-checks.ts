@@ -203,6 +203,8 @@ export function validateWorkflows(
     validateWorkflowOwnStateAddressable(ctx, wf, diags);
     validateWorkflowCreates(wf, diags, ctx.name);
     validateWorkflowFunctions(wf, diags, ctx.name);
+    validateWorkflowHandlers(wf, diags, ctx.name);
+    validateWorkflowStarter(wf, diags, ctx.name);
   }
 }
 
@@ -265,6 +267,71 @@ function validateWorkflowFunctions(wf: WorkflowIR, diags: LoomDiagnostic[], ctxN
 // so a `create` and an `on` for one event necessarily agree.  (Both rules 23
 // and 24 are now expressible: `CreateIR.eventRef` / `correlation` are derived
 // for event-triggered creates.)
+// -------------------------------------------------------------------------
+// M-T5.34 — the two workflow rulings (#2864 D5 and G2).
+//
+// The packet's third command-side ruling (#2850 case (B)) is NOT here: it
+// landed independently on `main` as `loom.workflow-create-correlation-unsupplied`
+// (above), with a better rule than this packet had drafted — it also accepts a
+// `<corr> := <param>` assignment and only fires when the body touches own
+// state.  Nothing was kept from the draft.
+// -------------------------------------------------------------------------
+
+// D5 / decision D-1(c).  `handle <name>(…)` is documented as the multi-command
+// saga surface (`docs/workflow.md`) and emits NOTHING on any of the five
+// backends — searching a generated tree for the handler name finds only the
+// mermaid diagram.  So a saga can be started and read (`/instances`,
+// `/instances/{id}`) and never advanced, silently.
+//
+// The ruling is to REJECT, not to emit: the silence is the bug, and whether
+// Loom grows multi-command sagas is a feature decision that should not be
+// taken under time pressure (tracked as its own mission).  The message names
+// the two spellings that DO work today, so the author is not merely refused.
+function validateWorkflowHandlers(wf: WorkflowIR, diags: LoomDiagnostic[], ctxName: string): void {
+  for (const h of wf.handlers ?? []) {
+    diags.push({
+      severity: "error",
+      code: "loom.workflow-handle-unsupported",
+      message: diagMessage("loom.workflow-handle-unsupported", {
+        name: wf.name,
+        handler: h.name,
+      }),
+      source: `${ctxName}/${wf.name}`,
+    });
+  }
+}
+
+// G2.  A workflow with `on(…)` reactors and no `create(…)` starter compiles
+// clean and is a runtime no-op forever: nothing ever inserts a correlation row,
+// so every inbound event misses the load and logs `event_unrouted`.  The
+// create-less workflow still emits an empty POST route that logs
+// `workflow_started` / `workflow_completed` and inserts nothing, which is why
+// the shape looks alive from the outside.
+//
+// Sibling of `loom.reactor-event-uncarried` (same class of check, different
+// cause: there the event reaches no channel, here it reaches no instance).
+// Kept independent of the correlation rules deliberately — this fires on the
+// STRUCTURE (reactors, no starter) and needs no correlation field to be
+// decidable, so it still lands on a workflow that is also missing one.
+function validateWorkflowStarter(wf: WorkflowIR, diags: LoomDiagnostic[], ctxName: string): void {
+  const reactors = wf.subscriptions ?? [];
+  if (reactors.length === 0) return;
+  if ((wf.creates ?? []).length > 0) return;
+  // An `eventSourced` workflow folds its state from the stream via `apply(…)`
+  // rather than from a persisted row — but it still needs a starter to bring an
+  // instance into being, so the rule is the same.  (Its appliers are not
+  // starters: `apply` folds an event into an instance that must already exist.)
+  diags.push({
+    severity: "error",
+    code: "loom.reactor-without-starter",
+    message: diagMessage("loom.reactor-without-starter", {
+      name: wf.name,
+      reactors: reactors.map((r) => `on(${r.event})`).join(", "),
+    }),
+    source: `${ctxName}/${wf.name}`,
+  });
+}
+
 function validateWorkflowCreates(wf: WorkflowIR, diags: LoomDiagnostic[], ctxName: string): void {
   const src = `${ctxName}/${wf.name}`;
   const creates = wf.creates ?? [];
