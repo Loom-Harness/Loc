@@ -439,7 +439,54 @@ for the same reason.
 So the durable work is **seven fixture-and-reach changes**, not eighty patches. Every one of them is an
 edit to a gate that already exists. None adds a CI leg except where noted.
 
-### 5.1 Widen the fuzz generator's input space — *cheapest defect-per-hour item in this report*
+### 5.1 Widen the fuzz generator's input space — **CORRECTED, and the correction matters**
+
+> **Two things in the original version of this section were wrong, and both were found by doing it.**
+>
+> **(a) The deep leg was red because the GENERATOR was wrong, not the validator.** This section
+> repeated agent G's reading that seeds 3/4/9 were "most likely a validator over-refusal". Reading the
+> rule's own rationale settles it the other way — `workflow-own-state.ts:104` states that the saga row
+> *"is loaded-or-allocated BEFORE the first statement runs and the key must therefore be certain by
+> then"*, so `item := built.id`, where `built` is minted inside the create body, genuinely addresses no
+> instance. The gate is right. The generator was emitting a shape Loom does not support, and the
+> harness's `invalid` tier said so correctly. A second, independent generator defect sat underneath:
+> it emitted a field `amount` beside a value object `Amount`, which .NET refuses by design
+> (`loom.dotnet-name-collision`). Both are now fixed, and **the deep leg is green at 700 seeds × 5
+> backends for the first time** (258 s, 0.35 s/seed — the header's estimate was right).
+> Acting on this section as written would have widened a correctness gate to accommodate a broken test
+> helper.
+>
+> **(b) Widening the generator cannot catch the compile-error family at all.** The claim that
+> multi-word names are the *"highest yield per line in this whole report"* is false for most of what
+> this evaluation found, and the reason is the **oracle**, not the inputs. The deep leg's four tiers
+> are `invalid` / `verify` / `crash` / `sentinel` — it runs phases ①–⑧ and inspects the emitted TEXT.
+> **It never compiles the output.** Mutation-proved: with F-025b's `global::` fix reverted and the
+> generator emitting both an `api`-named deployable and messaged invariants (so
+> `Localization/LoomMessages.cs` is emitted with the defect in it), 80 seeds × 5 backends stayed
+> **green**.
+>
+> So the sharper statement of §5 is: **a gate's reach is bounded by its oracle as well as its inputs.**
+> Widening the fuzzer helps the **crash / invalid / sentinel** family — F-012 and F-040 are crashes and
+> are the right targets. The **compile-error** family (F-013, F-014, F-016, F-017, F-025, F-033, F-035
+> — the majority of this register's S1s) can only be caught where a real toolchain runs, which is the
+> corpus × backend build legs, fed by `test/fixtures/corpus/*.ddd` and **not** by the fuzzer. §5.7's
+> fixture edits, not this section, are what close those.
+
+**What landed here** (all green, and labelled for what they actually buy):
+
+| Change | Buys |
+|---|---|
+| the two generator defects above, fixed | the tier stops reporting vacuous `invalid` seeds — every other assertion on those seeds was meaningless |
+| `NAMES` grows `WorkOrder` / `LineItem` / `PurchaseOrder` | the only way any seed can separate `lowerFirst(plural(n))` from `snake(plural(n))`; necessary for F-012's family, **not sufficient** (see below) |
+| the deployable name is drawn from `{api, d}` | `api` is what `ddd new` scaffolds and what no fixture used; it is the name that creates the `Api.Api` child namespace behind F-025 |
+| invariants carry a `message` on ~half of seeds | the validation-message catalog is emitted at all — it never was |
+| `assertNoTypeNameCollisions()` at import | the `amount`/`Amount` collision cannot be reintroduced by a future pool edit |
+
+**Still open, and honestly out of reach today:** F-012 additionally needs a **second backend
+deployable** and a `test e2e` block, neither of which the generator emits. That is the `M` item below
+and it is what would actually make F-012's class reachable — the multi-word names alone cannot.
+
+
 
 `test/system/pipeline-fuzz.test.ts` already asserts the exact invariant — its describe block reads
 *"a crash on a valid model is always a bug"* — runs **on every PR**, and costs **13 seconds**. Its deep
