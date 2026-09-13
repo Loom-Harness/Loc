@@ -169,6 +169,13 @@ async function loadAuthzLadders(): Promise<Record<string, LadderSpec>> {
 interface LadderArms {
   readonly anonymous?: number | null;
   readonly unauthorized?: number | null;
+  /** The CROSS-TENANT rung (wave-3 row 3.3): a principal with the SAME granting
+   *  role and permissions as the authorized one, in a different tenant.  It is
+   *  deliberately NOT counted as a refusal arm below — a tenancy statement and
+   *  an authorization statement are different claims, and letting a hidden-row
+   *  arm satisfy the census's "this gate refuses somebody" question would let a
+   *  gated surface look covered while its `requires` was never exercised. */
+  readonly otherTenant?: number | null;
   readonly authorized?: number | null;
 }
 interface LadderSurface {

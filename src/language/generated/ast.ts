@@ -1990,7 +1990,7 @@ export function isLValueIdent(item: unknown): item is LValueIdent {
 export interface MacroArg extends langium.AstNode {
     readonly $container: MacroCall;
     readonly $type: 'MacroArg';
-    name: LooseName;
+    name: MacroArgName;
     value: MacroArgValue;
 }
 
@@ -2032,6 +2032,12 @@ export const MacroArgInt = {
 
 export function isMacroArgInt(item: unknown): item is MacroArgInt {
     return reflection.isInstance(item, MacroArgInt.$type);
+}
+
+export type MacroArgName = 'requires' | LooseName;
+
+export function isMacroArgName(item: unknown): item is MacroArgName {
+    return isLooseName(item) || item === 'requires';
 }
 
 export interface MacroArgRef extends langium.AstNode {

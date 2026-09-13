@@ -292,6 +292,12 @@ const tableCtx = {
   rowsExpr: "rows",
   rowVar: "r",
   keyExpr: "r.id",
+  // The Vue packs read the attribute-ESCAPED twins (their `v-for` / `:key` are
+  // HTML attributes they quote themselves); every other pack reads the raw
+  // pair above.  Both are part of the primitive-table contract, so a
+  // strict-Handlebars pack throws without them.
+  rowsAttrExpr: "rows",
+  keyAttrExpr: "r.id",
 };
 const containerCtx = { ...layoutCtx, hasSize: true, size: "md" };
 

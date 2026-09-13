@@ -131,7 +131,7 @@ function fieldTestid(base: string, fld: FelizFormField): string {
  *  `orders-op-addLine` / `workflow-place_order`); the input carries
  *  `<base>-input-<field>` via `prop.custom` so the shared page objects drive it. */
 function renderFormInput(formField: string, fld: FelizFormField, base: string): string {
-  const value = `model.${formField}.${fld.wireName}`;
+  const value = `model.${formField}.${fld.fsName}`;
   const tidP = `prop.custom("data-testid", "${fieldTestid(base, fld)}"); `;
   if (fld.inputKind === "checkbox") {
     // A bool checkbox is always a legitimate value (checked/unchecked) — no
@@ -182,7 +182,7 @@ function renderFormInput(formField: string, fld: FelizFormField, base: string): 
     // writes `Some fileRef` into the cell.  The name of the file already chosen
     // shows below the input, so a re-render after upload is visible.
     const pick = formFileSelectMsg(formField, fld.wireName);
-    const chosen = `Html.span [ prop.className "label-text-alt"; prop.text (match model.${formField}.${fld.wireName} with | Some __f -> __f.key | None -> "") ]`;
+    const chosen = `Html.span [ prop.className "label-text-alt"; prop.text (match model.${formField}.${fld.fsName} with | Some __f -> __f.key | None -> "") ]`;
     const input = `Html.input [ ${tidP}prop.className "file-input file-input-bordered w-full"; prop.type'.file; prop.onChange (fun (file: Browser.Types.File) -> dispatch (${pick} file))${onBlur}${aria} ]`;
     return wrap(`Html.div [ prop.className "w-full"; prop.children [ ${input}; ${chosen} ] ]`);
   }
@@ -210,7 +210,7 @@ function renderFormInput(formField: string, fld: FelizFormField, base: string): 
  *  and dispatching the INDEXED setter `<setMsg> (i, v)`.  One line (offside-safe
  *  inside the row's Feliz children list). */
 function renderRowInput(fld: FelizRowField): string {
-  const value = `row.${fld.wireName}`;
+  const value = `row.${fld.fsName}`;
   const set = (v: string): string => `dispatch (${fld.setMsg} (i, ${v}))`;
   if (fld.inputKind === "checkbox") {
     return `Html.input [ prop.className "checkbox"; prop.type'.checkbox; prop.isChecked (${value} = "true"); prop.onChange (fun (v: bool) -> ${set('if v then "true" else "false"')}) ]`;
@@ -407,6 +407,18 @@ export const felizTarget: WalkerTarget = {
   // line so it stays offside-safe inside a Feliz `[ … ]` list.
   renderConditionalChild: (cond, thenS, elseS) =>
     `(if ${oneLine(cond)} then ${oneLine(thenS)} else ${oneLine(elseS)})`,
+  // An optional VALUE splits on `Some`/`None`, not on truthiness (M-T1.33).
+  // `renderConditionalChild` above is useless for one: its `if` wants a `bool`
+  // and a `Location id?` decodes to `string option`, and even past a
+  // `Option.isSome` test the pack's `("/locations/" + <id>)` would still be a
+  // `string` + `string option`.  A `match` answers both halves at once — it
+  // tests and unwraps in the same construct — and the caller has already
+  // rendered `present` over the name this binds.  `None` renders the plain em
+  // dash, the same absent placeholder `renderFileLink` uses.  One line, like
+  // the ternary above: the walker does not re-indent seam output, and this
+  // lands inside a Feliz children list where the offside rule bites.
+  renderOptionalSplit: ({ value, bound, present }) =>
+    `(match ${oneLine(value)} with | Some ${bound} -> ${oneLine(present)} | None -> Html.text "—")`,
   // `For { each: coll, x => <markup> }` → `yield! coll |> List.map (fun x -> …)`
   // spliced into the enclosing Feliz children list (the `yield!` and its
   // bracket-delimited body are offside-safe there).  An `empty:` arm folds into
