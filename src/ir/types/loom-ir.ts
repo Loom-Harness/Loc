@@ -3816,9 +3816,10 @@ export type ExprIR =
   /**
    * Explicit primitive conversion — `<target>(<value>)`.  Source-
    * level form: `string(age)`, `money(decimalField)`,
-   * `decimal(moneyValue)`.  Distinct from `MoneyLit`'s `money("…")`
-   * literal form (which lowers to `lit("money", …)`); this is for
-   * converting a TYPED VALUE between primitives.
+   * `decimal(moneyValue)`.  Distinct from the `money("…")` LITERAL
+   * form, which shares the `PrimitiveConversion` AST node but lowers
+   * to `lit("money", …)` (see `src/language/money-literal.ts`); this
+   * is for converting a TYPED VALUE between primitives.
    *
    * `from` carries the source operand's inferred primitive type so
    * backends can dispatch the right emit form per (from, target)

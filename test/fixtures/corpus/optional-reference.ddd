@@ -1,0 +1,99 @@
+// An OPTIONAL cross-aggregate reference — `lastKnownLocation: Location id?` —
+// beside a REQUIRED one to the same aggregate (M-T1.33, audit #2864 finding T4).
+//
+// NO `ui` HERE, DELIBERATELY.  The corpus is a BACKEND feature matrix and
+// `clause-census.test.ts` states that as an invariant; the frontend half of
+// this defect is covered by `test/generator/_walker/id-link-optional-cross-
+// target.test.ts` (all six frontends, both page positions) and by the two
+// compile gates that now carry the shape — the vue `scaffold` build case and
+// the feliz `scaffold` gate.  What this fixture owns is the SHAPE: a nullable
+// cross-aggregate FK, on every backend, with its wire contract pinned.
+//
+// WHY THIS FIXTURE EXISTS.  "We don't know where the cargo is yet" is ordinary
+// domain modelling, on the happy path of any real model — and the corpus had no
+// aggregate holding an optional reference to another.  Every `X id` in it was
+// required, so nothing ever generated a page that had to render a reference
+// that might not be there, and the reference-LINK path was the one place the
+// frontends' null guard had never been applied.  It failed six ways at once:
+//
+//   vue      `:title="row.lastKnownLocation"`   → vue-tsc TS2345, build fails
+//   feliz    `("/locations/" + <string option>)` → F# type error, build fails
+//   react    `` to={`/locations/${…}`} ``        → links to `/locations/null`
+//   svelte   `` href={`/locations/${…}`} ``      → links to `/locations/null`
+//   angular  `[routerLink]='"/locations/" + …'`  → links to `/locations/null`
+//   flutter  `'/locations/' + ….toString()`      → `/locations/null`, label "null"
+//
+// The `origin` field is required ON PURPOSE and is not decoration: the fix
+// guards only the optional reference, so a regression that guarded every
+// reference — or none — is caught by the same generation.
+//
+// Two aggregates rather than a self-reference: a self-referencing optional id
+// would exercise the same wire nullability but NOT the cross-aggregate route
+// (`/locations/<id>` from a Cargo page), which is the emission that broke.
+system Freight {
+  subdomain Ops {
+    context Booking {
+      aggregate Location with crudish {
+        name: string
+        derived display: string = name
+      }
+      repository Locations for Location { }
+
+      aggregate Cargo with crudish {
+        code: string
+        // The whole point of the fixture.
+        lastKnownLocation: Location id?
+        origin: Location id
+        derived display: string = code
+      }
+      repository Cargos for Cargo { }
+    }
+  }
+  api BookingApi from Ops
+  storage primary { type: postgres }
+  resource bookingState { for: Booking, kind: state, use: primary }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Booking]
+    dataSources: [bookingState]
+    serves: BookingApi
+    port: 4000
+  }
+
+  test e2e "an optional reference round-trips as null, and as a set id" against d {
+    let hamburg = api.locations.create({ name: "Hamburg" })
+
+    // Created with the optional reference OMITTED — the state the unguarded
+    // link rendered as the text "null".
+    let c = api.cargos.create({ code: "ABC-1", origin: hamburg.id })
+    let read = api.cargos.getById(c)
+    expect(read.code).toBe("ABC-1")
+    expect(read.lastKnownLocation).toBe(null)
+    expect(read.origin).toBe(hamburg.id)
+
+    // …and the same field carries a real id once it is known.
+    api.cargos.update(c, { code: "ABC-1", lastKnownLocation: hamburg.id, origin: hamburg.id })
+    let moved = api.cargos.getById(c)
+    expect(moved.lastKnownLocation).toBe(hamburg.id)
+
+    let listed = api.cargos.all()
+    expect(listed.total).toBe(1)
+
+    // The REFERENCED aggregate's own CRUD surface — the routes the emitted
+    // reference link points AT, so the link's destination is proved to exist
+    // rather than assumed.
+    let place = api.locations.getById(hamburg)
+    expect(place.name).toBe("Hamburg")
+    api.locations.update(hamburg, { name: "Hamburg Hafen" })
+    expect(api.locations.getById(hamburg).name).toBe("Hamburg Hafen")
+    expect(api.locations.all().total).toBe(1)
+
+    api.cargos.destroy(c)
+    expect(api.cargos.getById(c)).toThrow(404)
+
+    // Destroying the referenced row last: the reference column is nullable, so
+    // this is the one order in which both destroys can succeed.
+    api.locations.destroy(hamburg)
+    expect(api.locations.getById(hamburg)).toThrow(404)
+  }
+}

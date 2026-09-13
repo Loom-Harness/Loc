@@ -48,6 +48,7 @@ export { COMPONENT_DEFERRALS } from "./ui-component-deferral-checks.js";
 import {
   type CallableNames,
   checkAsyncEffectArgs,
+  checkDestroyFormOf,
   checkInstanceEffectRouteId,
   checkOpFormRouteId,
   checkScaffoldFilterParams,
@@ -192,9 +193,16 @@ export function validateUiBodies(loom: EnrichedLoomModel, diags: LoomDiagnostic[
         checkBody(page.body, ctx, diags);
         checkBody(page.title, ctx, diags);
         checkBody(page.requires, ctx, diags);
+        // `derived` bindings too.  They were the one expression surface these
+        // checks did NOT walk, which Wave C1 packet 1d-ii found by driving
+        // every body position at the F2 gate: `derived v: int = ghost.f(1)`
+        // validated clean and reached the walker's unresolved-receiver
+        // backstop, the one arm the emitter's own comment calls unreachable.
+        for (const d of page.derived) checkBody(d.expr, ctx, diags);
         checkActionBodies(page.actions, ctx, diags);
         checkInstanceEffectRouteId(page, aggNames, apiParamNames, diags);
         checkOpFormRouteId(page, diags);
+        checkDestroyFormOf(page, pageWhere(page), aggByName, diags);
         checkFrontendCollectionOps(page, pageWhere(page), diags);
         checkUnknownPageElements(page, pageWhere(page), callableNames, diags);
         checkSlotOutsideComponent(page, pageWhere(page), diags);
@@ -253,7 +261,9 @@ export function validateUiBodies(loom: EnrichedLoomModel, diags: LoomDiagnostic[
           actionsByName,
         };
         checkBody(comp.body, ctx, diags);
+        for (const d of comp.derived) checkBody(d.expr, ctx, diags);
         checkActionBodies(comp.actions, ctx, diags);
+        checkDestroyFormOf(comp, `component '${comp.name}'`, aggByName, diags);
         checkFrontendCollectionOps(comp, `component '${comp.name}'`, diags);
         checkUnknownPageElements(comp, `component '${comp.name}'`, callableNames, diags);
         checkUnresolvedPageRefs(comp, `component '${comp.name}'`, callableNames, diags);

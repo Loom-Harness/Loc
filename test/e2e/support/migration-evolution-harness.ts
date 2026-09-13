@@ -39,7 +39,15 @@ export const repoRoot = path.resolve(here, "..", "..", "..");
 export const cli = path.join(repoRoot, "bin", "cli.js");
 const fixtureDir = path.join(repoRoot, "test", "e2e", "fixtures", "migration-evolution");
 
-export function readFixture(name: "base" | "evolved"): string {
+export function readFixture(
+  name:
+    | "base"
+    | "evolved"
+    | "vo-collection-base"
+    | "vo-collection-evolved"
+    | "field-default-base"
+    | "field-default-evolved",
+): string {
   return fs.readFileSync(path.join(fixtureDir, `${name}.ddd`), "utf8");
 }
 
@@ -614,6 +622,290 @@ export async function runMoneyBoundsCatchUpGate(): Promise<void> {
       fs.rmSync(tree, { recursive: true, force: true });
     } catch {
       /* best-effort */
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Value-collection evolution gate (M-T2.15 / #2864 D1).
+//
+// Adding a value-object COLLECTION field to an aggregate already in the
+// baseline used to emit, alongside the correct id-less child table, a phantom
+// root column:
+//
+//   ALTER TABLE "ord"."orders" ADD COLUMN "lines" JSONB[] NULL;
+//   ALTER TABLE "ord"."orders" ALTER COLUMN "lines" SET NOT NULL;
+//
+// No backend creates that column on a fresh generate and no ORM maps it, so
+// nothing ever writes it — every INSERT after the migration failed the NOT NULL
+// constraint permanently.  On a POPULATED table the `SET NOT NULL` failed at
+// apply time instead, which is why this gate seeds a row BEFORE migrating: it
+// catches both halves of the defect, and only a live Postgres can show either.
+//
+// Deliberately does NOT boot the backend — the defect is in the emitted DDL, so
+// psql alone is a complete and much faster proof.
+// ---------------------------------------------------------------------------
+export async function runValueCollectionEvolutionGate(): Promise<void> {
+  const v1 = readFixture("vo-collection-base");
+  const v2 = readFixture("vo-collection-evolved");
+  const tree = fs.mkdtempSync(path.join(os.tmpdir(), "loom-mev-vo-collection-"));
+  let server: PgServer | undefined;
+  try {
+    generate(v1, "node", tree);
+    const migDir = path.join(tree, "d", "db", "migrations");
+    const initial = fs.readdirSync(migDir).find((f) => f.endsWith(".sql"));
+    if (!initial) throw new Error(`no initial migration emitted under ${migDir}`);
+
+    // The Initial migration is the control: it must already omit the phantom
+    // column.  If this ever fails the defect has moved into the create path and
+    // the rest of the gate would be testing the wrong thing.
+    const initialSql = fs.readFileSync(path.join(migDir, initial), "utf8");
+    expect(initialSql).not.toMatch(/"lines"/);
+
+    server = await startPgServer();
+    resetDatabase(server, "vocollection");
+    psql(server, "vocollection", initialSql);
+
+    // A pre-existing row — the state that turns the phantom `SET NOT NULL` from
+    // "every future insert fails" into "the migration itself fails".
+    psql(
+      server,
+      "vocollection",
+      `INSERT INTO "ord"."orders" ("id", "note", "version") ` +
+        `VALUES ('11111111-1111-1111-1111-111111111111', 'seeded', 1)`,
+    );
+
+    // (a) The evolution is NOT destructive.  Pre-fix this threw, naming
+    // `ADD COLUMN ord.orders.lines NOT NULL (no default)` — adding a
+    // value-collection field is a pure table add and needs no flag.
+    generate(v2, "node", tree);
+
+    const deltas = fs
+      .readdirSync(migDir)
+      .filter((f) => f.endsWith(".sql") && f !== initial)
+      .sort();
+    if (deltas.length !== 1) {
+      throw new Error(`expected exactly one delta migration, saw [${deltas.join(", ")}]`);
+    }
+    const deltaSql = fs.readFileSync(path.join(migDir, deltas[0]!), "utf8");
+
+    // (b) The delta creates the child table and touches no column on the root.
+    expect(deltaSql).toMatch(/CREATE TABLE "ord"\."order_lines"/);
+    expect(deltaSql).not.toMatch(/ALTER TABLE "ord"\."orders"/);
+    expect(deltaSql).not.toMatch(/"lines"/);
+
+    // (c) It applies to the POPULATED database.
+    psql(server, "vocollection", deltaSql);
+
+    // (d) `orders` still has exactly its v1 columns — no phantom `lines`.
+    const cols = psql(
+      server,
+      "vocollection",
+      `SELECT string_agg(column_name, ',' ORDER BY ordinal_position) ` +
+        `FROM information_schema.columns ` +
+        `WHERE table_schema = 'ord' AND table_name = 'orders'`,
+    );
+    expect(cols).toBe("id,note,version");
+
+    // (e) The seeded row survived, and a NEW row still inserts — the assertion
+    // the whole finding is about.
+    expect(psql(server, "vocollection", `SELECT "note" FROM "ord"."orders"`)).toBe("seeded");
+    psql(
+      server,
+      "vocollection",
+      `INSERT INTO "ord"."orders" ("id", "note", "version") ` +
+        `VALUES ('22222222-2222-2222-2222-222222222222', 'post-migration', 1)`,
+    );
+    psql(
+      server,
+      "vocollection",
+      `INSERT INTO "ord"."order_lines" ("order_id", "ordinal", "sku", "qty") ` +
+        `VALUES ('22222222-2222-2222-2222-222222222222', 0, 'SKU-1', 3)`,
+    );
+    const joined = psql(
+      server,
+      "vocollection",
+      `SELECT o."note" || '/' || l."sku" || '/' || l."qty" FROM "ord"."orders" o ` +
+        `JOIN "ord"."order_lines" l ON l."order_id" = o."id"`,
+    );
+    expect(joined).toBe("post-migration/SKU-1/3");
+  } finally {
+    server?.stop();
+    try {
+      fs.rmSync(tree, { recursive: true, force: true });
+    } catch {
+      /* best-effort */
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Field-default evolution gate (M-T2.16 / #2864 G1, decision D-3).
+//
+// `status: string = "pending"` never reached the DDL, so the obvious way to add
+// a required column to a live table was destructive: the add came out as a bare
+//
+//   ALTER TABLE "ord"."orders" ADD COLUMN "status" TEXT NOT NULL;
+//
+// which Postgres rejects on any populated table.  The author had to pass
+// --allow-destructive and fill in a `-- TODO backfill` comment by hand, or
+// restate the value in a `migration "…" { Order.status = "pending" }` block.
+//
+// D-3 rejects a persistent column default — a second source of truth for a
+// value the domain layer owns — and takes the middle path: the DEFAULT exists
+// only for the width of the add, then is dropped in the same migration.  That
+// makes three claims at once, and only a live Postgres can settle them
+// together, because they are claims about a table that ALREADY HAS ROWS:
+//
+//   (a) the migration applies to a populated table with no flag;
+//   (b) the pre-existing rows come out holding the declared value, with no
+//       backfill written by the author;
+//   (c) the column is left with NO default — so a database grown by migration
+//       and one built from a fresh CREATE TABLE are the same database.
+//
+// (c) is the half a unit test cannot really reach: it is an assertion about
+// `information_schema`, compared against a schema Postgres built independently.
+//
+// Deliberately does NOT boot the backend — the whole finding lives in the
+// emitted DDL, so psql alone is a complete and much faster proof.
+// ---------------------------------------------------------------------------
+export async function runFieldDefaultEvolutionGate(): Promise<void> {
+  const v1 = readFixture("field-default-base");
+  const v2 = readFixture("field-default-evolved");
+  const tree = fs.mkdtempSync(path.join(os.tmpdir(), "loom-mev-field-default-"));
+  const freshTree = fs.mkdtempSync(path.join(os.tmpdir(), "loom-mev-field-default-fresh-"));
+  let server: PgServer | undefined;
+  try {
+    generate(v1, "node", tree);
+    const migDir = path.join(tree, "d", "db", "migrations");
+    const initial = fs.readdirSync(migDir).find((f) => f.endsWith(".sql"));
+    if (!initial) throw new Error(`no initial migration emitted under ${migDir}`);
+    const initialSql = fs.readFileSync(path.join(migDir, initial), "utf8");
+
+    const pg = await startPgServer();
+    server = pg;
+    resetDatabase(pg, "fielddefault");
+    psql(pg, "fielddefault", initialSql);
+
+    // A row written under v1, when the column did not exist at all.  This is
+    // what the whole finding is about: without the DEFAULT on the add, the
+    // migration below fails outright on exactly this state.
+    psql(
+      pg,
+      "fielddefault",
+      `INSERT INTO "ord"."orders" ("id", "note", "version") ` +
+        `VALUES ('11111111-1111-1111-1111-111111111111', 'seeded', 1)`,
+    );
+
+    // (a) Generating the evolution is NOT destructive.  Pre-fix this threw,
+    // naming `ADD COLUMN ord.orders.status NOT NULL (no default)`.
+    generate(v2, "node", tree);
+
+    const deltas = fs
+      .readdirSync(migDir)
+      .filter((f) => f.endsWith(".sql") && f !== initial)
+      .sort();
+    if (deltas.length !== 1) {
+      throw new Error(`expected exactly one delta migration, saw [${deltas.join(", ")}]`);
+    }
+    const deltaSql = fs.readFileSync(path.join(migDir, deltas[0]!), "utf8");
+    expect(deltaSql).toContain(
+      `ALTER TABLE "ord"."orders" ADD COLUMN "status" TEXT NOT NULL DEFAULT 'pending';`,
+    );
+    expect(deltaSql).toContain(`ALTER TABLE "ord"."orders" ALTER COLUMN "status" DROP DEFAULT;`);
+    // No hand-holding: the author wrote no backfill and got no TODO.
+    expect(deltaSql).not.toContain("TODO backfill");
+
+    // (b) It applies to the POPULATED database, and the pre-existing row comes
+    // out holding the declared value.
+    psql(pg, "fielddefault", deltaSql);
+    expect(psql(pg, "fielddefault", `SELECT "status" FROM "ord"."orders"`)).toBe("pending");
+
+    // (c) …and the column kept NO default.  Compared against a schema Postgres
+    // built independently from the v2 source, so this is "the two databases are
+    // the same", not "the string I expected came back".
+    generate(v2, "node", freshTree);
+    const freshMigDir = path.join(freshTree, "d", "db", "migrations");
+    const freshInitial = fs.readdirSync(freshMigDir).find((f) => f.endsWith(".sql"));
+    if (!freshInitial) throw new Error(`no initial migration emitted under ${freshMigDir}`);
+    const freshSql = fs
+      .readFileSync(path.join(freshMigDir, freshInitial), "utf8")
+      .replaceAll(`"ord"`, `"ord_fresh"`);
+    psql(pg, "fielddefault", freshSql);
+    // Ordered by NAME, not ordinal: `ALTER TABLE … ADD COLUMN` appends, so a
+    // migrated table carries a later-added column last while a fresh CREATE
+    // TABLE places it in declaration order.  That is true of every column any
+    // migration has ever added and is not something a default can change — so
+    // comparing physical position would assert a property no migration holds.
+    // What D-3 claims is that each column is the SAME column: type,
+    // nullability, and (the point here) default.
+    const describeCols = (schema: string): string =>
+      psql(
+        pg,
+        "fielddefault",
+        `SELECT string_agg(column_name || ' ' || data_type || ' null=' || is_nullable || ` +
+          `' default=' || coalesce(column_default, '<none>'), '; ' ORDER BY column_name) ` +
+          `FROM information_schema.columns ` +
+          `WHERE table_schema = '${schema}' AND table_name = 'orders'`,
+      );
+    expect(describeCols("ord")).toBe(describeCols("ord_fresh"));
+    expect(describeCols("ord")).toContain("status text null=NO default=<none>");
+
+    // The contract that follows from (c), pinned in both directions so the
+    // DROP DEFAULT cannot silently stop happening: an INSERT that omits the
+    // column is refused on the migrated schema EXACTLY as it is on the fresh
+    // one.  D-3's point is that the default never outlives its migration —
+    // supplying the value stays the domain layer's job.
+    const insertOmitting = (schema: string): string | undefined => {
+      try {
+        psql(
+          pg,
+          "fielddefault",
+          `INSERT INTO "${schema}"."orders" ("id", "note", "version") ` +
+            `VALUES ('22222222-2222-2222-2222-222222222222', 'omitted', 1)`,
+        );
+        return undefined;
+      } catch (e) {
+        return String((e as Error).message);
+      }
+    };
+    for (const schema of ["ord", "ord_fresh"]) {
+      expect(insertOmitting(schema)).toMatch(/violates not-null constraint/);
+    }
+
+    // And a row that DOES supply it still inserts — the table is working, not
+    // merely well-described.
+    psql(
+      pg,
+      "fielddefault",
+      `INSERT INTO "ord"."orders" ("id", "note", "status", "version") ` +
+        `VALUES ('33333333-3333-3333-3333-333333333333', 'post-migration', 'shipped', 1)`,
+    );
+    expect(
+      psql(
+        pg,
+        "fielddefault",
+        `SELECT string_agg("note" || '=' || "status", ',' ORDER BY "note") FROM "ord"."orders"`,
+      ),
+    ).toBe("post-migration=shipped,seeded=pending");
+
+    // Re-generating against the now-baked baseline emits nothing: the delta is
+    // naturally inert, so the DEFAULT/DROP pair cannot churn on every regen.
+    generate(v2, "node", tree);
+    expect(
+      fs
+        .readdirSync(migDir)
+        .filter((f) => f.endsWith(".sql"))
+        .sort(),
+    ).toEqual([initial, deltas[0]!].sort());
+  } finally {
+    server?.stop();
+    for (const dir of [tree, freshTree]) {
+      try {
+        fs.rmSync(dir, { recursive: true, force: true });
+      } catch {
+        /* best-effort */
+      }
     }
   }
 }

@@ -159,9 +159,13 @@ describe("IR warnings are visible, not discarded", () => {
     expect(out).toMatch(/loom\.datasource-knob-unwired \S+ warning: /);
     // …and the run still succeeds.
     expect(out).toContain("OK:");
-    // …with a footer that counts them (the AST-layer footer above it reports
-    // 0/0 — these are phase-⑦ warnings, and used to be counted nowhere).
-    expect(out).toMatch(/^3 warning\(s\)\.$/m);
+    // …and are counted in the command's footer.  That footer used to be the
+    // SECOND of two — `0 error(s), 0 warning(s).` from phase ④ sat above these
+    // three phase-⑦ warnings, telling a reader who stopped there that the
+    // model was clean.  There is one footer now, covering both phases
+    // (M-T9.60); `parse-single-summary.test.ts` is the gate on there being
+    // exactly one of it.
+    expect(out).toMatch(/^0 error\(s\), 3 warning\(s\)\.$/m);
   });
 
   it("`ddd generate system` prints IR warnings on the SUCCESS path", () => {

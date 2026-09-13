@@ -105,10 +105,14 @@ jobs:
     # ~57 s on dep+app compile now takes ~7 s, and the WHOLE 31-case corpus runs
     # in 6m35s — ~4 min of which is the two cold dep-set primes (base +
     # joken/OIDC) that the cache below removes on a restore.
-    # Budget: ~5 min setup (npm ci + tsc build + beam) + ~5 min worst-case cold
-    # primes on a slower 2-core runner + ~8 min for the corpus, so 30 leaves
-    # real headroom without letting a genuine hang burn 45 min of runner time.
-    timeout-minutes: 30
+    # Budget per docs/ci-gating.md § "Sizing a job's `timeout-minutes`":
+    # 50 % margin over the measured p95, rounded up to 5 min, floor 10.
+    # 30 came from an estimate ("~5 min setup + ~5 min cold primes + ~8 min
+    # corpus"); measurement says setup is ~1m, not 5m, and the whole job's p95
+    # is 11m27s — so the estimate was high on setup and the round-up doubled it.
+    # Measured 2026-09-10, n=15 successful runs: p95 11m27s, max 11m34s.
+    # Re-derive with `node test/behavioral/ci-budget-report.mjs`.
+    timeout-minutes: 20
 
     services:
       postgres:
