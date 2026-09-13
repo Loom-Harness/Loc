@@ -2229,7 +2229,10 @@ function mergeViewsAsFinds(
   const synthesised = [
     ...matchingQp.map((p) => ({
       name: p.name,
-      params: [],
+      // The projection's OWN parameters — its inlined `where` references them,
+      // so a parameterless read emitted a LINQ predicate over a free variable.
+      // See `synthProjectionFinds` (typescript) for the full note.
+      params: p.params ?? [],
       returnType: arrayReturn,
       ...(p.query?.filter ? { filter: p.query.filter } : {}),
       ...(p.query?.bypassAll ? { bypassAll: true } : {}),
