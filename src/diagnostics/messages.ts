@@ -2249,17 +2249,6 @@ export const DIAGNOSTIC_MESSAGES = {
     `The Dapper adapter is at full parity with EF Core; the only shapes it now ` +
     `rejects have no relational persistence mapping at all (efcore included) — restructure ` +
     `the model as the message suggests.`,
-  // The hierarchical-tenancy boundary (M-T6.29) needs its OWN tail: the blanket
-  // message above claims every surviving Dapper reject has no relational mapping
-  // on any adapter, and that is not true here — `persistence: efcore` renders the
-  // deep-scope filter fine.  What Dapper lacks is the principal-param binding for
-  // the sentinel's `currentUser.<claim>` sub-expressions, so the way out is the
-  // sibling adapter, not a model restructure.
-  "loom.dapper-unsupported#deep-scope": (p: { name: unknown; subject: unknown; reason: unknown }) =>
-    `Deployable '${p.name}' selects 'persistence: dapper', but ${p.subject} ${p.reason}. ` +
-    `The Dapper adapter renders capability filters as raw SQL and cannot bind the ` +
-    `principal claims a hierarchical scope predicate reads — use 'persistence: efcore' ` +
-    `on this deployable, or flatten the tenancy to a non-hierarchical registry.`,
   // The self-provisioning-adapter migration gate.  Neither blanket message
   // above fits: this is not "no relational mapping anywhere" — the sibling
   // adapter (efcore / drizzle) applies the very same migration chain fine.

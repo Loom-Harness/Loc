@@ -178,8 +178,13 @@ const REGISTERED: Ratchet[] = [
     // kinds here rather than losing the find gate and the folded-projection
     // gate as per-fixture collateral.
     //
-    // 1 = `tenancy-hierarchy`, the one boundary left with a real witness.
-    max: 1,
+    // 1 -> 0 (wave C2 packet 2b).  The last entry, `tenancy-hierarchy`, was the
+    // `#deep-scope` sub-code: the materialized-path subtree sentinel "cannot
+    // bind the principal claims" on raw SQL.  It can — `authzFilterToSql` now
+    // renders it, and the collector that could not see it rides `walkExprDeep`.
+    // The validator arm, this entry and the register's `#deep-scope` clause all
+    // went in the same commit, per the ratchet contract.
+    max: 0,
   },
   // Primitives exempt from the pack testid contract.
   {

@@ -144,10 +144,13 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
     site: "src/ir/validate/checks/orm-adapter-checks.ts:51",
     what:
       "the .NET Dapper residue after full EF parity: an AGGREGATING query-time projection over a " +
-      "document/event-sourced source, a hierarchical (deep/global) tenancy scope filter, and the " +
-      "two self-provisioning limits — declared migration steps and Postgres schema placement " +
-      "(migration-checks.ts, `validateMigrationAdapterSupport` / " +
-      "`validateSelfProvisioningSchemaSupport`)",
+      "document/event-sourced source, and the two self-provisioning limits — declared migration " +
+      "steps and Postgres schema placement (migration-checks.ts, " +
+      "`validateMigrationAdapterSupport` / `validateSelfProvisioningSchemaSupport`).  The " +
+      "hierarchical (deep/global) tenancy `#deep-scope` clause DRAINED in wave C2 packet 2b: " +
+      "`authzFilterToSql` renders the descendant-or-self fragment as raw Postgres and " +
+      "`collectFilterPrincipalRefs` (now on `walkExprDeep`) binds its four params, proven on a " +
+      "booted Dapper backend by `test/e2e/tenancy-hierarchy-dapper.test.ts`",
     mission: "M-T6.35",
   },
   {
