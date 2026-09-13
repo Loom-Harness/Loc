@@ -47,6 +47,7 @@ import type {
   ProjectionSource,
   Property,
   QueryHandler,
+  RequiresStmt,
   ReturnStmt,
   Route,
   SelfType,
@@ -88,6 +89,7 @@ import {
   mkProjectionSelect,
   mkProperty,
   mkQueryHandler,
+  mkRequiresStmt,
   mkReturnStmt,
   mkRoute,
   mkSelfType,
@@ -508,6 +510,20 @@ export function callStmt(path: string[], args: Expression[] = []): AssignOrCallS
 export function letStmt(name: string, expr: Expression): LetStmt {
   const origin = currentOrigin();
   const stmt: LetStmt = tag(mkLetStmt({ $type: "LetStmt", name, expr }), origin);
+  setContainer(expr, stmt, "expr");
+  return stmt;
+}
+
+/** A `requires <expr>` authorization gate statement (grammar `RequiresStmt`)
+ * — the in-body 403 gate.  This is the ONLY surface a macro-emitted
+ * aggregate `create` / `destroy` has for a gate: neither carries a header
+ * `requires` clause, so the gate has to be the first statement of the body
+ * the macro owns.  `crudish(requires: <Policy>)` builds
+ * `requires <Policy>()` with it; the lowerer inlines the named policy
+ * function exactly as it would for a hand-written gate. */
+export function requiresStmt(expr: Expression): RequiresStmt {
+  const origin = currentOrigin();
+  const stmt: RequiresStmt = tag(mkRequiresStmt({ $type: "RequiresStmt", expr }), origin);
   setContainer(expr, stmt, "expr");
   return stmt;
 }
