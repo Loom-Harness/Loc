@@ -63,11 +63,11 @@ export type FindPredicateCapability = (e: ExprIR) => string | null;
 // variant always have, and the narrowing is gone.)
 
 // (`isBareBooleanColumn`, `isQueryableIntrinsicCall` and the `COMPARE_OPS`
-// table lived here.  They existed for one reader — `MIKROORM_SUBSET`'s walk —
-// and went with it when that descriptor reached the baseline.  A future
-// narrowing re-adds the ones it needs; leaving them behind would be a
-// vocabulary with no consumer, which is how a stale narrowing survives its own
-// fix.)
+// table lived here.  They existed for one reader — `MIKROORM_SUBSET`'s
+// structural walk over every queryable shape — and went with it when that walk
+// shrank to the single remaining narrowing below.  A future narrowing re-adds
+// the ones it needs; leaving them behind would be a vocabulary with no
+// consumer, which is how a stale narrowing survives its own fix.)
 
 const FULL_SUBSET: FindPredicateCapability = () => null;
 

@@ -94,6 +94,92 @@
     },
     {
       "seq": 5,
+      "method": "POST",
+      "path": "/api/orders/{id}/settle",
+      "status": 200,
+      "body": {
+        "type": "int",
+        "value": 8
+      }
+    },
+    {
+      "seq": 6,
+      "method": "GET",
+      "path": "/api/orders/{id}",
+      "status": 200,
+      "body": {
+        "id": "<volatile:key>",
+        "quantity": 8,
+        "reference": "R1",
+        "status": 7,
+        "version": 3
+      }
+    },
+    {
+      "seq": 7,
+      "method": "GET",
+      "path": "/api/orders/{id}/history",
+      "status": 200,
+      "body": [
+        {
+          "action": "create",
+          "actor": null,
+          "at": "<timestamp>",
+          "auditId": "<volatile:key>",
+          "changes": [
+            {
+              "after": "R1",
+              "before": null,
+              "field": "reference"
+            },
+            {
+              "after": 5,
+              "before": null,
+              "field": "quantity"
+            },
+            {
+              "after": 0,
+              "before": null,
+              "field": "status"
+            }
+          ],
+          "correlationId": "<volatile:key>",
+          "operationId": "<volatile:key>"
+        },
+        {
+          "action": "cancel",
+          "actor": null,
+          "at": "<timestamp>",
+          "auditId": "<volatile:key>",
+          "changes": [
+            {
+              "after": 7,
+              "before": 0,
+              "field": "status"
+            }
+          ],
+          "correlationId": "<volatile:key>",
+          "operationId": "<volatile:key>"
+        },
+        {
+          "action": "settle",
+          "actor": null,
+          "at": "<timestamp>",
+          "auditId": "<volatile:key>",
+          "changes": [
+            {
+              "after": 8,
+              "before": 5,
+              "field": "quantity"
+            }
+          ],
+          "correlationId": "<volatile:key>",
+          "operationId": "<volatile:key>"
+        }
+      ]
+    },
+    {
+      "seq": 8,
       "method": "GET",
       "path": "/api/orders",
       "status": 200,
@@ -101,10 +187,10 @@
         "items": [
           {
             "id": "<volatile:key>",
-            "quantity": 5,
+            "quantity": 8,
             "reference": "R1",
             "status": 7,
-            "version": 2
+            "version": 3
           }
         ],
         "page": 1,
@@ -114,7 +200,7 @@
       }
     },
     {
-      "seq": 6,
+      "seq": 9,
       "method": "PATCH",
       "path": "/api/orders",
       "status": 405,
@@ -127,7 +213,7 @@
       }
     },
     {
-      "seq": 7,
+      "seq": 10,
       "method": "GET",
       "path": "/__loom_no_such_path",
       "status": 404,
@@ -140,7 +226,7 @@
       }
     },
     {
-      "seq": 8,
+      "seq": 11,
       "method": "POST",
       "path": "/api/orders",
       "status": 400,

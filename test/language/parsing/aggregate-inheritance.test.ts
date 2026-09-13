@@ -228,7 +228,10 @@ describe("aggregate inheritance — validator (I1)", () => {
     expect(codes(errors)).toContain("loom.es-tph-forced-own-table");
     // The message must name the SHAPE, not the event-sourced arm it shares a
     // code with — the remedy is the same but the reason a reader needs is not.
-    expect(errors.some((e) => /shape: embedded/.test(e.message ?? ""))).toBe(true);
+    // `String(...)` because a Langium diagnostic's `message` is typed
+    // `string | MarkupContent`; the two older sibling assertions in this file
+    // predate the test-typecheck ratchet and are its remaining baseline here.
+    expect(errors.some((e) => /shape: embedded/.test(String(e.message ?? "")))).toBe(true);
   });
 
   it("accepts the embedded concrete once it declares inheritanceUsing: ownTable", async () => {
