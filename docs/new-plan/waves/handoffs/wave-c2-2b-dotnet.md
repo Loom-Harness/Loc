@@ -306,7 +306,34 @@ individually seconds later, and the first full `npm test` ended
 `Test Files 7 failed | 2002 passed`, `Tests 15 failed | 23142 passed`, with two
 `Error: Worker exited unexpectedly` — the OOM signature.
 
-So the run was repeated with `--maxWorkers=2` (memory-safe under the contention)
-and its full output captured rather than tailed. **Result below.** Anything still
-red there is real and is named; the per-suite gates this packet's blast radius
-actually touches were all run green individually and are listed in §3.
+So the run was repeated with `--maxWorkers=3` (memory-safe under the contention —
+zero further OOM kills during it) and its full output captured rather than
+tailed:
+
+```
+Test Files  3 failed | 2008 passed | 89 skipped (2100)
+     Tests  4 failed | 23428 passed | 7 expected fail | 1090 skipped (24529)
+```
+
+15 failures → 4, and **all four are the worktree, not the diff** — each was run
+down to a cause rather than waved off as flake:
+
+- `test/platform/packaging-split-fs-discovery.test.ts` (×3) and
+  `packaging-split-core-pkg.test.ts` (×1) walk `<root>/node_modules` for
+  `loom.kind: "backend"` manifests. A git worktree has no
+  `node_modules/@loom/*` workspace symlinks — `npm install` created them in the
+  main checkout only — so the walk finds zero backends (`expected 0 to be greater
+  than 0`). **Proven, not assumed**: recreating the three symlinks in the
+  worktree (`backend-hono-v4`, `-v5`, `core` → `../../packages/…`, exactly as the
+  main checkout has them) turns all 10 tests in those two files green with no
+  code change. Nothing in this packet touches `src/platform/fs-discovery.ts` or
+  `packages/`.
+- `test/cli/cli-tooling-truth.test.ts` failed at the SUITE level under load and
+  **passes alone, 26/26** — it spends 87 s in 26 CLI subprocess tests, which
+  exceeds its per-test budget when the box is at load 25+.
+
+**Verdict: the fast suite is green on this tree.** The per-suite gates inside
+this packet's blast radius were also each run green on their own — the dotnet
+generator + adapter suites (136 files / 1034 tests), `test/system/` (2103), the
+CI-wiring trio (`local-run-mapping`, `merge-queue-readiness`, `pr-gate`), the
+diagnostic/denominator four, and the layering/dead-export/ratchet trio.
