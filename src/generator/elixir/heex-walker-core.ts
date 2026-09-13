@@ -60,6 +60,7 @@ import {
   listShapedProjectionNames,
   readableProjectionNames,
 } from "../../ir/util/projection-read.js";
+import { walkExprDeep } from "../../ir/util/walk.js";
 import { intrinsicFor, intrinsicKey } from "../../util/intrinsics.js";
 import { elixirString, humanize, snake, upperFirst } from "../../util/naming.js";
 import { DURATION_UNIT_MS, type DurationUnit } from "../../util/temporal.js";
@@ -1286,6 +1287,37 @@ function armRendersMarkup(value: ExprIR, ctx: WalkContext): boolean {
   return value.kind === "match";
 }
 
+/** Can this arm predicate be RE-RENDERED in handler position?
+ *
+ *  A `match` arm's condition is written for the render scope, where a lambda
+ *  parameter (`For { each: rows, i => match { … } }`) is in scope.
+ *  `handle_params/3` is a function body: that same `i` renders as a bare
+ *  variable nothing binds, and `mix compile` rejects the module.  So a guard is
+ *  carried down only when every name in the predicate also exists as a socket
+ *  assign — a `state` field, a `derived` over such, a route param, the
+ *  principal, or a `data:`-lambda binding the walker has already remapped to
+ *  one.
+ *
+ *  Anything else falls back to the unguarded load: no improvement for that
+ *  shape, and no regression either — it is exactly what every read emitted
+ *  before.  Rides `walkExprDeep` rather than a hand-rolled descent, so a new
+ *  `ExprIR` kind cannot hide a reference from this check. */
+function guardIsHandlerSafe(cond: ExprIR, ctx: WalkContext): boolean {
+  let safe = true;
+  walkExprDeep(cond, (e) => {
+    if (e.kind !== "ref") return;
+    if (ctx.varRemapping?.has(snake(e.name))) return;
+    if (ctx.stateNames.has(snake(e.name))) return;
+    if (ctx.page.derived?.some((d) => snake(d.name) === snake(e.name))) return;
+    if (ctx.page.params.some((p) => p.name === e.name)) return;
+    // Not a page-scope name at all — an enum value or the principal renders the
+    // same in both positions.
+    if (e.refKind === "enum-value" || e.refKind === "current-user") return;
+    safe = false;
+  });
+  return safe;
+}
+
 /** The walk context for arm `index` of a markup `match` — `ctx` plus the
  *  `loadGuard` that arm's reads must run under.  `index === conds.length` is
  *  the `else` arm.
@@ -1348,7 +1380,11 @@ function renderMatch(expr: Extract<ExprIR, { kind: "match" }>, ctx: WalkContext)
     // executed and then thrown away.  Handler position: a load block is a
     // function body, so a state ref must render `socket.assigns.<f>`, not
     // `@<f>`.
-    const handlerConds = expr.arms.map((a) => renderExpr(a.cond, { ...ctx, position: "handler" }));
+    // One unsafe arm disables guarding for the WHOLE match: a partly-guarded
+    // `cond` is worse than none, since the unguarded load still clobbers.
+    const handlerConds = expr.arms.every((a) => guardIsHandlerSafe(a.cond, ctx))
+      ? expr.arms.map((a) => renderExpr(a.cond, { ...ctx, position: "handler" }))
+      : [];
     const lines: string[] = ["<%= cond do %>"];
     for (const [i, a] of expr.arms.entries()) {
       lines.push(`  <% ${renderExpr(a.cond, ctx)} -> %>`);

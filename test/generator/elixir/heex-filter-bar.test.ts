@@ -314,3 +314,70 @@ system PlainBind {
     expect(clause).not.toContain("case ");
   });
 });
+
+describe("a guard is only carried down when it can be re-rendered in a handler", () => {
+  it("a `match` on a LAMBDA parameter stays unguarded rather than emitting a bare variable", async () => {
+    // `handle_params/3` is a function body, not the render scope: the `i` bound
+    // by the `For` lambda does not exist there.  Guarding the inner read with
+    // `if i.flagged do` would emit an undefined variable and fail
+    // `mix compile` — a whole-project failure, not a bad render.  So the guard
+    // is refused and the load keeps the exact statement it always emitted.
+    const files = await generateSystemFiles(`
+system LambdaGuard {
+  subdomain Retail {
+    context Catalog {
+      aggregate Item {
+        name: string
+        flagged: bool
+      }
+      repository Items for Item { }
+    }
+  }
+  api CatalogApi from Retail
+  ui Live {
+    api Catalog: CatalogApi
+    page Board {
+      route: "/board"
+      title: "Board"
+      body: QueryView {
+        of: Catalog.Item.all,
+        data: rows => Stack {
+          For {
+            each: rows,
+            i => match {
+              i.flagged => QueryView {
+                of: Catalog.Item.all,
+                data: inner => Text { "flagged" }
+              },
+              else => Text { i.name }
+            }
+          }
+        }
+      }
+    }
+  }
+  storage primary { type: postgres }
+  resource catalogState { for: Catalog, kind: state, use: primary }
+  deployable api {
+    platform: elixir
+    contexts: [Catalog]
+    dataSources: [catalogState]
+    serves: CatalogApi
+    ui: Live { Catalog: api }
+    port: 4000
+  }
+}
+`);
+    const params = handleParams(files.get("api/lib/api_web/live/board_live.ex") ?? "");
+    // Both reads, unguarded — byte-identical to the pre-guard emit.
+    expect(params).toMatch(
+      /socket =\n\s+case Api\.Catalog\.list_items\(\) do\n\s+\{:ok, items\} -> assign\(socket, :inner, items\)/,
+    );
+    expect(params).toMatch(
+      /socket =\n\s+case Api\.Catalog\.list_items\(\) do\n\s+\{:ok, items\} -> assign\(socket, :items, items\)/,
+    );
+    // …and, the point: no lambda binding leaked into the function body.
+    expect(params).not.toContain("if i.");
+    expect(params).not.toMatch(/\bi\.flagged\b/);
+  });
+});
