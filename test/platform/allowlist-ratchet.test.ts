@@ -421,7 +421,16 @@ const REGISTERED: Ratchet[] = [
     // the api (a capability is a pure mixin and supplies no operation), so the
     // conjunct was unobservable at any tier; composing the `softDelete` MACRO
     // made it assertable with one principal.
-    max: 18,
+    //
+    // 18 -> 17: wave-3 row 3.3 drained `projection-document-aggregation` too.
+    // Its reason said asserting the number "needs seeded rows the behavioural
+    // runners set up per-fixture" — it does not: `Article` carries `crudish`,
+    // so the api mints its own rows and the block counts what it just created.
+    // The generation gate proved the read EMITS; nothing proved the number was
+    // RIGHT, which is the gap a `count(*)` over a jsonb triple is most likely
+    // to have, since every backend reaches it differently and a wrong one
+    // still compiles.
+    max: 17,
   },
 ];
 

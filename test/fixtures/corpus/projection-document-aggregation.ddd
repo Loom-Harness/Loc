@@ -31,9 +31,25 @@
 // the same negative test; the filtered RELATIONAL crossing is
 // `projection-agg-filters.ddd`.
 //
-// COMPILE-TIER ONLY — no `test e2e` block.  The generation gate proves the read
-// emits; asserting the number needs seeded rows the behavioural runners set up
-// per-fixture, and `document.ddd` already drives the document write path.
+// RUNTIME + COMPILE.  This header used to say "COMPILE-TIER ONLY … asserting the
+// number needs seeded rows the behavioural runners set up per-fixture".  It does
+// not: `Article` carries `crudish`, so the api mints its own rows and the block
+// below counts what it just created.  The generation gate proved the read
+// EMITS; nothing proved the number was RIGHT, which is the gap a `count(*)` over
+// a jsonb triple is most likely to have — every backend reaches it differently
+// (drizzle `count()`, mikroorm `raw("count(*)")`, SQLAlchemy `func.count()`,
+// Ecto `count(record.id)`, EF `GroupBy(_ => 1).Count()`, Dapper
+// `count(*)::int`), and a wrong one still compiles.
+//
+// The contrast the fixture was built for is what the block asserts: the SAME
+// source read two ways, the table-level `count(*)` and the repository-hydrated
+// per-row arm, must agree about how many rows exist.  A backend that routed the
+// aggregation through the repository (or the row read through the table) breaks
+// exactly one of them, and the two numbers diverge.
+//
+// Still NO java — `backends: DOCUMENT_TABLE_AGGREGATION` excludes it, so the
+// behavioural java leg skips this case by construction, exactly as the compile
+// legs do.
 system ProjectionDocumentAggregation {
   subdomain Cms {
     context Cms {
@@ -77,5 +93,59 @@ system ProjectionDocumentAggregation {
     dataSources: [cmsState]
     serves: CmsApi
     port: 4000
+  }
+
+  test e2e "the document row count is the number of rows, and both reads of the same source agree" against d {
+    // Empty table first: `count()` must zero-default rather than answer NULL —
+    // the shape that 500s a backend mapping a NULL aggregate onto a
+    // non-nullable response field.
+    let empty = api.articleVolume.list()
+    expect(empty.articles).toBe(0)
+    let noRows = api.articleTitles.list()
+    expect(noRows.count()).toBe(0)
+
+    let a = api.articles.create({ title: "First", viewCount: 3 })
+    api.articles.create({ title: "Second", viewCount: 7 })
+    api.articles.create({ title: "Third", viewCount: 11 })
+
+    // The table-level `count(*)` over `(id, data, version)`…
+    let volume = api.articleVolume.list()
+    expect(volume.articles).toBe(3)
+    // …and the repository-hydrated per-row arm over the SAME source, which
+    // reads declared fields OUT of the jsonb blob.  Same source, two emission
+    // paths: they must agree on the row count, and the per-row arm must carry
+    // real field values rather than nulls.
+    let rows = api.articleTitles.list()
+    expect(rows.count()).toBe(3)
+
+    // NOTHING HERE ASSERTS WHICH ROW COMES FIRST.  Neither projection declares
+    // `order by`, so row order is unspecified — and it genuinely varies: the
+    // first draft of this block asserted `rows.first().heading` and passed on
+    // the insertion order until an `update` rewrote a row, after which Postgres
+    // returned the updated row last and `first()` was a different article.  The
+    // per-ROW identity assertions therefore go through `getById`, which
+    // addresses a row rather than a position; the projections are asserted on
+    // what they actually promise, which is the COUNT.
+    api.articles.update(a, { title: "First Revised", viewCount: 4 })
+    expect(api.articleVolume.list().articles).toBe(3)
+    expect(api.articleTitles.list().count()).toBe(3)
+
+    // The blob round-trip, addressed by id: `update` rewrote the jsonb and the
+    // hydrating read must see the new values.
+    let readBack = api.articles.getById(a)
+    expect(readBack.title).toBe("First Revised")
+    expect(readBack.viewCount).toBe(4)
+    // `all()` on this aggregate answers a BARE ARRAY, not the paged
+    // `{ items, total }` envelope — nothing here declares `paged`, so the root
+    // list read is the collection itself and `.count()` is how it is measured.
+    let listed = api.articles.all()
+    expect(listed.count()).toBe(3)
+
+    // …and a delete moves it back, on BOTH reads.
+    api.articles.destroy(a)
+    let afterDelete = api.articleVolume.list()
+    expect(afterDelete.articles).toBe(2)
+    let rowsAfter = api.articleTitles.list()
+    expect(rowsAfter.count()).toBe(2)
   }
 }
