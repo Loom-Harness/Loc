@@ -4,6 +4,7 @@ import {
   type TypeIR,
   type WorkflowIR,
 } from "../../ir/types/loom-ir.js";
+import { findValueObjectInScope } from "../../ir/util/reachable-types.js";
 import { lowerFirst, snake, upperFirst } from "../../util/naming.js";
 import { typeReachesMoney, zodForResponse } from "./api-module.js";
 import { collectUsedTypes, emitEnumSchema, emitValueObjectSchema } from "./zod-schemas.js";
@@ -237,7 +238,7 @@ export function collectSchemaDeps(workflows: Array<{ wf: WorkflowIR; ctx: Bounde
       if (e) enumLocals.push(...emitEnumSchema(e));
       return;
     }
-    const vo = ctx.valueObjects.find((x) => x.name === t.name);
+    const vo = findValueObjectInScope(ctx, t.name);
     if (!vo) return;
     // Declared here, so its field schemas must be in scope here too.
     for (const f of vo.fields) ensure(ctx, f.type);

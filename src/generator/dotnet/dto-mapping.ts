@@ -17,7 +17,7 @@ import {
   type WirePrimitive,
   wireTypeInfo,
 } from "../../ir/types/wire-types.js";
-import { collectReachableTypes } from "../../ir/util/reachable-types.js";
+import { collectReachableTypes, valueObjectPool } from "../../ir/util/reachable-types.js";
 import { snake, upperFirst } from "../../util/naming.js";
 import { numericEncode } from "../_numeric/target.js";
 import { PROVENANCED_REQUEST_ERROR } from "../_payload/provenanced-wire.js";
@@ -1050,8 +1050,15 @@ export function valueObjectsUsedBy(
       for (const d of part.derived) yield d.type;
     }
   };
-  const { valueObjects } = collectReachableTypes(seeds(), ctx.valueObjects);
-  return ctx.valueObjects.filter((v) => valueObjects.has(v.name));
+  // POOL, not emission list: a cross-context `valueobject` (declared in a
+  // sibling context, referenced here) has to be resolvable or the emitted
+  // `<Vo>Request` / `<Vo>Response` reference dangles — .NET's per-namespace
+  // DTO records carry no `using` back to another aggregate's Responses
+  // namespace.  The reachability filter below still keeps only what this
+  // aggregate's surface actually names, so an unused sibling VO emits nothing.
+  const pool = valueObjectPool(ctx);
+  const { valueObjects } = collectReachableTypes(seeds(), pool);
+  return pool.filter((v) => valueObjects.has(v.name));
 }
 
 export function csIdValueClrType(idValueType: IdValueType): string {

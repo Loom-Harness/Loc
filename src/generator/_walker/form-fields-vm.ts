@@ -11,6 +11,7 @@
 // ---------------------------------------------------------------------------
 
 import type { AggregateIR, BoundedContextIR, TypeIR } from "../../ir/types/loom-ir.js";
+import { findValueObjectInScope } from "../../ir/util/reachable-types.js";
 import { humanize } from "../../util/naming.js";
 import { idTargetHookVar, unwrapOpt } from "../_frontend/form-helpers.js";
 import type { FormFieldVM } from "../_frontend/view-models.js";
@@ -107,7 +108,7 @@ export function prepareFormFieldVM(
   }
 
   if (inner.kind === "valueobject") {
-    const vo = ctx.valueObjects.find((v) => v.name === inner.name);
+    const vo = findValueObjectInScope(ctx, inner.name);
     if (vo) {
       const children = vo.fields.map((vf) =>
         prepareFormFieldVM(
@@ -139,7 +140,7 @@ export function prepareFormFieldVM(
     // disabled stub, byte-identical to before.
     const el = inner.element;
     if (el.kind === "valueobject") {
-      const vo = ctx.valueObjects.find((v) => v.name === el.name);
+      const vo = findValueObjectInScope(ctx, el.name);
       if (vo) {
         // Row sub-fields carry a BARE sub-path (`sku`, not `items.sku`) so a
         // dynamic-row template splices the runtime index; numeric sub-fields
