@@ -23,11 +23,12 @@ Not "do not adopt" — there is real engineering here, and on several axes it is
 better than what we would build ourselves. But three things block production
 commitment today, and all three are checkable:
 
-1. **Of the 7 targets I could actually compile, 2 fail from ordinary model
-   shapes, with zero diagnostics** (and 4 more I could not compile at all — see
-   §11). A shared value object (F-001), a field named `state` (F-015), a
-   `Tag id[]` (F-016). `parse` green, `generate` green, build red minutes
-   later — or, worse, build green and the defect reaches runtime (F-014).
+1. **Four of the eleven targets do not compile the model I wrote**, each from an
+   ordinary shape, with `parse` and `generate` green: a value object declared in
+   another context (F-001), a field named `state` (F-015), a field named
+   `member` (F-022), a `Tag id[]` (F-016), `mask unless` on Java (F-020), a
+   `for` loop in a reactor (F-013/F-021). Build red minutes later — or, worse,
+   build green and the defect reaches runtime (F-014).
 2. **The recommended security posture cannot be expressed.** `denyByDefault` +
    `permissions` + a frontend crashes the generator (F-005), and `denyByDefault`
    does not gate list reads anyway (F-006). Commons' entire social graph would
@@ -43,10 +44,10 @@ Each is a specific, checkable gate. I would re-run this spike against them.
 
 | # | Condition | How we check it |
 |---|---|---|
-| C1 | F-001, F-014, F-015, F-016 fixed **and** each has a regression test that fails when reverted | Re-run `eval/repro/*.ddd`; ask for the test names; confirm they're in the per-PR tier, not a nightly |
+| C1 | F-001, F-014, F-015, F-016, F-020, F-021, F-022 fixed **and** each has a regression test that fails when reverted | Re-run `eval/repro/*.ddd`; ask for the test names; confirm they're in the per-PR tier, not a nightly |
 | C2 | `renderGateExpr` no longer throws — every page-gate call site routes through `tryRenderGate` (the contract their **own** test already asserts) | `eval/repro/F005-ui-gate-crash.ddd` + a `find all() requires <policy>()` generates clean on react/vue/svelte/angular |
 | C3 | `enforcement: denyByDefault` gates the auto-`findAll` list route, or refuses to compile without an explicit per-aggregate decision | The 8× `200` in F-006 becomes `403` |
-| C4 | A **compile gate** for every target on every PR, not just generate | Ask to see the CI config; confirm `tsc --noEmit`/`dotnet build`/`ng build` run on generated output for a model with a shared VO, a `state` field and an `X id[]` |
+| C4 | A **compile gate** for every target on every PR, plus a **per-target reserved-word map** | Ask to see the CI config; confirm `tsc --noEmit` / `dotnet build` / `gradle testClasses` / `mix compile` / `ng build` / `dotnet fable` / `flutter analyze` all run on generated output for one corpus model containing a shared VO, a field named `state`, a field named `member`, an `X id[]` and a `for`-loop reactor |
 | C5 | Generated node backend type-checks in its own Dockerfile (`tsc --noEmit` before `tsup`) | F-014's broken output must fail `docker compose build` |
 | C6 | A second maintainer with commit rights, or a written continuity plan | `git shortlog -sn` shows ≥2 humans over a quarter |
 | C7 | A data-preserving path for moving an aggregate between contexts | `migration "m" { C.Thing -> D.Thing }` or equivalent emits `ALTER TABLE … SET SCHEMA` |
@@ -56,7 +57,7 @@ decision and is the one I would weight highest.
 
 ### What would move it to *Do not adopt*
 
-If, on re-evaluation, the SILENT count has not fallen — if fixing these four
+If, on re-evaluation, the SILENT count has not fallen — if fixing these seven
 surfaces three more of the same shape — then the defect class is structural
 (one emitter per target, no shared conformance oracle over ordinary model
 shapes) and no amount of individual bug-fixing closes it.
@@ -75,8 +76,8 @@ Every claim is quoted verbatim from `README.md` unless marked otherwise.
 | 4 | "Zero vendor lock-in" | **Partial** | Real: output is plain Hono/EF/Ecto/FastAPI/Spring, MIT-granted, no runtime dependency on Loom. But the *modelling* lock-in is total — leaving means owning 26k–56k lines you didn't write. §8 exit cost. |
 | 5 | "No scaling cliff" | **Verified (compile-time)** / **Unverified (runtime)** | Generation is flat to 40 aggregates. I did not load-test the generated app; the read model's single-table ceiling (**F-002**) is an architectural scaling constraint, not a performance one. |
 | 6 | "No drift between layers" | **Contradicted** | The generator emitted an e2e suite calling routes it did not generate (**F-003**, 3/3 tests fail with 405). The supported customisation hatch manufactures permanent API↔DB drift (**F-008**). |
-| 7 | "Five backends from one source … **Identical API contracts**" | **Partial** | *Identical* is verified where both run: node vs python returned **byte-identical JSON** on a 10-field aggregate incl. money scaling, enum casing, ISO timestamps and a derived VO. *Five* is not: on my model, dotnet doesn't compile (**F-015**) and elixir doesn't generate (**F-013**). One boundary divergence: `long` = 2⁵³+1 → node 422, python 201. |
-| 8 | "Six frontends … The page DSL is identical; only the rendering changes" | **Partial** | react/vue/svelte compiled from one model. Angular fails on any `X id[]` (**F-016**). Feliz/Flutter **unverified** (toolchain blocked in my sandbox). |
+| 7 | "Five backends from one source … **Identical API contracts**" | **Partial** | *Identical* is verified where both run: node vs python returned **byte-identical JSON** on a 10-field aggregate incl. money scaling, enum casing, ISO timestamps and a derived VO. *Five* is not, on my model: **node, python and elixir compile** (elixir clean under `--warnings-as-errors`), **dotnet and java do not** (F-015; F-020 + F-021), and elixir needs the fan-out reactor removed to generate at all (F-013). One boundary divergence: `long` = 2⁵³+1 → node 422, python 201. |
+| 8 | "Six frontends … The page DSL is identical; only the rendering changes" | **Partial** | **Four of six compile** from one model: react, vue, svelte, and flutter (`flutter analyze`: 0 errors, 0 warnings). **Angular** fails on any `X id[]` (**F-016**). **Feliz** fails on a field named `member` (**F-022**) — rename it and it builds a real 894 kB bundle, so the frontend works and the emitter lacks a reserved-word map. |
 | 9 | "Thirteen design packs … swap any time" | **Unverified** | I exercised `mantine` end-to-end and generated with the default. I did not build ≥3 packs; **not tested**. |
 | 10 | "Pick per deployable. Switch any time." (per-deployable runtime) | **Verified** | One system, 4 backends + 5 frontends, 1148 files, one command. Two frontends on one backend and two backends in one system both generate and (for node+dotnet, node+python) boot together. |
 | 11 | "Browser playground … visual system builder … live preview" | **Unverified** | Requires `cd web && npm install`; I did not stand it up. **Not tested.** |
@@ -92,8 +93,16 @@ Every claim is quoted verbatim from `README.md` unless marked otherwise.
 
 ## 3. Target matrix
 
-One model (`eval/commons/breadth.ddd`, 320 `.ddd` lines → 1148 files, `generate` exit 0).
-**Compiles** = a real toolchain in Docker. **Boots**/**wire** = a live container against Postgres.
+One model (`eval/commons/breadth.ddd`, 320 `.ddd` lines → 1148 files, `generate`
+exit 0). **Compiles** = a real toolchain. **Boots**/**wire** = a live container
+against Postgres.
+
+> **Second pass.** My first pass marked java / elixir / feliz / flutter
+> "unverified — sandbox proxy". `docs/tools.md` documents a working recipe for
+> each of the four **by name**, including two sections titled for exactly the
+> TLS-fingerprinting failure I hit (§624 `LOOM_HEX_MIRROR`, §666 Java, §912
+> frontends, §944 Flutter). Using them: **two of the four passed and two failed
+> with real, new S1 defects.** The rows below are the corrected results.
 
 ### Backends
 
@@ -101,9 +110,9 @@ One model (`eval/commons/breadth.ddd`, 320 `.ddd` lines → 1148 files, `generat
 |---|---|---|---|---|
 | **node** (Hono) | ✅ | ✅ | ✅ healthy | ✅ reference |
 | **python** (FastAPI) | ✅ | ✅ image built | ✅ healthy | ✅ **byte-identical to node** |
-| **dotnet** (ASP.NET) | ✅ | ❌ `CS0102`/`CS0542` (**F-015**) | ✅ on a model without a `state` field | not compared (couldn't build Commons) |
-| **java** (Spring Boot) | ✅ | ⚠️ **unverified** — Gradle can't reach the plugin portal through my sandbox proxy (Gradle ignores `HTTPS_PROXY`). Not a Loom defect. | unverified | unverified |
-| **elixir** (Phoenix) | ❌ **crash** on Commons (**F-013**); ✅ on a simpler model | ⚠️ **unverified** — `mix local.hex` blocked by sandbox TLS | unverified | unverified |
+| **elixir** (Phoenix) | ❌ **crash** on the fan-out workflow (**F-013**); ✅ without it | ✅ **`mix compile --warnings-as-errors` exit 0** on the full Commons domain, via the documented hex mirror | not booted | not compared |
+| **dotnet** (ASP.NET) | ✅ | ❌ `CS0102`/`CS0542` — field named `state` (**F-015**) | ✅ on a model without that field | not compared |
+| **java** (Spring Boot) | ✅ | ❌ **two defects**: `mask unless` emits no `import java.util.Objects` (**F-020**); the fan-out reactor emits an undeclared repo, a bogus `run(<predicate>)` call and a wrong record accessor (**F-021**) | — | — |
 
 ### Frontends
 
@@ -112,17 +121,49 @@ One model (`eval/commons/breadth.ddd`, 320 `.ddd` lines → 1148 files, `generat
 | **react** | ✅ | ✅ | ✅ healthy (Commons `web`) |
 | **vue** | ✅ | ✅ image built | not booted |
 | **svelte** | ✅ | ✅ `svelte-check found 0 errors and 0 warnings` | not booted |
+| **flutter** | ✅ | ✅ **`flutter analyze`: 0 errors, 0 warnings** (153 `info` lints, so `analyze` still exits 1) | not booted |
 | **angular** | ✅ | ❌ `TS2322`/`TS2345` on any `X id[]` (**F-016**) | — |
-| **feliz** (F#/Fable) | ✅ | ⚠️ **unverified** — image build blocked fetching nodesource through the sandbox proxy | unverified |
-| **flutter** | ✅ | ⚠️ **not tested** — no Flutter SDK available | not tested |
+| **feliz** (F#/Fable) | ✅ | ⚠️ **both** — fails on the Commons model (invalid F#: a field named `member`, an F# keyword, emitted verbatim into a record — **F-022**; plus the **F-021** workflow arm). Rename that one field and `dotnet fable` + vite **build a real 894 kB bundle, exit 0**. So Feliz works; the emitter has no reserved-word map. | not booted |
 
-**Honest summary of what I sampled:** 2 backends and 3 frontends verified
-compiling from one model; 2 backends verified booting and returning identical
-JSON; 2 targets verified broken; 3 targets unverified for environment reasons.
-**"Five backends and six frontends" is a generate-step count, not a compile-step
-count**, on the model I wrote.
+**What I actually sampled, stated plainly.** Eleven targets generated from one
+model, all eleven compile-tested, **none left unverified**.
 
----
+- **Seven compile the Commons model as written:** node, python, elixir, react,
+  vue, svelte, flutter.
+- **Four do not:** dotnet, java, angular, feliz — each from an ordinary model
+  shape, each with `parse` and `generate` green.
+- **Three of those four are one field or one construct away from compiling.**
+  Rename `state` → dotnet builds; rename `member` → **feliz builds a real
+  894 kB bundle**; drop the fan-out reactor → **elixir compiles
+  `--warnings-as-errors` clean**. Only angular's `X id[]` and java's two defects
+  need emitter work rather than a model rename.
+
+**The headline number changed in the second pass, and in both directions.**
+First pass: 2 broken / 5 compiled / 4 unverified. Second pass: **4 broken / 7
+compiled / 0 unverified.** Elixir and Flutter turned out to be *passes* I had
+written off; java and feliz turned out to be *failures* I had excused. The
+correction that matters: **"unverified" is not a neutral row** — mine was hiding
+two passes and two S1 defects in equal measure, and I should have looked for the
+vendor's own recipe before recording it.
+
+**The defect shape is now unmistakable.** Six of the ten S1 defects are one
+pattern: **a name or a construct that is legal in Loom and fatal in the target
+language, emitted verbatim with no escaping and no gate.**
+
+| Model shape (all legal `.ddd`) | Target it breaks |
+|---|---|
+| value object declared in another context | dotnet, react, vue, svelte, angular (F-001) |
+| field named `state` | dotnet — collides with the nested `State` class (F-015) |
+| field named `member` | feliz — reserved F# keyword (F-022) |
+| value object named `Money` | node — skips construction validation (F-014) |
+| reference collection `X id[]` | angular (F-016) |
+| `for x in Repo.run(C(...))` in a reactor | elixir crash, java + feliz non-compiling (F-013, F-021) |
+
+Five distinct targets, one root cause class: **emitters that interpolate model
+identifiers into target syntax without a reserved-word map or a post-emit
+compile check.** That is a structural finding, not six unrelated bugs, and it is
+what condition **C4** (a per-target compile gate over a corpus of ordinary
+shapes) exists to catch.
 
 ## 4. What using it is actually like
 
@@ -311,22 +352,23 @@ whether C4/C5 are in place.
 
 | Class | Count | Findings |
 |---|---|---|
-| **SILENT** — valid input, exit 0, output wrong / uncompilable / crashed | **9** | F-001, F-003, F-004, F-005, F-013, F-014, F-015, F-016, F-017 |
+| **SILENT** — valid input, exit 0, output wrong / uncompilable / crashed | **12** | F-001, F-003, F-004, F-005, F-013, F-014, F-015, F-016, F-017, F-020, F-021, F-022 |
 | **HONEST** — refused with a clear, actionable diagnostic | **4** | F-002, F-009, F-010, F-012 |
-| **DOCUMENTED** — named up front | **3** | F-006 (carve-out documented), F-008 (overwrite contract documented), F-018 |
+| **DOCUMENTED** — named up front | **3** | F-006, F-008 (overwrite contract), F-018 |
 | **Docs-vs-reality** | **2** | F-007, F-011 |
 | **Reconciliation** (Phase 6 only) | **1** | F-019 |
 
-By severity: **S1 ×7** (F-001, F-003, F-005, F-013, F-014, F-015, F-016),
-**S2 ×6** (F-002, F-006, F-008, F-009, F-012, F-019), **S3 ×6** (F-004, F-007,
-F-010, F-011, F-017, F-018), **S4 ×0**.
+By severity: **S1 ×10** (F-001, F-003, F-005, F-013, F-014, F-015, F-016, F-020,
+F-021, F-022), **S2 ×6**, **S3 ×6**, **S4 ×0**.
 
 Separately, the ten adversarial models in Phase 6 produced **9 HONEST refusals
 and 1 SILENT miss** (the miss is F-014) — so the diagnostic layer scores well
 when the defect is in the *user's* model, and badly when it is in the emitter.
 
-**Let the ratio speak.** Nine SILENT to four HONEST is the wrong way round for a
-compiler. The HONEST gaps are genuinely excellent — `loom.projection-where-not-queryable`,
+**Let the ratio speak.** Twelve SILENT to four HONEST is the wrong way round for
+a compiler — and the ratio got *worse* in the second pass, because the four
+targets I had left unverified contributed two more silent S1s and no honest
+ones. The HONEST gaps are genuinely excellent — `loom.projection-where-not-queryable`,
 `loom.criterion-not-selectable`, the destructive-migration gate, the
 `denyByDefault` endpoint report, the `patch` address book — several are better
 than what mainstream tools produce. But a compiler's job is that *everything*
@@ -427,7 +469,7 @@ bus factor makes it a bet on one person regardless.
 | 4 | **Fix cross-context value-object emission on dotnet + the 4 JSX frontends** (F-001) | Breaks the vendor's own front-page example on 5 of 9 targets. First thing a new user hits. |
 | 5 | **Validate `test e2e` calls against emitted routes** (F-003) | Both halves are in one IR. Turns the "no drift" claim from marketing into a gate, and fixes the README example. |
 | 6 | **Make `Money` not special-case construction validation** (F-014) | The gate exists and works for every other name. Restores the "LLM-safe" claim's stated mechanism. |
-| 7 | **A conformance corpus of *ordinary shapes*, compiled on every target** — a shared VO, a field named `state`, an `X id[]`, an optional ref, a self-ref, a VO named `Money` | This is the structural fix. It is the one that would have caught 4 of my 6 SILENT findings, and the absence of it is why a 16-agent audit missed them. |
+| 7 | **A conformance corpus of *ordinary shapes*, compiled on every target** — a shared VO, a field named `state`, a field named `member`, an `X id[]`, a `for`-loop reactor, `mask unless`, a VO named `Money` — plus a **per-target reserved-word escape map** | This is the structural fix, and it moved up in the second pass: it would have caught **8 of the 10** S1 defects. Their absence is why a 16-agent internal audit missed all of them. |
 | 8 | **Replace emitter `throw`s with `loom.*-unsupported-backend` diagnostics** (F-005, F-013) | The register's own header demands this. Converts crashes into HONEST gaps — the single best ratio improvement available. |
 | 9 | **Stale-pin detection**: warn when a `.loomignore`-pinned file's aggregate changed (F-008) | Makes the escape hatch safe to use, which makes "you own the source" honest. |
 | 10 | **Qualify the README** to match `docs/audits/` (F-019), and emit the MIT LICENSE from `generate` (F-007) | Cheapest items on the list; they are what a technical buyer checks first, and getting caught on them costs more trust than the bugs do. |
@@ -439,12 +481,16 @@ bus factor makes it a bet on one person regardless.
 Stated plainly, because the recommendation should not be read as broader than
 the evidence.
 
-- **Not compiled:** java (sandbox proxy blocked Gradle), elixir (sandbox TLS
-  blocked `mix local.hex`), feliz (blocked fetching nodesource), flutter (no
-  SDK). Four of eleven targets are **unverified, not passing**.
-- **Not booted:** vue, svelte, angular, and every backend except node, python
-  and (on a simpler model) dotnet. Wire identity was verified for **one pair**
-  (node ↔ python).
+- **Everything generated is now compile-tested.** No target is left
+  "unverified": all five backends and all six frontends were built with their
+  real toolchains (node/vue/svelte/angular/react via npm + tsc/vue-tsc/
+  svelte-check/ng, dotnet via `dotnet publish`, java via `gradle:9-jdk25`,
+  elixir via `mix compile --warnings-as-errors` behind the documented hex
+  mirror, feliz via `dotnet fable` + vite, flutter via `flutter analyze`).
+- **Not booted:** vue, svelte, flutter, feliz, elixir, java. Only node, python
+  and (on a reduced model) dotnet ran as live services. **Wire identity was
+  verified for exactly one pair** (node ↔ python); the "identical API contracts"
+  claim rests on that one comparison, not on five.
 - **Design packs: not tested.** I used `mantine` and the default. The "swap any
   time" and "thirteen packs" claims are **Unverified**, not verified.
 - **Playground / visual builder / VS Code extension / MCP server: not tested.**
@@ -461,8 +507,9 @@ the evidence.
 - **Confidence is highest** on: the modelling ceiling (F-002, F-012 — tested
   from several angles), migration safety (six change classes against a populated
   DB), and runtime authorization enforcement (live server, real OIDC tokens,
-  two principals). **Confidence is lowest** on: anything involving java, elixir,
-  feliz, flutter, the design packs, and the playground.
+  two principals). **Confidence is lowest** on: runtime behaviour of the seven
+  targets I compiled but never booted, the design packs, the playground, and
+  toolchain-upgrade stability.
 
 One methodological note: the harness auto-injected the repository's `CLAUDE.md`
 into my context before Phase 0, so I was not perfectly blind to internals. I did

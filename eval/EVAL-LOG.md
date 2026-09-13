@@ -75,3 +75,36 @@ Tooling: `--dry-run` ✓ · `.loom/` bundle (mermaid, LikeC4, AsyncAPI, wire-spe
 sourcemap, i18n catalog) ✓ · `i18n extract/init/status/check --strict` ✓
 (325 keys, `--strict` exits 1) · `patch` ✓ (excellent agent-facing diagnostics)
 · traceability + `verify` ✓ but see F-017 · `trace`/`breakpoints` partial (F-018).
+
+---
+
+## Second pass — closing the "unverified" rows
+
+Prompted by the user pointing out there is a playbook for running the targets.
+There is: `docs/tools.md` §§472–700 ("Compiling generated backends in Docker",
+`LOOM_HEX_MIRROR`, "Java images behind a fingerprinting proxy") and §§912–990
+("Compiling generated FRONTENDS locally", "Flutter: analyzing a generated app
+locally"). Two sections are titled for exactly the TLS-fingerprinting failure I
+hit. I had recorded four targets as "unverified — environment" without looking
+for it.
+
+| Target | Recipe used | Result |
+|---|---|---|
+| **elixir** | `scripts/hex-mirror.py` — loopback TLS mirror re-originating hex.pm with an accepted fingerprint; `--network host --add-host {builds,repo,hex}.hex.pm:127.0.0.1`, `HEX_CACERTS_PATH` | `mix deps.get && MIX_ENV=prod mix compile --warnings-as-errors` → **EXIT=0** on the full Commons domain (F-013 workflow removed) |
+| **java** | `docker run --network host … -e JAVA_TOOL_OPTIONS="$JAVA_TOOL_OPTIONS" gradle:9-jdk25 gradle --no-daemon testClasses bootJar` — the piece my compose build lacked was passing the host's proxy JVM opts in | deps resolved; **10 real compile errors in generated code** → F-020, F-021 |
+| **flutter** | `ghcr.io/cirruslabs/flutter:stable`, `flutter pub get && flutter analyze` with `CURL_CA_BUNDLE` + proxy env | **0 errors, 0 warnings**, 153 `info` lints |
+| **feliz** | docs say it "stays CI's to answer" (no .NET SDK on the host). Worked around: `mcr.microsoft.com/dotnet/sdk:8.0` + a Node **tar.gz** (the image has no `xz`), then `dotnet tool restore && npm install && npm run build` | fails on Commons (**F-022**); rename one field → **`✓ built in 4.40s`, 894 kB bundle, EXIT=0** |
+
+Also re-ran `generate` for the whole breadth model after `npx tsc -b`:
+`Wrote 0 file(s), unchanged: 1141` — the rebuilt toolchain emits byte-identical
+output, so the first pass's generated trees were not stale.
+
+**Net effect on the evaluation:** 4 unverified → 0. Two were passes I had
+written off (elixir, flutter); two were failures I had excused (java, feliz),
+yielding three new S1 defects (F-020, F-021, F-022). SILENT count 9 → 12;
+HONEST unchanged at 4.
+
+**Lesson for the method, recorded against myself:** an "unverified" row is not
+neutral. Mine hid two passes and two failures in equal measure. Search the
+vendor's docs for a recipe before recording an environment blocker — especially
+when the vendor ships one named for your exact failure.

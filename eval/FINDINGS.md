@@ -886,3 +886,198 @@ JSX page-gate call sites don't use it.
 `docs/audits/` + `src/diagnostics/unsupported-register.ts` as the real status
 document, and re-read them at each upgrade. If Loom is adopted, make "what
 changed in the open ledger" part of the upgrade checklist.
+
+---
+
+## F-020 · S1 · SILENT — `mask unless` emits Java that is missing its `import java.util.Objects`
+
+*(Found in a second pass, after the user pointed me at the toolchain playbook in
+`docs/tools.md` that unblocks the Java/Elixir/Flutter/Feliz builds my first pass
+marked "unverified".)*
+
+**Claim under test.** `mask unless` is the field-level read-redaction control in
+`docs/auth.md`, and the strongest verified result of the first pass — on node it
+compiles to a real `toWireMasked(root, currentUser)` that I confirmed against a
+live server with two principals.
+
+**Repro.** `eval/repro/F020-java-mask-missing-import.ddd` (12 lines):
+```ddd
+aggregate Person with crudish {
+  name: string
+  ssn: string mask unless currentUser.role == "admin"
+  derived display: string = name
+}
+deployable apiJava { platform: java, … auth: required }
+```
+```
+$ node bin/cli.js parse    …  -> 0 error(s), 0 warning(s).
+$ node bin/cli.js generate …  -> Wrote 66 file(s)
+$ grep -n '^import' …/features/people/PersonResponse.java
+3:import com.loom.apijava.auth.CurrentUserAccessor;
+4:import com.loom.apijava.auth.User;
+5:import java.util.UUID;
+7:import com.loom.apijava.domain.enums.*;
+8:import com.loom.apijava.domain.ids.*;
+9:import com.loom.apijava.domain.valueobjects.*;
+$ grep -c 'Objects\.' …/PersonResponse.java
+1
+```
+The mapper calls `Objects.equals(__maskUser.role(), "admin")` and never imports
+`java.util.Objects`. Confirmed with the real compiler on the Commons model:
+```
+…/features/members/MemberResponse.java:21: error: cannot find symbol
+  symbol:   variable Objects
+  location: class MemberResponse
+```
+
+**Why it matters more than an average missing import.** It is the *security*
+feature that fails, and it fails closed only by accident — the file does not
+compile, so the service does not start. But it means `mask unless`, which I
+graded as the evaluation's best verified result on node, has never been compiled
+on Java. That is a one-line fix and a missing test, on a feature whose whole
+point is that it is enforced in generated code on every backend.
+
+**Adoption impact.** Reinforces C4: a compile gate per target is not optional.
+
+**Time lost:** 15 min.
+
+---
+
+## F-021 · S1 · SILENT — the `for x in Repo.run(Criterion(...))` reactor emits non-compiling Java (and non-compiling F#), the same construct that crashes Elixir
+
+**Claim under test.** `docs/workflow.md` documents
+`for x in Repo.run(<Retrieval>(args)) { … }` as workflow body vocabulary, with
+no per-backend caveat. It is the natural spelling for a fan-out.
+
+**Repro.** The Commons notification fan-out (`eval/commons/breadth.ddd`), built
+with the documented Java recipe from `docs/tools.md`:
+```
+docker run --rm --network host -v $PWD/api_java:/src -w /src \
+  -v /root/.ccr:/root/.ccr:ro -e JAVA_TOOL_OPTIONS="$JAVA_TOOL_OPTIONS" \
+  gradle:9-jdk25 gradle --no-daemon testClasses bootJar
+```
+```java
+// application/workflows/CommunityDispatcher.java:40
+for (var f : Follows.run(Objects.equals(state.followee(), e.author()))) {
+             ^ symbol: variable Follows
+                          ^ symbol: method followee()  location: variable state of type FanOutPostState
+    notificationsRepository.save(n);
+    ^ symbol: variable notificationsRepository
+```
+Three separate defects in two emitted lines:
+1. the repository (`Follows`) is never declared or injected;
+2. the criterion `FollowersOf(who)` is **inlined as a boolean argument to
+   `run(...)`** — `Repo.run(Criterion(args))` is lowered to
+   `Repo.run(<the criterion's predicate>)`, which is not a signature that
+   exists — and its parameter `who` is resolved against the *workflow state
+   record* (`state.followee()`), which has no such accessor;
+3. `notificationsRepository` is never declared.
+
+**The same construct, three targets, three different failures:**
+
+| Target | Result on the identical `.ddd` |
+|---|---|
+| node, python | generates and compiles |
+| **elixir** | **generator crash** — `Error: dispatch-emit: unsupported reactor statement kind 'for-each'` (**F-013**) |
+| **java** | **non-compiling output**, above |
+| **feliz** | **non-compiling F#** — `error FSHARP: The type 'Model' does not define the field … 'AllFanOutPosts'`, plus `Unexpected keyword 'member' in expression` |
+
+**Corroborated by the maintainers' own material** (Phase 6):
+`docs/new-plan/testing-quality-improvement-plan.md:73` describes the shared
+`WorkflowStmtIR` spine that owns "the only `for-each`/`if-let` recursion" as
+"shared by the **Hono/.NET/Java/Python** workflow emitters" — but Java, which is
+on that list, still emits this. Elixir is not on the list at all.
+
+**Adoption impact.** A single ordinary construct — iterate a query result inside
+a reactor — is the difference between "five backends" and "two". If you adopt,
+treat the workflow body vocabulary as node/python-only until proven otherwise per
+construct.
+
+**Time lost:** 30 min (second pass).
+
+---
+
+## VERIFIED GOOD (second pass) — Elixir and Flutter, with the documented recipes
+
+Recording these because the first pass marked them **unverified** and the
+correction matters more than the finding.
+
+- **Elixir compiles clean.** Using `LOOM_HEX_MIRROR`'s mechanism
+  (`scripts/hex-mirror.py`, documented in `docs/tools.md` § "Elixir builds
+  behind a fingerprinting proxy" — a loopback TLS mirror that re-originates
+  hex.pm with an accepted fingerprint), `mix deps.get && MIX_ENV=prod mix
+  compile --warnings-as-errors` on the **full Commons domain** (10 aggregates,
+  auth, channels, moderation, masking — minus only the F-013 workflow) exits
+  **0**. That is a real pass on a real toolchain, with warnings as errors.
+- **Flutter analyzes clean.** `flutter pub get && flutter analyze` in
+  `ghcr.io/cirruslabs/flutter:stable` on the generated Commons app:
+  **0 errors, 0 warnings**, 153 `info`-level lints (`prefer_const_constructors`,
+  `prefer_interpolation_to_compose_strings`, `no_leading_underscores_for_local_identifiers`).
+  `flutter analyze` exits 1 on any issue, so a CI job running it as-is fails on
+  style — worth knowing, but the generated Dart is type-correct.
+
+**Method note against myself.** My first pass recorded java/elixir/feliz/flutter
+as "unverified — environment", when `docs/tools.md` §§472–700 and §§912–990
+document a working recipe for each of the four, *by name*, including two
+sections titled for exactly the fingerprinting-proxy failure I hit. Two of the
+four then passed and two failed with real, new S1 defects. **An "unverified"
+row is not a neutral row** — it hid two passes and two failures, and I should
+have searched the docs for a recipe before recording it.
+
+---
+
+## F-022 · S1 · SILENT — a field named `member` (a reserved F# keyword) emits syntactically invalid F#
+
+**Claim under test.** README: six frontends, "The page DSL is identical; only
+the rendering changes." Feliz is one of the six.
+
+**Repro.** `eval/repro/F022-feliz-fsharp-keyword-field.ddd` (20 lines):
+```ddd
+aggregate Note with crudish {
+  member: Person id          // legal in Loom; reserved in F#
+  body: string
+  derived display: string = body
+}
+deployable web { platform: feliz, targets: api, ui: W, port: 3005 }
+```
+```
+$ node bin/cli.js parse    …  -> 0 error(s), 0 warning(s).
+$ node bin/cli.js generate …  -> Wrote 62 file(s)
+$ dotnet fable + vite build (mcr.microsoft.com/dotnet/sdk:8.0)
+./src/App.fs(128,5): error FSHARP: Unexpected keyword 'member' in field declaration.
+                                   Expected identifier or other token. (code 10)
+./src/App.fs(128,5): error FSHARP: This field requires a name (code 882)
+./src/App.fs(158,7): error FSHARP: Unmatched '{' (code 604)
+```
+The emitter writes `member: string` straight into an F# record. `member` is how
+F# declares a member — the record literal does not parse, and the damage
+cascades (`Unmatched '{'`) through the rest of the file.
+
+**Isolated, and it is the *only* Feliz blocker.** On the full Commons model with
+the fan-out workflow removed, Feliz failed with these same syntax errors.
+Renaming that one field `member` → `recipient` and rebuilding:
+```
+✓ built in 4.40s
+dist/assets/index-DLGK3NAu.js   894.43 kB │ gzip: 118.45 kB
+EXIT=0
+```
+**Feliz builds the entire Commons UI** — 10 aggregates of scaffolded pages, auth
+gates, forms — into a real bundle. The frontend is genuinely functional; the
+emitter simply has no reserved-word map.
+
+**This is the same defect class as F-015** (`state` on .NET) and the same root
+as F-001: **a model identifier interpolated into target syntax with no escaping
+and no gate.** Loom's own keyword discipline is careful — `docs/language.md`
+devotes a section to hard vs soft keywords *in the DSL* — but nothing maps a
+legal Loom identifier onto each target language's reserved set.
+
+**Workaround.** Avoid target-language keywords in field names. There are five
+target languages, so the union is large and undocumented: `member`, `state`,
+`type`, `class`, `object`, `end`, `when`, `val`, `def`, `lambda`, …
+
+**Adoption impact.** Unlike F-016 (angular / `X id[]`), this needs no emitter
+redesign — a per-target reserved-word escape map is a contained fix. But until
+it exists, naming a field is a cross-language minefield that `parse` will not
+warn you about, and the failure surfaces only in whichever target you compile.
+
+**Time lost:** 25 min (second pass).

@@ -11,3 +11,4 @@ evo/mv/
 repro/f006/
 **/node_modules/
 logs/
+commons/elixir-out/
