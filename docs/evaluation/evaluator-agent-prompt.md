@@ -532,10 +532,11 @@ editor, visual builder, live preview, in-browser test runner) ·
   (lead with Phase 6's security work and Phase 2's isolation probes), an SRE
   review (Phase 6 ops + Phase 5 scaling), or a CTO-level build-vs-buy (Phase 7
   plus the comparison and exit-cost sections).
-- **Different app.** Replace the FieldOps spec with one from your own domain.
-  Keep the shape: multi-tenant, a lifecycle-heavy central aggregate, money, a
-  cross-aggregate transactional rule, files, roles with row-level rules, and one
-  requirement you suspect the DSL can't express.
+- **Different app.** Replace the FieldOps spec with one from your own domain, or
+  with one of the seeds in the **seed library** below. Keep the shape:
+  multi-tenant, a lifecycle-heavy central aggregate, money, a cross-aggregate
+  transactional rule, files, roles with row-level rules, and one requirement you
+  suspect the DSL can't express.
 - **Fan out.** The phases are mostly independent after Phase 1. Several agents
   can share one `eval/fieldops/` model — one per backend in Phase 3, one on
   Phase 5, one on Phase 6 — as long as they all write into the same
@@ -545,3 +546,306 @@ editor, visual builder, live preview, in-browser test runner) ·
   regenerate-over-hand-edits, (b) breaking migrations against a populated
   database, and (c) compiling every generated target. These three produce the
   findings that decide adoption.
+
+## Seed library — alternative apps for repeat runs
+
+Each seed below is a **drop-in replacement for the prompt's
+`# The application you will build` section**. Everything else in the prompt
+stays byte-identical, so findings from different runs are comparable.
+
+Each seed names its **stress axes** (what it probes that the others don't) and
+its **planted ceiling probes** — requirements chosen because they are plausible
+product asks that a model-driven generator may not be able to express. The
+probes are the point: they are where "what can this DSL *not* say" gets
+answered. Tell the agent the probes are requirements from the product owner,
+not hints — it should try to satisfy them and report honestly when it can't.
+
+### Seed A — FieldOps (baseline, as written in the prompt)
+
+Multi-tenant B2B field service. Stress axes: lifecycle aggregate with guarded
+transitions, money, a cross-aggregate transactional rule (stock decrement),
+file upload, roles with row-level rules, masked fields, a broker-published
+event. Planted probes: skill-matching across aggregates, multi-currency
+invariant, immutability after issuing, dashboard aggregation.
+
+### Seed B — "Meridian", loan servicing (correctness-and-money lens)
+
+Build **Meridian**, a loan-servicing platform for a lender with several
+business units. Every number is audited by a regulator; nothing is ever
+deleted.
+
+- **Borrower** (PII, KYC status), **BusinessUnit** as the tenant.
+- **LoanApplication** — lifecycle `Submitted → UnderReview → Approved |
+  Declined → Funded`, with a decision record naming who decided and why.
+- **Loan** — principal, annual rate, term, an **amortization schedule** of N
+  scheduled instalments generated at funding time (principal/interest split per
+  row, with a documented rounding policy that must make the final instalment
+  absorb the rounding residue).
+- **Payment** applied against a loan with a waterfall (fees → interest →
+  principal); a payment may be reversed, never edited.
+- **LedgerEntry** — append-only double-entry: every financial action posts
+  balanced debit/credit pairs, and the invariant "debits equal credits" must
+  hold for each posting.
+- **InterestAccrual** — accrued daily, per loan, by a scheduled process.
+- **DelinquencyStatus** derived from days-past-due buckets; **Statement**
+  generated monthly as an immutable document.
+- Reporting: portfolio balance **as of an arbitrary past date**, delinquency
+  ageing buckets, and a per-business-unit regulator export.
+
+Non-domain: OIDC with `servicer`, `underwriter`, `auditor`, `readOnly` roles;
+an `auditor` who can read everything across business units but write nothing;
+every field on a funded loan provenanced; full audit trail; traceability on
+the three regulator-facing requirements; no soft delete anywhere (deletion
+must be impossible, not merely discouraged).
+
+Deployables: one backend + one admin frontend + a separate scheduled-jobs
+deployable.
+
+**Stress axes:** decimal/money precision and rounding policy, append-only
+immutability, temporal/as-of reads, scheduled recurring computation, audit and
+provenance under regulatory framing, a read-everything/write-nothing role,
+derived values that must be reproducible years later.
+
+**Planted ceiling probes:** (1) portfolio balance *as of* a past date;
+(2) generating N schedule rows from one operation; (3) banker's rounding with a
+residue rule; (4) the cross-entry "debits equal credits" invariant spanning
+more than one aggregate instance; (5) a daily accrual job — where does
+scheduled work live at all?
+
+### Seed C — "Clinica", clinic scheduling (time, concurrency, privacy lens)
+
+Build **Clinica**, appointment scheduling and clinical records for a chain of
+clinics in three timezones.
+
+- **Clinic** (the tenant, each with its own timezone), **Room**, **Practitioner**
+  with weekly **availability windows** plus date-specific exceptions.
+- **Patient** — heavy PII, plus an insurance policy reference.
+- **AppointmentType** with a default duration and a required practitioner skill.
+- **Appointment** — start + duration (not an arbitrary pair of timestamps),
+  practitioner, room, patient, lifecycle `Requested → Confirmed → CheckedIn →
+  Completed | NoShow | Cancelled`. **No two appointments may overlap for the
+  same practitioner or the same room.**
+- **Waitlist** — when a slot frees up, the first matching waitlist entry is
+  offered it.
+- **Encounter** — clinical notes attached to a completed appointment, plus
+  vitals; notes are readable only by clinical staff, never by front desk.
+- **Referral** to an external specialist, sent by email.
+- Reporting: a day/week calendar view per practitioner, utilisation percentage
+  per room, and a no-show rate per clinic.
+
+Non-domain: roles `frontDesk`, `clinician`, `clinicManager`, `patient` (a
+patient portal showing only their own appointments); clinical notes masked from
+non-clinicians; **read access to a patient record must itself be audited**;
+appointment reminders sent 24h ahead over a broker; patient-facing portal
+localized into two languages; GDPR data-export and erasure requests.
+
+Deployables: one backend, a staff frontend, and a patient-portal frontend on a
+*different* framework off the same backend.
+
+**Stress axes:** datetime/duration/timezone arithmetic and DST, overlap
+prevention under concurrency, recurrence (weekly availability + exceptions),
+optimistic concurrency on a contended row, read-auditing, field masking by
+role, two frontends on one backend, i18n.
+
+**Planted ceiling probes:** (1) double-booking under *concurrent* requests —
+fire two bookings for the same slot in parallel and see whether the model's
+invariant actually holds at the database level; (2) expanding weekly
+availability + exceptions into bookable slots; (3) a correct
+"today's appointments" query when clinic and viewer are in different
+timezones; (4) auditing *reads*, not just writes; (5) the calendar view —
+grouping across a join and ordering by time.
+
+### Seed D — "Clearline", insurance claims (workflow and polymorphism lens)
+
+Build **Clearline**, claims handling for a mid-size insurer.
+
+- **Policy** with **Coverage** lines and per-coverage limits and deductibles.
+- **Claim** as an **abstract** type with three concrete kinds — `AutoClaim`
+  (vehicle, driver, police report number), `PropertyClaim` (property address,
+  peril, contractor estimate), `LiabilityClaim` (third party, legal counsel) —
+  sharing a common lifecycle and appearing together in one queue. Decide and
+  justify one-table vs table-per-type, then **change your mind and migrate**.
+- **Adjuster** assignment with **authority limits**: an adjuster may approve a
+  payout only up to their own limit; above it the claim escalates to a
+  supervisor, and above that to a committee. Authority may be **delegated**
+  for a date range.
+- **ApprovalStep** chain of variable length with an **SLA**: a step unanswered
+  for 3 business days escalates automatically.
+- **Reserve** amounts revised over the claim's life (history retained),
+  **Payout** (partial payouts allowed), **Subrogation** recovery.
+- **Document** attachments (photos, PDFs) run through an external OCR service;
+  a **fraud score** fetched from an external scoring API at intake.
+- Decision outcomes modelled as a discriminated union (`Approved` /
+  `DeniedWithReason` / `NeedsMoreInfo(fields)`), surfaced in both API and UI.
+- Reporting: open claims by kind and age, loss ratio per product, adjuster
+  workload.
+
+Non-domain: roles `intake`, `adjuster`, `supervisor`, `legal`, `sio`; the
+authority-limit rule is an authorization decision that depends on the
+*record's* amount and the *actor's* limit; full audit trail; claim documents in
+an object store; claim-status-changed events published to a notifications
+deployable.
+
+Deployables: one backend, an internal frontend, a notifications deployable.
+
+**Stress axes:** inheritance + polymorphic reads + a TPC↔TPH migration,
+discriminated unions end to end, long-running workflow with human steps,
+durable timers and SLA escalation, value-dependent authorization, delegation,
+external API integrations, document pipeline.
+
+**Planted ceiling probes:** (1) authorization that depends on a record value
+and an actor attribute together; (2) an approval chain whose length isn't known
+at model time; (3) an escalation that fires 3 *business* days later — durable
+timers and a business calendar; (4) resuming a workflow after a human answer
+days later; (5) a single queue page listing all three claim kinds with
+kind-specific columns.
+
+### Seed E — "Bazaar", multi-vendor marketplace (public read, breadth, money lens)
+
+Build **Bazaar**, a marketplace where independent vendors sell to the public.
+
+- **Vendor** is the tenant — but the *shopper* is not tenant-scoped at all, and
+  most read traffic is **unauthenticated**.
+- **Product** with an option matrix producing **Variants** (size × colour →
+  SKU), per-**Warehouse** inventory, and prices in the vendor's currency with
+  display in the shopper's currency.
+- **Cart** created anonymously and **merged into the shopper's account on
+  login**.
+- **Order** — one shopper checkout splits into per-vendor **Shipments**, each
+  fulfilled independently; payment captured once through an external PSP, with
+  **compensation** if one vendor's stock reservation fails after capture.
+- **Payout** per vendor on a schedule, net of commission.
+- **Review** with a moderation queue; **Promotion** rules (percentage, fixed
+  amount, buy-X-get-Y, vendor-scoped or global, with eligibility conditions).
+- Public browse: category tree, faceted filtering (price range, attributes,
+  rating, in-stock), sort by price/rating/newest, keyword search, deep
+  pagination.
+- Reporting: GMV per vendor per month, conversion, top SKUs.
+
+Non-domain: three auth postures in one system (anonymous browse, shopper
+account, vendor back-office) with vendors seeing strictly their own data;
+product media in an object store; `OrderPlaced` / `ShipmentDispatched`
+published over a broker; storefront localized into two languages with
+multi-currency display; realistic seed data (hundreds of products) so the list
+pages are not tested on three rows.
+
+Deployables: one backend, a public storefront frontend, a vendor back-office
+frontend on a different framework, and a **mobile** frontend if the toolchain
+offers one.
+
+**Stress axes:** mixed public/authenticated access in one model, tenant =
+vendor rather than customer, variant matrices, cart identity transition,
+cross-deployable saga with compensation, multi-currency and tax, search and
+faceting, frontend breadth including mobile, seed data and list-page
+performance.
+
+**Planted ceiling probes:** (1) faceted + keyword search with deep pagination;
+(2) anonymous cart merged on login; (3) a promotion rule engine whose rules are
+data, not code; (4) partial-failure compensation after payment capture;
+(5) showing prices in the viewer's currency at read time; (6) sorting a list
+page by a derived field.
+
+### Seed F — "Fleetwatch", device fleet and telemetry (scale and integration lens)
+
+Build **Fleetwatch**, an operations console for a company that manages tens of
+thousands of deployed devices for its customers.
+
+- **Customer** org tree (region → country → site) as a **hierarchy**, with
+  scoping that must respect the tree.
+- **Device** with model, firmware version, location, and a connectivity state.
+- **TelemetryReading** — many readings per device per minute; the console shows
+  latest values, 24h trends, and monthly rollups.
+- **AlertRule** — thresholds per device model or per site, producing
+  **Incident** records with an acknowledge/resolve lifecycle and an on-call
+  escalation.
+- **FirmwareRelease** + **RolloutCampaign** — staged rollout to a cohort with
+  pause/resume and a failure budget.
+- **Command** dispatched *to* a device through an outbound queue, with an
+  acknowledgement coming back.
+- **BulkImport** — onboarding 10,000 devices from a CSV, idempotently.
+- **Inbound webhooks** from devices and from the connectivity provider, with
+  signature verification and replay protection.
+- **MaintenanceWindow** suppressing alerts for a scope and period.
+- Reporting: fleet health dashboard, SLA compliance per customer, incident MTTR.
+
+Non-domain: this model must be **large** — grow it to 30–40 aggregates across
+several modules (add the adjacent domains a real console has: spare parts, RMA
+returns, contracts, users and API tokens, audit, saved views — and script the
+generation of filler aggregates if needed to reach the size); telemetry
+retention with deletion after 13 months; an ops focus throughout (metrics,
+tracing, health, config, secrets, a Kubernetes deployment path).
+
+Deployables: one backend, one operator frontend, one ingest deployable, and a
+Kubernetes target if the toolchain offers one.
+
+**Stress axes:** the scaling-cliff test (parse, generate, build, and review
+times at 30–40 aggregates), high-write/time-series modelling, bulk idempotent
+import, inbound webhooks, outbound queue commands, hierarchical tenant
+scoping, retention/TTL deletion, dashboards and rollups, ops and k8s.
+
+**Planted ceiling probes:** (1) time-series storage with downsampled rollups;
+(2) a 10k-row idempotent bulk upsert in one request; (3) an inbound webhook
+endpoint with signature verification; (4) live device state in the UI (polling
+vs push); (5) deleting data by retention policy in a system with an audit
+trail; (6) whether anything in the toolchain degrades non-linearly as the model
+grows.
+
+### Seed G — "Commons", community platform (privacy-tension and recursion lens)
+
+Build **Commons**, a community platform a company runs for its customers.
+
+- **Member** profile with a display name and private contact details.
+- **Post**, and **Comment** nested to **arbitrary depth** (a reply to a reply
+  to a reply), with per-item visibility (public / members-only / group-only).
+- **Group** with membership roles, **Follow** relationships between members.
+- **Reaction** counts, **Report** (abuse) feeding a **moderation queue** with
+  `Upheld`/`Dismissed` outcomes, **Ban** with a duration and an appeal.
+- **Media** upload (images, short video) through an external scanning service
+  before becoming visible.
+- **NotificationFeed** per member, fanned out when someone they follow posts,
+  or when their content is replied to.
+- Search across posts; a home feed of "posts from people I follow, newest
+  first", paginated.
+- **GDPR erasure**: a member requests deletion — their PII must disappear while
+  moderation decisions and the audit trail must survive, and their posts must
+  become attributed to a tombstone author without breaking the comment trees.
+
+Non-domain: roles `member`, `moderator`, `admin`, plus an unauthenticated
+public view; rate limiting on posting and reporting; soft delete for member-hidden
+content coexisting with hard erasure for GDPR; audit trail of moderation
+actions that survives erasure.
+
+Deployables: one backend, a web frontend, and a notifications deployable.
+
+**Stress axes:** self-referential recursive structures, per-item visibility
+rules (row-level authorization driven by data, not role alone), the designed
+contradiction between append-only audit and right-to-erasure, graph traversal
+for the feed, fan-out over a broker, media pipeline with an external gate, rate
+limiting.
+
+**Planted ceiling probes:** (1) arbitrary-depth comment trees — model, query,
+and render them; (2) the follow-graph feed query; (3) GDPR erasure against an
+append-only trail, including the tombstone-author rewrite; (4) rate limiting;
+(5) visibility rules evaluated per row for an anonymous viewer.
+
+### Running the set
+
+- **Vary only the app section.** Same rules, same phases, same deliverables, so
+  the runs can be compared and merged.
+- **Namespace the findings.** Give each run a prefix — `F-MERIDIAN-001`,
+  `F-CLINICA-001` — and have each run write to
+  `eval/<seed>/{EVALUATION-REPORT,FINDINGS,EVAL-LOG}.md`.
+- **Pair a seed with a lens** where it fits: B with the correctness/compliance
+  lens, C or G with the security/privacy lens, F with the SRE lens, E with the
+  frontend-breadth lens, D with the build-vs-buy lens.
+- **Then consolidate.** After the runs, do one separate pass over all the
+  registers that answers: which findings appeared in **every** seed (structural
+  — these decide the verdict), which appeared in **one** (domain-specific —
+  these decide *fit*), where two runs **disagreed** about the same feature (one
+  of them is wrong, and finding out which is worth the time), and whether the
+  claim-verification matrices agree. A claim graded Verified in one run and
+  Contradicted in another is the single most valuable signal the set produces.
+- **Expect the probes to land differently.** If every seed's planted probes come
+  back expressible, either the toolchain is stronger than the probes assumed or
+  the agent is grading itself generously — check the evidence before believing
+  the happy answer.
