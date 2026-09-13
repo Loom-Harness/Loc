@@ -202,8 +202,12 @@ describe("the composer actually varies with the new axes", () => {
   // instead of reaching an emitter.  Pinned so a later edit cannot quietly put
   // those crossings back on the validator floor: the sweep would stay green
   // (a rejection is a legitimate verdict) while covering a sixth less.
-  it("a document/eventLog concrete of a TPH base declares the FORCED ownTable", () => {
-    for (const shape of ["document", "eventLog"] as const) {
+  it("a document/embedded/eventLog concrete of a TPH base declares the FORCED ownTable", () => {
+    // `embedded` joined the forced set in wave C2 (D-EMBEDDED-TPH): the shape's
+    // jsonb containment columns are per-concrete and no backend puts them on a
+    // TPH owner's table, which is what compile waivers F11 (node) and F13
+    // (python) were recording.
+    for (const shape of ["document", "embedded", "eventLog"] as const) {
       const src = composeSource({ ...base, inheritance: "tph", shape });
       expect(src, `${shape} × tph`).toContain("inheritanceUsing: ownTable");
       // …while the BASE keeps its sharedTable, so tph and tpc stay different.
@@ -211,12 +215,14 @@ describe("the composer actually varies with the new axes", () => {
     }
   });
 
-  it("a relational/embedded concrete of a TPH base does NOT override the layout", () => {
-    for (const shape of ["relational", "embedded"] as const) {
-      expect(composeSource({ ...base, inheritance: "tph", shape }), `${shape} × tph`).not.toContain(
-        "inheritanceUsing: ownTable",
-      );
-    }
+  it("a relational concrete of a TPH base does NOT override the layout", () => {
+    // The control for the case above: `relational` is the ONE shape that really
+    // shares the base table, so an override here would silently empty the TPH
+    // half of the matrix.
+    expect(
+      composeSource({ ...base, inheritance: "tph", shape: "relational" }),
+      "relational × tph",
+    ).not.toContain("inheritanceUsing: ownTable");
   });
 
   it("an event-sourced subject under inheritance gets the base's state dataSource", () => {

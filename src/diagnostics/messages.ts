@@ -375,7 +375,7 @@ export const DIAGNOSTIC_MESSAGES = {
     `subtype instead.`,
   "loom.es-tph-forced-own-table": (p: { name: unknown; why: unknown; baseName: unknown }) =>
     `'${p.name}' is ${p.why} but extends the sharedTable (TPH) base '${p.baseName}'. ` +
-    `An event-sourced / document concrete cannot share the base table — declare ` +
+    `An event-sourced / document / embedded concrete cannot share the base table — declare ` +
     `'inheritanceUsing: ownTable' on '${p.name}'.`,
   "loom.tph-own-override-unsupported": (p: { name: unknown; baseName: unknown }) =>
     `'${p.name}' declares inheritanceUsing: ownTable under the sharedTable (TPH) base ` +
