@@ -48,7 +48,7 @@ import { snake } from "../../../util/naming.js";
 import { numericEncode } from "../../_numeric/target.js";
 import { provenancedEntries } from "../../_payload/provenanced-wire.js";
 import { type RenderCtx, renderExpr } from "../render-expr.js";
-import { ELIXIR_NUMERIC } from "./numeric-codec.js";
+import { ELIXIR_NUMERIC, elixirMoneyRoundHelper } from "./numeric-codec.js";
 import { provColumn } from "./provenance-emit.js";
 
 /** A derived wire field is projected only when its expression evaluates cleanly
@@ -420,11 +420,7 @@ export function renderWireSerialize(
   // and sets the exponent to `-scale`, so trailing zeros are preserved
   // (`Decimal.round(Decimal.new("12.5"), 4)` → `"12.5000"`).
   if (usedMoney) {
-    helpers.set(
-      "__money_round",
-      `  defp __money_round(nil), do: nil\n\n` +
-        `  defp __money_round(%Decimal{} = dec), do: ${numericEncode(ELIXIR_NUMERIC, "money", "dto-map", "dec")}`,
-    );
+    helpers.set("__money_round", elixirMoneyRoundHelper());
   }
 
   // RS-24 plain-decimal helper.  Jason's `Decimal` encoder emits a JSON STRING;

@@ -467,13 +467,25 @@ export function renderPyWireModels(ctx: BoundedContextIR): string {
       "",
       "",
       `class ${vo.name}(BaseModel):`,
-      vo.fields.map((f) =>
-        withFieldConstraint(
-          f.name,
-          wireFieldType(f.type, ctx, "request", ""),
-          constraints.get(f.name),
-        ),
-      ),
+      vo.fields.map((f) => {
+        // A VO subfield declared optional (`line2: string?`) must be OMISSIBLE
+        // on the wire.  Pydantic reads `X | None` with NO DEFAULT as
+        // required-but-nullable, so without the `= None` a body that simply
+        // leaves the subfield out is rejected with
+        // `422 … {"pointer": "/home/line2", "message": "Field required"}` —
+        // while the aggregate's own optional fields, emitted by
+        // `routes-builder`, always carried the default.  Same rule, applied to
+        // the nested VO model.  `withFieldConstraint` folds the default into
+        // `Field(default=None, …)` when the subfield also carries an invariant.
+        const optional = f.optional || f.type.kind === "optional";
+        const base = wireFieldType(f.type, ctx, "request", "");
+        const decl = !optional
+          ? base
+          : base.endsWith("| None")
+            ? `${base} = None`
+            : `${base} | None = None`;
+        return withFieldConstraint(f.name, decl, constraints.get(f.name));
+      }),
       validator,
     );
   });
