@@ -537,7 +537,7 @@ system FieldOps {
     targets: api
     ui: WebApp { Ops: api }
     auth: ui
-    design: mantine
+    design: angularMaterial
     port: 3001
   }
 }

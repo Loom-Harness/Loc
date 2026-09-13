@@ -537,7 +537,7 @@ system FieldOps {
     targets: api
     ui: WebApp { Ops: api }
     auth: ui
-    design: mantine
+    design: "dark"
     port: 3001
   }
 }
