@@ -1,0 +1,10 @@
+// Mistake: cyclic containment — A contains B, B contains A.
+context Widgets {
+  aggregate A {
+    contains bs: B[]
+  }
+
+  aggregate B {
+    contains as: A[]
+  }
+}

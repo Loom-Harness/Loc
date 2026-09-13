@@ -1,0 +1,29 @@
+%% Loom sequence diagram — generated from the IR, do not edit by hand.
+%% System: FieldOps
+sequenceDiagram
+  autonumber
+  participant WF as Workflow
+  participant NotificationLog
+  participant Part
+  participant Parts
+  participant Technicians
+  participant WorkOrder
+  participant WorkOrders
+  note over WF: Dispatch · scheduleWorkOrder(workOrderId, assignTo, at)
+  note over WF: requires: currentUser.role == &quot;admin&quot; || currentUser.role == &quot;dispatcher&quot;
+  WF->>Technicians: getById()
+  Technicians-->>WF: tech
+  WF->>WorkOrders: getById()
+  WorkOrders-->>WF: wo
+  note over WF: precondition: tech.skills.count > 0
+  WF->>WorkOrder: assignTechnician()
+  note over WF: Dispatch · completeAndConsumePart(workOrderId, note, partId, qty)
+  WF->>Parts: getById()
+  Parts-->>WF: part
+  WF->>Part: decrement()
+  WF->>WorkOrders: getById()
+  WorkOrders-->>WF: wo
+  WF->>WorkOrder: complete()
+  note over WF: Notifications · recordCompletion(p)
+  WF->>NotificationLog: create()
+  NotificationLog-->>WF: entry

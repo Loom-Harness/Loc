@@ -1,0 +1,49 @@
+// Repro (F-010): inside a legitimate `workflow`, a repository referenced via
+// an INLINE `Repo.getById(...)` call embedded directly in an expression
+// (here, a `precondition`) — as opposed to its own top-level
+// `let x = Repo.getById(id)` statement — is silently dropped from the
+// generated code: the repository is never instantiated/injected, so the
+// emitted reference is an undefined name. Two PROPERLY let-bound
+// repositories (`tech`, `job`) in the SAME workflow body inject correctly;
+// only the inline, unbound third call (`Assets.getById(...)`) is missed.
+// This passes `ddd parse` AND the workflow-specific IR validator
+// (`workflow-checks.ts`) with zero errors — a codegen omission, not a
+// validation gap.
+system WorkflowReadonlyRepoNotInjected {
+  subdomain Core {
+    context Ops {
+      aggregate Technician with crudish {
+        skills: string[]
+      }
+      repository Technicians for Technician { }
+
+      aggregate Asset with crudish {
+        requiredSkill: string
+      }
+      repository Assets for Asset { }
+
+      aggregate Job with crudish {
+        assetId: Asset id
+        status: string
+        operation assign(assignTo: Technician id) {
+          status := "Assigned"
+        }
+      }
+      repository Jobs for Job { }
+
+      workflow assignJob transactional {
+        create(jobId: Job id, techId: Technician id) {
+          let tech = Technicians.getById(techId)   // let-bound — injects fine
+          let job = Jobs.getById(jobId)             // let-bound — injects fine
+          // Inline call, no `let` of its own — NOT injected:
+          precondition tech.skills.contains(Assets.getById(job.assetId).requiredSkill)
+          job.assign(techId)
+        }
+      }
+    }
+  }
+
+  storage primary { type: postgres }
+  resource opsState { for: Ops, kind: state, use: primary }
+  deployable api { platform: node, contexts: [Ops], dataSources: [opsState], port: 3000 }
+}

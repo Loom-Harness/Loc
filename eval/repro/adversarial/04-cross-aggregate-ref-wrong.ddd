@@ -1,0 +1,12 @@
+// Mistake: cross-aggregate reference done wrong — bare aggregate type used
+// as a field type instead of an explicit id reference.
+context Widgets {
+  aggregate Owner {
+    name: string
+  }
+
+  aggregate Widget {
+    name: string
+    owner: Owner
+  }
+}

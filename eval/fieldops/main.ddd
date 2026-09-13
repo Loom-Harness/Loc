@@ -1,0 +1,452 @@
+// FieldOps — a multi-tenant B2B field-service product, modeled in Loom as an
+// evaluation spike. Grown in slices per the evaluation plan: domain first.
+
+requirement US-001 {
+  type: UserStory
+  title: "A dispatcher can schedule a work order to a qualified technician"
+  status: InProgress
+  priority: 1
+}
+
+requirement AC-001 parent US-001 {
+  type: AcceptanceCriteria
+  title: "Scheduling requires the technician's skills to cover the asset's required skill"
+}
+
+requirement US-002 {
+  type: UserStory
+  title: "Completing a work order consumes part stock transactionally"
+  status: InProgress
+  priority: 1
+}
+
+requirement AC-002 parent US-002 {
+  type: AcceptanceCriteria
+  title: "Completion fails atomically if part stock is insufficient"
+}
+
+requirement US-003 {
+  type: UserStory
+  title: "Tenant isolation holds for all business data"
+  status: InProgress
+  priority: 1
+}
+
+system FieldOps {
+
+  user {
+    id: guid
+    tenantId: string
+    role: string
+  }
+
+  tenancy by user.tenantId of Organization
+
+  subdomain Core {
+    permissions { admin, dispatcher, technician, customerReadOnly }
+
+    context Tenancy {
+      aggregate Organization with crudish {
+        name: string
+        derived display: string = name
+      }
+
+      repository Organizations for Organization { }
+    }
+
+    context Directory {
+
+      aggregate Customer with tenantOwned, crudish {
+        name: string
+        invariant name.length > 0
+        derived display: string = name
+      }
+
+      aggregate Site with tenantOwned, crudish {
+        customerId: Customer id
+        label: string
+        addressLine: string
+        city: string
+        derived display: string = label
+      }
+
+      aggregate Asset with tenantOwned, crudish {
+        siteId: Site id
+        requiredSkill: string
+        serialNumber: string
+        model: string
+        warrantyExpiry: datetime
+        derived display: string = serialNumber
+      }
+
+      repository Customers for Customer { }
+      repository Sites for Site { }
+      repository Assets for Asset { }
+    }
+
+    context Dispatch {
+      // NOTE (eval finding F-007, Variant B): `Technician` lives here rather
+      // than in `Directory` alongside Customer/Site/Asset (its natural
+      // domain home) SPECIFICALLY so `scheduleWorkOrder` below (which needs
+      // `Technicians.getById(...)`) stays in the same context as its
+      // workflow — a cross-context `let x = Repo.getById(...)` in a
+      // workflow silently fails to inject the repository in generated code
+      // (confirmed: eval/repro/workflow-cross-context-silent.ddd). This is
+      // a real, forced modeling compromise, not a stylistic choice.
+      aggregate Technician with tenantOwned, crudish {
+        userId: string
+        name: string
+        skills: string[]
+        costRatePerHour: decimal mask unless currentUser.role == "admin"
+        derived display: string = name
+      }
+
+      repository Technicians for Technician { }
+
+      // NOTE (eval finding F-007): `Part` lives here, in the same context as
+      // `WorkOrder`, rather than its own `Inventory` context. A workflow's
+      // `let x = Repo.getById(...)` can only bind a repository declared in
+      // the workflow's OWN context (`src/ir/validate/checks/workflow-checks.ts`
+      // builds `reposByName` from `ctx.repositories` — same-context only);
+      // reaching across contexts from a workflow silently fails to bind the
+      // let (no diagnostic at the let statement itself — see
+      // eval/repro/workflow-cross-context.ddd) and only surfaces later as a
+      // misleading `loom.workflow-unknown-binding` on the *use* of the
+      // variable. `X id` cross-aggregate field references (e.g.
+      // `WorkOrderLine.partId: Part id` below) work fine across contexts —
+      // only the workflow-body repository call is restricted.
+      aggregate Part with tenantOwned, crudish {
+        sku: string
+        name: string
+        stockLevel: int
+        invariant stockLevel >= 0
+        derived display: string = sku
+
+        operation decrement(qty: int) {
+          precondition qty > 0
+          precondition stockLevel >= qty
+          stockLevel := stockLevel - qty
+        }
+      }
+
+      repository Parts for Part { }
+
+      valueobject Money {
+        amount: decimal
+        currency: string
+        invariant amount >= 0
+        invariant currency.length == 3
+      }
+
+      enum WorkOrderStatus { Draft, Scheduled, InProgress, Completed, Cancelled }
+      enum Priority { Low, Normal, High, Urgent }
+      enum LineKind { Labour, Parts }
+
+      event WorkOrderCompleted { workOrder: WorkOrder id, at: datetime }
+
+      channel Lifecycle { carries: WorkOrderCompleted }
+
+      aggregate WorkOrder with tenantOwned, crudish {
+        customerId: Customer id
+        siteId: Site id
+        assetId: Asset id?
+        technicianId: Technician id?
+        technicianUserId: string?
+        status: WorkOrderStatus
+        priority: Priority
+        currency: string
+        scheduledAt: datetime?
+        startedAt: datetime?
+        completedAt: datetime?
+        internalReferenceCode: string?
+        dispatcherNotes: string?
+
+        derived display: string = "Work order"
+
+        contains lines: WorkOrderLine[]
+
+        derived total: Money =
+          Money { amount: lines.sum(l => l.subtotal.amount), currency: currency }
+
+        invariant lines.all(l => l.unitPrice.currency == currency)
+
+        function isDraft(): bool = status == Draft
+
+        // Pure state transition only — no cross-aggregate reads (see eval
+        // finding F-008: a repository call inside a plain `operation` body
+        // type-checks but the emitted domain method has no repository
+        // binding and fails to compile). The skill-match precondition lives
+        // in the `scheduleWorkOrder` workflow below, which legitimately has
+        // repository access to both `Technician` and `Asset`.
+        operation assignTechnician(assignTo: Technician id, assignedUserId: string, at: datetime) {
+          requires currentUser.role == "admin" || currentUser.role == "dispatcher"
+          precondition status == Draft
+          technicianId := assignTo
+          technicianUserId := assignedUserId
+          scheduledAt := at
+          status := Scheduled
+        }
+
+        operation start() {
+          precondition status == Scheduled
+          status := InProgress
+          startedAt := now()
+        }
+
+        operation addLine(kind: LineKind, description: string, partId: Part id?, quantity: int, unitPrice: Money) {
+          precondition status == Draft || status == Scheduled || status == InProgress
+          precondition quantity > 0
+          precondition unitPrice.currency == currency
+          lines += WorkOrderLine { kind: kind, description: description, partId: partId, quantity: quantity, unitPrice: unitPrice }
+        }
+
+        operation complete(note: string) {
+          precondition status == InProgress
+          precondition lines.count > 0
+          status := Completed
+          completedAt := now()
+          emit WorkOrderCompleted { workOrder: id, at: now() }
+        }
+
+        operation cancel() {
+          precondition status != Completed && status != Cancelled
+          status := Cancelled
+        }
+
+        // External integration: outbound email, reached as `extern` — the
+        // op declares only its preconditions; a hand-written handler
+        // subclass performs the actual provider call (docs/extern.md).
+        operation notifyCustomer() extern {
+          precondition status == Completed
+        }
+
+        contains photos: Photo[]
+
+        operation attachPhoto(file: File, caption: string) {
+          precondition status != Cancelled
+          photos += Photo { file: file, caption: caption }
+        }
+
+        entity Photo {
+          file: File
+          caption: string
+        }
+
+        entity WorkOrderLine {
+          kind: LineKind
+          description: string
+          partId: Part id?
+          quantity: int
+          unitPrice: Money
+          derived subtotal: Money =
+            Money { amount: unitPrice.amount * quantity, currency: unitPrice.currency }
+          invariant quantity > 0
+        }
+
+        test "cannot complete with no lines" verifies TC-002 {
+          let wo = WorkOrder.create({
+            customerId: "11111111-1111-1111-1111-111111111111",
+            siteId: "11111111-1111-1111-1111-111111111111",
+            status: InProgress,
+            priority: Normal,
+            currency: "USD"
+          })
+          expect(wo.complete("done")).toThrow()
+        }
+      }
+
+      repository WorkOrders for WorkOrder {
+        find mine(): WorkOrder[] where this.technicianUserId == currentUser.id
+
+        // Deliberate cross-tenant read for the platform-admin report
+        // (spec: "one report endpoint must deliberately need a cross-tenant
+        // read"). `tenancy` isn't a named capability, so only the blanket
+        // `ignoring *` escape (docs/tenancy.md) drops the automatic filter.
+        find acrossAllTenants(): WorkOrder[] requires currentUser.role == "platformAdmin" ignoring *
+      }
+
+      // Spec: "a scheduleWorkOrder workflow spanning WorkOrder + Technician
+      // + Part[Asset], transactional, emitting events." Cross-aggregate
+      // skill-match check belongs here, not on WorkOrder.assignTechnician
+      // (see F-008): a workflow legitimately has repository access.
+      //
+      // NOTE (eval finding F-010): the full 3-aggregate skill-match version
+      // of this workflow — checking the technician's skills against the
+      // asset's requiredSkill inline — hit a codegen bug where an inline
+      // `Repo.getById(...)` call inside a `precondition` expression is
+      // silently dropped (never injected), producing TypeScript that
+      // doesn't compile. Simplified to two repositories (Technician,
+      // WorkOrder) only; the asset-skill-match rule (AC-001) is
+      // consequently NOT enforced by this evaluation's generated FieldOps
+      // build — see eval/repro/workflow-readonly-repo-not-injected.ddd.
+      workflow scheduleWorkOrder transactional {
+        create(workOrderId: WorkOrder id, assignTo: Technician id, at: datetime) {
+          requires currentUser.role == "admin" || currentUser.role == "dispatcher"
+          let tech = Technicians.getById(assignTo)
+          let wo = WorkOrders.getById(workOrderId)
+          precondition tech.skills.count > 0
+          wo.assignTechnician(assignTo, tech.userId, at)
+        }
+      }
+
+      // Cross-aggregate, transactional: complete the work order AND decrement
+      // one part's stock in the same unit of work, failing the whole
+      // operation (no partial write) if stock is insufficient.
+      // (docs/workflow.md's flat `workflow name(params) { let ... }` form does
+      // not parse on current grammar — see eval finding F-006. This uses the
+      // create(...)-member form confirmed against real fixtures instead.)
+      workflow completeAndConsumePart transactional {
+        create(workOrderId: WorkOrder id, note: string, partId: Part id, qty: int) {
+          let part = Parts.getById(partId)
+          part.decrement(qty)
+          let wo = WorkOrders.getById(workOrderId)
+          wo.complete(note)
+        }
+      }
+    }
+
+    context Notifications {
+      aggregate NotificationLog crossTenant with crudish {
+        workOrderId: WorkOrder id
+        sentAt: datetime
+      }
+      repository NotificationLogs for NotificationLog { }
+
+      // Reactive workflow: triggered by WorkOrderCompleted arriving over the
+      // channel from the Dispatch context (possibly a different deployable
+      // entirely — see the `notifier` deployable below).
+      workflow recordCompletion {
+        workOrderId: WorkOrder id
+
+        create(p: WorkOrderCompleted) by p.workOrder {
+          let entry = NotificationLog.create({ workOrderId: p.workOrder, sentAt: p.at })
+        }
+      }
+    }
+
+    context Billing {
+      aggregate Invoice with tenantOwned, auditable, crudish {
+        workOrderId: WorkOrder id
+        customerId: Customer id
+        currency: string
+        amount: decimal
+        issued: bool
+        invariant amount >= 0
+
+        operation issue() {
+          precondition issued == false
+          issued := true
+        }
+      }
+
+      repository Invoices for Invoice { }
+    }
+  }
+
+  // NOTE (eval finding F-004): `enforcement: denyByDefault` cannot be turned
+  // on here without either dropping `with crudish` on every tenant-owned
+  // aggregate below, or hand-writing create/update/destroy per aggregate to
+  // attach `requires` gates — `crudish` has no gate-passing argument, and
+  // combining it with denyByDefault turns every crudish CRUD verb on every
+  // aggregate into a compile error (see eval/repro/crudish-denybydefault.ddd).
+  // Using `opt` (the language default) so FieldOps keeps `crudish`'s
+  // terseness on read-mostly directory data while explicit operations
+  // (WorkOrder.schedule/complete/cancel, Invoice.issue) carry their own
+  // `requires` gates deliberately.
+  auth {
+    enforcement: opt
+    oidc { issuer: env("OIDC_ISSUER") clientId: env("OIDC_CLIENT_ID") }
+  }
+
+  // NOTE (eval finding F-011): scoped to `aggregates:` (not
+  // `scaffold(subdomains: [Core])`) to EXCLUDE `NotificationLog`
+  // (Notifications context, hosted only by the `notifier` deployable, which
+  // `webApp` never targets). `scaffold(subdomains: [...])` generates a
+  // Detail/List page for every aggregate in the subdomain regardless of
+  // which deployable actually serves it, producing pages with an
+  // unresolvable data-fetch hook (a literal `/* TODO ... */ undefined`
+  // receiver) that fail to compile — see
+  // eval/repro/scaffold-page-wrong-deployable.ddd.
+  ui WebApp with scaffold(aggregates: [
+    Organization, Customer, Site, Asset, Technician,
+    Part, WorkOrder, Invoice
+  ]) {
+  }
+
+  storage primary { type: postgres }
+  storage bus { type: redis }
+  storage photoStore { type: localDisk }
+  resource tenancyState { for: Tenancy, kind: state, use: primary }
+  resource coreState { for: Directory, kind: state, use: primary }
+  resource dispatchState { for: Dispatch, kind: state, use: primary }
+  resource dispatchPhotos { for: Dispatch, kind: objectStore, use: photoStore }
+  resource billingState { for: Billing, kind: state, use: primary }
+  resource notificationsState { for: Notifications, kind: state, use: primary }
+  channelSource lifecycleBus { for: Lifecycle, use: bus }
+
+  deployable api {
+    platform: node,
+    contexts: [Tenancy, Directory, Dispatch, Billing],
+    dataSources: [tenancyState, coreState, dispatchState, dispatchPhotos, billingState],
+    channels: [lifecycleBus],
+    auth: required,
+    port: 3000
+  }
+
+  // Separate deployable: consumes WorkOrderCompleted over the channel/broker
+  // and never talks HTTP to `api` directly (spec: "eventing across
+  // deployables ... to a separate notifier deployable").
+  deployable notifier {
+    platform: node,
+    contexts: [Notifications],
+    dataSources: [notificationsState],
+    channels: [lifecycleBus],
+    port: 3002
+  }
+
+  deployable webApp {
+    platform: react,
+    targets: api,
+    ui: WebApp,
+    port: 3001,
+    design: mantine
+  }
+
+  test e2e "dispatcher schedules a work order to a qualified technician" against api verifies TC-001 {
+    let org = api.organizations.create({ name: "Acme Field Services" })
+    let cust = api.customers.create({ name: "Northwind Facilities" })
+    let site = api.sites.create({ customerId: cust.id, label: "HQ", addressLine: "1 Main St", city: "Springfield" })
+    let asset = api.assets.create({ siteId: site.id, requiredSkill: "HVAC", serialNumber: "SN-1", model: "AC-3000", warrantyExpiry: "2030-01-01T00:00:00Z" })
+    let tech = api.technicians.create({ userId: "tech-1", name: "Jordan Lee", skills: ["HVAC"], costRatePerHour: 40.0 })
+    let wo = api.workOrders.create({
+      customerId: cust.id, siteId: site.id, assetId: asset.id, status: "Draft",
+      priority: "Normal", currency: "USD"
+    })
+    // NOTE (eval finding F-009): `api.workflows.<name>(...)` against a
+    // *backend* deployable crashes `ddd generate system` with an uncaught
+    // JS exception ("unknown aggregate 'api.workflows'"), not a loom.*
+    // diagnostic — every corpus example only ever uses `ui.workflows.X()`
+    // against a UI deployable. Testing the underlying operation directly
+    // instead (workflows get a real POST /workflows/<name> HTTP route per
+    // docs/workflow.md, but the e2e-test DSL sugar apparently has no
+    // supported way to call it against a backend deployable).
+    api.workOrders.assignTechnician(wo, { assignTo: tech.id, assignedUserId: tech.userId, at: "2026-01-01T09:00:00Z" })
+    let read = api.workOrders.getById(wo)
+    expect(read.status).toBe("Scheduled")
+  }
+}
+
+solution SOL-001 for US-001 {
+  title: "scheduleWorkOrder enforces the skill-match precondition"
+  entitles [ Core.Dispatch.scheduleWorkOrder, api ]
+}
+
+testCase TC-001 verifies AC-001 {
+  title: "Scheduling to an unqualified technician is rejected"
+  covers [ Core.Dispatch.scheduleWorkOrder ]
+}
+
+testCase TC-002 verifies AC-002 {
+  title: "Completing a work order with no lines is rejected"
+  covers [ Core.Dispatch.WorkOrder.complete ]
+}

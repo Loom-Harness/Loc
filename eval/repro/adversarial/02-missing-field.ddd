@@ -1,0 +1,10 @@
+// Mistake: repository find references a field the aggregate doesn't declare.
+context Widgets {
+  aggregate Widget {
+    name: string
+  }
+
+  repository Widgets for Widget {
+    find byOwner(ownerId: string): Widget[] where this.ownerId == ownerId
+  }
+}

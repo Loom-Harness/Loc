@@ -1,0 +1,30 @@
+system CrossContextTest {
+  subdomain Core {
+    context Directory {
+      aggregate Technician with crudish {
+        skills: string[]
+      }
+      repository Technicians for Technician { }
+    }
+    context Dispatch {
+      aggregate WorkOrder with crudish {
+        status: string
+        operation assign() { status := "Assigned" }
+      }
+      repository WorkOrders for WorkOrder { }
+
+      workflow scheduleWorkOrder transactional {
+        create(workOrderId: WorkOrder id, assignTo: Technician id) {
+          let tech = Technicians.getById(assignTo)
+          let wo = WorkOrders.getById(workOrderId)
+          precondition tech.skills.count > 0
+          wo.assign()
+        }
+      }
+    }
+  }
+  storage primary { type: postgres }
+  resource dirState { for: Directory, kind: state, use: primary }
+  resource dispState { for: Dispatch, kind: state, use: primary }
+  deployable api { platform: node, contexts: [Directory, Dispatch], dataSources: [dirState, dispState], port: 3000 }
+}

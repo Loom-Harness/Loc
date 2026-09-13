@@ -1,0 +1,13 @@
+// Mistake: calling a function with the wrong number of arguments.
+context Widgets {
+  aggregate Widget {
+    name: string
+    weight: decimal
+
+    function scaled(factor: decimal): decimal = weight * factor
+
+    operation rescale() {
+      let x = scaled(2.0, 3.0)
+    }
+  }
+}

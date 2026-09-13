@@ -1,0 +1,13 @@
+// Mistake: an unsupported/nonsensical expression — regex-matching a decimal,
+// and calling a method that doesn't exist on any known type.
+context Widgets {
+  aggregate Widget {
+    price: decimal
+
+    function isCheap(): bool = price.matches("^[0-9]+$")
+
+    operation weirdOp() {
+      let x = price.frobnicate(42)
+    }
+  }
+}

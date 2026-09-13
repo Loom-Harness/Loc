@@ -1,0 +1,6 @@
+// Mistake: field type is a typo'd built-in scalar ('strng' instead of 'string').
+context Widgets {
+  aggregate Widget {
+    name: strng
+  }
+}

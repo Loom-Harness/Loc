@@ -1,0 +1,12 @@
+// Mistake: assigning an enum field a value that isn't one of its declared members.
+context Widgets {
+  enum Status { Draft, Active, Archived }
+
+  aggregate Widget {
+    status: Status
+
+    operation activate() {
+      status := Enabled
+    }
+  }
+}

@@ -1,0 +1,48 @@
+// Repro: a workflow's `let x = Repo.getById(id)` silently fails to bind when
+// `Repo` is declared in a DIFFERENT context than the workflow, even though
+// the same cross-context name is resolvable elsewhere in the language
+// (an `X id` field type reference across contexts works fine — see the
+// commented-out alternative below). No diagnostic appears at the `let`
+// itself; the only symptom is a misleading `loom.workflow-unknown-binding`
+// on the later `.op(...)` call, which looks like a typo'd variable name.
+system WorkflowCrossContext {
+  subdomain Core {
+    context Inventory {
+      aggregate Part with crudish {
+        stockLevel: int
+        operation decrement(qty: int) {
+          precondition stockLevel >= qty
+          stockLevel := stockLevel - qty
+        }
+      }
+      repository Parts for Part { }
+    }
+
+    context Dispatch {
+      aggregate Ticket with crudish {
+        partId: Part id
+        note: string
+      }
+      repository Tickets for Ticket { }
+
+      // Cross-context repository access from inside a workflow.
+      workflow consume transactional {
+        create(ticketId: Ticket id, partId: Part id, qty: int) {
+          let part = Parts.getById(partId)   // Parts is declared in Inventory, not Dispatch
+          part.decrement(qty)                // --> loom.workflow-unknown-binding here,
+                                              //     not at the `let` line above
+        }
+      }
+    }
+  }
+
+  storage primary { type: postgres }
+  resource inventoryState { for: Inventory, kind: state, use: primary }
+  resource dispatchState { for: Dispatch, kind: state, use: primary }
+  deployable api {
+    platform: node
+    contexts: [Inventory, Dispatch]
+    dataSources: [inventoryState, dispatchState]
+    port: 3000
+  }
+}

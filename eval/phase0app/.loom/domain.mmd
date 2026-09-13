@@ -1,0 +1,36 @@
+%% Loom domain diagram — generated from the IR, do not edit by hand.
+%% System: Phase0app
+classDiagram
+  direction LR
+  %% Core / Projects
+  class Project {
+    <<aggregate>>
+    +Id~Project~ id
+    +string name
+    +int version
+    +string /display
+    +string /inspect
+    +update(name)
+  }
+  class Task {
+    <<aggregate>>
+    +Id~Task~ id
+    +string title
+    +bool done
+    +Id~Project~ project
+    +int version
+    +string /inspect
+    +update(title, done, project)
+  }
+  class Projects {
+    <<repository>>
+    +all() Project paged
+  }
+  class Tasks {
+    <<repository>>
+    +all() Task paged
+    +byProject(projectId) Task[]
+  }
+  Task ..> Project : ref
+  Projects ..> Project : manages
+  Tasks ..> Task : manages

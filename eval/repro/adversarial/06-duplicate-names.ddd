@@ -1,0 +1,10 @@
+// Mistake: duplicate aggregate name in the same context.
+context Widgets {
+  aggregate Widget {
+    name: string
+  }
+
+  aggregate Widget {
+    label: string
+  }
+}

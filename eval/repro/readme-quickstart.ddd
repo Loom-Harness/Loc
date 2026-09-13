@@ -1,0 +1,80 @@
+system Acme {
+  module Sales {
+    context Orders {
+
+      enum OrderStatus { Draft, Confirmed, Shipped, Cancelled }
+
+      valueobject Money {
+        amount: decimal
+        currency: string
+        invariant amount >= 0
+        invariant currency.length == 3
+      }
+
+      event OrderConfirmed { order: Order id, at: datetime }
+
+      aggregate Order {
+        customerId: string
+        status: OrderStatus
+        placedAt: datetime
+        contains lines: OrderLine[]
+
+        derived total: Money =
+          Money(lines.sum(l => l.subtotal.amount), "USD")
+
+        invariant lines.count > 0 when status == Confirmed
+
+        function isMutable(): bool = status == Draft
+
+        operation confirm() {
+          precondition isMutable()
+          precondition lines.count > 0
+          status := Confirmed
+          emit OrderConfirmed { order: id, at: now() }
+        }
+
+        entity OrderLine {
+          productId: Product id
+          quantity: int
+          unitPrice: Money
+          derived subtotal: Money =
+            Money(unitPrice.amount * quantity, unitPrice.currency)
+          invariant quantity > 0
+        }
+      }
+
+      repository Orders for Order {
+        find byCustomer(customerId: string): Order[]
+      }
+    }
+  }
+
+  module Catalog {
+    context Products {
+      aggregate Product { sku: string, price: Money }
+    }
+  }
+
+  // Pick a runtime per deployable.  Switch any time.
+  deployable api    { platform: node,            modules: Sales, Catalog, port: 3000 }
+  deployable apiNet { platform: dotnet,          modules: Sales, Catalog, port: 8080 }
+  deployable apiPhx { platform: elixir, modules: Sales, Catalog, port: 4000 }
+
+  // React frontend targets any backend; design pack swappable.
+  deployable webApp {
+    platform: react
+    targets:  api          // switch to apiNet or apiPhx anytime
+    design:   shadcn       // or mantine, mui, chakra
+    port:     3001
+  }
+
+  test e2e "create and confirm an order" against api {
+    let prod = api.products.create({ sku: "W-1", price: { amount: 5.0, currency: "USD" } })
+    let ord  = api.orders.create({ customerId: "c-1", status: "Draft", placedAt: "2024-01-01T00:00:00Z" })
+    api.orders.addLine(ord, { productId: prod.id, qty: 3 })
+    api.orders.confirm(ord)
+    let read = api.orders.getById(ord)
+    expect read.status == "Confirmed"
+    expect read.lines.length == 1
+  }
+}

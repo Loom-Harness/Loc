@@ -1,0 +1,1056 @@
+{
+  "schemaVersion": 1,
+  "tables": [
+    {
+      "name": "assets",
+      "ownerModule": "Core",
+      "columns": [
+        {
+          "name": "id",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        },
+        {
+          "name": "site_id",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        },
+        {
+          "name": "required_skill",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": false
+        },
+        {
+          "name": "serial_number",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": false
+        },
+        {
+          "name": "model",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": false
+        },
+        {
+          "name": "warranty_expiry",
+          "type": {
+            "kind": "datetime"
+          },
+          "nullable": false
+        },
+        {
+          "name": "tenant_id",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": false
+        },
+        {
+          "name": "data_key",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": true
+        },
+        {
+          "name": "version",
+          "type": {
+            "kind": "int"
+          },
+          "nullable": false,
+          "default": "1"
+        }
+      ],
+      "primaryKey": [
+        "id"
+      ],
+      "foreignKeys": [
+        {
+          "column": "site_id",
+          "refTable": "sites",
+          "onDelete": "restrict"
+        }
+      ],
+      "indexes": [
+        {
+          "name": "assets_site_id_idx",
+          "table": "assets",
+          "columns": [
+            "site_id"
+          ],
+          "unique": false
+        },
+        {
+          "name": "assets_tenant_id_idx",
+          "table": "assets",
+          "columns": [
+            "tenant_id"
+          ],
+          "unique": false
+        },
+        {
+          "name": "assets_data_key_idx",
+          "table": "assets",
+          "columns": [
+            "data_key"
+          ],
+          "unique": false,
+          "opclasses": {
+            "data_key": "text_pattern_ops"
+          }
+        }
+      ],
+      "schema": "directory",
+      "savingShape": "relational"
+    },
+    {
+      "name": "customers",
+      "ownerModule": "Core",
+      "columns": [
+        {
+          "name": "id",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        },
+        {
+          "name": "name",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": false
+        },
+        {
+          "name": "tenant_id",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": false
+        },
+        {
+          "name": "data_key",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": true
+        },
+        {
+          "name": "version",
+          "type": {
+            "kind": "int"
+          },
+          "nullable": false,
+          "default": "1"
+        }
+      ],
+      "primaryKey": [
+        "id"
+      ],
+      "foreignKeys": [],
+      "indexes": [
+        {
+          "name": "customers_tenant_id_idx",
+          "table": "customers",
+          "columns": [
+            "tenant_id"
+          ],
+          "unique": false
+        },
+        {
+          "name": "customers_data_key_idx",
+          "table": "customers",
+          "columns": [
+            "data_key"
+          ],
+          "unique": false,
+          "opclasses": {
+            "data_key": "text_pattern_ops"
+          }
+        }
+      ],
+      "schema": "directory",
+      "savingShape": "relational"
+    },
+    {
+      "name": "invoices",
+      "ownerModule": "Core",
+      "columns": [
+        {
+          "name": "id",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        },
+        {
+          "name": "work_order_id",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        },
+        {
+          "name": "customer_id",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        },
+        {
+          "name": "currency",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": false
+        },
+        {
+          "name": "amount",
+          "type": {
+            "kind": "decimal"
+          },
+          "nullable": false
+        },
+        {
+          "name": "issued",
+          "type": {
+            "kind": "bool"
+          },
+          "nullable": false
+        },
+        {
+          "name": "tenant_id",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": false
+        },
+        {
+          "name": "data_key",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": true
+        },
+        {
+          "name": "created_at",
+          "type": {
+            "kind": "datetime"
+          },
+          "nullable": false
+        },
+        {
+          "name": "updated_at",
+          "type": {
+            "kind": "datetime"
+          },
+          "nullable": false
+        },
+        {
+          "name": "created_by",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        },
+        {
+          "name": "updated_by",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        },
+        {
+          "name": "version",
+          "type": {
+            "kind": "int"
+          },
+          "nullable": false,
+          "default": "1"
+        }
+      ],
+      "primaryKey": [
+        "id"
+      ],
+      "foreignKeys": [],
+      "indexes": [
+        {
+          "name": "invoices_work_order_id_idx",
+          "table": "invoices",
+          "columns": [
+            "work_order_id"
+          ],
+          "unique": false
+        },
+        {
+          "name": "invoices_customer_id_idx",
+          "table": "invoices",
+          "columns": [
+            "customer_id"
+          ],
+          "unique": false
+        },
+        {
+          "name": "invoices_tenant_id_idx",
+          "table": "invoices",
+          "columns": [
+            "tenant_id"
+          ],
+          "unique": false
+        },
+        {
+          "name": "invoices_data_key_idx",
+          "table": "invoices",
+          "columns": [
+            "data_key"
+          ],
+          "unique": false,
+          "opclasses": {
+            "data_key": "text_pattern_ops"
+          }
+        }
+      ],
+      "schema": "billing",
+      "savingShape": "relational"
+    },
+    {
+      "name": "notification_logs",
+      "ownerModule": "Core",
+      "columns": [
+        {
+          "name": "id",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        },
+        {
+          "name": "work_order_id",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        },
+        {
+          "name": "sent_at",
+          "type": {
+            "kind": "datetime"
+          },
+          "nullable": false
+        },
+        {
+          "name": "version",
+          "type": {
+            "kind": "int"
+          },
+          "nullable": false,
+          "default": "1"
+        }
+      ],
+      "primaryKey": [
+        "id"
+      ],
+      "foreignKeys": [],
+      "indexes": [
+        {
+          "name": "notification_logs_work_order_id_idx",
+          "table": "notification_logs",
+          "columns": [
+            "work_order_id"
+          ],
+          "unique": false
+        }
+      ],
+      "schema": "notifications",
+      "savingShape": "relational"
+    },
+    {
+      "name": "organizations",
+      "ownerModule": "Core",
+      "columns": [
+        {
+          "name": "id",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        },
+        {
+          "name": "name",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": false
+        },
+        {
+          "name": "version",
+          "type": {
+            "kind": "int"
+          },
+          "nullable": false,
+          "default": "1"
+        }
+      ],
+      "primaryKey": [
+        "id"
+      ],
+      "foreignKeys": [],
+      "indexes": [],
+      "schema": "tenancy",
+      "savingShape": "relational"
+    },
+    {
+      "name": "parts",
+      "ownerModule": "Core",
+      "columns": [
+        {
+          "name": "id",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        },
+        {
+          "name": "sku",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": false
+        },
+        {
+          "name": "name",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": false
+        },
+        {
+          "name": "stock_level",
+          "type": {
+            "kind": "int"
+          },
+          "nullable": false
+        },
+        {
+          "name": "tenant_id",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": false
+        },
+        {
+          "name": "data_key",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": true
+        },
+        {
+          "name": "version",
+          "type": {
+            "kind": "int"
+          },
+          "nullable": false,
+          "default": "1"
+        }
+      ],
+      "primaryKey": [
+        "id"
+      ],
+      "foreignKeys": [],
+      "indexes": [
+        {
+          "name": "parts_tenant_id_idx",
+          "table": "parts",
+          "columns": [
+            "tenant_id"
+          ],
+          "unique": false
+        },
+        {
+          "name": "parts_data_key_idx",
+          "table": "parts",
+          "columns": [
+            "data_key"
+          ],
+          "unique": false,
+          "opclasses": {
+            "data_key": "text_pattern_ops"
+          }
+        }
+      ],
+      "schema": "dispatch",
+      "savingShape": "relational"
+    },
+    {
+      "name": "photos",
+      "ownerModule": "Core",
+      "columns": [
+        {
+          "name": "id",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        },
+        {
+          "name": "work_order_id",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        },
+        {
+          "name": "file",
+          "type": {
+            "kind": "json"
+          },
+          "nullable": false
+        },
+        {
+          "name": "caption",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": false
+        }
+      ],
+      "primaryKey": [
+        "id"
+      ],
+      "foreignKeys": [
+        {
+          "column": "work_order_id",
+          "refTable": "work_orders",
+          "onDelete": "cascade"
+        }
+      ],
+      "indexes": [
+        {
+          "name": "photos_work_order_id_idx",
+          "table": "photos",
+          "columns": [
+            "work_order_id"
+          ],
+          "unique": false
+        }
+      ],
+      "schema": "dispatch"
+    },
+    {
+      "name": "record_completions",
+      "ownerModule": "Core",
+      "columns": [
+        {
+          "name": "work_order_id",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        }
+      ],
+      "primaryKey": [
+        "work_order_id"
+      ],
+      "foreignKeys": [],
+      "indexes": [],
+      "schema": "notifications"
+    },
+    {
+      "name": "sites",
+      "ownerModule": "Core",
+      "columns": [
+        {
+          "name": "id",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        },
+        {
+          "name": "customer_id",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        },
+        {
+          "name": "label",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": false
+        },
+        {
+          "name": "address_line",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": false
+        },
+        {
+          "name": "city",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": false
+        },
+        {
+          "name": "tenant_id",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": false
+        },
+        {
+          "name": "data_key",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": true
+        },
+        {
+          "name": "version",
+          "type": {
+            "kind": "int"
+          },
+          "nullable": false,
+          "default": "1"
+        }
+      ],
+      "primaryKey": [
+        "id"
+      ],
+      "foreignKeys": [
+        {
+          "column": "customer_id",
+          "refTable": "customers",
+          "onDelete": "restrict"
+        }
+      ],
+      "indexes": [
+        {
+          "name": "sites_customer_id_idx",
+          "table": "sites",
+          "columns": [
+            "customer_id"
+          ],
+          "unique": false
+        },
+        {
+          "name": "sites_tenant_id_idx",
+          "table": "sites",
+          "columns": [
+            "tenant_id"
+          ],
+          "unique": false
+        },
+        {
+          "name": "sites_data_key_idx",
+          "table": "sites",
+          "columns": [
+            "data_key"
+          ],
+          "unique": false,
+          "opclasses": {
+            "data_key": "text_pattern_ops"
+          }
+        }
+      ],
+      "schema": "directory",
+      "savingShape": "relational"
+    },
+    {
+      "name": "technicians",
+      "ownerModule": "Core",
+      "columns": [
+        {
+          "name": "id",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        },
+        {
+          "name": "user_id",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": false
+        },
+        {
+          "name": "name",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": false
+        },
+        {
+          "name": "skills",
+          "type": {
+            "kind": "array",
+            "inner": {
+              "kind": "text"
+            }
+          },
+          "nullable": false
+        },
+        {
+          "name": "cost_rate_per_hour",
+          "type": {
+            "kind": "decimal"
+          },
+          "nullable": false
+        },
+        {
+          "name": "tenant_id",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": false
+        },
+        {
+          "name": "data_key",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": true
+        },
+        {
+          "name": "version",
+          "type": {
+            "kind": "int"
+          },
+          "nullable": false,
+          "default": "1"
+        }
+      ],
+      "primaryKey": [
+        "id"
+      ],
+      "foreignKeys": [],
+      "indexes": [
+        {
+          "name": "technicians_tenant_id_idx",
+          "table": "technicians",
+          "columns": [
+            "tenant_id"
+          ],
+          "unique": false
+        },
+        {
+          "name": "technicians_data_key_idx",
+          "table": "technicians",
+          "columns": [
+            "data_key"
+          ],
+          "unique": false,
+          "opclasses": {
+            "data_key": "text_pattern_ops"
+          }
+        }
+      ],
+      "schema": "dispatch",
+      "savingShape": "relational"
+    },
+    {
+      "name": "work_order_lines",
+      "ownerModule": "Core",
+      "columns": [
+        {
+          "name": "id",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        },
+        {
+          "name": "work_order_id",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        },
+        {
+          "name": "kind",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": false
+        },
+        {
+          "name": "description",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": false
+        },
+        {
+          "name": "part_id",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": true
+        },
+        {
+          "name": "quantity",
+          "type": {
+            "kind": "int"
+          },
+          "nullable": false
+        },
+        {
+          "name": "unit_price_amount",
+          "type": {
+            "kind": "decimal"
+          },
+          "nullable": false,
+          "voGroup": "unit_price"
+        },
+        {
+          "name": "unit_price_currency",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": false,
+          "voGroup": "unit_price"
+        }
+      ],
+      "primaryKey": [
+        "id"
+      ],
+      "foreignKeys": [
+        {
+          "column": "work_order_id",
+          "refTable": "work_orders",
+          "onDelete": "cascade"
+        },
+        {
+          "column": "part_id",
+          "refTable": "parts",
+          "onDelete": "restrict"
+        }
+      ],
+      "indexes": [
+        {
+          "name": "work_order_lines_work_order_id_idx",
+          "table": "work_order_lines",
+          "columns": [
+            "work_order_id"
+          ],
+          "unique": false
+        },
+        {
+          "name": "work_order_lines_part_id_idx",
+          "table": "work_order_lines",
+          "columns": [
+            "part_id"
+          ],
+          "unique": false
+        }
+      ],
+      "schema": "dispatch"
+    },
+    {
+      "name": "work_orders",
+      "ownerModule": "Core",
+      "columns": [
+        {
+          "name": "id",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        },
+        {
+          "name": "customer_id",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        },
+        {
+          "name": "site_id",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        },
+        {
+          "name": "asset_id",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": true
+        },
+        {
+          "name": "technician_id",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": true
+        },
+        {
+          "name": "technician_user_id",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": true
+        },
+        {
+          "name": "status",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": false
+        },
+        {
+          "name": "priority",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": false
+        },
+        {
+          "name": "currency",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": false
+        },
+        {
+          "name": "scheduled_at",
+          "type": {
+            "kind": "datetime"
+          },
+          "nullable": true
+        },
+        {
+          "name": "started_at",
+          "type": {
+            "kind": "datetime"
+          },
+          "nullable": true
+        },
+        {
+          "name": "completed_at",
+          "type": {
+            "kind": "datetime"
+          },
+          "nullable": true
+        },
+        {
+          "name": "resolution_note",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": true
+        },
+        {
+          "name": "tenant_id",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": false
+        },
+        {
+          "name": "data_key",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": true
+        },
+        {
+          "name": "version",
+          "type": {
+            "kind": "int"
+          },
+          "nullable": false,
+          "default": "1"
+        }
+      ],
+      "primaryKey": [
+        "id"
+      ],
+      "foreignKeys": [
+        {
+          "column": "technician_id",
+          "refTable": "technicians",
+          "onDelete": "restrict"
+        }
+      ],
+      "indexes": [
+        {
+          "name": "work_orders_customer_id_idx",
+          "table": "work_orders",
+          "columns": [
+            "customer_id"
+          ],
+          "unique": false
+        },
+        {
+          "name": "work_orders_site_id_idx",
+          "table": "work_orders",
+          "columns": [
+            "site_id"
+          ],
+          "unique": false
+        },
+        {
+          "name": "work_orders_asset_id_idx",
+          "table": "work_orders",
+          "columns": [
+            "asset_id"
+          ],
+          "unique": false
+        },
+        {
+          "name": "work_orders_technician_id_idx",
+          "table": "work_orders",
+          "columns": [
+            "technician_id"
+          ],
+          "unique": false
+        },
+        {
+          "name": "work_orders_tenant_id_idx",
+          "table": "work_orders",
+          "columns": [
+            "tenant_id"
+          ],
+          "unique": false
+        },
+        {
+          "name": "work_orders_data_key_idx",
+          "table": "work_orders",
+          "columns": [
+            "data_key"
+          ],
+          "unique": false,
+          "opclasses": {
+            "data_key": "text_pattern_ops"
+          }
+        }
+      ],
+      "schema": "dispatch",
+      "savingShape": "relational"
+    }
+  ],
+  "lastVersion": "20260101500000",
+  "migrationHistory": [
+    {
+      "version": "20260101000000",
+      "name": "Initial"
+    }
+  ],
+  "versionBlock": 0
+}

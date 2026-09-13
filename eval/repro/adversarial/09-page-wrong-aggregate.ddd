@@ -1,0 +1,35 @@
+// Mistake: a UI page's QueryView is bound to an aggregate that doesn't exist
+// in the subdomain (typo'd/wrong aggregate reference from a page body).
+system PageWrongAgg {
+  subdomain Sales {
+    context Sales {
+      aggregate Order with crudish {
+        customerId: string
+      }
+      repository Orders for Order { }
+    }
+  }
+
+  api SalesApi from Sales
+
+  ui WebApp with scaffold(aggregates: [Order]) {
+    api Sales: SalesApi
+
+    page Console {
+      route: "/console/:id"
+      body: QueryView {
+        of: Sales.Gadget.byId(id),
+        single: true,
+        loading: Loader {},
+        empty: Empty { "Not found" },
+        data: o => Heading { o.customerId, level: 1 }
+      }
+    }
+  }
+
+  storage primary { type: postgres }
+  resource salesState { for: Sales, kind: state, use: primary }
+
+  deployable api { platform: node, contexts: [Sales], dataSources: [salesState], port: 3000 }
+  deployable webApp { platform: react, targets: api, ui: WebApp, port: 3001 }
+}

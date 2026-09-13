@@ -1,0 +1,37 @@
+// Loom architecture model (LikeC4) — generated from the IR, do not edit by hand.
+// System: Phase0app
+
+specification {
+  element system
+  element container
+  element component
+  element database
+}
+
+model {
+  Phase0app = system 'Phase0app' {
+    description 'Loom-generated system'
+    api = container 'api' {
+      technology 'node'
+      Projects = component 'Projects'
+    }
+    webApp = container 'webApp' {
+      technology 'react'
+    }
+    db = database 'PostgreSQL'
+
+    api -> db 'reads / writes'
+    webApp -> api 'calls'
+  }
+}
+
+views {
+  view index {
+    title 'Phase0app — landscape'
+    include *
+  }
+  view of Phase0app {
+    title 'Phase0app — containers'
+    include *
+  }
+}

@@ -1,0 +1,59 @@
+// Phase0app — scaffolded by `ddd new` (template: crud, platform: node).
+// Edit this model, then regenerate:
+//   ddd generate system main.ddd -o . && docker compose up
+
+system Phase0app {
+
+  // Authorization is opt-in in a fresh model.  When you wire real auth, prefer
+  // deny-by-default: every client-reachable command AND read (operations,
+  // creates, destroys, workflows, views, repository finds) must then declare a
+  // `requires <expr>` gate — `requires true` is the explicit "intentionally
+  // public" escape.  Mark the deployable `auth: required` to enforce it.
+  //   auth {
+  //     enforcement: denyByDefault
+  //     oidc { issuer: env("OIDC_ISSUER") clientId: env("OIDC_CLIENT_ID") }
+  //   }
+
+  subdomain Core {
+    context Projects {
+      aggregate Project with crudish {
+        name: string
+        invariant name.length > 0
+        derived display: string = name
+      }
+
+      repository Projects for Project { }
+
+      aggregate Task with crudish {
+        title: string
+        done: bool
+        project: Project id
+      }
+
+      repository Tasks for Task {
+        find byProject(projectId: Project id): Task[] where this.project == projectId
+      }
+    }
+  }
+
+  ui WebApp with scaffold(subdomains: [Core]) {
+  }
+
+  storage primary { type: postgres }
+  resource appState { for: Projects, kind: state, use: primary }
+
+  deployable api {
+    platform: node,
+    contexts: [Projects],
+    dataSources: [appState],
+    port: 3000
+  }
+
+  deployable webApp {
+    platform: react,
+    targets: api,
+    ui: WebApp,
+    port: 3001,
+    design: mantine
+  }
+}

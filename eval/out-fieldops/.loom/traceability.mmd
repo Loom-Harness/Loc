@@ -1,0 +1,21 @@
+flowchart LR
+  r0["US-001: A dispatcher can schedule a work order to a qualified technician"]
+  r1["AC-001: Scheduling requires the technician's skills to cover the asset's required skill"]
+  r2["US-002: Completing a work order consumes part stock transactionally"]
+  r3["AC-002: Completion fails atomically if part stock is insufficient"]
+  r4["US-003: Tenant isolation holds for all business data"]
+  r0 --> r1
+  r2 --> r3
+  s5{{"SOL-001"}}
+  r0 -->|for| s5
+  c6{{"Core.Dispatch.scheduleWorkOrder"}}
+  s5 -->|entitles| c6
+  c7[/"api"/]
+  s5 -->|entitles| c7
+  t8["TC-001"]
+  t8 -->|verifies| r1
+  t8 -.->|covers| c6
+  t9["TC-002"]
+  t9 -->|verifies| r3
+  c10(["Core.Dispatch.WorkOrder.complete"])
+  t9 -.->|covers| c10

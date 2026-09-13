@@ -1,0 +1,25 @@
+// Repro: `with crudish` generates create/update/destroy with no way to
+// attach a `requires` gate to them; combined with `auth { enforcement:
+// denyByDefault }` this is a hard error with no in-model fix short of
+// dropping `crudish` and hand-writing the CRUD operations.
+system CrudishDenyByDefault {
+  user { id: string role: string }
+
+  subdomain Core {
+    context Widgets {
+      aggregate Widget with crudish {
+        name: string
+      }
+      repository Widgets for Widget { }
+    }
+  }
+
+  auth {
+    enforcement: denyByDefault
+    oidc { issuer: env("OIDC_ISSUER") clientId: env("OIDC_CLIENT_ID") }
+  }
+
+  storage primary { type: postgres }
+  resource widgetsState { for: Widgets, kind: state, use: primary }
+  deployable api { platform: node, contexts: [Widgets], dataSources: [widgetsState], auth: required, port: 3000 }
+}

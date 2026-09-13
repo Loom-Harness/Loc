@@ -1,0 +1,7 @@
+// Mistake: invariant references a field name that doesn't exist on the aggregate.
+context Widgets {
+  aggregate Widget {
+    name: string
+    invariant quantity > 0
+  }
+}

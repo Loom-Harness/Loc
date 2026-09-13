@@ -1,0 +1,26 @@
+%% Loom deployment diagram — generated from the IR, do not edit by hand.
+%% System: FieldOps
+flowchart LR
+  subgraph domain["🗂️ Domain"]
+    direction TB
+    subgraph mod_Core["📦 Core"]
+      direction TB
+      ctx_Tenancy["📁 Tenancy"]
+      ctx_Directory["📁 Directory"]
+      ctx_Dispatch["📁 Dispatch"]
+      ctx_Notifications["📁 Notifications"]
+      ctx_Billing["📁 Billing"]
+    end
+  end
+  subgraph deployables["🚀 Deployables"]
+    direction TB
+    deploy_api{{"api · node"}}
+    deploy_notifier{{"notifier · node"}}
+    deploy_webApp{{"webApp · react"}}
+  end
+  deploy_api -->|serves| ctx_Tenancy
+  deploy_api -->|serves| ctx_Directory
+  deploy_api -->|serves| ctx_Dispatch
+  deploy_api -->|serves| ctx_Billing
+  deploy_notifier -->|serves| ctx_Notifications
+  deploy_webApp -.->|calls| deploy_api

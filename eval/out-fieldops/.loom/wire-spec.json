@@ -1,0 +1,526 @@
+{
+  "system": "FieldOps",
+  "aggregates": {
+    "Organization": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "name": {
+          "type": "string"
+        },
+        "version": {
+          "type": "integer"
+        },
+        "display": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "version",
+        "display"
+      ],
+      "additionalProperties": false
+    },
+    "Customer": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "name": {
+          "type": "string"
+        },
+        "tenantId": {
+          "type": "string"
+        },
+        "version": {
+          "type": "integer"
+        },
+        "display": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "tenantId",
+        "version",
+        "display"
+      ],
+      "additionalProperties": false
+    },
+    "Site": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "customerId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "label": {
+          "type": "string"
+        },
+        "addressLine": {
+          "type": "string"
+        },
+        "city": {
+          "type": "string"
+        },
+        "tenantId": {
+          "type": "string"
+        },
+        "version": {
+          "type": "integer"
+        },
+        "display": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "customerId",
+        "label",
+        "addressLine",
+        "city",
+        "tenantId",
+        "version",
+        "display"
+      ],
+      "additionalProperties": false
+    },
+    "Asset": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "siteId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "requiredSkill": {
+          "type": "string"
+        },
+        "serialNumber": {
+          "type": "string"
+        },
+        "model": {
+          "type": "string"
+        },
+        "warrantyExpiry": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "tenantId": {
+          "type": "string"
+        },
+        "version": {
+          "type": "integer"
+        },
+        "display": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "siteId",
+        "requiredSkill",
+        "serialNumber",
+        "model",
+        "warrantyExpiry",
+        "tenantId",
+        "version",
+        "display"
+      ],
+      "additionalProperties": false
+    },
+    "Technician": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "userId": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "skills": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "costRatePerHour": {
+          "type": "number"
+        },
+        "tenantId": {
+          "type": "string"
+        },
+        "version": {
+          "type": "integer"
+        },
+        "display": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "userId",
+        "name",
+        "skills",
+        "costRatePerHour",
+        "tenantId",
+        "version",
+        "display"
+      ],
+      "additionalProperties": false
+    },
+    "Part": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "sku": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "stockLevel": {
+          "type": "integer"
+        },
+        "tenantId": {
+          "type": "string"
+        },
+        "version": {
+          "type": "integer"
+        },
+        "display": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "sku",
+        "name",
+        "stockLevel",
+        "tenantId",
+        "version",
+        "display"
+      ],
+      "additionalProperties": false
+    },
+    "WorkOrder": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "customerId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "siteId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "assetId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "technicianId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "technicianUserId": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "Draft",
+            "Scheduled",
+            "InProgress",
+            "Completed",
+            "Cancelled"
+          ]
+        },
+        "priority": {
+          "type": "string",
+          "enum": [
+            "Low",
+            "Normal",
+            "High",
+            "Urgent"
+          ]
+        },
+        "currency": {
+          "type": "string"
+        },
+        "scheduledAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "startedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "completedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "resolutionNote": {
+          "type": "string"
+        },
+        "tenantId": {
+          "type": "string"
+        },
+        "version": {
+          "type": "integer"
+        },
+        "lines": {
+          "type": "array",
+          "items": {
+            "$ref": "#/parts/WorkOrderLine"
+          }
+        },
+        "photos": {
+          "type": "array",
+          "items": {
+            "$ref": "#/parts/Photo"
+          }
+        },
+        "display": {
+          "type": "string"
+        },
+        "total": {
+          "$ref": "#/valueObjects/Money"
+        }
+      },
+      "required": [
+        "id",
+        "customerId",
+        "siteId",
+        "status",
+        "priority",
+        "currency",
+        "tenantId",
+        "version",
+        "lines",
+        "photos",
+        "display",
+        "total"
+      ],
+      "additionalProperties": false
+    },
+    "NotificationLog": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "workOrderId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "sentAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "version": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "workOrderId",
+        "sentAt",
+        "version"
+      ],
+      "additionalProperties": false
+    },
+    "Invoice": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "workOrderId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "customerId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "currency": {
+          "type": "string"
+        },
+        "amount": {
+          "type": "number"
+        },
+        "issued": {
+          "type": "boolean"
+        },
+        "tenantId": {
+          "type": "string"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "createdBy": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "updatedBy": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "version": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "workOrderId",
+        "customerId",
+        "currency",
+        "amount",
+        "issued",
+        "tenantId",
+        "createdAt",
+        "updatedAt",
+        "createdBy",
+        "updatedBy",
+        "version"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "parts": {
+    "Photo": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "file": {
+          "type": "object",
+          "properties": {
+            "url": {
+              "type": "string"
+            },
+            "key": {
+              "type": "string"
+            },
+            "contentType": {
+              "type": "string"
+            },
+            "size": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "url",
+            "key",
+            "contentType",
+            "size"
+          ],
+          "additionalProperties": false
+        },
+        "caption": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "file",
+        "caption"
+      ],
+      "additionalProperties": false
+    },
+    "WorkOrderLine": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "Labour",
+            "Parts"
+          ]
+        },
+        "description": {
+          "type": "string"
+        },
+        "partId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "quantity": {
+          "type": "integer"
+        },
+        "unitPrice": {
+          "$ref": "#/valueObjects/Money"
+        },
+        "subtotal": {
+          "$ref": "#/valueObjects/Money"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "description",
+        "quantity",
+        "unitPrice",
+        "subtotal"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "valueObjects": {
+    "Money": {
+      "type": "object",
+      "properties": {
+        "amount": {
+          "type": "number"
+        },
+        "currency": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "amount",
+        "currency"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

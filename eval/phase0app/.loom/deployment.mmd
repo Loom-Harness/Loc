@@ -1,0 +1,17 @@
+%% Loom deployment diagram — generated from the IR, do not edit by hand.
+%% System: Phase0app
+flowchart LR
+  subgraph domain["🗂️ Domain"]
+    direction TB
+    subgraph mod_Core["📦 Core"]
+      direction TB
+      ctx_Projects["📁 Projects"]
+    end
+  end
+  subgraph deployables["🚀 Deployables"]
+    direction TB
+    deploy_api{{"api · node"}}
+    deploy_webApp{{"webApp · react"}}
+  end
+  deploy_api -->|serves| ctx_Projects
+  deploy_webApp -.->|calls| deploy_api

@@ -1,0 +1,122 @@
+%% Loom ER diagram — generated from the IR, do not edit by hand.
+%% System: FieldOps
+erDiagram
+  Organization {
+    guid id PK
+    string name
+    int version
+  }
+  Customer {
+    guid id PK
+    string name
+    string tenantId
+    string dataKey
+    int version
+  }
+  Site {
+    guid id PK
+    Id_Customer customerId FK
+    string label
+    string addressLine
+    string city
+    string tenantId
+    string dataKey
+    int version
+  }
+  Asset {
+    guid id PK
+    Id_Site siteId FK
+    string requiredSkill
+    string serialNumber
+    string model
+    datetime warrantyExpiry
+    string tenantId
+    string dataKey
+    int version
+  }
+  Technician {
+    guid id PK
+    string userId
+    string name
+    string skills
+    decimal costRatePerHour
+    string tenantId
+    string dataKey
+    int version
+  }
+  Part {
+    guid id PK
+    string sku
+    string name
+    int stockLevel
+    string tenantId
+    string dataKey
+    int version
+  }
+  WorkOrder {
+    guid id PK
+    Id_Customer customerId FK
+    Id_Site siteId FK
+    Id_Asset assetId FK
+    Id_Technician technicianId FK
+    string technicianUserId
+    WorkOrderStatus status
+    Priority priority
+    string currency
+    datetime scheduledAt
+    datetime startedAt
+    datetime completedAt
+    string resolutionNote
+    string tenantId
+    string dataKey
+    int version
+  }
+  Photo {
+    File file
+    string caption
+  }
+  WorkOrderLine {
+    LineKind kind
+    string description
+    Id_Part partId FK
+    int quantity
+    Money unitPrice
+  }
+  Money {
+    decimal amount
+    string currency
+  }
+  NotificationLog {
+    guid id PK
+    Id_WorkOrder workOrderId FK
+    datetime sentAt
+    int version
+  }
+  Invoice {
+    guid id PK
+    Id_WorkOrder workOrderId FK
+    Id_Customer customerId FK
+    string currency
+    decimal amount
+    bool issued
+    string tenantId
+    string dataKey
+    datetime createdAt
+    datetime updatedAt
+    guid createdBy
+    guid updatedBy
+    int version
+  }
+  Site }o--|| Customer : "customerId"
+  Asset }o--|| Site : "siteId"
+  WorkOrder ||--o{ WorkOrderLine : "lines"
+  WorkOrder ||--o{ Photo : "photos"
+  WorkOrder }o--|| Customer : "customerId"
+  WorkOrder }o--|| Site : "siteId"
+  WorkOrder }o--|| Asset : "assetId"
+  WorkOrder }o--|| Technician : "technicianId"
+  WorkOrderLine }o--|| Part : "partId"
+  WorkOrderLine ||--|| Money : "unitPrice"
+  NotificationLog }o--|| WorkOrder : "workOrderId"
+  Invoice }o--|| WorkOrder : "workOrderId"
+  Invoice }o--|| Customer : "customerId"

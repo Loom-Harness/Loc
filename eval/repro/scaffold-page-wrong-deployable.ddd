@@ -1,0 +1,46 @@
+// Repro (F-011): `ui X with scaffold(subdomains: [S])` generates a
+// Detail/List page for EVERY aggregate in EVERY context under subdomain S —
+// including a context that is hosted by a DIFFERENT backend deployable than
+// the one the UI is actually bound to (`targets: api`, not `targets:
+// otherApi`). The generated page can't resolve a working data-fetch hook
+// for that aggregate (its routes don't exist on the bound backend), and
+// instead of `ddd parse`/`ddd generate` refusing this, the page ships with
+// a literal `/* TODO: ... needs hooks {} binding */ undefined` receiver —
+// broken, uncompilable TSX, at exit code 0. The generator's own source
+// comment (src/generator/_walker/walker-core.ts:2005-2009) says this
+// exact code path is "now DEAD on valid .ddd" because a separate IR
+// validator (`loom.method-call-unresolved-receiver`) is supposed to catch
+// this before codegen — it did not, on this input.
+system ScaffoldPageWrongDeployable {
+  subdomain Core {
+    context Widgets {
+      aggregate Widget with crudish {
+        name: string
+        derived display: string = name
+      }
+      repository Widgets for Widget { }
+    }
+
+    // A second context in the SAME subdomain, hosted by a DIFFERENT
+    // deployable (`notifier`, not `api`) — exactly the "separate notifier
+    // deployable" pattern this evaluation's spec calls for.
+    context Notes {
+      aggregate Note with crudish {
+        text: string
+      }
+      repository Notes for Note { }
+    }
+  }
+
+  ui WebApp with scaffold(subdomains: [Core]) { }
+
+  storage primary { type: postgres }
+  resource widgetsState { for: Widgets, kind: state, use: primary }
+  resource notesState { for: Notes, kind: state, use: primary }
+
+  deployable api { platform: node, contexts: [Widgets], dataSources: [widgetsState], port: 3000 }
+  deployable notifier { platform: node, contexts: [Notes], dataSources: [notesState], port: 3002 }
+
+  // webApp targets ONLY `api` — it never serves `Notes`/`Note`.
+  deployable webApp { platform: react, targets: api, ui: WebApp, port: 3001 }
+}

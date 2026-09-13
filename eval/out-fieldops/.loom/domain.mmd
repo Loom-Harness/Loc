@@ -1,0 +1,254 @@
+%% Loom domain diagram — generated from the IR, do not edit by hand.
+%% System: FieldOps
+classDiagram
+  direction LR
+  %% Core / Tenancy
+  class Organization {
+    <<aggregate>>
+    +Id~Organization~ id
+    +string name
+    +int version
+    +string /display
+    +string /inspect
+    +update(name)
+  }
+  class Organizations {
+    <<repository>>
+    +all() Organization paged
+  }
+  %% Core / Directory
+  class Customer {
+    <<aggregate>>
+    +Id~Customer~ id
+    +string name
+    +string tenantId
+    +string?? dataKey
+    +int version
+    +string /display
+    +string /inspect
+    +update(name)
+  }
+  class Site {
+    <<aggregate>>
+    +Id~Site~ id
+    +Id~Customer~ customerId
+    +string label
+    +string addressLine
+    +string city
+    +string tenantId
+    +string?? dataKey
+    +int version
+    +string /display
+    +string /inspect
+    +update(customerId, label, addressLine, city)
+  }
+  class Asset {
+    <<aggregate>>
+    +Id~Asset~ id
+    +Id~Site~ siteId
+    +string requiredSkill
+    +string serialNumber
+    +string model
+    +datetime warrantyExpiry
+    +string tenantId
+    +string?? dataKey
+    +int version
+    +string /display
+    +string /inspect
+    +update(siteId, requiredSkill, serialNumber, model, warrantyExpiry)
+  }
+  class Customers {
+    <<repository>>
+    +all() Customer paged
+  }
+  class Sites {
+    <<repository>>
+    +all() Site paged
+  }
+  class Assets {
+    <<repository>>
+    +all() Asset paged
+  }
+  %% Core / Dispatch
+  class WorkOrderStatus {
+    <<enumeration>>
+    +Draft
+    +Scheduled
+    +InProgress
+    +Completed
+    +Cancelled
+  }
+  class Priority {
+    <<enumeration>>
+    +Low
+    +Normal
+    +High
+    +Urgent
+  }
+  class LineKind {
+    <<enumeration>>
+    +Labour
+    +Parts
+  }
+  class Money {
+    <<value>>
+    +decimal amount
+    +string currency
+  }
+  class WorkOrderCompleted {
+    <<event>>
+    +Id~WorkOrder~ workOrder
+    +datetime at
+  }
+  class Technician {
+    <<aggregate>>
+    +Id~Technician~ id
+    +string userId
+    +string name
+    +string[] skills
+    +decimal costRatePerHour
+    +string tenantId
+    +string?? dataKey
+    +int version
+    +string /display
+    +string /inspect
+    +update(userId, name, skills, costRatePerHour)
+  }
+  class Part {
+    <<aggregate>>
+    +Id~Part~ id
+    +string sku
+    +string name
+    +int stockLevel
+    +string tenantId
+    +string?? dataKey
+    +int version
+    +string /display
+    +string /inspect
+    +decrement(qty)
+    +update(sku, name, stockLevel)
+  }
+  class WorkOrder {
+    <<aggregate>>
+    +Id~WorkOrder~ id
+    +Id~Customer~ customerId
+    +Id~Site~ siteId
+    +Id~Asset~?? assetId
+    +Id~Technician~?? technicianId
+    +string?? technicianUserId
+    +WorkOrderStatus status
+    +Priority priority
+    +string currency
+    +datetime?? scheduledAt
+    +datetime?? startedAt
+    +datetime?? completedAt
+    +string?? resolutionNote
+    +string tenantId
+    +string?? dataKey
+    +int version
+    +string /display
+    +Money /total
+    +string /inspect
+    +isDraft() bool
+    +assignTechnician(assignTo, assignedUserId, at)
+    +start()
+    +addLine(kind, description, partId, quantity, unitPrice)
+    +complete(note)
+    +cancel()
+    +notifyCustomer()*
+    +attachPhoto(file, caption)
+    +update(customerId, siteId, assetId, technicianId, technicianUserId, status, priority, currency, scheduledAt, startedAt, completedAt, resolutionNote)
+  }
+  class Photo {
+    <<entity>>
+    +File file
+    +string caption
+  }
+  class WorkOrderLine {
+    <<entity>>
+    +LineKind kind
+    +string description
+    +Id~Part~?? partId
+    +int quantity
+    +Money unitPrice
+    +Money /subtotal
+  }
+  class Technicians {
+    <<repository>>
+    +all() Technician paged
+  }
+  class Parts {
+    <<repository>>
+    +all() Part paged
+  }
+  class WorkOrders {
+    <<repository>>
+    +all() WorkOrder paged
+    +mine() WorkOrder[]
+    +acrossAllTenants() WorkOrder[]
+  }
+  %% Core / Notifications
+  class NotificationLog {
+    <<aggregate>>
+    +Id~NotificationLog~ id
+    +Id~WorkOrder~ workOrderId
+    +datetime sentAt
+    +int version
+    +string /inspect
+    +update(workOrderId, sentAt)
+  }
+  class NotificationLogs {
+    <<repository>>
+    +all() NotificationLog paged
+  }
+  %% Core / Billing
+  class Invoice {
+    <<aggregate>>
+    +Id~Invoice~ id
+    +Id~WorkOrder~ workOrderId
+    +Id~Customer~ customerId
+    +string currency
+    +decimal amount
+    +bool issued
+    +string tenantId
+    +string?? dataKey
+    +datetime createdAt
+    +datetime updatedAt
+    +guid createdBy
+    +guid updatedBy
+    +int version
+    +string /inspect
+    +issue()
+    +update(workOrderId, customerId, currency, amount, issued)
+  }
+  class Invoices {
+    <<repository>>
+    +all() Invoice paged
+  }
+  Organizations ..> Organization : manages
+  Site ..> Customer : ref
+  Asset ..> Site : ref
+  Customers ..> Customer : manages
+  Sites ..> Site : manages
+  Assets ..> Asset : manages
+  WorkOrderCompleted ..> WorkOrder : ref
+  WorkOrder ..> Customer : ref
+  WorkOrder ..> Site : ref
+  WorkOrder ..> Asset : ref
+  WorkOrder ..> Technician : ref
+  WorkOrder ..> WorkOrderStatus : uses
+  WorkOrder ..> Priority : uses
+  WorkOrder *-- "*" WorkOrderLine : lines
+  WorkOrder *-- "*" Photo : photos
+  WorkOrder ..> WorkOrderCompleted : emits
+  WorkOrderLine ..> Part : ref
+  WorkOrderLine ..> Money : uses
+  WorkOrderLine ..> LineKind : uses
+  Technicians ..> Technician : manages
+  Parts ..> Part : manages
+  WorkOrders ..> WorkOrder : manages
+  NotificationLog ..> WorkOrder : ref
+  NotificationLogs ..> NotificationLog : manages
+  Invoice ..> WorkOrder : ref
+  Invoice ..> Customer : ref
+  Invoices ..> Invoice : manages

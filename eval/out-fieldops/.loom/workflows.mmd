@@ -1,0 +1,29 @@
+%% Loom workflow diagram — generated from the IR, do not edit by hand.
+%% System: FieldOps
+flowchart TD
+  subgraph wf_0["Dispatch · scheduleWorkOrder(workOrderId, assignTo, at) «tx»"]
+    direction TB
+    w0s0{{"requires: currentUser.role == &quot;admin&quot; || currentUser.role == &quot;dispatcher&quot;"}}
+    w0s1["tech = Technicians.getById()"]
+    w0s2["wo = WorkOrders.getById()"]
+    w0s3{{"precondition: tech.skills.count > 0"}}
+    w0s4["wo.assignTechnician()"]
+    w0s0 --> w0s1
+    w0s1 --> w0s2
+    w0s2 --> w0s3
+    w0s3 --> w0s4
+  end
+  subgraph wf_1["Dispatch · completeAndConsumePart(workOrderId, note, partId, qty) «tx»"]
+    direction TB
+    w1s0["part = Parts.getById()"]
+    w1s1["part.decrement()"]
+    w1s2["wo = WorkOrders.getById()"]
+    w1s3["wo.complete()"]
+    w1s0 --> w1s1
+    w1s1 --> w1s2
+    w1s2 --> w1s3
+  end
+  subgraph wf_2["Notifications · recordCompletion(p)"]
+    direction TB
+    w2s0["entry = NotificationLog.create()"]
+  end

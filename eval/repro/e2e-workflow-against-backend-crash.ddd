@@ -1,0 +1,31 @@
+// Repro (F-009): `api.workflows.<name>(...)` in a `test e2e ... against
+// <backendDeployable>` block passes `ddd parse` with zero errors, then
+// crashes `ddd generate system` with an UNCAUGHT JS exception and a raw
+// Node.js stack trace — not a `loom.*` diagnostic. Every real corpus
+// example only ever calls `.workflows.` sugar against a UI deployable
+// (`ui.workflows.X(...)`), never a backend one.
+system E2eWorkflowCrash {
+  subdomain Core {
+    context Widgets {
+      aggregate Widget with crudish {
+        name: string
+      }
+      repository Widgets for Widget { }
+
+      workflow rename {
+        create(id: Widget id, newName: string) {
+          let w = Widgets.getById(id)
+        }
+      }
+    }
+  }
+
+  storage primary { type: postgres }
+  resource widgetsState { for: Widgets, kind: state, use: primary }
+  deployable api { platform: node, contexts: [Widgets], dataSources: [widgetsState], port: 3000 }
+
+  test e2e "rename via workflow" against api {
+    let w = api.widgets.create({ name: "a" })
+    api.workflows.rename({ id: w.id, newName: "b" })
+  }
+}

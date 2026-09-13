@@ -1,0 +1,159 @@
+{
+  "version": 1,
+  "requirements": [
+    {
+      "id": "US-001",
+      "type": "UserStory",
+      "title": "A dispatcher can schedule a work order to a qualified technician",
+      "status": "InProgress",
+      "priority": 1
+    },
+    {
+      "id": "AC-001",
+      "type": "AcceptanceCriteria",
+      "title": "Scheduling requires the technician's skills to cover the asset's required skill",
+      "parentId": "US-001"
+    },
+    {
+      "id": "US-002",
+      "type": "UserStory",
+      "title": "Completing a work order consumes part stock transactionally",
+      "status": "InProgress",
+      "priority": 1
+    },
+    {
+      "id": "AC-002",
+      "type": "AcceptanceCriteria",
+      "title": "Completion fails atomically if part stock is insufficient",
+      "parentId": "US-002"
+    },
+    {
+      "id": "US-003",
+      "type": "UserStory",
+      "title": "Tenant isolation holds for all business data",
+      "status": "InProgress",
+      "priority": 1
+    }
+  ],
+  "solutions": [
+    {
+      "id": "SOL-001",
+      "forRequirement": "US-001",
+      "title": "scheduleWorkOrder enforces the skill-match precondition",
+      "entitles": [
+        {
+          "qualifiedName": "Core.Dispatch.scheduleWorkOrder",
+          "kind": "workflow"
+        },
+        {
+          "qualifiedName": "api",
+          "kind": "deployable"
+        }
+      ]
+    }
+  ],
+  "testCases": [
+    {
+      "id": "TC-001",
+      "verifies": "AC-001",
+      "title": "Scheduling to an unqualified technician is rejected",
+      "covers": [
+        {
+          "qualifiedName": "Core.Dispatch.scheduleWorkOrder",
+          "kind": "workflow"
+        }
+      ]
+    },
+    {
+      "id": "TC-002",
+      "verifies": "AC-002",
+      "title": "Completing a work order with no lines is rejected",
+      "covers": [
+        {
+          "qualifiedName": "Core.Dispatch.WorkOrder.complete",
+          "kind": "operation"
+        }
+      ]
+    }
+  ],
+  "index": {
+    "childrenOf": {
+      "US-001": [
+        "AC-001"
+      ],
+      "AC-001": [],
+      "US-002": [
+        "AC-002"
+      ],
+      "AC-002": [],
+      "US-003": []
+    },
+    "testsByRequirement": {
+      "US-001": [
+        "TC-001"
+      ],
+      "AC-001": [
+        "TC-001"
+      ],
+      "US-002": [
+        "TC-002"
+      ],
+      "AC-002": [
+        "TC-002"
+      ],
+      "US-003": []
+    },
+    "solutionByRequirement": {
+      "US-001": "SOL-001",
+      "AC-001": null,
+      "US-002": null,
+      "AC-002": null,
+      "US-003": null
+    },
+    "codeElements": {
+      "Core.Dispatch.scheduleWorkOrder": "workflow",
+      "api": "deployable",
+      "Core.Dispatch.WorkOrder.complete": "operation"
+    },
+    "testsByCodeElement": {
+      "Core.Dispatch.scheduleWorkOrder": [
+        "TC-001"
+      ],
+      "Core.Dispatch.WorkOrder.complete": [
+        "TC-002"
+      ]
+    },
+    "execTestsByTestCase": {
+      "TC-001": [
+        "dispatcher schedules a work order to a qualified technician"
+      ],
+      "TC-002": [
+        "cannot complete with no lines"
+      ]
+    },
+    "execTests": [
+      {
+        "name": "cannot complete with no lines",
+        "suite": "WorkOrder",
+        "kind": "unit",
+        "testCaseId": "TC-002"
+      },
+      {
+        "name": "dispatcher schedules a work order to a qualified technician",
+        "suite": "FieldOps e2e",
+        "kind": "api",
+        "testCaseId": "TC-001"
+      }
+    ]
+  },
+  "summary": {
+    "codeCoverage": {
+      "covered": 2,
+      "total": 3
+    },
+    "requirementCoverage": {
+      "covered": 4,
+      "total": 5
+    }
+  }
+}

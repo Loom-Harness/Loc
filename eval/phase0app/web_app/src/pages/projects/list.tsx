@@ -1,0 +1,65 @@
+// Auto-generated.  Do not edit by hand.
+import { useState } from "react";
+import { useNavigate, Link as RouterLink } from "react-router";
+import { t } from "../../i18n";
+import { IdValue } from "../../lib/format";
+import { Alert, Anchor, Breadcrumbs, Button, Center, Group, Paper, Skeleton, Stack, Table, Text, Title } from "@mantine/core";
+import { useAllProjects } from "../../api/project";
+
+export default function ProjectList() {
+  const navigate = useNavigate();
+  const [sortKey, setSortKey] = useState<string>("");
+  const [sortDir, setSortDir] = useState<string>("");
+  const [pageNum, setPageNum] = useState<number>(1);
+  const projectAll = useAllProjects({ page: pageNum, pageSize: 10, sort: sortKey, dir: sortDir });
+  return (
+    <Stack gap="md" data-testid="projects-list">
+      <Breadcrumbs>
+        <Anchor component={RouterLink} to="/">{t("page.List.anchor.n0mxf2", "Home")}</Anchor>
+        <Text>{t("page.List.text.s0roif", "Projects")}</Text>
+      </Breadcrumbs>
+      <Group justify="space-between" align="center" gap="md" role="toolbar" aria-label="Actions">
+        <Title order={2}>{t("page.List.heading.s0roif", "Projects")}</Title>
+        <Button onClick={() => navigate("/projects/new")} data-testid="projects-list-create">{t("page.List.button.eiwv5s", "New project")}</Button>
+      </Group>
+      <>
+        { projectAll.isLoading && (
+          <Stack gap="xs" aria-hidden="true">
+    { Array.from({ length: 5 }).map((_, i) => (
+    <Skeleton key={i} height={ 28 } radius="sm" />
+    )) }
+    </Stack>
+        ) }
+        { projectAll.isError && (
+          <Alert color="red" variant="light">{t("page.List.alert.qssplp", "Couldn't load projects")}</Alert>
+        ) }
+        { projectAll.data && projectAll.data.items.length === 0 && (
+          <Center mih={200}><Text c="dimmed">{t("page.List.empty.vqbozk", "No projects yet.")}</Text></Center>
+        ) }
+        { projectAll.data && projectAll.data.items.length > 0 && (
+          <Paper p="md">
+            <><div className="loom-table-scroll" style={{ width: "100%", overflowX: "auto" }}><Table striped highlightOnHover stickyHeader>
+              <Table.Thead>
+                <Table.Tr>
+                  <Table.Th><button type="button" style={{ background: "none", border: "none", padding: 0, font: "inherit", cursor: "pointer", userSelect: "none" }} onClick={() => { if (sortKey === "id") { setSortDir(sortDir === "asc" ? "desc" : "asc"); } else { setSortKey("id"); setSortDir("asc"); } }}>{t("page.List.columnHeader.o4495s", "ID")}{sortKey === "id" ? (sortDir === "asc" ? " ↑" : " ↓") : ""}</button></Table.Th>
+                  <Table.Th><button type="button" style={{ background: "none", border: "none", padding: 0, font: "inherit", cursor: "pointer", userSelect: "none" }} onClick={() => { if (sortKey === "name") { setSortDir(sortDir === "asc" ? "desc" : "asc"); } else { setSortKey("name"); setSortDir("asc"); } }}>{t("page.List.columnHeader.4el6o6", "Name")}{sortKey === "name" ? (sortDir === "asc" ? " ↑" : " ↓") : ""}</button></Table.Th>
+                  <Table.Th><button type="button" style={{ background: "none", border: "none", padding: 0, font: "inherit", cursor: "pointer", userSelect: "none" }} onClick={() => { if (sortKey === "version") { setSortDir(sortDir === "asc" ? "desc" : "asc"); } else { setSortKey("version"); setSortDir("asc"); } }}>{t("page.List.columnHeader.q0zd4n", "Version")}{sortKey === "version" ? (sortDir === "asc" ? " ↑" : " ↓") : ""}</button></Table.Th>
+                </Table.Tr>
+              </Table.Thead>
+              <Table.Tbody>
+                { projectAll.data.items.map((row) => (
+                  <Table.Tr key={ row.id } data-testid={ ("projects-row-" + row.id) }>
+                    <Table.Td><RouterLink to={`/projects/${ row.id }`}><IdValue id={ row.id } /></RouterLink></Table.Td>
+                    <Table.Td><Text>{row.name}</Text></Table.Td>
+                    <Table.Td><Text>{row.version}</Text></Table.Td>
+                  </Table.Tr>
+                )) }
+              </Table.Tbody>
+            </Table></div>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: "0.5rem", marginTop: "0.75rem" }} data-testid="pager"><button type="button" disabled={pageNum <= 1} onClick={() => setPageNum(pageNum - 1)}>{t("chrome.prev", "Prev")}</button><span>{t("chrome.pageOf", "Page {page} of {pages}", { page: pageNum, pages: Math.max(1, projectAll.data.totalPages) })}</span><button type="button" disabled={pageNum >= Math.max(1, projectAll.data.totalPages)} onClick={() => setPageNum(pageNum + 1)}>{t("chrome.next", "Next")}</button></div></>
+          </Paper>
+        ) }
+      </>
+    </Stack>
+  );
+}

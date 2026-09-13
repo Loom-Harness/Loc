@@ -1,0 +1,37 @@
+// Repro (F-008): a plain aggregate `operation` body can call a repository
+// (`Repo.getById(...)`) that is only meant to be available inside
+// `workflow` bodies. `ddd parse` / `ddd generate system` accept this with
+// ZERO errors or warnings — the expression type-checker resolves
+// `Technicians.getById(...)` fine (member access on the loaded aggregate
+// type-checks) — but the generated TypeScript domain method has no such
+// binding in scope, so the emitted code references an undefined name and
+// fails to compile. This is a compiler-silent gap: `ddd generate system`
+// exits 0 and writes files that are not valid TypeScript.
+system OperationCrossAggregateRepoCall {
+  subdomain Core {
+    context Ops {
+      aggregate Technician with crudish {
+        skills: string[]
+      }
+      repository Technicians for Technician { }
+
+      aggregate Job with crudish {
+        technicianId: Technician id?
+        requiredSkill: string
+        status: string
+
+        operation assign(assignTo: Technician id) {
+          // Cross-aggregate repository read INSIDE a plain operation (not a
+          // workflow) — accepted by the validator, breaks the emitted code.
+          precondition Technicians.getById(assignTo).skills.contains(requiredSkill)
+          technicianId := assignTo
+        }
+      }
+      repository Jobs for Job { }
+    }
+  }
+
+  storage primary { type: postgres }
+  resource opsState { for: Ops, kind: state, use: primary }
+  deployable api { platform: node, contexts: [Ops], dataSources: [opsState], port: 3000 }
+}
