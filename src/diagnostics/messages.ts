@@ -1543,14 +1543,36 @@ export const DIAGNOSTIC_MESSAGES = {
     `transform over its OWN store's per-page assign and can't reach store ` +
     `'${p.store}'.  Move the cross-store coordination to the calling page's action ` +
     `(call \`${p.storeName}.${p.actionName}()\` then \`${p.store}.${p.name}()\` from the page).`,
-  "loom.elixir-if-stmt-unsupported": (p: { where: unknown; name: unknown }) =>
-    `An \`if\` statement is used in ${p.where}, whose context is hosted by the ` +
-    `Phoenix/Elixir deployable '${p.name}' — the Elixir emitters do not render it yet.  ` +
-    `Every Phoenix body threads its result through a rebound \`record\`, and an Elixir ` +
-    `\`if\` block's bindings do not escape the block, so a branch that assigns would ` +
-    `compile and then silently do nothing.  Express the branch as a conditional VALUE ` +
-    `instead (\`status := open ? Done : Draft\`), or host this context on a node / ` +
-    `dotnet / java / python backend, which render the statement.`,
+  // M-T6.59 — the `if` STATEMENT itself now RENDERS on elixir (a value-producing
+  // `record = if … do … record else … record end`, `vanilla/if-stmt-emit.ts`).
+  // What is left are three sub-shapes that rendering cannot express; each says
+  // which one, because "rewrite it as a ternary" is the wrong advice for two of
+  // them.
+  "loom.elixir-if-stmt-unsupported#return-in-branch": (p: { where: unknown; name: unknown }) =>
+    `A \`return\` appears inside an \`if\` branch in ${p.where}, whose context is hosted ` +
+    `by the Phoenix/Elixir deployable '${p.name}'.  The \`if\` STATEMENT itself renders on ` +
+    `Elixir, but a \`return\` inside a branch is an EARLY EXIT, and an Elixir body has no ` +
+    `early return — its value is its tail expression, so the statements AFTER the \`if\` ` +
+    `would still run.  Move the \`return\` out to the end of the body (assign in the ` +
+    `branches, return once after the \`if\`), or host this context on a node / dotnet / ` +
+    `java / python backend.`,
+  "loom.elixir-if-stmt-unsupported#guard-in-branch": (p: { where: unknown; name: unknown }) =>
+    `A \`precondition\` / \`requires\` guard appears inside an \`if\` branch in ${p.where}, ` +
+    `whose context is hosted by the Phoenix/Elixir deployable '${p.name}'.  The Phoenix ` +
+    `operation path HOISTS an operation's guards into a leading \`with :ok <- ensure(…)\` ` +
+    `chain so a failed guard answers 403 / 422; a guard nested inside a branch cannot be ` +
+    `hoisted and would raise instead, answering 500 where the other four backends answer ` +
+    `a typed denial.  Lift the guard to the top of the operation body (its condition may ` +
+    `include the \`if\` condition), or host this context on a node / dotnet / java / ` +
+    `python backend.`,
+  "loom.elixir-if-stmt-unsupported#event-sourced": (p: { where: unknown; name: unknown }) =>
+    `An \`if\` statement is used in ${p.where} — an EVENT-SOURCED command body — whose ` +
+    `context is hosted by the Phoenix/Elixir deployable '${p.name}'.  An event-sourced ` +
+    `command is not rendered as a statement sequence on Phoenix: its guards become ` +
+    `\`with :ok <- ensure(…)\` clauses and its \`emit\`s become one \`events = […]\` list, ` +
+    `so a conditional \`emit\` has nowhere to render.  Express the choice as a conditional ` +
+    `VALUE inside the emitted event's fields (\`amount: over ? a : b\`), or host this ` +
+    `context on a node / dotnet / java / python backend.`,
   "loom.if-stmt-page-body-unsupported": (p: { where: unknown; uiName: unknown }) =>
     `An \`if\` statement is used in ${p.where} on ui '${p.uiName}'.  The \`if\` ` +
     `STATEMENT is a backend-body form (aggregate / domain-service operations); no frontend ` +

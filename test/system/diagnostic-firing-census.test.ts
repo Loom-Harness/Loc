@@ -1233,10 +1233,12 @@ system S {
   }
 }`,
 
-  // An `if` STATEMENT in an operation body, on a context an elixir deployable
-  // emits.  The four spine backends render it; Phoenix would silently drop an
-  // assigning branch (its bodies thread a REBOUND `record`, and an Elixir `if`
-  // block's bindings do not escape the block).
+  // M-T6.59 narrowed this code: the `if` STATEMENT itself RENDERS on elixir now
+  // (a value-producing `record = if … do … record else record end`), so the
+  // firing shape is one of the three sub-shapes that still cannot render.  This
+  // is `#guard-in-branch` — a `precondition` nested in a branch, which the op
+  // path cannot hoist into its `with :ok <- ensure(…)` chain, so it would raise
+  // (500) where the other four backends answer a typed 403/422.
   "loom.elixir-if-stmt-unsupported": `
 system P {
   subdomain D { context C {
@@ -1245,6 +1247,7 @@ system P {
       count: int
       operation bump(n: int) {
         if n > 0 {
+          precondition count > 0
           count := 1
         } else {
           count := 2

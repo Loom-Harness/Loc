@@ -262,7 +262,7 @@ Sources: [language-docs-audit-2026-09-03](../audits/2026-09-03-language-docs-aud
 > face" — three places promise routing works, zero deliver. **Blocked on M-T6.62** (the workflow-`create`
 > miscompile; renumbered from M-T6.60 on 2026-09-10), which must land
 > first: option (a) would be built on a create path that miscompiles on all five.
-## M-T6.59 — Phoenix cannot render the `if` statement: an assigning branch would compile and do nothing — `open` · **M** · P2
+## M-T6.59 — Phoenix cannot render the `if` statement: an assigning branch would compile and do nothing — `partial` (statement lands; three sub-shapes stay gated) · **M** · P2
 
 Raised 2026-09-03 by the M-FT.11 field-test slice, which added the `if <cond> { … } else { … }` statement to operation bodies. It renders on node / dotnet / java / python through the shared `_stmt/target.ts` spine; elixir is refused up front by `loom.elixir-if-stmt-unsupported` (`src/ir/validate/checks/if-stmt-checks.ts`) rather than half-rendered.
 
@@ -271,6 +271,52 @@ Raised 2026-09-03 by the M-FT.11 field-test slice, which added the `if <cond> { 
 **The shape that works** is a value-producing branch — `record = if <cond> do <stmts>; record else record end` — applied in EVERY vanilla body renderer that owns a `record` (`vanilla/operation-returns-emit.ts`, `vanilla/context-emit.ts`, `vanilla/eventsourced-emit.ts`, `vanilla/function-emit.ts`, `domain-service-emit.ts`), each of which has its own indent and variable conventions. A `return` inside a branch is the sub-case that does NOT fit it (the returning-op path emits `{:ok, …}` tuples as the body's tail expression) and needs either a `with`-chain rendering or a narrower gate of its own.
 
 **Verification when it lands.** A `render-stmt`-level test per touched renderer, an elixir compile leg (`mix compile --warnings-as-errors`) over a model whose `if` branch ASSIGNS, and a behavioural check that the assignment is observable after the call — a compile-only gate cannot see this bug. Delete the `loom.elixir-if-stmt-unsupported` row from `src/diagnostics/unsupported-register.ts` and its arm in `if-stmt-checks.ts` in the same PR, and lower the gap pin.
+
+> **Landed 2026-09-13 (wave C2, packet 2a).** The statement RENDERS on elixir now.
+> `src/generator/elixir/vanilla/if-stmt-emit.ts` renders the value-producing shape
+> (`record = if … do … record else record end`, with the `else` arm SYNTHESISED when the
+> source has none — an Elixir `if` with no `else` answers `nil`, which would null the
+> threaded record), wired into `renderReturningStmt`
+> (`vanilla/operation-returns-emit.ts:1370`, reused by `context-emit.ts` + `document-emit.ts`),
+> `renderPureBlock` (`vanilla/function-emit.ts`) and the domain-service renderer
+> (`domain-service-emit.ts:545`).
+>
+> **The second half was the one a compile gate cannot see.** Every "does this body write a
+> column / mutate a containment / touch a ref collection" probe scanned `op.statements` ONE
+> LEVEL DEEP, so with the branch rendering correctly the persist tail still emitted
+> `change(%{})` with no `force_change` — the branch computed the new struct and `Repo.update`
+> wrote nothing. `opBodyStmtsDeep` (`src/generator/elixir/domain/predicates.ts`, riding
+> `walkStmtsDeep`) now feeds `persistPutBodies`, `opMutatesState`, `mutatesRefColl`,
+> `contextMutatesRefColl`, `contextUsesRefCollOp`, `contextMutatesRelationalContainment` and
+> `mutatesEmbeddedContainment`. `function-emit.ts`'s hand-rolled `bodyExprs` switch (five
+> kinds, no `if` arm) moved onto `walkStmtExprsDeep` in the same commit — otherwise a param
+> read only inside a branch was invisible and the clause head underscored it.
+>
+> **Boot-proved on real Postgres** (generated project, `mix ecto.migrate` + `mix phx.server`):
+> `POST /api/tasks/:id/grade {"bonus":9}` on `score: 5` reads back `score: 14, tier: "gold"`
+> — the branch's assignments persisted; a second op with an `else`-less `if` taken and then
+> untaken leaves the record intact (`attempts: 3`, not `nil`). Compile-gated by
+> `test/e2e/fixtures/elixir-vanilla-build/vanilla-if-stmt.ddd`
+> (`mix compile --warnings-as-errors`, green).
+>
+> **What stays gated**, each a strictly narrower `#slug` of `loom.elixir-if-stmt-unsupported`
+> (`src/ir/validate/checks/if-stmt-checks.ts:201`): `#return-in-branch` — an EARLY EXIT, which
+> needs the statements FOLLOWING the `if` restructured into a `case` arm (a list-level
+> transform that also breaks the same-length/same-order `statementSubRegions` zip the sourcemap
+> collector depends on); it IS allowed in a TAIL-VALUE body (domainService / pure `function`),
+> where every `return` is already the block's value. `#guard-in-branch` — the op path hoists
+> top-level `requires`/`precondition` into a `with :ok <- ensure(…)` chain answering 403/422,
+> and a nested one would raise → 500, a wire divergence worse than the refusal.
+> `#event-sourced` — an ES command body is sorted into `with`-clauses / `let`s / one
+> `events = […]` list, never rendered as a statement sequence, so a conditional `emit` has
+> nowhere to go (`eventsourced-emit.ts` grew a throwing arm; its `default: break` would have
+> dropped the branch silently). The register row narrows rather than drains.
+>
+> **Hand-off (outside the packet fence).** `loom.function-block-no-return`
+> (`src/language/validators/types.ts:906-957`) walks `fn.block` one level deep, so a pure
+> aggregate `function` whose only `return`s sit inside an `if` is refused at phase ④ on EVERY
+> backend — the identical tail-return shape a `domainService` operation accepts. Not an elixir
+> row; the elixir renderer already handles it.
 
 Sources: M-FT.11 (grammar slice: `key` / `if` / `??`). Relates to [`vanilla-phoenix-gaps.md`](../old/plans/vanilla-phoenix-gaps.md).
 

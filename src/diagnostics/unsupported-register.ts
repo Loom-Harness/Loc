@@ -235,15 +235,21 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.elixir-if-stmt-unsupported",
     kind: "gap",
-    site: "src/ir/validate/checks/if-stmt-checks.ts:74",
+    site: "src/ir/validate/checks/if-stmt-checks.ts:201",
     what:
-      "the `if` STATEMENT in a domain body an elixir deployable emits — every Phoenix body renderer " +
-      "threads its result through a rebound `record`, and an Elixir `if` block's bindings do not " +
-      "escape the block, so an assigning branch would compile and silently do nothing.  Closing it " +
-      "means making each branch value-producing (`record = if … do … record else record end`) in " +
-      "every vanilla body renderer; the other four backends render the statement today.  " +
-      "raised by the M-FT.11 field-test slice, which shipped the statement on the four spine " +
-      "backends and gated elixir rather than half-render it",
+      "THREE narrow sub-shapes of the `if` STATEMENT in a domain body an elixir deployable emits.  " +
+      "The statement ITSELF now renders (M-T6.59, wave C2 2a): `vanilla/if-stmt-emit.ts` makes it " +
+      "value-producing (`record = if … do … record else record end`) and `opBodyStmtsDeep` makes " +
+      "every persist/containment probe deep-walk the branches, so a branch assignment survives " +
+      "`Repo.update` (boot-proved on real Postgres).  What is left: `#return-in-branch` (an EARLY " +
+      "EXIT — the linear body renderers would have to restructure the statements FOLLOWING the " +
+      "`if` into a `case` arm, a list-level transform that also breaks the same-length " +
+      "`statementSubRegions` sourcemap zip; allowed already in a TAIL-VALUE body, where every " +
+      "`return` is already tail-position), `#guard-in-branch` (the op path hoists top-level " +
+      "`requires`/`precondition` into a `with :ok <- ensure(…)` chain answering 403/422; a nested " +
+      "one would raise → 500, a wire divergence worse than the refusal), and `#event-sourced` (an " +
+      "ES command body is sorted into `with`-clauses / `let`s / one `events = […]` list, not " +
+      "rendered as a statement sequence, so a conditional `emit` has nowhere to go)",
     mission: "M-T6.59",
     verified: true,
   },
@@ -356,7 +362,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.if-stmt-page-body-unsupported",
     kind: "scope",
-    site: "src/ir/validate/checks/if-stmt-checks.ts:109",
+    site: "src/ir/validate/checks/if-stmt-checks.ts:262",
     what:
       "the `if` STATEMENT in a `ui` page / component / store body, on EVERY frontend.  A page body " +
       "is an expression tree — a condition is a VALUE there (`cond ? a : b`, `match`) — and no " +
