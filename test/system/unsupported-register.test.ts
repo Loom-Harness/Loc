@@ -247,8 +247,33 @@ const REGISTER_FILE = path.join(srcRoot, "diagnostics", "unsupported-register.ts
  *  narrower rules (`loom.seed-raw-eventsourced`, `loom.seed-eventsourced-no-create`)
  *  which are refusals of genuinely unseedable shapes, not gaps.  The pin is
  *  exact (`toBe`, not an upper bound), so this number is measured: if the count
- *  and the pin disagree the test names both. */
-const MAX_OPEN_GAPS = 49;
+ *  and the pin disagree the test names both.
+ *
+ *  49 → 51: Wave C1 packet 1d-ii, the §18 emitter-sentinel drain.  BOTH raises
+ *  are the same trade this register exists to record — neither gap is new, only
+ *  its honesty is, and each was measured on a `.ddd` the CLI had just reported
+ *  `0 error(s), 0 warning(s)` for.
+ *
+ *  `loom.flutter-action-body-unsupported` — `navigate("/x")` / `toast("hi")` in
+ *  a Flutter page action, and `match await` on one of the five STANDARD
+ *  aggregate ops.  Both emitted a `// TODO(flutter full-parity)` comment INTO
+ *  the generated Dart: valid Dart, a clean `flutter analyze`, and a button
+ *  wired to an action that does nothing.  Every other frontend renders both.
+ *  Drained by M-T1.32 (route the view effect out of the Notifier into the
+ *  widget layer; resolve a standard op through the route surface instead of
+ *  `agg.operations`), which deletes the row and lowers this back to 50.
+ *
+ *  `loom.frontend-prop-type-unsupported` — `money`, `File` and a `valueobject`
+ *  as a `component` param or `extern` function signature type.  These were the
+ *  `default: throw new Error(...)` arms in `_frontend/component-prop-type.ts` /
+ *  `extern-functions.ts`: a raw stack trace mid-generate, no code to look up.
+ *  Throwing rather than emitting `any` was always right — a prop the frontend
+ *  cannot type voids the contract the generated props interface exists to
+ *  enforce — it was just happening at phase ⑧ instead of ⑦.  All three types
+ *  HAVE wire shapes (a decimal string re-parsed to `Decimal`, a fixed
+ *  `FileRef` object, a VO DTO), so this drains by teaching the prop layer to
+ *  spell them, which deletes the row and lowers this back to 50. */
+const MAX_OPEN_GAPS = 51;
 
 function walk(dir: string, out: string[] = []): string[] {
   for (const e of fs.readdirSync(dir, { withFileTypes: true })) {

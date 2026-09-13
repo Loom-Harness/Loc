@@ -43,7 +43,6 @@ import {
   isMatchExpr,
   isMemberSuffix,
   isModel,
-  isMoneyLit,
   isNameRef,
   isNowExpr,
   isNullLit,
@@ -63,6 +62,7 @@ import {
   isValueObject,
   type TemplateStr,
 } from "../../language/generated/ast.js";
+import { moneyLiteralText } from "../../language/money-literal.js";
 import { isCollectionOp } from "../../util/collection-ops.js";
 import { bodyTypeOf } from "../../util/expr-body-type.js";
 import { isIntrinsicMatcher } from "../../util/intrinsic-matchers.js";
@@ -1138,8 +1138,13 @@ function lowerExprInner(expr: Expression | undefined, env: Env): ExprIR {
   if (isTemplateStr(expr)) return lowerTemplateString(expr, env);
   if (isIntLit(expr)) return lit("int", String(expr.value));
   if (isDecLit(expr)) return lit("decimal", expr.value);
-  if (isMoneyLit(expr)) return lit("money", expr.value ?? "0");
   if (isPrimitiveConversion(expr)) {
+    // `money("10.50")` — the string-arg LITERAL form.  One grammar rule now
+    // serves both it and `money(someDecimal)` (see src/language/money-literal.ts
+    // for why); the argument's shape is what separates them, and the literal
+    // lowers to exactly the `lit("money", …)` the deleted `MoneyLit` rule did.
+    const moneyText = moneyLiteralText(expr);
+    if (moneyText !== undefined) return lit("money", moneyText);
     const fromType = inferExprType(expr.value, env);
     // Aggregate → string lowers to `aggregate.display` member access.
     // The validator has already ensured `display` exists; if it
@@ -1956,7 +1961,6 @@ export function inferExprType(expr: Expression | undefined, env: Env): TypeIR {
   if (isTemplateStr(expr)) return { kind: "primitive", name: "string" };
   if (isIntLit(expr)) return { kind: "primitive", name: "int" };
   if (isDecLit(expr)) return { kind: "primitive", name: "decimal" };
-  if (isMoneyLit(expr)) return { kind: "primitive", name: "money" };
   if (isPrimitiveConversion(expr)) {
     return { kind: "primitive", name: expr.target as PrimitiveName };
   }

@@ -10,6 +10,12 @@ import {
   PAGED_MAX_PAGE_SIZE,
 } from "../../../ir/stdlib/generics.js";
 import { lines } from "../../../util/code-builder.js";
+import {
+  MONEY_INTEGER_DIGITS,
+  MONEY_PRECISION,
+  MONEY_RANGE_MESSAGE,
+  MONEY_WIRE_SCALE,
+} from "../../money-scale.js";
 
 /**
  * The four pagination query parameters of a paged read, as Spring
@@ -94,12 +100,23 @@ export function renderWireFormatException(basePkg: string): string {
     ``,
     `    /** Parse a money wire string, or refuse with a pointer.  Total: the`,
     `     *  bare {@code new BigDecimal(s)} it replaces threw on anything the`,
-    `     *  grammar rejects. */`,
+    `     *  grammar rejects.`,
+    `     *`,
+    `     *  The second guard is RANGE, not format: a ${MONEY_INTEGER_DIGITS + 25}-digit price is a`,
+    `     *  perfectly well-formed decimal string, so it passed the grammar,`,
+    `     *  reached NUMERIC(${MONEY_PRECISION},${MONEY_WIRE_SCALE}) and the DATABASE refused it — a 500`,
+    `     *  for a client fault (M-T6.60 divergence 3).  {@code precision() -`,
+    `     *  scale()} is the integer-digit count BigDecimal already tracks, so`,
+    `     *  nothing is re-parsed. */`,
     `    public static BigDecimal money(String value, String pointer) {`,
     `        if (value == null || !MONEY.matcher(value).matches()) {`,
     `            throw new WireFormatException(pointer, "Invalid decimal: " + quote(value));`,
     `        }`,
-    `        return new BigDecimal(value);`,
+    `        BigDecimal parsed = new BigDecimal(value);`,
+    `        if (parsed.precision() - parsed.scale() > ${MONEY_INTEGER_DIGITS}) {`,
+    `            throw new WireFormatException(pointer, ${JSON.stringify(`${MONEY_RANGE_MESSAGE}: `)} + quote(value));`,
+    `        }`,
+    `        return parsed;`,
     `    }`,
     ``,
     `    /** Parse an ISO-8601 datetime wire string, or refuse with a pointer.`,

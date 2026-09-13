@@ -802,9 +802,10 @@ export function checkEmit(stmt: EmitStmt, env: Env, accept: ValidationAcceptor):
     seen.add(f.name);
     const expected = declared.get(f.name);
     if (!expected) {
-      accept("error", `Event '${ev.name}' has no field '${f.name}'.`, {
+      accept("error", diagMessage("loom.emit-unknown-field", { evName: ev.name, f: f.name }), {
         node: f,
         property: "name",
+        code: "loom.emit-unknown-field",
       });
       continue;
     }

@@ -64,6 +64,7 @@ import { FLUTTER_CHILD_PARAM } from "./dart-expr.js";
 import { dartType } from "./dart-types.js";
 import { flutterTarget } from "./flutter-target.js";
 import { usesMoney } from "./money-runtime.js";
+import { FLUTTER_NAV_MARKER } from "./nav-runtime.js";
 import { flutterPack, usesIntl, usesMath } from "./pack.js";
 import {
   buildStateFields,
@@ -538,6 +539,10 @@ export function renderComponentsFile(
   // The money runtime (M-T1.21) — a component body/action doing money
   // arithmetic, on demand and with the same marker `index.ts` emits the file on.
   if (usesMoney(blocks.join("\n"))) imports.push("import 'money.dart';");
+  // A component action that navigates pushes through the out-of-tree bridge —
+  // a `State` object's action runs outside a build and reuses the Notifier
+  // statement renderer, which spells `navigateTo(` (F2-CFE-1).
+  if (blocks.join("\n").includes(FLUTTER_NAV_MARKER)) imports.push("import 'nav.dart';");
   return `${lines(
     "// User components — one widget per `component Foo(params) { body }` a ui",
     "// hosts (StatelessWidget, or StatefulWidget when it carries `state`).",

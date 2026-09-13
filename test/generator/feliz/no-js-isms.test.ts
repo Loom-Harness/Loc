@@ -110,6 +110,11 @@ system Shop {
         status: Status
         stock:  int
         operation activate() { status := Status.active }
+        // The page below hosts a \`DestroyForm { of: Product }\`, which submits
+        // the aggregate's CANONICAL destroy — \`loom.destroy-form-of-unresolved\`
+        // (M-T1.31) rejects the form without one, and until it did this fixture
+        // silently emitted a give-up comment where it meant to emit a button.
+        destroy { }
       }
       repository Products for Product { }
     }
