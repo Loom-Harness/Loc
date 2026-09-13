@@ -148,6 +148,13 @@ const BACKENDS: BackendCensus[] = [
       { pattern: /\.toPlainString\(\)/, label: "bare .toPlainString() money wire format" },
       { pattern: /\.doubleValue\(\)/, label: "bare .doubleValue() decimal narrowing" },
       { pattern: /new BigDecimal\(/, label: "bare new BigDecimal( construction" },
+      // M-T5.23 added the integral boundary to this seam: `intValue()` on a
+      // boxed provider `Number` DISCARDS the high bits, so a `sum(int)` /
+      // `count` (both bigints in SQL) answered a wrapped number instead of
+      // failing.  `JAVA_NUMERIC.int` is `Math.toIntExact(...)` now, and the
+      // census keeps the next read path from spelling the unchecked form.
+      { pattern: /\(\(Number\) [^)]*\)\.intValue\(\)/, label: "bare ((Number) x).intValue()" },
+      { pattern: /\(\(Number\) [^)]*\)\.longValue\(\)/, label: "bare ((Number) x).longValue()" },
     ],
     waivers: [
       {

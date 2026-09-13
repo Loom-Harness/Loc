@@ -754,8 +754,12 @@ function jpqlCoerce(s: AggregateSelect, read: string): string {
   const c = aggregateCoercion(s);
   const inner = s.type.kind === "optional" ? s.type.inner : s.type;
   if (c.isCount) {
+    // Through the seam, not a hand-written `.intValue()`: `count(…)` is a
+    // bigint in SQL, so a row count declared `int` needs the SAME exact
+    // narrowing every other integral read got (M-T5.23) — spelled once in
+    // `JAVA_NUMERIC.int["projection-read"]`.
     const asLong = inner.kind === "primitive" && inner.name === "long";
-    return `((Number) ${read}).${asLong ? "longValue" : "intValue"}()`;
+    return numericEncode(JAVA_NUMERIC, asLong ? "long" : "int", "projection-read", read);
   }
   // money pins the FIXED wire scale (RS-12) instead of echoing the aggregate's
   // own: `sum`/`max`/`min` come back at the scale the rows were STORED at, so a

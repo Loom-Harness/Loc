@@ -53,6 +53,7 @@ import {
   wholeTableAggregates,
 } from "../../../ir/util/projection-aggregate.js";
 import { snake, upperFirst } from "../../../util/naming.js";
+import { integralWireRange, numericKindOf } from "../../_numeric/codec.js";
 import { numericEncode } from "../../_numeric/target.js";
 import type { SourceMapRecorder } from "../../_trace/sourcemap.js";
 import type { ApiRoute } from "../api-emit.js";
@@ -351,7 +352,7 @@ ${
     do: ndt |> DateTime.from_naive!("Etc/UTC") |> DateTime.truncate(:second)
 `
     : ""
-}${moneyWireHelper(grouped.aggregates, grouped.keys)}end
+}${moneyWireHelper(grouped.aggregates, grouped.keys)}${intWireHelper(grouped.aggregates)}end
 `;
   }
 
@@ -392,7 +393,7 @@ defmodule ${moduleName} do
   def run(current_user \\\\ nil) do
 ${lines.filter((l) => l !== "").join("\n")}
   end
-${moneyWireHelper(aggregates)}end
+${moneyWireHelper(aggregates)}${intWireHelper(aggregates)}end
 `;
   }
 
@@ -601,6 +602,40 @@ function moneyWireHelper(
 `;
 }
 
+/** The integral kind of a (possibly optional) declared row type, or `null`. */
+function integralKind(t: TypeIR): "int" | "long" | null {
+  const kind = numericKindOf(t);
+  return kind === "int" || kind === "long" ? kind : null;
+}
+
+/** The `__int_wire/4` guard, emitted beside the calls `ectoCoerce` renders
+ *  (M-T5.23).  Same adjacency rule as `__money_wire/1`: a call to an undefined
+ *  private function fails a `--warnings-as-errors` compile, so the helper
+ *  travels with the projections that need it. */
+function intWireHelper(aggregates: readonly AggregateSelect[]): string {
+  // AGGREGATES only — deliberately not grouping keys.  A key is a STORED column
+  // value read back through Ecto's schema type, already inside its column's
+  // range, and `groupKeyCoerce` emits no `__int_wire` call for it.  Emitting
+  // the helper for a key would leave it UNUSED, which is itself a
+  // `--warnings-as-errors` failure (the mirror of the missing-definition one).
+  const needed = aggregates.some((a) => integralKind(a.type) !== null);
+  if (!needed) return "";
+  return `
+  # An integral aggregate is checked against the exact range of its DECLARED
+  # type instead of being passed through: \`sum\` over an \`integer\` column and
+  # \`count\` are both bigints in SQL, and the same field publishes
+  # \`format: int32\`.  Every backend refuses a value that does not fit rather
+  # than shipping one out of contract (M-T5.23).
+  defp __int_wire(value, min, max, _field)
+       when is_integer(value) and value >= min and value <= max,
+       do: value
+
+  defp __int_wire(value, min, max, field) do
+    raise "projection field '#{field}': integral aggregate #{inspect(value)} is outside the exact range [#{min}, #{max}] of its declared type"
+  end
+`;
+}
+
 /** The Ecto aggregate call for one `select`.  `count` counts ROWS (Ecto needs a
  *  column, so it counts the primary key — equivalent to `COUNT(*)` for a table
  *  whose id is non-null); the rest take the aggregated column off `record`. */
@@ -626,7 +661,22 @@ function ectoAggregate(agg: ProjectionAggregateIR): string {
 function ectoCoerce(s: AggregateSelect, read: string): string {
   const c = aggregateCoercion(s);
   const inner = s.type.kind === "optional" ? s.type.inner : s.type;
-  if (c.isCount) return `${read} || 0`;
+  // An INTEGRAL field is range-checked against its declared type, not passed
+  // through (M-T5.23) — `count` included, since `count` is a bigint in SQL like
+  // `sum(int)` is.  BEAM integers are arbitrary-precision, so nothing here ever
+  // CORRUPTED — but elixir alone shipped a value outside the `format: int32`
+  // the same field publishes, where java now throws from `Math.toIntExact`,
+  // .NET's cast fails and python's `Int32` bound fails the response model.  One
+  // contract, five backends: a value that does not fit is an error.
+  const integral = integralKind(s.type);
+  if (integral) {
+    const { min, max } = integralWireRange(integral);
+    // `count` is never optional (`AggregateCoercion.optional` excludes it), so
+    // the nil arm is the sum/min/max-over-an-empty-table one.
+    return c.optional
+      ? `if(is_nil(${read}), do: nil, else: __int_wire(${read}, ${min}, ${max}, "${s.field}"))`
+      : `__int_wire(${read} || 0, ${min}, ${max}, "${s.field}")`;
+  }
   // money pins the FIXED wire scale (RS-12) instead of echoing the aggregate's
   // own: `sum`/`max`/`min` come back at the scale the rows were STORED at, so a
   // `money("10.00")` write read back through a projection shipped `"40.00"`
