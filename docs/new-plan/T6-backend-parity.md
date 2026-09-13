@@ -222,6 +222,34 @@ Sources: [language-docs-audit-2026-09-03](../audits/2026-09-03-language-docs-aud
 > zero `handle_event/3` clauses raises `FunctionClauseError` and kills the LiveView (audit F61).
 > **Split F23 out**: shipping the field set without the handler looks correct and still 500s, and its
 > only proving leg (`phoenix-ui-e2e`) is in neither the per-PR set nor the merge queue.
+
+> **F16 / F60 CLOSED 2026-09-13 (wave C2, packet 2a).** `derivedRenderable`
+> (`src/generator/elixir/vanilla/wire-serialize.ts:91`) now resolves a `this-derived` read instead
+> of refusing it: a derived that reads another derived projects exactly when the referenced
+> derived's own expression does, with a cycle guard. The renderer was never the blocker —
+> `render-expr.ts:446` already INLINES a `this-derived` read (an Elixir struct carries no computed
+> field, so `record.<name>` would raise `KeyError`, #1765); only the projection PREDICATE disagreed
+> with it. Resolution goes through the same `ctx.agg.derived` list the renderer consults, so a PART
+> or VALUE-OBJECT serializer — whose render ctx carries the parent aggregate — still declines rather
+> than claiming an inline the renderer would not produce.
+>
+> Gated by `test/generator/elixir/derived-wire-contract.test.ts` as the INVARIANT rather than the one
+> field: for every aggregate response schema in the generated project, `required:` must equal the key
+> set `serialize/1` emits — the expected value read off the OpenAPI the backend publishes, not off
+> the serializer's emitter. Compile fixture `vanilla-derived-chain.ddd` (three-deep chain, so the
+> recursion is exercised). BOOT-PROVED on real Postgres: `GET /api/orders/:id` and the paged list
+> both answer `{"subtotal":15,"withTax":30,"label":"n=30",…}`. Mutation: forcing the `this-derived`
+> arm back to `false` fails "sweeps every aggregate response schema in the project" and "projects a
+> derived that READS another derived".
+>
+> **RESIDUE, pinned as a characterization in the same file.** A derived whose chain bottoms out on an
+> aggregate `function` call keeps the identical self-contradicting contract, by a different
+> mechanism: `function-emit.ts` puts `def twice(%Order{} = record)` on the CONTEXT FACADE module,
+> which the controller hosting `serialize/1` does not host, so inlining would emit an unbound
+> `twice(record)`. Closing it means qualifying the call at this one site (a `RenderCtx` seam) AND
+> reconciling the document / part / value-object serializers, which pass a struct the facade's
+> guarded clause head does not accept — its own slice. F20 stays a DECISION (see above); F22
+> (positional `Image`/`Icon`) and F61 (HEEx `WorkflowForm`) are unaddressed.
 ## M-T6.57 — `envelope` means something different on each of the five backends — scope it before fixing it — `blocked(D-ENVELOPE-RATIFY)` · **S** · P0 ⚠ verify-first
 
 Found 2026-09-03 by the language-docs audit ([F21](../audits/2026-09-03-language-docs-audit-findings.md), P2). The repository layer carries `Envelope<T>` on dotnet and java; node/dotnet/java/python routes return the bare response; elixir's controller returns a JSON array. Five targets, no agreed meaning.

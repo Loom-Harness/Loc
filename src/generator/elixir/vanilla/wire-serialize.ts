@@ -58,7 +58,19 @@ import { provColumn } from "./provenance-emit.js";
  *  doesn't host), `currentUser` (no actor here), or a resource handle does not —
  *  those derived fall back to being SKIPPED (status quo, no regression, no
  *  codegen crash) rather than emitting a `KeyError`-raising `record.<derived>`. */
-function derivedRenderable(e: ExprIR, scope: ReadonlySet<string> = new Set()): boolean {
+function derivedRenderable(
+  e: ExprIR,
+  scope: ReadonlySet<string> = new Set(),
+  /** Resolve a `this-derived` read to the referenced derived's own expression,
+   *  or `undefined` when this serializer cannot (M-T6.56 / audit F60 — see the
+   *  `this-derived` arm). */
+  resolveDerived: (name: string) => ExprIR | undefined = () => undefined,
+  /** `this-derived` names already being resolved — breaks a (validator-
+   *  prevented) cycle instead of recursing forever. */
+  stack: ReadonlySet<string> = new Set(),
+): boolean {
+  const rec = (x: ExprIR, sc: ReadonlySet<string> = scope): boolean =>
+    derivedRenderable(x, sc, resolveDerived, stack);
   switch (e.kind) {
     case "literal":
     case "id":
@@ -76,54 +88,65 @@ function derivedRenderable(e: ExprIR, scope: ReadonlySet<string> = new Set()): b
         case "let":
         case "lambda":
           return scope.has(e.name);
+        case "this-derived": {
+          // M-T6.56 / audit F60.  `render-expr.ts` already INLINES a
+          // `this-derived` read (an Elixir struct carries no computed field, so
+          // `record.<name>` would raise `KeyError` — #1765), which means a
+          // derived that READS another derived projects exactly when the
+          // referenced derived's own expression does.  Skipping it was a WIRE
+          // divergence with no gate: the other four backends ship the field, and
+          // this backend's own OpenAPI schema declares it AND lists it in
+          // `required:`, so every response violated the contract the app itself
+          // publishes.
+          //
+          // Resolution goes through the SAME list the renderer consults
+          // (`ctx.agg.derived`), so a PART or VALUE-OBJECT serializer — whose
+          // render ctx carries the parent aggregate — still declines here rather
+          // than claiming an inline the renderer would not produce.
+          if (stack.has(e.name)) return false;
+          const target = resolveDerived(e.name);
+          if (!target) return false;
+          return derivedRenderable(target, scope, resolveDerived, new Set([...stack, e.name]));
+        }
         default:
-          // this-derived (not a column), helper-fn, current-user, resource,
-          // param, unknown, match-binding.
+          // helper-fn, current-user, resource, param, unknown, match-binding.
           return false;
       }
     case "member":
-      return derivedRenderable(e.receiver, scope);
+      return rec(e.receiver);
     case "method-call":
-      return (
-        derivedRenderable(e.receiver, scope) && e.args.every((a) => derivedRenderable(a, scope))
-      );
+      return rec(e.receiver) && e.args.every((a) => rec(a));
     case "lambda": {
       if (!e.body) return false;
       const inner = new Set(scope);
       inner.add(e.param);
-      return derivedRenderable(e.body, inner);
+      return rec(e.body, inner);
     }
     case "paren":
-      return derivedRenderable(e.inner, scope);
+      return rec(e.inner);
     case "unary":
-      return derivedRenderable(e.operand, scope);
+      return rec(e.operand);
     case "convert":
-      return derivedRenderable(e.value, scope);
+      return rec(e.value);
     case "binary":
-      return derivedRenderable(e.left, scope) && derivedRenderable(e.right, scope);
+      return rec(e.left) && rec(e.right);
     case "duration":
       // A5 temporal — a duration constructor renders in-memory (integer ms /
       // the calendar-shift count; see render-expr.ts), so a temporal derived
       // (`derived due: datetime = createdAt + days(30)`) projects cleanly.
-      return derivedRenderable(e.amount, scope);
+      return rec(e.amount);
     case "ternary":
-      return (
-        derivedRenderable(e.cond, scope) &&
-        derivedRenderable(e.then, scope) &&
-        derivedRenderable(e.otherwise, scope)
-      );
+      return rec(e.cond) && rec(e.then) && rec(e.otherwise);
     case "new":
     case "object":
-      return e.fields.every((f) => derivedRenderable(f.value, scope));
+      return e.fields.every((f) => rec(f.value));
     case "match":
       return (
-        e.arms.every(
-          (a) => derivedRenderable(a.cond, scope) && derivedRenderable(a.value, scope),
-        ) &&
-        (e.otherwise === undefined || derivedRenderable(e.otherwise, scope))
+        e.arms.every((a) => rec(a.cond) && rec(a.value)) &&
+        (e.otherwise === undefined || rec(e.otherwise))
       );
     case "list":
-      return e.elements.every((el) => derivedRenderable(el, scope));
+      return e.elements.every((el) => rec(el));
     default:
       return false;
   }
@@ -335,7 +358,15 @@ export function renderWireSerialize(
       let ve: string;
       if (wf.source === "derived") {
         const d = derived.get(wf.name);
-        if (!d || !derivedRenderable(d.expr)) continue;
+        // The `this-derived` resolver is handed in only for the AGGREGATE's own
+        // map — `render-expr.ts` inlines a derived read off `ctx.agg.derived`,
+        // which is the aggregate's list whichever shape is being serialized, so
+        // a part / value-object map must NOT claim the field (M-T6.56 F60).
+        const resolve =
+          derived === aggDerived
+            ? (name: string): ExprIR | undefined => aggDerived.get(name)?.expr
+            : undefined;
+        if (!d || !derivedRenderable(d.expr, new Set(), resolve)) continue;
         ve = renderExpr(d.expr, derivedRc);
       } else if (wf.source === "id") {
         ve = idExprLocal;
