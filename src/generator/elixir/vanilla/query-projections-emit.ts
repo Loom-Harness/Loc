@@ -557,9 +557,7 @@ ${ectoQueryImport}  alias ${appModule}.Repo
   def run(current_user \\\\ nil) do
 ${body}
   end${projectionHelpers}${denyHelper}${
-    usesMoneyRound
-      ? `\n\n${elixirMoneyRoundHelper()}`
-      : ""
+    usesMoneyRound ? `\n\n${elixirMoneyRoundHelper()}` : ""
   }${joinedHelper(body)}
 end
 `;

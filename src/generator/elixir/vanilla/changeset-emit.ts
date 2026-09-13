@@ -540,9 +540,7 @@ ${keyAliasPairs.join(",\n")}
   //
   // Emitted only where there is an optional field to clear, so an aggregate whose
   // updatable fields are all required stays byte-identical.
-  const updateOptionalNames = updateFields.filter(
-    (f) => f.optional || f.type.kind === "optional",
-  );
+  const updateOptionalNames = updateFields.filter((f) => f.optional || f.type.kind === "optional");
   const emitClearAbsent = emitUpdateChangeset && updateOptionalNames.length > 0;
   const clearAbsentDecl = emitClearAbsent
     ? `\n  @update_optional [${updateOptionalNames.map((f) => `:${snake(f.name)}`).join(", ")}]`
