@@ -41,7 +41,7 @@ system Shop {
           empty:   Text { "No products yet." },
           data:    rows => Stack {
             For { each: rows, p => Card { p.name,
-              Text { p.price }
+              Money { p.price }
             } }
           }
         }
