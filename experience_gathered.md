@@ -6419,6 +6419,20 @@ the findings were.
 | the money-in-array fix lands on four frontends | three — Angular builds row controls from its own module and never carried it | generating all four and diffing |
 | Angular is unverifiable on this host | a Node 24 tarball first on `PATH` runs `ng build` unchanged | one download |
 
+Two more arrived after this section was first written, from the agent fixing the
+nested-value-object defect (#2901), and they are the same two shapes again:
+
+| the audit said | what was true |
+|---|---|
+| dotnet emits a shadowing lambda parameter (`CS0136`) for a nested VO | it does not — `/warnaserror` build is clean and a minimal repro shows the shadowing is legal on this language version. Reasoned, never run. |
+| **java is correct** on nested VOs | its JPA mapping is. Its **request → domain** converter was not: a VO's own fields were never walked, so `toAddr` called a `toGeo` that was never emitted (`javac: cannot find symbol`). |
+
+The java one names a second trap beside the reduction: **checking one half of a
+backend and reporting the backend.** The persistence mapping was inspected and
+was genuinely right, so java was cleared — while the converter path that
+inspection never reached was broken enough to redden `main`. The sample was not
+the population, and nothing in the report said which half had been looked at.
+
 **The through-line: a reduction is a hypothesis, not evidence.** Four of the six
 came from reasoning about a rule instead of running the emitter. The worst was
 the dev-stub repro — a two-line `tsc --strict` case that proved the *type rule*
