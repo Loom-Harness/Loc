@@ -14,9 +14,11 @@
 // round-trip (RS-4), bool create default (RS-6), value-object survival
 // (RS-7), association round-trip (RS-8).
 //
-// Requires: JDK 21 + Gradle (`gradle`) on PATH and a reachable Postgres via
-// SPRING_DATASOURCE_URL. CI provides a `services: postgres` sidecar; locally,
-// point SPRING_DATASOURCE_URL at any Postgres (a jdbc: URL).
+// Requires: the JDK the generated build targets (Java 25) + Gradle 9.1+ on PATH
+// (`build.gradle.kts` pins a `JavaLanguageVersion.of(25)` toolchain), and a
+// reachable Postgres via SPRING_DATASOURCE_URL. CI provides a
+// `services: postgres` sidecar; locally, point SPRING_DATASOURCE_URL at any
+// Postgres (a jdbc: URL).
 //
 // Usage:  node run-java.mjs [caseName...]
 // Exit code is non-zero if any case errors or any test fails.
@@ -50,6 +52,47 @@ const PORT = Number(process.env.LOOM_BH_JAVA_PORT ?? "8125");
 // hook — used to run the tier against a manually-booted server.
 const EXTERNAL_BASE = process.env.LOOM_BH_JAVA_BASE;
 const BASE = EXTERNAL_BASE ?? `http://127.0.0.1:${PORT}`;
+
+// Gradle flags shared by every per-case build.  THE DAEMON IS LOAD-BEARING, not
+// a preference: this tier builds ~53 separate generated Spring Boot projects
+// back to back, and `--no-daemon` paid a cold JVM + Gradle-runtime bootstrap +
+// Kotlin-DSL script classpath warm-up for EVERY one of them.  Worse, it did not
+// even avoid the fork it names — the client JVM's heap does not meet the build's
+// requirement, so Gradle logs "a single-use Daemon process will be forked" and
+// starts a throwaway daemon anyway, per build.  Measured back to back on one
+// host, four generated corpus projects, warm `~/.gradle/caches`, `build/` and
+// `.gradle/` wiped between arms so both do a full compile:
+//
+//     --no-daemon   13.4 / 10.9 / 11.7 / 10.8 s   (mean 11.7 s)
+//     daemon        10.5 /  3.1 /  2.8 /  2.6 s   (2.84 s steady state; the
+//                                                  first build pays the one
+//                                                  daemon start for the run)
+//
+// i.e. ~4.1× on the step that dominates the leg, ~8.9 s off every case (see the
+// workflow header for the end-to-end numbers).  The same pair re-measured with
+// the host under heavy load reads 36.3 s vs 10.6 s — same ratio, so the win is
+// not an artifact of a quiet machine.  `--daemon` is Gradle's default, so it is passed
+// explicitly only to defend against an ambient `GRADLE_OPTS=-Dorg.gradle.daemon=false`.
+// The heap/metaspace bump keeps ONE daemon serving all ~53 projects instead of
+// letting it expire and re-fork part-way through (each project loads its own
+// compiled build-script classloaders, so metaspace is the binding constraint);
+// it must be identical on every invocation or Gradle forks a second daemon for
+// the differing JVM args.  `stopGradleDaemon()` reaps it at the end of the run.
+const GRADLE_BASE = ["--daemon", "-q", "-Dorg.gradle.jvmargs=-Xmx2g -XX:MaxMetaspaceSize=1g"];
+
+/** Reap the daemon at the end of the run so a local invocation leaves no JVM
+ *  behind. `gradle --stop` stops every compatible daemon, not just ours — the
+ *  same thing CI's `setup-gradle` post-step does on this runner, and the reason
+ *  not to run this tier alongside another Gradle build on one machine. Never
+ *  fatal: a missing daemon or no `gradle` on PATH is nothing to clean up. */
+function stopGradleDaemon() {
+  if (EXTERNAL_BASE) return;
+  try {
+    execFileSync("gradle", ["--stop"], { stdio: "pipe" });
+  } catch {
+    /* no daemon, or no gradle on PATH — nothing to reap */
+  }
+}
 
 /** Recursively collect files under `dir` matching `pred`. */
 function walk(dir, pred, out = []) {
@@ -210,9 +253,7 @@ async function runCase(c) {
       // produces the jar even if a unit test fails, so the api tier below still
       // boots and reports.  Results parsed from build/test-results/test/*.xml.
       const hasUnit = existsSync(join(deplDir, "src", "test", "java"));
-      const gradleArgs = hasUnit
-        ? ["--no-daemon", "-q", "--continue", "test", "bootJar"]
-        : ["--no-daemon", "-q", "bootJar"];
+      const gradleArgs = hasUnit ? [...GRADLE_BASE, "--continue", "test", "bootJar"] : [...GRADLE_BASE, "bootJar"];
       let gradleErr = null;
       try {
         execFileSync("gradle", gradleArgs, { cwd: deplDir, stdio: "pipe" });
@@ -346,6 +387,7 @@ for (const c of corpus) {
 }
 
 await oidc?.stop();
+stopGradleDaemon();
 
 const wireBad = await wire.finish();
 

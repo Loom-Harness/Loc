@@ -143,7 +143,11 @@ describe("a command-typed workflow create param carries a wire type (#2864 D7/T2
     const out = await allFiles("java");
     expect(out).toContain(`public record FileClaimResponse(`);
     expect(out).toContain(`public record FileClaim(`);
-    expect(out).toContain(`public record ClaimHandlingRequest(FileClaimResponse c) {`);
+    // Annotation-tolerant: `main` added `@NotNull @Valid` to workflow request
+    // records after this was written.  The contract under test is the PARAM
+    // TYPE — pinning the exact annotation prefix would re-break on the next
+    // validation change without testing anything more.
+    expect(out).toMatch(/public record ClaimHandlingRequest\((?:@\w+ )*FileClaimResponse c\) \{/);
     // The `to<Payload>` mapper, the twin of the VO path's `to<Vo>`.
     expect(out).toContain(`private static FileClaim toFileClaim(FileClaimResponse request) {`);
     expect(out).toContain(`var c = toFileClaim(request.c());`);

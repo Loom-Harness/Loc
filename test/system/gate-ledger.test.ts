@@ -50,6 +50,8 @@ import { BACKENDS } from "../fixtures/corpus/backends.js";
  * that removal mandatory rather than optional.
  */
 const BEHAVIOURAL_ABSENT: Record<string, string> = {
+  "auth-id-claim":
+    "an `X id?` user claim is a STATIC contract, and all four of its symptoms are compile-visible on the tier that already gates it: TS2503 (tsc), `cannot find symbol` (gradle), a `CustomerId??` that does not parse (dotnet build), and — the one that reads as a runtime bug — python's missing import, which `corpus-python-build` catches as ruff F821 + mypy `name-defined` before anything boots.  A behavioural block would boot a CRUD round-trip wearing an OIDC hat, which `auth-oidc` already records, and mint a wire golden with no oracle of its own.  NOT a drain candidate for M-T9.13 (docs/audits/2026-09-10-eshop-dev-experience.md §D6/P2, #2869): unlike every sibling here it is not a tier gap, so the honest move if it ever stops paying for itself is to delete the fixture, not to boot it",
   "projection-agg-filters":
     "aggregation × capability filters — the cross-tenant COUNT/SUM leak audit A1 minted this fixture for is a RUNTIME value; the compile tier cannot see a wrong number",
   "projection-document-aggregation":

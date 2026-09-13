@@ -21,6 +21,7 @@ import { appendFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { installGeneratedProject } from "./support/npm-install.js";
 
 const ENABLED = process.env.LOOM_CHANNELS_E2E_RABBIT === "1";
 
@@ -219,7 +220,7 @@ describe.skipIf(!ENABLED)(`rabbitmq queue semantics (channels-e2e, M-T4.4 slice 
     }
 
     for (const app of ["sales_api", "ship_api"] as const) {
-      sh("npm install --silent", join(dir, "out", app));
+      installGeneratedProject(join(dir, "out", app), { flags: [], timeout: 420_000 });
     }
     boot("sales_api", SALES_PORT, "sales_api");
     // Replica 1 boots first and owns the migration run; 2 and 3 join after —

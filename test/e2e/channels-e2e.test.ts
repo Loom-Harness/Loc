@@ -20,6 +20,7 @@ import { appendFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { installGeneratedProject } from "./support/npm-install.js";
 
 const ENABLED = process.env.LOOM_CHANNELS_E2E === "1";
 
@@ -162,7 +163,7 @@ describe.skipIf(!ENABLED)(`cross-deployable broker delivery (channels-e2e, ${LEG
     }
 
     for (const app of ["sales_api", "ship_api"] as const) {
-      sh("npm install --silent", join(dir, "out", app));
+      installGeneratedProject(join(dir, "out", app), { flags: [], timeout: 420_000 });
     }
     const boot = (app: string, port: number, db: string): void => {
       // The project-local tsx binary, NOT `npx tsx`: the npx wrapper spawns

@@ -28,6 +28,11 @@ export const svelteBuildExamples = [
   // op-form group, and an optional `File`.  svelte-check is the only gate that
   // sees any of it — a null dereference through an optional field compiles
   // fine and fails at runtime everywhere else.
+  //
+  // It also carries the three shapes the 2026-09-10 e-shop audit measured red
+  // (P4/P5): an optional field INSIDE that value object (one level below where
+  // the `FormValues` null-strip used to stop), a `money` field on a form, and a
+  // PARAMETERLESS PAGED read whose page calls the hook with no argument.
   "test/e2e/fixtures/svelte-build/optional-fields.ddd",
 ] as const;
 

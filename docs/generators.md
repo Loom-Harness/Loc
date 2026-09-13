@@ -1326,13 +1326,37 @@ Out of scope for v1 (intentional):
   accept-all **dev stub**.  Wiring a real IdP (or replacing the stub)
   is the deployment's job; see [`auth.md`](auth.md).  (Fine-grained RBAC
   beyond predicate `requires` is not modelled.)
-- **Pagination on `findAll`**: returns every row.  Adding pagination
-  is a future syntax extension (`find all(skip: int, take: int)`).
+- ~~**Pagination on `findAll`**~~ — **stale, corrected 2026-09-10.**
+  The implicit `find all` is **paged by default** (M-T2.6): enrichment
+  synthesises it with a `paged<T>` return rather than `T[]`
+  (`src/ir/enrich/enrichments.ts`, the `all` FindIR), and the four
+  shapes that stay bare `T[]` each have a reason recorded at the site
+  — `persistedAs: eventLog` (the read folds a stream, there is no
+  `LIMIT/OFFSET` query), `shape: document` (one opaque JSONB blob, no
+  queryable column to page or `ORDER BY`), `shape: embedded` (backend
+  support for paging its queryable root diverges, so it stays uniform
+  rather than paged on some), and an inheritance subtype (the
+  polymorphic `find all <Base>` reader concatenates each subtype's
+  `all()`, which cannot be page-sliced correctly before the merge).
+  The IR carries `paged` only where a controller honours it, so the
+  flag is never a lie.
 - **Multi-target frontends**: a `react` deployable has exactly one
   `targets:`.  Hosting against several APIs is deferred.
-- **Typeahead lookups for `X id` form fields**: rendered as plain
-  text inputs.  A future enhancement could resolve `Customer id`
-  to a `<Select>` populated from `useAllCustomers()`.
+- ~~**Typeahead lookups for `X id` form fields**~~ — **stale, corrected
+  2026-09-10.**  An `X id` field renders a **Select picker** populated
+  from the target's own list hook whenever the target declares
+  `derived display: string` (`prepareFormFieldVM` →
+  `field-input-id-select`, `src/generator/_walker/form-fields-vm.ts`);
+  the option label is read off the wire `display` field, so a compound
+  (`firstName + " " + lastName`), member-access or conditional display
+  works without the picker knowing the source expression.  Several
+  packs make it searchable client-side (mantine's `<Select searchable>`).
+  It falls back to `field-input-id-text` in exactly two cases — the
+  target aggregate is unresolved, or it declares no `derived display` —
+  and the text input's placeholder then names which.  What is still
+  out of scope is a **server-side** typeahead: the picker loads the
+  target's list, so a target with more rows than a page is not
+  searchable beyond what it loaded.
 - **Ordering on `X id[]` collections**: the wire contract is
   unordered — a relational join table is naturally a set, and the five
   backends realise that differently.  TS/Drizzle and .NET/EF happen to

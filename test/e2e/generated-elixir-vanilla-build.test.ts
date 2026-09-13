@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { type HexMirror, startHexMirror } from "./support/hex-mirror";
 import { mixDepsGet, mixLocalInstall } from "./support/mix-retry";
+import { installGeneratedProject } from "./support/npm-install.js";
 
 // ---------------------------------------------------------------------------
 // Slice 6 of docs/old/plans/vanilla-foundation-tdd-plan.md — CI gate for
@@ -73,9 +74,9 @@ function runMixTest(projDir: string, mirror: HexMirror | undefined): void {
 // the standalone react-build matrix doesn't exercise.  No-op when no `assets/`
 // project exists (every non-hosting fixture).
 function runSpaBuild(assetsDir: string): void {
-  execSync("npm ci --prefer-offline --no-audit --no-fund || npm install", {
-    cwd: assetsDir,
-    stdio: "inherit",
+  installGeneratedProject(assetsDir, {
+    ciFirst: ["--prefer-offline", "--no-audit", "--no-fund"],
+    flags: [],
     timeout: 600_000,
   });
   execSync("npm run build", { cwd: assetsDir, stdio: "inherit", timeout: 600_000 });

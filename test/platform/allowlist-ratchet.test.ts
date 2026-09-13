@@ -332,6 +332,13 @@ const REGISTERED: Ratchet[] = [
     // direction working in the field rather than in a mutation, twice in two
     // days, which is the rate a hand-maintained matrix would have rotted at.
     //
+    // TWO INDEPENDENT RAISES LANDED IN THE SAME WINDOW, so this is 12 -> 14,
+    // not 12 -> 13 twice.  #2869 and #2886 each added a corpus fixture whose
+    // subject is a STATIC contract, and each argued its own line below.  They
+    // were written against a `main` where the other did not exist; the merge
+    // keeps both arguments rather than letting the second silently inherit the
+    // first's slot, which is exactly the hollowing-out this ratchet is for.
+    //
     // 12 -> 13 (#2864 D7/T2, mission M-T6.67a) — the first RAISE, and the
     // reviewed line in the diff this ratchet exists to force.  The new corpus
     // fixture `workflow-command-payload` cannot carry a `test e2e` block:
@@ -349,7 +356,25 @@ const REGISTERED: Ratchet[] = [
     // aggregate back — that reaches the one thing the compile tier cannot, the
     // wire CONTRACT (node's pre-fix `z.unknown()` accepted anything). Lower
     // this back to 12 in the same PR.
-    max: 13,
+    //
+    // 12 -> 13 (#2869, dev-experience audit D6/P2 — `auth-id-claim`).  A RAISE,
+    // so it is spelled out.  Every other entry here is a behavioural-tier GAP
+    // waiting on M-T9.13's drain: something the compile tier structurally
+    // cannot see (a wrong aggregate COUNT, an async outbox delivery, a
+    // row-visibility ladder).  This one is not that shape and has nothing to
+    // drain.  Its fixture's whole subject is a STATIC contract — an id-typed
+    // `user { … }` claim — and each of the four symptoms that minted it is
+    // caught by the compile leg that already gates the cell: `TS2503`,
+    // `cannot find symbol`, a `CustomerId??` that does not parse, and (the one
+    // that reads runtime) python's missing import, which corpus-python's
+    // `ruff check` flags F821 and `mypy --strict` flags `name-defined` before
+    // anything boots.  Booting it would re-record `auth-oidc`'s CRUD
+    // round-trip and mint a golden that is an oracle for nothing, and the
+    // claim VALUE is unassertable anyway — the harness's mock issuer mints no
+    // `customer_id`.  So a future drainer should NOT spend a slot trying to
+    // give this one an e2e block; the honest move if it ever becomes wrong is
+    // to delete the fixture, not to boot it.
+    max: 14,
   },
 ];
 
