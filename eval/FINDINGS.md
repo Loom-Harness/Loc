@@ -291,9 +291,9 @@ Found: 2026-09-13, while verifying the wave-0 fixes. **Not one of the original 4
 |---|---|---|
 | **elixir** | `put_change(:created_by, current_user)` in a 1-arity `insert/1` | `mix compile` → `** (CompileError) undefined variable "current_user"` ×3 |
 | **node** | `createdBy: currentUser` (`db/audit-stamp.ts:10`) | `tsc --noEmit` → `TS2304: Cannot find name 'currentUser'` ×3 |
-| **dotnet** | `.CurrentValue = currentUser` (`AuditableInterceptor.cs:42`) | source-evidenced (CS0103); not compiled |
-| **python** | `self._created_by = currentUser` (`domain/foo.py:72`) | source-evidenced — a **`NameError` at request time**, not a build error |
-| **java** | `@CreatedDate @Column(name="created_by") UserId createdBy;` — `UserId` is emitted by no file in the tree (`cannot find symbol`), and the principal field carries `@CreatedDate`, the *timestamp* annotation | source-evidenced; see the correction below — **both are artefacts of this same path, not separate java defects** |
+| **dotnet** | `.CurrentValue = currentUser` (`AuditableInterceptor.cs:42`), and `UserId` on the entity | `dotnet build` in `sdk:10.0` → `error CS0246: The type or namespace name 'UserId' could not be found` ×4. **Not the `CS0103` I first predicted** — the build dies on the undefined `UserId` before it reaches the `currentUser` line. Same verdict (does not build), different reason; the code I named was a guess, now replaced by the run. |
+| **python** | `self._created_by = currentUser` (`domain/foo.py:72`) | `compileall` **OK** — then an AST free-variable scan of the module reports `UNBOUND NAMES: ['currentUser']`, i.e. a **`NameError` at request time**, not a build error. The one backend where no compile gate can see it. |
+| **java** | `@CreatedDate @Column(name="created_by") UserId createdBy;` — `UserId` is emitted by no file in the tree (`cannot find symbol`), and the principal field carries `@CreatedDate`, the *timestamp* annotation | source-evidenced; see the correction below — **both are artefacts of this same path, not separate java defects**. Note the **undefined `UserId` is shared with dotnet**, confirmed there by a real build, which is further evidence it belongs to this finding rather than to either backend |
 
 Repro (`/tmp/w0/elx-aud-noauth.ddd`, 10 lines) — one aggregate `with crudish, auditable`, on a
 `platform: elixir` deployable with **no `user { }` block and no `auth:` clause**:
