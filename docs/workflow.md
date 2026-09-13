@@ -81,6 +81,41 @@ context Sales {
 | `let x = expr` | Plain expression binding. |
 | `emit EventName { field: expr, ... }` | Workflow-level event.  Event must be declared in the same context.  Drains through `IDomainEventDispatcher` after all saves (after commit when `transactional`). |
 
+Every `Repo.…` form above names a repository of the workflow's **own
+context** — see below.
+
+### Repositories are context-local — `loom.workflow-cross-context-repository`
+
+A workflow orchestrates the aggregates of ONE bounded context.  Naming a
+repository declared in another context is an error
+(`loom.workflow-cross-context-repository`), even when both contexts ride the
+same deployable and share one transaction:
+
+```ddd
+context Dispatch {
+  workflow scheduleWorkOrder transactional {
+    create(workOrderId: WorkOrder id, assignTo: Technician id) {
+      let tech = Technicians.getById(assignTo)   // ERROR — `Technicians` is Directory's
+      let wo   = WorkOrders.getById(workOrderId) // fine — Dispatch's own
+      wo.assign()
+    }
+  }
+}
+```
+
+Lowering resolves a `let` read against the enclosing context's repositories
+alone, so a foreign name never becomes a repository load at all — before the
+gate, every backend rendered the receiver verbatim into code that references a
+name it never defines (node: `const tech = Technicians.getById(assignTo);` —
+no repository constructed, no `await`, `tsc`: *Cannot find name 'Technicians'*).
+
+Reach the other context at its **public surface** instead — the same two
+sanctioned crossings [`domain-services.md`](domain-services.md#cross-context-data-in-ddd-terms-a-decision-not-a-todo)
+names, both of which a workflow may use: call `Directory`'s api through a
+`resource { kind: api }` binding, or read a local projection folded over
+`Directory`'s published events.  If the two aggregates genuinely change
+together in one transaction, they belong in the same context.
+
 ### `if let` — single-result criterion lookup
 
 `Repo.find(<Criterion>)` is the single-result sibling of `Repo.findAll`: it

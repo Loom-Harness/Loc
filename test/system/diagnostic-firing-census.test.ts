@@ -1030,6 +1030,34 @@ system S {
     }
   }
 }`,
+  // The workflow-body twin of the gate above, and the same mechanism: the
+  // workflow lowerer indexes `reposByName` from its own context alone, so a
+  // foreign repository name never becomes a `repo-let` — it survives as a `ref`
+  // with `refKind: "unknown"` and every backend renders it verbatim.
+  "loom.workflow-cross-context-repository": `
+system S {
+  subdomain Sub {
+    context Directory {
+      aggregate Technician with crudish { skills: string[] }
+      repository Technicians for Technician { }
+    }
+    context Dispatch {
+      aggregate WorkOrder with crudish {
+        status: string
+        operation assign() { status := "Assigned" }
+      }
+      repository WorkOrders for WorkOrder { }
+      workflow scheduleWorkOrder transactional {
+        create(workOrderId: WorkOrder id, assignTo: Technician id) {
+          let tech = Technicians.getById(assignTo)
+          let wo = WorkOrders.getById(workOrderId)
+          precondition tech.skills.count > 0
+          wo.assign()
+        }
+      }
+    }
+  }
+}`,
 
   // An unresolved bare ref in a rendered slot: the walker emits a comment and
   // the content silently disappears on all six frontends (A17).
