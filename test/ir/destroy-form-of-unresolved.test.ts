@@ -76,7 +76,11 @@ async function diags(members: string) {
   return validateLoomModel(enrichLoomModel(lowerModel(model)));
 }
 
-const codes = async (members: string): Promise<string[]> =>
+// `LoomDiagnostic.code` is OPTIONAL (`code?: string`), so the honest element
+// type is `string | undefined` — a diagnostic without a code is a real thing
+// this list can contain, and narrowing it away here would only hide it.
+// `toContain` / `not.toContain` read the same either way.
+const codes = async (members: string): Promise<(string | undefined)[]> =>
   (await diags(members)).map((d) => d.code);
 
 const messageFor = async (members: string): Promise<string> => {
