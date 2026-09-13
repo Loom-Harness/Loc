@@ -91,4 +91,28 @@ describe("java dispatcher injects the repositories its reactor bodies use", () =
     );
     expect(undeclared, `dispatcher references undeclared repository field(s)`).toEqual([]);
   });
+
+  it("covers an event-triggered `create` STARTER body too, not just `on` reactors", async () => {
+    // The dispatcher renders both body kinds, so both must feed the injection
+    // set.  The fixture keeps a COMMAND create alongside the event starter on
+    // purpose: `wf.statements` then resolves to the command body (`creates
+    // .find(c => c.name === null && c.triggerKind === "command")`), leaving the
+    // starter's body just as invisible to the facade as a reactor's.  With the
+    // starter ALONE the facade falls back to `creates[0]` — which is the
+    // starter — and the bug does not reproduce.
+    const d = await dispatcher(
+      FANOUT.replace(
+        "on(e: PostPublished) by e.post {",
+        "create bootstrap(p: Post id) { let sp = Posts.getById(p) }\n    create(e: PostPublished) by e.post {",
+      ),
+    );
+    expect(d).toContain("private final FollowRepository followsRepository;");
+    expect(d).toContain("private final NoteRepository notesRepository;");
+    const used = new Set(
+      [...d.matchAll(/\b([a-z][A-Za-z0-9]*Repository)\.\w+\(/g)].map((m) => m[1] as string),
+    );
+    expect(
+      [...used].filter((name) => !new RegExp(`private final \\w+ ${name};`).test(d)),
+    ).toEqual([]);
+  });
 });
