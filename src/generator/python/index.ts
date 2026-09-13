@@ -21,6 +21,7 @@ import { deriveContextOperations, staticSubpathRoutes } from "../../ir/util/api-
 import { durableEventTypes, realtimeEventTypes } from "../../ir/util/channels.js";
 import { aggregateHasFileField } from "../../ir/util/file-field.js";
 import { foreignIdBrandNames, workflowIdTypeSources } from "../../ir/util/foreign-ids.js";
+import { isTphConcrete } from "../../ir/util/inheritance.js";
 import { mergeContexts } from "../../ir/util/merge-contexts.js";
 import { DANGLING_REFERENCE_DETAIL, problemTitle } from "../../ir/util/openapi-errors.js";
 import {
@@ -780,12 +781,21 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
       }
       const repo = ctx.repositories.find((r) => r.aggregateName === agg.name);
       const repoPath = `app/db/repositories/${snake(agg.name)}_repository.py`;
+      // TPH (`sharedTable`) BEATS the saving-shape modifier — see the ordering
+      // comment in `emit/schema.ts`: a TPH concrete owns no table of its own, so
+      // the shared DDL gives it the base's row plus RELATIONAL child tables for
+      // its containments and no jsonb column anywhere.  The embedded repository
+      // would write a jsonb root to a table that does not exist (pairwise F13),
+      // so a TPH concrete takes the relational builder whatever its `shape:`
+      // says.  (`document` / `eventLog` can never reach a `sharedTable` base —
+      // `loom.es-tph-forced-own-table` — so only `embedded` is re-routed here.)
+      const tphConcrete = isTphConcrete(agg, ctx.aggregates);
       const repoContent =
         agg.persistedAs === "eventLog"
           ? buildPyEventSourcedRepositoryFile(agg, repo, ctx)
-          : effectiveSavingShape(agg, resolveDs(agg)) === "document"
+          : !tphConcrete && effectiveSavingShape(agg, resolveDs(agg)) === "document"
             ? buildPyDocumentRepositoryFile(agg, repo, ctx)
-            : effectiveSavingShape(agg, resolveDs(agg)) === "embedded"
+            : !tphConcrete && effectiveSavingShape(agg, resolveDs(agg)) === "embedded"
               ? buildPyEmbeddedRepositoryFile(agg, repo, ctx)
               : buildPyRepositoryFile(agg, repo, ctx);
       out.set(repoPath, repoContent);
