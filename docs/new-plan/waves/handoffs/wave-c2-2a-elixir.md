@@ -287,7 +287,56 @@ Run **after** `git merge origin/main` (`7534696f9`), per rule 14.
 | `node scripts/ledger-counts.mjs --check` | `.md` matches the JSON |
 | `node docs/build.mjs` | OK |
 | `npm test` | **green** — 2017 files, 23538 passed, 7 expected-fail, 0 failed |
-| elixir compile leg (`LOOM_PHOENIX_VANILLA_BUILD=1 LOOM_HEX_MIRROR=1`) | `vanilla-if-stmt`, `vanilla-derived-chain`, `vanilla-workflow-form`, `vanilla-document` (extended), `vanilla-finds` — each `mix compile --warnings-as-errors` green |
+| elixir compile leg (`LOOM_PHOENIX_VANILLA_BUILD=1 LOOM_HEX_MIRROR=1`) | **seven fixtures green individually; the 78-fixture whole-leg run is blocked on host contention — see below** |
+
+### The elixir compile leg — what ran, and why the whole leg did not
+
+Seven fixtures were compiled **individually**, each `mix compile
+--warnings-as-errors` green, chosen to cover every path this packet's
+cross-cutting changes touch:
+
+| fixture | why this one |
+|---|---|
+| `vanilla-if-stmt.ddd` (new) | the `if` renderer: `else`-less, nested, returning-op, containment `+=` in a branch |
+| `vanilla-derived-chain.ddd` (new) | F60's three-deep inline |
+| `vanilla-workflow-form.ddd` (new) | F61's `run_<wf>` clause + `__wf_param/2`, and the param-LESS clause |
+| `vanilla-document.ddd` (extended) | the document residue's derived chain, read from an op guard |
+| `vanilla-finds.ddd` | `withStaticSubpathGuards` — the `match :*` routes must parse |
+| `vanilla-ref-collections.ddd` | `contextUsesRefCollOp` / `contextMutatesRefColl` now deep-walk |
+| `vanilla-es-applier-fold.ddd` | the new throwing arm in `eventsourced-emit.ts` |
+
+**The whole-leg run could not be completed on this host.** Three attempts died
+the same way, each on its second or third fixture: `Request failed (:timeout)`
+→ `** (Mix) No package with name phoenix … in registry`. It is the loopback hex
+mirror starving, not a compile failure — `scripts/hex-mirror.py` is a single
+Python process re-originating every hex request, and the box was running **nine
+to ten sibling packets' `npm test`** concurrently (load average 8–11) for the
+whole window. The same fixtures pass when run one at a time in a quieter moment,
+which is how the seven above were obtained.
+
+I tried tuning hex for the mirror path (`HEX_HTTP_CONCURRENCY=1
+HEX_HTTP_TIMEOUT=120` in `hex-mirror.ts`'s `shellPrefix` — the remedy hex itself
+prints) and **reverted it**: the run still timed out at hex's default 60 s, so
+the timeout knob was not reaching the failing call, and an unproven change to a
+shared harness is exactly what the repo's bar forbids. If the coordinator sees
+the same starvation, the dial is worth a proper look; it is a real weakness of
+the mirror under load, not of this packet.
+
+**Re-run at fold time, on a quiet box:**
+
+```
+LOOM_PHOENIX_VANILLA_BUILD=1 LOOM_HEX_MIRROR=1 \
+  npx vitest run test/e2e/generated-elixir-vanilla-build.test.ts
+```
+
+and, for the wider emitter blast radius (`withStaticSubpathGuards` and
+`opBodyStmtsDeep` touch every generated project):
+
+```
+npm run test:elixir-corpus        # LOOM_ELIXIR_BUILD=1, ~70 features
+```
+
+The corpus leg was **not** attempted here for the same reason.
 
 **One environment note for the coordinator, not a code finding.** On the first full run four cases
 in `test/platform/packaging-split-core-pkg.test.ts` / the fs-discovery suite failed because this
