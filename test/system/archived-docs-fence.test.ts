@@ -96,7 +96,10 @@ describe("archived docs carry a fence on the published site", () => {
 
 /** Live docs that may link into the archive. */
 function liveDocs(): string[] {
-  const out = [path.join(repoRoot, "CLAUDE.md")];
+  // README.md is the repo's single most-read file and sat outside the only doc
+  // gate there is, which is how its three advertised live-site links pointed at
+  // a 404 org for as long as they did.
+  const out = [path.join(repoRoot, "CLAUDE.md"), path.join(repoRoot, "README.md")];
   const walk = (dir: string, recurse: boolean) => {
     if (!fs.existsSync(dir)) return;
     for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -114,6 +117,33 @@ function liveDocs(): string[] {
 
 const MD_LINK = /\]\(([^)\s]+?\.md)(#[^)]*)?\)/g;
 
+/** Relative `.md` links that deliberately do not resolve.  Each needs a reason;
+ *  a stale entry fails the ratchet below, so a fix deletes its waiver. */
+const WAIVED_LINKS = new Set<string>([
+  // A placeholder in the skill-authoring guide, not a real target.
+  "docs/language-reference/AUTHORING.md -> ../foo.md",
+]);
+
+/** Hosts and paths that moved and must never be advertised again.  The repo
+ *  moved org (`lemmit/Loc` → `Loom-Harness/Loc`), and the github.io hostname
+ *  does NOT redirect: `lemmit.github.io/Loc/` is a hard 404, so every doc, every
+ *  playground string and every scaffolded project's README pointed users at a
+ *  dead page.  A denylist is the only form of this check that survives the NEXT
+ *  move — it names the file the day it happens. */
+const DEAD_HOSTS: ReadonlyArray<{ pattern: RegExp; why: string }> = [
+  { pattern: /lemmit\.github\.io/, why: "old org's Pages host — 404s; use loom-harness.github.io" },
+  { pattern: /github\.com\/lemmit\//, why: "old org — use github.com/Loom-Harness/" },
+];
+
+/** Files that may still name a dead host because they are the frozen historical
+ *  record, or because the mention IS the history (the move itself). */
+const DEAD_HOST_EXEMPT = [
+  /^docs\/old\//,
+  /^docs\/audits\//,
+  /^docs\/new-plan\/archive\//,
+  /^docs\/ci-gating\.md$/,
+];
+
 describe("live docs never link to a missing archived doc", () => {
   it("every live → docs/old|audits link resolves", () => {
     const dead: string[] = [];
@@ -121,11 +151,16 @@ describe("live docs never link to a missing archived doc", () => {
     for (const file of liveDocs()) {
       const src = fs.readFileSync(file, "utf8");
       for (const m of src.matchAll(MD_LINK)) {
-        const href = m[1];
-        // Normalise to a docs-relative path, then keep only archive targets.
+        const href = m[1] as string;
+        // An absolute URL is not a relative target; `path.resolve` on one yields
+        // nonsense and reports it dead.  (My own check's first false positive.)
+        if (/^[a-z]+:\/\//i.test(href)) continue;
+        // Normalise to a docs-relative path.
         const abs = path.resolve(path.dirname(file), href);
-        const rel = path.relative(docsDir, abs).split(path.sep).join("/");
-        if (!/^(old\/|audits\/)/.test(rel)) continue;
+        // EVERY relative `.md` target, not just the frozen archive.  Narrowing
+        // to `old/|audits/` is why `docs/channels.md`'s dead link into
+        // `new-plan/` slipped past a gate whose whole job is dead links.
+        if (WAIVED_LINKS.has(`${path.relative(repoRoot, file)} -> ${href}`)) continue;
         seen++;
         if (!fs.existsSync(abs)) {
           dead.push(`${path.relative(repoRoot, file)} -> ${href}`);
@@ -137,6 +172,41 @@ describe("live docs never link to a missing archived doc", () => {
       seen,
       "no live → archive links found; the matcher stopped reaching them",
     ).toBeGreaterThan(40);
-    expect(dead, "dead link into the frozen archive").toEqual([]);
+    expect(dead, `dead relative .md link:\n${dead.join("\n")}`).toEqual([]);
+  });
+
+  it("no live surface advertises a host that moved", () => {
+    const offenders: string[] = [];
+    // Wider than liveDocs(): the org name is baked into scaffolded projects
+    // (`src/cli/new-templates.ts`) and the playground's crash-report target, so
+    // a docs-only sweep would call this clean while every NEW user project
+    // shipped the dead link.
+    const roots = ["README.md", "docs", "src", "web/src", ".github"];
+    const walk = (p: string): string[] => {
+      const abs = path.join(repoRoot, p);
+      if (!fs.existsSync(abs)) return [];
+      if (!fs.statSync(abs).isDirectory()) return [p];
+      return fs
+        .readdirSync(abs, { withFileTypes: true })
+        .filter((e) => e.name !== "node_modules" && e.name !== "_site")
+        .flatMap((e) => walk(path.join(p, e.name)));
+    };
+    for (const rel of roots.flatMap(walk)) {
+      if (!/\.(md|ts|tsx|mjs|json|html|yml|ddd)$/.test(rel)) continue;
+      if (DEAD_HOST_EXEMPT.some((re) => re.test(rel))) continue;
+      const text = fs.readFileSync(path.join(repoRoot, rel), "utf8");
+      for (const { pattern, why } of DEAD_HOSTS) {
+        if (pattern.test(text)) offenders.push(`${rel}: ${pattern.source} — ${why}`);
+      }
+    }
+    expect(offenders, `dead host advertised:\n${offenders.join("\n")}`).toEqual([]);
+  });
+
+  it("the denylist can actually fire (non-vacuity)", () => {
+    // The exempt list is the frozen record, and it DOES still carry the old
+    // host — so the patterns are known-good rather than trivially unmatchable.
+    const frozen = path.join(repoRoot, "docs", "new-plan", "archive", "T6-done.md");
+    if (!fs.existsSync(frozen)) return;
+    expect(DEAD_HOSTS.some((d) => d.pattern.test(fs.readFileSync(frozen, "utf8")))).toBe(true);
   });
 });

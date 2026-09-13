@@ -624,6 +624,35 @@ fence validator cannot see anyway). Cover the CLI examples the cheap way instead
 — a pure string check against `src/cli/main.ts`. Point it at **diagnostic messages** too and it would have
 caught `loom.persistence-mode-unsupported`'s invented `dataSource X { … }` suggestion.
 
+**LANDED (the link half).** `archived-docs-fence.test.ts` now checks **every** relative `.md`
+target rather than only `old/|audits/`, carries `README.md` in `liveDocs()` — the repo's most-read
+file was outside the only doc gate there is — and grows a **dead-host denylist** swept across
+`README.md`, `docs/`, `src/`, `web/src/` and `.github/`, because the org name is baked into
+`src/cli/new-templates.ts` (every scaffolded project) and the playground's crash-report target, so a
+docs-only sweep would call it clean while every new user project shipped the dead link. The frozen
+record (`docs/old/`, `docs/audits/`, `new-plan/archive/`) and `ci-gating.md` (where the mention *is*
+the history of the move) are exempt.
+
+It found three things on landing, and **one of them was a bug in the check itself**:
+
+1. `docs/channels.md:19` → `new-plan/missions/M-T4.4-broker-eventing-design.md` — genuinely dead; the
+   mission closed and its design doc moved to `new-plan/archive/missions/`. Fixed.
+2. `docs/observability.md` → an **absolute** `https://github.com/…` URL, reported dead because
+   `path.resolve` on a URL yields nonsense. That was my matcher, not the doc. Absolute URLs are now
+   skipped.
+3. `docs/language-reference/AUTHORING.md → ../foo.md` — a deliberate placeholder, waived by exact path
+   (my first waiver key was a guess at the path and did not match).
+
+Mutation-proved both halves: reintroducing the `M-T4.4` link fails the relative check by name, and
+reintroducing `github.com/lemmit/` in `new-templates.ts` fails the denylist by file. Worth recording
+that **my first attempt at the second mutation was a no-op** — I sed'd for a host that file does not
+carry, the test stayed green, and a silent no-op reads exactly like a pass. The proof only counts
+after checking the mutation actually landed.
+
+**Not landed: the fence validator.** Executing the ```ddd blocks through `validate()` is the
+higher-yield half (it catches `docs/tenancy.md`'s §Surface, which is a parse error today) and remains
+the next item here.
+
 ### 5.7 Fixtures that cost two lines and close a whole tier
 
 Three of the biggest blind spots close with fixture edits, not new machinery:
