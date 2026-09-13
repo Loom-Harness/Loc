@@ -347,10 +347,22 @@ export function renderForm(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkCon
   // module-name resolution against contexts + workflows.
   const ofPascal = findPascalArg(expr, "of");
   const runsPascal = findPascalArg(expr, "runs");
+  // A WORKFLOW form's fields are the workflow's command-triggered `create`
+  // params (`WorkflowIR.params`, the same list the TSX `emitFormRuns` reads).
+  // Carried on the binding so `liveview-emit.ts` can both seed `@form` under
+  // the workflow's own `as:` prefix and destructure the submitted params in the
+  // `handle_event("run_<wf>", …)` clause — the clause that did not exist at all
+  // until M-T6.56 F61, so `phx-submit="run_<wf>"` raised `FunctionClauseError`
+  // and killed the LiveView.
+  const runsWorkflow = runsPascal ? ctx.workflowsByName.get(runsPascal) : undefined;
   if (ofPascal) {
     ctx.formBindings.push({ kind: "aggregate", name: ofPascal });
   } else if (runsPascal) {
-    ctx.formBindings.push({ kind: "workflow", name: runsPascal });
+    ctx.formBindings.push({
+      kind: "workflow",
+      name: runsPascal,
+      ...(runsWorkflow ? { params: runsWorkflow.params } : {}),
+    });
   }
   // Field inputs — derive one <.input> per user-input field on the
   // bound aggregate.  Excludes the `id` primary key (auto-generated on
@@ -361,7 +373,26 @@ export function renderForm(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkCon
   // validator catches unknowns upstream, but the fallback keeps the
   // emitter total).
   const inputs: string[] = [];
-  if (ofPascal) {
+  if (runsWorkflow) {
+    // One `<.input>` per workflow param, typed by `renderFieldInputForField`
+    // exactly as an aggregate create form's fields are — the HEEx form used to
+    // emit a single `<.input field={@form[:_placeholder]} label="Field" />`
+    // while React emitted the real set, so the two frontends asked the user for
+    // different data from the same `.ddd`.
+    for (const pparam of runsWorkflow.params) {
+      inputs.push(
+        `  ${renderFieldInputForField(
+          pparam,
+          "form",
+          ctx.enumsByName,
+          ctx.idOptionsBindings,
+          ctx.valueObjectsByName,
+          "@",
+          testidNs ? `${testidNs}-input-${pparam.name}` : undefined,
+        )}`,
+      );
+    }
+  } else if (ofPascal) {
     const agg = ctx.aggregatesByName.get(ofPascal);
     if (agg) {
       // Render the create-input contract (`createInputFields`), not raw

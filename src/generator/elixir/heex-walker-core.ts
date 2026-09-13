@@ -54,6 +54,7 @@ import type {
   TypeIR,
   UiIR,
   ValueObjectIR,
+  WorkflowIR,
 } from "../../ir/types/loom-ir.js";
 import { isDescendingSort } from "../../ir/util/collection-op-site.js";
 import {
@@ -292,6 +293,15 @@ export interface WalkContext {
    *  flags alone gets them wrong whenever the flags are absent.  Empty
    *  default ⇒ the collection shape. */
   bcByAggregate: ReadonlyMap<string, BoundedContextIR>;
+  /** Workflow PascalCase name → its `WorkflowIR`, so `WorkflowForm { runs: W }`
+   *  can emit one `<.input>` per the workflow's command-triggered `create`
+   *  params instead of a single `_placeholder` (M-T6.56 F61).  Derived at
+   *  walker entry from `bcByAggregate` — the same source
+   *  `projectionsByName` is derived from, so no caller has to thread a second
+   *  registry.  A context that declares a workflow but NO aggregate is absent
+   *  from `bcByAggregate` and therefore invisible here; the form then falls
+   *  back to the placeholder it always emitted rather than guessing. */
+  workflowsByName: ReadonlyMap<string, WorkflowIR>;
   /** Frontend-readable projection names (M-T1.3) — the detector's
    *  Pattern H set, so `QueryView { of: <api>.<Projection> }` resolves to the
    *  projection's own read instead of falling through to the aggregate arms.
@@ -529,6 +539,11 @@ export function walkBodyToHeex(
     // exists to prevent.
     projectionsByName: readableProjectionNames(new Set(bcByAggregate.values())),
     listShapedProjections: listShapedProjectionNames(new Set(bcByAggregate.values())),
+    workflowsByName: new Map(
+      [...new Set(bcByAggregate.values())].flatMap((bc) =>
+        (bc.workflows ?? []).map((w) => [w.name, w] as const),
+      ),
+    ),
     enumsByName,
     valueObjectsByName,
     idOptionsBindings: new Set(),
@@ -2417,6 +2432,7 @@ function renderRequiresGuardAt(
     appModule,
     aggregatesByName: new Map(),
     bcByAggregate: new Map(),
+    workflowsByName: new Map(),
     projectionsByName: new Set(),
     listShapedProjections: new Set(),
     enumsByName: new Map(),

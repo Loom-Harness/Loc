@@ -1,0 +1,73 @@
+// M-T6.56 / language-docs audit F61 — `WorkflowForm { runs: W }` on LiveView.
+//
+// The HEEx form emitted ONE `<.input field={@form[:_placeholder]}>` where React
+// emits the real field set, and — the part that made it a 500 rather than a
+// cosmetic gap — `phx-submit="run_<wf>"` with ZERO matching `handle_event/3`
+// clauses, so pressing Submit raised `FunctionClauseError` and killed the
+// LiveView.  `renderCreateEventClauses` filters `kind === "aggregate"`, which is
+// exactly why the workflow binding fell through it silently.
+//
+// What this fixture puts in front of `mix compile --warnings-as-errors`:
+//
+//   * the generated `handle_event("run_<wf>", %{"<wf>" => raw}, socket)` clause
+//     and its `case <Ctx>.Workflows.<Wf>.run(params)` arms;
+//   * the `__wf_param/2` coercer, emitted only when the workflow takes params —
+//     a browser form submits strings where the HTTP route feeds typed JSON, and
+//     a workflow body uses its params directly (no Ecto `cast` to hide it);
+//   * `to_form(%{}, as: "<wf>")` in `mount/3`, whose `as:` is what makes the
+//     rendered input names (`<wf>[<field>]`) arrive under the key the clause
+//     matches;
+//   * one param per coercion bucket (string / int / decimal / bool) plus a
+//     MULTI-WORD one, whose form key is `snake` while the workflow module
+//     destructures the DECLARED name — the rekey the clause performs.
+//
+// The second workflow takes NO params: its clause must bind `_raw` and emit no
+// coercer at all, or the unused binding / unused private function fails the
+// gate.
+system Shop {
+  subdomain Sales {
+    context Ordering {
+      aggregate Order with crudish {
+        ref: string
+        qty: int
+        total: decimal
+        rush: bool
+      }
+      repository Orders for Order { }
+
+      workflow PlaceOrder transactional {
+        create(ref: string, qty: int, unitTotal: decimal, rush: bool) {
+          let o = Order.create({ ref: ref, qty: qty, total: unitTotal, rush: rush })
+        }
+      }
+
+      workflow SweepOrders {
+        create() { }
+      }
+    }
+  }
+  api OrderingApi from Sales
+  ui Live {
+    api Ordering: OrderingApi
+    page NewOrder {
+      route: "/orders/new"
+      title: "New order"
+      body: WorkflowForm { runs: PlaceOrder, testid: "place-order" }
+    }
+    page Sweep {
+      route: "/orders/sweep"
+      title: "Sweep"
+      body: WorkflowForm { runs: SweepOrders, testid: "sweep" }
+    }
+  }
+  storage primary { type: postgres }
+  resource orderingState { for: Ordering, kind: state, use: primary }
+  deployable api {
+    platform: elixir
+    contexts: [Ordering]
+    dataSources: [orderingState]
+    serves: OrderingApi
+    ui: Live { Ordering: api }
+    port: 4000
+  }
+}

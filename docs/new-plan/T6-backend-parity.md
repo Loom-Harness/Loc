@@ -18,18 +18,6 @@ Remaining rows of the old gap register (re-verified 2026-07-13): **§12 residual
 **Register re-verified again 2026-08-14** (docs-only pass, `ae0cb24`) — two corrections to the paragraph above: (a) the **§14 tail is four sites, not two** — `workflow-execution-emit.ts` and `audit-emit.ts` as listed, **plus** `explicit-handlers-emit.ts` (the same `defp serialize(%_{} = struct)` dump on the explicit query/command-handler controller; the file postdates the original count) and a deliberate, in-code-documented carve-out in `eventsourced-emit.ts` (an ES aggregate carrying a **ref collection** keeps the raw dump, because `__ref_ids/1`'s Ecto-assoc semantics don't hold for an in-memory fold). The workflow + explicit-handler serializers are being drained now. (b) the **§12 collection-mutation** clause can no longer lean on "gated upstream by `loom.vanilla-containment-unsupported` anyway" — that gate is retired (see the §11c drain above), so the clause stands on its own. Also confirmed spent and marked as such in the archived doc: §11's "To restore the gate" block (the 5-backend `conformance-parity` flip has landed — `examples/showcase.ddd` carries `platform: elixir`, no skip variable in the workflow), §2's remaining ask (now **inverted** — the wire settled on an *untagged* success record and `union-wire-parity.test.ts` pins that, so acting on the row would regress union parity) and §4's dead-Ash-arm cleanup (done; `relationshipNameFor` has zero occurrences).
 Sources: [vanilla-phoenix-gaps](../old/plans/vanilla-phoenix-gaps.md) §11c/§12/§13/§14, [vanilla-document-route-a](../old/plans/vanilla-document-route-a.md).
 
-## M-T6.3 — Phoenix output hygiene: `mix format` + Dialyzer gates — `deferred` (slice 1 landed) · **L (was M)** · P2
-**Slice 1 landed** (`.formatter.exs` scoping): the generated `lib/<app>_web/api/**` OpenApiSpex layer (`<api>_spec.ex` spec module + request/response schema modules) is a machine-emitted nested-struct literal `mix format` reflows by width — **~73% of the whole format diff** on a broad project, never hand-edited — and is now excluded from the format gate via a computed `inputs` (rejects the `_web/api/` subtree, correct for any app name; `renderVanillaFormatterExs`, `shell-emit.ts`).
-
-**Gate activation deferred** after a source-grounded scoping (2026-07-21, real `mix format` in the `hexpm/elixir` image, api_spec excluded):
-- `mix format` is **deliberately non-configurable** — no per-rule toggles, no `# format: off` ignore comments/regions. The only dials are `line_length`, `locals_without_parens`, and which files are checked. So the "un-handy" rules (blank-line insertion, `case`-clause consistency, call-wrapping) **cannot be suppressed by config**.
-- `line_length` is the one lever for the dominant width-driven wrapping, but it **plateaus**: on the `vanilla-workflows` fixture the churn falls 447→253 diff-lines (98→200) then flattens — an **irreducible ~250-line / 20-file structural residual** (blank lines + clause consistency + un-wrapping emitter pre-wraps) no config reaches. Pushing `line_length` past ~150 also just trades wrap-churn for collapse-churn and leaves 150-col lines.
-- Closing the residual means teaching **~10 emitters** (controllers, context, changeset, telemetry, boilerplate, workflows) to replicate the formatter's width + blank-line + clause rules — an **L grind, and brittle**: every future Elixir-emitter edit can silently re-break the all-or-nothing gate, re-checkable only via the slow docker+hex-mirror `mix format` loop. Payoff is cosmetic — generated Elixir already compiles `mix compile --warnings-as-errors` clean.
-- **Decision: defer the gate** (same disposition as M-T6.20 — L/risky for a narrow benefit). Reassess if a cheaper mechanism appears (e.g. a real ignore-comment lands in Elixir, or the emitters gain a shared format-aware line builder). Dialyzer/Credo remain future nightly-only.
-
-Reusable tooling from the scoping: a real-formatter diff loop (`startHexMirror` → `generate system` → `mix format` with `import_deps` resolved → diff) makes the grind a measure-fix-remeasure cycle if picked up.
-Sources: [vanilla-phoenix-gaps](../old/plans/vanilla-phoenix-gaps.md) §7, [static-analysis-followups](../old/proposals/static-analysis-followups.md) Slices 1–2.
-
 ## M-T6.11 — Reserved compose slots (was: `PlatformSurface` hooks, DEBT-27) — `blocked(T3/T4 features)` · — · P3
 **Corrected 2026-08-14 — the five hooks this mission named do not exist.** `PlatformSurface` (`src/platform/surface.ts`) declares exactly one `emit*` method, `emitProject`; `emitAuthGate` / `emitCompliancePolicy` / `emitTenancyFilter` have zero occurrences anywhere in `src/`, and `emitAuditInit` / `emitI18nAdapter` survive only inside the doc comments of the slots below (a dangling reference worth scrubbing when someone next touches that file).
 What is genuinely reserved-but-unwired is **three optional data slots on `ComposeServiceShape`**, undefined on every backend, which the compose orchestrator skips when absent: `auditSidecar` (a separate container draining audit-record events — M-T4.x audit), `policyInitCmd` (an entrypoint wrapper that loads/verifies compliance policies before the main service — M-T3.x authorization/compliance), and `i18nCatalogDir` (the in-container mount path for the i18n catalog — M-T1.11). Tenancy has no reservation at all: multi-tenant filtering ships through the capability/stance machinery ([`docs/tenancy.md`](../tenancy.md)), not a surface hook.
@@ -39,101 +27,10 @@ Disposition unchanged: don't build speculatively — each slot fills when its ow
 Doc-level `x-tagGroups` per served `api` across the five backends (design audited + simulated; resolve decision (f) on .NET/Java per-op tags first).
 Sources: [api-openapi-tag-grouping](../old/proposals/api-openapi-tag-grouping.md), ddd-review api-grouping gap.
 
-## M-T6.14 — Small parity leftovers — `open` · **S** · P3
-DEBT-12 Phoenix `verify_token` niche; DEBT-08 `envelope` carrier (deferred — no live use; signpost via M-T5.9a); saga/projection EF `HasColumnName` correlation-column bug (from S7 Slice C review); domain-seam log-catalog §3 residue ⚠ partly stale.
+## M-T6.14 — Small parity leftovers — `open` (DEBT-12 closed 2026-09-13) · **S** · P3
+DEBT-08 `envelope` carrier (deferred — no live use; signpost via M-T5.9a — and see M-T6.57 / D-ENVELOPE-RATIFY, which is the live owner of what the carrier MEANS); saga/projection EF `HasColumnName` correlation-column bug (from S7 Slice C review); domain-seam log-catalog §3 residue ⚠ partly stale.
 
-## M-T6.26 — `= default` / required-input parity across create & update paths — `partial` · **S** · P2
-*(Renumbered from the placeholder "M-T6.x" and re-statused 2026-08-05 — `landed` isn't a legend status. Create-path parity is done (below, #2377); the update-path halves landed via #2392 ("a default never relaxes an update" — Elixir enforced less than promised, Java rejected what it advertised); the remaining residue is fixed and awaiting merge as PR #2440 — Elixir accepts a PUT that omits a required field (presence is a deserialization question there too), with retro §80 (PR #2415, also awaiting merge) as its documentation twin.)*
-
-Surfaced 2026-08-01 by the `audited` corpus fixture in the behavioral tier, not
-by anything audit-specific.
-
-A field declared with a default — `status: int = 0` — is treated as **optional
-create input** on node (`z.coerce.number().int().default(0)`, so `POST` without
-it succeeds) but the Elixir changeset still `validate_required`s it, so the same
-request 422s with `{"pointer":"/status","message":"can't be blank"}`.
-
-Same `.ddd`, same create call, different contract — a wire-level divergence the
-per-PR compile gates cannot see (both backends compile fine) and which the
-wire-golden differential misses because the request never reaches a comparable
-response. It took a behavioral run on the elixir leg to expose it.
-
-**Expected:** `= default` means "the client may omit this; the server supplies
-the value" on every backend. Fix is in the Elixir changeset emission — a
-defaulted field must be dropped from the required set.
-
-Check the other three backends (python/java/dotnet) before closing: only node
-and elixir were observed here, so the split may be wider than 1-vs-1.
-
-**Landed.** The split was **4-vs-1**, not 1-vs-1: python (`status: int = 0`),
-java (`RequiredSet("CreateThingRequest", ["name"])`) and dotnet
-(`int Status = 0`) already agreed with node. Elixir was the sole outlier —
-`changeset-emit.ts` derived its required set from `!f.optional`, ignoring both
-the explicit `= default` and the bare-`bool` implicit default, while the IR had
-already reified the rule as `CreateInputFieldIR.requiredInput`. Fixed by
-consuming it (`isRequiredCreateInput`, now exported alongside a new
-`isRequiredUpdateInput` for the PATCH seam).
-
-> **Correction (2026-08-03).** The CREATE half of this is sound and
-> runtime-proven. The UPDATE half shipped defective and the sentence that used
-> to stand here — "an explicit default stays required and only the bool
-> relaxation applies" — described the intent, not the code: `isRequiredUpdateInput`
-> tested `hasImplicitDefault` (a *create*-input predicate) first, so it returned
-> `false` for **any** `bool`, explicit default or not. `active: bool = true` came
-> back omittable and Elixir's changeset stopped enforcing a field its own
-> OpenApiSpex schema still advertised. #2392 (landed) fixed the predicate to
-> `!isNullable(f)` — only optionality relaxes an update, which is RS-26 (#2329) —
-> and found a sibling Java create-seam defect on the way (`emit/dto.ts` re-derived
-> omittability as `f.optional || f.default != null`, missing the bare `bool`).
-> The docstring, this entry and #2377's PR description all stated the rule
-> correctly while one line of code did not; see `experience_gathered.md` §80.
->
-> **Residual, still open** (re-verified on `main` after #2392 landed). It makes
-> the emitted artifacts agree, but the
-> cross-backend divergence survives it: `@update_required` is not enforcement on
-> the update seam. Ecto's `validate_required` resolves through `get_field`,
-> which falls back to the loaded row, so an omitted key is invisible — verified
-> against real Ecto (`omit active+flag against a stored row → valid?=true`).
-> Nothing upstream compensates (router is `plug :accepts, ["json"]`, no
-> `OpenApiSpex.Plug.CastAndValidate`; the controller passes raw params through).
-> A `PUT` omitting the field still answers **204 on Elixir, 422 on the other
-> four**. Fixed in PR #2440 (awaiting merge): `update_changeset/2` checks
-> presence against the raw attrs before `cast`, roughly where the create path
-> already coalesces defaults, using `validate_required/2`'s own error shape so
-> `ProblemDetails` still renders 422 `{"pointer":"/<field>"}` unchanged.
-> Coverage measured across the corpus: 55 of 56 changesets take the check; the
-> document aggregate (separate `cast_embed` emitter) is flagged, not claimed.
-
-Two findings worth keeping:
-
-- **The reported repro under-stated the fix.** `status: int = 0` alone did NOT
-  422: a *literal* default is also emitted as the Ecto schema `default:`, so
-  `%Agg{}` already carried it and `validate_required` passed by accident. The
-  shapes that actually failed were the ones no schema default covers — a bare
-  `bool` and an **enum-valued** default (`renderEctoDefault` returns null for
-  both). Dropping them from `validate_required` is only half the fix; the
-  column is `null: false`, so the changeset now also applies the declared value
-  via a `__default/3` step after `cast` (which additionally covers an explicit
-  `null` in the body). Server-sourced defaults (`now()`/`currentUser.*`) keep
-  their existing controller-side params coalesce.
-- **Why every gate was blind.** Compile tier: both backends build. Wire-golden
-  differential: the request 422s before producing a comparable response. And
-  the OpenAPI parity gate too — Elixir's own *spec* emitter already used the
-  correct rule (`wireCreateDefault`), so the disagreement was between Elixir's
-  published contract and Elixir's runtime enforcement, which no spec-vs-spec
-  diff can see. New gate `test/conformance/create-required-parity.test.ts`
-  therefore asserts each backend's **enforcement** surface (changeset / DTO /
-  validator) against the canonical `requiredInput` set — verified to fail on
-  the pre-fix emitter. `test/fixtures/corpus/audited.ddd` now OMITS the
-  defaulted field from its `test e2e` create call, making the behavioral legs
-  the runtime half of the same gate.
-
-Not addressed (noted, out of scope): the emitted `change_<create>/1` helper
-derives its required set from the create action's *params*, which for a
-`crudish` aggregate do not carry the field-level `default` — so it still
-over-requires. It has no caller in generated code (every write path goes
-through `base_changeset`); threading defaults onto crudish create params would
-ripple through every param-driven surface on all five backends.
+> **DEBT-12 (Phoenix `verify_token`) — VERIFIED SHIPPED 2026-09-13 (wave C2, packet 2a); no code.** Re-run against `src/generator/elixir/auth-emit.ts` on this head, all three of the debt entry's items are emitted: the `verify_token/1` auth helper in BOTH modes — a real OIDC verifier delegating to `<App>Web.Auth.Token` (joken + joken_jwks against the issuer's cached JWKS, `:515-562`) when the system declares `auth { oidc }`, and the permissive dev stub matching the Hono / .NET dev-stub verifiers otherwise (`:331`, `:343`) — the `requires` guard, which is no longer bind-only (`liveview-emit.ts` renders the find's, the projection's and the operation's gate: `:235`, `:281`, `:745`, plus the `live_auth.ex` `on_mount` page gate), and new-parts-in-body, which `debt-prioritized-backlog.md:69` already recorded as shipped (`renderNew` in `heex-walker-core.ts`). Compile-gated by `vanilla-auth-oidc.ddd` / `vanilla-auth-op-gate.ddd` / `vanilla-auth-menu-gate.ddd`. The row was stale, not open. (`auth-emit.ts` is also in-flight on PR #2900, so this close is deliberately documentation-only.)
 
 ## M-T6.35 — Persistence-adapter capability gaps — `open`; the `#migrations` sub-code is `blocked(D-DAPPER-ALTER)` · **M** · P2
 The non-default persistence adapters reject shapes their EF/Ecto siblings accept: `loom.dapper-unsupported` (features Dapper does not emit), `loom.find-predicate-unsupported` (a find predicate the active adapter cannot lower), `loom.saving-shape-unsupported` (a `shape(...)` the hosting backend cannot persist — **re-classified 2026-09-03**: dormant, not live — every platform key in `PLATFORM_SAVING_SHAPES` already lists all three shapes, and a platform absent from the map is skipped rather than flagged, so this is an unreachable backstop, not a seam any live target trips), `loom.vanilla-document-unsupported` (`shape: document` only partly emitted on Elixir), and — **inherited 2026-08-24 from the now-`done` M-T6.23** — `loom.mikroorm-unsupported`, whose only surviving raiser is the migration-chain one (`migration-checks.ts` `#migrations`: neither MikroORM's `orm.schema.updateSchema()` nor Dapper's boot-time `CREATE TABLE IF NOT EXISTS` can apply a declared migration step, so a rename resolves as DROP + ADD or silently never runs — the `loom.dapper-unsupported#migrations` twin is the same shape). The adapter axis is where "all targets support the whole surface" costs the most, because each adapter multiplies the matrix again — worth confirming per row whether the adapter *cannot* express the shape (a permanent limit, so a rename) or merely *does not yet* (a gap). **`loom.persistence-mode-unsupported` moved OFF this mission 2026-09-03** — it never fit here: `validateDataSourceCoverage` refuses a hosted aggregate whose deployable declares no matching `dataSource` at all, which is a missing binding, not an adapter capability limit. It is now owned by M-T2.9 (the storage-config tail, where the `dataSource`-binding axis already lives).
@@ -248,8 +145,52 @@ Sources: [language-docs-audit-2026-09-03](../audits/2026-09-03-language-docs-aud
 > which the controller hosting `serialize/1` does not host, so inlining would emit an unbound
 > `twice(record)`. Closing it means qualifying the call at this one site (a `RenderCtx` seam) AND
 > reconciling the document / part / value-object serializers, which pass a struct the facade's
-> guarded clause head does not accept — its own slice. F20 stays a DECISION (see above); F22
-> (positional `Image`/`Icon`) and F61 (HEEx `WorkflowForm`) are unaddressed.
+> guarded clause head does not accept — its own slice. F20 stays a DECISION (see above).
+
+> **F22 CLOSED 2026-09-13 (same packet).** Two HEEx emitters read strictly less of their call than
+> every other target. `renderImage` (`heex-primitives.ts:1541`) read only the NAMED `src:`/`alt:`, so
+> the positional shorthand the JSX walker renders (`Image { "/logo.png" }` — the same
+> first-positional-is-the-value rule Text / Money / EnumBadge follow) emitted an `<img>` with no
+> `src` at all, and `decorative: true` was dropped, so a decorative image announced itself to
+> assistive tech on LiveView alone. `renderIcon` (`:2205`) `void name`d its `name:` and emitted an
+> EMPTY `<span class="loom-icon">` — an element that reads on screen as a rendered icon — while the
+> builtin registry it needed was ALREADY imported in the same file (`renderButton`'s `icon:` arm
+> resolves through it), so the divergence was a missing call, not a missing capability. Both
+> refusals now match the JSX walker arm for arm (`#arg-missing` for nothing named, `#arg-invalid`
+> for a name the registry cannot resolve). Pinned by
+> `test/generator/elixir/heex-image-icon-positional.test.ts`, every claim stated against the REACT
+> emission of the same `.ddd`; mutation-proved twice (dropping the positional fallback; replacing
+> the registry lookup with `""`).
+
+> **F61 CLOSED 2026-09-13 (same packet, its own commit as the plan required).** The HEEx
+> `WorkflowForm` emitted one `<.input field={@form[:_placeholder]}>` AND `phx-submit="run_<wf>"`
+> with zero matching `handle_event/3` clauses — `renderCreateEventClauses` filters
+> `kind === "aggregate"`, which is why the workflow binding fell through it silently and a submit
+> raised `FunctionClauseError`, killing the LiveView. Now: `renderWorkflowForm`
+> (`heex-primitives.ts`) emits one typed `<.input>` per the workflow's command-triggered `create`
+> params (resolved through a new `WalkContext.workflowsByName`, derived at walker entry from
+> `bcByAggregate` exactly as `projectionsByName` is, so no caller threads a second registry), and
+> `renderWorkflowEventClauses` (`liveview-emit.ts`) emits the matching clause over
+> `<App>.<Ctx>.Workflows.<Wf>.run/1`. Three things the aggregate create path gets for free are done
+> by hand there: the `as:` prefix (`to_form(%{}, as: "<wf>")`, without which the params never arrive
+> under the key the clause matches), the REKEY (the form field is `snake(param)`, the workflow module
+> destructures the DECLARED name, so a multi-word param would bind `nil`), and COERCION via
+> `__wf_param/2` (a browser form submits strings; the HTTP route feeds the same `run/1` typed JSON,
+> and a workflow body uses its params directly — no Ecto `cast` in between).
+>
+> BOOT-PROVED on real Postgres: `handle_event/3` is exported (it did not exist), a submit of
+> all-string params runs the workflow inside its transaction, and the row Ecto writes is
+> `qty=3` (integer), `total=Decimal.new("9.99")`, `rush=true` — so the coercion and the
+> `unit_total` → `unitTotal` rekey are proved by the database, not by the emitter. A param-less
+> workflow's clause binds `_raw` and emits no coercer (an emitted-but-uncalled `defp` fails
+> `--warnings-as-errors`). Compile fixture `vanilla-workflow-form.ddd`; pinned by
+> `test/generator/elixir/heex-workflow-form.test.ts` (8 cases, the `as:` read off the mount and fed
+> back into the handler assertion so the two cannot drift); mutation-proved twice — removing the
+> `renderWorkflowEventClauses` call fails five cases, disabling the field branch fails two.
+>
+> **`phoenix-ui-e2e` is still the only leg that would drive this in a browser, and it is in neither
+> the per-PR set nor the merge queue** — the reason the plan split F61 out. The boot proof above
+> calls the emitted clause directly for exactly that reason.
 ## M-T6.57 — `envelope` means something different on each of the five backends — scope it before fixing it — `blocked(D-ENVELOPE-RATIFY)` · **S** · P0 ⚠ verify-first
 
 Found 2026-09-03 by the language-docs audit ([F21](../audits/2026-09-03-language-docs-audit-findings.md), P2). The repository layer carries `Envelope<T>` on dotnet and java; node/dotnet/java/python routes return the bare response; elixir's controller returns a JSON array. Five targets, no agreed meaning.
