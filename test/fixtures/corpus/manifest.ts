@@ -122,6 +122,14 @@ export const CORPUS: readonly CorpusFeature[] = [
   { id: "eventsourced-workflow", title: "event-sourced saga folding its own emitted events", doc: "workflow", backends: ALL },
   { id: "saga", title: "in-process dispatch / saga with persisted correlation", doc: "workflow", backends: ALL },
   {
+    id: "workflow-command-payload",
+    title:
+      "explicit-command workflow starter — `create(c: FileClaim)` over a declared `command` payload, whose wire record + wire→domain coercion every backend must emit",
+    doc: "payloads",
+    backends: ALL,
+    note: "Added with #2864 D7/T2: no corpus fixture reached a payload-typed workflow param, and all five backends emitted a request record naming a wire type none of them declared.",
+  },
+  {
     id: "workflow-create-state",
     title:
       "COMMAND-triggered `create(params)` on a STATE-BEARING workflow — the create writes saga state, an `on(...)` reactor routes back onto the row it persisted",

@@ -332,7 +332,33 @@ const REGISTERED: Ratchet[] = [
     // direction working in the field rather than in a mutation, twice in two
     // days, which is the rate a hand-maintained matrix would have rotted at.
     //
-    // 12 -> 13 (#2869, dev-experience audit D6/P2 — `auth-id-claim`).  A RAISE,
+    // THEN THE DIRECTION REVERSED.  Six raises landed across two waves, each a
+    // NEW fixture whose subject the compile tier genuinely gates rather than a
+    // drained entry regressing — 12 -> 18 in total.  They were written against
+    // `main`s where the others did not exist, so each merge keeps every
+    // argument rather than letting a later one silently inherit an earlier
+    // one's slot: that inheritance is precisely the hollowing-out this ratchet
+    // is for, and it is invisible in a count that only ever moves by one.
+    //
+    // (#2864 D7/T2, mission M-T6.67a) — a RAISE, and the
+    // reviewed line in the diff this ratchet exists to force.  The new corpus
+    // fixture `workflow-command-payload` cannot carry a `test e2e` block:
+    // its defect is on the WORKFLOW command route, and the e2e DSL has no form
+    // that calls one — NO `.ddd` in this repo drives a command workflow from a
+    // `test e2e` block.  A block added anyway could only drive the fixture's
+    // two `crudish` aggregates, i.e. a green caller over the routes that were
+    // never broken, which is the hollowing-out this gate was minted to stop
+    // rather than a way around it.  The bug class is "the emitted project
+    // names a wire type nothing emits", which is precisely what the five
+    // compile legs see.
+    //
+    // Drain (M-T9.13, which owns authoring these blocks): when the e2e DSL
+    // gains a workflow-invocation form, POST the payload and read the created
+    // aggregate back — that reaches the one thing the compile tier cannot, the
+    // wire CONTRACT (node's pre-fix `z.unknown()` accepted anything).  Lower
+    // this by one in the same PR.
+    //
+    // (#2869, dev-experience audit D6/P2 — `auth-id-claim`).  A RAISE,
     // so it is spelled out.  Every other entry here is a behavioural-tier GAP
     // waiting on M-T9.13's drain: something the compile tier structurally
     // cannot see (a wrong aggregate COUNT, an async outbox delivery, a
@@ -367,7 +393,15 @@ const REGISTERED: Ratchet[] = [
     // mattered), and `workflow-primitive-params` (RS-26 boxing of a java
     // workflow's primitive params, packet 1h — the behavioural runner cannot
     // yet address a workflow's create surface).  Reviewed at the wave fold.
-    // 17 -> 18 (M-T6.57 / audit F57): `envelope`.  A RAISE, deliberately — the
+    //
+    // 17 -> 18: `workflow-command-payload` (#2864 D7/T2, M-T6.67a) — argued in
+    // full above.  Its neighbour `workflow-primitive-params` just above reached
+    // the same conclusion independently and for the same structural reason
+    // ("the behavioural runner cannot yet address a workflow's create
+    // surface"), which is worth noting: two fixtures, two waves, one missing
+    // capability.  Whoever gives the e2e DSL a workflow-invocation form drains
+    // BOTH, and should lower this by two.
+    // 18 -> 19 (M-T6.57 / audit F57): `envelope`.  A RAISE, deliberately — the
     // corpus fixture that finally instantiates the `envelope` carrier (nothing
     // in the repo did, which is why java and dotnet shipped output that did not
     // compile) stops at the compile tier.  Its oracle IS a compile one: five
@@ -378,7 +412,7 @@ const REGISTERED: Ratchet[] = [
     // `"not_found"`) — a golden captured on the node leg would redden four legs
     // on `main`.  Drain this entry when that split is ruled; the entry's own
     // comment in `gate-ledger.test.ts` names the condition.
-    max: 18,
+    max: 19,
   },
 ];
 
