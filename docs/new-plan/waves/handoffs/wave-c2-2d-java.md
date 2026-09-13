@@ -1,7 +1,7 @@
 # Wave C2 packet 2d — java / Spring / JPA — `claude/c2-java`
 
 Base: the wave C2 coordinator commit `29db198c1` (fast-forward from `main` @ `6d6c1a1`).
-Commit range: `29db198c1..ffb175986` (7 commits). Branch **not pushed**; the wave PR is the claim.
+Commit range: `29db198c1..6496df9` (10 commits, plus this note). Branch **not pushed**; the wave PR is the claim.
 
 Tree fence: `src/generator/java/**` plus the tests, the corpus fixtures, the
 diagnostic catalogue / register rows, the Schemathesis waivers and the docs a
@@ -24,7 +24,7 @@ closed row requires. Two hunks land outside it; both are named below under
 
 ---
 
-## M-T6.36 — what shipped
+## Reserved identifiers (M-T6.36) — what shipped
 
 **The problem in one line:** Java has no verbatim identifier (JLS §3.9), and a Java
 record component name IS the Jackson property, the springdoc schema key and the
@@ -120,7 +120,7 @@ golden, 0 divergence(s)`. Re-run after the F21 change — still 0.
 
 ---
 
-## M-T4.2 — java document-shaped aggregation
+## Document-shaped aggregation on java (M-T4.2)
 
 Java's direct-table aggregation ran JPQL through the `EntityManager`
 (`select count(e) from Article e`) against an aggregate with **no JPA `@Entity`** —
@@ -293,7 +293,7 @@ correcting it is that decision's business, not this packet's.
 | `node scripts/ledger-counts.mjs --check` | OK |
 | `node docs/build.mjs` | clean |
 | `npm test` | see below |
-| `npx vitest run test/generator/java` | 603 passed (100 files) |
+| `npx vitest run test/generator/java` | 604 passed (100 files) |
 | corpus java compile, `java-reserved-words` | `gradle --no-daemon -q testClasses bootJar` clean |
 | corpus java compile, `projection-document-aggregation` | clean |
 | behavioural java leg, `java-reserved-words` | 1 passed, wire golden 0 divergences |
@@ -307,6 +307,23 @@ host PATH and the sandbox ships JDK 21 + Gradle 8.14, so both fixtures were buil
 in `gradle:9-jdk25` — the image the emitted Dockerfile names — with
 `--network host` and the session's `JAVA_TOOL_OPTIONS`. Same command, same
 toolchain, different launcher.
+
+### What the first full `npm test` caught (both fixed in-tree)
+
+Worth recording, because both are ratchets that only bite from the WHOLE run:
+
+* `direct-generate-systems-ratchet` — `java-reserved-identifier.test.ts` had
+  inherited `parseHelper` + `generateSystems` from the sibling file it sat beside,
+  which bypasses phases ①/④/⑦. Moved onto `generateSystemFiles`; the test is
+  shorter for it and nothing was added to `PINNED`.
+* `diagnostic-docs-anchors` `UNDOCUMENTED_BASELINE` 369 → 368 — deleting a code
+  shrinks the undocumented list, and that ratchet only ratchets if the number
+  comes down with it.
+
+The last three commits (the funnel tail, the docs closure, the helper migration)
+landed after that run and were gated individually (`test/generator/java` 604
+passed, the two ratchets above, `tsc -b`, the typecheck ratchet, `biome ci`,
+`docs/build.mjs`); the full suite was then re-run from scratch on the final tree.
 
 **Docker, for whoever repeats this:** `dockerd` needed starting, the registry was
 reachable, but port 5432 (and 55432) were already bound by other agents' sidecars,

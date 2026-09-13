@@ -60,45 +60,72 @@
     },
     {
       "seq": 4,
+      "method": "POST",
+      "path": "/api/tickets/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 5,
       "method": "GET",
-      "path": "/api/tickets/by_label?final=true&label=alpha",
+      "path": "/api/tickets/{id}",
+      "status": 200,
+      "body": {
+        "final": false,
+        "id": "<volatile:key>",
+        "label": "beta",
+        "mode": "plain",
+        "native": "9.0000",
+        "synchronized": 9,
+        "throws": 10,
+        "version": 3,
+        "window": {
+          "label": "w2",
+          "transient": 8
+        }
+      }
+    },
+    {
+      "seq": 6,
+      "method": "GET",
+      "path": "/api/tickets/by_label?final=false&label=beta",
       "status": 200,
       "body": [
         {
-          "final": true,
+          "final": false,
           "id": "<volatile:key>",
-          "label": "alpha",
-          "mode": "native",
-          "native": "12.5000",
-          "synchronized": 7,
-          "throws": 8,
-          "version": 2,
+          "label": "beta",
+          "mode": "plain",
+          "native": "9.0000",
+          "synchronized": 9,
+          "throws": 10,
+          "version": 3,
           "window": {
-            "label": "w",
-            "transient": 7
+            "label": "w2",
+            "transient": 8
           }
         }
       ]
     },
     {
-      "seq": 5,
+      "seq": 7,
       "method": "GET",
       "path": "/api/tickets?dir=desc&sort=synchronized",
       "status": 200,
       "body": {
         "items": [
           {
-            "final": true,
+            "final": false,
             "id": "<volatile:key>",
-            "label": "alpha",
-            "mode": "native",
-            "native": "12.5000",
-            "synchronized": 7,
-            "throws": 8,
-            "version": 2,
+            "label": "beta",
+            "mode": "plain",
+            "native": "9.0000",
+            "synchronized": 9,
+            "throws": 10,
+            "version": 3,
             "window": {
-              "label": "w",
-              "transient": 7
+              "label": "w2",
+              "transient": 8
             }
           }
         ],
@@ -109,14 +136,14 @@
       }
     },
     {
-      "seq": 6,
+      "seq": 8,
       "method": "DELETE",
       "path": "/api/tickets/{id}",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 7,
+      "seq": 9,
       "method": "GET",
       "path": "/api/tickets/{id}",
       "status": 404,
@@ -129,7 +156,7 @@
       }
     },
     {
-      "seq": 8,
+      "seq": 10,
       "method": "PATCH",
       "path": "/api/tickets",
       "status": 405,
@@ -142,7 +169,7 @@
       }
     },
     {
-      "seq": 9,
+      "seq": 11,
       "method": "GET",
       "path": "/__loom_no_such_path",
       "status": 404,
@@ -155,7 +182,7 @@
       }
     },
     {
-      "seq": 10,
+      "seq": 12,
       "method": "POST",
       "path": "/api/tickets",
       "status": 400,

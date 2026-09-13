@@ -127,18 +127,40 @@ system JavaReservedWords {
     api.tickets.bump(a, { boolean: 4 })
     expect(api.tickets.getById(a).synchronized).toBe(7)
 
+    // …and the UPDATE route, which is the FULL-REPLACEMENT path: every
+    // reserved-word component has to survive the request record, the service's
+    // wire→domain locals and the entity's own write in one go, where `create`
+    // only proves the factory.
+    api.tickets.update(a, {
+      final: false,
+      native: money("9.00"),
+      synchronized: 9,
+      mode: "plain",
+      window: { transient: 8, label: "w2" },
+      label: "beta"
+    })
+    let updated = api.tickets.getById(a)
+    expect(updated.final).toBe(false)
+    expect(updated.label).toBe("beta")
+    expect(updated.mode).toBe("plain")
+    expect(updated.window.transient).toBe(8)
+    expect(updated.synchronized).toBe(9)
+    // …and the DERIVED member recomputes off the replaced value rather than
+    // carrying the stale one.
+    expect(updated.throws).toBe(10)
+
     // The find's query-parameter name is the `.ddd` spelling, not the mangled
     // one — a client that sent `?final=` must still be understood.
-    let found = api.tickets.byLabel({ final: true, label: "alpha" })
+    let found = api.tickets.byLabel({ final: false, label: "beta" })
     expect(found.count()).toBe(1)
-    expect(found.first().label).toBe("alpha")
+    expect(found.first().label).toBe("beta")
 
     // …and the LIST read sorted by a reserved-word column: the `?sort=` key is
     // the wire spelling while the ORDER BY names the JPA attribute, so a
     // backend that forgot the translation answers 500 rather than a page.
     let sorted = api.tickets.all({ sort: "synchronized", dir: "desc" })
     expect(sorted.total).toBe(1)
-    expect(sorted.items.first().synchronized).toBe(7)
+    expect(sorted.items.first().synchronized).toBe(9)
 
     api.tickets.destroy(a)
     expect(api.tickets.getById(a)).toThrow(404)
