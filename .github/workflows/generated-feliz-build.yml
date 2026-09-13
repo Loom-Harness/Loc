@@ -533,6 +533,27 @@ jobs:
                   name:  string
                   price: money
                   tags:  Tag[]
+                  // An OPTIONAL reference (M-T1.33).  This gate is the one that
+                  // would have caught it and did not: the pack renders a
+                  // reference link by concatenating the id into a route, and for
+                  // an optional reference that is `"/products/" + <string
+                  // option>` — an F# type error, so the app did not compile at
+                  // all.  The showcase case above already declares an optional
+                  // reference, but its `ui` is HAND-AUTHORED, so no `IdLink` is
+                  // ever synthesised for it — which is exactly how the shape sat
+                  // in this gate without the gate reaching it.
+                  //
+                  // SELF-referencing on purpose.  A second aggregate reproduces
+                  // the same F# error but also drags in a PRE-EXISTING Feliz
+                  // defect unrelated to this one: a scaffolded app with two or
+                  // more aggregates shares a single pager state across its list
+                  // pages, so clicking Next on /products refetches
+                  // /api/categories. Verified on `main` with a two-aggregate
+                  // case carrying no reference at all, so it is not this gate's
+                  // to carry.  A self-reference gives the identical
+                  // `string` + `string option` emission with none of that.
+                  related: Product id?
+                  derived display: string = name
                   operation rename(newName: string) { name := newName }
                 }
                 repository Products for Product { }

@@ -63,7 +63,8 @@ remaining gaps + sequencing are in
 | Event-sourced **workflow** (saga appliers) | ✓ | ✓ | ✓ | ✓ | ✓ | `EVENT_SOURCING_WORKFLOW_BACKENDS` |
 | TPH inheritance `inheritanceUsing: sharedTable` | ✓ | ✓ | ✓ | ✓ | ✓ | `TPH_CAPABLE` |
 | TPC inheritance `inheritanceUsing: ownTable` | ✓ | ✓ | ✓ | ✓ | ✓ | (universal) |
-| Discriminated unions / generic carriers (`paged`/`envelope`) | ✓ | ✓ | ✓ | ✓ | ✓ | `SUPPORTED_UNION_BACKENDS` |
+| Discriminated unions / the `paged` carrier | ✓ | ✓ | ✓ | ✓ | ✓ | `SUPPORTED_UNION_BACKENDS` |
+| The `envelope` carrier — a **single-row find** (see below) | ✓ | ✓ | ✓ | ✓ | ✓ | corpus `envelope` + `test/generator/envelope-carrier.test.ts` |
 | `when` canCommand gate + `can_<op>` query | ✓ | ✓ | ✓ | ✓ | ✓ | `SUPPORTED_WHEN_BACKENDS` |
 | Exception-less returns (`op(): X or NotFound`) | ✓ | ✓ | ✓ | ✓ | ✓ | `SUPPORTED_RETURN_BACKENDS` |
 | Capability `filter` — relational (non-principal) | ✓ | ✓ | ✓ | ✓ | ✓ | `LIMITED_FAMILIES` |
@@ -72,6 +73,23 @@ remaining gaps + sequencing are in
 | Per-operation `audited` | ✓ | ✓ | ✓ | ✓ | ✓ | `AUDIT_OP_BACKENDS` |
 | Audited **lifecycle** (`audited create`/`destroy`) | ✓ | ✓ | ✓ | ✓ | ✓ | `AUDIT_LIFECYCLE_BACKENDS` |
 | Audit/context stamping (`with audit`) | ✓ | ✓ | ✓ | ✓ | ✓ | (universal) |
+
+> **`envelope` is a single-row find (M-T6.57, ratified 2026-09-10).** `find
+> audit(): Order envelope` means "read at most one `Order`": the repository
+> answers `Order`, the route serialises the **bare body**, and an empty result
+> set is the not-found rung (404). It carries **no distinct wire shape** — the
+> `{ id, ts, body }` wrapper was the P3 design and never shipped, because
+> nothing in the IR can source `ts`. `T envelope` and `T` therefore emit
+> identically on every backend, which is what the gate on that row asserts.
+>
+> Until that landed, the row above carried **five ticks on output that did not
+> build**: java named `Envelope<Order>` in the repository port, the Spring Data
+> interface and the impl and declared it *nowhere*; .NET returned a bare `Order`
+> from a `Task<Envelope<Order>>` (CS0029); Elixir `Repo.all`-ed every row and
+> answered a JSON array against its own single-object OpenAPI. Only node and
+> python were honest. Nothing caught it because **no `.ddd` in the repo
+> instantiated the carrier** — every compile gate was blind to it by
+> construction, which is why `test/fixtures/corpus/envelope.ddd` now exists.
 
 **Re-verified 2026-08-23 against `src/ir/validate/checks/system-checks.ts`: every
 gate set in this table now holds all five backends** — `EVENT_SOURCING_WORKFLOW_BACKENDS`,
@@ -993,7 +1011,9 @@ phoenix_app/
 │       ├── order.ex
 │       ├── order_line.ex                         # entity-part as embedded_schema
 │       ├── order_status.ex                       # enums as Ecto.Enum
-│       ├── money.ex                              # value objects as embedded_schema / custom Ecto.Type
+│       ├── email.ex                              # a CONSTRAINED value object → a schemaless-changeset
+│                                                #   validator module.  An UNCONSTRAINED VO (Money) emits
+│                                                #   no module at all — it is a :map column on the owner.
 │       ├── events/order_confirmed.ex             # plain defstruct modules
 │       ├── workflows/place_order.ex              # context fns wrapping Repo.transaction
 │       ├── dispatcher.ex                         # in-process event router (when a channel carries a subscribed event)
@@ -1028,7 +1048,7 @@ Aggregate IR maps onto Ecto/Phoenix:
 | `derived total: Money = expr` | a `def total(record)` function over the struct (`<lowered>`) |
 | `invariant <pred> when <guard>` | a `validate_change` / conditional validator in `base_changeset` |
 | `operation op(args) { body }` | a context function `def <snake_op>(record, params)` (precondition + `put_change` + `Repo.update`) |
-| `valueobject Money { … }` | embedded `embedded_schema` (composite) or a custom `Ecto.Type` (single-field) |
+| `valueobject Money { … }` | **A `:map` (JSONB) column on the owner's schema** — `field :total, :map`, `add :total, :map` in the migration — never an `embedded_schema`, never a custom `Ecto.Type` (`mapTypeToEcto` in `vanilla/schema-emit.ts` returns `":map"` for a `valueobject` unconditionally). A VO carrying a `check` additionally gets a **schemaless-changeset validator module** (`@types` map + `cast/3` + the invariant validators + `new/1`); an unconstrained VO gets no module at all. The *wire* shape stays the nested `{ amount, currency }` object every backend agrees on — the column layout is a deliberate divergence, recorded in [`language-reference/03-domain-modeling.md` § `valueobject`](language-reference/03-domain-modeling.md#valueobject). |
 | `event LineAdded { … }` | plain `defstruct` module under `<Ctx>.Events.<Event>` |
 | `repository finds: find byCustomer(...) where ...` | a context query function `def by_customer(customer_id) = Repo.all(from … where: …)` |
 | `workflow placeOrder(...) { ... }` | a context function wrapping `Repo.transaction(fn -> with … end)` |
@@ -1326,13 +1346,37 @@ Out of scope for v1 (intentional):
   accept-all **dev stub**.  Wiring a real IdP (or replacing the stub)
   is the deployment's job; see [`auth.md`](auth.md).  (Fine-grained RBAC
   beyond predicate `requires` is not modelled.)
-- **Pagination on `findAll`**: returns every row.  Adding pagination
-  is a future syntax extension (`find all(skip: int, take: int)`).
+- ~~**Pagination on `findAll`**~~ — **stale, corrected 2026-09-10.**
+  The implicit `find all` is **paged by default** (M-T2.6): enrichment
+  synthesises it with a `paged<T>` return rather than `T[]`
+  (`src/ir/enrich/enrichments.ts`, the `all` FindIR), and the four
+  shapes that stay bare `T[]` each have a reason recorded at the site
+  — `persistedAs: eventLog` (the read folds a stream, there is no
+  `LIMIT/OFFSET` query), `shape: document` (one opaque JSONB blob, no
+  queryable column to page or `ORDER BY`), `shape: embedded` (backend
+  support for paging its queryable root diverges, so it stays uniform
+  rather than paged on some), and an inheritance subtype (the
+  polymorphic `find all <Base>` reader concatenates each subtype's
+  `all()`, which cannot be page-sliced correctly before the merge).
+  The IR carries `paged` only where a controller honours it, so the
+  flag is never a lie.
 - **Multi-target frontends**: a `react` deployable has exactly one
   `targets:`.  Hosting against several APIs is deferred.
-- **Typeahead lookups for `X id` form fields**: rendered as plain
-  text inputs.  A future enhancement could resolve `Customer id`
-  to a `<Select>` populated from `useAllCustomers()`.
+- ~~**Typeahead lookups for `X id` form fields**~~ — **stale, corrected
+  2026-09-10.**  An `X id` field renders a **Select picker** populated
+  from the target's own list hook whenever the target declares
+  `derived display: string` (`prepareFormFieldVM` →
+  `field-input-id-select`, `src/generator/_walker/form-fields-vm.ts`);
+  the option label is read off the wire `display` field, so a compound
+  (`firstName + " " + lastName`), member-access or conditional display
+  works without the picker knowing the source expression.  Several
+  packs make it searchable client-side (mantine's `<Select searchable>`).
+  It falls back to `field-input-id-text` in exactly two cases — the
+  target aggregate is unresolved, or it declares no `derived display` —
+  and the text input's placeholder then names which.  What is still
+  out of scope is a **server-side** typeahead: the picker loads the
+  target's list, so a target with more rows than a page is not
+  searchable beyond what it loaded.
 - **Ordering on `X id[]` collections**: the wire contract is
   unordered — a relational join table is naturally a set, and the five
   backends realise that differently.  TS/Drizzle and .NET/EF happen to

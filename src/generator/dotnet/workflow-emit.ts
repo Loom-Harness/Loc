@@ -42,8 +42,13 @@ import { workflowCorrIdValueType } from "../../ir/util/workflow-instances.js";
 import { resolveErrorStatus } from "../../util/error-defaults.js";
 import { lowerFirst, plural, snake, upperFirst } from "../../util/naming.js";
 import { renderDotnetLogCall } from "../_obs/render-dotnet.js";
+import {
+  workflowParamPayloads,
+  workflowParamTypeSeeds,
+} from "../_payload/workflow-param-payloads.js";
 import type { SourceMapRecorder } from "../_trace/sourcemap.js";
 import { statementSubRegions } from "../_trace/sourcemap.js";
+import { commandCreateCorrelationParam } from "../_workflow/create-state.js";
 import { renderWorkflowStmtChunks, type WorkflowStmtTarget } from "../_workflow/stmt-target.js";
 import { dotnetResourceAdapterFor, resourceClassName } from "./adapters/resource-clients.js";
 import {
@@ -218,7 +223,107 @@ export function emitWorkflows(
     // mirroring the aggregate-create `<Vo>Request` shape.
     const voRequests = renderWorkflowValueObjectRequests(commandWfs, ctx, ns);
     if (voRequests) out.set("Application/Workflows/WorkflowRequests.cs", voRequests);
+    // A command-workflow whose param is a declared record PAYLOAD
+    // (`create(c: FileClaim)` — `docs/workflow.md`'s explicit-command form)
+    // needs TWO records that nothing else emits, because a payload has no
+    // owning aggregate to hang them off (#2864 D7/T2):
+    //
+    //   * the WIRE record `<Payload>Response`, which the Request DTO already
+    //     names (`wireType`'s `entity` arm renders `<Name>Response`), and
+    //   * the DOMAIN record `<Payload>`, which the Command record already
+    //     names (`renderCsType`'s `entity` arm renders the bare name) and
+    //     which the handler body's `command.C.<Field>` reads must be typed by
+    //     — the body renderer types a payload member access at its DOMAIN
+    //     type, so `Claim.Create(command.C.Cargo, …)` needs a `CargoId`, not
+    //     the wire `Guid`.
+    //
+    // Emitting only the wire half would trade CS0246 for CS1503.  The domain
+    // half is materialized from the wire half by `wireToCommandArgument`'s
+    // payload arm, exactly as a VO param is.
+    const payloadWire = renderWorkflowPayloadWireRecords(ctx, ns);
+    if (payloadWire) out.set("Application/Workflows/WorkflowPayloads.cs", payloadWire);
+    // One file per payload, named for the type it declares — not one pooled
+    // file.  `pruneUnreferencedAmbientKernel` reads `Domain/ValueObjects/<X>.cs`
+    // as "this file declares the type `X`" and drops it when no other emitted
+    // file names `X`; a pooled `WorkflowPayloads.cs` declaring `FileClaim` is
+    // dropped by that rule even though the Command record names `FileClaim`.
+    // Per-payload files make the basename the declared name, exactly as
+    // `emitValueObjects` does, so the pruner keeps them for the right reason.
+    for (const [path, content] of renderWorkflowPayloadDomainRecords(ctx, ns)) {
+      out.set(path, content);
+    }
   }
+}
+
+/** The `<Payload>Response` WIRE records this context's command-workflow
+ *  payload params reference, in the shared `Application.Workflows` namespace
+ *  (the Request DTOs' own namespace, so they resolve unqualified).  Mirrors
+ *  `renderWorkflowValueObjectRequests`, keyed off payload params.  Returns
+ *  `undefined` when no workflow param is a payload. */
+function renderWorkflowPayloadWireRecords(
+  ctx: EnrichedBoundedContextIR,
+  ns: string,
+): string | undefined {
+  const payloads = workflowParamPayloads(ctx);
+  if (payloads.length === 0) return undefined;
+  const recs = payloads
+    .map((pl) => {
+      const params = pl.fields
+        .map((f) => dtoParam(wireType(f.type, ctx, "request"), upperFirst(f.name), "request"))
+        .join(", ");
+      return `public sealed record ${pl.name}Response(${params});\n`;
+    })
+    .join("\n");
+  return `// Auto-generated.
+using System;
+using System.Collections.Generic;
+using System.ComponentModel.DataAnnotations;
+using ${ns}.Domain.Enums;
+using ${ns}.Domain.ValueObjects;
+${noNulCharUsing(ns, recs)}
+namespace ${ns}.Application.Workflows;
+
+${recs}`;
+}
+
+/** The DOMAIN records for the same payloads — the type the Command record and
+ *  the handler body are written against.  Emitted beside the value objects
+ *  (`Domain.ValueObjects`), which every workflow file already `using`s, and
+ *  which shares the payload's one-name-per-context namespace rule
+ *  (`docs/payloads.md` §1: payload names share a namespace with value objects
+ *  and events).  Fields carry their DOMAIN types (`renderCsType`), so an
+ *  `X id` field is an `XId` and a `money` field a `decimal`. */
+function renderWorkflowPayloadDomainRecords(
+  ctx: EnrichedBoundedContextIR,
+  ns: string,
+): Map<string, string> {
+  const files = new Map<string, string>();
+  for (const pl of workflowParamPayloads(ctx)) {
+    const params = pl.fields
+      // `renderCsType` already renders an `optional(T)` as `T?`, so the
+      // `f.optional` flag only adds the `?` when the TYPE does not already
+      // carry it — appending unconditionally emitted `string?? Note`, which
+      // is not C#.  (The same normalisation the java arm gets from `effType`.)
+      .map(
+        (f) =>
+          `${renderCsType(f.type)}${f.optional && f.type.kind !== "optional" ? "?" : ""} ${upperFirst(f.name)}`,
+      )
+      .join(", ");
+    files.set(
+      `Domain/ValueObjects/${pl.name}.cs`,
+      `// Auto-generated.
+using System;
+using System.Collections.Generic;
+using ${ns}.Domain.Enums;
+using ${ns}.Domain.Ids;
+
+namespace ${ns}.Domain.ValueObjects;
+
+public sealed record ${pl.name}(${params});
+`,
+    );
+  }
+  return files;
 }
 
 /** Emit the `<Vo>Request` records that this context's command-workflows'
@@ -231,10 +336,15 @@ function renderWorkflowValueObjectRequests(
   ctx: EnrichedBoundedContextIR,
   ns: string,
 ): string | undefined {
-  const seeds = function* (): Generator<import("../../ir/types/loom-ir.js").TypeIR> {
-    for (const wf of commandWfs) for (const p of wf.params) yield p.type;
-  };
-  const { valueObjects } = collectReachableTypes(seeds(), ctx.valueObjects);
+  // Seeds include a payload param's OWN field types (`workflowParamTypeSeeds`)
+  // — a VO reachable only THROUGH a payload (`command FileClaim { total: Money }`)
+  // would otherwise be missed, and the emitted `<Payload>Response` record then
+  // names a `MoneyRequest` this pass never emitted (CS0246, one level down
+  // from #2864 D7/T2 itself).
+  const { valueObjects } = collectReachableTypes(
+    workflowParamTypeSeeds(commandWfs, ctx),
+    ctx.valueObjects,
+  );
   if (valueObjects.size === 0) return undefined;
   const recs = ctx.valueObjects
     .filter((v) => valueObjects.has(v.name))
@@ -1231,6 +1341,15 @@ function renderHandler(
   const cmdName = `${upperFirst(wf.name)}Command`;
   const handlerName = `${upperFirst(wf.name)}Handler`;
   const usesUser = workflowUsesCurrentUser(wf);
+  // F58 — a state-bearing workflow's COMMAND handler must load-or-allocate the
+  // same saga row `renderEventReactorHandler` does and render the body against
+  // it.  Without this the body's own-state writes rendered `this.<Field>` on a
+  // handler class that has no such member, and the correlation row was never
+  // created, so a later `on` reactor logged `event_unrouted` forever.  The key
+  // is the create param that name-matches the correlation field — the
+  // command-side twin of the reactor's omitted-`by` rule.
+  const corrParam = commandCreateCorrelationParam(wf);
+  const wfThis = corrParam ? "state" : "this";
   // Effective isolation: workflow's `transactional(<level>)` wins; else
   // the state-kind dataSource for this context's `isolationLevel:`; else
   // undefined (connection default applies at runtime).
@@ -1278,6 +1397,20 @@ function renderHandler(
     fields.push("    private readonly ICurrentUserAccessor _currentUser;");
     ctorParamPairs.push("ICurrentUserAccessor currentUser");
     ctorAssigns.push("_currentUser = currentUser");
+  }
+  if (corrParam) {
+    // Same domain-termed port the reactor injects — the EF adapter's
+    // `FindAsync` returns the TRACKED entity, so a `state.Prop = …` +
+    // `SaveChangesAsync()` persists.  `global::`-anchored for the same reason
+    // the reactor is (a deployable named `api` makes `ns === "Api"`).
+    fields.push(
+      `    private readonly global::${ns}.Domain.Common.ISagaStateStore<${workflowStateClass(wf)}> _sagaState;`,
+    );
+    ctorParamPairs.push(
+      `global::${ns}.Domain.Common.ISagaStateStore<${workflowStateClass(wf)}> sagaState`,
+    );
+    ctorAssigns.push("_sagaState = sagaState");
+    usings.add(`${ns}.Infrastructure.Persistence.Workflows`);
   }
   // Workflow lifecycle narrative (workflow_started / workflow_completed) — the
   // command handler always logs both, so inject the catalog logger
@@ -1373,9 +1506,31 @@ function renderHandler(
     // through the renderer.  The cmd-param rewrite only renames refs, so
     // the `matches` shape collectCsExprUsings keys off is unchanged.
     collectCsExprUsings(e, usings, ns);
-    return renderExprWithCmdParams(e, paramNames, resourceClasses, readingCall);
+    return renderExprWithCmdParams(e, paramNames, resourceClasses, readingCall, undefined, wfThis);
   };
 
+  if (corrParam) {
+    // Load-or-allocate, keyed by the correlation command field.  Inside the
+    // transactional path this rides `stmtLines`, which the tx branch below
+    // re-indents into the `try` — so the instance write commits (or rolls back)
+    // with the aggregates the workflow orchestrates.
+    const corrPascal = upperFirst(wf.correlationField as string);
+    // The key comes off the COMMAND PARAM (`corrParam`), which is only the
+    // correlation field's own name in the name-match spelling; in the
+    // `create start(order: Order id) { orderId := order }` spelling the record
+    // member is `Order`, and `command.OrderId` would be a CS1061 on a record
+    // with no such member.  The state-side comparison stays `corrPascal` —
+    // that IS the row's column.
+    stmtLines.push(`        var __key = command.${upperFirst(corrParam.name)};`);
+    stmtLines.push(
+      `        var state = await _sagaState.FindAsync(x => x.${corrPascal} == __key, cancellationToken);`,
+    );
+    stmtLines.push("        if (state is null)");
+    stmtLines.push("        {");
+    stmtLines.push(`            state = ${workflowAllocateInitializer(wf, "__key")};`);
+    stmtLines.push("            _sagaState.Add(state);");
+    stmtLines.push("        }");
+  }
   // Guard exactly the getById loads this command handler later dereferences
   // (op-call targets); loads only read to seed a `create` stay unguarded.
   const dereffedLoads = collectDereferencedLoads(wf.statements);
@@ -1414,6 +1569,8 @@ function renderHandler(
     const fieldName = `_${save.repoName.charAt(0).toLowerCase() + save.repoName.slice(1)}`;
     stmtLines.push(`        await ${fieldName}.SaveAsync(${save.name}, cancellationToken);`);
   }
+  // Persist the saga row (a fresh allocation, or a `this.<stateField>` write).
+  if (corrParam) stmtLines.push("        await _sagaState.SaveChangesAsync(cancellationToken);");
 
   // `workflow_started` at handler entry (before any tx begins); `workflow_completed`
   // on the success tail (after emits dispatch, before returning Unit) — a thrown
@@ -1942,6 +2099,11 @@ export function renderExprWithCmdParams(
    *  to the bare `command` (not `command.Cmd`) and its `.field` member access
    *  lands on `command.Field` — byte-identical to the flat-param form. */
   recordParams?: Set<string>,
+  /** The own-state receiver (F58).  `"state"` on a state-bearing workflow's
+   *  command handler, where `this.<stateField>` resolves against the loaded
+   *  saga row exactly as it does in the reactor path; `"this"` (the default)
+   *  everywhere else, byte-identical. */
+  thisName = "this",
 ): string {
   const rewritten = rewriteExprRefs(e, (r) => {
     if (r.refKind !== "param") return undefined;
@@ -1950,7 +2112,7 @@ export function renderExprWithCmdParams(
       return { ...r, name: `command.${upperFirst(r.name)}`, refKind: "let" };
     return undefined;
   });
-  return renderCsExpr(rewritten, { thisName: "this", resourceClasses, domainServiceReadingCall });
+  return renderCsExpr(rewritten, { thisName, resourceClasses, domainServiceReadingCall });
 }
 
 /** The distinct `reading`-tier domain SERVICES a workflow body calls

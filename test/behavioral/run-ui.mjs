@@ -42,11 +42,12 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import {
+  buildFrontend,
   buildServerModule,
-  findDistRoot,
   findFrontendDeployable,
   findNodeDeployable,
   outcomesFromPlaywrightJson,
+  preserveArtifacts,
   walk,
 } from "./ui-stack.mjs";
 
@@ -107,12 +108,12 @@ async function runCase(c) {
     // 1. Build the generated frontend via ITS OWN build script (react/vue →
     //    vite→dist, svelte → vite→build, angular → ng→dist/<app>/browser,
     //    feliz → fable+vite→dist).  `npm run build` picks the right one per
-    //    package.json; findDistRoot locates the emitted index.html.
-    execFileSync(npm, ["install", "--no-audit", "--no-fund"], { cwd: frontendDir, stdio: "pipe" });
-    const pkg = JSON.parse(readFileSync(join(frontendDir, "package.json"), "utf8"));
-    if (pkg.scripts?.build) execFileSync(npm, ["run", "build"], { cwd: frontendDir, stdio: "pipe" });
-    else execFileSync(npx, ["vite", "build"], { cwd: frontendDir, stdio: "pipe" });
-    const distDir = findDistRoot(frontendDir);
+    //    package.json; findDistRoot locates the emitted index.html.  The
+    //    install+build pair (and its one heal for npm's optional-dependency
+    //    hole) lives in ui-stack.mjs, shared with paged-ui.mjs.
+    const distDir = buildFrontend(frontendDir, {
+      log: (m) => process.stdout.write(`    ${m}`),
+    });
 
     // 2. Boot ONE in-process server: built SPA + the generated Hono
     //    backend on PGlite (/api), same origin.
@@ -152,6 +153,12 @@ async function runCase(c) {
     return { results, verification };
   } finally {
     if (server) await server.close().catch(() => {});
+    // Rescue Playwright's evidence BEFORE the generated tree is unlinked.
+    // The traces, screenshots and error-context the reporter names live under
+    // <frontend>/e2e/test-results — inside the mkdtemp this `finally` deletes,
+    // so on CI they were gone by the time any upload step could run and the
+    // nightly leg's only failure record was the console tail.
+    preserveArtifacts(genDir, workDir);
     rmSync(genDir, { recursive: true, force: true });
   }
 }
@@ -192,7 +199,11 @@ for (const c of corpus) {
     process.stdout.write(`  ${ok ? "✓" : "✗"} [${r.tier}] ${r.name}\n`);
     if (!ok && r.error)
       process.stdout.write(
-        `      ${String(r.error).replace(/\[[0-9;]*m/g, "").split("\n").slice(0, 4).join("\n      ")}\n`,
+        // 24 lines, not 4: the emitted fixture appends the collected browser
+        // diagnostics (page errors, and the method/path/status/body of every
+        // non-OK call) AFTER the assertion message, and a 4-line window cut
+        // the cause off exactly when it mattered.
+        `      ${String(r.error).replace(/\[[0-9;]*m/g, "").split("\n").slice(0, 24).join("\n      ")}\n`,
       );
   }
   const v = out.verification;

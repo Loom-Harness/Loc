@@ -86,7 +86,7 @@ Design: [`M-T5.21-callable-unification-design.md`](missions/M-T5.21-callable-uni
 
 Sources: language-size review 2026-08-04. `src/language/ddd.langium` (the fifteen rules, line numbers in the design doc), [`docs/customization-gradient.md`](../customization-gradient.md), [`surface-redundancy-cuts.md`](../old/proposals/surface-redundancy-cuts.md) (same "one spelling per concept" principle, previously applied only to trivia). Relates to M-T5.17 (modifier zoo, one layer up), M-T5.18 (soft-keyword sprawl).
 
-## M-T5.22 — Decimal arithmetic has no governing rule: `0.1 + 0.2` diverges on the wire AND in storage — `open` · **L** · P1 ⭐ ruling GIVEN 2026-09-07: exact
+## M-T5.22 — Decimal arithmetic has no governing rule: `0.1 + 0.2` diverges on the wire AND in storage — `blocked(D-DECIMAL-EXACT-MOMENT)` · **L** · P1 ⭐ ruling GIVEN 2026-09-07: exact
 
 Found 2026-08-23 by the numeric-types audit ([F11](../audits/numeric-types-audit-2026-08-23.md)). RS-24 pins how a `decimal` *serializes* (a JSON number through a float64) but nothing pins how it *computes*: node/python run float64 arithmetic, .NET/Java/Elixir run exact decimal (System.Decimal / DECIMAL128 / Decimal-context-28). A `derived x: decimal = 0.1 + 0.2` ships — and **persists into the shared unbounded `DECIMAL` column** — `0.30000000000000004` from two backends and `0.3` from three. Single divisions agree only coincidentally (double division is correctly rounded), which is why `7/3` never exposed it.
 
@@ -126,7 +126,7 @@ spelling too, not only on magnitude.
 
 Sources: [numeric-types-audit-2026-08-23](../audits/numeric-types-audit-2026-08-23.md) F11 + annex, plan.json N7. Relates to M-T6.46/M-T6.47 (the response-narrowing halves), RS-24.
 
-## M-T5.23 — `long` has no contract: silent corruption past 2^53 on node/python, 3-way divergent overflow — `open` · **M** · P2
+## M-T5.23 — `long` has no contract: silent corruption past 2^53 on node/python, 3-way divergent overflow — `blocked(D-LONG-AVG-DEFAULTS)` · **M** · P2
 
 Found 2026-08-23 by the numeric-types audit ([F13](../audits/numeric-types-audit-2026-08-23.md)). Node stores `long` as a JS `number` (`bigint(col, {mode: "number"})`, `src/generator/typescript/emit/schema.ts`; mikroorm `ts: "number"`) and python's aggregate arm routes declared int/long sums through `float()` — both silently corrupt past 2^53 while .NET/Java/Elixir carry int64 exactly. Aggregate int-overflow behavior is three-way divergent for the same `.ddd`: Java `((Number) x).intValue()` **wraps silently**, .NET's `(int)` cast **throws** (500), the rest pass the too-big value through. No validator, no doc caveat anywhere.
 
@@ -136,7 +136,7 @@ Found 2026-08-23 by the numeric-types audit ([F13](../audits/numeric-types-audit
 
 Sources: [numeric-types-audit-2026-08-23](../audits/numeric-types-audit-2026-08-23.md) F13 + annex, plan.json N8.
 
-## M-T5.24 — Projection `avg` over money is typed `decimal`: the mean of exact money leaves as a lossy double — `open` · **S** · P2
+## M-T5.24 — Projection `avg` over money is typed `decimal`: the mean of exact money leaves as a lossy double — `blocked(D-LONG-AVG-DEFAULTS)` · **S** · P2
 
 Found 2026-08-23 by the numeric-types audit ([F14](../audits/numeric-types-audit-2026-08-23.md)). `src/ir/lower/lower-projection.ts` stamps query-time `avg → decimal` even over a money column, so the mean of exact money crosses the wire as a float64 JSON number — while the **in-memory** `avg` of the same field types `money?` (`type-system.ts`) and ships the 4-dp string. Same word, two semantics, no gate.
 
@@ -146,52 +146,7 @@ Found 2026-08-23 by the numeric-types audit ([F14](../audits/numeric-types-audit
 
 Sources: [numeric-types-audit-2026-08-23](../audits/numeric-types-audit-2026-08-23.md) F14, plan.json N9. Relates to RS-12, #2560.
 
-## M-T5.25 — `ignoring` after `group by` parses and is then silently dropped — clause order is load-bearing and nothing says so — `open` · **S** · P1
-
-Found 2026-08-30 re-verifying the [08-24 generator review](../audits/generator-code-review-2026-08-24.md)'s follow-up register (row 13); **reproduced on `main` @ `aa236ae`**, no ledger row, no other owner.
-
-`ProjectionQueryClauses` fixes the bypass clause in the `where` position — `('where' filter=Expression)? IgnoringClause? (joins+=ProjectionJoin)* ('group' 'by' …)?` (`src/language/ddd.langium:1581-1586`). But a `group by` operand is an ordinary `Expression`, and `PostfixChain` admits its own trailing `IgnoringClause` (`:2322`, added so an inline `Repo.findAll(…) ignoring softDeletable` parses). So `group by o.status ignoring softDeletable` **parses clean**, binds the clause to the grouping expression, and lowering drops it — the author asked to see soft-deleted rows and silently keeps getting the filtered count.
-
-Reproduced from `test/fixtures/corpus/projection-groupby.ddd` + `softDeletable` on `Order`, generated to node:
-
-```
-group by o.status ignoring softDeletable   → .where(and(eq(status,"Confirmed"), not(eq(isDeleted,true))))
-where Confirmed / ignoring softDeletable   → .where(eq(status,"Confirmed"))
-```
-
-Same model, same intent, opposite data — decided by where in the clause list the word sits.
-
-**The fix (proposed, overridable):** refuse it. A `bypass`/`bypassAll` that survives on a `groupBys` (or `selects`, or a `join`'s `on`) expression after lowering is authoring error, not a feature — raise a `loom.*` code naming the legal position, from the phase-④ validator where the CST still carries the offending span. Moving the grammar instead (hoisting `IgnoringClause` to accept a trailing position too) is the wrong shape: the clause means "bypass the SOURCE's capability filters", which has no per-expression reading. Audit the sibling positions while in here — the same `PostfixChain` trailing clause is admissible anywhere an `Expression` is, including `where`-position sub-expressions and `select` bodies.
-
-**Verification when it lands.** A negative parse/validate test per admissible-but-illegal position; mutation-proved by deleting the gate and watching the fixture above go quiet again. Add the legal-position witness to the projection fixture so the *working* spelling is pinned too.
-
-Sources: [generator-code-review-2026-08-24](../audits/generator-code-review-2026-08-24.md) §Follow-up register (2026-08-30) row 13. Relates to M-T4.2 (query-time projections), `named-filter-bypass.md` §11.
-
-## M-T5.26 — The guarded-optional form the validator itself recommends compiles on one of five backends — `in-flight` · **M** · P1
-
-Found 2026-09-03 by the language-docs audit ([F2](../audits/2026-09-03-language-docs-audit-findings.md), P0). `src/language/validators/types.ts:281` sanctions `x != null ? x.trim() : …` as *the fix* for `loom.intrinsic-nullable-receiver` — and then the guarded call is emitted verbatim rather than through the host idiom. From `note2: string?`, `derived safeNote = note2 != null ? note2.toUpper() : "none"` emits `this._note2.toUpper()` (node), `this.note2.toUpper()` (java), `self._note2.to_upper()` (python), `record.note2.to_upper()` (elixir) — none compile; .NET emits culture-sensitive `ToUpper()` where an unguarded receiver gets `ToUpperInvariant()`. The intrinsic arms of `src/ir/lower/lower-expr.ts` never unwrap the optional receiver the way `checkIntrinsicCalls` does.
-
-**The fix:** unwrap the guarded receiver in the intrinsic lowering arms so the recommended form lowers to each host's idiom, and settle the .NET `ToUpper`/`ToUpperInvariant` inconsistency in the same PR.
-
-**Verification when it lands.** The validator's own recommended form compiles on all five backends; the new lowering arm mutation-proved by file-copy revert.
-
-**Landed 2026-09-06 as [#2788](https://github.com/lemmit/Loc/pull/2788)** (open for review). Cause was narrower and its blast radius wider than the finding said: `applySuffixToRecv` stamped `receiverType` as the **`optional` wrapper**, so the intrinsic dispatch (which keys off `kind === "primitive"`) never consulted the snippet table at all. Unwrapping restored the catalogue **result type** (which had been falling back to `string`) and the `isCollectionOp` disambiguation as well. The **.NET half was not a culture decision**: `ToUpper()` was just `renderMethodCall`'s fallback firing, so fixing the receiver type removes that path and no .NET behaviour change was needed — `ToUpperInvariant()` is the only domain-position spelling, `ToUpper()` survives only in `CS_INTRINSIC_QUERY_RENDERERS` where EF Core cannot translate the Invariant form. Gated by compiling all five generated backends from one `generate system`. Carries a one-line, independent Elixir fix its own compile gate turned up ([F48](../audits/2026-09-03-language-docs-audit-findings.md) — an unparenthesized ternary is a SyntaxError in non-terminal position), without which the five-backend Done bar cannot be met.
-
-Sources: [language-docs-audit-2026-09-03](../audits/2026-09-03-language-docs-audit-findings.md) F2 (+ F48), [wave plan](../audits/2026-09-03-language-docs-audit-findings.waves.md) packet **W1.1** (`src/ir/lower/lower-expr.ts`, `src/generator/dotnet/render-expr.ts`, `test/ir/**`). Shares `src/ir/lower/` with M-T5.27 — different files, do not let either widen.
-
-## M-T5.27 — Two valid inputs throw instead of diagnosing: a bare abstract `seed` and a ui-e2e `expect` over a create result — `in-flight` · **M** · P1
-
-Found 2026-09-03 by the language-docs audit ([F5](../audits/2026-09-03-language-docs-audit-findings.md), [F6](../audits/2026-09-03-language-docs-audit-findings.md), both P0). `seed Party { name: "x" }` on an abstract base dies with `TypeError: Cannot read properties of undefined (reading 'fields')` in `lowerSeed` (`src/ir/lower/lower.ts`) *before* `loom.seed-abstract-aggregate` can fire — the same model as `seed default { Party { … } }` reports the diagnostic correctly. And `expect(<create-result>.<field>).toHaveText("…")` inside `test e2e … against <frontend>` validates clean, then throws `expect requires a matcher` from `renderExpectStmt` (`src/system/expect-stmt.ts:21`, via `src/system/ui-e2e-render.ts:217`); binding the read with `getById` first works.
-
-**The fix:** F5 is ordering — the abstract-seed gate must run before the lowerer dereferences `fields`. F6 is a fork with two acceptable ends: the matcher survives the ui-e2e path, or a `loom.*` code rejects the shape. An internal throw is neither.
-
-**Verification when it lands.** Both inputs produce a diagnostic (or output) rather than a stack trace; each gate mutation-proved by file-copy revert.
-
-**Landed 2026-09-06 as [#2789](https://github.com/lemmit/Loc/pull/2789)** (open for review). **F5 was not an ordering problem and `loom.seed-abstract-aggregate` was never involved** — the grammar consumes `Party` as the *dataset name*, so `name` becomes a row's aggregate ref with no `value=ObjectLit`, and the pipeline had **already produced the two correct diagnostics** (`loom.parse-error` + `loom.linking-error`) that `lowerSeed` then threw away by dereferencing the error-recovered row. `lowerSeed` was the one lowerer trusting the AST type over parse recovery; a recovered row now lowers to zero fields. **F6's fork resolved as both ends:** a create-result local reads like a `getById` one (the lowering had the information all along), *and* new code `loom.locator-matcher-receiver` gates the residual. That gate re-derives the renderer's handle rule at the AST layer deliberately — its proper home is `validateE2ETest` in `src/ir/validate/checks/test-checks.ts`, which is **M-T5.28 / M-T9.44's tree**; consolidating it there is that mission's to pick up. The mutation proof makes the case: under the *renderer* mutation the validator still passed the source and the renderer crashed, so gate and renderer are independent and neither alone covers F6.
-
-Sources: [language-docs-audit-2026-09-03](../audits/2026-09-03-language-docs-audit-findings.md) F5/F6, [wave plan](../audits/2026-09-03-language-docs-audit-findings.waves.md) packet **W1.4** (`src/ir/lower/lower.ts`, `src/system/expect-stmt.ts`, `src/system/ui-e2e-render.ts`).
-
-## M-T5.28 — `variant-match` off a page crashes all five backends; `for`/`if let` off a workflow emits `this.<unknown>()` — neither is gated — `open` · **M** · P1 ⚠ verify-first, carries a design fork
+## M-T5.28 — `variant-match` off a page crashes all five backends; `for`/`if let` off a workflow emits `this.<unknown>()` — neither is gated — `done` (2026-09-11, Wave C1 packet 1b) · **M** · P1
 
 Found 2026-09-03 by the language-docs audit ([F1](../audits/2026-09-03-language-docs-audit-findings.md), [F4](../audits/2026-09-03-language-docs-audit-findings.md), both P0). A `match` over a union in a domain body reports `0 error(s)` and then throws `variant-match statement is frontend-only; it must not reach the <X> backend` from `src/generator/_stmt/target.ts:160` on node, dotnet, java, python and elixir alike — no IR check covers `variant-match` outside a page (`src/ir/validate/checks/store-checks.ts` handles only the page case), and non-exhaustive arms are unchecked too. Symmetrically, `src/ir/lower/lower-stmt.ts` has no arm for `ForStmt`/`IfLetStmt` outside a workflow and no validator rejects them: `operation touch() { for n in notes { owner := n } }` reports `0 error(s), 0 warning(s)` and emits `this.<unknown>();`.
 
@@ -199,7 +154,17 @@ Found 2026-09-03 by the language-docs audit ([F1](../audits/2026-09-03-language-
 
 **Verification when it lands.** Both shapes raise a `loom.*` code with the offending span; each gate mutation-proved by file-copy revert, reading *which* assertion fails.
 
-Sources: [language-docs-audit-2026-09-03](../audits/2026-09-03-language-docs-audit-findings.md) F1/F4 + "Cross-cutting reading" §2, [wave plan](../audits/2026-09-03-language-docs-audit-findings.waves.md) packet **W3.1**.
+**Also carries M-T5.27's residue (re-homed 2026-09-10, Wave C0.4).** [#2789](https://github.com/Loom-Harness/Loc/pull/2789) minted `loom.locator-matcher-receiver` in `src/language/validators/match.ts:151`, deliberately re-deriving the ui-e2e renderer's handle rule at the AST layer because `src/ir/validate/checks/**` was another packet's tree. Its proper home is `validateE2ETest` (`src/ir/validate/checks/test-checks.ts:132`), which already walks these statements with the resolved IR and today has no `locator` handling at all. Consolidate it here while in the file. The mutation proof makes the case that gate and renderer are genuinely independent: under the *renderer* mutation the validator still passed the source and the renderer crashed, so neither alone covers F6.
+
+Sources: [language-docs-audit-2026-09-03](../audits/2026-09-03-language-docs-audit-findings.md) F1/F4 + "Cross-cutting reading" §2, [wave plan](../audits/2026-09-03-language-docs-audit-findings.waves.md) packet **W3.1**; M-T5.27's `loom.locator-matcher-receiver` consolidation.
+
+**Landed 2026-09-11 (Wave C1 packet 1b).** All three shapes **re-verified on this head before building** — the `match` still threw on all five backends (`variant-match statement is frontend-only; it must not reach the {TS,.NET,vanilla Elixir,Java,Python} backend`), and `for` / `if let` still emitted the `<unknown>` sentinel: `this.<unknown>()` on node/.NET/Java, `self._<unknown>()` on python, `_ = <unknown>(record)` on elixir. The fork resolved as **gate on all three**, per ruling D-FOR-IN-DOMAIN ([completion-waves-2026-09](completion-waves-2026-09.md) §5 #3), with the honest-gap/permanent-refusal split the ruling asks for: `loom.variant-match-placement` and `loom.if-let-placement` say "permanent placement rule", `loom.for-placement` says "a GAP, not a design rule" and names **M-T5.30** as its successor.
+
+The gate is **phase ④**, not phase ⑦, and that was the one real design call: `for` / `if let` outside a workflow have **no IR node at all** — `lower-stmt.ts`'s fallback has already replaced them with the `<unknown>` call sentinel before an IR check leaf could look — so an IR-level gate could only match on the sentinel, a proxy for the defect rather than the defect. Containment alone decides all three answers, so the check needs nothing lowering would add. One new leaf, `src/language/validators/stmt-placement.ts` (a single `streamAllContents` pass classifying each statement's body owner as frontend / workflow / domain); the `src/generator/_stmt/target.ts` throw survives as an internal-invariant assertion for a caller that generates without validating, with a `default:` arm keeping the `StmtIR.kind` switch exhaustive.
+
+Refusal fixtures live at `test/language/validators/fixtures/stmt-placement-*.ddd` beside their gate, **not** in `test/fixtures/corpus/`: that corpus is a positive matrix (`corpus-coverage.test.ts` requires every `<id>.ddd` to GENERATE on each declared backend) and carries no `expectDiagnostics`-style key in `manifest.ts` or its harnesses, so an expected-diagnostic fixture has no row shape there. A fourth fixture, `stmt-placement-allowed.ddd`, is the over-fire guard — all six legal sites (workflow `create` + `commandHandler` × `for`/`if let`, plus a page `action`'s `match await`) in one source. Four mutation proofs by file copy, each naming its failing assertion, in the hand-off note.
+
+Sources: [language-docs-audit-2026-09-03](../audits/2026-09-03-language-docs-audit-findings.md) F1/F4 + "Cross-cutting reading" §2, [wave plan](../audits/2026-09-03-language-docs-audit-findings.waves.md) packet **W3.1**, hand-off [`waves/handoffs/wave-c1-1b-placement-fork.md`](waves/handoffs/wave-c1-1b-placement-fork.md).
 
 ## M-T5.29 — Two `system` blocks with no top-level members pass validation — `open` · **S** · P2 ⚠ verify-first
 
@@ -210,3 +175,72 @@ Found 2026-09-03 by the language-docs audit ([F36](../audits/2026-09-03-language
 **Verification when it lands.** A negative validator test for the two-system source; mutation-proved by file-copy revert of the check.
 
 Sources: [language-docs-audit-2026-09-03](../audits/2026-09-03-language-docs-audit-findings.md) F36, [wave plan](../audits/2026-09-03-language-docs-audit-findings.waves.md) packet **W3.2**. Relates to M-T5.13 (the zero-system synthesis decision — the other end of the same arity question).
+
+## M-T5.30 — `for … in …` in a domain body: lower it, or make the refusal permanent — `open` · **M** · P3
+
+Minted 2026-09-11 by **M-T5.28** as the named successor its `loom.for-placement` message points at — the honest-gap half of ruling D-FOR-IN-DOMAIN ([completion-waves-2026-09](completion-waves-2026-09.md) §5 #3). `for x in xs { … }` is lowered only by `lowerWorkflowStatement` (workflow `create` / `handle` / `on`, plus top-level `commandHandler` / `queryHandler`); in an aggregate `operation` / `create` / `destroy` / `apply`, a `function`, a domain-service operation or a projection `on` fold it is now REFUSED rather than lowered to the `<unknown>` call sentinel. Nothing about a loop is workflow-specific — only the **per-iteration repository save** the workflow lowering owns is, and a domain body has no repository to save through.
+
+**The question this mission answers:** is a domain-body `for` meaningful over a *containment* or a *value array* (`for l in lines { l.markVoid() }`), where no repository save is involved and the loop is pure in-aggregate mutation? If yes, it is a `StmtIR` kind + one arm in each of the five `StmtTarget` leaf tables (`src/generator/{typescript,dotnet,elixir,java,python}/render-stmt.ts`) and the `_stmt/target.ts` spine, which already owns one nesting recursion (`if`). If no — because the collection ops (`.sum` / `.any` / `.count` / `.filter`) already express every reachable use and a mutating loop over a containment has no defined save semantics — then `loom.for-placement`'s message loses its "GAP, not a design rule" clause and becomes the third permanent placement rule beside its two siblings. Either end closes it; silence does not.
+
+**Verification when it lands.** If lowered: a corpus fixture whose `for` runs in a domain body, generating and COMPILING on all five backends (rule 13 — the fixture is extended until every emitter arm a mutation names goes red). If declined: the message change plus the assertion in `test/language/validators/stmt-placement.test.ts` that currently pins `M-T5.30` in the text, flipped to pin "permanent placement rule" instead.
+
+Sources: [M-T5.28](#m-t528--variant-match-off-a-page-crashes-all-five-backends-forif-let-off-a-workflow-emits-thisunknown--neither-is-gated--done-2026-09-11-wave-c1-packet-1b--m--p1) and its hand-off [`waves/handoffs/wave-c1-1b-placement-fork.md`](waves/handoffs/wave-c1-1b-placement-fork.md); [language-docs-audit-2026-09-03](../audits/2026-09-03-language-docs-audit-findings.md) F4.
+
+## M-T5.31 — A `retrieval` reaches the repository and stops there: no HTTP route on any backend, and no `requires` clause — `open` · **L** · P1
+
+Found 2026-09-10 by the tracker dev-experience run (#2861, "Not fixed here"). Re-verified on `main` @ `4865581` with a four-declaration model (`aggregate` + `criterion` + `retrieval` + `repository`, `platform: node`):
+
+```
+out/api/domain/repository-ports.ts     runAvailableProducts(page?): Promise<Product[]>   ← emitted
+out/api/db/repositories/…-repository.ts  the implementation                              ← emitted
+out/api/http/product.routes.ts         GET /{id}, GET /                                  ← the retrieval is ABSENT
+```
+
+The read is fully lowered, typed and implemented, and then has no caller. A page cannot reach a repository, so a `retrieval` is unreachable from the generated frontend — and `find`, the one construct that *does* produce a route, is what `loom.repository-find-deprecated` tells the author to migrate away from. Following the validator's advice removes your read API. #2874 narrowed that warning to contexts that already declare a criterion or retrieval, which stops the tool contradicting its own scaffold; it does not give the migrated spelling anywhere to go, and its PR says so.
+
+The second half is the gate. `Retrieval` (`ddd.langium:1678`) has no `requires` slot — compare `FindDecl:1405`, which does. So the spelling the compiler recommends is also the one that cannot be gated, which blocks M-T3.19's story for the list read and leaves `scaffoldPaged` with `of:` and nothing else.
+
+**The fix, in the order the slices must land:**
+
+1. `Retrieval` gains `('requires' gate=Expression)?`, lowered to the same `ExprIR` position `FindDecl.gate` already occupies, so the five backends' existing gate renderers apply unchanged.
+2. A route per retrieval on all five backends, parameters bound from the retrieval's own `params` — the same threading `projection` reads now use after #2861 slice 1 (`src/platform/hono/v4/projection-query-routes-builder.ts` is the worked reference; the .NET/python/java/elixir twins are named in that commit).
+3. `scaffoldPaged` / `scaffoldPagedApi` retire: their reason to exist is that a retrieval had no route. #2877 explicitly declines to bolt a second gate parameter onto them for this reason.
+4. The interim narrowing in #2874 is deleted in the same PR that lands slice 2 — a waiver ratchets, so the fix removes it rather than leaving both rules standing.
+
+**Verification when it lands.** Per-backend route-emission cases (the five-case shape of `test/system/projection-param-threading.test.ts`), a gated-retrieval 403 case, and the generated node project booted against Postgres so the route is proved to answer a filtered read, not merely to exist. Mutation-proof each gate by file-copy revert.
+
+Claimed by the #2861 author; #2874 and #2877 both defer to this mission by name.
+
+## M-T5.32 — A declared `create`'s parameter list is not the request contract, and `loom.create-params-not-wire` only says so — `open` · **M** · P1 · blocked(#2882)
+
+The honest gate shipped in #2861 slice 4. It is a diagnostic standing in for a missing capability, so it is not a terminal state: this mission is what deletes it.
+
+Today `POST /<plural>` always takes the **field-derived** create input. A narrowed parameter list on a declared `create` shapes nothing, so an author who writes `create(title: string)` against a five-field aggregate gets a client for a contract they did not declare — the generated `test e2e` suite failed at runtime with a 422 naming a field the create does not accept. `loom.lifecycle-body-dropped` does not cover it: the ubiquitous `field := <same-named param>` idiom is exempt there, and that is exactly the shape that misleads.
+
+**The fix:** the declared parameter list becomes the create input — wire schema, route binding, and the frontend `CreateForm`'s field set all derive from it rather than from the aggregate's fields.
+
+**Why blocked.** Narrowing the input widens an existing bug: a `managed`/`internal` field's declared default is currently discarded by the create input and replaced with the type's zero value (`tier: int managed = 7` arrives as `0`), which #2882 is fixing. Narrowing first would make every field dropped from the input silently zero rather than defaulted. Land #2882, then this.
+
+**Verification when it lands.** A create-with-narrowed-params case per backend asserting the emitted wire schema has exactly the declared fields; a defaulted `managed` field asserted to arrive at its declared value, not the zero value; and `loom.create-params-not-wire` deleted in the same PR, with its `FIRING_FIXTURES` entry and docs anchor removed (`test/system/diagnostic-firing-census.test.ts` fails on an orphan, which is the ratchet that keeps this mission honest).
+
+## M-T5.33 — A page-body lambda parameter has no type, so every member off it resolves as `string` — `open` · **M** · P1
+
+`src/ir/lower/lower-expr.ts:1214` lowers a bare lambda with a hard-coded placeholder element type:
+
+```ts
+if (isLambda(expr)) {
+  // A bare lambda outside a collection-op call site has no known param
+  // type — the string placeholder matches the legacy behaviour.
+  return lowerLambda(expr, env, { kind: "primitive", name: "string" });
+}
+```
+
+The collection-op path two hundred lines up does it correctly (`collElem && isLambda(a.value) ? lowerLambda(a.value, env, collElem) : …`), so the element type is available — it is simply not threaded to the bare-lambda site. Every `receiverType` / `memberType` derived inside such a lambda is therefore wrong, which defeats the IR's central promise that backends never re-resolve.
+
+This is the enabling change for the formatter work: a per-type formatter table cannot route `Text`'s child while every page-body field types as `string`. #2871's D4 is downstream of it.
+
+**The fix:** thread the known element type to the bare-lambda call site the way `applySuffixToRecv` already does, and make the no-known-type case a diagnostic rather than a silent `string`.
+
+**Verification when it lands.** IR-level cases asserting `memberType` on a member access inside a page-body lambda over a non-string collection; the `string` placeholder removed rather than left beside the fix.
+
+Claimed by the #2861 author, offered to #2871 first as the enabling half of their D4.

@@ -12,7 +12,9 @@
 // JS targets, the wire STRING on Flutter — so the default `a < b` comparator
 // orders them wrongly), which is why the predicate lives here rather than twice.
 
+import type { ExprIR } from "../../../ir/types/loom-ir.js";
 import type { WalkContext } from "../walker-core.js";
+import { extendLambdaParams } from "../walker-core.js";
 
 /** The PRIMITIVE a row column reads, or undefined when it cannot be resolved
  *  (no recorded row aggregate, an unknown field, a non-primitive field).  The
@@ -56,4 +58,61 @@ export function isMoneyField(
   ctx: WalkContext,
 ): boolean {
   return rowFieldPrimitive(field, rowAggregate, ctx) === "money";
+}
+
+/** Open a CELL-lambda scope over one table/grid row: bind the accessor's param
+ *  to the target's row variable, and record which aggregate that row IS.
+ *
+ *  The second half is the one that used to be missing, and the omission is why
+ *  an optional reference rendered an unguarded link in a LIST cell long after
+ *  the detail page's guard worked (M-T1.33).  `ctx.listRowAggregates` is
+ *  recorded by the enclosing `QueryView` against ITS `data:` param (`rows`),
+ *  but a column accessor rebinds the row under its own name (`o => o.origin`),
+ *  and nothing carried the aggregate across that rebinding.  So every
+ *  resolution built on this map — including `apiReadMemberType`, which is how
+ *  `IdLink` learns a reference is optional — silently returned "unknown" for
+ *  every cell in every table, and an unknown field type reads as a required
+ *  one.
+ *
+ *  Both row-rendering primitives open this scope for the identical reason, so
+ *  it lives here beside the lookups it feeds rather than twice. */
+export function extendRowScope(
+  ctx: WalkContext,
+  param: string,
+  rowVar: string,
+  rowAggregate: string | undefined,
+): WalkContext {
+  return {
+    ...ctx,
+    lambdaParams: extendLambdaParams(ctx, param, rowVar),
+    listRowAggregates: rowAggregate
+      ? new Map([...(ctx.listRowAggregates ?? []), [param, rowAggregate]])
+      : ctx.listRowAggregates,
+  };
+}
+
+/** The aggregate a `Table`/`DataGrid` `rows:` expression yields ROWS of, for
+ *  the purpose of typing its CELLS.
+ *
+ *  Wider than the bare `ctx.listRowAggregates.get(<ref>)` lookup the sort
+ *  comparator makes, and deliberately so: a SERVER-PAGED list — which is every
+ *  scaffolded `all` list — binds the `Paged<T>` ENVELOPE as the `QueryView`
+ *  `data:` param and the table reads `rows.items` off it, so the `rows:`
+ *  argument is a member access and the bare lookup finds nothing.  That is the
+ *  second reason a list cell walked with an unknown row type (M-T1.33); the
+ *  first is `extendRowScope`'s.
+ *
+ *  Kept separate from the sort path's own resolution rather than replacing it:
+ *  widening THAT would change which columns get a money comparator on every
+ *  server-paged table, which is a different defect with its own goldens. */
+export function cellRowAggregate(
+  rowsArg: ExprIR | undefined,
+  ctx: WalkContext,
+): string | undefined {
+  if (!rowsArg) return undefined;
+  if (rowsArg.kind === "ref") return ctx.listRowAggregates?.get(rowsArg.name);
+  if (rowsArg.kind === "member" && rowsArg.receiver.kind === "ref") {
+    return ctx.listRowAggregates?.get(rowsArg.receiver.name);
+  }
+  return undefined;
 }

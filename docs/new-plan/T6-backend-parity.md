@@ -35,17 +35,9 @@ Sources: [vanilla-phoenix-gaps](../old/plans/vanilla-phoenix-gaps.md) §7, [stat
 What is genuinely reserved-but-unwired is **three optional data slots on `ComposeServiceShape`**, undefined on every backend, which the compose orchestrator skips when absent: `auditSidecar` (a separate container draining audit-record events — M-T4.x audit), `policyInitCmd` (an entrypoint wrapper that loads/verifies compliance policies before the main service — M-T3.x authorization/compliance), and `i18nCatalogDir` (the in-container mount path for the i18n catalog — M-T1.11). Tenancy has no reservation at all: multi-tenant filtering ships through the capability/stance machinery ([`docs/tenancy.md`](../tenancy.md)), not a surface hook.
 Disposition unchanged: don't build speculatively — each slot fills when its owning feature reaches emission. Tracked here so they aren't forgotten or cargo-culted.
 
-## M-T6.13 — OpenAPI tag grouping — `open` · **S–M** · P3
+## M-T6.13 — OpenAPI tag grouping — `blocked(D-MISC-C0)` (decision (f), item 3) · **S–M** · P3
 Doc-level `x-tagGroups` per served `api` across the five backends (design audited + simulated; resolve decision (f) on .NET/Java per-op tags first).
 Sources: [api-openapi-tag-grouping](../old/proposals/api-openapi-tag-grouping.md), ddd-review api-grouping gap.
-
-## M-T6.18 — Argument/parameter type-checking is systemically missing — `partial` (gap #1 constructions + gap #2 calls fully closed; gap #3 remains) · **L** · P1 ⭐ wrong failure mode (all targets)
-An audit of every argument/parameter-passing call site (triggered by the `match await` arg gap, M-T6.17) found the AST type-system **defers arg arity/type checking** (`src/language/type-system.ts:742`) and `checkCallStmt` (`statements.ts:343`) only resolves the callee's *existence*, never compares `stmt.args` to its params.  So wrong arguments slip through at MOST call sites and mis-generate broken target code — caught only downstream by `tsc`/`gradle`/`mix`, **not by Loom**.  A `.ddd` that passes validation can emit code that doesn't compile.  **Checked today (good):** `emit Event { … }` (`checkEmit`, fully typed), `Action` on a param-op, `match await` args (M-T6.17), scalar intrinsics, `days(n)`, and the *arity* of `criterion`/`policy-fn`.  **Confirmed GAPS (each reproduced — generates broken code, zero Loom errors):**
-1. **Record / VO / error / payload CONSTRUCTION** `Money { amount: "x", bogus: 3 }` — wrong field type, missing required field, AND unknown extra field all slip (`builder-call.ts` `checkBuilderCallType` resolves the type NAME but never the entries).  **Top severity** — every record literal in the language.  **Slice 1 landed** (#1966): `loom.unknown-construction-field` (`builder-call.ts` `checkConstructionFields`) rejects an entry naming a field the record (VO / entity part / record payload) doesn't declare — the zero-inference sub-check (unknown field NAME); zero false-positives across the whole example corpus.  **Slice 2 landed:** `loom.construction-field-type` (`statements.ts` `checkConstructionArgTypes` + `builder-call.ts` `recordFieldTypes`) type-checks each entry's VALUE against the declared field type for constructions reachable from an operation/create/destroy body — hooked into the statement walk (needs the lexical `Env`), mirroring `checkEmit`'s `unknown`-suppression + numeric-literal-promotion; full suite green, zero false-positives.  **Slice 3 landed:** the same `checkConstructionArgTypes` is now invoked at the non-body construction sites too — property defaults (`checkPropertyDefault`), `derived`/`invariant` bodies, and `function` bodies (expr + block form) in `types.ts` — so record field VALUES are type-checked at EVERY construction site.  **Slice 4 landed (completeness):** `loom.construction-missing-field` (`builder-call.ts` `checkConstructionFields`, beside the name check) rejects a construction that OMITS a required field — a declared non-optional, non-defaulted, non-`provenanced` `Property` (`contains` members auto-default empty, so they're never required); positional-entry constructions are skipped to stay conservative; full suite green, zero false-positives.  **The construction gap (name + value type + presence) is now closed** for VO / entity-part / record-payload builds.  Remaining: entry-value type-check inside page/workflow bodies (those walk their own env surfaces).
-2. **Domain op / function / workflow-op calls** `bump("hi")`, `derived x = fee()`, `o.bump(a)` — arity + type unchecked.  **Slice A landed:** `loom.call-arg-count` / `loom.call-arg-type` (`statements.ts` `checkCallArgs`, wired into `checkCallStmt`'s bare + member branches) checks arity + per-arg type on every RESOLVED statement-level call, mirroring `checkEmit`'s `unknown`-suppression + numeric-literal-promotion; full suite green, zero false-positives.  **Slice B landed:** the EXPRESSION-position FREE calls (`derived x = fee(a)`, `let y := compute(a, b)`, `precondition check(a)`) — new `freeCallFunction` (type-system.ts, in lockstep with `typeOfFreeCall`) resolves a free call to its user `FunctionDecl` (undefined for VO ctors / criteria / policy-fns / duration builtins), and `checkExprCallArgs` (statements.ts) arg-checks those through the shared `checkCallArgs`, hooked at the statement walk + non-body sites; full suite green, zero false-positives.  **Slice B tail landed:** `checkExprCallArgs` now also covers EXPRESSION-position MEMBER calls (`derived t = price.scaled(f)`) via a running-receiver-type walk (`typeAfterSuffix` + `stepIntoNode`), which resolves a callee only for function/operation members of an entity/aggregate/VO receiver — so collection ops (`.sum`/`.count` on arrays) and scalar intrinsics are naturally skipped; full suite green, zero false-positives.  **Gap #2 is now fully closed** — every operation/function call (statement + expression, free + member) is arity- and type-checked.
-3. **Workflow `create` field TYPES** (names checked, types not — `workflow-checks.ts`, IR-level so no lexical env); **UI component prop passing** `Panel(amount: "x")` (missing/extra/wrong-type, unchecked); **store action calls** `Cart.add(42)` (unchecked); **criterion/policy-fn arg TYPES** — **first slice landed:** `freeCallPredicate` (type-system.ts) + `checkArgTypesPositional` (statements.ts) type-check criterion/policy-fn calls at the env-bearing sites `checkExprCallArgs` already walks (bodies / preconditions / requires / derived / …); arity stays owned by `checkCriteria`/`checkPolicyFns` (type-only, no double report); full suite green.  Remaining: the `from X(args)` / `where:` / `when` criterion sites (own env surfaces), plus the component-prop / store-action / workflow-create-field-type items above.
-   HIGH regression risk — the whole example/test corpus constructs records and calls ops, so any resolver bug false-positives broadly; land incrementally (start with #1), run the FULL suite each slice, mirror `checkEmit`'s `unknown`-suppression + numeric-literal-promotion (`canPromoteLiteralTo`) to avoid ergonomic false positives.
-Sources: this session's parameter-passing validation audit (repros under the auditor's `/tmp/audit/`); `src/language/validators/{builder-call,statements,criterion,policy-fn}.ts`, `type-system.ts:742`, `src/ir/validate/checks/{ui-checks,workflow-checks}.ts`.
 
 ## M-T6.14 — Small parity leftovers — `open` · **S** · P3
 DEBT-12 Phoenix `verify_token` niche; DEBT-08 `envelope` carrier (deferred — no live use; signpost via M-T5.9a); saga/projection EF `HasColumnName` correlation-column bug (from S7 Slice C review); domain-seam log-catalog §3 residue ⚠ partly stale.
@@ -143,7 +135,7 @@ over-requires. It has no caller in generated code (every write path goes
 through `base_changeset`); threading defaults onto crudish create params would
 ripple through every param-driven surface on all five backends.
 
-## M-T6.35 — Persistence-adapter capability gaps — `open` · **M** · P2
+## M-T6.35 — Persistence-adapter capability gaps — `open`; the `#migrations` sub-code is `blocked(D-DAPPER-ALTER)` · **M** · P2
 The non-default persistence adapters reject shapes their EF/Ecto siblings accept: `loom.dapper-unsupported` (features Dapper does not emit), `loom.find-predicate-unsupported` (a find predicate the active adapter cannot lower), `loom.saving-shape-unsupported` (a `shape(...)` the hosting backend cannot persist — **re-classified 2026-09-03**: dormant, not live — every platform key in `PLATFORM_SAVING_SHAPES` already lists all three shapes, and a platform absent from the map is skipped rather than flagged, so this is an unreachable backstop, not a seam any live target trips), `loom.vanilla-document-unsupported` (`shape: document` only partly emitted on Elixir), and — **inherited 2026-08-24 from the now-`done` M-T6.23** — `loom.mikroorm-unsupported`, whose only surviving raiser is the migration-chain one (`migration-checks.ts` `#migrations`: neither MikroORM's `orm.schema.updateSchema()` nor Dapper's boot-time `CREATE TABLE IF NOT EXISTS` can apply a declared migration step, so a rename resolves as DROP + ADD or silently never runs — the `loom.dapper-unsupported#migrations` twin is the same shape). The adapter axis is where "all targets support the whole surface" costs the most, because each adapter multiplies the matrix again — worth confirming per row whether the adapter *cannot* express the shape (a permanent limit, so a rename) or merely *does not yet* (a gap). **`loom.persistence-mode-unsupported` moved OFF this mission 2026-09-03** — it never fit here: `validateDataSourceCoverage` refuses a hosted aggregate whose deployable declares no matching `dataSource` at all, which is a missing binding, not an adapter capability limit. It is now owned by M-T2.9 (the storage-config tail, where the `dataSource`-binding axis already lives).
 Sources: M-T9.27 register rows. Relates to M-T6.23 (mikroorm) and M-T6.25 (dapper query-time projections) — the same axis, already missioned.
 
@@ -155,39 +147,7 @@ Sources: M-T9.27 register rows. Relates to M-T6.23 (mikroorm) and M-T6.25 (dappe
 Draining it means EMITTING the name instead of refusing it, and the reason that is real work rather than a one-line escape is the language asymmetry the .NET arm hides: C# has verbatim identifiers, so `@case` is lexically `case` and the JSON property System.Text.Json derives is unchanged. Java has none (JLS §3.9), so the only escape is a rename — and a Java record component name IS the Jackson property name. So the fix is a mangled host identifier (`case_`, the spelling `escapeJavaIdent` already uses for LOCALS) **plus an explicit `@JsonProperty("case")` at every wire site**, applied consistently enough that no DTO is missed — a missed site is a silent wire divergence on java alone, which is strictly worse than the compile error. Delete the register row and lower `MAX_OPEN_GAPS` when it lands.
 Sources: M-T9.27 register rows; the 2026-08-30 targets ledger rows `M-T6.36` (premise found stale) and `F2-ADP-7` (java arm).
 
-## M-T6.48 — Malformed numeric input answers 500: four backends parse money with no guard, Elixir op-params skip `int` entirely — `done` · **M** · P1
-
-> **.NET arm LANDED 2026-08-31** (W1b `dotnet-adapters`, row `G2644-M-T6.48-numeric-ingress`). Both string-carried primitives are guarded at the one seam that produced them, `wireToCommandArgument` (`src/generator/dotnet/dto-mapping.ts`): `decimal.Parse` / `DateTime.Parse` became `TryParse ? v : throw new WireFormatException(<pointer>, …)` — `throw` is an expression in C# 7+ and `out var` declares into the enclosing block, so the guard fits the argument position the bare parse occupied and no emitter had to be restructured. A new `DomainExceptionFilter` arm renders node's envelope verbatim: **422**, `errors: [{ pointer: "/price", message: "Invalid decimal: \"12,50\"" }]`. The conversion function now REQUIRES its call site (`{ ns, pointer }`), so a new emitter cannot reintroduce a bare parse by omission; a value-object field reports the nested pointer (`/best/offer`). Compile-verified under `mcr.microsoft.com/dotnet/sdk:10.0` with `/warnaserror` — which is how the first attempt was caught: naming the property `Pointer` is CA1720 ("identifier contains type name"), an ERROR under that flag, hence `FieldPointer`. Pinned by `test/generator/dotnet/wire-numeric-ingress.test.ts`.
->
-> **Python arm LANDED 2026-09-07** ([#2808](https://github.com/lemmit/Loc/pull/2808)). `requestPyType` answers a `MoneyStr` alias — `Annotated[str, AfterValidator(_money_str), WithJsonSchema(...)]` — on the REQUEST side only (a response money string is our own digits; narrowing it would publish a needless schema restriction). The validator raises a `PydanticCustomError("money_format", …)`, so the message is byte-identical to node's and the 422 body carries pydantic's own `loc` pointer. Emission is demand-driven via `contextHasRequestMoney`, which scans value-object fields, aggregate fields, operation params **and repository finds** — the find case was a real hole, since a `find byPrice(p: money)` param is a route argument no model declares.
->
-> **Elixir arm LANDED 2026-09-07** ([#2810](https://github.com/lemmit/Loc/pull/2810)). `paramGuardClause` turns each numeric operation param into a `with`-clause over `__loom_decimal_param` / `__loom_int_param`, both total, both returning `{:error, changeset}` that renders as the backend's existing 422 rather than raising into `force_change`. The helpers are emitted **independently** — a real `mix compile --warnings-as-errors` caught `__loom_decimal_param/3 is unused` on an int-only context, which a parse-only check over all 33 files had passed. The mutation proof also found that the **extern** op renderer was untested: the first mutation hit the extern path while every fixture used named ops, so extern coverage was added before the proof bit.
->
-> **Java arm LANDED 2026-09-08** ([#2813](https://github.com/lemmit/Loc/pull/2813)). `WireFormatException.money(String, String pointer)` carries node's regex; `collectWireToDomainImports` now REQUIRES the base package, which is what fixes the call-emitted-import-missing shape the compile found (`cannot find symbol: WireFormatException` ×4). Compile-verified with the documented `gradle:9-jdk25` recipe (`docs/tools.md`) — the host JDK 21 cannot build the emitted Java 25, which is why the first pass wrongly reported "cannot compile here". Jackson was settled by MEASUREMENT rather than suspicion, via a `@JsonTest` slice over the emitted record: `{"qty": 1.5}` **did** silently truncate to `1`, and a stringified `"5"` **was** accepted. `WireNumberStrictness` disables `ACCEPT_FLOAT_AS_INT` and fails the String→Integer coercion, so both now answer 400.
->
-> **Matrix LANDED 2026-09-08** — `test/conformance/numeric-ingress-parity.test.ts`, the mission's closing deliverable. Static for RS-9's reason (no runtime tier reaches malformed input), six arms mutation-proved by file-copy revert. It also **measured three divergences the five arms did not close**, pinned in the file's second `describe` so a future strictness ruling is noticed here rather than in a client integration — carried forward as M-T6.60.
-
-Found 2026-08-23 by the numeric-types audit ([F12](../audits/numeric-types-audit-2026-08-23.md)). One curl reproduces it: `{"price": "12,50"}` → .NET `decimal.Parse` `FormatException`, Java `new BigDecimal` `NumberFormatException`, Python `Decimal(str)` `InvalidOperation`, Elixir op-params `Decimal.new` raise — all **500**; only node (typed zod 400) and Elixir's create-changeset path (422) answer honestly. Elixir's `coerceOpParam` (`src/generator/elixir/vanilla/context-emit.ts`) coerces only money/decimal/datetime, so a non-integer `int` op param reaches `force_change` → `Ecto.ChangeError` 500 — the exact failure mode its own docstring documents for the money case it fixed. Java likely **silently truncates** `1.5 → 1` for int request fields (Jackson `ACCEPT_FLOAT_AS_INT` default, no coercion config emitted — verify with one POST, then pin strict). Stringified-number acceptance also skews across backends (`"5"` for an int: three accept, two reject).
-
-**The fix:** wrap every bare money parse in a typed 4xx (mirror node's `moneySchema` regex + typed issue); complete `coerceOpParam` over int/bool; pin Java's float-as-int to strict rejection; pin one stance for stringified numbers (proposed: strict everywhere, matching node's body slot and .NET); probe the >1e21 exponential-money edge from the register annex.
-
-**Verification when it lands.** A cross-backend ingress conformance matrix (bad money string, fractional int, stringified number, huge money) asserting the 4xx statuses per backend; one arm per backend mutation-proved.
-
-**What the matrix measured** (2026-09-08, real deserializers over the emitted shapes — zod 4, `System.Text.Json`, Jackson under `@JsonTest`, pydantic 2, `Ecto.Type.cast/2`):
-
-| probe | node | dotnet | java | python | elixir |
-|---|---|---|---|---|---|
-| money `"12,50"` | 4xx | 4xx | 4xx | 4xx | 4xx |
-| int `1.5` | 4xx | 4xx | 4xx | 4xx | 4xx |
-| int `"5"` (stringified) | 4xx | 4xx | 4xx | **accepts** | **accepts** |
-| money `12.5` (JSON number) | 4xx | 4xx | 4xx | 4xx | **accepts** |
-| money, 40 digits | accepts | 4xx | accepts | accepts | accepts |
-
-The first two rows are this mission's guarantee and hold on all five. The last three are M-T6.60.
-
-Sources: [numeric-types-audit-2026-08-23](../audits/numeric-types-audit-2026-08-23.md) F12 + annex, plan.json N14. Relates to RS-15 (domain floor 422), M-T5.20 (denial ladder). Conflicts with M-T6.46/M-T6.47 in the shared wire files — stack or sequence within the wave.
-
-## M-T6.60 — Request-side numeric strictness diverges three ways: TWO need an owner ruling, one is an ordinary defect — `open` · **M** · P2
+## M-T6.60 — Request-side numeric strictness diverges three ways: TWO need an owner ruling; the third (40-digit money → database 500) was an ordinary defect and is CLOSED by Wave C1 packet 1e-i — `blocked(D-NUMERIC-INGRESS-STRICT)` · **M** · P2
 
 Found 2026-09-08 by M-T6.48's cross-backend ingress matrix (`test/conformance/numeric-ingress-parity.test.ts`). M-T6.48 made *malformed* numeric input answer a typed 4xx on all five backends. It did not make *lenient* input answer the same way, because nothing had ever compared the five. The matrix did, against the real deserializers rather than by reading emitters, and found three rows that still disagree. All three are pinned in that file's second `describe` block as characterizations — each fails the day a backend moves in either direction — so this mission's first act is deleting the pin it closes.
 
@@ -195,23 +155,40 @@ Found 2026-09-08 by M-T6.48's cross-backend ingress matrix (`test/conformance/nu
 
 **Divergence 2 — a JSON number for a `money` field.** `{"price": 12.5}` is refused by four backends *structurally*: the request field is typed as a string (`z.string()`, `string Price`, `String price`, `Annotated[str, …]`), so the value never reaches a guard. Elixir's create/update path casts straight onto the `:decimal` column, so nothing types the wire value and `Ecto.Type.cast(:decimal, 12.5)` answers `{:ok, Decimal.new("12.5")}`. **No existing gate saw this** because RS-12 governs the RESPONSE direction — it says how money serializes, not what a request may carry.
 
-**Divergence 3 — a money value too large for the domain type.** A 40-digit money string parses on node (decimal.js), java (`BigDecimal`), python (a `str` passthrough) and elixir (`Decimal`); .NET's `decimal.TryParse` returns false past ~29 significant digits, so .NET alone answers 4xx. On the other four the value reaches `NUMERIC(19,4)` and the **database** rejects it — a 500, which is exactly the failure shape M-T6.48 was written to remove, arriving one layer later.
+**Divergence 3 — a money value too large for the domain type. CLOSED 2026-09-11** (wave C1, packet `1e-ledger-backend`; ledger row `G2644`). A 40-digit money string parsed on node (decimal.js), java (`BigDecimal`), python (a `str` passthrough) and elixir (`Decimal`); .NET's `decimal.TryParse` returned false past ~29 significant digits, so .NET alone answered 4xx — and not for a 16-digit value, which is the same defect a few digits earlier. On the rest the value reached `NUMERIC(19,4)` and the **database** rejected it — exactly the failure shape M-T6.48 was written to remove, arriving one layer later.
+
+> **What landed.** A RANGE check at the same wire boundary each backend's format guard already occupies — node's `moneySchema`, java's `WireFormatException.money`, python's `_money_str`, .NET's `wireParseGuard`, and BOTH of elixir's paths (the op-param `__loom_decimal_param` and, separately, a `validate_change` on every cast money column, because the create/update path never reaches the op-param guard). The bound is derived once, in `src/generator/money-scale.ts`: `MONEY_INTEGER_DIGITS = MONEY_PRECISION - MONEY_WIRE_SCALE`, so one constant governs the guard and the column. One refusal message on all five (`Money out of range: "…"`) because the wire-golden differential compares bodies across backends. A value object's money is deliberately NOT range-checked — it rides a jsonb column with no precision bound, so it cannot produce the failure.
+>
+> **Verified against the authorities, not the emitter.** Postgres 18 states the bound itself: `INSERT` of `1000000000000000` into `numeric(19,4)` answers `ERROR: numeric field overflow / DETAIL: A field with precision 19, scale 4 must round to an absolute value less than 10^15`, and `999999999999999.9999` inserts. The EMITTED python request model, imported verbatim and run through real pydantic 2, refuses 16 integer digits with `type=money_range` and accepts 15 — the framework-enforced half `npm test` cannot see. `numeric-ingress-parity.test.ts` gained the fifth probe row (six seam arms, each mutation-proved by file-copy revert) and the divergence-3 pin it closes was deleted in the same change.
 
 **Why 1 and 2 are a ruling, and why 3 must NOT wait on it.** Divergences 1 and 2 are backends being *more permissive* than the contract, and narrowing them breaks clients relying on the lenience today — a decision the owner makes, not the codegen.
 
-**Divergence 3 is not that, and should be scheduled apart from them.** There is no contract to narrow: nobody depends on "a 40-digit price answers 500". It is the same client-fault-reported-as-server-fault class M-T6.48 removed, surfacing one layer later at the database instead of at the parse. Its fix is a different shape too — a **range** check derived from the money column's precision, not a format guard — so it shares neither the decision nor the code with 1 and 2. Holding it behind an owner ruling stalls an unambiguous defect behind a contract question it does not raise. Land it as an ordinary P2 defect whenever a backend packet is open; land 1 and 2 only after the ruling.
+**Divergence 3 was not that, and was scheduled apart from them (and has since landed).** There is no contract to narrow: nobody depends on "a 40-digit price answers 500". It is the same client-fault-reported-as-server-fault class M-T6.48 removed, surfacing one layer later at the database instead of at the parse. Its fix is a different shape too — a **range** check derived from the money column's precision, not a format guard — so it shares neither the decision nor the code with 1 and 2. Holding it behind an owner ruling stalls an unambiguous defect behind a contract question it does not raise. Land it as an ordinary P2 defect whenever a backend packet is open; land 1 and 2 only after the ruling.
 
 *(Recorded 2026-09-10 from the M-T6.48 matrix session. The wave plan's §5 ruling #4 currently bundles all three as one owner-only item — see the note on [#2849](https://github.com/lemmit/Loc/pull/2849).)*
 
-**The fix, once ruled.** Strict: `model_config = ConfigDict(strict=True)` on python request models (or per-field `Strict()`, which is narrower and does not disturb datetime parsing), and a pre-cast wire-type guard on elixir's changeset path — the natural home is a `__loom_money_field` / `__loom_int_field` validation running before `cast/3`, reusing the `__loom_param_error` responder the op-param arm already emits. For divergence 3, derive the bound from `MONEY_WIRE_SCALE` + the `NUMERIC(19,4)` precision (`src/generator/money-scale.ts`) so one constant governs the guard and the column.
+**The fix, once ruled.** Strict: `model_config = ConfigDict(strict=True)` on python request models (or per-field `Strict()`, which is narrower and does not disturb datetime parsing), and a pre-cast wire-type guard on elixir's changeset path — the natural home is a `__loom_money_field` / `__loom_int_field` validation running before `cast/3`, reusing the `__loom_param_error` responder the op-param arm already emits. (Divergence 3's half of this paragraph is done — see its block above.)
 
 **Verification when it lands.** Delete the matching pin in `numeric-ingress-parity.test.ts` and replace it with a positive seam in the same file — the pin and the seam are the same assertion inverted, so the diff shows the contract moving. Re-run the deserializer measurements (the header table is the record and must be updated with the new row, not left stale). Mutation-prove each backend arm by file-copy revert per the repo rule.
 
 Sources: [numeric-types-audit-2026-08-23](../audits/numeric-types-audit-2026-08-23.md) F12 annex (the stringified-number skew was noted there but never dispositioned); M-T6.48 and its matrix. Relates to RS-12 (money wire scale, response direction) and RS-24 (decimal is a JSON number).
 
-## M-T6.50 — Python saga / workflow emission holes: three collector gaps that ship `F821` into the generated app — `open` · **S–M** · P1
+## M-T6.50 — Python saga / workflow emission holes: three collector gaps that ship `F821` into the generated app — `partial` (sites 1 + 3 landed by [#2752](https://github.com/lemmit/Loc/pull/2752), verified 2026-09-11; **site 2 is the only live half**, claimed by [#2850](https://github.com/lemmit/Loc/pull/2850) + wave-c1 packet 1a) · **S–M** · P1
 
-Found 2026-08-30 re-verifying the [08-24 generator review](../audits/generator-code-review-2026-08-24.md)'s follow-up register (rows 14–16); two **reproduced** on `main` @ `aa236ae`, one latent. No ledger row in #2668, no other owner. One backend, one class — a renderer emits a name the module never binds — three sites:
+Found 2026-08-30 re-verifying the [08-24 generator review](../audits/generator-code-review-2026-08-24.md)'s follow-up register (rows 14–16); two **reproduced** on `main` @ `aa236ae`, one latent.
+
+> **Narrowed 2026-09-11 (wave C1, packet 1f) by READING the code on the wave base, not the PR bodies.**
+> **Site 1 is closed:** `dispatch-builder.ts:21` imports `domainServiceImportLinesForWorkflow` and `:452`
+> splices it into the saga-handler file's import block, so the bare `next_attempt(1)` the mission
+> reproduced now has its `from app.domain.services.retry import next_attempt`.
+> **Site 3 is closed, and closed the way §F3 asked:** `collectStmtExprImports`
+> (`python/emit/domain-service.ts:252-254`) is two lines — `walkStmtExprsDeep(st, (e) =>
+> collectPyExprImports(e, into))` — so the hand-enumerated 10-of-11 switch is gone and a new
+> `StmtIR` kind cannot silently skip imports again. `test/system/ir-walk-census.test.ts` is green
+> on this tree with no waiver for either file, which is the ratchet that keeps them closed.
+> **Site 2 (own-state assign in an uncorrelated command workflow) is untouched here** — the
+> python indentation half is #2850 and the VALIDATOR RULING for its cases (B)/(C) is wave C1
+> packet 1a's. This mission closes when that lands; nothing else in it is open. No ledger row in #2668, no other owner. One backend, one class — a renderer emits a name the module never binds — three sites:
 
 1. **`dispatch-builder.ts` emits no domain-service imports at all.** `domainServiceImportLinesForWorkflow` exists (`python/emit/domain-service.ts:291`) and has exactly two callers — `workflows-builder.ts:257` and `emit/aggregate.ts:266`. The saga-handler file is not one of them, and the PY_TARGET leaf renders a domain-service call as the **bare** function name. Reproduced: a saga `on(s: ShipmentRequested)` handler calling `Retry.nextAttempt(1)` emits `next_attempt(1)` at `app/dispatch.py:31` with no `from app.domain.services.retry import next_attempt` → ruff `F821` / `NameError` at first delivery.
 2. **Own-state assign in a non-correlated command workflow renders `self._x` at module level.** `workflows-builder.ts:582` builds the route target with `thisName: "self"`, and the `assign` arm (`:817-823`) renders the own-state LHS through that mapping — but the workflow ROUTE is a module-level `async def`, not a method. Reproduced: `create(title: string) { counter := 1 … }` emits `self._counter = 1` into `app/http/workflows_routes.py` → `F821`. (The correlated saga path is correct: it maps to the tracked row via `thisName: "state"`.)
@@ -223,84 +200,6 @@ Found 2026-08-30 re-verifying the [08-24 generator review](../audits/generator-c
 
 Sources: [generator-code-review-2026-08-24](../audits/generator-code-review-2026-08-24.md) §Follow-up register (2026-08-30) rows 14–16; §F3 (one ref-walker per IR family) is the durable fix for (3). Relates to §A16 (the three sibling collectors #2667 already migrated onto `src/ir/util/walk.ts`).
 
-## M-T6.51 — node document finds ignore `ignoring` — the A11 fix has no node twin — `open` · **S** · P1
-
-Found 2026-08-30 (recorded as §D item 14 of the [08-24 review](../audits/generator-code-review-2026-08-24.md), re-verified on `main` @ `aa236ae`). Not claimed by #2668.
-
-`documentFindMethod` computes the capability predicate once per aggregate — `const cap = documentCapabilityBody(agg, "x")` (`src/generator/typescript/repository-document-builder.ts:325`) — and reuses it for every find, with no access to that find's `bypassAll` / `bypassCaps`. So on a `shape: document` aggregate a declared `find … ignoring softDeletable` **still filters the soft-deleted rows out**: wrong data, fail-closed, no diagnostic. The synthesized query-time-projection reads assembled in the same file inherit it (`:89-90`), so a `projection … ignoring <Cap>` over a document source is likewise not bypassed on node.
-
-Both siblings already do it right: elixir's `renderDocFindFn` threads `bypass: { bypassAll: f.bypassAll, bypassCaps: f.bypassCaps }` (`elixir/vanilla/document-emit.ts:641` — the §A11 fix landed in #2667), and python's document `findMethod` recomputes with the find's own bypass.
-
-**The fix:** recompute the predicate per find, exactly as `renderDocFindFn` does — pass the find's bypass set into `documentCapabilityBody` (or a bypass-aware sibling) and drop the per-aggregate cache. Check the synthesized projection reads take the projection's own bypass, not the aggregate's default.
-
-**Verification when it lands.** A generator test per shape (declared find with `ignoring <Cap>`, `ignoring *`, and a projection over a document source), asserting the bypassed predicate is *absent* — and mutation-proved, since the failure mode here is a silently-retained conjunct, which a presence-only assertion cannot see.
-
-Sources: [generator-code-review-2026-08-24](../audits/generator-code-review-2026-08-24.md) §D item 14 + §Follow-up register (2026-08-30) row 18. Sibling of §A11 (elixir, fixed #2667).
-
-## M-T6.52 — No backend can seed an event-sourced aggregate; three of five were wrong about it in two different ways — `done` (Wave 2 packet 2.5, PR #2770) · **M** · P1
-
-Found 2026-08-30 by the targets-completeness audit (`F2-SEED-EVENTSOURCED`), gated 2026-08-31 by [#2700](https://github.com/lemmit/Loc/pull/2700). `seed default { Account { owner: "seeded-alice" } }` on an `persistedAs: eventLog` aggregate parsed `0 error(s), 0 warning(s)` and then diverged: **elixir** dropped the row from the dataset (`seedableAggs` filter, `src/generator/elixir/vanilla/seed-emit.ts:83/92`) and still committed the dataset's `mark_seeded` ship-once marker, so the rows could never be applied on a later boot; **java** and **.NET** built the create call from `forCreateInput(agg.fields)` — every declared field — against a factory that takes only the declared `create open(owner: string)` parameters, i.e. `Account.create("seeded-alice", null)` against `create(String owner)` (javac "cannot be applied", CS1739+CS1501). node/python were accidentally correct because their factories are keyword-shaped.
-
-#2700 stopped the divergence with `loom.seed-event-sourced-unsupported` (`src/language/validators/seed.ts`) — all five now refuse identically instead of three diverging silently. **This mission is the feature the gate stands in for**, and the register row (`src/diagnostics/unsupported-register.ts`, `kind: "gap"`) drains only when it lands.
-
-**Landed.** One shared seeder model — `SeederAggregate` + `seederAggregate`/`seederAggregates`, `src/generator/_persistence/seed-datasets.ts:118-186` — derives an aggregate's create-call shape ONCE (persistence kind, ordered create-call params + omission values) and all five backends' seed emitters read it instead of re-deriving `forCreateInput`/`createInputFields` locally: `src/generator/typescript/emit/seed.ts`, `src/generator/python/emit/seed.ts`, `src/generator/dotnet/emit/seed.ts`, `src/generator/java/emit/seed.ts`, `src/generator/elixir/vanilla/seed-emit.ts` (each imports `seederAggregates`; see `test/generator/_persistence/seed-model-census.test.ts` for the pinned call sites). A reader census (same file) pins that every emitter consumes the shared model and none re-declares `groupByDataset`/`Dataset`/`Entry` locally — java's own byte-for-byte duplicate (the exact defect class the mission's reader census exists to catch) was found and deleted in the same pass.
-
-Elixir appends the aggregate's creation event through the SAME command seam an ordinary create request uses — the context facade's `create_<agg>/1` (`renderEsContextBlock`, `eventsourced-emit.ts`) — rather than a repository `insert/1` that does not exist for an event-sourced aggregate. java/.NET build the `create(...)` call from the shared model's `createParams` (the `create` action's own declared params for an event-sourced aggregate), fixing the param-count/name mismatch. `loom.seed-event-sourced-unsupported` and its register row are retired (`src/language/validators/seed.ts:95-134`, rule 6); the domain seed path on an event-sourced aggregate is now accepted, gated by two narrower permanent rules instead — `loom.seed-raw-eventsourced` (no per-field columns to raw-INSERT into; the aggregate's table is its append-only event stream) and `loom.seed-eventsourced-no-create` (zero `create` actions is a legitimate event-sourced shape, but then there is no creation event for a seed row to append).
-
-**Verification.** `test/language/seed.test.ts`'s negative case flipped to positive, plus the two new negative cases for the raw/no-create crossings; each backend's seed test suite carries an event-sourced case (`test/generator/hono/hono-seed.test.ts`, `python-seed.test.ts`, `dotnet-seed.test.ts`, `generator-java-seed.test.ts`, `elixir/seed-emit.test.ts`); mutation-proved per fix (dotnet/java: an extra create-call arg reproduces the arity mismatch; elixir: reintroducing the old ES-exclusion filter reproduces the silent drop). Runtime-verified live: `.NET` generated + booted against Postgres (`docker compose up db api`), `/ready` green, the seed row appended `Opened` (version 1) to `bank.bank_events`, and `GET /api/accounts` folds it back to `{owner: "seeded-alice", balance: 0}`. Full record: `docs/new-plan/waves/handoffs/wave-2-seeder-contract.md`.
-
-Sources: [targets-completeness-2026-08-30](../audits/targets-completeness-2026-08-30.md) `F2-SEED-EVENTSOURCED`, ledger.json.
-
-## M-T6.53 — Two single-backend emitter bugs: non-importable python api-clients, non-compiling elixir block functions — `in-flight` · **S** · P1
-
-Found 2026-09-03 by the language-docs audit ([F7](../audits/2026-09-03-language-docs-audit-findings.md), [F8](../audits/2026-09-03-language-docs-audit-findings.md), both P0). `src/generator/python/api-client.ts:88` appends `| None` to an already-optional rendered type and never imports `FileRef`, so a `File?` field through an api resource emits `spec: FileRef | None | None` inside a `pydantic.BaseModel` in `app/resources/api_clients.py` — an undefined name at import time. And `bodyUsesParam` (`src/generator/elixir/vanilla/function-emit.ts:162`) misses a parameter read only inside a `let`, underscoring the head (`def fee(%Order{} = record, _q)`) while the body reads `q`.
-
-**The fix:** one `| None` and a `FileRef` import on the python side; teach `bodyUsesParam` to see reads nested in `let` bindings on the elixir side. Independent files, one packet only because both are one-liners.
-
-**Verification when it lands.** Both generated projects compile (`ruff`/`mypy` and `mix compile --warnings-as-errors`); each fix mutation-proved by file-copy revert.
-
-**Landed 2026-09-06 as [#2787](https://github.com/lemmit/Loc/pull/2787)** (open for review); both findings grew on contact. **F7 was bigger:** the missing `FileRef` import had nothing to import — `app/domain/file_ref.py` is not emitted into a caller project at all, because emission was gated on the deployable's *own* contexts declaring a File field. So the fix is the annotation *and* the module (with `/files` routes still gated on `hasFileField`). It shipped because **no python-build fixture reached the typed in-system api client**; `api-client-file.ddd` closes that. **F8's anchor was one level off:** `bodyExprs` does have a `let` arm and the existing `shippingFor` test proves it — the real hole is `walkExpr` in `src/generator/elixir/domain/predicates.ts` missing `list`/`match`/`convert` arms, so a read *nested inside one* is invisible. Making that walk **exhaustive with a `never` check** caught a fourth missing arm (`i18nFormat`) immediately, and the new compile fixture caught a third instance of the same class ([F49](../audits/2026-09-03-language-docs-audit-findings.md) — `renderPureFunction` in `domain-core-emit.ts` hardcoding its receiver binding while the facade twin underscores an unused one). *Generalisation worth spending: every hand-rolled `ExprIR`/`StmtIR` walk outside the shared `_expr`/`_stmt` dispatchers should carry the same `never` check.*
-
-Sources: [language-docs-audit-2026-09-03](../audits/2026-09-03-language-docs-audit-findings.md) F7/F8 (+ F49), [wave plan](../audits/2026-09-03-language-docs-audit-findings.waves.md) packet **W1.3**.
-
-## M-T6.54 — Java ignores `ignoring` for principal filters, and renders a guarded invariant on the wire without its guard — `open` · **M** · P1 ⚠ verify-first
-
-Found 2026-09-03 by the language-docs audit ([F18](../audits/2026-09-03-language-docs-audit-findings.md), [F19](../audits/2026-09-03-language-docs-audit-findings.md), both P2). `jpqlWhere` (`src/generator/java/emit/repository.ts:361-392`) ANDs `principalClause` unconditionally with no `bypassAll`/`bypassCaps` check (`bypassAll` appears only at `:637`, the impl-side Hibernate wrapper), so both `find allRows(): Order[] ignoring *` and `ignoring tenantScoped` still emit `where (e.tenantId = :#{@currentUserAccessor.user()?.tenantId()})` — node/python/elixir drop the conjunct and dotnet emits `IgnoreQueryFilters`. It contradicts the comment at `src/generator/java/capability-filter.ts:26-29`, which claims parity with node. The fail-direction is safe (Java over-restricts rather than leaking), which is why this is not a Wave-1 packet — but the same `.ddd` returns a different row set on Java, and an operator reading the docs would conclude the bypass took effect. Separately, `buildChecks` (`src/generator/java/emit/validator.ts:366-395`) calls `renderJavaExpr(inv.expr, …)` with no `!(guard) ||` implication, which node/.NET/python all emit: `invariant note.length > 0 when taxRate > 0` becomes unconditional, so Java 422-rejects a request that is legal when `taxRate == 0`.
-
-**The fix:** `jpqlWhere` honours the find's `bypassAll`/`bypassCaps`; the wire validator emits the implication the other backends emit. Correct the stale parity comment in `capability-filter.ts` in the same PR.
-
-**Verification when it lands.** Generator tests asserting the *absence* of the principal conjunct under each bypass spelling (a presence-only assertion cannot see a retained conjunct) and the presence of the guard implication; both mutation-proved by file-copy revert.
-
-Sources: [language-docs-audit-2026-09-03](../audits/2026-09-03-language-docs-audit-findings.md) F18/F19, [wave plan](../audits/2026-09-03-language-docs-audit-findings.waves.md) packet **W5.1** (first in its wave — the one row there with a behavioural consequence). Sibling of M-T6.51 (the node document-find twin of the same "bypass silently retained" shape).
-
-> **Verified 2026-09-09 (fleet). Both rows hold; F18 is TWO surfaces, not one.** The relational
-> `@Query` path AND the document-shape `findAll()` path both keep the principal conjunct under
-> `ignoring`. Java already contains the CORRECT implementation for the aggregation path
-> (`emit/query-projection-reads.ts:161-166`), so this is a missed surface, not an undesigned feature —
-> and `capability-filter.ts:29-32` asserts the behaviour exists. **`FILTER_BYPASS_FAMILIES` includes
-> `java`, so `loom.filter-bypass-unsupported` certifies Java as honouring `ignoring` while two of its
-> four read surfaces do not.** Fail direction is safe (over-restricts). F19 is S: one arm of
-> `buildChecks`, with `dotnet/validator-emit.ts:167-171` as a line-for-line template. The
-> document-store half is the awkward one — the conjunct lives inside the SHARED `findAll()`, so a
-> per-read bypass needs it hoisted into each read's filter chain.
-## M-T6.55 — Phoenix drops a part-level `check`, a guarded single-field invariant, and a private-operation call — `open` · **M** · P1 ⚠ verify-first
-
-Found 2026-09-03 by the language-docs audit ([F14](../audits/2026-09-03-language-docs-audit-findings.md), [F15](../audits/2026-09-03-language-docs-audit-findings.md), [F24](../audits/2026-09-03-language-docs-audit-findings.md); P1/P1/P2). Three silent under-enforcements on one backend: `entity Line { qty: int check qty > 0 }` produces a `changeset/2` that only `cast`s `[:sku, :qty]` with no `validate_number` (root-level `check`/`invariant` do emit one, and node/dotnet/java/python all enforce the part-level form); a guarded single-field invariant is excluded by both `residualInvariants` (`src/generator/elixir/vanilla/changeset-invariant-emit.ts`) and the native path in `changeset-emit.ts`, so nothing enforces it; and a private-operation call renders `_ = nil  # vanilla: bare call to 'recompute' (no callable target); record unchanged` — compile-clean, behaviourally absent, signalled only by a comment in generated code.
-
-**The fix:** each either enforces or raises a `loom.*` code. F24's comment-only degrade is not an acceptable resting state — a comment in emitted output is not a diagnostic.
-
-**Verification when it lands.** A changeset test per shape plus a behavioural leg that submits the value the rule should reject; each mutation-proved by file-copy revert.
-
-Sources: [language-docs-audit-2026-09-03](../audits/2026-09-03-language-docs-audit-findings.md) F14/F15/F24, [wave plan](../audits/2026-09-03-language-docs-audit-findings.waves.md) packet **W5.2**. Relates to M-T6.2 (the vanilla-Phoenix gap register — the same "silent fallthrough vs honest gate" discipline).
-
-> **Verified 2026-09-09 (fleet). All three hold, two undercount, and F24's stated reason is false.**
-> F14 also drops part-level `invariant`, not just `check`. F15 also drops the MESSAGED guarded
-> invariant, so its `loom_code` wire key vanishes — contradicting `messagedRoutesToResidual`'s own
-> docblock. **F24's emitter comment says "no callable target" while `def recompute/2` is defined SIX
-> LINES ABOVE in the same module.** Fork resolved: **EMIT the call, do not mint a refusal** — a
-> validator gate is platform-independent and would reject a construct the other four backends have
-> shipped for months. The fix has TWO halves: `persistPutBodies` walks only `op.statements`, so
-> emitting the call alone computes the mutation and silently drops it at persist.
 ## M-T6.56 — Phoenix wire and HEEx divergences: a dropped `derived`, a `:map` value-object column, `Image`/`Icon`/`WorkflowForm` — `open` · **M** · P2 ⚠ verify-first
 
 Found 2026-09-03 by the language-docs audit ([F16](../audits/2026-09-03-language-docs-audit-findings.md), [F20](../audits/2026-09-03-language-docs-audit-findings.md), [F22](../audits/2026-09-03-language-docs-audit-findings.md), [F23](../audits/2026-09-03-language-docs-audit-findings.md); P1/P2). `derivedRenderable` (`src/generator/elixir/vanilla/wire-serialize.ts`) omits a `derived` that reads another `derived` from `serialize/1` while the other four backends ship it — a wire-shape divergence with no gate. On the HEEx side, `renderImage` (`src/generator/elixir/heex-primitives.ts:1510`) and `renderIcon` (`:2151`) read only a named `src:` / a `svg:` literal, ignoring the positional spelling every other target renders (`Image { "/logo.png", alt: … }` emits `<img alt>` with no `src`; `Icon { name: "check" }` an empty span), and the HEEx `WorkflowForm` emits a single `<.input field={@form[:_placeholder]}>` (`heex-primitives.ts:388`) where React emits the real field set.
@@ -323,7 +222,7 @@ Sources: [language-docs-audit-2026-09-03](../audits/2026-09-03-language-docs-aud
 > zero `handle_event/3` clauses raises `FunctionClauseError` and kills the LiveView (audit F61).
 > **Split F23 out**: shipping the field set without the handler looks correct and still 500s, and its
 > only proving leg (`phoenix-ui-e2e`) is in neither the per-PR set nor the merge queue.
-## M-T6.57 — `envelope` means something different on each of the five backends — scope it before fixing it — `open` (scoping only) · **S** · P2 ⚠ verify-first
+## M-T6.57 — `envelope` means something different on each of the five backends — scope it before fixing it — `done` (option B ratified as [D-ENVELOPE-RATIFY](../decisions.md), landed 2026-09-10) · **S** · P0
 
 Found 2026-09-03 by the language-docs audit ([F21](../audits/2026-09-03-language-docs-audit-findings.md), P2). The repository layer carries `Envelope<T>` on dotnet and java; node/dotnet/java/python routes return the bare response; elixir's controller returns a JSON array. Five targets, no agreed meaning.
 
@@ -342,7 +241,46 @@ Sources: [language-docs-audit-2026-09-03](../audits/2026-09-03-language-docs-aud
 > `docs/generators.md:66` gives generic carriers five ticks; two sit on output that does not build.
 > Scoping is done (see the fleet plan); the A/B/C fork needs user sign-off before any emitter change.
 > The docs correction is true under every option.
-## M-T6.58 — `handle` and named `create` are lowered, test-pinned and promised by a diagnostic — but no backend emits an entry point — `open` · **L** · P1 ⚠ verify-first, route to `language-feature-developer`
+
+> **CLOSED 2026-09-10 — option B ratified by the user and landed.** `envelope` **means a
+> single-row find**: the repository returns `T`, the route returns the bare body, 404 when
+> absent — exactly what node and python already shipped (both reproduced clean; the register's
+> "python 404s on absent" undersells node, which throws `AggregateNotFoundError` on an empty
+> `limit(1)` and 404s too). All five reproduced first: java's three `Envelope<Order>` signatures
+> (port / Spring-Data interface / impl, type declared nowhere, `OrderResponse.from(...)` called on
+> it) — CONFIRMED; dotnet's `Task<Envelope<Order>>` returning a bare `Order` — CONFIRMED (and the
+> query handler then reads `domain.Id.Value` off the carrier); elixir's `Repo.all` + JSON array
+> against a single-object OpenAPI — CONFIRMED. Option A (`{id, ts, body}`) stayed blocked: nothing
+> in the IR can source `ts`.
+> **Fix:** `envelopeReturn` (`src/ir/stdlib/generics.ts`, beside `pagedReturn`) is the one
+> recogniser; java unwraps in `findReturn`, dotnet in the new `domainFindShape` (composed with
+> `unionFindAsOptionalTwin` at all 8 call sites, so the port/impl/dapper adapters cannot diverge)
+> and the dead `Envelope<T>` record is deleted from `dotnet/emit/common.ts`, elixir's four
+> `isSingleReturn`/`isDocSingleReturn` predicates gained the carrier arm. node/python: no change
+> needed, verified.
+> **Fixture:** `test/fixtures/corpus/envelope.ddd` (+ manifest row, `backends: ALL`) — the first
+> `.ddd` in the repo to instantiate the carrier, so the per-PR corpus generation gate and every
+> backend compile tier now see it. Pinned by `test/generator/envelope-carrier.test.ts`
+> (`T envelope` and `T` must emit byte-identically, per backend).
+> **Semantics note for readers:** this REMOVES the distinct meaning the keyword was documented to
+> carry. `envelope` is now documentation-in-the-signature ("this read yields at most one row"),
+> not a wire wrapper. Docs corrected: `generators.md` (the five-tick carriers row, split + noted),
+> `payloads.md` §2, `language-reference/04-type-system.md` § `envelope`.
+> **Fixture tier — compile, not behavioural, and signed as such.** `envelope.ddd` carries no
+> `test e2e` block; it is listed in `E2E_LESS_CORPUS_FIXTURES` and `BEHAVIOURAL_ABSENT`. A block was
+> authored and withdrawn: it mints a wire golden, and the find-miss 404 `detail` is **not uniform** —
+> node answers `"not found"`, dotnet/java/python/elixir answer `"not_found"` (dotnet's own
+> `projectionClauseFor` comment calls `"not_found"` "the canonical find-miss detail token on every
+> backend"). A golden captured on the node leg would redden the other four on `main`.
+> **TWO SPIN-OFFS, both pre-existing and neither envelope-specific:**
+> (a) that 1-vs-4 find-miss `detail` split — any non-optional single find hits it;
+> (b) a FILTERLESS single-return find on an EVENT-SOURCED aggregate emits
+> `Enum.find(all, fn a ->  end)` on elixir — an empty lambda body, invalid Elixir (identical for
+> `find pick(): Ev` with no carrier).
+> A third, benign: the `envelope` carrier in a PAYLOAD FIELD (the other position the AST gate
+> admits) is unreachable — the monomorphized `<T>Envelope` payload has no builder, so nothing can
+> construct one.
+## M-T6.58 — `handle` and named `create` are lowered, test-pinned and promised by a diagnostic — but no backend emits an entry point — `blocked(D-HANDLE-REMOVAL)` · **L** · P1 ⚠ verify-first, route to `language-feature-developer`
 
 Found 2026-09-03 by the language-docs audit ([F13](../audits/2026-09-03-language-docs-audit-findings.md), P1) — the only finding in the register that is a *missing feature* rather than a defect. `src/ir/lower/lower-workflow.ts:124-174` fills `WorkflowIR.handlers`/`.creates`, `test/ir/workflow-handle.test.ts` pins the lowering, and `loom.duplicate-handler` (`src/diagnostics/messages.ts:310`) promises that a `route -> Ctx.<handle>` is meaningful — yet no emitter reads `wf.handlers`. A workflow with `handle retry(...)` plus `api { route POST "/fulfil/retry" -> C.retry }` produces no route on node or dotnet, and no routes file at all.
 
@@ -375,7 +313,7 @@ Raised 2026-09-03 by the M-FT.11 field-test slice, which added the `if <cond> { 
 
 Sources: M-FT.11 (grammar slice: `key` / `if` / `??`). Relates to [`vanilla-phoenix-gaps.md`](../old/plans/vanilla-phoenix-gaps.md).
 
-## M-T6.62 — A command-triggered `create` on a state-bearing workflow miscompiles on all five backends — `open` · **M** · P0
+## M-T6.62 — A command-triggered `create` on a state-bearing workflow miscompiles on all five backends — `in-flight (#2850 + wave C1 1a)` · **M** · P0
 
 *Renumbered 2026-09-10 from `M-T6.60`, which #2840 minted while the numeric-strictness mission above already held that id (two live headings, one id — M-T6.58's "blocked on M-T6.60" was ambiguous). This one is the P0 miscompile; M-T6.60 stays the strictness ruling.*
 
@@ -391,7 +329,23 @@ the correlation row, so a later `on` reactor logs `event_unrouted` forever.
 
 **Blocks [M-T6.58](#m-t658).** Do not build workflow entry points on a create path that does not compile.
 
-## M-T6.61 — A `match` expression drops an `error` variant's binding on .NET and Java — `open` · **M** · P0
+### LANDED
+
+- **The receiver binding + correlation-row load/save on all five** — [#2850](https://github.com/Loom-Harness/Loc/pull/2850). The routing key is the create param that NAME-MATCHES the correlation field; the shared predicate is `commandCreateCorrelationParam`.
+- **The second spelling of that rule** (wave C1 packet 1a): `create start(order: Order id) { orderId := order … }` — the create takes a differently-named param and ASSIGNS the correlation field from it. #2850's name-match-only rule left this on the unbound path, and it is the shape `test/generator/workflow-instance-gate.test.ts` drives **on all five backends**, so that whole matrix was asserting against output that does not compile. Verified on `d0b24a2`: node `this.orderId = order` in a module-scope arrow (TS2683); .NET `this.OrderId` on a handler with no such member; Java `this.setOrderId(...)`; Elixir `%{state | order_id: order}` with **both** `state` and `order` unbound; python `self = SimpleNamespace(...)` — the silent one, where the write landed in a request-scoped scratch, the saga row was never inserted, and `/workflows/<wf>/instances` answered empty forever. Accepted only when the assignment is a TOP-LEVEL statement whose RHS is a bare param ref (the row is loaded-or-allocated before the body runs, so the key must be certain and already in hand); a conditional or computed key is refused, not emitted unbound.
+- **Two emitter bugs the second spelling exposed**, both fixed in the same packet: .NET emitted `var __key = command.<CorrelationField>` where the record member is the PARAM name (`FulfilmentCommand(OrderId Order)` → CS1061), and the Elixir `run/1` param-destructure collector (`collectWorkflowStmtParamRefs`) was a hand-rolled switch over 13 of the 14 `WorkflowStmtIR` kinds with **no `default`** — the missing arm was `assign`, so the param an assignment reads was never destructured and the emitted module named an undefined variable. Migrated onto `walkWorkflowStmtChildren`; its `ir-walk-census` waiver deleted with the fix.
+- **The rule now lives once**, at `src/ir/util/workflow-own-state.ts`, because phase ⑦ must refuse exactly what phase ⑧ cannot address; `src/generator/_workflow/create-state.ts` is the generator-side re-export.
+- **`loom.workflow-create-correlation-unsupplied`** (+ the `#payload` message variant) closes the give-up: a command create that supplies the key by neither spelling is refused instead of emitted unbound. The `#payload` variant is the form reported on #2850 — `create(c: FileClaim)`, where the key is a FIELD of a payload-typed param. Refused rather than followed one level down: the emitters would render `c.<corr>` against a param with no wire contract (`z.unknown()` — #2886 owns that half), so node still would not compile, and a spelling that works today exists. Revisit once #2886 lands.
+- **Rule 13 fixture**: `test/fixtures/corpus/workflow-create-state.ddd` carries both spellings plus an `on(...)` reactor routing back onto the row the create persisted; registered on all five backends and in `E2E_LESS_CORPUS_FIXTURES`.
+
+### REMAINING
+
+- **An UNCORRELATED command workflow (state fields, no id-shaped field) is a five-way parity gap.** M-T6.50 (b) made python emit a request-scoped scratch (`self = SimpleNamespace(_total=0)`) for it, and #2850 fixed that scratch's indentation; node/.NET/Java still emit an unbound `this.<field>`, and Elixir's shape needs re-reading. Not refused — refusing would revoke a shipped emission — so this is emitter work to bring the other four onto python's semantics (or a ruling that the shape is a `scope` limit). Repro: `workflow Tally { total: int  create(base: int) { total := base } }`.
+- **A command create whose body does NOT touch own state still allocates no row**, so an `on` reactor for the same key logs `event_unrouted` forever (the reactor path loads, it does not allocate). Deliberately ungated — refusing it would refuse a legitimately stateless command starter — and it is the half of F58's "never loads or saves" that a receiver-binding fix cannot reach.
+- **The wire contract for a payload-typed create param** (`z.unknown()` / `TS18046`) is [#2886](https://github.com/Loom-Harness/Loc/pull/2886)'s.
+- **An `eventSourced` workflow with state fields and no id-shaped field** is unexamined; the `apply(...)` fold path is `StmtIR`, not `WorkflowStmtIR`, and is out of this packet's scope.
+
+## M-T6.61 — A `match` expression drops an `error` variant's binding on .NET and Java — `done` (2026-09-10, [#2857](https://github.com/Loom-Harness/Loc/pull/2857); re-verified 2026-09-11) · **M** · P0
 
 Found 2026-09-09 by the verification fleet ([F59](../audits/2026-09-03-language-docs-audit-findings.md)),
 as bycatch while resolving W3.1's gate-vs-lower fork. For a union carrying an `error` variant, the arm
@@ -409,3 +363,89 @@ error-variant arm. Sites: `src/generator/dotnet/render-expr.ts:324`, `src/genera
 
 **Sequencing:** the W3.1 placement gate's message would tell users to switch to exactly this form. Either
 this lands first, or that message must not recommend it on .NET and Java.
+
+**Fixed by [#2857](https://github.com/Loom-Harness/Loc/pull/2857) (`f518e31`, 2026-09-10); re-verified 2026-09-11 by Wave C1 packet 1b BY GENERATING, before building anything on top of it.** Both leaves special-cased "exactly one non-error variant + at least one error variant" as a repository union find's OPTIONAL TWIN — an arity guess that also matches an ordinary `Hit | NotFound` DU, whose carriers do exist. The branch is gone on both. Repro (`payload Hit { code: string }` + `error NotFound { resource: string }`, a `Hit or NotFound` operation, `owner := match r { Hit h => h.code, NotFound n => n.resource }`) now emits the arm's binding on both backends:
+
+```csharp
+Owner = r switch { HitOrNotFound_Hit h => h.Code, HitOrNotFound_NotFound n => n.Resource, _ => throw … };
+```
+```java
+this.owner = switch (r) { case HitOrNotFound_Hit h -> h.code(); case HitOrNotFound_NotFound n -> n.resource(); default -> null; };
+```
+
+and the genuine optional twin still takes the presence-ternary path before `matchVariant` is reached (`var label = outcome is not null ? outcome.Code : outcome.Resource;`). No rebuild; the sequencing constraint on M-T5.28's messages is therefore satisfied — and those two messages prescribe no replacement construct at all, so they stay correct either way. **One adjacent gap surfaced by the repro and NOT owned here:** on elixir the same source is refused by `loom.vanilla-op-call-position` (a sibling-op call outside `return` tail position) — an honest coded gap, already named, no silent decline.
+
+## M-T6.69 — A field named `amount` beside a value object named `Amount` is refused on .NET only — `open` · **S–M** · P1 ⚠ verify-first
+
+Found 2026-09-10 by the [independent completeness audit](../audits/2026-09-10-independent-completeness-audit.md) (F1),
+which the deep fuzz leg produced unprompted — three of 400 seeds reduce to this one shape.
+
+**The refusal.** An aggregate carrying both a field named `amount` and a field typed by a
+value object named `Amount` raises `loom.dotnet-name-collision` and is accepted on the other
+four backends. Reproduced from scratch:
+
+```
+valueobject Amount { scale: int }
+aggregate Claim with crudish { amount: decimal  price: Amount }
+deployable d { platform: dotnet … }   → 1 error   (loom.dotnet-name-collision)
+deployable d { platform: java   … }   → OK
+deployable d { platform: node   … }   → OK
+```
+
+A `Money`/`Amount` value object beside a scalar amount is the most canonical DDD shape there
+is; `examples/acme.ddd` escapes only because its value object is named `Money`. The
+diagnostic's own remedy is *"rename the declaration … or host this context on a node /
+python / elixir / java deployable"* — i.e. move off .NET, which is a portability break dressed
+as a naming rule.
+
+**It is an emitter bug.** The generated C# references the type by *simple* name, so a
+same-named member hides it (CS0119 / CS1061). Emitting the reference qualified — namespace
+qualified, or through a `using` alias — removes the condition entirely.
+
+**Fix, and delete the gate in the same PR.** A waiver that outlives its cause is the shape
+this repo already ratchets against. Mutation-prove by restoring the collision and confirming
+`dotnet build` fails without the fix and passes with it; add seed 45's shrunk model verbatim
+to `test/fixtures/corpus/` so all five backends compile it from then on.
+
+**Sequencing:** this closes the deep fuzz leg's only current failures, so it unblocks
+[M-T9.64](T9-toolchain-health.md#m-t964). Relates to [M-T6.36](#m-t636) (`loom.java-reserved-identifier-unsupported`
+— the same class on Java, which *does* have a mission) and to
+[M-T9.59](T9-toolchain-health.md#m-t959), which explains why this one did not.
+## M-T6.70 — The elixir Schemathesis cell fuzzes the HTML routes, because elixir is the only backend that publishes a `servers` base path — `open` · **S** · P1 ⚠ verify-first
+
+Diagnosed 2026-09-11 while fixing E5 from the Wave C0 schemathesis hand-off
+([`waves/handoffs/wave-c0-schemathesis.md`](waves/handoffs/wave-c0-schemathesis.md)), statically, on the
+emitted `storefront-elixir` tree — the cell itself was not re-booted, so **verify by booting before acting**.
+
+`src/generator/elixir/vanilla/openapi-emit.ts:827` emits `servers: [%Server{url: "/api"}]`, and the vanilla
+router mounts the API under `scope "/api"`. It is the **only** backend that declares a `servers` entry —
+node/python/dotnet/java publish none and serve at the root. The harness passes schemathesis
+`--url http://127.0.0.1:<port>` (`test/behavioral/schemathesis-core.mjs:171`), which REPLACES the server
+base, path included. So every fuzzed request loses the `/api` prefix and lands on the **LiveView/HTML**
+scope (`live "/wallets"`, `live "/wallets/:id"`, then the `match :*, "/*path"` catch-all) — not on the
+contract under test.
+
+That one mismatch accounts for most of the cell's inventory: **E3** (undeclared success content-type —
+LiveView answers `text/html`), **E4** (wrong-verb 405 — the catch-all answers 404), and it is how **E5**
+(fixed in Wave C1, see below) was reachable over HTTP at all. **E1** (`TRACE` → 501) is below the app: the
+web server refuses the method, so it is a waiver shape on any backend.
+
+Two candidate fixes, and the choice is the mission: teach the harness to honour the spec's server base
+(`--url <base><servers[0].url>`, one line, but it silently changes what every backend fuzzes), or make the
+four other backends declare their own base so the axis is uniform. Until one lands, the elixir cell's
+findings are not statements about the elixir API surface, and it must stay `discovery: true`.
+
+## M-T6.71 — A non-UUID id in a Phoenix LiveView route raises `Ecto.Query.CastError` (500) where the controller answers 422 — `open` · **S** · P2 ⚠ verify-first
+
+Diagnosed 2026-09-11 alongside M-T6.70, statically on the emitted tree (E2 of the elixir schemathesis cell).
+
+The generated **controller** guards its path id — `plug :__cast_path_id` halts with the published 422
+(`vanilla/find-controller.ts`). The generated **LiveView** detail page does not: `wallet_detail_live.ex`
+calls `PhoenixApp.Storefront.get_wallet(socket.assigns.id)` straight through, so `Repo.get/2` raises
+`Ecto.Query.CastError` for anything that is not a UUID and the visitor gets a 500 where the page's own
+`:not_found` branch already exists for exactly this case.
+
+Shape to fix: cast in the repository's `find_by_id` (one site, every caller) and return `{:error,
+:not_found}`, or mirror the controller's plug in the LiveView `mount`. The first is cleaner but changes
+what the CONTROLLER would answer if its plug ever stopped firing (422 vs 404) — decide deliberately, and
+gate whichever you pick with a boot-verified request, not a compile.

@@ -5,6 +5,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { installGeneratedProject } from "./support/npm-install.js";
 
 // ---------------------------------------------------------------------------
 // Observability events — end-to-end regression guard.  Generates the
@@ -84,11 +85,7 @@ describe.skipIf(!ENABLED)(
           stdio: "pipe",
           cwd: repoRoot,
         });
-        execSync(`npm install --silent --no-audit --no-fund`, {
-          cwd: outDir,
-          stdio: "pipe",
-          timeout: 180_000,
-        });
+        installGeneratedProject(outDir, { timeout: 180_000 });
 
         const port = await freePort();
         // DATABASE_URL just has to pass the boot script's presence check;

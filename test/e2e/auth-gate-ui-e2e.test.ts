@@ -8,6 +8,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { hasDocker as dockerAvailable } from "./support/docker-probe.js";
 import { type HexMirror, startHexMirror } from "./support/hex-mirror";
 import { mixDepsGet, mixLocalInstall } from "./support/mix-retry";
+import { installGeneratedProject } from "./support/npm-install.js";
 
 // ---------------------------------------------------------------------------
 // Runtime auth UI-gate smoke — proves the auth gate WORKS at runtime, not just
@@ -115,7 +116,7 @@ function runGateSpec(project: string, baseUrl: string): void {
     );
   }
   fs.copyFileSync(sharedSpec, path.join(e2e, "auth-gate.spec.ts"));
-  run("npm install --no-audit --no-fund", e2e);
+  installGeneratedProject(e2e, { timeout: 900_000 });
   run("npx playwright install --with-deps chromium", e2e);
   run(`E2E_BASE_URL=${baseUrl} npx playwright test auth-gate.spec.ts`, e2e);
 }
@@ -164,7 +165,7 @@ describe.skipIf(!ENABLED)("auth UI-gate runtime smoke", () => {
     expect(fs.existsSync(path.join(project, "svelte.config.js")), "svelte project emitted").toBe(
       true,
     );
-    run("npm install --no-audit --no-fund", project);
+    installGeneratedProject(project, { timeout: 900_000 });
     run("npx svelte-kit sync", project);
     await buildServeTest(project, () => run("npx vite build", project), "build", vitePreview);
   });
@@ -178,7 +179,7 @@ describe.skipIf(!ENABLED)("auth UI-gate runtime smoke", () => {
       expect(fs.existsSync(path.join(project, "vite.config.ts")), `${fw} project emitted`).toBe(
         true,
       );
-      run("npm install --no-audit --no-fund", project);
+      installGeneratedProject(project, { timeout: 900_000 });
       await buildServeTest(project, () => run("npx vite build", project), "dist", vitePreview);
     });
   }
@@ -193,7 +194,7 @@ describe.skipIf(!ENABLED)("auth UI-gate runtime smoke", () => {
     const work = fs.mkdtempSync(path.join(os.tmpdir(), "loom-gate-angular-"));
     const project = generateAs("angular", work);
     expect(fs.existsSync(path.join(project, "angular.json")), "angular project emitted").toBe(true);
-    run("npm install --no-audit --no-fund", project);
+    installGeneratedProject(project, { timeout: 900_000 });
     await buildServeTest(
       project,
       () => run("npx ng build", project),

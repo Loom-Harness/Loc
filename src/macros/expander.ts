@@ -41,6 +41,7 @@ import {
   isCapability,
   isCriterion,
   isImplementsDecl,
+  isPolicyDecl,
   isSubdomain,
   isSystem,
   isUi,
@@ -163,6 +164,12 @@ interface Inventory {
   /** Reusable predicate specifications (`criterion X(...) of T = …`) keyed by
    * name — the `of:` target of `scaffoldPaged` / `scaffoldPagedApi`. */
   Criterion: Map<string, AstNode>;
+  /** FUNCTION-form authorization predicates (`policy X(...): bool = …`) keyed
+   * by name — the `requires:` target of `crudish`.  The read-ladder form
+   * (`policy { allow deep on X }`) is deliberately excluded: it has no name
+   * to call and is not a boolean gate, so a macro that splices
+   * `requires <Name>()` must never resolve one. */
+  Policy: Map<string, AstNode>;
   /** Typed capability declarations (typed-capabilities.md) keyed by name.
    * A `with <cap>` clause resolves against this when no macro matches. */
   Capability: Map<string, Capability>;
@@ -177,6 +184,7 @@ function buildInventory(model: Model, shared?: LangiumSharedServices): Inventory
     ValueObject: new Map(),
     EnumDecl: new Map(),
     Criterion: new Map(),
+    Policy: new Map(),
     Capability: new Map(),
   };
   const scan = (root: Model): void => {
@@ -190,6 +198,9 @@ function buildInventory(model: Model, shared?: LangiumSharedServices): Inventory
       else if (node.$type === "ValueObject") inv.ValueObject.set(named.name, node);
       else if (node.$type === "EnumDecl") inv.EnumDecl.set(named.name, node);
       else if (isCriterion(node)) inv.Criterion.set(named.name, node);
+      // Function form only — `returnType` present discriminates
+      // `policy X(): bool = …` from the read-ladder `policy X { … }`.
+      else if (isPolicyDecl(node) && node.returnType) inv.Policy.set(named.name, node);
       else if (isCapability(node)) inv.Capability.set(named.name, node);
     }
   };

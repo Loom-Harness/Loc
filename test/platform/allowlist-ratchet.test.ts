@@ -331,7 +331,88 @@ const REGISTERED: Ratchet[] = [
     // stale entry the moment `main` moved under this branch — the drain
     // direction working in the field rather than in a mutation, twice in two
     // days, which is the rate a hand-maintained matrix would have rotted at.
-    max: 12,
+    //
+    // THEN THE DIRECTION REVERSED.  Six raises landed across two waves, each a
+    // NEW fixture whose subject the compile tier genuinely gates rather than a
+    // drained entry regressing — 12 -> 18 in total.  They were written against
+    // `main`s where the others did not exist, so each merge keeps every
+    // argument rather than letting a later one silently inherit an earlier
+    // one's slot: that inheritance is precisely the hollowing-out this ratchet
+    // is for, and it is invisible in a count that only ever moves by one.
+    //
+    // (#2864 D7/T2, mission M-T6.67a) — a RAISE, and the
+    // reviewed line in the diff this ratchet exists to force.  The new corpus
+    // fixture `workflow-command-payload` cannot carry a `test e2e` block:
+    // its defect is on the WORKFLOW command route, and the e2e DSL has no form
+    // that calls one — NO `.ddd` in this repo drives a command workflow from a
+    // `test e2e` block.  A block added anyway could only drive the fixture's
+    // two `crudish` aggregates, i.e. a green caller over the routes that were
+    // never broken, which is the hollowing-out this gate was minted to stop
+    // rather than a way around it.  The bug class is "the emitted project
+    // names a wire type nothing emits", which is precisely what the five
+    // compile legs see.
+    //
+    // Drain (M-T9.13, which owns authoring these blocks): when the e2e DSL
+    // gains a workflow-invocation form, POST the payload and read the created
+    // aggregate back — that reaches the one thing the compile tier cannot, the
+    // wire CONTRACT (node's pre-fix `z.unknown()` accepted anything).  Lower
+    // this by one in the same PR.
+    //
+    // (#2869, dev-experience audit D6/P2 — `auth-id-claim`).  A RAISE,
+    // so it is spelled out.  Every other entry here is a behavioural-tier GAP
+    // waiting on M-T9.13's drain: something the compile tier structurally
+    // cannot see (a wrong aggregate COUNT, an async outbox delivery, a
+    // row-visibility ladder).  This one is not that shape and has nothing to
+    // drain.  Its fixture's whole subject is a STATIC contract — an id-typed
+    // `user { … }` claim — and each of the four symptoms that minted it is
+    // caught by the compile leg that already gates the cell: `TS2503`,
+    // `cannot find symbol`, a `CustomerId??` that does not parse, and (the one
+    // that reads runtime) python's missing import, which corpus-python's
+    // `ruff check` flags F821 and `mypy --strict` flags `name-defined` before
+    // anything boots.  Booting it would re-record `auth-oidc`'s CRUD
+    // round-trip and mint a golden that is an oracle for nothing, and the
+    // claim VALUE is unassertable anyway — the harness's mock issuer mints no
+    // `customer_id`.  So a future drainer should NOT spend a slot trying to
+    // give this one an e2e block; the honest move if it ever becomes wrong is
+    // to delete the fixture, not to boot it.
+    //
+    // 13 -> 14: `find-bypass` (M-T6.54 F18, wave-c1 packet 1f) — a NEW fixture,
+    // not a drained one regressing.  Its assertion ("does the OTHER tenant's row
+    // appear under `ignoring tenantOwned`?") needs the two-principal harness
+    // `projection-agg-filters` already waits on, and under one principal both
+    // spellings return the same set, i.e. a behavioural block would be GREEN over
+    // the retained conjunct the fixture exists to catch.  Its tracker is the same
+    // one (tenancy-e2e's two-principal harness); it drains with its neighbour.
+    //
+    // 14 -> 17: three more NEW fixtures folded in the same wave (C1), each a
+    // compile-tier proof of a fix whose runtime half is owed, and each carrying
+    // its drain condition in the register: `projection-fold-statements` and
+    // `paged-nonrelational` (ledger rows F2-XB-4 / F2-CB-C1, packet 1e-i — a
+    // dropped fold-body `let` is CS0103, the wrong paged carrier CS0535, so the
+    // corpus compile leg plus the two conformance matrices are the gate that
+    // mattered), and `workflow-primitive-params` (RS-26 boxing of a java
+    // workflow's primitive params, packet 1h — the behavioural runner cannot
+    // yet address a workflow's create surface).  Reviewed at the wave fold.
+    //
+    // 17 -> 18: `workflow-command-payload` (#2864 D7/T2, M-T6.67a) — argued in
+    // full above.  Its neighbour `workflow-primitive-params` just above reached
+    // the same conclusion independently and for the same structural reason
+    // ("the behavioural runner cannot yet address a workflow's create
+    // surface"), which is worth noting: two fixtures, two waves, one missing
+    // capability.  Whoever gives the e2e DSL a workflow-invocation form drains
+    // BOTH, and should lower this by two.
+    // 18 -> 19 (M-T6.57 / audit F57): `envelope`.  A RAISE, deliberately — the
+    // corpus fixture that finally instantiates the `envelope` carrier (nothing
+    // in the repo did, which is why java and dotnet shipped output that did not
+    // compile) stops at the compile tier.  Its oracle IS a compile one: five
+    // compile legs plus the byte-identity gate in
+    // `test/generator/envelope-carrier.test.ts`.  A `test e2e` block was
+    // authored and withdrawn because it mints a wire golden, and the find-miss
+    // 404 `detail` is not uniform yet (node `"not found"`, the other four
+    // `"not_found"`) — a golden captured on the node leg would redden four legs
+    // on `main`.  Drain this entry when that split is ruled; the entry's own
+    // comment in `gate-ledger.test.ts` names the condition.
+    max: 19,
   },
 ];
 
