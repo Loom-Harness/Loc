@@ -76,6 +76,22 @@ bytes when its block was extracted.
 
 ### 2. MikroORM reference-collection membership — implemented
 
+> **Correction, and the miss that produced it.** The first version of this row rewrote
+> `MIKROORM_SUBSET` into a four-line walk that looked only for the surviving column-argument
+> narrowing. That silently deleted THREE behaviours the descriptor also owned — naming the
+> offending operator on an arithmetic node, reporting the FIRST unlowerable node
+> (left-branch-before-right), and rejecting a bare NON-boolean column in a predicate position
+> (`filter this.name`, which must not become `{ name: true }`) — along with the
+> `isBareBooleanColumn` / `isQueryableIntrinsicCall` / `COMPARE_OPS` vocabulary they were
+> written in. `test/ir/util/find-predicate-capability.test.ts` pins all three and went red;
+> I never ran it, having assumed `mikroorm-predicate-subset.test.ts` was this module's
+> coverage. It is not — that one covers the EMITTER, this one covers the DESCRIPTOR.
+> The walk is now the original structure with exactly one arm changed: membership no longer
+> decides the narrowing by itself, it defers to `isColumnArgMembership`, through a single
+> `judgeMembership` helper both the predicate and the value position call so they cannot
+> drift. **Lesson for the wave:** when a change guts a pure helper module, grep for a test
+> file named after the MODULE, not only for tests named after the feature.
+
 `MIKROORM_SUBSET` refused every `this.<refColl>.contains(x)` with the reason *"needs a
 correlated join the adapter emits nowhere"*. That was a claim about the **EXISTS spelling**,
 not about the adapter: an uncorrelated `id in (select …)` says the same thing and needs no
@@ -238,7 +254,7 @@ adapter in the gate) fixes node only. Either way `isColumnArgMembership` in
 | `npm run lint` | 0 errors, 23 warnings — all pre-existing on the base |
 | `node scripts/mission-counts.mjs --check` | up to date (regenerated: `open` 60 → 59, `partial` 66 → 67) |
 | `node scripts/ledger-counts.mjs --check` | `.md` matches the JSON |
-| `npm test` | ran on a machine at load 20-60 (several agents sharing it). ONE assertion failure — `corpus/audit-history: the IR-derived caller set equals the requests actually made` — caused by my fixture change and fixed by the re-captured golden (green in isolation). Every other red was a TIMEOUT under that load, and each is now **proven** so rather than asserted: re-run in isolation on the same tree, all seven pass (below). |
+| `npm test` | ran on a machine at load 20-60 (several agents sharing it). **TWO** assertion failures, both now fixed: the stale `audit-history` wire golden (re-captured), and six cases in `test/ir/util/find-predicate-capability.test.ts` that I had not run and that commit `0ad9d790a` broke — see the correction below. Every other red was a TIMEOUT under that load, proven so by re-running each in isolation on the same tree. |
 | node compile leg, **both** adapters | `npm install` + `npx tsc --noEmit` clean on generated projects for: the audited-returning repro (drizzle + mikroorm), the provenanced-returning twin, the membership find (mikroorm), the extended `audit-history` corpus fixture, and `embedded, inheritanceUsing: ownTable` (drizzle + mikroorm) |
 | behavioural node leg | `cd test/behavioral && node run.mjs audit-history` — **1 passed, 0 failed** on the extended fixture |
 | runtime | five booted apps on a real `postgres:18-alpine` (not PGlite) — below |
