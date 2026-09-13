@@ -387,7 +387,15 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
       "on MikroORM: the two self-provisioning limits — declared migration steps and Postgres " +
       "schema placement (migration-checks.ts, `#migrations` / `#schema-split` / " +
       "`#schema-ignored`) — this adapter's boot-time `orm.schema.updateSchema()` schema owner " +
-      "genuinely cannot express.  Two prior residents drained: the root SCALAR/ENUM " +
+      "does not express today.  BOTH are OWNER-RULED as builds, not as permanent limits: " +
+      "`#migrations` by D-DAPPER-ALTER (its mikroorm twin is ruled the same way there) — " +
+      "render the MigrationsIR chain behind a `__loom_migrations` ledger and flip " +
+      "`!usingMikro` at `src/platform/hono/v4/emit.ts`, a named T2 mission, with the widened " +
+      "refusal landing first as the interim), and `#schema-*` by measurement (C2 packet 2c): " +
+      "a MikroORM `EntitySchema` takes a `schema:` key and `updateSchema` provisions it, so " +
+      "the gap is that `renderMikroEntities` is never handed the per-aggregate " +
+      "`resolveDataSourceConfig` the drizzle `renderSchema` already receives at the same call " +
+      "site (`emit.ts:705`).  Two prior residents drained: the root SCALAR/ENUM " +
       "scalar-array shape (`#scalar-array` — `columnsForType` grew a native-Postgres-array " +
       "column arm mirroring drizzle's; `validateMikroOrmSupport` and the reject itself are " +
       "gone) and the abstract-inheritance-base-with-`contains` shape (promoted to the " +

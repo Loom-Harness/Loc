@@ -297,7 +297,7 @@
    ],
    "securityClass": false,
    "P": 2,
-   "note": "Wave 1 packet 1c: node arm verified fixed; python/java/.NET/elixir arms open — see handoffs/wave-1-node-ts.md for the per-backend shape.",
+   "note": "Wave 1 packet 1c: node arm verified fixed; python/java/.NET/elixir arms open — see handoffs/wave-1-node-ts.md for the per-backend shape.  Re-verified on the C2 head (packet 2c): the node arm is closed on BOTH caller sites — `readPortResolver(ctx)` is threaded through `honoWorkflowStmtTarget` for statement bodies (`src/platform/hono/v4/workflow-builder.ts:1968`) AND through the explicit handler's `return` render (`explicit-handlers-builder.ts:480,491`), with `serviceReadPorts` constructing the port repos; pinned by `test/generator/typescript/handler-reading-service.test.ts` (5 cases, green).  `remainingTargets` unchanged: dotnet, java, python, elixir.",
    "verified": {
     "date": "2026-09-03",
     "against": "bd7aaeedc",
@@ -731,7 +731,8 @@
      "python",
      "elixir"
     ]
-   }
+   },
+   "note": "Wave C2 packet 2c: the NODE arm is not a node arm.  `deriveEventSubscriptions` (`src/ir/enrich/enrichments.ts:1303`) early-returns when no channel carries the event, so no backend derives the subscription and none folds — the emitters are already correct downstream of it (node mounts its fold tee off `isMaterializedProjection`, `src/generator/typescript/emit/routes.ts:120`, and would fold the moment a subscription exists).  D-PROJECTION-IMPLICIT-SUB rules that an `on(Event)` subscribes in-process with or without a channel, so the fix is ONE change in `enrichments.ts` (drop the channels early-return, derive unconditionally) plus the corpus case — a 2f change on the shared IR, not five per-backend arms.  Handed off to 2f; nothing in `src/platform/hono/**` or `src/generator/typescript/**` needs to move."
   },
   {
    "id": "F2-CFE-11",
@@ -1193,7 +1194,7 @@
    ],
    "repro": null,
    "impact": null,
-   "fix": "Either implement static-bundle hosting on the Hono backend surface (composeService + mountsUi: true) or record it as a settled non-goal in docs/platforms.md so it stops appearing in parity sweeps.",
+   "fix": "OWNER NAMED (wave C2 packet 2c, 2026-09-13): this is M-T9.4's A7.4 \"fullstack-embed seam on PlatformSurface\", not an ownerless parity cell — it is a FEATURE the other four backends have, not a gap a refusal could close, so it stays `open` under that mission rather than becoming a `scope` row.  The shape is settled by the four that ship it: the SPA bundle is built in a multi-stage Dockerfile stage and copied into the server's static root, the api routes move under `/api/*`, and an index.html fallback serves every other path (.NET `UseStaticFiles` + `MapFallbackToFile` into `wwwroot/`, `src/generator/dotnet/index.ts:316-320`).  On Hono that is `serveStatic` from `@hono/node-server/serve-static` plus an `app.get('*')` fallback, `mountsUi: true` on BOTH the descriptor (`src/platform/metadata.ts:170`) and the surface (`src/platform/hono/v4/index.ts:60` — `descriptor-consistency.test.ts` pins the pair), and the frontend build stage in the emitted Dockerfile.  Size M, and it needs a booted-app proof (the SPA route answering index.html while `/api/*` still answers JSON), which is why it was not folded into a packet whose other rows are refusals.",
    "size": "M",
    "sources": [
     "fleet1:pr-registers"
@@ -1210,7 +1211,8 @@
     "remainingTargets": [
      "node"
     ]
-   }
+   },
+   "note": "Re-verified reproducing on 29db198c1 (`src/platform/metadata.ts:170` mountsUi: false, the one `false` among the backends).  Owner: M-T9.4 A7.4."
   },
   {
    "id": "M-T1.10-handler-vocabulary",
