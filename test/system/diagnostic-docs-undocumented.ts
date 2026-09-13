@@ -158,7 +158,6 @@ export const UNDOCUMENTED_CODES: readonly string[] = [
   "loom.intrinsic-nullable-receiver",
   "loom.intrinsic-unknown",
   "loom.ir-internal",
-  "loom.java-reserved-identifier-unsupported",
   "loom.join-non-string",
   "loom.legacy-part-call",
   "loom.legacy-vo-call",

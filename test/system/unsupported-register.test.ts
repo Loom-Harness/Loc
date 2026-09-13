@@ -283,7 +283,16 @@ const REGISTER_FILE = path.join(srcRoot, "diagnostics", "unsupported-register.ts
  *  `kind: "seam"`, so this pin now counts exactly what the completion plan's
  *  exit criterion names: LIVE gaps on a shipping target.  The seam rows are
  *  pinned separately below (`LATENT_SEAMS`) so the move cannot hide a gap. */
-const MAX_OPEN_GAPS = 27;
+/** Wave C2 packet 2d (M-T6.36): 27 → 26.  `loom.java-reserved-identifier-unsupported`
+ *  is DRAINED, not reclassified — a `.ddd` member / parameter / operation named
+ *  after a Java reserved word now emits a mangled host identifier plus an
+ *  explicit `@JsonProperty` (and, for an enum value, a JPA `AttributeConverter`)
+ *  at every wire site, so the JSON body, the springdoc schema, the query
+ *  parameter, the RFC-7807 error pointer and the stored column all keep the
+ *  `.ddd` spelling.  Compile- and BOOT-proved on a real Postgres
+ *  (`test/generator/java/java-reserved-identifier.test.ts`,
+ *  `test/fixtures/corpus/java-reserved-words.ddd`). */
+const MAX_OPEN_GAPS = 26;
 
 /** Exact count of `seam` rows.  Changes only for a reviewed reason: a gate
  *  deleted (down), a new target registered that turns a seam back into a live

@@ -13,7 +13,6 @@ export {
 export {
   validateDotnetNameCollisions,
   validateElixirOpSelfCallPosition,
-  validateJavaReservedIdentifiers,
 } from "./backend-syntax-checks.js";
 export {
   FILTER_BYPASS_FAMILIES,

@@ -366,20 +366,6 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
     verified: true,
   },
   {
-    code: "loom.java-reserved-identifier-unsupported",
-    kind: "gap",
-    site: "src/ir/validate/checks/backend-syntax-checks.ts:287",
-    what:
-      "a `.ddd` field / param / operation named after a JAVA reserved word (`case`, `do`, " +
-      '`new`, …). The SQL half is quoted (`@Column(name = "`case`")`); the host-identifier ' +
-      "half emits `String case;` / `public String case() {`, which javac rejects. Refused " +
-      "rather than escaped because Java has no verbatim identifier and a rename would move " +
-      "the JSON property on java alone — drained by emitting a mangled field plus an explicit " +
-      "`@JsonProperty` at every wire site",
-    mission: "M-T6.36",
-    verified: true,
-  },
-  {
     code: "loom.mikroorm-unsupported",
     kind: "gap",
     site: "src/ir/validate/checks/migration-checks.ts:257",

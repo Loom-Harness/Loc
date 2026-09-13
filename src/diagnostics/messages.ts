@@ -2126,18 +2126,6 @@ export const DIAGNOSTIC_MESSAGES = {
     `generated project would not compile. Move the 'currentUser' read up into ` +
     `'${p.opName}' (the routed operation, which receives the actor), or host this context on ` +
     `a backend with full support (node / dotnet / python / java).`,
-  "loom.java-reserved-identifier-unsupported": (p: {
-    what: unknown;
-    owner: unknown;
-    name: unknown;
-    ctxName: unknown;
-  }) =>
-    `'${p.ctxName}.${p.owner}' declares ${p.what} '${p.name}', which is a Java reserved word — ` +
-    `the java backend emits it as a bare Java identifier (a field, an accessor, a method ` +
-    `parameter and a record component), none of which javac accepts. Java has no ` +
-    `verbatim-identifier escape (C#'s '@${p.name}'), and renaming it to '${p.name}_' would ` +
-    `rename the JSON property on java alone. Rename the declaration, or host this context on a ` +
-    `node / dotnet / python / elixir deployable.`,
   "loom.dotnet-name-collision": (p: {
     what: unknown;
     owner: unknown;
