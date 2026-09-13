@@ -34,9 +34,15 @@ reading the old text would have built the wrong thing:
 - **`static-subpath-405-node-only`** — the title is now exactly backwards. #2764 closed node, python,
   java and dotnet; **elixir** is the only arm left, answering 422 from `:__cast_path_id` where the
   others answer 405 + `Allow`.
-- **`F2-MT640-SORT-DEAD`** — filed as "sortable headers are a no-op refetch". There are no sortable
-  headers: the non-paged page emits no `phx-click` at all, just dead `sort_key`/`sort_dir` assigns
-  beside a zero-arg `list_orders()`.
+- **`F2-MT640-SORT-DEAD`** — filed as "sortable headers are a no-op refetch"; corrected once to "there
+  are no sortable headers, just dead `sort_key`/`sort_dir` assigns beside a zero-arg `list_orders()`";
+  **corrected again 2026-09-11 (wave C1, packet 1e)**, because the dead assigns are the residue, not
+  the defect. The scaffold macro passes `sortKey:`/`sortDir:`/`page:`/`pageSize: 10` to the Table in
+  BOTH modes, and the shared walker honours them CLIENT-side when the read is not server-paged
+  (`_walker/primitives/table.ts` — `serverControls` is true there, `renderSortedRows` sorts, the pager
+  slices). HEEx's parallel engine gates on `serverPaged` instead (`heex-primitives.ts:670`), so the
+  same `.ddd` sorts and pages on react/vue/svelte/angular and renders an unsorted, unpaged table on
+  Phoenix. The row is a cross-frontend capability gap (M), not an S-sized assign cleanup.
 - **`queryview-lambda-int-plus-literal-concat`** — filed against the JS frontends as a wrong string.
   It is also a **hard build break** on feliz (`int + string`) and flutter (`int + String`).
 - **`dapper-no-schema-evolution`** — the "silently unapplied" half is stale; a second generate exits 1.
@@ -135,20 +141,20 @@ gate already encodes the row's claim, run the gate.
 
 | metric | value |
 |---|---|
-| open rows | **140** |
+| open rows | **135** |
 | P0 | 0 |
-| P1 | 6 |
+| P1 | 1 |
 | P2 | 11 |
 | P3 | 34 |
 | P4 | 80 |
 | P5 | 9 |
-| kind: silent / honest / breadth / mission / stale-prose | 17 / 34 / 22 / 58 / 9 |
-| confidence: proven / likely / suspected | 28 / 111 / 1 |
+| kind: silent / honest / breadth / mission / stale-prose | 12 / 34 / 22 / 58 / 9 |
+| confidence: proven / likely / suspected | 23 / 111 / 1 |
 | class: faulty-fix / regression | 1 / 0 |
-| size S / M / L | 36 / 61 / 43 |
-| provenance: fleet1-only / fleet2-only / corroborated by both | 124 / 14 / 1 |
+| size S / M / L | 34 / 58 / 43 |
+| provenance: fleet1-only / fleet2-only / corroborated by both | 123 / 10 / 1 |
 | claimed by an open PR | 61 |
-| done / merged | 148 |
+| done / merged | 153 |
 | declined (not a gap: stale / breadth / duplicate / decided) | 6 |
 | conflicts | 10 |
 | checkedOk entries | 146 |
@@ -162,12 +168,7 @@ Sorted P0 (security / data-integrity, silent, proven) → P1 (other silent prove
 
 | P | id | kind/class | conf | targets | size | title |
 |---|---|---|---|---|---|---|
-| P1 | `F2-CB-C7-domainservice-in-requires-guard` | silent | prov | node, java, python | S | A `domainService` call inside a `requires` authorization guard passes validation and emits an unresolvable reference on node, java and python (dotnet fixed in #2708; elixir always fully-qualified) |
-| P1 | `F2-MT640-SORT-DEAD` | silent | prov | elixir | S | The non-paged elixir list page assigns dead `sort_key`/`sort_dir`/`page_num` state no template reads — M-T6.40 shipped option (a) and left the assigns behind |
-| P1 | `F2-CB-C1-paged-nonrelational` | silent | prov | dotnet, python | M | `find … paged` on an eventLog / document aggregate emits a paged route against an unpaged repository on dotnet and python (node, java and elixir fixed; the `embedded` arm fixed everywhere) |
-| P1 | `F2-CFE-1` | silent | prov | flutter | M | `navigate(<Page>)` in a page `action` body is still dropped as a Dart comment on FLUTTER — the other six frontends navigate (the feliz codegen crash this row named is fixed) |
-| P1 | `F2-XB-4` | silent | prov | dotnet, java, python, elixir | M | A `let` in a folded-projection `on(e)` body has its DECLARATION dropped and its USE kept on dotnet, java, python and elixir — the shape the impure-fold gate explicitly blesses (node fixed) |
-| P1 | `flutter-form-field-drops` | silent | prov | flutter | M | Four Flutter form-field drops are still emitted as Dart COMMENTS, not diagnostics — the parity freeze is unchanged since the 08-17 snapshot |
+| P1 | `F2-MT640-SORT-DEAD` | silent | prov | elixir | M | HEEx wires a Table's `sortKey`/`sortDir`/`page` ONLY when `serverPaged`, so a NON-paged scaffolded list silently loses the client-side sort + pagination all four JSX frontends render from the same `.ddd` — the dead `sort_key`/`sort_dir`/`page_num` assigns are the residue, not the defect |
 | P2 ! | `dapper-no-schema-evolution` | silent | like | dotnet | L | `persistence: dapper` has no ALTER path at all — every post-first-boot model change is silently unapplied (migrations-on-adapters slice 2) |
 | P2 | `F2-W-06` | silent | like | elixir | S | elixir persists `datetime` at SECOND precision (`:utc_datetime`) where the other four use TIMESTAMPTZ(µs) |
 | P2 | `G2646-open-heex-layout-inert` | silent | like | elixir | M | #2646 documented, NOT fixed: on HEEx a non-server-paged Table gets no pager and the `i18nFormat` wrapper is dropped (the Grid arm of this row was stale and is retired) |
@@ -313,6 +314,7 @@ Sorted P0 (security / data-integrity, silent, proven) → P1 (other silent prove
 - **fresh-gate-probe** — `flutter-form-field-drops` · open · fresh-gate-probe calls it SILENT — the marker is a Dart COMMENT emitted by forms-emit.ts:184; `ddd parse` is clean and `flutter analyze` is clean, so no `loom.*` code exists
 - **pr-registers** — `G2646-open-flutter-form-field-drops` · open · pr-registers also files it SILENT
 - **resolution**: Merged into ONE open row (canonical `flutter-form-field-drops`) and recorded as kind=silent, because the disagreement is settled by fact: an emitted Dart comment is not a diagnostic. The honest-side reading (a test-level ratchet exists) is preserved in the merged evidence. The fresh-gate-probe fix recipe adds a step the other two lack: raise a real `loom.flutter-form-field-unsupported` first, then build the widgets.
+- **CLOSED** (wave C1, packet 1e): moot either way — all four shapes render real Dart widgets now, the four `KNOWN_FLUTTER_GAPS` pins are deleted and the freeze asserts the EMPTY set, so no marker and no refusal code is needed. The interim `loom.flutter-form-field-unsupported` step the recipe proposed was skipped on purpose: minting a refusal code and deleting it in the same wave buys nothing.
 
 ### HEEx/Flutter `DataGrid`: settled non-goal (done) vs open gap
 
