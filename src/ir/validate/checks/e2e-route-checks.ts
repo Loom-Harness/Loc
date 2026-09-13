@@ -114,13 +114,18 @@ function checkApiVerb(
   const ops = deriveAggregateOperations(agg, repo, apiStatusContext(ctx));
   if (apiRouteExists(call.verb, agg, repo, ops)) return;
   // One `diags.push` per catalog key rather than one push over a
-  // message-picking helper: `diagnostic-catalog.test.ts` reads the `message:`
-  // expression at each site and requires a literal `diagMessage("…")` there, so
-  // a helper that returns the rendered string reads as inline wording.
-  const common = { severity: "error", code: "loom.e2e-unrouted-verb", source } as const;
+  // message-picking helper, and each object spelled out in full rather than
+  // spread from a shared `common`.  TWO ratchets read these sites TEXTUALLY:
+  // `diagnostic-catalog.test.ts` requires a literal `diagMessage("…")` as the
+  // `message:` expression (a helper returning the rendered string reads as
+  // inline wording), and `diagnostic-codes-completeness.test.ts` requires a
+  // literal `code:` property on the pushed object (a `...common` spread hides
+  // it).  The repetition is the price of both staying checkable.
   if (call.verb === "create") {
     diags.push({
-      ...common,
+      severity: "error",
+      code: "loom.e2e-unrouted-verb",
+      source,
       message: diagMessage("loom.e2e-unrouted-verb#create", {
         magicId: "api",
         slug: call.slug,
@@ -131,7 +136,9 @@ function checkApiVerb(
   }
   if (call.verb === "destroy") {
     diags.push({
-      ...common,
+      severity: "error",
+      code: "loom.e2e-unrouted-verb",
+      source,
       message: diagMessage("loom.e2e-unrouted-verb#destroy", {
         slug: call.slug,
         aggregate: agg.name,
@@ -141,7 +148,9 @@ function checkApiVerb(
   }
   if (call.verb === "history") {
     diags.push({
-      ...common,
+      severity: "error",
+      code: "loom.e2e-unrouted-verb",
+      source,
       message: diagMessage("loom.e2e-unrouted-verb#history", {
         slug: call.slug,
         aggregate: agg.name,
@@ -154,7 +163,9 @@ function checkApiVerb(
   // different message.
   if ((repo?.finds ?? []).some((f) => f.name === call.verb)) {
     diags.push({
-      ...common,
+      severity: "error",
+      code: "loom.e2e-unrouted-verb",
+      source,
       message: diagMessage("loom.e2e-unrouted-verb#find", {
         slug: call.slug,
         verb: call.verb,
@@ -164,7 +175,9 @@ function checkApiVerb(
     return;
   }
   diags.push({
-    ...common,
+    severity: "error",
+    code: "loom.e2e-unrouted-verb",
+    source,
     message: diagMessage("loom.e2e-unrouted-verb#verb", {
       slug: call.slug,
       verb: call.verb,
