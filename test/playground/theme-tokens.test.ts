@@ -32,8 +32,9 @@ const WAIVED: { file: string; reason: string }[] = [
   {
     file: "layout/ChatPanel.tsx",
     reason:
-      "owned by M-T8.19 (agent loop) while that mission is in flight — editing it here would " +
-      "collide on every line of the same file; M-T8.19 migrates its six shades and deletes this entry",
+      "owned by M-T8.3 (agent-loop last mile), which owns this file — re-homed 2026-09-10 from " +
+      "M-T8.19, which closed (#2776) without taking it; M-T8.3 migrates its six shades and " +
+      "deletes this entry, together with the L5 demo-button label it inherited from M-T8.23",
   },
 ];
 

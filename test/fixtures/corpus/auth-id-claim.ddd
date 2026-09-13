@@ -1,0 +1,67 @@
+// An id-typed user claim (auth.md): `customerId: Customer id?` in the system's
+// `user { … }` block — the claim shape naming a GENERATED DOMAIN SYMBOL rather
+// than a scalar.
+//
+// One `.ddd` line broke four of five backends, four different ways (D6/P2 of
+// `docs/audits/2026-09-10-eshop-dev-experience.md`), because a claim of this
+// shape crosses two seams no other corpus fixture crossed:
+//
+//   1. the optional marker is applied TWICE — `FieldIR.type` already carries
+//      the `optional` wrapper for anything the source wrote as `T?`, and the
+//      auth emitters re-wrapped off the redundant `FieldIR.optional` flag.
+//      That is `Ids.CustomerId | null | null` (node), `CustomerId | None |
+//      None` (python) and — fatally — `CustomerId??` on .NET, where `??` is
+//      the null-coalescing OPERATOR, so the project does not even parse.
+//   2. the strong-id class is emitted into the DOMAIN tree while `User` is
+//      emitted into the AUTH tree, so naming it without an import is a hard
+//      `TS2503` / `cannot find symbol`, and on python a per-call `NameError`
+//      (the annotation sits inside `cast(...)` in a function body, so it is
+//      evaluated on EVERY token verification — login is permanently broken).
+//
+// Both halves are compile-visible, so this fixture's value is the compile tier:
+// java's leg is one line (`gradle compileJava`) and catches the missing import
+// outright.  The `auth { … }` block is load-bearing — the OIDC verifier is the
+// second emission site of the same claim type, and on python it is the site
+// where the missing import is a RUNTIME failure rather than a type-check one.
+//
+// `Customer id?` (optional) rather than `Customer id` on purpose: the optional
+// is what doubles, and an optional claim is also the honest shape — a token
+// need not carry a tenant/customer binding for every principal.
+system Storefront {
+  user {
+    id: string
+    role: string
+    permissions: string[]
+    // The claim under test: an aggregate id, optional.
+    customerId: Customer id?
+  }
+  auth {
+    provider: keycloak
+    oidc {
+      issuer: env("OIDC_ISSUER")
+      clientId: env("OIDC_CLIENT_ID")
+    }
+    sessions: cookie
+    claims: { role: "realm_access.roles", customerId: "customer_id" }
+  }
+  subdomain Sales {
+    context Shopping {
+      aggregate Customer with crudish {
+        name: string
+        active: bool
+      }
+      repository Customers for Customer { }
+    }
+  }
+  storage primary { type: postgres }
+  resource shopState { for: Shopping, kind: state, use: primary }
+  api ShopApi from Sales
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Shopping]
+    serves: ShopApi
+    dataSources: [shopState]
+    port: 4000
+    auth: required
+  }
+}

@@ -19,7 +19,12 @@
 // `setLogSink(logs)` at the top of an RPC, `setLogSink(null)` after.
 // ---------------------------------------------------------------------------
 
-import { asStructuredPayload, formatLogArg, LOG_LEVELS, type LogLine } from "../util/log-line.js";
+import {
+  formatLogArg,
+  LOG_LEVELS,
+  type LogLine,
+  structuredFromConsoleArgs,
+} from "../util/log-line.js";
 
 let activeLogSink: LogLine[] | null = null;
 
@@ -38,12 +43,15 @@ export function installConsoleTee(target: Console = console): void {
     target[level] = (...args: unknown[]): void => {
       const sink = activeLogSink;
       if (sink) {
-        // Structured pino lines arrive as a single object argument
-        // (`console.info({ level, event, ts, request_id, … })`); detect
-        // that shape so the Output panel renders it without re-parsing,
-        // and take the semantic level off the payload (pino-in-browser
-        // routes `logger.trace` through `console.debug`).
-        const structured = args.length === 1 ? asStructuredPayload(args[0]) : undefined;
+        // Structured pino lines arrive as one or more plain object
+        // arguments — `console.info({ event, … })` from the base logger,
+        // `console.info({ request_id }, { event, … })` from a per-request
+        // child (pino's browser build prepends the child bindings as their
+        // own argument).  Merge them so the Output panel renders the line
+        // without re-parsing, and take the semantic level off the payload
+        // when it carries one (pino-in-browser routes `logger.trace`
+        // through `console.debug`), else off the console method.
+        const structured = structuredFromConsoleArgs(args, level);
         sink.push({
           level: structured?.level ?? level,
           text: args.map(formatLogArg).join(" "),

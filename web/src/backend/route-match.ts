@@ -13,6 +13,7 @@
 // Pure data → data: no React, no DOM, no worker — the root vitest suite
 // drives it without `web/node_modules`.
 
+import { API_BASE_PATH } from "../../../src/util/api-base.js";
 import type { LogLine } from "../util/log-line";
 import type { ApiEndpoint } from "./openapi";
 
@@ -109,7 +110,17 @@ export function matchRoute(
 
 /** Paths the backend serves that no domain operation owns — infrastructure
  *  the Runtime tab itself calls (the spec fetch, health probes, docs).  They
- *  are neither an operation hit nor a 404, so the aggregate skips them. */
+ *  are neither an operation hit nor a 404, so the aggregate skips them.
+ *
+ *  The session probe is the one that does NOT sit at the root: auth mounts
+ *  under the API base (`AUTH_BASE_PATH` = `${API_BASE_PATH}/auth`), so the
+ *  line the runtime log carries is `/api/auth/me`.  It is matched with the
+ *  base optional so a bare `/auth/me` (a system generated without the
+ *  prefix, or a hand-mounted probe) is still recognised — miscounting it
+ *  would put a 404 in the "unmatched" list for a request the playground
+ *  itself made. */
+const API_BASE_OPT = `(?:${API_BASE_PATH.replace(/\//g, "\\/")})?`;
+
 export const INFRA_PATHS: readonly RegExp[] = [
   /^\/openapi\.json$/,
   /^\/asyncapi\.json$/,
@@ -117,7 +128,7 @@ export const INFRA_PATHS: readonly RegExp[] = [
   /^\/ready(?:\/|$)/,
   /^\/metrics$/,
   /^\/docs(?:\/|$)/,
-  /^\/auth\/me$/,
+  new RegExp(`^${API_BASE_OPT}\\/auth\\/me$`),
 ];
 
 export function isInfraPath(path: string): boolean {
