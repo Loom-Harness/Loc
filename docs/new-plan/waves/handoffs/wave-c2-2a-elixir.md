@@ -287,7 +287,7 @@ Run **after** `git merge origin/main` (`7534696f9`), per rule 14.
 | `node scripts/ledger-counts.mjs --check` | `.md` matches the JSON |
 | `node docs/build.mjs` | OK |
 | `npm test` | **green** — 2017 files, 23538 passed, 7 expected-fail, 0 failed |
-| elixir compile leg (`LOOM_PHOENIX_VANILLA_BUILD=1 LOOM_HEX_MIRROR=1`) | **seven fixtures green individually; the 78-fixture whole-leg run is blocked on host contention — see below** |
+| elixir compile leg (`LOOM_PHOENIX_VANILLA_BUILD=1 LOOM_HEX_MIRROR=1`) | **61 of 78 fixtures run, 59 green, 2 host-limited (`vanilla-embed-{angular,feliz}` — SPA build, not `mix compile`), 17 not reached** — see below |
 
 ### The elixir compile leg — what ran, and why the whole leg did not
 
@@ -305,28 +305,63 @@ cross-cutting changes touch:
 | `vanilla-ref-collections.ddd` | `contextUsesRefCollOp` / `contextMutatesRefColl` now deep-walk |
 | `vanilla-es-applier-fold.ddd` | the new throwing arm in `eventsourced-emit.ts` |
 
-**The whole-leg run could not be completed on this host.** Three attempts died
-the same way, each on its second or third fixture: `Request failed (:timeout)`
-→ `** (Mix) No package with name phoenix … in registry`. It is the loopback hex
-mirror starving, not a compile failure — `scripts/hex-mirror.py` is a single
-Python process re-originating every hex request, and the box was running **nine
-to ten sibling packets' `npm test`** concurrently (load average 8–11) for the
-whole window. The same fixtures pass when run one at a time in a quieter moment,
-which is how the seven above were obtained.
+**The WHOLE-LEG invocation could not be used on this host, and the reason is
+worth carrying forward.** Three attempts died identically on their FIRST or
+second fixture — `Request failed (:timeout)` → `** (Mix) No package with name
+phoenix … in registry` — while the very same fixture passed when invoked alone.
+The suite shares ONE long-lived loopback hex mirror across all 78 cases
+(`beforeAll` → `startHexMirror`), and `scripts/hex-mirror.py` is a single Python
+process re-originating every hex request; something in it degrades across a long
+run. It is not simple CPU contention: the last attempt failed on fixture 1 with
+the box idle (load average 0.02).
 
-I tried tuning hex for the mirror path (`HEX_HTTP_CONCURRENCY=1
+**So the leg was run fixture-by-fixture instead**, one `vitest` invocation per
+`.ddd` with `LOOM_PHOENIX_VANILLA_BUILD_CASE`, which gives each a FRESH mirror.
+That works: **61 of 78 fixtures ran before the hand-off deadline — 59 green, 2
+host-limited, 0 real failures.** The 17 unreached are the alphabetical tail from
+`vanilla-scaffold-*` onward.
+
+The two non-passes are both the `hosts:`-embed SPA arm and neither reaches
+`mix compile`:
+
+- `vanilla-embed-feliz.ddd` — `sh: 1: dotnet: not found`. No .NET SDK on this
+  host; the Feliz bundle builds via `dotnet fable`.
+- `vanilla-embed-angular.ddd` — the Phoenix side fetched and compiled (every hex
+  tarball 200), then `runSpaBuild`'s `ng build` failed. Angular's build is the
+  heaviest thing in the corpus.
+
+Neither is in this packet's blast radius: it touches no Angular or Feliz
+emitter, and the elixir half of both fixtures compiled.
+
+The fixtures that DO exercise every path this packet changed all passed, and are
+called out because the 59 are otherwise just a number: `vanilla-if-stmt`,
+`vanilla-derived-chain`, `vanilla-workflow-form`, `vanilla-document`,
+`vanilla-finds`, `vanilla-ref-collections`, `vanilla-es-applier-fold`,
+`vanilla-returns-ref-coll`, `vanilla-returns-body`, `vanilla-provenance`,
+`vanilla-audited`.
+
+I also tried tuning hex for the mirror path (`HEX_HTTP_CONCURRENCY=1
 HEX_HTTP_TIMEOUT=120` in `hex-mirror.ts`'s `shellPrefix` — the remedy hex itself
 prints) and **reverted it**: the run still timed out at hex's default 60 s, so
-the timeout knob was not reaching the failing call, and an unproven change to a
-shared harness is exactly what the repo's bar forbids. If the coordinator sees
-the same starvation, the dial is worth a proper look; it is a real weakness of
-the mirror under load, not of this packet.
+the knob was not reaching the failing call, and an unproven change to a shared
+harness is what the repo's bar forbids. The real finding is the one above — the
+SHARED long-lived mirror is what fails, and a per-case mirror does not. That is
+a harness improvement someone should make deliberately, with a measurement; it
+is not this packet's to land.
 
-**Re-run at fold time, on a quiet box:**
+**Re-run at fold time:**
 
 ```
+# whole leg (CI's shape — works on a runner with direct hex.pm access)
 LOOM_PHOENIX_VANILLA_BUILD=1 LOOM_HEX_MIRROR=1 \
   npx vitest run test/e2e/generated-elixir-vanilla-build.test.ts
+
+# behind the mirror, if the above starves: one fresh mirror per fixture
+for f in test/e2e/fixtures/elixir-vanilla-build/*.ddd; do
+  LOOM_PHOENIX_VANILLA_BUILD=1 LOOM_HEX_MIRROR=1 \
+    LOOM_PHOENIX_VANILLA_BUILD_CASE="$(basename "$f")" \
+    npx vitest run test/e2e/generated-elixir-vanilla-build.test.ts || echo "FAIL $f"
+done
 ```
 
 and, for the wider emitter blast radius (`withStaticSubpathGuards` and
@@ -336,7 +371,8 @@ and, for the wider emitter blast radius (`withStaticSubpathGuards` and
 npm run test:elixir-corpus        # LOOM_ELIXIR_BUILD=1, ~70 features
 ```
 
-The corpus leg was **not** attempted here for the same reason.
+The corpus leg was **not** attempted — the per-fixture leg above used the whole
+window.
 
 **One environment note for the coordinator, not a code finding.** On the first full run four cases
 in `test/platform/packaging-split-core-pkg.test.ts` / the fs-discovery suite failed because this
