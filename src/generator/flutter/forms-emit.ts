@@ -98,6 +98,8 @@ export type FlutterInputKind =
   | "file"
   | "fk-select"
   | "scalar-array"
+  | "bool-array"
+  | "enum-array"
   | "object-array";
 
 /** One prepared form field — a scalar input the widget renders + submits. */
@@ -121,9 +123,12 @@ export interface FlutterFormField {
    *  (`money-scale.ts`, RS-12), not a bare JSON number the backend's
    *  `z.string()` request schema rejects. */
   money?: boolean;
-  /** When flattened from a value object, the JSON object key it nests under
-   *  (`cost` for a `cost: Money` VO expanded to `costAmount`/`costCurrency`). */
-  objectKey?: string;
+  /** When flattened OUT of value objects, the chain of JSON object keys it
+   *  nests under, outermost first — `["cost"]` for a `cost: Money` expanded to
+   *  `costAmount`/`costCurrency`, `["addr", "geo"]` for a `Geo` nested inside an
+   *  `Addr`.  A PATH, not a single key: VO flattening is recursive, so the
+   *  request body has to rebuild the same depth (`bodyAssembly`). */
+  objectPath?: readonly string[];
   /** For an `fk-select` field, the snake-plural collection path (`categories`)
    *  its option list loads from (`GET /<collection>`); the option label is the
    *  target's derived `display` field (falling back to the row's `id`). */
@@ -135,14 +140,22 @@ export interface FlutterFormField {
   /** `money[]` — the elements submit as fixed-scale decimal strings. */
   elementMoney?: boolean;
   /** For an `object-array` field (`items: LineItem[]`), the value object's
-   *  scalar sub-fields in order — each row is a group of `TextFormField`s, one
-   *  per sub-field, and submits a `{sub: value, …}` map per row. */
+   *  scalar sub-fields in order — each row is a group of cells, one per
+   *  sub-field, and submits a `{sub: value, …}` map per row.  The cell kinds
+   *  are the flat scalar ones: text/number cells are `TextFormField`s over a
+   *  per-cell `TextEditingController`, and bool / enum / datetime cells hold
+   *  their VALUE in the row slot directly (see `objectRowCell`). */
   objectFields?: {
     jsonKey: string;
     label: string;
-    kind: "text" | "number-int" | "number-double";
+    kind: "text" | "number-int" | "number-double" | "bool" | "enum" | "datetime";
     /** `money` sub-field — submits as a fixed-scale decimal string. */
     money?: boolean;
+    /** For an `enum` cell, the allowed values (the dropdown's items). */
+    enumValues?: string[];
+    /** Whether the sub-field is required (an enum cell then seeds row 0's
+     *  value instead of starting null). */
+    required?: boolean;
   }[];
 }
 
@@ -252,7 +265,7 @@ function buildField(
   optional: boolean,
   kind: FlutterInputKind,
   enumsByName: ReadonlyMap<string, string[]>,
-  objectKey?: string,
+  objectPath?: readonly string[],
 ): FlutterFormField {
   const base = peel(type);
   const enumValues =
@@ -262,12 +275,16 @@ function buildField(
   return {
     wireName,
     jsonKey,
-    label: objectKey ? `${objectKey} ${jsonKey}` : humanize(wireName),
+    // A nested sub-field is labelled by its whole path (`addr geo lat`), so two
+    // sub-fields with the same leaf name in sibling value objects stay tellable
+    // apart on the form.
+    label:
+      objectPath && objectPath.length > 0 ? [...objectPath, jsonKey].join(" ") : humanize(wireName),
     kind,
     required: !optional,
     enumValues,
     money: isMoney(type) || undefined,
-    objectKey,
+    objectPath,
     fkCollection,
   };
 }
@@ -284,6 +301,14 @@ function prepareFields(
   enumsByName: ReadonlyMap<string, string[]>,
   vosByName: ReadonlyMap<string, readonly FieldIR[]>,
   aggregatesByName: ReadonlyMap<string, EnrichedAggregateIR>,
+  /** Recursion state — the value-object keys walked into so far (outermost
+   *  first) and the Dart identifier prefix built from them.  Empty at the top
+   *  level; `["addr"]` / `addr` one level into an `addr: Addr`. */
+  nest: { path: readonly string[]; prefix: string; label: string } = {
+    path: [],
+    prefix: "",
+    label: "",
+  },
 ): { fields: FlutterFormField[]; dropped: string[] } {
   const out: FlutterFormField[] = [];
   const dropped: string[] = [];
@@ -292,30 +317,38 @@ function prepareFields(
     const fieldOptional = f.optional === true || f.type.kind === "optional";
     const voFields = base.kind === "valueobject" ? vosByName.get(base.name) : undefined;
     if (voFields) {
-      for (const sub of voFields) {
-        const subKind = scalarInputKind(sub.type, enumsByName, aggregatesByName);
-        if (!subKind) {
-          // nested VO / array sub-field — one level of flattening only.
-          const subBase = peel(sub.type);
-          const label = subBase.kind === "array" ? "nested array" : "nested value-object";
-          dropped.push(droppedMarker(`${f.name}.${sub.name}`, `${label} sub-field`));
-          continue;
-        }
-        const subOptional = fieldOptional || sub.optional === true || sub.type.kind === "optional";
-        out.push(
-          buildField(
-            `${f.name}${upperFirst(sub.name)}`,
-            sub.name,
-            sub.type,
-            subOptional,
-            subKind,
-            enumsByName,
-            f.name,
-          ),
-        );
-      }
+      // Value objects flatten RECURSIVELY: `addr: Addr { line, geo: Geo { lat,
+      // lng } }` becomes `addrLine` + `addrGeoLat` + `addrGeoLng`, each carrying
+      // its full `objectPath` so `bodyAssembly` rebuilds the same nesting on the
+      // wire.  One level of flattening used to be the whole story, and a VO
+      // inside a VO was dropped with a marker (ledger `flutter-form-field-drops`
+      // entry 1) — a shape every other frontend renders.
+      const sub = prepareFields(
+        voFields.map((sf) => ({
+          name: sf.name,
+          type: sf.type,
+          // A whole-VO optional makes every leaf under it optional.
+          optional: fieldOptional || sf.optional === true,
+        })),
+        enumsByName,
+        vosByName,
+        aggregatesByName,
+        {
+          path: [...nest.path, f.name],
+          prefix: nest.prefix ? `${nest.prefix}${upperFirst(f.name)}` : f.name,
+          label: nest.label ? `${nest.label}.${f.name}` : f.name,
+        },
+      );
+      out.push(...sub.fields);
+      dropped.push(...sub.dropped);
       continue;
     }
+    // Names are NEST-QUALIFIED: the Dart identifier prefixes the walked VO keys
+    // (`addrGeoLat`), the drop marker uses the dotted source path (`addr.geo`),
+    // and `objectPath` carries the keys so the request body re-nests.
+    const wireName = nest.prefix ? `${nest.prefix}${upperFirst(f.name)}` : f.name;
+    const markerName = nest.label ? `${nest.label}.${f.name}` : f.name;
+    const objectPath = nest.path.length > 0 ? nest.path : undefined;
     // An array field (`tags: string[]` / `items: LineItem[]`) → a repeatable
     // add/remove row list.
     if (base.kind === "array") {
@@ -323,20 +356,33 @@ function prepareFields(
       const voFieldsOfElem =
         elemBase.kind === "valueobject" ? vosByName.get(elemBase.name) : undefined;
       if (voFieldsOfElem) {
-        // Array of value objects → each row is a group of the VO's scalar
-        // sub-fields.  Only when EVERY sub-field is a plain text / numeric input
-        // (a mini-form of controllers); a bool/enum/datetime/nested sub-field
-        // defers the whole array (dropped, never broken Dart).
+        // Array of value objects → each row is a group of the VO's sub-field
+        // CELLS.  A cell is any flat scalar the form already knows how to
+        // render — text / number (a `TextEditingController` in the row slot),
+        // bool (a checkbox), enum (a dropdown) or datetime (a date picker).
+        // Only a sub-field with no flat form (a nested VO, an array, a File, an
+        // fk id) defers the whole array, which stays "never broken Dart".
         const objectFields: NonNullable<FlutterFormField["objectFields"]> = [];
         let allScalar = true;
         for (const sub of voFieldsOfElem) {
           const k = scalarInputKind(sub.type, enumsByName, aggregatesByName);
-          if (k === "text" || k === "number-int" || k === "number-double") {
+          if (
+            k === "text" ||
+            k === "number-int" ||
+            k === "number-double" ||
+            k === "bool" ||
+            k === "enum" ||
+            k === "datetime"
+          ) {
+            const subBase = peel(sub.type);
             objectFields.push({
               jsonKey: sub.name,
               label: humanize(sub.name),
               kind: k,
               money: isMoney(sub.type) || undefined,
+              enumValues:
+                k === "enum" && subBase.kind === "enum" ? enumsByName.get(subBase.name) : undefined,
+              required: !(sub.optional === true || sub.type.kind === "optional") || undefined,
             });
           } else {
             allScalar = false;
@@ -345,32 +391,59 @@ function prepareFields(
         }
         if (allScalar && objectFields.length > 0) {
           out.push({
-            wireName: f.name,
+            wireName,
             jsonKey: f.name,
             label: humanize(f.name),
             kind: "object-array",
             required: !fieldOptional,
             objectFields,
+            objectPath,
           });
         } else {
-          // A value-object array whose sub-fields aren't all text/numeric
-          // (bool / enum / datetime / nested) — the whole array defers.
-          dropped.push(droppedMarker(f.name, "value-object array with a non-scalar sub-field"));
+          // A value-object array carrying a sub-field with no flat form (a
+          // nested value object, an array, a File, an fk id) — the whole array
+          // defers, loudly.
+          dropped.push(
+            droppedMarker(markerName, "value-object array with a non-renderable sub-field"),
+          );
         }
         continue;
       }
-      // Scalar array — plain text / numeric elements only; enum / bool / datetime
-      // / id-collection element arrays stay deferred.
+      // Scalar array.  Text / numeric elements are a column of text rows; bool
+      // and enum elements are their own row editors (a checkbox / a dropdown
+      // per row) — the `flags: bool[]` and `colors: Color[]` shapes that used to
+      // defer.  datetime / File / fk-id element arrays stay deferred.
       const elemKind = scalarInputKind(base.element, enumsByName, aggregatesByName);
       if (elemKind === "text" || elemKind === "number-int" || elemKind === "number-double") {
         out.push({
-          wireName: f.name,
+          wireName,
           jsonKey: f.name,
           label: humanize(f.name),
           kind: "scalar-array",
           required: !fieldOptional,
           elementKind: elemKind,
           elementMoney: isMoney(base.element) || undefined,
+          objectPath,
+        });
+      } else if (elemKind === "bool") {
+        out.push({
+          wireName,
+          jsonKey: f.name,
+          label: humanize(f.name),
+          kind: "bool-array",
+          required: !fieldOptional,
+          objectPath,
+        });
+      } else if (elemKind === "enum") {
+        const eb = peel(base.element);
+        out.push({
+          wireName,
+          jsonKey: f.name,
+          label: humanize(f.name),
+          kind: "enum-array",
+          required: !fieldOptional,
+          enumValues: eb.kind === "enum" ? enumsByName.get(eb.name) : undefined,
+          objectPath,
         });
       } else {
         const eb = peel(base.element);
@@ -382,19 +455,19 @@ function prepareFields(
               : eb.kind === "primitive"
                 ? eb.name
                 : eb.kind;
-        dropped.push(droppedMarker(f.name, `${elemLabel} element array`));
+        dropped.push(droppedMarker(markerName, `${elemLabel} element array`));
       }
       continue;
     }
     const kind = scalarInputKind(f.type, enumsByName, aggregatesByName);
     if (!kind) {
-      // nested / unresolved value-object / otherwise-unsupported scalar — deferred.
+      // unresolved value-object / otherwise-unsupported scalar — deferred.
       const b = peel(f.type);
       const label = b.kind === "valueobject" ? `unresolved value-object ${b.name}` : b.kind;
-      dropped.push(droppedMarker(f.name, `${label} field`));
+      dropped.push(droppedMarker(markerName, `${label} field`));
       continue;
     }
-    out.push(buildField(f.name, f.name, f.type, fieldOptional, kind, enumsByName));
+    out.push(buildField(wireName, f.name, f.type, fieldOptional, kind, enumsByName, objectPath));
   }
   return { fields: out, dropped };
 }
@@ -749,10 +822,20 @@ function arrayCtrlsId(wireName: string): string {
   return `${stateId(wireName)}Controllers`;
 }
 
-/** The row-list field name for an object-array field (`items` → `_itemsRows`) —
- *  each row is a `List<TextEditingController>`, one per VO sub-field. */
+/** The row-list field name for an object-array field (`items` → `_itemsRows`).
+ *  Each row is a `List<dynamic>`, one slot per VO sub-field: a text / number
+ *  cell holds its `TextEditingController`, a bool / enum / datetime cell holds
+ *  the VALUE itself.  One heterogeneous list (rather than a controller list
+ *  plus a parallel value list) keeps row add / remove a single operation and
+ *  the cell index the same on both sides. */
 function rowsId(wireName: string): string {
   return `${stateId(wireName)}Rows`;
+}
+
+/** The value-list field name for a bool / enum element array
+ *  (`flags` → `_flagsValues`) — the non-text twin of `arrayCtrlsId`. */
+function arrayValuesId(wireName: string): string {
+  return `${stateId(wireName)}Values`;
 }
 
 /** True when the field is backed by a `TextEditingController`. */
@@ -787,8 +870,14 @@ function stateDecls(fields: readonly FlutterFormField[]): string[] {
       out.push(`  List<Map<String, dynamic>> ${optionsId(f.wireName)} = const [];`);
     } else if (f.kind === "scalar-array") {
       out.push(`  final List<TextEditingController> ${arrayCtrlsId(f.wireName)} = [];`);
+    } else if (f.kind === "bool-array") {
+      out.push(`  final List<bool> ${arrayValuesId(f.wireName)} = [];`);
+    } else if (f.kind === "enum-array") {
+      out.push(`  final List<String> ${arrayValuesId(f.wireName)} = [];`);
     } else if (f.kind === "object-array") {
-      out.push(`  final List<List<TextEditingController>> ${rowsId(f.wireName)} = [];`);
+      // `dynamic` slots — see `rowsId`: a text cell stores its controller, a
+      // bool / enum / datetime cell stores its value.
+      out.push(`  final List<List<dynamic>> ${rowsId(f.wireName)} = [];`);
     }
   }
   return out;
@@ -904,8 +993,10 @@ function disposeBody(fields: readonly FlutterFormField[]): string[] {
     if (f.kind === "scalar-array") {
       out.push(`    for (final c in ${arrayCtrlsId(f.wireName)}) c.dispose();`);
     } else if (f.kind === "object-array") {
+      // Only the text cells own a controller (`rowsId`); a bool / enum /
+      // datetime slot is a plain value with nothing to dispose.
       out.push(
-        `    for (final row in ${rowsId(f.wireName)}) { for (final c in row) c.dispose(); }`,
+        `    for (final row in ${rowsId(f.wireName)}) { for (final c in row) { if (c is TextEditingController) c.dispose(); } }`,
       );
     }
   }
@@ -962,57 +1053,94 @@ function fieldValueExpr(f: FlutterFormField): string {
       }
       return `${ctrls}.map((c) => c.text).toList()`;
     }
+    case "bool-array":
+      // Already a `List<bool>`; copy so the submitted body never aliases the
+      // live row state.
+      return `${arrayValuesId(f.wireName)}.toList()`;
+    case "enum-array":
+      return `${arrayValuesId(f.wireName)}.toList()`;
     case "object-array": {
       const rows = rowsId(f.wireName);
       const entries = (f.objectFields ?? [])
-        .map((sf, i) => {
-          const cell = `row[${i}].text`;
-          const val =
-            sf.kind === "number-int"
-              ? `int.tryParse(${cell})`
-              : sf.kind === "number-double"
-                ? sf.money
-                  ? `${cell}.trim()`
-                  : `double.tryParse(${cell})`
-                : cell;
-          return `'${dartStr(sf.jsonKey)}': ${val}`;
-        })
+        .map((sf, i) => `'${dartStr(sf.jsonKey)}': ${objectCellValueExpr(sf, i)}`)
         .join(", ");
       return `${rows}.map((row) => <String, dynamic>{${entries}}).toList()`;
     }
   }
 }
 
-/** The request-body assembly (`final body = <String, dynamic>{ … };`), grouping
- *  flattened value-object sub-fields under their JSON object key. */
+/** One object-array CELL's submit value, read out of the row slot at `i`.
+ *  Text / number cells hold a `TextEditingController` there and parse exactly
+ *  like their flat twins (a `money` cell carries the typed digits through
+ *  unparsed, RS-12); bool / enum / datetime cells hold the value itself. */
+function objectCellValueExpr(
+  sf: NonNullable<FlutterFormField["objectFields"]>[number],
+  i: number,
+): string {
+  switch (sf.kind) {
+    case "number-int":
+      return `int.tryParse((row[${i}] as TextEditingController).text)`;
+    case "number-double":
+      return sf.money
+        ? `(row[${i}] as TextEditingController).text.trim()`
+        : `double.tryParse((row[${i}] as TextEditingController).text)`;
+    case "bool":
+      return `row[${i}] as bool`;
+    case "enum":
+      return `row[${i}] as String?`;
+    case "datetime":
+      return `(row[${i}] as DateTime?)?.toIso8601String()`;
+    default:
+      return `(row[${i}] as TextEditingController).text`;
+  }
+}
+
+/** One level of the request body under construction — the fields written
+ *  directly at this level, plus the nested object keys below it, in first-seen
+ *  order so the emitted body follows the declaration order. */
+interface BodyNode {
+  fields: FlutterFormField[];
+  children: Map<string, BodyNode>;
+  order: string[];
+}
+
+function newBodyNode(): BodyNode {
+  return { fields: [], children: new Map(), order: [] };
+}
+
+/** The request-body assembly (`final body = <String, dynamic>{ … };`).  Fields
+ *  flattened out of value objects re-nest under their `objectPath` — a PATH, not
+ *  one key, because VO flattening is recursive (`addr.geo.lat` →
+ *  `{'addr': {'geo': {'lat': …}}}`).  The tree is built first, so sibling leaves
+ *  and sub-objects at the same level land in ONE literal. */
 function bodyAssembly(fields: readonly FlutterFormField[]): string[] {
-  const topLevel: FlutterFormField[] = [];
-  const groups = new Map<string, FlutterFormField[]>();
-  const groupOrder: string[] = [];
+  const root = newBodyNode();
   for (const f of fields) {
-    if (f.objectKey) {
-      if (!groups.has(f.objectKey)) {
-        groups.set(f.objectKey, []);
-        groupOrder.push(f.objectKey);
+    let node = root;
+    for (const key of f.objectPath ?? []) {
+      let child = node.children.get(key);
+      if (!child) {
+        child = newBodyNode();
+        node.children.set(key, child);
+        node.order.push(key);
       }
-      groups.get(f.objectKey)!.push(f);
-    } else {
-      topLevel.push(f);
+      node = child;
     }
+    node.fields.push(f);
   }
-  const out: string[] = ["    final body = <String, dynamic>{"];
-  for (const f of topLevel) {
-    out.push(`      '${dartStr(f.jsonKey)}': ${fieldValueExpr(f)},`);
-  }
-  for (const key of groupOrder) {
-    out.push(`      '${dartStr(key)}': <String, dynamic>{`);
-    for (const f of groups.get(key)!) {
-      out.push(`        '${dartStr(f.jsonKey)}': ${fieldValueExpr(f)},`);
+  const emit = (node: BodyNode, indent: string): string[] => {
+    const out: string[] = [];
+    for (const f of node.fields) {
+      out.push(`${indent}'${dartStr(f.jsonKey)}': ${fieldValueExpr(f)},`);
     }
-    out.push("      },");
-  }
-  out.push("    };");
-  return out;
+    for (const key of node.order) {
+      out.push(`${indent}'${dartStr(key)}': <String, dynamic>{`);
+      out.push(...emit(node.children.get(key)!, `${indent}  `));
+      out.push(`${indent}},`);
+    }
+    return out;
+  };
+  return ["    final body = <String, dynamic>{", ...emit(root, "      "), "    };"];
 }
 
 /** The `validator:` argument fragment for a text/number input (or "" when the
@@ -1098,31 +1226,133 @@ function fieldWidget(f: FlutterFormField): string {
         `])`
       );
     }
+    case "bool-array": {
+      // A repeatable CHECKBOX row list — the bool twin of `scalar-array`'s text
+      // rows.  Each row edits `_<name>Values[i]` in place.
+      const vals = arrayValuesId(f.wireName);
+      const row = `Expanded(child: Checkbox(value: entry.value, onChanged: (v) => setState(() => ${vals}[entry.key] = v ?? false)))`;
+      return arrayEditor(label, vals, row, `${vals}.add(false)`, `${vals}.removeAt(entry.key)`);
+    }
+    case "enum-array": {
+      // A repeatable DROPDOWN row list.  A new row seeds the first declared
+      // value, so the list never carries a null the wire would reject.
+      const vals = arrayValuesId(f.wireName);
+      const values = f.enumValues ?? [];
+      const items = values
+        .map((v) => `DropdownMenuItem(value: '${dartStr(v)}', child: Text('${dartStr(v)}'))`)
+        .join(", ");
+      const seed = values.length > 0 ? `'${dartStr(values[0]!)}'` : "''";
+      const row =
+        `Expanded(child: DropdownButtonFormField<String>(initialValue: entry.value, isExpanded: true, ` +
+        `decoration: const InputDecoration(isDense: true), items: const [${items}], ` +
+        `onChanged: (v) => setState(() => ${vals}[entry.key] = v ?? ${seed})))`;
+      return arrayEditor(label, vals, row, `${vals}.add(${seed})`, `${vals}.removeAt(entry.key)`);
+    }
     case "object-array": {
       const rows = rowsId(f.wireName);
       const subs = f.objectFields ?? [];
-      // One cell (TextFormField over `row[i]`) per VO sub-field.
-      const cells = subs
-        .map((sf, i) => {
-          const kbd =
-            sf.kind === "number-int" || sf.kind === "number-double"
-              ? "keyboardType: TextInputType.number, "
-              : "";
-          return `Expanded(child: Padding(padding: const EdgeInsets.only(right: 4), child: TextFormField(controller: row[${i}], ${kbd}decoration: InputDecoration(isDense: true, labelText: '${dartStr(sf.label)}'))))`;
-        })
-        .join(", ");
-      const newRow = subs.map(() => "TextEditingController()").join(", ");
+      // One cell per VO sub-field, each reading its own slot in the row.
+      const cells = subs.map((sf, i) => objectCellWidget(sf, i)).join(", ");
+      const newRow = subs.map((sf) => newObjectCell(sf)).join(", ");
       return (
         `Column(crossAxisAlignment: CrossAxisAlignment.start, children: <Widget>[` +
         `Padding(padding: const EdgeInsets.only(top: 8, bottom: 4), child: Text(${label}, style: Theme.of(context).textTheme.labelLarge)), ` +
         `...${rows}.asMap().entries.map((entry) { final row = entry.value; return Padding(padding: const EdgeInsets.only(bottom: 4), child: Row(children: <Widget>[` +
         `${cells}, ` +
-        `IconButton(icon: const Icon(Icons.remove_circle_outline), onPressed: () => setState(() { final removed = ${rows}.removeAt(entry.key); for (final c in removed) c.dispose(); })), ` +
+        `IconButton(icon: const Icon(Icons.remove_circle_outline), onPressed: () => setState(() { final removed = ${rows}.removeAt(entry.key); for (final c in removed) { if (c is TextEditingController) c.dispose(); } })), ` +
         `])); }), ` +
-        `Align(alignment: Alignment.centerLeft, child: TextButton.icon(icon: const Icon(Icons.add), label: const Text('Add'), onPressed: () => setState(() => ${rows}.add([${newRow}])))), ` +
+        `Align(alignment: Alignment.centerLeft, child: TextButton.icon(icon: const Icon(Icons.add), label: const Text('Add'), onPressed: () => setState(() => ${rows}.add(<dynamic>[${newRow}])))), ` +
         `])`
       );
     }
+  }
+}
+
+/** The shared shape of a repeatable single-value row editor: a label, one row
+ *  per element (built by `rowWidget`, which reads `entry.key` / `entry.value`),
+ *  a remove button per row and a trailing "Add".  `scalar-array` keeps its own
+ *  spelling (its rows are controller-backed); the bool / enum editors share
+ *  this one so the two can't drift. */
+function arrayEditor(
+  label: string,
+  listId: string,
+  rowWidget: string,
+  addExpr: string,
+  removeExpr: string,
+): string {
+  return (
+    `Column(crossAxisAlignment: CrossAxisAlignment.start, children: <Widget>[` +
+    `Padding(padding: const EdgeInsets.only(top: 8, bottom: 4), child: Text(${label}, style: Theme.of(context).textTheme.labelLarge)), ` +
+    `...${listId}.asMap().entries.map((entry) => Padding(padding: const EdgeInsets.only(bottom: 4), child: Row(children: <Widget>[` +
+    `${rowWidget}, ` +
+    `IconButton(icon: const Icon(Icons.remove_circle_outline), onPressed: () => setState(() => ${removeExpr})), ` +
+    `]))), ` +
+    `Align(alignment: Alignment.centerLeft, child: TextButton.icon(icon: const Icon(Icons.add), label: const Text('Add'), onPressed: () => setState(() => ${addExpr}))), ` +
+    `])`
+  );
+}
+
+/** One object-array CELL's widget, over the row slot at `i`.  Mirrors the flat
+ *  scalar widgets, narrowed to a dense in-row form; `row` and `entry` are the
+ *  locals the enclosing `.map` binds. */
+function objectCellWidget(
+  sf: NonNullable<FlutterFormField["objectFields"]>[number],
+  i: number,
+): string {
+  const slot = `row[${i}]`;
+  const lbl = `'${dartStr(sf.label)}'`;
+  switch (sf.kind) {
+    case "bool":
+      return (
+        `Expanded(child: Row(mainAxisSize: MainAxisSize.min, children: <Widget>[` +
+        `Checkbox(value: ${slot} as bool, onChanged: (v) => setState(() => ${slot} = v ?? false)), ` +
+        `Flexible(child: Text(${lbl}, overflow: TextOverflow.ellipsis)), ` +
+        `]))`
+      );
+    case "enum": {
+      const items = (sf.enumValues ?? [])
+        .map((v) => `DropdownMenuItem(value: '${dartStr(v)}', child: Text('${dartStr(v)}'))`)
+        .join(", ");
+      return (
+        `Expanded(child: Padding(padding: const EdgeInsets.only(right: 4), child: ` +
+        `DropdownButtonFormField<String>(initialValue: ${slot} as String?, isExpanded: true, ` +
+        `decoration: InputDecoration(isDense: true, labelText: ${lbl}), items: const [${items}], ` +
+        `onChanged: (v) => setState(() => ${slot} = v))))`
+      );
+    }
+    case "datetime":
+      return (
+        `Expanded(child: Padding(padding: const EdgeInsets.only(right: 4), child: ` +
+        `InkWell(onTap: () async { final picked = await showDatePicker(context: context, initialDate: ${slot} as DateTime? ?? DateTime.now(), firstDate: DateTime(2000), lastDate: DateTime(2100)); if (picked != null) setState(() => ${slot} = picked); }, ` +
+        `child: InputDecorator(decoration: InputDecoration(isDense: true, labelText: ${lbl}), child: Text((${slot} as DateTime?)?.toIso8601String() ?? 'Select date', overflow: TextOverflow.ellipsis)))))`
+      );
+    default: {
+      const kbd =
+        sf.kind === "number-int" || sf.kind === "number-double"
+          ? "keyboardType: TextInputType.number, "
+          : "";
+      return (
+        `Expanded(child: Padding(padding: const EdgeInsets.only(right: 4), child: ` +
+        `TextFormField(controller: ${slot} as TextEditingController, ${kbd}decoration: InputDecoration(isDense: true, labelText: ${lbl}))))`
+      );
+    }
+  }
+}
+
+/** The fresh slot a new object-array row carries for one cell — the mirror of
+ *  `objectCellWidget`'s read, so the two agree on what lives in the slot. */
+function newObjectCell(sf: NonNullable<FlutterFormField["objectFields"]>[number]): string {
+  switch (sf.kind) {
+    case "bool":
+      return "false";
+    case "enum":
+      return sf.required && sf.enumValues && sf.enumValues.length > 0
+        ? `'${dartStr(sf.enumValues[0]!)}'`
+        : "null";
+    case "datetime":
+      return "null";
+    default:
+      return "TextEditingController()";
   }
 }
 

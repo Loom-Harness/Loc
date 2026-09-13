@@ -63,12 +63,20 @@ export function renderAngularWorkflowForm(
         ? runsArg.value
         : undefined;
   if (!wfName) {
-    return giveUp(ctx.target, "WorkflowForm(runs: …): missing 'runs:' workflow ref");
+    return giveUp(
+      ctx.target,
+      "loom.page-primitive-arg-missing",
+      "WorkflowForm(runs: …): missing 'runs:' workflow ref",
+    );
   }
   const workflow = ctx.workflowsByName.get(wfName);
   const bc = ctx.bcByWorkflow?.get(wfName);
   if (!workflow || !bc) {
-    return giveUp(ctx.target, `WorkflowForm(runs: ${wfName}): workflow not reachable from this UI`);
+    return giveUp(
+      ctx.target,
+      "loom.page-ref-unreachable",
+      `WorkflowForm(runs: ${wfName}): workflow not reachable from this UI`,
+    );
   }
 
   const T = upperFirst(workflow.name);

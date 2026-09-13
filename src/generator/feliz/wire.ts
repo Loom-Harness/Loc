@@ -60,6 +60,7 @@ import { isOfReadCall } from "../_walker/of-reads.js";
 import { isPagedQuery } from "../_walker/paged-query.js";
 import { boolNamed } from "../_walker/shared/args.js";
 import { fsString } from "./fs-expr.js";
+import { fsIdent } from "./fs-ident.js";
 import { typeToFs } from "./type-fs.js";
 
 /** A read the page view issues, projected to everything the MVU wiring + api
@@ -290,7 +291,7 @@ export function felizAllRead(aggregate: string, opts: FelizAllReadOpts = {}): Fe
   const paging: FelizReadPaging | undefined = opts.paged
     ? { controls: opts.controls, metaField: pageMetaFieldName(field) }
     : undefined;
-  const items = `(Decode.field "items" (Decode.list Decoders.${lowerFirst(aggregate)}))`;
+  const items = `(Decode.field "items" (Decode.list Decoders.${fsIdent(lowerFirst(aggregate))}))`;
   return {
     field,
     msgCase: `${field}Loaded`,
@@ -326,7 +327,7 @@ export function felizByIdRead(aggregate: string, pageCase: string): FelizRead {
     apiFn: lowerFirst(field),
     aggregate,
     resultType: `${upperFirst(aggregate)} option`,
-    decoderExpr: `(Decode.option Decoders.${lowerFirst(aggregate)})`,
+    decoderExpr: `(Decode.option Decoders.${fsIdent(lowerFirst(aggregate))})`,
     route: `${API_BASE_PATH}/${snake(plural(aggregate))}`,
     binding: lowerFirst(field),
     single: true,
@@ -412,7 +413,7 @@ export function felizFindRead(
 ): FelizRead {
   const agg = upperFirst(aggregate);
   const field = findFieldName(aggregate, find.name);
-  const decoder = `Decoders.${lowerFirst(agg)}`;
+  const decoder = `Decoders.${fsIdent(lowerFirst(agg))}`;
   const paged = pagedReturn(find.returnType);
   const ret = paged ? paged.arg : find.returnType;
   const inner = ret.kind === "optional" ? ret.inner : ret;
@@ -541,8 +542,8 @@ export function felizProjectionRead(proj: ProjectionIR): FelizRead {
     aggregate: proj.name,
     resultType: many ? `${row} list` : `${row} option`,
     decoderExpr: many
-      ? `(Decode.list Decoders.${lowerFirst(row)})`
-      : `(Decode.map Some Decoders.${lowerFirst(row)})`,
+      ? `(Decode.list Decoders.${fsIdent(lowerFirst(row))})`
+      : `(Decode.map Some Decoders.${fsIdent(lowerFirst(row))})`,
     route: `${API_BASE_PATH}/projections/${snake(proj.name)}`,
     binding: lowerFirst(field),
     // SINGLE-shaped but NOT page-entry-keyed — see `FelizRead.projection`.
@@ -599,9 +600,17 @@ export type FelizInputKind = "text" | "number" | "checkbox" | "select" | "idsele
  *  expression that lifts the string back to its wire type at submit, and the
  *  input widget kind the type maps to. */
 export interface FelizFormField {
-  /** Exact wire field name — the F# form-record field, input binding, and JSON
-   *  key (`name` / `price`). */
+  /** Exact wire field name — the input binding and JSON key (`name` / `price`).
+   *
+   *  NOT safe as an F# identifier: an operation parameter named `to` (or `type`,
+   *  `member`, `end`, …) is a reserved word, and emitting it as a record field
+   *  produced "Unexpected keyword 'to' in field declaration" from `dotnet
+   *  fable`.  Use {@link fsName} in every F# IDENTIFIER position; `wireName`
+   *  stays the JSON key and the string-literal keys (touched-set, error ids,
+   *  placeholders), which must NOT carry the escape. */
   wireName: string;
+  /** {@link wireName}, escaped for an F# identifier position. */
+  fsName: string;
   /** `Msg` an input's `onChange` dispatches (`SetProductFormName`). */
   setMsg: string;
   /** Thoth encoder for the field, lifting `form.<wireName>` to its wire type
@@ -653,8 +662,12 @@ export interface FelizFormField {
  *  (`Set<Form><Array><Sub> of int * string`, carrying the row index + new value),
  *  and the Thoth encoder lifting `row.<wireName>` back to its wire type. */
 export interface FelizRowField {
-  /** Row-record field name / input binding (`sku`). */
+  /** Row-record field name / input binding (`sku`) — the JSON key and the
+   *  string-literal keys.  See {@link FelizFormField.wireName}: not safe as an
+   *  F# identifier. */
   wireName: string;
+  /** {@link wireName}, escaped for an F# identifier position. */
+  fsName: string;
   /** Indexed setter `Msg` (`SetOrderFormItemsSku`), dispatched `(index, value)`. */
   setMsg: string;
   /** HTML input widget from the sub-field type. */
@@ -932,8 +945,9 @@ function buildField(
       : "");
   return {
     wireName,
+    fsName: fsIdent(wireName),
     setMsg: `Set${formType}${upperFirst(wireName)}`,
-    encodeExpr: encodeExprFor(type, `form.${wireName}`, optional),
+    encodeExpr: encodeExprFor(type, `form.${fsIdent(wireName)}`, optional),
     inputKind,
     numeric: numericKind(base),
     required: !optional,
@@ -1131,12 +1145,13 @@ function buildFieldArray(
       const rowFile = kind === "file";
       return {
         wireName: vf.name,
+        fsName: fsIdent(vf.name),
         setMsg: `Set${formType}${upperFirst(field.name)}${upperFirst(vf.name)}`,
         // A per-row FK select would need the target list in every row; v1 renders
         // the id as plain text instead.
         inputKind: kind === "idselect" || rowFile ? "text" : kind,
         encodeExpr: rowFile
-          ? `Encode.string row.${vf.name}`
+          ? `Encode.string row.${fsIdent(vf.name)}`
           : encodeExprFor(vf.type, `row.${vf.name}`, optional),
         jsonKey: vf.name,
         enumValues: kind === "select" && eb.kind === "enum" ? enumsByName.get(eb.name) : undefined,
@@ -1147,7 +1162,7 @@ function buildFieldArray(
     });
   const rowType = `${upperFirst(elem.name)}Row`;
   return {
-    fieldName: field.name,
+    fieldName: fsIdent(field.name),
     jsonKey: field.name,
     rowType,
     emptyRowBinding: `empty${rowType}`,
@@ -2322,7 +2337,7 @@ function felizAsyncEffect(
       tag,
       isError,
       recordType: upperFirst(tag),
-      decoder: `Decoders.${lowerFirst(tag)}`,
+      decoder: `Decoders.${fsIdent(lowerFirst(tag))}`,
       duCase: `${opCap}${upperFirst(tag)}`,
       uri: isError ? errorTypeUri(tag) : undefined,
       binding: arm.binding,
@@ -2581,7 +2596,7 @@ export function decoderExprFor(t: TypeIR): string {
       return "Decode.string"; // wire carries the enum's string name
     case "valueobject":
     case "entity":
-      return `Decoders.${lowerFirst(t.name)}`;
+      return `Decoders.${fsIdent(lowerFirst(t.name))}`;
     case "array":
       return `(Decode.list ${decoderExprFor(t.element)})`;
     case "optional":
@@ -2709,7 +2724,11 @@ function collectRecords(
   const emit = (typeName: string, wire: WireRecord["fields"]): void => {
     if (seen.has(typeName)) return;
     seen.add(typeName);
-    out.push({ typeName: upperFirst(typeName), decoderName: lowerFirst(typeName), fields: wire });
+    out.push({
+      typeName: upperFirst(typeName),
+      decoderName: fsIdent(lowerFirst(typeName)),
+      fields: wire,
+    });
     for (const f of wire) {
       const n = namedRecord(f.type);
       if (!n || seen.has(n)) continue;
@@ -2780,7 +2799,7 @@ export function renderWireTypes(
     seenRecord.add(upperFirst(name));
     records.push({
       typeName: upperFirst(name),
-      decoderName: lowerFirst(name),
+      decoderName: fsIdent(lowerFirst(name)),
       fields: p.fields.map((f) => ({ name: f.name, type: f.type, optional: f.optional })),
     });
   }
@@ -2800,7 +2819,7 @@ export function renderWireTypes(
     seenRecord.add(typeName);
     records.push({
       typeName,
-      decoderName: lowerFirst(typeName),
+      decoderName: fsIdent(lowerFirst(typeName)),
       fields: (proj.wireShape ?? []).map((f) => ({
         name: f.name,
         type: f.type,
@@ -3211,7 +3230,7 @@ export function renderFormTypes(forms: FormRecord[]): string {
       i > 0 || rowTypeDecls.length > 0 ? "" : undefined,
       `type ${f.formType} =`,
       "  {",
-      ...f.fields.map((fld) => `    ${fld.wireName}: ${formFieldFsType(fld)}`),
+      ...f.fields.map((fld) => `    ${fld.fsName}: ${formFieldFsType(fld)}`),
       ...f.fieldArrays.map((fa) => `    ${fa.fieldName}: ${fa.rowType} list`),
       "  }",
       "",
@@ -3220,7 +3239,7 @@ export function renderFormTypes(forms: FormRecord[]): string {
       // Most fields start empty; a required enum starts at its first value (its
       // `<select>` always has a selection); a File field starts `None` (nothing
       // uploaded); an array field starts empty.
-      ...f.fields.map((fld) => `    ${fld.wireName} = ${formFieldEmpty(fld)}`),
+      ...f.fields.map((fld) => `    ${fld.fsName} = ${formFieldEmpty(fld)}`),
       ...f.fieldArrays.map((fa) => `    ${fa.fieldName} = []`),
       "  }",
     ]),
@@ -3291,8 +3310,8 @@ export function renderEncoders(forms: FormRecord[]): string {
  *  so they can't disagree. */
 function emptyPredicate(fld: FelizFormField): string {
   return fld.inputKind === "file"
-    ? `Option.isNone form.${fld.wireName}`
-    : `System.String.IsNullOrWhiteSpace form.${fld.wireName}`;
+    ? `Option.isNone form.${fld.fsName}`
+    : `System.String.IsNullOrWhiteSpace form.${fld.fsName}`;
 }
 
 /** The F# helper that decides whether a numeric cell's TEXT parses, per
@@ -3373,7 +3392,7 @@ export function renderValidation(forms: FormRecord[]): string {
       // contributes BOTH (in that order).
       const terms = validated.flatMap((fld) => [
         ...(fld.required ? [`not (${emptyPredicate(fld)})`] : []),
-        ...(fld.numeric ? [`${NUMERIC_CHECK_FN[fld.numeric]} form.${fld.wireName}`] : []),
+        ...(fld.numeric ? [`${NUMERIC_CHECK_FN[fld.numeric]} form.${fld.fsName}`] : []),
       ]);
       // Dynamic-row groups: each row's numeric cells feed the SAME encoders,
       // so a `List.forall` parse term guards them too.  (Row required-ness
@@ -3429,7 +3448,7 @@ export function validatedFields(f: FormRecord): FelizFormField[] {
 function fieldErrorBody(fld: FelizFormField): string {
   const empty = emptyPredicate(fld);
   if (!fld.numeric) return `    if ${empty} then Some "Required" else None`;
-  const parses = `${NUMERIC_CHECK_FN[fld.numeric]} form.${fld.wireName}`;
+  const parses = `${NUMERIC_CHECK_FN[fld.numeric]} form.${fld.fsName}`;
   const bad = `Some "${NUMERIC_MESSAGE[fld.numeric]}"`;
   // An OPTIONAL numeric has no "Required" rung — blank is a legitimate
   // omission — but its text still has to parse.

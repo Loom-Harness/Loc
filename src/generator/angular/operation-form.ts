@@ -110,6 +110,7 @@ export function renderAngularOperationForm(
   if (!resolved) {
     return giveUp(
       ctx.target,
+      "loom.page-primitive-arg-invalid",
       "OperationForm: expected (of: <Agg>, op: <opName>) or (<instance>.<op>)",
     );
   }

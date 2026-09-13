@@ -160,6 +160,13 @@ jobs:
                   operation rename(newName: string) { name := newName }
                   operation reprice(newPrice: money) { unitPrice := newPrice }
                   operation restock(): Product or OutOfStock { inStock := true }
+                  // The CANONICAL destroy the `DestroyForm { of: Product }` on
+                  // ProductAdmin submits.  Without it the form had nothing to
+                  // call, so the walker gave up and emitted a `loom:unrendered`
+                  // comment — this fixture's header claims DestroyForm coverage
+                  // and, until `loom.destroy-form-of-unresolved` refused the
+                  // shape, silently did not have it.
+                  destroy { }
                 }
                 repository Categories for Category { }
                 repository Products for Product {
