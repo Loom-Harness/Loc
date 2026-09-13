@@ -969,7 +969,31 @@ the field` — instead of `Expecting token of type '}'`.
 
 ---
 
-## P7 — a NON-optional `X id` user claim breaks node and .NET too
+## P7 — a NON-optional `X id` user claim breaks the dev-stub tables
+
+> **CORRECTED 2026-09-13, twice, by the agent that fixed it (#2900).**
+>
+> **(a) My node repro was theatre.** I reduced the defect to a two-line
+> `tsc --strict` case and reported `TS2322`. The type rule is real, but the
+> REDUCTION dropped the property under test: the emitted `auth/dev-stub.ts`
+> returns `{ ...base, ...JSON.parse(…) }`, and the `any` from `JSON.parse`
+> widens the closure's inferred return type and swallows the contextual check
+> entirely. Measured: with the value fix reverted, `corpus-tsc-build` on a real
+> fixture **passed**. node was wrong but not failing. The fix therefore had to
+> annotate `const base: UserClaims = { … }` first — without that, the corpus
+> gate could never reach the thing it names.
+>
+> That is the `experience_gathered.md` §59/§63 shape, committed by me: a repro
+> that proves the rule rather than the emitter. A reduction has to keep the
+> property under test, and the only way to know it did is to run it against
+> generated output.
+>
+> **(b) dotnet's code is `CS1503`, not `CS0029`** — the named-argument spelling
+> of the same conversion failure. Measured with `dotnet build /warnaserror`.
+>
+> Also found while fixing: **java emitted `null`** for a strong id where the
+> other four carry the zero id — a parity gap, fixed there. python and elixir
+> were already correct, confirmed on generated output.
 
 Found by the agent fixing P2 and verified here independently. P2 covered
 `customerId: Customer id?`; the un-suffixed shape is a *different* defect, in the
