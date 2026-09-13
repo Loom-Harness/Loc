@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { requireDocker } from "./support/docker-probe.js";
 import { mixDepsGet, mixLocalInstall } from "./support/mix-retry.js";
+import { installGeneratedProject } from "./support/npm-install.js";
 
 // ---------------------------------------------------------------------------
 // Phoenix-embeds-React — runtime end-to-end guard (D-PHOENIX-SURFACE).
@@ -129,11 +130,7 @@ describe.skipIf(!ENABLED)("Phoenix embeds React — runtime e2e (LOOM_EMBED_E2E_
       //    assets/ and emits dist/; copy it where Plug.Static (/app) +
       //    the SpaController index path expect it.
       const assetsDir = path.join(projDir, "assets");
-      execSync(`npm install --no-audit --no-fund`, {
-        cwd: assetsDir,
-        stdio: "pipe",
-        timeout: 300_000,
-      });
+      installGeneratedProject(assetsDir, { timeout: 300_000 });
       execSync(`npm run build`, { cwd: assetsDir, stdio: "pipe", timeout: 300_000 });
       const spaDest = path.join(projDir, "priv", "static", "app");
       fs.mkdirSync(spaDest, { recursive: true });

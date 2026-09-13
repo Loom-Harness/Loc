@@ -8,6 +8,7 @@ import AxeBuilder from "@axe-core/playwright";
 import { chromium } from "playwright";
 import { describe, expect, it } from "vitest";
 import { type PackFormat, packFormatForBuiltin } from "../../src/util/builtin-formats.js";
+import { installGeneratedProject } from "./support/npm-install.js";
 
 // ---------------------------------------------------------------------------
 // accessibility.md Phase 4/5 — the axe-core tripwire, ACROSS every frontend.
@@ -327,7 +328,7 @@ describe.skipIf(!ENABLED)("generated frontend clears axe-core (preview + axe)", 
     run(`node ${cli} generate system ${work}/main.ddd -o ${work}/out`, repoRoot);
 
     const project = findProject(path.join(work, "out"), profile.projectMarker);
-    run("npm install --no-audit --no-fund", project);
+    installGeneratedProject(project, { timeout: 900_000 });
     run(profile.buildCmd, project);
     expect(
       fs.existsSync(path.join(project, profile.distSubdir, "index.html")),

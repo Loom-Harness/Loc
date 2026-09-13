@@ -5,6 +5,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { installGeneratedProject } from "./support/npm-install.js";
 
 // ---------------------------------------------------------------------------
 // Runtime e2e for the React frontend (test-parity audit, finding F3).
@@ -100,7 +101,7 @@ describe.skipIf(!ENABLED)("generated react project runs (vite preview + Playwrig
 
     const project = path.join(work, "out", REACT_DIR);
     expect(fs.existsSync(path.join(project, "package.json")), "react project emitted").toBe(true);
-    run("npm install --no-audit --no-fund", project);
+    installGeneratedProject(project, { timeout: 900_000 });
     run("npx vite build --logLevel warn", project);
     expect(fs.existsSync(path.join(project, "dist", "index.html")), "vite build output").toBe(true);
 
@@ -120,7 +121,7 @@ describe.skipIf(!ENABLED)("generated react project runs (vite preview + Playwrig
       // smoke spec against the preview server.
       const e2e = path.join(project, "e2e");
       expect(fs.existsSync(path.join(e2e, "smoke.spec.ts")), "smoke spec emitted").toBe(true);
-      run("npm install --no-audit --no-fund", e2e);
+      installGeneratedProject(e2e, { timeout: 900_000 });
       run("npx playwright install --with-deps chromium", e2e);
       run(`E2E_BASE_URL=${baseUrl} npx playwright test smoke.spec.ts`, e2e);
     } finally {

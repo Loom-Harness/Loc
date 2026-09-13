@@ -76,7 +76,11 @@ jobs:
     # for review -- see docs/ci-gating.md, "Draft PRs and the runner queue".
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # Budget per docs/ci-gating.md § "Sizing a job's `timeout-minutes`":
+    # 50 % margin over the measured p95, rounded up to 5 min, floor 10.
+    # Measured 2026-09-10, n=15 successful runs: p95 8m19s, max 8m19s.
+    # Re-derive with `node test/behavioral/ci-budget-report.mjs`.
+    timeout-minutes: 15
 
     services:
       postgres:

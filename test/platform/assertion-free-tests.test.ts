@@ -74,8 +74,10 @@ const PINNED: Record<string, number> = {
   "test/e2e/k8s-validate.test.ts": 1,
   // DELEGATING — the M-T2.14 money-bounds catch-up gate delegates to
   // `runMoneyBoundsCatchUpGate`, which asserts by throwing (bounds probe, row
-  // rounding, the destructive-refusal check), same shape as its sibling.
-  "test/e2e/migration-evolution.test.ts": 2,
+  // rounding, the destructive-refusal check), same shape as its sibling.  The
+  // third is the M-T2.15 value-collection gate, delegating the same way to
+  // `runValueCollectionEvolutionGate` (which both `expect`s and throws).
+  "test/e2e/migration-evolution.test.ts": 3,
   "test/e2e/migration-evolution-dotnet.test.ts": 1,
   "test/e2e/migration-evolution-elixir.test.ts": 1,
   "test/e2e/migration-evolution-java.test.ts": 1,
