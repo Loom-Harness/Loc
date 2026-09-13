@@ -8,6 +8,7 @@ import {
   DIAGNOSTIC_MESSAGES,
   type DiagnosticMessageKey,
 } from "../../src/diagnostics/messages.js";
+import { UNCODED_SITES, UNCODED_TOTAL } from "./diagnostic-uncoded-baseline.js";
 
 // ---------------------------------------------------------------------------
 // The validator diagnostic-message catalog is the SINGLE HOME for the wording
@@ -36,6 +37,21 @@ import {
 //      the same hole, in its `code: backend.code` shape, is recorded in
 //      M-T9.27).  A template code is now constant-folded where that is possible
 //      and FAILS loudly where it is not.
+//
+// And a FIFTH invariant guards the sites the other four cannot see at all
+// (M-T9.56).  Every invariant above starts from a `code:` — so a site that
+// attaches NO code is not a violation of them, it is invisible to them.  That
+// is not a small residue: 129 conditions (118 errors, 11 warnings) reach the
+// user with no code, and `src/api/report.ts` stamps every one of them
+// `loom.unknown` — a string that is not a catalog key, has no docs anchor, no
+// fix hint and no firing-census bucket.  123 distinct conditions, one word on
+// the wire.
+//
+//   5. The uncoded surface only shrinks — a per-file EXACT count, pinned in
+//      `diagnostic-uncoded-baseline.ts`.  A file that grows a new uncoded site
+//      fails with the site named; a file that drains one fails until its row is
+//      lowered, which is what makes a fix delete its own slack.  This is the
+//      GATE half of M-T9.56; the ~10-slice drain is Wave C4's.
 // ---------------------------------------------------------------------------
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -67,6 +83,23 @@ function catalogedSources(): string[] {
   // invariants — appropriate, since this is a defensive backstop the IR
   // validator is meant to make unreachable, not a validator call site).
   out.push(path.join("src", "generator", "_expr", "target.ts"));
+  // The same shape, one packet later (Wave C1 packet 1d-ii): the §18 emitter
+  // sentinels that turned out to be UNREACHABLE on a validated model are kept
+  // as internal FLOORS — a `throw new Error(diagMessage("loom.…#…-invariant"))`
+  // naming the phase-⑦ gate that is supposed to have fired first.  They are
+  // scanned here for the same reason `_expr/target.ts` is: the wording lives in
+  // the catalog, so the orphan check must see the site.  A floor whose gate is
+  // deleted therefore has to lose its catalog entry too.
+  for (const f of [
+    path.join("src", "generator", "svelte", "routes-emitter.ts"),
+    path.join("src", "generator", "elixir", "liveview-emit.ts"),
+    path.join("src", "generator", "elixir", "domain-service-emit.ts"),
+    path.join("src", "generator", "_frontend", "component-prop-type.ts"),
+    path.join("src", "generator", "_frontend", "extern-functions.ts"),
+    path.join("src", "generator", "flutter", "riverpod-emit.ts"),
+  ]) {
+    out.push(f);
+  }
   // Phase ① — the parser's own error text.  It attaches no `loom.*` code
   // (Langium stamps `parsing-error` and `src/api/report.ts` maps that to
   // `loom.parse-error`), so invariants 1/2/4 have nothing to check here; it
@@ -286,6 +319,36 @@ function sitesIn(file: string): { sites: Site[]; dynamic: DynamicCodeSite[] } {
   return { sites: out, dynamic };
 }
 
+/** Every `loom.*` code named at a walker give-up call site (`giveUp` /
+ *  `giveUpNotice` / `giveUpText`) anywhere under `src/generator/`.  Read out of
+ *  the sources rather than listed, so a new give-up code is recognised the day
+ *  it is written — the same "derive, don't hand-keep" rule the sentinel itself
+ *  exists for. */
+function giveUpCodes(): Set<string> {
+  const out = new Set<string>();
+  const walk = (dir: string): void => {
+    for (const e of fs.readdirSync(path.join(repoRoot, dir), { withFileTypes: true })) {
+      const rel = path.join(dir, e.name);
+      if (e.isDirectory()) walk(rel);
+      else if (e.name.endsWith(".ts")) {
+        const src = fs.readFileSync(path.join(repoRoot, rel), "utf8");
+        if (!src.includes("giveUp")) continue;
+        for (const m of src.matchAll(
+          /giveUp(?:Notice|Text)?\(\s*(?:[^,()]+,\s*)?"(loom\.[a-z0-9-]+)"/g,
+        ))
+          out.add(m[1] as string);
+        // The `Icon` fork passes a CONDITIONAL of two literals.
+        for (const m of src.matchAll(/\?\s*"(loom\.[a-z0-9-]+)"\s*:\s*"(loom\.[a-z0-9-]+)"/g)) {
+          out.add(m[1] as string);
+          out.add(m[2] as string);
+        }
+      }
+    }
+  };
+  walk(path.join("src", "generator"));
+  return out;
+}
+
 const SCANNED = catalogedSources().map(sitesIn);
 const ALL_SITES = SCANNED.flatMap((s) => s.sites);
 const ALL_DYNAMIC = SCANNED.flatMap((s) => s.dynamic);
@@ -407,6 +470,16 @@ describe("validator diagnostic-message catalog", () => {
       };
       visit(sf);
     }
+    // A give-up code counts as USED (M-T9.55).  The body walker's ~70 decline
+    // sites name their `loom.*` code through `giveUp(target, "loom.…", …)`
+    // rather than through `diagMessage` — codegen has no diagnostic channel, so
+    // the code is rendered into the `loom:unrendered [<code>] …` comment and the
+    // catalog holds the text a reader (and a future `generate system` reporting
+    // pass) looks it up with.  The link stays MACHINE-CHECKED in both
+    // directions: `GiveUpCode` is `DiagnosticMessageKey`, so a code outside the
+    // catalog fails `tsc`, and this scan makes deleting the last give-up that
+    // names a code delete its catalog entry too.
+    for (const code of giveUpCodes()) used.add(code);
     const orphans = Object.keys(DIAGNOSTIC_MESSAGES).filter((k) => !used.has(k));
     expect(orphans).toEqual([]);
   });
@@ -483,5 +556,151 @@ describe("validator diagnostic-message catalog", () => {
       return !(entry as (p: unknown) => string)(anyParams).startsWith("<where>");
     });
     expect(stale).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Invariant 5 — the UNCODED-site ratchet (M-T9.56, gate half).
+//
+// The four invariants above all start from a `code:`.  A site that attaches no
+// code at all is therefore not a violation of any of them — it is INVISIBLE to
+// them, and `src/api/report.ts` quietly stamps it `loom.unknown` on the way to
+// the user.  This is the census that makes that surface countable, and the
+// ratchet that stops it growing while Wave C4 drains it.
+//
+// Scanned surface: exactly `catalogedSources()` — the same files the wording
+// invariants own, so a new validator file is in the census the day it lands.
+// ---------------------------------------------------------------------------
+
+/** A diagnostic construction site that attaches NO `loom.*` code. */
+interface UncodedSite {
+  file: string;
+  line: number;
+  severity: string;
+  /** The site as source text, trimmed — enough to find it without a line number. */
+  text: string;
+}
+
+/**
+ * Every site in `file` that builds a user-visible diagnostic with no `code`.
+ *
+ * Both shapes the coded scanner knows, minus the code:
+ *   - Langium's `accept(severity, message, opts)` where `opts` is absent, is
+ *     not an object literal, or carries no `code` property;
+ *   - the IR-check / macro-expander `{ severity, message, … }` object literal
+ *     with no `code` property.
+ *
+ * A forwarding helper counts as ONE site (it is one `accept`), even when five
+ * callers word five different messages through it — the drain has to touch the
+ * helper either way, and counting call sites here would make the row move for
+ * reasons that have nothing to do with coding the diagnostic.
+ */
+function uncodedSitesIn(file: string): UncodedSite[] {
+  const src = fs.readFileSync(path.join(repoRoot, file), "utf8");
+  const sf = ts.createSourceFile(file, src, ts.ScriptTarget.ESNext, true);
+  const out: UncodedSite[] = [];
+  const at = (n: ts.Node): number => sf.getLineAndCharacterOfPosition(n.getStart(sf)).line + 1;
+  const excerpt = (n: ts.Node): string => n.getText(sf).replace(/\s+/g, " ").slice(0, 120);
+  const nameOf = (p: ts.ObjectLiteralElementLike): string | undefined =>
+    ts.isPropertyAssignment(p) || ts.isShorthandPropertyAssignment(p)
+      ? p.name.getText(sf)
+      : undefined;
+  const hasCode = (o: ts.ObjectLiteralExpression): boolean =>
+    o.properties.some((p) => nameOf(p) === "code");
+  const visit = (n: ts.Node): void => {
+    if (
+      ts.isCallExpression(n) &&
+      /(^|\.)accept$/.test(n.expression.getText(sf)) &&
+      n.arguments.length >= 2
+    ) {
+      const opts = n.arguments[2];
+      const coded = opts !== undefined && ts.isObjectLiteralExpression(opts) && hasCode(opts);
+      if (!coded) {
+        out.push({
+          file,
+          line: at(n),
+          severity: (n.arguments[0]?.getText(sf) ?? "?").replace(/["']/g, ""),
+          text: excerpt(n),
+        });
+      }
+    }
+    if (ts.isObjectLiteralExpression(n)) {
+      const named = new Set(n.properties.map(nameOf).filter((x): x is string => x !== undefined));
+      if (named.has("severity") && named.has("message") && !named.has("code")) {
+        out.push({ file, line: at(n), severity: "object-literal", text: excerpt(n) });
+      }
+    }
+    ts.forEachChild(n, visit);
+  };
+  visit(sf);
+  return out;
+}
+
+describe("uncoded diagnostic sites — shrink-only (M-T9.56)", () => {
+  const ALL_UNCODED = catalogedSources().flatMap(uncodedSitesIn);
+  const live: Record<string, number> = {};
+  for (const s of ALL_UNCODED) live[s.file] = (live[s.file] ?? 0) + 1;
+  const sitesOf = (file: string): string =>
+    ALL_UNCODED.filter((s) => s.file === file)
+      .map((s) => `    ${s.file}:${s.line} [${s.severity}] ${s.text}`)
+      .join("\n");
+
+  it("scans a real surface (guard against a vacuous pass)", () => {
+    // If the AST shapes stop matching, every assertion below passes on an
+    // empty census and the ratchet silently stops ratcheting.  `catalogedSources`
+    // is shared with the wording invariants, which pin >400 CODED sites, so the
+    // only way this can go to zero is the scanner breaking.
+    expect(catalogedSources().length).toBeGreaterThan(20);
+    expect(ALL_UNCODED.length).toBeGreaterThan(50);
+  });
+
+  it("no file grows a NEW uncoded diagnostic", () => {
+    const grown = Object.keys(live)
+      .filter((f) => live[f]! > (UNCODED_SITES[f] ?? 0))
+      .sort()
+      .map(
+        (f) => `${f}: ${live[f]} uncoded site(s), pinned ${UNCODED_SITES[f] ?? 0}\n${sitesOf(f)}`,
+      );
+    expect(
+      grown,
+      "A new diagnostic reaches the user with no `loom.*` code, so `src/api/report.ts` " +
+        "stamps it `loom.unknown` — a string with no catalog entry, no docs anchor and no " +
+        "fix hint.  Give the site a code: add the wording to src/diagnostics/messages.ts " +
+        "keyed by that code, pass diagMessage(...) as the message, attach `code:` in the " +
+        "accept() options, and either add a docs anchor in src/diagnostics/code-docs.ts or " +
+        "list the code in diagnostic-docs-undocumented.ts.\n\n" +
+        grown.join("\n"),
+    ).toEqual([]);
+  });
+
+  it("no STALE row — a drained file deletes its own line", () => {
+    const overPinned = Object.keys(UNCODED_SITES)
+      .filter((f) => (live[f] ?? 0) < UNCODED_SITES[f]!)
+      .sort()
+      .map(
+        (f) => `${f}: ${live[f] ?? 0} uncoded site(s) left, still pinned at ${UNCODED_SITES[f]}`,
+      );
+    expect(
+      overPinned,
+      "The uncoded surface shrank but the baseline did not.  Lower the row in " +
+        "test/system/diagnostic-uncoded-baseline.ts in the SAME change (delete the row " +
+        "entirely when it reaches 0) — slack left in a ratchet is how it stops ratcheting " +
+        "(allowlist-ratchet.test.ts, same rule).\n\n" +
+        overPinned.join("\n"),
+    ).toEqual([]);
+  });
+
+  it("the per-file count is pinned EXACTLY", () => {
+    // Exact, not a ceiling.  A ceiling lets a new uncoded condition slip into
+    // an already-listed file — and `deployable.ts` alone holds 24, so there is
+    // plenty of cover.
+    expect(live).toEqual(UNCODED_SITES);
+  });
+
+  it("the total is pinned too (one number to watch shrink)", () => {
+    expect(
+      ALL_UNCODED.length,
+      `uncoded diagnostic sites: ${ALL_UNCODED.length} (pinned ${UNCODED_TOTAL})`,
+    ).toBe(UNCODED_TOTAL);
   });
 });

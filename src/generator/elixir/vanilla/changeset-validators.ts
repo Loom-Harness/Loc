@@ -114,8 +114,32 @@ export function ectoValidator(field: string, p: SingleFieldPattern, message?: st
 /** The single-field constraint validator lines for a value object's invariants
  *  (only those whose pattern targets one of the VO's own fields). */
 export function voConstraintLines(vo: ValueObjectIR): string[] {
-  const fieldNames = new Set(vo.fields.map((f) => snake(f.name)));
-  return (vo.invariants ?? []).flatMap((inv) =>
+  return constraintLinesFor(vo);
+}
+
+/** The same, for an ENTITY PART (`entity Line { qty: int check qty > 0 }`) — its
+ *  own `changeset/2` is what `cast_embed`/`cast_assoc` runs, so a part-level
+ *  `check` / `invariant` has to be enforced THERE or nowhere.  It was nowhere
+ *  (M-T6.55 F14): the part changeset only `cast`, while node/.NET/java/python
+ *  all assert both forms at the part's domain floor.  A part's `check` lowers
+ *  into the same `invariants` list as its `invariant`, so one pass covers both.
+ *
+ *  Cross-field and guarded part invariants are not this function's job — they
+ *  route to the part's `validate_invariants/1` residual carrier
+ *  (`changeset-invariant-emit.ts`), the same split the aggregate changeset uses. */
+export function partConstraintLines(part: {
+  fields: ValueObjectIR["fields"];
+  invariants: ValueObjectIR["invariants"];
+}): string[] {
+  return constraintLinesFor(part);
+}
+
+function constraintLinesFor(owner: {
+  fields: ValueObjectIR["fields"];
+  invariants: ValueObjectIR["invariants"];
+}): string[] {
+  const fieldNames = new Set(owner.fields.map((f) => snake(f.name)));
+  return (owner.invariants ?? []).flatMap((inv) =>
     (singleFieldConstraints(inv) ?? [])
       .filter((c) => fieldNames.has(snake(c.field)))
       .map((c) => ectoValidator(snake(c.field), c.pattern, inv.message?.text)),

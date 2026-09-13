@@ -28,7 +28,7 @@ import { mkdtempSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSyn
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { AUTHZ_LADDERS, declaresE2e, DEV_CLAIMS, featureCases, mountsFileRoutes, sharedSystemCases, unauthorizedCredentials } from "./cases.mjs";
+import { AUTHZ_LADDERS, declaresE2e, DEV_CLAIMS, featureCases, mountsFileRoutes, otherTenantCredentials, sharedSystemCases, unauthorizedCredentials } from "./cases.mjs";
 import { authzLadderTail, makeWireGate, recorderPreamble } from "./wire-differential.mjs";
 import { startMockIssuer } from "./oidc-mock.mjs";
 
@@ -106,6 +106,8 @@ function entrySource({ deplDir, e2eFile, unitFiles, traceFile, authMode, bearerT
   // The authenticated-but-unauthorized credential, in this system's auth
   // flavour (M-T9.28) — derived by the shared helper all five legs use.
   const unauthorizedCreds = unauthorizedCredentials(authMode, unauthorizedToken);
+  // The CROSS-TENANT principal (wave-3 row 3.3): granting claims, other tenant.
+  const otherTenantCreds = otherTenantCredentials(authMode);
   // FIRST-BOOT SEEDS.  The generated entrypoint (index.ts) runs
   // `migrate` → `runSeeds` → `createApp`; booting via `createApp` skipped the
   // middle step, so a system carrying `seed` datasets started with EMPTY tables
@@ -141,6 +143,7 @@ const E2E_FILE = ${J(e2eFile)};
 const DEV_CLAIMS = ${J(DEV_CLAIMS)};
 const AUTHZ_LADDER = ${J(authzLadder ?? null)};
 const UNAUTHORIZED_CREDS = ${J(unauthorizedCreds)};
+const OTHER_TENANT_CREDS = ${J(otherTenantCreds)};
 const UNIT_FILES = ${J(unitFiles)};
 const TRACE_FILE = ${J(traceFile)};
 const SHIM = ${J(SHIM)};

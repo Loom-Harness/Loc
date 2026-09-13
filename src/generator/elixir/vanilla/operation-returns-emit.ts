@@ -27,6 +27,7 @@ import type {
 } from "../../../ir/types/loom-ir.js";
 import { opHasProvSite } from "../../../ir/util/prov-id.js";
 import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
+import { walkStmtsDeep } from "../../../ir/util/walk.js";
 import { defaultErrorStatus, errorTitle, errorTypeUri } from "../../../util/error-defaults.js";
 import { escapeElixirIdent, snake, upperFirst } from "../../../util/naming.js";
 import { numericEncode } from "../../_numeric/target.js";
@@ -38,7 +39,7 @@ import {
   opEmitsDurableEvent,
 } from "../channels-emit.js";
 import { contextHasDispatcher } from "../dispatch-emit.js";
-import { opUsesCurrentUser } from "../domain/predicates.js";
+import { opUsesCurrentUser, stmtUsesParam } from "../domain/predicates.js";
 import { type RenderCtx, renderExpr } from "../render-expr.js";
 import { auditRecordCall, wireSnapshot } from "./audit-emit.js";
 import {
@@ -89,6 +90,110 @@ function wireFieldsOf(agg: AggregateIR): string[] {
   return forApiRead(wireFieldsForAggregate(agg)).map((f) => snake(f.name));
 }
 
+/** The PRIVATE operations `op`'s body calls as bare statements, transitively
+ *  and in call order, deduped.  A private op is not routed (no controller, no
+ *  route) and exists to be called from a sibling operation — vanilla now emits
+ *  each one it needs as a `defp __op_<name>/n` pure struct transform
+ *  ({@link renderPrivateOpHelpers}).
+ *
+ *  The scan rides `walkStmtsDeep` rather than looping `op.statements`, so a call
+ *  nested in a `variant-match` arm or a block-bodied lambda is seen too — the
+ *  traversal dead-zone CLAUDE.md's "No hand-rolled IR walks" rule names. */
+export function privateOpsCalledFrom(
+  op: OperationIR,
+  agg: Pick<AggregateIR, "operations">,
+): OperationIR[] {
+  const byName = new Map((agg.operations ?? []).map((o) => [o.name, o]));
+  const out: OperationIR[] = [];
+  const seen = new Set<string>([op.name]);
+  const visitOp = (o: OperationIR): void => {
+    for (const s of o.statements) {
+      walkStmtsDeep(s, (inner) => {
+        if (inner.kind !== "call" || inner.target !== "private-operation") return;
+        if (seen.has(inner.name)) return;
+        const callee = byName.get(inner.name);
+        if (!callee) return;
+        seen.add(inner.name);
+        out.push(callee);
+        visitOp(callee);
+      });
+    }
+  };
+  visitOp(op);
+  return out;
+}
+
+/** Every statement of every private operation `op` transitively calls — the
+ *  write set `persistPutBodies` has to union into the caller's persist tail. */
+function calleeStatements(op: OperationIR, agg: Pick<AggregateIR, "operations">): StmtIR[] {
+  return privateOpsCalledFrom(op, agg).flatMap((callee) => {
+    const stmts: StmtIR[] = [];
+    for (const s of callee.statements) walkStmtsDeep(s, (inner) => stmts.push(inner));
+    return stmts;
+  });
+}
+
+/** The `defp __op_<name>(record, <params…>)` pure struct transforms a module
+ *  needs for the private operations its rendered op bodies call.
+ *
+ *  Shape: exactly the callee's own body statements, threading and returning
+ *  `record`.  NOT the public `<op>_<agg>/2` context fn — that one persists and
+ *  returns `{:ok, struct}`, so calling it mid-operation would commit a partial
+ *  write inside the caller's optimistic-lock window.  Params bind positionally
+ *  from the call-site arguments (the same spelling `renderExpr` gives a
+ *  `refKind: "param"` reference), so no params-map marshalling is needed.
+ *
+ *  Deduped across the module's ops by callee name; empty (byte-identical
+ *  output) when nothing calls a private operation. */
+export function renderPrivateOpHelpers(
+  ops: readonly OperationIR[],
+  agg: Pick<AggregateIR, "operations">,
+  ctx: BoundedContextIR,
+  contextModule: string,
+  aggForCtx?: EnrichedAggregateIR,
+  /** Render the bodies in DOCUMENT struct mode (`shape: document` — the op runs
+   *  over the rehydrated embed, not a flattened row), matching `docOpStructBody`'s
+   *  own `RenderCtx`. */
+  docStruct = false,
+): string[] {
+  const wanted = new Map<string, OperationIR>();
+  for (const op of ops) {
+    for (const callee of privateOpsCalledFrom(op, agg)) wanted.set(callee.name, callee);
+  }
+  if (wanted.size === 0) return [];
+  const out: string[] = [];
+  for (const callee of wanted.values()) {
+    const rc: RenderCtx = {
+      thisName: "record",
+      contextModule,
+      // No lineage capture and no emit fan-out in a helper: both are
+      // persist-path effects owned by the CALLER's tail, which runs once.
+      captureProvenance: false,
+      ...(docStruct ? { docStruct: true } : {}),
+      ...(aggForCtx ? { agg: aggForCtx } : {}),
+    };
+    const stmts = callee.statements.filter((s) => s.kind !== "emit");
+    // An unused binding trips `mix compile --warnings-as-errors`, so a param the
+    // callee's body never reads is underscored (the same rule the named-op and
+    // pure-core renderers apply to their own param binds).
+    const params = callee.params.map((p) => {
+      const name = escapeElixirIdent(snake(p.name));
+      return stmts.some((s) => stmtUsesParam(s, p.name)) ? name : `_${name}`;
+    });
+    const head = ["record", ...params].join(", ");
+    out.push(
+      "",
+      `  # Private operation \`${callee.name}\` as a pure struct transform — the`,
+      `  # CALLER persists the columns it assigns (persistPutBodies unions them).`,
+      `  defp __op_${snake(callee.name)}(${head}) do`,
+      ...stmts.map((s, i) => renderReturningStmt(s, ctx, rc, i)),
+      "    record",
+      "  end",
+    );
+  }
+  return out;
+}
+
 /** The `Ecto.Changeset` put bodies that persist the columns an operation body
  *  assigned (deduped, declaration order) onto the threaded `record` — shared by
  *  the named-op persist tail (`context-emit.ts`) and the returning-op persist
@@ -116,7 +221,13 @@ export function persistPutBodies(
 ): string[] {
   const containNames = new Set(agg.contains.map((c) => snake(c.name)));
   const assignedFields: string[] = [];
-  for (const s of op.statements) {
+  // The op's OWN writes, plus the writes of every private operation its body
+  // calls (transitively).  A bare `recompute()` now really runs
+  // (`renderReturningStmt`'s `call` arm → `record = __op_recompute(record)`), so
+  // the columns IT assigns have to reach this persist tail — this function
+  // walking only `op.statements` is the second half of M-T6.55 F24: emitting the
+  // call alone computes the mutation and then silently drops it at persist.
+  for (const s of [...op.statements, ...calleeStatements(op, agg)]) {
     // `assign` (`field := v`), collection `add`/`remove` (`items += Item{…}`),
     // and scalar compound `add`/`remove` (`total += n`) all re-bind a real
     // schema column on `record`.
@@ -1234,17 +1345,27 @@ export function renderReturningStmt(
             : `${snake(s.name)}(${rc.thisName})`;
         return `    _ = ${call}`;
       }
-      // A `private-operation` target has no vanilla helper (private ops are not
-      // emitted on vanilla), and a bare call discards its result anyway, so it
-      // lowers to a no-op that still threads `record` — keeping the body
-      // compilable under `--warnings-as-errors` without an undefined reference.
-      const argTuple = args.length ? `{${args.join(", ")}}` : "nil";
-      return `    _ = ${argTuple}  # vanilla: bare call to '${s.name}' (no callable target); record unchanged`;
+      // A bare call to a PRIVATE operation (`recompute()` inside `bump`).  This
+      // used to render `_ = nil  # vanilla: bare call to 'recompute' (no callable
+      // target); record unchanged` — compile-clean, behaviourally absent, and the
+      // "no callable target" claim was false: the emitting module carries a
+      // `defp __op_<name>/n` for exactly this (`renderPrivateOpHelpers`), and the
+      // public twin `<op>_<agg>/2` was already six lines away in the same file.
+      // The mutation is a PURE struct rebind, so the helper returns the new
+      // `record` and the caller's own persist tail writes the columns it assigned
+      // (`persistPutBodies` unions the callee's targets — M-T6.55 F24).
+      return `    ${rc.thisName} = __op_${snake(s.name)}(${[rc.thisName, ...args].join(", ")})`;
     }
     case "variant-match":
-      // Frontend-only effect statement (Stage 2) — gated to action bodies.
+      // UNREACHABLE — the elixir twin of the shared spine's guard in
+      // `src/generator/_stmt/target.ts`.  The effect form of `match` is
+      // frontend-only (Stage 2) and is now refused at phase ④ by
+      // `loom.variant-match-placement` (M-T5.28), so reaching here means the
+      // validator was bypassed.  Kept as a throw, not softened to a skip: a
+      // skip drops the statement's effects silently.
       throw new Error(
-        "variant-match statement is frontend-only; it must not reach the vanilla Elixir backend",
+        "internal: a 'variant-match' statement reached the vanilla Elixir statement renderer; " +
+          "loom.variant-match-placement refuses this source at phase ④, so the validator was bypassed",
       );
     case "if":
       // The `if` STATEMENT is a node/.NET/java/python form today.  This body

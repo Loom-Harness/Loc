@@ -134,7 +134,7 @@ describe("flutter form projector", () => {
     // under the `cost` JSON object key.
     const amount = byName.get("costAmount")!;
     expect(amount.kind).toBe("number-int");
-    expect(amount.objectKey).toBe("cost");
+    expect(amount.objectPath).toEqual(["cost"]);
     expect(amount.jsonKey).toBe("amount");
     expect(byName.get("costCurrency")!.jsonKey).toBe("currency");
   });
