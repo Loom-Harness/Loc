@@ -930,7 +930,7 @@ Impact on adoption: a shared client, a contract test, or a UI that renders `erro
 portable across backends. "Identical API contracts" is **partially verified** — identical in shape and
 status, not in every value. Sample: 2 of 5 backends, driven at runtime.
 
-### F-035 — `dotnet` + `java`: two capabilities contributing `onCreate` stamps → one is dropped → every create 500s
+### F-035 — `dotnet`: two capabilities contributing `onCreate` stamps → one is dropped → every create 500s
 Severity: **S1** (runtime; every write fails on a multi-tenant audited aggregate)   Class: **SILENT**
 Area: generator / dotnet + java / capability stamp merge
 Claim under test: docs/capabilities.md & docs/tenancy.md — "The filter and stamp ride the standard
@@ -976,6 +976,19 @@ server log: Npgsql.PostgresException 23502: null value in column "created_by" of
 Expected: both capabilities' stamps are emitted.
 Workaround: none in the model. You would hand-edit the interceptor / `@PrePersist` after every
 regeneration, on every aggregate.
+> **CORRECTION (2026-09-13, after re-verification on fresh `main`).** As filed this finding named
+> **.NET and Java**. The .NET half is confirmed and root-caused:
+> `src/generator/dotnet/emit/auditable-interceptor.tpl.ts:157-158` uses `.find()` on the stamp-rule
+> array, returning the first rule and discarding the rest — while *every* other consumer, including
+> the .NET backend's own Dapper adapter (`dotnet/emit/dapper.ts:1041`), uses `.filter().flatMap()`.
+> The IR is correct (both `create` rules are present).
+> **The Java half was wrong.** `java/emit/entity.ts:381` iterates all rules with a `for…of`, and Java
+> does not stamp audit columns in `@PrePersist` at all — it splits them, sending `createdAt`/`createdBy`
+> to Spring Data (`@EntityListeners(AuditingEntityListener.class)`, `@CreatedDate`, `@CreatedBy`, wired
+> by `config/JpaAuditingConfig.java` with `@EnableJpaAuditing`). The `@PrePersist` carrying only
+> `tenantId`/`dataKey` is **correct by design**. I inferred the Java half statically from that
+> `@PrePersist` body and never booted Java; that inference was unsound. Severity for .NET is unchanged.
+
 Impact on adoption: **this is the single worst finding in the evaluation.** `tenantOwned + auditable`
 is the default shape of every business record in a multi-tenant B2B product — exactly what Loom is
 sold for. On .NET and Java the generated service compiles, boots, passes its health check, serves

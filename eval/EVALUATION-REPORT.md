@@ -11,7 +11,7 @@
 
 Loom's compiler is genuinely good and its migration story is better than what most of our teams
 hand-roll — but **none of the five advertised backends compiled the app I wrote without me patching
-the generated source**, and on .NET and Java the generated service boots healthy and then fails
+the generated source**, and on .NET the generated service boots healthy and then fails
 *every single write* with a 500. That is not a maturity curve you put a flagship B2B product on.
 
 **We would move to "Adopt with conditions" when all five of these are true** (each checkable in an
@@ -20,7 +20,7 @@ afternoon):
 | # | Condition | How we verify it |
 |---|---|---|
 | C1 | A model *we* write — not a vendor example — generates and **compiles clean on all five backends** with zero hand patches. | Re-run `eval/fieldops/main-devauth.ddd` through the matrix in §4. Today: 0/5. |
-| C2 | `tenantOwned + auditable` (the default shape of every B2B record) **writes successfully on all five backends** at runtime. | Re-run the round-trip in §7. Today: F-035 breaks .NET and Java. |
+| C2 | `tenantOwned + auditable` (the default shape of every B2B record) **writes successfully on all five backends** at runtime. | Re-run the round-trip in §7. Today: F-035 breaks .NET; Java/Elixir unverified at runtime. |
 | C3 | Loom publishes **versioned, tagged releases with a changelog**, and generated projects ship a **dependency lockfile**. | `git tag`, `CHANGELOG.md`, `find <out> -name '*lock*'`. Today: none, none. |
 | C4 | The **generated OIDC login flow works end to end** on the stack Loom itself emits, with no hand edits. | `docker compose up` + a browser login. Today: F-024, two hand fixes needed. |
 | C5 | A **second maintainer** with merge rights, and a stated support/response commitment. | Today: 1 human, 80% of commits authored by an AI agent. |
@@ -77,7 +77,7 @@ Every claim is quoted verbatim from `README.md`. **Verified** = I executed it an
 | 4 | "six frontends (React, Vue, Svelte, Angular, Feliz, Flutter)" | **Partially verified** | React (4 packs) `tsc` clean; Svelte `npm run build` clean. **Vue** and **Angular** fail their own build on ordinary constructs (**F-032**, **F-033**). Feliz and Flutter **unverified** — no toolchain here. |
 | 5 | "No vendor lock-in." | **Verified** | Generator is FSL-1.1→Apache-2.0; generated code is MIT. The output is ordinary Hono/EF/Ecto/Spring/FastAPI you could maintain by hand. (README overstates one detail: `ddd generate` does **not** emit the MIT LICENSE file — **F-045**.) |
 | 6 | "No scaling cliff." | **Verified** at the size tested | 8 → **40 aggregates**: parse 2.9s→7.8s, generate 3.9s→8.0s, 442 files / 51,005 lines, generated `tsc --noEmit` 18s clean. Roughly linear, no cliff. Untested beyond 40. |
-| 7 | "No drift between layers." | **Contradicted** | Three measured drifts: the deny-by-default `find all(): T[]` shape breaks every scaffolded FK picker (**F-018**); a `ui` scaffolding an unserved subdomain emits pages against an api client that was never generated (**F-019**, a *documented* validator obligation that does not fire); the .NET/Java `@PrePersist` stamp omits the columns the same tool marked `NOT NULL` (**F-035**). |
+| 7 | "No drift between layers." | **Contradicted** | Three measured drifts: the deny-by-default `find all(): T[]` shape breaks every scaffolded FK picker (**F-018**); a `ui` scaffolding an unserved subdomain emits pages against an api client that was never generated (**F-019**, a *documented* validator obligation that does not fire); the .NET EF interceptor's `onCreate` stamp omits the columns the same tool marked `NOT NULL` (**F-035**). |
 | 8 | "Thirteen design packs … swap any time" | **Verified** (React), partially elsewhere | 4 React packs generated and typechecked **0 errors** each. vuetify / shadcnSvelte / angularMaterial generate. The pack↔framework validator is excellent; the Feliz one suggests a value the grammar rejects (**F-031**). |
 | 9 | "Pick a runtime per deployable. Switch any time." | **Partially verified** | The *switch* really is one line (`platform:`) — verified on all five backends and six frontends. The cost is not the switch; it is that the target you switch to may not compile (claims 3–4). |
 | 10 | "Identical API contracts" | **Partially verified** | node vs python, same model, both booted, one identical probe: **every status code, the paged envelope, the full field set, money precision, enums, nulls, containment, tenancy 404s and field masking matched exactly.** Two diverged: `decimal` serialises `2` vs `2.0`, and python returns Pydantic's raw message (echoing the regex) instead of Loom's derived text. **F-034**. Sample: 2 of 5, at runtime. |
@@ -201,7 +201,7 @@ Thirteen are "the generated code does not compile"; three are "it compiles, boot
 
 | ID | One line | Blast radius |
 |---|---|---|
-| **F-035** | `tenantOwned` + `auditable` → .NET/Java drop the `createdAt`/`createdBy` stamp; **every create 500s** against the NOT NULL column the same tool emitted | **the default shape of every B2B record** |
+| **F-035** | `tenantOwned` + `auditable` → **.NET** drops the `createdAt`/`createdBy` stamp; **every create 500s** against the NOT NULL column the same tool emitted. *(Filed as .NET+Java; the Java half was my error — see the correction in FINDINGS.md.)* | **the default shape of every B2B record** |
 | F-018 | Declaring `find all(): T[]` — which deny-by-default *forces* — breaks every scaffolded FK picker | 8 of 14 pages in my model |
 | F-024 | The generated OIDC login fails against the generated Keycloak realm (`offline_access`), then redirects to a 404 | the single most visible user path |
 | F-027 | python: cross-context `X id` used without its import → `NameError` at request time; invisible to `compileall` *and* to `import` | any multi-context python deployable |
@@ -297,7 +297,7 @@ that **`helm lint`s clean** with a proper secret/config split.
 | Risk | L | I | Evidence | Mitigation |
 |---|---|---|---|---|
 | **Generated code doesn't compile on the target we pick** | **High** | **High** | 0/5 backends, 2/4 buildable frontends | Pick node+React (the only pair that compiled clean) and treat the other nine as unavailable. Add a "compile the generated output" job to *our* CI on every model change. |
-| **A silent runtime defect reaches production** | **High** | **High** | F-035 (.NET/Java every write 500s), F-027 (python NameError at request time), F-023 (lost updates) | Our own e2e suite against the generated stack, per target, per release. Do not trust "generation succeeded". |
+| **A silent runtime defect reaches production** | **High** | **High** | F-035 (.NET every write 500s), F-027 (python NameError at request time), F-023 (lost updates) | Our own e2e suite against the generated stack, per target, per release. Do not trust "generation succeeded". |
 | **Bus factor = 1** | Medium | **High** | 131 of 668 commits from one human; **536 from an AI agent**; no second maintainer | Vendor the toolchain at a pinned SHA. Budget for owning the fork. |
 | **No release engineering** | **High** | Medium | 0 tags, 0 releases, no changelog, version `0.1.0`; no lockfile in generated projects | Pin a SHA, commit the generated tree, commit lockfiles, gate regeneration behind review. |
 | **Unstable `main`** | **High** | Medium | **~50 of 92 issues are auto-filed "🔴 main is red"** in 14 days; 4 open "flaky gate" issues | Never track `main`. Upgrade deliberately, re-run C1/C2 each time. |
@@ -401,8 +401,9 @@ Read only after the evaluation was complete.
 
 ## 12. Top 10 fixes, ranked by adoption impact
 
-1. **Fix F-035** — `tenantOwned + auditable` must write on .NET and Java. Today the most common B2B
-   aggregate shape 500s on two of five backends.
+1. **Fix F-035** — `tenantOwned + auditable` must write on .NET. One line:
+   `dotnet/emit/auditable-interceptor.tpl.ts:157-158` uses `.find()` where every other consumer uses
+   `.filter().flatMap()`. Today the most common B2B aggregate shape 500s on that backend.
 2. **Compile the generated output of a NON-vendor model, per backend, per PR.** Every one of my 16
    S1s dies here. A fuzz-generated or contributor-supplied corpus, not `examples/`.
 3. **Ship releases**: tags, a changelog, semver, and a lockfile in every generated project. Until
@@ -440,8 +441,9 @@ Every S1/S2 has a minimal reproduction in `eval/repro/`.
 **What I did not do — do not infer coverage here.**
 - **Feliz and Flutter are unverified.** No Fable or Flutter toolchain in this environment. They
   generate; whether they build is unknown.
-- **Java and Elixir were compiled but never booted.** F-035 is confirmed statically on Java, not at
-  runtime.
+- **Java and Elixir were compiled but never booted.** My claim that F-035 also affected Java was a
+  static inference and has since been **disproved** — Java routes audit stamps through Spring Data
+  annotations, not `@PrePersist`. Corrected in FINDINGS.md.
 - **Wire parity was measured for exactly one backend pair** (node↔python). Four pairs untested.
 - **The playground is smoke-tested only.** I could not paste a 600-line model through Monaco
   headlessly; the "visual system builder", "live preview" and "in-browser test runner" claims are
@@ -519,7 +521,7 @@ history says *very* fast, which is the main reason this is a pilot recommendatio
 | discriminated unions, `option` | not tested | |
 | abstract aggregates, `extends`, TPC/TPH, polymorphic reads | not tested | (issue #2806 says java was broken here recently) |
 | domain services | not tested | (issue #2649 open against node) |
-| capabilities (`auditable`, `tenantOwned`, `tenantRegistry`) | exercised | ✅ model-side; **F-035 breaks .NET/Java at runtime** |
+| capabilities (`auditable`, `tenantOwned`, `tenantRegistry`) | exercised | ✅ model-side; **F-035 breaks .NET at runtime** |
 | `softDeletable`, `versioned` | not tested | |
 | macros (`scaffold`, `crudish`) + unfold | exercised | ✅ unfold round-trips byte-identically |
 | multi-file models + imports | not tested | |
@@ -564,7 +566,7 @@ history says *very* fast, which is the main reason this is a pilot recommendatio
 | `currentUser` | exercised | ✅ |
 | multi-tenancy stances, `tenantRegistry` | exercised | ✅ **isolation verified airtight on node** |
 | hierarchical scoping, `policy {}` ladder, `crossTenant` | smoke | declared, not exercised |
-| audit trail + history read | exercised | ✅ `/history` route + gate; **F-035 blocks it on .NET/Java** |
+| audit trail + history read | exercised | ✅ `/history` route + gate; **F-035 blocks it on .NET** |
 
 ### Quality and tooling
 | Feature | | Verdict |
