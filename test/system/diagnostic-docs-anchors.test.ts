@@ -134,7 +134,7 @@ describe("the undocumented-codes ratchet", () => {
 // ---------------------------------------------------------------------------
 
 /** Measured 2026-09-11.  Shrink-only: documenting a code lowers it. */
-const UNDOCUMENTED_BASELINE = 369;
+const UNDOCUMENTED_BASELINE = 368;
 
 describe("the undocumented-codes LENGTH ratchet", () => {
   it("only shrinks", () => {

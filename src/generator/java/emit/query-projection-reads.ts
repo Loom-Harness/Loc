@@ -929,7 +929,7 @@ function aggregateWireArgs(agg: EnrichedAggregateIR, domainVar: string): string[
     args.push(domainToWire(t, `${domainVar}.${jid(w.name)}()`));
   }
   for (const f of agg.fields.filter((pf) => pf.provenanced)) {
-    args.push(`${domainVar}.${f.name}Provenance()`);
+    args.push(`${domainVar}.${jid(f.name)}Provenance()`);
   }
   return args;
 }

@@ -696,7 +696,7 @@ export function renderJavaWorkflows(
     }
     const paramLets = wf.params.map((p) => {
       collectWireToDomainImports(p.type, imports, wctx.basePkg);
-      return `            var ${p.name} = ${wireToDomain(p.type, `request.${p.name}()`, `/${p.name}`)};`;
+      return `            var ${jid(p.name)} = ${wireToDomain(p.type, `request.${jid(p.name)}()`, `/${p.name}`)};`;
     });
     // Chunked (one lines-array per top-level statement) rather than the
     // pre-flattened `renderWorkflowStmts` — byte-identical either way
