@@ -440,8 +440,8 @@ end
 
 /** Does any expression in the body reference `this` (a saga-state field)?
  *
- *  Rides the SHARED `walkWorkflowStmtExprsDeep` + `walkExprDeep` rather than a
- *  local `WorkflowStmtIR.kind` / `ExprIR.kind` switch.  The hand-rolled version
+ *  Rides the SHARED `walkWorkflowStmtsDeep` / `walkWorkflowStmtExprsDeep`
+ *  rather than a local `WorkflowStmtIR.kind` / `ExprIR.kind` switch.  The hand-rolled version
  *  it replaces had no `for-each` / `if-let` / `repo-run` / `repo-delete` /
  *  `resource-call` / `domain-service-call` arm at all, so a `state.<field>` read
  *  nested inside a loop body read as UNUSED — the handler then bound `_state`
@@ -1111,14 +1111,17 @@ function renderStmt(
       const bodyLines = renderReactorLoopBody(st.body, ctx, renderCtx, contextModule, channels);
       // Continuation lines carry absolute indentation: the with-chain assembler
       // only prefixes the FIRST line of a multi-line clause (see `renderBody`),
-      // and `indent()` then shifts every line uniformly.  11 columns aligns the
-      // body under the `Enum.reduce_while(` opener.
+      // and `indent()` then shifts every PHYSICAL line uniformly.  11 columns
+      // aligns the body under the `Enum.reduce_while(` opener — so split the
+      // rendered body on newlines FIRST, or a nested `with`-chain's own
+      // continuations keep only their relative offset and land left of the
+      // clause they continue.
       return [
         {
           kind: "with-clause",
           text: [
             `{:ok, _} <- Enum.reduce_while(${iterable}, {:ok, nil}, fn ${loopVar}, _acc ->`,
-            ...bodyLines.map((l) => `           ${l}`),
+            ...bodyLines.flatMap((l) => l.split("\n")).map((l) => `           ${l}`),
             `         end)`,
           ].join("\n"),
         },
