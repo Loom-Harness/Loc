@@ -47,6 +47,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
+import { flutterExpectations, numericSeedBody } from "./numeric-ui-contract.mjs";
 import { buildServerModule, findDistRoot, findNodeDeployable, walk } from "./ui-stack.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -89,9 +90,15 @@ async function seed(origin) {
     name: "Zaphod Beeblebrox",
     email: "zaphod@heart.test",
   });
+  // The numeric row (M-T9.38) comes from `numeric-ui-contract.mjs` — the same
+  // table the probe below reads its expectations from, and the same table the
+  // fast suite asserts the two fixtures against.  Spelling the values here
+  // instead would let the seed and the probe drift apart, and a drifted pair
+  // does not fail: it goes vacuous.
   const product = await create(origin, "products", {
     sku: "FLUTTER-WIDGET",
     price: { amount: 12.5, currency: "USD" },
+    ...numericSeedBody(),
   });
   const order = await create(origin, "orders", {
     customerId: customer,
@@ -134,6 +141,27 @@ const PROBES = [
     route: "#/products",
     api: "/api/products",
     expect: ["FLUTTER-WIDGET"],
+  },
+  {
+    // The NUMERIC probe (M-T9.38).  The four host types reach Dart through four
+    // different decoders, and every one of them is a place where `flutter
+    // analyze` and `flutter build web` are structurally blind: F1 — the audit
+    // finding this mission was minted from — was `(json['listPrice'] as num)`
+    // over the money STRING, which compiles, analyzes clean and throws on the
+    // first read.  Asserting the RENDERED text (not merely that the row
+    // appeared) is what makes a silently-wrong decode fail too, not only a
+    // throwing one: `money` renders through `LoomMoney.toNum` +
+    // `NumberFormat.decimalPattern`, `decimal`/`int`/`long` through Dart's own
+    // `toString`, so a double-backed money or a truncated `long` reads
+    // differently here while still rendering SOMETHING.
+    //
+    // It is a separate probe from the one above, on the same route, so a failure
+    // names which contract broke — the value-object price or the numeric row —
+    // instead of one red line covering both.
+    name: "the products list renders every numeric host type as the wire spells it",
+    route: "#/products",
+    api: "/api/products",
+    expect: flutterExpectations(),
   },
   {
     // `status` is an enum — decoded from the wire string, rendered as a badge.
@@ -238,6 +266,9 @@ async function runCase(c) {
       const page = await browser.newPage();
       const api = [];
       const errors = [];
+      /** Cross-origin request failures — reported, never fatal (see the
+       *  `requestfailed` listener).  The leg's whole contract is same-origin. */
+      const crossOrigin = [];
       page.on("response", (r) => {
         const u = new URL(r.url());
         if (u.pathname.startsWith("/api/")) {
@@ -245,11 +276,38 @@ async function runCase(c) {
         }
       });
       page.on("pageerror", (e) => errors.push(`pageerror: ${e.message}`));
+      // A failed request, WITH THE URL.  Chromium's console line for one is the
+      // opaque `Failed to load resource: net::ERR_…`, which names neither the
+      // resource nor its origin — so a red probe said only "something failed to
+      // load" and the next reader had to re-run the leg to learn what.  This
+      // listener is what makes the console line actionable, and it is also what
+      // lets the filter below distinguish the app's OWN origin (a real finding)
+      // from a cross-origin fetch the environment refused.
+      page.on("requestfailed", (r) => {
+        const failed = `${r.method()} ${r.url()} — ${r.failure()?.errorText ?? "failed"}`;
+        if (new URL(r.url()).origin === origin) errors.push(`requestfailed: ${failed}`);
+        else crossOrigin.push(failed);
+      });
       page.on("console", (m) => {
         // `/favicon.ico` is not emitted by the Flutter target and the browser
         // asks for it unprompted — its 404 is noise, not a finding.
+        //
+        // `Failed to load resource` is likewise not a finding BY ITSELF: it is
+        // the console's echo of a failed request, and the `requestfailed`
+        // listener above has already decided whether that request was the app's
+        // own (recorded, fails the probe) or a cross-origin one the sandbox/proxy
+        // reset (recorded separately and reported, but not failing).  Keeping
+        // both would double-count the same event as one actionable line and one
+        // opaque one — and the opaque one used to be the ONLY one, which is how
+        // an environment-level reset of a CDN URL the leg does not need read as
+        // "the generated Flutter app is broken".
         const t = m.text();
-        if (m.type() === "error" && !/favicon/i.test(t) && !/status of 404/.test(t)) {
+        if (
+          m.type() === "error" &&
+          !/favicon/i.test(t) &&
+          !/status of 404/.test(t) &&
+          !/Failed to load resource/.test(t)
+        ) {
           errors.push(`console: ${t}`);
         }
       });
@@ -265,7 +323,19 @@ async function runCase(c) {
         if (missing.length)
           why.push(`not rendered: ${missing.join(", ")} — accessible text was ${JSON.stringify(text.slice(0, 300))}`);
         if (errors.length) why.push(errors.slice(0, 3).join(" | "));
-        results.push({ name: probe.name, status: why.length ? "fail" : "pass", error: why.join("; ") });
+        // Cross-origin failures never decide the verdict, but they are printed
+        // next to it either way: this leg is hermetic by construction
+        // (`--no-web-resources-cdn`), so a cross-origin fetch at all is worth
+        // seeing — it means either the environment injected one or the emitter
+        // grew a remote dependency the header above says it must not have.
+        const note = crossOrigin.length
+          ? ` [cross-origin, not fatal: ${crossOrigin.slice(0, 3).join(" | ")}]`
+          : "";
+        results.push({
+          name: probe.name,
+          status: why.length ? "fail" : "pass",
+          error: why.length ? why.join("; ") + note : note.trim(),
+        });
       } catch (err) {
         results.push({ name: probe.name, status: "fail", error: String(err?.message ?? err) });
       } finally {
@@ -306,7 +376,12 @@ for (const c of corpus) {
     const ok = r.status === "pass";
     ok ? pass++ : fail++;
     process.stdout.write(`  ${ok ? "✓" : "✗"} [ui-flutter] ${r.name}\n`);
-    if (!ok && r.error) process.stdout.write(`      ${r.error}\n`);
+    // The note prints on a PASS too, not only on a failure: a cross-origin
+    // request failure never decides the verdict, but "it passed and something
+    // off-origin was refused" is exactly the observation a reader needs (the
+    // leg is supposed to be hermetic).  A diagnostic shown only in the failing
+    // branch is a diagnostic nobody reads on the run that mattered — §111.
+    if (r.error) process.stdout.write(`      ${r.error}\n`);
   }
 }
 
