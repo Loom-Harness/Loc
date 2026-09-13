@@ -110,6 +110,10 @@ const SCAFFOLD: Case = {
             email: string
             shipping: Address?
             tier: Tier?
+            // Required by loom.ui-id-ref-no-display once anything references
+            // 'Customer id': the scaffolded form's <Select> picker needs a
+            // label for its options.
+            derived display: string = name
           }
           valueobject LineItem { sku: string  qty: int }
           aggregate Order with crudish {
