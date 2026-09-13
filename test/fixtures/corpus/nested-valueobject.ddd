@@ -23,10 +23,17 @@
 //   dotnet  `ownedVoLines` recurses with the builder lambda parameter hard-coded
 //           to `o`, so the nested VO emits
 //             o.OwnsOne<Geo>(x => x.Geo, o => { … })
-//           whose inner parameter shadows the enclosing one.  Whether that is
-//           CS0136 or legal was UNSETTLED on the audit host (no .NET SDK), and
-//           is deliberately left for THIS gate's `corpus × dotnet` leg to
-//           answer rather than guessed at in the emitter.
+//           whose inner parameter shadows the enclosing one.  The audit read
+//           that as CS0136 and could not settle it (no .NET SDK on that host).
+//           SETTLED HERE, EMPIRICALLY: this fixture's generated project builds
+//           clean under `dotnet build /warnaserror` on the sdk:10.0 image the
+//           emitted Dockerfile targets — the shadowing is legal on this
+//           language version, so no emitter change was warranted.  What the
+//           leg keeps gating is the NESTED COLUMN NAMES: `ownedVoLines` passes
+//           the accumulated prefix down, so the leaves must stay
+//           `home_geo_lat` / `home_geo_lng` — a recursion that reset the prefix
+//           would map columns the migration never creates and fail EF's model
+//           build at runtime while still compiling green.
 //
 // The other three are here as the contrast that makes a regression in them
 // visible in the same compile: node hydrates `new Addr(root.home_line1, new
