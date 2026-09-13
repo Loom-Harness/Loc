@@ -170,11 +170,44 @@ and, unless the generate run passes `--allow-destructive`, **aborts** with a
 - **Required-column adds.** A NOT-NULL `addColumn` with no default on a
   previously-existing table fails on any populated table → blocked unless a
   **backfill step** covers it (see § Data migrations — the safe sequence with
-  a real `UPDATE`, no flag needed) or the run passes `--allow-destructive`.
+  a real `UPDATE`, no flag needed), the field carries a **scalar-literal
+  default** (below), or the run passes `--allow-destructive`.
   Under the flag it is rewritten into the safe sequence with a
   `-- TODO backfill …` comment in place of the `UPDATE`: add the column
   *nullable* → TODO → `SET NOT NULL` (`alterColumnNullable`). Fill in the
   backfill before applying to real data.
+- **Field defaults (M-T2.16).** A declared default — `status: string =
+  "pending"` — makes the add above non-destructive on its own, with no
+  `migration` block to write:
+
+  ```sql
+  ALTER TABLE "ord"."orders" ADD COLUMN "status" TEXT NOT NULL DEFAULT 'pending';
+  ALTER TABLE "ord"."orders" ALTER COLUMN "status" DROP DEFAULT;
+  ```
+
+  Postgres fills the existing rows from the DEFAULT as part of the ADD, and the
+  DEFAULT is dropped again **in the same migration**. So the column ends up
+  exactly as a fresh `CREATE TABLE` lays it down — a database grown by
+  migration and one built from scratch are the same database — and the value
+  the domain layer owns never becomes a second source of truth in the schema.
+  Three consequences worth stating plainly:
+
+  - the **initial** `CREATE TABLE` carries no `DEFAULT`, then or ever;
+  - after the migration the column has no default, so an `INSERT` that omits
+    it is refused exactly as it is on a fresh create — supplying the value
+    stays the domain layer's job;
+  - editing the default on a column that already exists emits nothing, because
+    there is no DB default to alter.
+
+  Restricted to the **scalar-literal** subset a column default can hold:
+  string / int / long / decimal / money / bool literals and enum values.
+  `now()`, `currentUser.*`, sibling-field references and value-object leaves
+  are excluded — a column default is evaluated with no row in scope, so
+  Postgres forbids any reference to another column. Those belong in a
+  `migration` block backfill, whose subset is wider for exactly that reason.
+  A backfill step **wins** where both could apply: it is the author's explicit
+  statement about this one migration, and it is the only one of the two that
+  can express a per-row value.
 - **NULL → NOT NULL flips** (M-T2.3). Making an existing column required
   fails at apply time on any row holding NULL, so the flip is classified
   destructive too — unless a backfill step covers the column, in which case

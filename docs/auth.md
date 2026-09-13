@@ -489,6 +489,15 @@ await repo.delete(Ids.ShipmentId(id));
 - `errorStatuses("create" | "destroy", guarded)` declares the 403, so a generated
   client types the denial instead of treating it as an unexpected throw.
 
+**When the body comes from a macro**, that gate statement is not yours to write
+— and neither `create` nor `destroy` has a header `requires` clause to fall back
+on.  Hand the macro a named policy instead:
+`with crudish(requires: <Policy>)` splices `requires <Policy>()` first in each
+emitted `create` / `update` / `destroy` body, and `softDelete` /
+`softDeleteByDefault` take the same parameter.  Nothing is inherited — the rule
+stays visible at the `with` call site.  See
+[`scaffold-macros.md`](scaffold-macros.md#requires--gating-the-emitted-members).
+
 Placement per backend is each one's own chokepoint: the route (Hono, FastAPI),
 the Mediator command handler (.NET — its controller is a thin dispatch), the
 service (Java), and the **context function** (Phoenix).  Phoenix's placement is
