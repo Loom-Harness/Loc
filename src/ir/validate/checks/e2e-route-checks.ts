@@ -113,11 +113,64 @@ function checkApiVerb(
   const { agg, repo, ctx } = resolved;
   const ops = deriveAggregateOperations(agg, repo, apiStatusContext(ctx));
   if (apiRouteExists(call.verb, agg, repo, ops)) return;
+  // One `diags.push` per catalog key rather than one push over a
+  // message-picking helper: `diagnostic-catalog.test.ts` reads the `message:`
+  // expression at each site and requires a literal `diagMessage("…")` there, so
+  // a helper that returns the rendered string reads as inline wording.
+  const common = { severity: "error", code: "loom.e2e-unrouted-verb", source } as const;
+  if (call.verb === "create") {
+    diags.push({
+      ...common,
+      message: diagMessage("loom.e2e-unrouted-verb#create", {
+        magicId: "api",
+        slug: call.slug,
+        aggregate: agg.name,
+      }),
+    });
+    return;
+  }
+  if (call.verb === "destroy") {
+    diags.push({
+      ...common,
+      message: diagMessage("loom.e2e-unrouted-verb#destroy", {
+        slug: call.slug,
+        aggregate: agg.name,
+      }),
+    });
+    return;
+  }
+  if (call.verb === "history") {
+    diags.push({
+      ...common,
+      message: diagMessage("loom.e2e-unrouted-verb#history", {
+        slug: call.slug,
+        aggregate: agg.name,
+      }),
+    });
+    return;
+  }
+  // A find the repository DECLARES but the derivation does not list is a
+  // compiler-synthesized retrieval — a different fix from "no such verb", so a
+  // different message.
+  if ((repo?.finds ?? []).some((f) => f.name === call.verb)) {
+    diags.push({
+      ...common,
+      message: diagMessage("loom.e2e-unrouted-verb#find", {
+        slug: call.slug,
+        verb: call.verb,
+        aggregate: agg.name,
+      }),
+    });
+    return;
+  }
   diags.push({
-    severity: "error",
-    code: "loom.e2e-unrouted-verb",
-    message: unroutedMessage(call, agg, repo, ops),
-    source,
+    ...common,
+    message: diagMessage("loom.e2e-unrouted-verb#verb", {
+      slug: call.slug,
+      verb: call.verb,
+      aggregate: agg.name,
+      routed: routedVerbs(agg, repo, ops).join(", ") || "(none)",
+    }),
   });
 }
 
@@ -203,42 +256,8 @@ function checkUiVerb(
 }
 
 // ---------------------------------------------------------------------------
-// Messages
+// Message inputs
 // ---------------------------------------------------------------------------
-
-function unroutedMessage(
-  call: MagicCall,
-  agg: AggregateIR,
-  repo: RepositoryIR | undefined,
-  ops: readonly ApiOperationIR[],
-): string {
-  if (call.verb === "create") {
-    return diagMessage("loom.e2e-unrouted-verb#create", {
-      magicId: "api",
-      slug: call.slug,
-      aggregate: agg.name,
-    });
-  }
-  if (call.verb === "destroy") {
-    return diagMessage("loom.e2e-unrouted-verb#destroy", { slug: call.slug, aggregate: agg.name });
-  }
-  if (call.verb === "history") {
-    return diagMessage("loom.e2e-unrouted-verb#history", { slug: call.slug, aggregate: agg.name });
-  }
-  if ((repo?.finds ?? []).some((f) => f.name === call.verb)) {
-    return diagMessage("loom.e2e-unrouted-verb#find", {
-      slug: call.slug,
-      verb: call.verb,
-      aggregate: agg.name,
-    });
-  }
-  return diagMessage("loom.e2e-unrouted-verb#verb", {
-    slug: call.slug,
-    verb: call.verb,
-    aggregate: agg.name,
-    routed: routedVerbs(agg, repo, ops).join(", ") || "(none)",
-  });
-}
 
 /** Every verb the derivation says this aggregate actually serves — the
  *  "available" list the diagnostic offers, built from the ROUTES rather than
