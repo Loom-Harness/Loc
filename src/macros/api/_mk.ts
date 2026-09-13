@@ -69,6 +69,7 @@ import type {
   Property,
   QueryHandler,
   RequiresProp,
+  RequiresStmt,
   ReturnStmt,
   Route,
   RouteProp,
@@ -181,6 +182,10 @@ export function mkLetStmt(shape: AstLiteral<LetStmt>): LetStmt {
 
 export function mkReturnStmt(shape: AstLiteral<ReturnStmt>): ReturnStmt {
   return mkAst<ReturnStmt>(shape);
+}
+
+export function mkRequiresStmt(shape: AstLiteral<RequiresStmt>): RequiresStmt {
+  return mkAst<RequiresStmt>(shape);
 }
 
 // ---------------------------------------------------------------------------

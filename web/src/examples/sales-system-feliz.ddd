@@ -64,6 +64,18 @@ system SalesSystem {
       aggregate Product with crudish {
         sku: string
         price: Money
+        // The NUMERIC surface (M-T9.38).  Four host types whose WIRE spellings
+        // differ: `money` is a fixed-scale-4 STRING (RS-12), `decimal` a JSON
+        // number (RS-24), `int` and `long` JSON integers.  The UI round-trip
+        // below fills each through the real create FORM and reads each back off
+        // the detail page, so an F#/Thoth decoder that takes the money STRING as
+        // a number — the F# twin of F1's Dart `(x as num)` — fails here rather
+        // than in production.  `dotnet fable` cannot see it: both spellings
+        // typecheck.
+        listPrice: money
+        weight: decimal
+        stock: int
+        barcode: long
         invariant sku.length > 0
         derived display: string = sku
       }
@@ -167,13 +179,13 @@ system SalesSystem {
   // `against webApp` (feliz) lowers to Playwright page objects driven against the
   // built Feliz bundle wired to the real Hono backend.
   test e2e "create a product and read it back" against api {
-    let p = api.products.create({ sku: "WIDGET-1", price: { amount: 9.99, currency: "USD" } })
+    let p = api.products.create({ sku: "WIDGET-1", price: { amount: 9.99, currency: "USD" }, listPrice: money("12.5000"), weight: 1.25, stock: 7, barcode: 1234567890123456 })
     let read = api.products.getById(p)
     expect(read.sku).toBe("WIDGET-1")
   }
 
   test e2e "create, add a line to, and confirm an order" against api {
-    let prod = api.products.create({ sku: "WIDGET-2", price: { amount: 5.00, currency: "USD" } })
+    let prod = api.products.create({ sku: "WIDGET-2", price: { amount: 5.00, currency: "USD" }, listPrice: money("5.0000"), weight: 0.50, stock: 3, barcode: 1234567890123457 })
     let cust = api.customers.create({ name: "Buyer", email: "buyer@acme.test" })
     let ord = api.orders.create({ customerId: cust.id, status: "Draft", placedAt: "2024-01-01T00:00:00Z" })
     api.orders.addLine(ord, { productId: prod.id, qty: 3 })
@@ -183,8 +195,30 @@ system SalesSystem {
     expect(read.lines.length).toBe(1)
   }
 
+  // The NUMERIC round-trip (M-T9.38).  Each of the four numeric host types is
+  // filled through the REAL create form and read back off the detail page with a
+  // web-first `toHaveText`, so the assertion sees what the F#/Thoth decoder
+  // produced rather than what the emitter intended.  `money` is the load-bearing
+  // one: it arrives as a fixed-scale-4 STRING (RS-12) while `weight` arrives as a
+  // JSON number (RS-24) — a decoder that treats the two alike typechecks under
+  // `dotnet fable` and fails only here.  The expected strings are the MEASURED
+  // rendering of `string (product.<field>)`, not a guess.
+  test e2e "a product's numeric fields survive the UI round-trip" against webApp {
+    let prod = ui.products.create({ sku: "NUM-WIDGET", price: { amount: 1.00, currency: "USD" }, listPrice: money("98.7600"), weight: 1.25, stock: 4242, barcode: 1234567890123456 })
+    let read = ui.products.getById(prod)
+    // "98.7600", not "98.76": the F# side preserves money's scale-4 all the way
+    // to the rendered cell, so this assertion pins the SCALE as well as the
+    // magnitude — a decoder that routed the value through a double would render
+    // "98.76" and fail here.  (Measured, not assumed: the first run of this leg
+    // received "98.7600" against an expected "98.76".)
+    expect(read.listPrice).toHaveText("98.7600")
+    expect(read.weight).toHaveText("1.25")
+    expect(read.stock).toHaveText("4242")
+    expect(read.barcode).toHaveText("1234567890123456")
+  }
+
   test e2e "place and confirm an order through the UI" against webApp verifies TC-003 {
-    let prod = ui.products.create({ sku: "UI-WIDGET", price: { amount: 5.00, currency: "USD" } })
+    let prod = ui.products.create({ sku: "UI-WIDGET", price: { amount: 5.00, currency: "USD" }, listPrice: money("5.0000"), weight: 0.50, stock: 3, barcode: 1234567890123457 })
     let cust = ui.customers.create({ name: "UI Buyer", email: "ui@buyer.test" })
     let ord = ui.orders.create({ customerId: cust.id, status: "Draft", placedAt: "2024-01-01T00:00:00Z" })
     ui.orders.addLine(ord, { productId: prod.id, qty: 2 })

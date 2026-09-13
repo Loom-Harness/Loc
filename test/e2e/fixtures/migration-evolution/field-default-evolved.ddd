@@ -1,0 +1,33 @@
+// Field-default evolution gate (M-T2.16 / #2864 G1, decision D-3) — EVOLVED model (v2).
+//
+// Paired with field-default-base.ddd (v1).  The ONE difference is the field
+// below, added to an aggregate already in the migration baseline:
+//
+//     status: string = "pending"
+//
+// v1 → v2 therefore differs in exactly one thing, so the gate cannot pass by
+// accident on some unrelated part of the delta.
+//
+// `__PLATFORM__` is swapped per backend by the harness.  Deployable name `d`
+// matches the other e2e fixtures.
+system OrderDefaults {
+  subdomain Ordering {
+    context Ord {
+      aggregate Order {
+        note: string
+        status: string = "pending"
+      }
+      repository Orders for Order { }
+    }
+  }
+  api OrdApi from Ordering
+  storage primary { type: postgres }
+  resource ordState { for: Ord, kind: state, use: primary }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Ord]
+    dataSources: [ordState]
+    serves: OrdApi
+    port: 4000
+  }
+}

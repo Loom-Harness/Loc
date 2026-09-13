@@ -96,17 +96,27 @@ describe("buildExternFunctionSignature — the type table", () => {
   });
 
   it("THROWS on a type with no wire spelling rather than emitting `any`", () => {
+    // Still a throw — emitting `any` would void the contract the signature file
+    // exists to enforce — but the wording moved into the catalog (Wave C1
+    // packet 1d-ii) and now names the phase-⑦ gate that makes it unreachable
+    // through `ddd generate`: `loom.frontend-prop-type-unsupported`.  Measured
+    // before that gate existed: `function fmt(m: money): string extern from
+    // "./fmt"` reported `0 error(s), 0 warning(s)` and then died here.
+    const FLOOR = /internal: the frontend prop layer has no TypeScript spelling for/;
     expect(() =>
       buildExternFunctionSignature(fn({ name: "f", params: [{ name: "m", type: prim("money") }] })),
-    ).toThrow("extern function: unsupported primitive 'money' in signature.");
+    ).toThrow(FLOOR);
+    expect(() =>
+      buildExternFunctionSignature(fn({ name: "f", params: [{ name: "m", type: prim("money") }] })),
+    ).toThrow(/primitive 'money'/);
     expect(() =>
       buildExternFunctionSignature(
         fn({ name: "f", params: [{ name: "v", type: { kind: "valueobject", name: "Address" } }] }),
       ),
-    ).toThrow("extern function: unsupported type kind 'valueobject' in signature");
+    ).toThrow(/type kind 'valueobject'/);
     expect(() =>
       buildExternFunctionSignature(fn({ name: "f", returnType: { kind: "slot" } })),
-    ).toThrow("extern function: unsupported type kind 'slot' in signature");
+    ).toThrow(/type kind 'slot'/);
   });
 });
 

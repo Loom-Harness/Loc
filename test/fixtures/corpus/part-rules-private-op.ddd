@@ -1,0 +1,123 @@
+// Three domain rules that every backend but Phoenix enforced, crossed in one
+// aggregate (M-T6.55 F14 / F15 / F24):
+//
+//   1. A PART-LEVEL rule — `entity Line { qty: int check qty > 0 }` and the
+//      part's own `invariant`.  A part has its own changeset on Ecto, so a
+//      part rule enforced nowhere else is enforced nowhere at all; the emitted
+//      `Line.changeset/2` only `cast`, so BOTH forms were silently dropped.
+//   2. A GUARDED single-field invariant — `invariant p when q`.  A native
+//      `validate_number` / length / format line has nowhere to put the
+//      implication, so a guarded rule is excluded from that path by design —
+//      and the residual `validate_invariants/1` carrier ALSO asked the native
+//      classifier ("is this a recognised single-field shape?"), which answers
+//      null for anything guarded.  Both doors shut: nothing enforced it, while
+//      node/.NET/java/python all emit `!(guard) || (body)`.  Both spellings are
+//      here, because the MESSAGED one additionally loses its `loom_code` wire
+//      key when it is dropped.
+//   3. A PRIVATE-OPERATION call — `recompute()` inside another operation.  It
+//      rendered `_ = nil  # vanilla: bare call to 'recompute' (no callable
+//      target); record unchanged`: compile-clean, behaviourally absent, and the
+//      "no callable target" claim was false (the public twin sits in the same
+//      module).  Fixing it has two halves, and the fixture is built so a
+//      half-fix still fails: the call must RUN, and the column the callee
+//      assigns (`total`) must reach the CALLER's persist tail — `persistPutBodies`
+//      walked only the caller's own statements, so emitting the call alone
+//      computes the mutation and drops it at `Repo.update`.
+//
+// `Invoice.total` is the witness for (3) and is assigned ONLY by the private
+// operation, so a backend that drops either half ships a row whose `total`
+// never changes — a value question, not a shape one.
+//
+// UNIT-TIER, no `test e2e` block — the `numeric-operands` shape.  The domain
+// `test` block below IS the runtime oracle for (3): it runs as plain ExUnit /
+// vitest / xunit / pytest / JUnit on each backend with no database, and reads
+// the one value the private-op call writes.  An e2e block would add little for
+// (1) and (2): both are REJECTION behaviour, and the e2e DSL reaches a rejection
+// through `expect(<call>).toThrow(<status>)` on a route — the part rules are
+// reachable only through the NESTED create body, which the corpus behavioural
+// runners do not drive today (the sibling `lifecycle-guard` entry records what
+// it took to make a DENIAL testable there).  Those two are carried by the
+// per-backend changeset tests plus the five compile legs — the elixir
+// `mix compile --warnings-as-errors` being the one the private-op call broke.
+system PartRulesPrivateOp {
+  subdomain Core {
+    context Billing {
+      // NOT `with crudish`, and the reason is a java defect this fixture found
+      // and does not own: `crudish` + a relational entity part emits an
+      // `UpdateInvoiceRequest(… List<LineResponse> lines)` against an
+      // `Invoice.update(String, List<Line>)`, so `javac` rejects the generated
+      // project ("incompatible types: List<LineResponse> cannot be converted to
+      // List<Line>").  It reproduces on a four-line aggregate with none of the
+      // three rules below, so it is a separate, older gap — handed off with its
+      // own repro in `docs/new-plan/waves/handoffs/wave-c1-1f-validator-drops.md`
+      // rather than pinned as a compile skip here, which would have credited it
+      // to this fixture.  The explicit `create` gives the domain `test` block
+      // below its factory; nothing else here needs a CRUD route.
+      aggregate Invoice {
+        note: string
+        taxRate: int
+        // Assigned ONLY by the private operation below — the witness that the
+        // call ran AND that its write reached the persist tail.
+        total: int
+
+        entity Line {
+          sku: string
+          // FIELD-level `check` on a part.
+          qty: int check qty > 0
+          // PART-level `invariant` — the same drop, the other spelling.
+          invariant sku.length > 2
+        }
+        lines: Line[]
+
+        // GUARDED single-field invariant, message-less: the implication
+        // `!(taxRate > 0) || (note.length > 0)`.
+        invariant note.length > 0 when taxRate > 0
+        // …and the messaged twin, whose `loom_code` wire key rides the residual
+        // carrier's `add_error` metadata.
+        invariant taxRate < 100 when taxRate > 0 message "tax rate must stay under 100"
+
+        create(note: string, taxRate: int, total: int) {
+          note := note
+          taxRate := taxRate
+          total := total
+        }
+
+        operation bump(by: int) {
+          taxRate := taxRate + by
+          recompute()
+        }
+
+        // Never routed; exists to be called from `bump`.
+        private operation recompute() {
+          total := taxRate * 2
+        }
+
+        // The in-memory oracle for (3): `total` starts at 0 and is written ONLY
+        // by `recompute`, so a backend that drops the call — or runs it and then
+        // drops its write — reads 0 here.  It also makes elixir emit its PURE
+        // DOMAIN CORE for this aggregate (`domain-core-emit.ts` gates on the
+        // presence of `test` blocks), which is the SECOND module the private-op
+        // helper has to exist in; without a test block that host is never built
+        // and a helper missing there would only surface in a compile leg.
+        test "a private operation's write reaches the caller's result" {
+          let inv = Invoice.create({ note: "n", taxRate: 1, total: 0 })
+          inv.bump(4)
+          expect(inv.taxRate).toBe(5)
+          expect(inv.total).toBe(10)
+        }
+      }
+    }
+  }
+
+  api BillingApi from Core
+
+  storage pg { type: postgres }
+  resource billingState { for: Billing, kind: state, use: pg }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Billing]
+    dataSources: [billingState]
+    serves: BillingApi
+    port: 4000
+  }
+}

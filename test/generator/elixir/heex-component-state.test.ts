@@ -16,10 +16,9 @@
 // first click) and never emitted the state field at all.
 
 import { describe, expect, it } from "vitest";
-import { generateSystemFiles } from "../../_helpers/index.js";
+import { generateSystemFiles, generateSystemFilesUnchecked } from "../../_helpers/index.js";
 
-async function build(uiBody: string): Promise<Map<string, string>> {
-  return generateSystemFiles(`
+const SYSTEM = (uiBody: string): string => `
     system Demo {
       subdomain S { context C { aggregate Customer { name: string } } }
       api CApi from S
@@ -38,7 +37,17 @@ async function build(uiBody: string): Promise<Map<string, string>> {
         port: 4000
       }
     }
-  `);
+  `;
+
+async function build(uiBody: string): Promise<Map<string, string>> {
+  return generateSystemFiles(SYSTEM(uiBody));
+}
+
+/** The same system, but emitted WITHOUT the phase-⑦ gate — for asserting an
+ *  emitter's internal floor still fires on a model no `ddd generate` can
+ *  produce. */
+async function buildUnchecked(uiBody: string, why: string): Promise<Map<string, string>> {
+  return generateSystemFilesUnchecked(SYSTEM(uiBody), why);
 }
 
 const LIVE = "phoenix_app/lib/phoenix_app_web/live/home_live.ex";
@@ -185,27 +194,24 @@ describe("HEEx component-local state + actions", () => {
 });
 
 describe("HEEx component-state — honestly gated slices", () => {
-  it("fails at codegen when a stateful component is rendered more than once", async () => {
-    // One host assign per component NAME cannot serve two live instances: React
-    // gives each `<Counter/>` its own `useState`, and two lifted counters would
-    // move together.  Fail loudly rather than ship a shared cell.
-    await expect(
-      build(`
+  // Both shapes below used to be a bare `throw new Error` inside
+  // `liveview-emit.ts`, raised mid-generate on a `.ddd` that `ddd parse` had
+  // just called clean — a raw stack trace with no `loom.*` code.  They are
+  // model-level facts (which components a page renders, what they declare), so
+  // they are now refused at phase ⑦ and the emitter keeps its throws as
+  // internal floors.  Each is asserted on BOTH sides: the validator refuses it,
+  // and the emitter floor still fires when a model bypasses the validator
+  // (which the api toolkit and the playground can both do).
+  const STATEFUL_TWICE = `
         component Counter() {
           state { n: int = 0 }
           action bump() { n := n + 1 }
           body: Stack { Text { n }, Button { "Bump", onClick: bump } }
         }
         page Home { route: "/" body: Stack { Counter(), Counter() } }
-      `),
-    ).rejects.toThrow(/renders component 'Counter' 2 times.*declares `state`/s);
-  });
+      `;
 
-  it("fails at codegen when two hoisted handlers collide on one event name", async () => {
-    // A LiveView dispatches every `phx-click` by name, so two different `bump`
-    // bodies on one page mean one of the buttons silently does the other's work.
-    await expect(
-      build(`
+  const HANDLER_CLASH = `
         component A() {
           state { n: int = 0 }
           action bump() { n := n + 1 }
@@ -217,8 +223,35 @@ describe("HEEx component-state — honestly gated slices", () => {
           body: Button { "B", onClick: bump }
         }
         page Home { route: "/" body: Stack { A(), B() } }
-      `),
-    ).rejects.toThrow(/two different `bump` handlers/);
+      `;
+
+  it("refuses a stateful component rendered more than once, at IR-validate", async () => {
+    // One host assign per component NAME cannot serve two live instances: React
+    // gives each `<Counter/>` its own `useState`, and two lifted counters would
+    // move together.
+    await expect(build(STATEFUL_TWICE)).rejects.toThrow(
+      /loom\.heex-stateful-component-reused.*renders component 'Counter' 2 times/s,
+    );
+  });
+
+  it("keeps the emitter floor for the same shape on an unvalidated model", async () => {
+    await expect(
+      buildUnchecked(STATEFUL_TWICE, "the emitter's internal floor IS the subject"),
+    ).rejects.toThrow(/internal: page 'Home' renders the `state`-declaring component 'Counter'/);
+  });
+
+  it("refuses two hoisted handlers colliding on one event name, at IR-validate", async () => {
+    // A LiveView dispatches every `phx-click` by name, so two different `bump`
+    // bodies on one page mean one of the buttons silently does the other's work.
+    await expect(build(HANDLER_CLASH)).rejects.toThrow(
+      /loom\.heex-handler-name-collision.*two different `bump` handlers/s,
+    );
+  });
+
+  it("keeps the emitter floor for the handler clash on an unvalidated model", async () => {
+    await expect(
+      buildUnchecked(HANDLER_CLASH, "the emitter's internal floor IS the subject"),
+    ).rejects.toThrow(/internal: page 'Home' hoists two different `bump` handlers/);
   });
 
   it("does not gate a stateless component rendered twice", async () => {

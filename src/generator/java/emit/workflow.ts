@@ -4,6 +4,7 @@ import type {
   ExprIR,
   FieldIR,
   IsolationLevel,
+  PayloadIR,
   SystemIR,
   TypeIR,
   WorkflowIR,
@@ -17,6 +18,10 @@ import { walkWorkflowStmtExprsDeep } from "../../../ir/util/walk.js";
 import { lines } from "../../../util/code-builder.js";
 import { lowerFirst, plural, snake, upperFirst, workflowFnCamel } from "../../../util/naming.js";
 import { javaLogEvent } from "../../_obs/render-java.js";
+import {
+  workflowParamPayloads,
+  workflowParamTypeSeeds,
+} from "../../_payload/workflow-param-payloads.js";
 import { statementSubRegions } from "../../_trace/sourcemap.js";
 import { commandCreateCorrelationParam } from "../../_workflow/create-state.js";
 import {
@@ -26,17 +31,18 @@ import {
 } from "../../_workflow/stmt-target.js";
 import {
   collectJavaExprImports,
+  collectJavaTypeImports,
   type JavaRenderContext,
   renderJavaExpr,
   renderJavaType,
 } from "../render-expr.js";
 import { renderJavaStatements } from "../render-stmt.js";
+import { voRecord } from "./dto.js";
 import type { OpFragment } from "./entity.js";
 import {
   bearsNestedRecord,
   collectWireImports,
   collectWireToDomainImports,
-  JAVA_PRIMITIVES,
   referencedValueObjects,
   wireJavaType,
   wireToDomain,
@@ -205,6 +211,13 @@ export function javaWorkflowStmtTarget(
    *  not the carrier-pattern switch `matchVariant` emits for operation
    *  unions (whose carriers DO exist). */
   unionFindLets: ReadonlySet<string> = new Set(),
+  /** The saga row's correlation field, when the body renders against a row
+   *  that `_allocate(__key)` already keyed (the command-workflow facade).  The
+   *  JPA state entity exposes no setter for its key — the assignment spelling
+   *  of the correlation rule (`orderId := order`, M-T6.62) selects the row, it
+   *  does not mutate it — so the `assign` arm renders nothing for it instead
+   *  of `state.setOrderId(order)` (javac: cannot find symbol). */
+  fixedKeyField?: string,
 ): WorkflowStmtTarget {
   return {
     indentUnit: "    ",
@@ -270,6 +283,15 @@ export function javaWorkflowStmtTarget(
     // the public JavaBean setter (`state.setAttempts(1)`); `repo.save(state)`
     // at handler exit flushes it.
     assign: (s, indent) => {
+      if (
+        fixedKeyField !== undefined &&
+        s.target.segments.length === 1 &&
+        s.target.segments[0] === fixedKeyField
+      ) {
+        return [
+          `${indent}// \`${fixedKeyField}\` is the correlation key: fixed by \`_allocate(__key)\` above, never re-set.`,
+        ];
+      }
       collectJavaExprImports(s.value, imports);
       return [
         `${indent}${renderCtx.thisName}.${setterName(s.target.segments[0]!)}(${renderJavaExpr(s.value, renderCtx)});`,
@@ -438,7 +460,11 @@ function workflowVoMappers(
     else if (t.kind === "optional") collect(t.inner, into);
   };
   const voNames = new Set<string>();
-  for (const wf of workflows) for (const p of wf.params) collect(p.type, voNames);
+  // Seeds include a payload param's OWN field types — a VO reachable only
+  // THROUGH a payload (`command FileClaim { total: Money }`) would otherwise
+  // have no `toMoney(...)` mapper, while `workflowPayloadMappers` emits a call
+  // to one (#2864 D7/T2, one level down).
+  for (const t of workflowParamTypeSeeds(workflows, ctx)) collect(t, voNames);
   // Transitive closure — a VO field may itself be a VO.
   const queue = [...voNames];
   while (queue.length > 0) {
@@ -458,6 +484,31 @@ function workflowVoMappers(
     return [
       `    private static ${vo} to${vo}(${vo}Request request) {`,
       `        return new ${vo}(${args});`,
+      `    }`,
+      ``,
+    ];
+  });
+}
+
+/** `private static <P> to<P>(<P>Response request)` mappers for the declared
+ *  record payloads a command-workflow param names — the payload twin of
+ *  `workflowVoMappers`.  A payload param's body reads (`c.cargo()`) are typed
+ *  at the DOMAIN type by the statement renderer, so the wire record has to be
+ *  converted on the way in exactly as a VO is: without it `Claim.create(
+ *  c.cargo(), …)` passed a `UUID` where a `CargoId` is declared. */
+function workflowPayloadMappers(
+  payloads: readonly PayloadIR[],
+  imports: Set<string>,
+  basePkg: string,
+): string[] {
+  return payloads.flatMap((pl) => {
+    const args = pl.fields
+      .map((f) => wireToDomain(effType(f.type, !!f.optional), `request.${f.name}()`, `/${f.name}`))
+      .join(", ");
+    for (const f of pl.fields) collectWireToDomainImports(f.type, imports, basePkg);
+    return [
+      `    private static ${pl.name} to${pl.name}(${pl.name}Response request) {`,
+      `        return new ${pl.name}(${args});`,
       `    }`,
       ``,
     ];
@@ -564,6 +615,15 @@ export function renderJavaWorkflows(
     { category: "service" | "controller" | "request-dto"; content: string }
   >();
   const imports = new Set<string>();
+  // Declared record payloads this context's command-workflow params name (the
+  // `create(c: FileClaim)` explicit-command form).  Nothing else in the java
+  // project emits a record for one — a payload has no owning aggregate — so
+  // both halves are emitted here: the WIRE record `<P>Response`, which the
+  // Request DTO already references (`wireJavaType`'s `entity` arm renders
+  // `<Name>Response`), and the DOMAIN record `<P>`, which the body's
+  // `c.<field>()` reads are typed against (#2864 D7/T2).
+  const payloads = workflowParamPayloads(ctx);
+  const payloadNames = new Set(payloads.map((p) => p.name));
   // True when any workflow pins a SERIALIZABLE/etc. isolation level — drives
   // the `import …Isolation;` and the per-method `@Transactional(isolation = …)`.
   let usesIsolation = false;
@@ -588,6 +648,9 @@ export function renderJavaWorkflows(
   const isSaga = new Set(sagaWorkflows.map((w) => w.name));
   const methods: string[] = [];
 
+  // VO `<Vo>Request` records no aggregate package emits (collected per
+  // workflow below, emitted once into this package after the loop).
+  const localVoRequests = new Set<string>();
   for (const wf of cmdWorkflows) {
     const usesUser = workflowUsesCurrentUser(wf);
     // The own-state receiver: the loaded saga row, whose fields are
@@ -614,17 +677,28 @@ export function renderJavaWorkflows(
       // record makes the walk DESCEND, and the controller's `@RequestBody`
       // carries `@Valid` so this lands in the advice's 422 arm.
       //
-      // A PRIMITIVE component gets no `@NotNull` — it can never be null, and
-      // the annotation would read as a guard it is not (dto.ts takes the same
-      // decision on the create body).
+      // RS-26, on the workflow body: a required PRIMITIVE param is BOXED, the
+      // way `dto.ts` boxes an operation's.  A primitive record component cannot
+      // express absence — Jackson binds a missing `int qty` to `0` and a
+      // missing `boolean flag` to `false` — so a command that omitted a
+      // required field ran the workflow on a value the caller never sent, and
+      // an explicit `null` reached the domain as a deserialization fault
+      // instead of the 422 the published contract promises for it.  Boxing
+      // gives `@NotNull` something to test; `@Valid` on the controller's
+      // `@RequestBody` lands it in the advice's 422 arm.  (The create body is
+      // the deliberate exception, not the model — it applies declared defaults,
+      // so absence there means "the default", RS-6.)
       const components = wf.params.map((p) => {
         collectWireImports(p.type, reqImports, "Request");
-        const javaType = wireJavaType(p.type, "Request");
-        const guardable = p.type.kind !== "optional" && !JAVA_PRIMITIVES.has(javaType);
-        if (guardable) reqImports.add("jakarta.validation.constraints.NotNull");
+        const required = p.type.kind !== "optional";
+        const javaType = wireJavaType(
+          required ? { kind: "optional", inner: p.type } : p.type,
+          "Request",
+        );
+        if (required) reqImports.add("jakarta.validation.constraints.NotNull");
         const nested = bearsNestedRecord(p.type);
         if (nested) reqImports.add("jakarta.validation.Valid");
-        return `${guardable ? "@NotNull " : ""}${nested ? "@Valid " : ""}${javaType} ${p.name}`;
+        return `${required ? "@NotNull " : ""}${nested ? "@Valid " : ""}${javaType} ${p.name}`;
       });
       // A VO-typed param's `<Vo>Request` record lives in an aggregate's
       // application package, not `domain.valueobjects.*` — import it
@@ -637,6 +711,12 @@ export function renderJavaWorkflows(
       for (const vo of [...voNames].sort()) {
         const voPkg = wctx.voRequestPkgOf?.(vo);
         if (voPkg && voPkg !== wctx.pkg) reqImports.add(`${voPkg}.${vo}Request`);
+        // No aggregate package emits this VO's Request record (nothing but the
+        // workflow carries the VO on its wire) — the workflows package must
+        // emit it itself, or `MoneyRequest` is `cannot find symbol` in both the
+        // request record and the `toMoney` mapper (corpus java leg,
+        // `workflow-primitive-params`).
+        else if (!voPkg) localVoRequests.add(vo);
       }
       out.set(`${reqType}.java`, {
         category: "request-dto",
@@ -657,7 +737,7 @@ export function renderJavaWorkflows(
     }
     const paramLets = wf.params.map((p) => {
       collectWireToDomainImports(p.type, imports, wctx.basePkg);
-      return `            var ${p.name} = ${wireToDomain(p.type, `request.${p.name}()`, `/${p.name}`)};`;
+      return `            var ${p.name} = ${wireToDomain(p.type, `request.${p.name}()`, `/${p.name}`, payloadNames)};`;
     });
     // Chunked (one lines-array per top-level statement) rather than the
     // pre-flattened `renderWorkflowStmts` — byte-identical either way
@@ -675,6 +755,7 @@ export function renderJavaWorkflows(
         wfRenderCtx,
         undefined,
         collectUnionFindLets(wf.statements),
+        corrParam ? wf.correlationField : undefined,
       ),
       "            ",
     );
@@ -765,18 +846,102 @@ export function renderJavaWorkflows(
   }
   while (methods[methods.length - 1] === "") methods.pop();
 
+  // The payload record pair, one file each, in this same
+  // `application.workflows` package so the Request DTO and the service body
+  // resolve both unqualified.
+  for (const pl of payloads) {
+    const wireImports = new Set<string>();
+    const wireComponents = pl.fields.map((f) => {
+      collectWireImports(f.type, wireImports, "Request");
+      return `${wireJavaType(effType(f.type, !!f.optional), "Request")} ${f.name}`;
+    });
+    // A VO field's `<Vo>Request` record lives in an aggregate's application
+    // package, not `domain.valueobjects.*` — import it explicitly, exactly as
+    // the workflow Request DTO above does for a VO-typed param.
+    const plVoNames = referencedValueObjects(
+      pl.fields.map((f) => f.type),
+      new Set<string>(),
+    );
+    for (const vo of [...plVoNames].sort()) {
+      const voPkg = wctx.voRequestPkgOf?.(vo);
+      if (voPkg && voPkg !== wctx.pkg) wireImports.add(`${voPkg}.${vo}Request`);
+    }
+    out.set(`${pl.name}Response.java`, {
+      category: "request-dto",
+      content: lines(
+        `package ${wctx.pkg};`,
+        ``,
+        ...[...wireImports].sort().map((i) => `import ${i};`),
+        wireImports.size > 0 ? `` : null,
+        `import ${wctx.basePkg}.domain.enums.*;`,
+        `import ${wctx.basePkg}.domain.ids.*;`,
+        `import ${wctx.basePkg}.domain.valueobjects.*;`,
+        ``,
+        `public record ${pl.name}Response(${wireComponents.join(", ")}) {`,
+        `}`,
+        ``,
+      ),
+    });
+    // `collectJavaTypeImports`, not `collectWireToDomainImports`: this record
+    // declares DOMAIN types, so it needs `java.math.BigDecimal` but NOT the
+    // `WireFormatException` the CONVERSION uses (the mapper lives in the
+    // service, which imports it there).
+    const domainImports = new Set<string>();
+    const domainComponents = pl.fields.map((f) => {
+      collectJavaTypeImports(f.type, domainImports);
+      return `${renderJavaType(effType(f.type, !!f.optional))} ${f.name}`;
+    });
+    out.set(`${pl.name}.java`, {
+      category: "request-dto",
+      content: lines(
+        `package ${wctx.pkg};`,
+        ``,
+        ...[...domainImports].sort().map((i) => `import ${i};`),
+        domainImports.size > 0 ? `` : null,
+        `import ${wctx.basePkg}.domain.enums.*;`,
+        `import ${wctx.basePkg}.domain.ids.*;`,
+        `import ${wctx.basePkg}.domain.valueobjects.*;`,
+        ``,
+        `public record ${pl.name}(${domainComponents.join(", ")}) {`,
+        `}`,
+        ``,
+      ),
+    });
+  }
+
   // `to<Vo>(...)` mappers for VO-typed params (parity with the per-aggregate
   // service).  Their `<Vo>Request` parameter type lives in an aggregate's
   // application package → import it the same way the Request DTO does.
+  if (localVoRequests.size > 0) {
+    // Close over nested VOs the same way `dto.ts` does for an aggregate.
+    const voLookup = new Map(ctx.valueObjects.map((v) => [v.name, v.fields] as const));
+    const queue = [...localVoRequests];
+    while (queue.length > 0) {
+      const vo = queue.pop()!;
+      for (const nested of referencedValueObjects(
+        (voLookup.get(vo) ?? []).map((f) => f.type),
+        new Set<string>(),
+      )) {
+        if (!localVoRequests.has(nested) && !wctx.voRequestPkgOf?.(nested)) {
+          localVoRequests.add(nested);
+          queue.push(nested);
+        }
+      }
+    }
+    for (const vo of [...localVoRequests].sort()) {
+      const rec = voRecord(vo, voLookup.get(vo) ?? [], "Request", wctx.pkg, wctx.basePkg);
+      out.set(rec.name, { category: "request-dto", content: rec.content });
+    }
+  }
   const voMappers = workflowVoMappers(ctx, cmdWorkflows, imports, wctx.basePkg);
+  // `to<Payload>(...)` mappers for payload-typed params — the same seam, for
+  // the record the workflow explicit-command form names.  Both the wire
+  // record and the domain record live in THIS package (nothing else emits
+  // either), so neither needs an import.
+  voMappers.push(...workflowPayloadMappers(payloads, imports, wctx.basePkg));
   while (voMappers[voMappers.length - 1] === "") voMappers.pop();
   const voReqNames = new Set<string>();
-  for (const wf of cmdWorkflows) {
-    referencedValueObjects(
-      wf.params.map((p) => p.type),
-      voReqNames,
-    );
-  }
+  referencedValueObjects([...workflowParamTypeSeeds(cmdWorkflows, ctx)], voReqNames);
   for (const vo of [...voReqNames].sort()) {
     const voPkg = wctx.voRequestPkgOf?.(vo);
     if (voPkg && voPkg !== wctx.pkg) imports.add(`${voPkg}.${vo}Request`);
