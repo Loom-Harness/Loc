@@ -196,16 +196,58 @@ function printLoomWarnings(
   console.error(`${warnings.length} warning(s).`);
 }
 
-/** The AST-diagnostic footer.  Structurally typed on the three fields it
- *  reads, so it serves both the single-document `ParseResult` and the
- *  multi-file `ProjectParseResult`. */
-function printDiagnostics(result: {
+/** What one phase found — the unit `printSummary` adds up. */
+interface PhaseTally {
+  errors: number;
+  warnings: number;
+}
+
+/**
+ * THE summary line.  Singular, deliberately.
+ *
+ * `parse` printed two, and they contradicted each other:
+ *
+ *     0 error(s), 0 warning(s).        ← phase ④, the AST validator
+ *     loom.named-lifecycle-dropped …
+ *     1 error(s).                      ← phase ⑦, the IR validator
+ *
+ * A user who reads the first line stops there and concludes the model is
+ * clean — the command's own footer said so — and the second line reads as
+ * belonging to whatever came after it.  Two footers for one question is worse
+ * than either alone: one of them is always wrong about the file (audit #2864
+ * § Papercuts / M-T9.60).
+ *
+ * So each phase now RETURNS its tally instead of footering itself, and the
+ * command that runs them prints one line, once, after the last phase it ran —
+ * counting every phase that ran.  A command that exits early (AST errors abort
+ * before lowering) still prints exactly one summary, covering the phases that
+ * got to run.
+ *
+ * Advisory `loom.index-suggestion` hints stay out of the counts and keep their
+ * own `Suggestions (N):` heading, as they always have — they are not warnings
+ * and never gate anything.
+ */
+function printSummary(...phases: readonly PhaseTally[]): void {
+  let errors = 0;
+  let warnings = 0;
+  for (const p of phases) {
+    errors += p.errors;
+    warnings += p.warnings;
+  }
+  console.error(`${errors} error(s), ${warnings} warning(s).`);
+}
+
+/** The AST-diagnostic (phase ④) lines.  Structurally typed on the three fields
+ *  it reads, so it serves both the single-document `ParseResult` and the
+ *  multi-file `ProjectParseResult`.  Returns its tally for `printSummary`; the
+ *  footer is NOT this function's to print. */
+function printAstDiagnostics(result: {
   diagnostics: readonly string[];
   errorCount: number;
   warningCount: number;
-}) {
+}): PhaseTally {
   for (const d of result.diagnostics) console.error(d);
-  console.error(`${result.errorCount} error(s), ${result.warningCount} warning(s).`);
+  return { errors: result.errorCount, warnings: result.warningCount };
 }
 
 /** The phase-⑦ (IR) diagnostic report, printed IDENTICALLY by `parse` and by
@@ -221,18 +263,19 @@ function printDiagnostics(result: {
  *  command failure `runParse`'s own doc comment exists to prevent.  One
  *  printer, one wording, both callers.
  *
- *  Returns the split so the caller can decide about exit codes (errors gate;
- *  warnings and suggestions never do). */
+ *  It prints LINES, not a footer.  Its `N error(s).` / `N warning(s).` footers
+ *  were the second half of `parse`'s contradictory pair (see `printSummary`);
+ *  the caller now folds this phase's counts into the single summary.
+ *
+ *  Returns the split so the caller can tally it and decide about exit codes
+ *  (errors gate; warnings and suggestions never do). */
 function printIrDiagnostics(diagnostics: readonly LoomDiagnostic[]): {
   errors: LoomDiagnostic[];
   warnings: LoomDiagnostic[];
   hints: LoomDiagnostic[];
 } {
   const errors = diagnostics.filter((d) => d.severity === "error");
-  if (errors.length > 0) {
-    for (const d of errors) console.error(`${d.code} ${d.source}: ${d.message}`);
-    console.error(`${errors.length} error(s).`);
-  }
+  for (const d of errors) console.error(`${d.code} ${d.source}: ${d.message}`);
 
   // Phase ⑦ computes 18 warning codes (datasource-knob-unwired, findall-no-page,
   // cross-tenant-without-tenancy, …).  A warning never affects the exit code;
@@ -241,10 +284,7 @@ function printIrDiagnostics(diagnostics: readonly LoomDiagnostic[]): {
   const warnings = diagnostics.filter(
     (d) => d.severity === "warning" && d.code !== "loom.index-suggestion",
   );
-  if (warnings.length > 0) {
-    for (const d of warnings) console.error(`${d.code} ${d.source} warning: ${d.message}`);
-    console.error(`${warnings.length} warning(s).`);
-  }
+  for (const d of warnings) console.error(`${d.code} ${d.source} warning: ${d.message}`);
 
   // Advisory only — the index-suggestion lint (uniqueness-and-indexes.md §11)
   // keeps its own footer and never fails the command.
@@ -279,8 +319,13 @@ async function runParse(file: string) {
   // resolves its import graph instead of reporting its siblings' declarations
   // as unresolved.
   const result = await parseProject(file);
-  printDiagnostics(result);
-  if (result.errorCount > 0) process.exit(1);
+  const ast = printAstDiagnostics(result);
+  // An AST error aborts before lowering, so phase ⑦ never runs — the summary
+  // covers the one phase that did, and is still the only summary printed.
+  if (result.errorCount > 0) {
+    printSummary(ast);
+    process.exit(1);
+  }
 
   // Phase ⑦ — the cross-aggregate IR checks.  A throw here is still swallowed
   // (lowering can throw on shapes the AST validator doesn't gate, and the AST
@@ -297,7 +342,10 @@ async function runParse(file: string) {
   // filtered down to the single allow-listed `loom.index-suggestion`.  The
   // shared printer is now the only thing that decides what a phase-⑦
   // diagnostic looks like on either command's stderr.
-  const { errors: irErrors } = printIrDiagnostics(irDiagnostics);
+  const { errors: irErrors, warnings: irWarnings } = printIrDiagnostics(irDiagnostics);
+  // Both phases have run — ONE footer, counting both.  It has to come after
+  // the IR phase, or it is a verdict on half the file (M-T9.60).
+  printSummary(ast, { errors: irErrors.length, warnings: irWarnings.length });
   if (irErrors.length > 0) process.exit(1);
 
   console.log(`OK: ${file}`);
@@ -358,13 +406,18 @@ function readSource(file: string): { absolute: string; source: string } {
  * A machine-readable stream is a contract with a consumer that will
  * `JSON.parse` it, and that contract is only as strong as the noisiest thing
  * in the process.  It was broken by a source containing `money(`: Chevrotain's
- * ALL(*) lookahead reports the (known, documented — see `MoneyLit` /
- * `PrimitiveConversion` in `ddd.langium`) prefix ambiguity through
- * `console.log`, LAZILY, on the first input that reaches that alternation —
- * so `generate system --json` printed four lines of grammar advice ahead of
- * the payload and `jq` refused the output.  Nothing in the JSON verbs
- * themselves was wrong, which is the point: the fix has to hold for whatever
- * a dependency decides to print next, not just for this one warning.
+ * ALL(*) lookahead reported a prefix ambiguity between the two `money(` rules
+ * through `console.log`, LAZILY, on the first input that reached that
+ * alternation — so `generate system --json` printed four lines of grammar
+ * advice ahead of the payload and `jq` refused the output.  Nothing in the JSON
+ * verbs themselves was wrong, which is the point: the fix has to hold for
+ * whatever a dependency decides to print next, not just for this one warning.
+ *
+ * That particular warning no longer exists — M-T9.60 removed the ambiguity at
+ * the source (one grammar path for `money(`; see
+ * `src/language/money-literal.ts`), which is also why nothing in-tree exercises
+ * this diversion today.  It stays because the contract it enforces was never
+ * about Chevrotain.
  *
  * The diverted text is not swallowed — it lands on stderr, where a human
  * still sees it and `2>/dev/null` still silences it.
@@ -505,6 +558,10 @@ async function runGenerate(
   // `GenerateSystemOptions.sourceTexts`); harmless to leave undefined on
   // the legacy `ts`/`dotnet` paths, which never call `generateSystemsFromLoom`.
   let sourceTexts: Map<string, string> | undefined;
+  // Phase ④'s tally, folded into the single summary once phase ⑦ has run.  The
+  // legacy `ts`/`dotnet` targets print no AST diagnostics on the success path
+  // (they never did), so their contribution is zero.
+  let ast: PhaseTally = { errors: 0, warnings: 0 };
   if (target === "system") {
     let projectResult: ProjectParseResult;
     try {
@@ -520,8 +577,11 @@ async function runGenerate(
     // example, all of which `ddd parse` prints for the same file.  A user who
     // only runs `generate` never saw them.  Same call `parse` makes, so the
     // wording and the footer match by construction.
-    printDiagnostics(projectResult);
+    ast = printAstDiagnostics(projectResult);
     if (projectResult.errorCount > 0) {
+      // Phase ⑦ never runs after an AST error, so this is the last phase there
+      // is — print the one summary here rather than leaving the run footerless.
+      printSummary(ast);
       if (!options.continueOnError) process.exit(1);
       return { hadError: true };
     }
@@ -530,7 +590,7 @@ async function runGenerate(
   } else {
     const result = await parseFile(file);
     if (result.errorCount > 0) {
-      printDiagnostics(result);
+      printSummary(printAstDiagnostics(result));
       if (!options.continueOnError) process.exit(1);
       return { hadError: true };
     }
@@ -550,7 +610,11 @@ async function runGenerate(
   // never as warnings — so the two commands' footers didn't even add up to the
   // same number for the same file.
   const loomDiags = validateLoomModel(loom);
-  const { errors: loomErrors } = printIrDiagnostics(loomDiags);
+  const { errors: loomErrors, warnings: loomWarnings } = printIrDiagnostics(loomDiags);
+  // ONE footer, after both phases — the same call `parse` makes at the same
+  // point, which is what keeps the two commands' stderr byte-identical
+  // (`generate-diagnostic-parity.test.ts`).
+  printSummary(ast, { errors: loomErrors.length, warnings: loomWarnings.length });
   if (loomErrors.length > 0) {
     if (!options.continueOnError) process.exit(1);
     return { hadError: true };
@@ -861,7 +925,7 @@ async function runSnapshot(
 ): Promise<RunResult> {
   const result = await parseProject(file);
   if (result.errorCount > 0) {
-    printDiagnostics(result);
+    printSummary(printAstDiagnostics(result));
     process.exit(1);
   }
   const loom = result.loom;
@@ -1048,7 +1112,7 @@ async function runVerify(file: string, options: VerifyOptions): Promise<void> {
 
   const result = await parseProject(file);
   if (result.errorCount > 0) {
-    printDiagnostics(result);
+    printSummary(printAstDiagnostics(result));
     process.exit(2);
   }
   const loom = result.loom;
