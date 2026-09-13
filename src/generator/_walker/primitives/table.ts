@@ -362,7 +362,7 @@ function emitColumn(
   const key = slugify(headerStr) || `col-${index + 1}`;
 
   const rowVar = "row";
-  let cellJsx = giveUp(ctx.target, "missing accessor");
+  let cellJsx = giveUp(ctx.target, "loom.page-primitive-arg-missing", "missing accessor");
   if (accessorArg && accessorArg.kind === "lambda") {
     const childCtx: WalkContext = {
       ...ctx,

@@ -72,7 +72,11 @@ describe("HEEx — a standalone instance OperationForm leaves a visible marker",
       src,
       "the op-form vanished without a marker — a reader sees a blank panel and cannot tell " +
         "whether the page is empty or the emitter dropped it",
-    ).toMatch(/<%!--\s*OperationForm\(<instance>\.rename\)/);
+    ).toMatch(
+      // The marker now carries its `loom.*` code between the sentinel and the
+      // prose (M-T9.55) — a give-up says WHY, not only THAT.
+      /<%!--\s*loom:unrendered \[loom\.page-primitive-target-gap\] OperationForm\(<instance>\.rename\)/,
+    );
     // The marker must say what DOES work, or it is only half a diagnostic.
     expect(src).toMatch(/OperationForm \{ of: <Agg>, op: rename \}/);
     // A HEEx comment is inert markup, so the page still compiles around it.

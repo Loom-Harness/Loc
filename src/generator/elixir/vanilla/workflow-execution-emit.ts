@@ -1314,59 +1314,24 @@ function collectParamRefsInStmt(s: StmtIR, acc: Set<string>): void {
  *  `lowerStatement`; if a future kind is added without a matching arm
  *  here, an unused param destructure could trip `--warnings-as-errors`. */
 export function collectWorkflowStmtParamRefs(st: WorkflowStmtIR, acc: Set<string>): void {
-  switch (st.kind) {
-    case "precondition":
-    case "requires":
-    case "expr-let":
-      collectParamRefs(st.expr, acc);
-      return;
-    case "factory-let":
-      for (const f of st.fields) collectParamRefs(f.value, acc);
-      return;
-    case "op-call":
-      for (const a of st.args) collectParamRefs(a, acc);
-      return;
-    case "emit":
-      for (const f of st.fields) collectParamRefs(f.value, acc);
-      return;
-    case "repo-let":
-      // Every repo-let is now lowered — getById maps to `get_<agg>/1`, a
-      // custom find maps to `<find>_<agg>(args...)` via the context
-      // defdelegate emitted by context-emit.ts.
-      for (const a of st.args) collectParamRefs(a, acc);
-      return;
-    case "repo-delete":
-      // `<Repo>.delete(o)` → `Context.delete_<agg>(o)`.  The entity operand may
-      // reference a create-param directly (`Orders.delete(param)`), so surface
-      // its refs for the `run/1` destructure.
-      collectParamRefs(st.entity, acc);
-      return;
-    case "resource-call":
-      collectParamRefs(st.call, acc);
-      return;
-    case "domain-service-call":
-      // A `mutating` `Transfer.run(s, d, amount)` references the workflow's
-      // create-params through its call args (`amount`); they must be
-      // destructured off `run/1` so the inlined with-chain's `%{arg0: amount}`
-      // resolves.  Without this the bound binding is undefined (the pre-Slice-3
-      // placeholder bug).
-      if (st.call.kind === "call") for (const a of st.call.args) collectParamRefs(a, acc);
-      return;
-    case "repo-run":
-      for (const a of st.retrievalArgs) collectParamRefs(a, acc);
-      collectParamRefs(st.page?.offset, acc);
-      collectParamRefs(st.page?.limit, acc);
-      return;
-    case "for-each":
-      collectParamRefs(st.iterable, acc);
-      for (const inner of st.body) collectWorkflowStmtParamRefs(inner, acc);
-      return;
-    case "if-let":
-      for (const a of st.retrievalArgs) collectParamRefs(a, acc);
-      for (const inner of st.thenBody) collectWorkflowStmtParamRefs(inner, acc);
-      for (const inner of st.elseBody ?? []) collectWorkflowStmtParamRefs(inner, acc);
-      return;
-  }
+  // Rides the SHARED, `never`-guarded child walker, exactly like its sibling
+  // `collectWorkflowStmtParamRefsAll` below.  The hand-enumerated switch this
+  // replaces was missing the `assign` arm entirely — 13 of the 14
+  // `WorkflowStmtIR` kinds, no `default`, so no compile error — and an `assign`
+  // is precisely where a create-param lands in a state-bearing workflow:
+  //
+  //   create start(order: Order id) { orderId := order }
+  //     def run(params) …
+  //       with state <- (%{state | order_id: order})   # `order` never bound
+  //
+  // which is `** (CompileError) undefined variable "order"` on `mix compile`.
+  // The same shape the `#2720`/`M-T6.50` class keeps producing (CLAUDE.md,
+  // "No hand-rolled IR walks"); a new kind is now a compile error in
+  // `walkWorkflowStmtChildren`, not a silent hole here.
+  walkWorkflowStmtChildren(st, {
+    expr: (e) => collectParamRefs(e, acc),
+    workflowStmt: (inner) => collectWorkflowStmtParamRefs(inner, acc),
+  });
 }
 
 /** The declared create-params referenced anywhere in the body, in
@@ -1604,7 +1569,7 @@ function renderWorkflowModule(
   def report_result(result), do: result`;
   const lines = lowerStatements(wf.statements ?? [], contextModuleFq, renderCtx, ctx);
   // Load-or-allocate + persist, mirroring `renderPersistedBody`'s create arm.
-  // `__loom_state` keeps the row AS LOADED so the trailing changeset carries the
+  // `loom_state` keeps the row AS LOADED so the trailing changeset carries the
   // body's writes as real CHANGES — Elixir rebinds `state` in place
   // (`state = %{state | f: v}`), and `Ecto.Changeset.change(state, …)` against
   // the already-updated struct would diff to nothing and the update would be a
@@ -1621,12 +1586,12 @@ function renderWorkflowModule(
   const statePrelude = corrParam
     ? [
         `    key = params[${JSON.stringify(corrParam.name)}]`,
-        `    ${bindsState ? "__loom_state" : "_"} =`,
+        `    ${bindsState ? "loom_state" : "_"} =`,
         `      case Repo.get(${stateMod}, key) do`,
         `        nil -> Repo.insert!(%${stateMod}{${allocFields.join(", ")}})`,
         `        existing -> existing`,
         `      end`,
-        ...(bindsState ? ["", "    state = __loom_state"] : []),
+        ...(bindsState ? ["", "    state = loom_state"] : []),
         "",
       ].join("\n") + "\n"
     : "";
@@ -1640,7 +1605,7 @@ function renderWorkflowModule(
   const persistLines =
     bindsState && workflowBodyWritesOwnState(wf.statements ?? []) && mutableStateFields.length > 0
       ? [
-          `Repo.update!(Ecto.Changeset.change(__loom_state, Map.take(state, [${mutableStateFields.join(", ")}])))`,
+          `Repo.update!(Ecto.Changeset.change(loom_state, Map.take(state, [${mutableStateFields.join(", ")}])))`,
         ]
       : [];
   const body = assembleBody(lines, completedCall, persistLines);
