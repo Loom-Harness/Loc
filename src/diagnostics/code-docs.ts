@@ -59,6 +59,8 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.for-placement": "06-behavior-and-statements.md#for--if-let--workflow-bodies-only",
   "loom.if-let-placement": "06-behavior-and-statements.md#for--if-let--workflow-bodies-only",
   "loom.vanilla-op-call-actor": "06-behavior-and-statements.md#operation--a-mutating-method",
+  "loom.repository-access-outside-workflow":
+    "06-behavior-and-statements.md#operation--a-mutating-method",
   "loom.abstract-aggregate-behavior":
     "08-inheritance-and-polymorphism.md#abstract-aggregate--the-base",
   "loom.abstract-repository": "08-inheritance-and-polymorphism.md#abstract-aggregate--the-base",
