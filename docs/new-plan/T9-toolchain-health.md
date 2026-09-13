@@ -213,15 +213,61 @@ Parallel agents collide on claims. Two shapes are on record: #2349/#2351 were **
 
 Sources: [quality-audit-2026-08](../audits/quality-audit-2026-08.md) R12. Minted by [#2495](https://github.com/lemmit/Loc/pull/2495).
 
-## M-T9.38 — Flutter and Feliz have no runtime leg: a money crash ships behind a green compile gate — `open` (unblocked 2026-09-10) · **L** · P2
+## M-T9.38 — Flutter and Feliz have no runtime leg: a money crash ships behind a green compile gate — `done` (2026-09-13, [#2898](https://github.com/Loom-Harness/Loc/pull/2898)) · **L** · P2
 
 Found 2026-08-23 by the numeric-types audit ([F17](../audits/numeric-types-audit-2026-08-23.md)). `generated-flutter-build.yml` / `generated-feliz-build.yml` are compile-only, and Dart's `(x as num)` on a wire string compiles clean — so F1's crash-on-first-read shipped green. React/Vue/Svelte/Angular have real e2e legs; the two self-hosting frontends (the pair M-T1.20 already flags as carrying most frontend residue) have none.
 
-**The work:** a minimal boot + list-read + create-submit smoke for each, against a real backend, over a numeric-rich fixture (money, decimal, int, long) — the runtime twin of the build gates, wired to a `run-*` label per the post-merge-gate convention. **Both blockers are in** — M-T1.21 as [#2678](https://github.com/lemmit/Loc/pull/2678) and M-T1.22 as [#2674](https://github.com/lemmit/Loc/pull/2674) (merged 2026-09-10) — so the legs would now be born green rather than red, which was the whole reason to hold them.
+> **Half the premise was already stale when this row was picked up (2026-09-13).** "FELIZ still has
+> none" — the wording in both this mission and its ledger row (`G2644-M-T9.38-frontend-runtime-legs`)
+> — rested on `ls test/behavioral | grep -i feliz` being empty and no `*feliz*e2e.yml` existing. Both
+> are true and neither is the question: **Feliz has had a real-backend leg since the testid-emission
+> PR**, as a BLOCKING `feliz` cell of `frontend-fullstack-e2e.yml` running the SHARED `run-ui.mjs`
+> against `sales-system-feliz` — generate → `dotnet fable` + vite → the built bundle and the generated
+> Hono backend on PGlite on ONE origin → the emitted `*.ui.spec.ts` page-object round-trip. A leg that
+> reuses a shared runner leaves no file with its name on it, so a filename census cannot see it. What
+> was genuinely missing was the NUMERIC half, on both legs: `grep -nE 'money|decimal'` over either
+> found nothing.
 
-**Verification when it lands.** The legs themselves, mutation-proved by re-seeding F1's `as num` decode on a scratch branch and watching the flutter leg fail.
+**What landed (#2898).** Both fixtures grew a numeric `Product` row — one field per host type, four
+different wire spellings (`money` a scale-4 STRING per RS-12, `decimal` a JSON number per RS-24,
+`int`/`long` JSON integers) — and both legs now assert the RENDERED value, so a silently-wrong decode
+fails as well as a throwing one. The seed and the expectations live in ONE table
+(`test/behavioral/numeric-ui-contract.mjs`) that both legs read, with a fast-suite ratchet
+(`numeric-ui-legs.test.ts`) over the fixtures, the wiring and the expectations' discriminating-ness —
+without it, deleting a field would leave two nightly legs green and pointless.
 
-Sources: [numeric-types-audit-2026-08-23](../audits/numeric-types-audit-2026-08-23.md) F17, plan.json N17. Relates to M-T9.14 (Flutter runtime gates), M-T1.20.
+Measured on the landing head, locally, both legs: **feliz 11 passed / 0 failed** (the numeric
+round-trip fills all four through the real create FORM and reads them back off the detail page),
+**flutter 4 passed / 0 failed**. Mutation-proved on both sides: re-seeding F1 (`'${json[…]}'` →
+`(… as num).toString()` in `flutter/dart-types.ts`) turns BOTH money-bearing flutter probes red on
+`Couldn't load products` while customers and orders stay green; routing the Feliz money decoder
+through a double (`feliz/wire.ts`) renders `98.76` for an expected `98.7600` and turns ONLY the new
+numeric round-trip red. Each mutation was reverted by file copy, md5-verified, and rebuilt.
+
+Two findings fell out of it, both recorded rather than carried silently: **[M-T9.65](#m-t965)** (a
+`money` literal in a ui e2e body is emitted as a bare JS number, losing the scale the api renderer
+keeps) and the money RENDERING divergence between the two frontends — Flutter formats through
+`NumberFormat.decimalPattern()` and drops the scale, Feliz keeps it. The divergence is pinned in the
+contract table so whichever way it is later unified, that table is what changes.
+
+**What is deliberately NOT here, with the reason** (so nobody re-opens this row for it):
+
+1. **Flutter's WRITE half stays seeded over `/api`, not driven through the form.** Flutter web exposes
+   a text field to the DOM only while it is focused, so a form-driven write is a flake source — on a
+   leg that is already one of the three at a 0 % first-attempt pass rate, that trades a real gate for
+   an unreliable one. Form interaction on Flutter is covered in-process instead, by the `flutter test`
+   widget tests riding `generated-flutter-build.yml`. The create-submit half of the original ask is
+   covered at RUNTIME on Feliz, which posts through the real form.
+2. **Per-PR path-scoped promotion.** The mission's "then per-PR once the flake budget holds" half is
+   [`verification-waves-2026-09`](verification-waves-2026-09.md) G1 / wave C0 packet 0.2(b) work
+   ([#2636](https://github.com/Loom-Harness/Loc/issues/2636)), not this row's: the legs are wired to
+   the `frontend-fullstack` label and run nightly. Note that label predates the `run-<feature>`
+   convention this mission's text assumes; renaming it is a `docs/ci-gating.md` + label-registry
+   change and was left alone rather than done as a drive-by.
+3. **M-T9.14's residue** (flutter per-kind `ExprIR` pinning, the runtime auth-UI leg) is that
+   mission's, unchanged.
+
+Sources: [numeric-types-audit-2026-08-23](../audits/numeric-types-audit-2026-08-23.md) F17, plan.json N17. Relates to M-T9.14 (Flutter runtime gates), M-T1.20, [M-T9.65](#m-t965).
 
 ## M-T9.39 — The i18n round-trip gate: every catalog key needs a consumption site, and every user-visible slot needs a key — `open` · **M** · P2
 
@@ -829,3 +875,49 @@ attributed to the generator. A green first run proves neither.
 
 Relates to [M-T9.8](#m-t98) (same "valid input, wrong output" class, found generatively) and
 [M-T9.42](#m-t942) (the shrunk models graduate into the corpus).
+
+## M-T9.65 — A `money` literal in a `test e2e … against <ui>` body is emitted as a JS NUMBER, losing the scale the api renderer keeps — `open` · **S** · P3
+
+Found 2026-09-13 while landing [M-T9.38](#m-t938)'s numeric round-trip (PR #2898), by
+reading the emitted spec the new Feliz assertion drives.
+
+`renderLiteral` in `src/system/ui-e2e-render.ts:511-516` handles `string`, `now` and `null`
+and returns `value` verbatim for everything else — so a `money` literal falls through to a
+**bare JS number**:
+
+```
+// .ddd (a ui e2e body)
+let prod = ui.products.create({ …, listPrice: money("98.7600") })
+
+// emitted *.ui.spec.ts — measured
+await __new.fill(({ …, listPrice: 98.7600 }));   // → String(98.76) is typed into the form
+```
+
+The api-side renderer does the opposite, deliberately, and says why in a nine-line comment:
+`src/system/e2e-render.ts:591` is `if (lit === "money") return JSON.stringify(value);`
+because "`money` crosses the wire as a STRING on every backend". The UI renderer is the same
+boundary — the value is typed into a form field and POSTed — so it wants the same string.
+
+**Consequences, in order of severity.** (1) The SCALE is lost before the value reaches the app
+(`"98.7600"` → `98.76`), so a spec cannot assert a scale-sensitive money round-trip through the
+form at all; M-T9.38's Feliz assertion survives only because the `NUMERIC(19,4)` column
+re-scales it on the way back. (2) A money literal past double precision — or past 17
+significant digits, the second half of M-T9.37's `offContractNumber` rule — is **corrupted by
+the spec itself**, so the test would report a divergence the backend never produced. (3) It is
+the one arm of the money contract where two renderers of the same boundary disagree, which is
+the `_expr`-target class the repo has otherwise been consolidating.
+
+**The fix:** a `money` arm in `ui-e2e-render.ts`'s `renderLiteral` returning `JSON.stringify(value)`,
+matching `e2e-render.ts`. Check the `convert` arm below it (`e.target === "money"` already emits
+`new Decimal(…)`, which is the DOMAIN idiom, not the wire one) while you are there.
+
+**Verification when it lands.** A generator test asserting the emitted `fill(...)` carries the
+quoted, full-scale money string for a `money(...)` literal — mutation-proved by reverting the
+arm, since a presence-only assertion on `listPrice` passes for either spelling. Then extend
+M-T9.38's numeric UI round-trip with a money value whose scale-4 tail is non-zero
+(`money("98.7654")`) and watch the Feliz leg's `toHaveText` hold it end to end; that is the
+assertion the current lossy path cannot support.
+
+Sources: measured on `main` @ `09427a5` while landing M-T9.38. Relates to RS-12 (money wire
+scale), [M-T9.37](#m-t937) (the wire-golden `offContractNumber` rule, whose >17-significant-digit
+half is the one this defect would trip), and M-T9.38 (the leg that found it).
