@@ -43,23 +43,8 @@
 // four backends' emission is untouched.
 // ---------------------------------------------------------------------------
 
-import { NodeFileSystem } from "langium/node";
-import { parseHelper } from "langium/test";
 import { describe, expect, it } from "vitest";
-import { createDddServices } from "../../../src/language/ddd-module.js";
-import type { Model } from "../../../src/language/generated/ast.js";
-import { generateSystems } from "../../../src/system/index.js";
-
-async function build(source: string): Promise<Model> {
-  const services = createDddServices(NodeFileSystem);
-  const doc = await parseHelper<Model>(services.Ddd)(source, { validation: true });
-  const errs = (doc.diagnostics ?? []).filter((d) => d.severity === 1);
-  expect(
-    errs.map((d) => d.message),
-    "source validation errors",
-  ).toEqual([]);
-  return doc.parseResult.value;
-}
+import { generateSystemFiles } from "../../_helpers/generate.js";
 
 /** Every position the `loom.java-reserved-identifier-unsupported` gate used to
  *  refuse, in one model: aggregate field (scalar / bool / money / VO / VO array
@@ -113,7 +98,7 @@ system RW {
 
 let cachedJava: Map<string, string> | undefined;
 async function javaFiles(): Promise<Map<string, string>> {
-  if (!cachedJava) cachedJava = generateSystems(await build(SOURCE("java"))).files;
+  if (!cachedJava) cachedJava = await generateSystemFiles(SOURCE("java"));
   return cachedJava;
 }
 
@@ -274,7 +259,7 @@ describe("M-T6.36 — a java reserved word is emitted, mangled, with the wire pi
     ["elixir", "case"],
   ] as const) {
     it(`leaves platform: ${platform} on the bare \`.ddd\` name`, async () => {
-      const files = generateSystems(await build(SOURCE(platform))).files;
+      const files = await generateSystemFiles(SOURCE(platform));
       const all = [...files.values()].join("\n");
       expect(all).toContain(marker);
       expect(all, "no java-style mangle leaked onto another backend").not.toContain("case_(");
