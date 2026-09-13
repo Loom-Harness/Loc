@@ -22,47 +22,26 @@
     },
     {
       "seq": 2,
-      "method": "GET",
-      "path": "/api/parcels/by_courier?c=DHL&page=1&pageSize=10",
-      "status": 200,
-      "body": {
-        "items": [
-          {
-            "courier": "DHL",
-            "deletedAt": null,
-            "id": "<volatile:key>",
-            "reference": "REF-1",
-            "version": 1
-          }
-        ],
-        "page": 1,
-        "pageSize": 10,
-        "total": 1,
-        "totalPages": 1
-      }
-    },
-    {
-      "seq": 3,
       "method": "POST",
-      "path": "/api/parcels/{id}/soft_delete",
+      "path": "/api/parcels/{id}/update",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 4,
+      "seq": 3,
       "method": "GET",
       "path": "/api/parcels/{id}",
-      "status": 404,
+      "status": 200,
       "body": {
-        "detail": "Parcel {id} not found",
-        "instance": "/api/parcels/{id}",
-        "status": 404,
-        "title": "Not Found",
-        "type": "about:blank"
+        "courier": "UPS",
+        "deletedAt": null,
+        "id": "<volatile:key>",
+        "reference": "REF-1",
+        "version": 2
       }
     },
     {
-      "seq": 5,
+      "seq": 4,
       "method": "GET",
       "path": "/api/parcels/by_courier?c=DHL&page=1&pageSize=10",
       "status": 200,
@@ -75,7 +54,83 @@
       }
     },
     {
+      "seq": 5,
+      "method": "GET",
+      "path": "/api/parcels/by_courier?c=UPS&page=1&pageSize=10",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "courier": "UPS",
+            "deletedAt": null,
+            "id": "<volatile:key>",
+            "reference": "REF-1",
+            "version": 2
+          }
+        ],
+        "page": 1,
+        "pageSize": 10,
+        "total": 1,
+        "totalPages": 1
+      }
+    },
+    {
       "seq": 6,
+      "method": "GET",
+      "path": "/api/parcels",
+      "status": 200,
+      "body": [
+        {
+          "courier": "UPS",
+          "deletedAt": null,
+          "id": "<volatile:key>",
+          "reference": "REF-1",
+          "version": 2
+        }
+      ]
+    },
+    {
+      "seq": 7,
+      "method": "POST",
+      "path": "/api/parcels/{id}/soft_delete",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 8,
+      "method": "GET",
+      "path": "/api/parcels/{id}",
+      "status": 404,
+      "body": {
+        "detail": "Parcel {id} not found",
+        "instance": "/api/parcels/{id}",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 9,
+      "method": "GET",
+      "path": "/api/parcels/by_courier?c=UPS&page=1&pageSize=10",
+      "status": 200,
+      "body": {
+        "items": [],
+        "page": 1,
+        "pageSize": 10,
+        "total": 0,
+        "totalPages": 0
+      }
+    },
+    {
+      "seq": 10,
+      "method": "GET",
+      "path": "/api/parcels",
+      "status": 200,
+      "body": []
+    },
+    {
+      "seq": 11,
       "method": "POST",
       "path": "/api/parcels/{id}/restore",
       "status": 404,
@@ -88,7 +143,7 @@
       }
     },
     {
-      "seq": 7,
+      "seq": 12,
       "method": "GET",
       "path": "/api/crates",
       "status": 200,
@@ -102,7 +157,7 @@
       ]
     },
     {
-      "seq": 8,
+      "seq": 13,
       "method": "GET",
       "path": "/api/crates/{id}",
       "status": 200,
@@ -114,7 +169,53 @@
       }
     },
     {
-      "seq": 9,
+      "seq": 14,
+      "method": "POST",
+      "path": "/api/crates/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 15,
+      "method": "GET",
+      "path": "/api/crates/{id}",
+      "status": 200,
+      "body": {
+        "id": "<volatile:key>",
+        "reference": "REF-2",
+        "version": 2,
+        "weightKg": 55
+      }
+    },
+    {
+      "seq": 16,
+      "method": "DELETE",
+      "path": "/api/crates/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 17,
+      "method": "GET",
+      "path": "/api/crates/{id}",
+      "status": 404,
+      "body": {
+        "detail": "Crate {id} not found",
+        "instance": "/api/crates/{id}",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 18,
+      "method": "GET",
+      "path": "/api/crates",
+      "status": 200,
+      "body": []
+    },
+    {
+      "seq": 19,
       "method": "PATCH",
       "path": "/api/parcels",
       "status": 405,
@@ -127,7 +228,7 @@
       }
     },
     {
-      "seq": 10,
+      "seq": 20,
       "method": "GET",
       "path": "/__loom_no_such_path",
       "status": 404,
@@ -140,7 +241,7 @@
       }
     },
     {
-      "seq": 11,
+      "seq": 21,
       "method": "POST",
       "path": "/api/parcels",
       "status": 400,
