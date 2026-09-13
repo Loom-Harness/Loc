@@ -1253,6 +1253,18 @@ export const DIAGNOSTIC_MESSAGES = {
     `computed expression. An aggregation argument must be a plain column of the ` +
     `'${p.source}' source, written '<alias>.<field>' (e.g. '${p.op}(o.total)') — ` +
     `SQL aggregates a column, not a per-row computation.`,
+  "loom.projection-aggregate-type-mismatch": (p: {
+    name: unknown;
+    field: unknown;
+    op: unknown;
+    declared: unknown;
+    result: unknown;
+    hint: unknown;
+  }) =>
+    `projection '${p.name}': field '${p.field}' is declared '${p.declared}' but ` +
+    `'${p.op}(…)' produces '${p.result}'. The DECLARED type is what the response ` +
+    `schema and every backend's numeric coercion are built from, so the mismatch ` +
+    `would silently re-code the value. Declare '${p.field}: ${p.result}'${p.hint}.`,
   "loom.projection-select-unresolved": (p: {
     name: unknown;
     field: unknown;

@@ -70,6 +70,7 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
     "09-payloads-and-unions.md#error--httpstatus--exception-less-problemdetails",
   "loom.criterion-impure": "10-repositories-and-queries.md#criterion",
   "loom.projection-aggregate-arg-not-columnar": "10-repositories-and-queries.md#grouped--group-by",
+  "loom.projection-aggregate-type-mismatch": "10-repositories-and-queries.md#grouped--group-by",
   "loom.projection-groupby-join-invalid": "10-repositories-and-queries.md#grouped--group-by",
   "loom.projection-groupby-key-not-columnar": "10-repositories-and-queries.md#grouped--group-by",
   "loom.projection-groupby-keyed-invalid": "10-repositories-and-queries.md#grouped--group-by",
