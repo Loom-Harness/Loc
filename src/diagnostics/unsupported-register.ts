@@ -637,11 +637,16 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.vanilla-document-unsupported",
     kind: "gap",
-    site: "src/ir/validate/checks/datasource-checks.ts:530",
+    site: "src/ir/validate/checks/datasource-checks.ts:552",
     what:
       "elixir `shape: document`, the residue after CRUD + scalar finds/ops landed: a PROVENANCED " +
-      "op, or a body/find predicate reading a derived field, a dereferenced cross-aggregate " +
-      "entity, a value-object/private/service/resource call, or a REFERENCE collection (`X id[]`)",
+      "op, or a body/find predicate reading a dereferenced cross-aggregate entity, a " +
+      "value-object/private/service/resource call, or a REFERENCE collection (`X id[]`).  The " +
+      "DERIVED-read clause drained in wave C2 packet 2a: a `this-derived` read has no stored " +
+      "`data` key, which is what the refusal reasoned from, but `render-expr.ts` INLINES the " +
+      "derived's defining expression (an Elixir struct carries no computed field either — #1765), " +
+      "so the read is emittable exactly when the referenced derived's OWN expression is — the gate " +
+      "now recurses into it (cycle-guarded) instead of refusing outright",
     mission: "M-T6.35",
   },
   {
