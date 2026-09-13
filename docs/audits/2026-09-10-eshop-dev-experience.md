@@ -1208,3 +1208,160 @@ severe of the late findings and has no PR.
 > right. The break is on the **request → domain** path, which that inspection
 > never reached. Checking one half of a backend and reporting the backend is the
 > same mistake as trusting a reduction: the sample was not the population.
+
+---
+
+## P12 — the optional-value-object fixture found four more, on the two backends it had cleared
+
+*2026-09-13, pass 4.* P3's fixture (`test/fixtures/corpus/optional-valueobject.ddd`)
+landed with a header claiming three backends were already right:
+
+> The other three were already right, and are here as the contrast that makes a
+> regression in them visible in the same compile: java maps it with `@Embedded`
+> + `@AttributeOverride`, **python flattens exactly as node does (untyped, so the
+> same shape never surfaced as an error)**, and **elixir does not flatten at all
+> — a VO is one `:map` (jsonb) cell, so `null: true` on that one column is the
+> whole story.**
+
+Both of those readings were wrong, and CI said so on the PR's own first run:
+`corpus × python (FastAPI)` red, `behavioral-python` red, `behavioral-elixir`
+red. Four defects, reproduced against a booted backend in each case — none of
+them concluded by reading the emitter.
+
+### 1 — python hydrate: `mypy --strict`, twice
+
+```
+app/db/repositories/person_repository.py:95: error: Argument 3 to "Addr" has incompatible type "str | None"; expected "str"  [arg-type]
+app/db/repositories/person_repository.py:95: error: Argument 4 to "Addr" has incompatible type "Decimal | None"; expected "Decimal"  [arg-type]
+```
+
+Structurally identical to node's TS2345, and it was *in the fixture header's own
+description of the node defect* — "only the probed leaf is narrowed". The claim
+that python "never surfaced it" rested on `mypy` not having been pointed at it
+before; the compile tier added by this same PR pointed at it immediately.
+
+Fixed with a generated `required()` helper in `app/db/wire.py` — the python
+spelling of the `!` the node fix uses, with a runtime guard rather than a bare
+assertion. `line2` is optional *inside* the VO and keeps its own null, which is
+why "assert every leaf non-null" is not the fix.
+
+### 2 — python wire: an optional VO **subfield** is not omissible
+
+```
+POST /api/persons -> 422
+  {"pointer": "/home/line2", "message": "Field required"}
+```
+
+Pydantic reads `X | None` with **no default** as required-but-nullable. The
+aggregate's own optional fields always carried `= None` (`routes-builder`); the
+nested VO model in `wire_models.py` never did.
+
+### 3 — elixir: **every** read of an aggregate holding a VO with a `money` subfield 500s
+
+```
+** (FunctionClauseError) no function clause matching in DWeb.PersonController.__money_round/1
+    lib/d_web/controllers/person_controller.ex:182: DWeb.PersonController.__money_round("1200.00")
+    lib/d_web/controllers/person_controller.ex:178: DWeb.PersonController.serialize_addr/1
+    lib/d_web/controllers/person_controller.ex:164: DWeb.PersonController.serialize/1
+    lib/d_web/controllers/person_controller.ex:39:  DWeb.PersonController.show/2
+```
+
+**This one is not about optionality at all.** `home.rent` — a *required* money
+subfield — is what raised. The fixture's own header is the reason it went
+unnoticed: "a VO is one `:map` (jsonb) cell, so `null: true` on that one column
+is the whole story" describes the *schema* correctly and stops there. The
+changeset `cast` stores each subfield's **raw wire value**, so `money` lands in
+the column as the decimal string and comes back a bare binary — and the helper
+had only `nil` and `%Decimal{}` clauses. Any `.ddd` with a `money` inside a
+value object held by an aggregate 500s on every read on Phoenix. No fixture had
+that shape.
+
+`__decimal_num/1` in the same emitter **already carries exactly this binary
+clause**, added for exactly this reason, with a comment naming the same two
+writers. The money twin was never written. That is the more useful finding than
+the bug: a fix that is understood well enough to be commented is not thereby
+applied to its sibling, and nothing in the test suite notices.
+
+### 4 — elixir: a full-replacement update does not clear an omitted optional field
+
+```
+expected {"city":"Shelbyville","line1":"2 Side Rd", …} to be null
+```
+
+`cast/3` ignores a key the attrs do not carry, so the stored value survived
+while the other four backends — which rebuild the aggregate from the request
+DTO — null it. The **document** shape had the same asymmetry one level over
+(`cast_embed` with `on_replace: :update` merges onto the stored embed), verified
+separately on a booted Phoenix.
+
+Here too the required half was already there: RS-26's `__require_keys/3` exists
+precisely because "the update contract is full-replacement, so an ABSENT KEY is
+a missing field". The optional reading of the same sentence was never
+implemented. Same shape as finding 3 — **half a contract, implemented once**.
+
+### What this pass says about the method
+
+Three of the four were found because a **new fixture was pointed at a tier the
+shape had never been run through**, not because anyone re-read the emitters.
+The audit's own correction log already carries this lesson twice (§116: "a
+reduction is a hypothesis, not evidence"; "checking one half of a backend and
+reporting the backend"), and P12 is the third instance — this time in a fixture
+header I wrote myself, where the confident sentence about two backends was the
+thing that stopped anyone looking.
+
+## P13 — the synthesized `inspect` never prints an optional field's value
+
+Found while verifying P12, on all five backends at once. `synthesizeInspect`
+builds every aggregate's default `derived inspect`, which each backend wires to
+`toString()` / `Inspect` / `__str__` — the string that shows up in exceptions,
+logs and debuggers. Its leaf renderer handled `string` / primitive / `id` /
+`enum` and fell through to a **type shorthand** for everything else:
+
+```ddd
+aggregate Thing { name: string  nickname: string?  score: int? }
+```
+```
+node    "nickname: " + "[string?]" + ", " + "score: " + "[int?]"
+dotnet  "nickname: " + "[string?]" + ", " + "score: " + "[int?]"
+java    "nickname: " + "[string?]" + ", " + "score: " + "[int?]"
+python  "nickname: " + "[string?]" + ", " + "score: " + "[int?]"
+elixir  "nickname: " <> "[string?]" <> ", " <> "score: " <> "[int?]"
+```
+
+The shorthand is right for arrays, entity refs and containments — those are
+unbounded or cyclic, which is what it is for. An optional **scalar** is a leaf:
+it has a value or it does not, and both are printable. So the field most likely
+to be the thing you are debugging was the one field the debug string refused to
+show.
+
+**Two things nearly shipped broken, and both are worth recording.**
+
+The first generation emitted an *unparenthesised* ternary:
+
+```csharp
+"nickname: " + this.Nickname == null ? "null" : "'" + this.Nickname + "'"
+```
+
+`+` binds tighter than `==` and `?:` in C#/Java/TS, so this reassociates into
+`("nickname: " + this.Nickname) == null ? … : …` — which **compiles** (comparing
+a string to null is legal) and silently prints the wrong string. A generated-
+output read caught it; no compiler would have.
+
+The second was a real build failure, on the very next attempt:
+
+```
+Domain/Things/Thing.cs(34,294): error CS1501: No overload for method 'ToString' takes 1 arguments
+```
+
+`Nullable<T>` forwards `ToString()` but **not** `ToString(IFormatProvider)`, so
+`renderCsConvert`'s CA1305 culture arms cannot compile against an optional
+operand. That is a latent .NET hole *no emitter reaches today* — which is
+exactly why `corpus × dotnet` is green — and it sat there waiting for the first
+feature that converted an optional to a string.
+
+The lesson is the one `docs/tools.md` already states beside the elixir recipe
+("run against four backends locally and elixir 'by reasoning' for weeks, and the
+first real elixir boot found four divergences"), generalised: **an IR-layer
+change that looks backend-neutral is not, and the only way to know is to compile
+the emitted project on each one.** Doing that here cost four container builds and
+caught two breaks, one of which no test in the repo would have failed on.
