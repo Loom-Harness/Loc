@@ -534,6 +534,39 @@ Under it, **F-033 fails on day one** (`T[]`-scalar uncovered in the Angular gate
 failed the same way** (`X id?` uncovered in the vue gate — exactly the hole #2885 closed by hand).
 By-product: it immediately surfaces the stale honesty in #14.
 
+**LANDED, and it found more than F-033.** `test/system/frontend-field-shape-coverage.test.ts` reads
+the same corpora the four frontend build gates build — the shared `*-build-cases.ts` manifests where
+they exist, the inline `Case` sources where they don't — strips `store`/`state` blocks (the position
+that made Angular *look* covered), and measures which of fourteen field shapes each gate can actually
+fail on. Fast tier, no toolchain, no network: its job is to decide whether the expensive gates are
+pointed at the right models.
+
+Measured on landing:
+
+| frontend | shapes its build corpus cannot fail on |
+|---|---|
+| react | — (all fourteen; the widest corpus, and the only frontend this evaluation found no form defect on) |
+| vue | `decimal`, `datetime`, **`scalar-array`**, `file` |
+| svelte | **`id-ref-optional`**, **`scalar-array`** |
+| angular | `id-ref`, **`id-ref-optional`**, **`scalar-array`**, `file` |
+
+Read together those rows say something sharper than the plan predicted:
+
+* **`scalar-array` is missing from all three.** That is F-033's shape exactly (`skills: string[]` →
+  `FormControl(null)` → `ng build` failure), and it explains how one defect shipped past four
+  per-framework build gates at once.
+* **`id-ref-optional` is missing from svelte *and* angular.** That is F-032's shape — and #2885 closed
+  it by adding the shape to the **vue** gate. The fix was right and the corpus edit was right; what
+  neither did was ask whether the sibling gates were blind to the same class. They are.
+
+The entries are recorded as named debt, not policy, and the gate ratchets both ways —
+mutation-proved: a **stale** waiver fails (*"MISSING lists string, but the corpus now covers it"*),
+and a **new** gap fails (removing `items: LineItem[]` from the angular fixture →
+*"MISSING SHAPES -> vo-array"*). Closing an entry means adding the field to that gate's scaffolded
+aggregate, which makes the gate BUILD the shape — so for `scalar-array` on angular the entry is
+deleted by the PR that fixes F-033, per the repo's convention that a fix deletes its waiver. Landing
+the gate first is deliberate: it turns an invisible gap into a tracked number.
+
 ### 5.3 Module-symbol-resolution sweep — *prototyped, 0 false positives*
 
 **F-027 is the eleventh instance of one sentence: "a python emitter referenced a name it did not import."**
