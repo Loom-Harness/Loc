@@ -6402,3 +6402,43 @@ PR #2869 passed locally and went red on CI for three of them —
 and `allowlist-ratchet.test.ts`. **If you add a corpus fixture, run those three
 files directly before pushing**; they are seconds each and they are the ones a
 shard boundary hides.
+
+## 116. An audit was right about every defect and wrong about six mechanisms (2026-09-13)
+
+Eleven defects found by building an e-shop end to end, thirteen PRs. Every
+defect was real. But the agents implementing the fixes corrected the audit's
+account of **why** six times, and the pattern in those six is worth more than
+the findings were.
+
+| the audit said | what was true | how it was found |
+|---|---|---|
+| a bare `name := name` assigns the parameter to itself | it emits `this._name = name` — correct | generating the operation and reading it |
+| G1 needs no grammar change | true of the arg *value*, false of the arg *name* (`requires` is a hard keyword) | trying to write the macro param |
+| node's optional-VO symptom is a hydration defect | a compile-time type error only; the emitted JS matches the wire golden | reverting the fix and re-running the behavioural leg |
+| the node dev-stub fails `tsc` | it did **not** — a spread of a `JSON.parse` result widens the closure's return type and swallows the contextual check | running the corpus leg with the fix reverted |
+| the money-in-array fix lands on four frontends | three — Angular builds row controls from its own module and never carried it | generating all four and diffing |
+| Angular is unverifiable on this host | a Node 24 tarball first on `PATH` runs `ng build` unchanged | one download |
+
+**The through-line: a reduction is a hypothesis, not evidence.** Four of the six
+came from reasoning about a rule instead of running the emitter. The worst was
+the dev-stub repro — a two-line `tsc --strict` case that proved the *type rule*
+while the real emitted file did not fail at all, so the corpus gate built on it
+would have been theatre until someone noticed. That is §59/§63 again, committed
+by the person writing the audit rather than by the person writing the gate.
+
+**The Angular one is a different and nastier failure.** It was not a wrong
+inference, it was an inherited one. An environment limitation got written down
+once, and three agents plus the coordinator repeated it across two sessions
+without retesting, because it was in the document. It cost the audit its Angular
+coverage entirely. **A limitation recorded in prose acquires the authority of a
+finding while keeping none of the evidence** — so give any "cannot be done here"
+an expiry date, and re-test it the next time it would change a conclusion.
+
+Corollary that paid off repeatedly: **fixing a defect is the best way to audit
+the report of it.** The implementation agents found five further defects
+(P7–P11) that the audit pass had walked straight past, including the most severe
+one in the whole exercise — a value object containing a value object writes and
+reads a column that exists in neither the schema nor the migration, on python,
+on the required case, so both halves fail at runtime. None of those surfaced
+from reading code. Every one surfaced from generating a project and looking at
+what came out.
