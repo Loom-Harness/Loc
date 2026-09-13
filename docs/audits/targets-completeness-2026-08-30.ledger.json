@@ -6680,9 +6680,9 @@
   {
    "id": "F2-ADP-7",
    "title": "A `.ddd` field named after a TARGET-LANGUAGE keyword emits uncompilable C# and Java — the host-identifier twin the M-T6.42/M-T6.43 quoting fixes left open",
-   "pr": "#2668 (dotnet) + #2703 (java)",
+   "pr": "#2668 (dotnet) + #2703 (java gate) + wave C2 packet 2d (java drain)",
    "sha": "e0aff5a / 84c2291",
-   "note": "fixed on both named backends: a target-language-keyword field now emits a verbatim `@identifier` on C# (test/generator/dotnet/cs-reserved-identifiers.test.ts) and an escaped identifier on java (test/generator/java/java-reserved-identifier.test.ts)."
+   "note": "fixed on both named backends, but DIFFERENTLY, and the first note here said otherwise: C# emits a verbatim `@identifier` (lexically the same identifier, so the wire never moved — test/generator/dotnet/cs-reserved-identifiers.test.ts), while java could only RENAME, and a Java record component name is also the Jackson property — so the java arm shipped as a REFUSAL (`loom.java-reserved-identifier-unsupported`), not as an escape.  DRAINED 2026-09-13 (wave C2 packet 2d, M-T6.36): java now emits a mangled host identifier plus an explicit `@JsonProperty` / `@RequestParam` / enum `AttributeConverter` at every wire site, the gate and its register row are deleted, and the round trip is boot-proved on Postgres 18 (test/generator/java/java-reserved-identifier.test.ts, test/fixtures/corpus/java-reserved-words.ddd)."
   },
   {
    "id": "F2-ADP-5",
@@ -7051,9 +7051,9 @@
   {
    "id": "M-T6.36",
    "title": "Java emitter shape gaps — two narrow honest rejections still live",
-   "pr": "#2703",
+   "pr": "#2703 + wave C2 packet 2d",
    "sha": "84c2291",
-   "note": "gated: entity-typed read-model fields are refused with `loom.java-*-field-unsupported` instead of being silently unreachable (test/generator/java/generator-java-readmodel-gates.test.ts)."
+   "note": "gated 2026-08 (#2703), then RESOLVED: the two codes this row was written about were phantoms and were deleted, and the one real gap it inherited — `loom.java-reserved-identifier-unsupported` — was DRAINED 2026-09-13 (wave C2 packet 2d).  A `.ddd` field / param / operation / derived member / part field / helper function / ENUM VALUE named after a Java reserved word now emits; MAX_OPEN_GAPS 27 -> 26.  The enum-value arm was a second, previously silent gap found while draining the first."
   },
   {
    "id": "G2646-open-feliz-honest-residue",
