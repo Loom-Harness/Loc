@@ -1498,6 +1498,23 @@ const WIRE_PY = `"""Wire-format helpers shared by repositories.  Auto-generated.
 
 from datetime import UTC, datetime
 from decimal import Decimal
+from typing import TypeVar
+
+_T = TypeVar("_T")
+
+
+def required(value: _T | None) -> _T:
+    """Unwrap a flattened value-object leaf that the guard above already
+    proved present.  An OPTIONAL value-object field makes EVERY one of its
+    leaf columns nullable, but the \`is not None\` probe narrows only the ONE
+    column it reads — the rest stay \`X | None\` against a constructor wanting
+    \`X\`.  This is the python spelling of the node backend's \`!\`, with a
+    runtime guard rather than a bare type assertion: reaching \`None\` here
+    means the leaf group is half-written, which is a corrupt row, not a
+    representable state."""
+    if value is None:
+        raise ValueError("value-object leaf is unexpectedly NULL")
+    return value
 
 
 def iso(dt: datetime) -> str:
