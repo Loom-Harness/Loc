@@ -10,7 +10,9 @@ import type {
 import { hierarchyRegistry } from "../../ir/util/tenant-stance.js";
 import { AUTH_BASE_PATH } from "../../util/api-base.js";
 import { plural, snake, upperFirst } from "../../util/naming.js";
+import { claimsReferenceIds } from "../_auth/claim-types.js";
 import { devClaimFields } from "../_auth/dev-claims.js";
+import { devStubIdExpr } from "../_auth/dev-stub-id.js";
 import { dapperAggregateTable } from "./emit/dapper.js";
 import { renderCsType } from "./render-expr.js";
 
@@ -561,6 +563,12 @@ function renderDevStubVerifier(user: UserIR, ns: string): string {
   const args = user.fields
     .map((f) => `${upperFirst(f.name)}: ${stubCsharpValueFor(f)}`)
     .join(",\n            ");
+  // An `X id` claim's stub value CONSTRUCTS the strong id (`new CustomerId(…)`)
+  // — a raw `Guid.Empty` against `readonly record struct CustomerId(Guid)` is
+  // CS0029 — and the id structs live in `<ns>.Domain.Ids` while this verifier
+  // is in `<ns>.Auth`.  Gated so the common (id-free) claim shape keeps its
+  // byte-for-byte output rather than growing an unused using.
+  const idsUsing = claimsReferenceIds(user.fields) ? `using ${ns}.Domain.Ids;\n` : "";
   // Dev-claims override carries the shapes the shared classifier admits —
   // `string` and `string[]`; every other field keeps its built-in value.
   const claimKinds = new Map(
@@ -572,7 +580,7 @@ function renderDevStubVerifier(user: UserIR, ns: string): string {
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Http;
-
+${idsUsing}
 namespace ${ns}.Auth;
 
 /// <summary>Dev-stub verifier — accepts every request as a built-in user.
@@ -621,7 +629,7 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Http;
-
+${idsUsing}
 namespace ${ns}.Auth;
 
 /// <summary>Dev-stub verifier — accepts every request as a built-in user.
@@ -690,8 +698,10 @@ function stubCsharpValueForType(t: TypeIR): string {
         default:
           return `""`;
       }
+    // `readonly record struct <T>Id(Guid Value)` declares no implicit
+    // conversion from its value type, so a bare `Guid.Empty` is CS0029.
     case "id":
-      return "System.Guid.Empty";
+      return devStubIdExpr(t, "csharp");
     case "array":
       return `new System.Collections.Generic.List<${renderCsType(t.element)}>()`;
     default:
