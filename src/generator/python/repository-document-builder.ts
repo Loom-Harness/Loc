@@ -12,6 +12,7 @@ import type {
 import { findUsesCurrentUser } from "../../ir/types/loom-ir.js";
 import { aggHasAuditedTarget } from "../../ir/util/audit-capability.js";
 import { findValueObjectInScope, valueObjectPool } from "../../ir/util/reachable-types.js";
+import { fieldIdTargets, valueObjectIdTargets } from "../../ir/util/id-targets.js";
 import { aggregateIsVersioned } from "../../ir/util/versioned-capability.js";
 import { lines } from "../../util/code-builder.js";
 import { snake } from "../../util/naming.js";
@@ -248,17 +249,20 @@ export function buildPyDocumentRepositoryFile(
   const scan = `${body}\n${serializers}`.replace(/"(?:\\.|[^"\\])*"/g, '""');
   const refersTo = (n: string): boolean => new RegExp(`\\b${n}\\b`).test(scan);
   const idNames = [
-    ...new Set(
-      [agg, ...parts].flatMap((e) => [
+    ...new Set([
+      ...[agg, ...parts].flatMap((e) => [
         `${e.name}Id`,
-        ...e.fields.flatMap((f) => {
-          const t = f.type.kind === "optional" ? f.type.inner : f.type;
-          if (t.kind === "id") return [`${t.targetName}Id`];
-          if (t.kind === "array" && t.element.kind === "id") return [`${t.element.targetName}Id`];
-          return [];
-        }),
+        ...fieldIdTargets(e.fields).map((n) => `${n}Id`),
       ]),
-    ),
+      // …plus every id a VALUE OBJECT holds.  The brand is rendered INSIDE the
+      // VO constructor (`Berth(ShipId(...), ...)`) while the aggregate's own
+      // field is typed `Berth`, so the walk above never proposes it and the
+      // module names it unimported — `ruff F821`, and a `NameError` on the
+      // first read.  Freight audit D3 / M-T6.64; the relational emitter carried
+      // the identical gap.  Candidates are free: `refersTo` drops any this
+      // module does not actually spell.
+      ...valueObjectIdTargets(ctx.valueObjects).map((n) => `${n}Id`),
+    ]),
   ]
     .filter(refersTo)
     .sort();

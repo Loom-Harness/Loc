@@ -110,6 +110,90 @@ describe("a value object holding a cross-aggregate reference imports its id type
     expect(src).toContain("ship: ShipId");
   });
 
+  it("node: a money-valued EXPRESSION drives the Decimal import with no money field", async () => {
+    // The other half of the same rule, and the reason the header keys on the
+    // rendered BODY as well as on the type positions: an invariant can produce
+    // a `Decimal` with no `money` field anywhere on the value object.
+    const src = fileEndingWith(
+      await generateSystemFiles(`system Fees {
+  subdomain Billing {
+    context Billing {
+      valueobject Fee {
+        rate: int
+        invariant money(rate) > money("5.00")
+      }
+      aggregate Bill with crudish { name: string  fee: Fee }
+      repository Bills for Bill { }
+    }
+  }
+  api BillingApi from Billing
+  storage primary { type: postgres }
+  resource billingState { for: Billing, kind: state, use: primary }
+  deployable d {
+    platform: node
+    contexts: [Billing]
+    dataSources: [billingState]
+    serves: BillingApi
+    port: 4000
+  }
+}`),
+      "domain/value-objects.ts",
+    );
+    expect(src).toContain('import Decimal from "decimal.js";');
+    expect(src).toContain("new Decimal(this.rate)");
+  });
+
+  it("node: an invariant MESSAGE naming Decimal does not mint a dead import", async () => {
+    // The body scan strips string literals before matching, so the prose in a
+    // `because` message cannot pull in an import the code does not need.  This
+    // is what makes the scan safe to widen from types to bodies.
+    const src = fileEndingWith(
+      await generateSystemFiles(
+        systemWith(
+          'position: int\n        invariant position > 0 message "Decimal berths are not Ids. allowed"',
+        ),
+      ),
+      "domain/value-objects.ts",
+    );
+    expect(src).not.toContain("decimal.js");
+    expect(src).not.toContain("./ids");
+  });
+
+  it.each([
+    "document",
+    "embedded",
+  ])("python: a `shape: %s` repository imports the id it brands through the VO constructor", async (shape) => {
+    // The relational repository was the first face of this found; the two
+    // NON-relational shapes carried their own inline copy of the same
+    // candidate walk and the identical gap.  All three now read one helper.
+    const src = fileEndingWith(
+      await generateSystemFiles(`system Ports {
+  subdomain Harbour {
+    context Docking {
+      aggregate Ship { name: string }
+      valueobject Berth { ship: Ship id  position: int }
+      aggregate Dock shape: ${shape}, with crudish { name: string  berth: Berth }
+      repository Ships for Ship { }
+      repository Docks for Dock { }
+    }
+  }
+  api DockingApi from Harbour
+  storage primary { type: postgres }
+  resource dockingState { for: Docking, kind: state, use: primary }
+  deployable d {
+    platform: python
+    contexts: [Docking]
+    dataSources: [dockingState]
+    serves: DockingApi
+    port: 4000
+  }
+}`),
+      "repositories/dock_repository.py",
+    );
+    expect(src).toContain("from app.domain.ids import DockId, ShipId");
+    expect(src).toContain("ShipId(");
+  });
+
   it("python: the REPOSITORY imports the id it brands through the VO constructor", async () => {
     // The python face of the same root cause, which this fixture is what
     // surfaced: the repository's id-import scan walked the aggregate's own (and

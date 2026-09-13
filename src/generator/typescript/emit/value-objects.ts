@@ -15,34 +15,52 @@ import { renderTsStatements } from "../render-stmt.js";
 
 export function renderEnumsAndValueObjects(ctx: BoundedContextIR): string {
   const needsDomainError = ctx.valueObjects.some((v) => v.invariants.length > 0);
-  // The import header keys on EVERY type position the file renders, not on the
-  // fields alone: `renderTsType` maps `money` to decimal.js `Decimal` and an
-  // `id` to `Ids.<Agg>Id`, and both spellings appear in the field
-  // declarations, the constructor parameter list, the `derived` getter
-  // signatures and each `function`'s params/return alike.  Scanning only the
-  // fields is how a `valueobject` holding a cross-aggregate reference
-  // (`ship: Ship id`) shipped a file with ZERO import statements and two
-  // `TS2503: Cannot find namespace 'Ids'` — freight audit D3 / M-T6.64.  The
-  // .NET emitter has always collected over the same four positions
-  // (`emit/enums-vos.ts`), which is why only node was broken.
+  // The body is rendered FIRST so the import header can key on what it actually
+  // spells.  Both importable symbols reach this file two ways, and a scan that
+  // sees only one of them ships a file naming a symbol it never imports:
   //
-  // Collected rather than added unconditionally so a scalar-only VO keeps a
-  // clean header (the corpus is almost entirely scalar-only VOs, so this is
-  // the byte-identical path for nearly every model).
+  //   TYPE positions   `renderTsType` maps `money` → `Decimal` and an `id` →
+  //                    `Ids.<Agg>Id`, in the field declarations, the ctor
+  //                    parameter list, the `derived` getter signatures and each
+  //                    `function`'s params/return alike.  Scanning only the
+  //                    FIELDS is how `valueobject Berth { ship: Ship id }`
+  //                    shipped a file with zero imports and two
+  //                    `TS2503: Cannot find namespace 'Ids'`.
+  //   EXPRESSION       an invariant / `derived` / `function` body renders
+  //   positions        `new Decimal(…)` for any money-valued sub-expression,
+  //                    with no money FIELD in sight:
+  //                    `invariant money(rate) > money("5.00")` on an `int`
+  //                    field emitted `new Decimal(this.rate)` unimported —
+  //                    `TS2304: Cannot find name 'Decimal'`.
+  //
+  // Freight audit D3 / M-T6.64.  The .NET emitter (`emit/enums-vos.ts`) has
+  // always collected over BOTH — `collectCsExprUsings` over the bodies and
+  // `collectCsTypeUsings` over the same four type positions — which is why only
+  // node was broken; this brings the two emitters to the same rule.
+  //
+  // The body scan strips string literals first (the `domain-service.ts` /
+  // python-repository convention), so an invariant MESSAGE that happens to
+  // contain the word `Decimal` cannot mint a dead import.  Collected rather
+  // than added unconditionally so a scalar-only value object — nearly every one
+  // in the corpus — keeps a byte-identical clean header.
+  const body = [...ctx.enums.flatMap(renderEnum), ...ctx.valueObjects.flatMap(renderValueObject)];
+  const scan = body.join("\n").replace(/"(?:\\.|[^"\\])*"/g, '""');
   const usage: TsTypeUsage = { usesIds: false, usesMoney: false };
   for (const v of ctx.valueObjects) for (const t of renderedTypes(v)) visitTsTypeUsage(t, usage);
+  const usesMoney = usage.usesMoney || /\bDecimal\b/.test(scan);
+  const usesIds = usage.usesIds || /\bIds\.\w/.test(scan);
   return (
     lines(
       "// Auto-generated.",
-      usage.usesMoney ? 'import Decimal from "decimal.js";' : null,
+      usesMoney ? 'import Decimal from "decimal.js";' : null,
       // A VALUE import, matching `emit/aggregate.ts`: `domain/ids.ts` exports
       // the brand constructors alongside the branded types, so this stays
-      // correct if a VO body ever renders one.
-      usage.usesIds ? 'import * as Ids from "./ids";' : null,
+      // correct for the body-scan half — an expression that renders `Ids.x()`
+      // needs the runtime binding, which `import type` would erase.
+      usesIds ? 'import * as Ids from "./ids";' : null,
       needsDomainError ? 'import { DomainError } from "./errors";' : null,
       "",
-      ...ctx.enums.flatMap(renderEnum),
-      ...ctx.valueObjects.flatMap(renderValueObject),
+      ...body,
     ) + "\n"
   );
 }
