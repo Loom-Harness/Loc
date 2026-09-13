@@ -20,6 +20,7 @@ import {
 import { lines } from "../../util/code-builder.js";
 import { snake } from "../../util/naming.js";
 import { refuseOutOfVocabulary } from "../_expr/target.js";
+import { numericKindOf } from "../_numeric/codec.js";
 import { numericEncode } from "../_numeric/target.js";
 import { responsePyType, wireModelImport } from "./emit/http-models.js";
 import {
@@ -498,6 +499,18 @@ function pyCoerce(s: AggregateSelect, expr: string): string {
     return c.optional
       ? `None if ${expr} is None else ${numericEncode(PY_NUMERIC, "money", "projection-read", expr)}`
       : numericEncode(PY_NUMERIC, "money", "projection-read", `Decimal(${expr} or 0)`);
+  }
+  // An INTEGRAL declared field (`int` / `long`) is an integer on the wire
+  // (NUMERIC_WIRE_CODEC), and `float(...)` is not an integer: past 2^53 it
+  // corrupts silently (a `long` sum came back `9007199254740992.0` for
+  // `…93`), and below it, it shipped `2.0` into a field pydantic declares as
+  // `Int32` — accepted only because lax mode re-narrows an integral float
+  // (M-T5.23 / F13).  `int(...)` is exact at any magnitude.
+  const kind = numericKindOf(s.type);
+  if (kind === "int" || kind === "long") {
+    return c.optional
+      ? `None if ${expr} is None else ${numericEncode(PY_NUMERIC, kind, "projection-read", expr)}`
+      : numericEncode(PY_NUMERIC, kind, "projection-read", `${expr} or 0`);
   }
   if (c.optional) return `None if ${expr} is None else ${c.asString ? "str" : "float"}(${expr})`;
   return c.asString ? `str(${expr} or "0")` : `float(${expr} or 0)`;
