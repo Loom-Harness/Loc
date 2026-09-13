@@ -27,6 +27,7 @@ import {
   type FilterBypass,
   promotedCapabilities,
 } from "../capability-filter.js";
+import { jid, jsonProp } from "../java-ident.js";
 import { JAVA_NUMERIC, javaMoneyProjectionKeyEncode } from "../numeric-codec.js";
 import { collectJavaExprImports, renderJavaExpr } from "../render-expr.js";
 import {
@@ -284,7 +285,7 @@ export function renderJavaQueryProjections(
     const rowImports = new Set<string>();
     const components = shape.map((f) => {
       collectWireImports(f.type, rowImports, "Response");
-      return `${wireJavaType(f.type, "Response")} ${f.name}`;
+      return `${jsonProp(f.name, rowImports)}${wireJavaType(f.type, "Response")} ${jid(f.name)}`;
     });
     out.set(`${rowName}.java`, {
       category: "view-service",
@@ -329,7 +330,7 @@ export function renderJavaQueryProjections(
             "internal: a grouping column must be a bare source column — the IR validator should have rejected this projection",
           );
         }
-        const col = `e.${key.column}`;
+        const col = `e.${jid(key.column)}`;
         if (key.transform === undefined) return col;
         const sql = JPQL_INTRINSIC_SQL[GROUP_KEY_TRANSFORM_INTRINSIC[key.transform]];
         if (!sql) {
@@ -737,7 +738,7 @@ function jpqlAggregate(agg: ProjectionAggregateIR): string {
       "internal: a whole-table aggregation argument must be a source column reference",
     );
   }
-  return `${agg.op}(e.${arg.member})`;
+  return `${agg.op}(e.${jid(arg.member)})`;
 }
 
 /** Coerce one JPQL aggregate result to the row's declared wire type.

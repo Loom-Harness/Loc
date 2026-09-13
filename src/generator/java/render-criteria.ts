@@ -17,6 +17,7 @@ import {
 } from "../../ir/util/tenant-stance.js";
 import { intrinsicFor, intrinsicKey, isQueryableBoolIntrinsic } from "../../util/intrinsics.js";
 import { javaSubtreeLikePattern } from "../_expr/subtree-like.js";
+import { jid } from "./java-ident.js";
 import { boxedJavaType, collectJavaExprImports, renderJavaExpr } from "./render-expr.js";
 
 // ---------------------------------------------------------------------------
@@ -103,7 +104,7 @@ function bool(e: ExprIR, ctx: CriteriaCtx): string {
         if (!segs) throw unsupported("contains over a non-path receiver");
         const elem = boxedJavaType(e.receiverType.element);
         ctx.imports.add("java.util.List");
-        return `cb.isMember(${value(e.args[0]!, ctx)}, root.<List<${elem}>>get(${segs.map((s) => JSON.stringify(s)).join(").get(")}))`;
+        return `cb.isMember(${value(e.args[0]!, ctx)}, root.<List<${elem}>>get(${segs.map((s) => JSON.stringify(jid(s))).join(").get(")}))`;
       }
       // A bool-returning queryable intrinsic standing alone in a PREDICATE
       // position (`filter this.dataKey.startsWith(p)`).  Its snippet already IS
@@ -343,7 +344,10 @@ function pathSegments(e: ExprIR): string[] | null {
  *  Comparable bounds typecheck. */
 function path(segs: string[], ctx: CriteriaCtx): string {
   const witness = declaredType(segs, ctx);
-  const quoted = segs.map((s) => JSON.stringify(s));
+  // `root.get("…")` resolves a JPA ATTRIBUTE name, which is the (possibly
+  // mangled) java field the entity emitter declared — not the `.ddd` name and
+  // not the column (M-T6.36).  `declaredType` still reads the `.ddd` segments.
+  const quoted = segs.map((s) => JSON.stringify(jid(s)));
   if (segs.length === 1) {
     return `root.<${witness}>get(${quoted[0]})`;
   }

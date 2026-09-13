@@ -224,6 +224,7 @@ import {
   workflowStateClass,
 } from "./emit/workflow-state.js";
 import { emitExplicitHandlers, emitExplicitRouteController } from "./explicit-handlers-emit.js";
+import { collectMangledNames, mangledEnumNames } from "./java-ident.js";
 import { basePackageFor, javaPackageSegment, mainSourcePath } from "./naming.js";
 import { API_CLIENT_CLASS as JAVA_API_CLIENT_CLASS } from "./render-expr.js";
 
@@ -522,6 +523,9 @@ function emitProjectFromContexts(
       // The 23503 → domain-floor arm's own gate: a write can name a reference row
       // that does not exist.  A reference-free project stays byte-identical.
       contexts.some((c) => aggregatesCanTripDanglingReference(c.aggregates)),
+      // M-T6.36: the mangled-identifier → wire-name inverse, unioned over every
+      // context this deployable hosts (the advice is app-global).
+      [...new Set(contexts.flatMap((c) => collectMangledNames(c)))].sort(),
     ),
   );
   // F18 — a wrong verb on a static sub-path (`DELETE /api/customers/by_email`)
@@ -1546,6 +1550,10 @@ function emitAggregate(
   // flattened-VO column names (voLookup covers ambient VOs — enrichment
   // folds them into every context).
   const voLookup = new Map(ctx.valueObjects.map((v) => [v.name, v.fields] as const));
+  // M-T6.36: enums whose java constants are mangled map through their generated
+  // `<Enum>.Codec` converter rather than `@Enumerated(STRING)`, so the stored
+  // value keeps the `.ddd` spelling.  Empty for every keyword-free model.
+  const mangledEnums = mangledEnumNames(ctx.enums);
   const schema = sys ? resolveDataSourceConfig(agg, ctx, sys)?.schema : undefined;
   // Effective saving shape (D-DOCUMENT-AXIS): document aggregates are
   // plain domain classes round-tripping one jsonb column.
@@ -1574,7 +1582,7 @@ function emitAggregate(
       "entity",
       renderJavaAbstractBaseEntity(agg, basePkg, pkgFor("entity", agg.name), {
         tph: isTphBase(agg, ctx.aggregates),
-        persistence: { schema, voLookup },
+        persistence: { schema, voLookup, mangledEnums },
       }),
       agg.name,
       agg.origin,
@@ -1658,6 +1666,7 @@ function emitAggregate(
                 parentEntityName: dp?.nested ? dp.name : undefined,
                 oneToOneParentOf: dp?.single ? dp.name : undefined,
                 voLookup,
+                mangledEnums,
               },
       }),
       agg.name,
@@ -1691,6 +1700,7 @@ function emitAggregate(
               containmentOwnerName: ownerName,
               embedded: isEmbedded,
               voLookup,
+              mangledEnums,
             },
     }),
     agg.name,
