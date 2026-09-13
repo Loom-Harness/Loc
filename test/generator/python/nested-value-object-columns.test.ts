@@ -18,8 +18,7 @@
 // so a future divergence in either direction fails here rather than at runtime.
 
 import { describe, expect, it } from "vitest";
-import { generateSystems } from "../../../src/system/index.js";
-import { parseValid } from "../../_helpers/parse.js";
+import { generateSystemFiles } from "../../_helpers/generate.js";
 
 const src = (home: string, geo: string): string => `
   system S {
@@ -46,7 +45,7 @@ const src = (home: string, geo: string): string => `
 `;
 
 async function emit(home: string, geo: string): Promise<{ repo: string; schema: string }> {
-  const files = (await generateSystems(await parseValid(src(home, geo)))).files;
+  const files = await generateSystemFiles(src(home, geo));
   const pick = (suffix: string): string => {
     const k = [...files.keys()].find((key) => key.endsWith(suffix));
     expect(k, `${suffix} not emitted`).toBeDefined();

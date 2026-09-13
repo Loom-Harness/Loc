@@ -39,27 +39,20 @@
 // model at runtime with the project still compiling green.
 
 import { describe, expect, it } from "vitest";
-import { generateDotnet, generateSystemFiles } from "../../_helpers/generate.js";
-import { parseValid } from "../../_helpers/parse.js";
+import { generateSystemFiles } from "../../_helpers/generate.js";
 
-const SRC = `
-  context Directory {
-    valueobject Geo { lat: decimal  lng: decimal }
-    valueobject Addr { line1: string  geo: Geo }
-    aggregate Person {
-      name: string
-      home: Addr
-    }
-    repository Persons for Person { }
-  }
-`;
-
-/** The same model as a full system — `generate system` is what derives the
- *  migration DDL the owned configuration has to agree with. */
 const SYSTEM = `
 system S {
   subdomain D {
-    ${SRC}
+    context Directory {
+      valueobject Geo { lat: decimal  lng: decimal }
+      valueobject Addr { line1: string  geo: Geo }
+      aggregate Person {
+        name: string
+        home: Addr
+      }
+      repository Persons for Person { }
+    }
   }
   api A from D
   storage pg { type: postgres }
@@ -68,17 +61,23 @@ system S {
 }
 `;
 
-async function personConfig(): Promise<string> {
-  const cfg = generateDotnet(await parseValid(SRC)).get(
-    "Infrastructure/Persistence/Configurations/PersonConfiguration.cs",
-  );
+/** The EF configuration and the migration DDL from ONE system emission — the
+ *  two halves have to agree, and reading them from the same run is what makes
+ *  this a CONTRACT rather than two independent guesses about the prefix the
+ *  owned recursion accumulates.  Migrations are derived in phase ⑨
+ *  (`buildMigrations`), so this needs the system pipeline. */
+async function emitted(): Promise<{ cfg: string; migration: string }> {
+  const files = await generateSystemFiles(SYSTEM);
+  const cfg = [...files].find(([p]) => p.endsWith("Configurations/PersonConfiguration.cs"))?.[1];
   expect(cfg, "PersonConfiguration.cs not emitted").toBeDefined();
-  return cfg as string;
+  const migration = [...files].find(([p]) => p.includes("Migrations/"))?.[1];
+  expect(migration, "no migration emitted").toBeDefined();
+  return { cfg: cfg as string, migration: migration as string };
 }
 
 describe("dotnet — a value object inside a value object", () => {
   it("nests the owned builder and names the leaf columns by the full path", async () => {
-    const cfg = await personConfig();
+    const { cfg } = await emitted();
     expect(cfg).toContain("builder.OwnsOne<Addr>(x => x.Home, o => {");
     expect(cfg).toContain('o.Property(x => x.Line1).HasColumnName("home_line1");');
     // The nested VO takes the owned path too — not a scalar `Property`.
@@ -92,7 +91,7 @@ describe("dotnet — a value object inside a value object", () => {
   });
 
   it("does not fall back to the unnamed overload at either level", async () => {
-    const cfg = await personConfig();
+    const { cfg } = await emitted();
     // With no column names EF defaults to `Home_Geo_Lat`, which no migration
     // creates — the model then builds but every read/write misses.
     expect(cfg).not.toContain("builder.OwnsOne<Addr>(x => x.Home);");
@@ -100,24 +99,15 @@ describe("dotnet — a value object inside a value object", () => {
   });
 
   it("the nested column names match what the migration actually creates", async () => {
-    // The two halves have to agree, and asserting the emitted DDL here is what
-    // makes this a CONTRACT rather than two independent guesses about the
-    // prefix the recursion accumulates.  Migrations are derived in phase ⑨
-    // (`buildMigrations`), so this half needs the SYSTEM pipeline —
-    // `generateDotnet` alone emits no DDL to compare against.
-    const files = await generateSystemFiles(SYSTEM);
-    const migration = [...files].find(([p]) => p.includes("Migrations/"))?.[1];
-    expect(migration, "no migration emitted").toBeDefined();
-    expect(migration as string).toContain("home_geo_lat");
-    expect(migration as string).toContain("home_geo_lng");
+    const { cfg, migration } = await emitted();
+    expect(migration).toContain("home_geo_lat");
+    expect(migration).toContain("home_geo_lng");
     // The intermediate VO is not a column, at either spelling.
-    expect(migration as string).not.toContain('"home_geo"');
-    expect(migration as string).not.toContain("Home_Geo_Lat");
+    expect(migration).not.toContain('"home_geo"');
+    expect(migration).not.toContain("Home_Geo_Lat");
 
     // Same run, both halves: the EF config in THIS system emission asks for the
     // very columns the migration above creates.
-    const cfg = [...files].find(([p]) => p.endsWith("Configurations/PersonConfiguration.cs"))?.[1];
-    expect(cfg, "no PersonConfiguration.cs in the system emission").toBeDefined();
-    expect(cfg as string).toContain('o.Property(x => x.Lat).HasColumnName("home_geo_lat");');
+    expect(cfg).toContain('o.Property(x => x.Lat).HasColumnName("home_geo_lat");');
   });
 });
