@@ -392,60 +392,6 @@
       }
     },
     {
-      "id": "static-subpath-405-node-only",
-      "title": "The F8 static-sub-path 405 guard is missing on ELIXIR alone \u2014 a wrong verb on a static sub-path matches the sibling `/:id` route and answers its 422 (#2764 closed the other four)",
-      "kind": "silent",
-      "class": null,
-      "confidence": "likely",
-      "targets": [
-        "elixir"
-      ],
-      "fileTrees": [
-        "src/platform/hono/v4/routes-builder.ts",
-        "src/generator/dotnet/emit/",
-        "src/generator/java/emit/api.ts",
-        "src/generator/python/",
-        "src/generator/elixir/vanilla/shell-emit.ts"
-      ],
-      "evidence": [
-        {
-          "fleet": 1,
-          "id": "static-subpath-405-node-only",
-          "text": "745d635 (#2612, merged 2026-08-18, inside the window) is titled '\u2026on node' and its only routing-guard src change is src/platform/hono/v4/routes-builder.ts (+98). `grep -rn \"static sub-path\" src/` returns exactly ONE site \u2014 src/platform/hono/v4/routes-builder.ts:349 '/** The router-level guard that turns a wrong verb on a static sub-path into the \u2026'. The commit body records the defect verbatim: `DELETE /api/customers/by_email` matched `delete /{id}` with id=\"by_email\" and the param validator answered `422 {\"pointer\":\"/id\",\"message\":\"Invalid UUID\"}` for a path with no DELETE. The corresponding waiver W9 was deleted from test/behavioral/schemathesis-waivers.json in that same commit \u2014 i.e. the register now claims the class is CLOSED while four backends still reproduce it, and the schemathesis leg only fuzzes node today (test/behavioral/run-schemathesis.mjs). Not claimed for a FIX: open PR #2664 adds the four missing fuzz LEGS and re-waives the finding leg-scoped (its body independently reports F8 reproducing on python + java); it does not touch the four emitters."
-        }
-      ],
-      "repro": null,
-      "impact": null,
-      "fix": "Port the guard per backend, each in the layer that runs BEFORE param binding: .NET a route-constraint / endpoint filter over the static sub-paths, java a `HandlerInterceptor` or explicit `@RequestMapping` method:405 stubs, python a FastAPI router-level dependency or explicit 405 route registrations, elixir extra `match`/`forward` clauses in the aggregate router scope. Each fix must ALSO fix the `Allow` header those paths advertise (the node commit notes `GET, DELETE` was advertised on a GET-only path). Pin per backend mirroring test/generator/hono/declared-validation-status-and-method-guard.test.ts.",
-      "size": "M",
-      "sources": [
-        "fleet1:fresh-gate-probe"
-      ],
-      "related_to": [],
-      "securityClass": false,
-      "P": 2,
-      "verified": {
-        "date": "2026-09-03",
-        "against": "bd7aaeedc",
-        "method": "each row's own repro re-run; emitted output read",
-        "verdict": "partial",
-        "note": "#2764 closed node/python/java/dotnet. elixir emits no guard at all \u2014 `DELETE /api/customers/by_email` answers 422 from `:__cast_path_id`, not 405 + Allow. TITLE IS NOW WRONG: it is elixir-only, not node-only",
-        "remainingTargets": [
-          "elixir"
-        ]
-      },
-      "reverified": {
-        "date": "2026-09-10",
-        "against": "bc7ed8f8",
-        "method": "reconciliation 3 (packet C0.5) \u2014 repro re-run on this head, emitted output read",
-        "verdict": "reproduces",
-        "note": "RE-RUN with `find byOwner(...)` mounted at the static sub-path `/by_owner`.  Four backends emit the guard \u2014 node `article.routes.ts:49 const staticSubpathMethods \u2026 { by_owner: [\"GET\"] }`, java `StaticSubpathMethodFilter.java:26`, dotnet `Program.cs:413 [\"/api/articles/by_owner\"] = new[] { \"GET\" }`, python `main.py:60`.  ELIXIR emits none: `router.ex` routes `delete \"/articles/:id\"` which MATCHES `DELETE /api/articles/by_owner` with `id = \"by_owner\"`, so the request never reaches `NotFoundController` (the only 405+Allow source) and answers 422 from `article_controller.ex:8 plug :__cast_path_id`.  Title corrected: it is elixir-only, the exact inverse of what the row was filed as.",
-        "remainingTargets": [
-          "elixir"
-        ]
-      }
-    },
-    {
       "id": "M-T1.11-domain-floor-message-code",
       "title": "M-T1.11 item (c) \u2014 `DomainError` carries no `code` on node, dotnet, java and python, so a rule enforced only at the domain floor is unlocalizable (elixir partly fixed: preconditions and invariants, not the value-object floor)",
       "kind": "silent",
@@ -7288,6 +7234,11 @@
       "pr": "#2703 + wave C2 packet 2d",
       "sha": "84c2291",
       "note": "gated 2026-08 (#2703), then RESOLVED: the two codes this row was written about were phantoms and were deleted, and the one real gap it inherited \u2014 `loom.java-reserved-identifier-unsupported` \u2014 was DRAINED 2026-09-13 (wave C2 packet 2d).  A `.ddd` field / param / operation / derived member / part field / helper function / ENUM VALUE named after a Java reserved word now emits; MAX_OPEN_GAPS 27 -> 26.  The enum-value arm was a second, previously silent gap found while draining the first."
+    },
+    {
+      "id": "static-subpath-405-node-only",
+      "title": "CLOSED (wave C2, packet 2a \u2014 elixir was the last arm). Phoenix now mounts `match :*, \"<static sub-path>\", NotFoundController, :not_found` right after the LAST real route for each one-segment static sub-path, inside `scope \"/api\"`: the real routes still win for the verbs they serve (phoenix matches in declaration order) and every other verb lands on the controller that already derives `Allow` from `Phoenix.Router.route_info/4` \u2014 so the header comes from the ROUTER, not from a second copy of the route table that could drift. The guarded set is derived from the routes this router actually mounts (`withStaticSubpathGuards`, src/generator/elixir/vanilla/shell-emit.ts), so a backend-specific static route is covered by construction. BOOT-PROVED on real Postgres: `DELETE /api/articles/by_owner` answered 422 from the `:id` cast before and answers 405 with `allow: GET` under `application/problem+json` now; `POST` likewise; `GET /api/articles/by_owner` still 200; `DELETE /api/articles/<uuid>` still 204 and `DELETE /api/articles/not-a-uuid` still 422, so the `:id` route is unshadowed. Pinned by test/generator/elixir/static-subpath-method-guard.test.ts \u2014 a SWEEP over every route in the `/api` scope (guarded set == static set, guard after its own routes and before `/:id`, no `:`-bearing path guarded) with a vacuity guard on the fixture's static set; mutation-proved by making `withStaticSubpathGuards` a pass-through, which fails \"guards EVERY one-segment static sub-path the router mounts\" and \"places each guard AFTER its real routes and BEFORE the `:id` route\". Compile-gated through the existing `vanilla-finds.ddd` elixir build fixture (`mix compile --warnings-as-errors`).",
+      "source": "fleet1:schemathesis-F8 / ledger reconciliation 3"
     }
   ],
   "conflicts": [

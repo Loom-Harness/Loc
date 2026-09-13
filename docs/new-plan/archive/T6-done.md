@@ -1144,3 +1144,123 @@ The fix is one funnel, `src/generator/java/java-ident.ts`, whose two halves are 
 
 Proofs: `test/generator/java/java-reserved-identifier.test.ts` (13 assertions incl. a vacuity-guarded sweep of every emitted `.java` file; five mutations each fail exactly the assertion that names them), the corpus fixture `test/fixtures/corpus/java-reserved-words.ddd` compiled on java under `gradle testClasses bootJar`, and a **booted** Spring Boot app on a real Postgres 18 — create/read round-trip with the declared wire keys, `?sort=` by a reserved column, a find by a reserved query parameter, a 422 naming `/case` (not `/case_`), the enum stored in the column as `case`, and the behavioural java leg matching the node-captured wire golden with 0 divergences.
 Sources: M-T9.27 register rows; the 2026-08-30 targets ledger rows `M-T6.36` (premise found stale) and `F2-ADP-7` (java arm).
+
+## M-T6.3 — Phoenix output hygiene: `mix format` + Dialyzer gates — `done` (closed by ruling, wave C2 packet 2a — [D-PHOENIX-FORMAT-GATE](../../decisions.md)) · **L (was M)** · P2
+**Closed 2026-09-13 by DECISION, not by code.** The kickoff for wave C2 packet 2a said "decide, don't defer twice"; `D-PHOENIX-FORMAT-GATE` is that decision. `mix format --check-formatted` is **never** run over generated output, in any tier — the measurement below is the evidence, and a third re-derivation of it was the cost a named decline removes. Dialyzer and Credo over generated output are **unscheduled** (not deferred, not mission-owned): a new mission opens only with its own evidence that either finds a defect class `mix compile --warnings-as-errors` does not. Slice 1 (the emitted `.formatter.exs` scoping the OpenApiSpex subtree out) stays — it is config a human running `mix format` by hand benefits from, not a gate. The scoping record below is kept verbatim so reversing the ruling starts from a recipe rather than from scratch.
+**Slice 1 landed** (`.formatter.exs` scoping): the generated `lib/<app>_web/api/**` OpenApiSpex layer (`<api>_spec.ex` spec module + request/response schema modules) is a machine-emitted nested-struct literal `mix format` reflows by width — **~73% of the whole format diff** on a broad project, never hand-edited — and is now excluded from the format gate via a computed `inputs` (rejects the `_web/api/` subtree, correct for any app name; `renderVanillaFormatterExs`, `shell-emit.ts`).
+
+**Gate activation deferred** after a source-grounded scoping (2026-07-21, real `mix format` in the `hexpm/elixir` image, api_spec excluded):
+- `mix format` is **deliberately non-configurable** — no per-rule toggles, no `# format: off` ignore comments/regions. The only dials are `line_length`, `locals_without_parens`, and which files are checked. So the "un-handy" rules (blank-line insertion, `case`-clause consistency, call-wrapping) **cannot be suppressed by config**.
+- `line_length` is the one lever for the dominant width-driven wrapping, but it **plateaus**: on the `vanilla-workflows` fixture the churn falls 447→253 diff-lines (98→200) then flattens — an **irreducible ~250-line / 20-file structural residual** (blank lines + clause consistency + un-wrapping emitter pre-wraps) no config reaches. Pushing `line_length` past ~150 also just trades wrap-churn for collapse-churn and leaves 150-col lines.
+- Closing the residual means teaching **~10 emitters** (controllers, context, changeset, telemetry, boilerplate, workflows) to replicate the formatter's width + blank-line + clause rules — an **L grind, and brittle**: every future Elixir-emitter edit can silently re-break the all-or-nothing gate, re-checkable only via the slow docker+hex-mirror `mix format` loop. Payoff is cosmetic — generated Elixir already compiles `mix compile --warnings-as-errors` clean.
+- **Decision: defer the gate** (same disposition as M-T6.20 — L/risky for a narrow benefit). Reassess if a cheaper mechanism appears (e.g. a real ignore-comment lands in Elixir, or the emitters gain a shared format-aware line builder). Dialyzer/Credo remain future nightly-only.
+
+Reusable tooling from the scoping: a real-formatter diff loop (`startHexMirror` → `generate system` → `mix format` with `import_deps` resolved → diff) makes the grind a measure-fix-remeasure cycle if picked up.
+Sources: [vanilla-phoenix-gaps](../../old/plans/vanilla-phoenix-gaps.md) §7, [static-analysis-followups](../../old/proposals/static-analysis-followups.md) Slices 1–2.
+
+## M-T6.26 — `= default` / required-input parity across create & update paths — `done` (update-seam presence landed; verified 2026-09-13, wave C2 packet 2a) · **S** · P2
+*(Renumbered from the placeholder "M-T6.x" and re-statused 2026-08-05 — `landed` isn't a legend status. Create-path parity is done (below, #2377); the update-path halves landed via #2392 ("a default never relaxes an update" — Elixir enforced less than promised, Java rejected what it advertised); the remaining residue is fixed and awaiting merge as PR #2440 — Elixir accepts a PUT that omits a required field (presence is a deserialization question there too), with retro §80 (PR #2415, also awaiting merge) as its documentation twin.)*
+
+Surfaced 2026-08-01 by the `audited` corpus fixture in the behavioral tier, not
+by anything audit-specific.
+
+A field declared with a default — `status: int = 0` — is treated as **optional
+create input** on node (`z.coerce.number().int().default(0)`, so `POST` without
+it succeeds) but the Elixir changeset still `validate_required`s it, so the same
+request 422s with `{"pointer":"/status","message":"can't be blank"}`.
+
+Same `.ddd`, same create call, different contract — a wire-level divergence the
+per-PR compile gates cannot see (both backends compile fine) and which the
+wire-golden differential misses because the request never reaches a comparable
+response. It took a behavioral run on the elixir leg to expose it.
+
+**Expected:** `= default` means "the client may omit this; the server supplies
+the value" on every backend. Fix is in the Elixir changeset emission — a
+defaulted field must be dropped from the required set.
+
+Check the other three backends (python/java/dotnet) before closing: only node
+and elixir were observed here, so the split may be wider than 1-vs-1.
+
+**Landed.** The split was **4-vs-1**, not 1-vs-1: python (`status: int = 0`),
+java (`RequiredSet("CreateThingRequest", ["name"])`) and dotnet
+(`int Status = 0`) already agreed with node. Elixir was the sole outlier —
+`changeset-emit.ts` derived its required set from `!f.optional`, ignoring both
+the explicit `= default` and the bare-`bool` implicit default, while the IR had
+already reified the rule as `CreateInputFieldIR.requiredInput`. Fixed by
+consuming it (`isRequiredCreateInput`, now exported alongside a new
+`isRequiredUpdateInput` for the PATCH seam).
+
+> **Correction (2026-08-03).** The CREATE half of this is sound and
+> runtime-proven. The UPDATE half shipped defective and the sentence that used
+> to stand here — "an explicit default stays required and only the bool
+> relaxation applies" — described the intent, not the code: `isRequiredUpdateInput`
+> tested `hasImplicitDefault` (a *create*-input predicate) first, so it returned
+> `false` for **any** `bool`, explicit default or not. `active: bool = true` came
+> back omittable and Elixir's changeset stopped enforcing a field its own
+> OpenApiSpex schema still advertised. #2392 (landed) fixed the predicate to
+> `!isNullable(f)` — only optionality relaxes an update, which is RS-26 (#2329) —
+> and found a sibling Java create-seam defect on the way (`emit/dto.ts` re-derived
+> omittability as `f.optional || f.default != null`, missing the bare `bool`).
+> The docstring, this entry and #2377's PR description all stated the rule
+> correctly while one line of code did not; see `experience_gathered.md` §80.
+>
+> **Residual, still open** (re-verified on `main` after #2392 landed). It makes
+> the emitted artifacts agree, but the
+> cross-backend divergence survives it: `@update_required` is not enforcement on
+> the update seam. Ecto's `validate_required` resolves through `get_field`,
+> which falls back to the loaded row, so an omitted key is invisible — verified
+> against real Ecto (`omit active+flag against a stored row → valid?=true`).
+> Nothing upstream compensates (router is `plug :accepts, ["json"]`, no
+> `OpenApiSpex.Plug.CastAndValidate`; the controller passes raw params through).
+> A `PUT` omitting the field still answers **204 on Elixir, 422 on the other
+> four**. Fixed in PR #2440 (awaiting merge): `update_changeset/2` checks
+> presence against the raw attrs before `cast`, roughly where the create path
+> already coalesces defaults, using `validate_required/2`'s own error shape so
+> `ProblemDetails` still renders 422 `{"pointer":"/<field>"}` unchanged.
+> Coverage measured across the corpus: 55 of 56 changesets take the check; the
+> document aggregate (separate `cast_embed` emitter) is flagged, not claimed.
+
+> **CLOSED 2026-09-13 (wave C2, packet 2a) — #2440 is MERGED, the residual is
+> emitted.** Re-verified on this head by reading the emitter rather than the PR:
+> `src/generator/elixir/vanilla/changeset-emit.ts:570-590` computes
+> `updateRequiredNames` from `isRequiredUpdateInput`, splices
+> `|> __require_keys(attrs, @update_required)` into `update_changeset/2` ahead of
+> `cast`, and emits the `__require_keys/3` helper whose error shape is
+> `validate_required/2`'s own, so `ProblemDetails` still renders 422
+> `{"pointer":"/<field>"}`. The emission is conditional
+> (`emitUpdateChangeset && updateRequiredNames.length > 0`), so an aggregate whose
+> updatable fields are all optional stays byte-identical — which is the reason the
+> check could land without re-baselining the corpus. The ONE carve-out the
+> paragraph above flags is unchanged and still honest: the document aggregate's
+> separate `cast_embed` emitter does not take the check.
+
+Two findings worth keeping:
+
+- **The reported repro under-stated the fix.** `status: int = 0` alone did NOT
+  422: a *literal* default is also emitted as the Ecto schema `default:`, so
+  `%Agg{}` already carried it and `validate_required` passed by accident. The
+  shapes that actually failed were the ones no schema default covers — a bare
+  `bool` and an **enum-valued** default (`renderEctoDefault` returns null for
+  both). Dropping them from `validate_required` is only half the fix; the
+  column is `null: false`, so the changeset now also applies the declared value
+  via a `__default/3` step after `cast` (which additionally covers an explicit
+  `null` in the body). Server-sourced defaults (`now()`/`currentUser.*`) keep
+  their existing controller-side params coalesce.
+- **Why every gate was blind.** Compile tier: both backends build. Wire-golden
+  differential: the request 422s before producing a comparable response. And
+  the OpenAPI parity gate too — Elixir's own *spec* emitter already used the
+  correct rule (`wireCreateDefault`), so the disagreement was between Elixir's
+  published contract and Elixir's runtime enforcement, which no spec-vs-spec
+  diff can see. New gate `test/conformance/create-required-parity.test.ts`
+  therefore asserts each backend's **enforcement** surface (changeset / DTO /
+  validator) against the canonical `requiredInput` set — verified to fail on
+  the pre-fix emitter. `test/fixtures/corpus/audited.ddd` now OMITS the
+  defaulted field from its `test e2e` create call, making the behavioral legs
+  the runtime half of the same gate.
+
+Not addressed (noted, out of scope): the emitted `change_<create>/1` helper
+derives its required set from the create action's *params*, which for a
+`crudish` aggregate do not carry the field-level `default` — so it still
+over-requires. It has no caller in generated code (every write path goes
+through `base_changeset`); threading defaults onto crudish create params would
+ripple through every param-driven surface on all five backends.

@@ -6,7 +6,7 @@
 // -------------------------------------------------------------------------
 
 import { type ExprIR, exprUsesCurrentUser, type StmtIR } from "../../../ir/types/loom-ir.js";
-import { walkExprDeep } from "../../../ir/util/walk.js";
+import { walkExprDeep, walkStmtsDeep } from "../../../ir/util/walk.js";
 
 /** True when statement `s` references `currentUser` anywhere in its expr(s) —
  *  e.g. a `requires currentUser.role == "admin"` guard or a `field :=
@@ -197,4 +197,20 @@ function walkExpr(e: ExprIR, pred: (sub: ExprIR | undefined) => boolean): boolea
       return false;
     }
   }
+}
+
+/** Every statement of an operation body, INCLUDING the ones nested inside an
+ *  `if` branch (M-T6.59) or a `variant-match` arm.
+ *
+ *  Every "does this body write a column / mutate a containment / touch a
+ *  reference collection" probe in the vanilla emitters used to scan
+ *  `op.statements` one level deep, which was total right up until an `if`
+ *  branch could hold an `assign`: the branch then rendered (the `if` is
+ *  value-producing), the persist tail saw no assigned columns, and the write
+ *  was silently dropped at `Repo.update`.  Rides `walkStmtsDeep` rather than a
+ *  fresh recursion — the `ir-walk-census` rule. */
+export function opBodyStmtsDeep(stmts: readonly StmtIR[]): StmtIR[] {
+  const out: StmtIR[] = [];
+  for (const s of stmts) walkStmtsDeep(s, (n) => out.push(n));
+  return out;
 }

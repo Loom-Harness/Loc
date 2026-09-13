@@ -141,20 +141,20 @@ gate already encodes the row's claim, run the gate.
 
 | metric | value |
 |---|---|
-| open rows | **134** |
+| open rows | **133** |
 | P0 | 0 |
 | P1 | 1 |
-| P2 | 11 |
+| P2 | 10 |
 | P3 | 34 |
 | P4 | 79 |
 | P5 | 9 |
-| kind: silent / honest / breadth / mission / stale-prose | 13 / 33 / 22 / 57 / 9 |
-| confidence: proven / likely / suspected | 24 / 109 / 1 |
+| kind: silent / honest / breadth / mission / stale-prose | 12 / 33 / 22 / 57 / 9 |
+| confidence: proven / likely / suspected | 24 / 108 / 1 |
 | class: faulty-fix / regression | 1 / 0 |
-| size S / M / L | 35 / 58 / 41 |
-| provenance: fleet1-only / fleet2-only / corroborated by both | 121 / 10 / 1 |
+| size S / M / L | 35 / 57 / 41 |
+| provenance: fleet1-only / fleet2-only / corroborated by both | 120 / 10 / 1 |
 | claimed by an open PR | 60 |
-| done / merged | 155 |
+| done / merged | 156 |
 | declined (not a gap: stale / breadth / duplicate / decided) | 7 |
 | conflicts | 10 |
 | checkedOk entries | 146 |
@@ -175,7 +175,6 @@ Sorted P0 (security / data-integrity, silent, proven) → P1 (other silent prove
 | P2 | `queryview-lambda-int-plus-literal-concat` | silent | like | react, vue, svelte, angular, feliz, flutter | M | An int LITERAL operand of `+` against a read-record member in a page body lowers to string concatenation — silently wrong on the four JS frontends (`o.qty + String(1)`) and a HARD BUILD BREAK on feliz and flutter |
 | P2 | `schemathesis-F11-int32-range` | silent | like | elixir | M | F11 — ELIXIR publishes a bare `%OpenApiSpex.Schema{type: :integer}` for an `int` body field against an int4 column, so a contract-conforming value 500s (node and python now publish the bound; dotnet and java always did) |
 | P2 | `sourcemap-feliz-flutter-not-emitted` | silent | like | feliz, flutter | M | `--sourcemap` records NOTHING for the feliz and flutter frontends — the plan files it as a test-parity skew, but the emission is absent |
-| P2 | `static-subpath-405-node-only` | silent | like | elixir | M | The F8 static-sub-path 405 guard is missing on ELIXIR alone — a wrong verb on a static sub-path matches the sibling `/:id` route and answers its 422 (#2764 closed the other four) |
 | P2 | `M-T1.11-domain-floor-message-code` | silent | like | node, dotnet, java, python | L | M-T1.11 item (c) — `DomainError` carries no `code` on node, dotnet, java and python, so a rule enforced only at the domain floor is unlocalizable (elixir partly fixed: preconditions and invariants, not the value-object floor) |
 | P2 | `feliz-navbar-ignores-page-requires` | silent | prov | feliz | S | Feliz's default navbar advertises routes the backend refuses — `renderNavbar` never reads `page.requires` |
 | P3 | `F2-CFE-11` | honest | prov | angular, flutter | S | `testid:` on `CreateForm` is silently dropped on Angular and Flutter (honoured on react/vue/svelte/feliz) |
