@@ -91,14 +91,15 @@ repository declared in another context is an error
 (`loom.workflow-cross-context-repository`), even when both contexts ride the
 same deployable and share one transaction:
 
+A fragment, deliberately REJECTED — `Technicians` is declared in `context
+Directory`, while the workflow is in `context Dispatch`:
+
 ```ddd
-context Dispatch {
-  workflow scheduleWorkOrder transactional {
-    create(workOrderId: WorkOrder id, assignTo: Technician id) {
-      let tech = Technicians.getById(assignTo)   // ERROR — `Technicians` is Directory's
-      let wo   = WorkOrders.getById(workOrderId) // fine — Dispatch's own
-      wo.assign()
-    }
+workflow scheduleWorkOrder transactional {
+  create(workOrderId: WorkOrder id, assignTo: Technician id) {
+    let tech = Technicians.getById(assignTo)   // ERROR — `Technicians` is Directory's
+    let wo   = WorkOrders.getById(workOrderId) // fine — Dispatch's own
+    wo.assign()
   }
 }
 ```
