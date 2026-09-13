@@ -86,7 +86,40 @@ function anyStmtDeep(s: StmtIR, pred: (n: StmtIR) => boolean): boolean {
  *    not rendered as a statement sequence at all. */
 export type ElixirIfBodyKind = "operation" | "value" | "event-sourced";
 
-export type ElixirIfRefusal = "return-in-branch" | "guard-in-branch" | "event-sourced";
+export type ElixirIfRefusal =
+  | "return-in-branch"
+  | "guard-in-branch"
+  | "event-sourced"
+  | "branch-statement";
+
+/** The statement kinds a branch may contain, per body kind — a CLOSED
+ *  vocabulary rather than a list of known-bad shapes.
+ *
+ *  Closed, because the value-producing rendering is not the only thing a branch
+ *  statement needs: the emitters decide what SUPPORTING machinery an operation
+ *  gets by scanning `op.statements`, and several of those scans are one level
+ *  deep by design.  An `emit` nested in a branch is the sharp case — it renders
+ *  fine, but `contextEmitsEvent` would not see it, so the host module would
+ *  carry no `require Logger` (a compile error), and the S5a persist-then-
+ *  dispatch restructure could not hoist a CONDITIONAL emit past the commit
+ *  anyway, so a phantom event would fire on a failed write.  A PROVENANCED
+ *  write is the same shape one layer up: `opHasProvSite` (`src/ir/util/prov-id.ts`)
+ *  scans top-level statements only, so a nested one would emit lineage capture
+ *  in an operation the route layer never put in provenance-flush mode.
+ *
+ *  Fail-closed: a NEW `StmtIR` kind is refused here until someone decides what
+ *  it means in a branch, rather than silently admitted the way an
+ *  enumerate-the-bad-shapes list would admit it. */
+const BRANCH_VOCABULARY: Readonly<Record<ElixirIfBodyKind, ReadonlySet<StmtIR["kind"]>>> = {
+  // An aggregate operation body threads a rebound `record`, so a branch may
+  // mutate it, bind a local, call a private operation, or nest another `if`.
+  operation: new Set(["assign", "add", "remove", "let", "expression", "call", "if"]),
+  // A tail-value body (a `domainService` operation, a pure `function`) has no
+  // record to mutate: its branch produces a value.
+  value: new Set(["let", "expression", "return", "if", "call"]),
+  // Nothing — an ES command body is not a statement sequence at all.
+  "event-sourced": new Set([]),
+};
 
 /** Every `return` reachable in `stmts` is in TAIL position of its own block —
  *  the shape a `"value"` body can render, because the block's last expression
@@ -130,6 +163,8 @@ export function elixirIfRefusal(
 ): ElixirIfRefusal | undefined {
   let sawIf = false;
   let guardInBranch = false;
+  let outOfVocabulary = false;
+  const allowed = BRANCH_VOCABULARY[kind];
   for (const top of stmts) {
     walkStmtDeep(top, (n) => {
       if (n.kind !== "if") return;
@@ -142,11 +177,40 @@ export function elixirIfRefusal(
       ) {
         guardInBranch = true;
       }
+      // A guard is reported by its own arm (it has a rewrite the author can
+      // act on), so it is exempted here rather than folded into the generic
+      // out-of-vocabulary refusal.
+      for (const b of branches) {
+        if (
+          anyStmtDeep(b, (m) => {
+            // A guard and a `return` each have their OWN arm below, with advice
+            // the author can act on; only shapes with no rewrite reach the
+            // generic refusal.
+            if (m.kind === "precondition" || m.kind === "requires") return false;
+            if (m.kind === "return") return false;
+            if (!allowed.has(m.kind)) return true;
+            // A PROVENANCED write renders, but `opHasProvSite` scans top-level
+            // statements only — the operation would emit lineage capture
+            // without being in provenance-flush mode.
+            return (
+              (m.kind === "assign" || m.kind === "add" || m.kind === "remove") &&
+              m.prov !== undefined
+            );
+          })
+        ) {
+          outOfVocabulary = true;
+        }
+      }
     });
   }
   if (!sawIf) return undefined;
   if (kind === "event-sourced") return "event-sourced";
   if (guardInBranch) return "guard-in-branch";
+  // Everything outside the closed branch vocabulary — an `emit`, an effect-form
+  // `match`, a PROVENANCED write — is refused before the shape-specific arms
+  // below, because those arms describe how to rewrite a shape that COULD render
+  // and these cannot.
+  if (outOfVocabulary) return "branch-statement";
   // A `return` inside a branch is an EARLY EXIT.  Only a `"value"` body can
   // express it, and only when every `return` is already in tail position.
   const hasBranchReturn = stmts.some((top) => {
@@ -209,11 +273,18 @@ function validateElixirIfSupport(loom: EnrichedLoomModel, diags: LoomDiagnostic[
               message: diagMessage("loom.elixir-if-stmt-unsupported#guard-in-branch", params),
               source,
             });
-          } else {
+          } else if (slug === "event-sourced") {
             diags.push({
               severity: "error",
               code: "loom.elixir-if-stmt-unsupported",
               message: diagMessage("loom.elixir-if-stmt-unsupported#event-sourced", params),
+              source,
+            });
+          } else {
+            diags.push({
+              severity: "error",
+              code: "loom.elixir-if-stmt-unsupported",
+              message: diagMessage("loom.elixir-if-stmt-unsupported#branch-statement", params),
               source,
             });
           }

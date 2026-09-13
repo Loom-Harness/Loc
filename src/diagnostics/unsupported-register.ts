@@ -235,9 +235,9 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.elixir-if-stmt-unsupported",
     kind: "gap",
-    site: "src/ir/validate/checks/if-stmt-checks.ts:201",
+    site: "src/ir/validate/checks/if-stmt-checks.ts:265",
     what:
-      "THREE narrow sub-shapes of the `if` STATEMENT in a domain body an elixir deployable emits.  " +
+      "FOUR narrow sub-shapes of the `if` STATEMENT in a domain body an elixir deployable emits.  " +
       "The statement ITSELF now renders (M-T6.59, wave C2 2a): `vanilla/if-stmt-emit.ts` makes it " +
       "value-producing (`record = if … do … record else record end`) and `opBodyStmtsDeep` makes " +
       "every persist/containment probe deep-walk the branches, so a branch assignment survives " +
@@ -249,7 +249,12 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
       "`requires`/`precondition` into a `with :ok <- ensure(…)` chain answering 403/422; a nested " +
       "one would raise → 500, a wire divergence worse than the refusal), and `#event-sourced` (an " +
       "ES command body is sorted into `with`-clauses / `let`s / one `events = […]` list, not " +
-      "rendered as a statement sequence, so a conditional `emit` has nowhere to go)",
+      "rendered as a statement sequence, so a conditional `emit` has nowhere to go), and " +
+      "`#branch-statement` (the CLOSED branch vocabulary — an `emit`, an effect-form `match` or a " +
+      "PROVENANCED write in a branch: each RENDERS, but the emitters decide an operation's " +
+      "supporting machinery by scanning its TOP-LEVEL statements, so a conditional `emit` gets no " +
+      "`require Logger` and cannot be hoisted past the commit by the S5a restructure, and a nested " +
+      "provenanced write captures lineage in an op the route layer never put in flush mode)",
     mission: "M-T6.59",
     verified: true,
   },
@@ -362,7 +367,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.if-stmt-page-body-unsupported",
     kind: "scope",
-    site: "src/ir/validate/checks/if-stmt-checks.ts:262",
+    site: "src/ir/validate/checks/if-stmt-checks.ts:333",
     what:
       "the `if` STATEMENT in a `ui` page / component / store body, on EVERY frontend.  A page body " +
       "is an expression tree — a condition is a VALUE there (`cond ? a : b`, `match`) — and no " +

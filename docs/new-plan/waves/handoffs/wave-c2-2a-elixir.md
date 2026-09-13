@@ -13,7 +13,7 @@ Nothing is pushed and no PR was opened — the wave PR is the claim, per the kic
 
 | row | outcome | where |
 |---|---|---|
-| **M-T6.59** the `if` statement | **implemented**, gate NARROWED to three `#slug` sub-shapes | `src/generator/elixir/vanilla/if-stmt-emit.ts` (new) · `if-stmt-checks.ts:78` (`elixirIfRefusal`) · `operation-returns-emit.ts:1371` · `function-emit.ts` · `domain-service-emit.ts:545` · `eventsourced-emit.ts:820` |
+| **M-T6.59** the `if` statement | **implemented**, gate NARROWED to four `#slug` sub-shapes | `src/generator/elixir/vanilla/if-stmt-emit.ts` (new) · `if-stmt-checks.ts:78` (`elixirIfRefusal`) · `operation-returns-emit.ts:1371` · `function-emit.ts` · `domain-service-emit.ts:545` · `eventsourced-emit.ts:820` |
 | **ledger `static-subpath-405`** elixir arm | **implemented** — ledger row moved `open → done` | `vanilla/shell-emit.ts` (`withStaticSubpathGuards`) |
 | **M-T6.56 F60** derived-reads-derived wire | **implemented**, gated on `required:` ≡ `serialize/1` | `vanilla/wire-serialize.ts:91` |
 | **M-T6.56 F22** positional `Image` / builtin `Icon` | **implemented** | `heex-primitives.ts` `renderImage` / `renderIcon` |
@@ -37,7 +37,7 @@ the register exists to prevent.
 
 ## 2. What each row actually did
 
-### M-T6.59 — the `if` statement renders; the gate narrows to three sub-shapes
+### M-T6.59 — the `if` statement renders; the gate narrows to four sub-shapes
 
 Elixir is immutable, so every Phoenix body threads a REBOUND `record` and a binding made inside an
 `if` block does not escape it. `renderElixirIfStmt` emits the value-producing shape —
@@ -70,6 +70,18 @@ class of reason: a param read only inside a branch was invisible, so the clause 
   `events = […]` list, never rendered as a statement sequence, so a conditional `emit` has nowhere
   to go. `eventsourced-emit.ts` grew a throwing arm; its `default: break` would have dropped the
   branch silently.
+- `#branch-statement` — a **closed** branch vocabulary (`BRANCH_VOCABULARY`), not a list of
+  known-bad shapes. The value-producing rendering is not the only thing a branch statement needs:
+  the emitters decide an operation's SUPPORTING machinery by scanning `op.statements`, and several
+  of those scans are one level deep by design. `emit` is the sharp case — it renders fine,
+  `contextEmitsEvent` does not see it, so the host module carries no `require Logger` (a compile
+  error), and the S5a persist-then-dispatch restructure cannot hoist a CONDITIONAL emit past the
+  commit anyway, so a phantom event would fire on a failed write. A PROVENANCED write is the same
+  shape one layer up (`opHasProvSite`, `src/ir/util/prov-id.ts:49`, scans top-level statements
+  only). Fail-closed, so a NEW `StmtIR` kind is refused in a branch rather than silently admitted.
+  **This was found by auditing the emitters' own shallow scans AFTER the `if` renderer landed** —
+  the deep-walk fixes (`opBodyStmtsDeep`) covered the write-detection scans; this is the set they
+  do not cover because the answer is not "walk deeper", it is "this cannot be conditional".
 
 The projection-fold arm the old gate carried was **dead**: `loom.projection-fold-impure` already
 refuses an `if` in a fold on every backend. Deleted.
@@ -116,6 +128,7 @@ Every mutation was applied by **file copy** and reverted by file copy — never 
 | F22 `Icon` | replace `lookupBuiltinIcon(name)` with `""` | same file › "renders the builtin glyph for a `name:`…" + "gives up LOUDLY on a name the registry does not resolve" |
 | F61 handler | remove the `renderWorkflowEventClauses` call | `heex-workflow-form.test.ts` › 5 cases, incl. "emits a `handle_event` clause matching the form's own `phx-submit`" |
 | F61 fields | disable the `runsWorkflow` branch | same file › "emits one typed `<.input>` per workflow param, not a `_placeholder`" + the testid case |
+| closed branch vocabulary | delete the `outOfVocabulary` return in `elixirIfRefusal` | `if-stmt-emit.test.ts` › "refuses an `emit` inside a branch (#branch-statement — the CLOSED vocabulary)" |
 | doc derived | recursion → bare `return false` | `saving-shape-support.test.ts` › "still refuses a document op reading a derived whose OWN body is unsupported" |
 
 Two tests that were pinning the DEFECT are inverted in the same commits, named so a reviewer does

@@ -187,6 +187,47 @@ describe("phoenix generator — the `if` sub-shapes that stay refused", () => {
     expect(hit?.message).toContain("403 / 422");
   });
 
+  it("refuses an `emit` inside a branch (#branch-statement — the CLOSED vocabulary)", async () => {
+    // The sharp case for the closed vocabulary.  The `emit` would RENDER, but
+    // `contextEmitsEvent` scans `op.statements` one level deep, so the host
+    // module would carry no `require Logger` (a compile error) — and the S5a
+    // persist-then-dispatch restructure cannot hoist a CONDITIONAL emit past
+    // the commit, so a phantom event would fire on a failed write.
+    const diags = await diagnose(`
+system Grading {
+  subdomain Learning {
+    context Tracker {
+      event Graded { taskId: string }
+      aggregate Task with crudish {
+        title: string
+        score: int
+        operation grade(bonus: int) {
+          if score + bonus > 10 {
+            score := score + bonus
+            emit Graded { taskId: id }
+          }
+        }
+      }
+      repository Tasks for Task { }
+    }
+  }
+  api TrackerApi from Learning
+  storage primary { type: postgres }
+  resource trackerState { for: Tracker, kind: state, use: primary }
+  deployable api {
+    platform: elixir
+    contexts: [Tracker]
+    dataSources: [trackerState]
+    serves: TrackerApi
+    port: 4000
+  }
+}
+`);
+    const hit = diags.find((d) => d.code === "loom.elixir-if-stmt-unsupported");
+    expect(hit).toBeDefined();
+    expect(hit?.message).toContain("CLOSED set");
+  });
+
   it("admits the shapes it renders — no diagnostic for a plain assigning `if`", async () => {
     const diags = await diagnose(sys(GRADE));
     expect(diags.filter((d) => d.code === "loom.elixir-if-stmt-unsupported")).toHaveLength(0);

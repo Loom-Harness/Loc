@@ -308,7 +308,7 @@ Raised 2026-09-03 by the M-FT.11 field-test slice, which added the `if <cond> { 
 > (`mix compile --warnings-as-errors`, green).
 >
 > **What stays gated**, each a strictly narrower `#slug` of `loom.elixir-if-stmt-unsupported`
-> (`src/ir/validate/checks/if-stmt-checks.ts:201`): `#return-in-branch` — an EARLY EXIT, which
+> (`src/ir/validate/checks/if-stmt-checks.ts:265`): `#return-in-branch` — an EARLY EXIT, which
 > needs the statements FOLLOWING the `if` restructured into a `case` arm (a list-level
 > transform that also breaks the same-length/same-order `statementSubRegions` zip the sourcemap
 > collector depends on); it IS allowed in a TAIL-VALUE body (domainService / pure `function`),
@@ -318,7 +318,17 @@ Raised 2026-09-03 by the M-FT.11 field-test slice, which added the `if <cond> { 
 > `#event-sourced` — an ES command body is sorted into `with`-clauses / `let`s / one
 > `events = […]` list, never rendered as a statement sequence, so a conditional `emit` has
 > nowhere to go (`eventsourced-emit.ts` grew a throwing arm; its `default: break` would have
-> dropped the branch silently). The register row narrows rather than drains.
+> dropped the branch silently). And `#branch-statement` — a CLOSED branch vocabulary
+> (`BRANCH_VOCABULARY`) rather than a list of known-bad shapes, because the value-producing
+> rendering is not the only thing a branch statement needs: the emitters decide an operation's
+> SUPPORTING machinery by scanning `op.statements`, and several of those scans are one level deep
+> by design. An `emit` in a branch is the sharp case — it renders fine, `contextEmitsEvent` does
+> not see it, so the host module carries no `require Logger` (a compile error), and the S5a
+> persist-then-dispatch restructure cannot hoist a CONDITIONAL emit past the commit anyway, so a
+> phantom event would fire on a failed write. A PROVENANCED write is the same shape one layer up
+> (`opHasProvSite`, `src/ir/util/prov-id.ts:49`, scans top-level statements only). Fail-closed: a
+> NEW `StmtIR` kind is refused in a branch until someone decides what it means there. The register
+> row narrows rather than drains.
 >
 > **Hand-off (outside the packet fence).** `loom.function-block-no-return`
 > (`src/language/validators/types.ts:906-957`) walks `fn.block` one level deep, so a pure

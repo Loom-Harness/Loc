@@ -1565,6 +1565,18 @@ export const DIAGNOSTIC_MESSAGES = {
     `a typed denial.  Lift the guard to the top of the operation body (its condition may ` +
     `include the \`if\` condition), or host this context on a node / dotnet / java / ` +
     `python backend.`,
+  "loom.elixir-if-stmt-unsupported#branch-statement": (p: { where: unknown; name: unknown }) =>
+    `An \`if\` branch in ${p.where} contains a statement the Phoenix/Elixir deployable ` +
+    `'${p.name}' cannot render THERE — an \`emit\`, an effect-form \`match\`, or a ` +
+    `\`provenanced\` write.  The \`if\` STATEMENT itself renders on Elixir; what a branch may ` +
+    `hold is a CLOSED set (assignments, collection mutations, \`let\`, a call, a nested ` +
+    `\`if\`), because the emitters decide an operation's supporting machinery by scanning its ` +
+    `TOP-LEVEL statements: a conditional \`emit\` would be invisible to that scan (no ` +
+    `\`require Logger\`, and the persist-then-dispatch restructure could not hoist it past the ` +
+    `commit, so a phantom event would fire on a failed write), and a nested \`provenanced\` ` +
+    `write would capture lineage in an operation never put into provenance-flush mode.  Move ` +
+    `the statement out of the branch (compute a value inside the \`if\`, act on it after), or ` +
+    `host this context on a node / dotnet / java / python backend.`,
   "loom.elixir-if-stmt-unsupported#event-sourced": (p: { where: unknown; name: unknown }) =>
     `An \`if\` statement is used in ${p.where} — an EVENT-SOURCED command body — whose ` +
     `context is hosted by the Phoenix/Elixir deployable '${p.name}'.  An event-sourced ` +
