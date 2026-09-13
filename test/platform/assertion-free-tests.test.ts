@@ -76,8 +76,10 @@ const PINNED: Record<string, number> = {
   // `runMoneyBoundsCatchUpGate`, which asserts by throwing (bounds probe, row
   // rounding, the destructive-refusal check), same shape as its sibling.  The
   // third is the M-T2.15 value-collection gate, delegating the same way to
-  // `runValueCollectionEvolutionGate` (which both `expect`s and throws).
-  "test/e2e/migration-evolution.test.ts": 3,
+  // `runValueCollectionEvolutionGate` (which both `expect`s and throws); the
+  // fourth is the M-T2.16 field-default gate, delegating to
+  // `runFieldDefaultEvolutionGate` (likewise).
+  "test/e2e/migration-evolution.test.ts": 4,
   "test/e2e/migration-evolution-dotnet.test.ts": 1,
   "test/e2e/migration-evolution-elixir.test.ts": 1,
   "test/e2e/migration-evolution-java.test.ts": 1,

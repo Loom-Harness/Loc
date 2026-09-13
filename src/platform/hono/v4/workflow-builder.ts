@@ -1,4 +1,8 @@
 import { renderHonoLogCall, renderHonoStoreLogCall } from "../../../generator/_obs/render-hono.js";
+import {
+  recordPayloadOf,
+  workflowParamPayloads,
+} from "../../../generator/_payload/workflow-param-payloads.js";
 import { statementSubRegions } from "../../../generator/_trace/sourcemap.js";
 import { commandCreateCorrelationParam } from "../../../generator/_workflow/create-state.js";
 import {
@@ -26,6 +30,7 @@ import {
   workflowIsGuarded,
   workflowUsesCurrentUser,
 } from "../../../ir/types/loom-ir.js";
+import { wireTypeInfo } from "../../../ir/types/wire-types.js";
 import {
   aggregatesHaveUniqueKeys,
   aggregatesNeedConcurrency,
@@ -160,7 +165,29 @@ export function buildWorkflowsFile(
       ),
     );
   }
-  if (workflowVOs.length > 0 || workflowEnumsUsed.length > 0) {
+  // Wire schemas for every declared record PAYLOAD a workflow param names —
+  // the `create(c: FileClaim)` explicit-command form (`docs/workflow.md`,
+  // `docs/payloads.md` §1).  A payload lowers to an `entity` TypeIR, whose
+  // request-side zod arm is `z.unknown()`; without a real schema here the
+  // request body carried NO contract and every downstream `c.<field>` read was
+  // `TS18046: 'c' is of type 'unknown'` (#2864 D7/T2).  The component is named
+  // `<Payload>Response` because that is the spelling .NET / java / python /
+  // elixir already reference from their own request DTOs (their shared
+  // wire-type mappers render an `entity` as `<Name>Response`), so all five
+  // backends publish ONE component name for this shape.
+  const workflowPayloads = workflowParamPayloads(ctx);
+  for (const pl of workflowPayloads) {
+    body.push(
+      ...emitWireSchema(
+        `const ${pl.name}Response`,
+        `${pl.name}Response`,
+        pl.fields.map((f) => ({ name: f.name, base: zodFor(f.type), optional: f.optional })),
+        [],
+        new Set(pl.fields.map((f) => f.name)),
+      ),
+    );
+  }
+  if (workflowVOs.length > 0 || workflowEnumsUsed.length > 0 || workflowPayloads.length > 0) {
     body.push("");
   }
 
@@ -172,7 +199,7 @@ export function buildWorkflowsFile(
     if (!emitsCommandRoute(wf)) continue;
     body.push(`const ${upperFirst(wf.name)}Request = z.object({`);
     for (const p of wf.params) {
-      body.push(`  ${p.name}: ${zodFor(p.type)},`);
+      body.push(`  ${p.name}: ${zodForWorkflowParam(p.type, ctx)},`);
     }
     body.push(`}).openapi("${upperFirst(wf.name)}Request");`);
   }
@@ -482,6 +509,14 @@ export function buildWorkflowsFile(
   imports.push(`import { ${problemNamed.join(", ")} } from "./problem-details";`);
   if (/\bHTTPException\b/.test(bodyStr))
     imports.push(`import { HTTPException } from "hono/http-exception";`);
+  // A `money` field inside a workflow param's VO / payload wire schema renders
+  // as the shared `moneySchema` (the string-encoded decimal every backend
+  // publishes).  It lives in `lib/schemas` and every per-aggregate routes file
+  // imports it; this file never did, so the schema referenced a free name.
+  // Body-scan-gated like every other import here, so a workflow file without a
+  // money-carrying param stays byte-identical.
+  if (/(?<!\.)\bmoneySchema\b/.test(bodyStr))
+    imports.push(`import { moneySchema } from "../lib/schemas";`);
   if (usesIds) imports.push(`import * as Ids from "../domain/ids";`);
   if (errorClasses.length > 0) {
     imports.push(`import { ${errorClasses.join(", ")} } from "../domain/errors";`);
@@ -921,6 +956,7 @@ function emitWorkflowRoute(
       ? [
           `${ind}const state = (await load${upperFirst(wf.name)}(${handle}, ${corrParam.name})) ?? ${allocateLiteral(
             wf,
+            ctx,
             {
               keyExpr: corrParam.name,
               mikroDurable: usingMikro && durableEventTypes(ctx).size > 0,
@@ -1552,6 +1588,7 @@ function emitWorkflowStateHelpers(wf: WorkflowIR, usingMikro = false): string[] 
  *  omitted (nullable columns). */
 function allocateLiteral(
   wf: WorkflowIR,
+  ctx: BoundedContextIR,
   opts: { mikroDurable?: boolean; keyExpr?: string } = {},
 ): string {
   const corr = wf.correlationField as string;
@@ -1560,7 +1597,7 @@ function allocateLiteral(
   const parts = [`${corr}: ${opts.keyExpr ?? "__key"}`];
   for (const f of wf.stateFields ?? []) {
     if (f.name === corr || f.optional) continue;
-    parts.push(`${f.name}: ${defaultLiteralFor(f.type)}`);
+    parts.push(`${f.name}: ${defaultLiteralFor(f.type, ctx)}`);
   }
   // The idempotent-consumer marker is a NULLABLE column, which drizzle's
   // `$inferInsert` makes optional — so the drizzle literal omits it.  The mikro
@@ -1575,8 +1612,18 @@ function allocateLiteral(
 /** A backend-zero literal for a required saga-state column, matching the
  *  Drizzle insert type: numeric integers → `0`, precise-decimals (numeric
  *  columns) → the string `"0"`, bool → `false`, datetime → `new Date()`, json →
- *  `{}`, everything textual (string / guid / enum / id) → `""`, arrays → `[]`. */
-function defaultLiteralFor(t: TypeIR): string {
+ *  `{}`, everything textual (string / guid / id) → `""`, arrays → `[]`.
+ *
+ *  An ENUM column is the one case `""` gets wrong.  Drizzle types a pg enum as
+ *  the literal union of its members, so `""` is not assignable to it and the
+ *  allocate literal fails to type-check (TS2345) the moment a saga's state
+ *  carries an enum — the same `.ddd` shape that used to fail earlier, at
+ *  TS2304, for the unbound `<Enum>Schema` (#2864 D4).  The FIRST declared
+ *  member is the zero: an enum's declaration order is its author-stated
+ *  ordering, and the allocate literal is immediately overwritten by the
+ *  `create` body's own assignment (`claimState := Filed`) before the row is
+ *  ever saved, so this is a type-level placeholder, not a persisted default. */
+function defaultLiteralFor(t: TypeIR, ctx: BoundedContextIR): string {
   if (t.kind === "primitive") {
     switch (t.name) {
       case "int":
@@ -1596,6 +1643,10 @@ function defaultLiteralFor(t: TypeIR): string {
     }
   }
   if (t.kind === "array") return "[]";
+  if (t.kind === "enum") {
+    const first = ctx.enums.find((e) => e.name === t.name)?.values[0];
+    if (first !== undefined) return JSON.stringify(first);
+  }
   return `""`;
 }
 
@@ -1658,7 +1709,7 @@ function emitHandlerFn(
     if (trigger === "create") {
       // Load-or-allocate: a starter creates the instance if its key is new.
       out.push(
-        `  const state = (await load${T}(db, __key)) ?? ${allocateLiteral(wf, {
+        `  const state = (await load${T}(db, __key)) ?? ${allocateLiteral(wf, ctx, {
           mikroDurable: usingMikro && durable,
         })};`,
       );
@@ -2382,18 +2433,62 @@ function pgIsolationLevel(level: import("../../../ir/types/loom-ir.js").Isolatio
   }
 }
 
+/** Request-side zod for a workflow PARAMETER.  Identical to `zodFor` except
+ *  for a declared record payload, whose leaf is an `entity` TypeIR that
+ *  `zodFor` renders as `z.unknown()` — the shape it uses for a containment
+ *  part, which is never a request-body leaf.  A payload param IS one
+ *  (`create(c: FileClaim)`), so it resolves to the `<Payload>Response` schema
+ *  emitted alongside the request record instead of dropping the contract
+ *  (#2864 D7/T2).  Mirrors `routes-builder.zodForResponseField`, which makes
+ *  the same declared-payload exception on the response side. */
+function zodForWorkflowParam(t: TypeIR, ctx: BoundedContextIR): string {
+  const pl = recordPayloadOf(t, ctx);
+  if (!pl) return zodFor(t);
+  const info = wireTypeInfo(t, "request");
+  let z = `${pl.name}Response`;
+  if (info.isCollection) z = `z.array(${z})`;
+  if (info.isNullable) z = `${z}.nullish()`;
+  return z;
+}
+
 /** Value objects referenced by any workflow's parameters.  Same
  *  shape as `routes-builder.collectUsedValueObjects` but scoped to
  *  workflow params instead of aggregate-level surfaces.  Used to
  *  decide which `<Vo>Schema` declarations the workflows file needs
  *  to emit so its request schemas don't reference undefined names. */
-/** Type seeds named on the context's workflow surface — every workflow
- *  parameter.  The schema collectors take the transitive closure of these
- *  through value objects' own fields (see `collectReachableTypes`) so a
- *  `<Vo>Schema` body never references an undeclared `<Enum>Schema`. */
+/** Type seeds named on the context's workflow surface.  Two emission sites
+ *  reference `<Vo>Schema` / `<Enum>Schema` names in this file, so both have to
+ *  seed the collector or the reference resolves to nothing:
+ *
+ *    1. the per-workflow REQUEST schema  — `zodFor(p.type)` over `wf.params`;
+ *    2. the per-workflow INSTANCE RESPONSE schema (`emitInstanceResponseSchemas`)
+ *       — `zodForResponse(f.type)` over `wf.instanceWireShape`, the persisted
+ *       correlation-state row.
+ *
+ *  (2) was missing, so a workflow whose STATE carries an enum (`claimState:
+ *  ClaimState`) emitted `claimState: ClaimStateSchema` with `ClaimStateSchema`
+ *  declared nowhere in the tree — TS2304 (#2864 D4).  The id-source row is the
+ *  correlation token, emitted as a bare `z.string()`, so it names no schema and
+ *  is not seeded: over-seeding would emit an unused `const` and trip the
+ *  generated-code Biome gate.
+ *
+ *  The schema collectors take the transitive closure of these through value
+ *  objects' own fields (see `collectReachableTypes`) so a `<Vo>Schema` body
+ *  never references an undeclared `<Enum>Schema`. */
 function* workflowSchemaSeeds(ctx: BoundedContextIR): Generator<TypeIR> {
   for (const wf of ctx.workflows) {
     for (const p of wf.params) yield p.type;
+    for (const f of wf.instanceWireShape ?? []) {
+      if (f.source !== "id") yield f.type;
+    }
+  }
+  // A payload param's own `<Payload>Response` schema body references the
+  // schema of each of ITS fields, and a payload is not a value object, so
+  // `collectReachableTypes` does not descend into it.  Seeding the fields
+  // directly keeps a payload holding a VO / enum from emitting a schema whose
+  // body names an undeclared `<Vo>Schema`.
+  for (const pl of workflowParamPayloads(ctx)) {
+    for (const f of pl.fields) yield f.type;
   }
 }
 

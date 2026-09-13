@@ -6,6 +6,7 @@ import {
 } from "../../ir/types/loom-ir.js";
 import { lowerFirst, snake, upperFirst } from "../../util/naming.js";
 import { typeReachesMoney, zodForResponse } from "./api-module.js";
+import { collectUsedTypes, emitEnumSchema, emitValueObjectSchema } from "./zod-schemas.js";
 
 // ---------------------------------------------------------------------------
 // Workflow API module + Playwright page object emission.
@@ -66,12 +67,13 @@ export function buildWorkflowsApiModule(
   if (contexts.some(contextUsesMoney)) {
     lines.push(`import { moneySchema } from "../lib/schemas";`);
   }
-  const enumDeps = collectEnumDeps(workflows);
-  const voDeps = collectValueObjectDeps(workflows);
-  for (const dep of [...enumDeps, ...voDeps]) {
-    lines.push(`import { ${dep.schemaName} } from "./${lowerFirst(dep.fromAggregate)}";`);
-  }
+  const { imports: schemaImports, locals: schemaLocals } = collectSchemaDeps(workflows);
+  lines.push(...schemaImports);
   lines.push("");
+  if (schemaLocals.length > 0) {
+    lines.push(...schemaLocals);
+    lines.push("");
+  }
 
   for (const { wf, ctx } of workflows) {
     lines.push(`export const ${upperFirst(wf.name)}Request = z.object({`);
@@ -155,97 +157,100 @@ function emitInstanceHooks(wf: WorkflowIR): string[] {
   return lines;
 }
 
-interface SchemaDep {
-  fromAggregate: string;
-  schemaName: string;
-}
-
 /** The types a workflow's API surface references: its command params plus —
  *  for an observable workflow — its instance wire-shape fields (whose response
- *  schema may name enum / value-object schemas that must be imported). */
+ *  schema may name enum / value-object schemas that must be in scope). */
 function apiSurfaceTypes(wf: WorkflowIR): TypeIR[] {
   return [...wf.params.map((p) => p.type), ...(wf.instanceWireShape ?? []).map((f) => f.type)];
 }
 
-function collectEnumDeps(workflows: Array<{ wf: WorkflowIR; ctx: BoundedContextIR }>): SchemaDep[] {
-  const out = new Map<string, SchemaDep>();
-  for (const { wf, ctx } of workflows) {
-    for (const t0 of apiSurfaceTypes(wf)) {
-      walkType(t0, (t) => {
-        if (t.kind === "enum") {
-          const owner = findFirstAggregateUsingEnum(ctx, t.name);
-          if (owner && !out.has(t.name)) {
-            out.set(t.name, {
-              fromAggregate: owner,
-              schemaName: `${t.name}Schema`,
-            });
-          }
-        }
-      });
-    }
-  }
-  return [...out.values()];
-}
-
-function collectValueObjectDeps(
-  workflows: Array<{ wf: WorkflowIR; ctx: BoundedContextIR }>,
-): SchemaDep[] {
-  const out = new Map<string, SchemaDep>();
-  for (const { wf, ctx } of workflows) {
-    for (const t0 of apiSurfaceTypes(wf)) {
-      walkType(t0, (t) => {
-        if (t.kind === "valueobject") {
-          const owner = findFirstAggregateUsingValueObject(ctx, t.name);
-          if (owner && !out.has(t.name)) {
-            out.set(t.name, {
-              fromAggregate: owner,
-              schemaName: `${t.name}Schema`,
-            });
-          }
-        }
-      });
-    }
-  }
-  return [...out.values()];
-}
-
-function findFirstAggregateUsingEnum(ctx: BoundedContextIR, enumName: string): string | undefined {
-  for (const a of ctx.aggregates) {
-    let used = false;
-    const visit = (t: TypeIR): void => {
-      if (used) return;
-      if (t.kind === "enum" && t.name === enumName) used = true;
-      else if (t.kind === "array") visit(t.element);
-      else if (t.kind === "optional") visit(t.inner);
-    };
-    for (const f of a.fields) visit(f.type);
-    if (used) return a.name;
-  }
-  return ctx.aggregates[0]?.name;
-}
-
-function findFirstAggregateUsingValueObject(
+/** The aggregate module that actually EXPORTS `<name>Schema`, or `undefined`
+ *  when none does.
+ *
+ *  A per-aggregate module (`api/<agg>.ts`) emits a schema for exactly the types
+ *  `collectUsedTypes` reaches from that aggregate's own surface, so asking the
+ *  same collector is the only resolution that cannot disagree with what was
+ *  emitted.  This replaces a `ctx.aggregates[0]` fallback that aimed the import
+ *  at an arbitrary unrelated module whenever NO aggregate used the type — which
+ *  is precisely the case an enum reachable only from a workflow's persisted
+ *  state hits, so `claimState: ClaimState` emitted
+ *  `import { ClaimStateSchema } from "./agency";` against a module that exports
+ *  no such name (#2864 T3). */
+function findAggregateExporting(
   ctx: BoundedContextIR,
-  voName: string,
+  kind: "enum" | "valueobject",
+  name: string,
 ): string | undefined {
   for (const a of ctx.aggregates) {
-    let used = false;
-    const visit = (t: TypeIR): void => {
-      if (used) return;
-      if (t.kind === "valueobject" && t.name === voName) used = true;
-      else if (t.kind === "array") visit(t.element);
-      else if (t.kind === "optional") visit(t.inner);
-    };
-    for (const f of a.fields) visit(f.type);
-    if (used) return a.name;
+    const repo = ctx.repositories.find((r) => r.aggregateName === a.name);
+    const used = collectUsedTypes(a, repo, ctx);
+    const pool = kind === "enum" ? used.enums : used.valueObjects;
+    if (pool.some((t) => t.name === name)) return a.name;
   }
-  return ctx.aggregates[0]?.name;
+  return undefined;
 }
 
-function walkType(t: TypeIR, visit: (t: TypeIR) => void): void {
-  visit(t);
-  if (t.kind === "array") walkType(t.element, visit);
-  else if (t.kind === "optional") walkType(t.inner, visit);
+/** Every enum / value-object schema this module's own schemas name, split into
+ *  the ones an aggregate module exports (import them) and the ones no module
+ *  exports (declare them here, the way the Hono workflow router declares its
+ *  own `const <Enum>Schema` rather than reaching for one).
+ *
+ *  An IMPORTED `<Vo>Schema` carries its whole transitive body in the module it
+ *  came from, so nothing beneath it needs to enter this module's scope — which
+ *  is why the closure is walked only through LOCALLY declared value objects.
+ *  Emitting an import for a name this file never writes would leave a dead
+ *  specifier behind and trip the generated-code Biome gate. */
+export function collectSchemaDeps(workflows: Array<{ wf: WorkflowIR; ctx: BoundedContextIR }>): {
+  imports: string[];
+  locals: string[];
+} {
+  // Enums are kept ahead of value objects in both buckets: a `<Vo>Schema` body
+  // names its field schemas, so every `<Enum>Schema` it can reference has to be
+  // declared above it.
+  const enumImports: string[] = [];
+  const voImports: string[] = [];
+  const enumLocals: string[] = [];
+  const voLocals: string[] = [];
+  const resolved = new Set<string>();
+
+  const ensure = (ctx: BoundedContextIR, t: TypeIR): void => {
+    if (t.kind === "array") {
+      ensure(ctx, t.element);
+      return;
+    }
+    if (t.kind === "optional") {
+      ensure(ctx, t.inner);
+      return;
+    }
+    if (t.kind !== "enum" && t.kind !== "valueobject") return;
+    if (resolved.has(t.name)) return;
+    resolved.add(t.name);
+
+    const owner = findAggregateExporting(ctx, t.kind, t.name);
+    if (owner) {
+      const line = `import { ${t.name}Schema } from "./${lowerFirst(owner)}";`;
+      (t.kind === "enum" ? enumImports : voImports).push(line);
+      return;
+    }
+    if (t.kind === "enum") {
+      const e = ctx.enums.find((x) => x.name === t.name);
+      if (e) enumLocals.push(...emitEnumSchema(e));
+      return;
+    }
+    const vo = ctx.valueObjects.find((x) => x.name === t.name);
+    if (!vo) return;
+    // Declared here, so its field schemas must be in scope here too.
+    for (const f of vo.fields) ensure(ctx, f.type);
+    voLocals.push(...emitValueObjectSchema(vo));
+  };
+
+  for (const { wf, ctx } of workflows) {
+    for (const t of apiSurfaceTypes(wf)) ensure(ctx, t);
+  }
+  return {
+    imports: [...enumImports, ...voImports],
+    locals: [...enumLocals, ...voLocals],
+  };
 }
 
 // ---------------------------------------------------------------------------

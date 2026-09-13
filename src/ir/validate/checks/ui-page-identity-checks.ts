@@ -6,7 +6,7 @@
 import { diagMessage } from "../../../diagnostics/messages.js";
 import type { EnrichedLoomModel, PageIR } from "../../types/loom-ir.js";
 import { allContexts } from "../../types/loom-ir.js";
-import { classifyPage, pageSlotKey } from "../../util/page-kind.js";
+import { classifyPage, type PageNameCtx, pageSlotKey } from "../../util/page-kind.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
 
 // -------------------------------------------------------------------------
@@ -38,7 +38,56 @@ export function validateUiPageIdentity(loom: EnrichedLoomModel, diags: LoomDiagn
     for (const ui of sys.uis) {
       const byPath = new Map<string, PageIR>();
       const bySlot = new Map<string, PageIR>();
+      const byRoute = new Map<string, PageIR>();
       for (const page of ui.pages) {
+        // ROUTE identity — the third way two pages can be indistinguishable,
+        // and the one that is NOT a function of `emitPath`.  Two pages with
+        // different names in different areas compute different emit paths and
+        // fill different archetype slots, yet a shared `route:` makes one of
+        // them unreachable in every router: React/Vue/Angular match the first
+        // declared `path`, and SvelteKit — whose route IS a directory — cannot
+        // even express it, so `svelte/routes-emitter.ts` used to `throw` a bare
+        // `Error` mid-generate (no code, a raw stack trace) on a `.ddd` that
+        // `ddd parse` had just called clean.  Checked here for the same reason
+        // the path/slot pairs above are: one derivation, every frontend.
+        if (page.route) {
+          const priorRoute = byRoute.get(page.route);
+          // ONE pair is exempt, and it is a language rule rather than an
+          // oversight: a scaffold-synthesised `Home` YIELDS to a user page that
+          // claims the same route.  `classifyPage`'s own contract says so
+          // ("write `page Home { … }` to replace the generated landing page"),
+          // and `react/templating/preparers/app-shell.ts` implements it —
+          // `userHasRootRoute` skips the synthesised Home's import AND its
+          // route.  Measured on `web/src/examples/erp/main.ddd`, whose
+          // hand-written `page Dashboard { route: "/" }` sits beside the
+          // scaffold's `Home`: the emitted `App.tsx` carries exactly one
+          // `<Route path="/" element={<Dashboard />} />`.  Refusing that would
+          // break a shipped example and a designed override.
+          //
+          // NOT exempt, and the reason the pair is tested rather than the route:
+          // two USER pages at one route, which no frontend resolves.
+          const exempt =
+            priorRoute !== undefined &&
+            isScaffoldHome(priorRoute, nameCtx) !== isScaffoldHome(page, nameCtx);
+          if (priorRoute && !exempt) {
+            diags.push({
+              severity: "error",
+              message: diagMessage("loom.ui-page-route-collision", {
+                ui: ui.name,
+                first: pageLabel(priorRoute),
+                second: pageLabel(page),
+                route: page.route,
+              }),
+              source: sys.name,
+              code: "loom.ui-page-route-collision",
+            });
+          } else if (priorRoute === undefined || isScaffoldHome(priorRoute, nameCtx)) {
+            // The page that actually MOUNTS owns the route from here on, so a
+            // THIRD page at the same route still collides with the winner
+            // rather than with the yielded Home.
+            byRoute.set(page.route, page);
+          }
+        }
         const path = page.emitPath;
         if (path !== undefined) {
           const prior = byPath.get(path);
@@ -79,6 +128,16 @@ export function validateUiPageIdentity(loom: EnrichedLoomModel, diags: LoomDiagn
       }
     }
   }
+}
+
+/** The scaffold's synthesised landing page — the one page kind that YIELDS its
+ *  route to a user page of the same address (see the exemption above).  A
+ *  hand-written `page Home` classifies the same way on purpose: the scaffold's
+ *  override contract is by NAME, so replacing the landing page and colliding
+ *  with it are the same act. */
+
+function isScaffoldHome(p: PageIR, ctx: PageNameCtx): boolean {
+  return classifyPage(p, ctx).kind === "home";
 }
 
 /** `page 'List'` / `page 'List' (in area ops/orders)` — enough for the author
