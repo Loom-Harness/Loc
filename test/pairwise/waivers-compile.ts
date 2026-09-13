@@ -94,7 +94,22 @@ export const COMPILE_WAIVERS: readonly Waiver[] = [
     // not run, confirmed red on `main` by the first scheduled run (#2797), and
     // FIXED rather than waived.  `test/generator/elixir/paged-find-arity.test.ts`
     // is the per-PR oracle that now stands in for the 78-minute leg.
-    platform: "python|dotnet",
+    // DOTNET DROPPED (wave C2 packet 2b).  The ledger row this waiver records,
+    // `F2-CB-C1-paged-nonrelational`, closed in wave C1 packet 1e: the .NET
+    // document and event-sourced repository builders now emit the 5-argument
+    // `Paged<T>` signature the port declares, so the CS0535 is gone.  Measured,
+    // not assumed — `LOOM_PAIRWISE=1 LOOM_DOTNET_BUILD=1 npm run
+    // test:pairwise-corpus-dotnet` failed this entry's REVERSE ratchet on all
+    // five matching cases (`none-document-requires-tph-paged-dapper`,
+    // `none-eventLog-mask-paged-default`,
+    // `softDeletable-document-policyAllow-paged-default`,
+    // `tenantOwned-document-none-tph-paged-dapper`,
+    // `none-document-deny-tph-paged-dapper`), which is the arm that exists
+    // precisely to notice a waiver whose bug was fixed elsewhere.  The python
+    // half is left standing for wave C2 packet 2e to measure the same way — the
+    // C1 fix claimed all five backends, and an unverified narrowing here would
+    // just move the stale claim rather than close it.
+    platform: "python",
     persistence: "*",
     capability: "*",
     shape: "document|eventLog",
@@ -102,9 +117,9 @@ export const COMPILE_WAIVERS: readonly Waiver[] = [
     inheritance: "*",
     read: "paged",
     reason:
-      "F12 — paged × document/eventLog on python + dotnet: the caller expects the " +
+      "F12 — paged × document/eventLog on python: the caller expects the " +
       "envelope, the non-relational repository builders drop the carrier " +
-      "(mypy call-arg/attr-defined; CS0535)",
+      "(mypy call-arg/attr-defined)",
   },
   {
     // ---- F13 (W3) ------------------------------------------------------
