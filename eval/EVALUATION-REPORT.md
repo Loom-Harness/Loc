@@ -11,7 +11,7 @@ populated database, attacked its tenant isolation from outside, and only then re
 the maintainers' internal material.
 **Evidence:** `eval/EVAL-LOG.md` (commands + exact output + time lost),
 `eval/FINDINGS.md` (43 findings + 6 recorded positives, numbered, with repro steps),
-`eval/repro/*.ddd` (17 minimal reproductions), `eval/fieldops/`, `eval/clearline/`,
+`eval/repro/*.ddd` (18 minimal reproductions), `eval/fieldops/`, `eval/clearline/`,
 `eval/adversarial/`.
 
 ---
