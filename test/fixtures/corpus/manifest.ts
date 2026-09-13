@@ -57,6 +57,22 @@ const IN_APP_DOCUMENT_FILTER: readonly Backend[] = ALL;
  *  `select count(*) from <schema>.<table>`). */
 const DOCUMENT_TABLE_AGGREGATION: readonly Backend[] = ALL.filter((b) => b !== "java");
 
+/** The backends that can express a capability `filter` over a TPH
+ *  (`sharedTable`) concrete — i.e. a predicate reading a column that exists on
+ *  only ONE subtype of the shared table.
+ *
+ *  `dotnet` is absent, and this is the NAME of that exclusion.  EF Core applies
+ *  a query filter to the ROOT entity type of a hierarchy only ("A filter may
+ *  only be applied to the root entity type"), and a root-hosted filter must
+ *  typecheck against the root for EVERY concrete — so a predicate over a
+ *  sibling-only column is not expressible: a CLR downcast raises "No coercion
+ *  operator is defined between types", and `EF.Property<T>(x, "…")` raises "the
+ *  specified property does not exist on the entity type" (both reproduced
+ *  against EF Core 10.0.10; see `nonRootFilterFields`, src/ir/util/inheritance.ts).
+ *  Refused honestly by `loom.tph-filter-unsupported`, not silently dropped; the
+ *  key returns the day that gate closes. */
+const TPH_CAPABILITY_FILTER: readonly Backend[] = ALL.filter((b) => b !== "dotnet");
+
 export interface CorpusFeature {
   /** Matches `<id>.ddd` in this directory. */
   readonly id: string;
@@ -111,6 +127,14 @@ export const CORPUS: readonly CorpusFeature[] = [
   { id: "embedded-optional", title: "shape: embedded — optional single containment (nullable jsonb)", doc: "language", backends: ALL },
   { id: "inheritance", title: "aggregate inheritance — TPH (sharedTable) + TPC (ownTable)", doc: "inheritance", backends: ALL },
   { id: "tph", title: "TPH-only (sharedTable) hierarchy — Vehicle/Car/Truck canonical fixture", doc: "inheritance", backends: ALL },
+  {
+    id: "tph-crossings",
+    title:
+      "TPH (sharedTable) × a CAPABILITY — a `softDeletable` concrete whose filter reads a column the shared table made nullable",
+    doc: "inheritance",
+    backends: TPH_CAPABILITY_FILTER,
+    note: "Minted by pairwise F15.  `tph.ddd`'s concretes carry no capability, so nothing in the curated corpus crossed inheritance with a capability `filter` — and the crossing is where it broke: sharing a table makes a subtype's OWN columns nullable, so `softDeletable`'s `is_deleted` types as `bool | None` and python's `not_(Row.is_deleted)` stopped being a `ColumnElement[bool]` (4 × `mypy --strict` arg-type, once per emitted read).  The sibling crossing `shape: embedded` × TPH (pairwise F13) belongs in this fixture too and is named in its header: it waits on pairwise F11 (the drizzle repository targets the concrete's own, non-existent table), since adding it here would turn `corpus-tsc-build` red on a defect this fixture is not about.",
+  },
   { id: "event-sourcing", title: "`persistedAs: eventLog` — append-only stream + appliers", doc: "workflow", backends: ALL },
   { id: "eventsourced-workflow", title: "event-sourced saga folding its own emitted events", doc: "workflow", backends: ALL },
   { id: "saga", title: "in-process dispatch / saga with persisted correlation", doc: "workflow", backends: ALL },

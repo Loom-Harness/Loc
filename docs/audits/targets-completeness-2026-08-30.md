@@ -141,21 +141,21 @@ gate already encodes the row's claim, run the gate.
 
 | metric | value |
 |---|---|
-| open rows | **135** |
+| open rows | **134** |
 | P0 | 0 |
 | P1 | 1 |
 | P2 | 11 |
 | P3 | 34 |
-| P4 | 80 |
+| P4 | 79 |
 | P5 | 9 |
-| kind: silent / honest / breadth / mission / stale-prose | 12 / 34 / 22 / 58 / 9 |
-| confidence: proven / likely / suspected | 23 / 111 / 1 |
+| kind: silent / honest / breadth / mission / stale-prose | 12 / 34 / 22 / 57 / 9 |
+| confidence: proven / likely / suspected | 23 / 110 / 1 |
 | class: faulty-fix / regression | 1 / 0 |
-| size S / M / L | 34 / 58 / 43 |
-| provenance: fleet1-only / fleet2-only / corroborated by both | 123 / 10 / 1 |
+| size S / M / L | 34 / 58 / 42 |
+| provenance: fleet1-only / fleet2-only / corroborated by both | 122 / 10 / 1 |
 | claimed by an open PR | 61 |
 | done / merged | 153 |
-| declined (not a gap: stale / breadth / duplicate / decided) | 6 |
+| declined (not a gap: stale / breadth / duplicate / decided) | 7 |
 | conflicts | 10 |
 | checkedOk entries | 146 |
 | rows scheduled into waves | 134 across 13 packets |
@@ -173,7 +173,7 @@ Sorted P0 (security / data-integrity, silent, proven) → P1 (other silent prove
 | P2 | `F2-W-06` | silent | like | elixir | S | elixir persists `datetime` at SECOND precision (`:utc_datetime`) where the other four use TIMESTAMPTZ(µs) |
 | P2 | `G2646-open-heex-layout-inert` | silent | like | elixir | M | #2646 documented, NOT fixed: on HEEx a non-server-paged Table gets no pager and the `i18nFormat` wrapper is dropped (the Grid arm of this row was stale and is retired) |
 | P2 | `M-T1.16-invariant-validation-feliz-flutter` | silent | like | feliz, flutter | M | Invariant-derived client-side form validation is missing on BOTH self-hosting frontends — Feliz and Flutter enforce "Required" only |
-| P2 | `M-T5.14-reading-service-readport-not-threaded` | silent | like | dotnet, java, python, elixir | M | A `reading` domain service called from an explicit `commandHandler`/`queryHandler` emits a port-less call that does not compile on dotnet, java, python and elixir (node threads it; the workflow caller is correct everywhere; the aggregate-body caller is honestly refused) |
+| P2 | `M-T5.14-reading-service-readport-not-threaded` | silent | like | dotnet, java, elixir | M | A `reading` domain service called from an explicit `commandHandler`/`queryHandler` emits a port-less call that does not compile on dotnet, java and elixir (node and python thread it; the workflow caller is correct everywhere; the aggregate-body caller is honestly refused) |
 | P2 | `queryview-lambda-int-plus-literal-concat` | silent | like | react, vue, svelte, angular, feliz, flutter | M | An int LITERAL operand of `+` against a read-record member in a page body lowers to string concatenation — silently wrong on the four JS frontends (`o.qty + String(1)`) and a HARD BUILD BREAK on feliz and flutter |
 | P2 | `schemathesis-F11-int32-range` | silent | like | elixir | M | F11 — ELIXIR publishes a bare `%OpenApiSpex.Schema{type: :integer}` for an `int` body field against an int4 column, so a contract-conforming value 500s (node and python now publish the bound; dotnet and java always did) |
 | P2 | `sourcemap-feliz-flutter-not-emitted` | silent | like | feliz, flutter | M | `--sourcemap` records NOTHING for the feliz and flutter frontends — the plan files it as a test-parity skew, but the emission is absent |
@@ -268,7 +268,6 @@ Sorted P0 (security / data-integrity, silent, proven) → P1 (other silent prove
 | P4 | `override-parity-non-node-routers` | breadth | like | node, dotnet, java, python, elixir | M | M-T9.25 round-2 probe 5: 'one override moves EVERY router' is asserted per-file on node only; the workflow/extern/projection routers are uncensused on all five |
 | P4 | `timers-e2e-leg-missing` | breadth | like | node, dotnet, elixir, python, java | M | No standing runtime gate for timers — every fire / single-fire / catch-up proof to date is a per-PR hand-run (M-T4.1) |
 | P4 | `G2644-M-T5.22-decimal-arithmetic-rule` | mission | prov | node, dotnet, java, python, elixir | L | #2644 F11 / M-T5.22 — decimal arithmetic has no governing rule: 0.1+0.2 diverges on the wire AND in storage across backends |
-| P4 | `G2646-open-python-no-realization-axes` | mission | like | python | L | #2646 documented, NOT fixed: python has no realization axes (no directoryLayout: menu, no second persistence adapter) |
 | P4 | `G2667-C5-outbox-insert-outside-tx` | mission | like | node, dotnet | L | 08-17 register #5: workflow/extern/timer outbox inserts sit outside any transaction (node AND .NET) |
 | P4 | `M-T1.10-realtime-no-runtime-e2e` | breadth | prov | node, dotnet, java, python, elixir | L | M-T1.10 — the realtime SSE wire (incl. the security-relevant tenant-room routing) has NO runtime e2e on any backend; no cross-tenant isolation test exists |
 | P4 | `M-T1.13-menu-reform` | mission | like | react, vue, svelte, angular, feliz, flutter, phoenixLiveView | L | M-T1.13 — implicit sidebar derivation, the per-page `menu {}` bag, and the overloaded `menu` keyword all still ship |
