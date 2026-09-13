@@ -222,9 +222,14 @@ function renderChangeset(
       const value =
         omission.kind === "false"
           ? "false"
-          : isServerSourcedDefault(omission.expr)
-            ? null
-            : renderElixirExpr(omission.expr);
+          : // A non-nullable collection omits to the empty list.  Ecto casts
+            // `[]` for an `{:array, _}` / `embeds_many` field the same way it
+            // casts a supplied list, so this needs no per-element shape.
+            omission.kind === "empty-collection"
+            ? "[]"
+            : isServerSourcedDefault(omission.expr)
+              ? null
+              : renderElixirExpr(omission.expr);
       return value === null ? null : `    |> __default(:${snake(f.name)}, ${value})`;
     })
     .filter((l): l is string => l !== null);

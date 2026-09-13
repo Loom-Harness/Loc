@@ -2482,8 +2482,30 @@ const RESPONSE_PRIMITIVE: Record<WirePrimitive, string> = {
 
 export function zodFor(t: TypeIR, context: "create-body" | "body" | "query" = "body"): string {
   const info = wireTypeInfo(t, "request");
-  if (info.isNullable) return `${zodFor(peelNullable(t), context)}.nullish()`;
-  if (info.isCollection) return `z.array(${zodFor(peelCollection(t), context)})`;
+  if (info.isNullable) {
+    // A NULLABLE collection keeps "omitted → null", so the create-body
+    // collection default below must not fire inside it: `legs: Leg[]?` has to
+    // stay able to distinguish "not supplied" from "supplied empty".  Only the
+    // collection default is suppressed — the nullable-bool path is unchanged.
+    const inner = peelNullable(t);
+    const innerContext =
+      context === "create-body" && wireTypeInfo(inner, "request").isCollection ? "body" : context;
+    return `${zodFor(inner, innerContext)}.nullish()`;
+  }
+  if (info.isCollection) {
+    const arr = `z.array(${zodFor(peelCollection(t), context)})`;
+    // A non-nullable collection in a CREATE body defaults to the empty array
+    // when omitted — the wire half of `hasImplicitDefault`'s `array` arm
+    // (audit #2864 G4).  Without it Hono alone marks the collection required
+    // while the other four backends derive their required-set straight from
+    // `isRequiredCreateInput` and have already dropped it, which shows up as
+    // `required-only-honoApi=[<field>]` in the 5-way parity diff.
+    //
+    // Scoped to `create-body` for the same reason the bool arm below is: an
+    // operation body (`update` included) is full-replacement, so an absent
+    // collection there is a missing required field, not an empty one (RS-26).
+    return context === "create-body" ? `${arr}.default([])` : arr;
+  }
   switch (info.refKind) {
     case "primitive":
       // A non-nullable bool in a CREATE body defaults to `false` when omitted —

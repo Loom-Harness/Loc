@@ -690,6 +690,10 @@ function renderEntity(
       return isServerSourcedDefault(omission.expr) ? undefined : renderTsExpr(omission.expr);
     }
     if (omission.kind === "false") return "false";
+    // A non-nullable collection materializes as the empty array.  Without this
+    // arm it would fall to `undefined` and take the `?? null` path below,
+    // assigning `null` to a field typed `T[]` (audit #2864 G4).
+    if (omission.kind === "empty-collection") return "[]";
     return undefined; // plain optional — the `?? null` path below already covers it
   };
   // Server-seeded literal defaults (RS-11): a field outside the create-input
