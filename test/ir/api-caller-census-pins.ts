@@ -445,6 +445,17 @@ export const UNCALLED_PINS: Record<string, Record<string, string>> = {
     updateOrganization: R.tenantRegistryRow,
     allOrganization: R.tenantRegistryRow,
   },
+  // Same registry class again, in the fixture wave-3 row 3.3 drained.  Only the
+  // THREE id-taking routes are pinned: `create` and `all` ARE called there, and
+  // the collection read carries the assertion the pin class implies — a row the
+  // caller just created comes back INVISIBLE to it (`total` is 0), because the
+  // self-scope filter compares the row id against a claim that is the string
+  // "acme".  That is the pin's own reason, asserted rather than described.
+  "corpus/projection-agg-filters": {
+    getOrganizationById: R.tenantRegistryRow,
+    destroyOrganization: R.tenantRegistryRow,
+    updateOrganization: R.tenantRegistryRow,
+  },
   "corpus/tenancy-claim-name": {
     // Same registry class, under the `orgId` claim.
     createOrganization: R.tenantRegistryRow,
@@ -529,6 +540,17 @@ export const UNATTRIBUTED_CALLS: Record<string, readonly string[]> = {
   // their fixtures.
   "corpus/projection-aggregation": [
     "api.orderVolume.list (no such aggregate)",
+    "api.salesTotals.list (no such aggregate)",
+  ],
+  // The capability-filter crossing (wave-3 row 3.3).  Same `notLifted` class as
+  // its three siblings above and below — four projection reads, none of which
+  // lifts to a derived operation.  `allTimeVolume` is the `ignoring` witness:
+  // it and `orderVolume` are the same shape over the same table and must
+  // DISAGREE once a row is soft-deleted, which is what the drained e2e asserts.
+  "corpus/projection-agg-filters": [
+    "api.allTimeVolume.list (no such aggregate)",
+    "api.orderVolume.list (no such aggregate)",
+    "api.salesByStatus.list (no such aggregate)",
     "api.salesTotals.list (no such aggregate)",
   ],
   // The by-id-follow join's read — same `notLifted` class, third shape.
@@ -629,11 +651,6 @@ export const E2E_LESS_CORPUS_FIXTURES: readonly string[] = [
   // mints a five-way wire golden for a cascade no golden covers yet, and
   // capturing that needs the behavioural legs rather than this fixture's PR.
   "workflow-create-state",
-  // COMPILE-TIER WITNESS (generator review A1) — a projection aggregation over
-  // a `tenantOwned` + `softDeletable` source; pins that the emitted aggregation
-  // read carries the capability predicates.  The runtime half needs the
-  // two-principal harness (`tenancy-e2e.yml` owns that shape).
-  "projection-agg-filters",
   // COMPILE-TIER WITNESS (M-T6.54 F18), for the SAME reason as
   // `projection-agg-filters` directly above — same capabilities, same missing
   // harness.  The assertion this fixture wants is "a SECOND tenant's rows
@@ -837,7 +854,7 @@ export const E2E_LESS_CORPUS_FIXTURES: readonly string[] = [
  * recurs — see `autoFindAll` and `crudishUpdate`).
  */
 export const PIN_CLASS_CENSUS: Readonly<Record<string, number>> = {
-  tenantRegistryRow: 20,
+  tenantRegistryRow: 23,
   seededListReadUnwritten: 2,
   gateProbe: 1,
   clockDependentFind: 1,

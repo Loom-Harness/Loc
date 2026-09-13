@@ -21,11 +21,32 @@
 // `ignoring softDeletable` must drop the not-deleted conjunct and KEEP the
 // tenant one, exactly as the row-shaped repository path does.
 //
-// COMPILE-TIER ONLY — no `test e2e` block.  The runtime assertion this fixture
-// wants (a second tenant's rows are absent from the total) needs a two-principal
-// harness the behavioural runners do not have, and its wire goldens cannot be
-// captured without one; the structural gate (per-backend generator tests
-// asserting the predicate is in the emitted read) carries the proof instead.
+// RUNTIME + COMPILE.  This header used to say "COMPILE-TIER ONLY — no `test e2e`
+// block", on the grounds that the runtime assertion needs a two-principal
+// harness.  That was true of ONE of the two conjuncts and was applied to both.
+//
+// The `softDeletable` conjunct is a statement about rows the SAME principal
+// wrote, so it is assertable with one identity — and it is the half this header
+// already described as "a plain WRONG NUMBER with no auth involved".  The
+// `test e2e` block below drives it, and the load-bearing pair is `OrderVolume`
+// vs `AllTimeVolume`: same table, same shape, no `where` on either, differing
+// only in `ignoring softDeletable`.  Once a row is soft-deleted they must
+// DISAGREE (2 and 3), which catches a backend that drops the predicates AND one
+// that applies them to the `ignoring` read, in one assertion.
+//
+// Draining it needed a fixture change, and the fixture change IS the finding:
+// `softDeletable` is a pure mixin (fields + filter, no operation), so with the
+// capability alone nothing could ever set `isDeleted` through the api and the
+// conjunct was unobservable at runtime — `crudish`'s `destroy` is a hard delete,
+// which moves every count equally whether the predicate is emitted or not.  The
+// `softDelete` MACRO had to join it, exactly as `scaffold-macros`' `Item` (#2468).
+//
+// STILL COMPILE-TIER ONLY: the TENANT conjunct.  Showing a second tenant's rows
+// are absent from a total needs rows written by another principal, and a
+// `test e2e` block runs entirely as one; the cross-tenant ladder rung cannot
+// carry it either, because a leaking aggregation answers 200 with a wrong
+// NUMBER and the ladder asserts status.  The per-backend generator tests remain
+// the oracle for that half.
 system ProjectionAggFilters {
   user { id: guid  tenantId: string }
 
@@ -35,7 +56,15 @@ system ProjectionAggFilters {
     context Orders {
       enum OrderStatus { Draft Confirmed Cancelled }
 
-      aggregate Order with tenantOwned, softDeletable, crudish {
+      // `softDelete` (the MACRO) joins the capability deliberately.  A
+      // capability is a pure mixin — `softDeletable` supplies the `isDeleted`
+      // field and the read filter and NO OPERATION — so with the capability
+      // alone nothing can ever set `isDeleted` through the api, and the
+      // not-deleted conjunct this fixture exists to test is UNOBSERVABLE at
+      // runtime: `crudish`'s `destroy` is a hard delete, which removes the row
+      // and moves every count equally whether the predicate is emitted or not.
+      // Same shape, same fix, same reason as `scaffold-macros`' `Item` (#2468).
+      aggregate Order with tenantOwned, softDeletable, softDelete, crudish {
         code: string
         total: money
         lineCount: int
@@ -108,5 +137,116 @@ system ProjectionAggFilters {
     serves: OrdersApi
     port: 4000
     auth: required
+  }
+
+  // ── RUNTIME half (wave-3 row 3.3) ─────────────────────────────────────────
+  // The header used to say this fixture could have no `test e2e` block at all,
+  // because the assertion it wants needs a second tenancy principal.  That is
+  // true of the TENANT conjunct and only of it.  The aggregate carries TWO
+  // filter-contributing capabilities, and the `softDeletable` one is a
+  // statement about rows the SAME principal wrote — so it is assertable today,
+  // and it is the half the header itself describes as "a plain WRONG NUMBER
+  // with no auth involved: the aggregation counts rows `findAll` excludes".
+  //
+  // The load-bearing pair is `OrderVolume` vs `AllTimeVolume`.  Same table, same
+  // shape, no `where` on either; the ONLY difference is that `AllTimeVolume`
+  // declares `ignoring softDeletable`.  After one row is soft-deleted they must
+  // DISAGREE — 2 and 3.  That single divergence catches both directions of the
+  // bug at once, which no single-number assertion can:
+  //
+  //   * a backend that drops the capability predicates from aggregation reads
+  //     (the node/python/java/dapper leak this fixture was written for) reads
+  //     3 for `OrderVolume`, and the two agree when they must not;
+  //   * a backend that applies them to the `ignoring` read as well reads 2 for
+  //     `AllTimeVolume`, and they agree again from the other side.
+  //
+  // What this still does NOT prove is the tenant conjunct: showing a second
+  // tenant's rows are absent from a total needs rows written by another
+  // principal, and a `test e2e` block runs entirely as one.  The cross-tenant
+  // ladder rung added in slice 1 cannot carry it either — a leaking aggregation
+  // answers 200 with a wrong NUMBER, and the ladder asserts status.  That half
+  // stays with the per-backend generator tests until the harness can seed as a
+  // second principal.
+  test e2e "capability predicates ride the aggregation reads — and `ignoring` drops exactly one" against d {
+    // Empty table: `count()` zero-defaults on both shapes.
+    let empty = api.orderVolume.list()
+    expect(empty.total).toBe(0)
+    let emptyAll = api.allTimeVolume.list()
+    expect(emptyAll.total).toBe(0)
+
+    // Two Confirmed, one Draft.  The criterion `where` is the pre-existing
+    // predicate the capability conjuncts must AND with rather than replace.
+    let a = api.orders.create({ code: "O-1", total: money("10.00"), lineCount: 2, status: "Confirmed" })
+    let b = api.orders.create({ code: "O-2", total: money("30.00"), lineCount: 4, status: "Confirmed" })
+    let draft = api.orders.create({ code: "O-3", total: money("5.00"), lineCount: 1, status: "Draft" })
+
+    let totals = api.salesTotals.list()
+    expect(totals.orders).toBe(2)
+    expect(decimal(totals.revenue)).toBe(40)
+    let volume = api.orderVolume.list()
+    expect(volume.total).toBe(3)
+    let allTime = api.allTimeVolume.list()
+    expect(allTime.total).toBe(3)
+
+    // ── the soft delete ───────────────────────────────────────────────────
+    // `softDeletable` turns this into an UPDATE, so the row stays in the table
+    // and only the capability predicate hides it.  That is what makes the next
+    // four assertions a test of the emitted WHERE clause rather than of DELETE.
+    api.orders.softDelete(b)
+
+    // The filtered reads move; the `ignoring` read does not.
+    let volumeAfter = api.orderVolume.list()
+    expect(volumeAfter.total).toBe(2)
+    let allTimeAfter = api.allTimeVolume.list()
+    expect(allTimeAfter.total).toBe(3)
+
+    // The same predicate has to ride the criterion-filtered read…
+    let totalsAfter = api.salesTotals.list()
+    expect(totalsAfter.orders).toBe(1)
+    expect(decimal(totalsAfter.revenue)).toBe(10)
+
+    // …and the GROUPED read, where a backend that filters after grouping keeps
+    // a stale bucket.
+    let byStatus = api.salesByStatus.list()
+    expect(byStatus.count()).toBe(2)
+    let firstGroup = byStatus.first()
+    expect(firstGroup.orders).toBe(1)
+
+    // `restore()` cannot reach the row it is for — the SAME RS-27 shape
+    // `scaffold-macros` pins out loud: the route loads through the scoped read,
+    // which the capability's own filter hides, so the only honest assertion is
+    // the 404.  Recorded here too because this fixture now drives the identical
+    // lifecycle, and a fix that lifts the restriction must flip BOTH.
+    expect(api.orders.restore(b)).toThrow(404)
+
+    // The row-shaped routes beside the aggregations — the same predicates on
+    // the path that already worked, as the control for the aggregation half.
+    let readBack = api.orders.getById(a)
+    expect(readBack.code).toBe("O-1")
+    api.orders.update(a, { code: "O-1b", total: money("20.00"), lineCount: 2, status: "Confirmed" })
+    let afterUpdate = api.salesTotals.list()
+    expect(decimal(afterUpdate.revenue)).toBe(20)
+    let listed = api.orders.all()
+    expect(listed.items.length).toBe(2)
+    expect(listed.total).toBe(2)
+
+    // HARD delete, for contrast: `crudish`'s `destroy` removes the row, so even
+    // the `ignoring softDeletable` read loses it.  That is the distinction the
+    // soft-delete assertions above rest on — one hides a row that is still
+    // there, the other takes it away.
+    api.orders.destroy(draft)
+    let allTimeHard = api.allTimeVolume.list()
+    expect(allTimeHard.total).toBe(2)
+
+    // The registry aggregate, and the one assertion its scope admits.
+    // `Organization` is the `tenancy by` REGISTRY, so its self-scope filter is
+    // `this.id == currentUser.tenantId` — and the harness principal's claim is
+    // the string "acme", not a row id.  A row created here is therefore INVISIBLE
+    // to the caller that just created it: the collection read must come back
+    // empty, and every id-taking route on it 404s.  That is the documented
+    // `tenantRegistryRow` class, pinned rather than called.
+    api.organizations.create({ name: "Acme" })
+    let orgs = api.organizations.all()
+    expect(orgs.total).toBe(0)
   }
 }
