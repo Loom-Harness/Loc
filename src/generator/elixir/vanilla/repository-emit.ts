@@ -13,6 +13,7 @@
 // ---------------------------------------------------------------------------
 
 import {
+  envelopeReturn,
   PAGED_DEFAULT_PAGE,
   PAGED_DEFAULT_PAGE_SIZE,
   pagedReturn,
@@ -106,6 +107,11 @@ function isSingleReturn(t: TypeIR): boolean {
   if (t.kind === "optional" && t.inner.kind === "entity") return true;
   if (t.kind === "entity") return true;
   if (t.kind === "union") return true;
+  // `T envelope` is a SINGLE-ROW find (M-T6.57, ratified).  It fell through to
+  // the LIST arm here, so `audit/0` ran `Repo.all(query)` — EVERY row — and the
+  // controller answered a JSON ARRAY, while this app's own published OpenAPI
+  // declares a single object plus a 404.
+  if (envelopeReturn(t)) return true;
   return false;
 }
 
@@ -549,9 +555,23 @@ function renderFindFn(
   // A principal-filtered aggregate threads the request actor into the find too
   // (the `cap` references `current_user`).  `\\ nil` keeps the workflow callers
   // compiling + fail-closed.
-  const argList = [...argNames, ...pageArgs, ...(principal ? ["current_user \\\\ nil"] : [])].join(
-    ", ",
-  );
+  //
+  // …UNLESS THIS FIND DROPPED IT.  `cap` is recomputed per find with the find's
+  // own `ignoring` clause, so `find ... ignoring tenantOwned` emits a `where:`
+  // with no `current_user` in it — and a bound-but-unread parameter is a
+  // warning, which `mix compile --warnings-as-errors` (the corpus elixir leg)
+  // turns into a build failure.  So the head is derived from the BODY: keep the
+  // arity (callers pass the actor positionally whether or not this find reads
+  // it) and underscore the NAME when nothing in the rendered body mentions it.
+  // The document repository already did this; the relational path did not, and
+  // no fixture crossed `ignoring` with a principal filter on a relational find
+  // until `corpus/find-bypass` (M-T6.54 F18).
+  const headFor = (body: string): string =>
+    [
+      ...argNames,
+      ...pageArgs,
+      ...(principal ? [`${/\bcurrent_user\b/.test(body) ? "" : "_"}current_user \\\\ nil`] : []),
+    ].join(", ");
   const single = isSingleReturn(f.returnType);
 
   const renderCtx: RenderCtx = {
@@ -579,7 +599,7 @@ function renderFindFn(
     const where = combineWhere(`join_row.id == ^${arg}`, cap) ?? `join_row.id == ^${arg}`;
     const spec = `  @spec ${fnName}(${specArgsEarly.join(", ")}) :: ${specTailEarly}`;
     return `${spec}
-  def ${fnName}(${argList}) do
+  def ${fnName}(${headFor(where)}) do
     query =
       from(record in ${aggModule},
         join: join_row in assoc(record, :${rel}),
@@ -638,7 +658,7 @@ function renderFindFn(
       .map((wf) => `        "${wf}" -> :${snake(wf)}`)
       .join("\n");
     return `${spec}
-  def ${fnName}(${argList}) do
+  def ${fnName}(${headFor(query)}) do
     query = ${query}
     total = Repo.aggregate(query, :count, :id)
     offset = (page - 1) * page_size
@@ -669,7 +689,7 @@ ${sortArms}${sortArms ? "\n" : ""}        _ -> :id
   }
 
   return `${spec}
-  def ${fnName}(${argList}) do
+  def ${fnName}(${headFor(query)}) do
     query = ${query}
     {:ok, ${fetchCall}}
   end`;

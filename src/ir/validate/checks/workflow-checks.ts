@@ -16,6 +16,12 @@ import type {
 } from "../../types/loom-ir.js";
 import { findUsesCurrentUser } from "../../types/loom-ir.js";
 import { walkExprDeep, walkStmtExprsDeep } from "../../util/walk.js";
+import { emitsCommandRoute } from "../../util/workflow-command-route.js";
+import {
+  commandCreateCorrelationParam,
+  facadeCreate,
+  workflowBodyUsesOwnState,
+} from "../../util/workflow-own-state.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
 
 // ---------------------------------------------------------------------------
@@ -192,6 +198,7 @@ export function validateWorkflows(
     }
     validateWorkflowBody(ctx, wf, diags);
     validateWorkflowCorrelation(ctx, wf, diags, allEvents);
+    validateWorkflowOwnStateAddressable(ctx, wf, diags);
     validateWorkflowCreates(wf, diags, ctx.name);
     validateWorkflowFunctions(wf, diags, ctx.name);
   }
@@ -436,6 +443,107 @@ function validateWorkflowCorrelation(
       }
     }
   }
+}
+
+// ---------------------------------------------------------------------------
+// Own-state addressability (F58 / M-T6.62 — the case #2850 deferred).
+//
+// Workflow `Property` members are SAGA STATE: they live in a persisted
+// correlation row keyed by the workflow's one id-shaped state field, and every
+// backend renders a body that touches them against that LOADED row
+// (`thisName: "state"`).  A command create that names no key has no such row,
+// so the body falls back to the default `this` receiver — unbound in a Hono
+// module-scope arrow (TS2683), on a .NET/Java handler class with no such
+// member, in a module-level python `async def`, and inside an Elixir
+// `with`-chain.
+//
+// `commandCreateCorrelationParam` (ir/util/workflow-own-state.ts) is the single
+// rule both halves read: the key is the param NAMED for the correlation field,
+// else the param a `<corr> := <param>` statement assigns it from.  This check is
+// its exact complement — everything that rule cannot address, and that would
+// therefore render unbound, is refused here rather than emitted:
+//
+//   loom.workflow-create-correlation-unsupplied           no such param
+//   loom.workflow-create-correlation-unsupplied#payload   the key is a FIELD of
+//       a payload-typed param (`create(c: FileClaim)`, reported on #2850).
+//       Refused rather than followed one level down, for two reasons: the
+//       emitters would render `c.<corr>` against a param that has no wire
+//       contract yet (it emits `z.unknown()`, so the key would be
+//       `unknown`-typed and node still would not compile — that half is
+//       #2886's), and the author has a spelling that works today.
+//
+// TWO THINGS DELIBERATELY NOT GATED, named so the silence is not read as a
+// claim that they are fine:
+//
+//   * a workflow with `Property` members and NO id-shaped field at all.  That
+//     is a SHIPPED shape, not a gap: M-T6.50 (b) made python emit a
+//     request-scoped scratch (`self = SimpleNamespace(...)`) for it.  node,
+//     .NET and java still emit an unbound `this` there — a cross-backend parity
+//     gap on M-T6.62, not something to refuse.
+//   * a command create whose body does NOT touch own state: it emits fine, but
+//     still creates no row, so an `on` reactor for the same key logs
+//     `event_unrouted` forever (the reactor path loads, it does not allocate).
+//     A row-allocation question, not a receiver-binding one; refusing it would
+//     refuse a legitimately stateless command starter.
+function validateWorkflowOwnStateAddressable(
+  ctx: BoundedContextIR,
+  wf: WorkflowIR,
+  diags: LoomDiagnostic[],
+): void {
+  const stateFields = wf.stateFields ?? [];
+  if (stateFields.length === 0) return;
+  const src = `${ctx.name}/${wf.name}`;
+  const idFields = stateFields.filter((f) => f.type.kind === "id");
+  if (idFields.length !== 1) return; // 0: see above.  >1: `correlation-field-ambiguous`.
+  if (wf.eventSourced) return; // folded from a stream; no mutable row to key.
+  if (!emitsCommandRoute(wf)) return; // event-triggered facade: routed by `by`.
+  if (commandCreateCorrelationParam(wf)) return; // addressable — the emitters key on it.
+
+  const corr = idFields[0].name;
+  // The primary (facade) create is the one the command route renders.  Only a
+  // body that touches own state renders against the instance at all.
+  const facade = facadeCreate(wf);
+  if (!facade || !workflowBodyUsesOwnState(facade.statements)) return;
+
+  // The reported payload-typed form: a param whose own fields carry a
+  // name-match.  Same code, a message that can name the field it found.
+  const nested = payloadFieldMatch(ctx, wf, corr);
+  diags.push({
+    severity: "error",
+    message: nested
+      ? diagMessage("loom.workflow-create-correlation-unsupplied#payload", {
+          name: wf.name,
+          corr,
+          param: nested.param,
+          payload: nested.payload,
+        })
+      : diagMessage("loom.workflow-create-correlation-unsupplied", {
+          name: wf.name,
+          corr,
+          params: wf.params.length > 0 ? wf.params.map((p) => p.name).join(", ") : "(none)",
+        }),
+    source: src,
+    code: "loom.workflow-create-correlation-unsupplied",
+  });
+}
+
+/** A create param whose PAYLOAD type declares a field named `corr` — the
+ *  `create(c: FileClaim)` shape, where the key is one level down.  Returns the
+ *  param and payload names so the diagnostic can point at them. */
+function payloadFieldMatch(
+  ctx: BoundedContextIR,
+  wf: WorkflowIR,
+  corr: string,
+): { param: string; payload: string } | undefined {
+  for (const p of wf.params) {
+    const t = p.type;
+    if (t.kind !== "entity" && t.kind !== "valueobject") continue;
+    const payload = ctx.payloads.find((pl) => pl.name === t.name);
+    if (payload?.fields.some((f) => f.name === corr)) {
+      return { param: p.name, payload: payload.name };
+    }
+  }
+  return undefined;
 }
 
 function validateWorkflowBody(

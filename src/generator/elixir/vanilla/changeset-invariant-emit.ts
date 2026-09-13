@@ -81,32 +81,66 @@ function structEvaluable(e: ExprIR, scope: ReadonlySet<string> = new Set()): boo
   }
 }
 
+/** `singleFieldConstraints` with the GUARD gate lifted.
+ *
+ *  The classifier refuses a guarded invariant outright (`if (inv.guard) return
+ *  null`) because a native `validate_number`/`validate_length`/`validate_format`
+ *  line has nowhere to put the implication — and that is the right answer for
+ *  the NATIVE path.  It is the wrong question here: this module renders the
+ *  predicate through `renderExpr`, where `.length` / `.matches(…)` / a numeric
+ *  bound come out as `String.length(data.x)` / `Regex.match?(…)` /
+ *  `Decimal.compare(…)` and an `if <guard> do … end` wraps them fine.
+ *
+ *  Asking the native question of a guarded rule is what dropped
+ *  `invariant note.length > 0 when taxRate > 0` on the floor (M-T6.55 F15):
+ *  the native path skipped it because it is guarded, and this one skipped it
+ *  because `singleFieldConstraints` answered null — so NOTHING enforced it,
+ *  while node/.NET/java/python all emit the implication. */
+function structRenderableShape(inv: InvariantIR): boolean {
+  return singleFieldConstraints(inv.guard ? { ...inv, guard: undefined } : inv) !== null;
+}
+
+/** True when this rule's predicate AND guard can both be rendered against the
+ *  applied struct — a struct-evaluable cross-field comparison, or a recognised
+ *  single-field shape (`.length` / `.matches` / numeric bound). */
+function renderableHere(inv: InvariantIR): boolean {
+  return (
+    (structEvaluable(inv.expr) || structRenderableShape(inv)) &&
+    (inv.guard === undefined || structEvaluable(inv.guard))
+  );
+}
+
 /** A MESSAGED rule routes to the `validate_invariants/1` residual carrier — so
  *  its wire `code` rides the `add_error` metadata (Ecto's native validators
  *  can't carry a custom key) — when its predicate is renderable against the
  *  applied struct: either a struct-evaluable cross-field comparison OR a
  *  recognized single-field shape (`.length` / `.matches` / numeric bound, which
  *  `renderExpr` renders as `String.length` / `Regex.match?` / `Decimal.compare`).
- *  A message-LESS single-field rule is unaffected — it keeps its native
- *  `validate_*` line (byte-identical). Consumed by BOTH `residualInvariants`
- *  (to include it here) and `changeset-emit`'s native path (to exclude it
- *  there), so the two never double-emit. */
+ *  A message-LESS UNGUARDED single-field rule is unaffected — it keeps its
+ *  native `validate_*` line (byte-identical). Consumed by BOTH
+ *  `residualInvariants` (to include it here) and `changeset-emit`'s native path
+ *  (to exclude it there), so the two never double-emit. */
 export function messagedRoutesToResidual(inv: InvariantIR): boolean {
   if (inv.message == null) return false;
-  const renderable = structEvaluable(inv.expr) || singleFieldConstraints(inv) !== null;
-  return renderable && (inv.guard === undefined || structEvaluable(inv.guard));
+  return renderableHere(inv);
 }
 
 /** Aggregate invariants that need the `validate_invariants/1` seam: message-less
- *  cross-field comparisons (fully evaluable against the applied struct), plus
- *  every MESSAGED rule that routes here to carry its wire `code`. */
-export function residualInvariants(agg: AggregateIR): InvariantIR[] {
+ *  cross-field comparisons (fully evaluable against the applied struct), every
+ *  GUARDED rule (no native `validate_*` line can carry an implication, so this
+ *  is the only carrier it has — M-T6.55 F15), plus every MESSAGED rule that
+ *  routes here to carry its wire `code`.
+ *
+ *  The three arms cannot double-emit with the native path: `changeset-emit`
+ *  renders `singleFieldConstraints(inv) ?? []`, which is null for a guarded rule
+ *  and empty for a cross-field one, and it skips `messagedRoutesToResidual`
+ *  explicitly. */
+export function residualInvariants(agg: Pick<AggregateIR, "invariants">): InvariantIR[] {
   return (agg.invariants ?? []).filter(
     (inv) =>
       (inv.message == null &&
-        singleFieldConstraints(inv) === null &&
-        structEvaluable(inv.expr) &&
-        (inv.guard === undefined || structEvaluable(inv.guard))) ||
+        (inv.guard !== undefined || singleFieldConstraints(inv) === null) &&
+        renderableHere(inv)) ||
       messagedRoutesToResidual(inv),
   );
 }
@@ -123,7 +157,13 @@ export function aggregateHasResidualInvariants(agg: AggregateIR): boolean {
  *  own `base_changeset`/`update_changeset`).  Empty string when the aggregate
  *  has no residual invariant.  `contextModule` is the `<App>.<Ctx>` prefix the
  *  expression renderer uses for `this`-rooted references. */
-export function renderInvariantValidatorFn(agg: AggregateIR, contextModule: string): string {
+export function renderInvariantValidatorFn(
+  /** Structural, not `AggregateIR`: an ENTITY PART carries its own invariants
+   *  and its own `changeset/2`, and renders the identical validator (M-T6.55
+   *  F14) — the only two members this reads are `invariants` and `fields`. */
+  agg: Pick<AggregateIR, "invariants" | "fields">,
+  contextModule: string,
+): string {
   const residuals = residualInvariants(agg);
   if (residuals.length === 0) return "";
   const rc: RenderCtx = { thisName: "data", contextModule };

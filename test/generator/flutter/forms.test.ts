@@ -38,6 +38,11 @@ system FormsDemo {
         note: string?
         cost: Money
         operation discount(percent: int) { }
+        // \`ProductAdmin\` hosts a \`DestroyForm { of: Product }\`, which submits the
+        // aggregate's CANONICAL destroy — \`loom.destroy-form-of-unresolved\`
+        // (M-T1.31) rejects the form without one, and until it did this fixture
+        // emitted a give-up comment for the very widget the test counts.
+        destroy { }
       }
       repository Products for Product { }
     }
@@ -129,7 +134,7 @@ describe("flutter form projector", () => {
     // under the `cost` JSON object key.
     const amount = byName.get("costAmount")!;
     expect(amount.kind).toBe("number-int");
-    expect(amount.objectKey).toBe("cost");
+    expect(amount.objectPath).toEqual(["cost"]);
     expect(amount.jsonKey).toBe("amount");
     expect(byName.get("costCurrency")!.jsonKey).toBe("currency");
   });
