@@ -1,0 +1,27 @@
+// F-001 minimal repro: a value object used by TWO contexts hosted in ONE
+// dotnet deployable emits an undefined type -> uncompilable C#.
+// `ddd generate system` exits 0 with 0 errors, 0 warnings.
+//   node bin/cli.js generate system eval/repro/F001-dotnet-shared-vo.ddd -o /tmp/f1
+//   grep -rn MoneyResponse /tmp/f1/api_net/Application/*/Responses/
+// -> Application/B/Responses/BetaResponses.cs references MoneyResponse,
+//    which is only declared in namespace Repro.Application.A.Responses.
+system Repro {
+  subdomain S {
+    context A {
+      valueobject Money { amount: decimal  currency: string }
+      aggregate Alpha { price: Money  derived display: string = "a" }
+      repository Alphas for Alpha { }
+    }
+    context B {
+      aggregate Beta { price: Money  derived display: string = "b" }
+      repository Betas for Beta { }
+    }
+  }
+  storage primary { type: postgres }
+  resource aState { for: A, kind: state, use: primary }
+  resource bState { for: B, kind: state, use: primary }
+  deployable apiNet {
+    platform: dotnet, contexts: [A, B],
+    dataSources: [aState, bState], port: 8080
+  }
+}

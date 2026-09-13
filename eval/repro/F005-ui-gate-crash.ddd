@@ -1,0 +1,35 @@
+// F-005 minimal repro: a named `policy` function used as a `requires` gate
+// -- the spelling docs/auth.md and docs/scaffold-macros.md both prescribe --
+// crashes `generate system` when a React UI is mounted.
+//   node bin/cli.js parse    eval/repro/F005-ui-gate-crash.ddd   -> OK, 0 errors
+//   node bin/cli.js generate system eval/repro/F005-ui-gate-crash.ddd -o /tmp/f5
+//   -> Error: UI gate: expression kind 'call' is not supported in a UI gate.
+system Repro {
+  subdomain S {
+    permissions { manage }
+    context C {
+      policy CanManage(): bool = currentUser.permissions.contains(permissions.manage)
+      aggregate Thing with crudish(requires: CanManage) {
+        name: string
+        derived display: string = name
+        operation rename(n: string) {
+          requires CanManage()
+          name := n
+        }
+      }
+      repository Things for Thing { }
+    }
+  }
+  user { id: string  role: string  permissions: string[] }
+  auth {
+    provider: keycloak
+    oidc { issuer: env("OIDC_ISSUER")  clientId: "x" }
+    sessions: cookie
+    claims: { role: "role", permissions: "roles" }
+  }
+  storage primary { type: postgres }
+  resource cState { for: C, kind: state, use: primary }
+  deployable api { platform: node, contexts: [C], dataSources: [cState], auth: required, port: 3000 }
+  ui Web with scaffold(subdomains: [S]) { }
+  deployable web { platform: react, targets: api, ui: Web, auth: ui, port: 3001 }
+}

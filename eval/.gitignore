@@ -1,0 +1,14 @@
+# Generated output trees produced during the evaluation — reproducible from the
+# .ddd sources with `node bin/cli.js generate system <src> -o <dir>`.
+# Kept out of git; the findings quote the relevant fragments inline.
+phase0/out/
+phase0/out2/
+commons/out/
+commons/breadth-out/
+wire/out/
+evo/out/
+evo/mv/
+repro/f006/
+**/node_modules/
+logs/
+commons/elixir-out/
