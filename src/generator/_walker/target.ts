@@ -197,6 +197,20 @@ export interface FilteredRowsSpec {
  *  rather than the record.  A target that needs the truth (Angular and Svelte
  *  null-guard an optional field's read) re-resolves the field off the walk
  *  context; every other target ignores both and behaves exactly as before. */
+/** The three holes {@link WalkerTarget.renderOptionalSplit} fills in.  The
+ *  target supplies the fourth — the absent arm — because a "render nothing
+ *  here" placeholder has no cross-language spelling. */
+export interface OptionalSplitSpec {
+  /** The rendered OPTIONAL expression to test (`row.lastKnownLocation`). */
+  value: string;
+  /** The local the target must bind the unwrapped value to.  `present` was
+   *  already rendered against this exact name, so the target may not choose
+   *  its own. */
+  bound: string;
+  /** Markup for the present case, already rendered over `bound`. */
+  present: string;
+}
+
 export interface MemberReadSpec {
   /** The already-rendered receiver. */
   receiver: string;
@@ -935,6 +949,34 @@ export interface WalkerTarget {
    *  parenthesised ternary; Svelte returns an `{#if}{:else}{/if}`
    *  block (Svelte template expressions cannot evaluate to markup). */
   renderConditionalChild(cond: string, thenS: string, elseS: string, depth: number): string;
+
+  /** OPTIONAL — spell the present/absent split around ONE optional VALUE, for a
+   *  target whose language cannot test an optional for truthiness (M-T1.33).
+   *
+   *  {@link renderConditionalChild} is the JS/markup family's whole answer to
+   *  "guard this nullable": `row.lastKnownLocation` is itself a usable
+   *  condition, and inside the true arm TypeScript narrows it to the non-null
+   *  type, so the same expression serves as both guard and value.  Neither half
+   *  of that holds on the two statically-typed non-JS frontends.  F# `if` takes
+   *  a `bool`, not a `string option`, and Dart's `? :` takes a `bool`, not a
+   *  `String?` — and even past the guard, `"/locations/" + <string option>` and
+   *  `'/locations/' + <String?>` are still not the concatenations the pack
+   *  template wants.  Both need the value UNWRAPPED, which in both languages
+   *  means BINDING it.
+   *
+   *  So the caller renders `present` over `bound` — a local name it picks and
+   *  passes in — and the target spells the binding construct around it: F#
+   *  `match … with Some __id -> … | None -> …`, Dart's null-check pattern
+   *  `switch (…) { final __id? => …, _ => … }`.  The ABSENT arm belongs to the
+   *  target too, because "nothing here" has no cross-language spelling: the
+   *  markup family's `<span>—</span>` is not F# and not a Dart widget.  Every
+   *  implementation renders the same USER-VISIBLE thing — a plain em dash, no
+   *  link — which is the placeholder `FileLink` already established for an
+   *  unset `File?`.
+   *
+   *  A target that omits this seam keeps the truthiness path and stays
+   *  byte-identical. */
+  renderOptionalSplit?(spec: OptionalSplitSpec): string;
 
   /** OPTIONAL — the markup for "render NOTHING" in a child position: what the
    *  walker hands a pack template for an ABSENT optional slot (a `QueryView`

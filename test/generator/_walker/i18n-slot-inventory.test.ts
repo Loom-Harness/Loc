@@ -72,6 +72,8 @@ const NO_TEXT: Readonly<Record<string, string>> = {
     "emits native `<ol>/<li>/<time>/<dl>` over audit DATA plus typographic placeholders (`—`, `→`); the words come from the record, not the emitter",
   "file-link.ts":
     "the anchor's text is the file's own `.key` (wire DATA, never authored) and the null arm is a typographic em-dash — no prose of its own",
+  "id-link.ts":
+    "the null-guard wrapper around `IdLink` — the link's text is the referenced id (wire DATA) and the absent arm is the same typographic em-dash `file-link.ts` uses; the link MARKUP itself comes from the pack template, not from here",
   "for.ts":
     "`For(empty:)` is authored MARKUP walked in the parent context, so its own primitives localize; `For` contributes no text itself",
 };

@@ -350,7 +350,24 @@ const REGISTERED: Ratchet[] = [
     // give this one an e2e block; the honest move if it ever becomes wrong is
     // to delete the fixture, not to boot it.
     //
-    // 13 -> 14 (M-T6.57 / audit F57): `envelope`.  A RAISE, deliberately — the
+    // 13 -> 14: `find-bypass` (M-T6.54 F18, wave-c1 packet 1f) — a NEW fixture,
+    // not a drained one regressing.  Its assertion ("does the OTHER tenant's row
+    // appear under `ignoring tenantOwned`?") needs the two-principal harness
+    // `projection-agg-filters` already waits on, and under one principal both
+    // spellings return the same set, i.e. a behavioural block would be GREEN over
+    // the retained conjunct the fixture exists to catch.  Its tracker is the same
+    // one (tenancy-e2e's two-principal harness); it drains with its neighbour.
+    //
+    // 14 -> 17: three more NEW fixtures folded in the same wave (C1), each a
+    // compile-tier proof of a fix whose runtime half is owed, and each carrying
+    // its drain condition in the register: `projection-fold-statements` and
+    // `paged-nonrelational` (ledger rows F2-XB-4 / F2-CB-C1, packet 1e-i — a
+    // dropped fold-body `let` is CS0103, the wrong paged carrier CS0535, so the
+    // corpus compile leg plus the two conformance matrices are the gate that
+    // mattered), and `workflow-primitive-params` (RS-26 boxing of a java
+    // workflow's primitive params, packet 1h — the behavioural runner cannot
+    // yet address a workflow's create surface).  Reviewed at the wave fold.
+    // 17 -> 18 (M-T6.57 / audit F57): `envelope`.  A RAISE, deliberately — the
     // corpus fixture that finally instantiates the `envelope` carrier (nothing
     // in the repo did, which is why java and dotnet shipped output that did not
     // compile) stops at the compile tier.  Its oracle IS a compile one: five
@@ -361,7 +378,7 @@ const REGISTERED: Ratchet[] = [
     // `"not_found"`) — a golden captured on the node leg would redden four legs
     // on `main`.  Drain this entry when that split is ruled; the entry's own
     // comment in `gate-ledger.test.ts` names the condition.
-    max: 14,
+    max: 18,
   },
 ];
 

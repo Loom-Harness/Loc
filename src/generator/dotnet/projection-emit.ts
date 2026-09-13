@@ -3,12 +3,13 @@ import type {
   EnrichedBoundedContextIR,
   ProjectionIR,
   ProjectionOnIR,
+  StmtIR,
   TypeIR,
   WireField,
 } from "../../ir/types/loom-ir.js";
 import { exprUsesCurrentUser, isMaterializedProjection } from "../../ir/types/loom-ir.js";
 import { resolveErrorStatus } from "../../util/error-defaults.js";
-import { snake, upperFirst } from "../../util/naming.js";
+import { escapeCsharpIdent, snake, upperFirst } from "../../util/naming.js";
 import {
   collectWireUsings,
   csIdValueClrType,
@@ -113,13 +114,9 @@ function renderProjectionFoldHandler(
   if (on.correlation) collectCsExprUsings(on.correlation, usings, ns);
   const assignLines: string[] = [];
   for (const s of on.statements) {
-    if (s.kind !== "assign") continue;
-    const seg = s.target.segments[0] ?? "";
-    if (snake(seg) === snake(corr)) continue; // immutable key
-    collectCsExprUsings(s.value, usings, ns);
-    assignLines.push(
-      `        state.${upperFirst(seg)} = ${renderExprWithEventParam(s.value, on.param, undefined, "state")};`,
-    );
+    for (const line of renderProjectionFoldStmt(s, proj, on, corr, usings, ns)) {
+      assignLines.push(line);
+    }
   }
   const extraUsings = [...usings].sort().map((n) => `using ${n};`);
   return (
@@ -160,6 +157,81 @@ ${assignLines.length > 0 ? assignLines.join("\n") + "\n" : ""}        await _rea
 }
 `
   );
+}
+
+/** Render ONE fold-body statement against the read-model `state` row.
+ *
+ *  This used to be `if (s.kind !== "assign") continue;` — so every other
+ *  statement kind a fold body can carry vanished from the emitted handler with
+ *  no diagnostic and no compile error (F2-XB-4): a `let` binding disappeared
+ *  while its USES survived (`state.At = stamped;` → CS0103), and `+=` / `-=`
+ *  were dropped outright, so the column was simply never written.
+ *
+ *  The four pure fold kinds `checkProjections`
+ *  (`src/ir/validate/checks/projection-checks.ts`) admits are now rendered
+ *  here, mirroring hono's `renderFoldStatement`
+ *  (`src/platform/hono/v4/projection-builder.ts`); everything else is an
+ *  internal invariant violation and THROWS, because a dropped statement is
+ *  worse than a crash — it ships. */
+function renderProjectionFoldStmt(
+  stmt: StmtIR,
+  proj: ProjectionIR,
+  on: ProjectionOnIR,
+  corr: string,
+  usings: Set<string>,
+  ns: string,
+): string[] {
+  const expr = (e: Parameters<typeof collectCsExprUsings>[0]): string => {
+    collectCsExprUsings(e, usings, ns);
+    return renderExprWithEventParam(e, on.param, undefined, "state");
+  };
+  switch (stmt.kind) {
+    case "assign": {
+      const seg = stmt.target.segments[0] ?? "";
+      // The correlation `:=` is the immutable key, seeded at allocation.
+      if (snake(seg) === snake(corr)) return [];
+      return [`        state.${upperFirst(seg)} = ${expr(stmt.value)};`];
+    }
+    case "let":
+      // `let`-names may collide with a C# keyword; escape consistently with the
+      // matching `refKind: "let"` use sites in `render-expr.ts`.
+      return [`        var ${escapeCsharpIdent(stmt.name)} = ${expr(stmt.expr)};`];
+    case "add": {
+      const prop = `state.${upperFirst(stmt.target.segments[0] ?? "")}`;
+      const value = expr(stmt.value);
+      // Every non-key read-model column is NULLABLE (the allocate seeds the key
+      // only), so both forms materialise the current value first — otherwise the
+      // first event for a key folds `null + n` / `null.Add(v)`.
+      return stmt.collection
+        ? [`        ${prop} ??= new();`, `        ${prop}.Add(${value});`]
+        : [`        ${prop} = (${prop} ?? 0) + ${value};`];
+    }
+    case "remove": {
+      const prop = `state.${upperFirst(stmt.target.segments[0] ?? "")}`;
+      const value = expr(stmt.value);
+      return stmt.collection
+        ? [`        ${prop} ??= new();`, `        ${prop}.Remove(${value});`]
+        : [`        ${prop} = (${prop} ?? 0) - ${value};`];
+    }
+    case "emit":
+    case "call":
+    case "precondition":
+    case "requires":
+    case "expression":
+    case "return":
+    case "variant-match":
+    case "if":
+      throw new Error(
+        `dotnet projection fold: unsupported fold statement '${stmt.kind}' in ` +
+          `projection '${proj.name}' on(${on.param}: ${on.event}) — a fold applies pure ` +
+          `assignments / collection mutations / let bindings only; ` +
+          `'loom.projection-fold-impure' should have rejected this.`,
+      );
+    default: {
+      const _exhaustive: never = stmt;
+      return _exhaustive;
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
