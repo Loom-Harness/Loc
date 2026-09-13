@@ -106,6 +106,13 @@ export const CORPUS: readonly CorpusFeature[] = [
   { id: "event-sourcing", title: "`persistedAs: eventLog` — append-only stream + appliers", doc: "workflow", backends: ALL },
   { id: "eventsourced-workflow", title: "event-sourced saga folding its own emitted events", doc: "workflow", backends: ALL },
   { id: "saga", title: "in-process dispatch / saga with persisted correlation", doc: "workflow", backends: ALL },
+  {
+    id: "workflow-enum-state",
+    title: "workflow whose persisted state field is an enum — the instance-response DTO names <Enum>Schema",
+    doc: "workflow",
+    backends: ALL,
+    note: "No corpus .ddd carried an enum-typed workflow STATE field before this one, so the compile tier never reached the emitters that name <Enum>Schema off instanceWireShape: node emitted 'claimState: ClaimStateSchema' with that name bound nowhere in the tree (TS2304), and react/vue/svelte imported it from whichever aggregate happened to be declared first (#2864 D4/T3).",
+  },
   { id: "projection", title: "folded projection — read model folded from aggregate events (keyed row + on() folds)", backends: ALL },
   { id: "projection-aggregation", title: "whole-table aggregation — singleton query-time projection (count/sum/avg/min/max pushed to SQL)", doc: "language", backends: ALL },
   { id: "projection-groupby", title: "group by — grouped query-time projection (one row per group, key selects + per-group aggregates, GROUP BY/ORDER BY pushed to SQL)", doc: "language", backends: ALL },

@@ -729,6 +729,23 @@ export const E2E_LESS_CORPUS_FIXTURES: readonly string[] = [
   // blocker as `R.tenantRegistryRow`; drain them together.  Runtime home today:
   // `tenancy-e2e.yml`'s hierarchy legs (label/post-merge).
   "tenancy-hierarchy",
+  // COMPILE-TIER WITNESS (#2864 D4/T3) — a workflow whose persisted STATE field
+  // is an enum.  Both halves of what it pins are STATIC, and both are caught by
+  // legs that already gate this fixture: the node backend named `<Enum>Schema`
+  // with that name bound nowhere in the emitted tree (TS2304, corpus-tsc) and
+  // then, underneath it, seeded a fresh saga row with `""` for an enum column
+  // whose Drizzle type is a literal union (TS2345, same leg); the four frontends
+  // imported the schema from whichever aggregate happened to be declared first
+  // (`vue-tsc` TS2305 / `svelte-check`, the generated-{vue,svelte}-build gates,
+  // which carry their own inline case for this shape).
+  //
+  // A behavioural block would add nothing an oracle can read.  The workflow is
+  // EVENT-TRIGGERED, so it has no command route to POST; its only api surface is
+  // the pair of read-only instance endpoints, and reaching them at runtime needs
+  // a `ClaimFiled` emitter this fixture deliberately does not have — the shape
+  // under test is the enum in the state row, not the dispatch that fills it,
+  // and `saga`/`eventsourced-workflow` already boot that dispatch path.
+  "workflow-enum-state",
 ];
 
 /**
