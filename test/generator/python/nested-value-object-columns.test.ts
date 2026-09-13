@@ -61,7 +61,10 @@ async function emit(home: string, geo: string): Promise<{ repo: string; schema: 
 /** Every `<attr>: Mapped[...]` the PersonRow model declares. */
 function declaredColumns(schema: string): Set<string> {
   const rows = schema.slice(schema.indexOf("class PersonRow"));
-  const body = rows.slice(0, rows.indexOf("\nclass ") === -1 ? undefined : rows.indexOf("\nclass "));
+  const body = rows.slice(
+    0,
+    rows.indexOf("\nclass ") === -1 ? undefined : rows.indexOf("\nclass "),
+  );
   return new Set([...body.matchAll(/^\s{4}(\w+): Mapped\[/gm)].map((m) => m[1]!));
 }
 
