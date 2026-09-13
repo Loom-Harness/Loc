@@ -2,7 +2,11 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { openGaps, UNSUPPORTED_REGISTER } from "../../src/diagnostics/unsupported-register.js";
+import {
+  latentSeams,
+  openGaps,
+  UNSUPPORTED_REGISTER,
+} from "../../src/diagnostics/unsupported-register.js";
 
 // ---------------------------------------------------------------------------
 // Gate for the `*-unsupported` register (M-T9.27).
@@ -273,7 +277,19 @@ const REGISTER_FILE = path.join(srcRoot, "diagnostics", "unsupported-register.ts
  *  HAVE wire shapes (a decimal string re-parsed to `Decimal`, a fixed
  *  `FileRef` object, a VO DTO), so this drains by teaching the prop layer to
  *  spell them, which deletes the row and lowers this back to 50. */
-const MAX_OPEN_GAPS = 51;
+/** Wave C2 coordinator commit (2026-09-13): 51 → 27.  Not a drain — the 24
+ *  rows whose gate set already names every shipping target (the "latent seam"
+ *  / "dormant" / "fires only when no backend hosts the context" rows) moved to
+ *  `kind: "seam"`, so this pin now counts exactly what the completion plan's
+ *  exit criterion names: LIVE gaps on a shipping target.  The seam rows are
+ *  pinned separately below (`LATENT_SEAMS`) so the move cannot hide a gap. */
+const MAX_OPEN_GAPS = 27;
+
+/** Exact count of `seam` rows.  Changes only for a reviewed reason: a gate
+ *  deleted (down), a new target registered that turns a seam back into a live
+ *  `gap` (down), or a gap re-classified as latent with the membership set
+ *  named in its `what` (up — the line a reviewer reads). */
+const LATENT_SEAMS = 24;
 
 function walk(dir: string, out: string[] = []): string[] {
   for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -319,7 +335,7 @@ describe("`*-unsupported` register (M-T9.27)", () => {
     expect(
       unregistered,
       "New `*-unsupported` code(s) with no register row. Add each to " +
-        "src/diagnostics/unsupported-register.ts, classified (gap | scope | never | rule) " +
+        "src/diagnostics/unsupported-register.ts, classified (gap | seam | scope | never | rule) " +
         "— a `gap` is a commitment under the no-permanent-skips policy.",
     ).toEqual([]);
   });
@@ -355,6 +371,28 @@ describe("`*-unsupported` register (M-T9.27)", () => {
       gaps.length,
       `Only ${gaps.length} open gaps remain — lower MAX_OPEN_GAPS to ${gaps.length}.`,
     ).toBe(MAX_OPEN_GAPS);
+  });
+
+  it("pins the latent-seam count exactly, so a gap cannot hide as a seam", () => {
+    const seams = latentSeams();
+    expect(
+      seams.length,
+      `${seams.length} seam rows against a pin of ${LATENT_SEAMS}. A seam is a gate whose ` +
+        "membership set already names every shipping target — say so in the row's `what` " +
+        "and move the pin in the same reviewed diff.",
+    ).toBe(LATENT_SEAMS);
+    // Every seam row says why it is one, in the words the header names.
+    const unexplained = seams
+      .filter(
+        (e) =>
+          !/latent|dormant|all five|every (shipping )?(frontend|backend)|EMPTY set|no backend deployable|frontend-only host/i.test(
+            e.what,
+          ),
+      )
+      .map((e) => e.code);
+    expect(unexplained, "seam row(s) whose `what` does not name the full membership set").toEqual(
+      [],
+    );
   });
 
   it("cites a site for every row", () => {

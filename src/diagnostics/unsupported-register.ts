@@ -6,6 +6,12 @@
 // the point of this file.
 //
 //   gap    — a target hasn't implemented it yet.  A TODO.  DRAINS TO ZERO.
+//   seam   — the gate's membership set already names EVERY shipping target
+//            (or is empty), so it can fire only for a target that does not
+//            exist yet, or for a deployable that hosts no backend at all.  Not
+//            work on any shipping target; kept as the seam the NEXT
+//            backend/frontend gates on until it ports (Wave C2's coordinator
+//            commit, 2026-09-13 — see LATENT ROWS below).
 //   scope  — a declared v1 limit with a named successor.  Owned by a mission;
 //            becomes a `gap` when that mission starts, or is renamed out (as
 //            below) if the limit is re-justified as permanent.
@@ -34,23 +40,22 @@
 // `verified` marks rows whose classification a human has confirmed against the
 // emission site.  Rows land `false` and are promoted on review.
 //
-// LATENT ROWS — why a `gap` can be a gate nothing can trip.  Many gates' Sets
-// (EVENT_SOURCING_BACKENDS, PROJECTION_*_SUPPORTED, SUPPORTED_UNION_BACKENDS,
-// FIELD_MASK_BACKENDS, CHART_FRAMEWORKS, PROJECTION_READ_FRAMEWORKS, …) name
-// every shipping target, so the gate fires for nothing that exists.  Those
-// gates are deliberately KEPT — they are the seam the NEXT backend/frontend
-// gates on until it ports, the pattern CHART_FRAMEWORKS documents at
-// system-checks.ts.  Their rows stay too, because the code IS still emitted in
-// `src/` and that invariant demands a row; such a row's `what` says "ships on
-// all five; latent seam for a NEW target" rather than reading as a TODO.
-//
-// So the `gap` count is NOT a backlog depth: a latent row drains only when the
-// gate itself is deleted (a decision about the seam), while a live row drains
-// when a target ports.  Read each row's `what` to tell which you are looking at
-// — "latent seam" / "dormant" / "unreachable backstop" mark the former.  The
-// classification stayed `gap` on purpose: nothing here is a declared v1 limit
-// with a successor mission (that is `scope`), and inventing a third kind would
-// change what the pin counts without changing what is true.
+// LATENT ROWS — the `seam` kind.  Many gates' Sets (EVENT_SOURCING_BACKENDS,
+// PROJECTION_*_SUPPORTED, SUPPORTED_UNION_BACKENDS, FIELD_MASK_BACKENDS,
+// CHART_FRAMEWORKS, PROJECTION_READ_FRAMEWORKS, …) name every shipping target,
+// so the gate fires for nothing that exists — or only for a context no backend
+// deployable hosts at all.  Those gates are deliberately KEPT: they are the
+// seam the NEXT backend/frontend gates on until it ports, the pattern
+// CHART_FRAMEWORKS documents at system-checks.ts.  Their rows stay too,
+// because the code IS still emitted in `src/` and that invariant demands a
+// row — but they are `kind: "seam"`, not `gap`, so `openGaps()` (and the
+// `MAX_OPEN_GAPS` pin) counts only rows a SHIPPING target has left undone.
+// Until Wave C2 they sat under `gap` with "latent seam" / "dormant" /
+// "unreachable backstop" in their `what` (24 of 51 rows); the plan's exit
+// criterion is `MAX_OPEN_GAPS` = 0 LIVE rows, which the prose marker could
+// not express.  A seam row drains only when the gate itself is deleted (a
+// decision about the seam) or when a new target ports and the row becomes a
+// live `gap` for it; `latentSeams()` lists them, pinned exactly in the test.
 //
 // GATED BY `test/system/unsupported-register.test.ts`: every suffixed code in
 // `src/` must appear here and every row must still be emitted, so a new gap
@@ -61,7 +66,7 @@
 /** How a `*-unsupported` code relates to work — now or later.  See the header.
  *  A code that is NEITHER (impossible, refused, or a plain rule) does not
  *  belong in the suffix at all — rename it, per the header. */
-export type UnsupportedKind = "gap" | "scope";
+export type UnsupportedKind = "gap" | "seam" | "scope";
 
 export interface UnsupportedEntry {
   /** The `loom.*` diagnostic code. */
@@ -83,7 +88,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   // -------------------------------------------------------------------------
   {
     code: "loom.audited-backend-unsupported",
-    kind: "gap",
+    kind: "seam",
     site: "src/ir/validate/checks/storage-inheritance-checks.ts:537",
     what:
       "audit-record emission (`operation … audited`, `audited create|destroy`) ships on all five " +
@@ -100,14 +105,14 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   },
   {
     code: "loom.auth-ui-unsupported-framework",
-    kind: "gap",
+    kind: "seam",
     site: "src/ir/validate/checks/ui-framework-checks.ts:425",
     what: "`auth: ui` ships on every frontend; the seam a NEW one gates on",
     mission: "M-T1.20",
   },
   {
     code: "loom.chart-unsupported-target",
-    kind: "gap",
+    kind: "seam",
     site: "src/ir/validate/checks/ui-framework-checks.ts:311",
     what:
       "`Chart` renders on every shipping frontend (CHART_FRAMEWORKS names all seven) — latent " +
@@ -126,7 +131,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   },
   {
     code: "loom.context-test-unsupported",
-    kind: "gap",
+    kind: "seam",
     site: "src/language/validators/test-placement.ts:104",
     what:
       "context-level `test` whose target context no INTEGRATION_BACKENDS deployable hosts — all " +
@@ -183,7 +188,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   },
   {
     code: "loom.datagrid-unsupported-target",
-    kind: "gap",
+    kind: "seam",
     site: "src/ir/validate/checks/ui-framework-checks.ts:63",
     what:
       "`DataGrid` (a TanStack row model) outside DATA_GRID_FRAMEWORKS.  LATENT seam for a NEW " +
@@ -211,7 +216,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   },
   {
     code: "loom.event-sourced-workflow-unsupported",
-    kind: "gap",
+    kind: "seam",
     site: "src/ir/validate/checks/storage-inheritance-checks.ts:233",
     what:
       "`workflow … eventSourced` runtime ships on all five backends " +
@@ -220,7 +225,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   },
   {
     code: "loom.event-sourcing-backend-unsupported",
-    kind: "gap",
+    kind: "seam",
     site: "src/ir/validate/checks/storage-inheritance-checks.ts:191",
     what:
       "`persistedAs: eventLog` storage ships on all five backends (EVENT_SOURCING_BACKENDS) — " +
@@ -253,7 +258,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   },
   {
     code: "loom.field-mask-unsupported",
-    kind: "gap",
+    kind: "seam",
     site: "src/ir/validate/checks/storage-inheritance-checks.ts:426",
     what:
       "`mask unless` read redaction ships on all five backends (FIELD_MASK_BACKENDS) — fires " +
@@ -262,7 +267,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   },
   {
     code: "loom.filter-bypass-unsupported",
-    kind: "gap",
+    kind: "seam",
     site: "src/ir/validate/checks/context-filter-checks.ts:268",
     what:
       "`ignoring` is honored by every backend family (FILTER_BYPASS_FAMILIES) — latent: it can " +
@@ -287,7 +292,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   },
   {
     code: "loom.flutter-primitive-unsupported",
-    kind: "gap",
+    kind: "seam",
     site: "src/ir/validate/checks/ui-framework-checks.ts:638",
     what:
       "every page primitive now renders on Flutter — FLUTTER_UNRENDERED_PRIMITIVES " +
@@ -341,7 +346,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   },
   {
     code: "loom.generic-carrier-unsupported",
-    kind: "gap",
+    kind: "seam",
     site: "src/ir/validate/checks/structural-checks.ts:344",
     what:
       "`paged`/`envelope` generic carriers ship on all five backends " +
@@ -393,7 +398,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   },
   {
     code: "loom.operation-return-unsupported",
-    kind: "gap",
+    kind: "seam",
     site: "src/ir/validate/checks/structural-checks.ts:628",
     what:
       "`or`-union operation returns ship on all five backends (SUPPORTED_RETURN_BACKENDS) — " +
@@ -402,7 +407,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   },
   {
     code: "loom.paged-query-handler-unsupported-backend",
-    kind: "gap",
+    kind: "seam",
     site: "src/ir/validate/checks/projection-backend-checks.ts:321",
     what:
       "a `paged` queryHandler return ships on all five backends (PAGED_QH_SUPPORTED) — latent " +
@@ -432,7 +437,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   },
   {
     code: "loom.projection-groupby-unsupported-backend",
-    kind: "gap",
+    kind: "seam",
     site: "src/ir/validate/checks/projection-backend-checks.ts:108",
     what:
       "`group by` grouped read models ship on all five backends (PROJECTION_GROUPBY_SUPPORTED) " +
@@ -441,7 +446,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   },
   {
     code: "loom.projection-query-time-unsupported",
-    kind: "gap",
+    kind: "seam",
     site: "src/ir/validate/checks/projection-backend-checks.ts:348",
     what:
       "query-time projections ship on all five backends (PROJECTION_QT_SUPPORTED) — latent seam " +
@@ -450,7 +455,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   },
   {
     code: "loom.projection-source-unsupported-backend",
-    kind: "gap",
+    kind: "seam",
     site: "src/ir/validate/checks/projection-backend-checks.ts:434",
     what:
       "a projection sourced from another projection's rows ships on all five backends " +
@@ -459,7 +464,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   },
   {
     code: "loom.projection-whole-table-aggregation-unsupported",
-    kind: "gap",
+    kind: "seam",
     site: "src/ir/validate/checks/projection-backend-checks.ts:72",
     what:
       "whole-table `select f = agg(…)` SQL push-down ships on all five backends " +
@@ -468,7 +473,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   },
   {
     code: "loom.projection-workflow-source-unsupported-backend",
-    kind: "gap",
+    kind: "seam",
     site: "src/ir/validate/checks/projection-backend-checks.ts:391",
     what:
       "a projection sourced from a workflow's instance rows ships on all five backends " +
@@ -477,7 +482,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   },
   {
     code: "loom.provenanced-backend-unsupported",
-    kind: "gap",
+    kind: "seam",
     site: "src/ir/validate/checks/storage-inheritance-checks.ts:267",
     what:
       "the provenance runtime (lineage column + history flush) ships on all five backends " +
@@ -486,7 +491,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   },
   {
     code: "loom.remote-api-op-unsupported",
-    kind: "gap",
+    kind: "seam",
     site: "src/ir/validate/checks/resource-capability-checks.ts:118",
     what:
       "every backend emits the typed in-system api client — REMOTE_API_OP_UNSUPPORTED is an " +
@@ -495,7 +500,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   },
   {
     code: "loom.saving-shape-unsupported",
-    kind: "gap",
+    kind: "seam",
     site: "src/ir/validate/checks/datasource-checks.ts:214",
     what:
       "re-classified from a live latent seam to a dormant one: every platform key already in " +
@@ -571,7 +576,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   },
   {
     code: "loom.tph-backend-unsupported",
-    kind: "gap",
+    kind: "seam",
     site: "src/ir/validate/checks/storage-inheritance-checks.ts:98",
     what:
       "sharedTable (TPH) storage ships on all five backends (TPH_CAPABLE) — fires only when no " +
@@ -616,7 +621,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   },
   {
     code: "loom.union-unsupported",
-    kind: "gap",
+    kind: "seam",
     site: "src/ir/validate/checks/structural-checks.ts:517",
     what:
       "discriminated-union tagged wire ships on all five backends (SUPPORTED_UNION_BACKENDS) — " +
@@ -635,7 +640,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   },
   {
     code: "loom.when-unsupported",
-    kind: "gap",
+    kind: "seam",
     site: "src/ir/validate/checks/structural-checks.ts:587",
     what:
       "the `when` canCommand gate ships on all five backends (SUPPORTED_WHEN_BACKENDS) — latent " +
@@ -753,4 +758,11 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
 /** Rows that are actual work.  The sprint backlog; empty is the target state. */
 export function openGaps(): readonly UnsupportedEntry[] {
   return UNSUPPORTED_REGISTER.filter((e) => e.kind === "gap");
+}
+
+/** Latent seams: gates whose membership set already names every shipping
+ *  target.  Not work; they become `gap` rows for a NEW target the day it is
+ *  registered, and drain only when the gate itself is deleted. */
+export function latentSeams(): readonly UnsupportedEntry[] {
+  return UNSUPPORTED_REGISTER.filter((e) => e.kind === "seam");
 }
