@@ -295,7 +295,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.feliz-async-effect-unsupported",
     kind: "gap",
-    site: "src/ir/validate/checks/store-checks.ts:451",
+    site: "src/ir/validate/checks/store-checks.ts:462",
     what:
       "`match await` on Feliz in a COMPONENT host — the Feliz generator projects async effects " +
       "only on pages (the trigger id comes from the host page's route `:id`), so a component " +
@@ -341,10 +341,22 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   },
   {
     code: "loom.flutter-async-effect-unsupported",
-    kind: "gap",
-    site: "src/ir/validate/checks/store-checks.ts:576",
-    what: "`match await` in a COMPONENT action silently drops the whole widget on Flutter",
-    mission: "M-T1.20",
+    kind: "scope",
+    site: "src/ir/validate/checks/store-checks.ts:590",
+    what:
+      "`match await` in a COMPONENT action.  RE-CLASSED `gap` -> `scope` under " +
+      "**D-FLUTTER-COMPONENT-BINDINGS**: `match await <api>.<Agg>.<op>()` on an INSTANCE " +
+      "operation posts to `/<coll>/$id/<op>`, so it needs the ROUTE `id` — and a component " +
+      "has no route by construction.  The only candidate binding (a component param spelled " +
+      "`id` inherits its caller's route arg) makes `id` a magic parameter NAME whose meaning " +
+      "depends on where the caller happens to sit, so the decision refuses it.  Measured on " +
+      "this tree by bypassing the filter: the component path has no `variant-match` arm at " +
+      "all and reaches `renderNotifierStmt`'s internal floor THROW (the page path intercepts " +
+      "the kind one level up), so this row guards a codegen crash rather than a degradation.  " +
+      "M-T1.34 closes the `ref`-backed half of the same family (a component holding a " +
+      "Riverpod `WidgetRef` — stores, `currentUser`, reads) and re-narrows this gate's " +
+      "message to name the `id` as the only remaining cause",
+    mission: "M-T1.34",
   },
   {
     code: "loom.flutter-primitive-unsupported",
@@ -578,16 +590,16 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.store-lifetime-target-unsupported",
     kind: "gap",
-    site: "src/ir/validate/checks/store-checks.ts:327",
+    site: "src/ir/validate/checks/store-checks.ts:364",
     what:
-      "a persisted store field with no total F# (feliz) or Dart (flutter) codec.  The FELIZ " +
-      "half narrowed in wave C2 packet 2i to exactly the cells that would need a RECORD codec " +
-      "the store path does not emit — `File`, `valueobject`, `entity` and arrays of them; " +
-      "`datetime`/`guid` grew `System.DateTime.TryParse`/`System.Guid.TryParse` arms, an enum " +
-      "rides F# as `string`, and list elements now cover every scalar.  What is left is the " +
-      "FLUTTER half: it still refuses `json` (the one remaining divergence between the two " +
-      "codec tables, pinned by test/ir/util/persist-codec-divergence.test.ts) on top of the " +
-      "same record-shaped set",
+      "a persisted store field with no total F# (feliz) or Dart (flutter) codec.  BOTH halves " +
+      "narrowed in wave C2 (feliz in packet 2i, flutter in packet 2j) to exactly the cells that " +
+      "would need a RECORD codec the store path does not emit — `File`, `valueobject`, `entity` " +
+      "and arrays of them.  Feliz: `datetime`/`guid` grew `System.DateTime.TryParse`/`System.Guid.TryParse` " +
+      "arms, an enum rides F# as `string`, list elements cover every scalar.  Flutter: a nullable " +
+      "scalar and a `json` cell now persist; a nullable cell is still refused at the `url` tier for " +
+      "a measured reason (no null-distinguishing `copyWith` sentinel in the shared state class).  " +
+      "The two codec tables' remaining divergences are pinned by test/ir/util/persist-codec-divergence.test.ts",
     mission: "M-T1.20",
   },
   {

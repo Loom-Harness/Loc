@@ -141,20 +141,20 @@ gate already encodes the row's claim, run the gate.
 
 | metric | value |
 |---|---|
-| open rows | **129** |
+| open rows | **127** |
 | P0 | 0 |
 | P1 | 1 |
-| P2 | 7 |
-| P3 | 35 |
+| P2 | 6 |
+| P3 | 34 |
 | P4 | 78 |
 | P5 | 8 |
-| kind: silent / honest / breadth / mission / stale-prose | 10 / 33 / 21 / 57 / 8 |
-| confidence: proven / likely / suspected | 23 / 105 / 1 |
+| kind: silent / honest / breadth / mission / stale-prose | 8 / 33 / 21 / 57 / 8 |
+| confidence: proven / likely / suspected | 23 / 103 / 1 |
 | class: faulty-fix / regression | 1 / 0 |
-| size S / M / L | 35 / 53 / 41 |
-| provenance: fleet1-only / fleet2-only / corroborated by both | 117 / 10 / 1 |
+| size S / M / L | 34 / 52 / 41 |
+| provenance: fleet1-only / fleet2-only / corroborated by both | 115 / 10 / 1 |
 | claimed by an open PR | 60 |
-| done / merged | 160 |
+| done / merged | 162 |
 | declined (not a gap: stale / breadth / duplicate / decided) | 7 |
 | conflicts | 10 |
 | checkedOk entries | 146 |
@@ -171,9 +171,7 @@ Sorted P0 (security / data-integrity, silent, proven) → P1 (other silent prove
 | P1 | `F2-MT640-SORT-DEAD` | silent | prov | elixir | M | HEEx wires a Table's `sortKey`/`sortDir`/`page` ONLY when `serverPaged`, so a NON-paged scaffolded list silently loses the client-side sort + pagination all four JSX frontends render from the same `.ddd` — the dead `sort_key`/`sort_dir`/`page_num` assigns are the residue, not the defect |
 | P2 | `F2-W-06` | silent | like | elixir | S | elixir persists `datetime` at SECOND precision (`:utc_datetime`) where the other four use TIMESTAMPTZ(µs) |
 | P2 | `G2646-open-heex-layout-inert` | silent | like | elixir | M | #2646 documented, NOT fixed: on HEEx a non-server-paged Table gets no pager and the `i18nFormat` wrapper is dropped (the Grid arm of this row was stale and is retired) |
-| P3 | `M-T1.16-invariant-validation-feliz-flutter` | silent | like | flutter | M | FLUTTER HALF ONLY (the feliz half landed in wave C2 packet 2i). Invariant-derived client-side form validation is still missing on Flutter — it enforces "Required" / "Enter a number" and nothing else |
 | P2 | `schemathesis-F11-int32-range` | silent | like | elixir | M | F11 — ELIXIR publishes a bare `%OpenApiSpex.Schema{type: :integer}` for an `int` body field against an int4 column, so a contract-conforming value 500s (node and python now publish the bound; dotnet and java always did) |
-| P2 | `sourcemap-feliz-flutter-not-emitted` | silent | like | flutter | S | FLUTTER HALF ONLY (the feliz half landed in wave C2 packet 2i). `--sourcemap` still records NOTHING for the flutter frontend — the plan filed it as a test-parity skew, but the emission is absent |
 | P2 | `M-T1.11-domain-floor-message-code` | silent | like | node, dotnet, java, python | L | M-T1.11 item (c) — `DomainError` carries no `code` on node, dotnet, java and python, so a rule enforced only at the domain floor is unlocalizable (elixir partly fixed: preconditions and invariants, not the value-object floor) |
 | P3 | `F2-CFE-11` | honest | prov | angular, flutter | S | `testid:` on `CreateForm` is silently dropped on Angular and Flutter (honoured on react/vue/svelte/feliz) |
 | P3 | `F2-W-09` | honest | prov | node, elixir, dotnet, java, python | S | A `File` field is an inline anonymous object on node/elixir and a named `FileRef` component on dotnet/java/python |
@@ -191,7 +189,7 @@ Sorted P0 (security / data-integrity, silent, proven) → P1 (other silent prove
 | P3 | `M-T5.3-nested-carriers-and-option` | honest | like | language, node, dotnet, java, python, elixir, react | M | Nested carriers stay gated; `option` lowers but the three-state PATCH it unblocks is unbuilt |
 | P3 | `M-T5.7-inheritance-tail` | honest | like | dotnet, node, java, python, elixir | M | Inheritance tail — all three remaining items are honest register rows |
 | P3 | `M-T6.2-s12-vanilla-document-gate` | honest | like | elixir | M | §12 residue: the Elixir document-shape gate still honestly rejects named ops and non-scalar-predicate finds |
-| P3 | `feliz-flutter-persist-codec-asymmetry` | honest | prov | flutter | S | FLUTTER ARM ONLY (the feliz arm closed in wave C2 packet 2i). The two `persist:` codec tables disagree on exactly ONE type now — `json`, which the F# table keeps as raw text and the Dart table refuses — so a `persist:` store holding a `json` cell ships on feliz and is refused on flutter |
+| P3 | `feliz-flutter-persist-codec-asymmetry` | honest | prov | feliz | S | FELIZ ARM ONLY now (feliz drained toward the union in wave C2 packet 2i; flutter gained `json` + nullable cells in packet 2j). The two `persist:` codec tables disagree on exactly ONE shape — an OPTIONAL scalar, which the Dart table persists as a nullable cell and the F# table refuses (no `optional` arm) — so a `persist:` store holding a `T?` cell ships on flutter and is refused on feliz |
 | P3 | `workflow-projection-rename-unexpressible` | honest | prov | node, dotnet, elixir, python, java | M | M-T2.1 slice (d) — renaming a `workflow` or `projection` drop+recreates its state/projection table; `TableRename` cannot name one |
 | P3 | `M-T1.3-keyed-folded-projection-reads` | honest | like | react, vue, svelte, angular, feliz, flutter, phoenixLiveView | L | M-T1.3 — KEYED and FOLDED projection reads are unreadable from any frontend (honest gate, unclaimed) |
 | P3 | `M-T3.15-B1-projection-masking` | honest | like | node, dotnet, java, python, elixir | L | B1 — gated projections and `mask unless` are still mutually exclusive by validator |

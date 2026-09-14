@@ -35,7 +35,12 @@ This adds, alongside the normal output:
 
 - **`out/.loom/sourcemap.json`** — the generic, cross-target map (`.ddd`
   spans ↔ generated file regions) that `ddd trace` / `ddd breakpoints` /
-  `ddd-dap` all read.
+  `ddd-dap` all read.  Frontends record one region per emitted page file and
+  one per user component: react, vue, svelte, angular and **flutter** do
+  (flutter's components share one pooled `lib/components.dart`, so each one is
+  anchored inside it rather than claiming the whole file); **feliz records
+  nothing yet** — ledger row `sourcemap-feliz-flutter-not-emitted`, whose
+  flutter half closed in wave C2.
 - **Per-target native debug metadata**, woven into the generated projects
   themselves:
 

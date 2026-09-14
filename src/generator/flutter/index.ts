@@ -34,14 +34,23 @@ import type {
   WorkflowIR,
 } from "../../ir/types/loom-ir.js";
 import { backendServesRealtime } from "../../ir/util/channels.js";
-import { type PageNameCtx, pageEmitName } from "../../ir/util/page-kind.js";
+import { type PageNameCtx, pageConstructId, pageEmitName } from "../../ir/util/page-kind.js";
+import { realtimeStreamCredential } from "../../ir/util/realtime-rooms.js";
 import { walkExprDeep } from "../../ir/util/walk.js";
 import { lines } from "../../util/code-builder.js";
 import { humanize, snake, upperFirst } from "../../util/naming.js";
 import { pageFileBase } from "../_frontend/page-identity.js";
+import { lineCount, type SourceMapRecorder } from "../_trace/sourcemap.js";
 import { storeMemberLocal } from "../_walker/js-target-helpers.js";
 import type { ApiCallSite } from "../_walker/target.js";
 import { type ApiHookUse, emitExpr, walkBody } from "../_walker/walker-core.js";
+import {
+  FLUTTER_API_CLIENT_DART,
+  FLUTTER_API_CLIENT_IO_DART,
+  FLUTTER_API_CLIENT_WEB_DART,
+  FLUTTER_BEARER_STORE_DART,
+  flutterHttpImport,
+} from "./api-client.js";
 import { renderFlutterAuthModule, renderFlutterGate } from "./auth-gate.js";
 import { renderFlutterChartRuntime } from "./chart-runtime.js";
 import {
@@ -87,6 +96,20 @@ import {
 
 export interface GenerateFlutterOptions {
   apiBaseUrl?: string;
+  /** Generate-time source-map recorder (`--sourcemap`).  Undefined on the
+   *  default path, so every emitted byte is unchanged when the flag is off.
+   *
+   *  Flutter records the SAME two construct families the four static-bundle
+   *  frontends do — one region per page file, one per user component — but the
+   *  component half rides `fragment()` rather than `file()`, because Flutter
+   *  pools every component into one `lib/components.dart` (see
+   *  `FlutterComponentsFile`).  Everything else Flutter emits is either a
+   *  runtime file with no `.ddd` origin (`money.dart`, `nav.dart`, the realtime
+   *  transport) or a pooled projection of many constructs (`models.dart`,
+   *  `reads.dart`, `forms.dart`, `stores.dart`), so it stays unmapped rather
+   *  than getting a misleading single-origin region — the recorder's own
+   *  documented rule. */
+  sourcemap?: SourceMapRecorder;
 }
 
 /** Emit the file map for one `platform: flutter` deployable, paths relative to
@@ -98,7 +121,6 @@ export function generateFlutterForContexts(
   deployable: DeployableIR,
   options: GenerateFlutterOptions = {},
 ): Map<string, string> {
-  void options;
   const out = new Map<string, string>();
 
   // Not `snake(name)` directly — a deployable named `web` (or any other package
@@ -117,6 +139,25 @@ export function generateFlutterForContexts(
   // shape — the same three-way conjunction every other frontend's `authUi` is.
   const target = sys.deployables.find((d) => d.name === deployable.targetName);
   const authUi = !!(deployable.auth?.ui && target?.auth?.required && sys.user);
+  // The api-call credential (M-T4.12 item 1, D-FLUTTER-BEARER).  ONE predicate,
+  // shared with the realtime stream: `realtimeStreamCredential` is the gate
+  // RULE 2 states, and it answers `cookie-web-bearer-native` for a
+  // `platform: flutter` deployable because an HttpOnly cookie cannot exist on
+  // Android/iOS.  Every generated library then imports the credentialed
+  // `api_client.dart` drop-in instead of `package:http/http.dart`, so the reads,
+  // the forms, the `/auth/me` probe, the inline `Action(<inst>.<op>)` POST and
+  // the async effects are credentialed at once.  `auth: none` keeps the bare
+  // import and is byte-identical.
+  // `realtimeStreamCredential` answers `cookie-web-bearer-native` for a
+  // `platform: flutter` deployable by construction (it keys on the platform),
+  // so the narrowing below is total rather than defensive — it is how the
+  // flutter emitters state the ONE value they can receive without re-deriving
+  // the gate.
+  const streamCredential: "cookie-web-bearer-native" | "none" =
+    realtimeStreamCredential(deployable, target, sys.user) === "none"
+      ? "none"
+      : "cookie-web-bearer-native";
+  const credentialed = streamCredential !== "none";
 
   // Aggregate + owning-bounded-context lookups, built once — threaded into the
   // walker (form seams resolve the aggregate's create-input / op params + the
@@ -170,7 +211,7 @@ export function generateFlutterForContexts(
   // above, ahead of the models emit).  Emitted only when the ui issues reads,
   // alongside the `AppConfig` api-base helper.
   if (reads.length > 0) {
-    out.set("lib/reads.dart", renderReadProviders(reads));
+    out.set("lib/reads.dart", renderReadProviders(reads, credentialed));
   }
 
   // Realtime SSE handlers (channels.md Part I) — gated on BOTH halves: this ui
@@ -182,7 +223,7 @@ export function generateFlutterForContexts(
     flutterHasRealtimeHandlers(ui) &&
     backendServesRealtime(target?.platform ?? deployable.platform);
   if (hasRealtime && ui) {
-    out.set("lib/realtime.dart", renderFlutterRealtime(ui, reads));
+    out.set("lib/realtime.dart", renderFlutterRealtime(ui, reads, streamCredential));
     out.set("lib/realtime_event.dart", REALTIME_EVENT_DART);
     out.set("lib/realtime_source.dart", REALTIME_SOURCE_FACADE);
     out.set("lib/realtime_source_io.dart", REALTIME_SOURCE_IO_DART);
@@ -200,7 +241,7 @@ export function generateFlutterForContexts(
     out.set("lib/i18n.dart", renderFlutterI18nModule(ui));
   }
   if (forms.length > 0) {
-    out.set("lib/forms.dart", renderFormsFile(forms));
+    out.set("lib/forms.dart", renderFormsFile(forms, credentialed));
   }
 
   // The aggregates reachable through this deployable — used for the fallback
@@ -260,6 +301,7 @@ export function generateFlutterForContexts(
       authUi,
       nameCtx,
       pageRoutes,
+      credentialed,
     });
     for (const name of r.usedComponents) usedComponents.add(name);
     return { page, ...r };
@@ -279,7 +321,7 @@ export function generateFlutterForContexts(
   // redirects and the two gate views.  Emitted whenever the app is gated, since
   // `main.dart` wraps `MaterialApp` in `AuthGate` regardless of whether any page
   // additionally carries a `requires`.
-  if (authUi && sys.user) out.set("lib/auth.dart", renderFlutterAuthModule(sys.user));
+  if (authUi && sys.user) out.set("lib/auth.dart", renderFlutterAuthModule(sys.user, credentialed));
 
   const persistedStores = flutterPersistedStores(ui);
   const storesFile = ui
@@ -297,7 +339,34 @@ export function generateFlutterForContexts(
       componentParams,
       componentCtx,
     );
-    if (componentsFile) out.set("lib/components.dart", componentsFile);
+    if (componentsFile.source) {
+      out.set("lib/components.dart", componentsFile.source);
+      // One region per COMPONENT, anchored in the pooled file by its own block
+      // text.  `file()` would record `[1, eof]` against whichever component
+      // happened to be first — a pooled file's whole-file region is exactly the
+      // misleading mapping `SourceMapRecorder` tells callers not to emit.
+      for (const b of componentsFile.blocks) {
+        options.sourcemap?.fragment("lib/components.dart", componentsFile.source, b.text, [
+          {
+            rel: [1, lineCount(b.text)],
+            origin: b.component.origin,
+            construct: `${ui.name}.${b.component.name}`,
+          },
+        ]);
+      }
+    }
+  }
+
+  // The authenticated http surface (D-FLUTTER-BEARER).  Four files, emitted
+  // together or not at all: the drop-in façade every credentialed library
+  // imports `as http`, its two conditional-import halves (browser cookie /
+  // native bearer), and the platform-neutral bearer store the app populates
+  // from its own OIDC client.
+  if (credentialed) {
+    out.set("lib/api_client.dart", FLUTTER_API_CLIENT_DART);
+    out.set("lib/api_client_web.dart", FLUTTER_API_CLIENT_WEB_DART);
+    out.set("lib/api_client_io.dart", FLUTTER_API_CLIENT_IO_DART);
+    out.set("lib/loom_bearer.dart", FLUTTER_BEARER_STORE_DART);
   }
 
   // `AppConfig`/`apiUri` is shared by the read providers, the form widgets, AND
@@ -336,7 +405,14 @@ export function generateFlutterForContexts(
   };
   if (rendered.length > 0) {
     for (const r of rendered) {
-      out.set(`lib/pages/${r.fileBase}.dart`, r.source);
+      const pagePath = `lib/pages/${r.fileBase}.dart`;
+      out.set(pagePath, r.source);
+      options.sourcemap?.file(
+        pagePath,
+        r.source,
+        r.page.origin,
+        pageConstructId((ui as UiIR).name, r.page),
+      );
     }
     out.set("lib/main.dart", renderMainWithRoutes(title, rendered, persistBoot));
   } else {
@@ -386,7 +462,7 @@ export function generateFlutterForContexts(
   // canvas-rendered Flutter build.  Boots the real app with the semantics tree
   // enabled and asserts Flutter's built-in WCAG guidelines on the first frame.
   // Runs under the same `flutter test` step (whole `test/` dir) as the smoke.
-  out.set("test/a11y_test.dart", renderA11yTest(pkg));
+  out.set("test/a11y_test.dart", renderA11yTest(pkg, rendered));
 
   // The money runtime (M-T1.21).  Same use-driven rule as the modal bridge and
   // the chart painter above, but the scan is over EVERY emitted file and it
@@ -627,6 +703,10 @@ function renderPage(
      *  in the body walk AND in an action body — pushes the router's real key
      *  instead of the resolver's `/<page-snake>` fallback. */
     pageRoutes: ReadonlyMap<string, string>;
+    /** True when the deployable authenticates its api calls (D-FLUTTER-BEARER)
+     *  — the page shell then imports the credentialed `api_client.dart` drop-in
+     *  instead of `package:http/http.dart`. */
+    credentialed: boolean;
   },
 ): Omit<RenderedPage, "page"> {
   const {
@@ -638,6 +718,7 @@ function renderPage(
     authUi,
     nameCtx,
     pageRoutes,
+    credentialed,
   } = workflows;
   // Identity comes from the page's EMIT NAME, never its bare `page.name`.  The
   // scaffold names aggregate pages by ROLE (`List` inside `area Products`), so
@@ -769,6 +850,7 @@ function renderPage(
           storeMembers,
           derivedLines,
           pageGate,
+          credentialed,
         },
         bodyWidget,
         contexts,
@@ -782,6 +864,7 @@ function renderPage(
         hostsForm,
         usesComponent,
         derivedLines,
+        credentialed,
       });
 
   return { fileBase, className, routePath, source, usedComponents };
@@ -838,6 +921,11 @@ interface ConsumerBindings {
    *  `currentUser.<claim>` in its body) — the shell then binds `currentUser` and
    *  wraps the body in the gate. */
   pageGate: boolean;
+  /** True when the deployable authenticates its api calls — the page shell then
+   *  imports the credentialed `api_client.dart` drop-in instead of
+   *  `package:http/http.dart` (D-FLUTTER-BEARER).  False keeps the emitted
+   *  bytes identical. */
+  credentialed: boolean;
 }
 
 /** Bind one local per used store member, matching the body's use site
@@ -898,6 +986,12 @@ function renderStatelessPage(
      *  page's derived reach only params / literals — one that read `state` made
      *  the page a `ConsumerWidget` instead. */
     derivedLines: readonly string[];
+    /** True when the deployable authenticates its api calls — the page shell
+     *  then imports the credentialed `api_client.dart` drop-in instead of
+     *  `package:http/http.dart`, so an inline `Action(<inst>.<op>)` POST and a
+     *  FileUpload carry the credential (D-FLUTTER-BEARER).  False keeps the
+     *  emitted bytes identical. */
+    credentialed: boolean;
   },
 ): string {
   const imports = ["import 'package:flutter/material.dart';"];
@@ -912,7 +1006,7 @@ function renderStatelessPage(
   // An `Action(<instance>.<op>)` button POSTs inline via `apiUri(` — the only
   // page-body reference to it — so import http + the base-URL helper on demand.
   if (bodyWidget.includes("apiUri(")) {
-    imports.push("import 'package:http/http.dart' as http;", "import '../config.dart';");
+    imports.push(flutterHttpImport(opts.credentialed, "../"), "import '../config.dart';");
   }
   // The formatting / math sniffs run over the hoisted `derived` locals TOO — a
   // derived is an expression like any body slot, so `round(x)` in one pulls
@@ -1112,7 +1206,7 @@ function renderConsumerPage(
   // `Action(<instance>.<op>)` buttons, async-effect methods, and FileUpload POST
   // inline via `apiUri(` — import http + the base-URL helper when either does.
   if (scan.includes("apiUri(")) {
-    imports.push("import 'package:http/http.dart' as http;", "import '../config.dart';");
+    imports.push(flutterHttpImport(b.credentialed, "../"), "import '../config.dart';");
   }
   if (usesIntl(scan)) {
     imports.push("import 'package:intl/intl.dart';");
@@ -1561,17 +1655,30 @@ void main() {
  *  all real HTTP (status 400), which surfaces as an unrelated
  *  `NetworkImageLoadException` — drained via `takeException()` so it can't fail
  *  the a11y assertion. */
-function renderA11yTest(pkg: string): string {
-  return `import 'package:flutter_test/flutter_test.dart';
-import 'package:${pkg}/main.dart';
-
-void main() {
-  testWidgets('boot frame meets WCAG accessibility guidelines', (WidgetTester tester) async {
+function renderA11yTest(pkg: string, pages: readonly RenderedPage[]): string {
+  // PER-PAGE, not boot-frame-only.  `generated-a11y.yml` scans every route of
+  // the showcase on the five DOM frontends; Flutter web renders to CANVAS and
+  // publishes no DOM for axe-core to read, so its a11y leg is this emitted
+  // `flutter test` file (run by `generated-flutter-build.yml`) — which means
+  // this file is the whole of Flutter's a11y coverage, and a boot-frame-only
+  // scan left every page but `/` unchecked.
+  //
+  // Each page is pumped DIRECTLY rather than navigated to: the page shells are
+  // all `const <X>Page()`, and a `:id` route's shell reads its parameters from
+  // `ModalRoute.settings.arguments`, which the harness supplies uniformly (a
+  // paramless page simply ignores them).  Going through `App()` instead would
+  // put every gated page behind `AuthGate`'s session probe, which never
+  // resolves under `flutter_test`.
+  const probe =
+    pages.length > 0
+      ? pages.map(
+          (p) => `
+  testWidgets('${p.className} meets WCAG accessibility guidelines', (WidgetTester tester) async {
     final SemanticsHandle handle = tester.ensureSemantics();
-    await tester.pumpWidget(const App());
+    await tester.pumpWidget(_probe(const ${p.className}()));
     await tester.pump();
-    // Drain expected NetworkImage load failures (flutter_test returns HTTP 400
-    // for every request) so they don't fail the guideline checks below.
+    // Drain expected NetworkImage / api load failures (flutter_test answers
+    // HTTP 400 for every request) so they don't fail the guideline checks.
     while (tester.takeException() != null) {}
     await expectLater(tester, meetsGuideline(androidTapTargetGuideline));
     await expectLater(tester, meetsGuideline(iOSTapTargetGuideline));
@@ -1579,7 +1686,56 @@ void main() {
     await expectLater(tester, meetsGuideline(textContrastGuideline));
     while (tester.takeException() != null) {}
     handle.dispose();
-  });
+  });`,
+        )
+      : [
+          `
+  testWidgets('boot frame meets WCAG accessibility guidelines', (WidgetTester tester) async {
+    final SemanticsHandle handle = tester.ensureSemantics();
+    await tester.pumpWidget(const App());
+    await tester.pump();
+    while (tester.takeException() != null) {}
+    await expectLater(tester, meetsGuideline(androidTapTargetGuideline));
+    await expectLater(tester, meetsGuideline(iOSTapTargetGuideline));
+    await expectLater(tester, meetsGuideline(labeledTapTargetGuideline));
+    await expectLater(tester, meetsGuideline(textContrastGuideline));
+    while (tester.takeException() != null) {}
+    handle.dispose();
+  });`,
+        ];
+  const imports =
+    pages.length > 0
+      ? [
+          "import 'package:flutter/material.dart';",
+          "import 'package:flutter_riverpod/flutter_riverpod.dart';",
+          "import 'package:flutter_test/flutter_test.dart';",
+          ...pages.map((p) => `import 'package:${pkg}/pages/${p.fileBase}.dart';`),
+        ]
+      : ["import 'package:flutter_test/flutter_test.dart';", `import 'package:${pkg}/main.dart';`];
+  const harness =
+    pages.length > 0
+      ? `
+/// One page under a router that answers every route with THAT page and hands it
+/// the same placeholder arguments a ':id' route would carry, so a detail page
+/// binds an id instead of throwing before a single frame is laid out.
+Widget _probe(Widget page) {
+  return ProviderScope(
+    child: MaterialApp(
+      theme: ThemeData(useMaterial3: true, colorSchemeSeed: Colors.indigo),
+      onGenerateRoute: (_) => MaterialPageRoute<void>(
+        settings: const RouteSettings(
+          arguments: <String, String>{'id': '00000000-0000-0000-0000-000000000000'},
+        ),
+        builder: (_) => page,
+      ),
+    ),
+  );
+}
+`
+      : "";
+  return `${imports.join("\n")}
+${harness}
+void main() {${probe.join("\n")}
 }
 `;
 }

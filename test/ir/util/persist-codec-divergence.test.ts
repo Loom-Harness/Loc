@@ -30,6 +30,7 @@ import { flutterPersistCodec } from "../../../src/ir/util/flutter-persist-codec.
 
 const prim = (name: string): TypeIR => ({ kind: "primitive", name }) as TypeIR;
 const arr = (element: TypeIR): TypeIR => ({ kind: "array", element });
+const opt = (inner: TypeIR): TypeIR => ({ kind: "optional", inner });
 const id = (): TypeIR => ({ kind: "id", targetName: "Order", valueType: "guid" }) as TypeIR;
 const enumT = (): TypeIR => ({ kind: "enum", name: "Status" });
 const vo = (): TypeIR => ({ kind: "valueobject", name: "Money" });
@@ -138,9 +139,39 @@ describe("flutterPersistCodec — the Dart side", () => {
     expect(flutterPersistCodec(prim("guid"))).toEqual({ kind: "scalar", scalar: "string" });
   });
 
-  it("REFUSES json and File — neither has a typed cell to restore into", () => {
-    expect(flutterPersistCodec(prim("json"))).toBeUndefined();
+  it("PERSISTS a `json` cell verbatim; refuses File (the fixed FileRef object)", () => {
+    // Widened in wave C2: a `json` cell IS json, so storing the decoded value
+    // back is the IDENTITY conversion — the one case that cannot fail.  The JS
+    // frontends have always persisted it (Zustand serialises the whole state),
+    // so refusing it was a per-target gap rather than a shared limit.
+    expect(flutterPersistCodec(prim("json"))).toEqual({ kind: "json" });
     expect(flutterPersistCodec(prim("File"))).toBeUndefined();
+  });
+
+  it("PERSISTS an OPTIONAL scalar as a nullable cell — except under `url`", () => {
+    // The blob tiers restore an absent key as `null`, which for a nullable cell
+    // is the RIGHT value, not a lost one.
+    expect(flutterPersistCodec(opt(prim("int")))).toEqual({
+      kind: "scalar",
+      scalar: "int",
+      nullable: true,
+    });
+    expect(flutterPersistCodec(opt(prim("datetime")), "session")).toEqual({
+      kind: "scalar",
+      scalar: "datetime",
+      nullable: true,
+    });
+    // `url` is refused on the RESTORE side: `hydrateFromUrl` re-seeds through
+    // `copyWith`, whose `x ?? this.x` cannot set a cell to null, so an absent
+    // param would silently KEEP the old value — a wrong value, not a missing
+    // feature.
+    expect(flutterPersistCodec(opt(prim("int")), "url")).toBeUndefined();
+    // A nullable COLLECTION / `json` is a second kind of emptiness the flat
+    // blob cannot distinguish — still refused.
+    expect(flutterPersistCodec(opt(arr(prim("int"))))).toBeUndefined();
+    expect(flutterPersistCodec(opt(prim("json")))).toBeUndefined();
+    // …and an optional of a type with no codec at all stays refused.
+    expect(flutterPersistCodec(opt(vo()))).toBeUndefined();
   });
 
   it("REFUSES value objects and entities", () => {
@@ -172,12 +203,24 @@ describe("the ONE remaining divergence between the two tables", () => {
     flutter: flutterPersistCodec(t) !== undefined,
   });
 
-  it("json: F# keeps the raw text, Dart refuses (`dynamic` has no typed cell)", () => {
-    // The LAST row of what used to be a five-row table (wave C2 packet 2i
-    // drained the F# side toward the union).  It is the FLUTTER half; a
-    // `json` arm there closes the asymmetry entirely.
-    expect(support(prim("json"))).toEqual({ feliz: true, flutter: false });
-    expect(support(arr(prim("json")))).toEqual({ feliz: true, flutter: false });
+  it("json: BOTH persist it now — the one divergence that closed", () => {
+    // This row used to point the other way (F# kept the raw text, Dart
+    // refused), and was the reason a reader could not conclude "Flutter is
+    // simply the more permissive table".  Wave C2 closed the Dart half, which
+    // narrows ledger row `feliz-flutter-persist-codec-asymmetry`: `json` is no
+    // longer a type that persists on one self-hosting frontend and not the
+    // other.  The divergences that REMAIN all point the same way now (Dart
+    // permissive, F# not), which is itself worth knowing — see M-T1.20.
+    expect(support(prim("json"))).toEqual({ feliz: true, flutter: true });
+  });
+
+  it("an OPTIONAL scalar: Dart persists it, F# does not", () => {
+    // A new divergence, opened deliberately by the same widening: the F# table
+    // has no `optional` arm at all.  Pinned so the asymmetry stays a reviewed
+    // fact rather than being discovered by an author whose store moves between
+    // the two frontends.
+    expect(support(opt(prim("int")))).toEqual({ feliz: false, flutter: true });
+    expect(support(opt(prim("string")))).toEqual({ feliz: false, flutter: true });
   });
 
   it("and they AGREE everywhere else, so `json` is the WHOLE difference", () => {

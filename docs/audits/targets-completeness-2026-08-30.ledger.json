@@ -152,60 +152,6 @@
    }
   },
   {
-   "id": "M-T1.16-invariant-validation-feliz-flutter",
-   "title": "FLUTTER HALF ONLY (the feliz half landed in wave C2 packet 2i). Invariant-derived client-side form validation is still missing on Flutter — it enforces \"Required\" / \"Enter a number\" and nothing else",
-   "kind": "silent",
-   "class": null,
-   "confidence": "likely",
-   "targets": [
-    "flutter"
-   ],
-   "fileTrees": [
-    "src/generator/flutter/forms-emit.ts",
-    "src/generator/feliz/form-validators.ts",
-    "src/generator/angular/form-validators.ts",
-    "src/generator/zod-refine.ts"
-   ],
-   "evidence": [
-    {
-     "fleet": 1,
-     "id": "M-T1.16-invariant-validation-feliz-flutter",
-     "text": "`src/generator/flutter/forms-emit.ts:963,968,989,996` still emits only `'Required'` / `'Enter a number'`, and `grep -rln 'zod-refine|invariantRefine' src/generator/flutter` is empty. The FELIZ half is closed: `src/generator/feliz/form-validators.ts` is the F# twin of `angular/form-validators.ts` — admission through the SHARED `takeSingleFieldChain` gate (so Feliz admits a constraint iff zod / Angular do), rules attached to each `FelizFormField` by `attachFieldRules` so the `Validation` module, the touched-set wiring and the view seam agree through one `isValidatedField`, and rule-specific messages (`Must be at least 3 characters`, `Must be between 0.5 and 2.5`, `Does not match the required format`) replacing the flat `Required`. Length bounds count CODE POINTS via an `[<Emit>]` `[...$0].length`, the same definition the server's JSON Schema publishes."
-    }
-   ],
-   "repro": null,
-   "impact": null,
-   "fix": "The flutter twin of `src/generator/feliz/form-validators.ts`: map each `takeSingleFieldChain` pattern onto a Dart `validator:` closure on the `TextFormField`, reusing the shared gate rather than re-classifying. Note the Feliz half's two findings — (a) a numeric rule must be blank- AND unparseable-tolerant so it never shadows the required / parse message, and (b) an OPTIONAL non-numeric field with a length rule was not message-bearing at all before, so whatever decides \"does this cell show an inline error\" has to learn about rules or the form refuses to submit with no visible reason.",
-   "size": "M",
-   "sources": [
-    "fleet1:t1-frontend"
-   ],
-   "related_to": [],
-   "securityClass": false,
-   "P": 3,
-   "verified": {
-    "date": "2026-09-03",
-    "against": "bd7aaeedc",
-    "method": "each row's own repro re-run; emitted output read",
-    "verdict": "open",
-    "note": "react derives `.refine(...)`/`.min(1)` from invariants; Feliz emits only `Some \"Required\"` and Flutter only `'Required'` / `'Enter a number'`",
-    "remainingTargets": [
-     "feliz",
-     "flutter"
-    ]
-   },
-   "reverified": {
-    "date": "2026-09-14",
-    "against": "wave C2 packet 2i",
-    "method": "the feliz half BUILT and mutation-proved; the flutter half re-derived at the code path",
-    "verdict": "reproduces (flutter half only)",
-    "note": "A feliz app with `invariant qty >= 1` now emits `elif (match System.Decimal.TryParse form.qty with | true, v -> v < 1m | _ -> false) then Some \"Must be at least 1\"` in `productFormQtyError` and the matching `not (…)` term in `productFormValid`; flutter's `forms-emit.ts` is unchanged.",
-    "remainingTargets": [
-     "flutter"
-    ]
-   }
-  },
-  {
    "id": "schemathesis-F11-int32-range",
    "title": "F11 — ELIXIR publishes a bare `%OpenApiSpex.Schema{type: :integer}` for an `int` body field against an int4 column, so a contract-conforming value 500s (node and python now publish the bound; dotnet and java always did)",
    "kind": "silent",
@@ -258,61 +204,6 @@
     "note": "NARROWED TO ELIXIR by re-derivation.  Generated an `int` body field on all five and read the published schema: node `z.number().int().min(-2147483648).max(2147483647).openapi({ format: \"int32\" })`, python `Int32 = Annotated[int, …, Field(ge=-2147483648, le=2147483647), WithJsonSchema({\"type\": \"integer\", \"format\": \"int32\"})]` (wire_models.py:21) — both FIXED; dotnet and java bind through `int`/`Integer` and W11's own measurement records they 'have always published `format: int32`'.  ELIXIR still publishes a bare `%OpenApiSpex.Schema{type: :integer}` (`schemas/create_order_request.ex`) — no bound, no format, against an int4 column.  The W11/W12 waivers in `test/behavioral/schemathesis-waivers.json` are retained for a DIFFERENT, still-unknown java cause their own text describes; they are not evidence for this row.",
     "remainingTargets": [
      "elixir"
-    ]
-   }
-  },
-  {
-   "id": "sourcemap-feliz-flutter-not-emitted",
-   "title": "FLUTTER HALF ONLY (the feliz half landed in wave C2 packet 2i). `--sourcemap` still records NOTHING for the flutter frontend — the plan filed it as a test-parity skew, but the emission is absent",
-   "kind": "silent",
-   "class": null,
-   "confidence": "likely",
-   "targets": [
-    "flutter"
-   ],
-   "fileTrees": [
-    "src/platform/flutter.ts",
-    "src/generator/flutter/",
-    "src/generator/_trace/"
-   ],
-   "evidence": [
-    {
-     "fleet": 1,
-     "id": "sourcemap-feliz-flutter-not-emitted",
-     "text": "`src/platform/flutter.ts` `emitProject({ contexts, sys, deployable })` still does not destructure `sourcemap`, and `grep -rln SourceMapRecorder src/generator/flutter` is empty — so `ddd generate system --sourcemap` on a flutter ui yields a map with no records for those pages, `ddd breakpoints` resolves nothing and `ddd trace` cannot map a frame back. The FELIZ half is closed: `src/platform/feliz.ts` forwards the recorder, `GenerateFelizOptions` carries it, and each page's view function is recorded as a `fragment()` REGION of the single `web/src/App.fs` (Feliz is not file-per-page), with `pageConstructId` ids matching react/vue/svelte/angular. `docs/debugging.md`'s per-target table now carries a row for each of the two self-hosting frontends rather than covering backends only."
-    }
-   ],
-   "repro": null,
-   "impact": null,
-   "fix": "The REAL landing, mirroring the feliz one: destructure `sourcemap` in `src/platform/flutter.ts`'s `emitProject`, thread it into the flutter generator's options, and record each page at its emit site. Flutter IS file-per-page (unlike Feliz), so `recorder.file(path, content, page.origin, pageConstructId(ui.name, page))` is the right call — the same shape `react/pages-emitter.ts` uses. Then add the flutter twin of `test/generator/feliz/sourcemap.test.ts` and flip the `docs/debugging.md` row.",
-   "size": "S",
-   "sources": [
-    "fleet1:coverage-t9"
-   ],
-   "related_to": [
-    "M-T8.2-sourcemap-fanout (t3-t5) — the backend half of the same `--sourcemap` fan-out gap"
-   ],
-   "securityClass": false,
-   "P": 2,
-   "verified": {
-    "date": "2026-09-03",
-    "against": "bd7aaeedc",
-    "method": "each row's own repro re-run; emitted output read",
-    "verdict": "open",
-    "note": "react's map carries `web/src/pages/*.tsx`; the feliz and flutter maps carry backend files only. Neither the honest landing nor the real one happened — no `loom.sourcemap-target-unsupported`, and `docs/debugging.md` never mentions either target",
-    "remainingTargets": [
-     "feliz",
-     "flutter"
-    ]
-   },
-   "reverified": {
-    "date": "2026-09-14",
-    "against": "wave C2 packet 2i",
-    "method": "the feliz half BUILT and mutation-proved; the flutter half re-derived at the code path",
-    "verdict": "reproduces (flutter half only)",
-    "note": "`generate system --sourcemap` on a scaffolded feliz ui now yields three `web/src/App.fs` regions (`WebApp.widgets.List` / `.Detail` / `WebApp.Home`, macro origins) and `ddd breakpoints <file.ddd> --line <page line>` answers `web/src/App.fs:<n>`; the flutter arm is unchanged.",
-    "remainingTargets": [
-     "flutter"
     ]
    }
   },
@@ -415,11 +306,11 @@
    "securityClass": false,
    "P": 3,
    "reverified": {
-    "date": "2026-09-10",
-    "against": "bc7ed8f8",
-    "method": "reconciliation 3 (packet C0.5) — repro re-run on this head, emitted output read",
-    "verdict": "reproduces",
-    "note": "RE-RUN: one `CreateForm { of: Item, testid: \"second\" }` on six frontends, grepping the emitted page for `second`.  react (home.tsx, 3 hits), vue, svelte and feliz honour it; ANGULAR and FLUTTER emit ZERO occurrences anywhere under `web/`.  Note for the implementer: the row's original TWO-form fixture no longer generates on react/vue/svelte — `loom.page-form-locals-unsupported` now refuses two same-aggregate forms on one page, so the single-form shape above is the live repro.",
+    "date": "2026-09-14",
+    "against": "wave C2 packet 2j (claude/c2-flutter)",
+    "method": "the row's own single-form repro re-run on this head, emitted Dart read",
+    "verdict": "reproduces — and the FLUTTER half is bigger than `S`",
+    "note": "`CreateForm { of: Item, testid: \"second\" }` on a flutter ui: grep for `second` across the whole emitted app finds NOTHING, as the row says.  But the reason is not the one the fix line assumes.  On Angular the `testid:` is DROPPED while a DEFAULT namespace still ships (`data-testid=\"items-new\"` on both forms), so \"thread the namespace through\" is the whole job.  On FLUTTER there is no test-id surface at ALL: `grep -c 'Key(' lib/forms.dart` is **0** — no widget key on the form root, none on any input, none on the submit button, with or without a `testid:`.  So the flutter half is not a threading fix, it is \"give the generated forms a key surface\", and it needs a shape decision first: flutter web renders to CANVAS, so there is no DOM for a Playwright selector to reach and the consumer is `find.byKey` inside `flutter test` (which `generated-flutter-build.yml` already runs, and which `scripts/flutter-table-controls-test.dart` already drives for the server-driven `Table` controls — the precedent for what the keys would be FOR).  The emitter already has the translation: `flutterTarget.renderTimeline` turns the walker's ` data-testid=\"x\"` fragment into `key: const Key('x')` via `testidAttr` + `dartString`, so the recipe is that one line applied to the form root, each `fieldWidget`, and the submit `ElevatedButton`, with the conventional `<plural>-new` / `<plural>-<op>` namespace as the default and `testid:` overriding it.  Sized S on the Angular arm, M here.  NOT built by this packet; the angular arm is packet 2h's.",
     "remainingTargets": [
      "angular",
      "flutter"
@@ -1079,27 +970,28 @@
   },
   {
    "id": "feliz-flutter-persist-codec-asymmetry",
-   "title": "FLUTTER ARM ONLY (the feliz arm closed in wave C2 packet 2i). The two `persist:` codec tables disagree on exactly ONE type now — `json`, which the F# table keeps as raw text and the Dart table refuses — so a `persist:` store holding a `json` cell ships on feliz and is refused on flutter",
+   "title": "FELIZ ARM ONLY now (feliz drained toward the union in wave C2 packet 2i; flutter gained `json` + nullable cells in packet 2j). The two `persist:` codec tables disagree on exactly ONE shape — an OPTIONAL scalar, which the Dart table persists as a nullable cell and the F# table refuses (no `optional` arm) — so a `persist:` store holding a `T?` cell ships on flutter and is refused on feliz",
    "kind": "honest",
    "class": null,
    "confidence": "proven",
    "targets": [
-    "flutter"
+    "feliz"
    ],
    "fileTrees": [
-    "src/ir/util/flutter-persist-codec.ts",
-    "src/generator/flutter/store-persist.ts"
+    "src/ir/util/feliz-persist-codec.ts",
+    "src/generator/feliz/store-persist.ts",
+    "test/ir/util/persist-codec-divergence.test.ts"
    ],
    "evidence": [
     {
      "fleet": 1,
      "id": "feliz-flutter-persist-codec-asymmetry",
-     "text": "Wave C2 packet 2i drained the F# side toward the union, exactly as this row's `fix` asked: `src/ir/util/feliz-persist-codec.ts` gained `datetime` (`System.DateTime.TryParse`) and `guid` (`System.Guid.TryParse`) scalars, maps an `enum` to `string` (what every other Feliz seam already does), and its list element set is now the whole scalar set — so `datetime`, `guid`, `enum`, `decimal[]`, `money[]`, `datetime[]`, `guid[]` and `enum[]` all persist on feliz. FOUR of the five documented divergences are gone. The fifth is the flutter half the same `fix` named: `src/ir/util/flutter-persist-codec.ts` `scalarCodec` returns `undefined` for `json` (`dynamic` has no typed cell to restore into) where the F# table maps it to the verbatim `string` codec. `test/ir/util/persist-codec-divergence.test.ts` is rewritten around that single row plus an AGREE list carrying the four ex-divergences, so the flutter arm closes the asymmetry and nothing else can silently re-open it."
+     "text": "Composed at the batch-2 fold from the two packets' re-verifications. 2i (feliz): `src/ir/util/feliz-persist-codec.ts` gained `datetime` (`System.DateTime.TryParse`) and `guid` (`System.Guid.TryParse`) scalars, maps an `enum` to `string`, and its list element set is the whole scalar set. 2j (flutter): `src/ir/util/flutter-persist-codec.ts` gained a `{kind: 'json'}` codec (stores the decoded value verbatim) and a nullable cell (absent key -> `null`) at the `local`/`session` tiers. What remains is the ONE divergence the widening opened in the other direction: `felizPersistCodec(opt(prim('int')))` is `undefined`, `flutterPersistCodec(...)` is a codec — pinned explicitly in `test/ir/util/persist-codec-divergence.test.ts` (`an OPTIONAL scalar: Dart persists it, F# does not`)."
     }
    ],
-   "repro": "`store Draft persist: local { state { blob: json } }` on a `platform: flutter` deployable raises `loom.store-lifetime-target-unsupported` (`#flutter-field`); the identical model on `platform: feliz` validates clean and persists the cell as raw text.",
-   "impact": "A `persist:` store holding a `json` cell is not portable between the two self-hosting frontends.",
-   "fix": "Give the Dart table a `json` arm — store the raw JSON string, restore as `dynamic` (the shape the F# table already uses). That deletes the last row of `persist-codec-divergence.test.ts`'s divergence describe block and moves `json` into its AGREE list; the feliz half needs no further change.",
+   "repro": null,
+   "impact": null,
+   "fix": "Give the F# table an `optional` arm — a nullable cell restored as `None` on an absent key, the twin of 2j's Dart nullable cell (and mind the `url` tier, where Dart still refuses a nullable cell for a measured reason: the shared state class has no null-distinguishing `copyWith` sentinel). That deletes the last divergence row of `persist-codec-divergence.test.ts`'s describe block; `json`, `enum`, `datetime`, `guid` and every array already agree.",
    "size": "S",
    "sources": [
     "fleet1:fresh-gate-probe"
@@ -1109,12 +1001,12 @@
    "P": 3,
    "reverified": {
     "date": "2026-09-14",
-    "against": "wave C2 packet 2i",
-    "method": "the feliz arm BUILT and mutation-proved; the flutter arm re-derived at the code path",
-    "verdict": "reproduces (flutter arm only)",
-    "note": "`flutter-persist-codec.ts` `scalarCodec` still returns `undefined` for `json`; `felizPersistCodec(prim('json'))` returns `{kind:'scalar',scalar:'string'}`.",
+    "against": "the batch-2 fold of packets 2i + 2j (#2933)",
+    "method": "both packets' re-verifications composed; `persist-codec-divergence.test.ts` on the folded tree is the pin",
+    "verdict": "narrowed to one divergence, still open",
+    "note": "2i closed the feliz side of the four scalar/array divergences and 2j closed the flutter `json` side; the optional-scalar divergence 2j opened deliberately is the only row left, pointing feliz-refuses.",
     "remainingTargets": [
-     "flutter"
+     "feliz"
     ]
    }
   },
@@ -6531,6 +6423,16 @@
    "id": "feliz-persist-codec-stale-code-name",
    "title": "CLOSED (wave C2, packet 2i). Both mentions in `src/ir/util/feliz-persist-codec.ts` now name the code the validator actually raises — `loom.store-lifetime-target-unsupported`, its `#field` message variant — matching the sibling `flutter-persist-codec.ts`. `grep -rn \"store-persist-field-unsupported\" src/ test/ docs/` returns nothing on this head (the two comment lines were its only occurrences anywhere in the repo, so there was never a catalog entry or a register row to retire with them). Fixed in the same commit that widened the F# codec table, whose header prose the two mentions sat in.",
    "source": "fleet1:fresh-gate-probe"
+  },
+  {
+   "id": "M-T1.16-invariant-validation-feliz-flutter",
+   "source": "wave C2 packets 2i (feliz, claude/c2-feliz) + 2j (flutter, claude/c2-flutter), folded on #2933",
+   "title": "Invariant-derived client-side form validation was missing on BOTH self-hosting frontends — Feliz and Flutter enforced \"Required\" only (both halves now derive per-field rules through the shared `takeSingleFieldChain` gate and deny with `singleFieldMessage`'s one sentence)"
+  },
+  {
+   "id": "sourcemap-feliz-flutter-not-emitted",
+   "source": "wave C2 packets 2i (feliz) + 2j (flutter), the REAL landing on both, folded on #2933",
+   "title": "`--sourcemap` recorded NOTHING for the feliz and flutter frontends (feliz: one `fragment()` region per page view in `App.fs`; flutter: one `file()` per page + `fragment()`-anchored components in the pooled `lib/components.dart`; `ddd breakpoints` resolves both)"
   }
  ],
  "declined": [
