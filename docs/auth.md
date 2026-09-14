@@ -47,6 +47,18 @@ escape — else `loom.default-deny-ungated` fires.  Covered:
   of their named-find loop and used to emit the list route without reading its
   gate.  All five now resolve the list read through one shared derivation
   (`src/ir/util/read-gates.ts`).
+- **the synthesised by-id read is the second exception — and unlike the list
+  read it has NO recourse yet.**  `GET /api/<plural>/{id}` is compiler-derived
+  on all five backends and carries no gate on any of them, so gating an
+  aggregate everywhere else (an admin-only `find all`, gated operations) still
+  leaves single records readable by any authenticated caller.  It is no longer
+  silent: under `denyByDefault` each such route raises
+  `loom.default-deny-by-id-ungated` (a **warning**, because there is nothing
+  the author can write to satisfy it — the by-id gate surface
+  (`find byId(id: T id): T? requires <expr>`) is mission M-T3.19).  What DOES
+  still apply to the by-id route: the tenancy filter (a foreign tenant's row
+  reads 404) and `mask unless` field redaction.  What does not: role
+  separation within a tenant.
 - **`projection`s — both kinds** — the same optional `requires` gate, declared
   on the projection HEADER (`projection X keyed by k requires <expr> { … }`,
   after `keyed by`, like every other gate in the language), evaluated against

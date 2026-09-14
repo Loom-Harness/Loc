@@ -261,9 +261,13 @@ system ${sys} {
   // Two limits to know before you turn it on.  The synthesised LIST read is
   // coverable — declare \`find all(): <T>[] requires <expr>\` on the repository
   // and the gate lands on \`GET /<plural>\`.  The synthesised BY-ID read is not:
-  // \`GET /<plural>/{id}\` has no author surface to attach a gate to, so under
-  // denyByDefault it still serves to any authenticated caller, and nothing
-  // warns (mission M-T3.19).  And \`with crudish\` generates its
+  // \`GET /api/<plural>/{id}\` has no author surface to attach a gate to, so
+  // under denyByDefault it still serves to any authenticated caller — the
+  // build now WARNS about each one (\`loom.default-deny-by-id-ungated\`) rather
+  // than passing silently, until the gate surface lands (mission M-T3.19).
+  // A tenancy filter still covers that route (a foreign tenant reads 404); what
+  // it does not cover is role separation within a tenant.
+  // And \`with crudish\` generates its
   // create/update/destroy, which likewise cannot carry a gate today:
   // hand-write those three on any aggregate you want gated until
   // \`crudish(requires: <Policy>)\` lands.  In both cases the gate is named at
