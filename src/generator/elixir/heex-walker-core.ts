@@ -222,17 +222,21 @@ export interface QueryBinding {
    *  way to reach row 11.  Empty/undefined for a bare `all` → `list_<agg>s()`,
    *  byte-identical to before. */
   listArgs?: string[];
-  /** kind:"list", source:"aggregate" only — WHICH repository read the `of:`
-   *  call named, when it is not the auto-`findAll`.  `undefined` / `"all"` →
-   *  the paged `list_<agg>s`; anything else is a declared `find`, whose context
-   *  function is `<find>_<agg>` (`context-emit.ts`).
+  /** `source: "aggregate"` only — the CONTEXT-MODULE FUNCTION this read calls,
+   *  resolved from the `of:` call's operation via `resolveAggregateRead`
+   *  (`src/ir/util/page-read.ts`): `list_<agg>s` for the auto-`findAll`,
+   *  `get_<agg>` for `byId`, `<find>_<agg>` for a declared or synthesized
+   *  repository find — the `defdelegate` the context module emits for each.
    *
-   *  Before this the emitter called `list_<agg>s(<the find's args>)` for EVERY
-   *  list binding, so a filter find's argument landed in the paged list's
-   *  `page` slot: `list_wallets("")` → `offset = ("" - 1) * page_size` →
-   *  `ArithmeticError :erlang.-("", 1)`, a 500 on every load of a scaffolded
-   *  Phoenix list page with a filter bar (schemathesis elixir cell, E5). */
-  retrieval?: string;
+   *  It exists because the emitter used to HARD-CODE `list_<agg>s` for every
+   *  list-shaped read and `get_<agg>` for every single-shaped one, so a page
+   *  naming a FILTERED read (`Product.findAllBySellable()`, `Item.byState(Live)`)
+   *  silently loaded the unfiltered list — the right rows on the JSX frontends,
+   *  every row on Phoenix, with no diagnostic.  Undefined ⇒ the operation named
+   *  no declaration at all; the emitter then REFUSES the read rather than
+   *  substituting one (`loom.ui-read-unresolved` rejects that model upstream, so
+   *  the refusal is a backstop, not the user-facing message). */
+  readFn?: string;
   /** kind:"list" only — the enclosing `match` arm's condition (handler-position
    *  Elixir), when the `QueryView` sits inside one.  The load runs under
    *  `if <gate> do … else socket end`, so only the arm the template actually

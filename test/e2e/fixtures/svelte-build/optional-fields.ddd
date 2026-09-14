@@ -17,6 +17,12 @@
 //   fee: money                a MONEY field on a form — its input holds a
 //                             `Decimal`, and a pack template that wrote a bare
 //                             string into it did not typecheck
+//   lines: LineItem[]         the same money slot one level down, inside an
+//                             ARRAY OF VALUE OBJECTS: the repeatable row group
+//                             is a second, independent money renderer (a pack's
+//                             `field-input-array`, not `field-input-money`),
+//                             and it went on writing strings after the field
+//                             half was fixed (audit P8)
 //   attachment: File?         an optional FILE — the upload handler assigns the
 //                             returned ref back and clears to `null`
 //
@@ -37,12 +43,27 @@ system OptFields {
         memo: string?
       }
 
+      // The money-in-a-ROW witness (2026-09-10 e-shop audit, P8).  `fee: money`
+      // below is the money-in-a-FIELD one; this is its array twin, kept in the
+      // same fixture because the two halves share a contract (form state holds
+      // an already-constructed `Decimal`) and diverged once: the repeatable row
+      // group routed its money cell through the pack's generic STRING arm and
+      // seeded a fresh row with the string `"0"`, so `svelte-check` reported
+      // "Type 'string' is not assignable to type 'Decimal'" on both the New
+      // page's CreateForm and the Detail page's update OperationForm.
+      valueobject LineItem {
+        sku: string
+        qty: int
+        price: money
+      }
+
       aggregate Project with crudish {
         name: string
         note: string?
         estimate: int?
         dueAt: datetime?
         fee: money
+        lines: LineItem[]
         budget: Budget?
         attachment: File?
         open: bool

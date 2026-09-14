@@ -14,9 +14,10 @@
 
 import { createInputFields } from "../../ir/enrich/wire-projection.js";
 import type { EnumIR, ExprIR, TypeIR, ValueObjectIR } from "../../ir/types/loom-ir.js";
+import { findsOfAggregate, resolveAggregateRead } from "../../ir/util/page-read.js";
 import { humanize, plural, snake } from "../../util/naming.js";
 import { iconA11yAttr } from "../_walker/a11y-emit.js";
-import { tryDetectApiHook } from "../_walker/api-hook-detector.js";
+import { type DetectedApiCall, tryDetectApiHook } from "../_walker/api-hook-detector.js";
 import { giveUpText } from "../_walker/give-up.js";
 import { isEntityHistoryRead } from "../_walker/history-read.js";
 import { lookupBuiltinIcon } from "../_walker/icons.js";
@@ -895,21 +896,54 @@ function resolveQueryAggregate(arg: ExprIR): string | undefined {
  *  Elixir.  Only a `method-call` carries args (`<api>.<Agg>.all(page, …)`); a
  *  plain member access (`<api>.<Agg>.all`) has none, so the load stays the
  *  parameterless `list_<agg>s()` it has always been. */
-/** The READ a `QueryView` `of:` call names — `all` for the auto-`findAll`,
- *  otherwise the declared `find`'s name.  Both spellings the walker accepts
- *  carry it in the same slot: `<api>.<Agg>.byOwner(x)` is a method-call whose
- *  `member` is the find, `<api>.<Agg>.all` a member access whose `member` is
- *  `all`.  A bare `ref` (the aggregate alone) names no read → `undefined`. */
-function queryRetrievalName(arg: ExprIR | undefined): string | undefined {
-  if (arg?.kind === "method-call") return arg.member;
-  if (arg?.kind === "member" && arg.receiver.kind === "member") return arg.member;
-  if (arg?.kind === "member" && arg.receiver.kind === "ref") return arg.member;
-  return undefined;
-}
-
 function queryCallArgs(arg: ExprIR | undefined, ctx: WalkContext): string[] | undefined {
   if (arg?.kind !== "method-call" || arg.args.length === 0) return undefined;
   return arg.args.map((a) => renderExpr(a, { ...ctx, position: "handler" }));
+}
+
+/** The CONTEXT-MODULE FUNCTION a `QueryView` `of:` aggregate read calls.
+ *
+ *  The emitter used to derive this from the read's SHAPE alone — list-shaped ⇒
+ *  `list_<agg>s`, single-shaped ⇒ `get_<agg>` — which is right only for the two
+ *  standard ops and silently wrong for every FILTERED read: a page asking for
+ *  `Product.findAllBySellable()` loaded the whole table, and `Item.byState(Live)`
+ *  passed the filter value into `list_items/4`'s `page` parameter.  The
+ *  operation the author named is the fact that decides this, so it is what gets
+ *  consulted — through `resolveAggregateRead`, the same resolution the validator
+ *  runs to reject a read that names nothing (`loom.ui-read-unresolved`).
+ *
+ *  `undefined` means exactly that: the operation resolved to no declaration, so
+ *  there is no honest function to call and the load block refuses instead of
+ *  substituting the list.  An `of:` the DETECTOR cannot read at all (a bare ref,
+ *  an unknown receiver) keeps the shape-derived default — those never named an
+ *  operation to route by, and the answer is byte-identical to before. */
+function contextReadFn(
+  aggName: string,
+  isSingle: boolean,
+  ctx: WalkContext,
+  detected: DetectedApiCall | null,
+): string | undefined {
+  const aggSnake = snake(aggName);
+  const shapeDefault = isSingle ? `get_${aggSnake}` : `list_${aggSnake}s`;
+  if (detected?.kind !== "aggregate" || detected.aggregateName !== aggName) return shapeDefault;
+  const target = resolveAggregateRead(
+    detected.operation,
+    findsOfAggregate(aggName, ctx.bcByAggregate.get(aggName)),
+  );
+  switch (target.kind) {
+    case "find-all":
+      return `list_${aggSnake}s`;
+    case "by-id":
+      return `get_${aggSnake}`;
+    case "find":
+      // The `defdelegate <find>_<agg>(...)` the context module emits beside the
+      // CRUD ones (`vanilla/context-emit.ts`, `customFindsOf`).
+      return `${snake(target.find.name)}_${aggSnake}`;
+    default:
+      // `history` is detected one level up (`historyRead`) and never reaches
+      // this arm; `unresolved` names no declaration — refuse.
+      return undefined;
+  }
 }
 
 export function renderQueryView(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkContext): string {
@@ -1088,11 +1122,11 @@ export function renderQueryView(expr: Extract<ExprIR, { kind: "call" }>, ctx: Wa
       // never moves off 1.  HANDLER position — the load block is a function
       // body, so state refs must render `socket.assigns.<f>`, not `@<f>`.
       listArgs: queryCallArgs(ofArgNode, ctx),
-      // WHICH read the `of:` named.  A filter-bar arm names a declared `find`,
-      // whose context function is `<find>_<agg>` — calling `list_<agg>s` with
-      // its argument put the filter value in the paged list's `page` slot
-      // (`("" - 1) * page_size` → ArithmeticError; schemathesis elixir E5).
-      retrieval: isSingle ? undefined : queryRetrievalName(ofArgNode),
+      // WHICH context function this read calls.  Resolved from the `of:` call's
+      // OPERATION, not assumed from the read's shape — see `contextReadFn`.
+      // (This subsumes the earlier `retrieval` slot, which derived the same
+      // `list_<agg>s` / `<find>_<agg>` choice from the call's SHAPE.)
+      readFn: contextReadFn(aggName, isSingle, ctx, detected),
       // …and only when the enclosing `match` arm is the one being rendered.
       gate: isSingle ? undefined : ctx.matchGate,
     });
