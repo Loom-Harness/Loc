@@ -320,7 +320,16 @@ const REGISTER_FILE = path.join(srcRoot, "diagnostics", "unsupported-register.ts
  *  (`loom.entity-part-param-unsupported`, minted in the same packet, does NOT
  *  move this number: it is `scope` — a declared limit pending a language
  *  proposal on replace-vs-merge identity, per decision D-2.) */
-const MAX_OPEN_GAPS = 25;
+/** 25 -> 24 (wave C2 packet 2h; written as 24 -> 23 on its branch, composed at the fold with M-T5.34's +1 above): `loom.component-children-unsupported` re-classified
+ *  `gap` -> `scope` under D-ANGULAR-EXTERN-CHILDREN, owner M-T1.33.  Half drain,
+ *  half re-class — the WALKED flavour the row was opened for is BUILT (a walked
+ *  component's Angular call site is now its own kebab tag, with the class in the
+ *  page's standalone `imports: []`, so children project into the body's
+ *  `Slot { }` / `<ng-content>`), and the gate no longer fires for it.  What
+ *  remains is `extern` only, and that is not half-built Angular work: an extern
+ *  component's selector belongs to the author, so addressing it by tag needs a
+ *  LANGUAGE surface (a selector clause on `extern from`) — M-T1.33. */
+const MAX_OPEN_GAPS = 24;
 
 /** Exact count of `seam` rows.  Changes only for a reviewed reason: a gate
  *  deleted (down), a new target registered that turns a seam back into a live
