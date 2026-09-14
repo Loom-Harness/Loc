@@ -201,7 +201,7 @@ export const UNDOCUMENTED_CODES: readonly string[] = [
   "loom.payload-name-conflict",
   "loom.permission-implies-self",
   "loom.permission-implies-unknown",
-  "loom.persistence-mode-unsupported",
+  "loom.datasource-binding-missing",
   "loom.platform-knob-out-of-menu",
   "loom.platform-knob-style-layout-mismatch",
   "loom.policy-deny-duplicate",

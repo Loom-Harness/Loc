@@ -105,7 +105,7 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
     "10-repositories-and-queries.md#the-source-has-to-have-columns",
   "loom.ignoring-clause-placement":
     "10-repositories-and-queries.md#ignoring--capability-filter-bypass",
-  "loom.context-filter-unsupported":
+  "loom.context-filter-no-principal":
     "11-capabilities-filters-stamps.md#filter-expr--a-predicate-and-ed-into-every-read",
   "loom.self-outside-capability":
     "11-capabilities-filters-stamps.md#self-id--self-reference-inside-a-capability",

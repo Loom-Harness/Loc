@@ -31,7 +31,7 @@ const ALL: readonly Backend[] = BACKENDS;
  *
  *  4 -> 5: `elixir` joined.  It was the LAST unwired (family, shape) cell in
  *  `supportsNonRelationalFilter`'s whole inventory — an honest, coded rejection
- *  (`loom.context-filter-unsupported`), not a silent gap, but a rejection all
+ *  (`loom.context-filter-no-principal`), not a silent gap, but a rejection all
  *  the same.  `renderDocRepository` now AND-s the capability predicate into
  *  every document read (`list`, `find_by_id`, `find_by_id_for_write`, and each
  *  custom find), evaluated over the rehydrated `%<Agg>.Data{}` embed with the
