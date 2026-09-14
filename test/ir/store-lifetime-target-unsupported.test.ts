@@ -21,11 +21,17 @@
 //
 // What SURVIVES on both is narrower and FIELD-scoped: persistence crosses an
 // untyped boundary per field, so a type with no total conversion in that
-// language's codec still cannot ride the ladder — on feliz datetime /
-// duration / guid / enum / entity / value object (and arrays of them), on
-// flutter json / File / entity / value object / optional.  Those fire the SAME
-// code through two message variants (`#field` for feliz, `#flutter-field` for
-// flutter) — one code, two scopes, so the register keeps one row.
+// language's codec still cannot ride the ladder — on feliz `File` / entity /
+// value object (and arrays of them), on flutter json / File / entity / value
+// object / optional.  Those fire the SAME code through two message variants
+// (`#field` for feliz, `#flutter-field` for flutter) — one code, two scopes,
+// so the register keeps one row.
+//
+// The FELIZ half narrowed in wave C2 packet 2i: `datetime` / `guid` / `enum`
+// and list elements over every scalar all grew total F# codecs
+// (`System.DateTime.TryParse` / `System.Guid.TryParse`; an enum is spelled
+// `string` in F# everywhere), so they no longer fire.  What is left on feliz
+// is exactly what needs a RECORD codec the store path does not emit.
 // ---------------------------------------------------------------------------
 
 import { describe, expect, it } from "vitest";
@@ -88,17 +94,26 @@ describe("loom.store-lifetime-target-unsupported — the feliz FIELD-scoped half
     });
   }
 
-  // … but a cell with no total F# conversion is still refused.
-  it("flags a datetime cell in a persisted feliz store", async () => {
-    const d = (await diagnostics("feliz", "feliz", "local", "at: datetime")).find(
+  // … but a cell with no total F# conversion is still refused.  A value object
+  // is the canonical one: restoring it means a RECORD codec, which the store
+  // path does not emit.
+  it("flags a value-object cell in a persisted feliz store", async () => {
+    const d = (await diagnostics("feliz", "feliz", "local", "count: int = 0  price: Money")).find(
       (x) => x.code === CODE,
     );
     expect(d?.severity).toBe("error");
     // The STORE lives in `source` (the CLI prints `${code} ${source}: …`); the
     // message must not repeat it — see F2-FFE-9.
     expect(d?.source).toBe("store 'Cart'");
-    expect(d?.message).toMatch(/field 'at'/);
+    expect(d?.message).toMatch(/field 'price'/);
     expect(d?.message).toMatch(/feliz/);
+  });
+
+  it("flags a File cell and an array of value objects", async () => {
+    expect(await codes("feliz", "feliz", "local", "count: int = 0  doc: File")).toContain(CODE);
+    expect(await codes("feliz", "feliz", "local", "count: int = 0  lines: Money[]")).toContain(
+      CODE,
+    );
   });
 
   it("does NOT flag the covered scalar / array types — they ride the ladder", async () => {
@@ -108,13 +123,21 @@ describe("loom.store-lifetime-target-unsupported — the feliz FIELD-scoped half
       "ok: bool",
       "price: money",
       "tags: string[]",
+      // Drained by wave C2 packet 2i — each now has a TOTAL F# codec.
+      "at: datetime",
+      "ref: guid",
+      "blob: json",
+      "rates: decimal[]",
+      "prices: money[]",
+      "stamps: datetime[]",
+      "keys: guid[]",
     ]) {
-      expect(await codes("feliz", "feliz", "local", cells)).not.toContain(CODE);
+      expect(await codes("feliz", "feliz", "local", cells), cells).not.toContain(CODE);
     }
   });
 
   it("does NOT fire on a feliz `memory` store, whatever the cell type", async () => {
-    expect(await codes("feliz", "feliz", "", "at: datetime")).not.toContain(CODE);
+    expect(await codes("feliz", "feliz", "", "count: int = 0  price: Money")).not.toContain(CODE);
   });
 });
 

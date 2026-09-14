@@ -1715,6 +1715,17 @@ export const DIAGNOSTIC_MESSAGES = {
   // Dart, where they compiled fine and left the action doing nothing.
   "loom.flutter-action-body-unsupported#emit-invariant": (p: { what: unknown }) =>
     `internal: the Flutter Riverpod Notifier emitter cannot render ${p.what}. The IR validator's flutter action-body gates (plus the ui statement-kind and unresolved-action-ref gates) should have rejected this model before codegen reached it.`,
+  // The TARGET-AGNOSTIC subject gate (audit F66).  Every frontend renderer
+  // resolves a `match await` subject to an aggregate instance operation and
+  // renders nothing else — the JS walkers emitted a guaranteed unhandled
+  // rejection, LiveView threw at codegen, and only Feliz / Flutter said so.
+  "loom.async-effect-subject-unsupported": (p: { uiName: unknown; reason: unknown }) =>
+    `\`match await …\` (an async effect) on ui '${p.uiName}' cannot be rendered by ANY ` +
+    `frontend — ${p.reason}.  Every frontend resolves the awaited subject the same way, so ` +
+    `this is not a per-target limit: write \`match await <api>.<Agg>.<op>(args?) { <Variant> ` +
+    `b => … … else? => … }\` — an aggregate instance operation (with or without params), one ` +
+    `or more named success/error arms, and an optional \`else\`.  To await a workflow or a ` +
+    `collection read, drive it through a form primitive (WorkflowForm / QueryView) instead.`,
   "loom.feliz-async-effect-unsupported": (p: {
     where: unknown;
     uiName: unknown;
@@ -1726,8 +1737,8 @@ export const DIAGNOSTIC_MESSAGES = {
     `Feliz frontend yet — ${p.reason}.  Supported in a PAGE action: \`match await ` +
     `<api>.<Agg>.<op>(args?) { <Variant> b => … … else? => … }\` — an aggregate instance op ` +
     `(with or without params), one or more named success/error arms, and an optional ` +
-    `\`else\`.  Otherwise host this ui on an SPA frontend (React/Vue/Svelte/Angular), or ` +
-    `drive the op through a form primitive (CreateForm/OperationForm).`,
+    `\`else\`.  (The awaited SUBJECT is no longer checked here: it is the same on every ` +
+    `frontend, so it is the target-agnostic \`loom.async-effect-subject-unsupported\`.)`,
   "loom.flutter-async-effect-unsupported": (p: {
     where: unknown;
     uiName: unknown;

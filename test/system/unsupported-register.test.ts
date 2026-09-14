@@ -329,7 +329,17 @@ const REGISTER_FILE = path.join(srcRoot, "diagnostics", "unsupported-register.ts
  *  remains is `extern` only, and that is not half-built Angular work: an extern
  *  component's selector belongs to the author, so addressing it by tag needs a
  *  LANGUAGE surface (a selector clause on `extern from`) — M-T1.33. */
-const MAX_OPEN_GAPS = 24;
+/** 24 -> 25 (wave C2 packet 2i, audit F66; composed at the fold on top of the two deltas above).  NOT a regression and NOT a new
+ *  gap: one row SPLIT in two.  `loom.feliz-async-effect-unsupported` carried a
+ *  second, target-agnostic half — a `match await` whose awaited SUBJECT is not
+ *  an aggregate instance operation — behind a `platform: feliz` check, so the
+ *  identical model was refused on Feliz and reported `0 error(s), 0 warning(s)`
+ *  on React (which then emitted `await Promise.reject(new Error("no remote op
+ *  for variant-match"))`) and THREW at codegen on LiveView.  That half is now
+ *  `loom.async-effect-subject-unsupported`, raised for every mounted ui; the
+ *  Feliz row keeps only the component host.  The two rows' `what` sets are
+ *  disjoint and their union is exactly the old row's. */
+const MAX_OPEN_GAPS = 25;
 
 /** Exact count of `seam` rows.  Changes only for a reviewed reason: a gate
  *  deleted (down), a new target registered that turns a seam back into a live

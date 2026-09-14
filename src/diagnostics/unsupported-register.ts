@@ -274,12 +274,33 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
     verified: true,
   },
   {
+    // The TARGET-AGNOSTIC half, promoted out of the Feliz row below in wave C2
+    // packet 2i (audit F66).  Every frontend resolves a `match await` subject to
+    // an aggregate instance op and renders nothing else — the four JS walkers
+    // emitted `await Promise.reject(…)` from a clean `.ddd`, LiveView threw at
+    // codegen, and only Feliz / Flutter said so, behind a platform check.
+    code: "loom.async-effect-subject-unsupported",
+    kind: "gap",
+    site: "src/ir/validate/checks/store-checks.ts:527",
+    what:
+      "`match await <subject>` whose subject is not an aggregate INSTANCE operation — a " +
+      "workflow, a collection read or a plain state field.  Awaiting a WORKFLOW is the real " +
+      "work behind this row (a different route shape, `POST /workflows/<wf>`, and its own " +
+      "result projection on each of the seven frontend emitters); the other subjects are " +
+      "nonsense the statement form could not otherwise refuse, because a " +
+      "`StmtIR.variant-match`'s `subjectType` comes from `inferExprType` (catch-all `string`) " +
+      "and so cannot reach `loom.match-non-union-subject`",
+    mission: "M-T1.20",
+  },
+  {
     code: "loom.feliz-async-effect-unsupported",
     kind: "gap",
-    site: "src/ir/validate/checks/store-checks.ts:449",
+    site: "src/ir/validate/checks/store-checks.ts:451",
     what:
-      "`match await` on Feliz in a COMPONENT host, or whose awaited subject is not an aggregate " +
-      "INSTANCE op — a page-hosted instance-op effect renders (MVU trigger/result pair)",
+      "`match await` on Feliz in a COMPONENT host — the Feliz generator projects async effects " +
+      "only on pages (the trigger id comes from the host page's route `:id`), so a component " +
+      "action's effect would be silently dropped.  The SUBJECT half moved to the " +
+      "target-agnostic `loom.async-effect-subject-unsupported` (F66)",
     mission: "M-T1.20",
   },
   {
@@ -321,7 +342,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.flutter-async-effect-unsupported",
     kind: "gap",
-    site: "src/ir/validate/checks/store-checks.ts:500",
+    site: "src/ir/validate/checks/store-checks.ts:576",
     what: "`match await` in a COMPONENT action silently drops the whole widget on Flutter",
     mission: "M-T1.20",
   },
@@ -558,7 +579,15 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
     code: "loom.store-lifetime-target-unsupported",
     kind: "gap",
     site: "src/ir/validate/checks/store-checks.ts:327",
-    what: "a persisted store field with no total F# (feliz) or Dart (flutter) codec",
+    what:
+      "a persisted store field with no total F# (feliz) or Dart (flutter) codec.  The FELIZ " +
+      "half narrowed in wave C2 packet 2i to exactly the cells that would need a RECORD codec " +
+      "the store path does not emit — `File`, `valueobject`, `entity` and arrays of them; " +
+      "`datetime`/`guid` grew `System.DateTime.TryParse`/`System.Guid.TryParse` arms, an enum " +
+      "rides F# as `string`, and list elements now cover every scalar.  What is left is the " +
+      "FLUTTER half: it still refuses `json` (the one remaining divergence between the two " +
+      "codec tables, pinned by test/ir/util/persist-codec-divergence.test.ts) on top of the " +
+      "same record-shaped set",
     mission: "M-T1.20",
   },
   {

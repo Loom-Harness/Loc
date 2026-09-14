@@ -998,21 +998,57 @@ system S {
   deployable web { platform: static targets: api ui: WebApp { C: api } port: 3001 }
 }`,
 
+  // The TARGET-AGNOSTIC `match await` subject gate (audit F66).  The fixture is
+  // deliberately a REACT deployable: the whole point of the promotion is that
+  // this model used to report `0 error(s), 0 warning(s)` there and emit
+  // `await Promise.reject(new Error("no remote op for variant-match"))`, while
+  // the identical model was refused on Feliz.  A plain `string` state field is
+  // the subject — no frontend can resolve it to an aggregate instance op.
+  "loom.async-effect-subject-unsupported": `
+system S {
+  subdomain Sub { context C {
+    aggregate Order { code: string  operation place() { code := "x" } }
+    repository Orders for Order { }
+  } }
+  api Api from Sub
+  ui WebApp {
+    api C: Api
+    page OrderDetail {
+      route: "/orders/:id"
+      state { message: string = "" }
+      action submit() {
+        match await message {
+          Order o => { message := o.code }
+        }
+      }
+      body: Stack { Button { "Place", onClick: submit } }
+    }
+  }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable api { platform: node contexts: [C] dataSources: [st] serves: Api port: 3000 }
+  deployable web { platform: static targets: api ui: WebApp { C: api } port: 3001 }
+}`,
+
   // The `persist:` ladder now ships on EVERY frontend, so the platform-wide arm
   // of this code is gone; what remains is field-scoped.  Persistence on feliz
   // and flutter crosses an untyped boundary per field, so a cell whose type has
-  // no total conversion in that language's codec (here a `datetime` on feliz)
-  // is refused rather than silently dropped from the stored blob.
+  // no total conversion in that language's codec is refused rather than
+  // silently dropped from the stored blob.  Since wave C2 packet 2i the FELIZ
+  // residue is exactly the types that would need a RECORD codec — a value
+  // object here; `datetime` (the fixture's old subject) now has a total
+  // `System.DateTime.TryParse` codec and rides the ladder.
   "loom.store-lifetime-target-unsupported": `
 system S {
   subdomain Sub { context C {
+    valueobject Money { amount: int  currency: string }
     aggregate Thing with crudish { name: string }
   } }
   api Api from Sub
   ui WebApp {
     framework: feliz
     api C: Api
-    store Cart persist: local { state { seenAt: datetime } }
+    store Cart persist: local { state { price: Money } }
     page Home { route: "/"  body: Stack { Heading { "hi", level: 3 } } }
   }
   storage pg { type: postgres }
