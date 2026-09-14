@@ -465,7 +465,30 @@ const REGISTERED: Ratchet[] = [
     // the harness cannot even set an id claim — `devClaimKind` carries `string`
     // and `string[]` only — so a booted leg would assert the same built-in stub
     // value the compile tier reads straight off the emitted source.
-    max: 21,
+    //
+    // 21 -> 22 (M-T6.64, freight audit D3 — `vo-id-reference`).  Another NEW
+    // fixture, and the same shape of reason as `auth-id-claim`: its subject is
+    // a STATIC contract (node named `Ids.ShipId` in a file with zero imports;
+    // python branded `ShipId(...)` with none, on all three persistence shapes),
+    // so a type-checker is the only oracle and the compile legs already are it.
+    // Both wire shapes a `test e2e` block would boot — a required embedded
+    // value object and a `<VO>[]` collection — are already booted by
+    // `embedded` and `value-collections`.
+    //
+    // Unlike `auth-id-claim` this one DOES have a cheaper drain in principle —
+    // a pure-domain `test` block, which rides every backend's unit tier and
+    // mints no golden, the way `numeric-operands` does — and it is BLOCKED by a
+    // further instance of the same defect class: a unit-test body that names a
+    // SECOND aggregate emits `Ship.create(...)` with no import of `Ship`,
+    // because every backend's test emitter scopes its subject import to the
+    // aggregate the test lives in, and a value object holding a CROSS-aggregate
+    // reference cannot be exercised from one aggregate alone.  Reproduced on
+    // node (TS2304), python (F821), dotnet (no `using …Domain.Ships`) and java
+    // (no import for `Ship`); elixir skips test lowering outright.  That is a
+    // five-emitter slice of its own, reported on #2864 rather than smuggled in
+    // here.  When it lands, this fixture gains its unit block and this entry
+    // drains one.
+    max: 22,
   },
 ];
 
