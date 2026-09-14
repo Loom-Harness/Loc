@@ -36,6 +36,7 @@ import {
 } from "../system/manifest.js";
 import { fsMigrationArtifactIndex, MigrationBaselineError } from "../system/migration-artifacts.js";
 import {
+  MigrationBackfillDiscardedError,
   MigrationDestructiveError,
   MigrationShapeChangeError,
   MigrationSqlScopeError,
@@ -665,6 +666,7 @@ async function runGenerate(
       if (
         err instanceof SnapshotReadError ||
         err instanceof MigrationDestructiveError ||
+        err instanceof MigrationBackfillDiscardedError ||
         err instanceof MigrationShapeChangeError ||
         err instanceof MigrationSqlScopeError ||
         err instanceof MigrationBaselineError
