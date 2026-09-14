@@ -994,6 +994,10 @@ the scalar intrinsics (`s.trim()`, `n.abs()`, `d.round(2)`, `t.startOfDay()`,
 …) are in the same document — an unknown intrinsic, a wrong arity /
 argument type, or a call on a nullable receiver is rejected
 (`loom.intrinsic-unknown` / `-arity` / `-arg-type` / `-nullable-receiver`).
+A member *read* on a primitive is judged against the same catalogue plus the
+one field-shaped scalar member (`string.length`): `m.amount` on a `money`
+field, or any other invented member on a primitive, is
+`loom.unknown-primitive-member` (see the validation list below).
 
 ### Numeric widening
 
@@ -1417,8 +1421,21 @@ The validator runs after parsing and reports errors for:
   receiver — `order.totl`, `paid.amont`, `this.noField` (`loom.unknown-member`).
   Covers aggregates (including fields inherited via `extends`), entity
   parts, value objects, events / payloads, and `X id` references; it does
-  not fire on collection ops (`lines.first`), string members (`s.length`),
-  or receivers whose type couldn't be resolved.
+  not fire on collection ops (`lines.first`), on `string.length`, or on
+  receivers whose type couldn't be resolved.  A primitive receiver has its
+  own code, immediately below.
+- Access to a member a **primitive** doesn't have — `s.totallyMadeUp`,
+  `n.alsoInvented`, `m.amount` (`loom.unknown-primitive-member`).  A primitive
+  is a value, not a record: its whole surface is `string.length` plus the
+  scalar-intrinsic catalogue, both enumerable, so the message lists what *is*
+  reachable.  `money` is the case that bites — it is a precise decimal, not a
+  `{ amount, currency }` record, and `invariant limit.amount > deductible.amount`
+  used to validate clean and reach the emitters verbatim: node/.NET/Java then
+  failed their *own* compile, python and elixir did not, leaving a business
+  rule that can never fire.  If you wanted the record, declare it —
+  `valueobject Money { amount: money  currency: string }`.  A reachable name
+  written without its parens (`s.trim`) stays `loom.intrinsic-bare`, and an
+  unknown *call* stays `loom.intrinsic-unknown`.
 - Access to a claim the principal doesn't carry — `currentUser.totallyBogus`
   where the system's `user { … }` block never declares it
   (`loom.unknown-user-claim`). The generated backend's `UserClaims` type is
