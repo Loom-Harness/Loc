@@ -927,3 +927,35 @@ were misleading in both directions:
   **F-013-elixir and F-014 are unclaimed.**
 
 Net: **1 fixed upstream, 3 claimed by others, 17 unclaimed and mine to fix.**
+
+---
+
+### F-023 — The SAME operation/workflow name collision breaks React, Vue and Svelte via a different mechanism (found while fixing F-017)
+Severity: **S1** (blocker — output does not compile)   Class: **SILENT** gap
+Area: codegen / `src/generator/_frontend/` request-schema naming
+Discovered by the agent fixing F-017, confirmed with `tsc --strict` on a reduced two-module case, **not fixed**
+(fixing it would have blown the minimal-diff mandate on the Feliz change).
+
+The model that collides on Feliz (`WorkOrder.schedule` operation + `scheduleWorkOrder` workflow) also breaks
+react/vue/svelte, but in the *api-client* layer rather than the form layer: the operation's request schema lands
+in the aggregate api module and the workflow's in `api/workflows.ts`, **both named `<Wf>Request`**, and the page
+imports both:
+```ts
+import { ScheduleWorkOrderRequest, useScheduleWorkOrderWorkflow } from "../api/workflows";
+import { ScheduleWorkOrderRequest, useScheduleWorkOrder } from "../api/workOrder";
+// → error TS2300: Duplicate identifier 'ScheduleWorkOrderRequest'
+```
+**Angular escapes by accident** (its page imports the workflow request but not the operation's).
+**Flutter escapes by construction** — `flutter/forms-emit.ts:65-83` already uses per-family names
+(`Create<Agg>Form` / `<Op><Agg>Form` / `<Wf>WorkflowForm`), which is exactly the shape the Feliz fix adopted.
+So the correct fix is known and already shipping on one target.
+Impact: raises the F-017 blast radius from 1 frontend to **4 of 6**. Recorded in the new Feliz test header so it
+is not lost.
+
+---
+
+### F-024 — `For { each: … }` inside a `QueryView` `data:` lambda emits `yield!` in a non-list context (Feliz)
+Severity: **S2**   Class: **SILENT** gap
+Area: codegen / Feliz walker list rendering
+Also found while building the F-017 repro; **not fixed** (separate emitter path).
+`dotnet build` → `error FS0747`. The agent rewrote its repro around the defect rather than widen the change.
