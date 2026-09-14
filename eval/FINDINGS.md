@@ -1472,6 +1472,89 @@ Impact on adoption: localisation is a hard requirement for most B2B products sol
 country. The expensive part (extraction, hashing, three-way merge, a CI gate) is built and good; the
 cheap last mile is missing, and the workaround lands squarely in the clobber-zone.
 
+### F-048 — eleven "does it parse?" tests assert on a field `validate: false` leaves unconditionally empty
+Severity: S2 (major — a proven-vacuous assertion class, one of which was pinning a grammar defect)   Class: **SILENT**
+Area: test/_helpers × the parsing + print suites
+Found: 2026-09-14, while widening the doc-example gate.  **Not one of the original 45.**
+
+`parseString(src, opts)` surfaces `errors` / `warnings` / `diagnostics` out of Langium's
+`doc.diagnostics`, and Langium populates that field only while VALIDATING.  Pass
+`{ validate: false }` and all three are `[]` for every input, including input that does not parse.
+
+Eleven sites then wrote exactly this:
+
+```ts
+const { errors } = await parseString(src, { validate: false });
+expect(errors).toEqual([]);            // true for any src, including garbage
+```
+
+Every one of them was named for the property it was failing to check — *"parses without error"*,
+*"parses cleanly"*, *"a lowercase field named `file` still parses"*, and in
+`filter-bypass-print.test.ts` the message string `re-parse of printed source failed` on an
+assertion that could not fail.  I found it the same way: my own first measurement of the widened
+doc gate reported **45 fragments, all clean** — using `{ validate: false }`.  The real
+parse check found **11** of them broken.  The measurement and the defect had the same shape.
+
+**One of the eleven was pinning a live grammar defect.**
+`test/language/parsing/filter-bypass-parse.test.ts` — *"`ignoring` stays a soft keyword — a field
+named `ignoring` still parses"*.  It does not:
+
+```
+aggregate Order { ignoring: bool }
+→ Expecting token of type '}' but found `ignoring`.
+```
+
+`ignoring` sits in `LooseName`, `MemberName` and the page-member name list, but was missing from
+`Property.name` — so it was a soft keyword everywhere except the position the test claimed.  The
+grammar's own stated rule (*"[a keyword] must never steal a domain identifier"*) says that is a
+bug, not a design choice; `'ignoring'` is now a Property-only extra beside `'await'`/`'page'`, and
+`keyword-identifier-coverage.snapshot.json` records the widening (`+fieldName`,
+`+fieldNameAfterField`).
+
+Fixed: all eleven sites now go through a new `parseErrorsOf(src)` helper (the raw parser's
+`parserErrors`), and `test/system/vacuous-parse-assertion.test.ts` is a zero-waiver ratchet on the
+pattern.  Mutation-proved both ways: reintroducing one original offender fails the ratchet naming
+`test/ir/file-field.test.ts:57`; restoring it passes.
+
+Class SILENT, and the sharpest instance in this register of the §59/§63 shape — a check that never
+reaches the thing it names reads *exactly* like a pass, and these had read like one for as long as
+they had existed.
+
+---
+
+### F-049 — six fenced `.ddd` examples in the reference docs do not parse; one had been reported eleven days earlier
+Severity: S3 (moderate — DX, but concentrated in the flagship example of four reference docs)   Class: **DOCUMENTED** (one), **SILENT** (five)
+Area: docs × the doc-example gate
+Found: 2026-09-14.  **Not one of the original 45.**
+
+`test/system/first-run-examples-parse.test.ts` existed but read **three hand-listed files**
+(`README.md`, `docs/workflow.md`, `docs/traceability.md`).  The other ~50 docs carrying fenced
+`ddd` blocks were unchecked.  Sweeping all of them, with fragments wrapped and parsed and whole
+`system` blocks also validated:
+
+| Doc | What it shows | Reality |
+|---|---|---|
+| `docs/tenancy.md` (headline example) | `crossTenant aggregate Plan` | `crossTenant` is a header modifier AFTER the name — parse error.  The same doc spells it correctly 80 lines later. |
+| `docs/auth.md` (full auth example) | `customerId: Customer id` | no `aggregate Customer` anywhere in the block — does not link. |
+| `docs/auth.md` (named policies) | `permissions { … }` inside a `context` | `PermissionsBlock` is a **subdomain** member. |
+| `docs/api-toolkit.md` | `aggregate Order { line Item }`, pinned as producing `loom.bare-aggregate-in-type` | dies at PARSE, so the diagnostic the toolkit doc documents was never the one the block produced; the pinned JSON named a node path and `sourceText` the validator does not emit. |
+| `docs/criterion.md` | `criterion CanForceClose of Order { where: … }`, and the same form in its syntax summary | `Criterion` is `= <expr>` only; the `{ where: … }` block form belongs to `retrieval`. |
+| `docs/scaffold-macros.md` | `stamp for "auditable" onCreate`, `implements "auditable"` | the stringly-typed capability surface, which `docs/capabilities.md:6` says was **removed**. |
+| `docs/architecture.md` | `workflow checkout { input: { … } }`, `;` between aggregate members, an ASCII layer diagram fenced as ` ```ddd ` | none of the three parse. |
+
+The tenancy one is **DOCUMENTED, and stale**: `docs/audits/2026-09-03-language-docs-audit-findings.md`
+reported it as **F40** on 2026-09-03 and it was still there on 2026-09-14 — because an audit
+produces a list, and nothing was gating the list.  That is the argument for the gate rather than
+for another audit.
+
+Fixed: all seven blocks corrected, the gate widened to the whole `docs/` tree (9 whole + 44
+fragments, `old/` and `audits/` excluded as frozen/deliberately-invalid records), with an
+`EXPECTED_INVALID` map so a doc demonstrating a diagnostic must produce **that code** rather than
+merely fail somehow.  Mutation-proved by restoring the `crossTenant` prefix: the gate fails naming
+`docs/tenancy.md:14`.
+
+---
+
 ### F-045 — README says `ddd generate` emits the MIT LICENSE for generated code; it does not
 Severity: S3 (friction) — legal-facing   Class: **CONTRADICTED** doc
 Area: README vs docs/license-faq.md vs behaviour

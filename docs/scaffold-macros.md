@@ -23,7 +23,7 @@ declaration:
 ```ddd
 aggregate Order with crudish {
   subject: string
-  implements "auditable"               // builtin capability, not a macro
+  implements auditable               // builtin capability, not a macro
 }
 
 context Sales with softDeleteByDefault {
@@ -334,7 +334,7 @@ hand-write the member with its own `requires`.
 > **Removed as macros.** `audit` / `auditable` / `auditedByDefault`
 > no longer exist as macros.  Audit ships as the **builtin
 > `capability auditable`** declared in `src/macros/prelude.ts` — apply
-> it directly via the capability surface (`implements "auditable"` +
+> it directly via the capability surface (`implements auditable` +
 > the prelude's `filter` / `stamp` rules) rather than a `with`
 > clause.  See [`capabilities.md`](capabilities.md).
 
@@ -344,11 +344,11 @@ context-level stamping rules:
 
 ```ddd
 context Sales {
-  stamp for "auditable" onCreate {
+  stamp onCreate {
     createdAt := now()
     createdBy := currentUser
   }
-  stamp for "auditable" onUpdate {
+  stamp onUpdate {
     updatedAt := now()
     updatedBy := currentUser
   }
@@ -359,7 +359,7 @@ context Sales {
     updatedAt: datetime
     createdBy: User id
     updatedBy: User id
-    implements "auditable"
+    implements auditable
   }
 }
 ```
@@ -367,7 +367,7 @@ context Sales {
 Why keep fields and stamps separate?  The stamping rules are a
 *context-level* concern — they assign the same fields the same way
 for every audited aggregate — while the field declarations and the
-`implements "auditable"` opt-in are *per-aggregate*.  See
+`implements auditable` opt-in are *per-aggregate*.  See
 [`capabilities.md`](capabilities.md) for the underlying surface.
 
 ## `softDelete` / `softDeleteByDefault`
@@ -400,7 +400,7 @@ context Sales {
 
 ```ddd
 context Sales {
-  // filter for "softDeletable" !this.isDeleted  — carried by the builtin capability
+  // filter !this.isDeleted  — carried by the builtin capability
 
   aggregate Order {
     subject: string
@@ -416,14 +416,14 @@ context Sales {
       this.deletedAt := null
     }
 
-    implements "softDeletable"
+    implements softDeletable
   }
 
   aggregate Public { name: string }
 }
 ```
 
-`Public` does not `implements "softDeletable"` and therefore the
+`Public` does not `implements softDeletable` and therefore the
 capability-scoped filter doesn't apply — reads of `Public` are
 unfiltered.
 

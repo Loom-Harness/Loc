@@ -135,6 +135,8 @@ system Acme {
     context Orders {
       enum OrderStatus { Draft, Confirmed, Cancelled }
 
+      aggregate Customer { name: string }
+
       aggregate Order {
         customerId: Customer id
         status: OrderStatus
@@ -570,21 +572,28 @@ has **no candidate row** — pass row fields in as arguments).  Parentheses are
 function form from the `policy {}` read-ladder block ([tenancy](tenancy.md)).
 
 ```ddd
-context Orders {
+subdomain Sales {
+  // `permissions { … }` is a SUBDOMAIN member — the catalogue is the
+  // permission namespace, and `sales.approve` below is its qualified name.
   permissions { approve, manage }
 
-  policy CanApprove(cap: money): bool =
-    currentUser.permissions.contains(permissions.approve) && cap <= 10000
-  policy IsManager(): bool { currentUser.permissions.contains(permissions.manage) }
+  context Orders {
+    enum OrderStatus { Draft, Approved }
 
-  aggregate Order {
-    amount: money
-    status: OrderStatus
-    operation approve() {
-      requires CanApprove(amount)   // ← argument bound to the parameter
-      requires IsManager()
-      status := OrderStatus.Approved
+    policy CanApprove(cap: money): bool =
+      currentUser.permissions.contains(permissions.approve) && cap <= 10000
+    policy IsManager(): bool { currentUser.permissions.contains(permissions.manage) }
+
+    aggregate Order {
+      amount: money
+      status: OrderStatus
+      operation approve() {
+        requires CanApprove(amount)   // ← argument bound to the parameter
+        requires IsManager()
+        status := OrderStatus.Approved
+      }
     }
+    repository Orders for Order { }
   }
 }
 ```

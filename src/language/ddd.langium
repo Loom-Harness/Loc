@@ -1804,7 +1804,7 @@ FieldAccess returns string:
 Property:
     name=(ID | CommonSoftKeywords
         // Property-only (soft here but not in every value position):
-        | 'await' | 'page')
+        | 'await' | 'ignoring' | 'page')
     ':' type=TypeRef
     // `provenanced` / `sensitive(...)` / the access modifier are pure
     // flag-like keywords carrying no expression content, so they parse in
