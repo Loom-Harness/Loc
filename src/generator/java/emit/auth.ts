@@ -15,6 +15,7 @@ import { lines } from "../../../util/code-builder.js";
 import { claimsReferenceIds } from "../../_auth/claim-types.js";
 import { devClaimFields } from "../../_auth/dev-claims.js";
 import { devStubIdExpr } from "../../_auth/dev-stub-id.js";
+import { jid } from "../java-ident.js";
 import { renderJavaType } from "../render-expr.js";
 
 /** The tenant registry (`implements tenantRegistry`) facts the
@@ -965,7 +966,7 @@ import org.springframework.http.ResponseEntity;`,
     // tenancy members (`orgPath()` / `rootOrg()`) are per-request scoping
     // state, not part of the declared principal, so they stay off the wire.
     `        var body = new java.util.LinkedHashMap<String, Object>();`,
-    ...userFields.map((f) => `        body.put("${f.name}", user.${f.name}());`),
+    ...userFields.map((f) => `        body.put("${f.name}", user.${jid(f.name)}());`),
     `        return ResponseEntity.ok(body);`,
     `    }`,
     ...handshake,

@@ -7,6 +7,7 @@ import type {
 import { durableEventTypes } from "../../../ir/util/channels.js";
 import { lines } from "../../../util/code-builder.js";
 import { plural, snake, upperFirst } from "../../../util/naming.js";
+import { jid } from "../java-ident.js";
 import { collectJavaTypeImports, renderJavaType } from "../render-expr.js";
 import { hbIdent } from "../sql-ident.js";
 import {
@@ -101,11 +102,11 @@ export function renderWorkflowStateEntity(
   const fieldLines: string[] = [
     `    @EmbeddedId`,
     `    @AttributeOverride(name = "value", column = @Column(name = "${hbIdent(snake(corr))}"))`,
-    `    ${corrIdClass(wf)} ${corr};`,
+    `    ${corrIdClass(wf)} ${jid(corr)};`,
   ];
   for (const f of stateOnly) {
     fieldLines.push(...jpaFieldAnnotations(f, owner, { voLookup }));
-    fieldLines.push(`    ${renderJavaType(f.type)} ${f.name};`);
+    fieldLines.push(`    ${renderJavaType(f.type)} ${jid(f.name)};`);
   }
   // Idempotent-consumer marker (dispatch-delivery-semantics.md §3): a durable
   // channel (`retention: log | work`) maps the shared `last_event_id` column the
@@ -124,20 +125,23 @@ export function renderWorkflowStateEntity(
   // package-private fields directly (same class), so no setters are exposed.
   const allocateSeeds = stateOnly
     .filter((f) => !(f.optional || f.type.kind === "optional"))
-    .map((f) => `        __s.${f.name} = ${javaStateDefault(f, ctx)};`);
+    .map((f) => `        __s.${jid(f.name)} = ${javaStateDefault(f, ctx)};`);
   const allocate = [
-    `    public static ${workflowStateClass(wf)} _allocate(${corrIdClass(wf)} ${corr}) {`,
+    `    public static ${workflowStateClass(wf)} _allocate(${corrIdClass(wf)} ${jid(corr)}) {`,
     `        var __s = new ${workflowStateClass(wf)}();`,
-    `        __s.${corr} = ${corr};`,
+    `        __s.${jid(corr)} = ${jid(corr)};`,
     ...allocateSeeds,
     `        return __s;`,
     `    }`,
     ``,
   ];
 
+  // `name` is the `.ddd` member name; `jid` supplies the java spelling while
+  // the BEAN setter keeps the unmangled one (`setThrows`), so `workflow.ts`'s
+  // write site can name it from the IR without re-deriving the mangle.
   const accessor = (type: string, name: string): string[] => [
-    `    public ${type} ${name}() {`,
-    `        return ${name};`,
+    `    public ${type} ${jid(name)}() {`,
+    `        return ${jid(name)};`,
     `    }`,
     ``,
   ];
@@ -147,8 +151,8 @@ export function renderWorkflowStateEntity(
   // direct write wouldn't compile).  The correlation field stays write-only via
   // `_allocate` (it's the immutable key).  Mirrors dotnet's `{ get; set; }`.
   const setter = (type: string, name: string): string[] => [
-    `    public void ${setterName(name)}(${type} ${name}) {`,
-    `        this.${name} = ${name};`,
+    `    public void ${setterName(name)}(${type} ${jid(name)}) {`,
+    `        this.${jid(name)} = ${jid(name)};`,
     `    }`,
     ``,
   ];
@@ -215,7 +219,7 @@ export function javaStateDefault(f: FieldIR, ctx: EnrichedBoundedContextIR): str
   if (t.kind === "enum") {
     const e = ctx.enums.find((x) => x.name === t.name);
     const first = e?.values[0];
-    return first ? `${t.name}.${first}` : "null";
+    return first ? `${t.name}.${jid(first)}` : "null";
   }
   // `X id` non-correlation state field — uncommon; left null (optional in
   // practice; a required one would need an explicit seed the model doesn't give).

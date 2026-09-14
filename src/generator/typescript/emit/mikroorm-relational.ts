@@ -656,7 +656,11 @@ export function renderMikroRepository(
       // ride reads that have no such parameter.
       filter = withContextFilters(
         f.filter
-          ? whereToMikroFilter(f.filter, usesUser ? "currentUser" : AMBIENT_PRINCIPAL)
+          ? whereToMikroFilter(
+              f.filter,
+              usesUser ? "currentUser" : AMBIENT_PRINCIPAL,
+              agg.associations,
+            )
           : "{}",
         caps,
       );
@@ -760,7 +764,10 @@ export function renderMikroRepository(
       try {
         // Retrievals read the aggregate table, so the capability filters AND in
         // too (no `ignoring` surface on retrievals — the no-bypass `baseFilters`).
-        filter = withContextFilters(whereToMikroFilter(r.where), baseFilters);
+        filter = withContextFilters(
+          whereToMikroFilter(r.where, AMBIENT_PRINCIPAL, agg.associations),
+          baseFilters,
+        );
       } catch {
         return lines(
           `  async ${methodName}(${params}): Promise<${agg.name}[]> {`,

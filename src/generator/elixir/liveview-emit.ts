@@ -44,7 +44,7 @@ import {
 } from "../../ir/util/page-kind.js";
 import { isFrontendReadableProjection } from "../../ir/util/projection-read.js";
 import { listReadGate } from "../../ir/util/read-gates.js";
-import { lowerFirst, plural, snake, upperFirst } from "../../util/naming.js";
+import { elixirString, lowerFirst, plural, snake, upperFirst } from "../../util/naming.js";
 import {
   E2E_FIXTURES_TS,
   E2E_PACKAGE_JSON_PHOENIX,
@@ -222,8 +222,15 @@ export function emitLiveViewPages(args: {
   // Entity-history reads a page body may render (docs/audit.md), keyed by the
   // audited aggregate's name — same in-process story as the projections above.
   const historyReads = new Map<string, HistoryRead>();
+  // Workflow PascalCase name → its runner module, for the `run_<wf>` clause a
+  // `WorkflowForm` needs.  Built from the same `<App>.<Ctx>` prefix the HTTP
+  // `WorkflowsController` resolves against.
+  const workflowModuleByName = new Map<string, string>();
   for (const ctx of contexts) {
     const ctxModule = `${appModule}.${upperFirst(ctx.name)}`;
+    for (const wf of ctx.workflows ?? []) {
+      workflowModuleByName.set(wf.name, `${ctxModule}.Workflows.${upperFirst(wf.name)}`);
+    }
     for (const proj of ctx.projections ?? []) {
       if (!isFrontendReadableProjection(proj)) continue;
       projectionReads.set(proj.name, {
@@ -387,6 +394,7 @@ export function emitLiveViewPages(args: {
       enumsByName,
       valueObjectsByName,
       contextModuleByAggName,
+      workflowModuleByName,
       projectionReads,
       listReadGateByAggName,
       historyReads,
@@ -499,6 +507,12 @@ interface RenderArgs {
    *  keyed by aggregate PascalCase name.  Used to build the
    *  `change_<agg>(%<Ctx>.<Agg>{})` create-form changeset in mount/3. */
   contextModuleByAggName: ReadonlyMap<string, string>;
+  /** Module-qualified workflow runner keyed by workflow PascalCase name
+   *  (`<App>.<Ctx>.Workflows.<Wf>`) — what a `WorkflowForm { runs: W }`'s
+   *  `handle_event("run_<wf>", …)` clause calls `run/1` on (M-T6.56 F61).
+   *  Same source as the HTTP `WorkflowsController` action, so the two seams
+   *  cannot dispatch to different modules. */
+  workflowModuleByName: ReadonlyMap<string, string>;
   /** Frontend-readable query-time projections, keyed by projection name — the
    *  `run/1` module (and any `requires` gate) a `QueryView { of:
    *  <api>.<Projection> }` load resolves to. */
@@ -891,6 +905,7 @@ function renderLiveView(a: RenderArgs): { source: string; usesChart: boolean } {
       aggregatesByName,
     ) +
     renderOperationEventClauses(walked.formBindings, detailBaseRoute, contextModuleByAggName) +
+    renderWorkflowEventClauses(walked.formBindings, a.workflowModuleByName) +
     renderTableControlClauses(
       walked.tableControls,
       walked.queryBindings,
@@ -1233,10 +1248,13 @@ function renderMount(
       );
       break; // single @form per page
     } else if (fb.kind === "workflow") {
-      // Workflow form — placeholder until workflow-form mounting lands.
-      // Keeps the page mountable (form is empty but the assigns shape
-      // matches what the HEEx body expects).
-      assigns.push(`      |> assign(:form, %{} |> to_form())`);
+      // Workflow form (M-T6.56 F61).  `to_form(%{}, as: "<wf>")` rather than a
+      // bare `to_form(%{})`: the `as:` is what namespaces the rendered input
+      // names (`<wf>[<field>]`), and therefore what makes the submitted params
+      // arrive as `%{"<wf>" => %{…}}` — the shape the `run_<wf>` clause below
+      // matches, and the same shape an aggregate create form gets for free
+      // from `to_form(changeset)` (whose `as:` Ecto derives from the struct).
+      assigns.push(`      |> assign(:form, to_form(%{}, as: "${snake(fb.name)}"))`);
       break;
     }
   }
@@ -1756,6 +1774,127 @@ ${usesUser ? "    current_user = Map.get(socket.assigns, :current_user)\n" : ""}
     end
   end\n`;
 }
+
+/** The `handle_event("run_<wf>", …)` clause a `WorkflowForm { runs: W }` needs.
+ *
+ *  Without it the emitted page carried `phx-submit="run_<wf>"` and ZERO matching
+ *  clauses, so pressing Submit raised `FunctionClauseError` and killed the
+ *  LiveView — a 500 on a page that looked correct in every static read (audit
+ *  F61, M-T6.56).  `renderCreateEventClauses` filters `kind === "aggregate"`,
+ *  which is exactly why the workflow binding fell through it silently.
+ *
+ *  Two things the aggregate path gets for free have to be done by hand here:
+ *
+ *   - REKEYING.  The form field is `snake(param)` (that is what
+ *     `renderFieldInputForField` emits and what `@form[:…]` addresses), while
+ *     the workflow module destructures its params by the DECLARED name
+ *     (`%{"initialTitle" => …} = params`), so a multi-word param would arrive
+ *     under a key the workflow never reads and bind `nil`.
+ *   - COERCION.  A browser form submits strings; the HTTP route feeds the same
+ *     `run/1` typed JSON.  An aggregate create hides this behind Ecto's `cast`,
+ *     but a workflow body uses its params directly, so `qty: int` would reach
+ *     arithmetic as `"3"`.  `__wf_param/2` narrows at the boundary.
+ *
+ *  Empty (byte-identical) when the page binds no workflow form. */
+function renderWorkflowEventClauses(
+  formBindings: readonly import("./heex-walker.js").FormBinding[],
+  workflowModuleByName: ReadonlyMap<string, string>,
+): string {
+  const runs = formBindings.filter((fb) => fb.kind === "workflow");
+  if (runs.length === 0) return "";
+  const fb = runs[0]!; // single @form per page, like the create path
+  const wfModule = workflowModuleByName.get(fb.name);
+  if (!wfModule) return ""; // unresolved — validator catches; silent skip
+  const wfSnake = snake(fb.name);
+  const params = fb.params ?? [];
+  // A param-less workflow reads nothing off the submitted map, so bind `_raw`
+  // rather than trip `--warnings-as-errors` on an unused variable.
+  const rawVar = params.length > 0 ? "raw" : "_raw";
+  const built =
+    params.length > 0
+      ? `%{\n${params
+          .map(
+            (pp) =>
+              // Through the backend's escape funnel, not `JSON.stringify` — the
+              // census's rule, and these two ARE Elixir string literals (the
+              // wire key the workflow module destructures, and the form field
+              // name the browser submits).
+              `      ${elixirString(pp.name)} => __wf_param(Map.get(raw, ${elixirString(
+                snake(pp.name),
+              )}), :${wfParamKind(pp.type)})`,
+          )
+          .join(",\n")}\n    }`
+      : "%{}";
+  const coercer = params.length > 0 ? WF_PARAM_COERCER : "";
+  return `\n  @impl true
+  def handle_event("run_${wfSnake}", %{"${wfSnake}" => ${rawVar}}, socket) do
+    params = ${built}
+
+    case ${wfModule}.run(params) do
+      {:ok, _result} ->
+        {:noreply, put_flash(socket, :info, "${humanizeOp(wfSnake)} started")}
+
+      {:error, %Ecto.Changeset{} = changeset} ->
+        {:noreply, assign(socket, :form, to_form(changeset))}
+
+      {:error, {_kind, detail}} when is_binary(detail) ->
+        {:noreply, put_flash(socket, :error, detail)}
+
+      {:error, reason} ->
+        {:noreply, put_flash(socket, :error, "${humanizeOp(wfSnake)} failed: #{inspect(reason)}")}
+    end
+  end\n${coercer}`;
+}
+
+/** The `__wf_param/2` kind token for a workflow param's declared type — the
+ *  coarse buckets a browser form's string needs narrowing into. */
+function wfParamKind(t: TypeIR): "int" | "decimal" | "bool" | "string" {
+  const inner = t.kind === "optional" ? t.inner : t;
+  if (inner.kind !== "primitive") return "string";
+  switch (inner.name) {
+    case "int":
+    case "long":
+      return "int";
+    case "decimal":
+    case "money":
+      return "decimal";
+    case "bool":
+      return "bool";
+    default:
+      return "string";
+  }
+}
+
+/** Narrow one submitted form value to its declared kind.  Emitted once beside
+ *  the `run_<wf>` clause when the workflow takes at least one param. */
+const WF_PARAM_COERCER = `
+  # A browser form submits strings; the HTTP route feeds this same \`run/1\`
+  # typed JSON.  An aggregate create hides the difference behind Ecto's
+  # \`cast\`, but a workflow body uses its params directly — so narrow here,
+  # at the one boundary where the declared type is still known.  An
+  # unparseable value becomes \`nil\` rather than a raise: the workflow's own
+  # \`precondition\`s then answer 422-shaped, which is what the HTTP route does
+  # with the same bad input.
+  defp __wf_param(nil, _kind), do: nil
+  defp __wf_param("", _kind), do: nil
+
+  defp __wf_param(v, :int) when is_binary(v) do
+    case Integer.parse(v) do
+      {n, ""} -> n
+      _ -> nil
+    end
+  end
+
+  defp __wf_param(v, :decimal) when is_binary(v) do
+    case Decimal.parse(v) do
+      {d, ""} -> d
+      _ -> nil
+    end
+  end
+
+  defp __wf_param(v, :bool) when is_binary(v), do: v in ["true", "on", "1"]
+  defp __wf_param(v, _kind), do: v
+`;
 
 /** One `handle_<field>_progress/3` per `FileUpload` binding.  Referenced by the
  *  mount `allow_upload(..., progress: &…/3)` seam.  On a completed entry it

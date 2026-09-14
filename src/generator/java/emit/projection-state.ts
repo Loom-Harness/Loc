@@ -7,6 +7,7 @@ import type {
 import { valueObjectFieldLookup } from "../../../ir/util/reachable-types.js";
 import { lines } from "../../../util/code-builder.js";
 import { plural, snake, upperFirst } from "../../../util/naming.js";
+import { jid } from "../java-ident.js";
 import { collectJavaTypeImports, renderJavaType } from "../render-expr.js";
 import { hbIdent } from "../sql-ident.js";
 import {
@@ -105,28 +106,30 @@ export function renderProjectionRowEntity(
   const fieldLines: string[] = [
     `    @EmbeddedId`,
     `    @AttributeOverride(name = "value", column = @Column(name = "${hbIdent(snake(corr))}"))`,
-    `    ${idClass} ${corr};`,
+    `    ${idClass} ${jid(corr)};`,
   ];
   for (const f of stateOnly) {
     fieldLines.push(...jpaFieldAnnotations(f, owner, { voLookup }));
-    fieldLines.push(`    ${renderJavaType(f.type)} ${f.name};`);
+    fieldLines.push(`    ${renderJavaType(f.type)} ${jid(f.name)};`);
   }
 
   // Empty-seed allocate factory — every non-key column is nullable, so a fresh
   // row is just the correlation key (the dispatcher's fold fills the rest as
   // events arrive).  Sets the package-private field directly (same class).
   const allocate = [
-    `    public static ${cls} _allocate(${idClass} ${corr}) {`,
+    `    public static ${cls} _allocate(${idClass} ${jid(corr)}) {`,
     `        var __s = new ${cls}();`,
-    `        __s.${corr} = ${corr};`,
+    `        __s.${jid(corr)} = ${jid(corr)};`,
     `        return __s;`,
     `    }`,
     ``,
   ];
 
+  // `name` is the `.ddd` member name — `jid` spells the java field/accessor,
+  // while the BEAN setter keeps the unmangled `set<Name>` the fold writes to.
   const accessor = (type: string, name: string): string[] => [
-    `    public ${type} ${name}() {`,
-    `        return ${name};`,
+    `    public ${type} ${jid(name)}() {`,
+    `        return ${jid(name)};`,
     `    }`,
     ``,
   ];
@@ -134,8 +137,8 @@ export function renderProjectionRowEntity(
   // `:=` through these (`state.setStatus(...)`), the fields being package-private.
   // The correlation field stays write-only via `_allocate` (the immutable key).
   const setter = (type: string, name: string): string[] => [
-    `    public void ${setterName(name)}(${type} ${name}) {`,
-    `        this.${name} = ${name};`,
+    `    public void ${setterName(name)}(${type} ${jid(name)}) {`,
+    `        this.${jid(name)} = ${jid(name)};`,
     `    }`,
     ``,
   ];

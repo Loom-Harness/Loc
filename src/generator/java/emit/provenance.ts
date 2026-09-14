@@ -8,6 +8,7 @@ import { resolveDataSourceConfig } from "../../../ir/util/resolve-datasource.js"
 import { lines } from "../../../util/code-builder.js";
 import { plural, snake } from "../../../util/naming.js";
 import { provenancedTypeMembers } from "../../_payload/provenanced-wire.js";
+import { jid } from "../java-ident.js";
 
 // ---------------------------------------------------------------------------
 // Provenance runtime — the Java / Spring counterpart of the Hono
@@ -138,7 +139,7 @@ export const JAVA_PROVENANCED_RECORD = "Provenanced";
  *  pair stays split; only the wire folds it into `Provenanced<T>`, and the
  *  folding DTO mapper has to name the member the entity named it. */
 export function javaProvSibling(fieldName: string): string {
-  return `${fieldName}Provenance`;
+  return `${jid(fieldName)}Provenance`;
 }
 
 /** `Provenanced<T>` — the value + lineage wire carrier a `provenanced` field

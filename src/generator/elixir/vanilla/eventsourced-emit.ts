@@ -838,6 +838,17 @@ function renderCommandRunner(c: CommandCtx): string {
         eventStructs.push(`%${c.eventsModule}.${upperFirst(s.eventName)}{${fields}}`);
         break;
       }
+      case "if":
+        // M-T6.59 — an ES command body is NOT rendered as a statement sequence
+        // (its guards become `with :ok <- ensure(…)` clauses and its `emit`s one
+        // `events = […]` list), so a conditional `emit` has nowhere to render.
+        // Refused at phase ⑦ by `loom.elixir-if-stmt-unsupported#event-sourced`;
+        // this arm is the defensive fail-fast, because the `default: break`
+        // below would otherwise DROP the branch silently.
+        throw new Error(
+          "platform: elixir — an 'if' statement reached the event-sourced command emitter; " +
+            "it is refused at validation (loom.elixir-if-stmt-unsupported#event-sourced).",
+        );
       default:
         // ES command discipline rejects assign / add / remove / call here.
         break;
