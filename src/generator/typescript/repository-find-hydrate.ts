@@ -214,9 +214,26 @@ function hydrateValueExpr(
     // this arm used to read a single non-existent column (`row.offer_price`),
     // a latent tsc break on the VO-in-VO shape.
     const vo = ctx.valueObjects.find((v) => v.name === t.name);
+    // An OPTIONAL VO field makes EVERY one of its flattened leaf columns
+    // nullable in the schema, but the `== null` guard below can only narrow the
+    // ONE column it probes — so the remaining leaves stay `string | null`
+    // against a constructor wanting `string` (TS2345, once per subfield per read
+    // path).  Inside the guard's else-branch the whole VO is known present, so
+    // the other leaves carry the same non-null assertion the TPH concrete's
+    // required column already uses.  A subfield that is optional IN THE VO keeps
+    // its own null (the `optional` recursion clears `bang`), which is correct —
+    // that one really can be null with the VO present.
     const args = (vo?.fields ?? [])
       .map((f) =>
-        hydrateValueExpr(`${fieldName}_${f.name}`, f.type, rowVar, ctx, false, forceNonNull, true),
+        hydrateValueExpr(
+          `${fieldName}_${f.name}`,
+          f.type,
+          rowVar,
+          ctx,
+          false,
+          forceNonNull || optional,
+          true,
+        ),
       )
       .join(", ");
     if (optional) {
