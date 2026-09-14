@@ -822,8 +822,14 @@ export function pageWhere(p: PageIR): string {
 /** The aggregate + operation an `of:` read names, mirroring the walker's
  *  detector patterns A/B (`<apiParam>.<Agg>.<op>`) and D/E (bare `<Agg>.<op>`),
  *  in both their member and method-call forms.  Null for every other shape — a
- *  projection read, a workflow-instance read, a bare ref — each of which has its
- *  own gate. */
+ *  projection read, a workflow-instance read, a bare ref.
+ *
+ *  This comment used to claim each of those "has its own gate".  A bare ref did
+ *  NOT, and that sentence is how the hole stayed open: `QueryView { of:
+ *  Nonsense }` returned null here, passed phase ⑦ reporting `0 error(s), 0
+ *  warning(s)`, and reached the shared walker's last-resort `ref` arm — which
+ *  wrote an `unresolved` marker plus `undefined` into the page and still exited
+ *  0.  `checkOfReadBinds` below is that missing gate. */
 
 function resolveOfRead(
   of: ExprIR,
@@ -879,6 +885,138 @@ export function checkOfReadResolves(
           aggregate: read.aggregate,
           operation: read.operation,
           known: `'${read.aggregate}' exposes: ${readableOperations(finds).join(", ")}.`,
+        }),
+        source: where,
+      });
+    });
+  }
+}
+
+// -------------------------------------------------------------------------
+// `loom.ui-read-unresolved#unbound` — the FIRST question the `of:` slot has to
+// answer, and the one nothing asked.
+//
+// `checkOfReadResolves` above answers the SECOND one: the read names an
+// aggregate — does that aggregate expose this operation?  Nothing asked whether
+// the read names anything at all.  So `QueryView { of: Nonsense }` validated
+// clean, reached the shared walker's last-resort `ref` arm, and shipped
+// `undefined` into the page on every frontend.
+//
+// The gate is written in the POSITIVE form — an `of:` read must MATCH one of
+// the shapes the walker's detector binds — because the negative form is exactly
+// what left the hole: every shape nobody thought to enumerate fell through to
+// the emitter's fail-open default.  A closed accept-list inverts that: a shape
+// nobody enumerated is refused with a source line instead of emitted as
+// `undefined`, and adding a detector pattern means adding it here too or the
+// new spelling is rejected loudly on the next test run.
+//
+// The ROOT-REF rule is what keeps it from firing on shipped output.  Only a
+// `ref` whose `refKind` is `"unknown"` can reach the walker's fallback at all —
+// lowering resolves locals / lambda params / `let`s / state / derived / actions
+// / criteria / enum members first, and anything it bound carries a real
+// `refKind` the walker's own scope lookups then honour.  So a read rooted at a
+// resolved ref is accepted unconditionally: it is not this defect's shape.
+// -------------------------------------------------------------------------
+
+/** The root `ref` of a `<root>.<a>.<b>(…)` access chain, or undefined when the
+ *  chain is rooted at something else (a literal, a call, a lambda). */
+function rootRefOf(e: ExprIR): (ExprIR & { kind: "ref" }) | undefined {
+  let cur: ExprIR = e;
+  for (;;) {
+    if (cur.kind === "ref") return cur;
+    if (cur.kind === "member" || cur.kind === "method-call") cur = cur.receiver;
+    else return undefined;
+  }
+}
+
+/** The `.ddd` spelling of an `of:` access chain, for the diagnostic — `Shop`,
+ *  `Shop.Nonsense`, `Customer.all`.  Arguments are elided (`byId(…)`): the
+ *  BINDING is what is being reported, not the call. */
+function ofSpelling(e: ExprIR): string {
+  if (e.kind === "ref") return e.name;
+  if (e.kind === "member") return `${ofSpelling(e.receiver)}.${e.member}`;
+  if (e.kind === "method-call") return `${ofSpelling(e.receiver)}.${e.member}(…)`;
+  return "<expression>";
+}
+
+/** Does `of` match a shape `tryDetectApiHook` binds?  Mirrors the detector's
+ *  patterns A/B (`<handle>.<Agg>.<op>`), D/E (bare `<Agg>.<op>`), F/G
+ *  (`<Workflow>.instances.…`), H (`<handle>.<Projection>`) and I (the bare
+ *  `<Projection>`) — one arm per pattern. */
+function ofReadBinds(
+  of: ExprIR,
+  apiParamNames: ReadonlySet<string>,
+  aggNames: ReadonlySet<string>,
+  workflowNames: ReadonlySet<string>,
+  projectionNames: ReadonlySet<string>,
+): boolean {
+  const recv = of.kind === "member" || of.kind === "method-call" ? of.receiver : undefined;
+  // Patterns A / B: `<handle>.<Agg>.<op>`.
+  if (recv?.kind === "member" && recv.receiver.kind === "ref") {
+    if (apiParamNames.has(recv.receiver.name)) return true;
+    // Patterns F / G: `<Workflow>.instances.all` / `.byId(id)`.
+    if (recv.member === "instances" && workflowNames.has(recv.receiver.name)) return true;
+  }
+  // Patterns D / E: a bare `<Agg>.<op>`; Pattern H: `<handle>.<Projection>`.
+  if (recv?.kind === "ref") {
+    if (aggNames.has(recv.name)) return true;
+    if (apiParamNames.has(recv.name) && of.kind === "member" && projectionNames.has(of.member)) {
+      return true;
+    }
+  }
+  // Pattern I: the bare `<Projection>`.
+  if (of.kind === "ref" && projectionNames.has(of.name)) return true;
+  return false;
+}
+
+/** `'A', 'B'` — or `(none)`, so an empty scope reads as a fact rather than as a
+ *  sentence that got truncated. */
+function listOrNone(names: ReadonlySet<string>): string {
+  if (names.size === 0) return "(none)";
+  return [...names]
+    .sort()
+    .map((n) => `'${n}'`)
+    .join(", ");
+}
+
+/** Reject every `of:` read that binds to nothing at all. */
+export function checkOfReadBinds(
+  host: PageIR | ComponentIR,
+  where: string,
+  apiParamNames: ReadonlySet<string>,
+  aggNames: ReadonlySet<string>,
+  workflowNames: ReadonlySet<string>,
+  projectionNames: ReadonlySet<string>,
+  diags: LoomDiagnostic[],
+): void {
+  const seen = new Set<string>();
+  for (const root of walkerRenderedExprs(host)) {
+    walkExprDeep(root, (e) => {
+      if (e.kind !== "call" || !WALKER_READ_PRIMITIVES.has(e.name)) return;
+      const of = namedArg(e, "of");
+      if (!of) return;
+      // A read rooted at a name LOWERING resolved is never this defect: the
+      // walker binds it through its own scope lookups, which run ahead of the
+      // fallback.  Only an `"unknown"` root can reach the fallback at all.
+      const rootRef = rootRefOf(of);
+      if (!rootRef || rootRef.refKind !== "unknown") return;
+      if (ofReadBinds(of, apiParamNames, aggNames, workflowNames, projectionNames)) return;
+      // One verdict per SPELLING: the same unbound name read by a `Chart` and a
+      // `QueryView` on one page is one mistake, not two.
+      const spelling = ofSpelling(of);
+      if (seen.has(spelling)) return;
+      seen.add(spelling);
+      diags.push({
+        severity: "error",
+        code: "loom.ui-read-unresolved",
+        message: diagMessage("loom.ui-read-unresolved#unbound", {
+          primitive: e.name,
+          spelling,
+          known:
+            `In scope here: aggregates ${listOrNone(aggNames)}; ` +
+            `query-time projections ${listOrNone(projectionNames)}; ` +
+            `api handles ${listOrNone(apiParamNames)}; ` +
+            `workflows ${listOrNone(workflowNames)}.`,
         }),
         source: where,
       });

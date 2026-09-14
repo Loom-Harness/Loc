@@ -2779,6 +2779,20 @@ export const DIAGNOSTIC_MESSAGES = {
     `clients import a hook that was never emitted (a build error), while Phoenix LiveView ` +
     `substitutes the UNFILTERED \`list_<agg>s()\` and renders every row of the table with no ` +
     `error at all.  Declare the find on the repository, or name one that exists.`,
+  "loom.ui-read-unresolved#unbound": (p: {
+    primitive: unknown;
+    spelling: unknown;
+    known: unknown;
+  }) =>
+    `\`${p.primitive} { of: ${p.spelling} }\` reads a name that binds to NOTHING — not an ` +
+    `aggregate, not a query-time projection, not a workflow's instance list, and not a local ` +
+    `in scope on this page.  ${p.known}  Left to codegen this fails SILENTLY: the page ` +
+    `emitter writes the name into a comment and \`undefined\` into the page itself, and ` +
+    `\`ddd generate system\` still reports success.  Downstream that is a frontend build ` +
+    `error (\`TS18050\`) on a typed client, a \`TypeError\` at runtime on Feliz/Flutter, or — ` +
+    `where inference is weaker — a region that renders blank forever with nothing, anywhere, ` +
+    `reporting a problem.  Check the spelling, or bind the read through an ` +
+    `\`api <Handle>: <Api>\` param on the ui.`,
   "loom.scaffold-filter-param-unsupported": (p: {
     where: unknown;
     find: unknown;

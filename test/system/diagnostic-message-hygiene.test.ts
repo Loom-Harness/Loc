@@ -185,6 +185,10 @@ const PROSE_SAYS_UNDEFINED = [
   // content, not an interpolation reaching one hop too far.
   "loom.frontend-collection-op-unsupported",
   "loom.match-non-exhaustive",
+  // Names the literal the page emitter used to ship for an unbound `of:` read
+  // (`/* unresolved: X */ undefined`).  The word IS the symptom the author will
+  // grep for in the generated page, so it is content, not an interpolation.
+  "loom.ui-read-unresolved#unbound",
 ];
 
 /** HAND-OFF (b).  Every variable-arg key interpolates at least one param
