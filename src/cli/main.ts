@@ -43,6 +43,7 @@ import {
 import { fsSnapshotStore, SnapshotReadError } from "../system/snapshot.js";
 import { annotateTrace, type SourceMap, traceCoverage } from "../trace/index.js";
 import { isScaffoldOnce } from "../util/scaffold-once.js";
+import { fromVitestReport, VitestReportError } from "../verify/from-vitest.js";
 import {
   renderVerdictGraph,
   renderVerificationJson,
@@ -1081,11 +1082,19 @@ function fileContentMatches(absPath: string, content: string): boolean {
 }
 
 interface VerifyOptions {
-  results: string;
+  results?: string;
+  fromVitest?: string;
   out?: string;
   requireAll?: boolean;
   min?: string;
+  allowMissing?: boolean;
   json?: boolean;
+}
+
+/** Structural probe for "this JSON is a vitest/jest report, not a Loom
+ *  results document" — used only to word the parse error. */
+interface Vitestish {
+  testResults?: unknown;
 }
 
 /** `ddd verify` — join a test-results file onto the requirements graph,
@@ -1133,24 +1142,41 @@ async function runVerify(file: string, options: VerifyOptions): Promise<void> {
     process.exit(2);
   }
 
-  // Read + validate the results file.
-  if (!fs.existsSync(options.results)) {
-    console.error(`Results file not found: ${options.results}`);
+  // Read + validate the results file.  Two accepted inputs: Loom's own
+  // `{ version, results: [...] }` document (`--results`), and a vitest/jest
+  // `--reporter=json` report (`--from-vitest`), which is what the generated
+  // backend's own test suite produces — see `src/verify/from-vitest.ts` for
+  // why shipping that adapter matters.
+  const resultsPath = options.fromVitest ?? options.results!;
+  if (!fs.existsSync(resultsPath)) {
+    console.error(`Results file not found: ${resultsPath}`);
     process.exit(2);
   }
   let outcomes: TestOutcome[];
   try {
-    const parsed = JSON.parse(fs.readFileSync(options.results, "utf8")) as {
-      results?: TestOutcome[];
-    };
-    if (!Array.isArray(parsed.results)) {
-      throw new Error('expected a top-level "results" array');
+    const raw: unknown = JSON.parse(fs.readFileSync(resultsPath, "utf8"));
+    if (options.fromVitest) {
+      outcomes = fromVitestReport(raw);
+    } else {
+      const parsed = raw as { results?: TestOutcome[] };
+      if (!Array.isArray(parsed?.results)) {
+        // The single most common wrong input is a vitest report fed to
+        // `--results`; name the flag that reads it rather than leaving the
+        // reader to write an adapter.
+        const looksVitest =
+          raw != null && typeof raw === "object" && Array.isArray((raw as Vitestish).testResults);
+        throw new Error(
+          'expected a top-level "results" array' +
+            (looksVitest
+              ? ' — this looks like a vitest/jest "--reporter=json" report; pass it with --from-vitest instead'
+              : ""),
+        );
+      }
+      outcomes = parsed.results;
     }
-    outcomes = parsed.results;
   } catch (err) {
-    console.error(
-      `Could not parse results file: ${err instanceof Error ? err.message : String(err)}`,
-    );
+    const what = err instanceof VitestReportError ? "vitest report" : "results file";
+    console.error(`Could not parse ${what}: ${err instanceof Error ? err.message : String(err)}`);
     process.exit(2);
   }
 
@@ -1168,13 +1194,36 @@ async function runVerify(file: string, options: VerifyOptions): Promise<void> {
   fs.writeFileSync(path.join(outDir, "verification.mmd"), renderVerdictGraph(loom, verification));
 
   const s = verification.summary;
+
+  // ── Evidence accounting ────────────────────────────────────────────
+  //
+  // A declared executable test with no matching result lands in the join as
+  // `status: "missing"`.  Nothing used to SAY so: an empty results file, or a
+  // results file whose `suite` convention had drifted, produced
+  // "Verified 0/N requirements (0 failing, N unverified, 0 untested)." and
+  // exit 0 — a gate that cannot fail on the most likely CI breakage.  The two
+  // counts below are the signal, and `unknownTests` (results matching no
+  // declared test) is specifically the fingerprint of a convention mismatch:
+  // the same run reports the test both missing AND unknown.
+  const missing: { testCaseId: string; name: string }[] = [];
+  for (const [tcId, tc] of Object.entries(verification.testCases)) {
+    for (const b of tc.backing) {
+      if (b.status === "missing") missing.push({ testCaseId: tcId, name: b.name });
+    }
+  }
+  const unknown = verification.diagnostics.unknownTests;
+
   // Under `--json` the human summary goes to stderr: stdout then carries the
   // verification document and nothing else, so `ddd verify --json | jq` works
   // the way `parse --json` / `generate system --json` do.  Without `--json`
   // the summary IS the output and stays on stdout.
+  const evidence: string[] = [];
+  if (missing.length > 0) evidence.push(`${missing.length} declared test(s) with no result`);
+  if (unknown.length > 0) evidence.push(`${unknown.length} result(s) matching no declared test`);
   const summaryLine =
     `Verified ${s.verified}/${s.total} requirements ` +
-    `(${s.failing} failing, ${s.unverified} unverified, ${s.untested} untested).`;
+    `(${s.failing} failing, ${s.unverified} unverified, ${s.untested} untested)` +
+    (evidence.length > 0 ? ` — ${evidence.join(", ")}.` : ".");
   if (options.json) {
     console.error(summaryLine);
     console.log(renderVerificationJson(verification));
@@ -1183,8 +1232,35 @@ async function runVerify(file: string, options: VerifyOptions): Promise<void> {
   }
 
   // Gate.
+  //
+  // MISSING EVIDENCE FAILS BY DEFAULT.  "No result for a declared test" is not
+  // "the test passed", and the two used to share an exit code — so a CI job
+  // whose runner wrote the wrong file, wrote nothing, or reported a `suite`
+  // string the join does not recognise went green having verified nothing.
+  // `--allow-missing` is the opt-out for the deliberately-partial run (one
+  // suite of many, a staged rollout); it is named in the failure so the
+  // migration is one flag, and `--require-all` / `--min` are untouched — this
+  // gate is strictly narrower than `--require-all` (which also fails on skips
+  // and on requirements no test covers), so a pipeline already passing
+  // `--require-all` sees no behaviour change.
   let failed = s.failing > 0;
   let reason = failed ? `${s.failing} requirement(s) failing` : "";
+  if (missing.length > 0 && !options.allowMissing) {
+    failed = true;
+    const sample = missing
+      .slice(0, 3)
+      .map((m) => `${m.testCaseId} → "${m.name}"`)
+      .join(", ");
+    reason =
+      `${missing.length} declared test(s) had no matching result (${sample}` +
+      `${missing.length > 3 ? ", …" : ""})` +
+      (unknown.length > 0
+        ? ` while ${unknown.length} result(s) matched no declared test — likely a ` +
+          `\`suite\` mismatch (the join wants the AGGREGATE name for a unit test, ` +
+          `"<System> e2e" for an e2e test; got ${JSON.stringify(unknown[0]!.suite ?? null)})`
+        : "") +
+      `; pass --allow-missing to accept a partial run`;
+  }
   if (options.requireAll && s.verified < s.total) {
     failed = true;
     reason = `${s.total - s.verified} requirement(s) not verified (--require-all)`;
@@ -1527,12 +1603,35 @@ program
   .description(
     "Join a test-results JSON onto the requirements graph, write .loom/verification.* and gate the exit code.",
   )
-  .requiredOption("--results <file>", "JSON file: { version, results: [{ name, status, suite? }] }")
+  .option("--results <file>", "JSON file: { version, results: [{ name, status, suite? }] }")
+  .option(
+    "--from-vitest <file>",
+    "read a vitest/jest `--reporter=json` report instead of --results",
+  )
   .option("--out <dir>", "output directory for .loom/ artifacts (default: the .ddd file's dir)")
   .option("--require-all", "fail unless every requirement is VERIFIED")
   .option("--min <pct>", "fail if the verified percentage is below <pct>")
+  .option(
+    "--allow-missing",
+    "accept declared tests that produced no result (default: they fail the gate)",
+  )
   .option("--json", "also print verification.json to stdout")
   .action(async (file: string, options: VerifyOptions) => {
+    // `--results` was a `requiredOption`; it is now one of TWO inputs, so the
+    // arity check moves here.  Exactly one — silently preferring one over the
+    // other would make a typo'd flag look like it was read.
+    if (!options.results && !options.fromVitest) {
+      console.error(
+        "ddd verify needs test results: pass --results <file> (Loom's " +
+          "{ version, results: [...] } document) or --from-vitest <file> " +
+          "(a vitest/jest --reporter=json report).",
+      );
+      process.exit(2);
+    }
+    if (options.results && options.fromVitest) {
+      console.error("Pass either --results or --from-vitest, not both.");
+      process.exit(2);
+    }
     await runVerify(file, options);
   });
 
