@@ -2160,6 +2160,13 @@ const DRIVEN_ELSEWHERE: Record<string, string> = {
   // unsupported-primitive arm and the two procedural packs' missing-renderer
   // fallback.
   "loom.page-ref-unreachable": "test/generator/_walker/walker-give-up-corpus-shapes.test.ts",
+  // Phase ⑨, and not reachable from a `.ddd` at all: the discarded-backfill
+  // invariant (F-018 §4) needs a BASELINE SNAPSHOT to diff against — one
+  // generation's schema plus a second source that adds the backfilled column.
+  // `validate()` has no baseline, so no fixture here can drive it. The pointed
+  // -at file builds the pair and asserts the code, both directions (it also
+  // pins the inert cases that must stay silent).
+  "loom.migration-backfill-discarded": "test/ir/migrations-builder.test.ts",
   "loom.page-primitive-target-gap": "test/generator/elixir/heex-unsupported-primitive.test.ts",
 };
 
