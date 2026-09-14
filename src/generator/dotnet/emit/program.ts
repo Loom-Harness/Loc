@@ -1352,8 +1352,19 @@ export function renderCsproj(
          \`Count() > 0\` as "use Any()" — which would answer a different
          question.  The alternative spelling that dodges the rule
          (\`s.Length - s.Count(char.IsLowSurrogate)\`) evaluates the receiver
-         twice, duplicating the whole sub-expression on a composed receiver. -->
-    <NoWarn>CA1707;CA1848;CA1873;CA1862;CA1847;CA1304;CA1310;CA1311;CA1827;MSG0005</NoWarn>
+         twice, duplicating the whole sub-expression on a composed receiver.
+         CA1711: reserved type-name SUFFIXES (Exception, Collection, Queue,
+         Stack, Dictionary, Permission, Flags, EventArgs, Delegate, …).  Every
+         type name this generator emits comes from the author's DOMAIN
+         vocabulary — an \`entity AvailabilityException\` in a scheduling model,
+         an \`aggregate WorkQueue\`, a \`valueobject AccessPermission\` — and the
+         generator neither chooses those names nor may rewrite them: the name is
+         the wire contract and the table name on four sibling backends.  So the
+         rule polices a decision Loom does not own, and it fires on a model that
+         compiles clean everywhere else.  The C#-suffix conventions it protects
+         (a type ending \`Exception\` should derive from Exception) describe
+         hand-written libraries, not a mapped domain model. -->
+    <NoWarn>CA1707;CA1711;CA1848;CA1873;CA1862;CA1847;CA1304;CA1310;CA1311;CA1827;MSG0005</NoWarn>
   </PropertyGroup>
   <ItemGroup>
     <!-- Test files live in the sibling Tests/${ns}.Tests project -->

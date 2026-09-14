@@ -32,6 +32,7 @@ import {
   renderCsStatements,
   statementSubRegions,
 } from "../render-stmt.js";
+import { CS_STATE_HOLDER } from "./state-holder.js";
 
 /** One operation body's exact emitted text plus its per-statement
  *  sub-regions — surfaced by `renderEntity` (when `opFragments` is passed)
@@ -699,7 +700,7 @@ export function renderEntity(
   });
 
   const stateLines: string[] = [];
-  stateLines.push("    public sealed class State");
+  stateLines.push(`    public sealed class ${CS_STATE_HOLDER}`);
   stateLines.push("    {");
   stateLines.push(`        public ${idClass} Id { get; init; } = default!;`);
   if (!isRoot) {
@@ -736,7 +737,7 @@ export function renderEntity(
   stateLines.push("    }");
 
   const createInternalLines: string[] = [];
-  createInternalLines.push(`    public static ${entity.name} _Create(State s)`);
+  createInternalLines.push(`    public static ${entity.name} _Create(${CS_STATE_HOLDER} s)`);
   createInternalLines.push("    {");
   createInternalLines.push(`        var e = new ${entity.name}();`);
   createInternalLines.push("        e.Id = s.Id;");

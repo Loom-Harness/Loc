@@ -1966,7 +1966,7 @@ CommonSoftKeywords returns string:
       | 'isolationLevel' | 'join' | 'key' | 'keyPrefix' | 'kind' | 'literal' | 'loads' | 'local' | 'mailer' | 'managed' | 'message' | 'migration' | 'money'
       | 'objectStore' | 'of' | 'ogImage' | 'option' | 'or' | 'paged' | 'parent' | 'payload' | 'query'
       | 'persistence' | 'policy' | 'queue' | 'readonly' | 'replica' | 'resource' | 'response' | 'retain' | 'retrieval' | 'schema'
-      | 'secret' | 'select' | 'service' | 'snapshot' | 'sort' | 'sql' | 'stamp' | 'state' | 'store' | 'tablePrefix'
+      | 'secret' | 'select' | 'service' | 'slot' | 'snapshot' | 'sort' | 'sql' | 'stamp' | 'state' | 'store' | 'tablePrefix'
       | 'tenancy' | 'title' | 'token' | 'ttl' | 'use' | 'write';
 
 // LooseName — admissible identifiers in name positions that need to

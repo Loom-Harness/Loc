@@ -52,6 +52,14 @@ export function bodyTypeOf(e: ExprIR): TypeIR | undefined {
       return e.memberType;
     case "paren":
       return bodyTypeOf(e.inner);
+    // The ICU-format wrapper (M-T1.11) is documented as TRANSPARENT — every
+    // backend renders `inner` and drops the format — so it must be transparent
+    // to type probing too.  Without this arm the wrapper hides its operand's
+    // type from every consumer that asks what an expression is, which is how
+    // the Python backend came to emit `"on " + <datetime>` (a request-time
+    // `TypeError`) for `` `on {startAt, date}` ``.
+    case "i18nFormat":
+      return bodyTypeOf(e.inner);
     case "convert":
       return { kind: "primitive", name: e.target };
     case "ternary":

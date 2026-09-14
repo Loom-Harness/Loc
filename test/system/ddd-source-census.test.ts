@@ -114,20 +114,34 @@ const UNPARSEABLE = ["examples/sales-ui.ddd"] as const;
  *  keep refusing — a gate deleted by accident fails here too. */
 const DELIBERATELY_INVALID = [
   "test/cli/fixtures/bad-model.ddd",
+  // The #2922 audit's F-014 repro: a `valueobject Money` constructed with
+  // `currency` omitted.  Before #2923 this validated CLEAN — a record named
+  // after a walker primitive skipped construction validation entirely — and
+  // emitted `new Money(new Decimal("1.00"))` against a 2-arg constructor.  It
+  // is kept as tracked evidence beside the audit, and the negative control
+  // below turns it into a live regression guard: revert #2923 and it validates
+  // clean again, failing here.
+  "eval/repro/F014-money-ctor-unchecked.ddd",
   "test/language/validators/fixtures/stmt-placement-variant-match.ddd",
   "test/language/validators/fixtures/stmt-placement-for.ddd",
   "test/language/validators/fixtures/stmt-placement-if-let.ddd",
 ] as const;
 
-/** Entry files of a multi-file project whose SIBLINGS are imported but which
- *  are not themselves imported by anything — so the derived rule cannot see
- *  them, yet they still only validate through the project loader.
- *
- *  `web/src/examples/erp/finance.ddd` is a bare `subdomain` file that composes
- *  into `erp/main.ddd`'s system; read alone it trips the "a top-level
- *  'subdomain' composes into the project's single 'system'" check. It IS
- *  validated, through `main.ddd`, by `playground-feature-examples.test.ts`. */
-const PROJECT_MEMBER_NOT_IMPORTED = ["web/src/examples/erp/finance.ddd"] as const;
+// A third exclusion list used to sit here — `PROJECT_MEMBER_NOT_IMPORTED`,
+// holding `web/src/examples/erp/finance.ddd` on the reading that it was a
+// project member "no import reaches, so the derived rule cannot see it".
+//
+// `web/src/examples/erp/main.ddd:63` imports `./finance.ddd`. The derived rule
+// had covered it from the day it landed, and the pin excluded a file that was
+// already excluded — inert, and silently so, because `excluded.has(f) ||
+// inProject.has(f)` cannot tell a redundant pin from a load-bearing one.
+//
+// It is deleted rather than ratcheted because the category it named does not
+// exist: `projectMembers` adds BOTH ends of every import edge, the entry
+// included (`members.add(normalize(f))`), so a multi-file participant is
+// reachable from the graph by construction. Anything a hand pin could add here
+// is either already derived or is not a project member at all. Do not
+// reintroduce it — extend the derivation instead, and let the sweep prove it.
 
 describe("`.ddd` source census — every tracked file, not a hand-kept list", () => {
   const files = trackedDddFiles();
@@ -171,11 +185,7 @@ describe("`.ddd` source census — every tracked file, not a hand-kept list", ()
 
   it("validates every self-contained `.ddd` with zero AST errors", async () => {
     const inProject = projectMembers(files);
-    const excluded = new Set<string>([
-      ...UNPARSEABLE,
-      ...DELIBERATELY_INVALID,
-      ...PROJECT_MEMBER_NOT_IMPORTED,
-    ]);
+    const excluded = new Set<string>([...UNPARSEABLE, ...DELIBERATELY_INVALID]);
     const failed: string[] = [];
     for (const f of files) {
       if (excluded.has(f) || inProject.has(f)) continue;
