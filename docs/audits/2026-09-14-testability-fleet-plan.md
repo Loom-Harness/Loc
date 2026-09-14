@@ -131,3 +131,21 @@ merge queue, and P2/P3/P4 each wake per-backend compile gates.
 3. **Mutation-prove every gate**, reverting by file copy, never `git checkout -- <path>`.
    State the result in the PR body.
 4. **Run the matching gate locally.** Never push to see a check's verdict.
+
+## Dispatched — wave 1, 2026-09-14 14:45–14:47 UTC
+
+Five Opus sessions, one per packet, each briefed with its finding, its measured
+before-state, its file ownership, the proof it must carry, and the standing rules.
+Sessions were told to claim with a draft PR **before** implementing, and not to merge.
+
+| Packet | Session | Fixes |
+|---|---|---|
+| P1 | `session_01LbMANcN87hT6oJjSu5K1uT` | F8 — the `verifies` join |
+| P2 | `session_01QqqfzKiMzyfLB5rptZkR5G` | F2 — typed literals in emitted unit tests + the missing typecheck gate |
+| P3 | `session_01WbgqXFQ9L6Y8b8aqXExNvL` | F4 — e2e payload validation |
+| P4 | `session_01LDt6GCMqPecdVYj29826yG` | F9 + F10 — `auditable` × frontend, UUID status parity |
+| P5 | `session_01HDqPV1fxsx1bEstsGrmXhB` | F7 — the UI negative path (settles D-3) |
+
+Wave 2 (P6 fenced on #2933, P7 gated on D-1, P8) and wave 3 (P9–P11, gated on D-4)
+are **not** dispatched. P4 carries D-2 and P5 carries D-3 because each is local to one
+packet's own evidence; D-1 and D-4 are owner decisions and block their packets.
