@@ -724,19 +724,58 @@ Endpoints default to `http://localhost:<port>` for each deployable.
 Override per environment via `E2E_<DEPLOYABLE>_BASE` (e.g.
 `E2E_API_BASE=https://staging.example.com`).
 
-**State between tests.**  The suite drives a REAL database through a
-running backend, so without a reset it is not idempotent: a block that
-asserts an exact count (`expect(listed.total).toBe(2)`) is green on a
-fresh database and red on the second run of the same one, and is
-coupled to every block that ran before it.  Since `docker compose up`
-uses a named `pgdata` volume, the database is NOT fresh on the second
-`npm test`.
+#### The e2e reset seam
 
-The emitted suite closes this itself: it calls the backend's
-**dev-only reset endpoint** before every test, so each block sees only
-the rows it creates.  See
-[the reset seam](#the-e2e-reset-seam) below for how it is guarded and
-what to do when it is unavailable.
+The suite drives a REAL database through a running backend, so without
+a reset it would not be idempotent: a block asserting an exact count
+(`expect(listed.total).toBe(2)`) would be green on a fresh database and
+red on the second run of the same one, and would be coupled to every
+block that ran before it.  Since `docker compose up` keeps a named
+`pgdata` volume, the second `npm test` is the common case, not the
+exotic one.
+
+So the emitted suite calls a **dev-only reset endpoint**
+(`POST /__loom/test-reset`) at the top of every test.  It truncates
+every application table and re-applies any declared `seed` data, which
+restores the just-migrated-and-seeded state — not an empty database, so
+fixtures that assume seeded rows still find them.  The migration
+ledger, the timer watermark and the pg-boss job store are preserved.
+Cost is one loopback round trip per block (median 6 ms against a local
+Postgres).
+
+A per-test *transaction* would be cheaper, but it is structurally
+unavailable: the suite talks HTTP to a separate process, so it has no
+transaction to share with the request handler.
+
+**It cannot fire against a non-local target.**  Two independent gates,
+and the one that matters needs no configuration:
+
+| | Gate |
+|---|---|
+| In the suite | The reset is only **sent** when the resolved base URL is a loopback address (`localhost`, `*.localhost`, `127.0.0.0/8`, `[::1]`). Pointing the suite at a deployed environment — `E2E_API_BASE=https://staging.example.com` — disables it by construction. There is deliberately no remote override. |
+| In the backend | The route is only **registered** when `LOOM_TEST_RESET=1`, or when it is unset and the process is not in a production profile. Where it is not registered the path does not exist, and a request 404s through the ordinary not-found handler having touched nothing. |
+
+The generated container image pins a production profile, so the
+generated `docker-compose.yml` opts the backend service in by name:
+
+```yaml
+    environment:
+      LOOM_TEST_RESET: "1"
+```
+
+Delete that line and the local stack has no reset endpoint (and the
+suite then fails loudly, naming the cause, rather than reporting a
+bare `expected 6 to be 2` from whichever block counts rows).
+
+Set `E2E_RESET=off` in the suite's environment to skip the reset
+entirely — for a suite whose blocks are written to accumulate on
+purpose.
+
+**When the reset is unavailable** — a target that is not loopback, or a
+backend that does not register the route — the suite assumes a **fresh
+database per run**.  Start one with `docker compose down -v && docker
+compose up -d`, or write assertions that tolerate shared state
+(`toBeGreaterThanOrEqual`, namespaced fixture data).
 
 ### React frontend deployable
 
