@@ -144,8 +144,8 @@ gate already encodes the row's claim, run the gate.
 | open rows | **130** |
 | P0 | 0 |
 | P1 | 1 |
-| P2 | 9 |
-| P3 | 34 |
+| P2 | 8 |
+| P3 | 35 |
 | P4 | 78 |
 | P5 | 8 |
 | kind: silent / honest / breadth / mission / stale-prose | 11 / 33 / 21 / 57 / 8 |
@@ -171,7 +171,7 @@ Sorted P0 (security / data-integrity, silent, proven) → P1 (other silent prove
 | P1 | `F2-MT640-SORT-DEAD` | silent | prov | elixir | M | HEEx wires a Table's `sortKey`/`sortDir`/`page` ONLY when `serverPaged`, so a NON-paged scaffolded list silently loses the client-side sort + pagination all four JSX frontends render from the same `.ddd` — the dead `sort_key`/`sort_dir`/`page_num` assigns are the residue, not the defect |
 | P2 | `F2-W-06` | silent | like | elixir | S | elixir persists `datetime` at SECOND precision (`:utc_datetime`) where the other four use TIMESTAMPTZ(µs) |
 | P2 | `G2646-open-heex-layout-inert` | silent | like | elixir | M | #2646 documented, NOT fixed: on HEEx a non-server-paged Table gets no pager and the `i18nFormat` wrapper is dropped (the Grid arm of this row was stale and is retired) |
-| P2 | `M-T1.16-invariant-validation-feliz-flutter` | silent | like | feliz, flutter | M | Invariant-derived client-side form validation is missing on BOTH self-hosting frontends — Feliz and Flutter enforce "Required" only |
+| P3 | `M-T1.16-invariant-validation-feliz-flutter` | silent | like | flutter | M | FLUTTER HALF ONLY (the feliz half landed in wave C2 packet 2i). Invariant-derived client-side form validation is still missing on Flutter — it enforces "Required" / "Enter a number" and nothing else |
 | P2 | `queryview-lambda-int-plus-literal-concat` | silent | like | react, vue, svelte, angular, feliz, flutter | M | An int LITERAL operand of `+` against a read-record member in a page body lowers to string concatenation — silently wrong on the four JS frontends (`o.qty + String(1)`) and a HARD BUILD BREAK on feliz and flutter |
 | P2 | `schemathesis-F11-int32-range` | silent | like | elixir | M | F11 — ELIXIR publishes a bare `%OpenApiSpex.Schema{type: :integer}` for an `int` body field against an int4 column, so a contract-conforming value 500s (node and python now publish the bound; dotnet and java always did) |
 | P2 | `sourcemap-feliz-flutter-not-emitted` | silent | like | flutter | S | FLUTTER HALF ONLY (the feliz half landed in wave C2 packet 2i). `--sourcemap` still records NOTHING for the flutter frontend — the plan filed it as a test-parity skew, but the emission is absent |

@@ -153,38 +153,36 @@
   },
   {
    "id": "M-T1.16-invariant-validation-feliz-flutter",
-   "title": "Invariant-derived client-side form validation is missing on BOTH self-hosting frontends — Feliz and Flutter enforce \"Required\" only",
+   "title": "FLUTTER HALF ONLY (the feliz half landed in wave C2 packet 2i). Invariant-derived client-side form validation is still missing on Flutter — it enforces \"Required\" / \"Enter a number\" and nothing else",
    "kind": "silent",
    "class": null,
    "confidence": "likely",
    "targets": [
-    "feliz",
     "flutter"
    ],
    "fileTrees": [
-    "src/generator/feliz/wire.ts",
     "src/generator/flutter/forms-emit.ts",
-    "src/generator/zod-refine.ts",
+    "src/generator/feliz/form-validators.ts",
     "src/generator/angular/form-validators.ts",
-    "src/generator/_i18n/validation-catalog.ts"
+    "src/generator/zod-refine.ts"
    ],
    "evidence": [
     {
      "fleet": 1,
      "id": "M-T1.16-invariant-validation-feliz-flutter",
-     "text": "The four static-bundle frontends fold an aggregate's wire-translatable `invariant`s into per-field rules: src/generator/_frontend/zod-schemas.ts (react/vue/svelte, via src/generator/zod-refine.ts) and src/generator/angular/form-validators.ts (Angular `Validators.*`). Neither self-hosting frontend has an equivalent — `grep -rln 'zod-refine|invariantRefine' src/generator/feliz src/generator/flutter` → 0 hits. Feliz emits only an emptiness check: src/generator/feliz/wire.ts:2925-2933 `if ${emptyPredicate(fld)} then Some \"Required\" else None`, over `requiredValidatedFields` (:2949). Flutter is the same shape: src/generator/flutter/forms-emit.ts:963,968,989,996 — `'Required'` / `'Enter a number'` and nothing else. No `loom.*` code marks the divergence. The tracker names only the Feliz half, and calls it a \"natural follow-up\" (T1-ui-frontend.md:246) rather than a parity gap; the Flutter half is unlisted entirely."
+     "text": "`src/generator/flutter/forms-emit.ts:963,968,989,996` still emits only `'Required'` / `'Enter a number'`, and `grep -rln 'zod-refine|invariantRefine' src/generator/flutter` is empty. The FELIZ half is closed: `src/generator/feliz/form-validators.ts` is the F# twin of `angular/form-validators.ts` — admission through the SHARED `takeSingleFieldChain` gate (so Feliz admits a constraint iff zod / Angular do), rules attached to each `FelizFormField` by `attachFieldRules` so the `Validation` module, the touched-set wiring and the view seam agree through one `isValidatedField`, and rule-specific messages (`Must be at least 3 characters`, `Must be between 0.5 and 2.5`, `Does not match the required format`) replacing the flat `Required`. Length bounds count CODE POINTS via an `[<Emit>]` `[...$0].length`, the same definition the server's JSON Schema publishes."
     }
    ],
    "repro": null,
    "impact": null,
-   "fix": "Reuse the classifier both existing paths share (`takeSingleFieldChain` / the `invariant-classify` pipeline that feeds `zod-refine.ts` and `angular/form-validators.ts`) and render its output twice more: F# predicate functions inside the existing `Validation` module (src/generator/feliz/wire.ts:renderValidation — the per-field `<form><Field>Error` fn already exists, it just always says \"Required\"), and Dart `validator:` closures in src/generator/flutter/forms-emit.ts. Rule-specific messages should ride the `msg.<hash>` catalog (src/generator/_i18n/validation-catalog.ts) so they are translatable on arrival. Verify with `dotnet fable` + `flutter analyze` per the mission's own bar.",
+   "fix": "The flutter twin of `src/generator/feliz/form-validators.ts`: map each `takeSingleFieldChain` pattern onto a Dart `validator:` closure on the `TextFormField`, reusing the shared gate rather than re-classifying. Note the Feliz half's two findings — (a) a numeric rule must be blank- AND unparseable-tolerant so it never shadows the required / parse message, and (b) an OPTIONAL non-numeric field with a length rule was not message-bearing at all before, so whatever decides \"does this cell show an inline error\" has to learn about rules or the form refuses to submit with no visible reason.",
    "size": "M",
    "sources": [
     "fleet1:t1-frontend"
    ],
    "related_to": [],
    "securityClass": false,
-   "P": 2,
+   "P": 3,
    "verified": {
     "date": "2026-09-03",
     "against": "bd7aaeedc",
@@ -197,13 +195,12 @@
     ]
    },
    "reverified": {
-    "date": "2026-09-10",
-    "against": "bc7ed8f8",
-    "method": "reconciliation 3 (packet C0.5) — repro re-run on this head, emitted output read",
-    "verdict": "reproduces",
-    "note": "RE-DERIVED at the code path: `grep -rc invariant src/generator/feliz/*.ts src/generator/flutter/*.ts` — flutter is ZERO across all 21 files, feliz's three hits are comments.  Neither consumes `ir/validate/invariant-classify.js`, which is what `src/generator/_frontend/api-module.ts:166,200` uses to derive react's `.refine(...)` / `.min(1)`.  Both self-hosting frontends still enforce presence only.",
+    "date": "2026-09-14",
+    "against": "wave C2 packet 2i",
+    "method": "the feliz half BUILT and mutation-proved; the flutter half re-derived at the code path",
+    "verdict": "reproduces (flutter half only)",
+    "note": "A feliz app with `invariant qty >= 1` now emits `elif (match System.Decimal.TryParse form.qty with | true, v -> v < 1m | _ -> false) then Some \"Must be at least 1\"` in `productFormQtyError` and the matching `not (…)` term in `productFormValid`; flutter's `forms-emit.ts` is unchanged.",
     "remainingTargets": [
-     "feliz",
      "flutter"
     ]
    }
