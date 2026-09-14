@@ -37,33 +37,50 @@ Six of the ten S1s are that pattern, across five different targets:
 | reference collection `X id[]` | angular |
 | `for x in Repo.run(C(...))` in a reactor | elixir (generator crash), java + feliz (non-compiling) |
 
+## Outcome
+
+All five fix PRs merged on 2026-09-14: **#2923** (F-014, F-015, F-022, F-023),
+**#2925** (F-001, F-020), **#2926** (F-013, F-021), **#2927** (F-003, F-004,
+F-016), **#2924** (F-007, F-010, F-011, F-017).  Each repro was then re-run
+against merged `main` (`fb822206`) and the **emitted output** inspected, not
+just CI's green: the three refusal fixes exit 1 with their diagnostic, and the
+emitter fixes show `__State`, `import java.util.Objects`, escaped `` `member` ``,
+`MoneyResponse`, `new FormControl<string[]>([])` and the root-pinned
+`vitest.config.ts` in the generated tree.  The F-016 check was run BEFORE #2927
+merged and correctly still showed the defect, which is what makes the rest
+evidence rather than a vacuous pass.
+
+F-018 is the only genuinely open row.  F-005 is #2871's.  F-002 and F-012 are
+expressiveness ceilings, not defects.  F-006, F-008 and F-009 stay open as
+posture, design and feature decisions respectively.
+
 ## Register
 
 | ID | Sev | Class | Title | Status |
 |---|---|---|---|---|
-| F-001 | S1 | SILENT | cross-context value object → broken emission on **all nine** targets (see correction) | #2925 |
+| F-001 | S1 | SILENT | cross-context value object → broken emission on **all nine** targets (see correction) | #2925 merged |
 | F-002 | S2 | HONEST | multi-table reads not expressible (home feed) | ceiling, not a defect |
-| F-003 | S1 | SILENT | generator emits an e2e suite calling routes it did not generate | #2927 |
-| F-004 | S3 | SILENT | generated `e2e/` has no vitest config, inherits an ancestor's | #2927 |
+| F-003 | S1 | SILENT | generator emits an e2e suite calling routes it did not generate | #2927 merged |
+| F-004 | S3 | SILENT | generated `e2e/` has no vitest config, inherits an ancestor's | #2927 merged |
 | F-005 | S1 | SILENT | a call in a page gate crashes the generator | **claimed by #2871** |
 | F-006 | S2 | DOCUMENTED | `denyByDefault` does not gate the auto-`findAll` list route | open (posture) |
-| F-007 | S3 | SILENT | MIT `LICENSE` not emitted by `generate` (README says it is) | #2924 |
+| F-007 | S3 | SILENT | MIT `LICENSE` not emitted by `generate` (README says it is) | #2924 merged |
 | F-008 | S2 | DOCUMENTED | `.loomignore` pin goes permanently stale with no detector | open (design) |
 | F-009 | S2 | HONEST | no data-preserving move of an aggregate between contexts | open (feature) |
-| F-010 | S3 | HONEST | `elastic`/`meilisearch` declarable but no resource kind accepts them | #2924 |
-| F-011 | S3 | SILENT | reference docs show comma syntax the grammar rejects | #2924 (partial — `user {}` row left to #2873) |
+| F-010 | S3 | HONEST | `elastic`/`meilisearch` declarable but no resource kind accepts them | #2924 merged |
+| F-011 | S3 | SILENT | reference docs show comma syntax the grammar rejects | #2924 merged (the `user {}` row was left to #2873, which has since merged and MADE that spelling legal — the row is correct as written) |
 | F-012 | S2 | HONEST | group-scoped visibility not expressible | ceiling, not a defect |
-| F-013 | S1 | SILENT | `for-each` in a reactor crashes the elixir emitter (raw throw) | #2926 |
-| F-014 | S1 | SILENT | a record named after a walker primitive skips construction validation | #2923 |
-| F-015 | S1 | SILENT | field named `state` → uncompilable C# | #2923 |
-| F-016 | S1 | SILENT | `X id[]` → uncompilable Angular | #2927 |
-| F-017 | S3 | SILENT | `ddd verify` exits 0 when nothing is verified | #2924 |
+| F-013 | S1 | SILENT | `for-each` in a reactor crashes the elixir emitter (raw throw) | #2926 merged |
+| F-014 | S1 | SILENT | a record named after a walker primitive skips construction validation | #2923 merged |
+| F-015 | S1 | SILENT | field named `state` → uncompilable C# | #2923 merged |
+| F-016 | S1 | SILENT | `X id[]` → uncompilable Angular | #2927 merged |
+| F-017 | S3 | SILENT | `ddd verify` exits 0 when nothing is verified | #2924 merged |
 | F-018 | S3 | DOCUMENTED | `ddd trace` cannot map the default backend's own bundle | open |
 | F-019 | S2 | — | README's unqualified cross-target claims vs the internal ledger | docs |
-| F-020 | S1 | SILENT | `mask unless` emits Java missing `import java.util.Objects` | #2925 |
-| F-021 | S1 | SILENT | reactor `for-each` emits non-compiling Java | #2926 |
-| F-022 | S1 | SILENT | field named `member` → invalid F# | #2923 |
-| F-023 | S1 | SILENT | a workflow + a Feliz UI references a `Model` field never declared (`model.AllWs`) — found while fixing the above | #2923 |
+| F-020 | S1 | SILENT | `mask unless` emits Java missing `import java.util.Objects` | #2925 merged |
+| F-021 | S1 | SILENT | reactor `for-each` emits non-compiling Java | #2926 merged |
+| F-022 | S1 | SILENT | field named `member` → invalid F# | #2923 merged |
+| F-023 | S1 | SILENT | a workflow + a Feliz UI references a `Model` field never declared (`model.AllWs`) — found while fixing the above | #2923 merged |
 
 ## Target matrix (one model, real toolchains, zero unverified)
 
