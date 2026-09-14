@@ -341,6 +341,18 @@ system S {
     }
     repository As for A { }`),
 
+  // A cross-aggregate invariant that reads through a repository.  It validated
+  // clean and emitted `Technicians.getById(...)` into the per-instance floor —
+  // TS2304 on hono, the same unresolvable symbol on .NET/java, and on elixir the
+  // rule was silently emitted nowhere at all.
+  "loom.rule-expr-impure": repoOnly(`    aggregate Technician with crudish { skill: string }
+    aggregate WorkOrder with crudish {
+      technicianId: Technician id
+      invariant Technicians.getById(technicianId).skill.length > 0
+    }
+    repository Technicians for Technician { }
+    repository WorkOrders for WorkOrder { }`),
+
   // A block-bodied `function` that mutates aggregate state.  The purity gate had
   // no catalog entry and no firing proof at all until W4.1 — the scanner never
   // saw the site, because its `message` was a shorthand property.
