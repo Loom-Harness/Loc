@@ -1,0 +1,1 @@
+context C { aggregate A { title: strng } repository As for A { } }

@@ -1,0 +1,14 @@
+system S {
+  subdomain M { context C {
+    aggregate A { name: string  derived display: string = name  create() { } }
+    repository As for A { }
+    aggregate B { code: string  derived display: string = code  create() { } }
+    repository Bs for B { }
+  } }
+  ui U { framework: react
+    area As { page Detail(id: A id) { route: "/a/:id"  title: "A"
+      body: Stack { Text { value: id.code } } } } }
+  storage p { type: postgres }  resource r { for: C, kind: state, use: p }
+  deployable api { platform: node, contexts: [C], dataSources: [r], port: 3000 }
+  deployable web { platform: react, targets: api, ui: U, port: 3001 }
+}

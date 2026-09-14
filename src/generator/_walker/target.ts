@@ -1155,6 +1155,22 @@ export interface WalkerTarget {
    *  `emitMethodCall`, and Feliz maps those in `fs-expr.ts`. */
   renderMemberRead?(spec: MemberReadSpec): string | undefined;
 
+  /** OPTIONAL — spell a MODEL-DERIVED IDENTIFIER (a component/page param, a
+   *  shell local, a `let` binding) in the target's own language.
+   *
+   *  Every JSX frontend emits these bare, because a Loom identifier is always a
+   *  legal JS one.  F# is the exception: `member`, `end`, `val`, `base`, … are
+   *  keywords there, so `component Row(member: string)` emitted
+   *  `Html.text (string (member))` and `dotnet fable` stopped on "Unexpected
+   *  keyword 'member'" — from a `.ddd` that validates clean (F-022).  Feliz
+   *  returns the double-backtick spelling for those names; returning
+   *  `undefined` — or omitting the seam — emits the bare name, so the five JSX
+   *  targets are byte-identical.
+   *
+   *  NOT for names the WALKER chose (a lambda's `row`, a hoisted hook local):
+   *  those are the emitter's own and are safe by construction. */
+  escapeIdent?(name: string): string | undefined;
+
   /** OPTIONAL — render a stdlib COLLECTION OP applied to a collection
    *  (`rows.count`, `rows.where(λ)`, `names.sortBy(λ)`).
    *

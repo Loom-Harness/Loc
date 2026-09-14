@@ -1,0 +1,486 @@
+{
+ "source": "eval-clinica/FINDINGS.md",
+ "generated": "2026-09-13",
+ "base": "bcd25e3e",
+ "note": "Packets are the unit an agent claims. fileTrees are disjoint within a wave. Rows carry the FINDINGS id, the repro, and the proof the PR must show.",
+ "packets": [
+  {
+   "name": "corpus-compile-gate",
+   "wave": 0,
+   "size": "L",
+   "fileTrees": [
+    "test/fixtures/corpus/**",
+    "test/system/generated-compiles.test.ts",
+    "scripts/**"
+   ],
+   "rows": [
+    {
+     "id": "P0-corpus-app",
+     "size": "M",
+     "confidence": "proven",
+     "P": 0,
+     "needsValidatorSlot": false,
+     "title": "Promote a realistic APPLICATION into the corpus (tenancy + auth + mask unless + workflow calling an aggregate function + a `state` field + a string[] + a datetime op param + an ICU derived + a retrieval). eval-clinica/clinica/main.ddd is a ready candidate."
+    },
+    {
+     "id": "P0-compile-gate",
+     "size": "L",
+     "confidence": "proven",
+     "P": 0,
+     "needsValidatorSlot": false,
+     "title": "test/system/generated-compiles.test.ts \u2014 generate each corpus app x each target and run the target's REAL compiler. Converts the SILENT class into HONEST wholesale.",
+     "mutationProof": "revert F-004, F-013, F-014, F-016, F-018, F-022 each in a scratch copy; gate must go red and name the right target"
+    }
+   ]
+  },
+  {
+   "name": "validator-gates",
+   "wave": 2,
+   "size": "L",
+   "fileTrees": [
+    "src/ir/validate/checks/**",
+    "src/diagnostics/messages.ts",
+    "src/language/validators/**"
+   ],
+   "rows": [
+    {
+     "id": "F-002",
+     "size": "M",
+     "confidence": "proven",
+     "P": 0,
+     "needsValidatorSlot": true,
+     "repro": "eval-clinica/repro/r02-overlap-system.ddd",
+     "title": "loom.repository-read-in-invariant \u2014 a repo read in an invariant emits an undefined identifier wrapped around a TAUTOLOGY on 4 backends and is dropped entirely on elixir"
+    },
+    {
+     "id": "F-009",
+     "size": "S",
+     "confidence": "proven",
+     "P": 1,
+     "needsValidatorSlot": true,
+     "repro": "eval-clinica/repro/r08b-query-handler.ddd",
+     "title": "Repo.run(<Retrieval>) in a paged queryHandler crashes the emitter after 0 error(s) \u2014 promote the internal throw to a validator refusal"
+    },
+    {
+     "id": "F-018",
+     "size": "S",
+     "confidence": "proven",
+     "P": 0,
+     "needsValidatorSlot": true,
+     "repro": "eval-clinica/repro/r18-recursive-containment-crash.ddd",
+     "title": "loom.containment-cycle \u2014 a self-recursive entity part validates clean then RangeError: Maximum call stack size exceeded on node/dotnet/python/elixir"
+    },
+    {
+     "id": "F-013g",
+     "size": "S",
+     "confidence": "proven",
+     "P": 1,
+     "needsValidatorSlot": true,
+     "title": "Reserved-name gate so an emitter-owned name (dotnet nested `State`) is refused at the model, not at dotnet build"
+    }
+   ]
+  },
+  {
+   "name": "node-ts",
+   "wave": 1,
+   "size": "M",
+   "fileTrees": [
+    "src/generator/typescript/**",
+    "src/platform/hono/**"
+   ],
+   "rows": [
+    {
+     "id": "F-004/F-016-node",
+     "size": "M",
+     "confidence": "proven",
+     "P": 0,
+     "needsValidatorSlot": false,
+     "repro": "eval-clinica/repro/r06-when-function-private.ddd, eval-clinica/repro/r16-workflow-calls-private-function.ddd",
+     "title": "typescript/emit/aggregate.ts:487 emits `private <fn>` while when-guards, can_<op> routes and workflow bodies call it \u2014 TS2341"
+    },
+    {
+     "id": "F-018-node",
+     "size": "S",
+     "confidence": "proven",
+     "P": 1,
+     "needsValidatorSlot": false,
+     "title": "nestedContainLoads recursion bound (belt-and-braces alongside the P1 gate)"
+    }
+   ]
+  },
+  {
+   "name": "dotnet",
+   "wave": 1,
+   "size": "M",
+   "fileTrees": [
+    "src/generator/dotnet/**"
+   ],
+   "rows": [
+    {
+     "id": "F-013",
+     "size": "M",
+     "confidence": "proven",
+     "P": 0,
+     "needsValidatorSlot": false,
+     "repro": "eval-clinica/repro/r14-dotnet-state-collision.ddd",
+     "title": "emit/entity.ts:702 emits a nested `public sealed class State` on every aggregate; a field named `state` collides \u2014 CS0102 + CS0542. docs/language.md prints this exact model as a legal example."
+    },
+    {
+     "id": "F-004/F-016-dotnet",
+     "size": "M",
+     "confidence": "proven",
+     "P": 0,
+     "needsValidatorSlot": false,
+     "title": "emit/entity.ts:426 emits `private` for an aggregate function called from CloseHandler/CanCloseHandler \u2014 CS0122"
+    },
+    {
+     "id": "F-019",
+     "size": "S",
+     "confidence": "proven",
+     "P": 2,
+     "needsValidatorSlot": false,
+     "title": "An entity named `...Exception` fails CA1711 under the -warnaserror gate the generated .csproj configures; suppress alongside CA1707/CA1848/CA1873 which it already suppresses"
+    }
+   ]
+  },
+  {
+   "name": "java",
+   "wave": 1,
+   "size": "M",
+   "fileTrees": [
+    "src/generator/java/**"
+   ],
+   "rows": [
+    {
+     "id": "F-014",
+     "size": "S",
+     "confidence": "proven",
+     "P": 0,
+     "needsValidatorSlot": false,
+     "repro": "eval-clinica/repro/r15-java-mask-missing-import.ddd",
+     "title": "`mask unless` emits Objects.equals(...) into <Agg>Response.java without `import java.util.Objects` \u2014 BUILD FAILED. The recommended remedy for PII exposure breaks the Java build."
+    },
+    {
+     "id": "F-004/F-016-java",
+     "size": "M",
+     "confidence": "proven",
+     "P": 0,
+     "needsValidatorSlot": false,
+     "title": "emit/entity.ts:586 emits `private` for an aggregate function called from DocService/workflow service"
+    }
+   ]
+  },
+  {
+   "name": "python",
+   "wave": 1,
+   "size": "M",
+   "fileTrees": [
+    "src/generator/python/**"
+   ],
+   "rows": [
+    {
+     "id": "F-016-python",
+     "size": "M",
+     "confidence": "proven",
+     "P": 0,
+     "needsValidatorSlot": false,
+     "repro": "eval-clinica/repro/r16-workflow-calls-private-function.ddd",
+     "title": "emit/aggregate.ts defines `_has_skill` while workflows_routes.py calls `has_skill` \u2014 AttributeError at request time, NOT a convention issue"
+    },
+    {
+     "id": "F-006-python",
+     "size": "S",
+     "confidence": "proven",
+     "P": 0,
+     "needsValidatorSlot": false,
+     "repro": "eval-clinica/repro/r07-icu-format-dropped.ddd",
+     "title": "`\"on \" + self._start_at` is a TypeError on every read; the SAME generated file already writes self._start_at.isoformat() for inspect. Fix regardless of the RC-4 fork."
+    }
+   ]
+  },
+  {
+   "name": "elixir",
+   "wave": 1,
+   "size": "S",
+   "fileTrees": [
+    "src/generator/elixir/**"
+   ],
+   "rows": [
+    {
+     "id": "F-015",
+     "size": "S",
+     "confidence": "proven",
+     "P": 2,
+     "needsValidatorSlot": false,
+     "repro": "eval-clinica/repro/r13-elixir-datetime-warning.ddd",
+     "title": "The datetime-coercion helper binds __dt/__s/__d/__other then uses them \u2014 5 warnings, fails `mix compile --warnings-as-errors`, a gate the README lists"
+    }
+   ]
+  },
+  {
+   "name": "expr-icu",
+   "wave": 1,
+   "size": "M",
+   "fileTrees": [
+    "src/generator/_expr/**",
+    "src/generator/*/render-expr.ts#i18nFormat-leaf-only"
+   ],
+   "rows": [
+    {
+     "id": "F-006",
+     "size": "M",
+     "confidence": "proven",
+     "P": 1,
+     "needsValidatorSlot": true,
+     "repro": "eval-clinica/repro/r07-icu-format-dropped.ddd",
+     "title": "All 5 backends pass ICU formats through (`i18nFormat: (inner) => inner`): {at,date} == {at,time}, ::currency drops, and a plural's arms VANISH (emits \"3\", not \"3 items\"). FORK: implement per backend, or add loom.interp-format-backend-only. docs/new-plan/T1 says the pass-through is deliberate; docs/language.md does not."
+    }
+   ]
+  },
+  {
+   "name": "angular-forms",
+   "wave": 1,
+   "size": "S",
+   "fileTrees": [
+    "src/generator/angular/**"
+   ],
+   "rows": [
+    {
+     "id": "F-022",
+     "size": "S",
+     "confidence": "proven",
+     "P": 0,
+     "needsValidatorSlot": false,
+     "repro": "eval-clinica/repro/r22-angular-string-array-form.ddd",
+     "title": "form-fields.ts initFor returns \"null\" for a collection -> FormControl<null> -> TS2345 under ng build. React degrades HONESTLY on the same model (disabled, translated '(arrays not yet supported in forms)'). The same function's comment already records this fix for the X id case."
+    }
+   ]
+  },
+  {
+   "name": "read-path-routing",
+   "wave": 3,
+   "size": "L",
+   "fileTrees": [
+    "src/ir/enrich/**",
+    "src/system/index.ts"
+   ],
+   "rows": [
+    {
+     "id": "F-008",
+     "size": "L",
+     "confidence": "proven",
+     "P": 1,
+     "needsValidatorSlot": false,
+     "repro": "eval-clinica/repro/r08-retrieval-no-route.ddd",
+     "title": "A declared `retrieval` emits NO route while the deprecated `find` does. loom.repository-find-deprecated points authors at a construct that cannot reach the wire; the working replacement costs 4 declarations + an api{} block."
+    }
+   ]
+  },
+  {
+   "name": "migrations-type-narrowing",
+   "wave": 3,
+   "size": "M",
+   "fileTrees": [
+    "src/system/migrations-builder.ts",
+    "src/generator/sql-pg.ts"
+   ],
+   "rows": [
+    {
+     "id": "F-010",
+     "size": "M",
+     "confidence": "proven",
+     "P": 1,
+     "needsValidatorSlot": false,
+     "title": "string -> enum emits NO migration and NO constraint (TEXT->TEXT). An out-of-enum row is then served against the API's own OpenAPI enum, which the same generation's zod client rejects."
+    }
+   ]
+  },
+  {
+   "name": "i18n-locales",
+   "wave": 3,
+   "size": "M",
+   "fileTrees": [
+    "src/generator/_frontend/i18n-runtime.ts",
+    "src/cli/i18n/**"
+   ],
+   "rows": [
+    {
+     "id": "F-017",
+     "size": "M",
+     "confidence": "proven",
+     "P": 1,
+     "needsValidatorSlot": false,
+     "title": "ddd i18n init/sync produce locales/<locale>.json that `generate system` never reads; only en.json is emitted. The generated i18n.ts tells the user to hand-edit it \u2014 which F-012 then deletes. The three-way merge itself is good and should not be touched."
+    }
+   ]
+  },
+  {
+   "name": "auth-defaults",
+   "wave": 3,
+   "size": "M",
+   "fileTrees": [
+    "src/generator/*/auth*.ts",
+    "src/platform/hono/*/auth-emit.ts"
+   ],
+   "rows": [
+    {
+     "id": "F-020",
+     "size": "M",
+     "confidence": "proven",
+     "P": 0,
+     "needsValidatorSlot": true,
+     "title": "The OIDC audience check is emitted only when the model declares `audience:` \u2014 a clause present in ddd.langium:182 and ABSENT from docs/auth.md. All five backends default it off (python alone is env-enablable). The emitted comment asserts the check is on regardless. Executed: a same-issuer token for another client returns 200."
+    },
+    {
+     "id": "F-020b",
+     "size": "S",
+     "confidence": "proven",
+     "P": 2,
+     "needsValidatorSlot": false,
+     "title": "The generated keycloak realm ships no protocol mappers for the declared user{} claims, so the batteries-included IdP cannot exercise the tenancy the model declares"
+    },
+    {
+     "id": "F-020c",
+     "size": "S",
+     "confidence": "proven",
+     "P": 2,
+     "needsValidatorSlot": false,
+     "title": "403 bodies echo the authorization predicate source verbatim; no flag suppresses it"
+    }
+   ]
+  },
+  {
+   "name": "docs-truth",
+   "wave": 4,
+   "size": "M",
+   "fileTrees": [
+    "docs/**",
+    "README.md",
+    "src/cli/main.ts"
+   ],
+   "rows": [
+    {
+     "id": "F-023",
+     "size": "S",
+     "confidence": "proven",
+     "P": 0,
+     "needsValidatorSlot": false,
+     "title": "README's Live site / playground / hosted docs are 404 after the org move; 5 lemmit.github.io + 6 github.com/lemmit/Loc URLs are dead"
+    },
+    {
+     "id": "F-001",
+     "size": "S",
+     "confidence": "proven",
+     "P": 2,
+     "needsValidatorSlot": false,
+     "title": "CLI --help points patch/trace/breakpoints at docs/old/proposals/**, which the README calls archived and un-deployed"
+    },
+    {
+     "id": "F-007",
+     "size": "S",
+     "confidence": "proven",
+     "P": 2,
+     "needsValidatorSlot": false,
+     "title": "`create { }` documented as valid ('omitting the parens keeps it quiet') and is a parse error; `destroy { }` works"
+    },
+    {
+     "id": "F-003",
+     "size": "S",
+     "confidence": "proven",
+     "P": 2,
+     "needsValidatorSlot": true,
+     "title": "A typo'd primitive type gives 'Could not resolve reference to NamedDecl named strng' \u2014 compiler-internal jargon, no did-you-mean, though the facility exists for field names"
+    },
+    {
+     "id": "F-005",
+     "size": "S",
+     "confidence": "proven",
+     "P": 3,
+     "needsValidatorSlot": true,
+     "title": "A soft keyword in expression position gives a raw Chevrotain dump: Unexpected 'from'. Expected one of: ... (+111 more)"
+    },
+    {
+     "id": "F-006d",
+     "size": "S",
+     "confidence": "proven",
+     "P": 1,
+     "needsValidatorSlot": false,
+     "title": "docs/language.md presents ICU suffixes as general expression syntax WITH a backend TypeScript example; T1 says the backend drops them"
+    },
+    {
+     "id": "F-020d",
+     "size": "S",
+     "confidence": "proven",
+     "P": 1,
+     "needsValidatorSlot": false,
+     "title": "Document the oidc `audience:` clause \u2014 it is in the grammar and nowhere in docs/auth.md"
+    },
+    {
+     "id": "F-012d",
+     "size": "S",
+     "confidence": "proven",
+     "P": 0,
+     "needsValidatorSlot": false,
+     "title": "State the ownership model. 'The keys to the codebase' / 'All the source you'd write by hand' vs: a hand-edit is silently deleted on regenerate, and .loomignore freezes the file until the next model change breaks the build."
+    }
+   ]
+  }
+ ],
+ "decisions": [
+  {
+   "id": "D-RC4",
+   "title": "ICU on the backends: implement, or refuse with loom.interp-format-backend-only",
+   "blocks": [
+    "expr-icu",
+    "docs-truth"
+   ],
+   "note": "docs/new-plan/T1 records the pass-through as deliberate. The python TypeError is a bug either way."
+  },
+  {
+   "id": "D-F012",
+   "title": "Source-ownership model: (1) own the compiler framing + emit a .gitignore, (2) hash-and-warn on clobber, (3) protected regions / three-way merge",
+   "blocks": [
+    "docs-truth"
+   ],
+   "note": "Not an agent-sized fix. Option 1 is free; option 2 is the best value-per-unit-of-work and removes the SILENT half; option 3 is expensive and in tension with derive-don't-stamp."
+  }
+ ],
+ "sequencing": [
+  [
+   "corpus-compile-gate before every other packet",
+   "Eleven of these were invisible because no gate reached the shape (the maintainers' own diagnosis). A packet landing before the gate cannot be mutation-proved."
+  ],
+  [
+   "validator-gates after maintainer PRs #2913/#2915/#2916 land or are claimed",
+   "Same family \u2014 a repository read escaping its legal context. Extend, do not duplicate; the repo's own draft-PR claim protocol applies."
+  ],
+  [
+   "the four RC-1 arms (node/dotnet/java/python) land together behind one IR predicate",
+   "Four emitters independently hardcode `private`. Fixing three leaves the fourth divergent, which is how the class survived."
+  ],
+  [
+   "D-RC4 decided before expr-icu code and before the docs-truth ICU row",
+   "Implement or refuse \u2014 but the docs must match whichever is chosen."
+  ],
+  [
+   "dotnet F-019 after the corpus gate runs -warnaserror on the dotnet leg",
+   "Otherwise the CA1711 suppression cannot be shown to be load-bearing."
+  ],
+  [
+   "docs-truth merges last",
+   "Its ICU and ownership rows depend on D-RC4 and D-F012."
+  ]
+ ],
+ "parallelism": {
+  "maxConcurrentPackets": 7,
+  "wave0": 1,
+  "wave1": 7,
+  "wave2": 1,
+  "wave3": 4,
+  "wave4": 1
+ },
+ "outOfScope": [
+  "Zero releases / no changelog / no compatibility policy \u2014 a release process, not a packet (report condition 4)",
+  "Bus factor 1 \u2014 organisational (report condition 5)"
+ ]
+}
