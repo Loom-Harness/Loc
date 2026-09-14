@@ -53,9 +53,15 @@ system RosterSys {
       // 'named' — a DECLARED find carries its own return type.
       operation declaredList(t: string): bool { let f = Owners.byTier(t)  return f.count > 0 }
       operation declaredOptional(l: string): bool { let f = Owners.byLabel(l)  return f == null }
-      // 'named' — getById is a BUILT-IN loader, absent from 'finds', so it has
-      // NO declared return type to read.  One row, never a collection.
+      // 'named' — the BUILT-IN verbs every repository auto-emits.  None is in
+      // 'finds', so none has a declared return type to read, and they do NOT
+      // share one shape: getById/findById load one row, findAll/all return the
+      // whole collection.  Collapsing them either way reintroduces the bug for
+      // the other half.
       operation builtinGetById(o: Owner id): string { let f = Owners.getById(o)  return f.label }
+      operation builtinFindById(o: Owner id): string { let f = Owners.findById(o)  return f.label }
+      operation builtinFindAll(): bool { let f = Owners.findAll()  return f.count > 0 }
+      operation builtinAll(): bool { let f = Owners.all()  return f.count > 0 }
       // the criterion / retrieval shapes
       operation criterionAll(t: string): bool { let f = Owners.findAll(InTier(t))  return f.count > 0 }
       operation criterionOne(t: string): bool { let f = Owners.find(InTier(t))  return f == null }
@@ -111,6 +117,9 @@ describe("domainService: the IR type of a let-bound repository read (F1)", () =>
     ["declaredList", { kind: "array", element: OWNER }],
     ["declaredOptional", { kind: "optional", inner: OWNER }],
     ["builtinGetById", OWNER],
+    ["builtinFindById", OWNER],
+    ["builtinFindAll", { kind: "array", element: OWNER }],
+    ["builtinAll", { kind: "array", element: OWNER }],
     ["criterionAll", { kind: "array", element: OWNER }],
     ["criterionOne", { kind: "optional", inner: OWNER }],
     ["retrievalRun", { kind: "array", element: OWNER }],
