@@ -35,6 +35,8 @@ import { type RenderCtx, renderExpr } from "../render-expr.js";
 import {
   aggregateUsesPrincipalContextFilter,
   combineWhere,
+  findNeedsActor,
+  renderPrincipalFilter,
   vanillaCapabilityFilter,
   vanillaWriteScopeFilter,
 } from "./capability-filter.js";
@@ -516,7 +518,7 @@ function renderFindFn(
   agg: AggregateIR,
   aggModule: string,
   contextModule: string,
-  principal: boolean,
+  aggPrincipal: boolean,
   preload: string,
   /** The TPH `record.kind == "<Concrete>"` discriminator predicate, or null for
    *  a non-TPH-concrete aggregate.  A custom find over a shared table must scope
@@ -528,10 +530,21 @@ function renderFindFn(
   // from this finder only (other reads keep the full conjunction).  The TPH
   // `kind` discriminator is never bypassable (it's a physical-table fact, not a
   // capability), so it ANDs in unconditionally.
+  // The actor is threaded when the AGGREGATE carries a principal capability
+  // filter (tenancy) OR when THIS FIND'S OWN `where` reads the principal —
+  // `criterion Mine() of Doc = ownerUserId == currentUser.id`, the row-level
+  // authorization rule.  Only the first was ever consulted, so an author-written
+  // principal predicate rendered `current_user` into an Ecto `where:` on a
+  // function head that declared no such parameter, and `mix compile` refused it:
+  // `** (Ecto.Query.CompileError) unbound variable current_user in query`.
+  // Unlike node and python, elixir got this wrong for BOTH the find and the
+  // retrieval and BOTH the named-criterion and inline spellings — all four
+  // cells — because the gap is in the actor plumbing, not in one call site.
+  const principal = findNeedsActor(agg, f);
   const cap = combineWhere(
     kindFilter,
     vanillaCapabilityFilter(agg, contextModule, {
-      actor: principal,
+      actor: aggPrincipal,
       bypass: { bypassAll: f.bypassAll, bypassCaps: f.bypassCaps },
     }),
   );
@@ -619,7 +632,13 @@ function renderFindFn(
 
   let whereExpr: string;
   if (f.filter) {
-    whereExpr = renderExpr(f.filter, renderCtx);
+    // `renderPrincipalFilter` pins the principal side — `current_user.id`
+    // becomes `^(current_user && current_user.id)`.  An UNPINNED
+    // `current_user.<claim>` is not an Ecto query expression at all (the
+    // `unbound variable` above); the `&&` guard is also what makes a nil actor
+    // fail CLOSED, since Ecto binds the pinned nil and the comparison matches
+    // no row.  Non-principal predicates render exactly as before.
+    whereExpr = renderPrincipalFilter(f.filter, renderCtx);
   } else {
     // Convention-finds: per-param `record.<name> == ^<name>` predicate,
     // joined with `and`.  Matches the source-level convention (see

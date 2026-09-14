@@ -48,7 +48,7 @@ import { renderReadingServiceContextFns } from "../domain-service-emit.js";
 import { unguardedName } from "../lifecycle-seam.js";
 import { type RenderCtx, renderExpr } from "../render-expr.js";
 import { auditRecordCall, wireSnapshot } from "./audit-emit.js";
-import { aggregateUsesPrincipalContextFilter } from "./capability-filter.js";
+import { aggregateUsesPrincipalContextFilter, findNeedsActor } from "./capability-filter.js";
 import { aggregateHasResidualInvariants } from "./changeset-invariant-emit.js";
 import { denialTerm } from "./denial.js";
 import {
@@ -487,7 +487,11 @@ function renderContextModule(
       const findArgs = [
         ...baseArgs,
         ...pageArgs,
-        ...(principal ? ["current_user \\\\ nil"] : []),
+        // Per-FIND, not per-aggregate: a find whose own `where` reads the
+        // principal needs the actor even on an aggregate with no tenancy
+        // filter.  `findNeedsActor` is shared with the repository head and the
+        // controller call so the three arities cannot drift apart.
+        ...(findNeedsActor(agg, f) ? ["current_user \\\\ nil"] : []),
       ].join(", ");
       return `  defdelegate ${findSnake}_${aggSnake}(${findArgs}), to: ${repoMod}, as: :${findSnake}`;
     });

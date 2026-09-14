@@ -23,8 +23,11 @@
 // variable in scope.
 // ---------------------------------------------------------------------------
 
-import type { AggregateIR, ExprIR } from "../../../ir/types/loom-ir.js";
-import { exprUsesCurrentUser } from "../../../ir/types/loom-ir.js";
+import type { AggregateIR, ExprIR, FindIR } from "../../../ir/types/loom-ir.js";
+import {
+  aggregateUsesPrincipalContextFilter,
+  exprUsesCurrentUser,
+} from "../../../ir/types/loom-ir.js";
 import {
   deepScopeAnchorClaim,
   deepScopeTenantClaim,
@@ -57,10 +60,35 @@ function pinPrincipal(rendered: string): string {
  *  one shape routes to `renderGuidClaimSelfScopeEcto`, which casts in Elixir
  *  and pins nil on failure; everything else keeps today's rendering.  (The
  *  deep-scope sentinel is intercepted by the callers, which own actor gating.) */
-function renderPrincipalFilter(p: ExprIR, ctx: RenderCtx): string {
+export function renderPrincipalFilter(p: ExprIR, ctx: RenderCtx): string {
   const selfScope = guidFromStringSelfScope(p);
   if (selfScope) return renderGuidClaimSelfScopeEcto(ctx.thisName, selfScope.claim);
   return exprUsesCurrentUser(p) ? pinPrincipal(renderExpr(p, ctx)) : renderExpr(p, ctx);
+}
+
+/** Does THIS find need the request actor threaded into its repository fn?
+ *
+ *  Two independent reasons, and only the first was ever consulted:
+ *
+ *   1. the AGGREGATE carries a principal capability filter (tenancy —
+ *      `currentUser.tenantId` ANDs into every root read), or
+ *   2. the FIND'S OWN `where` reads the principal — `criterion Mine() of Doc =
+ *      ownerUserId == currentUser.id`, the row-level authorization rule.
+ *
+ *  Missing (2) is what made `mix compile` reject an author-written principal
+ *  criterion with `** (Ecto.Query.CompileError) unbound variable current_user
+ *  in query`: the predicate rendered `current_user` into the Ecto `where:`
+ *  while the function head, the context defdelegate and the controller call
+ *  were all built at arity zero.
+ *
+ *  THE THREE CALLERS MUST AGREE.  `repository-emit` declares the head,
+ *  `context-emit` declares the matching `defdelegate`, and `find-controller`
+ *  passes the argument; a find whose head takes the actor but whose caller
+ *  omits it compiles fine and reads with a `nil` actor — i.e. silently returns
+ *  NO ROWS rather than the principal's own.  One predicate for all three is
+ *  what keeps that from drifting. */
+export function findNeedsActor(agg: AggregateIR, f: FindIR): boolean {
+  return aggregateUsesPrincipalContextFilter(agg) || exprUsesCurrentUser(f.filter);
 }
 
 /** A read's capability filter-bypass spec (`ignoring <Cap>` / `ignoring *`),
