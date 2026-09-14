@@ -1168,7 +1168,10 @@ compiler-known catalogue (`toBe` / `toBeGreaterThan(OrEqual)` /
 `toBeVisible` / `toThrow`); they are not methods on a domain type but intrinsic
 assertions the compiler type-checks and lowers per backend.  Two are context-
 restricted (validator-enforced): `toThrow(<status>)` and `toBeSameInstant` are
-only valid in a `test e2e` body — the first pins an HTTP status, the second
+only valid in a `test e2e` body — and `toThrow` in *either* form is rejected in
+a `test e2e` body targeting a FRONTEND deployable, where no HTTP response
+exists (`loom.e2e-ui-throw-invalid`; see the negative-path section below).  The
+first pins an HTTP status, the second
 compares two ISO-8601 timestamps as *instants* (so a backend that serializes a
 datetime as `…00.0000000Z` still equals the canonical `…00Z` on the wire, while
 a real difference in time still fails).  Inside a test body the standard
@@ -1178,7 +1181,7 @@ operation statements are allowed plus:
 | --- | --- |
 | `expect(<actual>).<matcher>(…)` | vitest `expect(<actual>).<matcher>(…)` / xUnit `Assert.*` / Playwright matcher. |
 | `expect(<call>).toThrow()` | vitest `expect(() => <call>).toThrow()` / xUnit `Assert.Throws<DomainException>(() => <call>)`. |
-| `expect(<api-call>).toThrow(<status>)` | e2e only — `.rejects.toThrow(/→ <status>\b/)` (pins the rejected HTTP status). |
+| `expect(<api-call>).toThrow(<status>)` | api e2e only — `.rejects.toThrow(/→ <status>\b/)` (pins the rejected HTTP status).  Rejected in a ui e2e body. |
 
 Test blocks emit one file per subject on every backend:
 - TS: `domain/<aggregate>.test.ts` (vitest).
@@ -1301,6 +1304,18 @@ rejects with **422** (DomainError — RS-15; 400 stays for a malformed body), a 
 every `test e2e` block replays against each backend serving the referenced
 module, `toThrow(N)` asserts they all reject with the same status — the
 behavioral complement to the static OpenAPI `errorResponseDiffs` parity gate.
+
+**`toThrow` is rejected outright in a UI e2e body** — a `test e2e` block whose
+target is a frontend deployable, which lowers to a Playwright spec rather than a
+fetch suite (`loom.e2e-ui-throw-invalid`).  There is no response to read a
+status from: the emitted form validates *client-side* against a schema derived
+from the aggregate's own invariants, so an invalid submit issues no request at
+all, and the page object's `submit()` awaits a detail-page testid an invalid
+form never renders.  A permanent refusal rather than a gap — an HTTP status and
+a form-error DOM state are different assertions, and `toThrow` names the first.
+Assert the UI's negative path with the locator matchers (`toHaveText` /
+`toHaveCount` / `toBeVisible`) on a row the test has on screen, or put the
+status assertion in a block written `against <backend-deployable>`.
 
 The generated vitest file lives at `<system>/e2e/<SystemName>.e2e.test.ts`
 in the output directory.  Endpoints default to the docker-compose ports;

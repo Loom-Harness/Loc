@@ -24,7 +24,7 @@ import { parseString } from "../../_helpers/parse.js";
 // off a real `fetch`.  See `e2e-render.ts`'s `/→ N\b/` matcher.
 // ---------------------------------------------------------------------------
 
-const CODE = "loom.e2e-ui-throw-unsupported";
+const CODE = "loom.e2e-ui-throw-invalid";
 
 /** A system carrying a Hono backend and a React frontend over one context, with
  *  `<body>` spliced into a `test e2e … against <target>` block. */
@@ -127,9 +127,11 @@ describe("toThrow in a ui e2e body — rejected, never silently weakened", () =>
       ),
     );
     const text = errors.join("\n");
-    // A refusal that does not say what to write instead just moves the dead end.
+    // A refusal that does not say what to write instead just moves the dead end:
+    // name the DOM assertion that does work here, and the api block where a
+    // status assertion belongs.
     expect(text).toContain("toHaveText");
-    expect(text).toContain("against api");
+    expect(text).toContain("against <backend-deployable>");
   });
 
   it("leaves toThrow(<status>) alone in an api e2e body", async () => {
