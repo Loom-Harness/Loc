@@ -44,6 +44,20 @@ export interface ManifestEntry {
    *  alone.  Recorded here rather than re-sniffed from disk because a user
    *  editing "their" file may well drop the marker comment. */
   scaffoldOnce?: true;
+  /** Hex digest of the content this generator last WROTE at `path` — the
+   *  provenance record behind {@link locallyModifiedPaths}, and the only way
+   *  a later run can tell "the user edited this file" from "the model changed
+   *  and so did the output".  Without it a regen can only compare what it is
+   *  about to write against what is on disk, and those differ in both cases.
+   *
+   *  Optional, and absent on the manifest's own entry (its content is not
+   *  known until after it is built).  A manifest written by an older Loom has
+   *  none, which degrades to "say nothing", never to a false accusation.
+   *
+   *  The digest is computed by the CALLER (`src/cli/main.ts`) and stored here
+   *  as an opaque string, so this module stays pure — no `node:crypto`, and
+   *  therefore still importable from the browser playground. */
+  hash?: string;
 }
 
 export interface OutputManifest {
@@ -137,7 +151,12 @@ export function buildManifest(entries: readonly ManifestEntry[]): OutputManifest
     // did, scaffold-once is the sticky, safer bit.
     const prev = byPath.get(p);
     const scaffoldOnce = e.scaffoldOnce || prev?.scaffoldOnce;
-    byPath.set(p, scaffoldOnce ? { path: p, scaffoldOnce: true } : { path: p });
+    const hash = e.hash ?? prev?.hash;
+    byPath.set(p, {
+      path: p,
+      ...(scaffoldOnce ? { scaffoldOnce: true as const } : {}),
+      ...(hash === undefined ? {} : { hash }),
+    });
   }
   return {
     version: MANIFEST_VERSION,
@@ -171,13 +190,18 @@ export function parseManifest(text: string): OutputManifest | null {
   const entries: ManifestEntry[] = [];
   for (const item of obj.entries) {
     if (typeof item !== "object" || item === null) return null;
-    const e = item as { path?: unknown; scaffoldOnce?: unknown };
+    const e = item as { path?: unknown; scaffoldOnce?: unknown; hash?: unknown };
     if (typeof e.path !== "string" || e.path.length === 0) return null;
-    entries.push(
-      e.scaffoldOnce === true
-        ? { path: normaliseManifestPath(e.path), scaffoldOnce: true }
-        : { path: normaliseManifestPath(e.path) },
-    );
+    // A malformed `hash` is DROPPED rather than failing the parse: the field
+    // is advisory (it only decides whether a sentence is printed), while the
+    // entry it rides on decides what may be deleted.  Rejecting the whole
+    // manifest over it would turn a cosmetic problem into "prune nothing".
+    const hash = typeof e.hash === "string" && e.hash.length > 0 ? e.hash : undefined;
+    entries.push({
+      path: normaliseManifestPath(e.path),
+      ...(e.scaffoldOnce === true ? { scaffoldOnce: true as const } : {}),
+      ...(hash === undefined ? {} : { hash }),
+    });
   }
   return { version: MANIFEST_VERSION, entries };
 }
@@ -273,4 +297,64 @@ export function planPrune(
   plan.keptIgnored.sort();
   plan.keptProtected.sort();
   return plan;
+}
+
+/**
+ * Of the paths this run is ABOUT TO OVERWRITE, the ones whose on-disk content
+ * is not what this generator last wrote there — i.e. the hand edits the run is
+ * about to destroy (finding F-031).
+ *
+ * The defect: `ddd generate system` reported `Wrote 5 file(s) …, unchanged: 215`
+ * and named none of the five.  Five hand-edited files were gone, and the count
+ * could not distinguish them from five files the model had legitimately
+ * changed.  `.loomignore` and `--dry-run` both work, but both require knowing
+ * IN ADVANCE that a file is at risk; nothing told you afterwards, so the loss
+ * was silent and the only recovery was `git diff` on a tree you may not have
+ * committed.
+ *
+ * "About to be overwritten" alone cannot answer this — a file differs from what
+ * we are about to write both when the user edited it and when the model
+ * changed.  Only the recorded {@link ManifestEntry.hash} separates them: it is
+ * what the LAST run put on disk, so
+ *
+ *   on-disk ≠ recorded  ⇒  somebody other than the generator changed it.
+ *
+ * Three cases, and the quiet ones are quiet on purpose:
+ *
+ *  - **recorded hash, and it matches** — the generator's own output, untouched.
+ *    The difference is a model change.  Silent: that is ordinary regeneration,
+ *    and warning about it would train the user to ignore the message.
+ *  - **recorded hash, and it does NOT match** — reported.  This is the finding.
+ *  - **no entry at all, yet the file exists** — reported too.  A path the
+ *    generator did not previously own but is now claiming: whatever is there
+ *    was written by somebody else, and is about to be replaced.
+ *  - **an entry with no hash** — a manifest from a Loom that predates this
+ *    field.  Unknowable, so silent; the run re-establishes the hashes and the
+ *    next regen can tell.  Degrading to "say nothing" rather than to "accuse
+ *    everything" is what keeps the message trustworthy on the upgrade run.
+ *
+ * Pure, like the rest of this module: `onDiskHash` is the caller's single
+ * window onto the filesystem, and returns `null` for a file that is absent or
+ * unreadable (⇒ nothing is being lost).
+ */
+export function locallyModifiedPaths(
+  previous: OutputManifest | null,
+  pathsAboutToWrite: Iterable<string>,
+  onDiskHash: (relPath: string) => string | null,
+): string[] {
+  const recorded = new Map<string, ManifestEntry>();
+  for (const e of previous?.entries ?? []) recorded.set(e.path, e);
+
+  const out: string[] = [];
+  for (const raw of pathsAboutToWrite) {
+    const p = normaliseManifestPath(raw);
+    if (p === MANIFEST_REL_PATH) continue; // bookkeeping, never a user's file
+    const entry = recorded.get(p);
+    if (entry !== undefined && entry.hash === undefined) continue; // pre-hash manifest
+    const disk = onDiskHash(p);
+    if (disk === null) continue; // nothing there to lose
+    if (entry?.hash === disk) continue; // our own output — the MODEL changed
+    out.push(p);
+  }
+  return out.sort();
 }

@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { Command } from "commander";
@@ -27,6 +28,7 @@ import { captureSnapshots } from "../system/loomsnap.js";
 import {
   buildManifest,
   carriedOverEntries,
+  locallyModifiedPaths,
   MANIFEST_REL_PATH,
   type ManifestEntry,
   type OutputManifest,
@@ -694,6 +696,14 @@ async function runGenerate(
   let unchanged = 0;
   let skippedByIgnore = 0;
   let preservedScaffold = 0;
+  /** Paths whose on-disk bytes this run replaces, each mapped to the digest of
+   *  what was there BEFORE the write — the input to the F-031 local-edit
+   *  report.  Captured inside the write loop and not afterwards, because
+   *  afterwards the file holds this run's own output: the verdict would then
+   *  read the generated content back and come out exactly inverted (a hand edit
+   *  looks untouched, an ordinary model change looks hand-edited).  Populated
+   *  for dry runs too, so the preview names the same files a real run would. */
+  const overwriting = new Map<string, string>();
   const resolvedOut = path.resolve(outDir);
   // The manifest the LAST run wrote (`.loom/manifest.json`) — the only
   // authority for what this generator owns on disk, and therefore for what it
@@ -717,11 +727,14 @@ async function runGenerate(
   for (const relPath of [...files.keys()].sort()) {
     const normalised = relPath.split(path.sep).join("/");
     if (ig.ignores(normalised)) continue;
-    manifestEntries.push(
-      isScaffoldOnce(files.get(relPath)!)
-        ? { path: normalised, scaffoldOnce: true }
-        : { path: normalised },
-    );
+    const content = files.get(relPath)!;
+    manifestEntries.push({
+      path: normalised,
+      ...(isScaffoldOnce(content) ? { scaffoldOnce: true as const } : {}),
+      // What THIS run puts at that path — read back by the NEXT run to tell a
+      // hand edit from a model change (finding F-031, `locallyModifiedPaths`).
+      hash: contentDigest(content),
+    });
   }
   // Paths a past run emitted and this one does not, but that the generator
   // still owns — the protected families, chiefly the earlier migrations no
@@ -764,6 +777,14 @@ async function runGenerate(
     // a would-write.  `fileContentMatches` returns false for a missing
     // file (fresh output dir ⇒ everything is a write).
     const wouldChange = !ignored && !preserved && !fileContentMatches(full, content);
+    // Candidates for the local-edit report: a file that EXISTS and whose bytes
+    // this run is about to replace.  Whether that loses a hand edit or merely
+    // re-emits a changed model is decided after the loop, against the previous
+    // manifest's recorded hashes — the write path itself cannot tell.
+    if (wouldChange) {
+      const before = readFileDigest(full);
+      if (before !== null) overwriting.set(normalised, before);
+    }
     if (options.dryRun) {
       const sizeKb = (Buffer.byteLength(content, "utf8") / 1024).toFixed(1);
       const status = ignored
@@ -859,6 +880,7 @@ async function runGenerate(
   if (skippedByIgnore > 0) parts.push(`skipped (.loomignore): ${skippedByIgnore}`);
   if (removed > 0) parts.push(`${options.dryRun ? "would remove" : "removed"} (stale): ${removed}`);
   console.log(parts.join(", "));
+  reportLocalEdits(previousManifest, overwriting, options.dryRun === true);
   return { hadError: false, written, unchanged, skippedByIgnore, preservedScaffold, removed };
 }
 
@@ -1067,6 +1089,66 @@ async function runNew(name: string, options: NewOptions): Promise<void> {
     );
   }
   console.log(`  next: cd ${where} && ddd generate system main.ddd -o . && docker compose up`);
+}
+
+/** The digest recorded in `.loom/manifest.json` for one emitted file, and
+ *  recomputed from disk to detect a hand edit.  SHA-256 truncated to 128 bits:
+ *  wide enough that a collision is not a thing that happens, narrow enough that
+ *  220 entries add ~7 KB to a file meant to be committed and diffed.
+ *
+ *  Hashing lives HERE rather than in `src/system/manifest.ts` because that
+ *  module is pure and browser-importable; `node:crypto` is not. */
+function contentDigest(content: string): string {
+  return createHash("sha256").update(content, "utf8").digest("hex").slice(0, 32);
+}
+
+/**
+ * Name the files this run overwrote that the user had edited (finding F-031).
+ *
+ * The complaint: `Wrote 5 file(s) in out-edit, unchanged: 215` — five hand
+ * edits destroyed, none named, and no way to tell them from five files the
+ * model legitimately changed.  `.loomignore` and `--dry-run` both prevent the
+ * loss, but only if you already knew the file was at risk.
+ *
+ * Deliberately QUIET when there is nothing to say: an ordinary regen of
+ * untouched output prints not a word extra, so the line means something when
+ * it does appear.  The decision of which paths qualify is `locallyModifiedPaths`
+ * in `src/system/manifest.ts`; this function only reads the disk for it and
+ * formats the result.
+ */
+function reportLocalEdits(
+  previous: OutputManifest | null,
+  /** Path → digest of its content as it was BEFORE this run wrote over it. */
+  overwriting: ReadonlyMap<string, string>,
+  dryRun: boolean,
+): void {
+  if (overwriting.size === 0) return;
+  const edited = locallyModifiedPaths(
+    previous,
+    overwriting.keys(),
+    (relPath) => overwriting.get(relPath) ?? null,
+  );
+  if (edited.length === 0) return;
+  const verb = dryRun ? "Would overwrite" : "Overwrote";
+  console.log(
+    `${verb} ${edited.length} locally modified file(s) — the content on disk was not what Loom last generated:`,
+  );
+  for (const p of edited) console.log(`  ${p}`);
+  console.log(
+    dryRun
+      ? "  Add a path to .loomignore to keep your version."
+      : "  Recover the edits from version control, or add a path to .loomignore to keep your version on the next run.",
+  );
+}
+
+/** {@link contentDigest} of the file at `absPath`, or `null` when it is absent
+ *  or unreadable — i.e. when there is nothing there to be lost. */
+function readFileDigest(absPath: string): string | null {
+  try {
+    return contentDigest(fs.readFileSync(absPath, "utf8"));
+  } catch {
+    return null;
+  }
 }
 
 /** True iff the file at `absPath` exists and its bytes match `content`
