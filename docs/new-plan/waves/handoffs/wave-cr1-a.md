@@ -4,6 +4,11 @@ Rows: **P0-3** (shared generator seams fire no backend compile gate) and **P1-1*
 suites no CI path can execute), from `docs/audits/code-review-2026-09-13.md`.
 
 Base: `76ef74ad`. Branch: `worktree-agent-a4a6b95e9f77f716f`.
+Commits: `c0333aeb` (row 1) → `2b3d37b4` (row 2).
+
+Gates: `npx tsc -b` clean, `npm run lint` clean (24 pre-existing warnings, none in
+touched files, exit 0), `npx vitest run test/system` green, and
+`docker://rhysd/actionlint:latest -pyflakes= --severity=warning` clean over all workflows.
 
 ---
 
