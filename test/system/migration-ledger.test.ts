@@ -300,13 +300,14 @@ describe("checkMigrationBaseline — a module with no recorded history is NEW, n
     ).not.toThrow();
   });
 
-  it("allows it without a ledger too, when a sibling module still has its baseline", () => {
-    // Pre-ledger projects (nothing recorded yet) get the weaker but still
-    // sound discriminator: snapshots are lost as a SET, so a module with no
-    // snapshot beside a sibling that has one never had one.
+  it("allows it without a ledger too — the version BLOCK is the discriminator", () => {
+    // Pre-ledger projects (nothing recorded yet) are still answered exactly,
+    // because migration versions are allocated in disjoint per-module blocks
+    // and a brand-new module is allocated a block ABOVE every block in use.
+    // Nothing on disk can fall inside it, whatever the shared directory holds.
     const migrations = [
       migrationsIR({ module: "Sales", baseline: snapshotWithHistory(["20260101000000"]) }),
-      migrationsIR({ module: "Billing", baseline: null }),
+      migrationsIR({ module: "Billing", baseline: null, version: "20260102000000" }),
     ];
     const index = memoryMigrationArtifactIndex({
       Sales: ["20260101000000"],
@@ -315,14 +316,30 @@ describe("checkMigrationBaseline — a module with no recorded history is NEW, n
     expect(() => checkMigrationBaseline(migrations, index)).not.toThrow();
   });
 
-  it("but still refuses when EVERY baseline is gone (the lost-snapshots case)", () => {
+  it("refuses a module whose snapshot ALONE was lost, sibling baseline or not", () => {
+    // The case a "does any sibling still have a baseline?" discriminator gets
+    // WRONG: Billing is not new — its files sit in its own block — and only
+    // its snapshot went missing.  Re-baselining it would re-issue an applied
+    // version, which is the whole defect.  The block narrowing sees it.
     const migrations = [
-      migrationsIR({ module: "Sales", baseline: null }),
-      migrationsIR({ module: "Billing", baseline: null }),
+      migrationsIR({ module: "Sales", baseline: snapshotWithHistory(["20260101000000"]) }),
+      migrationsIR({ module: "Billing", baseline: null, version: "20260102000000" }),
     ];
     const index = memoryMigrationArtifactIndex({
       Sales: ["20260101000000"],
-      Billing: ["20260101000000"],
+      Billing: ["20260101000000", "20260102000000"],
+    });
+    expect(() => checkMigrationBaseline(migrations, index)).toThrow(/module 'Billing'/);
+  });
+
+  it("but still refuses when EVERY baseline is gone (the lost-snapshots case)", () => {
+    const migrations = [
+      migrationsIR({ module: "Sales", baseline: null }),
+      migrationsIR({ module: "Billing", baseline: null, version: "20260102000000" }),
+    ];
+    const index = memoryMigrationArtifactIndex({
+      Sales: ["20260101000000"],
+      Billing: ["20260102000000"],
     });
     expect(() => checkMigrationBaseline(migrations, index)).toThrow(MigrationBaselineError);
   });
@@ -416,7 +433,7 @@ describe("generate system into a CLEAN output directory (F-029)", () => {
       existingMigrations: fsMigrationArtifactIndex(dirA, v1),
     });
     writeFiles(dirA, first.files);
-    const recordedHistory = first.migrationHistory;
+    const recordedHistory = first.migrationLedger;
     expect(recordedHistory?.modules.Sales?.versions).toHaveLength(1);
     const [initialPath, initialBefore] = initialSql(first.files);
 
@@ -458,14 +475,14 @@ describe("generate system into a CLEAN output directory (F-029)", () => {
     const second = generateSystemsFromLoom(v2, {
       snapshots: fsSnapshotStore(dir),
       existingMigrations: fsMigrationArtifactIndex(dir, v2),
-      recordedHistory: first.migrationHistory,
+      recordedHistory: first.migrationLedger,
     });
     const delta = [...second.files].filter(([p]) => /db\/migrations\/\d+_sales_(?!initial)/.test(p));
     expect(delta).toHaveLength(1);
     expect(delta[0]![1]).toMatch(/ALTER TABLE .* ADD COLUMN "note"/);
     // The initial is untouched (not re-emitted at all) and the ledger grows.
     expect([...second.files].some(([p]) => /_sales_initial\.sql$/.test(p))).toBe(false);
-    expect(second.migrationHistory?.modules.Sales?.versions).toHaveLength(2);
+    expect(second.migrationLedger?.modules.Sales?.versions).toHaveLength(2);
   });
 
   it("a genuine first run is silent and records the history it just created", async () => {
@@ -476,6 +493,6 @@ describe("generate system into a CLEAN output directory (F-029)", () => {
       existingMigrations: fsMigrationArtifactIndex(dir, v1),
       recordedHistory: null,
     });
-    expect(emission.migrationHistory?.modules.Sales?.versions).toHaveLength(1);
+    expect(emission.migrationLedger?.modules.Sales?.versions).toHaveLength(1);
   });
 });
