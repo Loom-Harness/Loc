@@ -55,7 +55,11 @@ import {
 } from "../../../ir/util/openapi-ids.js";
 import { opHasProvSite } from "../../../ir/util/prov-id.js";
 import { collectReachableTypes, valueObjectPool } from "../../../ir/util/reachable-types.js";
-import { walkWorkflowStmtExprsDeep } from "../../../ir/util/walk.js";
+import {
+  walkExprDeep,
+  walkWorkflowStmtExprsDeep,
+  walkWorkflowStmtsDeep,
+} from "../../../ir/util/walk.js";
 import { emitsCommandRoute } from "../../../ir/util/workflow-command-route.js";
 import { workflowCorrIdValueType } from "../../../ir/util/workflow-instances.js";
 import { resolveErrorStatus } from "../../../util/error-defaults.js";
@@ -1976,25 +1980,50 @@ function collectReposFromStmts(
   saves: { name: string; aggName: string; repoName: string }[],
 ): { repoName: string; aggName: string }[] {
   const seen = new Map<string, string>();
-  const walk = (stmts: WorkflowStmtIR[]): void => {
-    for (const st of stmts) {
-      if (st.kind === "repo-let" || st.kind === "repo-run" || st.kind === "repo-delete")
-        seen.set(st.repoName, st.aggName);
-      else if (st.kind === "for-each") {
-        for (const sv of st.savesPerIteration) seen.set(sv.repoName, sv.aggName);
-        walk(st.body);
-      } else if (st.kind === "if-let") {
-        seen.set(st.repoName, st.aggName);
-        for (const sv of st.savesInThen) seen.set(sv.repoName, sv.aggName);
-        for (const sv of st.savesInElse) seen.set(sv.repoName, sv.aggName);
-        walk(st.thenBody);
-        walk(st.elseBody ?? []);
-      }
-    }
-  };
-  walk(statements);
+  for (const root of statements) walkWorkflowStmtsDeep(root, (st) => collectRepoRefs(st, seen));
   for (const save of saves) seen.set(save.repoName, save.aggName);
   return [...seen.entries()].map(([repoName, aggName]) => ({ repoName, aggName }));
+}
+
+/** The repositories ONE workflow statement names directly — its own
+ *  `repoName`/`aggName` pair plus every save it stages.
+ *
+ *  Split out of the two collectors above/below so both ride
+ *  `walkWorkflowStmtsDeep` for the RECURSION (the `for-each` / `if-let` nesting
+ *  is the walker's business, not a per-collector hand-rolled copy — CLAUDE.md
+ *  "no hand-rolled IR walks") and share one per-kind rule.  `walkWorkflowStmtsDeep`
+ *  yields the roots too, so this is called on every reachable statement. */
+function collectRepoRefs(st: WorkflowStmtIR, seen: Map<string, string>): void {
+  switch (st.kind) {
+    case "repo-let":
+    case "repo-run":
+    case "repo-delete":
+      seen.set(st.repoName, st.aggName);
+      break;
+    case "for-each":
+      for (const sv of st.savesPerIteration) seen.set(sv.repoName, sv.aggName);
+      break;
+    case "if-let":
+      seen.set(st.repoName, st.aggName);
+      for (const sv of st.savesInThen) seen.set(sv.repoName, sv.aggName);
+      for (const sv of st.savesInElse) seen.set(sv.repoName, sv.aggName);
+      break;
+    case "precondition":
+    case "requires":
+    case "expr-let":
+    case "assign":
+    case "emit":
+    case "factory-let":
+    case "op-call":
+    case "resource-call":
+    case "domain-service-call":
+      // Name no repository of their own.
+      break;
+    default: {
+      const _exhaustive: never = st;
+      void _exhaustive;
+    }
+  }
 }
 
 // The Hono leaf table for the shared workflow statement spine
@@ -2269,29 +2298,24 @@ function serviceReadPorts(
 ): ReadPort[] {
   const byRepo = new Map<string, ReadPort>();
   const visit = (e: ExprIR): void => {
-    if (e.kind === "call" && e.callKind === "domain-service" && e.serviceRef) {
-      const svc = ctx.domainServices.find((s) => s.name === e.serviceRef!.service);
-      const operation = svc?.operations.find((o) => o.name === e.serviceRef!.op);
-      if (operation) {
-        for (const p of readPortsForOperation(operation)) {
-          if (!byRepo.has(p.repo)) byRepo.set(p.repo, p);
-        }
-      }
-    }
-    for (const c of exprChildren(e)) visit(c);
-  };
-  const walkStmts = (stmts: WorkflowStmtIR[]): void => {
-    for (const st of stmts) {
-      for (const e of workflowStmtExprs(st)) visit(e);
-      if (st.kind === "for-each") walkStmts(st.body);
-      else if (st.kind === "if-let") {
-        walkStmts(st.thenBody);
-        walkStmts(st.elseBody ?? []);
-      }
+    if (e.kind !== "call" || e.callKind !== "domain-service" || !e.serviceRef) return;
+    const svc = ctx.domainServices.find((s) => s.name === e.serviceRef?.service);
+    const operation = svc?.operations.find((o) => o.name === e.serviceRef?.op);
+    if (!operation) return;
+    for (const p of readPortsForOperation(operation)) {
+      if (!byRepo.has(p.repo)) byRepo.set(p.repo, p);
     }
   };
-  walkStmts(statements);
-  for (const e of extraExprs) visit(e);
+  // Ride the sanctioned walkers for BOTH levels (CLAUDE.md "no hand-rolled IR
+  // walks").  The two hand-rolled enumerations this replaced each had holes of
+  // the #2720/M-T6.50 class: the statement-level one carried no arm for
+  // `domain-service-call` / `assign` / `repo-delete` / `repo-run`, and the
+  // expression-level one none for `match` / `list` / `convert` / `duration` /
+  // `i18nFormat` / `authz-filter` / a block-bodied lambda's statements — so a
+  // `reading`-tier service call in any of those slots derived NO read port and
+  // the emitted handler was missing the repository it needs.
+  for (const st of statements) walkWorkflowStmtExprsDeep(st, visit);
+  for (const e of extraExprs) walkExprDeep(e, visit);
   return [...byRepo.values()];
 }
 
@@ -2333,59 +2357,6 @@ function mergeServiceReadPortRepos(
   return out;
 }
 
-/** The expressions a workflow statement directly carries (one level — the
- *  per-kind nesting is handled by `collectServiceReadPorts`'s spine walk). */
-function workflowStmtExprs(st: WorkflowStmtIR): ExprIR[] {
-  switch (st.kind) {
-    case "expr-let":
-      return [st.expr];
-    case "precondition":
-    case "requires":
-      return [st.expr];
-    case "resource-call":
-      return [st.call];
-    case "op-call":
-    case "repo-let":
-      return st.args;
-    case "factory-let":
-    case "emit":
-      return st.fields.map((f) => f.value);
-    case "for-each":
-      return [st.iterable];
-    case "if-let":
-      return st.retrievalArgs;
-    default:
-      return [];
-  }
-}
-
-/** Direct sub-expressions of an ExprIR (for the read-port call scan). */
-function exprChildren(e: ExprIR): ExprIR[] {
-  switch (e.kind) {
-    case "method-call":
-      return [e.receiver, ...e.args];
-    case "member":
-      return [e.receiver];
-    case "binary":
-      return [e.left, e.right];
-    case "ternary":
-      return [e.cond, e.then, e.otherwise];
-    case "unary":
-      return [e.operand];
-    case "paren":
-      return [e.inner];
-    case "call":
-      return e.args;
-    case "new":
-    case "object":
-      return e.fields.map((f) => f.value);
-    case "lambda":
-      return e.body ? [e.body] : [];
-    default:
-      return [];
-  }
-}
-
 export function collectReposForWorkflow(wf: {
   statements: WorkflowStmtIR[];
   savesAtExit: { name: string; aggName: string; repoName: string }[];
@@ -2394,23 +2365,7 @@ export function collectReposForWorkflow(wf: {
   aggName: string;
 }[] {
   const seen = new Map<string, string>();
-  const walk = (stmts: WorkflowStmtIR[]): void => {
-    for (const st of stmts) {
-      if (st.kind === "repo-let" || st.kind === "repo-run" || st.kind === "repo-delete")
-        seen.set(st.repoName, st.aggName);
-      else if (st.kind === "for-each") {
-        for (const sv of st.savesPerIteration) seen.set(sv.repoName, sv.aggName);
-        walk(st.body);
-      } else if (st.kind === "if-let") {
-        seen.set(st.repoName, st.aggName);
-        for (const sv of st.savesInThen) seen.set(sv.repoName, sv.aggName);
-        for (const sv of st.savesInElse) seen.set(sv.repoName, sv.aggName);
-        walk(st.thenBody);
-        walk(st.elseBody ?? []);
-      }
-    }
-  };
-  walk(wf.statements);
+  for (const root of wf.statements) walkWorkflowStmtsDeep(root, (st) => collectRepoRefs(st, seen));
   for (const save of wf.savesAtExit) seen.set(save.repoName, save.aggName);
   return [...seen.entries()].map(([repoName, aggName]) => ({
     repoName,
