@@ -34,10 +34,34 @@
 //                                            imported by every emitter)
 //
 // Those five run for EVERY backend, so no per-backend argument excuses one.
-// The generator's shared seams (`_walker`, `_expr`, `_frontend`, ...) are
-// deliberately NOT required: those are genuinely per-target, and requiring them
-// would produce false positives — which is how a gate like this gets weakened
-// into theatre.  This checks the part that is unarguable.
+//
+// THE SECOND INVARIANT — the shared generator seams
+// -------------------------------------------------
+// The first cut of this file waved the `src/generator/_*` dirs through with
+// "those are genuinely per-target, and requiring them would produce false
+// positives".  That rationale was exactly inverted, and the code-review of
+// 2026-09-13 (P0-3) measured the hole it left: `java-build`, `dotnet-build`,
+// `python-build`, `hono-build` and `corpus-elixir-build` each listed
+// `src/generator/_expr/**` and NONE of the other sixteen shared seams, so a
+// change to `_stmt/target.ts` (the `StmtIR` dispatcher every backend's leaf
+// table plugs into) or `_payload/union-wire.ts` (the single source of truth
+// for the tagged-union wire shape, consumed by all five backends) compiled no
+// Elixir project on any per-PR gate.  The leading underscore means SHARED,
+// not per-target — it is the opposite of the claim the exemption rested on.
+//
+// So: a workflow whose `paths:` claims a WHOLE platform generator tree
+// (`src/generator/<plat>/**`) is claiming "any change to this backend's
+// emitters could break me".  The shared seams that tree imports are part of
+// that backend's emission — they were factored OUT of it — so the claim has to
+// cover them too.  The required set is DERIVED, never listed here: it is the
+// `src/generator/_*` dirs reachable in the import closure of the platform
+// roots the workflow itself names, cut at the boundary of any platform dir it
+// deliberately does NOT name (so `java-build` is not asked to watch the React
+// body walker it only reaches through the SPA-embed branch it already
+// excludes).  A workflow that wants to stay narrower escapes this rule by
+// being MORE precise — naming the subdirs it really depends on, the way
+// `elixir-vanilla-obs-e2e.yml` names `src/generator/elixir/vanilla/**` — never
+// by being vaguer.
 //
 // "Runs a test that generates a project" is DERIVED, not declared: the entry
 // points named by the workflow are walked transitively, and the workflow counts
@@ -45,7 +69,7 @@
 // spawns `bin/cli.js`, which is the same pipeline behind a process boundary).
 // So a workflow cannot fall out of scope by having its imports rearranged.
 
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
@@ -53,6 +77,18 @@ import { describe, expect, it } from "vitest";
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(here, "../..");
 const workflowsDir = path.join(repoRoot, ".github/workflows");
+const generatorDir = path.join(repoRoot, "src/generator");
+
+/** Per-platform generator trees — `src/generator/<plat>/`, no leading `_`. */
+const PLATFORM_DIRS: readonly string[] = readdirSync(generatorDir).filter(
+  (d) => !d.startsWith("_") && statSync(path.join(generatorDir, d)).isDirectory(),
+);
+
+/** Shared emission seams — `src/generator/_<seam>/`.  `_i18n` has a DIGIT in
+ *  it, so the character class must not be `[a-z]+` (that silently dropped the
+ *  one seam that decides validation-catalog membership for all five
+ *  backends). */
+const SEAM_RE = /^src\/generator\/(_[a-z0-9]+)\//;
 
 /** The pipeline phases every `generate system` walks, whatever the backend. */
 const GENERATION_PATH = [
@@ -202,6 +238,76 @@ function watchesTree(globs: readonly string[], tree: string): boolean {
   return globs.some((g) => g.endsWith("**") && dir.startsWith(g.slice(0, -2)));
 }
 
+// ---------------------------------------------------------------------------
+// The shared-seam requirement.
+// ---------------------------------------------------------------------------
+
+/** Every `.ts` under `p` (or `p` itself when it names a file). */
+function tsFilesUnder(p: string): string[] {
+  if (!existsSync(p)) return [];
+  if (!statSync(p).isDirectory()) return p.endsWith(".ts") ? [p] : [];
+  const out: string[] = [];
+  for (const entry of readdirSync(p)) out.push(...tsFilesUnder(path.join(p, entry)));
+  return out;
+}
+
+const repoRel = (f: string): string => path.relative(repoRoot, f).split(path.sep).join("/");
+
+/**
+ * The `src/generator/_*` seams a workflow's own platform claims reach.
+ *
+ * The roots are the WHOLE-TREE platform claims in its `paths:`
+ * (`src/generator/<plat>/**`) plus any `src/platform/<x>` it names; the walk
+ * stops at every platform generator dir the workflow did NOT claim, so a seam
+ * reachable only through a backend this gate deliberately ignores is not
+ * required.  A workflow that names no whole platform tree requires nothing —
+ * precision is the escape hatch, vagueness is not.
+ */
+function sharedSeams(globs: readonly string[]): string[] {
+  const declared = new Set<string>();
+  const roots: string[] = [];
+  for (const g of globs) {
+    const gen = g.match(/^src\/generator\/([a-z0-9]+)\/\*\*$/);
+    if (gen) {
+      declared.add(gen[1]);
+      roots.push(`src/generator/${gen[1]}`);
+      continue;
+    }
+    if (/^src\/platform\/[a-z0-9]+(\.ts$|\/)/.test(g)) {
+      roots.push(g.replace(/\*\*$/, "").replace(/\/$/, ""));
+    }
+  }
+  if (!declared.size) return [];
+
+  const seen = new Set<string>();
+  const seams = new Set<string>();
+  const walk = (file: string): void => {
+    if (seen.has(file)) return;
+    seen.add(file);
+    const seam = repoRel(file).match(SEAM_RE);
+    if (seam) seams.add(seam[1]);
+    let source: string;
+    try {
+      source = readFileSync(file, "utf8");
+    } catch {
+      return;
+    }
+    IMPORT_RE.lastIndex = 0;
+    let m = IMPORT_RE.exec(source);
+    while (m) {
+      const target = resolveSpec(file, m[1]);
+      if (target) {
+        const plat = repoRel(target).match(/^src\/generator\/([a-z0-9]+)\//);
+        const foreign = plat && PLATFORM_DIRS.includes(plat[1]) && !declared.has(plat[1]);
+        if (!foreign) walk(target);
+      }
+      m = IMPORT_RE.exec(source);
+    }
+  };
+  for (const r of roots) for (const f of tsFilesUnder(path.join(repoRoot, r))) walk(f);
+  return [...seams].sort();
+}
+
 interface Gate {
   readonly file: string;
   readonly globs: readonly string[];
@@ -260,6 +366,26 @@ describe("workflow path filters cover the generation path", () => {
           "entry to EXEMPT in this file.",
       ).toEqual([]);
     });
+
+    it(`${gate.file} watches every shared generator seam its platforms delegate into`, () => {
+      const required = sharedSeams(gate.globs);
+      const unwatched = required.filter(
+        (seam) => !watchesTree(gate.globs, `src/generator/${seam}/**`),
+      );
+      expect(
+        unwatched,
+        `${gate.file} claims a whole platform generator tree but does not watch ` +
+          `${unwatched.map((s) => `src/generator/${s}/**`).join(", ")}.\n` +
+          "Those are SHARED emission seams that tree imports — `_stmt` is the StmtIR " +
+          "dispatcher each backend's leaf table plugs into, `_payload/union-wire.ts` the " +
+          "one tagged-union wire shape all five backends emit, `_i18n` the collector that " +
+          "decides validation-catalog membership.  A change confined to one of them " +
+          "changes what this gate compiles and cannot trigger it.\n" +
+          "Add the missing globs next to the platform claim in EVERY trigger's `paths:` " +
+          "block, or narrow the platform claim to the subdirs this gate really depends " +
+          "on (the way elixir-vanilla-obs-e2e.yml names src/generator/elixir/vanilla/**).",
+      ).toEqual([]);
+    });
   }
 
   it("every EXEMPT entry names a real workflow and carries a reason", () => {
@@ -308,6 +434,34 @@ describe("the closure walker resolves what it claims to", () => {
     const inline = gates.filter((g) => g.generatesInline && g.entries.length === 0);
     expect(inline.map((g) => g.file)).toContain("generated-feliz-build.yml");
     expect(inline.map((g) => g.file)).toContain("generated-flutter-build.yml");
+  });
+
+  it("sharedSeams finds the seams a backend claim really reaches", () => {
+    // The whole shared-seam assertion is this function: if it returned [] for
+    // everything the requirement would be vacuous and every gate would pass.
+    // Pin it against the two seams the 2026-09-13 review measured as dark.
+    const seams = sharedSeams(["src/generator/java/**", "src/platform/java.ts"]);
+    expect(seams).toContain("_payload"); // java/emit/api.ts -> _payload/union-wire.ts
+    expect(seams).toContain("_stmt"); // java/render-stmt.ts -> _stmt/leaves.ts
+    expect(seams).toContain("_i18n"); // java/index.ts -> _i18n/validation-catalog.ts
+    expect(seams.length).toBeGreaterThan(10);
+  });
+
+  it("sharedSeams cuts at a platform tree the workflow does not claim", () => {
+    // `src/generator/java/index.ts` imports the React/Vue/Svelte/Angular
+    // generators to emit the embedded ClientApp bundle.  java-build does not
+    // watch those trees and does not compile that bundle, so the body walker
+    // they pull in is NOT its business — requiring it would be the false
+    // positive the original exemption feared.
+    expect(sharedSeams(["src/generator/java/**"])).not.toContain("_walker");
+    // …but a workflow that DOES claim a frontend tree gets the walker.
+    expect(sharedSeams(["src/generator/react/**"])).toContain("_walker");
+  });
+
+  it("sharedSeams requires nothing of a workflow that claims no platform tree", () => {
+    // Precision is the escape hatch: name subdirs, not the whole tree.
+    expect(sharedSeams(["src/generator/elixir/vanilla/**", "src/generator/_obs/**"])).toEqual([]);
+    expect(sharedSeams(["src/ir/**", "src/system/**"])).toEqual([]);
   });
 
   it("watchesTree accepts a tree glob and rejects a single-file pin", () => {
