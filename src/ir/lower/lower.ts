@@ -316,6 +316,14 @@ export function lowerProject(models: ReadonlyArray<Model>): RawLoomModel {
       if ("members" in m && Array.isArray((m as { members?: unknown }).members)) {
         indexMembers((m as { members: AstNode[] }).members);
       }
+      // A `subdomain`'s children hang off `contexts`, not `members`, so the
+      // recursion above walked straight past every aggregate / value object /
+      // enum declared under one — the overwhelmingly common layout.  The index
+      // was therefore EMPTY for a `system { subdomain { context { … } } }`
+      // project, which is what this comment block has always said it indexes.
+      if ("contexts" in m && Array.isArray((m as { contexts?: unknown }).contexts)) {
+        indexMembers((m as { contexts: AstNode[] }).contexts);
+      }
     }
   };
   indexMembers(allMembers);
