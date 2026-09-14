@@ -3722,6 +3722,22 @@ export const DIAGNOSTIC_MESSAGES = {
     suggestion: unknown;
     candidates: unknown;
   }) => `Unexpected '${p.found}'.${p.suggestion} Expected one of: ${p.candidates}.`,
+  // A keyword sitting where a NAME was expected.  Chevrotain's own wording
+  // ("Expecting token of type 'ID' but found `slot`") describes the token
+  // stream, not the author's mistake — it never says the word is spoken for,
+  // so the reader has no way to tell a typo from a word Loom has taken (audit
+  // #2864 § Papercuts).  Naming the remedy matters as much as naming the
+  // cause: renaming is the whole fix, and it is not obvious one is needed.
+  //
+  // "keyword … here" rather than "reserved word", deliberately.  Most of
+  // Loom's keywords are SOFT — reserved only where their own rule begins — so
+  // a word refused in this position is often perfectly legal as a name three
+  // lines up (`page` is a field name but not a `derived` name).  Claiming it
+  // is reserved outright would send the author looking for a rule that does
+  // not exist.
+  "loom.parse-error#reserved-name": (p: { found: unknown; expected: unknown }) =>
+    `'${p.found}' is a Loom keyword, so it cannot be used as a ${p.expected} here. ` +
+    `Rename it — '${p.found}Ref' or a domain-specific synonym.`,
 } satisfies Record<string, MessageEntry>;
 
 type Catalog = typeof DIAGNOSTIC_MESSAGES;

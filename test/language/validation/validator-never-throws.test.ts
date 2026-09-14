@@ -238,7 +238,11 @@ describe("validator fault isolation — the fuzz gate never lets a throw escape"
       }
     `);
     expect(errors, errors.join("\n")).toHaveLength(1);
-    expect(errors[0]).toMatch(/Expecting|Unexpected/);
+    // Three wordings, one question: is the single error a SYNTAX error?
+    // `page` in a `derived` name position is a keyword-in-a-name-position
+    // mismatch, which reports through `loom.parse-error#reserved-name` since
+    // #2864 — still phase ①, which is what this test is about.
+    expect(errors[0]).toMatch(/Expecting|Unexpected|is a Loom keyword/);
   });
 });
 
