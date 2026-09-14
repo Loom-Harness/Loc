@@ -149,3 +149,27 @@ Sessions were told to claim with a draft PR **before** implementing, and not to 
 Wave 2 (P6 fenced on #2933, P7 gated on D-1, P8) and wave 3 (P9–P11, gated on D-4)
 are **not** dispatched. P4 carries D-2 and P5 carries D-3 because each is local to one
 packet's own evidence; D-1 and D-4 are owner decisions and block their packets.
+
+## Outcomes — wave 1, and wave 2 dispatched (2026-09-14 16:28 UTC)
+
+Wave 1 produced **six** PRs (P4 split its two papercuts, as its brief allowed):
+
+| Packet | PR | State at 16:26 UTC |
+|---|---|---|
+| P1 | [#2956](https://github.com/Loom-Harness/Loc/pull/2956) — the `verifies` join | green, queued |
+| P2 | [#2957](https://github.com/Loom-Harness/Loc/pull/2957) — typed literals + the missing typecheck gate | 235 checks pass, 4 pending, auto-merge armed |
+| P3 | [#2958](https://github.com/Loom-Harness/Loc/pull/2958) — e2e payload validation | running the full suite after a ~20-PR main merge |
+| P4 | [#2960](https://github.com/Loom-Harness/Loc/pull/2960) — `auditable` × frontend · [#2962](https://github.com/Loom-Harness/Loc/pull/2962) — UUID status parity | review-ready |
+| P5 | [#2959](https://github.com/Loom-Harness/Loc/pull/2959) — refuse `toThrow` in a ui body (settles **D-3**: refuse, don't silently weaken) | in progress |
+
+The audit and this plan are [#2964](https://github.com/Loom-Harness/Loc/pull/2964).
+
+**Wave 2 dispatched**, three sessions:
+
+| Packet | Session | Notes |
+|---|---|---|
+| P6 — F1 | `session_01Uz1mFCn4RQu6vt88j7fq1P` | #2933 still open at dispatch, so the brief is: stack on it rather than wait |
+| P7 — F3 | `session_01BqvZ1WTZasfyV42Lsxz7Ya` | **D-1 settled as the default**: a generated reset seam, with the documented fresh-DB contract as the honest fallback; per-test transactions are structurally unavailable to an out-of-process suite. The binding constraint handed to it: it must be impossible to fire against a non-local target |
+| P8 — F12 | `session_01MmL7Sj8F1uAQHRhadbGVmF` | Derived from the model, and every command in it actually run — a README whose recipe was never executed is the same defect class this fleet is draining |
+
+**Wave 3 (P9–P11) stays held on D-4** — a workflow accessor and a principal clause for `test e2e` are new surface syntax, and they are the difference between a test tier that covers CRUD and one that covers what Loom markets.
