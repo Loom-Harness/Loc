@@ -49,6 +49,7 @@ on:
       - 'src/util/**'
       - 'src/generator/python/**'
       - 'test/e2e/auth-oidc-python-e2e.test.ts'
+      - 'test/e2e/support/audience-probe.ts'
       - 'test/e2e/fixtures/python-build/auth-oidc.ddd'
       - 'package.json'
       - '.github/workflows/python-oidc-e2e.yml'
@@ -80,6 +81,7 @@ on:
       - 'src/generator/_auth/**'
       - 'src/generator/_frontend/auth-ui.ts'
       - 'test/e2e/auth-oidc-python-e2e.test.ts'
+      - 'test/e2e/support/audience-probe.ts'
       - 'test/e2e/fixtures/python-build/auth-oidc.ddd'
       - '.github/workflows/python-oidc-e2e.yml'
   workflow_dispatch:

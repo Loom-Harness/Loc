@@ -120,7 +120,7 @@ export function emitAuth(args: AuthEmitArgs): AuthEmitResult {
     // OIDC verifier engine (D-AUTH-OIDC): the Joken.Config token config and the
     // joken_jwks strategy the plug's `verify_token/1` delegates to — the
     // idiomatic library JWKS client the other four backends get out of the box.
-    files.set(`lib/${appName}_web/auth/token.ex`, renderOidcToken(webModule, auth));
+    files.set(`lib/${appName}_web/auth/token.ex`, renderOidcToken(webModule));
     files.set(`lib/${appName}_web/auth/jwks_strategy.ex`, renderJwksStrategy(webModule));
   }
   files.set(
@@ -520,16 +520,23 @@ ${mergeDevClaimsDef}${putOrgPathDef}${putRootOrgDef}end
 // ---------------------------------------------------------------------------
 
 function renderOidcVerifier(auth: AuthIR, webModule: string): string {
-  // Audience parity: when the auth block declares an `audience:`, the token's
-  // `aud` must CARRY it — the other four backends validate it, and a verifier
-  // that skips the check accepts tokens the rest of the system rejects.  The
-  // value check rides Auth.Token's `aud` validator; here we only enforce that
-  // the claim is PRESENT (joken skips validators for absent claims).  Both are
-  // gated on a non-empty runtime `audience()`, preserving the original
-  // escape hatch (OIDC_AUDIENCE="" disables the aud check).
-  const audiencePresence = auth.oidc.audience ? ` and aud_present?(claims)` : "";
-  const audPresentDef = auth.oidc.audience
-    ? `
+  // Audience parity: the token's `aud` must CARRY the configured audience —
+  // the other four backends validate it, and a verifier that skips the check
+  // accepts tokens the rest of the system rejects.  The value check rides
+  // Auth.Token's `aud` validator; here we only enforce that the claim is
+  // PRESENT (joken skips validators for absent claims).  Both are gated on a
+  // non-empty runtime `audience()`, which IS the escape hatch
+  // (OIDC_AUDIENCE="" disables the aud check).
+  //
+  // Emitted UNCONDITIONALLY (CR1-b / P0-4).  It used to be gated on a declared
+  // `audience:`, so a `.ddd` without one produced a Phoenix release with no
+  // OIDC_AUDIENCE path at all — an operator setting OIDC_AUDIENCE in compose
+  // got audience isolation on python/java/dotnet and silently none here, from
+  // the same model.  `envOrDeclared` collapses both cases: undeclared →
+  // `System.get_env("OIDC_AUDIENCE", "")`, i.e. unset is still the no-check
+  // default, so nothing changes for a stack that sets nothing.
+  const audiencePresence = ` and aud_present?(claims)`;
+  const audPresentDef = `
   # Enforce aud PRESENCE only when an audience is actually configured — an
   # empty runtime \`audience()\` disables the aud check (the escape hatch the
   # hand-rolled verifier had; Auth.Token's aud validator honours the same "").
@@ -539,14 +546,11 @@ function renderOidcVerifier(auth: AuthIR, webModule: string): string {
       _ -> Map.has_key?(claims, "aud")
     end
   end
-`
-    : "";
-  const audienceFn = auth.oidc.audience
-    ? `
+`;
+  const audienceFn = `
   @doc false
   def audience, do: ${envOrDeclared("OIDC_AUDIENCE", auth.oidc.audience)}
-`
-    : "";
+`;
   return `  # ---------------------------------------------------------------------------
   # OIDC token verification — delegated to joken + joken_jwks.
   # ---------------------------------------------------------------------------
@@ -612,18 +616,18 @@ ${audPresentDef}
 // the validators check the standard claims with a small clock-skew leeway.
 // ---------------------------------------------------------------------------
 
-function renderOidcToken(webModule: string, auth: AuthIR): string {
+function renderOidcToken(webModule: string): string {
   // Audience: the `aud` claim must CARRY the configured audience (parity with
-  // the other backends' ValidateAudience).  Only emitted when declared.
-  const audClaim = auth.oidc.audience
-    ? `
+  // the other backends' ValidateAudience).  Emitted unconditionally — the
+  // runtime `audience()` (declared value, or OIDC_AUDIENCE, or "") decides
+  // whether the check applies; see renderOidcVerifier (CR1-b / P0-4).
+  const audClaim = `
     |> add_claim("aud", nil, fn aud, _claims, _ctx ->
       case ${webModule}.Auth.audience() do
         "" -> true
         expected -> aud |> List.wrap() |> Enum.member?(expected)
       end
-    end)`
-    : "";
+    end)`;
   return `# Auto-generated.
 defmodule ${webModule}.Auth.Token do
   @moduledoc """

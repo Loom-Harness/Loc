@@ -170,6 +170,38 @@ describe("Phoenix OIDC verifier emission", () => {
     expect(token!).toContain("@leeway 30");
   });
 
+  // CR1-b / P0-4.  The `aud` path used to be emitted ONLY when the `.ddd`
+  // declared an `audience:`, so a model without one produced a Phoenix release
+  // with no OIDC_AUDIENCE path at all — python/java/dotnet read that variable
+  // regardless, so one model deployed with enforceable audience isolation on
+  // three backends and an unenforceable one here.  The check is now always
+  // emitted and gated on the RUNTIME value: unset (or `OIDC_AUDIENCE=""`) is
+  // still the no-check default, so nothing changes for a stack that sets
+  // nothing.
+  it("reads OIDC_AUDIENCE even when the .ddd declares no audience:", async () => {
+    const files = await build(source({ oidc: true }));
+    const auth = files.get("api/lib/api_web/auth.ex")!;
+    expect(auth).toContain('def audience, do: System.get_env("OIDC_AUDIENCE", "")');
+    // …and the presence check the verifier applies when that value is non-empty.
+    expect(auth).toContain("and aud_present?(claims)");
+    expect(auth).toContain("defp aud_present?(claims) do");
+
+    // The VALUE check lives on the joken token config, likewise unconditional
+    // and likewise gated on a non-empty runtime audience().
+    const token = files.get("api/lib/api_web/auth/token.ex")!;
+    expect(token).toContain('add_claim("aud"');
+    expect(token).toContain("expected -> aud |> List.wrap() |> Enum.member?(expected)");
+  });
+
+  it("keeps a DECLARED audience: as the env fallback (12-factor, unchanged)", async () => {
+    const withAud = source({ oidc: true }).replace(
+      'clientId: env("OIDC_CLIENT_ID")',
+      'clientId: env("OIDC_CLIENT_ID"), audience: "helpdesk-api"',
+    );
+    const auth = (await build(withAud)).get("api/lib/api_web/auth.ex")!;
+    expect(auth).toContain('def audience, do: System.get_env("OIDC_AUDIENCE", "helpdesk-api")');
+  });
+
   it("owns the JWKS via a joken_jwks strategy (cached + periodically refreshed, no persistent_term)", async () => {
     const files = await build(source({ oidc: true }));
     const auth = files.get("api/lib/api_web/auth.ex")!;

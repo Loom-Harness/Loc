@@ -1034,6 +1034,64 @@ The seed widens with the aggregate's id value type (`int`/`long` → zero,
 > diagnostic, and it is why a permission-gated fixture cannot be driven from
 > the behavioural harness on four of the five backends.
 
+## Token audience (`aud`)
+
+`oidc { audience: … }` is the token's intended recipient. When it resolves to a
+non-empty value, every backend's verifier requires the token's `aud` claim to
+carry it; when it resolves to empty, the `aud` check is **skipped** and the
+verifier accepts any token the issuer signed — including one that issuer minted
+for a *different* client of the same realm.
+
+That default is unsafe often enough to be stated, so an `oidc { … }` block with
+no `audience:` raises **`loom.auth-oidc-no-audience`** (warning, not error — a
+single-client deployment is a legitimate shape, and the check can still be turned
+on at deploy time without editing the `.ddd`).
+
+**The value is always env-overridable, declared or not.** All five backends read
+`OIDC_AUDIENCE`, falling back to the declared value:
+
+| declared | resolves to |
+| --- | --- |
+| `audience: "loom-api"` | `OIDC_AUDIENCE` if set, else `"loom-api"` |
+| `audience: env("OIDC_AUDIENCE")` | `OIDC_AUDIENCE` |
+| *(undeclared)* | `OIDC_AUDIENCE` if set, else unset → `aud` not checked |
+
+So an operator can enforce audience isolation on a stack that never declared one
+by setting `OIDC_AUDIENCE` in compose — no `.ddd` edit, no rebuild.
+
+> **Turning it back OFF differs by backend.** `OIDC_AUDIENCE=""` is an explicit
+> opt-out on **node** and **elixir** (both treat an empty audience as "skip the
+> check"). On **dotnet**, **java** and **python** an empty string is a *declared*
+> audience of `""`, which no real token carries — so every token is rejected.
+> Unset the variable there rather than emptying it.
+
+```ddd
+auth {
+  provider: keycloak
+  oidc {
+    issuer: env("OIDC_ISSUER")
+    clientId: env("OIDC_CLIENT_ID")
+    audience: env("OIDC_AUDIENCE")
+  }
+}
+```
+
+```ts
+// generated (node) — auth/oidc.ts
+const ISSUER = process.env.OIDC_ISSUER ?? "";
+const AUDIENCE = process.env.OIDC_AUDIENCE ?? "";
+const VERIFY_OPTIONS = AUDIENCE ? { issuer: ISSUER, audience: AUDIENCE } : { issuer: ISSUER };
+// …
+const { payload } = await jwtVerify(token, await getJwks(), VERIFY_OPTIONS);
+```
+
+```python
+# generated (FastAPI) — app/auth/oidc.py
+_AUDIENCE = os.environ.get("OIDC_AUDIENCE")
+jwt.decode(token, key, algorithms=_ALGS, issuer=_issuer(),
+           audience=_AUDIENCE, options={"verify_aud": _AUDIENCE is not None})
+```
+
 ## Auth routes
 
 Every backend mounts its auth routes under the shared API base, i.e.
