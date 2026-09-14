@@ -308,14 +308,19 @@ describe("a projection filter outside the adapter's subset is refused, not dropp
   // projection `where` outside the subset is REFUSED, not silently dropped into
   // an unfiltered aggregation) is unchanged.
   //
-  // FINDING recorded while re-pointing this fixture (ledger
-  // `drizzle-projection-membership-column-arg-crash`): the SAME shape on the
-  // DEFAULT node adapter is not refused — it CRASHES codegen with "internal:
-  // where-clause for projection 'MyTotals' could not lower to Drizzle, but the
-  // validator should have caught this".  A bare `platform: node` deployable
-  // carries no `persistence:` selector, so this gate never runs for it.  The
-  // second case below asserts only what is true today (the VALIDATOR is clean
-  // on drizzle); it deliberately does not generate.
+  // …and the refusal is no longer THIS gate's.  The finding recorded here while
+  // re-pointing the fixture (ledger
+  // `drizzle-projection-membership-column-arg-crash`) was that the SAME shape on
+  // the DEFAULT node adapter was not refused at all — it CRASHED codegen with
+  // "internal: where-clause for projection 'MyTotals' could not lower to
+  // Drizzle, but the validator should have caught this", because a bare
+  // `platform: node` deployable carries no `persistence:` selector and this gate
+  // keys on one.  Wave C2 packet 2f moved the rule to `firstNonQueryableNode`
+  // (`ir/validate/checks/shared.ts`), which every site and every backend
+  // consults: the column argument is refused as `loom.projection-where-not-
+  // queryable` on EVERY adapter, and `loom.find-predicate-unsupported` no longer
+  // fires for it.  The two cases below hold exactly that — the neutral code on
+  // both adapters, and the adapter code on neither.
   const unlowerableFilter = (persistence: string) => `
 system M {
   api A from Sales
@@ -348,32 +353,36 @@ system M {
   }
 }`;
 
-  it("reports loom.find-predicate-unsupported naming the projection", async () => {
+  async function projectionDiags(
+    persistence: string,
+  ): Promise<{ code?: string; message: string }[]> {
     const services = createDddServices(NodeFileSystem);
-    const doc = await parseHelper(services.Ddd)(unlowerableFilter("mikroorm"), {
+    const doc = await parseHelper(services.Ddd)(unlowerableFilter(persistence), {
       validation: true,
     });
-    const diags = validateLoomModel(enrichLoomModel(lowerModel(doc.parseResult.value as Model)))
-      .filter((d) => d.code === "loom.find-predicate-unsupported")
-      .map((d) => d.message);
-    expect(diags.length).toBeGreaterThan(0);
-    expect(diags.some((m) => m.includes("query-time projection 'MyTotals'"))).toBe(true);
-    // The narrowing must name the COLUMN ARGUMENT, not membership in general —
-    // otherwise this case would keep passing on a descriptor that had silently
-    // re-widened to refuse every `contains`, which is what it used to do.
-    expect(diags.some((m) => m.includes("contains(<column>)"))).toBe(true);
-  });
+    return validateLoomModel(enrichLoomModel(lowerModel(doc.parseResult.value as Model))).map(
+      (d) => ({ code: d.code, message: d.message }),
+    );
+  }
 
-  it("stays clean on the drizzle adapter (the gate keys on the adapter)", async () => {
-    const services = createDddServices(NodeFileSystem);
-    const doc = await parseHelper(services.Ddd)(unlowerableFilter("drizzle"), {
-      validation: true,
+  for (const persistence of ["mikroorm", "drizzle"]) {
+    it(`${persistence}: the column-argument membership is refused by the NEUTRAL gate, naming the projection`, async () => {
+      const diags = await projectionDiags(persistence);
+      const neutral = diags
+        .filter((d) => d.code === "loom.projection-where-not-queryable")
+        .map((d) => d.message);
+      expect(neutral.length).toBeGreaterThan(0);
+      expect(neutral.some((m) => m.includes("MyTotals"))).toBe(true);
+      // It must name the COLUMN ARGUMENT, not membership in general — otherwise
+      // this case would keep passing on a rule that had silently widened to
+      // refuse every `contains`, which is what the adapter descriptor used to do.
+      expect(neutral.some((m) => m.includes("contains(<column>)"))).toBe(true);
+      // …and the ADAPTER gate is silent, on both: a refusal that still keyed on
+      // `persistence:` is the defect this moved away from, and drizzle — which
+      // never carried a selector — is the half that used to crash instead.
+      expect(diags.map((d) => d.code)).not.toContain("loom.find-predicate-unsupported");
     });
-    const codes = validateLoomModel(
-      enrichLoomModel(lowerModel(doc.parseResult.value as Model)),
-    ).map((d) => d.code);
-    expect(codes).not.toContain("loom.find-predicate-unsupported");
-  });
+  }
 
   it("a PARAMETER-argument membership lowers on mikroorm — the drained half", async () => {
     // The repository find is the site that can bind, and it is the half that

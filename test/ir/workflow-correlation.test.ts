@@ -139,62 +139,16 @@ describe("event-triggered create — correlation + overlap", () => {
   });
 });
 
-describe("uncarried event consumer (channel-routed dispatch)", () => {
-  it("warns when no channel carries a reactor's event (it can't be dispatched)", async () => {
-    // `src()` declares no channel, so PaymentReceived is uncarried.
-    const codes = await codesFor(`on(paid: PaymentReceived) by paid.order { let x = paid.amount }`);
-    expect(codes).toContain("loom.reactor-event-uncarried");
-  });
-
-  it("is silent when a channel carries the subscribed event", async () => {
-    const withChannel = `
-      system S { subdomain M { context C {
-        aggregate Order { total: int }
-        event PaymentReceived { order: Order id, amount: int }
-        channel Pay { carries: PaymentReceived  delivery: broadcast  retention: ephemeral }
-        workflow W {
-          orderId: Order id
-          on(paid: PaymentReceived) by paid.order { let x = paid.amount }
-        }
-      }}}`;
-    const { model } = await parseString(withChannel, { validate: false });
-    const codes = validateLoomModel(enrichLoomModel(lowerModel(model))).map((d) => d.code ?? "");
-    expect(codes).not.toContain("loom.reactor-event-uncarried");
-  });
-
-  // A projection fold is delivered through the same channel-routed in-process
-  // dispatch, so an uncarried folded event warns the same way a reactor does.
-  it("warns when no channel carries a projection fold's event", async () => {
-    const noChannel = `
-      system S { subdomain M { context C {
-        aggregate Order { total: int }
-        event OrderPlaced { order: Order id, customer: int }
-        projection OrderBook keyed by order {
-          order: Order id
-          on(e: OrderPlaced) { order := e.order }
-        }
-      }}}`;
-    const { model } = await parseString(noChannel, { validate: false });
-    const codes = validateLoomModel(enrichLoomModel(lowerModel(model))).map((d) => d.code ?? "");
-    expect(codes).toContain("loom.projection-event-uncarried");
-  });
-
-  it("is silent when a channel carries the projection's folded event", async () => {
-    const withChannel = `
-      system S { subdomain M { context C {
-        aggregate Order { total: int }
-        event OrderPlaced { order: Order id, customer: int }
-        channel Book { carries: OrderPlaced  delivery: broadcast  retention: ephemeral }
-        projection OrderBook keyed by order {
-          order: Order id
-          on(e: OrderPlaced) { order := e.order }
-        }
-      }}}`;
-    const { model } = await parseString(withChannel, { validate: false });
-    const codes = validateLoomModel(enrichLoomModel(lowerModel(model))).map((d) => d.code ?? "");
-    expect(codes).not.toContain("loom.projection-event-uncarried");
-  });
-});
+// RETIRED (**D-PROJECTION-IMPLICIT-SUB**).  Four cases lived here asserting that
+// `loom.reactor-event-uncarried` / `loom.projection-event-uncarried` fire for a
+// consumer whose event no `channel` carries, and are silent when one does.  Both
+// codes are gone: `on(e: E)` IS the subscription, and `deriveEventSubscriptions`
+// now yields an implicit in-process subscription for every consumer, so the
+// warnings had become false statements about the emitted code.  What replaced
+// them is a POSITIVE gate — `test/generator/projection-implicit-sub.test.ts`
+// asserts, over the shared corpus fixture, that all five backends emit the fold
+// and the reactor for events nothing carries, which is the fact the two
+// warnings used to deny.  The channel-AMBIGUITY rule below is unaffected.
 
 describe("ambiguous channel routing (channel-routed dispatch)", () => {
   // Two channels carrying the same consumed event: the enrich records the first
@@ -221,8 +175,6 @@ describe("ambiguous channel routing (channel-routed dispatch)", () => {
       twoChannels(`on(paid: PaymentReceived) by paid.order { let x = paid.amount }`),
     );
     expect(got).toContain("loom.reactor-channel-ambiguous");
-    // It is a routing ambiguity, not an uncarried event.
-    expect(got).not.toContain("loom.reactor-event-uncarried");
   });
 
   it("warns for an event-triggered create carried by more than one channel", async () => {

@@ -49,9 +49,10 @@ import type {
   WorkflowStmtIR,
 } from "../../ir/types/loom-ir.js";
 import { wireTypeInfo } from "../../ir/types/wire-types.js";
+import { domainServicesCalled } from "../../ir/util/domain-service-read-ports.js";
 import { normalizeHandlerReturn, requestRecordFor } from "../../ir/util/handler-contracts.js";
 import { walkWorkflowStmtsDeep } from "../../ir/util/walk.js";
-import { escapeCsharpIdent, plural, upperFirst } from "../../util/naming.js";
+import { escapeCsharpIdent, lowerFirst, plural, upperFirst } from "../../util/naming.js";
 import { SCAFFOLD_ONCE_MARKER } from "../../util/scaffold-once.js";
 import { renderWorkflowStmtChunks } from "../_workflow/stmt-target.js";
 import { csIdValueClrType, projectEntityExpr, projectToResponse } from "./dto-mapping.js";
@@ -61,6 +62,7 @@ import {
   buildResourceClasses,
   csWorkflowStmtTarget,
   renderExprWithCmdParams,
+  workflowReadingServiceCallResolver,
 } from "./workflow-emit.js";
 
 const INDENT = "        ";
@@ -224,17 +226,35 @@ function renderHandlerClass(
       : `IQueryHandler<${recName}, ${ret}>`;
 
   const repos = collectRepos(h);
-  const fields = [...repos].map(
-    ([repo, a]) => `    private readonly I${a}Repository ${repoField(repo)};`,
-  );
-  const ctorParams = [...repos]
-    .map(([repo, a]) => `I${a}Repository ${repoField(repo).slice(1)}`)
-    .join(", ");
-  const ctorAssigns = [...repos]
-    .map(([repo]) => `${repoField(repo)} = ${repoField(repo).slice(1)}`)
-    .join("; ");
+  // Domain services this body calls (domain-services.md rev. 4).  A READING
+  // service is a DI'd `sealed class` holding its own repositories, so the
+  // handler injects the SERVICE (not its repos) exactly as the orchestrating
+  // workflow does; a PURE service is a static class, so only the `using` is
+  // needed.  Both halves were missing: the reading call rendered as
+  // `Registration.IsHolderFree(...)` — a static member the class does not have,
+  // on a type with no `using` — and the pure call had no `using` either, so
+  // `FeeQuote.ForAmount(...)` was CS0103 in a handler while the identical call
+  // compiled in a workflow (ledger
+  // `M-T5.14-reading-service-readport-not-threaded`).
+  const calledServices = domainServicesCalled(h.statements, ctx.domainServices ?? [], [
+    h.returnValue,
+  ]);
+  const fields = [
+    ...[...repos].map(([repo, a]) => `    private readonly I${a}Repository ${repoField(repo)};`),
+    ...calledServices.reading.map(
+      (svc) => `    private readonly ${upperFirst(svc)} _${lowerFirst(svc)};`,
+    ),
+  ];
+  const ctorParams = [
+    ...[...repos].map(([repo, a]) => `I${a}Repository ${repoField(repo).slice(1)}`),
+    ...calledServices.reading.map((svc) => `${upperFirst(svc)} ${lowerFirst(svc)}`),
+  ].join(", ");
+  const ctorAssigns = [
+    ...[...repos].map(([repo]) => `${repoField(repo)} = ${repoField(repo).slice(1)}`),
+    ...calledServices.reading.map((svc) => `_${lowerFirst(svc)} = ${lowerFirst(svc)}`),
+  ].join("; ");
   const ctor =
-    repos.size === 0
+    fields.length === 0
       ? `    public ${handlerName}() { }`
       : `    public ${handlerName}(${ctorParams})\n    {\n        ${ctorAssigns};\n    }`;
 
@@ -244,7 +264,13 @@ function renderHandlerClass(
   const records = recordParamNames(h, ctx);
   const flatNames = new Set(h.params.filter((p) => !records.has(p.name)).map((p) => p.name));
   const renderArg = (e: ExprIR): string =>
-    renderExprWithCmdParams(e, flatNames, resourceClasses, undefined, records);
+    renderExprWithCmdParams(
+      e,
+      flatNames,
+      resourceClasses,
+      workflowReadingServiceCallResolver(ctx),
+      records,
+    );
   // Guard every getById load with `?? throw` — a handler body always
   // dereferences its load (op-call target / return projection).
   const stmtLines = renderWorkflowStmtChunks(
@@ -280,6 +306,13 @@ function renderHandlerClass(
   )
     ? `\nusing ${ns}.Resources;`
     : "";
+  // One `using` covers every domain service — reading (injected) and pure
+  // (static) alike share `<ns>.Domain.Services`.  Emitted only when the body
+  // names one, so CS8019 (`/warnaserror`) cannot fire on an unused directive.
+  const serviceUsing =
+    calledServices.reading.length + calledServices.pure.length > 0
+      ? `\nusing ${ns}.Domain.Services;`
+      : "";
 
   return `// Auto-generated.
 using System.Threading;
@@ -288,7 +321,7 @@ using Mediator;
 using ${ns}.Domain.Common;
 using ${ns}.Domain.Ids;
 using ${ns}.Domain.ValueObjects;
-using ${ns}.Domain.Enums;${resourceUsing}${aggUsings}
+using ${ns}.Domain.Enums;${serviceUsing}${resourceUsing}${aggUsings}
 
 namespace ${handlerHome(ns, agg, kind).ns};
 

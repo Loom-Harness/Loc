@@ -331,6 +331,29 @@ const REGISTERED: Ratchet[] = [
     kind: "record",
     max: 0,
   },
+  // The Flutter parity freeze's pinned-gap allowlist — the sibling of
+  // `KNOWN_HEEX_GAPS` above, and the one suppression construct the 2026-07-13
+  // sweep that built this register MISSED (M-T1.18 recorded the omission in
+  // prose and nothing acted on it; wave C2 packet 2j is that action).
+  //
+  // EMPTY, and the emptiness is the point: `analyzeFlutterParity` reports a
+  // finding for every form-field shape the Dart emitter degrades to a comment,
+  // and all four that were pinned here — nested-VO sub-field, value-object
+  // array with a non-scalar sub-field, bool element array, enum element array
+  // — were closed with real widgets by wave C1 packet 1e-ii.  Verified empty
+  // on this tree before registering, which is what "drain, then pin at the
+  // drained count" means.
+  //
+  // The freeze test already fails on a re-added entry that matches no finding;
+  // this ratchet is the other direction — a NEW pin quietly added next to a new
+  // degradation.  Belt and braces on the same construct, which is exactly the
+  // arrangement `KNOWN_HEEX_GAPS` has.
+  {
+    file: "test/generator/flutter/parity-freeze.test.ts",
+    name: "KNOWN_FLUTTER_GAPS",
+    kind: "record",
+    max: 0,
+  },
   // The corpus features whose cells stop at the COMPILE tier — nothing boots
   // them, so no gate observes their runtime behaviour.  Signed with a reason
   // each; M-T9.13 owns the drain.  Unlike the skip maps above this register is
@@ -465,7 +488,23 @@ const REGISTERED: Ratchet[] = [
     // the harness cannot even set an id claim — `devClaimKind` carries `string`
     // and `string[]` only — so a booted leg would assert the same built-in stub
     // value the compile tier reads straight off the emitted source.
-    max: 21,
+    //
+    // 21 -> 22 (`projection-implicit-sub`, wave C2 packet 2f).  A RAISE, and
+    // the one shape on this list whose runtime half was ACTUALLY BOOTED before
+    // the entry was written — which is why it is an entry rather than a block.
+    // The fixture's subject is D-PROJECTION-IMPLICIT-SUB: a `projection … on(e:
+    // E)` over an event NO `channel` carries must still fold.  The proof is a
+    // `test/behavioral/run.mjs` run on the generated node backend (`place` ->
+    // `event_dispatched OrderPlaced` -> `GET /api/projections/order_board/<id>`
+    // 200 `"Placed"`, then `ship` -> `"Shipped"`; with the enrich early-return
+    // restored the same run fails 404 `OrderBoard <id> not found`).  That block
+    // is deliberately NOT committed: `corpus.json`'s behavioural leg drives
+    // ONE backend, and committing a block here would freeze a node-only golden
+    // for a contract whose whole point is that all five dispatch — while the
+    // five COMPILE legs, which this fixture does carry, see each backend's
+    // fold/reactor symbols.  Drain (M-T9.13): when the behavioural tier gains
+    // a per-backend projection read, move the block in and lower this by one.
+    max: 22,
   },
 ];
 
