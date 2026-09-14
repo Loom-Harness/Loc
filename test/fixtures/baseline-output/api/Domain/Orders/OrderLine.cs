@@ -31,7 +31,7 @@ public sealed class OrderLine
         if (!(this.Quantity > 0)) throw new DomainException("Invariant violated: quantity > 0");
     }
 
-    public sealed class State
+    public sealed class __State
     {
         public OrderLineId Id { get; init; } = default!;
         public OrderId ParentId { get; init; } = default!;
@@ -39,7 +39,7 @@ public sealed class OrderLine
         public int Quantity { get; init; } = default!;
     }
 
-    public static OrderLine _Create(State s)
+    public static OrderLine _Create(__State s)
     {
         var e = new OrderLine();
         e.Id = s.Id;

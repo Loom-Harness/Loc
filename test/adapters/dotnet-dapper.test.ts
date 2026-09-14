@@ -76,7 +76,7 @@ describe("dapper persistence adapter — dotnet (Phase 5c)", () => {
     expect(files.has("api/Infrastructure/Persistence/AppDbContext.cs")).toBe(false);
     const repo = files.get("api/Infrastructure/Repositories/OrderRepository.cs")!;
     expect(repo).toContain("private readonly NpgsqlDataSource _db;");
-    expect(repo).toContain("Order._Create(new Order.State"); // hydration seam
+    expect(repo).toContain("Order._Create(new Order.__State"); // hydration seam
     expect(repo).toContain("ON CONFLICT (id) DO UPDATE SET"); // upsert
     expect(repo).toContain("WHERE (customer = @customer)"); // find → SQL
     expect(repo).not.toContain("AppDbContext"); // no EF
@@ -567,7 +567,7 @@ system D {
     expect(repo).toContain(
       "private static async Task<List<Order>> HydrateAsync(NpgsqlConnection conn, List<Row> rows, CancellationToken cancellationToken)",
     );
-    expect(repo).toContain("LineItem._Create(new LineItem.State");
+    expect(repo).toContain("LineItem._Create(new LineItem.__State");
     expect(repo).toContain(
       "LineItems = __lineItemsByOwner.TryGetValue(r.id, out var __lineItems) ? __lineItems : new List<LineItem>(),",
     );

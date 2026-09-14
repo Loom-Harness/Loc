@@ -58,7 +58,7 @@ public sealed class Customer
         if (!(this.Age >= 18 && this.Age <= 150)) throw new DomainException("Invariant violated: age check age >= 18 && age <= 150");
     }
 
-    public sealed class State
+    public sealed class __State
     {
         public CustomerId Id { get; init; } = default!;
         public string Username { get; init; } = default!;
@@ -67,7 +67,7 @@ public sealed class Customer
         public int Version { get; init; } = default!;
     }
 
-    public static Customer _Create(State s)
+    public static Customer _Create(__State s)
     {
         var e = new Customer();
         e.Id = s.Id;
