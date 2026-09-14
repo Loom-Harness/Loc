@@ -217,7 +217,19 @@ An eleventh arm is named but not re-measured: **Flutter is the ONE frontend with
 | hand-written `flutter test` runtime proofs | 4 invariant-validation cases + 5 persist round-trip cases, all green; both mutation-proved |
 | `npm test` (full fast suite) | see below |
 
-**`npm test`:** the run started at hand-off time on the merged tree. Batch 1 and packet 2h both record the same worktree-only reds — `test/platform/packaging-split-*` cannot pass in ANY git worktree (no `node_modules/@loom` workspace symlinks), and contention timeouts on this 4-core box need re-running alone. Nothing in this packet's diff touches `src/platform/fs-discovery.ts` or those symlinks. Every targeted suite in the blast radius (`test/generator/flutter/`, `test/ir/`, `test/system/`, `test/generator/_frontend/realtime-stream-auth.test.ts`, `test/platform/allowlist-ratchet.test.ts`) was run green individually; `test/system/` was run in full (99 files) and is green after fixing the one failure it found — `direct-generate-systems-ratchet` caught this packet's own `sourcemap.test.ts` importing `generateSystems` directly, now on `generateSystemFiles(source, { sourcemap: true })`.
+**`npm test` — read this before folding.** The full fast suite was run twice on this tree. The FIRST run (`npm test 2>&1 | tail -20`) reported exit 0 and that number is **worthless**: the pipeline's exit status is `tail`'s, not vitest's. The lesson is worth carrying — a piped `npm test` can never fail. The SECOND run redirects instead of piping and appends its real exit code; it was still executing at hand-off (load average ~12 on 4 cores, shared with packets 2f and 2i), so **the coordinator should re-run `npm test` on the folded tree rather than take a number from this note.**
+
+What IS measured, per suite, on this tree:
+
+| suite | result |
+|---|---|
+| `test/ir/` (271 files) | 3188 passed, 1 skipped |
+| `test/system/` (99 files) | green — after fixing the one failure it found (below) |
+| `test/generator/flutter/` (66 files) | 407 passed |
+| `test/ir/util/persist-codec-divergence`, `test/platform/allowlist-ratchet`, `test/generator/_frontend/realtime-stream-auth`, `test/system/{unsupported-register,completion-denominators,diagnostic-catalog,diagnostic-docs-anchors,mission-counts,workflow-path-coverage,draft-gate,local-run-mapping,merge-queue-readiness}` | green |
+| `test/platform/packaging-split-discovery` | **7 passed** — the worktree-only red batch 1 and packet 2h recorded did NOT reproduce here, even though `node_modules/@loom` is absent. Worth knowing before anyone waives it again. |
+
+Two failures were found by running BROADER than the feature suites, and both are the same lesson: `test/system/direct-generate-systems-ratchet` caught this packet's own `flutter/sourcemap.test.ts` importing `generateSystems` directly (bypassing the phase ①/④/⑦ assertions — now on `generateSystemFiles(source, { sourcemap: true })`), and `test/ir/store-lifetime-target-unsupported.test.ts` was still asserting the two refusals the persist widening drains. Neither is reachable from the feature-named suites.
 
 **Commit signatures.** All eight commits carry an SSH signature (the commit object shows the `gpgsig` header). `--format=%G?` reports `N` for every one, because this container has no `gpg.ssh.allowedSignersFile` — the same verification artefact packet 2g recorded. Not a signing failure.
 
