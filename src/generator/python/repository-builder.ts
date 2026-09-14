@@ -367,7 +367,7 @@ export function buildPyRepositoryFile(
         // Undefined name`, and mypy the same) — freight audit D3 / M-T6.64.
         // Over-generating candidates is free: every name here is dropped again
         // by the `refersTo` body scan unless the module actually spells it.
-        ...valueObjectIdTargets(ctx.valueObjects).map((n) => `${n}Id`),
+        ...valueObjectIdTargets(valueObjectPool(ctx)).map((n) => `${n}Id`),
       ].filter(refersTo),
     ),
   ].sort();

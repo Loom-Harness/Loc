@@ -11,8 +11,8 @@ import type {
 } from "../../ir/types/loom-ir.js";
 import { findUsesCurrentUser } from "../../ir/types/loom-ir.js";
 import { aggHasAuditedTarget } from "../../ir/util/audit-capability.js";
-import { findValueObjectInScope, valueObjectPool } from "../../ir/util/reachable-types.js";
 import { fieldIdTargets, valueObjectIdTargets } from "../../ir/util/id-targets.js";
+import { findValueObjectInScope, valueObjectPool } from "../../ir/util/reachable-types.js";
 import { aggregateIsVersioned } from "../../ir/util/versioned-capability.js";
 import { lines } from "../../util/code-builder.js";
 import { snake } from "../../util/naming.js";
@@ -261,7 +261,7 @@ export function buildPyDocumentRepositoryFile(
       // first read.  Freight audit D3 / M-T6.64; the relational emitter carried
       // the identical gap.  Candidates are free: `refersTo` drops any this
       // module does not actually spell.
-      ...valueObjectIdTargets(ctx.valueObjects).map((n) => `${n}Id`),
+      ...valueObjectIdTargets(valueObjectPool(ctx)).map((n) => `${n}Id`),
     ]),
   ]
     .filter(refersTo)
