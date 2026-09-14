@@ -1254,6 +1254,16 @@ export const DIAGNOSTIC_MESSAGES = {
     `backfill '${p.aggregate}.${p.field}': expression type '${p.got}' does not fit the field's type '${p.expected}'.`,
 
   // ----------------------------------------------------------------------
+  // src/system/migrations-builder.ts — phase ⑨ (migration derivation)
+  // ----------------------------------------------------------------------
+  /** A declared backfill whose column is arriving in THIS migration, yet no
+   *  step consumed it — the silent-discard shape (F-018). A backfill is
+   *  legitimately inert once its column is in the baseline; this fires only
+   *  when it is NOT, so nothing will ever run the author's declared value. */
+  "loom.migration-backfill-discarded": (p: { module: unknown; columns: unknown }) =>
+    `migration for module "${p.module}" declares backfill(s) for column(s) that this migration ADDS, but nothing consumed them — the declared value would never run:\n${p.columns}\nThis is an internal inconsistency in the derived migration, not a mistake in the model. Report it: the migration was NOT written.`,
+
+  // ----------------------------------------------------------------------
   // src/ir/validate/checks/projection-checks.ts
   // ----------------------------------------------------------------------
   "loom.projection-workflow-source-not-observable": (p: { name: unknown; wfName: unknown }) =>

@@ -137,7 +137,14 @@ describe("the undocumented-codes ratchet", () => {
 // 368 -> 367 at the wave C2 fold: packets 2c and 2d each retired one code
 // (`loom.audited-returning-operation-unsupported`, `loom.java-reserved-identifier-unsupported`)
 // and each wrote 369 -> 368 on its own branch.
-const UNDOCUMENTED_BASELINE = 367;
+// 367 -> 368 (F-018): `loom.migration-backfill-discarded` is a phase-⑨
+// derivation invariant — "this migration adds the column your backfill names,
+// and nothing consumed the step" — not a complaint about a `.ddd` construct.
+// There is no language-reference section for it to anchor to, and inventing one
+// would document a compiler bug as a language rule. Its remedy lives in
+// docs/migrations.md § Rename detection, where the rest of the migration-policy
+// prose is; this baseline is raised deliberately for that reason.
+const UNDOCUMENTED_BASELINE = 368;
 
 describe("the undocumented-codes LENGTH ratchet", () => {
   it("only shrinks", () => {

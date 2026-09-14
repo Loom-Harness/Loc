@@ -149,17 +149,64 @@ and, unless the generate run passes `--allow-destructive`, **aborts** with a
   collection (`Other.xs: Order id[]`) is not yet cascaded — that sibling join
   table's `targetFk` change falls under the destructive gate (never silent).
 - **Rename detection (heuristic fallback).** With no explicit block, a table with
-  *exactly one* `dropColumn` and *one* `addColumn` **of identical type** is an
-  unambiguous rename → the pair collapses into a single non-destructive
+  *exactly one* `dropColumn` and *one* `addColumn` of **identical type *and*
+  nullability** is an unambiguous rename → the pair collapses into a single non-destructive
   `renameColumn` (`ALTER TABLE … RENAME COLUMN a TO b`). Any other drop/add mix on
   one table — the two shapes the heuristic **cannot** collapse (a rename that also
   changes type, or two renames at once) — is *rename-shaped* but ambiguous. Rather
   than silently degrade to a data-losing drop+add, it **aborts** with the dedicated
   **`loom.migration-ambiguous-rename`** error, which names the drop/add columns and
   points at the explicit `migration "…" { Agg.old -> new }` block (the non-lossy
-  remedy). A backfilled add is an explicit new column, never treated as a rename.
+  remedy).
   As with every destructive step, `--allow-destructive` is the deliberate opt-in
   that accepts the drop+add (and its data loss).
+
+  **The heuristic yields to the author.** It is a *guess*, and structurally it
+  cannot be anything else: a rename (`binLocation` → `binCode`) and an unrelated
+  drop+add (drop `binCode`, add `supplierRef`) produce a byte-identical diff —
+  one `dropColumn`, one `addColumn`, same type, one table. Guessing wrong is not
+  a failed migration but **silent misattribution**: every row's bin code becomes
+  its supplier reference. So the collapse fires only where the author has given
+  **no contrary signal**, and any contrary signal wins. Three signals count —
+  the first says the two columns aren't even the same *shape*; the other two are
+  the author positively asserting the added column is NEW (a renamed column
+  arrives carrying its own data, so neither statement would mean anything about
+  it):
+
+  1. a **nullability change** between the two columns — a rename leaves a
+     column's shape alone, so `binCode: string` becoming `note: string?` is a
+     shape change on top of a name change, the same family as a rename that
+     changes type. (It matters more than it looks: that shape needs neither a
+     backfill nor a default to clear every other gate, so it was the last one
+     that could collapse silently.)
+  2. a **declared backfill** on the added column — `migration "…" { Agg.newField
+     = <expr> }`. *A backfilled add is an explicit new column, never treated as
+     a rename.*
+  3. a **scalar-literal field default** on the added column — `supplierRef:
+     string = "NO-SUPPLIER"` (§ Field defaults).
+
+  No signal costs data when the author really did mean a rename: the uncollapsed
+  `dropColumn` is destructive, so the run **aborts** and names the
+  explicit-rename remedy rather than writing anything.
+
+  **Expressing a genuine drop + unrelated add in one change** is therefore the
+  ordinary destructive path — declare the new column's value and pass
+  `--allow-destructive`:
+
+  ```ddd
+  migration "add-supplier-ref" { Part.supplierRef = "NO-SUPPLIER" }
+  aggregate Part { sku: string  supplierRef: string }   // binCode deleted
+  ```
+  ```sql
+  ALTER TABLE "ops"."parts" DROP COLUMN "bin_code";
+  ALTER TABLE "ops"."parts" ADD COLUMN "supplier_ref" TEXT NULL;
+  UPDATE "ops"."parts" SET "supplier_ref" = 'NO-SUPPLIER' WHERE "supplier_ref" IS NULL;
+  ALTER TABLE "ops"."parts" ALTER COLUMN "supplier_ref" SET NOT NULL;
+  ```
+
+  The flag is doing exactly what it says — the old column's data is dropped,
+  deliberately — and the new column is populated from the declared backfill
+  rather than from the dropped column's rows.
 - **Drops.** A `dropColumn` or `dropTable` that survives rename-collapse is
   destructive → blocked unless `--allow-destructive`.
 - **Column type changes.** An `alterColumnType` is destructive (`USING col::t`
@@ -251,8 +298,14 @@ ALTER TABLE "sales"."orders" ALTER COLUMN "status" SET NOT NULL;
 ```
 
 Naturally **ledger-inert** like renames: once the column is baked into the
-baseline snapshot the step matches nothing. Backfills target single scalar
-columns only — value-object leaves are excluded (Phoenix stores a VO as one
+baseline snapshot the step matches nothing. That inertness is the *only*
+silent outcome a backfill has: if the column is **not** in the baseline — so
+this migration is adding it — and nothing consumed the step, the derivation
+aborts with **`loom.migration-backfill-discarded`** rather than writing a
+migration in which the author's declared value never runs. (That is a compiler
+invariant, not a model error: it is what the rename heuristic used to produce
+when it swallowed the `addColumn` the backfill was waiting for.)
+Backfills target single scalar columns only — value-object leaves are excluded (Phoenix stores a VO as one
 `:map` column, so a leaf UPDATE would not be portable).
 
 **Raw SQL — `sql "…"`** — the escape hatch for one-shot DML the backfill
