@@ -1,3 +1,4 @@
+import { diagMessage } from "../diagnostics/messages.js";
 import { MONEY_PRECISION, MONEY_WIRE_SCALE } from "../generator/money-scale.js";
 import { qIdent } from "../generator/sql-pg.js";
 import { renderSqlScalarExpr } from "../generator/sql-pg-expr.js";
@@ -1192,6 +1193,35 @@ export class MigrationAmbiguousRenameError extends MigrationDestructiveError {
   }
 }
 
+/** Raised when a declared `migration "…" { Agg.field = <expr> }` backfill
+ *  targets a column this migration ADDS, yet no step consumed it — the
+ *  silent-discard shape F-018 exposed (the rename heuristic swallowed the
+ *  `addColumn` the weave was waiting for, so the author's declared value
+ *  vanished without a word).  Deliberately NOT raised for the inert case a
+ *  backfill is designed to reach: once the column is in the baseline the step
+ *  matches nothing, on purpose, forever.
+ *
+ *  Unlike the destructive gate this is not a policy the author can opt out of
+ *  — `--allow-destructive` accepts data LOSS the author asked for, never a
+ *  declaration the compiler quietly dropped — so it fires under both flags. */
+export class MigrationBackfillDiscardedError extends Error {
+  readonly code = "loom.migration-backfill-discarded";
+  constructor(
+    readonly module: string,
+    readonly backfills: readonly ResolvedBackfill[],
+  ) {
+    super(
+      diagMessage("loom.migration-backfill-discarded", {
+        module,
+        columns: backfills
+          .map((b) => `  - ${qualifiedName(b.schema, b.table)}.${b.column} = ${b.valueSql}`)
+          .join("\n"),
+      }),
+    );
+    this.name = "MigrationBackfillDiscardedError";
+  }
+}
+
 function describeDestructive(s: MigrationStep): string {
   switch (s.op) {
     case "dropTable":
@@ -1268,10 +1298,55 @@ export function applyDestructivePolicy(
     return t?.columns.find((c) => c.name === col)?.type;
   };
 
+  // Index the declared backfills FIRST — the rename heuristic below has to
+  // consult them (F-018), not just the weaving pass further down.  Keyed by
+  // qualified table + column, exactly as the weave reads them.
+  const backfillByCol = new Map<string, ResolvedBackfill>();
+  for (const b of opts.backfills ?? []) {
+    backfillByCol.set(`${qkey(b.schema, b.table)}.${b.column}`, b);
+  }
+  const backfillFor = (
+    schema: string | undefined,
+    table: string,
+    column: string,
+  ): ResolvedBackfill | undefined => backfillByCol.get(`${qkey(schema, table)}.${column}`);
+
   // Rename detection: a table with EXACTLY one dropColumn + one addColumn of
   // identical type is an unambiguous rename → collapse to a single
   // `renameColumn` (non-destructive).  Anything else stays drop+add and falls
   // under the gate below.
+  //
+  // The heuristic is a GUESS, and structurally it cannot be anything else: a
+  // rename (`binLocation` → `binCode`) and an unrelated drop+add (drop
+  // `binCode`, add `supplierRef`) produce a byte-identical diff — one
+  // dropColumn, one addColumn, same type, one table.  Guessing wrong is not a
+  // failed migration, it is SILENT MISATTRIBUTION: every row's bin code
+  // becomes its supplier reference, which on an audited system is worse than
+  // losing the column outright.  So the collapse only fires where the author
+  // has given NO contrary signal, and any contrary signal wins — the wrong
+  // call in the safe direction costs one declared `migration "…" { A.old ->
+  // new }` line and an exit code; the wrong call in the other direction costs
+  // a corrupted production table nobody is told about.
+  //
+  // Two contrary signals, both of them the author positively asserting the
+  // added column is NEW (a renamed column arrives carrying its own data, so
+  // neither statement would mean anything about it):
+  //
+  //   1. a declared `migration "…" { Agg.newField = <expr> }` BACKFILL on the
+  //      added column — the documented rule ("a backfilled add is an explicit
+  //      new column, never treated as a rename", docs/migrations.md), which
+  //      this pass previously did not implement at all: the weave ran AFTER
+  //      the collapse and never got the chance to see the add, so the backfill
+  //      was discarded on top of the misattribution (F-018);
+  //   2. a scalar-literal FIELD DEFAULT on the added column (`supplierRef:
+  //      string = "NO-SUPPLIER"`, M-T2.16's `addColumnDefault`) — the same
+  //      assertion in the standing form. Collapsing it would both misattribute
+  //      the old column's rows AND drop the declared value for them on the
+  //      floor.
+  //
+  // Neither signal turns into data loss when the author DID mean a rename: the
+  // uncollapsed dropColumn is destructive, so the run aborts and names the
+  // explicit-rename remedy instead of writing anything.
   const dropByTable = new Map<string, MigrationStep[]>();
   const addByTable = new Map<string, MigrationStep[]>();
   for (const s of steps) {
@@ -1291,6 +1366,11 @@ export function applyDestructivePolicy(
     const d = drops[0]!;
     const a = adds[0]!;
     if (d.op !== "dropColumn" || a.op !== "addColumn") continue;
+    // Contrary signal (1): the author declared a backfill for the added column.
+    if (backfillFor(a.schema, a.table, a.column.name)) continue;
+    // Contrary signal (2): the added column carries a scalar-literal field
+    // default, i.e. a declared value for the rows that already exist.
+    if (a.column.addColumnDefault !== undefined) continue;
     const dType = prevColType(d.schema, d.table, d.name);
     if (!dType || !columnTypeEqual(dType, a.column.type)) continue;
     collapsed.add(d);
@@ -1322,15 +1402,8 @@ export function applyDestructivePolicy(
   // the add was blocking, the add is split nullable-first with a SET NOT NULL
   // after the UPDATE); a matching NULL→NOT-NULL flip gains the UPDATE before
   // it.  Flips made safe this way are exempted from the gate below.
-  const backfillByCol = new Map<string, ResolvedBackfill>();
-  for (const b of opts.backfills ?? []) {
-    backfillByCol.set(`${qkey(b.schema, b.table)}.${b.column}`, b);
-  }
-  const backfillFor = (
-    schema: string | undefined,
-    table: string,
-    column: string,
-  ): ResolvedBackfill | undefined => backfillByCol.get(`${qkey(schema, table)}.${column}`);
+  // (`backfillByCol` / `backfillFor` are built above — the rename heuristic
+  // needs them too.)
   const safeFlips = new Set<MigrationStep>();
   const woven = afterRename.flatMap((s): MigrationStep[] => {
     if (s.op === "addColumn") {
@@ -1431,6 +1504,43 @@ export function applyDestructivePolicy(
     }
     return [s];
   });
+
+  // A declared backfill must never be silently discarded (F-018 §4).
+  //
+  // A backfill is LEGITIMATELY inert once its column is baked into the
+  // baseline — that is the documented ledger-inert property, and the reason a
+  // `migration` block can stay in the source forever without re-running.  So
+  // this gate does NOT fire on "nothing matched"; it fires on the strictly
+  // narrower shape that can only be a bug: the column is NOT in the baseline
+  // (so it is arriving in THIS migration), it is not arriving as the target of
+  // a declared rename (where the data comes with it and the backfill is a
+  // deliberate no-op), and yet nothing consumed the step.  That is precisely
+  // what the pre-fix rename collapse produced — the addColumn the weave was
+  // waiting for had already been rewritten into a renameColumn — and it is the
+  // invariant that keeps any future pass from re-opening the same hole
+  // silently.
+  const renamedInto = new Set<string>();
+  for (const s of woven) {
+    if (s.op === "renameColumn") renamedInto.add(`${qkey(s.schema, s.table)}.${s.to}`);
+  }
+  const consumed = new Set<string>();
+  for (const s of woven) {
+    if (s.op === "backfillColumn") consumed.add(`${qkey(s.schema, s.table)}.${s.column}`);
+  }
+  const discarded = (opts.backfills ?? []).filter((b) => {
+    const key = `${qkey(b.schema, b.table)}.${b.column}`;
+    if (consumed.has(key) || renamedInto.has(key)) return false;
+    // Baseline must HAVE the table but NOT the column — anything else is the
+    // inert case (column already there, or the whole table created this run).
+    let t = prevByQ.get(qkey(b.schema, b.table));
+    if (!t) {
+      const cands = prevByBare.get(b.table);
+      if (cands && cands.length === 1) t = cands[0];
+    }
+    if (!t) return false;
+    return !t.columns.some((c) => c.name === b.column);
+  });
+  if (discarded.length > 0) throw new MigrationBackfillDiscardedError(opts.module, discarded);
 
   // Classify what remains.  A NULL→NOT-NULL flip without a backfill joins
   // the destructive set (it fails at apply time on any row holding NULL) —
