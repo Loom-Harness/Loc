@@ -14,6 +14,7 @@ import type {
   TypeIR,
   WireField,
 } from "../../ir/types/loom-ir.js";
+import { findValueObjectInScope } from "../../ir/util/reachable-types.js";
 import { lines } from "../../util/code-builder.js";
 import { numericEncode } from "../_numeric/target.js";
 import { provenancedEntries } from "../_payload/provenanced-wire.js";
@@ -173,7 +174,7 @@ export function wireProjectionValue(
   if (t.kind === "id") return `${expr} as string`;
   if (t.kind === "enum") return `${expr} as string`;
   if (t.kind === "valueobject") {
-    const vo = ctx.valueObjects.find((v) => v.name === t.name);
+    const vo = findValueObjectInScope(ctx, t.name);
     if (!vo) return expr;
     const fields = vo.fields
       .map((vf) => `${vf.name}: ${wireProjectionValue(`${expr}.${vf.name}`, vf.type, ctx, false)}`)

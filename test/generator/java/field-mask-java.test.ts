@@ -14,6 +14,31 @@ import { lowerModel } from "../../../src/ir/lower/lower.js";
 import { createDddServices } from "../../../src/language/ddd-module.js";
 import type { Model } from "../../../src/language/generated/ast.js";
 
+/** Every JDK symbol a `mask unless` predicate's Java rendering can name as a
+ *  BARE simple name, and the import each one needs.  `renderJavaExpr` writes
+ *  these; `collectJavaExprImports` is what knows they need importing, and the
+ *  defect was an emitter that called the first without the second. */
+const JDK_SYMBOL_IMPORTS: ReadonlyArray<readonly [RegExp, string]> = [
+  [/\bObjects\./, "java.util.Objects"],
+  [/\bPattern\./, "java.util.regex.Pattern"],
+  [/\bBigDecimal\b/, "java.math.BigDecimal"],
+  [/\bMathContext\b/, "java.math.MathContext"],
+  [/\bInstant\./, "java.time.Instant"],
+  [/\bDuration\./, "java.time.Duration"],
+];
+
+/** Assert the file imports every JDK symbol it names.  Deliberately scans the
+ *  WHOLE file rather than just the mapper: a symbol is either in scope or it is
+ *  not, and `javac` does not care which method introduced it. */
+function expectJdkSymbolsImported(content: string, what: string): void {
+  for (const [used, imp] of JDK_SYMBOL_IMPORTS) {
+    if (!used.test(content)) continue;
+    expect(content, `${what} names ${used.source} but never imports ${imp}`).toContain(
+      `import ${imp};`,
+    );
+  }
+}
+
 const SRC = `system S {
   user { id: string  role: string  permissions: string[] }
   subdomain M {
@@ -71,5 +96,86 @@ describe("mask unless — Java read redaction", () => {
     expect(svc).toContain("PResponse::fromMasked");
     // No read routes through the bare (unmasked) `from` mapper.
     expect(svc).not.toMatch(/\.map\(PResponse::from\)/);
+  });
+});
+
+// ── The `mask unless` mapper's own imports ──────────────────────────────────
+//
+// `mask unless` is the FIELD-LEVEL READ-REDACTION SECURITY CONTROL, and on Java
+// it had evidently never been compiled: the simplest possible predicate,
+// `currentUser.role == "admin"`, renders through the Java expression target's
+// equality lowering as `Objects.equals(__maskUser.role(), "admin")` — and
+// `PersonResponse.java`'s import block carried `CurrentUserAccessor`, `User`,
+// `UUID` and three domain wildcards, but no `java.util.Objects`:
+//
+//   PersonResponse.java:21: error: cannot find symbol
+//     symbol:   variable Objects
+//     location: class PersonResponse
+//
+// The emitter added the two imports the mapper's own SCAFFOLDING needs
+// (`CurrentUserAccessor` / `User`) and none of the ones the rendered PREDICATE
+// needs.  `collectJavaExprImports` already existed and is already called for
+// the `requires` / `when` gates in `service.ts` — the DTO emitter (and the
+// history mapper `service.ts` inlines) simply never called it.
+//
+// Pinned as "every JDK symbol the file names is imported" rather than
+// "`Objects` is imported", because the predicate is an arbitrary expression:
+// `matches` renders `Pattern.compile(...)`, a decimal literal a `BigDecimal`,
+// `now()` an `Instant`.
+const MASK_EXPR_SRC = `system S {
+  user { sub: string  role: string  level: int  email: string }
+  subdomain M {
+    context C {
+      aggregate Person audited with crudish {
+        name: string
+        ssn: string mask unless currentUser.role == "admin"
+        salary: decimal mask unless currentUser.level >= 3
+        notes: string mask unless currentUser.email.matches("^.*@corp[.]com$")
+      }
+      repository Persons for Person { }
+    }
+  }
+}`;
+
+async function maskExprFiles(): Promise<Map<string, string>> {
+  const services = createDddServices(NodeFileSystem);
+  const helper = parseHelper<Model>(services.Ddd);
+  const doc = await helper(MASK_EXPR_SRC, { validation: true });
+  const loom = enrichLoomModel(lowerModel(doc.parseResult.value));
+  const contexts = loom.systems.flatMap((s) => s.subdomains.flatMap((sd) => sd.contexts));
+  return generateJavaForContexts(contexts, "S");
+}
+
+describe("mask unless — the rendered predicate's imports", () => {
+  it("the response record imports every JDK symbol its `fromMasked` names", async () => {
+    const out = await maskExprFiles();
+    const resp = [...out.entries()].find(([k]) => k.endsWith("PersonResponse.java"))?.[1] ?? "";
+    expect(resp).toContain("public static PersonResponse fromMasked(Person value)");
+    // The three renderings under test actually appear …
+    expect(resp).toContain('Objects.equals(__maskUser.role(), "admin")');
+    expect(resp).toContain("Pattern.compile(");
+    // … and each one is in scope.
+    expectJdkSymbolsImported(resp, "PersonResponse.java");
+  });
+
+  it("the service imports every JDK symbol the inlined history mapper names", async () => {
+    // `renderJavaHistoryMapper` renders the SAME predicates into the service
+    // (the mapper is a private static there), so the service needs them too —
+    // and it only ever added `User` / `CurrentUserAccessor`.
+    const out = await maskExprFiles();
+    const svc = [...out.entries()].find(([k]) => k.endsWith("PersonService.java"))?.[1] ?? "";
+    expect(svc).toContain("User __maskUser = CurrentUserAccessor.currentOrNull();");
+    expect(svc).toContain('Objects.equals(__maskUser.role(), "admin")');
+    expect(svc).toContain("Pattern.compile(");
+    expectJdkSymbolsImported(svc, "PersonService.java");
+  });
+
+  it("a mask-free aggregate's response record gains no extra import", async () => {
+    const out = await maskExprFiles();
+    // Control: the emitted import set is driven by what the file NAMES, not by
+    // "this project has a mask somewhere".
+    const req = [...out.entries()].find(([k]) => k.endsWith("CreatePersonRequest.java"))?.[1] ?? "";
+    expect(req).not.toContain("import java.util.Objects;");
+    expect(req).not.toContain("import java.util.regex.Pattern;");
   });
 });

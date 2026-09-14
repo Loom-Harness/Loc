@@ -81,7 +81,11 @@ describe("hono whole-table aggregation", () => {
     // NULL over an empty table — so this is load-bearing, not cosmetic.  A
     // money row field is `z.string()`; an int/decimal one is a number.
     const p = await routes();
-    expect(p).toContain("orders: Number(row?.orders ?? 0),");
+    // An integral aggregate is range-checked rather than passed through
+    // (M-T5.23): `count` is a bigint in SQL and the field publishes
+    // `format: int32`, so a value that does not fit fails the read.
+    expect(p).toContain('orders: __intWire(row?.orders ?? 0, -2147483648, 2147483647, "orders"),');
+    expect(p).toContain("function __intWire(value: unknown, min: number, max: number");
     // money pins the fixed wire scale (RS-12 / #2549).
     expect(p).toContain("revenue: new Decimal(row?.revenue ?? 0).toFixed(4),");
     expect(p).toContain("avgLines: Number(row?.avgLines ?? 0),");

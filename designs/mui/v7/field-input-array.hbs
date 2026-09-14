@@ -2,7 +2,7 @@
           <Typography variant="subtitle2">{{label}}</Typography>
           { {{path}}Fields.map((field, index) => (
             <Stack key={field.id} direction="row" spacing={1} alignItems="flex-end">
-{{#each rowFields}}              <TextField label="{{label}}" InputLabelProps=\{{ shrink: true }} {...register(`{{../path}}.${index}.{{path}}`{{#if valueAsNumber}}, { valueAsNumber: true }{{/if}})} data-testid={`{{../testId}}-${index}-{{path}}`} />
+{{#each rowFields}}              <TextField label="{{label}}" InputLabelProps=\{{ shrink: true }}{{#if (eq template "field-input-money")}} inputProps=\{{ inputMode: "decimal" }}{{/if}} {...register(`{{../path}}.${index}.{{path}}`{{#if valueAsNumber}}, { valueAsNumber: true }{{/if}}{{#if (eq template "field-input-money")}}, { setValueAs: (v: string) => { try { return new Decimal(v || "0"); } catch { return new Decimal("0"); } } }{{/if}})} data-testid={`{{../testId}}-${index}-{{path}}`} />
 {{/each}}              <Button color="error" size="small" onClick={() => remove{{arrayPascal}}(index)}>{{{chrome "removeItem"}}}</Button>
             </Stack>
           )) }

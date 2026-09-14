@@ -1,10 +1,10 @@
 import {
   type BoundedContextIR,
   contextUsesMoney,
-  type TypeIR,
   type WorkflowIR,
 } from "../../ir/types/loom-ir.js";
-import { lowerFirst, snake, upperFirst } from "../../util/naming.js";
+import { snake, upperFirst } from "../../util/naming.js";
+import { collectSchemaDeps } from "../_frontend/workflows-module.js";
 import { zodForRequest, zodForResponse } from "../_frontend/zod-schemas.js";
 
 // ---------------------------------------------------------------------------
@@ -54,12 +54,13 @@ export function buildWorkflowsApiModule(contexts: BoundedContextIR[]): string {
   if (contexts.some(contextUsesMoney)) {
     lines.push(`import { moneySchema } from "../schemas";`);
   }
-  const enumDeps = collectEnumDeps(workflows);
-  const voDeps = collectValueObjectDeps(workflows);
-  for (const dep of [...enumDeps, ...voDeps]) {
-    lines.push(`import { ${dep.schemaName} } from "./${lowerFirst(dep.fromAggregate)}";`);
-  }
+  const { imports: schemaImports, locals: schemaLocals } = collectSchemaDeps(workflows);
+  lines.push(...schemaImports);
   lines.push("");
+  if (schemaLocals.length > 0) {
+    lines.push(...schemaLocals);
+    lines.push("");
+  }
 
   for (const { wf } of workflows) {
     lines.push(`export const ${upperFirst(wf.name)}Request = z.object({`);
@@ -129,99 +130,6 @@ function emitInstanceHooks(wf: WorkflowIR): string[] {
   lines.push(`}`);
   lines.push("");
   return lines;
-}
-
-interface SchemaDep {
-  fromAggregate: string;
-  schemaName: string;
-}
-
-/** The types a workflow's API surface references: its command params plus —
- *  for an observable workflow — its instance wire-shape fields (whose response
- *  schema may name enum / value-object schemas that must be imported). */
-function apiSurfaceTypes(wf: WorkflowIR): TypeIR[] {
-  return [...wf.params.map((p) => p.type), ...(wf.instanceWireShape ?? []).map((f) => f.type)];
-}
-
-function collectEnumDeps(workflows: Array<{ wf: WorkflowIR; ctx: BoundedContextIR }>): SchemaDep[] {
-  const out = new Map<string, SchemaDep>();
-  for (const { wf, ctx } of workflows) {
-    for (const t0 of apiSurfaceTypes(wf)) {
-      walkType(t0, (t) => {
-        if (t.kind === "enum") {
-          const owner = findFirstAggregateUsingEnum(ctx, t.name);
-          if (owner && !out.has(t.name)) {
-            out.set(t.name, {
-              fromAggregate: owner,
-              schemaName: `${t.name}Schema`,
-            });
-          }
-        }
-      });
-    }
-  }
-  return [...out.values()];
-}
-
-function collectValueObjectDeps(
-  workflows: Array<{ wf: WorkflowIR; ctx: BoundedContextIR }>,
-): SchemaDep[] {
-  const out = new Map<string, SchemaDep>();
-  for (const { wf, ctx } of workflows) {
-    for (const t0 of apiSurfaceTypes(wf)) {
-      walkType(t0, (t) => {
-        if (t.kind === "valueobject") {
-          const owner = findFirstAggregateUsingValueObject(ctx, t.name);
-          if (owner && !out.has(t.name)) {
-            out.set(t.name, {
-              fromAggregate: owner,
-              schemaName: `${t.name}Schema`,
-            });
-          }
-        }
-      });
-    }
-  }
-  return [...out.values()];
-}
-
-function findFirstAggregateUsingEnum(ctx: BoundedContextIR, enumName: string): string | undefined {
-  for (const a of ctx.aggregates) {
-    let used = false;
-    const visit = (t: TypeIR): void => {
-      if (used) return;
-      if (t.kind === "enum" && t.name === enumName) used = true;
-      else if (t.kind === "array") visit(t.element);
-      else if (t.kind === "optional") visit(t.inner);
-    };
-    for (const f of a.fields) visit(f.type);
-    if (used) return a.name;
-  }
-  return ctx.aggregates[0]?.name;
-}
-
-function findFirstAggregateUsingValueObject(
-  ctx: BoundedContextIR,
-  voName: string,
-): string | undefined {
-  for (const a of ctx.aggregates) {
-    let used = false;
-    const visit = (t: TypeIR): void => {
-      if (used) return;
-      if (t.kind === "valueobject" && t.name === voName) used = true;
-      else if (t.kind === "array") visit(t.element);
-      else if (t.kind === "optional") visit(t.inner);
-    };
-    for (const f of a.fields) visit(f.type);
-    if (used) return a.name;
-  }
-  return ctx.aggregates[0]?.name;
-}
-
-function walkType(t: TypeIR, visit: (t: TypeIR) => void): void {
-  visit(t);
-  if (t.kind === "array") walkType(t.element, visit);
-  else if (t.kind === "optional") walkType(t.inner, visit);
 }
 
 /** Drop the `seg` specifier when the module emitted no path interpolation —

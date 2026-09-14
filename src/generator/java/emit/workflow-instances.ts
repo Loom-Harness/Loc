@@ -11,6 +11,7 @@ import {
 } from "../../../ir/util/workflow-instances.js";
 import { lines } from "../../../util/code-builder.js";
 import { lowerFirst, snake, upperFirst } from "../../../util/naming.js";
+import { jid, jsonProp } from "../java-ident.js";
 import { collectJavaExprImports, javaValueTypeForId, renderJavaExpr } from "../render-expr.js";
 import { javaNotFoundThrow } from "./common.js";
 import { collectWireImports, domainToWire, wireJavaType } from "./wire.js";
@@ -97,7 +98,7 @@ function renderInstanceResponseDto(wf: WorkflowIR, wctx: WorkflowInstancesCtx): 
   const components = shape.map((f) => {
     guardInstanceField(wf, f);
     collectWireImports(f.type, wireImports, "Response");
-    return `${wireJavaType(f.type, "Response")} ${f.name}`;
+    return `${jsonProp(f.name, wireImports)}${wireJavaType(f.type, "Response")} ${jid(f.name)}`;
   });
   return lines(
     `package ${wctx.pkg};`,
@@ -175,7 +176,7 @@ function renderInstancesController(
     const idExpr = "id";
     const shape = wf.instanceWireShape ?? [];
     const proj = (rowVar: string): string =>
-      shape.map((f) => domainToWire(f.type, `${rowVar}.${f.name}()`)).join(", ");
+      shape.map((f) => domainToWire(f.type, `${rowVar}.${jid(f.name)}()`)).join(", ");
     // The read body diverges on `wf.eventSourced`: a state-based saga reads its
     // `<Wf>State` Spring Data repository, while an event-sourced workflow folds
     // the per-correlation `<wf>_events` stream — LIST loads every event row

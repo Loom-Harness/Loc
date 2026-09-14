@@ -63,7 +63,13 @@ describe("a document aggregate's PUT rejects an omitted required field", () => {
     expect(changeset).toContain(
       "__require_keys(__normalize_keys(attrs), [:reference, :item_count])",
     );
-    expect(changeset).not.toContain(":note");
+    // `note` is optional, so it must not be in the REQUIRED set — the
+    // assertion is on that list, not on the whole file: `:note` legitimately
+    // appears in the optional-clearing list below.
+    expect(changeset).not.toContain(
+      "__require_keys(__normalize_keys(attrs), [:reference, :item_count, :note])",
+    );
+    expect(changeset).not.toMatch(/__require_keys\([^)]*:note/);
     // The check runs BEFORE `cast_embed` merges onto the stored document —
     // after it, the retained value hides the omission.
     const at = changeset.indexOf("__require_keys(__normalize_keys(attrs)");
@@ -73,6 +79,28 @@ describe("a document aggregate's PUT rejects an omitted required field", () => {
     // The helper itself, with `validate_required/2`'s own error shape so
     // ProblemDetails still renders `{"pointer":"/<field>"}`.
     expect(changeset).toContain('add_error(cs, field, "can\'t be blank", validation: :required)');
+  });
+
+  it("and CLEARS an omitted optional field — the twin reading of the same contract", async () => {
+    const changeset = await emitted("/cart_changeset.ex");
+    // Full replacement cuts both ways: an absent REQUIRED key is a 422 (above),
+    // an absent OPTIONAL key is a clear.  `cast_embed` merges onto the stored
+    // embed, so without this the old value survived a PUT that dropped it —
+    // 204 with the field unchanged, where the other four backends null it.
+    expect(changeset).toContain(
+      'cast(%{"data" => __clear_absent(__normalize_keys(attrs), [:note])}, [])',
+    );
+    // Only the optional field — a required one is the presence check's job.
+    expect(changeset).not.toMatch(/__clear_absent\([^)]*:reference/);
+    expect(changeset).not.toMatch(/__clear_absent\([^)]*:item_count/);
+    // The clear must reach the attrs BEFORE the embed sees them: a root-level
+    // `put_change` cannot reach inside the embed, so injecting the explicit
+    // `nil` is the only lever.
+    const clear = changeset.indexOf("__clear_absent(__normalize_keys(attrs)");
+    const cast = changeset.indexOf("cast_embed(:data", clear);
+    expect(clear).toBeGreaterThan(0);
+    expect(cast).toBeGreaterThan(clear);
+    expect(changeset).toContain("else: Map.put(acc, Atom.to_string(field), nil)");
   });
 
   it("the repository's update routes through it (create still does not)", async () => {

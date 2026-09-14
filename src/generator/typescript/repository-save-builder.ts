@@ -14,6 +14,7 @@ import type {
   TypeIR,
 } from "../../ir/types/loom-ir.js";
 import { discriminatorValue, tableOwnerName } from "../../ir/util/inheritance.js";
+import { findValueObjectInScope } from "../../ir/util/reachable-types.js";
 import { isValueCollectionType, valueCollectionsFor } from "../../ir/util/value-collections.js";
 import { aggregateIsVersioned } from "../../ir/util/versioned-capability.js";
 import { lines } from "../../util/code-builder.js";
@@ -122,7 +123,7 @@ function saveTxBody(agg: EnrichedAggregateIR, ctx: BoundedContextIR, emitTrace: 
   // identity-less, so there is nothing to diff on.  Delete every child row
   // for this owner, then re-insert the current list with its ordinals.
   const valueCollectionBlocks = valueCollectionsFor(agg).flatMap((vc) => {
-    const vo = ctx.valueObjects.find((v) => v.name === vc.voName);
+    const vo = findValueObjectInScope(ctx, vc.voName);
     const voEntries = (vo?.fields ?? []).flatMap((vf) =>
       projectValueEntries(vf.name, vf.type, `e.${vf.name}`, ctx, vf.optional),
     );
@@ -427,19 +428,46 @@ function projectValueEntries(
     return [{ fieldName, expr: optional ? `${valueExpr} === null ? null : ${mapped}` : mapped }];
   }
   if (t.kind === "valueobject") {
-    const vo = ctx.valueObjects.find((v) => v.name === t.name);
+    const vo = findValueObjectInScope(ctx, t.name);
     if (!vo) return [{ fieldName, expr: valueExpr }];
-    return vo.fields.flatMap((vf) => {
-      // An OPTIONAL value object may be null on the domain object, so guard the
-      // parent deref — `aggregate.billing.street` throws when `billing` is null.
-      // When absent, every flattened column persists as null (the columns are
-      // nullable in the schema).  `optional` is threaded down so nested VO
-      // subfields inherit the guard.
-      const sub = optional
-        ? `(${valueExpr} == null ? null : ${valueExpr}.${vf.name})`
-        : `${valueExpr}.${vf.name}`;
-      return projectValueEntries(`${fieldName}_${vf.name}`, vf.type, sub, ctx, optional);
-    });
+    if (optional) {
+      // An OPTIONAL value object may be null on the domain object, so the
+      // parent deref has to be guarded — `aggregate.billing.street` throws when
+      // `billing` is null — and when absent every flattened column persists as
+      // null (they are all nullable in the schema).
+      //
+      // The guard goes ONCE, around the whole leaf expression, over a `!`-
+      // asserted root — not around each hop.  Threading a per-hop ternary DOWN
+      // as the next `valueExpr` re-evaluated it and then dereferenced the
+      // RESULT, so a nested VO under an optional one emitted
+      // `(o == null ? null : o.geo).lat` — TS2531, because TypeScript does not
+      // narrow a repeated ternary — and the leaf arms that re-deref (`money`'s
+      // `.toString()`, a scalar collection's `.map`) broke the same way one
+      // level up.  Guarding once and asserting inside composes to any depth and
+      // mirrors the read side's `firstLeafColumn` guard.
+      const guard = `${valueExpr} == null`;
+      return vo.fields.flatMap((vf) =>
+        // `optional` is NOT threaded down: this guard already covers the whole
+        // group, and a subfield that is optional IN THE VO re-enters the
+        // `t.kind === "optional"` arm on its own and gets its own inner guard.
+        projectValueEntries(
+          `${fieldName}_${vf.name}`,
+          vf.type,
+          `${valueExpr}!.${vf.name}`,
+          ctx,
+          false,
+        ).map((e) => ({ fieldName: e.fieldName, expr: `(${guard} ? null : ${e.expr})` })),
+      );
+    }
+    return vo.fields.flatMap((vf) =>
+      projectValueEntries(
+        `${fieldName}_${vf.name}`,
+        vf.type,
+        `${valueExpr}.${vf.name}`,
+        ctx,
+        false,
+      ),
+    );
   }
   return [{ fieldName, expr: valueExpr }];
 }

@@ -1127,9 +1127,10 @@ mutations each fail exactly the assertion that names them, including one that
 moves the node guard into the base to prove the ordering case is not vacuous.
 
 ### F21 — dotnet: the response schema claims a `minLength` nothing declared
-**Waiver:** W28 retired — fixed · W27 / W34 re-diagnosed, kept ·
+**Waiver:** W28 retired — fixed · **W34 DELETED 2026-09-13 — java root cause
+found and fixed** · W27 (dotnet) kept, still un-diagnosed ·
 **Severity: medium** · **Status: the READ half is FIXED (2026-09-03); the write
-half was mis-diagnosed and is re-recorded below.**
+half was mis-diagnosed twice and the JAVA half is now diagnosed and FIXED.**
 
 ```
 curl -X POST http://host/api/customers -d '{"name":"","email":"a@b.c"}'  → 201   (correct)
@@ -1183,12 +1184,69 @@ code units rather than the code points the bound is defined in
 (`src/generator/_expr/code-point.ts`). Trading a false claim for a wrong count
 is not an improvement.
 
-**W27 and W34 are kept, not retired.** Both claimed an unenforced `minLength` on
-`POST /api/customers`; the measurements above say that is not what is there. What
-those two rules are actually absorbing cannot be established without running the
-leg, and retiring a rule on a guess is exactly how W31 came back four-fold on the
-next nightly. Their reasons now record the measurement and say "re-triage against
-a nightly".
+**W27 and W34 were kept, not retired** — both claimed an unenforced `minLength`
+on `POST /api/customers`, which the measurements above disproved, and retiring a
+rule on a guess is how W31 came back four-fold on the next nightly. The
+instruction was to re-triage against a run of the leg.
+
+#### W34 (java) — re-triaged by RUNNING the leg, 2026-09-13. Root cause found, fixed, rule deleted.
+
+The java leg was booted (generated `sales-system` re-platformed to java, `gradle
+bootJar`, a real Postgres 18) and fuzzed with `LOOM_SCHEMATHESIS_BASE`. W34
+reproduced **×1**, and the ndjson report names the case outright — it is not a
+`minLength` at all:
+
+```
+POST /api/customers   {"name": "", "email": false}   → 201
+POST /api/customers   {"name": "", "email": 0}       → 201
+  scenario: incorrect_type — "email: Incorrect type" at /properties/email/type
+```
+
+**Jackson coerces a JSON number or boolean into a String.** The published schema
+says `email: {"type": "string"}`; the request record component is `String email`;
+Jackson's default coercion turns `0` into `"0"` and `false` into `"false"`, so a
+body the API's own contract forbids was accepted and a row was created with an
+email nobody sent. Confirmed directly on the booted app, where `name` behaves the
+same way:
+
+| body | before | after |
+|---|---|---|
+| `{"name":"a","email":0}` | **201** | **400** |
+| `{"name":"a","email":false}` | **201** | **400** |
+| `{"name":7,"email":"a@b.c"}` | **201** | **400** |
+| `{"name":"a","email":"a@b.c"}` | 201 | 201 |
+
+**It is java alone, measured rather than reasoned**: the SAME fuzzer, the SAME
+fixture and the SAME check on the **node** leg report nothing on that route
+(`z.string()` refuses a number), so the finding is this backend's coercion, not
+the contract.
+
+**The blast radius is wider than `email`.** Every string-typed wire field is
+affected, and on java that includes `money` — it rides the wire as a decimal
+STRING — so `{"price": 12.5}` was accepted too. That is the cell
+`test/conformance/numeric-ingress-parity.test.ts`'s header table records java as
+REFUSING (divergence 2 of M-T6.60), so the fix makes that matrix true rather than
+moving it.
+
+**Fix:** `WireNumberStrictness` already failed the String→Integer coercion
+(M-T6.48); it now also fails Integer / Float / Boolean → `LogicalType.Textual`.
+One bean, the same Jackson seam, the same `HttpMessageNotReadableException` →
+400 rung the other refusals already use. Gated by
+`test/generator/java/wire-numeric-ingress.test.ts` ("refuses a JSON number /
+boolean where the schema declares a string"); mutation-proved by dropping the
+`Boolean` arm, which fails exactly that assertion. Re-running the leg makes W34
+go **stale**, which the ratchet reports as a problem — so the rule is deleted in
+the same change, and both java cases (`sales-system`, `storefront-system`) then
+run clean with no new findings.
+
+#### W27 (dotnet) — still kept, still un-diagnosed.
+
+Same route, same check, the other leg. The java diagnosis does not transfer:
+System.Text.Json refuses Number→String by default, so .NET's finding on
+`POST /api/customers` is something else. The method is now written down, though,
+and it is cheap: boot the generated .NET app, run the leg with
+`LOOM_SCHEMATHESIS_BASE`, and read the failing case out of the ndjson report
+rather than guessing from the emitter.
 
 ### F22 — dotnet: a body-carrying route answers 415 before the path parameter is looked at
 **Waiver:** none — fixed · **Severity: low** · **Status: FIXED (2026-09-08).**

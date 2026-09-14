@@ -257,7 +257,9 @@ export function isInfallibleConversion(source: string, target: string): boolean 
 // ---------------------------------------------------------------------------
 
 export function pathString(lv: LValue): string {
-  return [lv.head, ...lv.tail].join(".");
+  // Keep the `this.` the user wrote — a diagnostic that quotes the path back
+  // has to quote the spelling that produced it.
+  return [...(lv.thisRef ? ["this"] : []), lv.head, ...lv.tail].join(".");
 }
 
 // ---------------------------------------------------------------------------

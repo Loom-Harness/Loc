@@ -280,7 +280,9 @@ describe("java", () => {
     // an average, `BigDecimal` for a sum), so a direct cast would throw on a
     // different provider.
     const svc = await fileEndingWith("java", "OrdersQueryProjections.java");
-    expect(svc).toContain("((Number) r[0]).intValue()");
+    // `Math.toIntExact`, not `intValue()`: the unchecked narrowing wrapped a
+    // `count`/`sum(int)` (both bigints in SQL) into a wrong ANSWER (M-T5.23).
+    expect(svc).toContain("Math.toIntExact(((Number) r[0]).longValue())");
     // Still `toString()` on the provider's own type rather than a cast — but
     // money is then pinned to the fixed wire scale, and its empty-table zero is
     // `"0.0000"` (RS-12 / #2549).
@@ -319,7 +321,7 @@ describe("java", () => {
       'Object r = entityManager.createQuery("select count(e) from Order e where',
     );
     expect(svc).not.toContain("(Object[])");
-    expect(svc).toContain("return new SalesTotalsRow(((Number) r).intValue());");
+    expect(svc).toContain("return new SalesTotalsRow(Math.toIntExact(((Number) r).longValue()));");
   });
 
   it("emits the `requires` gate on a gated singleton aggregation — 403 BEFORE the query", async () => {
