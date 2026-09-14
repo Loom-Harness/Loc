@@ -162,7 +162,13 @@ export function prepareFormFieldVM(
             `${testId}-${vf.name}`,
             aggregatesByName,
           );
-          return NUMERIC.has(vm.template) ? { ...vm, valueAsNumber: true } : vm;
+          // The row's own error access: the sub-field VM's `errorExpr` was built
+          // from its BARE path (`errors.voyage?.message`) and points at nothing,
+          // because the errors object mirrors the form VALUES — where the
+          // sub-field sits under the array element.  `index` is the row
+          // template's loop variable.
+          const withRowError = { ...vm, rowErrorExpr: rowErrorAccess(path, vf.name) };
+          return NUMERIC.has(vm.template) ? { ...withRowError, valueAsNumber: true } : withRowError;
         });
         // A fresh-row default for `append(...)` — zero value per sub-field kind.
         // Money seeds a real `new Decimal("0")`, not the string `"0"`: form
@@ -214,4 +220,14 @@ function defaultRowValue(f: FormFieldVM): string {
 function errorAccess(path: string): string {
   const parts = path.split(".");
   return `errors.${parts.join("?.")}?.message`;
+}
+
+/** Error access for one sub-field of one dynamic row —
+ *  `errors.legs?.[index]?.voyage?.message`.  `arrayPath` is the array field's
+ *  dotted path (so a nested array still optional-chains through its parents);
+ *  `sub` is the row sub-field's bare name.  `index` is emitted verbatim: it is
+ *  the row template's own loop variable, not a value this layer knows. */
+function rowErrorAccess(arrayPath: string, sub: string): string {
+  const parts = arrayPath.split(".");
+  return `errors.${parts.join("?.")}?.[index]?.${sub}?.message`;
 }
