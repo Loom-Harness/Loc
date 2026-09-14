@@ -56,6 +56,43 @@ const PRINCIPAL_NOUN: Readonly<Record<string, string>> = {
 
 const STAMP_FAMILIES: readonly string[] = ["java", "dotnet", "node", "python", "elixir"];
 
+/** The magic identifier a principal stamp reads. */
+const CURRENT_USER = "currentUser";
+
+/** Does this stamp RHS read the request principal?
+ *
+ *  `exprUsesCurrentUser` matches the RESOLVED reference
+ *  (`refKind: "current-user"`), which lowering only produces when the system
+ *  declares a `user { ... }` block — `lowerRefEnv` registers the magic
+ *  identifier under `if (env.user)`.  So on the model this rule most
+ *  obviously targets — a principal stamp with NO principal declared at all —
+ *  the stamp lowers to `{ kind: "ref", name: "currentUser", refKind:
+ *  "unknown" }` and the resolved matcher silently returns false.
+ *
+ *  The effect was an INVERTED guard: `auditable` + `user {}` + no
+ *  `auth: required` was rejected, while the strictly worse `auditable` with
+ *  no `user {}` at all passed validation and emitted a backend referencing
+ *  an undefined `currentUser` (19 `tsc` errors on Hono — TS2304 plus a
+ *  phantom `Ids.UserId` that `domain/ids.ts` never exports).  Adding auth
+ *  configuration turned a clean parse into an error.
+ *
+ *  So match the unresolved spelling too.  `refKind: "unknown"` + the exact
+ *  magic name can only be the principal: `currentUser` is a reserved
+ *  identifier, not bindable as a field, parameter or let-binding, so a ref
+ *  carrying that name and nothing to resolve to IS a principal read whose
+ *  principal is missing.  A model that DOES declare `user {}` resolves the
+ *  ref and matches on the first arm, so this adds no new rejection there. */
+function stampReadsPrincipal(e: ExprIR | undefined): boolean {
+  if (exprUsesCurrentUser(e)) return true;
+  let found = false;
+  walkExprDeep(e, (node) => {
+    if (node.kind === "ref" && node.refKind === "unknown" && node.name === CURRENT_USER) {
+      found = true;
+    }
+  });
+  return found;
+}
+
 export function validateStampSupport(sys: SystemIR, diags: LoomDiagnostic[]): void {
   const ctxByName = new Map<string, BoundedContextIR>();
   for (const m of sys.subdomains) for (const c of m.contexts) ctxByName.set(c.name, c);
@@ -72,7 +109,7 @@ export function validateStampSupport(sys: SystemIR, diags: LoomDiagnostic[]): vo
         const stamps = enriched.contextStamps ?? [];
         if (stamps.length === 0) continue;
         const usesPrincipal = stamps.some((r) =>
-          r.assignments.some((a) => exprUsesCurrentUser(a.value)),
+          r.assignments.some((a) => stampReadsPrincipal(a.value)),
         );
         if (usesPrincipal && !authed) {
           diags.push({
