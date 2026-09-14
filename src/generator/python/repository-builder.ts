@@ -899,37 +899,117 @@ function hydrateScalar(expr: string, t: TypeIR, optional: boolean): string {
   return expr;
 }
 
+/** The first LEAF (non-value-object) column of a value object's flattened
+ *  group, as the column-name path the schema emitter built — used as the
+ *  "is the optional VO present?" probe.  A nested VO has no column of its
+ *  own, so probing `vo.fields[0]` verbatim would name a column that does not
+ *  exist the moment the first field is itself a value object.  A REQUIRED
+ *  leaf is preferred: an optional leaf (`line2: string?`) is null while the
+ *  VO is very much present, so probing it would read the VO back as absent. */
+function voProbeColumn(
+  voName: string,
+  prefix: string,
+  ctx: EnrichedBoundedContextIR,
+): string | undefined {
+  const leaves = voLeafPaths(voName, prefix, ctx);
+  return (leaves.find((l) => !l.optional) ?? leaves[0])?.path;
+}
+
+interface VoLeaf {
+  /** Raw (pre-`snake`) column-name path — `home_geo_lat`. */
+  path: string;
+  optional: boolean;
+}
+
+/** Every leaf column path a value object flattens to, in declared order and
+ *  recursing through nested value objects — the repository-side mirror of
+ *  `py-columns.columnsFor`'s `valueobject` arm. */
+function voLeafPaths(voName: string, prefix: string, ctx: EnrichedBoundedContextIR): VoLeaf[] {
+  const vo = ctx.valueObjects.find((v) => v.name === voName);
+  if (!vo) return [];
+  return vo.fields.flatMap((vf) => {
+    const inner = vf.type.kind === "optional" ? vf.type.inner : vf.type;
+    const opt = vf.optional || vf.type.kind === "optional";
+    const path = `${prefix}_${vf.name}`;
+    if (inner.kind === "valueobject") {
+      return voLeafPaths(inner.name, path, ctx).map((l) => ({
+        path: l.path,
+        optional: l.optional || opt,
+      }));
+    }
+    return [{ path, optional: opt }];
+  });
+}
+
+/** Domain ctor call for one value-object field, reading the flattened leaf
+ *  columns off `rowVar`.  Recurses through a nested value object (`Addr.geo:
+ *  Geo` → `Addr(row.home_line1, Geo(row.home_geo_lat, row.home_geo_lng))`) so
+ *  the columns read are exactly the ones `py-columns.columnsFor` created. */
+function hydrateVo(
+  rowVar: string,
+  voName: string,
+  prefix: string,
+  optional: boolean,
+  ctx: EnrichedBoundedContextIR,
+  /** True when this group's leaf columns are ALL nullable because this value
+   *  object — or one enclosing it — is optional.  Distinct from `optional`,
+   *  which is only about THIS field: a required `Geo` nested inside an optional
+   *  `Addr` has non-null-looking leaves in the IR and nullable columns in the
+   *  schema, so the unwrap below has to follow the enclosing group, not the
+   *  field. */
+  nullableGroup: boolean = optional,
+): string | undefined {
+  const vo = ctx.valueObjects.find((v) => v.name === voName);
+  if (!vo) return undefined;
+  const args = vo.fields
+    .map((vf) => {
+      const inner = vf.type.kind === "optional" ? vf.type.inner : vf.type;
+      const leafOptional = vf.optional || vf.type.kind === "optional";
+      const path = `${prefix}_${vf.name}`;
+      if (inner.kind === "valueobject") {
+        const nested = hydrateVo(
+          rowVar,
+          inner.name,
+          path,
+          leafOptional,
+          ctx,
+          nullableGroup || leafOptional,
+        );
+        if (nested !== undefined) return nested;
+      }
+      // An optional value object makes EVERY one of its flattened leaf columns
+      // nullable, but the `is not None` probe below narrows only the ONE column
+      // it reads — the rest stay `str | None` (`Decimal | None`, …) against a
+      // constructor wanting `str`, which mypy --strict rejects once per
+      // required subfield per read path.  Inside the guard the value object is
+      // known present, so each REQUIRED leaf is unwrapped by `required()` — the
+      // python spelling of the node backend's `!`.  A subfield that is optional
+      // IN the value object keeps its own null: with the VO present that one
+      // really can be absent.  (Ported from #2872, which fixed the pre-recursion
+      // inline version this helper replaced.)
+      const col = `${rowVar}.${snake(path)}`;
+      return hydrateScalar(
+        nullableGroup && !leafOptional ? `required(${col})` : col,
+        vf.type,
+        false,
+      );
+    })
+    .join(", ");
+  const ctor = `${voName}(${args})`;
+  if (!optional) return ctor;
+  const probe = voProbeColumn(voName, prefix, ctx);
+  if (probe === undefined) return ctor;
+  return `(${ctor} if ${rowVar}.${snake(probe)} is not None else None)`;
+}
+
 /** Domain ctor kwarg for one declared field, reading flattened columns
  *  off `rowVar`.  Ref collections are passed in as pre-loaded locals. */
 export function hydrateField(rowVar: string, f: FieldIR, ctx: EnrichedBoundedContextIR): string {
   const t = f.type.kind === "optional" ? f.type.inner : f.type;
   const opt = f.optional || f.type.kind === "optional";
   if (t.kind === "valueobject") {
-    const vo = findValueObjectInScope(ctx, t.name);
-    if (vo) {
-      const args = vo.fields
-        .map((vf) => {
-          const col = `${rowVar}.${snake(`${f.name}_${vf.name}`)}`;
-          // An OPTIONAL VO field makes EVERY one of its flattened leaf columns
-          // nullable, but the `is not None` probe below narrows only the ONE
-          // column it reads — the rest stay `str | None` (`Decimal | None`, …)
-          // against a constructor wanting `str`, which mypy --strict rejects
-          // once per required subfield per read path.  Inside the guard the VO
-          // is known present, so each REQUIRED leaf is unwrapped by
-          // `required()` — the python spelling of the node backend's `!`.  A
-          // subfield that is optional IN THE VO keeps its own null: with the VO
-          // present that one really can be absent.
-          const leafOptional = vf.optional || vf.type.kind === "optional";
-          return hydrateScalar(opt && !leafOptional ? `required(${col})` : col, vf.type, false);
-        })
-        .join(", ");
-      const ctor = `${t.name}(${args})`;
-      if (opt) {
-        const probe = `${rowVar}.${snake(`${f.name}_${vo.fields[0]!.name}`)}`;
-        return `(${ctor} if ${probe} is not None else None)`;
-      }
-      return ctor;
-    }
+    const hydrated = hydrateVo(rowVar, t.name, f.name, opt, ctx);
+    if (hydrated !== undefined) return hydrated;
   }
   return hydrateScalar(`${rowVar}.${snake(f.name)}`, f.type, f.optional);
 }
@@ -1287,6 +1367,43 @@ function persistScalar(expr: string, t: TypeIR, optional: boolean): string {
   return expr;
 }
 
+/** `(sql column attr, value expr)` pairs for one value-object field, written
+ *  to the flattened leaf columns.  Recurses through a nested value object so
+ *  the columns written are exactly the ones `py-columns.columnsFor` created —
+ *  a one-level flattening would bind `home_geo` (the VO itself) to a column
+ *  that exists in neither the SQLAlchemy model nor the DDL.
+ *
+ *  `guards` are the enclosing optional VO accesses, innermost last.  Each leaf
+ *  is written under `a is not None and a.b is not None`, which short-circuits
+ *  left to right — so the deeper access is never dereferenced through a `None`
+ *  ancestor. */
+function persistVoLeaves(
+  access: string,
+  voName: string,
+  prefix: string,
+  guards: readonly string[],
+  ctx: EnrichedBoundedContextIR,
+): Array<[string, string]> | undefined {
+  const vo = ctx.valueObjects.find((v) => v.name === voName);
+  if (!vo) return undefined;
+  return vo.fields.flatMap((vf): Array<[string, string]> => {
+    const inner = vf.type.kind === "optional" ? vf.type.inner : vf.type;
+    const sub = `${access}.${snake(vf.name)}`;
+    const path = `${prefix}_${vf.name}`;
+    if (inner.kind === "valueobject") {
+      const nestedGuards = vf.optional || vf.type.kind === "optional" ? [...guards, sub] : guards;
+      const nested = persistVoLeaves(sub, inner.name, path, nestedGuards, ctx);
+      if (nested !== undefined) return nested;
+    }
+    const value = persistScalar(sub, vf.type, false);
+    const guarded =
+      guards.length === 0
+        ? value
+        : `(${value} if ${guards.map((g) => `${g} is not None`).join(" and ")} else None)`;
+    return [[snake(path), guarded]];
+  });
+}
+
 /** `(sql column attr, value expr)` pairs for one declared field. */
 export function persistField(
   ownerExpr: string,
@@ -1297,14 +1414,8 @@ export function persistField(
   const opt = f.optional || f.type.kind === "optional";
   const access = `${ownerExpr}.${snake(f.name)}`;
   if (t.kind === "valueobject") {
-    const vo = findValueObjectInScope(ctx, t.name);
-    if (vo) {
-      return vo.fields.map((vf) => {
-        const sub = persistScalar(`${access}.${snake(vf.name)}`, vf.type, false);
-        const value = opt ? `(${sub} if ${access} is not None else None)` : sub;
-        return [snake(`${f.name}_${vf.name}`), value];
-      });
-    }
+    const pairs = persistVoLeaves(access, t.name, f.name, opt ? [access] : [], ctx);
+    if (pairs !== undefined) return pairs;
   }
   return [[snake(f.name), persistScalar(access, f.type, f.optional)]];
 }
