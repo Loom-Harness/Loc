@@ -3529,6 +3529,13 @@ export const DIAGNOSTIC_MESSAGES = {
     `workflow '${p.name}': '${p.aggName}.create(...)' has unknown field '${p.p}'.`,
   "loom.workflow-unknown-repository": (p: { name: unknown; repoName: unknown; method: unknown }) =>
     `workflow '${p.name}': '${p.repoName}.${p.method}(...)' references unknown repository '${p.repoName}'.`,
+  "loom.workflow-cross-context-repository": (p: {
+    where: unknown;
+    repoName: unknown;
+    ownContext: unknown;
+    otherContext: unknown;
+  }) =>
+    `${p.where}: repository '${p.repoName}' is declared in context '${p.otherContext}', not in this workflow's own context '${p.ownContext}' — a workflow orchestrates the aggregates of ONE context, so it may only load through its own repositories. No backend can emit this read: the repository is never constructed and the call is never awaited, so the generated code references a name that does not exist. Cross-context data crosses at the context's PUBLIC surface instead: fetch it through '${p.otherContext}''s api (a 'resource { kind: api }' binding gives a typed in-system call), or read a local projection folded over '${p.otherContext}''s published events (via a channel), and pass the value in as a parameter. If the two aggregates really do change together in one transaction, they belong in the SAME context — move one across, or move this workflow into '${p.otherContext}'.`,
   "loom.workflow-unknown-repository-method": (p: {
     name: unknown;
     repoName: unknown;

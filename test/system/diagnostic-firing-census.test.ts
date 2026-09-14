@@ -1083,6 +1083,34 @@ system S {
     }
   }
 }`,
+  // The workflow-body twin of the gate above, and the same mechanism: the
+  // workflow lowerer indexes `reposByName` from its own context alone, so a
+  // foreign repository name never becomes a `repo-let` — it survives as a `ref`
+  // with `refKind: "unknown"` and every backend renders it verbatim.
+  "loom.workflow-cross-context-repository": `
+system S {
+  subdomain Sub {
+    context Directory {
+      aggregate Technician with crudish { skills: string[] }
+      repository Technicians for Technician { }
+    }
+    context Dispatch {
+      aggregate WorkOrder with crudish {
+        status: string
+        operation assign() { status := "Assigned" }
+      }
+      repository WorkOrders for WorkOrder { }
+      workflow scheduleWorkOrder transactional {
+        create(workOrderId: WorkOrder id, assignTo: Technician id) {
+          let tech = Technicians.getById(assignTo)
+          let wo = WorkOrders.getById(workOrderId)
+          precondition tech.skills.count > 0
+          wo.assign()
+        }
+      }
+    }
+  }
+}`,
   // The aggregate-side twin: a plain `operation` naming a repository — the
   // spelling that is legal in a `workflow`, where a repository IS in scope.
   // In a domain member body it lowers to an unresolved ref that all five
