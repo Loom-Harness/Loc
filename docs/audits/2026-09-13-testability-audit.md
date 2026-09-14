@@ -7,6 +7,15 @@ context-integration and ui-e2e — against a real Postgres and a real browser. E
 below was produced by running the toolchain on `main` @ `619708fd`, not by reading code.
 Sources and outputs are reproducible from the `.ddd` listings inline.*
 
+> **Re-verified 2026-09-14 against `main @ 9e03c0ff`** (233 commits later). **Ten of twelve
+> findings stand unchanged.** F8 is half fixed — `ddd verify` now exits 1 and diagnoses the
+> mismatch instead of reporting a silent pass, but the join still cannot match what any
+> runner reports. F4 narrowed — a new `loom.e2e-unrouted-verb` gate checks the verb; the
+> payload is still unchecked. F1's root cause is now pinned exactly (the binding types as
+> `string`), and F11's catalogue is 10 entries, not 9. The re-verification table, the
+> per-packet file ownership and the four gating decisions are in
+> [`2026-09-14-testability-fleet-plan.md`](2026-09-14-testability-fleet-plan.md).
+
 Scope note: this audits the **test tier a user gets in their generated project** (the
 `test` / `test e2e` DSL and what it emits), not Loom's own ~14k-test internal suite. The
 internal suite's own coverage plan is [`docs/new-plan/testing-quality-improvement-plan.md`](../new-plan/testing-quality-improvement-plan.md).
@@ -343,7 +352,7 @@ the test **green**, because the guarded collection invariant (`tasks.count > 0 w
 == Completed`) threw instead. The test claims "a fresh work order cannot be completed" and
 would keep claiming it with the guard gone.
 
-The full matcher catalogue is 9 entries (`src/util/intrinsic-matchers.ts`): no
+The full matcher catalogue is 10 entries (`src/util/intrinsic-matchers.ts`): no
 `toContain`, no null/absence matcher, no object equality, no error-shape matcher, and no
 way to assert that an **event was emitted** — notable, given events drive projections and
 sagas.
