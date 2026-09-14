@@ -899,3 +899,31 @@ says "omitting the parens keeps it quiet", but `create { }` is a parse error —
 Impact on adoption: small individually. Two doc-vs-grammar contradictions inside one afternoon of
 first use is a signal about doc maintenance, in a product whose docs are otherwise unusually good.
 Time lost: 8 min
+
+---
+
+## Re-verification against fresh `main` (2026-09-14)
+
+The evaluation was written against `bcd25e3e`. `main` moved **190 commits** in the interim. Per
+`CLAUDE.md` ("a stale base lies twice"), every finding was re-run before any fix was written.
+Method: `git rebase origin/main`, rebuild, re-run each repro, and inspect the *generated output*
+rather than the exit code.
+
+| Finding | Status on fresh `main` | Evidence |
+|---|---|---|
+| **F-012** Java `mask unless` missing `import java.util.Objects` | ✅ **ALREADY FIXED** | the emitted `TechResponse.java` now carries 1 use / 1 import |
+| **F-011** .NET channel `CS0234` | 🔶 **CLAIMED** by open PR #2911 | verified on that branch: `global::Api.Infrastructure` ×2, 0 unqualified |
+| **F-008** compose pins withdrawn `minio/minio` | 🔶 **CLAIMED** by open PR #2911 | named in its body (their F-020) |
+| **F-016** Angular array → `FormControl(null)` | 🔶 **CLAIMED** by open PR #2927 | their fix covers "`string[]`, enum collections — every non-VO array", i.e. my `enum[]` case |
+| F-003, F-005, F-006, F-007, F-009, F-010, F-013, F-014, F-015, F-017, F-018, F-019, F-020, F-021, F-022 | ❌ **still reproduce** | re-run verbatim; see each finding |
+
+Two collisions were settled **empirically rather than by reading PR titles**, because the titles
+were misleading in both directions:
+- PR #2923 touches `src/generator/feliz/**` heavily for a name-collision class. I checked out the
+  branch, built it, and re-ran my repro: `grep -c '^type ScheduleWorkOrderForm ='` → **still 2**.
+  Different collision. **F-017 is unclaimed.**
+- PR #2911 touches `src/generator/elixir/vanilla/**`. On that branch the `enum[]` Ecto type is
+  **still** `{:array, Ecto.Enum, values: […]}` and the criterion still lacks its `^` pin.
+  **F-013-elixir and F-014 are unclaimed.**
+
+Net: **1 fixed upstream, 3 claimed by others, 17 unclaimed and mine to fix.**
