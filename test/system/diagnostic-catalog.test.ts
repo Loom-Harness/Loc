@@ -523,6 +523,11 @@ describe("validator diagnostic-message catalog", () => {
   // adds information rather than repeating the prefix.  A waiver ratchets — if
   // one of these is reworded or its call site starts passing `source: where`,
   // drop its row here in the same change.
+  //
+  // `loom.workflow-cross-context-repository` is the workflow-body twin of that
+  // family and waives for the same reason: `source` is `Ctx/Wf`, while `where`
+  // names the MEMBER the read sits in (`workflow 'consume' handle 'reassign'`)
+  // — a workflow has several bodies, and which one to fix is not in `source`.
   const WHERE_LEAD_NOT_A_DUPLICATE = new Set<string>([
     "loom.domain-service-no-emit",
     "loom.domain-service-no-mutation",
@@ -531,6 +536,7 @@ describe("validator diagnostic-message catalog", () => {
     "loom.domain-service-infra-call-from-aggregate",
     "loom.domain-service-cross-context-read",
     "loom.domain-service-read-unsupported",
+    "loom.workflow-cross-context-repository",
   ]);
 
   it("no entry leads with its `where` param — the CLI already prints `source`", () => {

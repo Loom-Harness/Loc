@@ -228,7 +228,7 @@ export function emitTable(
   if (onRowClickAction) {
     ctx.usedActions?.add(onRowClickAction.actionName);
     const arg = onRowClickAction.paramType ? rowVar : "";
-    onRowClickJs = `{ ${actionHandlerName(onRowClickAction.actionName)}(${arg}); }`;
+    onRowClickJs = `{ ${actionHandlerName(onRowClickAction.actionName, ctx.target)}(${arg}); }`;
   } else if (onRowClick) {
     const childCtx: WalkContext = {
       ...ctx,
