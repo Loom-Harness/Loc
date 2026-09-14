@@ -27,7 +27,12 @@ import {
 // the Svelte generator reuses the React module verbatim (same sharing pattern
 // as Vue).  Runtime files land under `src/lib/` and the body-walker seam's
 // `../i18n` import is rewritten to the depth-agnostic `$lib/i18n` specifier.
-import { renderI18nModule, renderLocaleCatalog } from "../_frontend/i18n-runtime.js";
+import {
+  renderI18nModule,
+  renderLocaleCatalog,
+  renderTranslatedCatalogs,
+  type TranslationCatalogs,
+} from "../_frontend/i18n-runtime.js";
 import { LIB_SCHEMAS_PROV_TS, PROV_LINEAGE_SCHEMA_BLOCK } from "../_frontend/lib-schemas.js";
 import { deriveSidebarFromUi } from "../_frontend/menu-emitter.js";
 import { MONEY_TEXT_SOURCE } from "../_frontend/money-format.js";
@@ -95,6 +100,12 @@ export interface GenerateSvelteOptions {
    *  shared page-emit context so pages/components record whole-file
    *  regions alongside their `out.set(...)`. */
   sourcemap?: import("../_trace/sourcemap.js").SourceMapRecorder;
+  /** Translated locale catalogs from the `ddd i18n` translator tree, keyed by
+   *  locale tag — see `PlatformSurface.emitProject`'s `translations`.  Each is
+   *  emitted as `src/lib/locales/<locale>.json` beside `en.json` and registered in the
+   *  generated i18n shim, under the SAME `i18nEnabled` gate as `en.json`.
+   *  Absent / empty is the normal case → byte-identical output. */
+  translations?: TranslationCatalogs;
 }
 
 export function generateSvelteForContexts(
@@ -153,8 +164,17 @@ export function generateSvelteForContexts(
   // generator for the rationale) — never flips the runtime on by itself.
   pack.setChromeI18n(i18nEnabled);
   if (i18nEnabled) {
+    // The source-language catalog, then every TRANSLATED catalog `ddd i18n`
+    // produced (scoped to this ui's keys, `TODO:` values already dropped by
+    // the loader).  The shim imports and registers exactly the locales emitted
+    // here, so what the translator wrote is what the app can resolve — with no
+    // translator tree the list is empty and the shim is byte-identical.
     out.set("src/lib/locales/en.json", renderLocaleCatalog(ui, packChromeCatalog(pack.manifest)));
-    out.set("src/lib/i18n.ts", renderI18nModule());
+    const translated = renderTranslatedCatalogs(ui, options.translations, packChromeCatalog(pack.manifest));
+    for (const [locale, content] of translated) {
+      out.set(`src/lib/locales/${locale}.json`, content);
+    }
+    out.set("src/lib/i18n.ts", renderI18nModule([...translated.keys()]));
   }
 
   // Per-aggregate api modules.

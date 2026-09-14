@@ -29,7 +29,12 @@ import {
   buildExternFunctionSignature,
 } from "../_frontend/extern-functions.js";
 import { renderGateExpr } from "../_frontend/gate-expr.js";
-import { renderI18nModule, renderLocaleCatalog } from "../_frontend/i18n-runtime.js";
+import {
+  renderI18nModule,
+  renderLocaleCatalog,
+  renderTranslatedCatalogs,
+  type TranslationCatalogs,
+} from "../_frontend/i18n-runtime.js";
 import { deriveSidebarFromUi, type NavSectionVM } from "../_frontend/menu-emitter.js";
 import { MONEY_TEXT_SOURCE } from "../_frontend/money-format.js";
 import { ANGULAR_NAV_LABELS, withNavLabelTokens } from "../_frontend/nav-labels.js";
@@ -96,6 +101,12 @@ export interface GenerateAngularOptions {
    *  page regions alongside their `out.set(...)`, and the same for every
    *  walked user-component class (`components-emit.ts`). */
   sourcemap?: SourceMapRecorder;
+  /** Translated locale catalogs from the `ddd i18n` translator tree, keyed by
+   *  locale tag — see `PlatformSurface.emitProject`'s `translations`.  Each is
+   *  emitted as `src/lib/locales/<locale>.json` beside `en.json` and registered in the
+   *  generated i18n shim, under the SAME `i18nEnabled` gate as `en.json`.
+   *  Absent / empty is the normal case → byte-identical output. */
+  translations?: TranslationCatalogs;
 }
 
 const DEFAULT_DESIGN = "angularMaterial@v1";
@@ -189,8 +200,17 @@ export function generateAngularForContexts(
   // generator for the rationale) — never flips the runtime on by itself.
   pack.setChromeI18n(i18nEnabled);
   if (i18nEnabled && ui) {
-    out.set("src/lib/i18n.ts", renderI18nModule());
+    // The source-language catalog, then every TRANSLATED catalog `ddd i18n`
+    // produced (scoped to this ui's keys, `TODO:` values already dropped by
+    // the loader).  The shim imports and registers exactly the locales emitted
+    // here, so what the translator wrote is what the app can resolve — with no
+    // translator tree the list is empty and the shim is byte-identical.
     out.set("src/lib/locales/en.json", renderLocaleCatalog(ui, packChromeCatalog(pack.manifest)));
+    const translated = renderTranslatedCatalogs(ui, options.translations, packChromeCatalog(pack.manifest));
+    for (const [locale, content] of translated) {
+      out.set(`src/lib/locales/${locale}.json`, content);
+    }
+    out.set("src/lib/i18n.ts", renderI18nModule([...translated.keys()]));
   }
 
   // Extern frontend functions (extern-function-hook-escape-hatch.md §3): the

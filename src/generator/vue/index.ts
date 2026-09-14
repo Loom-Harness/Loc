@@ -31,7 +31,12 @@ import { renderGateExpr } from "../_frontend/gate-expr.js";
 // the Vue generator reuses the React module verbatim (same sharing pattern as
 // the page objects / emit-templates above; a candidate for a later `_frontend/`
 // move alongside them).
-import { renderI18nModule, renderLocaleCatalog } from "../_frontend/i18n-runtime.js";
+import {
+  renderI18nModule,
+  renderLocaleCatalog,
+  renderTranslatedCatalogs,
+  type TranslationCatalogs,
+} from "../_frontend/i18n-runtime.js";
 import { LIB_SCHEMAS_PROV_TS, PROV_LINEAGE_SCHEMA_BLOCK } from "../_frontend/lib-schemas.js";
 import {
   deriveSidebarFromUi,
@@ -123,6 +128,12 @@ export interface GenerateVueOptions {
    *  `PlatformSurface.emitProject`'s doc comment.  Records whole-file
    *  regions for pages + components alongside their `out.set(...)`. */
   sourcemap?: SourceMapRecorder;
+  /** Translated locale catalogs from the `ddd i18n` translator tree, keyed by
+   *  locale tag — see `PlatformSurface.emitProject`'s `translations`.  Each is
+   *  emitted as `src/locales/<locale>.json` beside `en.json` and registered in the
+   *  generated i18n shim, under the SAME `i18nEnabled` gate as `en.json`.
+   *  Absent / empty is the normal case → byte-identical output. */
+  translations?: TranslationCatalogs;
 }
 
 export function generateVueForContexts(
@@ -178,8 +189,17 @@ export function generateVueForContexts(
   // generator for the rationale) — never flips the runtime on by itself.
   pack.setChromeI18n(i18nEnabled);
   if (i18nEnabled) {
+    // The source-language catalog, then every TRANSLATED catalog `ddd i18n`
+    // produced (scoped to this ui's keys, `TODO:` values already dropped by
+    // the loader).  The shim imports and registers exactly the locales emitted
+    // here, so what the translator wrote is what the app can resolve — with no
+    // translator tree the list is empty and the shim is byte-identical.
     out.set("src/locales/en.json", renderLocaleCatalog(ui, packChromeCatalog(pack.manifest)));
-    out.set("src/i18n.ts", renderI18nModule());
+    const translated = renderTranslatedCatalogs(ui, options.translations, packChromeCatalog(pack.manifest));
+    for (const [locale, content] of translated) {
+      out.set(`src/locales/${locale}.json`, content);
+    }
+    out.set("src/i18n.ts", renderI18nModule([...translated.keys()]));
   }
 
   // Per-aggregate api modules — 1:1 with the aggregate inventory,
