@@ -39,7 +39,15 @@ import { diagMessage } from "../../../diagnostics/messages.js";
 import type { EnrichedLoomModel, StmtIR, StoreIR } from "../../types/loom-ir.js";
 import { classifyFelizAsyncEffect } from "../../util/feliz-async-effect.js";
 import { felizPersistCodec } from "../../util/feliz-persist-codec.js";
-import { flutterPersistCodec } from "../../util/flutter-persist-codec.js";
+import { type FlutterPersistTier, flutterPersistCodec } from "../../util/flutter-persist-codec.js";
+
+/** A store's `lifetime` as the persist classifier's tier.  `memory` never
+ *  reaches the classifier (the loop skips it), so the fallback is inert. */
+function flutterTierOf(lifetime: string): FlutterPersistTier {
+  if (lifetime === "url") return "url";
+  return lifetime === "persistSession" ? "session" : "local";
+}
+
 import type { LoomDiagnostic } from "./diagnostic.js";
 
 // View-scoped effect builtins — illegal inside a store action (§3.2).  Mirrors
@@ -344,7 +352,12 @@ export function validateStores(loom: EnrichedLoomModel, diags: LoomDiagnostic[])
         for (const store of storesByUi.get(uiName) ?? []) {
           if (store.lifetime === "memory") continue;
           for (const f of store.state) {
-            if (flutterPersistCodec(f.type)) continue;
+            // The TIER matters for one shape: a nullable cell round-trips
+            // through the blob but not through the query string, because
+            // `hydrateFromUrl` re-seeds via `copyWith`, which cannot set a cell
+            // to null.  Passing it keeps the gate and the emitter reading the
+            // same classifier rather than two.
+            if (flutterPersistCodec(f.type, flutterTierOf(store.lifetime))) continue;
             const where = `store '${store.name}'`;
             diags.push({
               severity: "error",

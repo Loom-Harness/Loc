@@ -522,16 +522,25 @@ jobs:
               // index chain (`payload['order']?['id'] ?? ''`), which only a real
               // `flutter build` typechecks.  `e.at` keeps the depth-1 arm covered.
               on Live.OrderPlaced(e) { toast("Order " + e.order.id + " placed at " + e.at) refetch(Order) }
+              // `note: string?` / `meta: json` / `seenAt: datetime?` / `extra: json`
+              // are the codecs wave C2 added to the persist ladder.  Before
+              // them a nullable cell and a `json` cell were REFUSED on Flutter
+              // while the four JS frontends persisted both, and no case in this
+              // workflow carried either — so the `dart:convert` import, the
+              // null-guarded mirror writes and the `dynamic` copyWith param had
+              // never been compiled by a gate.  A nullable cell under `url` is
+              // still refused (copyWith cannot restore null), which is why
+              // `Filters` grows only the `json` one.
               store Cart persist: local {
-                state { lines: string[]  count: int = 0  subtotal: money }
+                state { lines: string[]  count: int = 0  subtotal: money  note: string?  meta: json }
                 action add(sku: string) { lines += sku  count += 1 }
               }
               store Recent persist: session {
-                state { lastCode: string = "" }
+                state { lastCode: string = ""  seenAt: datetime? }
                 action remember(c: string) { lastCode := c }
               }
               store Filters persist: url {
-                state { q: string = ""  pageNo: int = 1  onlyOpen: bool = false }
+                state { q: string = ""  pageNo: int = 1  onlyOpen: bool = false  extra: json }
                 action setQ(v: string) { q := v }
               }
               page Home {

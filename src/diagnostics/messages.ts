@@ -1594,9 +1594,13 @@ export const DIAGNOSTIC_MESSAGES = {
     `field '${p.name}' cannot be persisted on the flutter frontend — ` +
     `\`persist: ${p.lifetime}\` crosses an untyped boundary per field, and the Dart codec ` +
     `covers string / guid / id / enum / int / long / decimal / money / bool / datetime ` +
-    `fields plus arrays of those.  A json, File, entity, value-object or optional field ` +
-    `would be silently dropped from the stored state.  Give the field one of the covered ` +
-    `types, or use \`persist: memory\` for this store.`,
+    `fields, arrays of those, a \`json\` cell, and an OPTIONAL of any scalar (except under ` +
+    `\`persist: url\`, where a null cell cannot be restored: the back/forward re-seed goes ` +
+    `through \`copyWith\`, whose \`x ?? this.x\` cannot set a cell to null, so an absent ` +
+    `param would silently KEEP the old value).  A File, entity or value-object field has no ` +
+    `total Dart conversion at all (\`fromJson\` throws on junk) and would be silently ` +
+    `dropped from the stored state.  Give the field one of the covered types, or use ` +
+    `\`persist: memory\` for this store.`,
   "loom.store-cross-store-on-liveview-invalid": (p: {
     where: unknown;
     store: unknown;

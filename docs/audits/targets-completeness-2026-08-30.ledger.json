@@ -1160,14 +1160,13 @@
    "securityClass": false,
    "P": 3,
    "reverified": {
-    "date": "2026-09-10",
-    "against": "bc7ed8f8",
-    "method": "reconciliation 3 (packet C0.5) — repro re-run on this head, emitted output read",
-    "verdict": "reproduces",
-    "note": "RE-DERIVED: `src/ir/validate/checks/store-checks.ts` still carries the two per-field arms keyed off `felizPersistCodec` and `flutterPersistCodec` separately (`loom.store-lifetime-target-unsupported`, 6 sites), so the two covered type sets remain different.",
+    "date": "2026-09-14",
+    "against": "wave C2 packet 2j (claude/c2-flutter)",
+    "method": "the two codec tables re-read, a five-codec fixture generated, then the generated project compiled and RUN with a local Flutter 3.47.3 SDK",
+    "verdict": "narrowed, still open",
+    "note": "The FLUTTER table widened, which CLOSED one of the two directions this row names.  `json` was the single divergence pointing feliz-permissive (`feliz-persist-codec.ts` maps `json -> string`, Dart refused); Dart now has its own `{kind: 'json'}` codec and stores the decoded value VERBATIM — the identity conversion, the one that cannot fail — so a `json` cell persists on both.  `optional` was refused on both and now ships on flutter as a nullable cell (absent key -> `null`, which for a `T?` cell is the RIGHT value, not a lost one), which OPENS a new divergence in the other direction; it is pinned explicitly in `test/ir/util/persist-codec-divergence.test.ts` rather than left to be discovered.  What the row still records is therefore real and narrower: datetime / enum / guid / decimal[] / money[] / optional ship on flutter and not on feliz, and closing it is the FELIZ table's work (packet 2i's `store-lifetime-target-unsupported#field`).  One deliberate flutter-local narrowing to know about: a NULLABLE cell is refused at the `url` tier, because `hydrateFromUrl` re-seeds through `copyWith`, whose `x ?? this.x` cannot set a cell to null — an absent param would silently KEEP the old value, a wrong value rather than a missing feature.  Widening that means giving the shared state data class a null-distinguishing sentinel.  Proofs: `flutter analyze` 0 errors / 0 warnings, and FIVE `flutter test` cases against a mocked `shared_preferences` (absent -> null, present -> value, junk -> null without throwing, a nested json payload verbatim, and a setter write -> mirror -> re-boot round trip).  Mutation-proved: deleting the two new arms refuses all five cells at generate (`field 'nickname' | 'retryCount' | 'lastSeen' | 'blob' | 'extra' cannot be persisted`) and fails 10 of the 12 new vitest cases.",
     "remainingTargets": [
-     "feliz",
-     "flutter"
+     "feliz"
     ]
    }
   },
