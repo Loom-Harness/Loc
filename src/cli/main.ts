@@ -27,6 +27,7 @@ import { captureSnapshots } from "../system/loomsnap.js";
 import {
   buildManifest,
   carriedOverEntries,
+  contentDigest,
   MANIFEST_REL_PATH,
   type ManifestEntry,
   type OutputManifest,
@@ -536,6 +537,10 @@ interface RunResult {
   /** Stale files deleted on regen: listed in the previous `.loom/manifest.json`
    * but no longer emitted.  See `src/system/manifest.ts`. */
   removed?: number;
+  /** Of `written`, how many landed on a file whose content no longer matched
+   * the digest the previous manifest recorded — i.e. Loom overwrote somebody's
+   * local edit (finding F-019).  Always ≤ `written`. */
+  locallyModified?: number;
 }
 
 type GenerateTarget = "ts" | "dotnet" | "system";
@@ -699,6 +704,13 @@ async function runGenerate(
   // may delete when it stops emitting a path.  Missing/unreadable ⇒ null ⇒
   // this run prunes nothing and simply re-establishes the manifest.
   const previousManifest = readOutputManifest(outDir);
+  // path → digest of what the LAST run wrote there (absent for a manifest
+  // written before the field existed).
+  const previousHashes = new Map<string, string>();
+  for (const e of previousManifest?.entries ?? []) {
+    if (e.hash) previousHashes.set(e.path, e.hash);
+  }
+  const locallyModifiedPaths: string[] = [];
   // The manifest the NEXT run diffs against, computed BEFORE the write loop
   // and then handed to that loop as an ordinary emitted file.  Everything the
   // writer already guarantees therefore applies to it for free: `--dry-run`
@@ -716,11 +728,15 @@ async function runGenerate(
   for (const relPath of [...files.keys()].sort()) {
     const normalised = relPath.split(path.sep).join("/");
     if (ig.ignores(normalised)) continue;
-    manifestEntries.push(
-      isScaffoldOnce(files.get(relPath)!)
-        ? { path: normalised, scaffoldOnce: true }
-        : { path: normalised },
-    );
+    const content = files.get(relPath)!;
+    // The digest of the bytes this run puts at the path — the record the NEXT
+    // run diffs disk against to tell a model-driven rewrite from one that
+    // lands on a file a human edited (finding F-019).
+    manifestEntries.push({
+      path: normalised,
+      ...(isScaffoldOnce(content) ? { scaffoldOnce: true as const } : {}),
+      hash: contentDigest(content),
+    });
   }
   // Paths a past run emitted and this one does not, but that the generator
   // still owns — the protected families, chiefly the earlier migrations no
@@ -763,15 +779,26 @@ async function runGenerate(
     // a would-write.  `fileContentMatches` returns false for a missing
     // file (fresh output dir ⇒ everything is a write).
     const wouldChange = !ignored && !preserved && !fileContentMatches(full, content);
+    // Is the copy on disk still the copy WE last wrote?  Only asked of files
+    // this run is about to overwrite (a file whose content already equals what
+    // we would write carries no local edit by definition), and only answerable
+    // when the previous manifest recorded a digest — an older manifest, or a
+    // path a past run never claimed, reads as unknown provenance and says
+    // nothing.  The overwrite still happens: this changes the REPORT, not the
+    // contract (`docs/tools.md`).
+    const locallyModified = wouldChange && hasLocalEdit(previousHashes, normalised, full);
+    if (locallyModified) locallyModifiedPaths.push(normalised);
     if (options.dryRun) {
       const sizeKb = (Buffer.byteLength(content, "utf8") / 1024).toFixed(1);
       const status = ignored
         ? "  skip (.loomignore)"
         : preserved
           ? "  keep (scaffold-once)"
-          : wouldChange
-            ? "  write              "
-            : "  unchanged          ";
+          : locallyModified
+            ? "  write (local edits) "
+            : wouldChange
+              ? "  write              "
+              : "  unchanged          ";
       console.log(`${status}  ${relPath}  (${sizeKb} KB)`);
       if (ignored) skippedByIgnore++;
       else if (preserved) preservedScaffold++;
@@ -853,12 +880,25 @@ async function runGenerate(
 
   const verb = options.dryRun ? "Would write" : "Wrote";
   const parts: string[] = [`${verb} ${written} file(s) in ${outDir}`];
+  if (locallyModifiedPaths.length > 0) {
+    parts.push(
+      `${locallyModifiedPaths.length} of which had local modifications (pinnable via .loomignore)`,
+    );
+  }
   if (unchanged > 0) parts.push(`unchanged: ${unchanged}`);
   if (preservedScaffold > 0) parts.push(`preserved (scaffold-once): ${preservedScaffold}`);
   if (skippedByIgnore > 0) parts.push(`skipped (.loomignore): ${skippedByIgnore}`);
   if (removed > 0) parts.push(`${options.dryRun ? "would remove" : "removed"} (stale): ${removed}`);
   console.log(parts.join(", "));
-  return { hadError: false, written, unchanged, skippedByIgnore, preservedScaffold, removed };
+  return {
+    hadError: false,
+    written,
+    unchanged,
+    skippedByIgnore,
+    preservedScaffold,
+    removed,
+    locallyModified: locallyModifiedPaths.length,
+  };
 }
 
 /** Read `.loom/manifest.json` from a previous run.  Any failure — absent,
@@ -1070,6 +1110,29 @@ async function runNew(name: string, options: NewOptions): Promise<void> {
 
 /** True iff the file at `absPath` exists and its bytes match `content`
  * exactly.  Used to skip writes that would produce identical output. */
+/** True when the file at `absPath` differs from the digest the previous
+ *  manifest recorded for `relPath` — i.e. somebody edited Loom's output since
+ *  the last generate (finding F-019).
+ *
+ *  Fail-QUIET in every uncertain direction: no recorded digest (a pre-F-019
+ *  manifest, or a path this generator never claimed) and an unreadable file
+ *  both answer `false`.  A wrong `true` would accuse the user of an edit they
+ *  did not make, which is worse than staying silent — the write happens either
+ *  way. */
+function hasLocalEdit(
+  previousHashes: ReadonlyMap<string, string>,
+  relPath: string,
+  absPath: string,
+): boolean {
+  const recorded = previousHashes.get(relPath);
+  if (!recorded) return false;
+  try {
+    return contentDigest(fs.readFileSync(absPath, "utf8")) !== recorded;
+  } catch {
+    return false;
+  }
+}
+
 function fileContentMatches(absPath: string, content: string): boolean {
   if (!fs.existsSync(absPath)) return false;
   try {
