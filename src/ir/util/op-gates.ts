@@ -27,9 +27,11 @@ import {
   type ExprIR,
   type OperationIR,
   type StmtIR,
+  type WorkflowStmtIR,
+  exprUsesCurrentUser,
   stmtUsesCurrentUser,
 } from "../types/loom-ir.js";
-import { walkExprDeep } from "./walk.js";
+import { walkExprDeep, walkWorkflowStmtExprsDeep, walkWorkflowStmtsDeep } from "./walk.js";
 
 /** A `requires` statement, narrowed out of the general `StmtIR` union. */
 export type RequiresStmtIR = Extract<StmtIR, { kind: "requires" }>;
@@ -182,4 +184,49 @@ export function operationBodyUsesCurrentUser(op: OperationIR): boolean {
  *  must bind a principal before evaluating them. */
 export function operationGatesUseCurrentUser(op: OperationIR): boolean {
   return operationGates(op).some(stmtUsesCurrentUser);
+}
+
+/** True when a workflow must bind a principal before its body runs — either
+ *  the body itself names `currentUser`, or it calls an aggregate operation
+ *  whose hoisted gate / remaining body does.
+ *
+ *  The second half is the one that is easy to miss, and every backend missed
+ *  it in some form.  A `requires` gate is HOISTED out of the entity
+ *  (`operationGates`), so the CALLER owns it — an inline `j.finish()` inside a
+ *  workflow renders the gate at the call site.  A predicate that inspects only
+ *  the workflow's OWN expressions therefore answers "no principal needed" for
+ *  a body that is about to emit `currentUser.permissions…`, and the generated
+ *  method names a symbol it never binds (javac `cannot find symbol`, CS0103).
+ *
+ *  Rides `walkWorkflowStmtsDeep` rather than a hand-rolled recursion
+ *  (CLAUDE.md § "No hand-rolled IR walks"): the per-backend copies this
+ *  replaces descended into `for-each` only, or `for-each` + `if-let`, so an
+ *  op-call nested one level deeper than whatever the author remembered was
+ *  invisible.  The shared walker enumerates every `WorkflowStmtIR` child kind
+ *  and is `never`-checked, so a new statement kind cannot silently reopen the
+ *  hole. */
+export function workflowNeedsCurrentUser(
+  wf: { statements: readonly WorkflowStmtIR[] },
+  ctx: { aggregates: readonly { name: string; operations?: readonly OperationIR[] }[] },
+): boolean {
+  let found = false;
+  for (const top of wf.statements) {
+    walkWorkflowStmtsDeep(top, (s) => {
+      if (found) return;
+      if (s.kind === "op-call") {
+        const op = ctx.aggregates
+          .find((a) => a.name === s.aggName)
+          ?.operations?.find((o) => o.name === s.op);
+        if (op && (operationBodyUsesCurrentUser(op) || operationGatesUseCurrentUser(op))) {
+          found = true;
+        }
+        return;
+      }
+      walkWorkflowStmtExprsDeep(s, (e) => {
+        if (exprUsesCurrentUser(e)) found = true;
+      });
+    });
+    if (found) return true;
+  }
+  return false;
 }
