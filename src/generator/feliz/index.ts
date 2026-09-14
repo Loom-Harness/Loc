@@ -698,15 +698,36 @@ function humanizeLabel(name: string): string {
 /** The persistent daisyUI `navbar` above the routed content — a brand link plus
  *  one menu item per TOP-LEVEL page (a static route, no `:param`; detail pages
  *  are reached from their list, not the nav).  Returns "" when there are fewer
- *  than two top-level pages (a lone nav item isn't worth a bar). */
-function renderNavbar(pages: readonly PageIR[], brand: string, i18nEnabled = false): string {
+ *  than two top-level pages (a lone nav item isn't worth a bar).
+ *
+ *  Under the UI-gate machinery (`pageGate`) an entry whose page carries
+ *  `requires <currentUser gate>` is wrapped in the SAME claims guard the page
+ *  view itself uses (`index.ts` `renderPageView`, `feliz-target.ts`'s action
+ *  button) — otherwise the bar advertises a route whose own view immediately
+ *  renders `forbiddenView` and whose backend answers 403.  This is the Feliz
+ *  half of the per-link auth the JS frontends get from
+ *  `_frontend/menu-emitter.ts` (`requiresJs`). */
+function renderNavbar(
+  pages: readonly PageIR[],
+  brand: string,
+  i18nEnabled = false,
+  pageGate = false,
+): string {
   const navPages = pages.filter((p) => !hasRouteParam(p));
   if (navPages.length < 2) return "";
   const items = navPages
     .map((p) => {
       // PATH href (History API routing), not a `#/…` hash link.
       const href = p.route ?? "/";
-      return `          Html.li [ prop.children [ Html.a [ prop.href "${href}"; prop.text "${humanizeLabel(p.name)}" ] ] ]`;
+      const li = `Html.li [ prop.children [ Html.a [ prop.href "${href}"; prop.text "${humanizeLabel(p.name)}" ] ] ]`;
+      // ONE line per entry, guard included: F# keys a newline-separated list
+      // element by its first-token column, so a multi-line guard here would
+      // have to re-indent with the surrounding `prop.children [` block.
+      const gated =
+        pageGate && p.requires
+          ? `(match model.CurrentUser with Some currentUser when ${renderFelizGate(p.requires, "currentUser")} -> ${li} | _ -> Html.none)`
+          : li;
+      return `          ${gated}`;
     })
     .join("\n");
   // The bar is a real <nav> landmark (a11y contract) — a screen reader
@@ -746,13 +767,14 @@ function renderRootView(
   fnName = "view",
   brand = "",
   i18nEnabled = false,
+  pageGate = false,
 ): string {
   const arms = pages.map((p) => {
     const names = routeParamNames(p);
     const args = names.length > 0 ? ` ${names.join(" ")}` : "";
     return `        | ${pageCase(p, nameCtx)}${caseArgs(names)} -> ${pageViewFn(p, nameCtx)} model dispatch${args}`;
   });
-  const navbar = renderNavbar(pages, brand, i18nEnabled);
+  const navbar = renderNavbar(pages, brand, i18nEnabled, pageGate);
   const router = [
     "    React.router [",
     // PATH-based routing (History API), NOT hash (`#/…`) — the generated SPA
@@ -1482,7 +1504,7 @@ function renderAppFs(
           ),
         ),
         "",
-        renderRootView(pages, nameCtx, rootFn, ui.name, i18nEnabled),
+        renderRootView(pages, nameCtx, rootFn, ui.name, i18nEnabled, pageGate),
       ]
     : [
         renderPageView(

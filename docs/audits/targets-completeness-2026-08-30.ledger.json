@@ -457,49 +457,6 @@
    }
   },
   {
-   "id": "feliz-navbar-ignores-page-requires",
-   "title": "Feliz's default navbar advertises routes the backend refuses — `renderNavbar` never reads `page.requires`",
-   "kind": "silent",
-   "class": null,
-   "confidence": "proven",
-   "P": 2,
-   "size": "S",
-   "targets": [
-    "feliz"
-   ],
-   "fileTrees": [
-    "src/generator/feliz/index.ts"
-   ],
-   "sources": [
-    "verify-2026-09-03"
-   ],
-   "related_to": [
-    "M-T3.15-C3-nav-vs-requires"
-   ],
-   "evidence": [
-    {
-     "fleet": 0,
-     "id": "feliz-navbar-ignores-page-requires",
-     "bucket": "verify-2026-09-03",
-     "text": "Same fixture that proves C3 fixed on react/vue/svelte/angular/heex: `repository Tickets for Ticket { find all(): Ticket[] requires currentUser.role == \"agent\" }`, scaffolded ui, `auth: ui`. Every other target gates its default entry; `web/src/App.fs:490` emits `Html.li [ Html.a [ prop.href \"/tickets\"; prop.text \"List\" ] ]` unconditionally. `renderNavbar` (src/generator/feliz/index.ts:700-729) takes `readonly PageIR[]` and reads only `p.route` / `p.name`."
-    }
-   ],
-   "fix": "Thread `page.requires` into `renderNavbar` and gate the entry, the way the other five targets' shells already do. C3's own sizing note applies: the preparers are a per-frontend signature, not a shared one.",
-   "impact": "Under `auth: ui` a Feliz app shows every principal a link to a route the backend answers 403 for.",
-   "repro": "See evidence.",
-   "securityClass": null,
-   "reverified": {
-    "date": "2026-09-10",
-    "against": "bc7ed8f8",
-    "method": "reconciliation 3 (packet C0.5) — repro re-run on this head, emitted output read",
-    "verdict": "reproduces",
-    "note": "RE-DERIVED at the code path: `src/generator/feliz/index.ts:702 function renderNavbar(pages, brand, i18nEnabled)` — the only page fields it reads are `route` (`:708`) and `name` (`:709 humanizeLabel(p.name)`); `requires` is never consulted, so under `auth: ui` the navbar advertises routes the backend answers 403 for.",
-    "remainingTargets": [
-     "feliz"
-    ]
-   }
-  },
-  {
    "id": "F2-CFE-11",
    "title": "`testid:` on `CreateForm` is silently dropped on Angular and Flutter (honoured on react/vue/svelte/feliz)",
    "kind": "honest",
@@ -7199,6 +7156,11 @@
    "id": "static-subpath-405-node-only",
    "title": "CLOSED (wave C2, packet 2a — elixir was the last arm). Phoenix now mounts `match :*, \"<static sub-path>\", NotFoundController, :not_found` right after the LAST real route for each one-segment static sub-path, inside `scope \"/api\"`: the real routes still win for the verbs they serve (phoenix matches in declaration order) and every other verb lands on the controller that already derives `Allow` from `Phoenix.Router.route_info/4` — so the header comes from the ROUTER, not from a second copy of the route table that could drift. The guarded set is derived from the routes this router actually mounts (`withStaticSubpathGuards`, src/generator/elixir/vanilla/shell-emit.ts), so a backend-specific static route is covered by construction. BOOT-PROVED on real Postgres: `DELETE /api/articles/by_owner` answered 422 from the `:id` cast before and answers 405 with `allow: GET` under `application/problem+json` now; `POST` likewise; `GET /api/articles/by_owner` still 200; `DELETE /api/articles/<uuid>` still 204 and `DELETE /api/articles/not-a-uuid` still 422, so the `:id` route is unshadowed. Pinned by test/generator/elixir/static-subpath-method-guard.test.ts — a SWEEP over every route in the `/api` scope (guarded set == static set, guard after its own routes and before `/:id`, no `:`-bearing path guarded) with a vacuity guard on the fixture's static set; mutation-proved by making `withStaticSubpathGuards` a pass-through, which fails \"guards EVERY one-segment static sub-path the router mounts\" and \"places each guard AFTER its real routes and BEFORE the `:id` route\". Compile-gated through the existing `vanilla-finds.ddd` elixir build fixture (`mix compile --warnings-as-errors`).",
    "source": "fleet1:schemathesis-F8 / ledger reconciliation 3"
+  },
+  {
+   "id": "feliz-navbar-ignores-page-requires",
+   "title": "CLOSED (wave C2, packet 2i). `renderNavbar` (src/generator/feliz/index.ts) now takes the `pageGate` flag and wraps a nav entry whose page carries `requires <currentUser gate>` in exactly the guard the gated page view and the gated action button already use — `(match model.CurrentUser with Some currentUser when <F#-rendered gate> -> Html.li [ … ] | _ -> Html.none)`, one line per entry so the F# offside column of the `prop.children [ … ]` list is unchanged. An ungated entry and a gate-free app keep the bare `Html.li [ … ]`, byte-identical to the pre-fix shell. This is the Feliz half of the per-link auth the four JSX frontends get from `_frontend/menu-emitter.ts`'s `requiresJs`. Repro before: a three-page `auth: ui` app whose `/tickets` page carries `requires currentUser.role == \"agent\"` emitted `Html.li [ prop.children [ Html.a [ prop.href \"/tickets\"; … ] ] ]` unconditionally while the page view below it rendered `| _ -> forbiddenView`. Pinned by two cases in test/generator/feliz/auth-gate.test.ts (the gated entry's exact guard + the two ungated entries stay bare; a gate-free app grows no `Html.none)` at all); mutation-proved by collapsing the ternary to the bare `li`, which fails \"gates a navbar entry on its page's `requires`, and leaves ungated entries bare\" with `expected 'module App…' to contain '(match model.CurrentUser with Some cu…'`.",
+   "source": "verify-2026-09-03"
   }
  ],
  "conflicts": [
