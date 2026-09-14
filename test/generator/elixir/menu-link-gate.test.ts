@@ -12,7 +12,7 @@
 //     link ungated (the sidebar has no record context).
 
 import { describe, expect, it } from "vitest";
-import { generateSystemFiles } from "../../_helpers/generate.js";
+import { generateSystemFiles, generateSystemFilesUnchecked } from "../../_helpers/generate.js";
 
 /** Auth (or no-auth) Phoenix LiveView app with two pages — one gated by a
  *  currentUser-only `requires`, one ungated — plus an explicit menu so both
@@ -54,12 +54,34 @@ ${deployAuth}  }
 `;
 }
 
-async function sidebar(opts: { auth: boolean; gate?: string }): Promise<string> {
-  const files = await generateSystemFiles(system(opts));
+async function sidebar(opts: {
+  auth: boolean;
+  gate?: string;
+  /** Why this fixture is one the product refuses — see the `open == true`
+   *  case below.  Omitted for every valid fixture. */
+  unchecked?: string;
+}): Promise<string> {
+  const source = system(opts);
+  const files = opts.unchecked
+    ? await generateSystemFilesUnchecked(source, opts.unchecked)
+    : await generateSystemFiles(source);
   const src = files.get("app/lib/app_web/components/sidebar.ex");
   expect(src, "sidebar.ex not emitted").toBeDefined();
   return src!;
 }
+
+// A page carrying a `requires` gate in an app with NO auth is a model the
+// product REFUSES — `loom.page-gate-not-client-evaluable` (phase ⑦) rejects a
+// gate naming a `currentUser` claim no `user { … }` block declares, and
+// `loom.current-user-needs-auth-ui` rejects the same page once the block is
+// added but the deployable still binds no session user.  So the emitter's
+// auth-off branch — "no `@current_user` exists, therefore gate nothing" — is
+// only REACHABLE on a rejected model, and the fixture has to stay one.
+// Dropping the gate instead would make "emits NO gating" trivially true and
+// stop the assertion from reaching the branch it names.
+const NO_AUTH_WHY =
+  "the sidebar's auth-off branch (no @current_user, so no gating) is only reachable on a " +
+  "model phase ⑦ rejects — a `requires` gate on a page in an app that binds no session user";
 
 describe("phoenix sidebar — menu-link gate", () => {
   it("wraps a gated page's link in `<%= if (@current_user.…) do %>` when auth is on", async () => {
@@ -86,7 +108,7 @@ describe("phoenix sidebar — menu-link gate", () => {
   });
 
   it("emits NO gating when the app has no auth (byte-identical)", async () => {
-    const src = await sidebar({ auth: false });
+    const src = await sidebar({ auth: false, unchecked: NO_AUTH_WHY });
     expect(src).not.toContain("<%= if (");
     expect(src).not.toContain("attr :current_user");
     // Both links still render, just ungated.
@@ -97,7 +119,21 @@ describe("phoenix sidebar — menu-link gate", () => {
   it("leaves a non-currentUser predicate ungated (no record context in the sidebar)", async () => {
     // `open` is not a currentUser claim — the sidebar can't evaluate it, so
     // the link stays ungated even though auth is on.
-    const src = await sidebar({ auth: true, gate: "requires open == true" });
+    //
+    // Phase ⑦ now REFUSES this model outright (`loom.page-gate-not-client-
+    // evaluable`: a page gate is re-evaluated in the browser, and `open` is
+    // not bound there), so the fixture has to stay invalid for the emitter
+    // behaviour it pins to be reachable at all — the sidebar's own
+    // "ungated unless the predicate is currentUser-only" rule is the last
+    // line of defence behind that gate, and a silently-gated link would be a
+    // security bug if the gate ever stopped firing.
+    const src = await sidebar({
+      auth: true,
+      gate: "requires open == true",
+      unchecked:
+        "the sidebar's non-currentUser-predicate fallback is only reachable on a model " +
+        "`loom.page-gate-not-client-evaluable` rejects — it is the defence behind that gate",
+    });
     expect(src).not.toContain("<%= if (");
   });
 
@@ -109,7 +145,7 @@ describe("phoenix sidebar — menu-link gate", () => {
   });
 
   it("the no-auth app layout passes no current_user (byte-identical)", async () => {
-    const files = await generateSystemFiles(system({ auth: false }));
+    const files = await generateSystemFilesUnchecked(system({ auth: false }), NO_AUTH_WHY);
     const layout = files.get("app/lib/app_web/components/layouts/app.html.heex");
     expect(layout, "app layout not emitted").toBeDefined();
     expect(layout!).not.toContain("current_user=");

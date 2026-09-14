@@ -203,7 +203,7 @@ function storeRenderedExprs(store: StoreIR): ExprIR[] {
  *  at the same index).  Mirrors the walker's `positionalArgs`, which lives in
  *  the generator layer and cannot be imported here. */
 
-function positionalArgsOf(e: Extract<ExprIR, { kind: "call" }>): ExprIR[] {
+export function positionalArgsOf(e: Extract<ExprIR, { kind: "call" }>): ExprIR[] {
   return e.args.filter((_, i) => !e.argNames?.[i]);
 }
 
