@@ -397,8 +397,8 @@ export function matchRepoRead(
  *  The rules track `lower-workflow.ts`, which lowers the same four shapes on
  *  the workflow tier, so the two tiers cannot disagree about what one read
  *  returns: `findAll` / `run` mirror its `repo-run` arms' `arrayType`, `named`
- *  mirrors its `repo-let` arm (declared `returnType`, else the bare aggregate
- *  for `getById`), and `find` takes the `T?` its `if let` arm implies. */
+ *  mirrors its `repo-let` arm (a declared `returnType`, else the built-in's own
+ *  shape), and `find` takes the `T?` its `if let` arm implies. */
 export function repoReadResultType(read: RepoReadMatch, env?: Env): TypeIR {
   const entity: TypeIR = { kind: "entity", name: read.repo.aggregate?.ref?.name ?? "Unknown" };
   switch (read.kind) {
@@ -413,14 +413,25 @@ export function repoReadResultType(read: RepoReadMatch, env?: Env): TypeIR {
     // bound var is the UNWRAPPED entity.  So the read itself is `T?`.
     case "find":
       return { kind: "optional", inner: entity };
-    // A declared `find` carries its own return type (`Owner[]`, `Owner?`, …) —
-    // that declaration is the contract, so honour it verbatim.  `getById` is
-    // built-in and always the bare aggregate.  Both mirror the workflow
-    // `repo-let` arm.
+    // A named call — a DECLARED `find`, or one of the built-in verbs every
+    // repository auto-emits.  A declaration is the contract, so it wins and is
+    // honoured verbatim (`Owner[]`, `Owner?`, a union…).
+    //
+    // The built-ins carry no declaration to read, and they do NOT share one
+    // shape: `getById`/`findById` load a single row, `findAll`/`all` return the
+    // whole collection.  Collapsing them either way reintroduces exactly this
+    // bug for the other half — bind `findAll()` as one aggregate and `.count`
+    // goes back to emitting verbatim; bind `getById()` as a collection and a
+    // single row types as `Owner[]`.  The split mirrors `repositoryMethodType`
+    // in `src/language/type-system.ts`, which is the same table one layer up.
     case "named": {
-      if (read.method === "getById") return entity;
       const decl = read.repo.finds.find((f) => f.name === read.method);
-      return decl ? lowerType(decl.returnType, env) : entity;
+      if (decl) return lowerType(decl.returnType, env);
+      if (read.method === "findAll" || read.method === "all")
+        return { kind: "array", element: entity };
+      // `getById` / `findById`, and the fallback for an unresolvable named read
+      // — the workflow `repo-let` arm's default is likewise the bare aggregate.
+      return entity;
     }
   }
 }
