@@ -536,6 +536,48 @@ system S {
   }
 }`,
 
+  // An integer literal the `INT` terminal cannot hold: `9007199254740993`
+  // reaches the AST as `…92`, so the value the author wrote is already gone
+  // before any emitter runs (M-T5.23).  The fixture writes it in a `derived`
+  // body — the position where it survived all the way into emitted source.
+  "loom.integer-literal-imprecise": `
+system S {
+  subdomain D { context C {
+    aggregate Thing with crudish {
+      name: string
+      derived big: long = 9007199254740993
+    }
+    repository Things for Thing { }
+  } }
+  api Api from D
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable d { platform: node contexts: [C] dataSources: [st] serves: Api port: 3000 }
+}`,
+
+  // A declared row field whose type disagrees with the aggregation filling it
+  // (M-T5.24): `avg` over a MONEY column is money, and the declaration says
+  // `decimal` — which is what every backend's coercion reads, so the exact
+  // money mean would have shipped as a lossy float64 JSON number.  The fixture
+  // uses `avg` specifically because that is the operator the retype moved; a
+  // `sum` mismatch fires the same arm.
+  "loom.projection-aggregate-type-mismatch": `
+system S {
+  subdomain Sales { context Orders {
+    aggregate Order with crudish { code: string  total: money }
+    repository Orders for Order { }
+    projection SalesTotals {
+      avgTotal: decimal
+      from Order as o
+      select avgTotal = avg(o.total)
+    }
+  } }
+  api Api from Sales
+  storage pg { type: postgres }
+  resource st { for: Orders, kind: state, use: pg }
+  deployable d { platform: node contexts: [Orders] dataSources: [st] serves: Api port: 3000 }
+}`,
+
   // A query-time projection whose direct-table arm aggregates a field that has
   // no column: the source is `shape: document`, so `total` lives inside the
   // `data` jsonb blob and `sum(o.total)` names nothing.  Universal, not
