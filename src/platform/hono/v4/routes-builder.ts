@@ -155,6 +155,26 @@ import { lowerFirst, plural, snake, upperFirst } from "../../../util/naming.js";
  *  the patch at the bottom of `renderAggregateRoutes`). */
 const PROBLEM_IMPORT_PLACEHOLDER = "/* __LOOM_PROBLEM_IMPORT__ */";
 
+/** Marker line standing in for the `decimal.js` default import until the router
+ *  body is assembled.
+ *
+ *  The header used to assert an invariant instead of checking one — "the route
+ *  file itself never names `Decimal` directly, so a `moneySchema` import is
+ *  sufficient" — and a `money` field with a LITERAL DEFAULT breaks it.  The
+ *  default is rendered into the create-request zod schema through
+ *  `wireDefaultLiteral` → `renderTsExpr`, which spells a money literal as a
+ *  decimal.js construction:
+ *
+ *      weight: moneySchema.default(new Decimal("0.00")),   // TS2304
+ *
+ *  `money` is the flagship primitive and `= <literal>` the most ordinary
+ *  modifier there is, so every such field in a model is one compile error (14
+ *  in the 39-aggregate model this was found in).  Like the two placeholders
+ *  either side of it, the line is decided from the ASSEMBLED BODY rather than
+ *  from a predicate about what the body ought to contain — the only form of the
+ *  claim that a new render site cannot falsify. */
+const DECIMAL_IMPORT_PLACEHOLDER = "/* __LOOM_DECIMAL_IMPORT__ */";
+
 /** RFC 9110 §15.6.2 — the route exists and the request was fine, but the
  *  implementation behind it is ABSENT.  That is what an `extern` operation whose
  *  scaffold-once body is still the generated stub reports.  A RUNTIME arm only,
@@ -472,12 +492,18 @@ export function buildRoutesFile(
   // reading the principal from the ambient request context.
   const lines: string[] = [];
   lines.push("// Auto-generated.  Do not edit by hand.");
+  // Deferred: `decimal.js` joins the header only when the assembled body
+  // actually names `Decimal` — which a money field's literal DEFAULT makes it
+  // do (`.default(new Decimal("0.00"))`).  Patched from the body at the bottom
+  // of this function, like the `./problem-details` and value-object imports.
+  // Emitted first so the header keeps Biome's import order (a package
+  // specifier sorts ahead of the relative `../lib/schemas` below it).
+  lines.push(DECIMAL_IMPORT_PLACEHOLDER);
   if (aggregateUsesMoneyDeep(agg, valueObjectPool(ctx))) {
-    // Money-bearing routes consume the parsed `Decimal` via Zod's
-    // type inference through `moneySchema`; the route file itself
-    // never names `Decimal` directly, so a `moneySchema` import is
-    // sufficient (the underlying `decimal.js` dep is pulled in by
-    // the shared helpers file).
+    // Money crosses the wire through `moneySchema`, whose parse output is a
+    // `Decimal`; the routes consume that by type inference.  This import is
+    // about the SCHEMA, and is why the file used to get away with never
+    // importing the class itself.
     lines.push(`import { moneySchema } from "../lib/schemas";`);
   }
   lines.push(`import { OpenAPIHono, createRoute, z } from "@hono/zod-openapi";`);
@@ -1581,12 +1607,28 @@ export function buildRoutesFile(
   if (/\brequireJsonContentType\(/.test(assembledSoFar))
     problemNamed.push("requireJsonContentType");
   if (/\bversionETag\(/.test(assembledSoFar)) problemNamed.push("versionETag");
+  // Patch the deferred `decimal.js` import.  Read off the assembled text with
+  // string literals blanked, so a message or an `.openapi("…")` label naming
+  // the word cannot mint a dead import; `new Decimal(` is the only way this
+  // file spells the class today, and the wider `Decimal` test covers a type
+  // annotation or a static call if a future render site adds one.
+  const assembledScan = assembledSoFar
+    .replace(/"(?:\\.|[^"\\])*"/g, '""')
+    .replace(/'(?:\\.|[^'\\])*'/g, "''")
+    .replace(/`(?:\\.|[^`\\])*`/g, "``")
+    .replace(DECIMAL_IMPORT_PLACEHOLDER, "");
+  // Replaced WITH its trailing newline so the unused case removes the line
+  // outright rather than leaving a blank one in the header.
+  const decimalImport = /(?<![.\w$])Decimal\b/.test(assembledScan)
+    ? `import Decimal from "decimal.js";\n`
+    : "";
   const assembled = lines
     .join("\n")
     .replace(
       PROBLEM_IMPORT_PLACEHOLDER,
       `import { ${problemNamed.join(", ")} } from "./problem-details";`,
-    );
+    )
+    .replace(`${DECIMAL_IMPORT_PLACEHOLDER}\n`, decimalImport);
   // Patch the deferred VO import: keep only names the body actually
   // references; tag each as `type` unless the body constructs it via
   // `new <Vo>(`.
