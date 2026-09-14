@@ -26,6 +26,7 @@ ddd generate ts <file.ddd> -o <outdir>            # emit a single TypeScript pro
 ddd generate dotnet <file.ddd> -o <outdir>        # emit a single .NET project (legacy)
 ddd generate system <file.ddd> -o <outdir>        # emit every deployable + docker-compose.yml
 ddd verify <file.ddd> --results <results.json>    # join test results onto the requirements graph
+ddd verify <file.ddd> --from-vitest <report.json> # …the same, straight from `vitest run --reporter=json`
 ddd snapshot <file.ddd> -o <outdir>               # capture provenance rule snapshots
 ddd patch <file.ddd> --patches <patches.json>     # apply node-addressed model patches
 ddd trace <logfile>                               # translate a runtime stack-trace back to .ddd source
@@ -182,11 +183,17 @@ See the pipeline phases in [`technical.md`](technical.md).
 `ddd verify` joins a JSON of test results onto the requirements graph
 built from `requirement` / `solution` / `testCase` declarations, writes
 `.loom/verification.json` + `.loom/verification.md` under `--out`, and
-sets a non-zero exit code if `--require-all` is set and any requirement
-remains unverified, or if `--min <pct>` is set and the verified
-percentage is below it.  `--json` also prints the verification JSON to
-stdout.  See [`traceability.md`](traceability.md) for the artefact
-format.
+sets a non-zero exit code if any requirement is `FAILING`, if a declared
+test produced **no result at all** (unless `--allow-missing` — "we have
+no result" is not "it passed"), if `--require-all` is set and any
+requirement remains unverified, or if `--min <pct>` is set and the
+verified percentage is below it.  `--json` also prints the verification
+JSON to stdout.  The results document is either Loom's own
+`{ version, results: [...] }` (`--results`) or a vitest / jest
+`--reporter=json` report (`--from-vitest`, which applies the
+`(suite, name)` join convention for you).  See [`verify.md`](verify.md)
+for the full contract and [`traceability.md`](traceability.md) for the
+artefact format.
 
 `ddd snapshot` captures one immutable `<ts>-<guid>.loomsnap.json` per
 system under `<out>/.loom/snapshots/`, recording the current provenance
