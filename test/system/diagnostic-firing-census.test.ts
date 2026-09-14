@@ -895,6 +895,22 @@ system P {
       status: string
       create(oid: Order id) { status := "Pending" }
     }`),
+  // A repository reached INLINE, inside a `precondition` expression, instead of
+  // bound to its own `let`.  The let-bound sibling read (`Things.getById`) in
+  // the same body is the control: only the inline `Others` is flagged, which is
+  // what makes the fixture's diagnostic meaningful rather than a blanket
+  // "a repository name appears in this workflow".
+  "loom.workflow-inline-repository-call":
+    repoOnly(`    aggregate Thing with crudish { name: string  otherId: Other id }
+    repository Things for Thing { }
+    aggregate Other with crudish { label: string }
+    repository Others for Other { }
+    workflow W {
+      create(tid: Thing id) {
+        let t = Things.getById(tid)
+        precondition t.name == Others.getById(t.otherId).label
+      }
+    }`),
   // The code whose "covered by message in validation.test.ts" claim outlived
   // the file it cited (M-T9.33's own opening finding).  It fires: an `emit`
   // supplying a field the event does not declare.
@@ -1094,6 +1110,26 @@ system S {
       }
     }
   }
+}`,
+  // The aggregate-side twin: a plain `operation` naming a repository — the
+  // spelling that is legal in a `workflow`, where a repository IS in scope.
+  // In a domain member body it lowers to an unresolved ref that all five
+  // backends render verbatim into a class that binds no repository.
+  "loom.repository-access-outside-workflow": `
+system S {
+  subdomain Sub { context Ops {
+    aggregate Technician { name: string }
+    repository Technicians for Technician { }
+    aggregate Job {
+      technicianId: Technician id
+      assignedName: string
+      operation assign(assignTo: Technician id) {
+        technicianId := assignTo
+        assignedName := Technicians.getById(assignTo).name
+      }
+    }
+    repository Jobs for Job { }
+  } }
 }`,
 
   // An unresolved bare ref in a rendered slot: the walker emits a comment and
@@ -1347,6 +1383,23 @@ system P {
   // `api` identifier the emitted file never binds.  `sum` on purpose: it
   // collides with the collection intrinsic, which is the arm that MIS-COMPILED
   // (to a `.reduce(…)` fold) rather than merely failing at run time.
+  // An e2e body calling a verb whose ROUTE this same compilation does not emit:
+  // `Product` declares no `create` (no `crudish`), so no backend mounts
+  // `POST /api/products` — and the emitted suite would POST there anyway.
+  "loom.e2e-unrouted-verb": `
+system S {
+  subdomain D { context C {
+    aggregate Product { sku: string }
+  } }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable d { platform: node, contexts: [C], dataSources: [st], port: 4100 }
+  test e2e "t" against d {
+    let p = api.products.create({ sku: "W-1" })
+    expect(p.sku).toBe("W-1")
+  }
+}`,
+
   "loom.e2e-unaddressable-call": `
 system S {
   subdomain D { context C {

@@ -4,6 +4,7 @@
 // -------------------------------------------------------------------------
 
 import { diagMessage } from "../../../diagnostics/messages.js";
+import { lowerFirst } from "../../../util/naming.js";
 import { createInputFields, omittableCreateInputs } from "../../enrich/wire-projection.js";
 import { verbsForKind } from "../../resource-verbs.js";
 import type {
@@ -220,6 +221,7 @@ export function validateWorkflows(
       diags,
     );
     validateWorkflowBody(ctx, wf, diags, crossContextBindings);
+    validateWorkflowInlineRepoCalls(ctx, wf, diags);
     validateWorkflowCorrelation(ctx, wf, diags, allEvents);
     validateWorkflowOwnStateAddressable(ctx, wf, diags);
     validateWorkflowCreates(wf, diags, ctx.name);
@@ -263,6 +265,126 @@ function validateWorkflowFunctions(wf: WorkflowIR, diags: LoomDiagnostic[], ctxN
           fnName: fn.name,
         }),
         source: `${ctxName}/${wf.name}`,
+      });
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// INLINE REPOSITORY CALLS — `loom.workflow-inline-repository-call`.
+//
+// Repository access from a workflow IS supported — but only in ONE spelling:
+// bound to its own `let` statement.  `lowerWorkflowStatement` recognises a
+// repository read exclusively in the `isLetStmt` arm (`matchRepoCall` /
+// `matchFindCall` / `matchFindAllCall` / `matchRetrievalRunCall` from
+// `lower/repo-read.ts`) and lowers it to a `repo-let` / `repo-run`
+// `WorkflowStmtIR` that carries the repository as a STRING field (`repoName`),
+// never as an expression.
+//
+// The identical call written INLINE inside another expression — a
+// `precondition`, a `requires`, an `assign` RHS, an `emit` field, a `for-each`
+// iterable — goes through `lowerExpr`, where a repository name resolves to
+// nothing: it stays a `method-call` on a `ref` with `refKind: "unknown"`.
+// Two silent consequences follow:
+//
+//   1. every backend derives the repositories to instantiate from the
+//      STATEMENT KINDS it walks (`repo-let` / `repo-run` / `repo-delete` /
+//      `factory-let` / the exit saves) — hono `workflow-builder.ts`, dotnet
+//      `workflow-emit.ts`, java `emit/workflow.ts`, python
+//      `workflows-builder.ts` — so an expression-level repository reference
+//      never instantiates anything, and
+//   2. each backend's expression renderer emits the unresolved receiver
+//      verbatim.
+//
+// Verified 2026-09-13 on `precondition tech.skills.contains(
+// Assets.getById(job.assetId).requiredSkill)` inside a transactional workflow
+// whose two other repositories ARE let-bound: `ddd parse` and
+// `generate system` both report ZERO diagnostics, and `api/http/workflows.ts`
+// emits
+//
+//   const technicians = new TechnicianRepository(tx, events);   // let-bound ✓
+//   const jobs = new JobRepository(tx, events);                 // let-bound ✓
+//   if (!((tech.skills).includes(Assets.getById(job.assetId).requiredSkill)))
+//                                ^^^^^^ never constructed → TS2304
+//
+// One MODEL-level shape that no backend supports, not five per-backend gaps —
+// so this takes the same call as `loom.domain-service-cross-context-read`
+// (domain-service-checks.ts): reject at the source rather than let five
+// emitters fail five different silent ways.
+//
+// SCOPE.  The gate keys on a bare `ref` that (a) did not resolve
+// (`refKind: "unknown"`, so a param / let / state field shadowing the name is
+// never flagged) and (b) names a repository declared in THIS context.  A
+// legitimate let-bound read is structurally invisible to the walk — its
+// repository lives in `repoName`, a string, not in any child expression — so
+// the correct spelling can never trip this.  A repository of ANOTHER context is
+// deliberately out of scope: that is the cross-context workflow-access hole,
+// a different root cause with its own slice.
+// ---------------------------------------------------------------------------
+
+/** Every workflow body that lowers to `WorkflowStmtIR`, with a label for the
+ *  diagnostic.  `wf.statements` is a facade over the primary create, so the
+ *  creates are read from `wf.creates` to avoid reporting the primary twice.
+ *
+ *  Named distinctly from the unlabeled, statements-only `workflowBodies`
+ *  below (used by {@link validateWorkflowBody}'s per-body loop) — same
+ *  underlying facade, different shape for a different caller. */
+function workflowBodiesLabeled(wf: WorkflowIR): { label: string; statements: WorkflowStmtIR[] }[] {
+  return [
+    ...wf.creates.map((c) => ({
+      label: c.name === null ? "create" : `create ${c.name}`,
+      statements: c.statements,
+    })),
+    ...(wf.handlers ?? []).map((h) => ({ label: `handle ${h.name}`, statements: h.statements })),
+    ...(wf.subscriptions ?? []).map((s) => ({ label: `on(${s.event})`, statements: s.statements })),
+  ];
+}
+
+/** `loom.workflow-inline-repository-call` — see the header note above. */
+function validateWorkflowInlineRepoCalls(
+  ctx: BoundedContextIR,
+  wf: WorkflowIR,
+  diags: LoomDiagnostic[],
+): void {
+  if (ctx.repositories.length === 0) return;
+  const repoAgg = new Map(ctx.repositories.map((r) => [r.name, r.aggregateName] as const));
+  for (const body of workflowBodiesLabeled(wf)) {
+    // One diagnostic per repository per body — a body reaching the same
+    // repository inline twice states the same problem once.  The method is
+    // remembered from the first mention so the suggested rewrite can echo the
+    // call the author actually wrote; a bare mention (`precondition Assets`)
+    // leaves it undefined.
+    const flagged = new Map<string, string | undefined>();
+    const note = (repoName: string, method: string | undefined): void => {
+      if (!flagged.has(repoName)) flagged.set(repoName, method);
+    };
+    const visit = (e: ExprIR): void => {
+      // `walkExprDeep` visits a node before its children, so the enclosing
+      // `method-call` is seen (and records its method) ahead of the bare
+      // receiver `ref` below.
+      if (
+        e.kind === "method-call" &&
+        e.receiver.kind === "ref" &&
+        e.receiver.refKind === "unknown" &&
+        repoAgg.has(e.receiver.name)
+      ) {
+        note(e.receiver.name, e.member);
+      } else if (e.kind === "ref" && e.refKind === "unknown" && repoAgg.has(e.name)) {
+        note(e.name, undefined);
+      }
+    };
+    for (const st of body.statements) walkWorkflowStmtExprsDeep(st, visit);
+    for (const [repoName, method] of flagged) {
+      diags.push({
+        severity: "error",
+        code: "loom.workflow-inline-repository-call",
+        message: diagMessage("loom.workflow-inline-repository-call", {
+          where: `workflow '${wf.name}' ${body.label}`,
+          repoName,
+          call: `${repoName}.${method ?? "getById"}(…)`,
+          binding: lowerFirst(repoAgg.get(repoName) as string),
+        }),
+        source: `${ctx.name}/${wf.name}`,
       });
     }
   }
@@ -707,10 +829,15 @@ function payloadFieldMatch(
  *  `statements`/`params` facade on `WorkflowIR` aliases the PRIMARY create, so
  *  iterating `creates` alone covers it without double-reporting.
  *
- *  Named distinctly from {@link workflowBodies} below (main's unlabeled,
- *  statements-only twin used by {@link validateWorkflowBody}'s per-body loop)
- *  — same underlying facade, different shape for a different caller. */
-function workflowBodiesLabeled(wf: WorkflowIR): { label: string; statements: WorkflowStmtIR[] }[] {
+ *  Named distinctly from {@link workflowBodiesLabeled} above (the
+ *  `loom.workflow-inline-repository-call` gate's own label formatting) and
+ *  {@link workflowBodies} below (main's unlabeled, statements-only twin used
+ *  by {@link validateWorkflowBody}'s per-body loop) — three callers, three
+ *  slightly different shapes, not worth unifying at the cost of either
+ *  gate's exact wording. */
+function workflowBodiesLabeledCrossContext(
+  wf: WorkflowIR,
+): { label: string; statements: WorkflowStmtIR[] }[] {
   const creates = wf.creates ?? [];
   return [
     ...(creates.length > 0
@@ -747,7 +874,7 @@ function validateWorkflowCrossContextRepositories(
   // One diagnostic per repository per workflow, not per mention — a body
   // reading the same foreign repository twice states one boundary problem.
   const flagged = new Set<string>();
-  for (const { label, statements } of workflowBodiesLabeled(wf)) {
+  for (const { label, statements } of workflowBodiesLabeledCrossContext(wf)) {
     for (const st of statements) {
       // (a) the unresolved-receiver residue — the shape that actually occurs.
       walkWorkflowStmtsDeep(st, (inner) => {
