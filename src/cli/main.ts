@@ -36,6 +36,14 @@ import {
 } from "../system/manifest.js";
 import { fsMigrationArtifactIndex, MigrationBaselineError } from "../system/migration-artifacts.js";
 import {
+  LEDGER_REL_PATH,
+  type MigrationHistoryLedger,
+  MigrationLedgerReadError,
+  migrationLedgerPath,
+  readMigrationLedger,
+  writeMigrationLedger,
+} from "../system/migration-ledger.js";
+import {
   MigrationDestructiveError,
   MigrationShapeChangeError,
   MigrationSqlScopeError,
@@ -630,6 +638,12 @@ async function runGenerate(
   // `mkdir`-ing the output dir.
 
   let files: Map<string, string>;
+  // The migration-history ledger lives beside the `.ddd` SOURCE, not under
+  // `-o`: it is the only record of "this module already has migrations" that
+  // survives being read in an output tree that carries none of them (F-029).
+  // Written back after a successful non-dry run, below.
+  const sourceDir = path.dirname(path.resolve(file));
+  let ledgerToWrite: MigrationHistoryLedger | null = null;
   if (target === "system") {
     // Diff each subdomain's current schema against the snapshot the
     // LAST regen wrote into `.loom/snapshots/` (under `outDir`).
@@ -638,7 +652,7 @@ async function runGenerate(
     // moves.  See `src/system/migrations-builder.ts` for the diff
     // builder + `docs/generators.md` § Migrations for the pipeline.
     try {
-      files = generateSystemsFromLoom(loom, {
+      const emission = generateSystemsFromLoom(loom, {
         emitTrace: options.emitTrace,
         emitKubernetes: options.emitKubernetes,
         snapshots: fsSnapshotStore(outDir),
@@ -649,12 +663,19 @@ async function runGenerate(
         // scans a real tree.
         existingMigrations: fsMigrationArtifactIndex(outDir, loom),
         allowRebaseline: options.allowRebaseline,
+        // F-029: the output-tree guards are blind to a generate into a CLEAN
+        // directory (no snapshot AND no files reads as a first run). The
+        // ledger beside the source is the fact they are missing.
+        recordedHistory: readMigrationLedger(sourceDir),
+        ledgerPath: path.relative(process.cwd(), migrationLedgerPath(sourceDir)) || LEDGER_REL_PATH,
         sourcemap: options.sourcemap,
         inlineSources: options.inlineSources,
         // Harmless to pass unconditionally — v3 sidecar emission is still
         // gated on `sourcemap` inside `generateSystemsFromLoom`.
         sourceTexts,
-      }).files;
+      });
+      files = emission.files;
+      ledgerToWrite = emission.migrationLedger;
     } catch (err) {
       // A corrupted/truncated migration snapshot, a destructive delta
       // without --allow-destructive, or a baseline-safety violation (missing
@@ -668,7 +689,8 @@ async function runGenerate(
         err instanceof MigrationDestructiveError ||
         err instanceof MigrationShapeChangeError ||
         err instanceof MigrationSqlScopeError ||
-        err instanceof MigrationBaselineError
+        err instanceof MigrationBaselineError ||
+        err instanceof MigrationLedgerReadError
       ) {
         console.error(`${file}: ${err.message}`);
         if (!options.continueOnError) process.exit(1);
@@ -850,6 +872,27 @@ async function runGenerate(
     console.log(`  removed             ${relPath}`);
     removed++;
     pruneEmptyDirs(resolvedOut, path.dirname(full));
+  }
+
+  // Record the migration history this run's tree now has, beside the SOURCE.
+  // After the write loop and only on a real run: a `--dry-run` generated
+  // nothing, so the ledger must keep describing the tree as it stands (a dry
+  // run that recorded the delta it only previewed would arm guard (e) against
+  // the very next real generate).
+  if (ledgerToWrite && !options.dryRun) {
+    const { error } = writeMigrationLedger(sourceDir, ledgerToWrite);
+    if (error) {
+      // Non-fatal: a read-only source checkout is a real setup, and losing
+      // the detector must not fail a generate that otherwise succeeded. But
+      // it must not be SILENT either — without it the next generate into a
+      // clean directory is unguarded again.
+      console.error(
+        `Warning: could not record the migration history at ` +
+          `${migrationLedgerPath(sourceDir)} (${error.message}). The next ` +
+          `\`generate system\` into a clean output directory will not be able to tell a ` +
+          `re-baseline from a first run.`,
+      );
+    }
   }
 
   const verb = options.dryRun ? "Would write" : "Wrote";
