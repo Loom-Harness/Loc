@@ -26,7 +26,11 @@ import {
 } from "../../ir/util/openapi-ids.js";
 import { valueObjectPool } from "../../ir/util/reachable-types.js";
 import { resolveWorkflowIsolation } from "../../ir/util/resolve-datasource.js";
-import { walkWorkflowStmtChildren, walkWorkflowStmtExprsDeep } from "../../ir/util/walk.js";
+import {
+  walkWorkflowStmtChildren,
+  walkWorkflowStmtExprsDeep,
+  walkWorkflowStmtsDeep,
+} from "../../ir/util/walk.js";
 import { commandWorkflowsOf } from "../../ir/util/workflow-command-route.js";
 import { workflowCorrIdValueType } from "../../ir/util/workflow-instances.js";
 import { type LinesPart, lines } from "../../util/code-builder.js";
@@ -351,16 +355,21 @@ function eventsImports(
  *  op-call renderer threads through, so the actor must be bound even
  *  if the workflow body itself never names `currentUser`. */
 function callsUserGatedOp(sts: WorkflowStmtIR[], ctx: EnrichedBoundedContextIR): boolean {
-  return sts.some((s) => {
-    if (s.kind === "op-call") {
+  // Rides the shared deep walker: the hand-rolled recursion this replaces
+  // descended into `for-each` ONLY, so a gated op-call inside an `if-let`
+  // branch never bound the actor (CLAUDE.md, no hand-rolled IR walks).
+  let found = false;
+  for (const top of sts) {
+    walkWorkflowStmtsDeep(top, (s) => {
+      if (found || s.kind !== "op-call") return;
       const o = lookupOp(ctx, s.aggName, s.op);
       // Either half can need the binding: the remaining body (trailing
       // argument) or the hoisted gate rendered at this call site.
-      return !!o && (operationBodyUsesCurrentUser(o) || operationGatesUseCurrentUser(o));
-    }
-    if (s.kind === "for-each") return callsUserGatedOp(s.body, ctx);
-    return false;
-  });
+      if (o && (operationBodyUsesCurrentUser(o) || operationGatesUseCurrentUser(o))) found = true;
+    });
+    if (found) return true;
+  }
+  return false;
 }
 
 function lookupOp(
