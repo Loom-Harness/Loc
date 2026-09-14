@@ -62,7 +62,9 @@ describe("java reactor: the correlation key is fixed by the row, never re-set", 
       const d = await dispatcher(channel);
       expect(d).toContain("FulfilmentState._allocate(__key)");
       expect(d).not.toContain("state.setOrderRef(");
-      expect(d).toContain("`orderRef` is the correlation key: fixed by `_allocate(__key)` above, never re-set.");
+      expect(d).toContain(
+        "`orderRef` is the correlation key: fixed by `_allocate(__key)` above, never re-set.",
+      );
     });
 
     it(`${label}: the on reactor loads by key, skips the key assignment and keeps the real one`, async () => {
