@@ -39,6 +39,7 @@ import { renderDataSourcesMd } from "./datasources.js";
 import { renderE2EFile } from "./e2e-render.js";
 import { renderHelmChart } from "./helm.js";
 import { renderMessageCatalog } from "./i18n-catalog.js";
+import { renderKeycloakRealm } from "./keycloak-realm.js";
 import { renderKubernetesManifests } from "./kubernetes.js";
 import { renderVsCodeLaunchJson } from "./launch-config.js";
 import { renderC4Model } from "./likec4.js";
@@ -351,7 +352,8 @@ function emitSystem(
   }
   // Bundled dev Keycloak realm import (D-AUTH-OIDC §4.2) — loaded by the
   // compose `keycloak` service's `--import-realm` on first boot.
-  if (bundlesKeycloak(sys)) out.set("keycloak/realm.json", renderKeycloakRealm(sys));
+  if (bundlesKeycloak(sys))
+    out.set("keycloak/realm.json", renderKeycloakRealm(sys, keycloakConfig(sys)));
   // Wire-spec artifact — diffable record of every aggregate / part /
   // value object's canonical wire shape.  See `wire-spec.ts`.
   out.set(".loom/wire-spec.json", renderWireSpec(sys));
@@ -876,103 +878,6 @@ function renderKeycloakService(sys: SystemIR): string[] {
     "  extra_hosts:",
     '    - "host.docker.internal:host-gateway"',
   ];
-}
-
-/** Keycloak realm-import JSON: a public client (wildcard localhost redirect
- *  URIs for dev) + a seeded `demo`/`demo` user with a `user` realm role.
- *  Mounted read-only into the container's import dir; `--import-realm` loads
- *  it on first boot. */
-function renderKeycloakRealm(sys: SystemIR): string {
-  const { realm, clientId } = keycloakConfig(sys);
-  // When the auth block declares a literal `audience:`, the generated
-  // verifiers VALIDATE it (jose `jwtVerify({ audience })`, .NET
-  // `ValidateAudience`, ...) — so the dev realm must mint tokens that
-  // carry it, or every password-grant/redirect token 401s out of the
-  // box (Keycloak's default `aud` is `account`).  An audience protocol
-  // mapper on the client injects the declared value into access tokens.
-  const audience = sys.auth?.oidc.audience;
-  const audienceMappers =
-    audience?.kind === "literal"
-      ? [
-          {
-            name: "loom-declared-audience",
-            protocol: "openid-connect",
-            protocolMapper: "oidc-audience-mapper",
-            consentRequired: false,
-            config: {
-              "included.custom.audience": audience.value,
-              "access.token.claim": "true",
-              "id.token.claim": "false",
-            },
-          },
-        ]
-      : [];
-  // A scalar `role` claim (`currentUser.role`) is a common RBAC shape, but
-  // Keycloak emits realm roles as an ARRAY (`realm_access.roles`) — nothing
-  // populates a singular claim path, so `currentUser.role` decodes to `null`
-  // out of the box and every `role == "admin"` gate 403s while an
-  // onCreate `stamp createdByRole := currentUser.role` writes NULL (→ a
-  // not-null violation → 500/409).  When the app declares a `role` claim, seed
-  // the demo user with an `admin` role *attribute* and a mapper that projects
-  // it to the declared claim path, so role-gated ops are exercisable.  The
-  // `realm_access.roles` array (permissions) is untouched — it stays
-  // `[user, agent]`, so permission-gated denials still hold.
-  const roleClaim = sys.auth?.claims.find((c) => c.field === "role");
-  const roleMappers = roleClaim
-    ? [
-        {
-          name: "loom-role-claim",
-          protocol: "openid-connect",
-          protocolMapper: "oidc-usermodel-attribute-mapper",
-          consentRequired: false,
-          config: {
-            "user.attribute": "role",
-            "claim.name": roleClaim.path,
-            "jsonType.label": "String",
-            "access.token.claim": "true",
-            "id.token.claim": "false",
-          },
-        },
-      ]
-    : [];
-  const clientMappers = [...audienceMappers, ...roleMappers];
-  const doc = {
-    realm,
-    enabled: true,
-    sslRequired: "none",
-    roles: { realm: [{ name: "user" }, { name: "agent" }, { name: "admin" }] },
-    clients: [
-      {
-        clientId,
-        enabled: true,
-        publicClient: true,
-        standardFlowEnabled: true,
-        // Dev realm: allow the password grant so tokens can be scripted
-        // (tests / curl) without driving the browser redirect flow.
-        directAccessGrantsEnabled: true,
-        redirectUris: ["http://localhost:*", "http://127.0.0.1:*"],
-        webOrigins: ["*"],
-        ...(clientMappers.length > 0 ? { protocolMappers: clientMappers } : {}),
-      },
-    ],
-    users: [
-      {
-        username: "demo",
-        enabled: true,
-        email: "demo@example.com",
-        firstName: "Demo",
-        lastName: "User",
-        emailVerified: true,
-        credentials: [{ type: "password", value: "demo", temporary: false }],
-        realmRoles: ["user", "agent"],
-        // Backs the scalar `role` claim mapper above (admin so the demo user
-        // can exercise role-gated operations); only consumed when the app
-        // declares a `role` claim.
-        ...(roleClaim ? { attributes: { role: ["admin"] } } : {}),
-      },
-    ],
-  };
-  return `${JSON.stringify(doc, null, 2)}\n`;
 }
 
 /** Dev-compose sidecar services derived from `sys.storages`.  One per

@@ -34,6 +34,7 @@
 //     both accepted and readable.
 
 import type { AuthIR, FieldIR, SystemIR, TypeIR } from "../ir/types/loom-ir.js";
+import { snake } from "../util/naming.js";
 
 /** The tenant id the demo user's tenancy claim carries, when the system
  *  declares `tenancy by`.  A fixed, obviously-synthetic UUID rather than a
@@ -56,18 +57,36 @@ export const DEMO_TENANT_ID = "11111111-1111-4111-8111-111111111111";
  *  backend can parse it. */
 const DEMO_GUID = "22222222-2222-4222-8222-222222222222";
 
-/** The IdP claim path a `user { }` field reads from — an explicit
- *  `claims { <field> from "<path>" }` mapping when the source declared one,
- *  else the field's own name, with `id` defaulting to the OIDC `sub`.
+/**
+ * Every IdP claim path a `user { }` field is read from — because the five
+ * backends do not agree on ONE.
  *
- *  Must stay in step with the per-backend verifier emitters' own `claimPathFor`
- *  (`src/platform/hono/v4/auth-emit.ts` and siblings): the mapper emitted here
- *  is what fills the claim the verifier there reads, and a divergence is
- *  precisely the silent empty-claim bug. */
-export function claimPathForField(field: string, auth: AuthIR): string {
+ * An explicit `claims { <field> from "<path>" }` mapping is authoritative and
+ * all five verifiers honour it, so it yields exactly one path.  Without one
+ * they split on the DEFAULT spelling of a multi-word field:
+ *
+ *   * `src/platform/hono/v4/auth-emit.ts`, `dotnet/auth-emit.ts`,
+ *     `java/emit/auth.ts`  →  the field's own name  (`tenantId`)
+ *   * `python/auth-emit.ts`, `elixir/auth-emit.ts`  →  `snake(field)`
+ *     (`tenant_id`)
+ *
+ * One realm serves whichever backends the system declares — and a deployable
+ * can be added later without regenerating the IdP — so a mapper is emitted for
+ * EACH distinct spelling, all projecting the same stored user attribute.  For a
+ * single-word claim (`email`, `role`, `permissions`) the two coincide and there
+ * is exactly one mapper; only a camelCase field costs a second.
+ *
+ * `id` maps to the OIDC `sub`, which Keycloak fills itself.
+ *
+ * Emitting the union rather than picking a side is deliberate: picking one
+ * reintroduces the finding on the other two backends, and silently — an unread
+ * claim is indistinguishable from an absent one at the verifier.
+ */
+export function claimPathsForField(field: string, auth: AuthIR): string[] {
   const mapped = auth.claims.find((c) => c.field === field);
-  if (mapped) return mapped.path;
-  return field === "id" ? "sub" : field;
+  if (mapped) return [mapped.path];
+  if (field === "id") return ["sub"];
+  return [...new Set([field, snake(field)])];
 }
 
 /** Unwrap `optional` to the type underneath; arrays are left alone (their
@@ -142,33 +161,37 @@ interface ProtocolMapper {
   config: Record<string, string>;
 }
 
-/** One attribute mapper per declared `user { }` field, minus the ones Keycloak
- *  already puts in the token itself.
+/** One attribute mapper per (declared field × claim spelling), minus `sub`.
  *
  * `sub` is skipped: it is the token's subject, present unconditionally, and a
- *  mapper claiming that name would collide with it. */
+ * mapper claiming that name would collide with it. */
 function claimMappers(sys: SystemIR, auth: AuthIR): ProtocolMapper[] {
   const out: ProtocolMapper[] = [];
+  const seen = new Set<string>();
   for (const f of sys.user?.fields ?? []) {
-    const path = claimPathForField(f.name, auth);
-    if (path === "sub") continue;
     const multivalued = unwrapOptional(f.type).kind === "array";
-    out.push({
-      name: `loom-claim-${f.name}`,
-      protocol: "openid-connect",
-      protocolMapper: "oidc-usermodel-attribute-mapper",
-      consentRequired: false,
-      config: {
-        "user.attribute": f.name,
-        "claim.name": path,
-        "jsonType.label": jsonTypeLabel(f.type),
-        ...(multivalued ? { multivalued: "true" } : {}),
-        // Both tokens: the access token is what the API verifier reads, the id
-        // token what a browser-flow frontend decodes for its own session.
-        "access.token.claim": "true",
-        "id.token.claim": "true",
-      },
-    });
+    for (const path of claimPathsForField(f.name, auth)) {
+      if (path === "sub" || seen.has(path)) continue;
+      seen.add(path);
+      out.push({
+        name: `loom-claim-${path}`,
+        protocol: "openid-connect",
+        protocolMapper: "oidc-usermodel-attribute-mapper",
+        consentRequired: false,
+        config: {
+          // The STORED attribute is always the declared field name; only the
+          // claim it is projected under varies.  One seeded value, N spellings.
+          "user.attribute": f.name,
+          "claim.name": path,
+          "jsonType.label": jsonTypeLabel(f.type),
+          ...(multivalued ? { multivalued: "true" } : {}),
+          // Both tokens: the access token is what the API verifier reads, the id
+          // token what a browser-flow frontend decodes for its own session.
+          "access.token.claim": "true",
+          "id.token.claim": "true",
+        },
+      });
+    }
   }
   return out;
 }
@@ -178,11 +201,22 @@ function claimMappers(sys: SystemIR, auth: AuthIR): ProtocolMapper[] {
 function demoAttributes(sys: SystemIR, auth: AuthIR): Record<string, string[]> {
   const attrs: Record<string, string[]> = {};
   for (const f of sys.user?.fields ?? []) {
-    if (claimPathForField(f.name, auth) === "sub") continue;
+    if (claimPathsForField(f.name, auth).includes("sub")) continue;
+    // `email`/`username`/`firstName`/`lastName` are Keycloak USER PROPERTIES,
+    // not attributes: the user object below carries them as top-level fields
+    // and the attribute mapper reads them from there.  Seeding a same-named
+    // attribute as well would be a second, shadowing copy of a value Keycloak
+    // already owns and validates.
+    if (BUILTIN_USER_PROPERTIES.has(f.name)) continue;
     attrs[f.name] = demoAttributeValue(f, sys);
   }
   return attrs;
 }
+
+/** Keycloak's own user-model properties, which an
+ *  `oidc-usermodel-attribute-mapper` reads by the same names it stores them
+ *  under — so they need a mapper but must NOT be seeded as attributes. */
+const BUILTIN_USER_PROPERTIES = new Set(["username", "email", "firstName", "lastName"]);
 
 /**
  * The realm's declarative user profile, carrying
