@@ -14,7 +14,7 @@ import { exprUsesCurrentUser, workflowEmitsCommandRoute } from "../../../ir/type
 import { readPortsForOperation } from "../../../ir/util/domain-service-read-ports.js";
 import { operationBodyUsesCurrentUser, operationGates } from "../../../ir/util/op-gates.js";
 import { resolveWorkflowIsolation } from "../../../ir/util/resolve-datasource.js";
-import { walkWorkflowStmtExprsDeep } from "../../../ir/util/walk.js";
+import { walkWorkflowStmtExprsDeep, walkWorkflowStmtsDeep } from "../../../ir/util/walk.js";
 import { lines } from "../../../util/code-builder.js";
 import { lowerFirst, plural, snake, upperFirst, workflowFnCamel } from "../../../util/naming.js";
 import { javaLogEvent } from "../../_obs/render-java.js";
@@ -172,22 +172,94 @@ function workflowUsesCurrentUser(wf: WorkflowIR): boolean {
   return false;
 }
 
-/** Repositories a workflow touches (repo-lets, factory-lets, saves). */
-export function reposUsed(wf: WorkflowIR, ctx: EnrichedBoundedContextIR): string[] {
+/** Aggregates whose repository the given workflow BODIES touch — repo binds,
+ *  factory-lets, deletes, and every save (at exit, per iteration, per `if-let`
+ *  branch).  Each one becomes an injected `<Agg>Repository` field on the class
+ *  that renders those bodies.
+ *
+ *  Rides the shared `walkWorkflowStmtsDeep`.  The hand-rolled recursion this
+ *  replaces descended into `for-each` bodies ONLY — an `if-let` branch's binds
+ *  and its `savesInThen` / `savesInElse` were invisible. */
+function reposInBodies(
+  bodies: readonly (readonly WorkflowStmtIR[])[],
+  saves: readonly { aggName: string }[],
+  ctx: EnrichedBoundedContextIR,
+): string[] {
   const aggs = new Set<string>();
-  const visit = (s: WorkflowStmtIR): void => {
-    if (s.kind === "factory-let") aggs.add(s.aggName);
-    if (s.kind === "repo-let") aggs.add(s.aggName);
-    if (s.kind === "repo-run") aggs.add(s.aggName);
-    if (s.kind === "repo-delete") aggs.add(s.aggName);
-    if (s.kind === "for-each") {
-      for (const save of s.savesPerIteration) aggs.add(save.aggName);
-      for (const b of s.body) visit(b);
+  for (const body of bodies) {
+    for (const top of body) {
+      // `walkWorkflowStmtsDeep` owns the traversal; this switch only SELECTS
+      // which visited kinds contribute a repository, and is exhaustive so a
+      // new `WorkflowStmtIR` kind is a compile error here rather than a
+      // silently-missing injection (the defect this function is fixing).
+      walkWorkflowStmtsDeep(top, (s) => {
+        switch (s.kind) {
+          case "factory-let":
+          case "repo-let":
+          case "repo-run":
+          case "repo-delete":
+            aggs.add(s.aggName);
+            break;
+          case "op-call":
+            // The op's receiver is a binding some other statement produced —
+            // that statement contributes the repo; the save does the rest.
+            break;
+          case "for-each":
+            for (const sv of s.savesPerIteration) aggs.add(sv.aggName);
+            break;
+          case "if-let":
+            for (const sv of s.savesInThen) aggs.add(sv.aggName);
+            for (const sv of s.savesInElse) aggs.add(sv.aggName);
+            break;
+          case "precondition":
+          case "requires":
+          case "emit":
+          case "expr-let":
+          case "assign":
+          case "resource-call":
+          case "domain-service-call":
+            // No repository of their own.
+            break;
+          default: {
+            const _exhaustive: never = s;
+            void _exhaustive;
+          }
+        }
+      });
     }
-  };
-  for (const s of wf.statements) visit(s);
-  for (const save of wf.savesAtExit) aggs.add(save.aggName);
+  }
+  for (const save of saves) aggs.add(save.aggName);
   return [...aggs].filter((a) => ctx.aggregates.some((x) => x.name === a)).sort();
+}
+
+/** Repositories the COMMAND path of a workflow touches — the primary-create
+ *  facade body plus its exit saves.  This is what `WorkflowsService` renders. */
+export function reposUsed(wf: WorkflowIR, ctx: EnrichedBoundedContextIR): string[] {
+  return reposInBodies([wf.statements], wf.savesAtExit, ctx);
+}
+
+/** Repositories the EVENT-DISPATCH path of a workflow touches — every `on`
+ *  reactor, every `create` starter (the event-triggered ones the dispatcher
+ *  renders included) and every named `handle` body, with their saves.
+ *
+ *  `<Ctx>Dispatcher` renders those bodies, and it used to size its injected
+ *  repository set with `reposUsed` — i.e. from `wf.statements`, the PRIMARY
+ *  CREATE facade.  A reactor-only workflow has an empty facade, so a body
+ *  reading `Follows` and saving a `Note` compiled to
+ *  `followsRepository.runFindAllByFollowersOf(...)` / `notesRepository.save(n)`
+ *  against fields the class never declared: `javac: cannot find symbol`. */
+export function reactorReposUsed(wf: WorkflowIR, ctx: EnrichedBoundedContextIR): string[] {
+  const bodies = [
+    ...(wf.creates ?? []).map((c) => c.statements),
+    ...(wf.subscriptions ?? []).map((o) => o.statements),
+    ...(wf.handlers ?? []).map((h) => h.statements),
+  ];
+  const saves = [
+    ...(wf.creates ?? []).flatMap((c) => c.savesAtExit),
+    ...(wf.subscriptions ?? []).flatMap((o) => o.savesAtExit),
+    ...(wf.handlers ?? []).flatMap((h) => h.savesAtExit),
+  ];
+  return reposInBodies(bodies, saves, ctx);
 }
 
 // The Java leaf table for the shared workflow statement spine
