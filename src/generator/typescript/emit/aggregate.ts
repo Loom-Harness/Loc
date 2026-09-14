@@ -371,13 +371,29 @@ function renderEntity(
   // (`renderNew`) only pass declared fields (and, for a nested part, no
   // parentId).  Byte-identical for a non-nested part with no containments;
   // `_rehydrate` keeps the full required state contract.
+  //
+  // An OPTIONAL field (`tag: Tag id?`) is relaxed the same way, and for the
+  // same reason (F-010): `new NoteLine { text: text }` is legal `.ddd` — the
+  // DSL lets an optional be omitted — but `renderNew` passes only the fields
+  // the construction literal spells, so a REQUIRED-but-nullable `tag` slot in
+  // the `_create` state made every such construction a TS2345 ("Property 'tag'
+  // is missing … but required").  `null` is what an omitted optional MEANS, so
+  // `_create` accepts the omission and writes it, exactly as it already does
+  // for an omitted containment.  Note `T?` only: a field with a `= default`
+  // stays required here (its default is applied on the create-input path, not
+  // by this factory), and `_rehydrate` keeps the full contract — the store
+  // always has a value for every column.
   const hasContains = e.contains.length > 0;
+  const optionalFields = e.fields.filter((f) => f.type.kind === "optional");
   const createStateLiteral =
-    hasContains || isNested
+    hasContains || isNested || optionalFields.length > 0
       ? `{ ${[
           `id: Ids.${e.name}Id`,
           parentIdField(isNested),
-          ...e.fields.map((f) => `${f.name}: ${renderTsType(f.type)}`),
+          ...e.fields.map(
+            (f) =>
+              `${f.name}${f.type.kind === "optional" ? "?" : ""}: ${renderTsType(f.type)}`,
+          ),
           ...provFields.map((f) => `${f.name}_provenance: ProvLineage | null`),
           ...e.contains.map((c) => `${c.name}?: ${containsType(c)}`),
         ]
@@ -388,11 +404,14 @@ function renderEntity(
   // polymorphic so `<Agg>Base._create` constructs the concrete subclass and
   // never forward-references it), else the plain `new <Agg>` form.
   const createCallee = isExternRoot ? "this" : e.name;
-  const createBody = hasContains
-    ? `new ${createCallee}({ ...state, ${e.contains
-        .map((c) => `${c.name}: state.${c.name} ?? ${c.collection ? "[]" : "null"}`)
-        .join(", ")} })`
-    : `new ${createCallee}(state)`;
+  const createDefaults = [
+    ...e.contains.map((c) => `${c.name}: state.${c.name} ?? ${c.collection ? "[]" : "null"}`),
+    ...optionalFields.map((f) => `${f.name}: state.${f.name} ?? null`),
+  ];
+  const createBody =
+    createDefaults.length > 0
+      ? `new ${createCallee}({ ...state, ${createDefaults.join(", ")} })`
+      : `new ${createCallee}(state)`;
 
   const fieldDecls: string[] = [];
   fieldDecls.push(`  ${fieldVis} _id: Ids.${e.name}Id;`);
