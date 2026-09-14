@@ -487,14 +487,17 @@ function renderOidcVerifier(user: UserIR, auth: AuthIR): string {
   // Deploy env overrides the declared value — see envOverridableExpr (the
   // 401-from-the-bundled-IdP failure mode caught live by the parity 403 test).
   const issuerExpr = envOverridableExpr("OIDC_ISSUER", auth.oidc.issuer);
-  // Audience is optional — only emit the const + the verify option when
-  // configured, so the generated code carries no always-falsy constant.
-  const audienceConst = auth.oidc.audience
-    ? `\nconst AUDIENCE = ${envOverridableExpr("OIDC_AUDIENCE", auth.oidc.audience)};`
-    : "";
-  const verifyOptions = auth.oidc.audience
-    ? "{ issuer: ISSUER, audience: AUDIENCE }"
-    : "{ issuer: ISSUER }";
+  // Audience is ALWAYS env-reachable, declared or not (CR1-b / P0-4).  The
+  // other four backends read OIDC_AUDIENCE even with no `audience:` in the
+  // `.ddd`, so node used to be the one deployment where an operator could set
+  // OIDC_AUDIENCE in compose and get no `aud` check, no error, no log line —
+  // the same model shipping enforceable isolation on four backends and an
+  // unenforceable one on the fifth.  `envOverridableExpr` already collapses
+  // both cases: declared → `process.env.OIDC_AUDIENCE ?? "<declared>"`,
+  // undeclared → `process.env.OIDC_AUDIENCE ?? ""`.  An EMPTY value (unset, or
+  // an explicit `OIDC_AUDIENCE=""`) skips the `aud` check — the same documented
+  // opt-out the Phoenix verifier carries.
+  const audienceConst = `\nconst AUDIENCE = ${envOverridableExpr("OIDC_AUDIENCE", auth.oidc.audience)};`;
   // One `field: claim(payload, "<path>") as <T>` line per user field.
   const toUserLines = user.fields.map((f) => {
     const t = f.optional ? renderTsType({ kind: "optional", inner: f.type }) : renderTsType(f.type);
@@ -508,6 +511,12 @@ import { registerUserVerifier } from "./verifier";
 // Resolved from the system \`auth { oidc { … } }\` block.  Env-bound values
 // read process.env at boot; an empty issuer fails loudly at first verify.
 const ISSUER = ${issuerExpr};${audienceConst}
+
+// \`aud\` is validated only when an audience is actually configured — an empty
+// AUDIENCE (nothing declared and OIDC_AUDIENCE unset, or an explicit
+// OIDC_AUDIENCE="") skips the check, which is the documented opt-out.  With one
+// set, a token minted for a DIFFERENT client of the same issuer is rejected.
+const VERIFY_OPTIONS = AUDIENCE ? { issuer: ISSUER, audience: AUDIENCE } : { issuer: ISSUER };
 
 // Lazily discover the issuer's JWKS endpoint via the OIDC discovery
 // document, then cache a remote JWK set (jose refreshes + caches keys).
@@ -583,7 +592,7 @@ export const oidcVerifier = async (req: Request): Promise<UserClaims | null> => 
   const token = bearer(req);
   if (!token) return null;
   try {
-    const { payload } = await jwtVerify(token, await getJwks(), ${verifyOptions});
+    const { payload } = await jwtVerify(token, await getJwks(), VERIFY_OPTIONS);
     return toUser(payload);
   } catch {
     return null;

@@ -196,6 +196,7 @@ if bypass_path?(conn.request_path), do: conn, else:
 
 - `provider:` — a preset name. Hosted presets (`google`, `microsoft`, `entra`) carry their own issuer; the self-hosted ones (`auth0`, `okta`, `zitadel`, `cognito`, `keycloak`, `custom`) require an explicit `oidc { issuer: … }` or `loom.auth-missing-issuer` fires. An unknown name is `loom.auth-unknown-provider`. Omitting `provider:` entirely and supplying a raw `oidc { issuer }` is also valid.
 - `oidc { issuer, clientId, clientSecret, audience, scopes: […] }` — each value is a `"literal"` or `env("VAR")`, so secrets never land in source. A missing `clientId` is `loom.auth-missing-client-id`.
+- `audience:` is optional but its default is unsafe: with none, the verifier checks signature / `iss` / `exp` and then accepts the token — including one the SAME issuer minted for a different client. Omitting it is `loom.auth-oidc-no-audience` (**warning**). The value is env-overridable on every backend (`OIDC_AUDIENCE` wins over the declared one, and supplies one when none is declared), so audience isolation can be switched on at deploy time; see [`../auth.md`](../auth.md#token-audience-aud).
 - `sessions: cookie | jwt` (default `cookie`), `enforcement: opt | denyByDefault` (default `opt` — see [`requires`](#requires--the-authorization-gate-http-403)).
 - `claims: { field: "dotted.claim.path" }` — maps an IdP claim path onto a `user` field; an unknown target field is `loom.auth-unknown-claim-field`.
 
@@ -637,6 +638,7 @@ string("Ticket(" <> "id: " <> to_string(record.id) <> ", " <> "subject: " <> "'"
 | `auth: required` deployable but no `user` block | `loom.auth-no-user-block` |
 | Two `auth` blocks / two `user` blocks / two fields same name | `loom.duplicate-auth-block` / `loom.duplicate-user-block` / `loom.user-duplicate-field` |
 | Unknown `provider:` / self-hosted provider without `oidc { issuer }` / no `clientId` / unknown `claims:` target | `loom.auth-unknown-provider` / `loom.auth-missing-issuer` / `loom.auth-missing-client-id` / `loom.auth-unknown-claim-field` |
+| `oidc { … }` with no `audience:` — the `aud` check is skipped unless OIDC_AUDIENCE is set at deploy time (warning) | `loom.auth-oidc-no-audience` |
 | `auth: ui` on a backend / at an open target / on an unsupported framework | `loom.auth-ui-misplaced` / `loom.auth-ui-target-open` / `loom.auth-ui-unsupported-framework` |
 | Two permissions same name in one subdomain | `loom.duplicate-permission` |
 | `permissions.X` undeclared (or used outside any subdomain) | `loom.unknown-permission` |

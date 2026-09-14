@@ -68,6 +68,7 @@ on:
       - 'src/generator/_type/**'
       - 'src/generator/_workflow/**'
       - 'test/e2e/auth-oidc-e2e.test.ts'
+      - 'test/e2e/support/audience-probe.ts'
       - 'test/e2e/fixtures/auth-oidc-e2e.ddd'
       - 'package.json'
       - '.github/workflows/hono-oidc-e2e.yml'
@@ -121,6 +122,7 @@ on:
       - 'src/generator/_type/**'
       - 'src/generator/_workflow/**'
       - 'test/e2e/auth-oidc-e2e.test.ts'
+      - 'test/e2e/support/audience-probe.ts'
       - 'test/e2e/fixtures/auth-oidc-e2e.ddd'
       - '.github/workflows/hono-oidc-e2e.yml'
   workflow_dispatch:

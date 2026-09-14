@@ -72,6 +72,7 @@ on:
       - 'src/generator/_type/**'
       - 'src/generator/_workflow/**'
       - 'test/e2e/auth-oidc-java-e2e.test.ts'
+      - 'test/e2e/support/audience-probe.ts'
       - 'test/e2e/fixtures/auth-oidc-e2e-java.ddd'
       - 'package.json'
       - '.github/workflows/java-oidc-e2e.yml'
@@ -124,6 +125,7 @@ on:
       - 'src/generator/_type/**'
       - 'src/generator/_workflow/**'
       - 'test/e2e/auth-oidc-java-e2e.test.ts'
+      - 'test/e2e/support/audience-probe.ts'
       - 'test/e2e/fixtures/auth-oidc-e2e-java.ddd'
       - '.github/workflows/java-oidc-e2e.yml'
   workflow_dispatch:
