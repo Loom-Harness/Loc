@@ -6,9 +6,21 @@ suites no CI path can execute), from `docs/audits/code-review-2026-09-13.md`.
 Base: `76ef74ad`. Branch: `worktree-agent-a4a6b95e9f77f716f`.
 Commits: `c0333aeb` (row 1) → `2b3d37b4` (row 2).
 
-Gates: `npx tsc -b` clean, `npm run lint` clean (24 pre-existing warnings, none in
-touched files, exit 0), `npx vitest run test/system` green, and
-`docker://rhysd/actionlint:latest -pyflakes= --severity=warning` clean over all workflows.
+Gates: `npx tsc -b` clean; `npm run lint` clean (24 pre-existing warnings, none in touched
+files, exit 0); `docker://rhysd/actionlint:latest -pyflakes= --severity=warning` clean over
+every workflow, plus the YAML-parse check `workflow-lint.yml` runs.
+
+`npx vitest run test/system`: one full run of the complete suite came back
+`1 failed | 2196 passed | 30 skipped`, the single failure being `draft-gate.test.ts` on the
+first placement of the embed job (see the Row 2 disposition) — fixed, then re-verified. The
+box was subsequently saturated by three parallel agents' suites on 4 cores (load 19), so the
+final confirmation was run as the exhaustive set of `test/system` suites that read
+`.github/workflows/**` or `package.json` — the only files this packet touches outside its two
+gate files — all 16 of them: `skip-gate-reachability`, `workflow-path-coverage`,
+`workflow-artifact-uploads`, `workflow-npm-scripts`, `pr-gate`, `flake-budget`,
+`local-run-mapping`, `main-red-alarm-coverage`, `merge-queue-readiness`, `draft-gate`,
+`system`, `sourcemap`, `node-debug`, `generation-defaults`, `escape-funnel-census`,
+`diagnostic-firing-census` → **1102 passed, 18 skipped, 0 failed**.
 
 ---
 
