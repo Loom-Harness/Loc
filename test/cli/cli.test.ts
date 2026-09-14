@@ -151,7 +151,12 @@ describe("CLI", () => {
 
     const result = runCli(["generate", "ts", example, "-o", tmp]);
     expect(result.status).toBe(0);
-    expect(result.stdout).toMatch(/Wrote 1 file\(s\) in [^,]+, unchanged: 32/);
+    // The stomp above IS a local modification, so the summary names it (F-019):
+    // the digest this path recorded in `.loom/manifest.json` no longer matches
+    // what is on disk, which is exactly the case the count exists to surface.
+    expect(result.stdout).toMatch(
+      /Wrote 1 file\(s\) in [^,]+, 1 of which had local modifications \(pinnable via \.loomignore\), unchanged: 32/,
+    );
     expect(fs.statSync(idsPath).mtimeMs).toBeGreaterThan(idsMtimeBefore);
     expect(fs.statSync(orderPath).mtimeMs).toBe(orderMtimeBefore);
     fs.rmSync(tmp, { recursive: true });
