@@ -1283,6 +1283,16 @@ Impact on adoption: any `string[]` field (skills, tags, roles) takes out the who
 > its waiver.  **Not verified by a real `ng build` locally**: this container runs node v22.22.2 and
 > the Angular CLI's floor is v22.22.3, so the gate refuses to run here (its own message says so).
 > The emitted shape is byte-comparable to react's, which does build, and `mustEmit` pins both halves.
+>
+> **CORRECTION / CONFIRMATION (2026-09-14).**  `main` landed the same fix independently while this
+> branch carried mine, and the two collided on merge — including the markup half I argued for
+> separately, which they reached on the same reasoning ("the default value accessor would write the
+> typed STRING back into an array control, so the form would POST `"a,b"` where the wire wants
+> `["a","b"]`").  Their version is better in one respect I had accepted as adequate: it pairs the
+> `[]` seed with an explicit `nonNullableTsType`, so the control types as `FormControl<string[]>`
+> rather than the accidental `FormControl<never[]>` a bare `[]` infers.  I took their side whole and
+> deleted mine; the corpus-reach half (`tags: string[]` on the angular build gate, and the waiver
+> deletion) is still this branch's.
 
 ### F-034 — node vs python wire divergence: `decimal` serialisation and validation-message text
 Severity: S2 (major for the "identical API contracts" claim; S3 in practice)   Class: **SILENT**
