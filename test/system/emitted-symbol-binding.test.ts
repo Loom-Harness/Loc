@@ -58,13 +58,14 @@
 // typed as, and that is exactly the defect.  See `_helpers/emitted-binding.ts`
 // for why the kept diagnostic codes are the ones a binder alone decides.
 import { describe, expect, it } from "vitest";
+import { trackedDddFiles } from "../_helpers/ddd-corpus.js";
 import {
   assertNodeTypesAvailable,
   formatUnbound,
   honoProjectDirs,
   unboundSymbols,
 } from "../_helpers/emitted-binding.js";
-import { generateSystemFiles } from "../_helpers/index.js";
+import { generateSystemFiles, loadExample } from "../_helpers/index.js";
 
 /** A query-time projection whose `where` uses `!=`.
  *
@@ -204,4 +205,47 @@ describe("the emitted node backend binds every symbol it names", () => {
       }
     });
   }
+});
+
+describe("the shipped example corpus binds every symbol it names", () => {
+  // Not a formality — it is the measurement that makes the fixtures above
+  // credible.  `emitted-unbound-symbols.test.ts` reports zero names over this
+  // same corpus with its capitalised-only scan, which is exactly why the two
+  // defects fixed here survived: the corpus contains no projection with a `!=`
+  // where-clause and no money field with a literal default, so a broader oracle
+  // over the same inputs would still have said nothing.  Running the BINDER
+  // over the corpus closes the other half — a lowercase name going unbound
+  // anywhere in the shipped examples now fails here rather than at some
+  // generated project's `tsc`.
+  //
+  // Affordable because the binder needs no `node_modules` for the generated
+  // projects: measured ~17s for the whole corpus, in-process.
+  const examples = trackedDddFiles().filter((f) => f.startsWith("examples/"));
+
+  it("every shipped example emits a node backend with no unbound symbol", async () => {
+    expect(examples.length, "the example corpus went empty").toBeGreaterThan(5);
+
+    const offenders: string[] = [];
+    let projectsScanned = 0;
+    for (const file of examples) {
+      let files: ReadonlyMap<string, string>;
+      try {
+        files = await generateSystemFiles(loadExample(file));
+      } catch {
+        continue; // legacy single-context examples emit no system tree
+      }
+      for (const dir of honoProjectDirs(files)) {
+        projectsScanned++;
+        offenders.push(
+          ...unboundSymbols(files, dir).map((f) => `${file} → ${dir}/${f.file}: TS${f.code}: ${f.message}`),
+        );
+      }
+    }
+
+    // The vacuity guard.  An empty offender list means "clean" only when the
+    // sweep actually compiled something; a harness that silently generated no
+    // hono project would otherwise report a comforting green.
+    expect(projectsScanned, "no example produced a node backend — the sweep is vacuous").toBeGreaterThan(5);
+    expect(offenders, "an unbound symbol in a shipped example").toEqual([]);
+  }, 300_000);
 });
