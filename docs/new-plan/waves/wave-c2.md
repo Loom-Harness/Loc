@@ -2,7 +2,7 @@
 
 *Plan: [`../completion-waves-2026-09.md`](../completion-waves-2026-09.md) §4 Wave C2. Base: `main` @ `6d6c1a1` (Wave C1, #2891, merged 2026-09-13 11:13Z). Ten packets, one per target tree (2a–2j), run as Opus agents in isolated worktrees on local `claude/c2-<packet>` branches; the coordinator folds them on `claude/loom-review-planning-adz0n4` (the only branch this coordinator pushes). The plan's "one PR per target tree" shape is honoured **sequentially on that one branch**: a fold batch is pushed, flipped, merged, and the branch restarted from `main` before the next batch — never a ten-tree fold in one PR.*
 
-## Status: **batch 2 FOLDED — all five packets (2f–2j) on #2933, ready flip pending the full suite** (2026-09-14; batch 1 merged 05:34Z as `9713ffa18`)
+## Status: **batch 2 FOLDED and FLIPPED READY — all five packets (2f–2j) on #2933 @ `b80ea27bc`, auto-merge armed; heavy legs running** (2026-09-14; batch 1 merged 05:34Z as `9713ffa18`)
 
 ## Coordinator commit (first, per the kickoff)
 
