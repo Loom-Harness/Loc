@@ -14,6 +14,7 @@ import { AUTH_BASE_PATH } from "../../../util/api-base.js";
 import { lines } from "../../../util/code-builder.js";
 import { claimsReferenceIds } from "../../_auth/claim-types.js";
 import { devClaimFields } from "../../_auth/dev-claims.js";
+import { devStubIdExpr } from "../../_auth/dev-stub-id.js";
 import { jid } from "../java-ident.js";
 import { renderJavaType } from "../render-expr.js";
 
@@ -194,6 +195,11 @@ export function renderAuthFiles(
   );
 
   const stubImports = new Set<string>();
+  // An `X id` claim's stub value now CONSTRUCTS the strong id
+  // (`new CustomerId(new java.util.UUID(0L, 0L))`) instead of handing the
+  // principal a null one, so this verifier names the id class and needs the
+  // same `<basePkg>.domain.ids.*` import `User` already carries.
+  if (claimsReferenceIds(fields)) stubImports.add(`${basePkg}.domain.ids.*`);
   for (const f of fields) collectAuthImports(f.type, stubImports);
   const stubArgs = fields.map((f) => stubValue(f.type)).join(", ");
   // Dev-claims override carries the shapes the shared classifier admits —
@@ -1214,5 +1220,10 @@ function stubValue(t: TypeIR): string {
     }
   }
   if (t.kind === "array") return "List.of()";
+  // A NON-optional `X id` claim: java compiled either way (a record component
+  // takes null), but `null` handed every `currentUser.customerId` read a null
+  // strong id where the other four backends carry the zero id — the same
+  // divergence, one symptom quieter.
+  if (t.kind === "id") return devStubIdExpr(t, "java");
   return "null";
 }

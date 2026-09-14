@@ -1001,6 +1001,26 @@ same `.ddd` yields the same principal on every backend. It is a **dev
 convenience, not a production path**: register a real verifier (above) before
 shipping.
 
+A non-optional **id-typed** claim (`customerId: Customer id`) gets the same
+all-zero identity, but **constructed through the emitted id type** rather than
+written as a raw scalar — the id is a distinct nominal type on three of the five
+backends, so a bare literal does not compile:
+
+```ts
+// node — auth/dev-stub.ts   (`type CustomerId = string & { __brand }`)
+customerId: Ids.CustomerId("00000000-0000-0000-0000-000000000000"),
+```
+
+```csharp
+// dotnet — Auth/DevStubUserVerifier.cs   (`readonly record struct CustomerId(Guid Value)`)
+CustomerId: new CustomerId(System.Guid.Empty),
+```
+
+The seed widens with the aggregate's id value type (`int`/`long` → zero,
+`string`/`guid` → the all-zero uuid) and is decided once for all five backends in
+`src/generator/_auth/dev-stub-id.ts`. An **optional** id claim stays `null` /
+`None` / `nil`, as the declaration allows.
+
 > **The header does NOT carry every claim type on every backend.** Only
 > **string**-typed `user { … }` fields are honoured on .NET, Python, Java and
 > Elixir: each emits its claim mapper over the string fields alone, so a

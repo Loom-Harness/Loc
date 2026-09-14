@@ -440,7 +440,21 @@ const REGISTERED: Ratchet[] = [
     //
     // 19 -> 20 (#2864 D4/T3, M-T6.65 — `workflow-enum-state`), reasoned about
     // in the block above.
-    max: 20,
+    //
+    // 20 -> 21 (`auth-id-claim-stub`).  Another RAISE, and the same shape as
+    // `auth-id-claim` above: the NON-optional twin of that claim — the spelling that takes
+    // no `?`, and the only one that ever reaches the `id` arm of the five
+    // dev-stub principal VALUE tables (an optional claim short-circuits to
+    // null/None/nil before the type is consulted, and on node/python/elixir the
+    // OIDC verifier replaces the dev stub, so the sibling fixture structurally
+    // cannot cover it).  Four of five tables wrote a raw scalar against a
+    // nominal id type; two of those are hard compile errors on the leg that
+    // already gates the cell (`TS2322` against the `__brand`, CS0029 against
+    // `readonly record struct CustomerId(Guid)`).  Also NOT a drain candidate:
+    // the harness cannot even set an id claim — `devClaimKind` carries `string`
+    // and `string[]` only — so a booted leg would assert the same built-in stub
+    // value the compile tier reads straight off the emitted source.
+    max: 21,
   },
 ];
 
