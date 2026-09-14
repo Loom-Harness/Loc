@@ -1,7 +1,7 @@
 # Wave CR1 packet CR1-d — the IR-walk waiver register learns to expire
 
 **Row:** P0-1 in `docs/audits/code-review-2026-09-13.md` (that audit lands with the wave PR; left unlinked here so this note resolves on its own branch too).
-**Branch:** `worktree-agent-a07b4a9bb6cfc0217` · **commits** `8e5823ba..6dfb293b` (2), base `76ef74ad`.
+**Branch:** `worktree-agent-a07b4a9bb6cfc0217` · base `76ef74ad`.
 **Waivers:** 111 → **98**. **Emission byte-identical** over 42,859 files. **One real defect found and fixed** (§4).
 
 ---
@@ -213,6 +213,122 @@ enumeration missed **and** a repository nothing else in the workflow touches.
 
 ---
 
+### 4a. The regression test (added on coordinator review)
+
+**`test/generator/typescript/workflow-read-port-derivation.test.ts`** — 5 cases, placed per
+`docs/testing.md` rule 2 ("a backend now *emits* something different → one generator test per
+affected target, string-matching the emitted source"), alongside the existing
+`domain-service-reading.test.ts` / `handler-reading-service.test.ts`.
+
+It goes through **`generateSystemFiles(source)`**, not the `generateHono(model)` its two
+neighbours use. That was not a preference: `test/system/legacy-generate-path-ratchet.test.ts`
+(M-T9.48) pins the legacy single-context call sites and **fails any NEW file that reaches
+them** — my first draft tripped all three of its assertions (`no NEW file on the legacy
+single-context path`, the exact per-file count, and the pinned total `63 (pinned 58)`). The
+ratchet is right and the fix was to follow it, not to widen the pin: the orchestrator path is
+what `ddd generate system` actually runs, so the test asserts phases ①/④ as well as ⑤/⑥/⑦.
+Cost: the fixture needs a `system`/`subdomain`/`storage`/`resource`/`deployable` wrapper and
+the emitted key is `<deployable>/http/workflows.ts` rather than `http/workflows.ts`. Worth
+recording because the obvious move — copying the neighbouring suite's imports — is the one
+the ratchet rejects.
+
+The census gate guards the **mechanism** (nobody hand-rolls that traversal again); it is blind
+to **behaviour** — a future refactor that rides `walk.ts` correctly and still drops the port
+would pass the census and re-break codegen. This file pins the emission itself.
+
+**Four slots, four services, four repositories.** Each workflow calls a *different* `reading`
+operation that reads a *different* repository, so each slot's port is independently
+observable and one regression fails one assertion. `Accounts` — the repo every workflow also
+saves into — is deliberately never the probe: it is bound for its own sake, so a service
+reading it would pass even with the port dropped. **That near-miss is exactly why the existing
+corpus fixture missed this**, and the test comment says so.
+
+| case | slot | probe repo | broken before the fix? |
+|---|---|---|---|
+| `MatchArm` | expression — inside a `match` arm | `Blocklists` | **yes** |
+| `ListLiteral` | expression — inside a `list` literal | `Quotas` | **yes** |
+| `StateAssign` | statement — value side of an own-state `:=` | `Regions` | **yes** |
+| `IfLetBranch` | nested — inside an `if let` branch body | `Ledgers` | **no — the control** |
+
+`IfLetBranch` already worked pre-fix (the old walk *did* recurse into if-let bodies). It is
+kept deliberately: it proves the assertions are not vacuously failing on every workflow, and
+it pins the recursion the migration onto `walk.ts` had to preserve.
+
+**How the assertions distinguish a declaration from a use** — the coordinator's requirement,
+and the crux, because *the broken output is precisely the one that mentions the identifier
+without binding it*, so a grep for `blocklists` passes on both:
+
+1. `handlerBody()` slices the emitted file to **one workflow's** handler, so a handle bound in
+   a *sibling* handler cannot satisfy an assertion — a file-wide `toContain` would have been
+   satisfied by any other workflow that happens to bind the same name.
+2. Within that slice it requires the **construction**: `const <handle> = new <Repo>(tx, events);`.
+   This is the line the broken output lacks.
+3. Plus an independent second witness: `import { <Repo> } from …`. The broken output was
+   missing the import too, so a half-fix that bound the handle without wiring the import is
+   still caught.
+4. The fifth case is the **name-independent** form, re-derived from the emitted text: for every
+   `await Screening.<op>(a, b, …)` call site, every bare-identifier argument must have a
+   `const <id> =` binding in the same handler. A future refactor that derives ports correctly
+   but renames the handles keeps passing; one that drops a port fails even if it also renames.
+   This is the TS2304 condition itself, expressed as an assertion.
+
+#### Mutation proof
+
+`src/platform/hono/v4/workflow-builder.ts` was copied aside, replaced with its pre-fix content
+(`git show HEAD:…` written to a scratch file, then `cp` — **never** `git checkout --`,
+per `experience_gathered.md` §84), rebuilt, and the new test run. Run twice — once on the
+first draft and again after the rewrite onto `generateSystemFiles` — with identical results,
+so the orchestrator path does not weaken the proof:
+
+```
+Tests  4 failed | 1 passed (5)
+```
+
+The three defect cases fail; `IfLetBranch` passes, confirming the control does its job. The
+per-case assertion, verbatim:
+
+> `MatchArm: 'blocklists' is PASSED to the reading service but never CONSTRUCTED — the read
+> port was not derived from this slot. (A plain grep for 'blocklists' passes on the broken
+> output; this assertion is what distinguishes a binding from a use.): expected 'workflow:
+> "MatchArm" });\n      httpC…' to contain 'const blocklists = new BlocklistRepos…'`
+
+and the name-independent one:
+
+> `a reading-service call was handed an identifier this handler never binds — the emitted
+> project does not compile (TS2304):`
+> `MatchArm: 'blocklists' passed to await Screening.notBlocked(blocklists, holder) but never bound`
+> `ListLiteral: 'quotas' passed to await Screening.hasQuota(quotas, holder) but never bound`
+> `StateAssign: 'regions' passed to await Screening.inRegion(regions, holder) but never bound`
+> `: expected [ …(3) ] to deeply equal []`
+
+Restored by file copy, verified byte-identical against the pristine snapshot
+(`diff … && echo RESTORED IDENTICAL`) and against `git diff --stat src/` coming back empty,
+rebuilt, re-run: **5 passed**.
+
+#### Corpus fixture: recommended against, with the reasoning
+
+The coordinator asked whether this shape deserves a `test/fixtures/corpus/` fixture rather than
+only a unit test. **My recommendation is no**, for one reason that is about the shape and not
+about effort:
+
+- **The defect is Hono-specific.** A corpus fixture fans out across every backend in its
+  manifest row, and java/dotnet/elixir wire read-ports by constructor/context injection — there
+  is no per-call port argument for them to drop (verified on the repro in §4; their emission is
+  identical before and after). A fixture would exercise four backends for which this shape
+  proves nothing, and add five aggregates + five repositories to the docker-booting compile
+  legs for one backend's benefit.
+- **The thing a fixture would add over the unit test is a real COMPILE**, not a string match —
+  and the fifth assertion already encodes the TS2304 condition ("passed but never bound")
+  directly. That is the compile failure in miniature, at ~1s instead of a docker boot.
+
+The cheaper lever, **if** you want a genuine compile behind this: fold a `match`-arm service
+call into the *existing* `test/fixtures/corpus/domain-services.ddd`, which already runs the TS
+compile tier — no new matrix row. I did not do it because it changes that fixture's emission on
+all five declared backends, so it churns their baselines and belongs in a packet that owns the
+corpus, not one fencing on `walk.ts`. Flagging it rather than deciding it.
+
+---
+
 ## 5. Gates
 
 | gate | result |
@@ -221,6 +337,7 @@ enumeration missed **and** a repository nothing else in the workflow touches.
 | `npm run lint` (`biome ci .`) | clean (exit 0; 24 warnings, all pre-existing) |
 | `npx vitest run test/system test/ir test/generator test/platform` | green |
 | `npx vitest run test/system/ir-walk-census.test.ts` | 8/8 (was 5) |
+| `npx vitest run test/generator/typescript/workflow-read-port-derivation.test.ts` | 5/5 — mutation-proved 4-fail/1-pass against the reverted fix (§4a) |
 | **emission byte-identical** | **42,859 emitted files, 0 differences, 0 generation errors** |
 
 The emission gate hashes every file of every generated project across the **79-fixture
@@ -317,8 +434,10 @@ src/generator/elixir/heex-walker-core.ts                 (sites 9-10)
 src/generator/zod-refine.ts                              (sites 11-12)
 src/generator/typescript/emit/mikroorm-filter.ts         (site 13)
 test/system/ir-walk-census.test.ts                       (the mechanism + the register)
+test/generator/typescript/workflow-read-port-derivation.test.ts  (the §4 regression test)
 docs/new-plan/waves/handoffs/wave-cr1-d.md               (this note)
 ```
 
-The two commits are **atomic as a pair** — `8e5823ba` (drains) deletes the code the waivers
-in `6dfb293b` remove, so the branch **tip** is the green state. Fold the pair, not one.
+`8e5823ba` (drains) and `6dfb293b` (register) are **atomic as a pair** — the first deletes the
+code whose waivers the second removes, so the branch **tip** is the green state. Fold the
+whole branch, not a subset.
