@@ -3081,6 +3081,27 @@ describe("applyDestructivePolicy — discarded-backfill invariant (F-018 §4)", 
     ).toEqual([]);
   });
 
+  it("stays SILENT when the table is RENAMED AWAY this generation (the M-T2.4 reshape backup)", () => {
+    // Reshape moves `parts` to `parts__pre_reshape` and creates the new shape
+    // empty; the data move is the operator's TODO.  The baseline still has a
+    // `parts` row-set, but nothing survives under that identity, so a backfill
+    // against it is inert for the same reason a first-run one is.
+    const steps: MigrationStep[] = [
+      { op: "renameTable", from: "parts", to: "parts__pre_reshape" },
+      {
+        op: "createTable",
+        table: tbl("parts", [idCol, { name: "note", type: { kind: "text" }, nullable: true }]),
+      },
+    ];
+    expect(
+      applyDestructivePolicy(steps, baseline, {
+        allowDestructive: true,
+        module: "Ops",
+        backfills: [{ table: "parts", column: "note", valueSql: "''" }],
+      }),
+    ).toEqual(steps);
+  });
+
   it("stays SILENT when the whole table is created this generation", () => {
     const created: MigrationStep = {
       op: "createTable",

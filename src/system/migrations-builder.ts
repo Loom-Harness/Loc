@@ -1536,9 +1536,22 @@ export function applyDestructivePolicy(
   for (const s of woven) {
     if (s.op === "backfillColumn") consumed.add(`${qkey(s.schema, s.table)}.${s.column}`);
   }
+  // Tables this migration (re)creates or renames away carry no surviving rows
+  // under their baseline identity, so a backfill against them is inert for the
+  // same reason a first-run one is — notably the M-T2.4 RESHAPE path, where the
+  // old table becomes `<t>__pre_reshape` and the new shape is created empty
+  // (the data move is the operator's TODO).  Excluding them keeps this gate on
+  // the one shape that is always a bug: a table that SURVIVES, gaining a column
+  // whose declared value nothing runs.
+  const reborn = new Set<string>();
+  for (const s of woven) {
+    if (s.op === "createTable") reborn.add(qkey(s.table.schema, s.table.name));
+    else if (s.op === "renameTable") reborn.add(qkey(s.schema, s.from));
+  }
   const discarded = (opts.backfills ?? []).filter((b) => {
     const key = `${qkey(b.schema, b.table)}.${b.column}`;
     if (consumed.has(key) || renamedInto.has(key)) return false;
+    if (reborn.has(qkey(b.schema, b.table))) return false;
     // Baseline must HAVE the table but NOT the column — anything else is the
     // inert case (column already there, or the whole table created this run).
     let t = prevByQ.get(qkey(b.schema, b.table));
