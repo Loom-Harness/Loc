@@ -1,6 +1,6 @@
 # Wave CR1 packet CR1-d — the IR-walk waiver register learns to expire
 
-**Row:** P0-1 in [`docs/audits/code-review-2026-09-13.md`](../../../audits/code-review-2026-09-13.md).
+**Row:** P0-1 in `docs/audits/code-review-2026-09-13.md` (that audit lands with the wave PR; left unlinked here so this note resolves on its own branch too).
 **Branch:** `worktree-agent-a07b4a9bb6cfc0217` · **commits** `8e5823ba..6dfb293b` (2), base `76ef74ad`.
 **Waivers:** 111 → **98**. **Emission byte-identical** over 42,859 files. **One real defect found and fixed** (§4).
 
