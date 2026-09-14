@@ -697,12 +697,27 @@ function renderEntity(
   // containment's type is already `| None`.  Byte-identical for a part with no
   // containments (`createParams`/`createArgs` fall back to the shared state
   // lists); `__init__`/`_rehydrate` keep the full required state contract.
+  //
+  // An OPTIONAL field (`tag: Tag id?`) is defaulted the same way, and for the
+  // same reason (F-010): `new NoteLine { text: text }` is legal `.ddd`, but
+  // `renderNew` emits only the fields the construction literal spells, so a
+  // keyword-only `tag: TagId | None` with NO default raised `TypeError:
+  // _create() missing 1 required keyword-only argument: 'tag'` the first time
+  // the operation ran.  `None` is what an omitted optional MEANS, and the
+  // annotation already admits it, so the default needs no in-body coercion.
+  // `T?` only — a field with a `= default` stays required here — and
+  // `_rehydrate` keeps the full contract, since the store has every column.
   const hasContains = e.contains.length > 0;
-  const createParams = hasContains
+  const hasOptionalField = e.fields.some((f) => f.type.kind === "optional");
+  const relaxCreate = hasContains || hasOptionalField;
+  const createParams = relaxCreate
     ? [
         `id: ${e.name}Id`,
         parentIdParam(isNested),
-        ...e.fields.map((f) => `${snake(f.name)}: ${renderPyType(f.type)}`),
+        ...e.fields.map(
+          (f) =>
+            `${snake(f.name)}: ${renderPyType(f.type)}${f.type.kind === "optional" ? " = None" : ""}`,
+        ),
         ...e.contains.map((c) =>
           c.collection
             ? `${snake(c.name)}: ${containsType(c)} | None = None`
@@ -710,7 +725,7 @@ function renderEntity(
         ),
       ].filter((s): s is string => s != null)
     : stateParams;
-  const createArgs = hasContains
+  const createArgs = relaxCreate
     ? [
         "id=id",
         !e.isRoot ? "parent_id=parent_id" : null,
