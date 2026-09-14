@@ -147,10 +147,6 @@ const DELIBERATELY_UNPARSEABLE: readonly { file: string; contains?: string; why:
     why: "asserts which sources the grammar REFUSES; the refused ones are the point",
   },
   {
-    file: "test/language/parsing/filter-bypass-parse.test.ts",
-    why: "pins the positions where `ignoring` does NOT parse (#2699)",
-  },
-  {
     file: "test/language/parsing/store.test.ts",
     why: "negative fixtures for the `store` grammar",
   },

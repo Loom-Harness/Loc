@@ -1511,6 +1511,17 @@ bug, not a design choice; `'ignoring'` is now a Property-only extra beside `'awa
 `keyword-identifier-coverage.snapshot.json` records the widening (`+fieldName`,
 `+fieldNameAfterField`).
 
+A **second** gate had the defect on file the whole time, as an accepted waiver:
+`inline-ddd-source-census.test.ts` pinned `filter-bypass-parse.test.ts` as *"carrying
+unparseable fixtures"*, with the reason *"pins the positions where `ignoring` does NOT parse
+(#2699)"*.  #2699 is about `loom.ignoring-clause-placement` — a trailing `ignoring` clause in a
+`group by` / `select` / `join on` position, refusals that live in a **different file** — so the
+field-name case was an unintended casualty that got swept under that PR's label.  The census went
+red on the grammar fix (*"every inline document in them parses clean — delete the pin"*), which is
+independent confirmation of both halves: the source really was unparseable, and it really is not
+now.  The waiver is deleted with the fix, per the repo convention.  The placement gate still fires
+(`ignoring-clause-placement.test.ts`, 6/6).
+
 Fixed: all eleven sites now go through a new `parseErrorsOf(src)` helper (the raw parser's
 `parserErrors`), and `test/system/vacuous-parse-assertion.test.ts` is a zero-waiver ratchet on the
 pattern.  Mutation-proved both ways: reintroducing one original offender fails the ratchet naming
