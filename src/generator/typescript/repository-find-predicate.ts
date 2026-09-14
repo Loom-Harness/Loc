@@ -107,6 +107,12 @@ export const DRIZZLE_INTRINSIC_SQL: Record<string, (recv: string, args: string[]
 // the last trace of the old behaviour.
 // ---------------------------------------------------------------------------
 
+/** The `null` literal on either side of a comparison — the operand that turns
+ *  an `eq`/`ne` into an `IS NULL` / `IS NOT NULL` test (F-039). */
+function isNullLiteral(e: ExprIR): boolean {
+  return e.kind === "literal" && e.lit === "null";
+}
+
 const COMPARE_OP_TO_DRIZZLE: Record<string, string> = {
   "==": "eq",
   "!=": "ne",
@@ -257,6 +263,30 @@ export function lowerToDrizzle(
       }
       const drizzleFn = COMPARE_OP_TO_DRIZZLE[e.op];
       if (!drizzleFn) return null;
+      // F-039 — `answeredAt == null` (the canonical "still open" criterion) is
+      // NOT a comparison in SQL, it is a null TEST.  Lowering it through the
+      // ordinary `eq`/`ne` arm produced `eq(col, null)`, which is wrong twice
+      // over: drizzle's `eq` is typed `(col, value)` with no null in the value
+      // union, so the emitted repository does not compile (TS2769) — and on any
+      // driver that DOES accept it, SQL `col = NULL` is `UNKNOWN`, never true,
+      // so the filter silently matches NOTHING.  A criterion that quietly
+      // returns the empty set is strictly worse than one that fails to build.
+      // `isNull`/`isNotNull` are drizzle's spelling, and `IS NULL`/`IS NOT
+      // NULL` are what the other four backends already emit (java
+      // `cb.isNull`, elixir `is_nil`, dotnet `== null` translated by EF,
+      // python `col == None` overloaded by SQLAlchemy).  Either operand order
+      // (`null == answeredAt`) reads the same, so both are handled here.
+      if (e.op === "==" || e.op === "!=") {
+        const nullCol =
+          isNullLiteral(e.right) ? renderColumnRef(e.left)
+          : isNullLiteral(e.left) ? renderColumnRef(e.right)
+          : null;
+        if (nullCol !== null) {
+          const fn = e.op === "==" ? "isNull" : "isNotNull";
+          ops.add(fn);
+          return `${fn}(${nullCol})`;
+        }
+      }
       // A5 temporal — a `datetime ± duration` side is an sql`…` fragment
       // that composes on EITHER side of the comparison, against a column, a
       // bound value, or another fragment (`this.due + days(1) < q`,
