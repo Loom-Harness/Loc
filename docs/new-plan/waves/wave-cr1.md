@@ -7,7 +7,7 @@ Packets run as Opus agents in isolated worktrees on local `claude/cr1-<packet>` 
 onto `claude/loom-code-review-audit-790gec` (the only branch this coordinator pushes), one at a time.
 Hand-off notes land under `handoffs/wave-cr1-<packet>.md`.*
 
-## Status: **batch 1 running — CR1-c complete, verified, parked for the last fold** (2026-09-14)
+## Status: **CR1-a folded; CR1-c complete and parked for the last fold; CR1-b / CR1-d running** (2026-09-14)
 
 ## Why a wave, and why this shape
 
@@ -64,6 +64,7 @@ running 2i/2j trees are the constraint that shapes this wave. Measured, not assu
 | **CR1-e** | **P0-2a** | The 42 `CLOSED_PREDICATE` waivers, whose own reason says *"classified by default-arm shape, not individually re-verified per kind"* — plus the 9 `src/ir/validate/checks/**` sites CR1-d fenced. Script the case-set diff against `walk.ts`'s kind enumeration first; the drain is then mostly mechanical. |
 | **CR1-f** | **P0-2b** | The 31 `THROWING_DISPATCHER` waivers. A `throw` in a *generator* default arm means codegen dies on valid `.ddd` — the repo's own definition of a **silent gap**, not a waiver. Each one: prove the vocabulary complete, or replace the throw with a `loom.*` diagnostic so the gap is honest. Hands off to `parity-auditor` where a row turns out to be real parity debt. |
 | **CR1-g** | **P1-4** | `knip` in the lint job, then the **52** never-referenced exports (incl. `generateJava`, superseded by `generateJavaForContexts`) and a decision on the **417** exported-but-module-local. Same class as #2897, found by hand — the point is the gate, not the sweep. |
+| **CR1-i** | **new — found by CR1-a** | Two follow-ons one level down from P0-3, both measured, neither an oversight. (a) The coverage gate **unions `paths:` across triggers**, and workflows rely on that deliberately: measured per-trigger, ~14 carry the five generation-path globs on `push:` **only**, so a `src/util/naming.ts` change fires none of them *on a PR*. Same bug shape as P0-3, one level down — but it is a tiering decision (per-PR cost vs. post-merge latency), so it needs a ruling before a gate. (b) **`behavioral-e2e-*.yml` are not recognised as generation gates at all** — they drive generation through a `.mjs` case driver, so the entry-point derivation scores them non-generation and every assertion skips them silently. That one is a plain bug in the derivation. |
 | **CR1-h** | **P1-2** | `test/` grew +30,765/−1,421 over 60 PRs (4.6% delete rate vs `src/`'s 55%) and 19,523 of 41,130 assertions are `toContain`. `gate-ledger.test.ts` already computes the strongest-gate matrix and already states the drain rule; nothing exercises it and nothing measures the tier's size. Add the count ratchet (seeded at today's number, may only fall), then drain under the ledger's existing authority. |
 
 ## Owner-gated — reported, not built
@@ -81,6 +82,50 @@ failing assertion quoted. Revert the mutation with a file copy, never `git check
 (`experience_gathered.md` §84). A green first run proves nothing — which is the whole finding.
 
 ## Folds
+
+### CR1-a — folded (P0-3, P1-1)
+
+`worktree-agent-a4a6b95e9f77f716f`, `c0333aeb..ba354f35` (4 commits). 20 workflows fixed.
+
+**Took approach (a), refined — and the refinement is the point.** Approach (b) only swaps a
+hand-maintained positive list for a hand-maintained negative one, which is the thing that rotted. The
+gate now *derives* the requirement: a workflow whose `paths:` claims a whole platform tree
+(`src/generator/<plat>/**`) must watch every `src/generator/_*` dir in **that tree's import closure,
+cut at the boundary of any platform dir it does not claim**. The cut is what makes it
+false-positive-free — `java/index.ts` really does import the React/Angular generators (the embedded
+`ClientApp/`), so a naive closure would demand `java-build` watch the body walker it neither claims
+nor compiles. The escape hatch is *precision*: narrow the platform claim to subdirs, as
+`elixir-vanilla-obs-e2e.yml` already does, and the rule stops applying.
+
+**A second bug in the same file, found on the way:** the seam matcher was `_[a-z]+`, so **`_i18n`**
+— the one collector deciding validation-catalog membership for all five backends — was silently
+dropped from every check. Now `_[a-z0-9]+`.
+
+Coordinator re-verified the headline rather than taking the report: seam coverage per backend gate
+went **1 → 14–16** (`java-build` 1→15, `corpus-elixir-build` 1→16), and `_payload/union-wire.ts` now
+fires **four** elixir gates where it previously fired none. Independently mutation-proved by deleting
+`- 'src/generator/_stmt/**'` from `corpus-elixir-build.yml`:
+
+> `corpus-elixir-build.yml claims a whole platform generator tree but does not watch
+> src/generator/_stmt/**. … expected [ '_stmt' ] to deeply equal []`
+
+— naming exactly the one seam removed, then green again on restore (`cp`, not `git checkout`).
+
+**Both orphaned suites were WIRED, not deleted** — the packet established neither is redundant.
+`embed-react-elixir` is the only proof the Phoenix embed *serves* (the mix gate only compiles it;
+`phoenix-ui-e2e` boots LiveView) → `npm run test:embed-phoenix` + an `embed-react-runtime` job in
+`phoenix-ui-e2e.yml`. `auth-gate-ui-e2e` is the only runtime proof that `requires`-gated menus, pages
+and buttons hide client-side → `npm run test:auth-gate-ui` + a job in `auth-oidc-compose-e2e.yml`.
+Both ride existing push/dispatch/label triggers, never an unlabeled PR.
+
+Worth recording because it is the wave's own discipline working: `draft-gate.test.ts` rejected the
+packet's first placement of the embed job, and it moved the job to a label-opt-in workflow rather
+than concatenating the literal `if:` the gate greps for. Gaming the gate was available and declined.
+
+**Two carry-forwards**: no `run-*` label was minted for the two new jobs (the label table lives under
+the gitignored `.claude/skills/`, outside any packet fence), and **neither new job has ever run** —
+hex.pm egress and the Playwright download are unavailable in the sandbox, so their first triggered
+run needs watching. Two further findings became batch-2 row **CR1-i**.
 
 ### CR1-c — complete, verified, parked (folds LAST by design)
 
