@@ -433,7 +433,13 @@ export function buildPyRepositoryFile(
       // not mere `writeScopeFilter` presence: a `deny write` carve-out
       // sets an always-false write scope that references NO principal, so an
       // unconditional import would be unused → ruff F401 on the generated project.
-      aggUsesPrincipalContextFilter(agg) || exprUsesCurrentUser(agg.writeScopeFilter),
+      aggUsesPrincipalContextFilter(agg) ||
+        exprUsesCurrentUser(agg.writeScopeFilter) ||
+        // …and when a RETRIEVAL's `where` reads the principal.  `run_<name>`
+        // has no `current_user` parameter to thread it through (unlike a find),
+        // so it resolves the ambient accessor — which has to be imported, or
+        // the `NameError` simply moves one line up.
+        aggregateRetrievals(agg, ctx).some((r) => exprUsesCurrentUser(r.where)),
       // `current_user` (the non-raising getter) rides in for the read-mask
       // projection's fail-closed principal read (`to_wire_masked`).
       aggHasFieldMask(agg),
@@ -795,9 +801,24 @@ function runMethod(
   // When an inline `ignoring` call-site reaches this retrieval, OMIT the
   // bypassed capability predicate(s) (the union across sites — baked in).
   const methodFilterPred = bypass ? contextFilterPredicate(agg, ctx, bypass) : filterPred;
+  // A `currentUser`-referencing `where` binds through the AMBIENT accessor.
+  // Unlike a FIND — which gains a trailing `current_user: User` parameter
+  // (`relationalFindMethod`) — `run_<name>` takes only the retrieval's declared
+  // params plus offset/limit, so the bare-name default emitted a
+  // `current_user` nothing binds: `mypy` reports `Name "current_user" is not
+  // defined [name-defined]`, and at runtime it is a `NameError` — HTTP 500 on
+  // every read through the retrieval. `require_current_user()` is the same
+  // ambient ContextVar accessor the always-on principal capability filter uses.
   const pred = requireLowered(
     `retrieval '${retrieval.name}' on '${agg.name}'`,
-    lowerToSqlAlchemy(retrieval.where, agg, ctx),
+    lowerToSqlAlchemy(
+      retrieval.where,
+      agg,
+      ctx,
+      exprUsesCurrentUser(retrieval.where)
+        ? { principalAccessor: "require_current_user()" }
+        : undefined,
+    ),
   );
   const orderBy =
     retrieval.sort.length > 0
