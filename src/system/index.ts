@@ -51,6 +51,7 @@ import {
 } from "./mermaid.js";
 import { checkMigrationBaseline, type MigrationArtifactIndex } from "./migration-artifacts.js";
 import { buildMigrations } from "./migrations-builder.js";
+import { renderSystemReadme } from "./readme.js";
 import { renderSmap } from "./smap.js";
 import {
   memorySnapshotStore,
@@ -235,6 +236,18 @@ export function generateSystemsFromLoom(
       if (!rendered) continue;
       out.set(`${path}.smap`, rendered);
     }
+  }
+  // `README.md` — the orientation page for the generated tree (finding F12).
+  // LAST of everything, because it is DERIVED from the finished output map:
+  // which test projects exist, how each deployable's own project boots, which
+  // `.loom/` artifacts this model produced (traceability is emitted above,
+  // after `emitSystem`, so an earlier call would under-report it).  Written at
+  // the output root beside `docker-compose.yml`, and like that file the last
+  // system wins when a source declares several.  Scaffold-once, so it never
+  // overwrites `ddd new`'s README at this same path nor a reader's own edits
+  // — see the header of `readme.ts`.
+  for (const sys of loom.systems) {
+    out.set("README.md", renderSystemReadme(sys, { slugOf: serviceSlug, emitted: out }));
   }
   return { files: out };
 }
