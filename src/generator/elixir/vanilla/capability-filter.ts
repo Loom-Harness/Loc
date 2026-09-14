@@ -23,7 +23,7 @@
 // variable in scope.
 // ---------------------------------------------------------------------------
 
-import type { AggregateIR, ExprIR, FindIR } from "../../../ir/types/loom-ir.js";
+import type { AggregateIR, ExprIR, FindIR, RepositoryIR } from "../../../ir/types/loom-ir.js";
 import {
   aggregateUsesPrincipalContextFilter,
   exprUsesCurrentUser,
@@ -89,6 +89,41 @@ export function renderPrincipalFilter(p: ExprIR, ctx: RenderCtx): string {
  *  what keeps that from drifting. */
 export function findNeedsActor(agg: AggregateIR, f: FindIR): boolean {
   return aggregateUsesPrincipalContextFilter(agg) || exprUsesCurrentUser(f.filter);
+}
+
+/** The find an author DECLARED as `all` (`find all(): Doc[] where <pred>`), as
+ *  opposed to the enrichment-synthesized auto-`findAll`.
+ *
+ *  They are told apart by the presence of a `where`: `ensureFindAll` only
+ *  synthesizes when the repository has no `all` of its own, and what it
+ *  synthesizes carries no filter.  A declared `all` with no filter is
+ *  semantically the auto one, so it needs no separate treatment either.
+ *
+ *  This matters because both this backend and python drop every find NAMED
+ *  `all` from their custom-find list (the CRUD `list` seam already answers
+ *  there, and emitting a second `all/0` would collide with the defdelegate).
+ *  The author's `where` therefore has to be applied by that CRUD seam — and
+ *  was not, so a declared read restriction vanished from the emitted SQL with
+ *  no compile error and no diagnostic while node, dotnet and java all honoured
+ *  it. */
+export function declaredAllFind(repo: RepositoryIR | undefined): FindIR | undefined {
+  return (repo?.finds ?? []).find((f) => f.name === "all" && !!f.filter);
+}
+
+/** Does the CRUD `list` seam need the request actor threaded into it?  True
+ *  when the aggregate carries a principal capability filter (tenancy), or when
+ *  a DECLARED `all` find's `where` reads the principal — because that
+ *  predicate is spliced into `list`'s own query, and an actor it cannot name
+ *  is the `unbound variable current_user` build failure all over again.
+ *
+ *  Shared by the repository head, the context defdelegate and the controller
+ *  call for the same reason `findNeedsActor` is. */
+export function listNeedsActor(agg: AggregateIR, repo: RepositoryIR | undefined): boolean {
+  const declared = declaredAllFind(repo);
+  return (
+    aggregateUsesPrincipalContextFilter(agg) ||
+    (declared !== undefined && exprUsesCurrentUser(declared.filter))
+  );
 }
 
 /** A read's capability filter-bypass spec (`ignoring <Cap>` / `ignoring *`),

@@ -22,6 +22,7 @@ import { exprUsesCurrentUser } from "../../ir/types/loom-ir.js";
 import { orientComparison } from "../../ir/util/comparison-operands.js";
 import { tableOwnerName } from "../../ir/util/inheritance.js";
 import { refCollectionFieldName } from "../../ir/util/ref-collection.js";
+import { asRequestConstant, type RequestConstant } from "../../ir/util/request-constant.js";
 import { durationCtorOperand } from "../../ir/util/temporal.js";
 import {
   DATA_KEY_PATH_DELIMITER,
@@ -36,10 +37,6 @@ import { lowerFirst, plural } from "../../util/naming.js";
 import { DURATION_UNIT_MS, type DurationUnit } from "../../util/temporal.js";
 import { SQL_LIKE_ESCAPE_CLAUSE, tsSubtreeLikePattern } from "../_expr/subtree-like.js";
 import { refuseOutOfVocabulary } from "../_expr/target.js";
-import {
-  asRequestConstant,
-  type RequestConstant,
-} from "../../ir/util/request-constant.js";
 import { joinColumnName, joinTableConstName } from "./emit.js";
 import { TS_INTRINSIC_RENDERERS } from "./render-expr.js";
 import { associationsOf } from "./repository-associations-builder.js";

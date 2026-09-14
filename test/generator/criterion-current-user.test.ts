@@ -64,16 +64,19 @@ describe("currentUser in a repository read filter", () => {
   // -----------------------------------------------------------------------
   // Defect 2 — the whole model generates at all.
   // -----------------------------------------------------------------------
-  it.each(["node", "dotnet", "java", "python", "vanilla"] as const)(
-    "%s generates (a principal claim other than `.id` no longer refuses)",
-    async (backend) => {
-      // Before the fix this threw `QueryEmissionRefusal` on node and emitted a
-      // predicate no toolchain accepts on python / elixir.  A bare `await
-      // emit()` that resolves IS the assertion for the refusal half.
-      const files = await emit(backend);
-      expect(files.size).toBeGreaterThan(0);
-    },
-  );
+  it.each([
+    "node",
+    "dotnet",
+    "java",
+    "python",
+    "vanilla",
+  ] as const)("%s generates (a principal claim other than `.id` no longer refuses)", async (backend) => {
+    // Before the fix this threw `QueryEmissionRefusal` on node and emitted a
+    // predicate no toolchain accepts on python / elixir.  A bare `await
+    // emit()` that resolves IS the assertion for the refusal half.
+    const files = await emit(backend);
+    expect(files.size).toBeGreaterThan(0);
+  });
 
   // -----------------------------------------------------------------------
   // Defect 1 — the principal is BOUND, per backend, the way that backend's own
@@ -142,14 +145,14 @@ describe("currentUser in a repository read filter", () => {
     expect(facade).toMatch(/defdelegate visible_doc\(current_user \\\\ nil\)/);
   });
 
-  it.each(["dotnet", "java"] as const)(
-    "%s keeps its already-correct principal accessor",
-    async (backend) => {
-      const files = await emit(backend);
-      const needle = backend === "dotnet" ? "RequestContext.Current" : "currentUserAccessor";
-      expect(filesMentioning(files, needle).length).toBeGreaterThan(0);
-    },
-  );
+  it.each([
+    "dotnet",
+    "java",
+  ] as const)("%s keeps its already-correct principal accessor", async (backend) => {
+    const files = await emit(backend);
+    const needle = backend === "dotnet" ? "RequestContext.Current" : "currentUserAccessor";
+    expect(filesMentioning(files, needle).length).toBeGreaterThan(0);
+  });
 
   // -----------------------------------------------------------------------
   // Defect 2 — the request-constant term is FOLDED, and the column half of the

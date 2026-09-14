@@ -614,7 +614,9 @@ export function runMethod(
       retrieval.where,
       tableName,
       ctx,
-      exprUsesCurrentUser(retrieval.where) ? { principalAccessor: "requireCurrentUser()" } : undefined,
+      exprUsesCurrentUser(retrieval.where)
+        ? { principalAccessor: "requireCurrentUser()" }
+        : undefined,
     ) ??
     refuseOutOfVocabulary(
       "drizzle-predicate",

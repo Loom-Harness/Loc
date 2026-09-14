@@ -254,7 +254,29 @@ export function buildPyRepositoryFile(
     (f) => f.name === "all" && f.params.length === 0 && !f.filter,
   );
   const pagedAll = autoAllFind ? !!pagedReturn(autoAllFind.returnType) : false;
-  const allWhere = rootWhere(null, root, kind, filterPred);
+  // A find DECLARED as `all` (`find all(): Doc[] where <pred>`) is dropped from
+  // `emittableFinds` — the name test there cannot tell it from the
+  // enrichment-synthesized auto-`findAll`, and emitting both would collide on
+  // the method name.  Its `where` therefore has to land HERE, on the CRUD list
+  // seam that answers in its place.  It did not: the declared restriction
+  // vanished from the emitted SQL with no compile error and no diagnostic —
+  // node, dotnet and java all honoured it, so the same model read differently
+  // per backend, which for a read restriction is an authorization bypass.
+  const declaredAllFind = repo?.finds.find((f) => f.name === "all" && !!f.filter);
+  const declaredAllPred = declaredAllFind?.filter
+    ? requireLowered(
+        `find 'all' on '${agg.name}'`,
+        lowerToSqlAlchemy(
+          declaredAllFind.filter,
+          agg,
+          ctx,
+          exprUsesCurrentUser(declaredAllFind.filter)
+            ? { principalAccessor: "require_current_user()" }
+            : undefined,
+        ),
+      )
+    : null;
+  const allWhere = rootWhere(declaredAllPred, root, kind, filterPred);
   const allSortMap = sortableFields(agg)
     .map((wf) => `${JSON.stringify(wf)}: ${JSON.stringify(snake(wf))}`)
     .join(", ");
