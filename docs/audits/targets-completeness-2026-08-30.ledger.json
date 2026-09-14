@@ -463,11 +463,11 @@
    "securityClass": false,
    "P": 3,
    "reverified": {
-    "date": "2026-09-10",
-    "against": "bc7ed8f8",
-    "method": "reconciliation 3 (packet C0.5) — repro re-run on this head, emitted output read",
-    "verdict": "reproduces",
-    "note": "RE-RUN: one `CreateForm { of: Item, testid: \"second\" }` on six frontends, grepping the emitted page for `second`.  react (home.tsx, 3 hits), vue, svelte and feliz honour it; ANGULAR and FLUTTER emit ZERO occurrences anywhere under `web/`.  Note for the implementer: the row's original TWO-form fixture no longer generates on react/vue/svelte — `loom.page-form-locals-unsupported` now refuses two same-aggregate forms on one page, so the single-form shape above is the live repro.",
+    "date": "2026-09-14",
+    "against": "wave C2 packet 2j (claude/c2-flutter)",
+    "method": "the row's own single-form repro re-run on this head, emitted Dart read",
+    "verdict": "reproduces — and the FLUTTER half is bigger than `S`",
+    "note": "`CreateForm { of: Item, testid: \"second\" }` on a flutter ui: grep for `second` across the whole emitted app finds NOTHING, as the row says.  But the reason is not the one the fix line assumes.  On Angular the `testid:` is DROPPED while a DEFAULT namespace still ships (`data-testid=\"items-new\"` on both forms), so \"thread the namespace through\" is the whole job.  On FLUTTER there is no test-id surface at ALL: `grep -c 'Key(' lib/forms.dart` is **0** — no widget key on the form root, none on any input, none on the submit button, with or without a `testid:`.  So the flutter half is not a threading fix, it is \"give the generated forms a key surface\", and it needs a shape decision first: flutter web renders to CANVAS, so there is no DOM for a Playwright selector to reach and the consumer is `find.byKey` inside `flutter test` (which `generated-flutter-build.yml` already runs, and which `scripts/flutter-table-controls-test.dart` already drives for the server-driven `Table` controls — the precedent for what the keys would be FOR).  The emitter already has the translation: `flutterTarget.renderTimeline` turns the walker's ` data-testid=\"x\"` fragment into `key: const Key('x')` via `testidAttr` + `dartString`, so the recipe is that one line applied to the form root, each `fieldWidget`, and the submit `ElevatedButton`, with the conventional `<plural>-new` / `<plural>-<op>` namespace as the default and `testid:` overriding it.  Sized S on the Angular arm, M here.  NOT built by this packet; the angular arm is packet 2h's.",
     "remainingTargets": [
      "angular",
      "flutter"
