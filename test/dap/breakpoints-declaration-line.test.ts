@@ -15,9 +15,8 @@
 
 import { describe, expect, it } from "vitest";
 import { translateBreakpoint } from "../../src/dap/breakpoints.js";
-import { generateSystems } from "../../src/system/index.js";
 import { resolveFrame, type SourceMap } from "../../src/trace/resolve.js";
-import { parseValid } from "../_helpers/index.js";
+import { generateSystemFiles } from "../_helpers/generate.js";
 
 const SOURCE = `
 system Field {
@@ -56,8 +55,8 @@ const START_DECL_LINE = lineOf("operation start(");
 const STATEMENT_LINE = lineOf("status := Done");
 
 async function map(): Promise<SourceMap> {
-  const model = await parseValid(SOURCE);
-  const { files } = generateSystems(model, { sourcemap: true });
+  // The checked helper (phases ① / ④ / ⑦), not `generateSystems` directly.
+  const files = await generateSystemFiles(SOURCE, { sourcemap: true });
   return JSON.parse(files.get(".loom/sourcemap.json")!) as SourceMap;
 }
 

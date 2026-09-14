@@ -17,15 +17,8 @@
 // Non-vacuity is the second `it`: the bypass must NOT have swallowed the API
 // surface or the session probe along with it.
 
-import { NodeFileSystem } from "langium/node";
-import { parseHelper } from "langium/test";
 import { describe, expect, it } from "vitest";
-import { createDddServices } from "../../src/language/ddd-module.js";
-import type { Model } from "../../src/language/generated/ast.js";
-import { generateSystems } from "../../src/system/index.js";
-
-const services = createDddServices(NodeFileSystem);
-const parse = parseHelper<Model>(services.Ddd);
+import { generateSystemFiles } from "../_helpers/generate.js";
 
 /** One `auth: required` backend on `platform`, with a system `user {}` block
  *  (without one no backend emits an auth middleware at all). */
@@ -46,9 +39,10 @@ system Shop {
 }`;
 
 async function filesFor(platform: string): Promise<Map<string, string>> {
-  const doc = await parse(system(platform), { validation: false });
-  expect(doc.parseResult.parserErrors.map((e) => e.message)).toEqual([]);
-  return generateSystems(doc.parseResult.value).files;
+  // Through the checked helper: it asserts phases ① / ④ / ⑦ on the fixture, so
+  // an assertion below can never be judging output composed from a model the
+  // product itself refuses.
+  return generateSystemFiles(system(platform));
 }
 
 describe("F-022 — a generated Prometheus job can actually scrape the generated app", () => {
