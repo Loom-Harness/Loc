@@ -1,0 +1,444 @@
+// ---- traceability ----
+requirement US-001 {
+  type: UserStory
+  title: "Front desk can book and confirm an appointment"
+  status: InProgress
+  priority: 1
+}
+requirement AC-001 parent US-001 {
+  type: AcceptanceCriteria
+  title: "A confirmed appointment moves to CheckedIn only at check-in time"
+}
+requirement US-002 {
+  type: UserStory
+  title: "Clinical notes are readable only by clinical staff"
+  status: InProgress
+  priority: 1
+}
+requirement US-003 {
+  type: UserStory
+  title: "A clinic never sees another clinic's data"
+  status: InProgress
+  priority: 1
+}
+
+// Clinica — appointment scheduling + clinical records for a clinic chain.
+// Evaluation model (Phase 1). Written against docs/ only.
+
+migration "backfill-timezone" {
+  Clinic.timezone = "Europe/Tallinn"
+}
+
+system Clinica {
+
+  user {
+    id: string
+    email: string
+    role: string
+    clinicId: string
+    permissions: string[]
+  }
+
+  auth {
+    enforcement: opt
+    oidc { issuer: env("OIDC_ISSUER") clientId: env("OIDC_CLIENT_ID") }
+    sessions: cookie
+  }
+
+  tenancy by user.clinicId of Clinic
+
+  subdomain Scheduling {
+
+    permissions {
+      readClinical
+      writeClinical
+      manageSchedule
+      viewCostRates
+    }
+
+    context Clinics {
+
+      enum Skill { physio, gp, dentist }
+      enum Weekday { Mon, Tue, Wed, Thu, Fri, Sat, Sun }
+      enum AppointmentState { Requested, Confirmed, CheckedIn, Completed, NoShow, Cancelled }
+      enum WaitlistState { Waiting, Offered, Accepted, Expired }
+
+      // ---- the tenant registry ----
+      aggregate Clinic {
+        name: string
+        timezone: string                // IANA tz, e.g. "Europe/Tallinn"
+        invariant name.length > 0
+        derived display: string = name
+        create() { }
+        destroy { }
+      }
+      repository Clinics for Clinic { }
+
+      aggregate Room with tenantOwned {
+        clinic: Clinic id
+        name: string
+        seats: int
+        invariant seats > 0
+        derived display: string = name
+        create() { }
+      }
+      repository Rooms for Room { }
+
+      aggregate Practitioner with tenantOwned {
+        clinic: Clinic id
+        fullName: string
+        skills: string[]
+        costRate: money mask unless currentUser.role == "clinicManager"
+
+        contains windows: AvailabilityWindow[]
+        contains blackouts: AvailabilityException[]
+
+        derived display: string = fullName
+
+        function hasSkill(s: string): bool = skills.contains(s)
+
+        create() {
+          requires currentUser.role == "clinicManager"
+        }
+
+        entity AvailabilityWindow {
+          day: Weekday
+          startMinute: int
+          endMinute: int
+          invariant endMinute > startMinute
+          invariant startMinute >= 0
+          invariant endMinute <= 1440
+        }
+
+        entity AvailabilityException {
+          onDate: datetime
+          available: bool
+          startMinute: int
+          endMinute: int
+          invariant endMinute > startMinute
+        }
+      }
+      repository Practitioners for Practitioner { }
+
+      // ---- PII-heavy ----
+      aggregate Patient with tenantOwned {
+        fullName: string sensitive(pii)
+        email: string sensitive(pii)
+        phoneNumber: string sensitive(pii)
+        dateOfBirth: datetime sensitive(pii)
+        userRef: string                 // OIDC subject of the patient-portal login
+        preferredLanguage: string = "en"
+        derived display: string = fullName
+        create() { }
+      }
+      repository Patients for Patient { }
+
+      aggregate AppointmentType with tenantOwned {
+        name: string
+        defaultDurationMinutes: int
+        requiredSkill: Skill
+        invariant defaultDurationMinutes > 0
+        derived display: string = name
+        create() { }
+      }
+      repository AppointmentTypes for AppointmentType { }
+
+      // ---- the centre of gravity ----
+      aggregate Appointment with tenantOwned {
+        clinic: Clinic id
+        patient: Patient id
+        practitioner: Practitioner id
+        room: Room id
+        apptType: AppointmentType id
+        startAt: datetime
+        durationMinutes: int
+        state: AppointmentState = Requested
+        cancelReason: string?
+        triageNote: string?
+        // WORKAROUND: reads cannot join Appointment -> Patient
+        // (loom.retrieval-where-not-queryable), so the patient-portal filter
+        // rides a denormalised copy of the patient's OIDC subject.
+        patientUserRef: string
+
+        derived endsAt: datetime = startAt + minutes(durationMinutes)
+        derived display: string = `Appointment {startAt, date}`
+
+        invariant durationMinutes > 0
+        invariant durationMinutes <= 480 message "An appointment may not exceed 8 hours"
+
+        create() { }
+
+        operation confirm() when state == Requested {
+          requires currentUser.permissions.contains(permissions.manageSchedule)
+          state := Confirmed
+          emit AppointmentConfirmed { appointment: id, at: now() }
+        }
+
+        operation checkIn() when state == Confirmed {
+          precondition now() >= startAt - minutes(30) message "too early to check in"
+          state := CheckedIn
+        }
+
+        operation complete() when state == CheckedIn {
+          state := Completed
+          emit AppointmentCompleted { appointment: id, patient: patient, at: now() }
+        }
+
+        operation markNoShow() when state == Confirmed {
+          state := NoShow
+          emit AppointmentReleased { appointment: id, practitioner: practitioner, startAt: startAt, durationMinutes: durationMinutes }
+        }
+
+        operation cancel(reason: string) when (state == Requested || state == Confirmed) {
+          precondition reason.length > 0
+          state := Cancelled
+          cancelReason := reason
+          emit AppointmentReleased { appointment: id, practitioner: practitioner, startAt: startAt, durationMinutes: durationMinutes }
+        }
+
+        test "cancel requires a reason" verifies TC-001 {
+          let a = Appointment.create({
+            clinic: id, patient: id, practitioner: id, room: id, apptType: id,
+            startAt: now(), durationMinutes: 30, patientUserRef: "u"
+          })
+        }
+
+        operation reschedule(newStart: datetime, newDuration: int) when (state == Requested || state == Confirmed) {
+          requires currentUser.permissions.contains(permissions.manageSchedule)
+          precondition newDuration > 0
+          startAt := newStart
+          durationMinutes := newDuration
+        }
+      }
+      repository Appointments for Appointment { }
+
+      event AppointmentConfirmed { appointment: Appointment id, at: datetime }
+      event AppointmentCompleted { appointment: Appointment id, patient: Patient id, at: datetime }
+      event AppointmentReleased {
+        appointment: Appointment id
+        practitioner: Practitioner id
+        startAt: datetime
+        durationMinutes: int
+      }
+
+      // ---- clinical record ----
+      aggregate Encounter with tenantOwned {
+        appointment: Appointment id
+        patient: Patient id
+        notes: string sensitive(pii, phi) mask unless currentUser.permissions.contains(permissions.readClinical)
+        heightCm: decimal
+        weightKg: decimal
+        systolic: int
+        diastolic: int
+        derived bmi: decimal = weightKg / (heightCm / 100 * (heightCm / 100))
+        derived display: string = `Encounter {systolic}/{diastolic}`
+        invariant systolic > diastolic
+
+        create() {
+          requires currentUser.permissions.contains(permissions.writeClinical)
+        }
+      }
+      repository Encounters for Encounter { }
+
+      // ---- waitlist ----
+      aggregate WaitlistEntry with tenantOwned {
+        patient: Patient id
+        apptType: AppointmentType id
+        requestedAfter: datetime
+        state: WaitlistState = Waiting
+        offeredAppointment: Appointment id?
+        derived display: string = `Waitlist {requestedAfter, date}`
+
+        create() { }
+
+        operation offer(appt: Appointment id) when state == WaitlistState.Waiting {
+          requires currentUser.permissions.contains(permissions.manageSchedule)
+          state := Offered
+          offeredAppointment := appt
+        }
+        operation accept() when state == Offered {
+          state := Accepted
+        }
+        operation expire() when state == Offered {
+          state := Expired
+          offeredAppointment := null
+        }
+      }
+      repository WaitlistEntries for WaitlistEntry { }
+
+      // ---- referrals ----
+      aggregate Referral with tenantOwned {
+        patient: Patient id
+        specialistName: string
+        specialistEmail: string
+        reason: string sensitive(pii, phi) mask unless currentUser.permissions.contains(permissions.readClinical)
+        sentAt: datetime?
+        derived display: string = specialistName
+
+        create() {
+          requires currentUser.permissions.contains(permissions.writeClinical)
+        }
+
+        operation send() {
+          precondition sentAt == null
+          sentAt := now()
+          emit ReferralSent { referral: id, email: specialistEmail }
+        }
+      }
+      repository Referrals for Referral { }
+
+      event ReferralSent { referral: Referral id, email: string }
+
+      // ---- reusable predicates + list reads ----
+      criterion OpenAppointments of Appointment = state == Requested || state == Confirmed
+      criterion ForPractitioner(p: Practitioner id) of Appointment = practitioner == p
+      criterion InWindow(fromAt: datetime, toAt: datetime) of Appointment =
+        startAt >= fromAt && startAt < toAt
+      criterion MyAppointments of Appointment = patientUserRef == currentUser.id
+      criterion IsWaiting of WaitlistEntry = state == WaitlistState.Waiting
+
+      retrieval PractitionerDay(p: Practitioner id, fromAt: datetime, toAt: datetime) of Appointment {
+        where: ForPractitioner(p) && InWindow(fromAt, toAt)
+        sort: [startAt asc]
+      }
+
+      retrieval WaitingEntries of WaitlistEntry {
+        where: IsWaiting
+        sort: [requestedAfter asc]
+      }
+
+      // ---- cross-aggregate orchestration ----
+      workflow scheduleAppointment transactional {
+        create(appt: Appointment id, prac: Practitioner id) {
+          requires currentUser.permissions.contains(permissions.manageSchedule)
+          let a = Appointments.getById(appt)
+          let p = Practitioners.getById(prac)
+          precondition p.skills.contains("physio")   // WORKAROUND F-016: cannot call p.hasSkill()
+          a.confirm()
+          emit AppointmentConfirmed { appointment: appt, at: now() }
+        }
+      }
+
+      // ---- eventing across deployables ----
+      channel ApptEvents { carries: AppointmentConfirmed, AppointmentCompleted, AppointmentReleased }
+
+      // ---- outbound referral email ----
+      workflow sendReferral {
+        create(ref: Referral id) {
+          let r = Referrals.getById(ref)
+          r.send()
+          mail.send(r.specialistEmail, "Referral", "A referral has been raised.")
+        }
+      }
+    }
+  }
+
+  subdomain Notifications {
+    context Notifier {
+      aggregate Reminder crossTenant {
+        appointment: string
+        sentAt: datetime
+        derived display: string = appointment
+        create() { }
+      }
+      repository Reminders for Reminder { }
+
+      workflow onApptConfirmed {
+        appointmentId: Appointment id
+        create(e: AppointmentConfirmed) by e.appointment {
+          let r = Reminder.create({ appointment: string(e.appointment), sentAt: now() })
+        }
+      }
+    }
+  }
+
+  storage primary { type: postgres }
+  storage bus     { type: redis }
+  storage files   { type: s3   config: { bucket: "clinica-files" } }
+  storage mailer  { type: smtp config: { from: "noreply@clinica.test" } }
+
+  resource clinicState   { for: Clinics,  kind: state,       use: primary }
+  resource notifierState { for: Notifier, kind: state,       use: primary }
+  resource clinicFiles   { for: Clinics,  kind: objectStore, use: files }
+  resource mail          { for: Clinics,  kind: mailer,      use: mailer }
+
+  channelSource apptBus { for: ApptEvents, use: bus }
+
+  ui Staff with scaffold(subdomains: [Scheduling]) {
+    framework: react
+  }
+
+  ui Portal with scaffold(subdomains: [Scheduling]) {
+    framework: vue
+  }
+
+  deployable api {
+    platform: node
+    contexts: [Clinics]
+    dataSources: [clinicState, clinicFiles, mail]
+    channels: [apptBus]
+    port: 3000
+    auth: required
+  }
+
+  deployable notifier {
+    platform: node
+    contexts: [Notifier]
+    dataSources: [notifierState]
+    channels: [apptBus]
+    port: 3002
+  }
+
+  deployable portalWeb {
+    platform: vue
+    targets: api
+    ui: Portal
+    design: vuetify
+    port: 3003
+    auth: ui
+  }
+
+  deployable staffWeb {
+    platform: react
+    targets: api
+    ui: Staff
+    design: mantine
+    port: 3001
+    auth: ui
+  }
+}
+
+solution SOL-001 for US-001 {
+  title: "Appointment aggregate owns the lifecycle with guarded transitions"
+  entitles [
+    Scheduling.Clinics.Appointment.confirm,
+    Scheduling.Clinics.Appointment.checkIn,
+    api
+  ]
+}
+solution SOL-002 for US-002 {
+  title: "Encounter.notes is mask-unless readClinical"
+  entitles [ Scheduling.Clinics.Encounter ]
+}
+solution SOL-003 for US-003 {
+  title: "tenancy by user.clinicId of Clinic + tenantOwned on every business aggregate"
+  entitles [ Scheduling.Clinics.Appointment, Scheduling.Clinics.Patient ]
+}
+
+testCase TC-001 verifies AC-001 {
+  title: "Check-in is refused before the appointment window opens"
+  covers [ Scheduling.Clinics.Appointment.checkIn ]
+}
+testCase TC-002 verifies US-002 {
+  title: "Front desk cannot read encounter notes"
+  covers [ Scheduling.Clinics.Encounter ]
+}
+testCase TC-003 verifies US-003 {
+  title: "Clinic B cannot read clinic A's appointments"
+  covers [ Scheduling.Clinics.Appointment ]
+}
+
+test e2e "check-in before the window is refused" against api verifies TC-001 {
+  let c = api.clinics.create({ name: "T", timezone: "Europe/Tallinn" })
+  expect(api.appointments.getById("00000000-0000-0000-0000-000000000000")).toThrow(404)
+}

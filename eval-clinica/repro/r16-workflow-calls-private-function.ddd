@@ -1,0 +1,28 @@
+// Probe: calling an aggregate `function` from a WORKFLOW body emits a call to a
+// `private` member. Broader than F-004 (`when` guards) — this is the ordinary
+// "reuse a named domain rule across aggregates" path.
+system R16 {
+  subdomain S { context C {
+    aggregate Tech {
+      skills: string[]
+      derived display: string = skills.join(",")
+      function hasSkill(s: string): bool = skills.contains(s)
+    }
+    repository Techs for Tech { }
+    aggregate Job { assigned: Tech id  done: bool
+      operation finish() { done := true } }
+    repository Jobs for Job { }
+
+    workflow assign transactional {
+      create(job: Job id, tech: Tech id) {
+        let j = Jobs.getById(job)
+        let t = Techs.getById(tech)
+        precondition t.hasSkill("physio")
+        j.finish()
+      }
+    }
+  } }
+  storage primary { type: postgres }
+  resource st { for: C, kind: state, use: primary }
+  deployable api { platform: node, contexts: [C], dataSources: [st], port: 3000 }
+}

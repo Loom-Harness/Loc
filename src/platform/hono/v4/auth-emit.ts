@@ -478,7 +478,9 @@ export function requireCurrentUser(): User {
 // ---------------------------------------------------------------------------
 // OIDC verifier (D-AUTH-OIDC) — the batteries-included fill-in for the
 // verifier seam.  Validates the bearer token's signature against the
-// issuer's JWKS (discovered lazily), checks `iss` / `aud` / `exp`, and
+// issuer's JWKS (discovered lazily), checks `iss` / `exp` (and `aud` only
+// when the model declares `auth { oidc { audience: … } }` — see the
+// conditional below), and
 // projects the configured claims onto the typed User shape.  Loom owns no
 // auth runtime beyond "validate a token"; the IdP owns everything else.
 // ---------------------------------------------------------------------------
@@ -495,6 +497,27 @@ function renderOidcVerifier(user: UserIR, auth: AuthIR): string {
   const verifyOptions = auth.oidc.audience
     ? "{ issuer: ISSUER, audience: AUDIENCE }"
     : "{ issuer: ISSUER }";
+  // The doc comment must describe the options actually emitted above.  It used
+  // to claim "validates signature (JWKS), issuer, and audience" unconditionally
+  // — which is false on the no-`audience:` arm, and that arm is the DEFAULT:
+  // `audience` is optional in the grammar, absent from every `oidc { … }`
+  // example in the docs, and omitting it silently disables the check.  Reading
+  // the generated source is how an engineer audits this, so a comment asserting
+  // a control the file does not implement is worse than no comment.  The
+  // "not verified" wording is deliberately the thing a reviewer greps for.
+  const verifierDoc = auth.oidc.audience
+    ? `/** Generated OIDC verifier — validates signature (JWKS), issuer and
+ *  audience, then maps claims onto User.  Returns null to reject (→ 401). */`
+    : `/** Generated OIDC verifier — validates signature (JWKS) and issuer, then
+ *  maps claims onto User.  Returns null to reject (→ 401).
+ *
+ *  The \`aud\` claim is NOT verified: this system's \`auth { oidc { … } }\`
+ *  block declares no \`audience:\`, so any token this issuer minted is
+ *  accepted here — including one issued to a DIFFERENT client of the same
+ *  realm, carrying that client's roles.  Where one IdP realm serves several
+ *  applications (the shape the generated Keycloak realm sets up), add
+ *  \`audience: env("OIDC_AUDIENCE")\` to the \`oidc { … }\` block to turn the
+ *  check on. */`;
   // One `field: claim(payload, "<path>") as <T>` line per user field.
   const toUserLines = user.fields.map((f) => {
     const t = f.optional ? renderTsType({ kind: "optional", inner: f.type }) : renderTsType(f.type);
@@ -577,8 +600,7 @@ ${toUserLines.join("\n")}
   };
 }
 
-/** Generated OIDC verifier — validates signature (JWKS), issuer, and
- *  audience, then maps claims onto User.  Returns null to reject (→ 401). */
+${verifierDoc}
 export const oidcVerifier = async (req: Request): Promise<UserClaims | null> => {
   const token = bearer(req);
   if (!token) return null;
