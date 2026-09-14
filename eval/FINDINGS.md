@@ -1613,3 +1613,99 @@ Found while building Clearline; both caught real mistakes I would have shipped:
 
 When this compiler decides to check something, it checks it better than most. The
 problem is never diagnostic quality; it is diagnostic **coverage**.
+
+---
+
+# Post-evaluation: what the fixes found (updated as each lands)
+
+## F-019 — FIXED (PR #2944), and my cross-backend claim needed narrowing
+
+**Landed.** A new `WireDecodeTarget` spine (`src/generator/_channels/wire-codec.ts`) owns the
+`TypeIR.kind` dispatch with a `never`-check; node gets a real leaf table; the
+`as unknown as DomainEvent` double cast at the decode boundary is **gone**. Emitted
+output now reads `at: new Date(data["at"] as string)`, and each decoder carries the
+event's declared return type — so a decoder that stops at the wire form is a compile
+error *in the generated project*.
+
+Types that needed reviving, beyond the `datetime` I found: `money` (crosses as a
+fixed-scale string), `decimal` (JSON number on the JS/.NET encoders, string on the
+Elixir one), `X id`/`guid` (branded strings — type-level only, but must be spelled),
+arrays element-wise (the same bug one level down), and **optionals guarded before the
+leaf** — `new Date(null)` is silently the epoch.
+
+**Runtime proof, with the counter-factual** (two deployables + valkey + postgres):
+
+| step | producer | `consumer.receipts` | consumer log |
+|---|---|---|---|
+| fix in place | `POST …/finish` → 204 | **0 → 1**, `seen_at = 2026-09-14 16:33:24.868+00` | `channel_consumed` |
+| datetime leaf mutated back to the double cast | 204 | **1 → 1** — event gone forever | `channel_consume_failed … value.toISOString is not a function` |
+| leaf restored by file copy | 204 | **1 → 2** | `channel_consumed` |
+
+The mutation deliberately used the *original* double-cast spelling, so the
+counter-factual reproduces the defect **including its invisibility to `tsc`**.
+
+### The correction to my own report
+
+My finding said *"python / java / dotnet / elixir consumers deserialize the same
+envelope and are **likely** to have the same class of bug"* — I flagged it as
+unverified, and it was wrong to imply it. The real picture:
+
+| backend | before the fix | verdict |
+|---|---|---|
+| **node** | no codec at all — spread + double cast | **silent permanent drop** (the bug I found) |
+| dotnet | `ChannelCodec.FromData` | datetime **correct**; no optional guard → `KeyNotFoundException` |
+| python | `_event_from_data` | datetime **correct**; no optional guard → `KeyError` |
+| java | `ChannelCodec.fromData` | datetime correct, optional guarded |
+| elixir | `<App>.Channels.decode` | datetime correct, optional guarded |
+
+**Node — the default backend, and the only one I tested — was the uniquely broken
+one.** The other four already decoded; two have a narrower, louder bug. All four were
+four structurally identical hand-written copies, each ending in an anonymous
+`default:` that treated anything unrecognised as a string; they are now leaf tables on
+the shared spine, verified byte-identical across a 416-file, 8-deployable generation.
+
+So F-019 stands as an S1 on the path I measured, and my "all five backends" framing in
+§3 of the report was a reasonable worry but not a measurement. Recorded here rather
+than quietly edited.
+
+---
+
+## F-044 · S2 · **SILENT** · a value object or enum on a FOREIGN carried event does not compile
+
+Found while verifying F-019. The consuming deployable's `domain/value-objects.ts` is
+emitted **empty** while its `domain/events.ts` imports from it. Loud (`tsc` fails), so
+not silent at the compiler — but the model is unbuildable and Loom reports success.
+Same family as F-009/F-030 (the emitted-import class, PR #2939).
+
+## F-045 · S2 · **SILENT** · the .NET and Python channel decoders have no optional guard
+
+`ChannelCodec.FromData` / `_event_from_data` read an absent optional field directly →
+`KeyNotFoundException` / `KeyError` at consume time. Pre-existing, carried over
+faithfully by #2944 (the spine makes `optional` an opt-in leaf, so those two omit it
+exactly as before rather than silently changing behaviour). One leaf each to fix;
+deliberately not scope-crept into the decode PR.
+
+## F-046 · S4 · producer-side `envelopeFor` still widens through `as unknown as`
+
+The one remaining double cast on the channel path. Not the decode boundary, so not the
+bug — but it is the same shape that hid F-019 for as long as it did.
+
+## Consume-failure visibility — raised, deliberately not actioned in #2944
+
+Today a consume failure is `warn` in a **different service's** log, and on
+`retention: ephemeral` the message is gone: no outbox, no retry, no DLQ. The agent's
+recommendation, which I endorse:
+
+1. Raise `channelConsumeFailed` to `error` in `src/generator/_obs/log-events.ts` — one
+   line, reaches every backend through the catalog. But node hand-writes its
+   `baseLogger.warn(...)` call sites *outside* the catalog, and five `*-obs-e2e` legs
+   assert on these events, so it is a reviewed stance change with real blast radius,
+   not a side effect of a decode fix.
+2. Bring node's hand-written call sites onto the catalog so the level is single-sourced.
+3. Treat retry/DLQ for `retention: ephemeral` as its own mission. A decode failure is
+   **not transient** — retrying a poison message forever is worse than dropping it — so
+   the right shape is a parking/dead-letter address plus a counter, not a retry loop.
+   That is a channels-semantics decision, not a codegen one.
+
+#2944 adds only the *new* refusal path (an envelope with no decoder is refused at
+`error` rather than dispatched half-built) and leaves existing levels alone.
