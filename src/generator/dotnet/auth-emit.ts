@@ -905,6 +905,7 @@ public sealed class UserMiddleware
     {
         "/health",
         "/ready",
+        "/metrics",
         "/openapi.json",
         "/swagger",${handshakeBypass}
     };

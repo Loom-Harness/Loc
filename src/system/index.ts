@@ -651,7 +651,20 @@ function metricsScrapeTargets(sys: SystemIR): Array<{ slug: string; port: number
  *  backend deployable, hitting its `/metrics` on the compose network.  Wired
  *  into the `prometheus` service by `renderDockerCompose`. */
 function renderPrometheusConfig(sys: SystemIR): string {
-  const lines: string[] = ["# Auto-generated.", "global:", "  scrape_interval: 15s", ""];
+  const lines: string[] = [
+    "# Auto-generated.",
+    "#",
+    "# No credentials: `GET /metrics` is on every backend's auth-bypass list,",
+    "# beside /health and /ready (finding F-022 — this config and that",
+    "# middleware are emitted by the same tool from the same model, so they",
+    "# must agree; a gated /metrics answered every scrape below with 401).",
+    "# The endpoint is an operations surface, not an API one: do not publish",
+    "# the backend port straight to the internet, or put an authenticating",
+    "# proxy in front of it.",
+    "global:",
+    "  scrape_interval: 15s",
+    "",
+  ];
   lines.push("scrape_configs:");
   for (const { slug, port } of metricsScrapeTargets(sys)) {
     lines.push(`  - job_name: ${slug}`);

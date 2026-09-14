@@ -286,6 +286,20 @@ Both are additive — a system with no backend deployable emits neither the
 overlay nor the scrape config, and the base compose does not advertise an
 overlay that is not there.
 
+**`/metrics` is UNAUTHENTICATED, deliberately** — it sits on every backend's
+auth-bypass list beside `/health` and `/ready`, on all five backends, whatever
+the deployable's `auth:` setting. The reason is that both halves of the scrape
+come out of the same generator: `monitoring/prometheus.yml` (and the k8s
+`prometheus.io/*` annotations) carry no credentials, so a gated `/metrics`
+would answer every scrape Loom itself configured with a 401 — a monitoring
+stack that cannot monitor (finding F-022). The alternative — minting a static
+bearer token into both the generated app and the generated scrape job — puts a
+long-lived shared secret in the repository and still protects nothing once the
+port is published. Treat `/metrics` as an operations surface: keep the backend
+port on the internal network (compose already publishes it only to localhost),
+or front it with an authenticating proxy. It carries counters, histograms and
+process gauges — never request bodies, principals or tenant data.
+
 ## Tracing (OpenTelemetry)
 
 Alongside the log stream and the Prometheus metrics, **every** backend
