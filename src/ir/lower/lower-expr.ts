@@ -1526,14 +1526,22 @@ const aggregatesByDocument = new WeakMap<AstNode, ReadonlyMap<string, Aggregate>
 
 /** The aggregate named `name` declared anywhere in `node`'s own document.
  *
- *  Deliberately NOT `findEntityByName`: the project-global ambient entity
- *  index it backstops with never sees an aggregate declared under a
- *  `subdomain` (`indexMembers` in lower.ts recurses through `members`, and a
- *  Subdomain's children live on `contexts`), and widening that index would
- *  change name resolution at a dozen unrelated call sites.  A page body and
- *  the contexts its ui binds are in the same document in every shipped
- *  example; when they are not, this returns undefined and the binding stays
- *  exactly as it is today. */
+ *  Deliberately NOT `findEntityByName`, and the reason is a narrowing, not a
+ *  capability: this lookup must answer for the AGGREGATE NAME ALONE, in a ui
+ *  body that has no context in scope, and it must not be able to answer for
+ *  anything else.  `findEntityByName` consults the project-global ambient
+ *  index, whose value-object / enum / domainService halves are deliberately
+ *  NOT widened to subdomain-nested declarations (see `indexAggregatesDeep`,
+ *  lower.ts — widening them lets a `valueobject Money` shadow the `Money`
+ *  walker primitive in every page body); routing the read through a lookup
+ *  that CAN see those halves would couple this to that open ruling.
+ *
+ *  Document-scoped is the honest bound for what it needs: a page body and the
+ *  contexts its ui binds are in the same document in every shipped example.
+ *  When they are not, this returns undefined and the binding stays exactly as
+ *  it was — never a wrong answer, only a missing one.  Once the shadowing
+ *  ruling lands, this collapses into `findEntityByName` and the WeakMap goes
+ *  with it. */
 function aggregateInDocument(node: AstNode, name: string): Aggregate | undefined {
   const root = AstUtils.getContainerOfType(node, isModel);
   if (!root) return undefined;
@@ -1557,7 +1565,7 @@ function aggregateInDocument(node: AstNode, name: string): Aggregate | undefined
  *  whole chain lowers to an untyped `method-call` and every member read off
  *  the `data:` lambda binding falls back to the `string` placeholder.  The
  *  aggregate is nevertheless nameable — it is the suffix before the verb —
- *  and it resolves through the project-global ambient entity index, so the
+ *  and it resolves by name in the document (`aggregateInDocument`), so the
  *  read's result type is recoverable here without linking the alias.
  *
  *  Returns `undefined` whenever the shape isn't recognised, which leaves the
