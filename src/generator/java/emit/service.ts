@@ -306,6 +306,14 @@ export function renderJavaService(
   // so it needs the `User` / `CurrentUserAccessor` imports even when nothing
   // else on this service threads a principal.
   const historyMasks = !!historyFind && maskedHistoryFields(agg).length > 0;
+  // …and the mask predicates' OWN expression imports, on the same rule as the
+  // `when` / `requires` gates above: `renderJavaHistoryMapper` renders those
+  // predicates INTO THIS FILE (the mapper is a private static on the service),
+  // so `Objects.equals` / `Pattern.compile` / `BigDecimal` / `Instant` must be
+  // imported here — nothing else scans a history mask predicate.
+  if (historyFind) {
+    for (const f of maskedHistoryFields(agg)) collectJavaExprImports(f.maskUnless!, imports);
+  }
   // RS-27 — every service throws it from the by-id read now, so the import is
   // unconditional rather than history-gated.
   imports.add(`${ctx.basePkg}.domain.common.AggregateNotFoundException`);

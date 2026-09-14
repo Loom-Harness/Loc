@@ -24,6 +24,7 @@ import {
   opWorkflowInstanceById,
   opWorkflowInstances,
 } from "../../ir/util/openapi-ids.js";
+import { valueObjectPool } from "../../ir/util/reachable-types.js";
 import { resolveWorkflowIsolation } from "../../ir/util/resolve-datasource.js";
 import { walkWorkflowStmtChildren, walkWorkflowStmtExprsDeep } from "../../ir/util/walk.js";
 import { commandWorkflowsOf } from "../../ir/util/workflow-command-route.js";
@@ -219,7 +220,7 @@ export function buildPyWorkflowsFile(
   const voEnumNames = [...ctx.valueObjects.map((v) => v.name), ...ctx.enums.map((e) => e.name)]
     .filter(refersTo)
     .sort();
-  const voModelImports = ctx.valueObjects
+  const voModelImports = valueObjectPool(ctx)
     .map((v) => v.name)
     .filter((n) => refersTo(`${n}Model`))
     .sort();

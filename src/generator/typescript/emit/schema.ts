@@ -19,6 +19,7 @@ import {
   tableOwnerName,
   tphConcretesOf,
 } from "../../../ir/util/inheritance.js";
+import { findValueObjectInScope } from "../../../ir/util/reachable-types.js";
 import type { ResolvedDataSource } from "../../../ir/util/resolve-datasource.js";
 import { effectiveSavingShape } from "../../../ir/util/resolve-datasource.js";
 import { type ValueCollectionIR, valueCollectionsFor } from "../../../ir/util/value-collections.js";
@@ -697,7 +698,7 @@ function emitValueCollectionTable(
   idType: IdValueType,
   options: { schema?: string; prefix?: string } = {},
 ): string {
-  const vo = ctx.valueObjects.find((v) => v.name === vc.voName);
+  const vo = findValueObjectInScope(ctx, vc.voName);
   const tableName = options.prefix ? `${options.prefix}${vc.childTable}` : vc.childTable;
   const tableFactory = options.schema ? `${schemaConstName(options.schema)}.table` : "pgTable";
   const ownerTableConst = lowerFirst(plural(ownerName));
@@ -825,7 +826,7 @@ function drizzleColumnLines(f: FieldIR, ctx: BoundedContextIR): string[] {
   // `<prefix>_<vo_field>`; this keeps queries on single columns and avoids
   // an additional join for simple flattenable VOs.
   if (innerType.kind === "valueobject") {
-    const vo = ctx.valueObjects.find((v) => v.name === innerType.name);
+    const vo = findValueObjectInScope(ctx, innerType.name);
     if (vo) {
       const out: string[] = [];
       for (const voField of vo.fields) {
@@ -890,7 +891,7 @@ function drizzleColumnLinesForName(
     case "enum":
       return [`${fieldName}: ${lowerFirst(inner.name)}Enum("${colName}")${not},`];
     case "valueobject": {
-      const vo = ctx.valueObjects.find((v) => v.name === inner.name);
+      const vo = findValueObjectInScope(ctx, inner.name);
       if (!vo) return [`${fieldName}: text("${colName}")${not},`];
       const out: string[] = [];
       for (const voField of vo.fields) {
@@ -954,7 +955,7 @@ export function valueObjectColumnNames(
   voName: string,
   ctx: BoundedContextIR,
 ): { columnName: string; subFieldName: string; type: TypeIR }[] {
-  const vo = ctx.valueObjects.find((v) => v.name === voName);
+  const vo = findValueObjectInScope(ctx, voName);
   if (!vo) return [];
   return vo.fields.map((f) => ({
     columnName: `${ownerFieldName}_${f.name}`,

@@ -18,10 +18,11 @@ import type {
   TypeIR,
   WireField,
 } from "../../../ir/types/loom-ir.js";
+import { valueObjectFieldLookup } from "../../../ir/util/reachable-types.js";
 import { lines } from "../../../util/code-builder.js";
 import { snake, upperFirst } from "../../../util/naming.js";
 import { jid, jsonProp } from "../java-ident.js";
-import { javaValueTypeForId, renderJavaExpr } from "../render-expr.js";
+import { collectJavaExprImports, javaValueTypeForId, renderJavaExpr } from "../render-expr.js";
 import { JAVA_PROVENANCED_RECORD, javaProvSibling } from "./provenance.js";
 import {
   bearsNestedRecord,
@@ -510,6 +511,16 @@ function wireRecord(
         // .currentOrNull()` (a static mapper injects no bean); an unauthenticated
         // request (`__maskUser == null`) always redacts.
         maskedAny = true;
+        // The rendered predicate is Java source like any other, and its LEAF
+        // renderings carry imports: a string/ref `==` becomes
+        // `Objects.equals(...)` (java.util.Objects), `matches` becomes
+        // `Pattern.compile(...)`, a decimal/money literal a `BigDecimal`, a
+        // `now()` an `Instant`.  `renderJavaExpr` writes the source but cannot
+        // reach this file's import set, so the collector has to be called
+        // alongside it — otherwise the mapper names a symbol the file never
+        // imports and `javac` fails on the `mask unless` field-redaction
+        // control itself.
+        collectJavaExprImports(w.maskUnless!, imports);
         const pred = renderJavaExpr(w.maskUnless!, {
           thisName: "value",
           currentUserExpr: "__maskUser",
@@ -661,7 +672,7 @@ export function renderReadModelVoResponseDtos(
   pkg: string,
   basePkg: string,
 ): DtoFile[] {
-  const voLookup = new Map(ctx.valueObjects.map((v) => [v.name, v.fields] as const));
+  const voLookup = valueObjectFieldLookup(ctx);
   const voNames = new Set<string>();
   for (const wf of observableWorkflowsOf(ctx)) {
     referencedValueObjects(

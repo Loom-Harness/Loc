@@ -4,6 +4,7 @@ import type {
   FieldIR,
   ProjectionIR,
 } from "../../../ir/types/loom-ir.js";
+import { valueObjectFieldLookup } from "../../../ir/util/reachable-types.js";
 import { lines } from "../../../util/code-builder.js";
 import { plural, snake, upperFirst } from "../../../util/naming.js";
 import { jid } from "../java-ident.js";
@@ -92,7 +93,7 @@ export function renderProjectionRowEntity(
   const stateOnly = proj.stateFields
     .filter((f) => f.name !== corr)
     .map((f) => ({ ...f, optional: true }) as FieldIR);
-  const voLookup = new Map(ctx.valueObjects.map((v) => [v.name, v.fields] as const));
+  const voLookup = valueObjectFieldLookup(ctx);
   // A projection row has no reference/value collections, so jpaFieldAnnotations
   // never touches `associations` — a bare owner satisfies the type.
   const owner = { name: proj.name, associations: [] } as unknown as EnrichedAggregateIR;

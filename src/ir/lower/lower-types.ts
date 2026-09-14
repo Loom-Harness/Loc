@@ -69,6 +69,18 @@ export interface Env {
   /** The enclosing bounded context.  Undefined for `test e2e` blocks
    * that live at the system level, outside any context. */
   ctx?: BoundedContext;
+  /** True while lowering a `ui` member's body (page / component / store /
+   *  layout / notification / ui function).
+   *
+   *  A page body is written in the WALKER STDLIB's vocabulary, and ~55 of those
+   *  primitive names are ordinary identifiers — `Money`, `Text`, `Badge`,
+   *  `Image`.  A domain `valueobject Money { … }` therefore COLLIDES with the
+   *  `Money` formatter primitive, and `lowerBuilderCall` resolving the name
+   *  against the value-object index first turned `Money { 10 }` in a page into
+   *  a value-object construction: the walker never saw the primitive, and every
+   *  page-primitive validator keyed on the CallIR (arity, children, slots)
+   *  silently stopped applying to it.  Inside a ui body the primitive wins. */
+  ui?: boolean;
   aggregate?: Aggregate;
   part?: EntityPart;
   valueObject?: ValueObject;
