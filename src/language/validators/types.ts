@@ -249,27 +249,57 @@ export function checkUnknownMemberAccess(model: Model, accept: ValidationAccepto
         // exactly one diagnostic.
         const prim = ms.call ? undefined : absentPrimitiveMember(recvType, ms.member);
         if (prim) {
-          const known = prim.known.length ? ` Available on '${prim.prim}': ${prim.known.join(", ")}.` : "";
-          // `money` and `json` get their own wording: for both, the fix is to
-          // declare a record rather than to correct a spelling, and the
-          // generic "primitive has no fields" line does not say so.
-          const key =
-            prim.prim === "money"
-              ? "loom.unknown-primitive-member#money"
-              : prim.prim === "json"
-                ? "loom.unknown-primitive-member#json"
-                : "loom.unknown-primitive-member";
-          const message =
-            key === "loom.unknown-primitive-member#json"
-              ? diagMessage(key, { member: ms.member })
-              : key === "loom.unknown-primitive-member#money"
-                ? diagMessage(key, { member: ms.member, known })
-                : diagMessage(key, { member: ms.member, prim: prim.prim, known });
-          accept("error", message, {
-            node: ms,
-            property: "member",
-            code: "loom.unknown-primitive-member",
-          });
+          const known = prim.known.length
+            ? ` Available on '${prim.prim}': ${prim.known.join(", ")}.`
+            : "";
+          // Three primitives get their OWN wording, because for each of them
+          // the fix is not "correct the spelling" and the generic
+          // "a primitive has no fields" line would send the author looking
+          // for a typo that isn't there:
+          //   • `money` — the author wanted a record (`.amount`/`.currency`);
+          //   • `json`  — the interior is deliberately unmodelled;
+          //   • `File`  — it HAS a fixed wire shape (`{url, key, …}`), it is
+          //     just not readable from an expression; `FileLink` renders it.
+          // One `accept` per variant, each with the key and the `code:`
+          // spelled out inline — `diagnostic-catalog.test.ts` reads the call
+          // site, so a message hidden behind a local is invisible to it.
+          if (prim.prim === "money") {
+            accept(
+              "error",
+              diagMessage("loom.unknown-primitive-member#money", { member: ms.member, known }),
+              { node: ms, property: "member", code: "loom.unknown-primitive-member" },
+            );
+          } else if (prim.prim === "json") {
+            accept(
+              "error",
+              diagMessage("loom.unknown-primitive-member#json", { member: ms.member }),
+              {
+                node: ms,
+                property: "member",
+                code: "loom.unknown-primitive-member",
+              },
+            );
+          } else if (prim.prim === "File") {
+            accept(
+              "error",
+              diagMessage("loom.unknown-primitive-member#file", { member: ms.member }),
+              {
+                node: ms,
+                property: "member",
+                code: "loom.unknown-primitive-member",
+              },
+            );
+          } else {
+            accept(
+              "error",
+              diagMessage("loom.unknown-primitive-member", {
+                member: ms.member,
+                prim: prim.prim,
+                known,
+              }),
+              { node: ms, property: "member", code: "loom.unknown-primitive-member" },
+            );
+          }
           break;
         }
         const record = absentRecordMember(recvType, ms.member);
