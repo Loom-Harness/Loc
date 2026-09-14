@@ -152,8 +152,24 @@ When a `.ddd` declares `auth { oidc { … } }` without `audience:`:
 | python | `audience=_AUDIENCE, options={"verify_aud": _AUDIENCE is not None}` — `os.environ.get("OIDC_AUDIENCE")` |
 | java | `System.getenv("OIDC_AUDIENCE")` |
 | dotnet | `Environment.GetEnvironmentVariable("OIDC_AUDIENCE")` |
-| elixir | env-overridable, with an explicit documented `OIDC_AUDIENCE=""` opt-out |
+| ~~elixir~~ **CORRECTED** | ~~env-overridable, with an explicit documented `OIDC_AUDIENCE=""` opt-out~~ — **wrong, see below** |
 | **node / hono** | `jwtVerify(token, jwks, { issuer: ISSUER })` — **no audience term, no env path** |
+| **elixir** | **no audience term, no env path** — every construct sits behind `auth.oidc.audience ? … : ""` |
+
+> **Correction (2026-09-14, found by Wave CR1 packet CR1-b).** The elixir row above was wrong, and
+> wrong in the direction that understates the finding. `renderOidcVerifier` gates *every* audience
+> construct — `audience/0`, `aud_present?/1`, and the `add_claim("aud", …)` validator — behind
+> `auth.oidc.audience ? … : ""`, so with no `audience:` declared elixir emits **no audience check at
+> all**, exactly like node. The audit read the `envOrDeclared("OIDC_AUDIENCE", …)` call and inferred
+> an env path without noticing that call only appears in the *declared* branch. **The divergence was
+> two backends, not one.** Both are fixed in CR1-b; the table is left visible rather than rewritten,
+> because how the error was made — reading a call site without checking which branch reaches it — is
+> the same mistake this audit attributes to the waiver register in P0-2.
+>
+> CR1-b also found a **residual divergence P0-4 did not name**: `OIDC_AUDIENCE=""` is an opt-out on
+> node and elixir only. dotnet, java and python read the empty string as a *declared* audience of
+> `""` and reject every token. Fail-closed, so not a security hole — but a deployment footgun, and a
+> one-line fix per backend. Recorded, not fixed, in `docs/new-plan/waves/handoffs/wave-cr1-b.md`.
 
 Two problems, in order of severity:
 
