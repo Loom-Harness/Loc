@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { OriginRef } from "../../../src/ir/types/origin.js";
-import { generateSystems } from "../../../src/system/index.js";
-import { parseValid } from "../../_helpers/index.js";
+import { generateSystemFiles } from "../../_helpers/generate.js";
 
 // ---------------------------------------------------------------------------
 // Feliz frontend recording bracket — the feliz half of the ledger row
@@ -41,8 +40,7 @@ const SOURCE = `
 type Region = { target: [number, number]; construct?: string; origin: OriginRef };
 
 async function felizRegions(): Promise<{ app: string; regions: Region[] }> {
-  const model = await parseValid(SOURCE);
-  const files = generateSystems(model, { sourcemap: true }).files;
+  const files = await generateSystemFiles(SOURCE, { sourcemap: true });
   const map = JSON.parse(files.get(".loom/sourcemap.json")!) as {
     files: Record<string, Region[]>;
   };
@@ -83,9 +81,8 @@ describe("feliz generator — sourcemap recording", () => {
   });
 
   it("off by default — no sourcemap artifact, App.fs unaffected", async () => {
-    const model = await parseValid(SOURCE);
-    const withMap = generateSystems(model, { sourcemap: true }).files;
-    const without = generateSystems(model).files;
+    const withMap = await generateSystemFiles(SOURCE, { sourcemap: true });
+    const without = await generateSystemFiles(SOURCE);
     expect(without.has(".loom/sourcemap.json")).toBe(false);
     // The recorder must not perturb emission — byte-identical either way.
     expect(without.get("web/src/App.fs")).toBe(withMap.get("web/src/App.fs"));

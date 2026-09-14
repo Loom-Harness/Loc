@@ -998,6 +998,38 @@ system S {
   deployable web { platform: static targets: api ui: WebApp { C: api } port: 3001 }
 }`,
 
+  // The TARGET-AGNOSTIC `match await` subject gate (audit F66).  The fixture is
+  // deliberately a REACT deployable: the whole point of the promotion is that
+  // this model used to report `0 error(s), 0 warning(s)` there and emit
+  // `await Promise.reject(new Error("no remote op for variant-match"))`, while
+  // the identical model was refused on Feliz.  A plain `string` state field is
+  // the subject — no frontend can resolve it to an aggregate instance op.
+  "loom.async-effect-subject-unsupported": `
+system S {
+  subdomain Sub { context C {
+    aggregate Order { code: string  operation place() { code := "x" } }
+    repository Orders for Order { }
+  } }
+  api Api from Sub
+  ui WebApp {
+    api C: Api
+    page OrderDetail {
+      route: "/orders/:id"
+      state { message: string = "" }
+      action submit() {
+        match await message {
+          Order o => { message := o.code }
+        }
+      }
+      body: Stack { Button { "Place", onClick: submit } }
+    }
+  }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable api { platform: node contexts: [C] dataSources: [st] serves: Api port: 3000 }
+  deployable web { platform: static targets: api ui: WebApp { C: api } port: 3001 }
+}`,
+
   // The `persist:` ladder now ships on EVERY frontend, so the platform-wide arm
   // of this code is gone; what remains is field-scoped.  Persistence on feliz
   // and flutter crosses an untyped boundary per field, so a cell whose type has

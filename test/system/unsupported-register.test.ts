@@ -307,7 +307,7 @@ const REGISTER_FILE = path.join(srcRoot, "diagnostics", "unsupported-register.ts
  *  `.ddd` spelling.  Compile- and BOOT-proved on a real Postgres
  *  (`test/generator/java/java-reserved-identifier.test.ts`,
  *  `test/fixtures/corpus/java-reserved-words.ddd`). */
-const MAX_OPEN_GAPS = 24;
+const MAX_OPEN_GAPS = 25;
 
 /** Exact count of `seam` rows.  Changes only for a reviewed reason: a gate
  *  deleted (down), a new target registered that turns a seam back into a live

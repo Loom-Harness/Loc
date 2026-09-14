@@ -936,7 +936,7 @@
   },
   {
    "id": "M-T1.20-feliz-match-await",
-   "title": "M-T1.20 — `loom.feliz-async-effect-unsupported` residue is narrower than documented: only a route-id-less host and a non-aggregate-instance subject stay gated",
+   "title": "M-T1.20 — `loom.feliz-async-effect-unsupported` is now ONE arm, not two: the component host. The subject arm was promoted out to the target-agnostic `loom.async-effect-subject-unsupported` in wave C2 packet 2i (audit F66)",
    "kind": "honest",
    "class": null,
    "confidence": "likely",
@@ -954,12 +954,12 @@
     {
      "fleet": 1,
      "id": "M-T1.20-feliz-match-await",
-     "text": "src/ir/util/feliz-async-effect.ts:1-18 documents the shipped surface: `match await <api>.<Agg>.<op>(args?) { … }` with one OR MORE named arms and an optional `else` is SUPPORTED; \"the ONLY remaining gated case is a host with no route id (a component or a non-`:id` page)\" plus \"a subject that isn't an aggregate instance op (a collection op, a workflow, a non-aggregate receiver)\". Emission site src/ir/validate/checks/store-checks.ts:439-451, with the component reason spelled at :441-443. Register row src/diagnostics/unsupported-register.ts:134-139 kind \"gap\", mission M-T1.20. The mission text (T1-ui-frontend.md:267,271) still describes it flatly as \"`match await` unrenderable on Feliz\"."
+     "text": "The row reported the register text as broader than the code, and named two surviving arms — a route-id-less host and a non-aggregate-instance subject. Wave C2 packet 2i acted on both. (a) The SUBJECT arm was never Feliz-specific: the identical model reported `0 error(s), 0 warning(s)` on React and emitted `await Promise.reject(new Error(\"no remote op for variant-match\"))`, while `heex-walker-core`'s `renderVariantMatchStmt` threw at codegen. It is now `loom.async-effect-subject-unsupported`, raised for every ui-mounting deployable from the same pure classifier (`src/ir/util/feliz-async-effect.ts`), with its own register row, catalog entry, `code-docs.ts` anchor and firing fixture (the fixture is deliberately a react deployable). (b) The register row and the `messages.ts` text for `loom.feliz-async-effect-unsupported` now describe ONLY the component-host arm, which is what the code raises: `store-checks.ts` gates it with `if (host.kind !== \"component\" || !cls.supported) return`, so a component with a bad subject draws the neutral code alone rather than two diagnostics for one statement."
     }
    ],
    "repro": null,
    "impact": null,
-   "fix": "Two independent slices. (a) Component/route-less host: the trigger id currently comes from the page route `:id`; accept an explicit id EXPRESSION in the await subject so a component can supply one, then drop that arm of the gate. (b) Workflow / collection subjects: a workflow await is a different route shape (`POST /workflows/<wf>`), so it needs its own Msg/decoder projection in src/generator/feliz/update-emit.ts — treat as a separate mission-sized item. Also correct the mission prose to describe the narrow residue rather than the whole feature.",
+   "fix": "What is LEFT is the row's own fix (a): let a component supply the trigger id, then drop the component arm too. That is the same threading the component-deferral rows #4-#7/#9 need (`ui-component-deferral-checks.ts` `felizDeferrals` — the route `id` and the page-entry `pageCmd` fetch are bound by a PAGE view fn and its `Page` case), so build it once for both rather than twice. The row's fix (b) — awaiting a WORKFLOW — moved with the subject arm and is now the work behind `loom.async-effect-subject-unsupported`.",
    "size": "M",
    "sources": [
     "fleet1:t1-frontend"
@@ -968,11 +968,11 @@
    "securityClass": false,
    "P": 3,
    "reverified": {
-    "date": "2026-09-10",
-    "against": "bc7ed8f8",
-    "method": "reconciliation 3 (packet C0.5) — repro re-run on this head, emitted output read",
-    "verdict": "reproduces",
-    "note": "RE-DERIVED: `src/ir/util/feliz-async-effect.ts:9-17` still documents exactly the shipped surface and names the two surviving gated cases (a host with no route id; a subject that is not an aggregate instance op).  The register text remains broader than the code.",
+    "date": "2026-09-14",
+    "against": "wave C2 packet 2i",
+    "method": "both arms re-derived at the code path; the subject arm BUILT as a target-agnostic gate",
+    "verdict": "half closed",
+    "note": "`ddd parse` on a page-hosted `match await <plain state field>` now answers `loom.async-effect-subject-unsupported` on a react deployable (it answered nothing before) and no longer answers `loom.feliz-async-effect-unsupported` on a feliz one; a component-hosted effect with a GOOD subject still answers the Feliz code.",
     "remainingTargets": [
      "feliz"
     ]

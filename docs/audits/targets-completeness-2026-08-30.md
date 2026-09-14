@@ -187,7 +187,7 @@ Sorted P0 (security / data-integrity, silent, proven) → P1 (other silent prove
 | P3 | `F2-W-08` | honest | prov | dotnet, java, node, python, elixir | M | A `valueobject` aggregate field publishes ONE shared component on node/python/elixir and TWO (`<VO>Request` + `<VO>Response`) on dotnet/java |
 | P3 | `F2-W-14` | honest | susp | dotnet | M | dotnet likely publishes an EMPTY schema for a union-returning operation's 200 body (no `UseOneOfForPolymorphism`) |
 | P3 | `M-T1.10-handler-vocabulary` | honest | like | react, vue, svelte, angular, feliz, flutter, phoenixLiveView | M | M-T1.10 — `on <channel>.<Event>` handler bodies remain a closed two-verb vocabulary (`toast` + `refetch`) |
-| P3 | `M-T1.20-feliz-match-await` | honest | like | feliz | M | M-T1.20 — `loom.feliz-async-effect-unsupported` residue is narrower than documented: only a route-id-less host and a non-aggregate-instance subject stay gated |
+| P3 | `M-T1.20-feliz-match-await` | honest | like | feliz | M | M-T1.20 — `loom.feliz-async-effect-unsupported` is now ONE arm, not two: the component host. The subject arm was promoted out to the target-agnostic `loom.async-effect-subject-unsupported` in wave C2 packet 2i (audit F66) |
 | P3 | `M-T3.7-e-claim-typed-capability-fields` | honest | like | macros, enrich, validator | M | `tenantOwned` still hardcodes `tenantId: string`, so a `guid` claim is refused |
 | P3 | `M-T5.3-nested-carriers-and-option` | honest | like | language, node, dotnet, java, python, elixir, react | M | Nested carriers stay gated; `option` lowers but the three-state PATCH it unblocks is unbuilt |
 | P3 | `M-T5.7-inheritance-tail` | honest | like | dotnet, node, java, python, elixir | M | Inheritance tail — all three remaining items are honest register rows |
