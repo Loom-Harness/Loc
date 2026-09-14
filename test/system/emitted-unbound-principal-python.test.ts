@@ -74,7 +74,23 @@ const READ_PATHS: readonly { readonly what: string; readonly body: string }[] = 
       repository WorkOrders for WorkOrder { }`,
   },
   {
-    what: "a query-time projection filtered by the principal",
+    // The ROW-returning query-time projection — a DIFFERENT emitter from the
+    // aggregating one below.  This one becomes a method on the repository
+    // (`viewFindMethod`), whose signature is as parameter-free as a
+    // retrieval's; the aggregating one becomes a direct-table read in a ROUTE,
+    // which binds `current_user: User` off the request scope.  Both are here
+    // because "query-time projection" is one DSL construct and two code paths.
+    what: "a ROW-returning query-time projection filtered by the principal",
+    body: `      projection MyRows {
+        title: string
+        from WorkOrder as w
+        where w.technicianUserId == currentUser.id
+        select title = w.title
+      }
+      repository WorkOrders for WorkOrder { }`,
+  },
+  {
+    what: "an AGGREGATING query-time projection filtered by the principal",
     body: `      projection MyTotals {
         orders: int
         from WorkOrder as w
