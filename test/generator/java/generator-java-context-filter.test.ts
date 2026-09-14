@@ -5,7 +5,7 @@
 // predicate instead AND-s a SpEL-principal JPQL clause into every read (see
 // generator-java-tenancy-filter.test.ts) — but still requires `auth: required`
 // (a request principal to scope by); a non-relational shape stays gated
-// (loom.context-filter-unsupported).  Boot-verified end-to-end against Postgres
+// (loom.context-filter-no-principal).  Boot-verified end-to-end against Postgres
 // via test/e2e/fixtures/java-build/context-filter.ddd (soft-deleted row hidden
 // from list + by-id, still physically present).
 // ---------------------------------------------------------------------------
@@ -55,7 +55,7 @@ system CF {
 `;
     const loom = await buildLoomModel(tenancy);
     const errors = validateLoomModel(loom).filter(
-      (d) => d.code === "loom.context-filter-unsupported",
+      (d) => d.code === "loom.context-filter-no-principal",
     );
     expect(errors.length).toBeGreaterThan(0);
     expect(errors[0]!.message).toContain("currentUser");

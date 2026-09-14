@@ -346,13 +346,53 @@ const REGISTER_FILE = path.join(srcRoot, "diagnostics", "unsupported-register.ts
  *  `loom.async-effect-subject-unsupported`, raised for every mounted ui; the
  *  Feliz row keeps only the component host.  The two rows' `what` sets are
  *  disjoint and their union is exactly the old row's. */
-const MAX_OPEN_GAPS = 24;
+/** 24 -> 21 (wave C2 packet 2f; composed at the fold on top of the deltas above — its -4 lands on the 24 the batch stood at): the three CONFIG-SHAPED rows renamed OUT of the
+ *  suffix, per this file's own header rule ("a plain misuse error does not carry
+ *  the suffix and does not get a row").  None of the three was ever a target gap:
+ *
+ *   - `loom.context-filter-unsupported` -> `loom.context-filter-no-principal`.
+ *     Its backend×shape half died when the last family wired capability filters;
+ *     what was left is "this `filter` reads `currentUser` and the deployable has
+ *     no auth", which no backend can ever implement — there is no principal.
+ *   - `loom.persistence-mode-unsupported` -> `loom.datasource-binding-missing`.
+ *     Its own `what` already said "NOT a backend gap": a hosted aggregate whose
+ *     deployable lists no matching `dataSource`.  The name also outlived its
+ *     subject twice (the persistence-ADAPTER axis, then the mode).
+ *   - `loom.ui-realtime-unsupported`'s BACKEND arm (`#backend-serves-no-sse`) is
+ *     DELETED, not renamed.  It is unreachable from valid source: every shipping
+ *     backend serves realtime, and the two ways to point a ui at something that
+ *     does not are already phase-④ errors in `validators/deployable.ts` (a
+ *     frontend deployable with no `targets:`, and one targeting another
+ *     frontend).  Minting a code no source can raise would only add a register
+ *     row nothing can close.  The code KEEPS its row for its other arm (an
+ *     unknown FRONTEND), which is a genuine latent seam — see LATENT_SEAMS.
+ *
+ *  A drain sprint stalls on rows nothing can close; these three could not close
+ *  because there was nothing to build.
+ *
+ *  21 -> 20: `loom.sensitive-wire-unsupported` re-classed `scope` under
+ *  **D-SENSITIVE-INSPECT-ONLY**.  Not renamed and not narrowed — the warning
+ *  keeps firing on every reachable `sensitive(...)` field, and no backend masks
+ *  on the wire.  What changes is the claim about WHO closes it: M-T3.8's three
+ *  phases are a type-system change, a masking arm in five DTO emitters and a
+ *  sink census with no chokepoint, and four fifths of that is indistinguishable
+ *  from success in any test that asserts by shape.  `scope` says "declared limit,
+ *  named successor"; `gap` said "a sweep can close this", which for a
+ *  security-shaped feature is how it ends up half-ported. */
+const MAX_OPEN_GAPS = 20;
 
 /** Exact count of `seam` rows.  Changes only for a reviewed reason: a gate
  *  deleted (down), a new target registered that turns a seam back into a live
  *  `gap` (down), or a gap re-classified as latent with the membership set
- *  named in its `what` (up — the line a reviewer reads). */
-const LATENT_SEAMS = 24;
+ *  named in its `what` (up — the line a reviewer reads).
+ *
+ *  24 -> 25 (wave C2 packet 2f): `loom.ui-realtime-unsupported`, once its CONFIG
+ *  arm left under its own name.  What remains fires only for a frontend whose
+ *  framework has no realtime consumption, and
+ *  `SSE_REALTIME_FRONTENDS ∪ NATIVE_REALTIME_FRONTENDS` already names every
+ *  shipping one — the seam the next frontend gates on, which is what this kind
+ *  is for. */
+const LATENT_SEAMS = 25;
 
 function walk(dir: string, out: string[] = []): string[] {
   for (const e of fs.readdirSync(dir, { withFileTypes: true })) {

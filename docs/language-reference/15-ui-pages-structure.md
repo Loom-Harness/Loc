@@ -481,7 +481,7 @@ ui WebApp {
 </script>
 ```
 
-Subscribing to a non-broadcast channel is `loom.ui-channel-not-broadcast`. Handlers that would be silently dropped are rejected rather than lost: `loom.ui-realtime-unsupported#backend-serves-no-sse` (the targeted backend serves no realtime wire) and `#frontend-has-no-consumer` (the frontend framework has no realtime consumption). The channel declaration itself is [14. APIs, storage, resources & channels](14-apis-storage-resources-channels.md) / [`../channels.md`](../channels.md).
+Subscribing to a non-broadcast channel is `loom.ui-channel-not-broadcast`. A handler that would be silently dropped is warned about rather than lost: `loom.ui-realtime-unsupported`, when the frontend framework has no realtime consumption. (Every shipping frontend has one, so the warning is the seam the next framework trips until it ports; the sibling arm for a *backend* that serves no wire was deleted in wave C2 — every shipping backend serves it, and a frontend deployable with no `targets:` or with a frontend target is already a phase-④ error.) The channel declaration itself is [14. APIs, storage, resources & channels](14-apis-storage-resources-channels.md) / [`../channels.md`](../channels.md).
 
 ## `area` & `menu`
 

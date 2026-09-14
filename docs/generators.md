@@ -1141,7 +1141,7 @@ persistence adapter (both `stubAdapter` — the default JPA persistence
 *does* emit `persistedAs: eventLog`),
 resource-op clients, a **principal-referencing
 capability filter on a non-relational aggregate**
-(`loom.context-filter-unsupported` — each half ships alone; only the
+(`loom.context-filter-no-principal` — each half ships alone; only the
 actor + jsonb intersection is deferred), and provenance/audited (gated —
 no runtime emitted; the node and .NET backends do implement these).  See
 `docs/old/plans/java-backend-implementation.md` for the execution record.

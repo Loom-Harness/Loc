@@ -1956,40 +1956,6 @@
    "P": 4
   },
   {
-   "id": "M-T3.16-C4-forbidden-remap-golden",
-   "title": "C4 — no golden covers a remapped `Forbidden` on the lifecycle rungs",
-   "kind": "breadth",
-   "class": null,
-   "confidence": "likely",
-   "targets": [
-    "node",
-    "dotnet",
-    "java",
-    "python",
-    "elixir"
-   ],
-   "fileTrees": [
-    "test/conformance/"
-   ],
-   "evidence": [
-    {
-     "fleet": 1,
-     "id": "M-T3.16-C4-forbidden-remap-golden",
-     "text": "`errorStatuses(\"destroy\", guarded, resolve)` resolves `forbidden` through the override map (src/ir/util/openapi-errors.ts:129,183-185), but the existing parity suite test/conformance/denial-ladder-override-parity.test.ts overrides `DomainError`; nothing asserts an `httpStatus Forbidden -> N` moving a guarded create/destroy on all five."
-    }
-   ],
-   "repro": null,
-   "impact": null,
-   "fix": "One case in the existing override-parity test: `httpStatus Forbidden -> 451` and assert both the declared set and the runtime handler arm move on all five backends.",
-   "size": "S",
-   "sources": [
-    "fleet1:t3-t5-auth-lang"
-   ],
-   "related_to": [],
-   "securityClass": false,
-   "P": 4
-  },
-  {
    "id": "M-T3.9-logged-marker",
    "title": "The `logged` marker never shipped",
    "kind": "mission",
@@ -4796,132 +4762,6 @@
    }
   },
   {
-   "id": "M-T5.14-reading-service-readport-not-threaded",
-   "title": "A `reading` domain service called from an explicit `commandHandler`/`queryHandler` emits a port-less call that does not compile on dotnet, java and elixir (node and python thread it; the workflow caller is correct everywhere; the aggregate-body caller is honestly refused)",
-   "kind": "silent",
-   "class": null,
-   "confidence": "likely",
-   "targets": [
-    "dotnet",
-    "java",
-    "elixir"
-   ],
-   "fileTrees": [
-    "src/generator/",
-    "src/platform/hono/",
-    "src/ir/validate/checks/"
-   ],
-   "evidence": [
-    {
-     "fleet": 1,
-     "id": "M-T5.14-reading-service-readport-not-threaded",
-     "text": "src/generator/python/render-expr.ts:649 `const ports = ctx.readPortArgs?.(ref.service, ref.op) ?? []` and src/generator/typescript/render-expr.ts:559 (same shape) drop the read-port handles when the caller context supplies no resolver — and the ONLY suppliers are the workflow builders (src/platform/hono/v4/workflow-builder.ts:1835, src/generator/python/workflows-builder.ts:627). The reading op DECLARES those handles as leading params (src/generator/python/emit/domain-service.ts:176-190), so the call is arity-short. The validator only bans such calls from AGGREGATE bodies (src/ir/validate/checks/domain-service-checks.ts:154-196 `checkInfraCallsFromAggregates`), even though its own comment says the orchestrator may be a 'workflow / command handler'. .NET has an explicit 'no handle wired' fallthrough it calls 'validator-unreachable' (src/generator/dotnet/render-expr.ts:1049-1051). Filed as issue #2649 from PR #2648, which explicitly leaves it out — unclaimed."
-    }
-   ],
-   "repro": null,
-   "impact": null,
-   "fix": "Either thread a `readPortArgs` resolver from the explicit-handler emitters (the workflow resolver is the template) or extend `checkInfraCallsFromAggregates` to reject non-pure service calls from any caller that cannot supply ports — pick one and mutation-prove it by seeding a handler-side call.",
-   "size": "M",
-   "sources": [
-    "fleet1:t3-t5-auth-lang"
-   ],
-   "related_to": [
-    "domainservice-member-chained-repo-read (fresh-gate-probe) — same broken output (port-less domain-service call, non-compiling), different root cause"
-   ],
-   "securityClass": false,
-   "P": 2,
-   "note": "Wave 1 packet 1c: node arm verified fixed. Wave C2 packet 2e: PYTHON arm fixed — `explicit-handlers-emit.ts` now builds its render context with `readPortArgs: pyReadPortResolver(ctx)`, folds `collectServiceReadPorts(h.statements, ctx)` into the repo set it constructs, and emits the `app.domain.services.*` import line it had never had at all (src/generator/python/explicit-handlers-emit.ts). Both helpers are the workflow builder's, exported rather than copied, over the shared `readPortsForOperation` (src/ir/util/domain-service-read-ports.ts). Gated by test/generator/python/handler-domain-service-read-port.test.ts (3 mutations named) and verified on a booted app against a real Postgres. dotnet/java/elixir arms remain open — wave C2 packet 2f owns them; see handoffs/wave-c2-2e-python.md for the per-backend shape. Wave 1 packet 1c: node arm verified fixed; python/java/.NET/elixir arms open — see handoffs/wave-1-node-ts.md for the per-backend shape.  Re-verified on the C2 head (packet 2c): the node arm is closed on BOTH caller sites — `readPortResolver(ctx)` is threaded through `honoWorkflowStmtTarget` for statement bodies (`src/platform/hono/v4/workflow-builder.ts:1968`) AND through the explicit handler's `return` render (`explicit-handlers-builder.ts:480,491`), with `serviceReadPorts` constructing the port repos; pinned by `test/generator/typescript/handler-reading-service.test.ts` (5 cases, green).  `remainingTargets` unchanged: dotnet, java, python, elixir.",
-   "verified": {
-    "date": "2026-09-03",
-    "against": "bd7aaeedc",
-    "method": "each row's own repro re-run; emitted output read",
-    "verdict": "partial",
-    "note": "node constructs and threads the port. The other four emit a non-compiling call (static call on an instance class, no import, arity-short, or a module that is never emitted)",
-    "remainingTargets": [
-     "dotnet",
-     "java",
-     "python",
-     "elixir"
-    ]
-   },
-   "reverified": {
-    "date": "2026-09-13",
-    "against": "6d6c1a1 + wave C2 coordinator commit",
-    "method": "wave C2 packet 2e — repro re-run on this head (a `reading` service called from a queryHandler), emitted output read, then booted",
-    "verdict": "partial",
-    "note": "python arm CLOSED; the remaining three are dotnet, java and elixir",
-    "remainingTargets": [
-     "dotnet",
-     "java",
-     "elixir"
-    ]
-   }
-  },
-  {
-   "id": "G2646-open-projection-on-event-no-channel",
-   "title": "`projection … on(Event)` with no `channel` carrying it never folds on ANY backend — now honestly warned by `loom.projection-event-uncarried` rather than silent",
-   "kind": "honest",
-   "class": null,
-   "confidence": "likely",
-   "targets": [
-    "node",
-    "dotnet",
-    "java",
-    "python",
-    "elixir"
-   ],
-   "fileTrees": [
-    "src/ir/enrich/enrichments.ts",
-    "src/generator/typescript/emit/routes.ts"
-   ],
-   "evidence": [
-    {
-     "fleet": 1,
-     "id": "G2646-open-projection-on-event-no-channel",
-     "text": "VERIFIED still open on main and NOT in #2646's diff. src/ir/enrich/enrichments.ts:1281-1300 `deriveEventSubscriptions` early-returns `if (!channels || channels.length === 0) return []` (:1288) and pushes a subscription only when `carrier(on.event)` resolves a channel that CARRIES the event (:1296-1300) — so a projection handler on an event no channel carries produces no subscription anywhere. Node nonetheless mounts its fold tee off `isMaterializedProjection` (src/generator/typescript/emit/routes.ts:120), so node folds and the other four do not. #2646's audit lists this as 'open — B20, needs a semantics decision'."
-    }
-   ],
-   "repro": null,
-   "impact": null,
-   "fix": "Owner semantics decision first: does `on(Event)` without a channel mean (a) an implicit in-process subscription every backend honours, or (b) an error? Then either derive the subscription unconditionally in enrichments.ts:1288-1300 (dropping the channels early-return) or mint a `loom.*` refusal. Add a corpus case with a channel-less projection handler asserting the same fold on all five.",
-   "size": "M",
-   "sources": [
-    "fleet1:pr-registers"
-   ],
-   "related_to": [],
-   "securityClass": true,
-   "P": 3,
-   "verified": {
-    "date": "2026-09-03",
-    "against": "bd7aaeedc",
-    "method": "each row's own repro re-run; emitted output read",
-    "verdict": "open",
-    "note": "`deriveEventSubscriptions` still early-returns when no channel carries the event",
-    "remainingTargets": [
-     "node",
-     "dotnet",
-     "java",
-     "python",
-     "elixir"
-    ]
-   },
-   "reverified": {
-    "date": "2026-09-10",
-    "against": "bc7ed8f8",
-    "method": "reconciliation 3 (packet C0.5) — repro re-run on this head, emitted output read",
-    "verdict": "honest-gated",
-    "note": "SILENT → HONEST.  RE-RUN: corpus `projection.ddd` with its `channel Lifecycle` block deleted, generated on all five.  `deriveEventSubscriptions` still guards on a carrying channel (`enrichments.ts:1303 if (!channels || channels.length === 0) return []`, then a per-handler `if (channel)`), so NO backend derives the subscription — including node, which the row said folded: the premise 'folds on node only' is stale, it folds nowhere.  But the compiler now SAYS SO: `loom.projection-event-uncarried` warns once per handler, names the fold that will never run and gives the remedy (`declare a channel (e.g. 'channel C { carries: OrderPlaced }')`).  Added by #2705.  Reclassified silent→honest and P2→P3 to keep the doc's own P-tier rule (P1/P2 = silent, P3 = honest) true.",
-    "remainingTargets": [
-     "node",
-     "dotnet",
-     "java",
-     "python",
-     "elixir"
-    ]
-   },
-   "note": "Wave C2 packet 2c: the NODE arm is not a node arm.  `deriveEventSubscriptions` (`src/ir/enrich/enrichments.ts:1303`) early-returns when no channel carries the event, so no backend derives the subscription and none folds — the emitters are already correct downstream of it (node mounts its fold tee off `isMaterializedProjection`, `src/generator/typescript/emit/routes.ts:120`, and would fold the moment a subscription exists).  D-PROJECTION-IMPLICIT-SUB rules that an `on(Event)` subscribes in-process with or without a channel, so the fix is ONE change in `enrichments.ts` (drop the channels early-return, derive unconditionally) plus the corpus case — a 2f change on the shared IR, not five per-backend arms.  Handed off to 2f; nothing in `src/platform/hono/**` or `src/generator/typescript/**` needs to move."
-  },
-  {
    "id": "G2646-open-node-mounts-ui-false",
    "title": "#2646 documented, NOT fixed: node is the only backend with mountsUi: false",
    "kind": "honest",
@@ -4961,42 +4801,6 @@
     ]
    },
    "note": "Re-verified reproducing on 29db198c1 (`src/platform/metadata.ts:170` mountsUi: false, the one `false` among the backends).  Owner: M-T9.4 A7.4."
-  },
-  {
-   "id": "drizzle-projection-membership-column-arg-crash",
-   "title": "A query-time `projection … where <alias>.<refColl>.contains(<column>)` validates clean on a bare `platform: node` deployable and then CRASHES codegen (\"internal: where-clause for projection 'X' could not lower to Drizzle, but the validator should have caught this\")",
-   "kind": "silent",
-   "class": null,
-   "confidence": "proven",
-   "targets": [
-    "node"
-   ],
-   "fileTrees": [
-    "src/platform/hono/v4/projection-query-routes-builder.ts",
-    "src/generator/typescript/repository-find-predicate.ts",
-    "src/ir/validate/checks/orm-adapter-checks.ts",
-    "src/ir/validate/checks/query-checks.ts"
-   ],
-   "evidence": [
-    {
-     "fleet": 0,
-     "id": "drizzle-projection-membership-column-arg-crash",
-     "bucket": "wave-c2:2c-node",
-     "text": "Found while draining the mikroorm half of `loom.find-predicate-unsupported`.  `validateFindPredicateAdapterSupport` keys on `dep.persistence`, which a bare `platform: node` deployable does not carry, so the gate that refuses this shape under `persistence: mikroorm` never runs for the DEFAULT adapter — and `lowerToDrizzle` returns null for it (the membership subquery binds its target as a parameter; a column argument has nowhere to bind), which `buildQueryProjectionsFile` turns into a loud generate-time throw.  `firstNonQueryableNode` admits the shape, so nothing upstream refuses it either.  The same predicate in a repository find is unreachable (a find HAS parameters), which is why only the projection site produces it."
-    }
-   ],
-   "repro": "projection MyTotals { orders: int  from Order as o  where o.tags.contains(o.id)  select orders = count } on `deployable d { platform: node }` (no `persistence:`): `ddd generate system` prints `0 error(s), 0 warning(s)` and then throws `internal: where-clause for projection 'MyTotals' could not lower to Drizzle`.",
-   "impact": "A crash instead of an answer on the DEFAULT node adapter — the class C2 exists to remove.  Not a regression: reproduces identically on 29db198c1.",
-   "fix": "Decide where the refusal belongs: (a) target-neutral — `firstNonQueryableNode` stops admitting a membership whose argument is not a bindable value, which covers all five backends and every site at once (the shape is unlowerable everywhere, and `orm-adapter-checks.ts`'s own header says a shape impossible on every backend belongs in a target-neutral rule); or (b) `validateFindPredicateAdapterSupport` resolves the DEFAULT adapter for a deployable with no `persistence:` selector, which fixes node only.  (a) is the recommendation.  Either way the mikroorm arm of the narrowing in `find-predicate-capability.ts` (`isColumnArgMembership`) is deleted in the same PR.",
-   "size": "S",
-   "sources": [
-    "wave-c2:2c-node"
-   ],
-   "related_to": [
-    "M-T6.35 — the `loom.find-predicate-unsupported` register row, whose remaining narrowing is exactly this shape on the opt-in adapters"
-   ],
-   "securityClass": false,
-   "P": 3
   },
   {
    "id": "dapper-no-schema-evolution",
@@ -6433,6 +6237,179 @@
    "id": "sourcemap-feliz-flutter-not-emitted",
    "source": "wave C2 packets 2i (feliz) + 2j (flutter), the REAL landing on both, folded on #2933",
    "title": "`--sourcemap` recorded NOTHING for the feliz and flutter frontends (feliz: one `fragment()` region per page view in `App.fs`; flutter: one `file()` per page + `fragment()`-anchored components in the pooled `lib/components.dart`; `ddd breakpoints` resolves both)"
+  },
+  {
+   "id": "G2646-open-projection-on-event-no-channel",
+   "title": "CLOSED (wave C2, packet 2f) — **D-PROJECTION-IMPLICIT-SUB** applied: an `on(e: E)` IS the subscription, so `projection … on(Event)` (and a workflow reactor) with no `channel` carrying the event now dispatches in-process on ALL FIVE backends.",
+   "kind": "mission",
+   "class": null,
+   "confidence": "likely",
+   "targets": [
+    "node",
+    "dotnet",
+    "java",
+    "python",
+    "elixir"
+   ],
+   "fileTrees": [
+    "src/ir/enrich/enrichments.ts",
+    "src/generator/typescript/emit/routes.ts"
+   ],
+   "evidence": [
+    {
+     "fleet": 1,
+     "id": "G2646-open-projection-on-event-no-channel",
+     "text": "VERIFIED still open on main and NOT in #2646's diff. src/ir/enrich/enrichments.ts:1281-1300 `deriveEventSubscriptions` early-returns `if (!channels || channels.length === 0) return []` (:1288) and pushes a subscription only when `carrier(on.event)` resolves a channel that CARRIES the event (:1296-1300) — so a projection handler on an event no channel carries produces no subscription anywhere. Node nonetheless mounts its fold tee off `isMaterializedProjection` (src/generator/typescript/emit/routes.ts:120), so node folds and the other four do not. #2646's audit lists this as 'open — B20, needs a semantics decision'."
+    }
+   ],
+   "repro": null,
+   "impact": null,
+   "fix": "DONE.  One change on the shared IR, as 2b/2c measured: `deriveEventSubscriptions` (`src/ir/enrich/enrichments.ts`) no longer opens with `if (!channels || channels.length === 0) return []` and no longer drops a consumer whose event nothing `carries:` — it yields a subscription with `channel: undefined`, and `EventSubscriptionIR.channel` is optional.  Two emitter-side mirrors of the same filter went with it: elixir's `resolveProjectionSubs` (`dispatch-emit.ts`) skipped uncarried folds, and node's `buildProjectionsFile` filtered folds by `ctx.eventSubscriptions` (which is derived WITHOUT projections in the enricher-stored variant, so it answered differently per caller) — node now reads the handler list off the projection itself.  The two warnings that described the hole rather than closing it, `loom.projection-event-uncarried` and its reactor twin `loom.reactor-event-uncarried`, are DELETED (messages, the reactor's `code-docs` anchor, both census entries, `UNDOCUMENTED_BASELINE` 367 -> 366) because they had become false statements about the emitted code.  Corpus fixture `projection-implicit-sub.ddd` (backends: ALL) carries the shape the audit had to construct by deleting a block; `test/generator/projection-implicit-sub.test.ts` names one fold symbol and one reactor symbol per backend.  Mutation-proved three ways: restoring the enrich early-return fails all five per-backend cases; restoring elixir's `carried` filter fails vanilla alone; the node filter's removal is separately load-bearing (with the enrich early-return restored, node still emits the fold and fails only on the reactor).",
+   "size": "M",
+   "sources": [
+    "fleet1:pr-registers"
+   ],
+   "related_to": [],
+   "securityClass": true,
+   "P": 3,
+   "verified": {
+    "date": "2026-09-14",
+    "against": "wave C2 batch 2 (claude/c2-ir)",
+    "method": "corpus fixture generated on all five backends; emitted dispatcher / fold / reactor symbols read",
+    "verdict": "closed",
+    "remainingTargets": []
+   },
+   "note": "Closed by packet 2f.  2b measured the dotnet arm as a no-op and 2c measured the node arm as not a node arm; both were right — the defect was the shared derivation, and the only per-backend residue was the two emitter-side copies of the same carriage filter (elixir, node) named in `fix`."
+  },
+  {
+   "id": "M-T5.14-reading-service-readport-not-threaded",
+   "title": "CLOSED (wave C2, packet 2f — the last three arms). A `reading` domain service called from an explicit `commandHandler`/`queryHandler` now reaches its handle on all five backends.",
+   "kind": "mission",
+   "class": null,
+   "confidence": "likely",
+   "targets": [
+    "dotnet",
+    "java",
+    "elixir"
+   ],
+   "fileTrees": [
+    "src/generator/",
+    "src/platform/hono/",
+    "src/ir/validate/checks/"
+   ],
+   "evidence": [
+    {
+     "fleet": 1,
+     "id": "M-T5.14-reading-service-readport-not-threaded",
+     "text": "src/generator/python/render-expr.ts:649 `const ports = ctx.readPortArgs?.(ref.service, ref.op) ?? []` and src/generator/typescript/render-expr.ts:559 (same shape) drop the read-port handles when the caller context supplies no resolver — and the ONLY suppliers are the workflow builders (src/platform/hono/v4/workflow-builder.ts:1835, src/generator/python/workflows-builder.ts:627). The reading op DECLARES those handles as leading params (src/generator/python/emit/domain-service.ts:176-190), so the call is arity-short. The validator only bans such calls from AGGREGATE bodies (src/ir/validate/checks/domain-service-checks.ts:154-196 `checkInfraCallsFromAggregates`), even though its own comment says the orchestrator may be a 'workflow / command handler'. .NET has an explicit 'no handle wired' fallthrough it calls 'validator-unreachable' (src/generator/dotnet/render-expr.ts:1049-1051). Filed as issue #2649 from PR #2648, which explicitly leaves it out — unclaimed."
+    }
+   ],
+   "repro": null,
+   "impact": null,
+   "fix": "DONE.  Each backend's handle shape is different, which is why this was three fixes and not one.  **dotnet**: `renderArg` in `src/generator/dotnet/explicit-handlers-emit.ts` now passes `workflowReadingServiceCallResolver(ctx)` (exported from `workflow-emit.ts`), so a reading call renders `(await _registration.IsHolderFreeAsync(..., cancellationToken))`; the handler injects the service the way the workflow does, and one `using <ns>.Domain.Services;` is emitted when the body names ANY service.  **java**: `handlerRenderCtx` threads `serviceReading`, the handler constructor-injects each reading `@Service` bean (`registration.isHolderFree(holder)`), and the domain-service classes are imported one per class from `pkgFor(\"domain-service\")` — threaded into `emitExplicitHandlers` as a new `domainServicePkg` argument.  **elixir**: `explicit-handlers-emit.ts` threads `domainServiceTier` + `readingServiceModule`, so the call is `Context.is_holder_free(holder)` under the emitted `alias D.<Ctx>, as: Context` instead of `D.Domain.Services.Registration.is_holder_free(...)` — a module emitted only for PURE ops, i.e. an `UndefinedFunctionError` at runtime out of code that compiled.  A SECOND defect closed with it on java and .NET: the PURE call had no import/using either.  The 'which services does this body call, at which tier' walk moved into `src/ir/util/domain-service-read-ports.ts` (`domainServicesCalled`, riding `walkWorkflowStmtExprsDeep`) rather than becoming a fourth per-backend copy.  A THIRD, unrelated defect surfaced while compiling the corpus shape and was fixed in the same commit: `inferExprType` had no repo-read probe for a domain-service body, so `let hits = Orders.byCode(c)` bound as `string` and `hits.count` rendered as a record accessor — java emitted `hits.count()` on a `List<Order>` (`cannot find symbol` at `gradle testClasses`).  Gate: `test/generator/handler-domain-service-read-port-parity.test.ts` (19 cases: per-backend declaration + one-port + two-port + pure control, plus a per-backend reachability sweep with a vacuity guard), node as the control.  Corpus: `handler-triad.ddd` grows a reading service, a pure service and two handlers calling them — COMPILED on all five (dotnet `dotnet build /warnaserror` in sdk:10.0, java `gradle testClasses bootJar` in gradle:9-jdk25, elixir `mix compile --warnings-as-errors` in hexpm/elixir, node `tsc --noEmit`, python `uv sync` + ruff + mypy --strict).",
+   "size": "M",
+   "sources": [
+    "fleet1:t3-t5-auth-lang"
+   ],
+   "related_to": [
+    "domainservice-member-chained-repo-read (fresh-gate-probe) — same broken output (port-less domain-service call, non-compiling), different root cause"
+   ],
+   "securityClass": false,
+   "P": 2,
+   "note": "Closed by packet 2f, as 2e handed off.  2e's note called the defect 'the same three-in-one' as python's (no import, no port, no await) — accurate for the CALL, but the handle itself is per-backend (injected object on dotnet/java, nothing at all on elixir), so the python diff was a template for the SHAPE of the fix, not its content.",
+   "verified": {
+    "date": "2026-09-14",
+    "against": "wave C2 batch 2 (claude/c2-ir)",
+    "method": "repro generated per backend and read; then the extended corpus fixture COMPILED on all five",
+    "verdict": "closed",
+    "remainingTargets": []
+   }
+  },
+  {
+   "id": "drizzle-projection-membership-column-arg-crash",
+   "title": "CLOSED (wave C2, packet 2f) — `<refColl>.contains(<column>)` is refused TARGET-NEUTRALLY: the crash on the default node adapter and the per-adapter refusal on mikroorm are now one rule.",
+   "kind": "honest",
+   "class": null,
+   "confidence": "proven",
+   "targets": [
+    "node"
+   ],
+   "fileTrees": [
+    "src/platform/hono/v4/projection-query-routes-builder.ts",
+    "src/generator/typescript/repository-find-predicate.ts",
+    "src/ir/validate/checks/orm-adapter-checks.ts",
+    "src/ir/validate/checks/query-checks.ts"
+   ],
+   "evidence": [
+    {
+     "fleet": 0,
+     "id": "drizzle-projection-membership-column-arg-crash",
+     "bucket": "wave-c2:2c-node",
+     "text": "Found while draining the mikroorm half of `loom.find-predicate-unsupported`.  `validateFindPredicateAdapterSupport` keys on `dep.persistence`, which a bare `platform: node` deployable does not carry, so the gate that refuses this shape under `persistence: mikroorm` never runs for the DEFAULT adapter — and `lowerToDrizzle` returns null for it (the membership subquery binds its target as a parameter; a column argument has nowhere to bind), which `buildQueryProjectionsFile` turns into a loud generate-time throw.  `firstNonQueryableNode` admits the shape, so nothing upstream refuses it either.  The same predicate in a repository find is unreachable (a find HAS parameters), which is why only the projection site produces it."
+    }
+   ],
+   "repro": "projection MyTotals { orders: int  from Order as o  where o.tags.contains(o.id)  select orders = count } on `deployable d { platform: node }` (no `persistence:`): `ddd generate system` prints `0 error(s), 0 warning(s)` and then throws `internal: where-clause for projection 'MyTotals' could not lower to Drizzle`.",
+   "impact": "A crash instead of an answer on the DEFAULT node adapter — the class C2 exists to remove.  Not a regression: reproduces identically on 29db198c1.",
+   "fix": "DONE, by option (a) — the recommendation.  `firstNonQueryableNode` (`src/ir/validate/checks/shared.ts`, the `contains` arm) now rejects a membership whose ARGUMENT is a column: the join-table subquery binds its target as a parameter on EVERY adapter (drizzle `inArray`, Dapper EXISTS, MikroORM an uncorrelated `id in (select …)`, EF Core `Any(...)` over a closed-over value), so a column there has nowhere to go on any of them.  It is a POSITION check, structurally the same as the `startsWith`-receiver check a few lines below — `firstNonQueryableNode` alone admits a column, because a column IS queryable in a general predicate.  Being target-neutral, it reaches every site and every backend at once, including the one that had no gate: `validateFindPredicateAdapterSupport` keys on `dep.persistence`, which a deployable on the DEFAULT adapter does not carry.  The mikroorm arm went with it in the same commit as the row's `fix` field required — `isColumnArgMembership` is deleted and `MIKROORM_SUBSET` now admits membership in both positions.  Gate: `test/ir/membership-column-argument.test.ts` — the refused shape in BOTH a projection `where` and a find `where`, swept across 7 platform clauses (both node adapters + the other four backends), with the bindable-argument CONTROL asserted on each so the crash is not closed by deleting a working feature, plus a message assertion (the diagnostic must name the ARGUMENT, not the membership) and a generation assertion.  Mutation-proved: reverting the arm to `return firstNonQueryableNode(e.args[0]!)` fails 15 of 23 — all fourteen refusal cases plus 'the diagnostic names the argument, not the membership'.",
+   "size": "S",
+   "sources": [
+    "wave-c2:2c-node"
+   ],
+   "related_to": [
+    "M-T6.35 — the `loom.find-predicate-unsupported` register row, whose remaining narrowing is exactly this shape on the opt-in adapters"
+   ],
+   "securityClass": false,
+   "P": 3,
+   "verified": {
+    "date": "2026-09-14",
+    "against": "wave C2 batch 2 (claude/c2-ir)",
+    "method": "row's own repro re-run (`ddd generate system` printed `0 error(s)` then threw); re-run after the fix answers `loom.projection-where-not-queryable`",
+    "verdict": "closed",
+    "remainingTargets": []
+   },
+   "note": "Handed to 2f by 2c, which found it while draining the mikroorm half of `loom.find-predicate-unsupported`.  A SECOND finding came out of closing it and is NOT closed: with this narrowing gone, no adapter descriptor carries a NAMED shape any more (`efcore`/`drizzle` were always FULL_SUBSET, 2b proved `DAPPER_SUBSET = FULL_SUBSET`), so `loom.find-predicate-unsupported` may now be unreachable.  A spot probe (arithmetic in a predicate position on mikroorm) was preempted upstream by `loom.find-where-not-queryable` — suggestive, not a proof over the whole queryable subset, so the register row is KEPT with the drain condition written into its `what` for M-T6.35."
+  },
+  {
+   "id": "M-T3.16-C4-forbidden-remap-golden",
+   "title": "CLOSED (wave C2, packet 2f) — a remapped `Forbidden` on the canonical `create` and `destroy` is goldened per ROUTE on all five backends.",
+   "kind": "mission",
+   "class": null,
+   "confidence": "likely",
+   "targets": [
+    "node",
+    "dotnet",
+    "java",
+    "python",
+    "elixir"
+   ],
+   "fileTrees": [
+    "test/conformance/"
+   ],
+   "evidence": [
+    {
+     "fleet": 1,
+     "id": "M-T3.16-C4-forbidden-remap-golden",
+     "text": "`errorStatuses(\"destroy\", guarded, resolve)` resolves `forbidden` through the override map (src/ir/util/openapi-errors.ts:129,183-185), but the existing parity suite test/conformance/denial-ladder-override-parity.test.ts overrides `DomainError`; nothing asserts an `httpStatus Forbidden -> N` moving a guarded create/destroy on all five."
+    }
+   ],
+   "repro": null,
+   "impact": null,
+   "fix": "DONE, and larger than 'one case in the existing override-parity test'.  That test (`domain-floor-status-override.test.ts`) remaps `Forbidden` on an OPERATION and scans the whole emitted project as one string, so it cannot tell a create route's declaration from an operation route's — it would pass with the lifecycle rungs stuck at 403.  The new gate `test/generator/lifecycle-forbidden-remap.test.ts` uses a system whose ONLY guarded routes are the canonical `create` and `destroy` (plus an UNGATED `bump` as the control), so 451 has exactly one possible source, and reads each rung's declaration ROUTE-SCOPED: java and python declare the whole per-route status set on one line (`new Route(\"post\", \"/api/orders\", …, new int[] {400, 415, 422, 451}, …)`, the `@router.post(... responses={...451...})` decorator), and node / dotnet / elixir are sliced between their own route markers — a project-wide 451 count would pass if BOTH landed on one route.  Three assertions per backend: the control (no override → both rungs declare 403, 451 appears nowhere), the override (both rungs declare 451 and neither still declares 403), and the runtime arm.  MEASURED FIRST: all five already emitted it correctly, so this is a pure pin — the row was a missing golden, not a gap, which is what it said.  One finding recorded rather than 'fixed': the 451 title is the generic \"Error\" because `problemTitle` deliberately has no 451 entry — `test/conformance/override-status-title-parity.test.ts` relies on exactly that to prove the title follows the resolved STATUS and not the error NAME, so adding an entry would have silently removed that suite's discriminator.",
+   "size": "S",
+   "sources": [
+    "fleet1:t3-t5-auth-lang"
+   ],
+   "related_to": [],
+   "securityClass": false,
+   "P": 4,
+   "verified": {
+    "date": "2026-09-14",
+    "against": "wave C2 batch 2 (claude/c2-ir)",
+    "method": "generated the guarded-lifecycle system on all five with and without the override; read each route's declared status set and the runtime arm",
+    "verdict": "closed",
+    "remainingTargets": []
+   },
+   "note": "C2 (the elixir 403-vs-422 golden) is NOT closed and is handed off: its own fix field requires moving elixir's controller gate relative to the changeset cast (2a's fence) plus a five-backend wire-golden capture, which belongs with the coordinated C5 re-capture rather than an elixir gate move alone."
   }
  ],
  "declined": [

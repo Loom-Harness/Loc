@@ -432,7 +432,7 @@ Inside an aggregate or an `entity` part:
 | `[private] invariant Expression [when Expression] [message "…"]` | `bool` predicate; checked after every mutation. Optional `when` is a guard; `message` is the user-facing text (also the i18n key). `private` keeps the rule off the wire-layer schemas (Zod / FluentValidation / OpenAPI) — it runs only in the domain floor. |
 | `unique (a, b)` | Set-level natural-key invariant — derived into a DB unique index (partial under `softDeletable`) plus a per-backend 23505 → 409 mapping (`loom.unique-*`). |
 | `function name(params): TypeRef = Expression` | Pure helper (expression form); callable from any expression in the same aggregate. Stays SQL-inlinable like a `criterion`. |
-| `function name(params): TypeRef { … }` | Pure helper (block form); `let` + branch (ternary/`match`) + bug-regime `precondition`/`requires`, ending in `return` (`loom.function-block-no-return`). Still **pure** — no mutation, no `emit`, no repository / operation / domain-service / extern call (the IR validator rejects each). **Not queryable** (a block-form call is rejected in a `where` / `criterion` filter). |
+| `function name(params): TypeRef { … }` | Pure helper (block form); `let` + branch (ternary/`match`, or a statement `if`/`else`) + bug-regime `precondition`/`requires`, returning a value on **every path** (`loom.function-block-no-return` — a `return` inside an `if` counts, but an `if` with no `else` leaves one path valueless). Still **pure** — no mutation, no `emit`, no repository / operation / domain-service / extern call (the IR validator rejects each). **Not queryable** (a block-form call is rejected in a `where` / `criterion` filter). |
 | `[private] operation name(params) [extern] [audited] [: ReturnType] [requires Expr] [when Expr] { … }` | Mutating method (root only). `private` = callable only from within the same aggregate root (no route). `audited` records an `audit_records` row per call. `: A or B` declares an exception-less outcome returned via `return` (an `error` variant maps to a ProblemDetails status — [`payloads.md`](payloads.md)). `requires` is the authorization gate (403; [`auth.md`](auth.md)). |
 | `operation name(params) extern { precondition … }` | Public op whose business decision lives in user code; body must contain only `precondition` statements. See [`extern.md`](extern.md). |
 | `operation name(params) when <pred> { … }` | **canCommand state gate** ([`criterion.md`](criterion.md), use site 2): `<pred>` is a pure bool predicate over the aggregate's own state — referencing an operation parameter is an error (move argument-aware checks into a `precondition`); evaluated against the loaded instance before the body. False → 409 "Disallowed" ProblemDetails; a side-effect-free `GET /{id}/can_<op>` companion returns `{ allowed }` for UI enablement (so `when` on a `private` operation is rejected — nothing could read it). Named criteria / aggregate functions inline like any bool position. Supported on all five backends. Distinct from `requires` (auth, 403) and `precondition` (domain validity, 422). |
@@ -1460,14 +1460,6 @@ Warnings (non-fatal):
 
 - Self-recursive operation calls (often unintentional).
 - `emit` payloads missing optional fields.
-- A workflow `on(e: Event)` reactor or event-triggered `create(e: Event) by`
-  starter whose event no `channel` carries (`loom.reactor-event-uncarried`):
-  in-process dispatch is channel-routed, so the consumer would never fire —
-  declare a `channel { carries: … }` for the event.
-- A `projection` `on(e: Event)` fold whose event no `channel` carries
-  (`loom.projection-event-uncarried`): the projection twin of the reactor rule —
-  the fold never runs and the read-model row is never written, so declare a
-  `channel { carries: … }` for the folded event.
 - A reactor / event-create whose event is carried by **more than one** channel
   in its context (`loom.reactor-channel-ambiguous`): in-process dispatch records
   the first channel by declaration order, so the binding is ambiguous — carry

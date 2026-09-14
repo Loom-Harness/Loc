@@ -3,7 +3,7 @@
 //
 // Flutter had NO realtime path at all: `SSE_REALTIME_FRONTENDS` excluded it, so
 // `on <channel>.<Event>` handlers on a Flutter-hosted ui compiled clean, emitted
-// nothing, and warned (`loom.ui-realtime-unsupported#frontend-has-no-consumer`).
+// nothing, and warned (`loom.ui-realtime-unsupported`).
 // The port emits one subscription against `/realtime/events`, a transient
 // `SnackBar` per `toast(…)`, and a `ref.invalidate(<var>Provider)` per
 // `refetch(<Agg>)`.

@@ -488,7 +488,23 @@ const REGISTERED: Ratchet[] = [
     // the harness cannot even set an id claim — `devClaimKind` carries `string`
     // and `string[]` only — so a booted leg would assert the same built-in stub
     // value the compile tier reads straight off the emitted source.
-    max: 21,
+    //
+    // 21 -> 22 (`projection-implicit-sub`, wave C2 packet 2f).  A RAISE, and
+    // the one shape on this list whose runtime half was ACTUALLY BOOTED before
+    // the entry was written — which is why it is an entry rather than a block.
+    // The fixture's subject is D-PROJECTION-IMPLICIT-SUB: a `projection … on(e:
+    // E)` over an event NO `channel` carries must still fold.  The proof is a
+    // `test/behavioral/run.mjs` run on the generated node backend (`place` ->
+    // `event_dispatched OrderPlaced` -> `GET /api/projections/order_board/<id>`
+    // 200 `"Placed"`, then `ship` -> `"Shipped"`; with the enrich early-return
+    // restored the same run fails 404 `OrderBoard <id> not found`).  That block
+    // is deliberately NOT committed: `corpus.json`'s behavioural leg drives
+    // ONE backend, and committing a block here would freeze a node-only golden
+    // for a contract whose whole point is that all five dispatch — while the
+    // five COMPILE legs, which this fixture does carry, see each backend's
+    // fold/reactor symbols.  Drain (M-T9.13): when the behavioural tier gains
+    // a per-backend projection read, move the block in and lower this by one.
+    max: 22,
   },
 ];
 

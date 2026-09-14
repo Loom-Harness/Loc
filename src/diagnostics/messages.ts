@@ -1052,7 +1052,9 @@ export const DIAGNOSTIC_MESSAGES = {
     `else-branch is '${p.elseT}'.  One branch's type must be assignable to ` +
     `the other (both numeric, an optional and its inner, or a null literal against an optional).`,
   "loom.function-block-no-return": (p: { name: unknown; declared: unknown }) =>
-    `Block-body function '${p.name}' must 'return' a value of type '${p.declared}'.`,
+    `Block-body function '${p.name}' must 'return' a value of type '${p.declared}' on every path.  ` +
+    `A 'return' inside an 'if' counts, but only when the conditional covers both paths — ` +
+    `an 'if' (or an 'else if' chain) with no final 'else' leaves one path with no value.`,
 
   // ----------------------------------------------------------------------
   // src/language/validators/ui.ts
@@ -1967,19 +1969,7 @@ export const DIAGNOSTIC_MESSAGES = {
     frameworks: unknown;
   }) =>
     `Deployable '${p.name}': 'auth: ui' is currently only supported on ${p.frameworks} frontends; framework '${p.uiFramework}' isn't supported yet.`,
-  "loom.ui-realtime-unsupported#backend-serves-no-sse": (p: {
-    name: unknown;
-    uiName: unknown;
-    target: unknown;
-  }) =>
-    `Deployable '${p.name}': ui '${p.uiName}' declares 'on <channel>.<Event>' live-event handler(s), but its ${
-      p.target
-    } does not serve the realtime SSE wire, so the handlers are silently dropped. Target a realtime-serving backend (node, dotnet, java, python, elixir) or remove the handlers.`,
-  "loom.ui-realtime-unsupported#frontend-has-no-consumer": (p: {
-    name: unknown;
-    uiName: unknown;
-    framework: unknown;
-  }) =>
+  "loom.ui-realtime-unsupported": (p: { name: unknown; uiName: unknown; framework: unknown }) =>
     `Deployable '${p.name}': ui '${p.uiName}' declares 'on <channel>.<Event>' live-event handler(s), but its frontend framework '${p.framework}' has no realtime consumption, so the handlers are silently dropped.`,
   "loom.ui-duplicate-area": (p: { name: unknown; scope: unknown }) =>
     `Duplicate area '${p.name}' in ${p.scope}. Areas within a scope must have unique names — the area path is what places every page inside it on disk, so two same-named blocks compute the same directory and one block's pages silently overwrite the other's. Merge them into a single 'area ${p.name} { … }'.`,
@@ -2137,7 +2127,7 @@ export const DIAGNOSTIC_MESSAGES = {
     `declaration gets a 422 naming a field the create never mentions.${p.also}  ` +
     `List every create-input field, or drop the parameter list: a narrowed one ` +
     `shapes nothing.`,
-  "loom.persistence-mode-unsupported": (p: {
+  "loom.datasource-binding-missing": (p: {
     name: unknown;
     ctxName: unknown;
     aggName: unknown;
@@ -2180,7 +2170,7 @@ export const DIAGNOSTIC_MESSAGES = {
     `dataSource.  A \`File\` stores its bytes in an object store — declare a ` +
     `\`storage <s> { type: localDisk }\` (or \`s3\`), a ` +
     // `resource`, not `dataSource` — the same slip this file's
-    // `loom.persistence-mode-unsupported` carried.  `dataSource` names the
+    // `loom.datasource-binding-missing` carried.  `dataSource` names the
     // deployable's `dataSources:` CLAUSE, never the declaration, so pasting the
     // suggested line was a parse error.
     `\`resource <ds> { for: ${p.ctxName}, kind: objectStore, use: <s> }\`, and ` +
@@ -2247,7 +2237,7 @@ export const DIAGNOSTIC_MESSAGES = {
     `(CS0119 for a method, CS1061 for a property). Rename the declaration to something other ` +
     `than '${p.member}' (an operation reads well as 'add${p.member}'), or host this context on ` +
     `a node / python / elixir / java deployable.`,
-  "loom.context-filter-unsupported#no-auth-user": (p: {
+  "loom.context-filter-no-principal": (p: {
     name: unknown;
     platform: unknown;
     ctxName: unknown;
@@ -2258,8 +2248,8 @@ export const DIAGNOSTIC_MESSAGES = {
     `currentUser (e.g. a tenancy filter), but the deployable has no auth — there is no ` +
     `request-scoped principal to scope reads by. Add 'auth: required' (and a system ` +
     `'user {}' block), or remove the principal-referencing filter.`,
-  // (`loom.context-filter-unsupported#unsupported-predicate` lived here — the
-  //  "this backend cannot emit that filter" refusal.  There is no such message:
+  // (the old `loom.context-filter-unsupported`'s `#unsupported-predicate` slug
+  //  lived here — the "this backend cannot emit that filter" refusal.  There is no such message:
   //  every backend family wires capability filters on every saving shape, and a
   //  message with no reachable call site is an orphan the catalogue gate
   //  rejects — one that documents a limitation the code does not have.  A
@@ -3294,16 +3284,6 @@ export const DIAGNOSTIC_MESSAGES = {
   // ----------------------------------------------------------------------
   // src/ir/validate/checks/workflow-checks.ts
   // ----------------------------------------------------------------------
-  "loom.reactor-event-uncarried": (p: { name: unknown; label: unknown; event: unknown }) =>
-    `workflow '${p.name}': ${p.label} subscribes to event '${p.event}', but no ` +
-    `'channel' carries it. In-process dispatch is channel-routed, so this consumer never ` +
-    `fires — declare a channel (e.g. 'channel C { carries: ${p.event} }') in the ` +
-    `event's context.`,
-  "loom.projection-event-uncarried": (p: { name: unknown; param: unknown; event: unknown }) =>
-    `projection '${p.name}': on(${p.param}: ${p.event}) folds event '${p.event}', but ` +
-    `no 'channel' carries it. In-process dispatch is channel-routed, so this fold never ` +
-    `runs and the read-model row is never written — declare a channel (e.g. ` +
-    `'channel C { carries: ${p.event} }') in the event's context.`,
   "loom.reactor-channel-ambiguous": (p: {
     name: unknown;
     label: unknown;

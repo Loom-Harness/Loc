@@ -141,20 +141,20 @@ gate already encodes the row's claim, run the gate.
 
 | metric | value |
 |---|---|
-| open rows | **127** |
+| open rows | **123** |
 | P0 | 0 |
 | P1 | 1 |
-| P2 | 6 |
-| P3 | 34 |
-| P4 | 78 |
+| P2 | 5 |
+| P3 | 32 |
+| P4 | 77 |
 | P5 | 8 |
-| kind: silent / honest / breadth / mission / stale-prose | 8 / 33 / 21 / 57 / 8 |
-| confidence: proven / likely / suspected | 23 / 103 / 1 |
+| kind: silent / honest / breadth / mission / stale-prose | 6 / 32 / 20 / 57 / 8 |
+| confidence: proven / likely / suspected | 22 / 100 / 1 |
 | class: faulty-fix / regression | 1 / 0 |
-| size S / M / L | 34 / 52 / 41 |
-| provenance: fleet1-only / fleet2-only / corroborated by both | 115 / 10 / 1 |
+| size S / M / L | 32 / 50 / 41 |
+| provenance: fleet1-only / fleet2-only / corroborated by both | 112 / 10 / 1 |
 | claimed by an open PR | 60 |
-| done / merged | 162 |
+| done / merged | 166 |
 | declined (not a gap: stale / breadth / duplicate / decided) | 7 |
 | conflicts | 10 |
 | checkedOk entries | 146 |
@@ -213,7 +213,6 @@ Sorted P0 (security / data-integrity, silent, proven) → P1 (other silent prove
 | P4 | `M-T3.11-execution-context-build-flags` | mission | like | language, node, dotnet, java, python, elixir | S | No user-facing `emitContextBoundaries`/`emitProvenance`/`emitTracing` build-flag surface |
 | P4 | `M-T3.15-E1-handler-header-gate` | mission | like | language, node, dotnet, java, python, elixir | S | E1 — `commandHandler`/`queryHandler` still have no header `requires` (the default-deny half landed) |
 | P4 | `M-T3.16-C2-elixir-403-vs-422` | breadth | prov | elixir, node, dotnet, java, python | S | C2 — a guarded create with an invalid body answers 403 on Elixir vs 422 elsewhere, ungoldened |
-| P4 | `M-T3.16-C4-forbidden-remap-golden` | breadth | like | node, dotnet, java, python, elixir | S | C4 — no golden covers a remapped `Forbidden` on the lifecycle rungs |
 | P4 | `M-T3.9-logged-marker` | mission | like | language, node, dotnet, java, python, elixir | S | The `logged` marker never shipped |
 | P4 | `M-T6.11` | mission | like | node, dotnet, java, python, elixir | S | Reserved compose slots — three optional `ComposeServiceShape` data slots, undefined on every backend |
 | P4 | `M-T6.14` | mission | like | dotnet, elixir, node | S | Small parity leftovers — the register is partly stale; one of its four items is verifiably drained |
@@ -290,10 +289,7 @@ Sorted P0 (security / data-integrity, silent, proven) → P1 (other silent prove
 | P5 | `register-site-pointers-stale` | stale-prose | like | dotnet, elixir, java, node, python, register | S | Four register rows still cite a stale `file:line` emission site (down from 36 of 46) — the gate only checks the string SHAPE, so nothing catches the drift |
 | P5 | `surface-dangling-emit-hooks` | stale-prose | like | node, dotnet, java, python, elixir | S | `PlatformSurface` doc comments still reference `emitAuditInit` / `emitI18nAdapter`, hooks that do not exist |
 | P5 | `t6-duplicate-heading-M-T6.43` | stale-prose | like | node, dotnet, java, python, elixir | S | T6 carries TWO `## M-T6.60` headings — the sixth dup-ID incident (the M-T6.43 instance this row was filed against was fixed; the class was not) |
-| P2 | `M-T5.14-reading-service-readport-not-threaded` | silent | like | dotnet, java, elixir | M | A `reading` domain service called from an explicit `commandHandler`/`queryHandler` emits a port-less call that does not compile on dotnet, java and elixir (node and python thread it; the workflow caller is correct everywhere; the aggregate-body caller is honestly refused) |
-| P3 ! | `G2646-open-projection-on-event-no-channel` | honest | like | node, dotnet, java, python, elixir | M | `projection … on(Event)` with no `channel` carrying it never folds on ANY backend — now honestly warned by `loom.projection-event-uncarried` rather than silent |
 | P3 | `G2646-open-node-mounts-ui-false` | honest | like | node | M | #2646 documented, NOT fixed: node is the only backend with mountsUi: false |
-| P3 | `drizzle-projection-membership-column-arg-crash` | silent | prov | node | S | A query-time `projection … where <alias>.<refColl>.contains(<column>)` validates clean on a bare `platform: node` deployable and then CRASHES codegen ("internal: where-clause for projection 'X' could not lower to Drizzle, but the validator should have caught this") |
 | P2 ! | `dapper-no-schema-evolution` | silent | like | dotnet | L | `persistence: dapper` has no ALTER path at all — every post-first-boot model change is silently unapplied (migrations-on-adapters slice 2) |
 
 ## Conflicts (10)

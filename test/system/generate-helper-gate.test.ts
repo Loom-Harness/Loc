@@ -63,7 +63,7 @@ describe("generateSystemFiles — the fixture gate", () => {
     );
     expect(err).toBeInstanceOf(Error);
     expect((err as Error).message).toMatch(/phase ⑦/);
-    expect((err as Error).message).toMatch(/loom\.persistence-mode-unsupported/);
+    expect((err as Error).message).toMatch(/loom\.datasource-binding-missing/);
   });
 
   it("refuses an inline effect handler (phase ⑦, a different code)", async () => {

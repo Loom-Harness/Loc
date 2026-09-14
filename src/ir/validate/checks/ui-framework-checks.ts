@@ -17,7 +17,6 @@ import type {
   UiIR,
 } from "../../types/loom-ir.js";
 import { exprUsesCurrentUser, stmtUsesCurrentUser } from "../../types/loom-ir.js";
-import { backendServesRealtime } from "../../util/channels.js";
 import { bodyUsesChart } from "../../util/chart.js";
 import { componentChildrenHosts } from "../../util/component-children.js";
 import { dataGridHosts } from "../../util/data-grid.js";
@@ -531,20 +530,30 @@ const SSE_REALTIME_FRONTENDS = new Set<string>([
 const NATIVE_REALTIME_FRONTENDS = new Set<string>(["elixir", "phoenixLiveView"]);
 
 /** Honesty gate for `on <channel>.<Event>` live-event handlers (channels.md
- *  Part I).  A handler on a ui whose serving frontend can't consume realtime
- *  — a framework with no realtime path, or an SSE-consuming frontend pointed
- *  at a serving deployable that doesn't stream the SSE wire — compiles clean
- *  today but emits nothing.  Warn so the silent drop is a reviewed decision,
- *  not a surprise.  Neither arm names a shipped pairing any more (all six
- *  frontends consume, all five backends serve); both stay as the seam the
- *  next target gates on.
+ *  Part I).  A handler on a ui that cannot receive the event compiles clean
+ *  today and emits nothing, so warn — the silent drop should be a reviewed
+ *  decision, not a surprise.
+ *
+ *  ONE ARM, since wave C2 packet 2f.  The gate used to carry a second
+ *  (`#backend-serves-no-sse`): the frontend consumes SSE fine, but the deployable
+ *  it is pointed at serves no realtime wire.  That arm cannot fire from valid
+ *  source — every shipping backend serves realtime (`backendServesRealtime`), and
+ *  the only two ways to reach a non-serving target are already hard errors at
+ *  phase ④ with better messages (`src/language/validators/deployable.ts`: a
+ *  frontend deployable with no `targets:`, and one targeting another frontend).
+ *  It was deleted rather than kept as a backstop, because an `-unsupported` code
+ *  no source can raise is a register row nothing can ever close.
+ *
+ *  What remains is a LATENT SEAM: the framework itself has no realtime
+ *  consumption.  `SSE_REALTIME_FRONTENDS` ∪ `NATIVE_REALTIME_FRONTENDS` names
+ *  every shipping frontend, so it can fire only for a frontend that does not
+ *  exist yet — which is exactly what the seam is kept for.
  *
  *  Capability-driven (the two frontend sets + `backendServesRealtime`) rather
  *  than hard-coding a frontend list, so a future frontend without the wire
  *  warns until it grows realtime consumption. */
 
 export function validateUiRealtimeSupport(sys: SystemIR, diags: LoomDiagnostic[]): void {
-  const byName = new Map(sys.deployables.map((d) => [d.name, d]));
   for (const d of sys.deployables) {
     const uiNames = d.hostedUiNames.length > 0 ? d.hostedUiNames : d.uiName ? [d.uiName] : [];
     for (const uiName of uiNames) {
@@ -554,25 +563,7 @@ export function validateUiRealtimeSupport(sys: SystemIR, diags: LoomDiagnostic[]
       // host or a Phoenix surface states it), else the deployable's platform.
       const framework = ui.framework ?? d.uiFramework ?? d.platform;
       if (NATIVE_REALTIME_FRONTENDS.has(framework)) continue;
-      if (SSE_REALTIME_FRONTENDS.has(framework)) {
-        // A self-hosting backend+ui mount (dotnet/phoenix) targets itself.
-        const target = d.targetName ? byName.get(d.targetName) : undefined;
-        const backendPlatform = target?.platform ?? d.platform;
-        if (backendServesRealtime(backendPlatform)) continue;
-        diags.push({
-          severity: "warning",
-          code: "loom.ui-realtime-unsupported",
-          message: diagMessage("loom.ui-realtime-unsupported#backend-serves-no-sse", {
-            name: d.name,
-            uiName,
-            target: target
-              ? `target backend '${target.name}' (platform '${backendPlatform}')`
-              : `backend platform '${backendPlatform}'`,
-          }),
-          source: d.name,
-        });
-        continue;
-      }
+      if (SSE_REALTIME_FRONTENDS.has(framework)) continue;
       // Unknown / non-consuming frontend — no realtime path.  No SHIPPED
       // frontend sits here any more (flutter was the last, and joined
       // `SSE_REALTIME_FRONTENDS`); this is the seam a new one warns on until it
@@ -580,7 +571,7 @@ export function validateUiRealtimeSupport(sys: SystemIR, diags: LoomDiagnostic[]
       diags.push({
         severity: "warning",
         code: "loom.ui-realtime-unsupported",
-        message: diagMessage("loom.ui-realtime-unsupported#frontend-has-no-consumer", {
+        message: diagMessage("loom.ui-realtime-unsupported", {
           name: d.name,
           uiName,
           framework,

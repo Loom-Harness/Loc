@@ -89,7 +89,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.workflow-handle-unsupported",
     kind: "gap",
-    site: "src/ir/validate/checks/workflow-checks.ts:294",
+    site: "src/ir/validate/checks/workflow-checks.ts:245",
     what:
       "`handle name(…) { … }`, the multi-command saga continuation, is emitted by NO backend — " +
       "not a route, not a handler, not a method.  It was silent before M-T5.34 (audit #2864 D5): " +
@@ -123,16 +123,6 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
       "`Chart` renders on every shipping frontend (CHART_FRAMEWORKS names all seven) — latent " +
       "seam a NEW framework gates on until it ports",
     mission: "M-T1.3",
-  },
-  {
-    code: "loom.context-filter-unsupported",
-    kind: "gap",
-    site: "src/ir/validate/checks/context-filter-checks.ts:93",
-    what:
-      "a `currentUser`-referencing `filter` capability on a deployable with no `auth: required` " +
-      "+ system `user {}` — there is no principal to scope by.  The backend×shape half is gone: " +
-      "every family now wires capability filters (elixir document evaluates them in-app)",
-    mission: "M-T6.32",
   },
   {
     code: "loom.context-test-unsupported",
@@ -326,17 +316,19 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
     kind: "gap",
     site: "src/ir/validate/checks/orm-adapter-checks.ts:284",
     what:
-      "ONE shape is left on the opt-in `persistence: mikroorm` FilterQuery subset (EF Core + " +
-      "Drizzle are the full-subset baseline; the DAPPER arm drained before this row was last " +
-      "reviewed and is not work: `find-predicate-capability.ts` sets `DAPPER_SUBSET = FULL_SUBSET`, " +
-      "so `whereToSql` lowers the whole queryable subset, membership subquery included): a " +
-      "reference-collection membership whose ARGUMENT is a column rather than a bindable value " +
-      "(`this.<refColl>.contains(<column>)`), which only a query-time projection `where` " +
-      "can produce since it has no parameters.  mikroorm's remaining narrowings drained in " +
-      "wave C2 (the queryable intrinsics and `currentUser` arms, then general membership — an " +
-      "uncorrelated `id in (select <ownerFk> from <joinTable> where <targetFk> = ?)` raw " +
-      "fragment, the FilterQuery mirror of Dapper's EXISTS subquery and of drizzle's own " +
-      "`inArray` subselect)",
+      "NO NAMED SHAPE is left on any adapter.  EF Core + Drizzle were always the full-subset " +
+      "baseline; `DAPPER_SUBSET = FULL_SUBSET` (wave C2 packet 2b); and mikroorm's last " +
+      "narrowing — a reference-collection membership whose ARGUMENT is a column rather than a " +
+      "bindable value — was never adapter-specific: the join-table subquery binds its target as " +
+      "a parameter on EVERY adapter, so packet 2f moved the refusal to a target-neutral rule in " +
+      "`firstNonQueryableNode` and deleted the descriptor arm (which is also what stopped the " +
+      "identical shape CRASHING drizzle codegen: the adapter gate keys on `dep.persistence`, " +
+      "which a DEFAULT-adapter deployable does not carry).  The row is KEPT rather than drained " +
+      "because the descriptors still carry fall-through arms and nobody has PROVED them " +
+      "unreachable — a spot probe (arithmetic in a predicate position) was preempted by " +
+      "`loom.find-where-not-queryable` upstream, which is suggestive, not a proof over the whole " +
+      "queryable subset.  Drain condition for M-T6.35: show the descriptors cannot fire, or " +
+      "delete them",
     mission: "M-T6.35",
   },
   {
@@ -424,13 +416,21 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.if-stmt-page-body-unsupported",
     kind: "scope",
+    // Owner: **D-PAGE-BODY-EXPRESSION** ruled the limit permanent in substance —
+    // a page body is an expression tree on all six frontends and the ternary /
+    // value-`match` spellings already render everywhere — and pointed the row at
+    // M-T1.20, which already IS the register of frontend refusals accepted in
+    // `.ddd`.  Unlike its neighbours there, this one is not per-target: all six
+    // refuse it, which is what makes it a surface decision rather than a port.
     site: "src/ir/validate/checks/if-stmt-checks.ts:333",
     what:
       "the `if` STATEMENT in a `ui` page / component / store body, on EVERY frontend.  A page body " +
       "is an expression tree — a condition is a VALUE there (`cond ? a : b`, `match`) — and no " +
       "frontend emitter (JS walker / Feliz update / Flutter notifier / HEEx handler) has a " +
       "statement-position conditional.  A declared limit of the page surface, not a per-target gap: " +
-      "it would be lifted by a decision to give page bodies statement-form control flow",
+      "it would be lifted by a decision to give page bodies statement-form control flow " +
+      "(**D-PAGE-BODY-EXPRESSION** declined to)",
+    mission: "M-T1.20",
     verified: true,
   },
   {
@@ -475,18 +475,6 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
       "a `paged` queryHandler return ships on all five backends (PAGED_QH_SUPPORTED) — latent " +
       "seam for a NEW backend",
     mission: "M-T2.6",
-  },
-  {
-    code: "loom.persistence-mode-unsupported",
-    kind: "gap",
-    site: "src/ir/validate/checks/datasource-checks.ts:78",
-    what:
-      "NOT a backend gap: a hosted aggregate whose deployable binds no matching `dataSource` " +
-      "(`kind: state` for stateBased, `kind: eventLog` for eventSourced) — a missing binding. " +
-      "Re-owned off the persistence-ADAPTER axis (M-T6.35, which this row never fit — no " +
-      "adapter capability is in question, only whether a `dataSource` was declared at all) onto " +
-      "the dataSource-BINDING axis, M-T2.9's storage-config tail",
-    mission: "M-T2.9",
   },
   {
     code: "loom.polymorphic-id-ref-unsupported",
@@ -690,10 +678,18 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   },
   {
     code: "loom.ui-realtime-unsupported",
-    kind: "gap",
-    site: "src/ir/validate/checks/ui-framework-checks.ts:564",
-    what: "`on <channel>.<Event>` handlers vs. a backend that serves no SSE wire",
+    kind: "seam",
+    site: "src/ir/validate/checks/ui-framework-checks.ts:577",
+    what:
+      "an `on <channel>.<Event>` handler on a ui whose FRAMEWORK has no realtime consumption — " +
+      "latent: `SSE_REALTIME_FRONTENDS` names react/vue/svelte/angular/feliz/flutter/static and " +
+      "`NATIVE_REALTIME_FRONTENDS` the two Phoenix spellings, i.e. every shipping frontend, so " +
+      "this fires only for a frontend that does not exist yet.  Its former second arm " +
+      "(`#backend-serves-no-sse`) was deleted in wave C2 packet 2f as unreachable: every " +
+      "shipping backend serves realtime, and the two ways to reach a non-serving target are " +
+      "already phase-④ errors in `validators/deployable.ts` (no `targets:`, or a frontend target)",
     mission: "M-T1.20",
+    verified: true,
   },
   {
     code: "loom.union-unsupported",
@@ -799,13 +795,15 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
     kind: "scope",
     site: "src/ir/validate/checks/api-checks.ts:116",
     what: "command/query handler load of a nullable result — v1 is single non-nullable",
+    mission: "M-T5.36",
     verified: true,
   },
   {
     code: "loom.workflow-load-array-unsupported",
     kind: "scope",
-    site: "src/ir/validate/checks/workflow-checks.ts:919",
+    site: "src/ir/validate/checks/workflow-checks.ts:870",
     what: "workflow load of an array result — v1 is single non-nullable",
+    mission: "M-T5.36",
     verified: true,
   },
   {
@@ -821,25 +819,33 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
     kind: "scope",
     site: "src/ir/validate/checks/domain-service-checks.ts:233",
     what: "a repository read used as a MEMBER RECEIVER in a domainService body — v1 binds it first",
+    mission: "M-T5.14",
     verified: true,
   },
   {
     code: "loom.workflow-load-nullable-unsupported",
     kind: "scope",
-    site: "src/ir/validate/checks/workflow-checks.ts:932",
+    site: "src/ir/validate/checks/workflow-checks.ts:883",
     what: "workflow load of a nullable result — v1 is single non-nullable",
+    mission: "M-T5.36",
     verified: true,
   },
   {
     code: "loom.sensitive-wire-unsupported",
-    kind: "gap",
+    // `scope`, not `gap`, since **D-SENSITIVE-INSPECT-ONLY** (wave C2 packet 2f).
+    // Live and true on every backend — NO backend masks on the wire.
+    // `sensitive(...)` reaches exactly one consequence, the synthesized `inspect`
+    // printing `<redacted>` (enrichments.ts), while the response DTO carries the
+    // value in cleartext on all five.  What the re-class says is that this is a
+    // DECLARED limit with a named successor rather than a row a drain sprint can
+    // close: M-T3.8's three phases are a type-system change, a masking arm in
+    // five DTO emitters, and a sink census with no chokepoint — and the failure
+    // mode of doing four fifths of that is indistinguishable from success in any
+    // test that asserts by shape.  The warning already names the surface that
+    // redacts TODAY (`mask unless`), so the author is not surprised.  Drains when
+    // M-T3.8 lands; delete this row and the check module in that PR.
+    kind: "scope",
     site: "src/ir/validate/checks/sensitivity-checks.ts:86",
-    // Live, not latent: NO backend masks on the wire.  `sensitive(...)` reaches
-    // exactly one consequence — the synthesized `inspect` prints `<redacted>`
-    // (enrichments.ts) — and the response DTO carries the value in cleartext on
-    // all five.  Drains when the tags route through the same response-boundary
-    // seam `mask unless` already uses; delete this row and the check module in
-    // that PR.
     what:
       "a `sensitive(...)` field that a caller actually receives — no backend masks it on the " +
       "wire, and none classifies it at a log / event / resource sink; only the debug " +

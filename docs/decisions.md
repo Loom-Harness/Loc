@@ -2523,6 +2523,8 @@ it.
 | 13 | `D-ABSENT-JOIN-DATETIME-WIRE` | absent join value = wire `null` everywhere (RS-34 ratified); datetimes ship milliseconds; mint **RS-37** |
 | 14 | `D-FLUTTER-BEARER` | Flutter native = bearer, Flutter web = cookie (a RULE 2 amendment) |
 | 15 | `D-MISC-C0` | four small rulings: the .NET entry-point boundary, `connection:` semantics, per-op OpenAPI tags, `scopeId` |
+| 16 | `D-PAGE-BODY-EXPRESSION` | a page body is an expression tree; the statement `if` stays refused, owner **M-T1.20** |
+| 17 | `D-SENSITIVE-INSPECT-ONLY` | `sensitive(...)` is inspect-only today; wire masking is `mask unless`; phases 2–4 stay **M-T3.8** |
 
 ---
 
@@ -3138,7 +3140,7 @@ row `dapper-no-schema-evolution` (fix field: both options, sized);
 
 ## D-PROJECTION-IMPLICIT-SUB — an `on(Event)` handler subscribes in-process whether or not a channel carries the event
 
-**Status:** proposed (default applies 48 h after merge unless overridden).
+**Status:** PINNED — **APPLIED** (2026-09-14, wave C2 packet 2f).
 
 **Question.** Does a `projection … { on(e: E) { … } }` whose `E` is carried by no
 declared `channel` fold, or not? (Today node folds it; python, java, .NET and
@@ -3181,8 +3183,23 @@ the audit had to construct by deleting a block from `projection.ddd` — enters 
 fixture set in the same wave (rule 13), because a compile gate over a corpus that
 lacks the shape proves nothing.
 
-**Unblocks.** `G2646-open-projection-on-event-no-channel` (B20) → wave **C2
-packets 2b / 2c / 2d / 2e**.
+**Unblocks.** `G2646-open-projection-on-event-no-channel` (B20) → closed in wave
+**C2 packet 2f** (2b measured the dotnet arm as a no-op and 2c measured the node
+arm as "not a node arm"; both were right — it was one change on the shared IR,
+plus the two emitter-side copies of the same carriage filter, in elixir's
+`resolveProjectionSubs` and node's `buildProjectionsFile`).
+
+**As built.** `deriveEventSubscriptions` (`src/ir/enrich/enrichments.ts`) drops
+both filters and yields a subscription per consumer, with `channel: undefined`
+when nothing carries the event (`EventSubscriptionIR.channel` is now optional; no
+emitter read the field). BOTH warnings go, not just the projection one — this
+decision's own scope paragraph writes the rule once for both consumer kinds, so
+`loom.reactor-event-uncarried` had become exactly as false as
+`loom.projection-event-uncarried`. Corpus fixture
+`test/fixtures/corpus/projection-implicit-sub.ddd` (backends: ALL) carries an
+uncarried projection fold AND an uncarried workflow reactor;
+`test/generator/projection-implicit-sub.test.ts` names the emitted fold and
+reactor symbol per backend.
 
 **Sources.** [`behavioral-parity-bugs-2026-07.md`](audits/behavioral-parity-bugs-2026-07.md)
 B20; [`language-gaps-2026-08.md`](audits/language-gaps-2026-08.md) (the
@@ -3944,3 +3961,134 @@ shapes → wave **C2 packet 2j** (dispositioned there); the build → **M-T1.34*
 `src/ir/validate/checks/store-checks.ts` (the async-effect arm);
 `src/generator/flutter/riverpod-emit.ts` (`renderVariantMatchNotifier`, and the
 internal floor the bypass reached).
+
+---
+
+## D-PAGE-BODY-EXPRESSION — a page body is an expression tree; the statement `if` stays refused on every frontend
+
+**Status:** proposed (default applies 48 h after merge unless overridden).
+Raised by wave C2 packet 2f, which was asked to give
+`loom.if-stmt-page-body-unsupported` a mission id or a D-tag.
+
+**Question.** `loom.if-stmt-page-body-unsupported` refuses an `if` STATEMENT in a
+`ui` page / component / store body on **every** frontend. It sits in the
+`*-unsupported` register as a `scope` row with no owner — so is it a v1 limit
+someone should drain, or the shape of the surface?
+
+**Options.** (a) keep it a `scope` row and commission a mission that gives page
+bodies statement-form control flow on all six frontends; (b) rule the limit
+permanent and rename the code out of the `-unsupported` suffix; (c) leave it
+unowned.
+
+**Decision.** (a) is declined and (c) is not an option, but the code KEEPS its
+name and its row: **the limit is ruled permanent in substance, and the row is
+re-pointed at M-T1.20** — the mission that already IS the register of frontend
+refusals accepted in `.ddd`, and therefore the place a reader looks for "what
+does the page surface refuse, and why". The `scope` kind is correct — a declared
+v1 limit with a named owner — and renaming the code would cost a rename across
+six emitters and the docs for no behavioural change.
+
+**Rationale.**
+
+- **It is not a per-target gap, and never was.** All six frontends refuse it, for
+  the same reason: a page body is an EXPRESSION tree. Each emitter builds a
+  value — JSX, an Elmish view, a Flutter widget, a HEEx template — so a
+  condition there is a value too. The three spellings already exist and are
+  rendered on every target: the ternary (`cond ? a : b`), the value-form
+  `match { cond => …, else => … }`, and `match await <op>() { … }` for a union
+  result. Nothing an author needs is missing; one spelling is.
+- **The refusal replaced a crash, not a working path.** Before the gate the JS
+  walker hit a bare `throw` on the unknown statement kind — a raw stack trace
+  with no code — and the other engines dropped it silently. There is no shipping
+  behaviour to preserve on any target.
+- **Giving page bodies statements is a surface decision, not a drain.** It would
+  mean a statement position in the page metamodel, a rendering strategy per
+  engine (JSX has no statement position inside an element tree; HEEx has no
+  `handle_event` to hoist from a render), and a printer arm — i.e. a change to
+  what a page IS. That belongs to the frontend-surface mission, not to a packet
+  sweeping honest gates.
+- **So the row's problem was ownership, not classification.** An unowned `scope`
+  row reads as "somebody should do this and nobody has"; pointing it at M-T1.20
+  — the mission that already collects the frontend refusals accepted in `.ddd`
+  — says what it actually is: the thing that would have to change first.
+
+**Consequences.** `loom.if-stmt-page-body-unsupported` gains
+`mission: "M-T1.20"` in `src/diagnostics/unsupported-register.ts`. Its three
+siblings gated by the same reasoning (`loom.ui-handler-statement-unknown`'s
+statement vocabulary) are unaffected. No emitter changes.
+
+**Unblocks.** `loom.if-stmt-page-body-unsupported` → owned (wave **C2 packet 2f**).
+
+**Sources.** `src/ir/validate/checks/if-stmt-checks.ts` (`validateIfStatementPlacement`,
+the UI arm); `src/diagnostics/messages.ts` (`loom.if-stmt-page-body-unsupported`);
+[`page-metamodel.md`](page-metamodel.md).
+
+---
+
+## D-SENSITIVE-INSPECT-ONLY — `sensitive(...)` is a DECLARATION with one shipped consequence; wire masking is `mask unless`, and phases 2–4 are a commissioned mission
+
+**Status:** proposed (default applies 48 h after merge unless overridden).
+Raised by wave C2 packet 2f, which was asked to "build M-T3.8 phases 2–4, or
+record the S alternative as a `scope` decision".
+
+**Question.** `loom.sensitive-wire-unsupported` warns on every `sensitive(...)`
+field a caller can actually receive: the tag reaches exactly one consequence
+today (the synthesized `inspect` prints `<redacted>`), while the response DTO
+carries the value in cleartext on all five backends and nothing classifies it at
+a log / event / resource sink. It is a `gap` row in the register — the sprint
+backlog. Is it one?
+
+**Options.** (a) build phases 2–4 here: `authorized(<category>)` declassification,
+wire `mask:` strategies in five DTO emitters, sink classification; (b) re-class
+it `scope` with **M-T3.8** as the named successor, keeping the honest warning;
+(c) rename the code out of the suffix — rule `sensitive` permanently a
+documentation-and-`inspect` tag.
+
+**Decision.** (b) — **`scope`, successor M-T3.8.** Not (c): the tag's name states
+a wire promise a reader will assume, and the proposal it comes from specifies the
+masking. Not (a) inside a per-target drain packet, for the reason below.
+
+**Rationale.**
+
+- **The row is HONEST already, and specific.** The warning names the one
+  consequence that ships, states plainly that the field is serialized in
+  cleartext to any caller allowed to read the aggregate, and gives two things
+  that work TODAY: `mask unless <predicate>` (the per-caller read redaction,
+  wired at the response boundary on all five) and `internal` / `secret` access
+  (never served). So the author is not surprised, and the surface that redacts
+  is not missing — it is a different surface, with a different meaning
+  (`mask unless` is per-caller authorization; `sensitive` is a data-category
+  classification).
+- **Phases 2–4 are three features, not one drain.** Phase 2 is a type-system
+  change (`authorized(<category>)` declassification, with the 2-lite warnings
+  becoming errors); phase 3 is a per-strategy masking arm in five DTO emitters
+  plus the OpenAPI schema that describes them; phase 4 is sink classification —
+  every log event, every emitted domain event's payload, every outbound resource
+  call. Phase 4 in particular has no chokepoint today: the `_obs/` catalog, the
+  channel envelope and the resource clients each build their own payload.
+- **Its failure mode is the one a sweep must not risk.** A masking arm applied
+  at four of five response sites, or to the read DTO but not the audit snapshot
+  (the exact asymmetry `mask unless` × `audited` hit on .NET, M-T3.9), is
+  indistinguishable from success in every test that asserts by shape. It needs a
+  booted acceptance per backend and a sink census — a mission's acceptance
+  criteria, not a packet's.
+- **`scope` is what the register means by this.** "A declared v1 limit with a
+  named successor" — the limit is declared in the diagnostic, the successor
+  exists and is sized L. Leaving it `gap` said the opposite: that a drain sprint
+  could close it, which is how a security-shaped feature ends up half-ported by
+  someone counting rows.
+
+**Consequences.** The register row's `kind` becomes `scope` (it already names
+`mission: "M-T3.8"`), and `MAX_OPEN_GAPS` drops by one. No emitter changes and no
+message change — the warning keeps firing on every reachable `sensitive(...)`
+field, which is the point. M-T3.8 keeps its `partial` status and its L size; this
+tag is the reason its phases must land together rather than one emitter at a
+time.
+
+**Unblocks.** `loom.sensitive-wire-unsupported` → `scope` (wave **C2 packet 2f**);
+M-T3.8 stays open and commissioned.
+
+**Sources.** `src/ir/validate/checks/sensitivity-checks.ts`;
+[`T3-security-governance.md`](new-plan/T3-security-governance.md) M-T3.8;
+[`sensitivity-and-compliance.md`](old/proposals/sensitivity-and-compliance.md);
+[`auth.md`](auth.md) (`mask unless`).
