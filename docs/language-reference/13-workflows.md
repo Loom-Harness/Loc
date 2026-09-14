@@ -219,6 +219,8 @@ The workflow body draws from a narrowed statement set — distinct from an aggre
 
 A loaded aggregate is saved **only if** an operation was invoked on it inside the body; fresh `Agg.create` results always save. See [`../workflow.md`](../workflow.md) §"Save + event drain semantics".
 
+Every `Repo` above is a repository of the workflow's **own context**. Naming another context's repository is `loom.workflow-cross-context-repository` — lowering resolves reads against the enclosing context alone, so the name never becomes a load and every backend renders a dangling receiver. Cross at the other context's public surface instead (a `resource { kind: api }` call, or a local projection folded over its published events); see [`../workflow.md`](../workflow.md#repositories-are-context-local--loomworkflow-cross-context-repository).
+
 **A repository read is a STATEMENT, never a sub-expression.** Every repository form above is spelled `let x = Repo.…` — that binding is what makes the backend instantiate the repository. The same call written inline inside another expression is rejected with `loom.workflow-inline-repository-call`:
 
 ```ddd

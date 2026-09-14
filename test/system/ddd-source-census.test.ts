@@ -114,6 +114,14 @@ const UNPARSEABLE = ["examples/sales-ui.ddd"] as const;
  *  keep refusing — a gate deleted by accident fails here too. */
 const DELIBERATELY_INVALID = [
   "test/cli/fixtures/bad-model.ddd",
+  // The #2922 audit's F-014 repro: a `valueobject Money` constructed with
+  // `currency` omitted.  Before #2923 this validated CLEAN — a record named
+  // after a walker primitive skipped construction validation entirely — and
+  // emitted `new Money(new Decimal("1.00"))` against a 2-arg constructor.  It
+  // is kept as tracked evidence beside the audit, and the negative control
+  // below turns it into a live regression guard: revert #2923 and it validates
+  // clean again, failing here.
+  "eval/repro/F014-money-ctor-unchecked.ddd",
   "test/language/validators/fixtures/stmt-placement-variant-match.ddd",
   "test/language/validators/fixtures/stmt-placement-for.ddd",
   "test/language/validators/fixtures/stmt-placement-if-let.ddd",

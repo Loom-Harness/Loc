@@ -283,6 +283,9 @@ export function validateLoomModel(loom: EnrichedLoomModel): LoomDiagnostic[] {
       c,
       diags,
       allContexts(loom).flatMap((x) => x.events),
+      // The cross-context-repository gate needs the sibling contexts, like
+      // `validateDomainServices` above.
+      [...allContexts(loom)],
     );
     // Explicit application-layer handlers (unfoldable-api-derivation.md, Layer 3):
     // queryHandler-read-only + commandHandler-single-aggregate layering contracts.
