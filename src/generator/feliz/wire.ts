@@ -714,6 +714,63 @@ export interface FelizFieldArray {
   rowFields: FelizRowField[];
 }
 
+// ---------------------------------------------------------------------------
+// Form-name families — three DISJOINT namespaces.
+//
+// F# has no overloading for records: two `type XForm = { … }` declarations in
+// one module are a hard `FS0037` (and the second silently shadows the first, so
+// every reference after it resolves to the WRONG record).  The three form
+// families are keyed by names the model author controls independently — an
+// aggregate, an aggregate+operation pair, a workflow — so the old flat
+// `<Agg>Form` / `<Op><Agg>Form` / `<Wf>Form` spellings collided on ordinary
+// models: a `scheduleWorkOrder` workflow beside a `WorkOrder.schedule`
+// operation both produced `ScheduleWorkOrderForm`.
+//
+// The fix is a per-family SUFFIX rather than a per-family prefix, so the names
+// still read left-to-right as "what it is, then what it does":
+//
+//   create     `<Agg>CreateForm`        WorkOrderCreateForm
+//   operation  `<Op><Agg>OpForm`        ScheduleWorkOrderOpForm
+//   workflow   `<Wf>WorkflowForm`       ScheduleWorkOrderWorkflowForm
+//
+// Cross-family collision is impossible BY CONSTRUCTION: every name in a family
+// ends with that family's suffix, and no suffix is a suffix of another
+// (`…teForm` / `…OpForm` / `…owForm` differ in their last six characters), so
+// no two names drawn from different families can be equal whatever the model
+// calls its aggregates, operations and workflows.  Everything derived from the
+// form base (the `Set`/`Touch`/`Submit` Msgs, the Model field, the empty
+// binding, the encoder + validity fns, the `Done` result Msg) inherits the
+// disjointness, which is why they are all derived from these two helpers and
+// never re-spelled at a use site.
+//
+// Residual (unchanged by this): WITHIN the operation family two different
+// (aggregate, operation) pairs can still concatenate to the same string
+// (`ship` on `NowOrder` vs `shipNow` on `Order`).  That needs a separator that
+// cannot occur in an identifier, and Loom's `ID` terminal admits `_`, so there
+// is none; it is left as a much rarer, separate concern.
+// ---------------------------------------------------------------------------
+
+/** The family suffix distinguishing the three form namespaces. */
+type FormFamily = "create" | "op" | "workflow";
+
+const FORM_FAMILY_SUFFIX: Record<FormFamily, string> = {
+  create: "Create",
+  op: "Op",
+  workflow: "Workflow",
+};
+
+/** The collision-free BASE name for a form — `<stem><FamilySuffix>`.  Every
+ *  other name the form projects (`<base>Form`, `Submit<base>Form`, `<base>Done`,
+ *  …) is built off this, so the whole MVU wiring shares one namespace decision. */
+function formBase(family: FormFamily, stem: string): string {
+  return `${upperFirst(stem)}${FORM_FAMILY_SUFFIX[family]}`;
+}
+
+/** The F# record type name for a form base (`WorkOrderCreate` → `WorkOrderCreateForm`). */
+function formTypeName(family: FormFamily, stem: string): string {
+  return `${formBase(family, stem)}Form`;
+}
+
 /** The record-shaped aspects a form (create OR operation) shares — the F#
  *  form-record type + its `empty<Form>` value + Thoth encoder + fields.  The
  *  type/encoder/Model-field/init renderers consume this; only the Msg/update/Api
@@ -1200,7 +1257,7 @@ export function felizCreateForm(
   vosByName: ReadonlyMap<string, readonly FieldIR[]> = new Map(),
 ): FelizForm {
   const name = agg.name;
-  const formType = `${upperFirst(name)}Form`;
+  const formType = formTypeName("create", name);
   const fields = formFieldsFrom(
     formType,
     // Scalar create inputs (required + optional) AND value-object fields (each
@@ -1252,7 +1309,7 @@ export function felizOperationForm(
   vosByName: ReadonlyMap<string, readonly FieldIR[]> = new Map(),
 ): FelizOperationForm {
   const name = agg.name;
-  const opCap = `${upperFirst(op.name)}${upperFirst(name)}`;
+  const opCap = formBase("op", `${upperFirst(op.name)}${upperFirst(name)}`);
   const formType = `${opCap}Form`;
   const fields = formFieldsFrom(
     formType,
@@ -1308,7 +1365,7 @@ export function felizWorkflowForm(
   idLabels: ReadonlyMap<string, string> = new Map(),
   vosByName: ReadonlyMap<string, readonly FieldIR[]> = new Map(),
 ): FelizWorkflowForm {
-  const wfCap = upperFirst(wf.name);
+  const wfCap = formBase("workflow", wf.name);
   const formType = `${wfCap}Form`;
   const fields = formFieldsFrom(
     formType,
