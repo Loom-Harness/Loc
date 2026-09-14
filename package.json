@@ -126,7 +126,7 @@
     "test:biome-gen": "LOOM_BIOME=1 vitest run test/e2e/generated-biome.test.ts",
     "test:contrast": "vitest run test/generator/frontend/theme-contrast.test.ts",
     "prepare": "npm run langium:generate && npm run build && npm run build:web",
-    "lint": "biome ci .",
+    "lint": "biome ci . --error-on-warnings",
     "format": "biome format --write .",
     "cli": "node bin/cli.js",
     "test:svelte-build": "LOOM_SVELTE_BUILD=1 vitest run test/e2e/generated-svelte-build.test.ts",
@@ -134,7 +134,10 @@
     "test:typecheck": "node scripts/test-typecheck.mjs"
   },
   "overrides": {
-    "hono": ">=4.12.26"
+    "hono": ">=4.12.26",
+    "@vitejs/devtools-vitest": {
+      "vitest": "^4.1.11"
+    }
   },
   "dependencies": {
     "chalk": "~5.6.0",
@@ -151,7 +154,7 @@
     "@biomejs/biome": "^2.5.0",
     "@isomorphic-git/lightning-fs": "^4.6.2",
     "@types/node": "~24.13.0",
-    "@vitest/coverage-v8": "^4.1.9",
+    "@vitest/coverage-v8": "^4.1.11",
     "fake-indexeddb": "^6.2.5",
     "happy-dom": "^20.10.6",
     "isomorphic-git": "^1.38.5",
@@ -159,6 +162,6 @@
     "marked": "^18.0.5",
     "playwright": "^1.61.1",
     "typescript": "~6.0.0",
-    "vitest": "^4.1.9"
+    "vitest": "^4.1.11"
   }
 }

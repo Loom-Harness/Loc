@@ -22,7 +22,7 @@ import {
   findValueObjectInScope,
   valueObjectPool,
 } from "../../ir/util/reachable-types.js";
-import { snake, upperFirst } from "../../util/naming.js";
+import { upperFirst } from "../../util/naming.js";
 import { numericEncode } from "../_numeric/target.js";
 import { PROVENANCED_REQUEST_ERROR } from "../_payload/provenanced-wire.js";
 import { recordPayloadOf } from "../_payload/workflow-param-payloads.js";
