@@ -48,7 +48,11 @@ import { renderReadingServiceContextFns } from "../domain-service-emit.js";
 import { unguardedName } from "../lifecycle-seam.js";
 import { type RenderCtx, renderExpr } from "../render-expr.js";
 import { auditRecordCall, wireSnapshot } from "./audit-emit.js";
-import { aggregateUsesPrincipalContextFilter } from "./capability-filter.js";
+import {
+  aggregateUsesPrincipalContextFilter,
+  findNeedsActor,
+  listNeedsActor,
+} from "./capability-filter.js";
 import { aggregateHasResidualInvariants } from "./changeset-invariant-emit.js";
 import { denialTerm } from "./denial.js";
 import {
@@ -391,9 +395,13 @@ function renderContextModule(
     const listRepo = (ctx.repositories ?? []).find((r) => r.aggregateName === agg.name);
     const listAllFind = listRepo?.finds?.find((f) => f.name === "all");
     const listPaged = listAllFind ? !!pagedReturn(listAllFind.returnType) : false;
+    // The `list` seam answers in place of a find DECLARED as `all`, so it may
+    // need the actor even when the aggregate carries no tenancy filter —
+    // `listNeedsActor`, the same predicate the repository head uses.
+    const listPrincipal = listNeedsActor(agg, listRepo);
     const listDelegateArgs = listPaged
-      ? `page \\\\ ${PAGED_DEFAULT_PAGE}, page_size \\\\ ${PAGED_DEFAULT_PAGE_SIZE}, sort \\\\ "id", dir \\\\ "asc"${principal ? ", current_user \\\\ nil" : ""}`
-      : principal
+      ? `page \\\\ ${PAGED_DEFAULT_PAGE}, page_size \\\\ ${PAGED_DEFAULT_PAGE_SIZE}, sort \\\\ "id", dir \\\\ "asc"${listPrincipal ? ", current_user \\\\ nil" : ""}`
+      : listPrincipal
         ? "current_user \\\\ nil"
         : "";
     // A principal-referencing lifecycle stamp threads `current_user` into the
@@ -487,7 +495,11 @@ function renderContextModule(
       const findArgs = [
         ...baseArgs,
         ...pageArgs,
-        ...(principal ? ["current_user \\\\ nil"] : []),
+        // Per-FIND, not per-aggregate: a find whose own `where` reads the
+        // principal needs the actor even on an aggregate with no tenancy
+        // filter.  `findNeedsActor` is shared with the repository head and the
+        // controller call so the three arities cannot drift apart.
+        ...(findNeedsActor(agg, f) ? ["current_user \\\\ nil"] : []),
       ].join(", ");
       return `  defdelegate ${findSnake}_${aggSnake}(${findArgs}), to: ${repoMod}, as: :${findSnake}`;
     });

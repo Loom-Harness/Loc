@@ -35,6 +35,10 @@ import { type RenderCtx, renderExpr } from "../render-expr.js";
 import {
   aggregateUsesPrincipalContextFilter,
   combineWhere,
+  declaredAllFind,
+  findNeedsActor,
+  listNeedsActor,
+  renderPrincipalFilter,
   vanillaCapabilityFilter,
   vanillaWriteScopeFilter,
 } from "./capability-filter.js";
@@ -265,14 +269,32 @@ function renderRepository(
   // whitelisted `order_by`, and returns `%{items, page, pageSize, total,
   // totalPages}` instead of a bare list.  (The base-reader polymorphic `list`
   // stays unpaged — an honest gate; see renderBaseReader.)
+  // The DECLARED `all` find's own predicate, ANDed into the list query.  It is
+  // pinned on the principal side like every other read predicate.
+  const declaredAll = declaredAllFind(repo);
+  const declaredAllWhere = declaredAll?.filter
+    ? renderPrincipalFilter(declaredAll.filter, {
+        thisName: "record",
+        contextModule,
+        filterArgs: true,
+      })
+    : null;
+  const listEff = combineWhere(capEff, declaredAllWhere);
   const allFind = repo?.finds?.find((f) => f.name === "all");
   const listPaged = allFind ? !!pagedReturn(allFind.returnType) : false;
   const ectoImport =
-    finds.length > 0 || capEff || refColls || listPaged ? `\n  import Ecto.Query` : "";
+    finds.length > 0 || capEff || declaredAllWhere || refColls || listPaged
+      ? `\n  import Ecto.Query`
+      : "";
   // The threaded actor parameter (principal filters only).
   const actorParam = principal ? "current_user \\\\ nil" : "";
-  const listHead = principal ? `def list(${actorParam}) do` : "def list do";
-  const listSpec = principal
+  // The CRUD `list` seam answers in place of a find DECLARED as `all`, so it
+  // carries that find's `where` — and the actor when that predicate reads the
+  // principal, which the aggregate-wide `principal` flag alone does not cover.
+  const listPrincipal = listNeedsActor(agg, repo);
+  const listActorParam = listPrincipal ? "current_user \\\\ nil" : "";
+  const listHead = listPrincipal ? `def list(${listActorParam}) do` : "def list do";
+  const listSpec = listPrincipal
     ? `@spec list(map() | nil) :: {:ok, [${aggModule}.t()]} | {:error, term()}`
     : `@spec list() :: {:ok, [${aggModule}.t()]} | {:error, term()}`;
   // `list`: bare `Repo.all(<Agg>)` unless a capability filter scopes it.
@@ -280,13 +302,13 @@ function renderRepository(
   // and reference-collection many_to_many associations come back loaded (and
   // ordinal-ordered, for value collections) in one round-trip.
   const listBody =
-    (capEff
-      ? `from(record in ${aggModule}, where: ${capEff}) |> Repo.all()`
+    (listEff
+      ? `from(record in ${aggModule}, where: ${listEff}) |> Repo.all()`
       : `Repo.all(${aggModule})`) + preload;
   // The paged `list` block (whole spec + def).  The plain block is byte-identical
   // to before the flip; only a paged auto-findAll takes the envelope path.
-  const listQuery = capEff
-    ? `from(record in ${aggModule}, where: ${capEff})`
+  const listQuery = listEff
+    ? `from(record in ${aggModule}, where: ${listEff})`
     : `from(record in ${aggModule})`;
   const listSortArms = sortableFields(agg)
     .filter((wf) => wf !== "id")
@@ -300,7 +322,7 @@ function renderRepository(
     ...(principal ? ["current_user \\\\ nil"] : []),
   ].join(", ");
   const listBlock = listPaged
-    ? `  @spec list(pos_integer(), pos_integer(), String.t(), String.t()${principal ? ", map() | nil" : ""}) :: {:ok, map()} | {:error, term()}
+    ? `  @spec list(pos_integer(), pos_integer(), String.t(), String.t()${listPrincipal ? ", map() | nil" : ""}) :: {:ok, map()} | {:error, term()}
   def list(${listPagedArgs}) do
     query = ${listQuery}
     total = Repo.aggregate(query, :count, :id)
@@ -516,7 +538,7 @@ function renderFindFn(
   agg: AggregateIR,
   aggModule: string,
   contextModule: string,
-  principal: boolean,
+  aggPrincipal: boolean,
   preload: string,
   /** The TPH `record.kind == "<Concrete>"` discriminator predicate, or null for
    *  a non-TPH-concrete aggregate.  A custom find over a shared table must scope
@@ -528,10 +550,21 @@ function renderFindFn(
   // from this finder only (other reads keep the full conjunction).  The TPH
   // `kind` discriminator is never bypassable (it's a physical-table fact, not a
   // capability), so it ANDs in unconditionally.
+  // The actor is threaded when the AGGREGATE carries a principal capability
+  // filter (tenancy) OR when THIS FIND'S OWN `where` reads the principal —
+  // `criterion Mine() of Doc = ownerUserId == currentUser.id`, the row-level
+  // authorization rule.  Only the first was ever consulted, so an author-written
+  // principal predicate rendered `current_user` into an Ecto `where:` on a
+  // function head that declared no such parameter, and `mix compile` refused it:
+  // `** (Ecto.Query.CompileError) unbound variable current_user in query`.
+  // Unlike node and python, elixir got this wrong for BOTH the find and the
+  // retrieval and BOTH the named-criterion and inline spellings — all four
+  // cells — because the gap is in the actor plumbing, not in one call site.
+  const principal = findNeedsActor(agg, f);
   const cap = combineWhere(
     kindFilter,
     vanillaCapabilityFilter(agg, contextModule, {
-      actor: principal,
+      actor: aggPrincipal,
       bypass: { bypassAll: f.bypassAll, bypassCaps: f.bypassCaps },
     }),
   );
@@ -619,7 +652,13 @@ function renderFindFn(
 
   let whereExpr: string;
   if (f.filter) {
-    whereExpr = renderExpr(f.filter, renderCtx);
+    // `renderPrincipalFilter` pins the principal side — `current_user.id`
+    // becomes `^(current_user && current_user.id)`.  An UNPINNED
+    // `current_user.<claim>` is not an Ecto query expression at all (the
+    // `unbound variable` above); the `&&` guard is also what makes a nil actor
+    // fail CLOSED, since Ecto binds the pinned nil and the comparison matches
+    // no row.  Non-principal predicates render exactly as before.
+    whereExpr = renderPrincipalFilter(f.filter, renderCtx);
   } else {
     // Convention-finds: per-param `record.<name> == ^<name>` predicate,
     // joined with `and`.  Matches the source-level convention (see

@@ -21,7 +21,7 @@ import { plural, snake, upperFirst } from "../../../util/naming.js";
 import type { ApiRoute } from "../api-emit.js";
 import { renderExpr } from "../render-expr.js";
 import { plugRelativePath } from "./api-emit.js";
-import { aggregateUsesPrincipalContextFilter } from "./capability-filter.js";
+import { findNeedsActor } from "./capability-filter.js";
 import { denialOverrides, denialResponse } from "./denial.js";
 import { isAbstractBase } from "./inheritance-emit.js";
 import {
@@ -189,10 +189,13 @@ export function renderFindActions(
 ): string {
   const aggSnake = snake(agg.name);
   const aggPascal = upperFirst(agg.name);
-  // A principal (tenancy) find threads the request actor; pull it off
-  // `conn.assigns` and pass it as the trailing find arg.  Non-principal finds
-  // stay byte-identical.
-  const principal = aggregateUsesPrincipalContextFilter(agg);
+  // A principal find threads the request actor; pull it off `conn.assigns` and
+  // pass it as the trailing find arg.  Non-principal finds stay byte-identical.
+  // Decided PER FIND (`findNeedsActor`), not per aggregate: a find whose own
+  // `where` reads `currentUser` needs the actor even when the aggregate carries
+  // no tenancy filter, and passing none leaves the repository's `\\ nil`
+  // default in force — a read that silently matches NO rows instead of the
+  // principal's own.
   // Read-side `requires` authorization gate (default-deny): a 403 returned
   // before the query when the currentUser-only predicate fails — the read-side
   // analogue of an operation's `requires`.
@@ -204,6 +207,7 @@ export function renderFindActions(
     const gateUsesUser = !!f.requires && exprUsesCurrentUser(f.requires);
     // Bind `current_user` when the find is principal-scoped (repo arg) or its
     // gate reads the actor; `requires true` on a non-principal find binds none.
+    const principal = findNeedsActor(agg, f);
     const cuLine =
       principal || gateUsesUser ? "    current_user = Map.get(conn.assigns, :current_user)\n" : "";
     // A find that reads NO params (param-less and non-paged) binds `_params` so

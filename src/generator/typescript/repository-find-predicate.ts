@@ -22,6 +22,7 @@ import { exprUsesCurrentUser } from "../../ir/types/loom-ir.js";
 import { orientComparison } from "../../ir/util/comparison-operands.js";
 import { tableOwnerName } from "../../ir/util/inheritance.js";
 import { refCollectionFieldName } from "../../ir/util/ref-collection.js";
+import { asRequestConstant, type RequestConstant } from "../../ir/util/request-constant.js";
 import { durationCtorOperand } from "../../ir/util/temporal.js";
 import {
   DATA_KEY_PATH_DELIMITER,
@@ -246,6 +247,32 @@ export function lowerToDrizzle(
         );
       }
     }
+    // A REQUEST CONSTANT standing in boolean position (`currentUser.role ==
+    // "admin"`, a bare `true`) — every operand is fixed for the whole request,
+    // so nothing here decides anything row by row.  Fold it in the HOST
+    // language and splice the always-true / always-false SQL term, rather than
+    // pushing two bound values at the database and asking it to compare them
+    // (`WHERE $1 <> $2`, which Postgres refuses outright: "could not determine
+    // data type of parameter").
+    //
+    // This is checked BEFORE the comparison arm because `orientComparison`
+    // requires a column on one side and returns null without one — and every
+    // caller turns that null into `refuseOutOfVocabulary`.  That is the whole
+    // of the crash: `ddd parse` said `0 error(s)` (the phase-⑦ queryable gate
+    // admits a principal member, a comparison and a literal individually)
+    // and `ddd generate system` then died with an uncaught
+    // `QueryEmissionRefusal` whose own message blames the validator.
+    //
+    // Folding only the request-constant SUB-EXPRESSION, not the whole
+    // predicate, is what makes `currentUser.role == "admin" || ownerUserId ==
+    // currentUser.id` — "a technician sees only their own, an admin sees all" —
+    // work: the `||` arm below recurses into each operand separately, so the
+    // principal half folds and the column half stays real SQL.
+    const rc = asRequestConstant(e);
+    if (rc !== null) {
+      const host = renderRequestConstantHost(rc);
+      if (host !== null) return alwaysTerm(host);
+    }
     if (e.kind === "binary") {
       if (e.op === "&&" || e.op === "||") {
         const l = lowerExpr(e.left);
@@ -452,6 +479,35 @@ export function lowerToDrizzle(
       return `schema.${tableName}.${e.name}`;
     }
     return null;
+  }
+
+  /** A folded request constant as a SQL term.  `host` is a TypeScript boolean
+   *  expression evaluated when the query is BUILT (once per request), and the
+   *  ternary picks the self-contained always-true / always-false term — the
+   *  same `id`-column trick the DENY carve-out uses, so it needs no `sql`
+   *  import and works on any table.  `isNotNull(id)` is true for every row
+   *  (`id` is the primary key); `and(isNull(id), isNotNull(id))` is true for
+   *  none. */
+  function alwaysTerm(host: string): string {
+    for (const op of ["and", "isNull", "isNotNull"]) ops.add(op);
+    const idCol = `schema.${tableName}.id`;
+    return `(${host} ? isNotNull(${idCol}) : and(isNull(${idCol}), isNotNull(${idCol})))`;
+  }
+
+  /** The HOST-language (TypeScript) boolean for a request constant, or null
+   *  when an operand has no value rendering — in which case the caller falls
+   *  through to the ordinary arms and, failing those, to the coded refusal. */
+  function renderRequestConstantHost(rc: RequestConstant): string | null {
+    if (rc.kind === "literal") return String(rc.value);
+    if (rc.kind === "value") return renderValue(rc.expr);
+    const l = renderValue(rc.left);
+    const r = renderValue(rc.right);
+    if (l === null || r === null) return null;
+    // `==` / `!=` become the STRICT JS forms: the operands are a principal
+    // claim, a parameter or a literal — never a value whose loose-equality
+    // coercion is wanted.
+    const jsOp = rc.op === "==" ? "===" : rc.op === "!=" ? "!==" : rc.op;
+    return `${l} ${jsOp} ${r}`;
   }
 
   function renderValue(e: ExprIR): string | null {
