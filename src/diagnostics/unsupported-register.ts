@@ -87,6 +87,18 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   // gap — real parity TODOs.  This is the sprint backlog.  Drains to zero.
   // -------------------------------------------------------------------------
   {
+    code: "loom.workflow-handle-unsupported",
+    kind: "gap",
+    site: "src/ir/validate/checks/workflow-checks.ts:294",
+    what:
+      "`handle name(…) { … }`, the multi-command saga continuation, is emitted by NO backend — " +
+      "not a route, not a handler, not a method.  It was silent before M-T5.34 (audit #2864 D5): " +
+      "a saga could be started and read and never advanced.  A genuine five-backend gap, not a " +
+      "latent seam — the emitter is the deferred half of decision D-1(c)",
+    mission: "M-T6.58",
+    verified: true,
+  },
+  {
     code: "loom.audited-backend-unsupported",
     kind: "seam",
     site: "src/ir/validate/checks/storage-inheritance-checks.ts:537",
@@ -677,6 +689,19 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   // sprint work until its mission starts.
   // -------------------------------------------------------------------------
   {
+    code: "loom.entity-part-param-unsupported",
+    kind: "scope",
+    site: "src/ir/validate/checks/entity-part-param-checks.ts:73",
+    what:
+      "an entity-PART-typed parameter on a public action.  A declared limit, not a per-target " +
+      "gap: materializing one means ruling on whether client-supplied parts REPLACE the " +
+      "collection (new ids, history orphaned) or MERGE by id, which the DSL has never answered.  " +
+      "Decision D-2 of the freight-audit fleet plan refuses it and defers that question to a " +
+      "proposal; the value-object spelling is emitted correctly today and is what the message " +
+      "points at.  Lifted by the proposal, or re-justified as permanent and renamed to -invalid",
+    verified: true,
+  },
+  {
     code: "loom.criterion-unsupported-target",
     kind: "scope",
     site: "src/language/validators/criterion.ts:87",
@@ -734,7 +759,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.workflow-load-array-unsupported",
     kind: "scope",
-    site: "src/ir/validate/checks/workflow-checks.ts:852",
+    site: "src/ir/validate/checks/workflow-checks.ts:919",
     what: "workflow load of an array result — v1 is single non-nullable",
     verified: true,
   },
@@ -756,7 +781,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.workflow-load-nullable-unsupported",
     kind: "scope",
-    site: "src/ir/validate/checks/workflow-checks.ts:865",
+    site: "src/ir/validate/checks/workflow-checks.ts:932",
     what: "workflow load of a nullable result — v1 is single non-nullable",
     verified: true,
   },

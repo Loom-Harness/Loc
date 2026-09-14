@@ -311,10 +311,19 @@ export const DIAGNOSTIC_MESSAGES = {
   // ----------------------------------------------------------------------
   // src/language/validators/duplicates.ts
   // ----------------------------------------------------------------------
+  // The route half of this message used to over-promise: it implied a
+  // `route -> Ctx.<handle>` naming a workflow `handle` was meaningful, when no
+  // backend has ever emitted one (M-T6.58's "three places promise routing
+  // works, zero deliver").  M-T5.34 refuses `handle` outright
+  // (`loom.workflow-handle-unsupported`), so the name-collision rule below is
+  // now genuinely about the two APPLICATION handler kinds; a workflow `handle`
+  // in scope is already an error on its own line.
   "loom.duplicate-handler": (p: { name: unknown; ctxName: unknown; kind: unknown }) =>
     `Duplicate handler '${p.name}' in context '${p.ctxName}'; a ${p.kind} shares its name ` +
     `with another handler or a workflow 'handle'. A 'route -> ${p.ctxName}.${p.name}' would ` +
-    `be ambiguous — handler and workflow-handle names must be unique within a context.`,
+    `be ambiguous — handler and workflow-handle names must be unique within a context. ` +
+    `(A workflow 'handle' is itself refused — see 'loom.workflow-handle-unsupported' — so only ` +
+    `a commandHandler / queryHandler can carry a route today.)`,
 
   // ----------------------------------------------------------------------
   // src/language/validators/generics.ts
@@ -805,6 +814,42 @@ export const DIAGNOSTIC_MESSAGES = {
     `operation '${p.name}.${p.opName}' declares a \`when\` gate, but the backend(s) ` +
     `serving this context (${p.unsupported}) don't emit the gate or the ` +
     `can-${p.opName} query yet. It's supported on: ${p.supportedWhenBackends}.`,
+  // --- M-T5.34 / #2864 D6, decision D-2 -----------------------------------
+  // An entity-PART-typed parameter on a public action.  The materialization
+  // step has a value-object arm (`new LineVO(e.sku, e.qty)`) and no entity arm,
+  // so node emits `z.array(z.unknown())` + an identity map (no wire contract at
+  // all; `save()` then reads `child.id` / `child.parentId` as `undefined`) and
+  // dotnet / java / python do not compile (`List<LineResponse>` -> `List<Line>`).
+  //
+  // REJECTED rather than materialized, because materializing it means answering
+  // a question the DSL has never answered: does a client-supplied part REPLACE
+  // the collection (new ids, orphaning history) or MERGE by id?  That is a
+  // language decision for a proposal, not a guess inside an emitter.  The value
+  // object is the right advice anyway — a part the client hands you whole has no
+  // identity of its own, which is the definition of a value object (a `Leg` in
+  // an itinerary is a value object in Evans' own model).
+  //
+  // Scope, each boundary verified rather than assumed: PUBLIC actions only (a
+  // `private` operation never crosses the wire, so it emits no contract and has
+  // no defect), and NOT the `create` position (a declared create's parameter
+  // list is not the request contract — the create input is derived from the
+  // aggregate's fields, where a containment already emits `<Part>Response`
+  // correctly).
+  "loom.entity-part-param-unsupported": (p: {
+    name: unknown;
+    opName: unknown;
+    param: unknown;
+    part: unknown;
+    collection: unknown;
+  }) =>
+    `'${p.name}.${p.opName}' takes '${p.param}', typed on the entity part '${p.part}'. ` +
+    `A client-supplied entity part has no wire materialization on any backend: node emits an ` +
+    `uncontracted 'z.unknown()' and dotnet/java/python don't compile. Declare '${p.part}' as a ` +
+    `'valueobject' instead of an 'entity' — the value-object form IS emitted correctly` +
+    `${p.collection ? ", and a replace-the-whole-collection write is exactly value-object semantics" : ""}. ` +
+    `An entity part is identity-bearing, so passing one in raises a question the language has ` +
+    `not settled — whether the supplied parts REPLACE the collection (new ids, history ` +
+    `orphaned) or MERGE by id — which is why this is refused rather than guessed at.`,
   "loom.operation-return-unsupported": (p: {
     name: unknown;
     opName: unknown;
@@ -3318,6 +3363,31 @@ export const DIAGNOSTIC_MESSAGES = {
     `create. A create routes by parameter — by name, or by a '${p.corr} := <param>' assignment — ` +
     `and reads no nested field, so this addresses no instance. Add '${p.corr}' as a top-level ` +
     `parameter: 'create(${p.corr}: …, ${p.param}: ${p.payload})'.`,
+  // A workflow that declares `on(…)` reactors but no `create(…)` starter.
+  // Sibling of `loom.reactor-event-uncarried` above, which performs this class
+  // of check for a different cause (no channel carries the event).  Here the
+  // event IS carried and IS dispatched — there is simply never an instance to
+  // route it to, so the reactor loads nothing and logs `event_unrouted`
+  // forever.  A create-less workflow still emits an (empty) POST route that
+  // logs `workflow_started` / `workflow_completed` and inserts no row, which is
+  // why nothing downstream notices.
+  "loom.reactor-without-starter": (p: { name: unknown; reactors: unknown }) =>
+    `workflow '${p.name}' declares reactors (${p.reactors}) but no 'create' starter, so no ` +
+    `instance is ever created for them to route to: every inbound event logs 'event_unrouted' ` +
+    `and returns. Add a starter — an event-triggered 'create(e: <Event>) by <expr> { … }' for ` +
+    `the event that begins the saga, or a command-triggered 'create(…) { … }' that supplies ` +
+    `the correlation key.`,
+  // D5 / decision D-1(c).  `handle <name>(…)` parses, type-checks and reaches
+  // the IR, and NO backend emits anything for it — not a route, not a handler,
+  // not a method.  Rejecting is the ruling: the silence is the bug, and the
+  // emitter is a feature decision taken separately (the follow-up mission row).
+  "loom.workflow-handle-unsupported": (p: { name: unknown; handler: unknown }) =>
+    `workflow '${p.name}': 'handle ${p.handler}(…)' is not emitted by any backend — no route, ` +
+    `no handler, no method — so the continuation is unreachable at runtime and the saga can ` +
+    `be started and read but never advanced. Model the continuation as an aggregate ` +
+    `'operation' (the aggregate owns the state transition, and the operation gets a route on ` +
+    `every backend), or as a second workflow started by the event the first one emits. ` +
+    `Multi-command sagas via 'handle' are deferred, not shipped.`,
   "loom.workflow-unknown-name": (p: { name: unknown; kind: unknown; exprName: unknown }) =>
     `workflow '${p.name}': ${p.kind} references unknown name '${p.exprName}'.`,
   "loom.workflow-emit-unknown-event": (p: { name: unknown; eventName: unknown }) =>

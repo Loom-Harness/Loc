@@ -306,7 +306,7 @@ Sources: [language-docs-audit-2026-09-03](../audits/2026-09-03-language-docs-aud
 > A third, benign: the `envelope` carrier in a PAYLOAD FIELD (the other position the AST gate
 > admits) is unreachable — the monomorphized `<T>Envelope` payload has no builder, so nothing can
 > construct one.
-## M-T6.58 — `handle` and named `create` are lowered, test-pinned and promised by a diagnostic — but no backend emits an entry point — `blocked(D-HANDLE-REMOVAL)` · **L** · P1 ⚠ verify-first, route to `language-feature-developer`
+## M-T6.58 — `handle` and named `create` are lowered, test-pinned and promised by a diagnostic — but no backend emits an entry point — `partial` (the `handle` gate landed; named `create` + the emitter remain) · **L** · P1 ⚠ verify-first, route to `language-feature-developer`
 
 Found 2026-09-03 by the language-docs audit ([F13](../audits/2026-09-03-language-docs-audit-findings.md), P1) — the only finding in the register that is a *missing feature* rather than a defect. `src/ir/lower/lower-workflow.ts:124-174` fills `WorkflowIR.handlers`/`.creates`, `test/ir/workflow-handle.test.ts` pins the lowering, and `loom.duplicate-handler` (`src/diagnostics/messages.ts:310`) promises that a `route -> Ctx.<handle>` is meaningful — yet no emitter reads `wf.handlers`. A workflow with `handle retry(...)` plus `api { route POST "/fulfil/retry" -> C.retry }` produces no route on node or dotnet, and no routes file at all.
 
@@ -327,6 +327,28 @@ Sources: [language-docs-audit-2026-09-03](../audits/2026-09-03-language-docs-aud
 > face" — three places promise routing works, zero deliver. **Blocked on M-T6.62** (the workflow-`create`
 > miscompile; renumbered from M-T6.60 on 2026-09-10), which must land
 > first: option (a) would be built on a create path that miscompiles on all five.
+
+> **Option (b)'s `handle` half LANDED 2026-09-13 — M-T5.34 (#2864 D5, fleet decision D-1(c)).**
+> `handle name(…) { … }` is now refused by `loom.workflow-handle-unsupported`, and the three
+> places that promised routing works have been cut to zero: `docs/workflow.md`'s members table
+> and `docs/language-reference/13-workflows.md` §"create / handle" now say it is refused rather
+> than selling it as the multi-command saga surface, and `loom.duplicate-handler`'s message no
+> longer implies a `route -> Ctx.<handle>` is meaningful. `examples/showcase.ddd` gave up its
+> `handle reset()` (the showcase's contract is "validates with zero errors"), which is why
+> `HandleDecl` now sits in the showcase ALLOWLIST and the clause census's `UNAUTHORED_CLAUSES`
+> — both entries name this mission as their drain condition.
+>
+> **What is still open here, unchanged:** (1) the **named `create`** half — still dropped by
+> `lowerWorkflow` picking one primary, and deliberately NOT gated by M-T5.34 (a named
+> *event*-triggered create IS dispatcher-routed and works; only the named *command* form is
+> silent, so one gate would have been wrong for half the shapes); (2) the **addressing**
+> question this note already identified as the packet's real content — `HandleDecl` has no `by`
+> clause and `HandleIR` carries no correlation, so nothing says which saga instance a handler
+> runs against. M-T5.34 deliberately did not answer it: the ruling was that the SILENCE is the
+> bug, and the emitter is a feature decision taken with user sign-off. The mission is no longer
+> `blocked` on D-HANDLE-REMOVAL for the gate half — that decision is made — but the emitter half
+> still routes through `language-feature-developer`.
+
 ## M-T6.59 — Phoenix cannot render the `if` statement: an assigning branch would compile and do nothing — `partial` (statement lands; three sub-shapes stay gated) · **M** · P2
 
 Raised 2026-09-03 by the M-FT.11 field-test slice, which added the `if <cond> { … } else { … }` statement to operation bodies. It renders on node / dotnet / java / python through the shared `_stmt/target.ts` spine; elixir is refused up front by `loom.elixir-if-stmt-unsupported` (`src/ir/validate/checks/if-stmt-checks.ts`) rather than half-rendered.

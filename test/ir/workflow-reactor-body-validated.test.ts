@@ -54,6 +54,11 @@ function model(body: string): string {
   channel Feed { carries: PostPublished }
   workflow FanOut {
     postId: Post id
+    // A starter is REQUIRED: a reactor-only workflow never has an instance to
+    // route to, so every inbound event logs event_unrouted and returns
+    // (refused by loom.reactor-without-starter, M-T5.34 / audit #2864 G2).
+    // This command create names the correlation field, so it is addressable.
+    create(postId: Post id) { }
 ${body}
   }
 } } api A from C storage pg { type: postgres }

@@ -4,6 +4,7 @@ import { validateApplicationHandlers, validateRoutes } from "./checks/api-checks
 import { validateStampReadsBeforeFlush } from "./checks/capability-checks.js";
 import type { LoomDiagnostic } from "./checks/diagnostic.js";
 import { validateDomainServices } from "./checks/domain-service-checks.js";
+import { validateEntityPartParams } from "./checks/entity-part-param-checks.js";
 import { validateIfStatementPlacement } from "./checks/if-stmt-checks.js";
 import { validateIndexSuggestions } from "./checks/index-suggestion-checks.js";
 import {
@@ -256,6 +257,7 @@ export function validateLoomModel(loom: EnrichedLoomModel): LoomDiagnostic[] {
     validateRetrievals(c, diags);
     validateRawSeedColumns(c, diags);
     validateFindNameCollisions(c, diags);
+    validateEntityPartParams(c, diags);
     validateAggregateTestBodies(c, diags);
     validateContextIntegrationTests(c, diags);
     // The cross-context-repository gate needs the sibling contexts, so this
