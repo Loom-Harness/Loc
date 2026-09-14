@@ -110,6 +110,47 @@ The validator rejects a `kind` on an incompatible sourceType
 are modelled internally as capabilities under a `database` infra-kind; that
 reframe stays inside the registry — the surface keeps the fine-grained names.
 
+### Recognised, but bound to no kind yet
+
+Five sourceTypes are **accepted by `storage { type: … }` and bound by nothing**:
+
+| sourceType | intended role | status |
+|---|---|---|
+| `elastic` | search index | **not implemented** — no `kind:` accepts it |
+| `meilisearch` | search index | **not implemented** — no `kind:` accepts it |
+| `clickhouse` | analytics store | **not implemented** — no `kind:` accepts it |
+| `bigquery` | analytics store | **not implemented** — no `kind:` accepts it |
+| `nats` | message queue | **not implemented** — `kind: queue` takes `rabbitmq` only |
+
+There is no search `kind` and no analytics `kind` in the table above, and
+`queue` admits `rabbitmq` alone — so every one of the nine kinds refuses a
+storage of these five types. The `storage` declaration parses, and the error
+arrives at the `resource` that tries to use it:
+
+```console
+$ cat searchstore.ddd
+… storage searchIdx { type: meilisearch }
+  resource r { for: C, kind: cache, use: searchIdx } …
+
+$ ddd parse searchstore.ddd
+searchstore.ddd:<line>:<col> error: resource 'r' kind 'cache' is incompatible with
+storage 'searchIdx' of type 'meilisearch'.  kind 'cache' requires a storage of
+type inMemory or redis.
+1 error(s), 0 warning(s).
+```
+
+…and the same for the other eight kinds, each naming the types it *does*
+accept.
+
+A `storage` of one of these types therefore reaches nothing: **no dev-compose
+sidecar, no client emission, no capability**. Four of them are name-only
+registry entries (`src/util/source-types.ts`,
+`registerSourceType({ name, supports: {} })`) and `nats` is only a grammar
+literal (`StorageType` in `ddd.langium`) with no registry entry at all — held
+for the day the matching kind ships. Treat all five as reserved words, not as
+features. The [out-of-tree plugin seam](#custom-source-types-out-of-tree) is the
+supported way to bind a sourceType to a kind today.
+
 ### Manual indexes — `index: [...]`
 
 A `state`/`replica` resource may declare **manual performance indexes** — pure
