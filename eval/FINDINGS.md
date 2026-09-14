@@ -1583,3 +1583,10 @@ Impact on adoption: zero technically; non-zero in a legal review, where "the art
 grant" and "the grant is in a FAQ on a website" are different facts. Easy fix; worth fixing because
 the underlying licensing posture (FSL-1.1 generator / MIT output) is actually one of Loom's better
 answers to a buyer and deserves not to be muddied.
+
+> **CORRECTION / CONFIRMATION (2026-09-14).**  `main` landed its own fix for this while the branch
+> carried mine, and the two collided on merge.  Main's wording is a strict superset — it separates
+> the *grant* (generator licence terms + licence-FAQ §2, covering every file either verb writes)
+> from the *`LICENSE` file* (`ddd new` scaffolds one, `ddd generate` deliberately does not, and the
+> grant does not depend on it) — so I took main's side whole and dropped mine.  The finding stands
+> as reported; it is simply no longer mine to fix.
