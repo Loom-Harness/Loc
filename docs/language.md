@@ -56,10 +56,16 @@ plus the system-level heads — `system`, `subdomain`, `deployable`,
 `auth`, `policy`, `projection`, `workflow`, `capability`, `seed`,
 `criterion`, `domainService`, `commandHandler`, `queryHandler`, `channel`,
 `channelSource`, `timerSource`, `requirement`, `solution`, `testCase`,
-`layout`, `import`).  None of these can name a **field**; a handful
-(`api`, `ui`, `component`, `policy`, `id`, `contains`, `permissions`,
-`create`, `destroy`) are nonetheless admitted as parameter / argument
-names or bare expression refs by the per-rule extras described next.
+`layout`, `import`).  None of these can name a **field**, and none can name
+a **declaration** either — `command File { … }` is a parse error for the same
+reason `File: string` is.  Both now say so: a keyword in a name
+position reports `'File' is a Loom keyword, so it cannot be used as a name
+here`, rather than Chevrotain's `Expecting token of type 'ID'` (audit #2864).
+The wording says "here" because most of Loom's keywords are soft — `page` is a
+field name but not a `derived` name — so the bar is positional, not global.
+A handful (`api`, `ui`, `component`, `policy`, `id`, `contains`,
+`permissions`, `create`, `destroy`) are nonetheless admitted as parameter /
+argument names or bare expression refs by the per-rule extras described next.
 
 Everything else that acts as a keyword *somewhere* is a **soft keyword** —
 reserved only where its own rule begins, and admitted as an ordinary
@@ -67,8 +73,8 @@ identifier elsewhere.  The grammar factors the shared set into one rule,
 `CommonSoftKeywords` (`state`, `kind`, `payload`, `command`, `query`,
 `response`, `error`, `paged`, `envelope`, `option`, `or`, `money`,
 `parent`, `title`, `body`, `sort`, `select`, `join`, `key`, `group`, `filter`,
-`stamp`, `store`, `schema`, `ttl`, `use`, `write`, `migration`, `tenancy`,
-`immutable` / `managed` / `token` / `internal` / `secret`, …), composed
+`stamp`, `store`, `schema`, `slot`, `ttl`, `use`, `write`, `migration`,
+`tenancy`, `immutable` / `managed` / `token` / `internal` / `secret`, …), composed
 into every *value* position: a field name (`Property.name`), a parameter /
 argument / clause name (`LooseName`), a bare reference in an expression
 (`NameRefIdent`), an assignment target (`LValueIdent`) and a member name
@@ -82,7 +88,9 @@ route: string }` is a parse error).  `of`, `allow`, `deny`, `local`, `deep`,
 `global`, `policy` and `persistence` were soft only as parameter / clause
 names until
 audit finding D4; they are now in the shared set, so `aggregate Claim { policy:
-Policy id }` parses.  The source of truth is the rule set in
+Policy id }` parses.  `slot` joined them for #2864: its only hard position is
+the `component` element-param type, exactly the shape `money` and `action`
+already had, so `valueobject Berth { slot: int }` parses now.  The source of truth is the rule set in
 `src/language/ddd.langium`, pinned by
 `test/language/parsing/keyword-identifier-completeness.test.ts` and
 `test/language/parsing/reserved-field-name-widening.test.ts`.
@@ -436,7 +444,7 @@ Inside an aggregate or an `entity` part:
 | `[private] operation name(params) [extern] [audited] [: ReturnType] [requires Expr] [when Expr] { … }` | Mutating method (root only). `private` = callable only from within the same aggregate root (no route). `audited` records an `audit_records` row per call. `: A or B` declares an exception-less outcome returned via `return` (an `error` variant maps to a ProblemDetails status — [`payloads.md`](payloads.md)). `requires` is the authorization gate (403; [`auth.md`](auth.md)). |
 | `operation name(params) extern { precondition … }` | Public op whose business decision lives in user code; body must contain only `precondition` statements. See [`extern.md`](extern.md). |
 | `operation name(params) when <pred> { … }` | **canCommand state gate** ([`criterion.md`](criterion.md), use site 2): `<pred>` is a pure bool predicate over the aggregate's own state — referencing an operation parameter is an error (move argument-aware checks into a `precondition`); evaluated against the loaded instance before the body. False → 409 "Disallowed" ProblemDetails; a side-effect-free `GET /{id}/can_<op>` companion returns `{ allowed }` for UI enablement (so `when` on a `private` operation is rejected — nothing could read it). Named criteria / aggregate functions inline like any bool position. Supported on all five backends. Distinct from `requires` (auth, 403) and `precondition` (domain validity, 422). |
-| `create [name](params) [audited] { … }` | Lifecycle factory — the body populates a fresh `this`; the unnamed form is the aggregate's canonical creator (the `POST /<plural>` route takes its params). See [`language-reference/06-behavior-and-statements.md`](language-reference/06-behavior-and-statements.md). |
+| `create [name](params) [audited] { … }` | Lifecycle factory — the unnamed form is the aggregate's canonical creator (the `POST /<plural>` route takes its params).  **On a state-based aggregate (the default) the body is INERT** — every `precondition`, `emit` and assignment in it is dropped and raises `loom.lifecycle-body-dropped`, so the aggregate cannot guard its own construction or raise a creation event; put that logic in a `workflow` or an `operation`.  The body runs only on a `persistedAs: eventLog` aggregate, where the `create` emits the creation event and the applier folds it.  Closing the gap is M-T3.16.  See [`language-reference/06-behavior-and-statements.md`](language-reference/06-behavior-and-statements.md). |
 | `destroy [name][(params)] [audited] { … }` | Lifecycle terminator — loaded by id, the body runs (a throw aborts removal), then the framework removes the row; the unnamed `destroy { }` is the canonical `DELETE`. |
 | `apply(e: <Event>) { … }` | **Event-sourcing fold** (only on a `persistedAs: eventLog` aggregate).  Folds one emitted event type into state — a pure transition: assignments / collection mutations / `let` only, no `emit`, no side-effecting calls, no guards (`loom.applier-impure`).  One `apply` per event type.  See the event-sourcing note below. |
 | `filter …` / `stamp …` / `implements Cap` | Aggregate-level capability contributions — a read-side query filter, a write-side stamp, a typed capability application.  See [`capabilities.md`](capabilities.md). |
@@ -1227,6 +1235,28 @@ The projection verbs read a folded `projection`'s read model (see
 [`projection.md`](old/proposals/projection.md)), so a `test e2e` can
 assert the state an operation's events fold into (drive an operation,
 then `byKey` the row and `expect` its columns).
+
+**Every verb must resolve to a route this same compilation emits.**  The
+table above is what a verb *lowers to*, not a promise that the route is
+there: `POST /<plural>` appears only when the aggregate declares a
+canonical `create` (by hand or via `with crudish`), `DELETE /{id}` only
+when it declares an unnamed `destroy`, `GET /<plural>/{id}/history` only
+when it is `auditable`, and a find route only for a *declared* find (a
+compiler-synthesized retrieval has none).  Calling a verb whose route the
+model does not emit is `loom.e2e-unrouted-verb` — a phase-⑦ error naming
+the aggregate, the verb and the fix.  The check resolves each verb against
+`deriveAggregateOperations`, the same derivation every backend's route
+builder renders from, so it cannot drift from what the backends mount.
+Before it existed, `api.products.create({…})` on an aggregate with no
+`create` compiled with **0 errors** and shipped a suite that answered
+`405 Method Not Allowed` against the very backend the same run generated.
+
+On the `ui` side the harness drives page objects rather than routes, and
+addresses exactly three shapes — the New-page `create` flow (present only
+when the aggregate has a create surface, the same gate that drops the
+scaffolded `New` page), the Detail-page `getById`, and a public
+`operation`'s detail-page action.  A `ui.<agg>.<find>(…)` has no page
+object and raises the same code.
 
 An e2e body speaks **wire, not domain**: it sends JSON and reads JSON
 back, and it resolves no context-scoped names (one body may drive several

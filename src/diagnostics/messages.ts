@@ -1222,6 +1222,12 @@ export const DIAGNOSTIC_MESSAGES = {
     `domainService '${p.name}': every operation takes a single aggregate parameter — consider declaring the behaviour as an 'operation' on that aggregate instead of a domain service.`,
 
   // ----------------------------------------------------------------------
+  // src/ir/validate/checks/repo-access-checks.ts
+  // ----------------------------------------------------------------------
+  "loom.repository-access-outside-workflow": (p: { where: unknown; repoName: unknown }) =>
+    `${p.where} names repository '${p.repoName}', but a domain member body has no repository in scope — only a workflow (or a command/query handler, or a 'domainService' reading its own context) can load another aggregate. Every backend renders the unresolved name verbatim into a class that never binds it, so the generated project does not compile (node TS2304, .NET CS0103, Java "cannot find symbol", Python NameError, Phoenix an unbound variable). Move the read into a workflow — 'let x = ${p.repoName}.getById(…)' — and pass the value this member needs in as a parameter.`,
+
+  // ----------------------------------------------------------------------
   // src/ir/validate/checks/index-suggestion-checks.ts
   // ----------------------------------------------------------------------
   "loom.index-suggestion": (p: { name: unknown; fName: unknown; where: unknown }) =>
@@ -3259,6 +3265,40 @@ export const DIAGNOSTIC_MESSAGES = {
     `Available aggregates: ${p.known}.`,
 
   // ----------------------------------------------------------------------
+  // src/ir/validate/checks/e2e-route-checks.ts
+  // ----------------------------------------------------------------------
+  "loom.e2e-unrouted-verb#create": (p: { magicId: unknown; slug: unknown; aggregate: unknown }) =>
+    `e2e: '${p.magicId}.${p.slug}.create(…)' has no route — '${p.aggregate}' declares no create ` +
+    `action, so no backend mounts 'POST /api/${p.slug}' and the generated suite would call a ` +
+    `route this same compilation did not emit (405). Add 'with crudish' to '${p.aggregate}', ` +
+    `or give it an explicit 'create(...) { … }'.`,
+  "loom.e2e-unrouted-verb#destroy": (p: { slug: unknown; aggregate: unknown }) =>
+    `e2e: 'api.${p.slug}.destroy(…)' has no route — '${p.aggregate}' declares no canonical ` +
+    `'destroy { }', so no backend mounts 'DELETE /api/${p.slug}/{id}'. Add 'with crudish' to ` +
+    `'${p.aggregate}', or give it an unnamed 'destroy { … }' (a NAMED destroy is a domain ` +
+    `command and gets no DELETE route).`,
+  "loom.e2e-unrouted-verb#history": (p: { slug: unknown; aggregate: unknown }) =>
+    `e2e: 'api.${p.slug}.history(…)' has no route — '${p.aggregate}' is not audited, so no ` +
+    `backend mounts 'GET /api/${p.slug}/{id}/history'. Add 'with auditable' to '${p.aggregate}'.`,
+  "loom.e2e-unrouted-verb#find": (p: { slug: unknown; verb: unknown; aggregate: unknown }) =>
+    `e2e: 'api.${p.slug}.${p.verb}(…)' has no route — the find '${p.verb}' on '${p.aggregate}' is ` +
+    `compiler-synthesized (an internal retrieval materialised behind a criterion read), and the ` +
+    `api surface mounts only DECLARED finds. Declare 'find ${p.verb}(...)' on the repository to ` +
+    `give it a 'GET /api/${p.slug}/${p.verb}' route.`,
+  "loom.e2e-unrouted-verb#verb": (p: {
+    slug: unknown;
+    verb: unknown;
+    aggregate: unknown;
+    routed: unknown;
+  }) =>
+    `e2e: 'api.${p.slug}.${p.verb}(…)' resolves to no route this model emits for ` +
+    `'${p.aggregate}'. Routed verbs: ${p.routed}.`,
+  "loom.e2e-unrouted-verb#ui-verb": (p: { slug: unknown; verb: unknown; known: unknown }) =>
+    `ui e2e: 'ui.${p.slug}.${p.verb}(…)' drives no page object — the Playwright harness ` +
+    `addresses the New-page create flow, the Detail-page read, and a public operation's ` +
+    `detail-page action. Addressable: ${p.known}.`,
+
+  // ----------------------------------------------------------------------
   // src/ir/validate/checks/timer-checks.ts
   // ----------------------------------------------------------------------
   "loom.timer-event-shape#not-infrastructure-only": (p: {
@@ -3390,6 +3430,17 @@ export const DIAGNOSTIC_MESSAGES = {
     `Multi-command sagas via 'handle' are deferred, not shipped.`,
   "loom.workflow-unknown-name": (p: { name: unknown; kind: unknown; exprName: unknown }) =>
     `workflow '${p.name}': ${p.kind} references unknown name '${p.exprName}'.`,
+  "loom.workflow-inline-repository-call": (p: {
+    where: unknown;
+    repoName: unknown;
+    call: unknown;
+    binding: unknown;
+  }) =>
+    `${p.where} reaches repository '${p.repoName}' INLINE, inside an expression. A workflow ` +
+    `wires up a repository only for a read bound to its own 'let' statement, so an inline read ` +
+    `is dropped from codegen: no repository is ever instantiated, and every backend renders ` +
+    `'${p.repoName}' as a bare name nothing binds. Bind the read first, then reference the ` +
+    `binding: 'let ${p.binding} = ${p.call}'.`,
   "loom.workflow-emit-unknown-event": (p: { name: unknown; eventName: unknown }) =>
     `workflow '${p.name}': emit refers to unknown event '${p.eventName}'.`,
   "loom.workflow-emit-missing-field": (p: { name: unknown; evName: unknown; f: unknown }) =>
@@ -3411,6 +3462,13 @@ export const DIAGNOSTIC_MESSAGES = {
     `workflow '${p.name}': '${p.aggName}.create(...)' has unknown field '${p.p}'.`,
   "loom.workflow-unknown-repository": (p: { name: unknown; repoName: unknown; method: unknown }) =>
     `workflow '${p.name}': '${p.repoName}.${p.method}(...)' references unknown repository '${p.repoName}'.`,
+  "loom.workflow-cross-context-repository": (p: {
+    where: unknown;
+    repoName: unknown;
+    ownContext: unknown;
+    otherContext: unknown;
+  }) =>
+    `${p.where}: repository '${p.repoName}' is declared in context '${p.otherContext}', not in this workflow's own context '${p.ownContext}' — a workflow orchestrates the aggregates of ONE context, so it may only load through its own repositories. No backend can emit this read: the repository is never constructed and the call is never awaited, so the generated code references a name that does not exist. Cross-context data crosses at the context's PUBLIC surface instead: fetch it through '${p.otherContext}''s api (a 'resource { kind: api }' binding gives a typed in-system call), or read a local projection folded over '${p.otherContext}''s published events (via a channel), and pass the value in as a parameter. If the two aggregates really do change together in one transaction, they belong in the SAME context — move one across, or move this workflow into '${p.otherContext}'.`,
   "loom.workflow-unknown-repository-method": (p: {
     name: unknown;
     repoName: unknown;
@@ -3688,6 +3746,22 @@ export const DIAGNOSTIC_MESSAGES = {
     suggestion: unknown;
     candidates: unknown;
   }) => `Unexpected '${p.found}'.${p.suggestion} Expected one of: ${p.candidates}.`,
+  // A keyword sitting where a NAME was expected.  Chevrotain's own wording
+  // ("Expecting token of type 'ID' but found `slot`") describes the token
+  // stream, not the author's mistake — it never says the word is spoken for,
+  // so the reader has no way to tell a typo from a word Loom has taken (audit
+  // #2864 § Papercuts).  Naming the remedy matters as much as naming the
+  // cause: renaming is the whole fix, and it is not obvious one is needed.
+  //
+  // "keyword … here" rather than "reserved word", deliberately.  Most of
+  // Loom's keywords are SOFT — reserved only where their own rule begins — so
+  // a word refused in this position is often perfectly legal as a name three
+  // lines up (`page` is a field name but not a `derived` name).  Claiming it
+  // is reserved outright would send the author looking for a rule that does
+  // not exist.
+  "loom.parse-error#reserved-name": (p: { found: unknown; expected: unknown }) =>
+    `'${p.found}' is a Loom keyword, so it cannot be used as a ${p.expected} here. ` +
+    `Rename it — '${p.found}Ref' or a domain-specific synonym.`,
 } satisfies Record<string, MessageEntry>;
 
 type Catalog = typeof DIAGNOSTIC_MESSAGES;
