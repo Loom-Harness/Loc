@@ -334,18 +334,15 @@
   },
   {
    "id": "sourcemap-feliz-flutter-not-emitted",
-   "title": "`--sourcemap` records NOTHING for the feliz and flutter frontends — the plan files it as a test-parity skew, but the emission is absent",
+   "title": "FLUTTER HALF ONLY (the feliz half landed in wave C2 packet 2i). `--sourcemap` still records NOTHING for the flutter frontend — the plan filed it as a test-parity skew, but the emission is absent",
    "kind": "silent",
    "class": null,
    "confidence": "likely",
    "targets": [
-    "feliz",
     "flutter"
    ],
    "fileTrees": [
-    "src/platform/feliz.ts",
     "src/platform/flutter.ts",
-    "src/generator/feliz/",
     "src/generator/flutter/",
     "src/generator/_trace/"
    ],
@@ -353,13 +350,13 @@
     {
      "fleet": 1,
      "id": "sourcemap-feliz-flutter-not-emitted",
-     "text": "docs/new-plan/testing-quality-improvement-plan.md:96 files it as a unit-test parity item ('`sourcemap`: react/vue/svelte/angular covered; feliz + flutter uncovered'). It is an EMISSION gap: `grep -rln SourceMapRecorder src/generator/{react,vue,svelte,angular,feliz,flutter}` returns only react (index.ts, pages-emitter.ts), vue/index.ts and angular/index.ts — feliz/ and flutter/ have zero hits. The surface confirms it one level up: src/platform/feliz.ts:29 and src/platform/flutter.ts:37 declare `emitProject({ contexts, sys, deployable })` — they do not even destructure `sourcemap`, while src/platform/react.ts:22, vue.ts:38, svelte.ts:34 and angular.ts:37 all take and forward it. Silent: no `loom.*` code, and docs/debugging.md:36 advertises `.loom/sourcemap.json` as 'the generic, cross-target map' with no per-frontend caveat (its per-target table covers backends only). Net: `ddd generate system --sourcemap` on a feliz/flutter ui yields a map with no records for those pages, so `ddd breakpoints` resolves nothing and `ddd trace` cannot map a frame back."
+     "text": "`src/platform/flutter.ts` `emitProject({ contexts, sys, deployable })` still does not destructure `sourcemap`, and `grep -rln SourceMapRecorder src/generator/flutter` is empty — so `ddd generate system --sourcemap` on a flutter ui yields a map with no records for those pages, `ddd breakpoints` resolves nothing and `ddd trace` cannot map a frame back. The FELIZ half is closed: `src/platform/feliz.ts` forwards the recorder, `GenerateFelizOptions` carries it, and each page's view function is recorded as a `fragment()` REGION of the single `web/src/App.fs` (Feliz is not file-per-page), with `pageConstructId` ids matching react/vue/svelte/angular. `docs/debugging.md`'s per-target table now carries a row for each of the two self-hosting frontends rather than covering backends only."
     }
    ],
    "repro": null,
    "impact": null,
-   "fix": "Two acceptable landings, pick one and say so in docs. HONEST (S): make src/platform/feliz.ts / flutter.ts raise a registered `loom.sourcemap-target-unsupported` gap when `--sourcemap` is passed for those frameworks, and add the row to src/diagnostics/unsupported-register.ts + a caveat in docs/debugging.md. REAL (M): thread `sourcemap` through both `emitProject` signatures and call `recorder.record(...)` at the page/component emit sites in src/generator/feliz/ and src/generator/flutter/, mirroring src/generator/react/pages-emitter.ts; then add the feliz/flutter rows to whatever sourcemap emission test covers react/vue/svelte/angular. Either way delete the stale 'test-parity' framing at testing-quality-improvement-plan.md:96.",
-   "size": "M",
+   "fix": "The REAL landing, mirroring the feliz one: destructure `sourcemap` in `src/platform/flutter.ts`'s `emitProject`, thread it into the flutter generator's options, and record each page at its emit site. Flutter IS file-per-page (unlike Feliz), so `recorder.file(path, content, page.origin, pageConstructId(ui.name, page))` is the right call — the same shape `react/pages-emitter.ts` uses. Then add the flutter twin of `test/generator/feliz/sourcemap.test.ts` and flip the `docs/debugging.md` row.",
+   "size": "S",
    "sources": [
     "fleet1:coverage-t9"
    ],
@@ -380,13 +377,12 @@
     ]
    },
    "reverified": {
-    "date": "2026-09-10",
-    "against": "bc7ed8f8",
-    "method": "reconciliation 3 (packet C0.5) — repro re-run on this head, emitted output read",
-    "verdict": "reproduces",
-    "note": "RE-RUN `generate system … --sourcemap` on one `.ddd` across react / feliz / flutter and read `.loom/sourcemap.json`'s `files` map: react carries `web/src/pages/home.tsx` (4 files, 1 frontend); feliz and flutter carry 3 files each, ALL backend — zero `web/` entries.  No `loom.sourcemap-target-unsupported` exists, so neither the emission nor the honest gate landed.",
+    "date": "2026-09-14",
+    "against": "wave C2 packet 2i",
+    "method": "the feliz half BUILT and mutation-proved; the flutter half re-derived at the code path",
+    "verdict": "reproduces (flutter half only)",
+    "note": "`generate system --sourcemap` on a scaffolded feliz ui now yields three `web/src/App.fs` regions (`WebApp.widgets.List` / `.Detail` / `WebApp.Home`, macro origins) and `ddd breakpoints <file.ddd> --line <page line>` answers `web/src/App.fs:<n>`; the flutter arm is unchanged.",
     "remainingTargets": [
-     "feliz",
      "flutter"
     ]
    }
