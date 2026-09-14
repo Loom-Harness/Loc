@@ -181,7 +181,15 @@ describe("live docs never link to a missing archived doc", () => {
     // (`src/cli/new-templates.ts`) and the playground's crash-report target, so
     // a docs-only sweep would call this clean while every NEW user project
     // shipped the dead link.
-    const roots = ["README.md", "docs", "src", "web/src", ".github"];
+    //
+    // `web/e2e` is in the list because leaving it out cost a CI cycle.  The
+    // first version of this sweep covered the SOURCES of the org name but not
+    // the specs that PIN it, so `crash-reporting.spec.ts` and
+    // `problems-and-help.spec.ts` went on asserting the dead org — a golden
+    // frozen on the defect, which is how the playground leg went red on a
+    // branch whose whole point was removing that host.  A gate that watches
+    // only one side of an assertion is half a gate.
+    const roots = ["README.md", "docs", "src", "web/src", "web/e2e", ".github"];
     const walk = (p: string): string[] => {
       const abs = path.join(repoRoot, p);
       if (!fs.existsSync(abs)) return [];
