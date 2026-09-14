@@ -128,14 +128,15 @@ Rows skipped because an open PR covers them: **none** — no open PR claims any 
 | gate | result |
 |---|---|
 | `npx tsc -b` | clean |
-| `node scripts/test-typecheck.mjs` | see below |
+| `node docs/build.mjs` (the `pages` gate) | exit 0 |
+| `node scripts/test-typecheck.mjs` | exit 0 — 181 files, 469 errors, `src/` clean (baseline unmoved) |
 | `npm run lint` (`biome ci .`) | 0 errors, 26 warnings (all pre-existing) |
 | `node scripts/mission-counts.mjs --check` | exit 0 |
 | `node scripts/ledger-counts.mjs --check` | exit 0 |
 | `npx vitest run test/generator/angular` | 34 files / 235 tests green |
 | `npx vitest run test/platform/pack-render-reachability.test.ts` | 12 green (mutation-proved) |
 | `generated-angular-build`: `showcase × angularMaterial@v1`, `showcase × spartanNg@v1` | `ng build` green (node 24 in docker — the host node is 22.22.2, below the Angular CLI floor of 22.22.3, so **every** cell of this leg fails locally on the host; see the note below) |
-| `npm test` (full fast suite) | see below |
+| `npm test` (full fast suite) | **2147 files / 25286 tests — 4 failed, all `test/platform/packaging-split-*`**: the worktree-only reds batch 1 recorded. A git worktree has no `node_modules/@loom` workspace symlinks (`ls node_modules/@loom` → no such directory here; four entries in the main checkout), so `discoverBackendsFs` finds nothing. Both files read only `src/platform/fs-discovery.ts` and those symlinks, neither of which is in this packet's diff. Batch 1 counted three; the fourth is `packaging-split-core-pkg.test.ts`'s single case, same cause. |
 
 **Environment note for whoever runs this leg locally.** The host node is **22.22.2** and the Angular CLI's floor is **22.22.3 / 24.15 / 26**, so `npx ng build` refuses before compiling anything and *every* cell of `generated-angular-build` and of the Angular `generated-a11y` cell fails identically, with a message that reads nothing like a code defect. The harness already re-throws with the node version for exactly this reason. The workaround used here: let the vitest harness generate + `npm install` (which works on 22.22.2), then run the build in a container —
 
