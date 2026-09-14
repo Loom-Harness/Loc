@@ -41,7 +41,6 @@ system Shop {
         operation place() { code := "x" }
       }
       repository Orders for Order { }
-      workflow placeAll() { }
     }
   }
   api SalesApi from Sales

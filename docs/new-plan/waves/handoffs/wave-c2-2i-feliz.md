@@ -12,7 +12,7 @@
 | M-T1.16 rule-specific validation messages via `invariant-classify` | **BUILT** — the mission's one named follow-up; ledger row narrowed to the flutter half |
 | `feliz-async-effect-unsupported` (F66 classifier promotion) | **BUILT** — the subject half promoted to a target-agnostic `loom.async-effect-subject-unsupported`; the Feliz row keeps only the component host |
 | the 10 deferred component shapes | **MEASURED, NOT BUILT** — see below |
-| M-T3.9 scaffolded History section | **MEASURED, NOT BUILT** — see below |
+| M-T3.9 scaffolded History section | **PREMISE STALE — already shipped on feliz; the mission text corrected** (and for flutter + HEEx too, both verified by generating) |
 
 Two ledger rows outside the row list were closed on the way, both inside the fence:
 `feliz-persist-codec-stale-code-name` (P5 stale prose) and a **new silent-codegen defect**
@@ -118,13 +118,21 @@ guessing) instead of the `file()` call the four JS frontends use. `renderAppFs` 
 cannot recover the per-page slices from the finished string.
 
 ```
-$ ddd generate system app.ddd -o out --sourcemap
+# a `ui … with scaffold(…)` app — the `.loom/sourcemap.json` `files` entry:
+$ ddd generate system scaffold.ddd -o out --sourcemap
 web/src/App.fs: [235,255] WebApp.widgets.List   (macro)
                 [256,276] WebApp.widgets.Detail (macro)
                 [277,291] WebApp.Home           (macro)
-$ ddd breakpoints app.ddd --line 22
+
+# a hand-written three-page app — the reverse direction now resolves too
+# (line 22 is the gated `TicketList` page's `body:`):
+$ ddd breakpoints nav.ddd --line 22
 web/src/App.fs:163
 ```
+
+Each recorded range was checked against the emitted file by eye as well as by the test —
+`App.fs:156` is `let homeView (model: Model) …` and `:163` is `let ticketListView …`, so the
+ranges are the view functions themselves, not the whole module.
 
 `test/generator/feliz/sourcemap.test.ts` asserts the BOUNDARY of each region (first line is
 the page's own `let <page>View`, the line after the region is not indented, regions are
@@ -196,8 +204,9 @@ Each frontend failed differently and none of them honestly: the four JS walkers 
 guaranteed unhandled rejection, `heex-walker-core`'s `renderVariantMatchStmt` **throws at
 codegen**, and only feliz/flutter said so — behind `if (dep.platform !== "feliz") continue`.
 
-New **`loom.async-effect-subject-unsupported`** (`store-checks.ts:520`) runs for every
-deployable that mounts a ui, over page AND component actions, using the same
+New **`loom.async-effect-subject-unsupported`** (`store-checks.ts:527`) runs for every
+MOUNTED UI (the set, not deployable × ui — two deployables can serve the same bundle, and
+the answer is a property of the ui), over page AND component actions, using the same
 `classifyFelizAsyncEffect` — this is the promotion the audit named, not a new analysis. The
 Feliz row narrows to its one genuinely Feliz-specific case (the COMPONENT host, whose trigger
 id comes from the host page's route `:id`), and fires only when the subject is otherwise
@@ -220,10 +229,34 @@ the seven frontend emitters).
 
 `test/ir/async-effect-subject.test.ts` asserts the same answer on `static` / `feliz` /
 `flutter`, and that the Feliz code survives for a component host with a GOOD subject.
+**Mutation proof:** making the gate's `if (cls.supported) return;` unconditional fails 6 of
+its 10 cases, first `static: expected [] to include 'loom.async-effect-subject-unsupported'`.
 
-## Rows measured but NOT built
+**Process note, recorded because it is the failure shape CLAUDE.md warns about.** That test
+file was written and COMMITTED before it was ever run — its fixture carried a
+`workflow placeAll() { }`, which is not the grammar (`10:24 Expecting token of type '{' but
+found '('`), so all ten cases threw in the helper rather than asserting anything. The full
+`npm test` is what surfaced it; the targeted runs I had done covered the OTHER four rows.
+A green targeted run is not evidence for a file you never executed.
 
-### the 10 deferred component shapes (`loom.user-component-deferred-target`, feliz arms)
+**Two things fixed on the way, both worth carrying forward:**
+
+- `store-checks.ts`'s `forEachStmt` was a FLAT loop whose own comment said "the store-action
+  body set in v1 is flat (no nested handler lambdas), so a shallow walk over the top-level
+  statements suffices". That is exactly the drift CLAUDE.md's *"No hand-rolled IR walks"*
+  rule exists to prevent: a `match await` nested inside a `match` arm was invisible to EVERY
+  gate in the file — the new one, both Feliz arms, the Flutter arm and the store-action
+  checks above them. It now rides `walk.ts`'s exhaustively `never`-checked `walkStmtsDeep`.
+  **This is a reach change, not a behaviour change by intent** — the full suite is the
+  measurement that no fixture was relying on the shallow walk.
+- The new code declares **no `where` param**. `diagnostic-message-hygiene.test.ts` carries a
+  44-entry `DEAD_PARAM_DEBT` waiver for builders that declare `where` and never read it (the
+  `where`-lead cleanup stripped it from the TEXT only); adding a 45th would have been free
+  and wrong. The location still reaches the user as `source`.
+
+## The 10 deferred component shapes — measured, not built
+
+*(`loom.user-component-deferred-target`, the feliz arms)*
 
 `src/ir/validate/checks/ui-component-deferral-checks.ts` `felizDeferrals` reports **nine**
 distinct shapes (the "10" in the plan counts the two `paramDeferrals` arms separately per
@@ -256,9 +289,10 @@ page's Model scope). The honest slicing is:
   stop being page-only. That is the same slice the `M-T1.20-feliz-match-await` ledger row's
   fix (a) names for the component-hosted `match await`, and it should be done once for both.
 - **M, separate: #8.** A component reading a store needs the namespaced Model field in
-  scope, which means the component function taking `model` — the same currying
-  `F2-FFE-4` (a component invoked from ANOTHER component's body is emitted without the
-  `model`/`dispatch` currying) already describes. Do them together.
+  scope, which means the component function taking `model` — the same currying ledger row
+  **`F2-FFE-4`** (a component invoked from ANOTHER component's body is emitted without the
+  `model`/`dispatch` currying) already describes. That row sits in the ledger's `claimed`
+  bucket, so check who holds it before starting: the two are one change.
 - **#1 and #2 (slot / action params) stay honest gaps** — they need a props channel F#
   anonymous records do not have; the `scope` case for them is real but was not taken here.
 
@@ -267,32 +301,67 @@ with 2h (angular's four arms), so a `scope` re-class or a `MAX_OPEN_GAPS` move o
 coordinator-level decision once both packets report. This packet leaves the row untouched and
 hands the slicing above to whoever takes it.
 
-### M-T3.9 — the scaffolded History section on feliz
+## M-T3.9 — the row was stale; the mission text is now corrected
 
-The mission text already states the shape of the gap: *"the scaffolded section … ships on the
-four JS-family frontends, because Feliz maps non-`byId` reads to `All<Plural>`, Flutter skips
-them in `collectFlutterReads`, and HEEx assigns the list read rather than the trail."*
-Verified on this head: `src/generator/feliz/wire.ts` has an `AUDIT_HISTORY_FIND` import and
-`test/generator/feliz/feliz-audit-history.test.ts` covers the `Timeline` primitive, so the
-PRIMITIVE ships; what does not is the scaffolded section, whose read is a non-`byId`
-`history(id)` find that `readsForUi`'s collector folds onto the plural list field.
+This one is a **verify-first win, not a build**. The mission said: *"the scaffolded section is
+narrower than the primitive: it ships on the four JS-family frontends, because Feliz maps
+non-`byId` reads to `All<Plural>`, Flutter skips them in `collectFlutterReads`, and HEEx
+assigns the list read rather than the trail."* That has not been true for some time.
 
-This is the same collector seam as #9 above (a page-entry read keyed to the hosting page's
-`Page` case), so it should be built with that slice rather than separately. Not started —
-the packet ran out of budget after the five built rows.
+`HISTORY_CAPABLE_FRAMEWORKS` (`src/generator/_walker/history-read.ts:50`) names **all seven**
+frontends, and its own comment states the admission rule that makes the set trustworthy: a
+frontend joins *"by collecting the history read AND implementing `Timeline` — the same day, or
+not at all"*, precisely because *"a target that renders the primitive but binds the wrong read
+is worse than one that renders nothing, because it looks like it works."*
+
+Re-verified the way the register's own rule demands — by GENERATING, not by reading the set.
+One `.ddd` (`aggregate Order audited with crudish`, `ui … with scaffold`), three targets:
+
+- **feliz** — `OrderHistory: Remote<AuditEntry list>` on the Model (**not** `AllOrders`), an
+  `Api.orderHistory` fetch batched into the detail page's `pageCmd`
+  (`| OrderDetail id -> Cmd.batch [ … orderById …; … orderHistory … ]`), and a native
+  `Html.orderedList` Timeline under `data-testid="orders-detail-history"`.
+- **flutter** — `GET /orders/$id/history` in `lib/reads.dart`, the section in
+  `lib/pages/order_detail_page.dart`.
+- **HEEx** — `assign(socket, :order_history, load_order_history(socket, …))` from its OWN
+  loader, and the `orders-detail-history` card in the template.
+
+So the mission's "Remaining: the frontend half" paragraph is replaced with the measurement and
+the three pieces of evidence. **No code changed** — this is a docs correction, and it is the
+kind the wave exists to catch: the row would otherwise have been "built" a second time.
 
 ## Local gates run on the merged tree
 
 | gate | result |
 |---|---|
 | `npx tsc -b` | clean |
-| `node scripts/test-typecheck.mjs` | *(see below)* |
+| `node scripts/test-typecheck.mjs` | clean — the ratchet caught one new error in `test/ir/async-effect-subject.test.ts` (`LoomDiagnostic.code` is `string \| undefined`); fixed in place, baseline NOT raised |
 | `npm run lint` (`biome ci .`) | clean (24 pre-existing warnings, 0 errors) |
 | `node scripts/mission-counts.mjs --check` | up to date |
 | `node scripts/ledger-counts.mjs --check` | `.md` matches the JSON |
 | feliz-build leg: `dotnet fable` | **exit 0** — `Fable compilation finished in 25056ms` |
 | feliz-build leg: `vite build` | **exit 0** — `98 modules transformed`, `dist/assets/index-*.js 243.94 kB` |
-| `npm test` | *(see below)* |
+| `npm test` | `2 failed | 2059 passed | 89 skipped (2150)` files, `4 failed | 24180 passed` tests — the 4 are `packaging-split-*`, see below |
+
+**The only failures are the worktree-structural ones packet 2b already documented.**
+`test/platform/packaging-split-{core-pkg,fs-discovery}.test.ts` (4 cases) cannot pass in ANY
+git worktree: `fs-discovery` walks `node_modules/@loom/*` for workspace symlinks, and a
+worktree has none, so it discovers zero backends
+(`node@v4: expected undefined to be defined`, `expected 0 to be greater than 0`). 2b's
+hand-off records the same `packaging-split-*` family as "cannot pass in ANY git worktree —
+proven by recreating them" (it names three files; two of them fail here — the third,
+`packaging-split-discovery.test.ts`, never reaches the symlink walk). Nothing in this packet
+touches `src/platform/fs-discovery.ts` or the `packages/` manifests.
+
+TWO full runs were needed, and the first one earned its keep twice:
+
+1. `test/system/direct-generate-systems-ratchet.test.ts` refused
+   `test/generator/feliz/sourcemap.test.ts` for importing `generateSystems` straight from
+   `src/` (I had copied the shape from `vue/sourcemap.test.ts`, which predates the ratchet).
+   It now goes through `generateSystemFiles`, so the fixture is asserted valid at phases
+   ①/④/⑦ before anything is read out of it.
+2. It caught `test/ir/async-effect-subject.test.ts` failing to PARSE its own fixture — see
+   the process note under row 5.
 
 The Fable + vite leg ran on a purpose-built showcase carrying **every** emitter change at
 once — the gated navbar under `auth: ui`, a `persist: local` store with
@@ -323,14 +392,21 @@ could plausibly reach the fence (#2927 angular/e2e — no feliz file).
 
 **One real overlap on a SHARED file: [#2896](https://github.com/Loom-Harness/Loc/pull/2896)**
 (M-T5.34, the validator-rulings packet) touches `src/diagnostics/messages.ts`,
-`src/diagnostics/code-docs.ts`, `src/diagnostics/unsupported-register.ts` AND
-`test/system/unsupported-register.test.ts` — the same four files this packet's F66 commit
-edits. The hunks here are deliberately minimal and additive:
-one new `messages.ts` entry (inserted directly above `loom.feliz-async-effect-unsupported`),
-one new `code-docs.ts` line, one new register row + one edited row, and `MAX_OPEN_GAPS`
-24 → 25. If #2896 also moves the pin, **compose** rather than pick — this packet's change is
-`+1` for a row SPLIT (no gap drained, no gap added), so it composes with any other delta as
-an addition.
+`src/diagnostics/code-docs.ts`, `src/diagnostics/unsupported-register.ts`,
+`test/system/unsupported-register.test.ts` AND
+`test/system/diagnostic-firing-census.test.ts` — the same **five** files this packet's F66
+commit edits (its own file list, read on 2026-09-14). The hunks here are deliberately minimal
+and additive: one new `messages.ts` entry (inserted directly above
+`loom.feliz-async-effect-unsupported`), one new `code-docs.ts` line, one new register row +
+one edited row, one new `FIRING_FIXTURES` key, and `MAX_OPEN_GAPS` 24 → 25. All five are
+append-shaped, so a three-way merge should land them side by side. If #2896 also moves the
+pin, **compose** rather than pick — this packet's change is `+1` for a row SPLIT (no gap
+drained, no gap added), so it composes with any other delta as an addition.
+
+One further note for the fold: this packet ALSO edits the
+`loom.store-lifetime-target-unsupported` entry in `diagnostic-firing-census.test.ts` (the
+fixture moved from a `datetime` cell to a `valueobject` cell) — a different key in the same
+map, in an earlier commit.
 
 ## Edits outside `src/generator/feliz/**`
 
@@ -341,15 +417,18 @@ see them at fold:
 - `src/ir/util/feliz-async-effect.ts` — the classifier F66 promotes; comments + the reason
   string de-felized.
 - `src/ir/validate/checks/store-checks.ts` — **the one file that also sits in 2f's
-  `src/ir/**` fence.** Three hunks: the new target-agnostic gate (a new block, inserted
+  `src/ir/**` fence.** Four hunks: the new target-agnostic gate (a new block, inserted
   between the feliz and flutter arms), the feliz arm's condition narrowing to the component
-  host, and a `?? []` guard on `ui.apiParams` (the new loop runs for every ui-mounting
+  host, a `?? []` guard on `ui.apiParams` (the new loop runs for every ui-mounting
   deployable, incl. hosts whose uis carry no api handle — a hand-built test IR crashed
-  without it). None of 2f's named rows touches this file.
+  without it), and `forEachStmt` switched from a flat loop to `walkStmtsDeep`. None of 2f's
+  named rows touches this file. The `walkStmtsDeep` hunk is the only one that changes what
+  the file's OTHER gates see, and it changes it in the direction the census rule wants.
 - `src/platform/feliz.ts` — one line, the `sourcemap` forward.
 - `src/diagnostics/{messages,code-docs,unsupported-register}.ts` — the F66 code's catalog
   text, anchor and rows (see the #2896 overlap above).
-- `docs/debugging.md`, `docs/new-plan/T1-ui-frontend.md`,
+- `docs/debugging.md`, `docs/new-plan/T1-ui-frontend.md` (M-T1.16 + M-T1.20),
+  `docs/new-plan/T3-security-governance.md` (the M-T3.9 correction),
   `docs/new-plan/testing-quality-improvement-plan.md`, the gate ledger JSON + `.md`.
 
 ## Decisions the owner / coordinator still has
