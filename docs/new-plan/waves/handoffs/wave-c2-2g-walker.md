@@ -3,12 +3,14 @@
 Tree fence: `src/generator/_walker/**`, `src/generator/{react,vue,svelte}/**`,
 `src/generator/_frontend/**`, the JSX/Vue/Svelte packs under `designs/**`, plus
 the tests, the corpus fixture the rows needed, the ledger and
-`docs/new-plan/**`. Two files OUTSIDE it were edited and both are named in
-**Outside the fence** below, with why the fix had nowhere else to live.
+`docs/new-plan/**`. Six files OUTSIDE it were edited — three lowering
+modules and three suites in other packets' trees — every one named in §8, with
+why the fix had nowhere else to live.
 
 Base: `118d0a3f7` (the wave C2 batch-2 coordinator commit, merged into this
-worktree before the first change). Commit range **`118d0a3f7..31c0f1f2a`** —
-4 commits.
+worktree before the first change). Commit range **`118d0a3f7..HEAD`** — 6 commits,
+the last five listed below plus this note (its own sha is the branch tip; it
+is not written here so the note never has to be amended to name itself).
 
 ## Commits
 
@@ -18,12 +20,40 @@ worktree before the first change). Commit range **`118d0a3f7..31c0f1f2a`** —
 | `49452f59e` | **M-T1.28 residue 2 (F50)** — Svelte's store-reading `derived` and action-body `toast(...)`, both halves, plus a third instance of the same class |
 | `1a1f250be` | ledger row → `done`; M-T1.28's status |
 | `31c0f1f2a` | the five suites the typing moved, and the ONE place it over-reached (narrowed, not re-pinned) |
+| `808e0b7b4` | comment only — say why `aggregateInDocument` is not `findEntityByName` (the first draft's reason went stale inside the same packet) |
+| *(this note)* | the hand-off |
+
+**Every file this packet touches** (20 — `git diff --name-only 118d0a3f7..HEAD`),
+so the fold can see the whole surface at a glance:
+
+```
+src/generator/_frontend/toast-effect.ts          (new)
+src/generator/_walker/shared/store-reads.ts      (new)
+src/generator/react/toast-runtime.ts             (now a re-export + the path const)
+src/generator/react/walker/page-shell.ts
+src/generator/svelte/index.ts
+src/generator/svelte/walker/page-shell.ts
+src/ir/lower/lower-expr.ts                       ← outside the fence (§8)
+src/ir/lower/lower-types.ts                      ← outside the fence (§8)
+src/ir/lower/lower.ts                            ← outside the fence (§8)
+test/ir/page-read-lambda-element-type.test.ts    (new)
+test/generator/svelte/derived-store-read-and-toast.test.ts (new)
+test/generator/{react/walker-for, elixir/heex-for, feliz/action, flutter/action}.test.ts
+test/system/module-global-state-census.test.ts
+web/src/examples/svelte-store-showcase.ddd
+docs/audits/targets-completeness-2026-08-30.{ledger.json,md}
+docs/new-plan/T1-ui-frontend.md
+```
+
+**No pack template, no `designs/**` file, and no `src/ir/validate/**` check was
+touched** — so the register, the gate sites and the pack layer are all
+conflict-free at fold.
 
 ## Rows → outcome
 
 | row | outcome | evidence |
 |---|---|---|
-| **`queryview-lambda-int-plus-literal-concat`** (ledger P2) | **IMPLEMENTED**, all six frontends | `src/ir/lower/lower-expr.ts:1478-1591` (`PRIMITIVE_ROW_SOURCE_ARG`, `aggregateInDocument`, `ofReadResultType`, `rowBindingEnv`, `queryDataType`), `:1259` (the bare-lambda arm reads `env.rowElem`), `:1617` (the `data:` arm), `src/ir/lower/lower-types.ts:162` (`Env.rowElem`), `src/ir/lower/lower.ts:329-348` (`indexAggregatesDeep`). Gate `test/ir/page-read-lambda-element-type.test.ts` (5 cases). |
+| **`queryview-lambda-int-plus-literal-concat`** (ledger P2) | **IMPLEMENTED**, all six frontends | `src/ir/lower/lower-expr.ts:1487` (`PRIMITIVE_ROW_SOURCE_ARG`), `:1497` (`rowBindingEnv`), `:1537` (`aggregateInDocument`), `:1565` (`ofReadResultType`), `:1609` (`queryDataType`), `:1266` (the bare-lambda arm reads `env.rowElem`), `:1648` (the `data:` arm); `src/ir/lower/lower-types.ts:172` (`Env.rowElem`); `src/ir/lower/lower.ts:336-347` (`indexAggregatesDeep`). Gate `test/ir/page-read-lambda-element-type.test.ts` (5 cases). |
 | **M-T1.28 residue 2 — F50, the Svelte twin** | **IMPLEMENTED**, both halves + a third | `src/generator/svelte/walker/page-shell.ts` (`buildDerivedLines` takes `usedStores` + the full derived-name set; `buildActionLines` takes `externs`), `src/generator/_walker/shared/store-reads.ts` (new, shared with react), `src/generator/_frontend/toast-effect.ts` (new, shared with react), `src/generator/svelte/index.ts` (emits `src/lib/toast-effect.ts` under `uiUsesToastEffect`). Gate `test/generator/svelte/derived-store-read-and-toast.test.ts` (7 cases). Fixture: `web/src/examples/svelte-store-showcase.ddd` grows both shapes (already in the svelte build matrix). |
 | **M-T1.8 vue error boundary** | **already done — verify only, nothing built** | `designs/shadcnVue/v1/app-shell.hbs:3,23` and `designs/vuetify/v3/app-shell.hbs:3,17` both bind `onErrorCaptured`. The mission text (T1-ui-frontend.md M-T1.8) already recorded the vue leg as landed; re-verified on this head. The mission's two LIVE pieces (the unhandled-`await` terminus; the `errors {}` construct) are cross-frontend and cross-backend, not a vue row. |
 | **M-T1.3 Angular `Chart` leg (verify #2504)** | **already done — verify only** | `CHART_FRAMEWORKS` (`src/ir/validate/checks/ui-framework-checks.ts:287`) names all seven frontends including `angular`, and `src/generator/angular/chart-runtime.ts` + `angular-target.ts:64` `renderChartData` exist. Nothing to build; angular's tree is 2h's anyway. |
@@ -68,8 +98,15 @@ String((orderById.data.qty + String(1)))     // "51" for qty=5
    alias: the aggregate is the suffix the chain NAMES, the verb is either a
    standard read (`byId` → the record, `all`/`findAll` → the array) or a
    declared `find`, whose `returnType` answers it. `For`/`Table`/`DataGrid`
-   thread the ELEMENT type to every lambda in their subtree through
-   `Env.rowElem`, so a nested `Column { field: r => … }` binds it too.
+   then thread the ELEMENT type of their source argument to every lambda in
+   their subtree through `Env.rowElem`, so a nested `Column { field: r => … }`
+   binds it too. **Scope note:** `rowBindingEnv` reads the source through
+   `inferExprType`, which answers for a typed local — the `QueryView` `data:`
+   binding, i.e. the normal path (`data: rows => For { each: rows, o => … }`,
+   verified emitting `String((o.qty + 1))`). A raw INLINE read in `each:` /
+   `rows:` still resolves to the placeholder; wiring `ofReadResultType` in as a
+   fallback there is two lines and was left out of this packet rather than
+   re-run the full suite for a shape no example writes.
 2. **The ambient entity index was empty.** `indexMembers` (lower.ts) recursed
    through `members` only, and a `Subdomain`'s children hang off `contexts` —
    so for the overwhelmingly common `system { subdomain { context { … } } }`
@@ -161,17 +198,16 @@ needed from the owner — see §7.**
 | `npm run lint` (`biome ci .`) | 0 errors, 24 warnings (the pre-existing baseline) |
 | `node scripts/mission-counts.mjs --check` | up to date |
 | `node scripts/ledger-counts.mjs --check` | `.md matches the JSON` |
-| `npm test` | see the note under this table |
+| `npm test` | **2057 files / 24 133 tests pass; 4 fail, all environmental** — `packaging-split-fs-discovery` ×3 + `packaging-split-core-pkg` ×1, which cannot pass in ANY git worktree (no `node_modules/@loom` workspace symlinks; verified — `/home/user/Loc/node_modules/@loom` is an EMPTY directory, and the failures read `expected undefined to be defined` for every backend, i.e. fs-discovery found none at all). Exactly the residue packet 2b recorded. 22 min wall clock at load ~10. |
 | generated-svelte-build, `svelte-store-showcase.ddd × shadcnSvelte@v1` | **PASS** — `npm install` + `npx svelte-check --tsconfig ./tsconfig.json --fail-on-warnings` + `npx vite build`, 53 s, on the fixture carrying BOTH F50 shapes. This is the runtime-adjacent proof the row wanted: the two symbols the defect left undeclared are exactly what `svelte-check` reports. |
 
-**On `npm test`.** The run BEFORE the fallout commit was 10 failures in 8
-files: the 6 this packet caused (all five explained above, plus the
-module-global census wanting a pin for the new WeakMap) and 4 environmental —
-the `packaging-split-fs-discovery` trio + `packaging-split-core-pkg`, which
-cannot pass in ANY git worktree because there are no `node_modules/@loom`
-workspace symlinks (verified here: `/home/user/Loc/node_modules/@loom` is an
-EMPTY directory), exactly as packet 2b recorded. Each of the 6 was re-run
-green individually after its fix.
+**On `npm test`.** The run BEFORE the fallout commit (`31c0f1f2a`) was 10
+failures in 8 files: the 6 this packet caused — all five explained above, plus
+the module-global census wanting a pin for the new WeakMap — and the same 4
+environmental ones. Each of the 6 was re-run green individually after its fix,
+and the final whole-suite run above confirms it: **the failure count went
+10 → 4, and the remaining 4 are the pre-existing worktree residue**, so this
+packet leaves the suite exactly as it found it.
 
 **The box ran out of disk mid-verification** (`/` hit 100%, 6.1 MB free —
 three packets plus their generated-project installs share it). That aborted one
@@ -237,8 +273,9 @@ carve-out (the register says so explicitly, and the check confirms it — there
 is no framework Set). Landing `sum`/`min`/`max`/`avg`/`first`/`firstOrNull`/
 `distinct`/`contains` on the three JS frontends alone would re-introduce the
 per-target carve-out the row records as removed, so the honest unit of work is
-all seven emitters at once (the money seam for the folds, D-ruling 12 for
-`first`/`firstOrNull`, structural equality for `distinct`/`contains` — which
+all seven emitters at once (the money seam for the folds; the launch's
+ruling for `first`/`firstOrNull` — `first` throws on empty, `firstOrNull` is
+the total form; structural equality for `distinct`/`contains` — which
 flutter's wire models have no `operator ==` for, so that half starts with a
 codegen change in 2j's tree). Left whole for M-T1.20.
 
@@ -246,7 +283,10 @@ codegen change in 2j's tree). Left whole for M-T1.20.
 
 `renderMessageExpr` (`src/generator/_frontend/realtime.ts:181`) is a five-arm
 switch (`literal`/`ref`/`member`/`paren`/`binary`) that THROWS on everything
-else; the feliz, HEEx and flutter twins are arm-for-arm identical. Adding
+else. **The register's "arm-for-arm identical" claim re-verified on this head,
+not just cited:** `feliz/realtime.ts:179-187`,
+`elixir/realtime-liveview.ts:43-51`, `flutter/realtime.ts:183-191` — the same
+five arms and the same `default:` throw in all four. Adding
 `convert` / `ternary` / `unary` / `method-call` arms to the `_frontend` one is
 an afternoon; doing it there ALONE would make the gate per-target, which the
 register records as deliberately not being. The register's own drain condition
@@ -267,8 +307,8 @@ documented:
   string `SelectField` + a conversion at the call site: `<state> == "true"`),
   but an enum has no such conversion in the DSL, so the real fix is typing the
   state field as `<Enum> | ""` in `stateTypeAsTsString` and its react / vue /
-  svelte / **angular** / feliz / flutter twins — four of those six trees are
-  other packets'.
+  svelte / **angular** / feliz / flutter twins — three of those six trees
+  (angular 2h, feliz 2i, flutter 2j) are other packets'.
 - **decimal / money** — the "unset" sentinel is the int literal `0`, which
   Feliz types `decimal <> int` (FS0001), and `money` binds a `Decimal` that
   `NumberField` does not accept. A per-target zero-literal seam.
@@ -330,7 +370,7 @@ launch; the live ones are:
 
 | PR | overlap | disposition |
 |---|---|---|
-| #2914 (`vo-subform-row-inputs`) | `_walker` + the JSX packs | no file in common — it works in the form field-row templates, this packet in `page-shell` / `primitives/forms.ts` was not touched |
+| #2914 (`vo-subform-row-inputs`) | `_walker` + `_frontend` + the JSX packs | **file lists compared, no intersection.** #2914: `_walker/form-fields-vm.ts`, `_walker/render-primitive.ts`, `_frontend/form-helpers.ts`, `_frontend/view-models.ts`, 8 × `field-input-array.hbs`. This packet: `_frontend/toast-effect.ts` (new), `_walker/shared/store-reads.ts` (new), `react/walker/page-shell.ts`, `svelte/walker/page-shell.ts`, `svelte/index.ts`, `react/toast-runtime.ts`. No pack template touched. |
 | #2917 (`fix-svelte-destroyform-thunk`) | `src/generator/svelte/**` | different file (`walker/svelte-target.ts` vs `walker/page-shell.ts`); no hunk overlap |
 | #2871 (`page-gate-diagnostics`) | `ui-checks` / `ui-page-structure-checks` | this packet raised no new gate and edited no check file |
 | #2865 / #2911 / #2862 / #2864 (audit registers) | list walker defects | none of the six open rows above is claimed there; F50 is M-T1.28's, unclaimed |
