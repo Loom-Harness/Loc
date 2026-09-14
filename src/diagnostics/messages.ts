@@ -1222,6 +1222,12 @@ export const DIAGNOSTIC_MESSAGES = {
     `domainService '${p.name}': every operation takes a single aggregate parameter — consider declaring the behaviour as an 'operation' on that aggregate instead of a domain service.`,
 
   // ----------------------------------------------------------------------
+  // src/ir/validate/checks/repo-access-checks.ts
+  // ----------------------------------------------------------------------
+  "loom.repository-access-outside-workflow": (p: { where: unknown; repoName: unknown }) =>
+    `${p.where} names repository '${p.repoName}', but a domain member body has no repository in scope — only a workflow (or a command/query handler, or a 'domainService' reading its own context) can load another aggregate. Every backend renders the unresolved name verbatim into a class that never binds it, so the generated project does not compile (node TS2304, .NET CS0103, Java "cannot find symbol", Python NameError, Phoenix an unbound variable). Move the read into a workflow — 'let x = ${p.repoName}.getById(…)' — and pass the value this member needs in as a parameter.`,
+
+  // ----------------------------------------------------------------------
   // src/ir/validate/checks/index-suggestion-checks.ts
   // ----------------------------------------------------------------------
   "loom.index-suggestion": (p: { name: unknown; fName: unknown; where: unknown }) =>

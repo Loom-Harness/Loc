@@ -21,6 +21,7 @@ import {
   validateRetrievals,
   validateWorkflowInstanceReadGates,
 } from "./checks/query-checks.js";
+import { validateMemberRepositoryAccess } from "./checks/repo-access-checks.js";
 import { validateReservedSurfaces } from "./checks/reserved-surfaces.js";
 import { validateSensitiveWireSupport } from "./checks/sensitivity-checks.js";
 import { validateStores } from "./checks/store-checks.js";
@@ -264,6 +265,10 @@ export function validateLoomModel(loom: EnrichedLoomModel): LoomDiagnostic[] {
     // check takes the model's full context list (like `validateWorkflows`
     // below, which takes every context's events).
     validateDomainServices(c, diags, [...allContexts(loom)]);
+    // A repository named from an aggregate / part / value-object member body —
+    // no backend binds one there.  Takes the model's full context list so a
+    // cross-context repository (equally dangling) is caught as well.
+    validateMemberRepositoryAccess(c, diags, [...allContexts(loom)]);
     validateFunctionBlockBodies(c, diags);
     validateExternOperations(c, diags);
     validateStampReadsBeforeFlush(c, diags);

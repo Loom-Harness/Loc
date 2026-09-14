@@ -1067,6 +1067,26 @@ system S {
     }
   }
 }`,
+  // The aggregate-side twin: a plain `operation` naming a repository — the
+  // spelling that is legal in a `workflow`, where a repository IS in scope.
+  // In a domain member body it lowers to an unresolved ref that all five
+  // backends render verbatim into a class that binds no repository.
+  "loom.repository-access-outside-workflow": `
+system S {
+  subdomain Sub { context Ops {
+    aggregate Technician { name: string }
+    repository Technicians for Technician { }
+    aggregate Job {
+      technicianId: Technician id
+      assignedName: string
+      operation assign(assignTo: Technician id) {
+        technicianId := assignTo
+        assignedName := Technicians.getById(assignTo).name
+      }
+    }
+    repository Jobs for Job { }
+  } }
+}`,
 
   // An unresolved bare ref in a rendered slot: the walker emits a comment and
   // the content silently disappears on all six frontends (A17).
