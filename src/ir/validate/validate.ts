@@ -2,6 +2,7 @@ import type { EnrichedLoomModel } from "../types/loom-ir.js";
 import { allContexts } from "../types/loom-ir.js";
 import { validateApplicationHandlers, validateRoutes } from "./checks/api-checks.js";
 import { validateStampReadsBeforeFlush } from "./checks/capability-checks.js";
+import { validateCreateCallSites } from "./checks/create-call-checks.js";
 import type { LoomDiagnostic } from "./checks/diagnostic.js";
 import { validateDomainServices } from "./checks/domain-service-checks.js";
 import { validateEntityPartParams } from "./checks/entity-part-param-checks.js";
@@ -310,6 +311,11 @@ export function validateLoomModel(loom: EnrichedLoomModel): LoomDiagnostic[] {
     validateAuditedOperationSupport(c, diags, backendPlatformsByContext.get(c.name) ?? new Set());
   }
   validateExprIntegrity(loom, diags);
+  // `Agg.create({ … })` CALL SITES against the factory the emitters actually
+  // emit — `isConstructible` (no factory at all) + the required create-input
+  // set.  Whole-model: the call sites live in tests, workflow bodies, handlers
+  // and page actions alike, and `forEachModelExpr` reaches all of them.
+  validateCreateCallSites(loom, diags);
   // Migration-block data steps (M-T2.3): expression renderability / target /
   // type fit.
   validateMigrationDataSteps(loom, diags);

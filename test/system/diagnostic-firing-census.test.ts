@@ -328,7 +328,63 @@ system S {
     }
     repository Invoices for Invoice { }`),
 
+  // --- create call sites ---------------------------------------------------
+  // An invariant over a CONTAINED collection cannot be satisfied from the create
+  // input, so the aggregate is not constructible and every backend emits no
+  // `static create(...)` — while the unit-test emitter kept emitting the call.
+  "loom.create-call-not-constructible": repoOnly(`    aggregate Order {
+      currency: string
+      contains lines: Line[]
+      derived display: string = currency
+      invariant lines.all(l => l.currency == currency)
+      entity Line { currency: string }
+      test "an order can be built" {
+        let o = Order.create({ currency: "EUR" })
+        expect(o.display).toBe("EUR")
+      }
+    }
+    repository Orders for Order { }`),
+
+  // A create call site that omits a REQUIRED create-input field.  The factory
+  // input is the field-derived contract, so the emitted `.test.ts` fails the
+  // generated project's own tsc (TS2345, "Property 'binCode' is missing").
+  "loom.create-call-missing-field": repoOnly(`    aggregate Part {
+      sku: string
+      binCode: string
+      onHand: int
+      derived display: string = sku
+      test "part is built" {
+        let p = Part.create({ sku: "a", onHand: 1 })
+        expect(p.display).toBe("a")
+      }
+    }
+    repository Parts for Part { }`),
+
   // --- structural ---------------------------------------------------------
+  // Two entity parts that contain each other.  `contains` is ownership, so the
+  // graph must be a tree; the cycle used to parse clean and then blow the JS
+  // stack inside the TypeScript repository emitter's `nestedContainLoads`.
+  "loom.containment-cycle": repoOnly(`    aggregate A {
+      n: string
+      contains xs: X[]
+      derived display: string = n
+      entity X { contains ys: Y[] }
+      entity Y { contains zs: X[] }
+    }
+    repository As for A { }`),
+
+  // A cross-aggregate invariant that reads through a repository.  It validated
+  // clean and emitted `Technicians.getById(...)` into the per-instance floor —
+  // TS2304 on hono, the same unresolvable symbol on .NET/java, and on elixir the
+  // rule was silently emitted nowhere at all.
+  "loom.rule-expr-impure": repoOnly(`    aggregate Technician with crudish { skill: string }
+    aggregate WorkOrder with crudish {
+      technicianId: Technician id
+      invariant Technicians.getById(technicianId).skill.length > 0
+    }
+    repository Technicians for Technician { }
+    repository WorkOrders for WorkOrder { }`),
+
   // A block-bodied `function` that mutates aggregate state.  The purity gate had
   // no catalog entry and no firing proof at all until W4.1 — the scanner never
   // saw the site, because its `message` was a shorthand property.

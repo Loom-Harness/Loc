@@ -23,15 +23,19 @@ import type {
   TernaryExpr,
 } from "../generated/ast.js";
 import {
+  isAggregate,
   isBinaryChain,
   isBoundedContext,
+  isCreate,
   isCriterion,
   isDerivedProp,
+  isDestroy,
   isFunctionDecl,
   isLambda,
   isLetStmt,
   isMemberSuffix,
   isNameRef,
+  isOperation,
   isPolicyDecl,
   isPostfixChain,
   isPreconditionStmt,
@@ -39,6 +43,7 @@ import {
   isReturnStmt,
   isTernaryExpr,
   isUi,
+  isValueObject,
 } from "../generated/ast.js";
 import { isWellFormedMoneyLiteral, moneyLiteralText } from "../money-literal.js";
 import {
@@ -759,6 +764,7 @@ export function checkSinglePrimitiveConversion(
 export function checkPropertyCheck(p: Property, env: Env, accept: ValidationAcceptor): void {
   if (!p.check) return;
   checkBlankMessage(p, p.message, accept);
+  checkRuleExprPurity(p.check, env, `check on '${p.name}'`, accept);
   const t = typeOf(p.check, env);
   if (t.kind !== "primitive" || t.name !== "bool") {
     accept(
@@ -840,13 +846,202 @@ export function checkParameterDefault(p: Parameter, env: Env, accept: Validation
   }
 }
 
+// ---------------------------------------------------------------------------
+// `loom.rule-expr-impure` — a RULE expression must be a pure predicate over
+// the instance it is attached to.
+//
+// The four rule positions are `invariant <expr>`, its `when <guard>`, a field's
+// `check <expr>`, and `derived <name> = <expr>`.  All four are spliced into the
+// per-instance floor (`_assertInvariants()` / the derived getter / the wire
+// refine), which runs with nothing in scope but `this` — no repository handle,
+// no service locator, no await.  The language reference already states the rule
+// for its sibling, a pure `function`: it "may not call a repository /
+// operation / domain-service / extern".  Nothing applied it here.
+//
+// So this validated clean, and emitted code that cannot compile:
+//
+//     aggregate WorkOrder {
+//       assetId: Asset id
+//       technicianId: Technician id?
+//       invariant Technicians.getById(technicianId).skills
+//                   .contains(Assets.getById(assetId).requiredSkill)
+//     }
+//
+//     // hono  domain/workOrder.ts(37,11): TS2304: Cannot find name 'Technicians'
+//     // .NET / java: the same unresolvable symbol
+//     // python: compiles, then NameError at runtime on an unbound global
+//     // elixir: the invariant is emitted NOWHERE — the rule silently does not exist
+//
+// `Technicians` is a repository: declared, so `loom.unknown-name` (whose
+// universe is deliberately every declaration name anywhere) does not report it,
+// and unresolvable from an aggregate body, so lowering hands it
+// `refKind: "unknown"` and every backend renders the bare identifier.  The same
+// hole swallowed a WORKFLOW name used as a value (`invariant ship.k > 0` →
+// `if (!(ship.k > 0))`) and a call to the aggregate's OWN mutating operation
+// (`invariant this.bump(1) == 0` → a void-returning call compared to a number,
+// and unbounded recursion if it ever typed).
+//
+// Two arms, deliberately narrow — a false positive here rejects a valid model:
+//
+//   1. UNBOUND HEAD.  A bare head name that `env.resolve` cannot bind AND that
+//      names a declaration of a kind no rule expression can address (a
+//      repository, aggregate, workflow, api, ui, deployable, storage, …).
+//      Both halves are required: a name absent from the universe entirely is
+//      already `loom.unknown-name`'s, and a name the env DOES bind is a
+//      shadowing local, not the declaration.
+//   2. OPERATION CALL.  `this.<op>(…)` / `<op>(…)` where `<op>` is an
+//      `operation` / `create` / `destroy` on the owning aggregate — the
+//      mutating layer, which a rule may not enter.
+//
+// Deliberately NOT rejected: a `domainService` call.  `Pricing.quote(qty)` in
+// an invariant emits correctly today (the Hono emitter threads
+// `import { Pricing } from "./services"` and renders `Pricing.quote(this._qty)`),
+// so it is a supported pure calculator, not part of this defect.
+// ---------------------------------------------------------------------------
+
+/** Declaration kinds that exist in a rule expression's neighbourhood but are
+ *  NOT addressable from one.  `$type` → the word the diagnostic uses.
+ *
+ *  Deliberately excludes the INFRASTRUCTURE handles — `resource`, `storage`,
+ *  `channel`, `channelSource`.  A resource handle is AMBIENT over its context
+ *  (`lowerContext` seeds `resources` into the same `Env` an aggregate body
+ *  resolves against), so it genuinely resolves at the IR layer even though the
+ *  AST-side `envForNode` does not model it — and its misuse in a rule already
+ *  has a dedicated, better-worded gate (`loom.resource-op-outside-workflow`,
+ *  `src/ir/validate/checks/…`) that names the resource verb.  Listing them here
+ *  would double-report and pre-empt the specific diagnostic with a generic one. */
+const UNADDRESSABLE_FROM_RULE: ReadonlyMap<string, string> = new Map([
+  ["Repository", "repository"],
+  ["Aggregate", "aggregate"],
+  ["Workflow", "workflow"],
+  ["Projection", "projection"],
+  ["Seed", "seed"],
+  ["Api", "api"],
+  ["Ui", "ui"],
+  ["Page", "page"],
+  ["Component", "component"],
+  ["Store", "store"],
+  ["Deployable", "deployable"],
+  ["Subdomain", "subdomain"],
+  ["BoundedContext", "context"],
+  ["System", "system"],
+  ["Solution", "solution"],
+  ["Requirement", "requirement"],
+  ["Layout", "layout"],
+  ["Migration", "migration"],
+]);
+
+/** name → kind-word, for every unaddressable declaration in the document.
+ *  Built once per Model root — `checkInvariant` runs per rule, and streaming
+ *  the whole tree each time would be quadratic. */
+const unaddressableIndexCache = new WeakMap<AstNode, ReadonlyMap<string, string>>();
+
+function unaddressableIndex(root: AstNode): ReadonlyMap<string, string> {
+  const hit = unaddressableIndexCache.get(root);
+  if (hit) return hit;
+  const index = new Map<string, string>();
+  const add = (node: AstNode): void => {
+    const kind = UNADDRESSABLE_FROM_RULE.get(node.$type);
+    if (!kind) return;
+    const name = (node as unknown as { name?: unknown }).name;
+    if (typeof name === "string" && !index.has(name)) index.set(name, kind);
+  };
+  add(root);
+  for (const node of AstUtils.streamAllContents(root)) add(node);
+  unaddressableIndexCache.set(root, index);
+  return index;
+}
+
+/** The mutating action names declared on the aggregate / value object that owns
+ *  this rule — `operation` (incl. `private` / `extern`), `create`, `destroy`. */
+function ownerActionNames(from: AstNode): ReadonlySet<string> {
+  const owner =
+    AstUtils.getContainerOfType(from, isAggregate) ??
+    AstUtils.getContainerOfType(from, isValueObject);
+  const out = new Set<string>();
+  if (!owner) return out;
+  for (const m of owner.members) {
+    if (isOperation(m) || isCreate(m) || isDestroy(m)) {
+      const name = (m as unknown as { name?: unknown }).name;
+      // The canonical (unnamed) `create` / `destroy` have no name to collide on.
+      out.add(typeof name === "string" && name.length > 0 ? name : m.$type.toLowerCase());
+    }
+  }
+  return out;
+}
+
+/** Gate the four rule positions.  `where` names the position in the message
+ *  (`invariant` / `invariant guard ('when ...')` / `check on 'x'` / `derived 'x'`).
+ *  Each diagnostic is hung on the offending NODE, not the rule, so the editor
+ *  underlines the exact head / call that reaches out. */
+export function checkRuleExprPurity(
+  expr: Expression | undefined,
+  env: Env,
+  where: string,
+  accept: ValidationAcceptor,
+): void {
+  if (!expr) return;
+  const index = unaddressableIndex(AstUtils.findRootNode(expr));
+  const actions = ownerActionNames(expr);
+  // Names bound INSIDE the expression itself — lambda parameters, plus any
+  // `let` a statement-bodied lambda introduces.  `env` is the rule's OUTER
+  // scope (`envForAggregate`), so it cannot see them, and a lambda param that
+  // happens to share a declaration's name (`items.all(Assets => Assets.k > 0)`)
+  // would otherwise read as an unreachable reference.  Collected for the WHOLE
+  // expression rather than per-path: over-approximating the bound set only ever
+  // suppresses a report, never invents one.
+  const locallyBound = new Set<string>();
+  for (const n of AstUtils.streamAllContents(expr)) {
+    if (isLambda(n)) locallyBound.add(n.param);
+    else if (isLetStmt(n)) locallyBound.add(n.name);
+  }
+
+  for (const n of [expr, ...AstUtils.streamAllContents(expr)]) {
+    // --- arm 1: an unbound head naming an unaddressable declaration ---------
+    if (isNameRef(n)) {
+      const name = n.name;
+      const kind = index.get(name);
+      if (kind && !env.resolve(name) && !locallyBound.has(name)) {
+        accept("error", diagMessage("loom.rule-expr-impure#unaddressable", { where, name, kind }), {
+          node: n,
+          property: "name",
+          code: "loom.rule-expr-impure",
+        });
+        continue;
+      }
+    }
+    // --- arm 2: a call into the mutating layer -----------------------------
+    if (!isPostfixChain(n)) continue;
+    const first = n.suffixes[0];
+    if (!first) continue;
+    // `this.<op>(…)` — an explicit receiver, so the member is unambiguously the
+    // owner's action.  A bare `<op>(…)` is the chain `NameRef` + `CallSuffix`.
+    const called = isMemberSuffix(first)
+      ? first.call && n.head.$type === "ThisRef"
+        ? first.member
+        : undefined
+      : isNameRef(n.head)
+        ? n.head.name
+        : undefined;
+    if (!called || !actions.has(called)) continue;
+    // A local binding of the same name shadows the action — not the defect.
+    if (!isMemberSuffix(first) && (env.resolve(called) || locallyBound.has(called))) continue;
+    accept("error", diagMessage("loom.rule-expr-impure#operation", { where, name: called }), {
+      node: n,
+      code: "loom.rule-expr-impure",
+    });
+  }
+}
+
 export function checkInvariant(inv: Invariant, env: Env, accept: ValidationAcceptor): void {
   checkConstructionArgTypes(inv.expr, env, accept);
   checkExprCallArgs(inv.expr, env, accept);
   checkBlankMessage(inv, inv.message, accept);
+  checkRuleExprPurity(inv.expr, env, "invariant", accept);
   if (inv.guard) {
     checkConstructionArgTypes(inv.guard, env, accept);
     checkExprCallArgs(inv.guard, env, accept);
+    checkRuleExprPurity(inv.guard, env, "invariant guard ('when ...')", accept);
   }
   const t = typeOf(inv.expr, env);
   if (t.kind !== "primitive" || t.name !== "bool") {
@@ -877,6 +1072,7 @@ export function checkDerived(d: DerivedProp, env: Env, accept: ValidationAccepto
   if (!d.expr) return;
   checkConstructionArgTypes(d.expr, env, accept);
   checkExprCallArgs(d.expr, env, accept);
+  checkRuleExprPurity(d.expr, env, `derived '${d.name}'`, accept);
   const declared = resolveTypeRef(d.type);
   const actual = typeOf(d.expr, env);
   if (

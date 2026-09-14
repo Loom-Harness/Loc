@@ -619,6 +619,11 @@ export const DIAGNOSTIC_MESSAGES = {
     `'action(${p.argBase})' is not allowed — the callback argument must be a data type (primitive, aggregate, value object, …), not another UI marker.`,
   "loom.bare-aggregate-in-type": (p: { aggName: unknown }) =>
     `References across aggregate boundaries need an id link — write '${p.aggName} id' (or '${p.aggName} id[]' for many-to-many).`,
+  "loom.containment-cycle": (p: { cycle: unknown; name: unknown; target: unknown }) =>
+    `Cyclic containment in aggregate '${p.name}': ${p.cycle}. ` +
+    `'contains' is ownership, so an aggregate's parts must form a tree — a cycle can be neither loaded nor persisted ` +
+    `(every backend's eager-load walks 'contains' recursively). ` +
+    `Break the loop: drop this containment, or reference the other aggregate's root with '<Aggregate> id' instead of containing '${p.target}'.`,
   "loom.cross-aggregate-entity-part": (p: { name: unknown; ownerName: unknown }) =>
     `Entity part '${p.name}' belongs to aggregate '${p.ownerName}'; cross-aggregate references must go through the root: use '${p.ownerName} id'.`,
   "loom.ambiguous-part-ref": (p: { name: unknown; list: unknown; names: unknown }) =>
@@ -1016,6 +1021,17 @@ export const DIAGNOSTIC_MESSAGES = {
     `'${p.member}' over a collection needs a lambda — write '<collection>.${p.member}(x => …)'. A bare '.${p.member}' has no renderable form.`,
   "loom.unknown-member": (p: { member: unknown; record: unknown }) =>
     `'${p.member}' is not a member of '${p.record}'.`,
+  "loom.rule-expr-impure#unaddressable": (p: { where: unknown; name: unknown; kind: unknown }) =>
+    `This ${p.where} references '${p.name}', which is a ${p.kind} — not something a rule expression can reach. ` +
+    `An invariant / check / derived is a PURE predicate over the instance: it runs in the per-instance floor with only 'this' in scope, ` +
+    `so it may not call a repository, an operation, or a workflow (the same rule a pure 'function' follows). ` +
+    `Emitting it anyway produces an unresolvable identifier in the generated backend. ` +
+    `Denormalize the value onto this aggregate (copy the field at write time) and assert over that, or move the rule into the operation / workflow that already loads '${p.name}'.`,
+  "loom.rule-expr-impure#operation": (p: { where: unknown; name: unknown }) =>
+    `This ${p.where} calls '${p.name}', which is an action (operation / create / destroy) on this aggregate. ` +
+    `A rule expression is a PURE predicate over the instance — it runs inside the invariant floor that the action itself triggers, ` +
+    `so calling back into the mutating layer is both unrenderable and unbounded. ` +
+    `Extract the logic into a pure 'function' and call that from both places.`,
   "loom.unknown-user-claim": (p: { member: unknown; claims: unknown }) =>
     `'${p.member}' is not a claim on the principal. 'currentUser' carries exactly the fields declared in the system's 'user { }' block (${p.claims}), plus the derived 'orgPath' / 'rootOrg' under 'tenancy by'. Declare it ('${p.member}: <type>' inside 'user { }') or fix the spelling — an undeclared claim reaches the generated backend verbatim, whose 'UserClaims' shape is built from that same block, and breaks its own compile.`,
   "loom.collection-op-in-ui#avg":
@@ -2124,6 +2140,23 @@ export const DIAGNOSTIC_MESSAGES = {
     `channel — the SSE relay can't legally serve those events, so the handler receives ` +
     `nothing. Host '${p.owner}' on '${p.relayName}', or add a channelSource for ` +
     `'${p.channelName}' to its 'channels:' clause.`,
+  "loom.create-call-not-constructible": (p: { agg: unknown; blocking: unknown }) =>
+    `\`${p.agg}.create({ … })\` calls a factory that does not exist: '${p.agg}' is NOT CONSTRUCTIBLE, ` +
+    `so every backend deliberately emits no \`create\`.${p.blocking}  ` +
+    `An aggregate is constructible only when every invariant can be satisfied from the create input alone; ` +
+    `one that reads containments, managed fields or post-create state cannot be built by a plain create. ` +
+    `Build it through an explicit \`create(...)\` action (or \`with crudish\`), or relax the invariant to the create payload. ` +
+    `Left alone this emits \`${p.agg}.create(...)\` against a class that has none — the generated project fails its own compiler.`,
+  "loom.create-call-missing-field": (p: {
+    agg: unknown;
+    missing: unknown;
+    plural: unknown;
+    input: unknown;
+  }) =>
+    `\`${p.agg}.create({ … })\` omits ${p.missing}, which ${p.plural} REQUIRED create input. ` +
+    `The factory input is the field-derived create-input contract, not the keys the call happens to pass: ` +
+    `${p.input}.  A field is omittable only when it is optional, carries an \`= default\`, or has a ` +
+    `language-defined implicit default (a bare \`bool\`). Supply it, give it a default, or make it optional.`,
   "loom.create-params-not-wire": (p: { agg: unknown; missing: unknown; also: unknown }) =>
     `Aggregate '${p.agg}': the canonical \`create\`'s parameter list is not the ` +
     `request contract.  \`POST /<plural>\` takes the FIELD-DERIVED create input, ` +
