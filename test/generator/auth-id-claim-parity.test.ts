@@ -130,3 +130,70 @@ describe("id-typed user claim — the id type is IMPORTED where it is named", ()
     expect(joined).not.toContain("| None | None");
   });
 });
+
+// ---------------------------------------------------------------------------
+// The NON-optional twin — `customerId: Customer id`, no `auth { … }` block, so
+// every backend emits its DEV-STUB principal and has to produce a VALUE for an
+// id-typed claim.  A different defect in a different place from everything
+// above: #2869 fixed the claim's TYPE and its IMPORT and left the five dev-stub
+// value tables writing a RAW SCALAR where the emitted id is a nominal type.
+//
+// The sibling fixture cannot reach this arm.  An OPTIONAL claim short-circuits
+// to null/None/nil in every stub table before the type is consulted, and on
+// node, python and elixir the OIDC verifier REPLACES the dev stub rather than
+// joining it — so `auth-id-claim.ddd` (optional + `auth { oidc }`) leaves the
+// `id` arm of all five tables unexecuted.  Hence `auth-id-claim-stub.ddd`.
+//
+// Two of the four symptoms are hard compile errors, which is why the compile
+// legs (`corpus-tsc-build` / `corpus-dotnet-build`) are this fixture's real
+// oracle; these assertions are the fast per-PR witness over all five at once.
+// ---------------------------------------------------------------------------
+
+const STUB_FEATURE = "auth-id-claim-stub";
+const ZERO_ID = "00000000-0000-0000-0000-000000000000";
+
+async function emitStub(backend: Backend): Promise<Map<string, string>> {
+  return generateSystemFiles(corpusSourceFor(STUB_FEATURE, backend));
+}
+
+describe("NON-optional id claim — the dev-stub principal CONSTRUCTS the id", () => {
+  it("node: the branded factory, not a bare string (TS2322)", async () => {
+    const files = await emitStub("node");
+    const stub = file(files, "auth/dev-stub.ts");
+    expect(stub).toContain(`customerId: Ids.CustomerId("${ZERO_ID}")`);
+    // A bare literal is `Type 'string' is not assignable to type 'CustomerId'`.
+    expect(stub).not.toContain(`customerId: "${ZERO_ID}"`);
+    // …and the factory has to be in scope — the ids live in a sibling tree.
+    expect(stub).toContain('import * as Ids from "../domain/ids";');
+    // The OPTIONAL claim beside it stays null: the declaration allows it.
+    expect(stub).toContain("referrerId: null");
+  });
+
+  it("dotnet: `new CustomerId(Guid.Empty)`, not a bare Guid (CS0029)", async () => {
+    const stub = file(await emitStub("dotnet"), "Auth/DevStubUserVerifier.cs");
+    expect(stub).toContain("CustomerId: new CustomerId(System.Guid.Empty)");
+    // `readonly record struct CustomerId(Guid Value)` declares no implicit
+    // conversion, so the bare `Guid.Empty` this replaced did not compile.
+    expect(stub).not.toContain("CustomerId: System.Guid.Empty");
+    expect(stub).toMatch(/^using \S+\.Domain\.Ids;$/m);
+    expect(stub).toContain("ReferrerId: null");
+  });
+
+  it("java: the zero strong id, not a null one", async () => {
+    const stub = file(await emitStub("java"), "auth/DevStubUserVerifier.java");
+    expect(stub).toContain("new CustomerId(new java.util.UUID(0L, 0L))");
+    expect(stub).toMatch(/^import \S+\.domain\.ids\.\*;$/m);
+  });
+
+  it("python: the NewType factory, imported where it is called", async () => {
+    const main = file(await emitStub("python"), "app/main.py");
+    expect(main).toContain(`customer_id=CustomerId("${ZERO_ID}")`);
+    expect(main).toContain("from app.domain.ids import CustomerId");
+    expect(main).toContain("referrer_id=None");
+  });
+
+  it("elixir: the bare scalar an untyped LiveView principal carries", async () => {
+    const joined = [...(await emitStub("vanilla")).values()].join("\n");
+    expect(joined).toContain(`"customer_id" => "${ZERO_ID}"`);
+  });
+});

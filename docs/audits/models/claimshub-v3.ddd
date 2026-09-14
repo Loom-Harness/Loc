@@ -1,0 +1,193 @@
+// ClaimsHub v3 — "we're rolling this out to every regional branch" round:
+//   1. Multi-tenant by branch (each branch only sees its own policies/claims).
+//   2. Concurrent-edit safety on Claim (two adjusters shouldn't stomp on
+//      each other's approve/reject).
+//   3. Once a claim is approved, someone has to actually pay it out —
+//      a Payment aggregate + a workflow to kick it off.
+//   4. Soft-delete on Policy (cancelled policies get archived, not deleted).
+system ClaimsHub {
+
+  user {
+    id: string
+    role: string
+    email: string
+    permissions: string[]
+    branchId: string
+  }
+
+  // One line makes the whole app multi-tenant, same as the built-in SaaS
+  // capabilities story.
+  tenancy by user.branchId of Branch
+
+  subdomain Claims {
+
+    permissions {
+      claimsApprove,
+      claimsReject,
+      claimsAssign
+    }
+
+    context Core {
+
+      enum PolicyStatus  { Active, Lapsed, Cancelled }
+      enum ClaimStatus   { Submitted, UnderReview, Approved, Denied, Paid }
+      enum PaymentStatus { Pending, Sent, Failed }
+
+      // The tenant registry — self-keyed, no tenant marker of its own.
+      aggregate Branch with crudish {
+        name: string
+        invariant name.length > 0
+        derived display: string = name
+      }
+
+      aggregate Policy with crudish, tenantOwned, auditable, softDeletable, softDelete {
+        policyNumber: string
+        holderName: string
+        status: PolicyStatus
+        premium: money
+
+        invariant policyNumber.length > 0
+        invariant premium > 0
+        derived display: string = policyNumber
+      }
+
+      aggregate Adjuster with crudish, tenantOwned {
+        name: string
+        email: string
+        active: bool
+
+        invariant name.length > 0
+        derived display: string = name
+      }
+
+      event ClaimAssigned { claim: Claim id, adjuster: Adjuster id, at: datetime }
+      event ClaimApproved { claim: Claim id, at: datetime }
+
+      // NOTE (papercut, unchanged from v1/v2): `policy` collides with the
+      // `policy { }` authorization block, so the FK field stays `coveredPolicy`.
+      aggregate Claim with crudish, tenantOwned, auditable, versioned {
+        coveredPolicy: Policy id
+        status: ClaimStatus
+        description: string
+        amountClaimed: money
+        submittedAt: datetime
+        assignedAdjuster: Adjuster id?
+        evidence: File?
+
+        invariant amountClaimed > 0
+        derived display: string = description
+
+        operation assign(adjuster: Adjuster id) {
+          requires currentUser.role == "admin"
+                || currentUser.permissions.contains(permissions.claimsAssign)
+          precondition status == Submitted
+          assignedAdjuster := adjuster
+          status := UnderReview
+          emit ClaimAssigned { claim: id, adjuster: adjuster, at: now() }
+        }
+
+        operation approve() {
+          requires currentUser.role == "admin"
+                || currentUser.permissions.contains(permissions.claimsApprove)
+          precondition status == UnderReview
+          status := Approved
+          emit ClaimApproved { claim: id, at: now() }
+        }
+
+        // NOTE (papercut, unchanged): `deny` is a hard keyword reserved by
+        // `policy { }`'s `deny on <target>` effect, so this stays `reject`.
+        operation reject() {
+          requires currentUser.role == "admin"
+                || currentUser.permissions.contains(permissions.claimsReject)
+          precondition status == UnderReview
+          status := Denied
+        }
+
+        operation markPaid() {
+          precondition status == Approved
+          status := Paid
+        }
+      }
+
+      aggregate Payment with crudish, tenantOwned {
+        forClaim: Claim id
+        amount: money
+        status: PaymentStatus
+        sentAt: datetime?
+
+        invariant amount > 0
+        derived display: string = status.toString()
+
+        operation markSent() {
+          precondition status == Pending
+          status := Sent
+        }
+      }
+
+      // Kicks off a payment the moment a claim is approved — an
+      // event-triggered workflow, not just a plain CRUD create.
+      workflow issuePayment {
+        claim: Claim id                          // correlation field
+
+        create(e: ClaimApproved) by e.claim {
+          let payment = Payment.create({
+            forClaim: e.claim,
+            amount: 0,
+            status: Pending
+          })
+        }
+      }
+
+      channel ClaimLifecycle { carries: ClaimApproved }
+
+      repository Branches for Branch { }
+
+      repository Policies for Policy {
+        find byNumber(policyNumber: string): Policy? where this.policyNumber == policyNumber
+      }
+
+      repository Adjusters for Adjuster { }
+
+      criterion IsActive() of Adjuster = this.active == true
+
+      retrieval ActiveAdjusters() of Adjuster {
+        where: IsActive()
+      }
+
+      criterion ForPolicy(policyId: Policy id) of Claim = this.coveredPolicy == policyId
+
+      retrieval ClaimsForPolicy(policyId: Policy id) of Claim {
+        where: ForPolicy(policyId)
+      }
+
+      repository Claims for Claim { }
+
+      repository Payments for Payment { }
+    }
+  }
+
+  ui WebApp with scaffold(subdomains: [Claims]) { }
+
+  storage primary { type: postgres }
+  storage uploads { type: localDisk }
+  resource appState { for: Core, kind: state, use: primary,
+                      index: [Policy.policyNumber, Claim.coveredPolicy, Payment.forClaim] }
+  resource claimFiles { for: Core, kind: objectStore, use: uploads }
+
+  deployable api {
+    platform: node,
+    contexts: [Core],
+    dataSources: [appState, claimFiles],
+    port: 3000,
+    auth: required
+  }
+
+  deployable webApp {
+    platform: react,
+    targets: api,
+    ui: WebApp,
+    port: 3001,
+    design: mantine,
+    auth: ui
+  }
+}

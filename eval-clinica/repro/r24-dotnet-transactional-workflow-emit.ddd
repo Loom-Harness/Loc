@@ -1,0 +1,19 @@
+// Probe: a TRANSACTIONAL workflow whose body emits an event declares the event
+// buffer INSIDE the `try` and drains it AFTER the try/catch — CS0103 on .NET.
+system R24 {
+  subdomain S { context C {
+    aggregate Doc { done: bool  operation finish() { done := true } }
+    repository Docs for Doc { }
+    event DocFinished { doc: Doc id }
+    workflow finishDoc transactional {
+      create(d: Doc id) {
+        let x = Docs.getById(d)
+        x.finish()
+        emit DocFinished { doc: d }
+      }
+    }
+  } }
+  storage primary { type: postgres }
+  resource st { for: C, kind: state, use: primary }
+  deployable backend { platform: dotnet, contexts: [C], dataSources: [st], port: 8080 }
+}

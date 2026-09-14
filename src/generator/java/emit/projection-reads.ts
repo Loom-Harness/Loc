@@ -6,6 +6,7 @@ import type {
 import { exprUsesCurrentUser, isMaterializedProjection } from "../../../ir/types/loom-ir.js";
 import { lines } from "../../../util/code-builder.js";
 import { lowerFirst, snake, upperFirst } from "../../../util/naming.js";
+import { jid } from "../java-ident.js";
 import { collectJavaExprImports, javaValueTypeForId, renderJavaExpr } from "../render-expr.js";
 import { javaNotFoundThrow } from "./common.js";
 import { projectionCorrIdClass } from "./projection-state.js";
@@ -150,7 +151,7 @@ function renderProjectionsController(
     const paramJava = corrValueType(proj);
     const shape = proj.wireShape ?? [];
     const projRow = (rowVar: string): string =>
-      shape.map((f) => domainToWire(f.type, `${rowVar}.${f.name}()`)).join(", ");
+      shape.map((f) => domainToWire(f.type, `${rowVar}.${jid(f.name)}()`)).join(", ");
     routes.push(
       `    @GetMapping("/${slug}")`,
       `    public List<${T}> list${upperFirst(proj.name)}() {`,

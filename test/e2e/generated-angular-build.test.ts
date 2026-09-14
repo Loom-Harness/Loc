@@ -70,10 +70,21 @@ const MINIMAL: Case = {
 /** Scaffolded ui — exercises the router emitters across the
  *  scaffold-synthesised page set (list / new / detail / home).  Every page
  *  now renders a real body: the detail page's op-forms (#1457), the list
- *  (QueryView), and the new (CreateForm) — no page stubs in this set. */
+ *  (QueryView), and the new (CreateForm) — no page stubs in this set.
+ *
+ *  `LineItem.price: money` is the money-in-a-ROW witness (2026-09-10 e-shop
+ *  audit, P8).  Angular builds its row controls from its OWN `form-fields.ts`
+ *  rather than the shared `_walker/form-fields-vm.ts` the JSX/markup frontends
+ *  use, so it did NOT carry that defect — and nothing in this corpus proved it,
+ *  because `items: LineItem[]` had no money sub-field.  `mustEmit` pins the row
+ *  control's seed, the Angular twin of SHOWCASE's single-field pin: Angular maps
+ *  wire `money` to `string`, so a future row that reached for a `Decimal` (or
+ *  for `FormControl(0)`) is a `ng build` TS2345 rather than a silent divergence
+ *  from the other five frontends. */
 const SCAFFOLD: Case = {
   name: "scaffold",
   angularDir: "web",
+  mustEmit: ['price: new FormControl("0"', 'inputmode="decimal"'],
   source: `
     system Shop {
       subdomain Sales {
@@ -82,7 +93,7 @@ const SCAFFOLD: Case = {
             name: string
             email: string
           }
-          valueobject LineItem { sku: string  qty: int }
+          valueobject LineItem { sku: string  qty: int  price: money }
           aggregate Order with crudish {
             total: int
             items: LineItem[]

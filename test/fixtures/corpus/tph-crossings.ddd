@@ -1,0 +1,161 @@
+// TPH (`sharedTable`) × a CAPABILITY — the crossing `tph.ddd` does not reach,
+// because its concretes are plain relational aggregates with no capability and
+// therefore no filter.
+//
+// This is a storage-layer INTERACTION, the class the pairwise inheritance axis
+// was added for: each feature is correct alone, and the crossing is what breaks.
+// Sharing a table is exactly what makes a SUBTYPE'S OWN columns nullable — only
+// rows of that `kind` populate them — so `softDeletable`'s `is_deleted` lands on
+// the shared table as a nullable column, and the `filter !this.isDeleted` the
+// capability contributes now reads a column the type system calls
+// `bool | None`.  That is pairwise F15: `mypy --strict` refused
+// `not_(Row.is_deleted)` once per emitted read on python, and nothing in the
+// curated corpus crossed capability with inheritance to say so.
+//
+// `dotnet` is deliberately absent from this fixture's manifest row: it REFUSES
+// the crossing by name (`loom.tph-filter-unsupported`), because EF Core applies
+// a query filter only to the ROOT entity type and a predicate over a non-root
+// column is not expressible there.  That is an honest gate, not a gap, and the
+// row returns the day it closes.
+//
+// NOT HERE, by decision: the sibling crossing `shape: embedded` × TPH (pairwise
+// F11 on node, F13 on python) is no longer a crossing at all — wave C2 packet 2c
+// pinned D-EMBEDDED-TPH, so an `embedded` concrete of a `sharedTable` base is
+// refused at phase ④ (`loom.es-tph-forced-own-table`) exactly like `document`
+// and `eventLog`, and the author declares `inheritanceUsing: ownTable`.  Both
+// waivers are deleted; the refusal is gated in
+// `test/language/parsing/aggregate-inheritance.test.ts`.  Python's emitters keep
+// the TPH-arms-first ordering 2e landed (mirroring the migrations builder) as a
+// floor no fixture can reach.
+system TphCrossings {
+  subdomain Depot {
+    context Depot {
+      abstract aggregate Shipment inheritanceUsing: sharedTable {
+        reference: string
+      }
+      // The subject: a SOFT-DELETABLE concrete of a shared table.  `is_deleted`
+      // and `deleted_at` are the subtype's OWN columns, so the shared table
+      // declares both nullable.
+      //
+      // `softDelete` owns the destroy, so `crudish` drops to `updateOnly`
+      // beside it — which also suppresses the canonical create, so the create is
+      // author-declared (the shape `scaffold-macros.ddd` spells out, and for the
+      // same reason: without it no row can be minted through the API and the
+      // lifecycle this fixture exists for never runs).
+      aggregate Parcel extends Shipment with crudish(updateOnly: true), softDeletable, softDelete {
+        courier: string
+        create(reference: string, courier: string) {
+          reference := reference
+          courier := courier
+        }
+      }
+      // The SIBLING discriminator, with no capability at all — the control that
+      // says the filter stays scoped to the rows of its own `kind` rather than
+      // narrowing the whole shared table.
+      aggregate Crate extends Shipment with crudish {
+        weightKg: int = 0
+      }
+      repository Parcels for Parcel {
+        // A declared find, so the capability filter has to reach a read path
+        // that is not `all` — and `paged`, because the carrier is where a
+        // read-side concern gets dropped on the way through.
+        find byCourier(c: string): Parcel paged where this.courier == c
+      }
+      repository Crates for Crate { }
+    }
+  }
+  api DepotApi from Depot
+  storage primary { type: postgres }
+  resource depotState { for: Depot, kind: state, use: primary }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Depot]
+    dataSources: [depotState]
+    serves: DepotApi
+    port: 4000
+  }
+
+  test e2e "a capability filter over a TPH-nullable column hides only its own kind's rows" against d {
+    let p = api.parcels.create({ reference: "REF-1", courier: "DHL" })
+    let c = api.crates.create({ reference: "REF-2", weightKg: 40 })
+
+    // The canonical `update` on a TPH subtype writes ONLY its own column, so
+    // the shared table must keep the BASE columns intact — and the move has to
+    // be visible through the filtered paged read, which is what proves the
+    // write reached the column the WHERE clause reads rather than just
+    // answering 204.
+    api.parcels.update(p, { courier: "UPS" })
+    let moved = api.parcels.getById(p)
+    expect(moved.courier).toBe("UPS")
+    expect(moved.reference).toBe("REF-1")
+    let gone = api.parcels.byCourier({ c: "DHL", page: 1, pageSize: 10 })
+    expect(gone.total).toBe(0)
+
+    // Both discriminators now have a row in the ONE shared table, and the
+    // capability filter is live on only one of them.
+    let listed = api.parcels.byCourier({ c: "UPS", page: 1, pageSize: 10 })
+    expect(listed.total).toBe(1)
+    expect(listed.items.length).toBe(1)
+
+    // The AUTO-findAll at the collection root, beside the DECLARED paged find:
+    // a different derivation (synthesized in enrichment, mounted at the bare
+    // root) reaching the same shared table, so it needs the `kind` predicate
+    // and the capability filter independently.  One row, not two — a reader
+    // that forgot the discriminator answers 2 here while every other assertion
+    // in this block still passes.
+    let allParcels = api.parcels.all()
+    expect(allParcels.length).toBe(1)
+
+    // The soft delete leaves the row in place — still `kind='Parcel'`, still
+    // carrying its courier — so only the filter can hide it.  A read that
+    // dropped the predicate still answers 1 here; one that AND-ed it into the
+    // page query but not the COUNT answers a total no caller can page to.
+    api.parcels.softDelete(p)
+    expect(api.parcels.getById(p)).toThrow(404)
+    let after = api.parcels.byCourier({ c: "UPS", page: 1, pageSize: 10 })
+    expect(after.items.length).toBe(0)
+    expect(after.total).toBe(0)
+    // …and through the auto-findAll too: the filter has to AND into BOTH
+    // derivations, not just the declared one.
+    let allAfter = api.parcels.all()
+    expect(allAfter.length).toBe(0)
+
+    // `restore()` is dead on arrival, on every backend, for a reason that has
+    // nothing to do with inheritance: it addresses a row the capability's own
+    // read filter is hiding, and every backend narrows an operation's
+    // load-before-write by exactly that filter.  `scaffold-macros.ddd` records
+    // the full diagnosis (RS-27) and pins the same 404 there; this line pins it
+    // on the TPH crossing too, so a repair has to move BOTH — and so that this
+    // fixture's soft-delete half is not quietly asserting a lifecycle the
+    // runtime does not have.
+    expect(api.parcels.restore(p)).toThrow(404)
+
+    // …and the sibling discriminator was never in scope of a filter that reads
+    // a column only Parcel has.  A filter hoisted to the whole shared table
+    // (rather than guarded by `kind`) empties this read too.
+    let crates = api.crates.all()
+    expect(crates.length).toBe(1)
+    let readCrate = api.crates.getById(c)
+    expect(readCrate.reference).toBe("REF-2")
+    expect(readCrate.weightKg).toBe(40)
+
+    // The sibling's own update — same shared table, the OTHER discriminator's
+    // column. A write that forgot the `kind` guard would reach the (soft-
+    // deleted, but still present) Parcel row instead.
+    api.crates.update(c, { weightKg: 55 })
+    let heavier = api.crates.getById(c)
+    expect(heavier.weightKg).toBe(55)
+    expect(heavier.reference).toBe("REF-2")
+
+    // DELETE last, because it 404s every read above.  A hard delete out of a
+    // SHARED table must remove exactly one row: the classic TPH failure is a
+    // DELETE carrying the id but not the kind (or the kind but not the id), and
+    // both empty more than they should.  The soft-deleted Parcel row is the
+    // witness — it is still physically in `shipments`, so a kind-less delete
+    // would take it too and this fixture could not tell.
+    api.crates.destroy(c)
+    expect(api.crates.getById(c)).toThrow(404)
+    let cratesAfter = api.crates.all()
+    expect(cratesAfter.length).toBe(0)
+  }
+}

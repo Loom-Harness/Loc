@@ -1,0 +1,1 @@
+context C { aggregate A { name: string  name: int } repository As for A { } }

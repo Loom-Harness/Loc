@@ -75,7 +75,7 @@ import {
 } from "../../../ir/util/aggregate-flags.js";
 import { normalizeHandlerReturn, requestRecordFor } from "../../../ir/util/handler-contracts.js";
 import { problemTitle } from "../../../ir/util/openapi-errors.js";
-import { collectReachableTypes } from "../../../ir/util/reachable-types.js";
+import { collectReachableTypes, valueObjectPool } from "../../../ir/util/reachable-types.js";
 import { walkExprDeep, walkWorkflowStmtExprsDeep } from "../../../ir/util/walk.js";
 import { resolveErrorStatus } from "../../../util/error-defaults.js";
 import { lowerFirst, plural, snake } from "../../../util/naming.js";
@@ -895,7 +895,7 @@ function renderExternHandlerImpl(h: Handler, ctx: EnrichedBoundedContextIR): str
     .filter(refersTo)
     .sort();
   const voEnumNames = [
-    ...new Set([...ctx.valueObjects.map((v) => v.name), ...ctx.enums.map((e) => e.name)]),
+    ...new Set([...valueObjectPool(ctx).map((v) => v.name), ...ctx.enums.map((e) => e.name)]),
   ]
     .filter(refersTo)
     .sort();
