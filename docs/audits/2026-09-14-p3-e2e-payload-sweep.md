@@ -54,33 +54,63 @@ Every site the gate REACHES, by what it judges — this is the denominator that 
 **Zero valid models turned red.** 1001 magic-call sites across 74 files carry a
 `test e2e` body; 444 pass an object literal.
 
-Per directory, files carrying a checked call site:
+Per directory — "walked" counts files carrying at least one `api.`/`ui.` call site the
+gate walks, derived from the IR rather than from a text search:
 
-| directory | `.ddd` tracked | with a `test e2e` | hits |
+| directory | `.ddd` tracked | walked | hits |
 |---|---|---|---|
 | `test/fixtures/` | 79 | 52 | 0 |
-| `web/src/examples/` | 64 | 10 | 0 |
-| `test/behavioral/` | 8 | 5 | 0 |
-| `examples/` | 23 | 3 | 0 |
+| `web/src/examples/` | 64 | 12 † | 0 |
+| `test/behavioral/` | 8 | 6 | 0 |
+| `examples/` | 23 | 4 | 0 |
 | `test/e2e/` | 218 | 1 | 0 |
 | `eval-clinica/` | 18 | 1 | 0 |
 | `journey/` | 5 | 0 | — |
 | `docs/audits/models/` | 4 | 0 | — |
 | `packages/` | 0 | 0 | — |
 
+† 10 parse standalone and were swept in-process; the 2 ERP project members
+(`erp/deploy.ddd` and its entry `erp/main.ddd`) through `ddd parse`.
+
+### The inline half — `.ddd` fixtures embedded in test sources
+
+Tracked `.ddd` is not the whole population: 66 `.ts` files under `test/` and `src/` carry a
+`test e2e` inside a template literal, and the first sweep did not reach them. Extracting
+every such literal (34 models; `${…}` holes substituted away) and validating each:
+
+| | |
+|---|---|
+| inline models extracted | 34 |
+| parsed and validated | 27 |
+| not parseable after hole-substitution (parameterised harness templates, each exercised by the suite itself) | 7 |
+| **hits** | **4 — all of them the firing-census fixtures added by this PR, which exist to fire exactly those four codes** |
+
+The remaining coverage comes from the suite itself: the repo refuses to emit from a model
+that fails IR validation (`generateSystemFiles`), so any inline fixture this gate reddens
+fails its own test rather than passing silently. That is how the third defect below was
+found.
+
 ### What the sweep DID find
 
-Two NON-VACUITY controls in the repo's own `test/ir/e2e-route-contract.test.ts` asserted
-*zero diagnostics* over a create body that omits a required `int`:
+**Three** inline fixtures in the repo's own tests sent a create body that omits a required
+`int`. Two are NON-VACUITY controls in `test/ir/e2e-route-contract.test.ts` asserting
+*zero diagnostics*:
 
 ```ts
 await codesFor("Order with crudish", `let o = api.orders.create({ code: "c" })`)
 // `Order` declares `code: string` AND `qty: int`
 ```
 
-They proved the route exists while sending a payload that route answers 422 to. Fixed in
-this PR by supplying `qty` — trivial, and in a file this packet owns. No shipped model
-was affected.
+They proved the route exists while sending a payload that route answers 422 to. The third
+is in `test/system/generated-vitest-projects-self-contained.test.ts`, whose *domain* test
+twenty lines above already writes the complete body — `Order.create({ code: "c", qty: 3 })`
+— while its e2e body omits `qty`. All three fixed here by supplying `qty`. **No shipped
+model was affected.**
+
+Two further tests pinned the double-report itself and now assert the surviving diagnostic:
+`test/language/validation/validation.test.ts` ("rejects `api.<known>.<unknownVerb>`") and
+`test/system/e2e-destroy-and-list.test.ts` (the NAMED-destroy case, where the routing
+message is the one that actually says what to do).
 
 ### The shapes that must stay legal — each has a test
 
