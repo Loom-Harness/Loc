@@ -197,14 +197,13 @@
     ]
    },
    "reverified": {
-    "date": "2026-09-10",
-    "against": "bc7ed8f8",
-    "method": "reconciliation 3 (packet C0.5) — repro re-run on this head, emitted output read",
-    "verdict": "reproduces",
-    "note": "RE-DERIVED at the code path: `grep -rc invariant src/generator/feliz/*.ts src/generator/flutter/*.ts` — flutter is ZERO across all 21 files, feliz's three hits are comments.  Neither consumes `ir/validate/invariant-classify.js`, which is what `src/generator/_frontend/api-module.ts:166,200` uses to derive react's `.refine(...)` / `.min(1)`.  Both self-hosting frontends still enforce presence only.",
+    "date": "2026-09-14",
+    "against": "wave C2 packet 2j (claude/c2-flutter)",
+    "method": "repro generated on the batch-2 base, emitted `lib/forms.dart` read, then the generated project compiled and RUN with a local Flutter 3.47.3 SDK (`flutter analyze`, `flutter test`)",
+    "verdict": "half closed",
+    "note": "FLUTTER HALF CLOSED.  New `src/generator/flutter/form-validators.ts` — the Dart twin of `angular/form-validators.ts` — derives per-field rules through the SAME `takeSingleFieldChain` gate the zod and Angular paths call, and denies with the SAME sentence: `singleFieldMessage` is now EXPORTED from `zod-refine.ts` rather than re-derived, so \"Priority must be at least 1\" is one string across five frontends.  `forms-emit.ts`'s `validatorArg` grows a block-bodied closure ONLY for a field that carries a rule; a rule-less field keeps the byte-identical arrow one-liner.  All eight recognised patterns render (min / max / exclusive min / exclusive max / between / len-min / len-max / len-eq / len-range / regex), length counts CODE POINTS (`s.runes.length`, not Dart's UTF-16 `s.length` — the same correction Angular made), a regex rides a Dart RAW string with a quote/newline fallback, and an operation's `precondition`s join the aggregate's invariants for an `OperationForm`.  One deliberate divergence from Angular: an AUTHORED `message \"…\"` wins over the derived sentence, which matches what a react user actually sees (the messaged rule's surviving `.refine`).  RUNTIME-proved, not just compiled: four hand-written `flutter test` widget cases drive the real `Form` — too-short title denied; out-of-range Priority + sub-bound Weight + bad Email denied together; a fully valid form denied by nothing; six emoji ACCEPTED against a `length == 6` rule (which `s.length` would have refused).  Mutation-proved twice: forcing `guards = []` in the emitter fails 6 of 8 vitest cases AND 2 of the 4 runtime widget cases (\"Found 0 widgets with text 'Title must be 3 to 40 characters'\").  The workflow fixture in `generated-flutter-build.yml` now carries four invariants — before this no case in that gate had a single one, so the whole Flutter validation fork had never been compiled by any gate.  `flutter analyze` 0 errors and `flutter test` green on it.  Gate: `test/generator/flutter/form-invariant-validation.test.ts`.  THE FELIZ HALF IS UNCHANGED and is packet 2i's row — `feliz/wire.ts`'s `Validation` module still says only \"Required\".",
     "remainingTargets": [
-     "feliz",
-     "flutter"
+     "feliz"
     ]
    }
   },

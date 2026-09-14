@@ -167,6 +167,20 @@ jobs:
                   // and, until `loom.destroy-form-of-unresolved` refused the
                   // shape, silently did not have it.
                   destroy { }
+                  // CLIENT-SIDE INVARIANT VALIDATION (M-T1.16).  Until these
+                  // landed no case in this workflow carried a single
+                  // `invariant`, so the whole Flutter validation fork — the
+                  // block-bodied `validator:` closures with their `s.runes`
+                  // code-point counts, parsed-number guards and `RegExp` raw
+                  // strings — had never been compiled by any gate.  Four
+                  // shapes, one per renderer arm: a length RANGE, an inclusive
+                  // numeric MIN, an EXCLUSIVE bound on a non-integer (which
+                  // renders `<=`, not `<`), and a REGEX carrying an authored
+                  // `message` (which wins over the derived sentence).
+                  invariant name.length >= 2 && name.length <= 60
+                  invariant price >= 1
+                  invariant unitPrice > 0
+                  invariant name.matches("^[A-Za-z0-9 ]+$") message "Name may only contain letters, digits and spaces"
                 }
                 repository Categories for Category { }
                 repository Products for Product {

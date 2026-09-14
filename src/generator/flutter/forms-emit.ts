@@ -46,6 +46,7 @@ import type {
   EnrichedBoundedContextIR,
   ExprIR,
   FieldIR,
+  InvariantIR,
   OperationIR,
   TypeIR,
   UiIR,
@@ -55,6 +56,7 @@ import { valueObjectPool } from "../../ir/util/reachable-types.js";
 import { lines } from "../../util/code-builder.js";
 import { humanize, lowerFirst, plural, snake, upperFirst } from "../../util/naming.js";
 import { STANDARD_AGG_OPS } from "../_walker/walker-core.js";
+import { type FlutterFieldRule, flutterValidatorMap, ruleGuards } from "./form-validators.js";
 
 // ---------------------------------------------------------------------------
 // Widget-name helpers — the ONE place the view seam and the class emitter agree
@@ -130,6 +132,15 @@ export interface FlutterFormField {
    *  `Addr`.  A PATH, not a single key: VO flattening is recursive, so the
    *  request body has to rebuild the same depth (`bodyAssembly`). */
   objectPath?: readonly string[];
+  /** Client-side rules derived from the aggregate's (or operation's)
+   *  wire-translatable `invariant`s — M-T1.16 / ledger row
+   *  `M-T1.16-invariant-validation-feliz-flutter`.  Empty/absent ⇒ the emitted
+   *  `validator:` is byte-identical to the emptiness-and-parseability-only
+   *  form.  Only TOP-LEVEL fields carry these: an invariant names an
+   *  aggregate/operation field, never a value-object sub-field flattened out
+   *  of one (`addrGeoLat`), whose rules live on the value object's own
+   *  invariants and are enforced server-side. */
+  rules?: FlutterFieldRule[];
   /** For an `fk-select` field, the snake-plural collection path (`categories`)
    *  its option list loads from (`GET /<collection>`); the option label is the
    *  target's derived `display` field (falling back to the row's `id`). */
@@ -497,18 +508,54 @@ function vosFromBc(bc: EnrichedBoundedContextIR | undefined): Map<string, readon
 // Spec builders
 // ---------------------------------------------------------------------------
 
+/** Attach the client-side rules an invariant set implies to the TOP-LEVEL
+ *  fields that carry them, in place.  A field flattened out of a value object
+ *  (`objectPath` non-empty) is skipped: an aggregate/operation invariant names
+ *  the value-object FIELD (`cost`), never one of its sub-fields, so there is
+ *  nothing to attach and a name collision (`amount` on two different VOs)
+ *  would otherwise mis-attach.  `available` is the same field-name set the
+ *  classifier is given, so a rule on a field the form does not render is
+ *  refused at the gate rather than dropped here. */
+function attachRules(
+  fields: FlutterFormField[],
+  invariants: readonly InvariantIR[],
+  available: ReadonlySet<string>,
+): void {
+  const byField = flutterValidatorMap(invariants, available);
+  if (byField.size === 0) return;
+  for (const f of fields) {
+    if (f.objectPath && f.objectPath.length > 0) continue;
+    const rules = byField.get(f.wireName);
+    if (rules && rules.length > 0) f.rules = rules;
+  }
+}
+
+/** An operation's `precondition` statements as invariants — the same
+ *  normalisation every wire-validator emitter does before classifying
+ *  (`_i18n/validation-catalog.ts` does it verbatim). */
+function preconditionsAsInvariants(op: OperationIR): InvariantIR[] {
+  const out: InvariantIR[] = [];
+  for (const st of op.statements) {
+    if (st.kind === "precondition")
+      out.push({ expr: st.expr, source: st.source, message: st.message });
+  }
+  return out;
+}
+
 /** Build the `FlutterFormSpec` for a `CreateForm(of: agg)`. */
 export function flutterCreateForm(
   agg: EnrichedAggregateIR,
   bc: EnrichedBoundedContextIR | undefined,
   aggregatesByName: ReadonlyMap<string, EnrichedAggregateIR>,
 ): FlutterFormSpec {
+  const inputs = createInputFields(agg);
   const { fields, dropped } = prepareFields(
-    createInputFields(agg),
+    inputs,
     enumsFromBc(bc),
     vosFromBc(bc),
     aggregatesByName,
   );
+  attachRules(fields, agg.invariants, new Set(inputs.map((i) => i.name)));
   return {
     widgetName: createFormWidgetName(agg.name),
     kind: "create",
@@ -528,12 +575,23 @@ export function flutterOperationForm(
   op: OperationIR,
   bc: EnrichedBoundedContextIR | undefined,
   aggregatesByName: ReadonlyMap<string, EnrichedAggregateIR>,
+  /** The operated-on aggregate, when resolvable — its `invariant`s join the
+   *  operation's own `precondition`s as the rule source, exactly as every wire
+   *  validator composes them.  Optional so a call site that only has the name
+   *  still type-checks; a missing aggregate means the preconditions alone are
+   *  classified. */
+  agg?: EnrichedAggregateIR,
 ): FlutterFormSpec {
   const { fields, dropped } = prepareFields(
     op.params,
     enumsFromBc(bc),
     vosFromBc(bc),
     aggregatesByName,
+  );
+  attachRules(
+    fields,
+    [...(agg?.invariants ?? []), ...preconditionsAsInvariants(op)],
+    new Set(op.params.map((pp) => pp.name)),
   );
   const opPath = snake(op.routeSlug ?? op.name);
   return {
@@ -652,7 +710,8 @@ function collectBodyForms(
   };
   const pushOp = (agg: EnrichedAggregateIR, opName: string): void => {
     const op = agg.operations.find((o) => o.name === opName && o.visibility === "public");
-    if (op) push(flutterOperationForm(agg.name, op, bcByAggregate.get(agg.name), aggregatesByName));
+    if (op)
+      push(flutterOperationForm(agg.name, op, bcByAggregate.get(agg.name), aggregatesByName, agg));
   };
   // Aggregate-typed bindings in scope, so the INSTANCE-QUALIFIED
   // `OperationForm { data.<op> }` the Detail scaffold emits inside its QueryView
@@ -1153,10 +1212,20 @@ function bodyAssembly(fields: readonly FlutterFormField[]): string[] {
 /** The `validator:` argument fragment for a text/number input (or "" when the
  *  field needs no validation). */
 function validatorArg(f: FlutterFormField): string {
+  // Rules derived from the aggregate's `invariant`s (M-T1.16).  When a field
+  // has none the one-liner arrow forms below are emitted UNCHANGED — this is
+  // the byte-identical floor, and the block-bodied closure only appears on a
+  // field that actually carries a constraint.
+  const guards = f.rules ?? [];
   if (f.kind === "text") {
-    return f.required
-      ? ", validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : null"
-      : "";
+    const extra = ruleGuards(guards, ["text"]);
+    if (extra.length === 0) {
+      return f.required
+        ? ", validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : null"
+        : "";
+    }
+    const empty = f.required ? "return 'Required';" : "return null;";
+    return `, validator: (v) { final s = (v ?? '').trim(); if (s.isEmpty) { ${empty} } ${extra.join(" ")} return null; }`;
   }
   if (f.money) {
     // Money submits the typed text verbatim, so the validator has to be the
@@ -1164,15 +1233,37 @@ function validatorArg(f: FlutterFormField): string {
     // `double.tryParse` accepts `1e5`, which the backend's
     // `^-?\d+(\.\d+)?$` schema rejects with a 422 the user cannot read.
     const ok = `${MONEY_TEXT_PATTERN}.hasMatch(v.trim())`;
-    return f.required
-      ? `, validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : (${ok} ? null : 'Enter an amount')`
-      : `, validator: (v) => (v == null || v.trim().isEmpty) ? null : (${ok} ? null : 'Enter an amount')`;
+    // A money invariant never passes `classifyForWire` (the classifier refuses
+    // a money operand), so `guards` is empty here today; the parse guard below
+    // keeps the shape honest if that ever widens.
+    const extra = ruleGuards(guards, ["text", "number"]);
+    if (extra.length === 0) {
+      return f.required
+        ? `, validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : (${ok} ? null : 'Enter an amount')`
+        : `, validator: (v) => (v == null || v.trim().isEmpty) ? null : (${ok} ? null : 'Enter an amount')`;
+    }
+    const emptyM = f.required ? "return 'Required';" : "return null;";
+    return (
+      `, validator: (v) { final s = (v ?? '').trim(); if (s.isEmpty) { ${emptyM} } ` +
+      `if (!${MONEY_TEXT_PATTERN}.hasMatch(s)) { return 'Enter an amount'; } ` +
+      `final n = double.parse(s); ${extra.join(" ")} return null; }`
+    );
   }
   const parse = f.kind === "number-int" ? "int.tryParse" : "double.tryParse";
-  if (f.required) {
-    return `, validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : (${parse}(v) == null ? 'Enter a number' : null)`;
+  // A numeric input binds BOTH locals, so a length/regex rule on it evaluates
+  // too — the classifier can only produce one if the declared type allowed it.
+  const extra = ruleGuards(guards, ["text", "number"]);
+  if (extra.length === 0) {
+    if (f.required) {
+      return `, validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : (${parse}(v) == null ? 'Enter a number' : null)`;
+    }
+    return `, validator: (v) => (v == null || v.trim().isEmpty) ? null : (${parse}(v) == null ? 'Enter a number' : null)`;
   }
-  return `, validator: (v) => (v == null || v.trim().isEmpty) ? null : (${parse}(v) == null ? 'Enter a number' : null)`;
+  const emptyN = f.required ? "return 'Required';" : "return null;";
+  return (
+    `, validator: (v) { final s = (v ?? '').trim(); if (s.isEmpty) { ${emptyN} } ` +
+    `final n = ${parse}(s); if (n == null) { return 'Enter a number'; } ${extra.join(" ")} return null; }`
+  );
 }
 
 /** The Flutter input widget for one field (a single build-children element). */
