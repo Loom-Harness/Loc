@@ -131,6 +131,19 @@ export interface FelizRead {
    *  `aggregate` carries the PROJECTION name for such a read — it is only ever
    *  used for naming (field / decoder / api fn), never to look an aggregate up. */
   projection?: boolean;
+  /** A read-only WORKFLOW-INSTANCE read (`<Wf>.instances.all` /
+   *  `<Wf>.instances.byId(id)`, workflow-instance-visibility.md) rather than an
+   *  aggregate read.  The scaffold synthesises `<Wf>InstancesList` /
+   *  `<Wf>InstanceDetail` pages for every observable workflow and their bodies
+   *  read exactly these two, so the collector must produce them: without this
+   *  branch the pages still WALKED (the view emits `model.AllWs`) while the
+   *  `Model` record — built from `reads` — declared no such field, and
+   *  `dotnet fable` refused the whole frontend with "The type 'Model' does not
+   *  define the field, constructor or member 'AllWs'".
+   *
+   *  `aggregate` carries the WORKFLOW name for such a read; like `projection`
+   *  it is used for naming only, never to look an aggregate up. */
+  workflowInstance?: boolean;
   /** SERVER-paged list read (M-T2.6) — present when the hosting `QueryView`'s
    *  `of:` threads page/sort controls, which is what a scaffolded list page
    *  emits.  Absent for a plain `.all` (an FK-select's option source, a
@@ -242,9 +255,14 @@ export function findFieldName(aggregate: string, findName: string): string {
  *  the parameter's F# spelling and the expression that turns it into its query
  *  string value. */
 export interface FelizFindParam {
-  /** Declared parameter name — also the query-string key the backends read
-   *  (`GET /<aggs>/<find>?<name>=…`, the contract the JS clients already call). */
+  /** Declared parameter name — also the query-string KEY the backends read
+   *  (`GET /<aggs>/<find>?<name>=…`, the contract the JS clients already call).
+   *  Never escaped: the wire key is the declared name. */
   name: string;
+  /** The same parameter as an F# BINDER — `name`, double-backtick-escaped when
+   *  it collides with an F# keyword (`find byMember(member: string)` binds
+   *  `` ``member`` ``).  `queryValue` is phrased in terms of this. (F-022.) */
+  fsName: string;
   /** F# type of the parameter in the api fn signature (`string` / `int` / …),
    *  spelled off the WIRE type so an enum arrives as its string name. */
   fsType: string;
@@ -433,8 +451,9 @@ export function felizFindRead(
   }
   const params = find.params.map((p) => ({
     name: p.name,
+    fsName: fsIdent(p.name),
     fsType: wireFieldType(p.type),
-    queryValue: findParamQueryValue(p.type, agg, find.name, p.name),
+    queryValue: findParamQueryValue(p.type, agg, find.name, fsIdent(p.name)),
   }));
   if (argExprs.length !== params.length) {
     throw new Error(
@@ -553,6 +572,64 @@ export function felizProjectionRead(proj: ProjectionIR): FelizRead {
     single: false,
     projection: true,
     listShaped: many,
+  };
+}
+
+/** The F# record a workflow-INSTANCE read decodes into (`FulfillmentInstance`)
+ *  — built from the workflow's `instanceWireShape`, the same shape the backends
+ *  serve `GET /api/workflows/<wf>/instances` from and the other frontends'
+ *  `<Wf>InstanceResponse` is built from, so the three cannot drift. */
+export function workflowInstanceType(workflow: string): string {
+  return `${upperFirst(workflow)}Instance`;
+}
+
+/** Collection base route for a workflow's instance reads
+ *  (`/api/workflows/fulfillment/instances`); the byId fetch appends `/%s`. */
+function workflowInstancesRoute(workflow: string): string {
+  return `${API_BASE_PATH}/workflows/${snake(workflow)}/instances`;
+}
+
+/** Build the `FelizRead` for `<Wf>.instances.all` — the list the scaffolded
+ *  `<Wf>InstancesList` page reads (workflow-instance-visibility.md).  Shaped
+ *  like a plain `.all`: init-fired, id-less, `Remote<'T list>`. */
+export function felizWorkflowInstancesRead(workflow: string): FelizRead {
+  const field = readFieldName(workflow);
+  const row = workflowInstanceType(workflow);
+  return {
+    field,
+    msgCase: `${field}Loaded`,
+    apiFn: lowerFirst(field),
+    aggregate: workflow,
+    resultType: `${row} list`,
+    decoderExpr: `(Decode.list Decoders.${fsIdent(lowerFirst(row))})`,
+    route: workflowInstancesRoute(workflow),
+    binding: lowerFirst(field),
+    single: false,
+    listShaped: true,
+    workflowInstance: true,
+  };
+}
+
+/** Build the `FelizRead` for `<Wf>.instances.byId(id)`, hosted by the `Page`
+ *  case `pageCase` — the scaffolded `<Wf>InstanceDetail` page.  Page-entry
+ *  keyed off the route id and `Remote<'T option>`, exactly like an aggregate
+ *  `byId`. */
+export function felizWorkflowInstanceByIdRead(workflow: string, pageCase: string): FelizRead {
+  const field = byIdFieldName(workflow);
+  const row = workflowInstanceType(workflow);
+  return {
+    field,
+    msgCase: `${field}Loaded`,
+    apiFn: lowerFirst(field),
+    aggregate: workflow,
+    resultType: `${row} option`,
+    decoderExpr: `(Decode.option Decoders.${fsIdent(lowerFirst(row))})`,
+    route: workflowInstancesRoute(workflow),
+    binding: lowerFirst(field),
+    single: true,
+    listShaped: false,
+    pageCase,
+    workflowInstance: true,
   };
 }
 
@@ -1487,6 +1564,7 @@ export function collectPageReads(
   bcByAggregate: ReadonlyMap<string, BoundedContextIR> = new Map(),
   projectionsByName: ReadonlySet<string> = new Set(),
   projectionIRs: ReadonlyMap<string, ProjectionIR> = new Map(),
+  workflowIRs: ReadonlyMap<string, WorkflowIR> = new Map(),
 ): FelizRead[] {
   if (!page.body) return [];
   // The byId read is keyed to the hosting page's `Page` case, which is the
@@ -1498,6 +1576,7 @@ export function collectPageReads(
     bcByAggregate,
     projectionsByName,
     projectionIRs,
+    workflowIRs,
   });
 }
 
@@ -1520,6 +1599,7 @@ export function collectComponentReads(
   bcByAggregate: ReadonlyMap<string, BoundedContextIR> = new Map(),
   projectionsByName: ReadonlySet<string> = new Set(),
   projectionIRs: ReadonlyMap<string, ProjectionIR> = new Map(),
+  workflowIRs: ReadonlyMap<string, WorkflowIR> = new Map(),
 ): FelizRead[] {
   if (!component.body) return [];
   return collectBodyReads(component.body, component, undefined, {
@@ -1528,6 +1608,7 @@ export function collectComponentReads(
     bcByAggregate,
     projectionsByName,
     projectionIRs,
+    workflowIRs,
   });
 }
 
@@ -1545,14 +1626,31 @@ function collectBodyReads(
     bcByAggregate: ReadonlyMap<string, BoundedContextIR>;
     projectionsByName: ReadonlySet<string>;
     projectionIRs: ReadonlyMap<string, ProjectionIR>;
+    workflowIRs: ReadonlyMap<string, WorkflowIR>;
   },
 ): FelizRead[] {
-  const { apiParamNames, aggregatesByName, bcByAggregate, projectionsByName, projectionIRs } =
-    lookups;
+  const {
+    apiParamNames,
+    aggregatesByName,
+    bcByAggregate,
+    projectionsByName,
+    projectionIRs,
+    workflowIRs,
+  } = lookups;
   // `projectionsByName` arms the detector's Pattern H (`<apiHandle>.<Proj>`).
   // Defaulted to empty so every existing caller keeps its output byte-identical:
   // absent, Pattern H is inert and only aggregate reads are collected.
-  const detCtx = { apiParamNames, aggregatesByName, projectionsByName };
+  // `workflowsByName` arms the detector's Patterns F/G (`<Wf>.instances.all` /
+  // `.byId(id)`).  Omitting it is what made the scaffolded workflow-instance
+  // pages walk into `model.All<Wf>s` with no Model field behind it — the
+  // detector simply never matched, so the collector produced no read while the
+  // VIEW (whose walk context DOES carry the workflows) rendered one.
+  const detCtx = {
+    apiParamNames,
+    aggregatesByName,
+    projectionsByName,
+    workflowsByName: workflowIRs,
+  };
   const pagedCtx = { ...detCtx, bcByAggregate };
   const out: FelizRead[] = [];
   const seen = new Set<string>();
@@ -1567,6 +1665,29 @@ function collectBodyReads(
       if (!out.some((r) => r.field === projRead.field)) {
         seen.add(projRead.field);
         out.push(projRead);
+      }
+      continue;
+    }
+    // A read-only WORKFLOW-INSTANCE read (Patterns F/G) — the two reads the
+    // scaffold's `<Wf>InstancesList` / `<Wf>InstanceDetail` pages issue.  Its
+    // row type is the workflow's `instanceWireShape`, emitted alongside the
+    // aggregate records by `renderWireTypes`.
+    if (detected?.kind === "workflow-instance") {
+      const wf = workflowIRs.get(detected.aggregateName);
+      // An observable workflow always carries the shape (the macro only
+      // scaffolds instance pages for one that does); without it there is no
+      // record to decode into, so skip rather than emit an undecodable read.
+      if (!wf || (wf.instanceWireShape ?? []).length === 0) continue;
+      const wfRead =
+        detected.operation === "all"
+          ? felizWorkflowInstancesRead(wf.name)
+          : pageCase !== undefined
+            ? felizWorkflowInstanceByIdRead(wf.name, pageCase)
+            : undefined;
+      if (!wfRead) continue;
+      if (!out.some((r) => r.field === wfRead.field)) {
+        seen.add(wfRead.field);
+        out.push(wfRead);
       }
       continue;
     }
@@ -2395,7 +2516,7 @@ function felizAsyncEffect(
   const params: FelizAsyncParam[] = op.params.map((p, i) => ({
     // The op param name reads best as the F# binder (`note`), except when it
     // collides with the route `id` param already curried into the api fn.
-    name: p.name === "id" ? "idArg" : p.name,
+    name: p.name === "id" ? "idArg" : fsIdent(p.name),
     fsType: wireFieldType(p.type),
     encoder: paramEncoder(p.type),
     jsonKey: p.name,
@@ -2876,6 +2997,31 @@ export function renderWireTypes(
     });
   }
 
+  // Workflow-INSTANCE records (workflow-instance-visibility.md) — the row the
+  // scaffolded `<Wf>InstancesList` / `<Wf>InstanceDetail` pages decode, built
+  // from the workflow's `instanceWireShape` (the same shape the backends serve
+  // `GET /api/workflows/<wf>/instances` from).  Like the projection rows above,
+  // a workflow-instance read's `aggregate` is the WORKFLOW name and resolves to
+  // no aggregate, so its record is added here.
+  const wfByName = new Map<string, WorkflowIR>();
+  for (const c of contexts) for (const w of c.workflows) wfByName.set(w.name, w);
+  for (const r of reads) {
+    if (!r.workflowInstance) continue;
+    const wf = wfByName.get(r.aggregate);
+    const typeName = workflowInstanceType(r.aggregate);
+    if (!wf || seenRecord.has(typeName)) continue;
+    seenRecord.add(typeName);
+    records.push({
+      typeName,
+      decoderName: fsIdent(lowerFirst(typeName)),
+      fields: (wf.instanceWireShape ?? []).map((f) => ({
+        name: f.name,
+        type: f.type,
+        optional: f.optional,
+      })),
+    });
+  }
+
   if (records.length === 0) return { domain: "", decoders: "" };
 
   // A field is optional from EITHER signal — the wire-shape `optional` flag or
@@ -2905,7 +3051,11 @@ export function renderWireTypes(
       "  {",
       ...r.fields.map((f) => {
         const base = wireFieldType(fieldBase(f));
-        return `    ${f.name}: ${fieldOptional(f) ? `${base} option` : base}`;
+        // The F# FIELD NAME is escaped (`` ``member`` ``) when it collides with
+        // an F# keyword; the JSON key it decodes from (below) is NOT — a
+        // double-backtick identifier is lexically the same name, so the wire is
+        // untouched.  F-022.
+        return `    ${fsIdent(f.name)}: ${fieldOptional(f) ? `${base} option` : base}`;
       }),
       "  }",
     ]),
@@ -2925,7 +3075,7 @@ export function renderWireTypes(
         // module is being defined); `decoderExprFor` qualifies it for external
         // callers, so strip the self-module prefix here.
         const dec = decoderExprFor(fieldBase(f)).replaceAll("Decoders.", "");
-        return `        ${f.name} = ${
+        return `        ${fsIdent(f.name)} = ${
           fieldOptional(f)
             ? `get.Optional.Field "${f.name}" ${dec}`
             : `get.Required.Field "${f.name}" ${dec}`
@@ -2951,7 +3101,7 @@ function renderApiFn(r: FelizRead): (string | undefined)[] {
   // single-RECORD find still folds `404` to `Ok None` like a byId.
   if (r.find) {
     const ps = r.find.params;
-    const sig = ps.length === 0 ? "()" : ps.map((p) => `(${p.name}: ${p.fsType})`).join(" ");
+    const sig = ps.length === 0 ? "()" : ps.map((p) => `(${p.fsName}: ${p.fsType})`).join(" ");
     const url =
       ps.length === 0
         ? `"${r.route}"`

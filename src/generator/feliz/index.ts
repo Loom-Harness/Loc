@@ -74,6 +74,7 @@ import {
   storeMsgCase,
   usesRouteIdFn,
 } from "./fs-expr.js";
+import { fsIdent } from "./fs-ident.js";
 import { FELIZ_INTL_MESSAGEFORMAT, felizI18nEnabled, renderFelizI18nModule } from "./i18n.js";
 import { felizPack } from "./pack.js";
 import { felizRealtimeRefetchAggregates, renderFelizRealtime } from "./realtime.js";
@@ -232,15 +233,15 @@ function dispatchWrappers(
       const effect = asyncEffectActions.get(a.name);
       if (effect) {
         if (effect.params.length === 0) {
-          return `    let ${a.name} () = dispatch (${msgCase(a.name)} id)`;
+          return `    let ${fsIdent(a.name)} () = dispatch (${msgCase(a.name)} id)`;
         }
         const args = effect.params.map((p) => renderFsExpr(p.argExpr, argCtx)).join(", ");
-        return `    let ${a.name} () = dispatch (${msgCase(a.name)} (id, ${args}))`;
+        return `    let ${fsIdent(a.name)} () = dispatch (${msgCase(a.name)} (id, ${args}))`;
       }
       const p = a.params[0]?.name;
       return p
-        ? `    let ${a.name} ${p} = dispatch (${msgCase(a.name)} ${p})`
-        : `    let ${a.name} () = dispatch ${msgCase(a.name)}`;
+        ? `    let ${fsIdent(a.name)} ${fsIdent(p)} = dispatch (${msgCase(a.name)} ${fsIdent(p)})`
+        : `    let ${fsIdent(a.name)} () = dispatch ${msgCase(a.name)}`;
     });
 }
 
@@ -354,7 +355,7 @@ function pageDerivedBinds(page: PageIR): { binds: string[]; names: Set<string> }
     }
     // Visible to the NEXT derived — as a bare local, which is what a `let` is.
     locals.add(d.name);
-    binds.push(`    let ${d.name} = ${fs}`);
+    binds.push(`    let ${fsIdent(d.name)} = ${fs}`);
   }
   return { binds, names: locals };
 }
@@ -856,6 +857,12 @@ function readsForUi(ui: UiIR, contexts: EnrichedBoundedContextIR[]): FelizRead[]
   const projectionIRs = new Map(
     contexts.flatMap((c) => (c.projections ?? []).map((p) => [p.name, p] as const)),
   );
+  // The WORKFLOWS, by name — arms the detector's workflow-instance patterns, so
+  // the scaffold's `<Wf>InstancesList` / `<Wf>InstanceDetail` pages contribute
+  // the Model fields their bodies read (F-023).
+  const workflowIRs = new Map(
+    contexts.flatMap((c) => c.workflows.map((w) => [w.name, w] as const)),
+  );
   for (const page of ui.pages) {
     for (const r of collectPageReads(
       page,
@@ -865,6 +872,7 @@ function readsForUi(ui: UiIR, contexts: EnrichedBoundedContextIR[]): FelizRead[]
       bcByAggregate,
       projectionNames,
       projectionIRs,
+      workflowIRs,
     )) {
       if (seen.has(r.field)) continue;
       seen.add(r.field);
@@ -885,6 +893,7 @@ function readsForUi(ui: UiIR, contexts: EnrichedBoundedContextIR[]): FelizRead[]
       bcByAggregate,
       projectionNames,
       projectionIRs,
+      workflowIRs,
     )) {
       if (seen.has(r.field)) continue;
       seen.add(r.field);

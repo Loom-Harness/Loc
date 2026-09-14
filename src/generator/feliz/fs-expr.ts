@@ -21,6 +21,7 @@ import { intrinsicFor, intrinsicKey } from "../../util/intrinsics.js";
 import { upperFirst } from "../../util/naming.js";
 import { DURATION_UNIT_MS } from "../../util/temporal.js";
 import { isIntDivWidenedToDecimal } from "../_expr/target.js";
+import { fsIdent } from "./fs-ident.js";
 
 /** F# spelling of a Loom binary operator. */
 function fsBinOp(op: BinOp): string {
@@ -555,9 +556,14 @@ export function renderFsExpr(e: ExprIR, ctx: FsExprCtx): string {
       // quoted name — the same answer `auth-gate.ts` gives.  The bare name this
       // used to emit was an F# identifier nothing binds.
       if (e.refKind === "enum-value") return JSON.stringify(e.name);
-      if (ctx.locals.has(e.name)) return e.name;
+      // A local / component-param / action-param binding keeps its DSL name, so
+      // an F#-keyword name needs the double-backtick spelling at every use, the
+      // same one `component-emit.ts` gives the binding site.  (`upperFirst` on
+      // the state branch is already keyword-safe: every F# keyword is
+      // lowercase.)  F-022.
+      if (ctx.locals.has(e.name)) return fsIdent(e.name);
       if (ctx.stateNames.has(e.name)) return `${ctx.modelExpr ?? "model"}.${upperFirst(e.name)}`;
-      return e.name;
+      return fsIdent(e.name);
     case "binary": {
       const left = r(e.left);
       const right = r(e.right);
@@ -629,7 +635,9 @@ export function renderFsExpr(e: ExprIR, ctx: FsExprCtx): string {
       // the MVU update path and the view path land on the same field with no
       // casing seam.  (`upperFirst` here was a latent bug — no member access
       // reached this arm until the async-effect renderer landed.)
-      return `${r(e.receiver)}.${e.member}`;
+      // …escaped when the field name is an F# keyword (`row.``member``) — the
+      // update path's twin of the view walker's `renderMemberRead`.  F-022.
+      return `${r(e.receiver)}.${fsIdent(e.member)}`;
     }
     case "call":
       return `${e.name}(${e.args.map(r).join(", ")})`;
