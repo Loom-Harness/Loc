@@ -89,7 +89,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.workflow-handle-unsupported",
     kind: "gap",
-    site: "src/ir/validate/checks/workflow-checks.ts:292",
+    site: "src/ir/validate/checks/workflow-checks.ts:294",
     what:
       "`handle name(…) { … }`, the multi-command saga continuation, is emitted by NO backend — " +
       "not a route, not a handler, not a method.  It was silent before M-T5.34 (audit #2864 D5): " +
@@ -759,7 +759,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.workflow-load-array-unsupported",
     kind: "scope",
-    site: "src/ir/validate/checks/workflow-checks.ts:852",
+    site: "src/ir/validate/checks/workflow-checks.ts:919",
     what: "workflow load of an array result — v1 is single non-nullable",
     verified: true,
   },
@@ -781,7 +781,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.workflow-load-nullable-unsupported",
     kind: "scope",
-    site: "src/ir/validate/checks/workflow-checks.ts:865",
+    site: "src/ir/validate/checks/workflow-checks.ts:932",
     what: "workflow load of a nullable result — v1 is single non-nullable",
     verified: true,
   },
