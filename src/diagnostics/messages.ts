@@ -1018,6 +1018,14 @@ export const DIAGNOSTIC_MESSAGES = {
     `'${p.member}' is not a member of '${p.record}'.`,
   "loom.unknown-user-claim": (p: { member: unknown; claims: unknown }) =>
     `'${p.member}' is not a claim on the principal. 'currentUser' carries exactly the fields declared in the system's 'user { }' block (${p.claims}), plus the derived 'orgPath' / 'rootOrg' under 'tenancy by'. Declare it ('${p.member}: <type>' inside 'user { }') or fix the spelling — an undeclared claim reaches the generated backend verbatim, whose 'UserClaims' shape is built from that same block, and breaks its own compile.`,
+  "loom.unknown-primitive-member": (p: { member: unknown; prim: unknown; known: unknown }) =>
+    `'${p.member}' is not a member of '${p.prim}'. '${p.prim}' is a PRIMITIVE value, not a record — it has no fields.${p.known} An invented member is not caught anywhere downstream: it reaches the generated code verbatim, where node/.NET/Java fail their own compile and python/elixir do not — so an invariant written over one silently never fires.`,
+  "loom.unknown-primitive-member#money": (p: { member: unknown; known: unknown }) =>
+    `'${p.member}' is not a member of 'money'. 'money' is a PRIMITIVE — a precise decimal (decimal.js / decimal / BigDecimal / Decimal per backend), not a record: it carries an amount and nothing else, so it has no '.amount' and no '.currency' to read.${p.known} Compare or arithmetic the value directly ('limit > deductible'); if you wanted a record, declare one and use it as the field's type — 'valueobject Money { amount: money currency: string }'. Left un-rejected, '.${p.member}' reaches the generated code verbatim: node/.NET/Java fail their own compile, python/elixir do not, so an invariant over it silently never fires.`,
+  "loom.unknown-primitive-member#json": (p: { member: unknown }) =>
+    `'${p.member}' is not a member of 'json'. 'json' is an OPAQUE blob — Loom does not model its interior, so no member of it can be typed, validated, or rendered. Declare a 'valueobject' (or an entity part) when the shape is known, and keep 'json' for genuinely freeform payloads.`,
+  "loom.unknown-primitive-member#file": (p: { member: unknown }) =>
+    `'${p.member}' is not a member of 'File'. A 'File' field carries a wire-only REFERENCE — its '{ url, key, contentType, size }' shape is emitted at the boundary, but Loom does not expose those members to expressions on any backend, so '.${p.member}' would be rendered verbatim into code that has no such value. Pass the whole 'File' value to the primitive that renders it ('FileLink { a.attachment }' downloads it, 'FileUpload' writes it); if you need a member in domain logic, store it as its own field.`,
   "loom.collection-op-in-ui#avg":
     "collection op '.avg' isn't available in a page body — the frontends render the " +
     "ops that RESHAPE a collection (count, where, any, all, map, sortBy, take, skip, " +
