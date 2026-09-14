@@ -257,6 +257,27 @@ function isBackendPlatform(platform: string): boolean {
  *  bounded-context name that owns the aggregate.  Returns undefined
  *  if no context declares an aggregate whose plural-snake name
  *  matches the slug. */
+/** Does `slug` name this aggregate in an e2e body?
+ *
+ *  ONE definition, because there used to be two and they disagreed.
+ *  `findAggregateBySlug` accepted three spellings; `findContextForSlug`
+ *  accepted only `snake(plural(name))`.  For a single-word aggregate those
+ *  coincide (`Bar` → `bars` either way), so the divergence was invisible —
+ *  until a MULTI-WORD name, where `lowerFirst(plural())` is `workOrders` and
+ *  `snake(plural())` is `work_orders`.  `findContextForSlug` then returned
+ *  undefined, `requiredContexts` stayed empty, the cover-check in
+ *  `compatibleBackends` passed VACUOUSLY for every backend, and the test was
+ *  replayed against a deployable that does not host the aggregate — where
+ *  `findAggregateBySlug` threw a raw Node stack trace out of `ddd generate`
+ *  on a model that had just validated `0 error(s), 0 warning(s)` (F-012). */
+function slugNamesAggregate(slug: string, aggName: string): boolean {
+  return (
+    lowerFirst(aggName) === slug ||
+    snake(plural(aggName)) === slug ||
+    lowerFirst(plural(aggName)) === slug
+  );
+}
+
 function findContextForSlug(
   slug: string,
   modulesByName: Map<string, SubdomainIR>,
@@ -264,7 +285,7 @@ function findContextForSlug(
   for (const m of modulesByName.values()) {
     for (const c of m.contexts) {
       for (const a of c.aggregates) {
-        if (snake(plural(a.name)) === slug) return c.name;
+        if (slugNamesAggregate(slug, a.name)) return c.name;
       }
       // A folded projection's read verbs (`byKey`/`list`) reference it by its
       // own slug (`lowerFirst`/`snake` of the name), so a projection-only e2e
@@ -860,9 +881,7 @@ function findProjectionBySlug(
 function findAggregateBySlug(slug: string, contexts: BoundedContextIR[]): AggregateIR | undefined {
   for (const c of contexts) {
     for (const a of c.aggregates) {
-      if (lowerFirst(a.name) === slug) return a;
-      if (snake(plural(a.name)) === slug) return a;
-      if (lowerFirst(plural(a.name)) === slug) return a;
+      if (slugNamesAggregate(slug, a.name)) return a;
     }
   }
   return undefined;

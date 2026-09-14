@@ -922,6 +922,18 @@ export const DIAGNOSTIC_MESSAGES = {
   "loom.unknown-permission": (p: { name: unknown }) =>
     `permissions.${p.name}: no permission named '${p.name}' is declared in this subdomain's 'permissions { ... }' block. ` +
     `Either add the declaration or fix the reference.`,
+  // A `ui` is a system member, so it sees the union of every subdomain's
+  // catalogue rather than one subdomain's — which means the name can fail to
+  // resolve for a SECOND reason the context-scoped wording cannot express: two
+  // subdomains declaring the same bare name give different runtime strings
+  // (`sales.read` / `billing.read`), and binding the gate to whichever lowered
+  // first would silently gate the page on the wrong subdomain's permission.
+  "loom.unknown-permission#ui": (p: { name: unknown }) =>
+    `permissions.${p.name}: no permission named '${p.name}' resolves from a 'ui'. ` +
+    `A ui sees every subdomain's 'permissions { ... }' catalogue, so either no subdomain ` +
+    `declares '${p.name}', or more than one does and the bare name is ambiguous — ` +
+    `two subdomains declaring it produce different runtime strings. ` +
+    `Declare it in exactly one subdomain, or rename so the gate names a single permission.`,
 
   // ----------------------------------------------------------------------
   // src/language/validators/template.ts

@@ -163,7 +163,7 @@ function usedNames(src: string): Map<string, number> {
 }
 
 /** Every unresolved capitalised name in a generated file map's `.py` files. */
-export function unresolvedPythonNames(files: Map<string, string>): string[] {
+function unresolvedPythonNames(files: Map<string, string>): string[] {
   const out: string[] = [];
   for (const [path, raw] of files) {
     if (!path.endsWith(".py")) continue;

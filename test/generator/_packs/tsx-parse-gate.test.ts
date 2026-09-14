@@ -57,6 +57,20 @@ system X {
         st: St
         weight: int
         derived display: string = "t"
+        // Operations named after TS/JS RESERVED WORDS.  "void an invoice"
+        // and "import a batch" are ordinary domain verbs, and the DSL accepts
+        // them — but the scaffolded detail page binds one local per operation
+        // named lowerFirst(op.name), so operation void() emitted
+        //     const void = useVoidTicket(id ?? "");
+        // which is TS1389 plus two cascading TS1109s, while generation still
+        // reported 0 error(s), 0 warning(s) (F-016).  Every pack renders that
+        // binding from the same opCamel template variable, so this is also
+        // where a pack that mangled it differently would show up.
+        // (An operation named import is refused by the grammar, so the
+        // three here are the ones a model can actually carry.)
+        operation void() { weight := 0 }
+        operation default() { weight := 1 }
+        operation typeof() { weight := 2 }
       }
       repository Tickets for Ticket { }
       projection ByStatus {

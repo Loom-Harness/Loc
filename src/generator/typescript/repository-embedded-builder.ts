@@ -117,7 +117,13 @@ export function buildEmbeddedRepositoryFile(
     drizzleOps.add("asc");
     drizzleOps.add("desc");
   }
-  for (const f of repo?.finds ?? []) {
+  // Declared finds AND the finds synthesised for query-time projections sourced
+  // from this aggregate (line ~183 emits a method for each, from this same
+  // list).  A projection carries its `where` as the synthesised find's filter,
+  // so its operators belong on this import line exactly as a declared find's
+  // do — omitting them emitted `.where(ne(…))` into a module importing only
+  // `and, eq, inArray` (F-013, the `shape: embedded` half).
+  for (const f of [...(repo?.finds ?? []), ...synthProjectionFinds(agg.name, ctx)]) {
     if (!f.filter) continue;
     const lowered = lowerToDrizzle(f.filter, tableName, ctx);
     if (lowered) for (const op of lowered.ops) drizzleOps.add(op);

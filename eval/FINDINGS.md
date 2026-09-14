@@ -474,6 +474,22 @@ a model that passed validation — so it would land in CI, not in the editor. An
 did not predict is a class problem: it means the "validated before emission" guarantee has holes.
 Time lost: 25 min.
 
+> **UPDATE (2026-09-14) — fixed, and it uncovered a silent sibling.**  `permissions { … }` is a
+> SUBDOMAIN member while a `ui` is a SYSTEM member, and `lowerUi` took no catalogue — so the
+> `permissions.<name>` → string-literal rewrite never fired for a page gate, `permissions` stayed
+> `refKind: "unknown"`, and `renderGateExpr` (deliberately closed to currentUser + constants) threw.
+> `lowerUi`/`lowerPage` now receive the system-wide catalogue, and the gate renders
+> `currentUser.permissions.includes("s.read")` — the same runtime string the backend compares.
+>
+> A ui is not scoped to one subdomain, so the catalogue is a UNION, and a bare name two subdomains
+> declare differently (`sales.read` / `billing.read`) is genuinely ambiguous.  Binding it to whichever
+> lowered first would silently gate the page on the wrong permission; leaving it at the lowering
+> sentinel renders a literal no principal can hold, permanently forbidding the page with nothing said.
+> **Both are silent authorization outcomes.**  So ambiguous names are dropped from the catalogue and a
+> new ui-side walk (`validateUiPermissionRefs`) reports the sentinel as `loom.unknown-permission#ui` —
+> `validatePermissionRefs` walked only CONTEXT bodies, so a misspelled permission in a page gate had
+> never been reported either.  Mutation-proved in both directions.
+
 ### F-012 — Codegen CRASHES on an e2e test naming a multi-word aggregate when a second backend deployable exists
 Severity: S2 (major)   Class: **crash where a diagnostic belongs** (validator says OK, generator throws)
 Area: system / e2e multi-backend replay
@@ -513,6 +529,21 @@ Time lost: 45 min (including building four wrong minimal repros before finding t
 All three were found by running `tsc --noEmit` on the output of a model that `ddd parse` and
 `ddd generate system` both accepted with **exit code 0**. None produced any diagnostic.
 
+> **UPDATE (2026-09-14) — fixed, and the cause is not the one the title implies.**  Two functions in
+> `e2e-render.ts` matched the same slug differently: `findAggregateBySlug` accepted three spellings,
+> `findContextForSlug` only `snake(plural(name))`.  For a single-word aggregate those coincide
+> (`Bar` → `bars` either way), which is why 67 corpus fixtures never separated them.  For a
+> multi-word one they diverge — `workOrders` vs `work_orders` — so `findContextForSlug` returned
+> undefined, `requiredContexts` stayed EMPTY, and the cover check `[...requiredContexts].every(…)`
+> was **vacuously true for every backend**.  The test was then replayed against a deployable hosting
+> a different context, where `findAggregateBySlug` threw.
+>
+> So the crash is a symptom of a vacuous `every()` over an empty set, and the multi-word name is only
+> what makes the two matchers disagree.  They are now one predicate, `slugNamesAggregate`.
+> `e2e-multiword-slug-replay.test.ts` pins the REPLAY SET (exactly `["api"]`, not "does not contain
+> other" — which would pass on a spec with no tests at all) and keeps a single-word control that was
+> green before and stays green, so the fix is shown to change only the case it claims.
+
 ### F-013 — `!=` in a projection/criterion `where` emits `ne(...)` without importing it
 Severity: **S1** (generated output does not compile)   Class: **SILENT**
 Area: generator / node (Hono + Drizzle) / repository emitter
@@ -540,6 +571,20 @@ build. This is the exact failure mode a buyer must assume exists elsewhere: the 
 per-PR gates typecheck the *frontend* and compile the example corpus, so a construct outside that
 corpus can ship broken.
 Time lost: 20 min.
+
+> **UPDATE (2026-09-14) — fixed here, in TWO builders, and the corpus now reaches it.**
+> A projection's `where` is carried as the filter of a find SYNTHESISED by `synthProjectionFinds`.
+> `repository-builder.ts` derived its `drizzle-orm` import line from the DECLARED finds and computed
+> the synthesised ones AFTERWARDS, so their operators never reached the import set; the
+> `shape: embedded` builder had the same omission, found by looking rather than by the repro.  Both
+> now walk declared + synthesised together.
+>
+> The reach half matters more than the fix: **zero** corpus fixtures used `!=` in a `where` — every
+> operator was covered in `select`, none in a `where` needing an import the equality path does not
+> already pull in.  `projection-aggregation.ddd` grows a `LiveOrders` projection with
+> `where o.status != OrderStatus.Cancelled`, so the EXISTING `corpus-tsc-build` gate reaches the
+> class on every backend.  Mutation-proved: reverting the builder fix gives
+> `db/repositories/order-repository.ts(111,71): error TS2304: Cannot find name 'ne'.`
 
 ### F-014 — A find comparing an FK against a NULLABLE user claim emits uncompilable Drizzle
 Severity: **S1** (generated output does not compile)   Class: **SILENT**
@@ -622,6 +667,17 @@ Impact on adoption: moderate frequency, total when hit (the whole frontend fails
 fix is a domain rename. It also reveals that the frontend emitter does no identifier hygiene, so the
 blast radius is unknown without auditing the whole reserved-word list.
 Time lost: 15 min.
+
+> **UPDATE (2026-09-14) — fixed.**  Root cause is one template variable: `opCamel`, set to
+> `lowerFirst(op.name)` at four sites (react / vue / svelte page shells and the shared form
+> primitive) and used as a JS BINDING NAME in all 42 of its pack-template occurrences.  It now goes
+> through `escapeTsIdent`, which already existed in `src/util/naming.ts` for exactly this — so the
+> declaration and every reference move together and every pack is fixed at once (`void` → `void_`).
+>
+> Correction to the finding's guess list: `import` is **not** one of them — the grammar refuses it as
+> an operation name.  `void`, `default`, `class`, `new`, `typeof` and `delete` all parse and were all
+> broken.  The corpus reach fix puts three of them on the `tsx-parse-gate` model, so all eight React
+> packs now build a page carrying them; mutation-proved (8/8 red on revert).
 
 ### F-017 — The `Chart` primitive emits a triple brace `yAxisProps={{{ … }}` (invalid JSX)
 Severity: **S1** (generated output does not compile)   Class: **SILENT**
@@ -972,6 +1028,11 @@ Impact on adoption: any Java deployable whose workflow loads a second aggregate 
 is the shape the language itself forces on you for per-child cross-aggregate writes (see F-002), so
 it is not an exotic corner.
 
+> **UPDATE (2026-09-14) — fixed on `main`.**  Re-running the repro shows
+> `public CWorkflows(PartRepository partsRepository, UsageRepository usagesRepository)` — the
+> dependency scan now descends into the nested `for` → `if let`.  Verified before any fix was
+> written, which is the point of re-verifying: this one needed none.
+
 ### F-029 — `elixir`: a `find … where <field> == currentUser.<claim>` emits an unbound Ecto variable
 Severity: **S1** (generated Elixir does not compile)   Class: **SILENT**
 Area: generator / elixir / repository find (row-level visibility)
@@ -1112,6 +1173,24 @@ Observed: array *editing* is a known, deliberately-surfaced gap on React (disabl
 translated "not yet supported" placeholder — a good HONEST gap). Angular reproduces the gap as a
 `null` initialiser and a plain text input, which is a hard build failure.
 Impact on adoption: any `string[]` field (skills, tags, roles) takes out the whole Angular build.
+
+> **UPDATE (2026-09-14) — fixed, and the silent half with it.**  `controlInit` had no `array` arm, so
+> a scalar array fell to `null`; it now returns `[]`, matching `defaultInitForJs`'s `array` arm that
+> the other three frontends have used for the same reason.
+>
+> **But the build fix alone would have made it worse.**  Angular rendered a live, editable text input
+> bound to that control, where react/vue/svelte render a DISABLED input carrying
+> `(arrays not yet supported in forms)`.  Landing only the init would have traded a loud compile
+> failure for a field that silently writes a string into a `string[]` — the exact class this report is
+> about — so the markup was made to match its siblings.
+>
+> Corpus reach: the angular build gate's SCAFFOLD case carried `items: LineItem[]` (a VO array, which
+> is diverted to a `FormArray` and was always correct) and no scalar array outside a `store`/`state`
+> block.  It now carries `tags: string[]`, and the `scalar-array` entry is deleted from
+> `frontend-field-shape-coverage.test.ts`'s angular debt list, per the convention that a fix deletes
+> its waiver.  **Not verified by a real `ng build` locally**: this container runs node v22.22.2 and
+> the Angular CLI's floor is v22.22.3, so the gate refuses to run here (its own message says so).
+> The emitted shape is byte-comparable to react's, which does build, and `mustEmit` pins both halves.
 
 ### F-034 — node vs python wire divergence: `decimal` serialisation and validation-message text
 Severity: S2 (major for the "identical API contracts" claim; S3 in practice)   Class: **SILENT**
