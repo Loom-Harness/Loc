@@ -724,6 +724,20 @@ Endpoints default to `http://localhost:<port>` for each deployable.
 Override per environment via `E2E_<DEPLOYABLE>_BASE` (e.g.
 `E2E_API_BASE=https://staging.example.com`).
 
+**State between tests.**  The suite drives a REAL database through a
+running backend, so without a reset it is not idempotent: a block that
+asserts an exact count (`expect(listed.total).toBe(2)`) is green on a
+fresh database and red on the second run of the same one, and is
+coupled to every block that ran before it.  Since `docker compose up`
+uses a named `pgdata` volume, the database is NOT fresh on the second
+`npm test`.
+
+The emitted suite closes this itself: it calls the backend's
+**dev-only reset endpoint** before every test, so each block sees only
+the rows it creates.  See
+[the reset seam](#the-e2e-reset-seam) below for how it is guarded and
+what to do when it is unavailable.
+
 ### React frontend deployable
 
 A `platform: react` deployable produces a Vite-built SPA with React,
