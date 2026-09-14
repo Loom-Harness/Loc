@@ -1007,7 +1007,9 @@ export const DIAGNOSTIC_MESSAGES = {
     `else-branch is '${p.elseT}'.  One branch's type must be assignable to ` +
     `the other (both numeric, an optional and its inner, or a null literal against an optional).`,
   "loom.function-block-no-return": (p: { name: unknown; declared: unknown }) =>
-    `Block-body function '${p.name}' must 'return' a value of type '${p.declared}'.`,
+    `Block-body function '${p.name}' must 'return' a value of type '${p.declared}' on every path.  ` +
+    `A 'return' inside an 'if' counts, but only when the conditional covers both paths — ` +
+    `an 'if' (or an 'else if' chain) with no final 'else' leaves one path with no value.`,
 
   // ----------------------------------------------------------------------
   // src/language/validators/ui.ts
