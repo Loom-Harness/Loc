@@ -127,14 +127,22 @@ const DELIBERATELY_INVALID = [
   // regression net for the eight diagnostics the evaluation measured.  If a
   // validator change ever made one of these validate clean, that control fails.
   //
-  // Only the AST-level eight are listed.  Three of the ten are absent on purpose:
-  //   * `broken/08-page-wrong-aggregate.ddd` and `broken/09-unqueryable-filter.ddd`
-  //     are refused at the IR layer (phase (7)), which this census does not run;
-  //   * `broken/05-cyclic-containment.ddd` currently validates CLEAN — that is the
-  //     open defect F-020 (it crashes the generator with a RangeError instead of
-  //     diagnosing).  When F-020 is fixed it will start failing this gate and must
-  //     be added here in the same change.
+  // Only the AST-level nine are listed.  Two of the ten are absent on purpose:
+  // `broken/08-page-wrong-aggregate.ddd` and `broken/09-unqueryable-filter.ddd`
+  // are refused at the IR layer (phase (7)), which this census does not run.
+  //
+  // `broken/05-cyclic-containment.ddd` joined this list when F-020 was fixed, as
+  // the earlier revision of this comment said it must: it used to validate clean
+  // and crash the generator with a `RangeError` naming an `out/**.js` frame, and
+  // now `checkContainmentCycles` refuses it at the AST layer with a real
+  // file:line ("Cyclic containment in aggregate 'A': X -> Y -> X").
   "eval/repro/H-rowlevel-currentuser.ddd",
+  "eval/repro/broken/05-cyclic-containment.ddd",
+  // Joined when F-003 was fixed, for the same reason as 05: the cross-aggregate
+  // `invariant Technicians.getById(...)` used to validate clean and emit an
+  // unresolvable identifier on four backends (and nothing at all on Phoenix);
+  // `checkRuleExprPurity` now refuses it at the rule's own line.
+  "eval/repro/A-cross-agg-invariant.ddd",
   "eval/repro/broken/01-typo-type.ddd",
   "eval/repro/broken/02-invariant-unknown-field.ddd",
   "eval/repro/broken/03-wrong-arity.ddd",
