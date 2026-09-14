@@ -1,0 +1,4 @@
+context C {
+  aggregate A { xs: int[]  derived d: int = xs.reduce((a, b) => a + b) }
+  repository As for A { }
+}

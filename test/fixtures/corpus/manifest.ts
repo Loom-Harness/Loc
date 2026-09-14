@@ -273,6 +273,14 @@ export const CORPUS: readonly CorpusFeature[] = [
     note: "compile-tier by necessity: hono COMPILES the defect by structural typing, so only the strict backends (python mypy --strict, .NET) can see it",
   },
   {
+    id: "nested-valueobject",
+    title:
+      "a value object whose OWN field is a value object (`Addr.geo: Geo`) — the flattening RECURSES to leaf columns, and nothing named `home_geo` exists",
+    doc: "language",
+    backends: ALL,
+    note: "minted by the e-shop dev-experience audit (P11): the corpus had no VO inside a VO, and python's repository flattening stopped one level short of its own schema's.  app/db/schema.py and the migration both created `home_geo_lat`/`home_geo_lng` while person_repository.py bound `\"home_geo\": aggregate.home.geo` and read `Addr(row.home_line1, row.home_geo)` — a column in NEITHER, so every read and every write of the aggregate failed at runtime, on the plain REQUIRED case and invisibly to every type checker.  dotnet rode here to SETTLE a second, unproven reading — `ownedVoLines` recurses with the builder lambda parameter hard-coded to `o`, so the nested VO emits `o.OwnsOne<Geo>(x => x.Geo, o => { … })`, which the audit read as CS0136 with no .NET SDK available to check.  It is NOT: this fixture builds clean under `dotnet build /warnaserror` on sdk:10.0, so the emitter was left alone and the leg now gates the nested column NAMES (`home_geo_lat`/`home_geo_lng`, the accumulated prefix) instead.  node/java/elixir were already correct and are carried as the contrast.",
+  },
+  {
     id: "optional-valueobject",
     title:
       "an OPTIONAL value-object field (`office: Addr?`) beside a REQUIRED one — the same flattened leaf columns, merely nullable",
