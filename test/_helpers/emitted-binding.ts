@@ -66,6 +66,7 @@
 // false positive.
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { fileURLToPath } from "node:url";
 import ts from "typescript";
 
 /** Binder-level diagnostics — see the header for why exactly these. */
@@ -76,7 +77,7 @@ const CHECKED_CODES = new Set([2304, 2552, 2503, 2300, 2440, 2451]);
  *  generated project's dependency. */
 const VROOT = "/__loom_emitted__";
 
-const REPO_ROOT = path.resolve(__dirname, "..", "..", "..");
+const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 
 export interface UnboundSymbol {
   file: string;
