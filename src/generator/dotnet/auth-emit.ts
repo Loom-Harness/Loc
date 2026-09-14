@@ -10,7 +10,7 @@ import type {
 import { hierarchyRegistry } from "../../ir/util/tenant-stance.js";
 import { AUTH_BASE_PATH } from "../../util/api-base.js";
 import { plural, snake, upperFirst } from "../../util/naming.js";
-import { claimsReferenceIds } from "../_auth/claim-types.js";
+import { claimPathFor, claimsReferenceIds } from "../_auth/claim-types.js";
 import { devClaimFields } from "../_auth/dev-claims.js";
 import { devStubIdExpr } from "../_auth/dev-stub-id.js";
 import { dapperAggregateTable } from "./emit/dapper.js";
@@ -112,12 +112,6 @@ function csEnvOverridable(envVar: string, v: AuthValueIR | undefined): string {
 
 /** The IdP claim path projected onto a given user field — explicit
  *  `claims:` mapping wins; `id` defaults to `sub`, others read their name. */
-function claimPathFor(field: string, auth: AuthIR): string {
-  const mapped = auth.claims.find((c) => c.field === field);
-  if (mapped) return mapped.path;
-  return field === "id" ? "sub" : field;
-}
-
 /** The User-constructor argument expression reading a field from the
  *  verified token payload.  string / string[] are mapped; other field
  *  types fall back to a type-appropriate default (a documented .NET OIDC

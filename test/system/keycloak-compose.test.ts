@@ -37,6 +37,28 @@ system Helpdesk {
 }`;
 }
 
+/** Same system plus a react frontend that `targets:` the api — the shape every
+ *  scaffolded project has, and the one the post-login redirect needs. */
+function systemWithUi(authBlock: string): string {
+  return `
+system Helpdesk {
+  user { id: string role: string }
+  ${authBlock}
+  subdomain Support {
+    context Tickets {
+      aggregate Ticket with crudish { open: bool  derived display: string = "t" }
+      repository Tickets for Ticket { }
+    }
+  }
+  storage primary { type: postgres }
+  resource st { for: Tickets, kind: state, use: primary }
+  api SApi from Support
+  ui Web with scaffold(subdomains: [Support]) { framework: react  api Support: SApi }
+  deployable api { platform: node contexts: [Tickets] serves: SApi dataSources: [st] port: 8080 auth: required }
+  deployable web { platform: react targets: api ui: Web { Support: api } port: 3007 auth: ui }
+}`;
+}
+
 const KEYCLOAK = `auth { provider: keycloak  oidc { issuer: env("OIDC_ISSUER")  clientId: env("OIDC_CLIENT_ID") } }`;
 
 describe("bundled dev Keycloak compose", () => {
@@ -105,19 +127,107 @@ system Helpdesk {
     const realm = JSON.parse(files.get("keycloak/realm.json")!) as {
       clients: { protocolMappers?: { protocolMapper: string; config: Record<string, string> }[] }[];
     };
+    // Select the audience mapper by TYPE rather than by position/count: the
+    // realm also carries one user-attribute mapper per declared `user { … }`
+    // claim now (F-022), so `toHaveLength(1)` pinned an incidental total rather
+    // than the property under test.
     const mappers = realm.clients[0]!.protocolMappers ?? [];
-    expect(mappers).toHaveLength(1);
-    expect(mappers[0]!.protocolMapper).toBe("oidc-audience-mapper");
-    expect(mappers[0]!.config["included.custom.audience"]).toBe("helpdesk-api");
-    expect(mappers[0]!.config["access.token.claim"]).toBe("true");
+    const aud = mappers.filter((m) => m.protocolMapper === "oidc-audience-mapper");
+    expect(aud).toHaveLength(1);
+    expect(aud[0]!.config["included.custom.audience"]).toBe("helpdesk-api");
+    expect(aud[0]!.config["access.token.claim"]).toBe("true");
   });
 
   it("emits no audience mapper when the auth block declares none", async () => {
     const files = await filesFor(system(KEYCLOAK));
     const realm = JSON.parse(files.get("keycloak/realm.json")!) as {
-      clients: { protocolMappers?: unknown[] }[];
+      clients: { protocolMappers?: { protocolMapper: string; name: string }[] }[];
     };
-    expect(realm.clients[0]!.protocolMappers).toBeUndefined();
+    const mappers = realm.clients[0]!.protocolMappers ?? [];
+    expect(mappers.filter((m) => m.protocolMapper === "oidc-audience-mapper")).toEqual([]);
+    // The claim mappers ARE expected here — this fixture declares
+    // `user { id role }`, and `role` is a claim Keycloak mints only with one.
+    expect(mappers.map((m) => m.name)).toEqual(["loom-claim-role"]);
+  });
+
+  // ---------------------------------------------------------------------------
+  // F-022 — the dev realm could not exercise the authorization model the same
+  // `.ddd` declares: one demo user, no attributes, no claim mappers.  So the
+  // stack authenticated and then denied everything, silently.
+  // ---------------------------------------------------------------------------
+
+  it("emits a mapper + a seeded attribute for every declared claim", async () => {
+    const files = await filesFor(`
+system FieldOps {
+  user { id: string  email: string  role: string  permissions: string[]  tenantId: string }
+  auth { provider: keycloak  oidc { issuer: env("I")  clientId: env("C") } }
+  subdomain Ops {
+    permissions { workOrderWrite }
+    context Work {
+      aggregate Job with crudish { title: string  derived display: string = title }
+      repository Jobs for Job { }
+    }
+  }
+  storage p { type: postgres }
+  resource r { for: Work, kind: state, use: p }
+  api OpsApi from Ops
+  deployable api { platform: node contexts: [Work] dataSources: [r] serves: OpsApi auth: required port: 3000 }
+}`);
+    const realm = JSON.parse(files.get("keycloak/realm.json")!) as {
+      clients: { protocolMappers?: { name: string; config: Record<string, string> }[] }[];
+      users: { attributes?: Record<string, string[]> }[];
+    };
+    const byClaim = new Map(
+      (realm.clients[0]!.protocolMappers ?? []).map((m) => [m.config["claim.name"], m.config]),
+    );
+    const attrs = realm.users[0]!.attributes ?? {};
+
+    // `id` and `email` are Keycloak's to mint (`sub`, the built-in email
+    // scope) — a mapper for those would be redundant at best.
+    expect([...byClaim.keys()].sort()).toEqual(["permissions", "role", "tenantId"]);
+
+    // An ARRAY claim must be multivalued, or Keycloak mints the list as a
+    // single joined string and `permissions.contains(...)` never matches —
+    // which looks exactly like a correct denial.
+    expect(byClaim.get("permissions")!.multivalued).toBe("true");
+    expect(byClaim.get("role")!.multivalued).toBeUndefined();
+
+    // The seeded values have to be USABLE, not merely present: the permission
+    // attribute carries the real runtime strings the gates compare against.
+    expect(attrs.permissions).toEqual(["ops.workOrderWrite"]);
+    expect(attrs.role).toEqual(["admin"]);
+    expect(attrs.tenantId).toEqual(["demo-tenant-id"]);
+  });
+
+  it("the realm names the same claim the backends read", async () => {
+    // The realm and the verifiers are emitted by the same tool from the same
+    // declaration; if they disagree on the claim NAME the mapper is inert and
+    // the claim still decodes to null.  Derived from the emitted verifier, not
+    // hard-coded, so the two halves cannot drift apart.
+    const files = await filesFor(`
+system FieldOps {
+  user { id: string  technicianId: string }
+  auth { provider: keycloak  oidc { issuer: env("I")  clientId: env("C") } }
+  subdomain Ops {
+    context Work {
+      aggregate Job with crudish { title: string  derived display: string = title }
+      repository Jobs for Job { }
+    }
+  }
+  storage p { type: postgres }
+  resource r { for: Work, kind: state, use: p }
+  api OpsApi from Ops
+  deployable api { platform: node contexts: [Work] dataSources: [r] serves: OpsApi auth: required port: 3000 }
+}`);
+    const verifier = files.get("api/auth/oidc.ts")!;
+    const read = /technicianId: claim\(payload, "([^"]+)"\)/.exec(verifier);
+    expect(read, `verifier does not read the claim:\n${verifier}`).not.toBeNull();
+
+    const realm = JSON.parse(files.get("keycloak/realm.json")!) as {
+      clients: { protocolMappers?: { config: Record<string, string> }[] }[];
+    };
+    const minted = (realm.clients[0]!.protocolMappers ?? []).map((m) => m.config["claim.name"]);
+    expect(minted, "the realm mints a claim the verifier does not read").toContain(read![1]!);
   });
 
   it("does not bundle Keycloak for a hosted provider (google)", async () => {
@@ -132,5 +242,77 @@ system Helpdesk {
     const files = await filesFor(system(""));
     expect(files.get("docker-compose.yml")!).not.toContain("keycloak:");
     expect(files.has("keycloak/realm.json")).toBe(false);
+  });
+  // ---------------------------------------------------------------------------
+  // F-024 — the two halves of the login flow are emitted by the same tool and
+  // disagreed with each other.  Both assertions below are derived from the
+  // OTHER half rather than hard-coded, so they cannot drift back apart.
+  // ---------------------------------------------------------------------------
+
+  it("the realm grants every scope the emitted handshake asks for", async () => {
+    const files = await filesFor(system(KEYCLOAK));
+    const handshake = files.get("api/auth/handshake.ts");
+    expect(handshake, "no handshake emitted").toBeDefined();
+
+    // Read the scope list OUT OF THE EMITTED CODE.  Hard-coding
+    // `["openid", "offline_access"]` here would pin today's string and say
+    // nothing about the invariant: whatever the handshake asks for, the dev
+    // realm has to grant.
+    const m = /const SCOPES = "([^"]+)"/.exec(handshake!);
+    expect(m, `handshake does not declare SCOPES:\n${handshake}`).not.toBeNull();
+    const scopes = m![1]!.split(/\s+/).filter(Boolean);
+    expect(scopes).toContain("openid");
+
+    const realm = JSON.parse(files.get("keycloak/realm.json")!) as {
+      roles: { realm: { name: string }[] };
+      users: { realmRoles: string[] }[];
+    };
+    const declared = realm.roles.realm.map((r) => r.name);
+    const granted = realm.users[0]!.realmRoles;
+
+    // The OIDC standard scopes Keycloak serves from its BUILT-IN default client
+    // scopes — they need no realm role, and the emitted handshake adds
+    // `email`/`profile` whenever the `user { }` block declares those claims.
+    // Anything outside this set, Keycloak gates on a realm role the import has
+    // to declare AND grant.
+    const STANDARD = new Set(["openid", "profile", "email", "address", "phone"]);
+    const roleGated = scopes.filter((x) => !STANDARD.has(x));
+
+    // Today that is exactly `offline_access` — the scope the handshake appends
+    // unconditionally so `/refresh` has a token to rotate.  Without the role,
+    // the FIRST login the tool's own compose stack can perform dies at token
+    // exchange with
+    //   CODE_TO_TOKEN_ERROR … "Offline tokens not allowed for the user or client"
+    // which reaches the browser as {"error":"token_exchange_failed"} (F-024).
+    for (const scope of roleGated) {
+      expect(declared, `realm does not declare the '${scope}' role`).toContain(scope);
+      expect(granted, `seeded demo user is not granted '${scope}'`).toContain(scope);
+    }
+    // Non-vacuity: an empty `roleGated` would make the loop above assert
+    // nothing, which is how a check like this reads as a pass while covering
+    // no scope at all.
+    expect(roleGated, "no role-gated scope to check — the loop asserted nothing").toContain(
+      "offline_access",
+    );
+  });
+
+  it("post-login lands on the frontend, not the api root", async () => {
+    const files = await filesFor(systemWithUi(KEYCLOAK));
+    const compose = files.get("docker-compose.yml")!;
+    // The callback runs on the API origin and the handshake's fallback is
+    // `?? "/"`, so an unset value redirects a SUCCESSFUL login to the api root
+    // — which answers 404.  The frontend's port is known at compose time: it is
+    // the deployable that `targets:` this api.
+    expect(compose).toContain('OIDC_POST_LOGIN_REDIRECT: "http://localhost:3007/"');
+    // …and it must be the FRONTEND's port, not the api's.  Asserting only
+    // "contains OIDC_POST_LOGIN_REDIRECT" would pass on the broken value.
+    expect(compose).not.toContain('OIDC_POST_LOGIN_REDIRECT: "http://localhost:8080/"');
+  });
+
+  it("stays silent when no single frontend targets the api", async () => {
+    // No ui at all — there is nothing better than the handshake's own default,
+    // and inventing one would be a guess.  The absence is the honest answer.
+    const files = await filesFor(system(KEYCLOAK));
+    expect(files.get("docker-compose.yml")!).not.toContain("OIDC_POST_LOGIN_REDIRECT:");
   });
 });

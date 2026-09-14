@@ -1,3 +1,4 @@
+import { claimPathFor } from "../generator/_auth/claim-types.js";
 import {
   brokerUrl,
   devPassword,
@@ -26,6 +27,7 @@ import type {
   EnrichedSystemIR,
   Platform,
   SystemIR,
+  TypeIR,
 } from "../ir/types/loom-ir.js";
 import type { MigrationsIR } from "../ir/types/migrations-ir.js";
 import { apiResourceBindings } from "../ir/util/api-resource-binding.js";
@@ -879,40 +881,82 @@ function renderKeycloakRealm(sys: SystemIR): string {
           },
         ]
       : [];
-  // A scalar `role` claim (`currentUser.role`) is a common RBAC shape, but
-  // Keycloak emits realm roles as an ARRAY (`realm_access.roles`) — nothing
-  // populates a singular claim path, so `currentUser.role` decodes to `null`
-  // out of the box and every `role == "admin"` gate 403s while an
-  // onCreate `stamp createdByRole := currentUser.role` writes NULL (→ a
-  // not-null violation → 500/409).  When the app declares a `role` claim, seed
-  // the demo user with an `admin` role *attribute* and a mapper that projects
-  // it to the declared claim path, so role-gated ops are exercisable.  The
-  // `realm_access.roles` array (permissions) is untouched — it stays
-  // `[user, agent]`, so permission-gated denials still hold.
-  const roleClaim = sys.auth?.claims.find((c) => c.field === "role");
-  const roleMappers = roleClaim
-    ? [
-        {
-          name: "loom-role-claim",
-          protocol: "openid-connect",
-          protocolMapper: "oidc-usermodel-attribute-mapper",
-          consentRequired: false,
-          config: {
-            "user.attribute": "role",
-            "claim.name": roleClaim.path,
-            "jsonType.label": "String",
-            "access.token.claim": "true",
-            "id.token.claim": "false",
-          },
-        },
-      ]
-    : [];
-  const clientMappers = [...audienceMappers, ...roleMappers];
+  // ONE PROTOCOL MAPPER PER DECLARED CLAIM, with a seeded value on the demo
+  // user — so the dev IdP can actually exercise the authorization model the
+  // same `.ddd` declares.
+  //
+  // It could not.  The realm had one demo user, no attributes and no mappers,
+  // so a system declaring `user { role, permissions: string[], tenantId, … }`
+  // authenticated fine and then denied everything: `/auth/me` answered
+  // `{"role":null,"permissions":[],"tenantId":null}`, the tenant filter matched
+  // no rows, and every `permissions.contains(…)` gate 403'd — on the stack the
+  // tool itself emits, with no diagnostic (F-022).  "Docker compose up →
+  // everything running" was true of the containers and false of the product.
+  //
+  // Two claims are Keycloak's to mint and are skipped: `id` reads `sub`, and
+  // `email` comes from the built-in `email` client scope.  Everything else
+  // needs a user-attribute mapper projecting the seeded attribute onto the
+  // claim path the BACKENDS read — which is why the path comes from the shared
+  // `claimPathFor` rather than a second copy of the rule here; the realm and
+  // the verifiers must name the same claim or this fix would only move the
+  // silence (see `auth-claim-path-parity.test.ts`).
+  const IDP_PROVIDED = new Set(["id", "email"]);
+  const claimFields = (sys.user?.fields ?? []).filter((f) => !IDP_PROVIDED.has(f.name));
+  const claimMappers = claimFields.map((f) => {
+    const multivalued = f.type.kind === "array";
+    return {
+      name: `loom-claim-${f.name}`,
+      protocol: "openid-connect",
+      protocolMapper: "oidc-usermodel-attribute-mapper",
+      consentRequired: false,
+      config: {
+        "user.attribute": f.name,
+        "claim.name": claimPathFor(f.name, sys.auth ?? { claims: [] }),
+        // Keycloak types the claim from this label; an array claim additionally
+        // needs `multivalued`, or the list arrives as a single joined string and
+        // `permissions.contains(...)` never matches.
+        "jsonType.label": keycloakJsonType(f.type),
+        ...(multivalued ? { multivalued: "true" } : {}),
+        "access.token.claim": "true",
+        "id.token.claim": "false",
+      },
+    };
+  });
+  // Seeded demo values.  `role`/`permissions` get the widest values the realm
+  // knows about so role- and permission-gated operations are EXERCISABLE out of
+  // the box — a demo user who is denied everything demonstrates nothing.  Every
+  // other claim gets a stable, obviously-synthetic value: a tenant id that is
+  // the same on every boot is what makes tenant-scoped reads return rows.
+  const demoAttributes: Record<string, string[]> = {};
+  for (const f of claimFields) {
+    demoAttributes[f.name] =
+      f.name === "role"
+        ? ["admin"]
+        : f.type.kind === "array"
+          ? [...permissionRuntimeStrings(sys)]
+          : [`demo-${f.name.replace(/([A-Z])/g, (c) => `-${c.toLowerCase()}`)}`];
+  }
+
+  const clientMappers = [...audienceMappers, ...claimMappers];
   const doc = {
     realm,
     enabled: true,
     sslRequired: "none",
-    roles: { realm: [{ name: "user" }, { name: "agent" }, { name: "admin" }] },
+    // `offline_access` is declared and granted because the generated handshake
+    // ASKS FOR IT, unconditionally, on every backend (`auth-emit.ts`: "add it
+    // (idempotently)" — the scope that makes the IdP mint a refresh token so
+    // `/refresh` can rotate).  Keycloak normally carries `offline_access` on the
+    // realm's default-role composite, which a hand-written realm import does
+    // not set up — so the seeded user had only `[user, agent]`, and the very
+    // first login the tool's own compose stack can perform died at token
+    // exchange with `CODE_TO_TOKEN_ERROR … "Offline tokens not allowed for the
+    // user or client"`, surfacing to the browser as
+    // `{"error":"token_exchange_failed"}` (F-024).  The two halves are emitted
+    // by the same tool and must not disagree; `keycloak-realm-grants-handshake-scopes`
+    // pins that they don't.
+    roles: {
+      realm: [{ name: "user" }, { name: "agent" }, { name: "admin" }, { name: "offline_access" }],
+    },
     clients: [
       {
         clientId,
@@ -936,11 +980,10 @@ function renderKeycloakRealm(sys: SystemIR): string {
         lastName: "User",
         emailVerified: true,
         credentials: [{ type: "password", value: "demo", temporary: false }],
-        realmRoles: ["user", "agent"],
-        // Backs the scalar `role` claim mapper above (admin so the demo user
-        // can exercise role-gated operations); only consumed when the app
-        // declares a `role` claim.
-        ...(roleClaim ? { attributes: { role: ["admin"] } } : {}),
+        realmRoles: ["user", "agent", "offline_access"],
+        // Backs the per-claim mappers above.  Absent when the system declares
+        // no claims beyond `id`/`email`, so those realms stay byte-identical.
+        ...(Object.keys(demoAttributes).length > 0 ? { attributes: demoAttributes } : {}),
       },
     ],
   };
@@ -1214,6 +1257,34 @@ function renderDeployableService(d: DeployableIR, sys: SystemIR): string[] {
     lines.push(
       `    OIDC_REDIRECT_URI: ${JSON.stringify(`http://localhost:${d.port}${AUTH_BASE_PATH}/callback`)}`,
     );
+    // Where the browser lands AFTER a successful token exchange.
+    //
+    // The callback runs on the API origin, and the generated handshake's
+    // fallback is `process.env.OIDC_POST_LOGIN_REDIRECT ?? "/"` — so with
+    // nothing set, logging in redirected the user to the API root, which
+    // answers `{"status":404,"detail":"no route for GET /"}`.  The user signs
+    // in successfully and lands on a 404 (F-024).
+    //
+    // The frontend's host origin is known right here: it is the deployable
+    // that `targets:` this backend.  Only set when exactly one does — with two
+    // frontends on one API there is no single "the app", and picking one
+    // silently would be a worse answer than the operator picking it; the
+    // comment names the choice so the compose file stays self-explaining.
+    const uiHosts = sys.deployables.filter(
+      (t) => t.targetName === d.name && platformFor(t.platform).mountsUi,
+    );
+    if (uiHosts.length === 1) {
+      lines.push(
+        `    OIDC_POST_LOGIN_REDIRECT: ${JSON.stringify(`http://localhost:${uiHosts[0]!.port}/`)}`,
+      );
+    } else if (uiHosts.length > 1) {
+      lines.push(
+        `    # OIDC_POST_LOGIN_REDIRECT: ${uiHosts.map((u) => `http://localhost:${u.port}/`).join(" | ")}`,
+      );
+      lines.push(
+        `    #   ^ ${uiHosts.length} frontends target this api; pick one, or login lands on the api root.`,
+      );
+    }
   }
   lines.push(`  ports:`);
   lines.push(`    - "${d.port}:${shape.internalPort}"`);
@@ -1239,4 +1310,28 @@ function renderDeployableService(d: DeployableIR, sys: SystemIR): string[] {
     lines.push(`    start_period: 60s`);
   }
   return lines;
+}
+
+/** Keycloak's `jsonType.label` for a declared claim's Loom type.  Keycloak
+ *  types the claim value from this; getting it wrong makes a numeric claim
+ *  arrive as a string (and an int comparison in a gate silently false). */
+function keycloakJsonType(t: TypeIR): string {
+  const inner = t.kind === "array" ? t.element : t;
+  if (inner.kind === "primitive") {
+    if (inner.name === "int") return "int";
+    if (inner.name === "long") return "long";
+    if (inner.name === "bool") return "boolean";
+  }
+  return "String";
+}
+
+/** Every permission's runtime string in the system — the values a `permissions`
+ *  claim has to carry for `currentUser.permissions.contains(permissions.X)` to
+ *  be satisfiable at all.  Seeding the demo user with the full set is
+ *  deliberate: the dev realm's job is to let you EXERCISE the authorization
+ *  model, and a demo principal holding nothing can only demonstrate denial.
+ *  (Denial is still demonstrable — revoke one in the admin console, or use a
+ *  second user.) */
+function permissionRuntimeStrings(sys: SystemIR): string[] {
+  return sys.subdomains.flatMap((m) => m.permissions.map((p) => p.runtimeString));
 }

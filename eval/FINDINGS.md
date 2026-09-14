@@ -839,6 +839,74 @@ becoming a Keycloak admin first. For a product whose headline B2B feature is mul
 the shipped dev environment cannot show it working.
 Time lost: 35 min.
 
+> **UPDATE (2026-09-14) — fixed.**  The realm now emits one `oidc-usermodel-attribute-mapper` per
+> declared `user { … }` field, plus a seeded attribute on the demo user.  `id` and `email` are
+> skipped — Keycloak mints those itself (`sub`, the built-in email scope).
+>
+> Three details that decide whether the fix actually works rather than merely emits JSON:
+>
+> * **An array claim must set `multivalued: "true"`.**  Without it Keycloak mints the list as one
+>   joined string and `currentUser.permissions.contains(...)` never matches — which is
+>   indistinguishable, from the outside, from a correct denial.
+> * **The seeded `permissions` value is the real runtime strings** (`ops.workOrderWrite`), collected
+>   from the system's own `permissions { … }` catalogues.  A demo principal holding nothing can only
+>   demonstrate denial, and the dev realm's job is to let you exercise the model.
+> * **The realm's `claim.name` comes from the same `claimPathFor` the verifiers use.**  A mapper
+>   that mints a claim under a name the backend does not read is inert, and inert in the silent
+>   direction.  A second gate derives the expected name from the emitted verifier rather than
+>   hard-coding it.
+>
+> **Residual, stated rather than glossed:** the seeded `tenantId` is `demo-tenant-id`, and under
+> `tenancy by user.tenantId of <Registry>` a tenant-scoped read still returns nothing unless the
+> REGISTRY carries a row with that id.  That is a database-seed question, not a realm one, and it is
+> not fixed here — F-022 is "the realm carries none of the claims", which it now does.
+
+---
+
+### F-050 — the five backends read a declared claim under two different names; one IdP mints one
+Severity: **S1** (a mixed-backend system cannot authorize at all)   Class: **SILENT**
+Area: generator × five auth emitters
+Found: 2026-09-14, while fixing F-022.  **Not one of the original 45.**
+
+`claimPathFor` — "which IdP claim does this `user { … }` field read?" — existed **six times**, once
+per backend auth emitter, and two copies had drifted:
+
+| backend | default path for `user { technicianId }` |
+|---|---|
+| node, java, .NET | `technicianId` |
+| python, elixir | `technician_id` |
+
+An IdP mints **one** token, so the same claim cannot satisfy both halves.  Verified by generating,
+not by reading:
+
+```
+node    : technicianId: claim(payload, "technicianId")
+python  : technician_id=cast(str, _claim(payload, "technician_id"))
+elixir  : technician_id: get_claim(claims, "technician_id")
+```
+
+**Why it stayed invisible:** every claim in every fixture is a SINGLE WORD — `id`, `role`, `email`,
+`sub`.  Those are identical under both conventions.  No fixture named a claim that could tell the
+two rules apart, which is the same reach failure as F-012's single-word aggregate slugs, in a
+different subsystem.
+
+**And it is silent in the worst direction.**  The claim decodes to `null` on the snake_case side; a
+null claim makes the tenancy filter match no rows and every `permissions.contains(…)` gate return
+403.  That reads as *"correctly denied"*, not as *"misconfigured"* — you would debug your
+authorization model, not your claim names.
+
+Fixed: one shared `claimPathFor` in `src/generator/_auth/claim-types.ts` (the module that exists for
+exactly this class — its header already documents a five-backend break from one `user { … }` line),
+consumed by all five backends and by the realm emitter.  **The field name wins**, because a claim
+path is an external wire name the IdP owns, not a language identifier — the same reason both
+offending backends already camelCase their HTTP wire (`problem_details.ex` says so in as many
+words).  An explicit `claims: { field: "path" }` mapping is unaffected and is the supported way to
+say the IdP spells it differently; a gate asserts that too.
+
+`test/generator/auth-claim-path-parity.test.ts` generates the same model on all five backends and
+asserts they name the same claim.  Mutation-proved: re-introducing the snake_case default turns all
+five red.
+
 ### F-023 — Optimistic concurrency is off by default, and the generated frontend never sends the precondition
 Severity: **S2** (lost updates in the generated UI)   Class: **SILENT** + doc mismatch
 Area: generator / node route emitter × react api client
@@ -917,6 +985,30 @@ Time lost: 50 min.
 
 ---
 ## Cross-backend: the same model, five backends
+
+> **UPDATE (2026-09-14) — both halves fixed.**  Reproduced unchanged on fresh `main` first.
+>
+> **(a) the scope.**  The generated handshake appends `offline_access` unconditionally on all five
+> backends (`auth-emit.ts`, "add it (idempotently)" — the scope that makes the IdP mint a refresh
+> token so `/refresh` has something to rotate).  Keycloak normally carries `offline_access` on the
+> realm's DEFAULT-ROLE composite, which a hand-written realm import does not set up, so the seeded
+> user held only `[user, agent]`.  The realm now declares and grants it.
+>
+> **(b) the redirect.**  `OIDC_POST_LOGIN_REDIRECT` is now emitted into compose, pointing at the
+> deployable that `targets:` this backend — the frontend's port is known right there.  Only when
+> exactly one frontend does: with two there is no single "the app", and picking one silently is a
+> worse answer than the operator picking it, so compose gets a commented line naming the candidates
+> instead.
+>
+> The gate is the interesting part.  It reads the scope list **out of the emitted handshake** and
+> asserts the realm grants every role-gated one, rather than hard-coding `["openid",
+> "offline_access"]` — a hard-coded list would pin today's string and say nothing about the
+> invariant, which is that the two halves are emitted by the same tool and must not disagree.
+>
+> Writing it that way immediately paid: it caught that the scope list is **claim-derived** — a
+> `user { email }` block adds `email profile` — which the finding did not mention, and which forced
+> the rule to be stated precisely (the OIDC standard scopes come from Keycloak's built-in default
+> client scopes; everything else is role-gated).  Mutation-proved in both directions.
 
 ### F-025 — `.NET`: the channel transport emits an unqualified namespace that cannot resolve
 Severity: **S1** (generated C# does not compile)   Class: **SILENT**
