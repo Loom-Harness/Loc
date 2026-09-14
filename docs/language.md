@@ -591,7 +591,7 @@ the implicit `editable`) form this matrix:
 | Modifier | Client read | In `create(...)` input | In `update(...)` input | In UI-read payloads |
 |---|---|---|---|---|
 | `editable` *(default)* | ✓ | ✓ | ✓ | ✓ |
-| `immutable` | ✓ | ✓ | ✗ (server rejects) | ✓ |
+| `immutable` | ✓ | ✓ | ✗ (server rejects) — *wire only; a domain operation may still assign it* | ✓ |
 | `managed` | ✓ | ✗ (server owns it) | ✗ | ✓ |
 | `token` | ✓ | ✗ | ✗ body — sent as an optimistic-concurrency *precondition* (like `id`/`version`) | ✓ |
 | `internal` | ✗ (never exposed via API) | ✗ | ✗ | ✓ (the UI may read it) |
@@ -611,6 +611,58 @@ shares: **Client read** = `forApiRead`, **create input** = `forCreateInput`,
 > against the API-read DTO, which omits them. Both are the same rule read off the
 > two ✗ columns above.
 
+#### `immutable` constrains the CLIENT UPDATE INPUT, not domain assignment
+
+Every ✗ in the matrix is a **wire** fact. `immutable` in particular reads
+"absent from the update input", **not** "never changes" — nothing stops a
+domain operation from assigning an `immutable` field, on any backend. That
+makes it the right modifier for a field whose only legitimate writer is a
+guarded operation:
+
+```ddd
+aggregate Claim with crudish {
+  status: ClaimStatus immutable          // off the generic update's input …
+  description: string
+
+  operation approve() {
+    requires currentUser.permissions.contains(permissions.claimsApprove)
+    precondition status == UnderReview
+    status := Approved                   // … but this still assigns it
+  }
+}
+```
+
+The client still **reads** `status`, `create` still **seeds** it, and only
+`approve()` can move it afterwards:
+
+```ts
+// generated: api/domain/claim.ts  (node — the other four backends are the same shape)
+public approve(): void {
+  if (!(this._status === ClaimStatus.UnderReview)) throw new DomainError("Precondition failed: status == UnderReview");
+  this._status = ClaimStatus.Approved;                 // immutable ≠ unassignable
+}
+
+public update(description: string): void {            // `status` is GONE from the update surface
+  this._description = description;
+}
+```
+
+Without the modifier, `status` is a writable update field like any other, so
+`POST /claims/{id}/update {"status":"Approved"}` sets it at whatever gate the
+*update* carries — skipping both the `requires` on `approve()` and its
+`precondition`. That is a state-machine bypass, not only an authorization one,
+and `with crudish(requires: <Policy>)` does not close it: that gate is
+per-member and identical across create/update/destroy, while the update still
+writes every field.
+
+The compiler will not decide this for you — a field with no modifier is
+*declared* `editable`, and there are legitimate models where the author really
+does want it writable both ways. It does point the case out: an aggregate whose
+`crudish` update mass-assigns a field that a `requires`-gated operation also
+writes earns the advisory `loom.update-gate-suggestion` (a `Suggestions:` hint
+from `ddd parse`, never an error). See also [`auth.md`](auth.md) → "Guarded
+state transitions".
+
 Examples:
 
 ```ddd
@@ -620,7 +672,7 @@ aggregate User {
   passwordHash: string secret              // accepted on create + update; never sent back
   version: int token                       // round-tripped for optimistic concurrency
   isDeleted: bool internal                 // hidden from clients; UI may read
-  slug: string immutable                   // set once at creation, never updated
+  slug: string immutable                   // off the update input; a domain operation may still assign it
 }
 ```
 

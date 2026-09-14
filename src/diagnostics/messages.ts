@@ -1263,6 +1263,12 @@ export const DIAGNOSTIC_MESSAGES = {
     `'${p.name}.${p.fName}' is read on a query filter but has no index. ` + `Consider ${p.where}.`,
 
   // ----------------------------------------------------------------------
+  // src/ir/validate/checks/update-gate-suggestion-checks.ts
+  // ----------------------------------------------------------------------
+  "loom.update-gate-suggestion": (p: { name: unknown; fName: unknown; opName: unknown }) =>
+    `'${p.name}.${p.fName}' is assigned by the guarded operation '${p.opName}', but it is also writable through the generic 'update' that 'crudish' emits — a caller can set it on 'update' and skip that gate (and any 'precondition' the operation carries). Consider marking the field 'immutable': that removes it from the update input only — it stays readable, stays settable on 'create', and '${p.opName}' can still assign it.`,
+
+  // ----------------------------------------------------------------------
   // src/ir/validate/checks/migration-checks.ts
   // ----------------------------------------------------------------------
   "loom.backfill-target-invalid#backfill-a-aggregate-stores": (p: {
