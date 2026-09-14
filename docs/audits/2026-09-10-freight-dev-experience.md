@@ -173,6 +173,21 @@ Files: `src/platform/hono/v4/workflow-builder.ts`.
 
 ### D5 — `handle` continuations emit nothing, on every backend, with no diagnostic
 
+> **Landed as a diagnostic, and the archived model no longer carries the shape.**
+> #2896 minted `loom.workflow-handle-unsupported` (decision D-1c: close the
+> silence now, defer the emitter), so a `handle` is refused. The model under
+> `docs/audits/models/` therefore dropped its two continuations and gained the
+> top-level correlation parameter #2850's deferred case (B) — now
+> `loom.workflow-create-correlation-unsupplied` — requires. The broken shapes
+> are quoted verbatim below; that is where the record belongs.
+>
+> `clause-census.test.ts` is what forced the choice, and it was right to: the
+> archived model was the **only** `.ddd` in the repo authoring a `handle`, so
+> the register's "no valid fixture can author it" and the corpus contradicted
+> each other the moment the diagnostic landed. Fixing the model beat excluding
+> it — an exclusion for a permanently-invalid tracked file is exactly the rot
+> #2936 had just finished cleaning up.
+
 ```ddd
 workflow Review {
   doc: Doc id
