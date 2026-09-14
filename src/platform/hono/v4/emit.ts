@@ -1291,6 +1291,20 @@ export function generateTypeScriptForContexts(
   }
   out.set("tsconfig.json", projectTsconfigJson(!!sourcemap));
   out.set("tsup.config.ts", TSUP_CONFIG);
+  // The project's OWN vitest config.  `package.json` ships `"test": "vitest
+  // run"` and the project emits colocated `domain/<agg>.test.ts` (plus a
+  // `test/<ctx>.integration.test.ts`), but with no config file vitest walks
+  // UPWARD out of the project looking for one — and an output tree lives
+  // exactly where there is something above it.  Run from inside a repo that has
+  // a vitest config at its root, `npm test` here loaded the ANCESTOR's config,
+  // took the ancestor's `include` globs, matched none of the emitted tests, and
+  // reported **0 tests with exit 0** — which reads as a pass.  (The sibling
+  // `<out>/e2e/` project had the same hole; there it at least exited 1.)
+  //
+  // Deliberately root-only: no `include`, so vitest's DEFAULT include still
+  // decides what runs and the set of tests `npm test` executes is unchanged.
+  // The single job of this file is to stop the upward search.
+  out.set("vitest.config.ts", VITEST_CONFIG);
   out.set(
     "index.ts",
     renderProjectIndexTs(
@@ -1605,6 +1619,20 @@ function projectTsconfigJson(debugImports: boolean): string {
     ) + "\n"
   );
 }
+
+const VITEST_CONFIG = `// Auto-generated.  Pins the test root to THIS project so
+// vitest never walks up into an enclosing repo's config — without this file a
+// generated tree dropped inside such a repo ran zero of its own tests and still
+// exited 0.  No \`include\`: vitest's default globs decide what runs.
+import { fileURLToPath } from "node:url";
+import { defineConfig } from "vitest/config";
+
+export default defineConfig({
+  test: {
+    root: fileURLToPath(new URL(".", import.meta.url)),
+  },
+});
+`;
 
 const TSUP_CONFIG = `// Auto-generated.  tsup bundles index.ts → dist/index.js for
 // production.  Externals match runtime deps from package.json so

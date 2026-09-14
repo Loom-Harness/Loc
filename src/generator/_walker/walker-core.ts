@@ -92,6 +92,17 @@ import { wirePackChromeImport } from "./render-primitive.js";
 import { describeReceiver, positionalArgs } from "./shared/args.js";
 import type { RenderPosition, WalkerTarget } from "./target.js";
 
+/** A MODEL-DERIVED identifier (a page/component param, a shell local, a `let`
+ *  binding), spelled the way the active target's embedded language needs it.
+ *
+ *  Every JSX target emits it bare — a Loom identifier is always a legal JS one —
+ *  so the seam is optional and defaults to the name unchanged.  Only Feliz
+ *  implements it, because F# has ~70 keywords a Loom field or param may legally
+ *  be named after (F-022). */
+function targetIdent(ctx: WalkContext, name: string): string {
+  return ctx.target.escapeIdent?.(name) ?? name;
+}
+
 /** Read of a `derived <name>: T = expr` binding, in whatever position.
  *
  *  A derived value is spelled like a state cell on the JSX frontends (both are
@@ -303,8 +314,42 @@ export interface ActionMutationState {
   /** camelCase aggregate name — the api module to import from
    *  (`<prefix>api/<aggCamel>`). */
   aggCamel: string;
-  /** JS expression for the instance id to mutate (e.g. `order.id`). */
-  idExpr: string;
+  /** JS expression for the instance id to mutate (e.g. `order.id`).
+   *
+   *  ABSENT (`undefined`) means the hook takes NO hook-time argument at
+   *  all — `DestroyForm` hoists `useDelete<Agg>()`, whose id goes to
+   *  `mutateAsync` instead, unlike `use<Op><Agg>(<id>)`.  That is a
+   *  different thing from an id that renders to the empty string, and it
+   *  must stay a distinct value rather than `""`: a shell that decorates
+   *  a PRESENT id (svelte wraps it in an accessor thunk) turns `""` into
+   *  `useDeleteOrder(() => )`, a syntax error.  Render the argument with
+   *  `renderActionMutationArg` rather than interpolating this field. */
+  idExpr?: string;
+}
+
+/** Render an action-mutation hook's hook-time ARGUMENT LIST.
+ *
+ *  The one place that knows what an absent `idExpr` means, shared by every
+ *  shell that declares `const <localVar> = <hookName>(<arg>)`.  An absent id
+ *  renders as the EMPTY argument list (`useDelete<Agg>()`); a present one is
+ *  shaped by the framework's `wrap` — svelte's api factories take the id as an
+ *  accessor, so it wraps in a thunk, while react passes it straight through.
+ *
+ *  Frameworks differ only in how they decorate a present id, never in whether
+ *  an absent one may be decorated — which is why the check lives here and not
+ *  in each shell.
+ *
+ *  `wrap` is REQUIRED, with no identity default: a shell that silently got the
+ *  identity because it forgot the argument would emit an UNDECORATED id and
+ *  compile clean, which is the same silent-degradation shape this helper exists
+ *  to close (and what `test/platform/optional-context-param-sweep.test.ts`
+ *  guards).  A shell that genuinely passes the id through spells that out as
+ *  `(id) => id`. */
+export function renderActionMutationArg(
+  m: ActionMutationState,
+  wrap: (idExpr: string) => string,
+): string {
+  return m.idExpr === undefined ? "" : wrap(m.idExpr);
 }
 
 /** A single auto-injected React Query hook call.  Generated when
@@ -1135,7 +1180,7 @@ export function walk(expr: ExprIR, ctx: WalkContext, depth: number): string {
       // build error stays visible.
       if (ctx.paramNames.has(expr.name)) {
         ctx.usedParams.add(expr.name);
-        return ctx.target.renderInterpolation(expr.name);
+        return ctx.target.renderInterpolation(targetIdent(ctx, expr.name));
       }
       // Refs that match a state field name emit the
       // same way; the shell brings them into scope via `useState`.
@@ -1722,17 +1767,17 @@ export function emitExpr(expr: ExprIR, ctx: WalkContext): string {
       }
       if (ctx.paramNames.has(expr.name)) {
         ctx.usedParams.add(expr.name);
-        return expr.name;
+        return targetIdent(ctx, expr.name);
       }
       // Refs to shell-emitted locals (e.g. `create`
       // inside a `CreateForm(of:, onSubmit: v => create.mutateAsync(v))`
       // lambda) resolve as themselves.
-      if (ctx.shellLocals.has(expr.name)) return expr.name;
+      if (ctx.shellLocals.has(expr.name)) return targetIdent(ctx, expr.name);
       // Refs to `let` bindings are in scope as JS
       // const declarations earlier in the same lambda body.  The IR
       // already tags these with `refKind: "let"`; emit the bare
       // name so the generated code references the local.
-      if (expr.refKind === "let") return expr.name;
+      if (expr.refKind === "let") return targetIdent(ctx, expr.name);
       // A bare enum-member reference (`o.vis == Public`).  A frontend never
       // sees the enum as a type: it rides the wire as the member's bare NAME
       // string (`z.enum(["Public", …])` in _frontend/zod-schemas.ts, `String`
@@ -2308,7 +2353,10 @@ export function emitStmt(stmt: StmtIR, ctx: WalkContext): string {
         if (nav !== undefined) return `${nav};`;
       }
       const args = stmt.args.map((a) => emitExpr(a, ctx)).join(", ");
-      return `${stmt.name}(${args});`;
+      // The callee is a MODEL name (a sibling `action`, an extern ui function),
+      // so it takes the target's identifier spelling — the same one the binding
+      // site gets from `renderNamedHandler` (F-022).
+      return `${targetIdent(ctx, stmt.name)}(${args});`;
     }
     case "variant-match":
       return emitVariantMatch(stmt, ctx);
@@ -2804,7 +2852,7 @@ export function renderTextContent(expr: ExprIR, ctx: WalkContext): string | unde
     }
     if (ctx.paramNames.has(expr.name)) {
       ctx.usedParams.add(expr.name);
-      return ctx.target.renderInterpolation(expr.name);
+      return ctx.target.renderInterpolation(targetIdent(ctx, expr.name));
     }
     if (ctx.stateNames.has(expr.name)) {
       ctx.usesState = true;
