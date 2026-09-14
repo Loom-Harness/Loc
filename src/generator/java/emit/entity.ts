@@ -38,6 +38,7 @@ import {
 import { renderSqlRestriction } from "../render-sql-restriction.js";
 import {
   collectJavaStmtImports,
+  declarationSubRegion,
   renderJavaStatementChunks,
   renderJavaStatements,
   statementSubRegions,
@@ -671,7 +672,11 @@ export function renderJavaEntity(
     if (options.opFragments && chunks.length > 0) {
       options.opFragments.push({
         fragmentText: body,
-        subRegions: statementSubRegions(opBody, chunks, `${options.construct}.${op.name}`),
+        subRegions: [
+          // F-021 — see `declarationSubRegion`.
+          ...declarationSubRegion(op.origin, chunks, `${options.construct}.${op.name}`),
+          ...statementSubRegions(opBody, chunks, `${options.construct}.${op.name}`),
+        ],
       });
     }
     if (body.length > 0) opLines.push(body);

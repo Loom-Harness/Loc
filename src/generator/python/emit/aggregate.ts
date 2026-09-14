@@ -39,6 +39,7 @@ import {
   renderPyType,
 } from "../render-expr.js";
 import {
+  declarationSubRegion,
   renderPyStatementChunks,
   renderPyStatements,
   statementSubRegions,
@@ -589,7 +590,11 @@ function renderEntity(
     if (opFragments && chunks.length > 0) {
       opFragments.push({
         fragmentText: body,
-        subRegions: statementSubRegions(opBody, chunks, `${ctxName}.${e.name}.${op.name}`),
+        subRegions: [
+          // F-021 — see `declarationSubRegion`.
+          ...declarationSubRegion(op.origin, chunks, `${ctxName}.${e.name}.${op.name}`),
+          ...statementSubRegions(opBody, chunks, `${ctxName}.${e.name}.${op.name}`),
+        ],
       });
     }
     return [

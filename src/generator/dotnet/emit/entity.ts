@@ -28,6 +28,7 @@ import { constructionSeededFields } from "../../construction-default.js";
 import { collectCsExprUsings, csNewIdValue, renderCsExpr, renderCsType } from "../render-expr.js";
 import {
   collectCsStmtUsings,
+  declarationSubRegion,
   renderCsStatementChunks,
   renderCsStatements,
   statementSubRegions,
@@ -547,11 +548,16 @@ export function renderEntity(
     if (opFragments && chunks.length > 0) {
       opFragments.push({
         fragmentText: body,
-        subRegions: statementSubRegions(
-          opBody,
-          chunks,
-          `${constructPrefix ?? entity.name}.${op.name}`,
-        ),
+        subRegions: [
+          // F-021 — the member's declaration region, so the `operation` header
+          // line resolves to the body's first generated line, not `:1`.
+          ...declarationSubRegion(
+            op.origin,
+            chunks,
+            `${constructPrefix ?? entity.name}.${op.name}`,
+          ),
+          ...statementSubRegions(opBody, chunks, `${constructPrefix ?? entity.name}.${op.name}`),
+        ],
       });
     }
     if (body.length > 0) opLines.push(body);
