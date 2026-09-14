@@ -276,7 +276,7 @@ function repointBindingReaders(lambda: Lambda, param: string): void {
     if (isPostfixChain(node)) {
       if (!isNameRef(node.head) || node.head.name !== param) return;
       const first = node.suffixes?.[0];
-      if (!first || first.$type !== "MemberSuffix") return;
+      if (first?.$type !== "MemberSuffix") return;
       if (ENVELOPE_MEMBERS.has((first as unknown as { member: string }).member)) return;
       chains.push(node);
       return;

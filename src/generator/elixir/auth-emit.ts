@@ -275,7 +275,6 @@ function renderAuthPlug(
   // must not override verified claims.  Keyed by the declared field name; the
   // value lands on the built principal's snake_case key.
   const devClaimEntries = devClaimFields(user?.fields);
-  const devClaimStringFields = devClaimEntries.map((c) => c.field);
   const devClaimsEnabled = !auth && devClaimEntries.length > 0;
   const devClaimNeedsList = devClaimEntries.some((c) => c.kind === "stringList");
   const buildUserCall =
