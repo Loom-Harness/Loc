@@ -184,6 +184,7 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.page-primitive-target-gap": "16-ui-walker-primitives.md#per-target-honest-gates",
   "loom.auth-missing-issuer": "17-auth.md#auth-----oidc-config",
   "loom.auth-unknown-claim-field": "17-auth.md#auth-----oidc-config",
+  "loom.auth-oidc-no-audience": "17-auth.md#auth-----oidc-config",
   "loom.auth-without-user": "17-auth.md#auth-required--per-deployable-middleware--verifier-seam",
   "loom.currentuser-not-in-request-scope": "17-auth.md#currentuser--claim-access-in-domain-logic",
   "loom.workflow-currentuser-find": "17-auth.md#currentuser--claim-access-in-domain-logic",

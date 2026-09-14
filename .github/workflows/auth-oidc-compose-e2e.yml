@@ -36,8 +36,33 @@ on:
       - 'src/util/**'
       - 'src/generator/typescript/**'
       - 'src/platform/hono/**'
+      # Shared emission seams the platform tree above delegates into: `_stmt` is
+      # the StmtIR dispatcher this backend's leaf table plugs into, `_payload`
+      # the one tagged-union wire shape, `_i18n` the validation-catalog
+      # collector.  The leading underscore means SHARED, not per-target -- a
+      # change confined to one of them changes what this gate compiles.  Derived
+      # from this block's platform claim and pinned by
+      # test/system/workflow-path-coverage.test.ts.
+      - 'src/generator/_adapters/**'
+      - 'src/generator/_auth/**'
+      - 'src/generator/_channels/**'
+      - 'src/generator/_expr/**'
+      - 'src/generator/_frontend/**'
+      - 'src/generator/_i18n/**'
+      - 'src/generator/_numeric/**'
+      - 'src/generator/_obs/**'
+      - 'src/generator/_payload/**'
+      - 'src/generator/_persistence/**'
+      - 'src/generator/_stmt/**'
+      - 'src/generator/_trace/**'
+      - 'src/generator/_type/**'
+      - 'src/generator/_workflow/**'
       - 'test/e2e/auth-oidc-compose-e2e.test.ts'
       - 'test/e2e/fixtures/auth-oidc-e2e.ddd'
+      # The auth UI-gate job below rides this same trigger.
+      - 'test/e2e/auth-gate-ui-e2e.test.ts'
+      - 'test/e2e/support/auth-gate.spec.ts'
+      - 'test/e2e/fixtures/auth-gate-e2e/**'
       - 'package.json'
       - '.github/workflows/auth-oidc-compose-e2e.yml'
   workflow_dispatch:
@@ -88,3 +113,48 @@ jobs:
           echo '' >> $GITHUB_STEP_SUMMARY
           echo 'See the "Run full-compose OIDC runtime e2e" step above for the captured `docker compose logs`.' >> $GITHUB_STEP_SUMMARY
           echo 'The test boots the generated docker-compose stack (containerized backend + bundled dev Keycloak), gets a token for the seeded `demo` user, and asserts the backend validates it over host.docker.internal and maps the claims onto User.' >> $GITHUB_STEP_SUMMARY
+
+  # The authorization layer's UI half, at runtime.  The OIDC job above proves
+  # the backend VALIDATES a token; this proves the emitted SPA HIDES what the
+  # token does not entitle you to see: a `requires`-gated menu entry, a gated
+  # page guard and a gated operation button, evaluated client-side against a
+  # mocked `/auth/me` role, on all four SPA frameworks (the compile gates
+  # cannot exercise `currentUser.role === …`).
+  #
+  # Reachability, not tiering, is what this job is fixing: LOOM_AUTH_GATE_E2E
+  # was set by no script and no workflow, so those 409 lines had been skipping
+  # silently since they landed (code review 2026-09-13 P1-1).  It is wired on
+  # the SAME trigger as the job above — `push: main`, manual dispatch, or the
+  # `run-oidc` label on a PR — never on an unlabeled PR: four `vite build`s
+  # plus a Playwright browser download is not a per-PR cost, and the per-PR
+  # net for the gate markup is the frontend build matrix.
+  # test/system/skip-gate-reachability.test.ts keeps it from going dark again.
+  auth-gate-ui-e2e:
+    runs-on: ubuntu-latest
+    if: >-
+      github.event_name != 'pull_request' ||
+      github.event.label.name == 'run-oidc'
+    # npm ci + toolchain build, then generate + npm install + vite build +
+    # Playwright per framework.  Cold ~12min.
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install Loom toolchain
+        run: npm ci
+
+      - name: Run auth UI-gate runtime smoke
+        run: npm run test:auth-gate-ui -- --reporter=verbose
+
+      - name: Surface failure context
+        if: failure()
+        run: |
+          echo '## Auth UI-gate runtime smoke failed' >> $GITHUB_STEP_SUMMARY
+          echo '' >> $GITHUB_STEP_SUMMARY
+          echo 'See the step above for the captured `vite build` / `playwright test` output.' >> $GITHUB_STEP_SUMMARY
+          echo 'The shared spec (test/e2e/support/auth-gate.spec.ts) mocks `/auth/me` to a role and asserts each gate site hides/shows: the menu entry, the page guard, and the operation button.' >> $GITHUB_STEP_SUMMARY

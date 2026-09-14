@@ -57,7 +57,6 @@ import {
   domainToWire,
   wireJavaType,
   wireToDomain,
-  wireToDomainGuards,
 } from "./wire.js";
 
 // ---------------------------------------------------------------------------

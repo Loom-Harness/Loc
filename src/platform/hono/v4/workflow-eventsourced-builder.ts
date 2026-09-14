@@ -106,10 +106,27 @@ function renderApplierStmt(s: StmtIR, indent: string): string {
       const value = renderTsExpr(s.value, ES);
       return `${indent}{ const __i = ${path}.findIndex((e) => e === (${value})); if (__i >= 0) ${path}.splice(__i, 1); }`;
     }
-    default:
+    // Every remaining `StmtIR` kind is refused: an applier is a PURE FOLD over
+    // the saga's own state.  Enumerated rather than left to a bare `default` so
+    // a new statement kind is a COMPILE error here (the `never` below) and has
+    // to be classified — fold-able or refused — instead of silently inheriting
+    // the refusal.
+    case "precondition":
+    case "requires":
+    case "let":
+    case "expression":
+    case "return":
+    case "emit":
+    case "call":
+    case "variant-match":
+    case "if":
       throw new Error(
         `es-workflow applier: unexpected statement kind '${s.kind}' (appliers are pure folds)`,
       );
+    default: {
+      const _exhaustive: never = s;
+      return _exhaustive;
+    }
   }
 }
 

@@ -136,6 +136,14 @@ export function refineRenderable(e: ExprIR): boolean {
     case "action-ref":
     case "authz-filter":
       return false;
+    default: {
+      // EXHAUSTIVENESS.  A new `ExprIR.kind` was already a compile error here
+      // (TS2366 — the declared `boolean` return has no fall-out path), but the
+      // error pointed at the function header, not the missing arm.  The
+      // explicit `never` names the kind and is the form the walk census reads.
+      const _exhaustive: never = e;
+      return _exhaustive;
+    }
   }
 }
 
@@ -409,6 +417,11 @@ export function renderRefineExpr(e: ExprIR): string {
       // rather than shipping a refine that is wrong.  (An `authz-filter`
       // sentinel is a query-filter node, never a wire-boundary invariant.)
       return unrenderable(`the \`${e.kind}\` expression kind`);
+    default: {
+      // EXHAUSTIVENESS — see the twin note on `refineRenderable` above.
+      const _exhaustive: never = e;
+      return _exhaustive;
+    }
   }
 }
 
