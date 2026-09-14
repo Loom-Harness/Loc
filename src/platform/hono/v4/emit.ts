@@ -1256,7 +1256,7 @@ export function generateTypeScriptForContexts(
   // consumers.  A deployable with no wired bindings stays byte-identical.
   const hasChannels = channelBindings.length > 0;
   if (hasChannels) {
-    out.set("http/channels.ts", renderChannelsModule(channelBindings));
+    out.set("http/channels.ts", renderChannelsModule(channelBindings, merged.events));
   }
   // Consumer side only when a hosted workflow actually subscribes (via a
   // hosted OR wired channel); a pure producer skips the loop and the
