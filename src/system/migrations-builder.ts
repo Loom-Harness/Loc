@@ -1311,9 +1311,9 @@ export function applyDestructivePolicy(
   ): ResolvedBackfill | undefined => backfillByCol.get(`${qkey(schema, table)}.${column}`);
 
   // Rename detection: a table with EXACTLY one dropColumn + one addColumn of
-  // identical type is an unambiguous rename → collapse to a single
-  // `renameColumn` (non-destructive).  Anything else stays drop+add and falls
-  // under the gate below.
+  // identical type AND nullability is an unambiguous rename → collapse to a
+  // single `renameColumn` (non-destructive).  Anything else stays drop+add and
+  // falls under the gate below.
   //
   // The heuristic is a GUESS, and structurally it cannot be anything else: a
   // rename (`binLocation` → `binCode`) and an unrelated drop+add (drop
@@ -1327,9 +1327,14 @@ export function applyDestructivePolicy(
   // new }` line and an exit code; the wrong call in the other direction costs
   // a corrupted production table nobody is told about.
   //
-  // Two contrary signals, both of them the author positively asserting the
-  // added column is NEW (a renamed column arrives carrying its own data, so
-  // neither statement would mean anything about it):
+  // Three contrary signals.  The first says the two columns are not even the
+  // same SHAPE; the other two are the author positively asserting the added
+  // column is NEW (a renamed column arrives carrying its own data, so neither
+  // statement would mean anything about it).  In source order below:
+  //
+  //   0. a NULLABILITY mismatch between the dropped and added columns — see
+  //      the note at the check itself (it is the one that has to read the
+  //      baseline column, so it sits after the type comparison);
   //
   //   1. a declared `migration "…" { Agg.newField = <expr> }` BACKFILL on the
   //      added column — the documented rule ("a backfilled add is an explicit
