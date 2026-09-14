@@ -44,6 +44,43 @@ export interface ManifestEntry {
    *  alone.  Recorded here rather than re-sniffed from disk because a user
    *  editing "their" file may well drop the marker comment. */
   scaffoldOnce?: true;
+  /** Digest of the content THIS run wrote to the path ({@link contentDigest}),
+   *  so the NEXT run can tell "the file on disk differs because the model
+   *  changed" from "the file on disk differs because a human edited it"
+   *  (finding F-019).  The overwrite contract is unchanged — Loom still
+   *  rewrites every file it owns — but the run summary can now say how many
+   *  of those rewrites landed on a locally-modified file instead of reporting
+   *  them as indistinguishable from any other write.
+   *
+   *  OPTIONAL on purpose, in both directions: a manifest written before this
+   *  field existed carries none, and "no record" degrades to "say nothing"
+   *  rather than to a false claim.  It is also why this needed no
+   *  {@link MANIFEST_VERSION} bump — an older Loom's parser drops the unknown
+   *  key, a newer one treats its absence as unknown provenance. */
+  hash?: string;
+}
+
+/** The digest recorded in a manifest entry's `hash` and recomputed from disk
+ *  on the next run.  FNV-1a (64-bit, hex) over the UTF-8 bytes: this is a
+ *  change DETECTOR between two runs of the same tool on the same machine, not
+ *  a security primitive, and it has to run over every emitted file of every
+ *  generate — so it is a few-cycles-per-byte non-cryptographic hash rather
+ *  than sha256.  Collisions cost a missed "this file was edited" note, never a
+ *  wrong write or a wrong delete: nothing but the summary line reads it. */
+export function contentDigest(content: string): string {
+  const bytes = new TextEncoder().encode(content);
+  // Two 32-bit FNV-1a passes with different offset bases, concatenated — 64
+  // bits of detector in two lines of arithmetic that are obviously correct,
+  // where a hand-split 64-bit multiply would not be.  `Math.imul` keeps each
+  // multiply in 32-bit integer space.
+  let a = 0x811c_9dc5;
+  let b = 0x1000_0193;
+  for (const byte of bytes) {
+    a = Math.imul(a ^ byte, 0x0100_0193);
+    b = Math.imul(b ^ byte, 0x0100_01b3);
+  }
+  const hex = (n: number): string => (n >>> 0).toString(16).padStart(8, "0");
+  return `${hex(a)}${hex(b)}`;
 }
 
 export interface OutputManifest {
@@ -137,7 +174,12 @@ export function buildManifest(entries: readonly ManifestEntry[]): OutputManifest
     // did, scaffold-once is the sticky, safer bit.
     const prev = byPath.get(p);
     const scaffoldOnce = e.scaffoldOnce || prev?.scaffoldOnce;
-    byPath.set(p, scaffoldOnce ? { path: p, scaffoldOnce: true } : { path: p });
+    const hash = e.hash ?? prev?.hash;
+    byPath.set(p, {
+      path: p,
+      ...(scaffoldOnce ? { scaffoldOnce: true as const } : {}),
+      ...(hash ? { hash } : {}),
+    });
   }
   return {
     version: MANIFEST_VERSION,
@@ -171,13 +213,16 @@ export function parseManifest(text: string): OutputManifest | null {
   const entries: ManifestEntry[] = [];
   for (const item of obj.entries) {
     if (typeof item !== "object" || item === null) return null;
-    const e = item as { path?: unknown; scaffoldOnce?: unknown };
+    const e = item as { path?: unknown; scaffoldOnce?: unknown; hash?: unknown };
     if (typeof e.path !== "string" || e.path.length === 0) return null;
-    entries.push(
-      e.scaffoldOnce === true
-        ? { path: normaliseManifestPath(e.path), scaffoldOnce: true }
-        : { path: normaliseManifestPath(e.path) },
-    );
+    entries.push({
+      path: normaliseManifestPath(e.path),
+      ...(e.scaffoldOnce === true ? { scaffoldOnce: true as const } : {}),
+      // A malformed `hash` is dropped, not rejected: it is advisory (the
+      // local-modification note), so it must never make a manifest unreadable
+      // and turn a regen into "prune nothing".
+      ...(typeof e.hash === "string" && e.hash.length > 0 ? { hash: e.hash } : {}),
+    });
   }
   return { version: MANIFEST_VERSION, entries };
 }

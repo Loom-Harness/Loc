@@ -39,7 +39,12 @@ describe("python auth gate", () => {
     expect(verifier).toContain("def assert_user_verifier_registered() -> None:");
     const mw = files.get("api/app/auth/middleware.py")!;
     // Bypass list matches Hono/.NET exactly.
-    expect(mw).toContain('BYPASS_PREFIXES = ("/health", "/ready", "/openapi.json", "/swagger")');
+    // `/metrics` sits with the probes (F-022): the Prometheus job this same
+    // generator writes carries no credentials, so a gated /metrics 401'd every
+    // scrape.
+    expect(mw).toContain(
+      'BYPASS_PREFIXES = ("/health", "/ready", "/metrics", "/openapi.json", "/swagger")',
+    );
     expect(mw).toContain("request.state.current_user = user");
     // The 401 is RFC 7807 like every other error on this API, and carries the
     // `WWW-Authenticate` challenge RFC 9110 §15.5.2 makes a MUST — this used to

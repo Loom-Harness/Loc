@@ -18,6 +18,7 @@ import type {
   WorkflowStmtIR,
 } from "../../types/loom-ir.js";
 import { exprUsesCurrentUser } from "../../types/loom-ir.js";
+import { TENANCY_SELF_SCOPE_ORIGIN, TENANT_OWNED_CAPABILITY } from "../../util/tenant-stance.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
 
 // ---------------------------------------------------------------------------
@@ -308,6 +309,95 @@ export function validateFilterBypassSupport(sys: SystemIR, diags: LoomDiagnostic
             });
           }
         }
+      }
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Tenancy-bypass loudness gate (`loom.tenancy-filter-bypass`).
+//
+// `ignoring tenantOwned` / `ignoring *` is the LEGITIMATE escape hatch for a
+// deliberate platform-admin cross-tenant report, and this check keeps it
+// working — it is a warning, never an error.  What it is NOT is a quiet one:
+// unlike `ignoring softDeletable` (which widens a read to rows the caller's
+// own tenant already owns), dropping the tenancy conjunct removes the SECURITY
+// BOUNDARY the feature exists to provide — the emitted query loses its
+// `tenant_id = <claim>` predicate entirely and answers with every tenant's
+// rows.
+//
+// So the warning is unconditional on the `auth { enforcement: }` mode:
+//
+//   * `enforcement: opt` (the LANGUAGE DEFAULT) runs no ungated-read gate at
+//     all, so before this check a one-word `ignoring tenantOwned` on an
+//     un-`requires`d projection validated 0 errors / 0 warnings while serving
+//     cross-tenant totals to any authenticated caller.
+//   * `enforcement: denyByDefault` catches only the ABSENCE of a gate
+//     (`loom.default-deny-ungated`) — and `requires true` satisfies it while
+//     leaking just as hard.  "Has some gate" is therefore the wrong question;
+//     "does this read drop the tenant filter" is the right one, and it is the
+//     only one this check asks.
+//
+// Non-vacuity is the point of the two conditions below: the warning fires
+// ONLY when the bypass actually drops a TENANCY-origin filter that is in
+// scope — never for `ignoring softDeletable`, never for `ignoring *` on an
+// aggregate with no tenancy filter, never on a named bypass of some other
+// capability.
+// ---------------------------------------------------------------------------
+
+/** The tenancy-origin filters a read's `ignoring` clause drops, as
+ *  human-readable clause names.  Empty when the bypass touches no tenancy
+ *  filter — the silent, legitimate case (`ignoring softDeletable`, `ignoring *`
+ *  on an untenanted aggregate). */
+function droppedTenancyFilters(read: BypassRead, agg: AggregateIR | undefined): string[] {
+  const origins = new Set(
+    ((agg as EnrichedAggregateIR | undefined)?.contextFilterOrigins ?? []).filter(
+      (o): o is string => o != null,
+    ),
+  );
+  const dropped: string[] = [];
+  const named = (read.bypassCaps ?? []).includes(TENANT_OWNED_CAPABILITY);
+  if ((named || read.bypassAll) && origins.has(TENANT_OWNED_CAPABILITY)) {
+    dropped.push(`the '${TENANT_OWNED_CAPABILITY}' tenant floor`);
+  }
+  // The registry's DERIVED self-scope filter (`this.id == currentUser.<claim>`)
+  // carries the `tenancy` origin, which is not a capability name — only
+  // `ignoring *` can reach it (a named `ignoring tenancy` is already refused by
+  // `loom.filter-bypass-unknown-capability`).
+  if (read.bypassAll && origins.has(TENANCY_SELF_SCOPE_ORIGIN)) {
+    dropped.push("the tenant-registry self-scope filter");
+  }
+  return dropped;
+}
+
+/** Warn on every read whose `ignoring` clause drops a tenancy filter —
+ *  model-level, so it is independent of both the hosting deployable and the
+ *  `auth { enforcement: }` mode (see the header above).  Walking contexts
+ *  rather than deployables also keeps it at exactly one diagnostic per read,
+ *  where the support gate above deliberately reports per hosting deployable. */
+export function validateTenancyFilterBypass(sys: SystemIR, diags: LoomDiagnostic[]): void {
+  if (!sys.tenancy) return;
+  const claim = sys.tenancy.claimField;
+  for (const mod of sys.subdomains) {
+    for (const ctx of mod.contexts) {
+      const aggByName = new Map<string, AggregateIR>();
+      for (const a of ctx.aggregates) aggByName.set(a.name, a);
+      for (const read of bypassReadsInContext(ctx)) {
+        const dropped = droppedTenancyFilters(read, aggByName.get(read.aggName));
+        if (dropped.length === 0) continue;
+        diags.push({
+          severity: "warning",
+          code: "loom.tenancy-filter-bypass",
+          message: diagMessage("loom.tenancy-filter-bypass", {
+            site: capitalizeSite(read.site),
+            ctxName: ctx.name,
+            aggName: read.aggName,
+            dropped: dropped.join(" and "),
+            clause: read.bypassAll ? "*" : TENANT_OWNED_CAPABILITY,
+            claim,
+          }),
+          source: `${sys.name}/${ctx.name}`,
+        });
       }
     }
   }

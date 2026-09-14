@@ -1825,6 +1825,50 @@ system S {
     seed default { Invoice { label: "Seeded" } }
   } }
 }`,
+  // F-009: under the RECOMMENDED `denyByDefault`, the synthesised
+  // `GET /api/secrets/{id}` carries no gate on any backend and nothing said
+  // so — the admin-only `find all` next to it is no protection at all.
+  "loom.default-deny-by-id-ungated": `
+system S {
+  user { id: guid  role: string }
+  auth { enforcement: denyByDefault  oidc { issuer: "https://idp.example.com"  clientId: "app" } }
+  subdomain D { context Vault {
+    aggregate Secret { body: string  create() { requires currentUser.role == "admin" } }
+    repository Secrets for Secret {
+      find all(): Secret[] requires currentUser.role == "admin"
+    }
+  } }
+  api Api from D
+  storage pg { type: postgres }
+  resource st { for: Vault, kind: state, use: pg }
+  deployable api { platform: node contexts: [Vault] dataSources: [st] serves: Api port: 3000 auth: required }
+}`,
+
+  // F-005: a one-word `ignoring tenantOwned` on an UNGATED query-time
+  // projection under the LANGUAGE-DEFAULT `enforcement: opt` — 0 errors /
+  // 0 warnings before the gate, while the emitted route served every
+  // tenant's revenue to any authenticated caller.
+  "loom.tenancy-filter-bypass": `
+system S {
+  user { id: guid  orgId: string }
+  auth { enforcement: opt  oidc { issuer: "https://idp.example.com"  clientId: "app" } }
+  tenancy by user.orgId of Org
+  subdomain Ops { context Work {
+    aggregate Org with crudish { name: string }
+    aggregate WorkOrder with tenantOwned, crudish { ref: string  amount: money }
+    repository Orgs for Org { }
+    repository WorkOrders for WorkOrder { }
+    projection PlatformRevenue {
+      revenue: money
+      from WorkOrder as w ignoring tenantOwned
+      select revenue = sum(w.amount)
+    }
+  } }
+  api Api from Ops
+  storage pg { type: postgres }
+  resource st { for: Work, kind: state, use: pg }
+  deployable api { platform: node contexts: [Work] dataSources: [st] serves: Api port: 3000 auth: required }
+}`,
   // --- M-T5.34: the four rulings (#2864 D5/D6/G2, #2850 case B) ------------
   // Each fixture is minimal and ISOLATING — it raises its own code and no
   // sibling from the packet, so a future regression names one gate.

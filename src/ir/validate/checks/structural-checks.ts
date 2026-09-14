@@ -1963,7 +1963,9 @@ export function validateLifecycleBodyDropped(ctx: BoundedContextIR, diags: LoomD
     //
     // A warning, not an error: the model is emittable and correct, the author's
     // MENTAL MODEL is what is wrong.  Listing every create-input field (what
-    // `with crudish` generates) or omitting the parens both keep it quiet.
+    // `with crudish` generates) or declaring the empty list `create()` both
+    // keep it quiet.  (Not "omitting the parens": a `create`'s parens are
+    // mandatory in the grammar — `create { }` does not parse.  F-010.)
     if (agg.canonicalCreate && agg.canonicalCreate.params.length > 0) {
       const declared = new Set(agg.canonicalCreate.params.map((p) => p.name));
       const input = agg.createInput ?? buildCreateInput(agg);

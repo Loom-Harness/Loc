@@ -34,7 +34,7 @@ function pyIdClaimImports(user: UserIR): string[] {
 // Without an `auth { oidc }` block the user calls `register_user_verifier(fn)`
 // by hand (main.py ships a permissive dev stub).  With one, the generated
 // OIDC verifier is auto-registered and the handshake router mounted.  The
-// middleware bypass list matches the Hono/.NET sides: /health, /ready,
+// middleware bypass list matches the Hono/.NET sides: /health, /ready, /metrics,
 // /openapi.json, /swagger (plus /auth/login|callback|logout under OIDC).
 // ---------------------------------------------------------------------------
 
@@ -350,8 +350,8 @@ function renderAuthMiddleware(
   // reachable without a verified principal — bypass them.  /auth/me is NOT
   // bypassed (the guard reads the verified user).
   const bypass = oidc
-    ? `("/health", "/ready", "/openapi.json", "/swagger", "${AUTH_BASE_PATH}/login", "${AUTH_BASE_PATH}/callback", "${AUTH_BASE_PATH}/logout", "${AUTH_BASE_PATH}/refresh")`
-    : '("/health", "/ready", "/openapi.json", "/swagger")';
+    ? `("/health", "/ready", "/metrics", "/openapi.json", "/swagger", "${AUTH_BASE_PATH}/login", "${AUTH_BASE_PATH}/callback", "${AUTH_BASE_PATH}/logout", "${AUTH_BASE_PATH}/refresh")`
+    : '("/health", "/ready", "/metrics", "/openapi.json", "/swagger")';
   // The per-request registry `data_key` resolver (hierarchy only).  A fresh
   // session per lookup; `SELECT data_key … WHERE id = :claim LIMIT 1`; a
   // missing row / NULL `data_key` / any error (e.g. a non-matching dev-stub

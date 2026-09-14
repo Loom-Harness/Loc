@@ -355,6 +355,7 @@ export function renderAuthFiles(
       `    private static final String[] BYPASS_PREFIXES = {`,
       `        "/health",`,
       `        "/ready",`,
+      `        "/metrics",`,
       `        "/openapi.json",`,
       `        "/swagger",`,
       // OIDC redirect handshake — login/callback/logout must be reachable

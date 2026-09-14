@@ -34,7 +34,7 @@ import { walkStmtExprsDeep } from "../../../ir/util/walk.js";
 import { snake, upperFirst } from "../../../util/naming.js";
 import { numericEncode } from "../../_numeric/target.js";
 import type { SourceMapRecorder } from "../../_trace/sourcemap.js";
-import { statementSubRegions } from "../../_trace/sourcemap.js";
+import { declarationSubRegion, statementSubRegions } from "../../_trace/sourcemap.js";
 import {
   MONEY_MAX_EXCLUSIVE,
   MONEY_PRECISION,
@@ -1298,7 +1298,11 @@ function renderNamedOpFunction(
   if (opFragments && bodyLines.length > 0) {
     opFragments.push({
       fragmentText: bodyLines.join("\n"),
-      subRegions: statementSubRegions(bodyStmts, bodyLines, `${ctx.name}.${agg.name}.${op.name}`),
+      subRegions: [
+        // F-021 — see `declarationSubRegion`.
+        ...declarationSubRegion(op.origin, bodyLines, `${ctx.name}.${agg.name}.${op.name}`),
+        ...statementSubRegions(bodyStmts, bodyLines, `${ctx.name}.${agg.name}.${op.name}`),
+      ],
     });
   }
 
