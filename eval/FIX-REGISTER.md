@@ -24,20 +24,27 @@ Each agent: branches from fresh `main`, re-verifies its own cluster first, opens
 PR"), then mutation-proves every gate by file copy (never `git checkout --`, §84)
 and verifies against the **real toolchain**, not an emitted-text assertion.
 
-| Cluster | Findings | The one-sentence root cause |
-|---|---|---|
-| **A** `claude/fix-projection-schema-resolution` | F-006, F-011, F-041 | a projection's `select` resolves names against the DOMAIN MODEL, not the EMITTED TABLE — so a `derived`, a value-object sub-field and a TPH subtype each emit a column or relation that does not exist |
-| **B** `claude/fix-emitted-import-symbols` | F-009, F-030 | the emitted TypeScript uses a symbol the file never imports (`ne` from a `!=` filter; `Decimal` from a `money` default) — import sets are accumulated per call site |
-| **C** `claude/fix-primitive-member-access` | F-040, F-040a | there is no member table for primitive receivers, so `s.totallyMadeUpMember` validates clean and is emitted verbatim — including into an `invariant` that can then never fire |
-| **D** `claude/fix-currentuser-in-criteria` | F-007, F-023 | the row-level authorization primitive: python/elixir emit an unbound `current_user`, and any claim other than `.id` passes validation then crashes codegen |
-| **E** `claude/fix-page-emitter-fails-open` | F-014, F-015 | the page-body emitter's designed fallback is `/* unresolved: X */ undefined`; and the documented list-read gate switches the client's response shape while the page still reads `.items` |
-| **F** `claude/fix-broker-consumer-typed-decode` | F-019 | the consumer spreads `JSON.parse` output through `as unknown as DomainEvent`, so every event carrying a `datetime` is delivered and then silently dropped |
-| **G** `claude/fix-four-codegen-defects` | F-010, F-017, F-021, F-039 | four independent small defects: an optional part field emitted as required; a `managed` NOT NULL field with no default is unconstructible; Vue rejects an optional ref in a `router-link`; `== null` emits `eq(col, null)` instead of `isNull(col)` |
-| **H** `claude/fix-migration-silent-rebaseline` | F-029 *(+F-020)* | the migration baseline is state inside the output tree, so generating into a clean directory re-emits `Initial` under the same tag, the migrator skips it, and the app 500s while the healthcheck stays green |
-| **I** `claude/fix-enum-member-collision` | F-022 | a bare enum value lowers by first-declaration-wins instead of by the target's enum type — one IR bug, five backends, four different outcomes |
-| **J** `claude/fix-java-elixir-feliz-compile` | F-024, F-025, F-027, F-033 | the Java/Elixir/Feliz half of "five backends generate, one compiles" |
-| **K** `claude/fix-auth-bootstrap-and-overwrite-visibility` | F-016, F-018, F-031 | the generated Keycloak realm provisions none of the declared claims (so the shipped auth demo 500s on every write); a missing claim is a 500 not a 4xx; regenerate clobbers hand-edits reporting only a count |
-| **L** `claude/fix-i18n-locale-wiring` | F-034 *(+ scoping F-004, F-042, F-043)* | the `ddd i18n` translator workflow and the generated `t()` runtime never meet |
+All twelve are claimed with a live draft PR. **The claim protocol earned its keep:**
+a container restart killed all twelve agents mid-flight, and because every one had
+opened its PR before implementing, nothing had to be re-planned — each successor
+resumed from its own PR body, and two agents' completed work survived on their
+pushed branches (the broker fix: 10 files / +833; the primitive-member fix: 3
+files / +142).
+
+| PR | Cluster | Findings | The one-sentence root cause |
+|---|---|---|---|
+| **#2940** | **A** `fix-projection-schema-resolution` | F-006, F-011, F-041 | a projection's `select` resolves names against the DOMAIN MODEL, not the EMITTED TABLE — so a `derived`, a value-object sub-field and a TPH subtype each emit a column or relation that does not exist |
+| **#2939** | **B** `fix-emitted-import-symbols` | F-009, F-030 | the emitted TypeScript uses a symbol the file never imports (`ne` from a `!=` filter; `Decimal` from a `money` default) — import sets are accumulated per call site |
+| **#2949** | **C** `fix-primitive-member-access` | F-040, F-040a | there is no member table for primitive receivers, so `s.totallyMadeUpMember` validates clean and is emitted verbatim — including into an `invariant` that can then never fire |
+| **#2945** | **D** `fix-currentuser-in-criteria` | F-007, F-023 | the row-level authorization primitive: python/elixir emit an unbound `current_user`, and any claim other than `.id` passes validation then crashes codegen |
+| **#2942** | **E** `fix-page-emitter-fails-open` | F-014, F-015 | the page-body emitter's designed fallback is `/* unresolved: X */ undefined`; and the documented list-read gate switches the client's response shape while the page still reads `.items` |
+| **#2944** | **F** `f019-broker-wire-decode` | F-019 | the consumer spreads `JSON.parse` output through `as unknown as DomainEvent`, so every event carrying a `datetime` is delivered and then silently dropped |
+| **#2947** | **G** `fix-four-codegen-defects` | F-010, F-017, F-021, F-039 | four independent small defects: an optional part field emitted as required; a `managed` NOT NULL field with no default is unconstructible; Vue rejects an optional ref in a `router-link`; `== null` emits `eq(col, null)` instead of `isNull(col)` |
+| **#2946** | **H** `fix-migration-silent-rebaseline` | F-029 *(+F-020)* | the migration baseline is state inside the output tree, so generating into a clean directory re-emits `Initial` under the same tag, the migrator skips it, and the app 500s while the healthcheck stays green |
+| **#2943** | **I** `fix-enum-member-collision` | F-022 | a bare enum value lowers by first-declaration-wins instead of by the target's enum type — one IR bug, five backends, four different outcomes |
+| **—** | **J** `fix-java-elixir-feliz-compile` | F-024, F-025, F-027, F-033 | the Java/Elixir/Feliz half of "five backends generate, one compiles" |
+| **#2948** | **K** `fix-auth-bootstrap-and-overwrite-visibility` | F-016, F-018, F-031 | the generated Keycloak realm provisions none of the declared claims (so the shipped auth demo 500s on every write); a missing claim is a 500 not a 4xx; regenerate clobbers hand-edits reporting only a count |
+| **—** | **L** `fix-i18n-locale-wiring` | F-034 *(+ scoping F-004, F-042, F-043)* | the `ddd i18n` translator workflow and the generated `t()` runtime never meet |
 
 ### Deliberately scoped, not landed (cluster L, Part 2)
 
