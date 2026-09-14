@@ -35,6 +35,7 @@ import type {
 } from "../../ir/types/loom-ir.js";
 import { backendServesRealtime } from "../../ir/util/channels.js";
 import { type PageNameCtx, pageConstructId, pageEmitName } from "../../ir/util/page-kind.js";
+import { realtimeStreamCredential } from "../../ir/util/realtime-rooms.js";
 import { walkExprDeep } from "../../ir/util/walk.js";
 import { lines } from "../../util/code-builder.js";
 import { humanize, snake, upperFirst } from "../../util/naming.js";
@@ -43,6 +44,13 @@ import { lineCount, type SourceMapRecorder } from "../_trace/sourcemap.js";
 import { storeMemberLocal } from "../_walker/js-target-helpers.js";
 import type { ApiCallSite } from "../_walker/target.js";
 import { type ApiHookUse, emitExpr, walkBody } from "../_walker/walker-core.js";
+import {
+  FLUTTER_API_CLIENT_DART,
+  FLUTTER_API_CLIENT_IO_DART,
+  FLUTTER_API_CLIENT_WEB_DART,
+  FLUTTER_BEARER_STORE_DART,
+  flutterHttpImport,
+} from "./api-client.js";
 import { renderFlutterAuthModule, renderFlutterGate } from "./auth-gate.js";
 import { renderFlutterChartRuntime } from "./chart-runtime.js";
 import {
@@ -131,6 +139,25 @@ export function generateFlutterForContexts(
   // shape — the same three-way conjunction every other frontend's `authUi` is.
   const target = sys.deployables.find((d) => d.name === deployable.targetName);
   const authUi = !!(deployable.auth?.ui && target?.auth?.required && sys.user);
+  // The api-call credential (M-T4.12 item 1, D-FLUTTER-BEARER).  ONE predicate,
+  // shared with the realtime stream: `realtimeStreamCredential` is the gate
+  // RULE 2 states, and it answers `cookie-web-bearer-native` for a
+  // `platform: flutter` deployable because an HttpOnly cookie cannot exist on
+  // Android/iOS.  Every generated library then imports the credentialed
+  // `api_client.dart` drop-in instead of `package:http/http.dart`, so the reads,
+  // the forms, the `/auth/me` probe, the inline `Action(<inst>.<op>)` POST and
+  // the async effects are credentialed at once.  `auth: none` keeps the bare
+  // import and is byte-identical.
+  // `realtimeStreamCredential` answers `cookie-web-bearer-native` for a
+  // `platform: flutter` deployable by construction (it keys on the platform),
+  // so the narrowing below is total rather than defensive — it is how the
+  // flutter emitters state the ONE value they can receive without re-deriving
+  // the gate.
+  const streamCredential: "cookie-web-bearer-native" | "none" =
+    realtimeStreamCredential(deployable, target, sys.user) === "none"
+      ? "none"
+      : "cookie-web-bearer-native";
+  const credentialed = streamCredential !== "none";
 
   // Aggregate + owning-bounded-context lookups, built once — threaded into the
   // walker (form seams resolve the aggregate's create-input / op params + the
@@ -184,7 +211,7 @@ export function generateFlutterForContexts(
   // above, ahead of the models emit).  Emitted only when the ui issues reads,
   // alongside the `AppConfig` api-base helper.
   if (reads.length > 0) {
-    out.set("lib/reads.dart", renderReadProviders(reads));
+    out.set("lib/reads.dart", renderReadProviders(reads, credentialed));
   }
 
   // Realtime SSE handlers (channels.md Part I) — gated on BOTH halves: this ui
@@ -196,7 +223,7 @@ export function generateFlutterForContexts(
     flutterHasRealtimeHandlers(ui) &&
     backendServesRealtime(target?.platform ?? deployable.platform);
   if (hasRealtime && ui) {
-    out.set("lib/realtime.dart", renderFlutterRealtime(ui, reads));
+    out.set("lib/realtime.dart", renderFlutterRealtime(ui, reads, streamCredential));
     out.set("lib/realtime_event.dart", REALTIME_EVENT_DART);
     out.set("lib/realtime_source.dart", REALTIME_SOURCE_FACADE);
     out.set("lib/realtime_source_io.dart", REALTIME_SOURCE_IO_DART);
@@ -214,7 +241,7 @@ export function generateFlutterForContexts(
     out.set("lib/i18n.dart", renderFlutterI18nModule(ui));
   }
   if (forms.length > 0) {
-    out.set("lib/forms.dart", renderFormsFile(forms));
+    out.set("lib/forms.dart", renderFormsFile(forms, credentialed));
   }
 
   // The aggregates reachable through this deployable — used for the fallback
@@ -274,6 +301,7 @@ export function generateFlutterForContexts(
       authUi,
       nameCtx,
       pageRoutes,
+      credentialed,
     });
     for (const name of r.usedComponents) usedComponents.add(name);
     return { page, ...r };
@@ -293,7 +321,7 @@ export function generateFlutterForContexts(
   // redirects and the two gate views.  Emitted whenever the app is gated, since
   // `main.dart` wraps `MaterialApp` in `AuthGate` regardless of whether any page
   // additionally carries a `requires`.
-  if (authUi && sys.user) out.set("lib/auth.dart", renderFlutterAuthModule(sys.user));
+  if (authUi && sys.user) out.set("lib/auth.dart", renderFlutterAuthModule(sys.user, credentialed));
 
   const persistedStores = flutterPersistedStores(ui);
   const storesFile = ui
@@ -327,6 +355,18 @@ export function generateFlutterForContexts(
         ]);
       }
     }
+  }
+
+  // The authenticated http surface (D-FLUTTER-BEARER).  Four files, emitted
+  // together or not at all: the drop-in façade every credentialed library
+  // imports `as http`, its two conditional-import halves (browser cookie /
+  // native bearer), and the platform-neutral bearer store the app populates
+  // from its own OIDC client.
+  if (credentialed) {
+    out.set("lib/api_client.dart", FLUTTER_API_CLIENT_DART);
+    out.set("lib/api_client_web.dart", FLUTTER_API_CLIENT_WEB_DART);
+    out.set("lib/api_client_io.dart", FLUTTER_API_CLIENT_IO_DART);
+    out.set("lib/loom_bearer.dart", FLUTTER_BEARER_STORE_DART);
   }
 
   // `AppConfig`/`apiUri` is shared by the read providers, the form widgets, AND
@@ -663,6 +703,10 @@ function renderPage(
      *  in the body walk AND in an action body — pushes the router's real key
      *  instead of the resolver's `/<page-snake>` fallback. */
     pageRoutes: ReadonlyMap<string, string>;
+    /** True when the deployable authenticates its api calls (D-FLUTTER-BEARER)
+     *  — the page shell then imports the credentialed `api_client.dart` drop-in
+     *  instead of `package:http/http.dart`. */
+    credentialed: boolean;
   },
 ): Omit<RenderedPage, "page"> {
   const {
@@ -674,6 +718,7 @@ function renderPage(
     authUi,
     nameCtx,
     pageRoutes,
+    credentialed,
   } = workflows;
   // Identity comes from the page's EMIT NAME, never its bare `page.name`.  The
   // scaffold names aggregate pages by ROLE (`List` inside `area Products`), so
@@ -805,6 +850,7 @@ function renderPage(
           storeMembers,
           derivedLines,
           pageGate,
+          credentialed,
         },
         bodyWidget,
         contexts,
@@ -818,6 +864,7 @@ function renderPage(
         hostsForm,
         usesComponent,
         derivedLines,
+        credentialed,
       });
 
   return { fileBase, className, routePath, source, usedComponents };
@@ -874,6 +921,11 @@ interface ConsumerBindings {
    *  `currentUser.<claim>` in its body) — the shell then binds `currentUser` and
    *  wraps the body in the gate. */
   pageGate: boolean;
+  /** True when the deployable authenticates its api calls — the page shell then
+   *  imports the credentialed `api_client.dart` drop-in instead of
+   *  `package:http/http.dart` (D-FLUTTER-BEARER).  False keeps the emitted
+   *  bytes identical. */
+  credentialed: boolean;
 }
 
 /** Bind one local per used store member, matching the body's use site
@@ -934,6 +986,12 @@ function renderStatelessPage(
      *  page's derived reach only params / literals — one that read `state` made
      *  the page a `ConsumerWidget` instead. */
     derivedLines: readonly string[];
+    /** True when the deployable authenticates its api calls — the page shell
+     *  then imports the credentialed `api_client.dart` drop-in instead of
+     *  `package:http/http.dart`, so an inline `Action(<inst>.<op>)` POST and a
+     *  FileUpload carry the credential (D-FLUTTER-BEARER).  False keeps the
+     *  emitted bytes identical. */
+    credentialed: boolean;
   },
 ): string {
   const imports = ["import 'package:flutter/material.dart';"];
@@ -948,7 +1006,7 @@ function renderStatelessPage(
   // An `Action(<instance>.<op>)` button POSTs inline via `apiUri(` — the only
   // page-body reference to it — so import http + the base-URL helper on demand.
   if (bodyWidget.includes("apiUri(")) {
-    imports.push("import 'package:http/http.dart' as http;", "import '../config.dart';");
+    imports.push(flutterHttpImport(opts.credentialed, "../"), "import '../config.dart';");
   }
   // The formatting / math sniffs run over the hoisted `derived` locals TOO — a
   // derived is an expression like any body slot, so `round(x)` in one pulls
@@ -1148,7 +1206,7 @@ function renderConsumerPage(
   // `Action(<instance>.<op>)` buttons, async-effect methods, and FileUpload POST
   // inline via `apiUri(` — import http + the base-URL helper when either does.
   if (scan.includes("apiUri(")) {
-    imports.push("import 'package:http/http.dart' as http;", "import '../config.dart';");
+    imports.push(flutterHttpImport(b.credentialed, "../"), "import '../config.dart';");
   }
   if (usesIntl(scan)) {
     imports.push("import 'package:intl/intl.dart';");

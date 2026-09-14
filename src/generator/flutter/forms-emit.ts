@@ -56,6 +56,7 @@ import { valueObjectPool } from "../../ir/util/reachable-types.js";
 import { lines } from "../../util/code-builder.js";
 import { humanize, lowerFirst, plural, snake, upperFirst } from "../../util/naming.js";
 import { STANDARD_AGG_OPS } from "../_walker/walker-core.js";
+import { flutterHttpImport } from "./api-client.js";
 import { type FlutterFieldRule, flutterValidatorMap, ruleGuards } from "./form-validators.js";
 
 // ---------------------------------------------------------------------------
@@ -1633,7 +1634,15 @@ export function renderFormWidget(spec: FlutterFormSpec): string {
 
 /** Emit `lib/forms.dart` — every form widget a ui hosts.  Returns "" when the
  *  ui hosts no forms (the caller then emits no file). */
-export function renderFormsFile(forms: readonly FlutterFormSpec[]): string {
+export function renderFormsFile(
+  forms: readonly FlutterFormSpec[],
+  /** True when the deployable authenticates its api calls — `auth: ui` against
+   *  an `auth: required` target with a declared `user { }`.  The generated
+   *  library then imports the credentialed `api_client.dart` drop-in instead of
+   *  `package:http/http.dart`, which credentials EVERY call site at once
+   *  (D-FLUTTER-BEARER).  False keeps the emitted bytes identical. */
+  credentialed = false,
+): string {
   if (forms.length === 0) return "";
   const blocks = forms.map(renderFormWidget);
   // A `file` input picks through `file_picker` and reifies the uploaded
@@ -1650,7 +1659,7 @@ export function renderFormsFile(forms: readonly FlutterFormSpec[]): string {
     "",
     ...(usesFile ? ["import 'package:file_picker/file_picker.dart';"] : []),
     "import 'package:flutter/material.dart';",
-    "import 'package:http/http.dart' as http;",
+    flutterHttpImport(credentialed),
     "",
     "import 'config.dart';",
     ...(usesFile ? ["import 'models.dart';"] : []),

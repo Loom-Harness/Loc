@@ -3372,7 +3372,7 @@ the web transport plus the bearer header in the IO transport (so
 native value, so the gate stays ONE predicate rather than two. `auth: none`
 deployables stay byte-identical.
 
-**Unblocks.** M-T4.12 item (1) → wave **C2 packet 2j**.
+**Unblocks.** M-T4.12 item (1) → wave **C2 packet 2j**, where it **shipped** (`src/generator/flutter/api-client.ts` + the two conditional-import halves + `lib/loom_bearer.dart`; `loomEventSource` takes `{withCredentials, bearer}`; `realtimeStreamCredential` gained `"cookie-web-bearer-native"` and keys it on `deployable.platform`, so the gate stayed ONE predicate as this decision required). `flutter analyze` 0 errors / 0 warnings, `flutter test` green and `flutter build web --release` green on the generated credentialed app; `auth: none` is unchanged.
 
 **Sources.** [`T4-eventing-temporal.md`](new-plan/T4-eventing-temporal.md)
 M-T4.12 (Wave 1 packet 1g note, RULE 1 / RULE 2 and "Still open under this ID"
