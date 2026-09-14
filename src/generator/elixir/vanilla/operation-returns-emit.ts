@@ -28,6 +28,7 @@ import type {
 import { opHasProvSite } from "../../../ir/util/prov-id.js";
 import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { walkStmtsDeep } from "../../../ir/util/walk.js";
+import { elixirIfRefusal } from "../../../ir/validate/checks/if-stmt-checks.js";
 import { defaultErrorStatus, errorTitle, errorTypeUri } from "../../../util/error-defaults.js";
 import { escapeElixirIdent, snake, upperFirst } from "../../../util/naming.js";
 import { numericEncode } from "../../_numeric/target.js";
@@ -39,7 +40,7 @@ import {
   opEmitsDurableEvent,
 } from "../channels-emit.js";
 import { contextHasDispatcher } from "../dispatch-emit.js";
-import { opUsesCurrentUser, stmtUsesParam } from "../domain/predicates.js";
+import { opBodyStmtsDeep, opUsesCurrentUser, stmtUsesParam } from "../domain/predicates.js";
 import { type RenderCtx, renderExpr } from "../render-expr.js";
 import { auditRecordCall, wireSnapshot } from "./audit-emit.js";
 import {
@@ -56,6 +57,7 @@ import {
   opHasWireDenial,
   wireValidationResponse,
 } from "./denial.js";
+import { renderElixirIfStmt } from "./if-stmt-emit.js";
 import { ELIXIR_NUMERIC } from "./numeric-codec.js";
 import { collectVanillaLeaves, provColumn, provenancedFieldsOf } from "./provenance-emit.js";
 import { isRefCollFieldName, refCollTargetModule } from "./ref-collection-emit.js";
@@ -227,7 +229,7 @@ export function persistPutBodies(
   // the columns IT assigns have to reach this persist tail — this function
   // walking only `op.statements` is the second half of M-T6.55 F24: emitting the
   // call alone computes the mutation and then silently drops it at persist.
-  for (const s of [...op.statements, ...calleeStatements(op, agg)]) {
+  for (const s of [...opBodyStmtsDeep(op.statements), ...calleeStatements(op, agg)]) {
     // `assign` (`field := v`), collection `add`/`remove` (`items += Item{…}`),
     // and scalar compound `add`/`remove` (`total += n`) all re-bind a real
     // schema column on `record`.
@@ -424,7 +426,9 @@ export function returningOpHasSuccessPath(op: OperationIR, agg: AggregateIR): bo
  *  assigned fields).  A mutating returning op MUST persist regardless of its
  *  success-path SHAPE (fall-through vs explicit `return this`) — S12. */
 export function opMutatesState(op: OperationIR): boolean {
-  return op.statements.some((s) => s.kind === "assign" || s.kind === "add" || s.kind === "remove");
+  return opBodyStmtsDeep(op.statements).some(
+    (s) => s.kind === "assign" || s.kind === "add" || s.kind === "remove",
+  );
 }
 
 /** A returning op has a COMMIT path when its body reaches a success outcome —
@@ -809,7 +813,7 @@ export function renderReturningOpFunction(
   // (a `put_assoc` changeset) rather than return the in-memory projection — and
   // it guarantees the context's `__ref_id_list`/`__resolve_refs` helpers are
   // emitted (`contextUsesRefCollOp`), so the wire projection below can call them.
-  const mutatesRefColl = op.statements.some(
+  const mutatesRefColl = opBodyStmtsDeep(op.statements).some(
     (s) =>
       (s.kind === "add" || s.kind === "remove") &&
       s.collection &&
@@ -1367,20 +1371,29 @@ export function renderReturningStmt(
         "internal: a 'variant-match' statement reached the vanilla Elixir statement renderer; " +
           "loom.variant-match-placement refuses this source at phase ④, so the validator was bypassed",
       );
-    case "if":
-      // The `if` STATEMENT is a node/.NET/java/python form today.  This body
-      // threads its result through a REBOUND `record`, and an Elixir `if`
-      // block's bindings do not escape the block — so a branch that assigns
-      // would compile and silently do nothing.  Rendering it correctly means
-      // making the branch value-producing (`record = if … do … record else
-      // record end`) across every vanilla body renderer, which is its own
-      // slice; until then it is refused up front by
-      // `loom.elixir-if-stmt-unsupported` (ir/validate/checks/if-stmt-checks.ts)
-      // and this arm is the defensive fail-fast.
-      throw new Error(
-        "platform: elixir — an `if` statement reached the vanilla operation emitter; it is " +
-          "refused at validation (loom.elixir-if-stmt-unsupported).",
-      );
+    case "if": {
+      // M-T6.59 — a value-producing `if`: every arm ends in the threaded
+      // `record`, and the whole expression rebinds it, so a branch that assigns
+      // IS observable after the call.  The two sub-shapes this rendering cannot
+      // express (a `return` / a nested guard in a branch) are refused up front
+      // by `loom.elixir-if-stmt-unsupported`; this arm re-classifies with the
+      // SAME predicate the gate uses, so a bypassed validator fails loudly
+      // instead of emitting a body that drops the early exit.
+      const refusal = elixirIfRefusal([s], "operation");
+      if (refusal) {
+        throw new Error(
+          `platform: elixir — an 'if' statement with a ${refusal} reached the vanilla ` +
+            "operation emitter; it is refused at validation " +
+            `(loom.elixir-if-stmt-unsupported#${refusal}).`,
+        );
+      }
+      return renderElixirIfStmt(s, {
+        indent: "    ",
+        threadVar: rc.thisName,
+        cond: renderExpr(s.cond, rc),
+        renderInner: (stmts) => stmts.map((st, i) => renderReturningStmt(st, ctx, rc, index + i)),
+      });
+    }
   }
 }
 

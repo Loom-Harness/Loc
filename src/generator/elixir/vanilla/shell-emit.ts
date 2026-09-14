@@ -649,6 +649,58 @@ end
 `;
 }
 
+/** A router line: either a real route, or the F8 static-sub-path method guard
+ *  synthesised after it. */
+type RouterLine = ApiRoute & { guard?: true };
+
+/**
+ * The F8 static-sub-path 405 guard on Phoenix (ledger `static-subpath-405`).
+ *
+ * A phoenix router keys on (method, path) IN DECLARATION ORDER, so
+ * `DELETE /api/articles/by_owner` falls through `get "/articles/by_owner"`
+ * (wrong verb) into `delete "/articles/:id"` and binds `id = "by_owner"` — the
+ * request never reaches `NotFoundController` (the only 405+`Allow` source on
+ * this backend) and answers the `:id` cast's 422 instead.  Node, java, python
+ * and .NET all guard this (#2764); elixir was the one that did not.
+ *
+ * The guard is a `match :*` route at the EXACT static path, spliced in right
+ * after the last real route for that path: the real routes still win for the
+ * verbs they serve (declaration order), and every other verb lands on
+ * `NotFoundController.not_found`, which computes `Allow` by asking
+ * `Phoenix.Router.route_info/4` the same path under the other verbs — so the
+ * header comes from the ROUTER, not from a second copy of the route table that
+ * could drift.  (That action already excludes its OWN routes from the probe,
+ * which is exactly what keeps these guard routes from reporting themselves as
+ * an allowed method.)
+ *
+ * Only ONE-segment statics under an aggregate prefix are affected, matching the
+ * shared rule in `src/ir/util/api-surface.ts`: `/articles/:id/history` and
+ * `/articles/:id/can_publish` put a param IN FRONT of the static segment, so
+ * nothing shadows them and a wrong verb there already reaches phoenix's own
+ * miss.  Derived from the routes this router actually mounts rather than
+ * re-derived from the IR, so a backend-specific route (a lifted `prepare`, a
+ * workflow path) is covered by construction.
+ */
+function withStaticSubpathGuards(routes: readonly ApiRoute[]): RouterLine[] {
+  const isStaticSubpath = (p: string): boolean => {
+    const segs = p.split("/").filter((s) => s.length > 0);
+    return segs.length === 2 && !segs[1]!.includes(":") && !segs[1]!.includes("*");
+  };
+  // The LAST index at which each guarded path appears — the guard must follow
+  // every real route for it, or it would shadow one of them.
+  const lastAt = new Map<string, number>();
+  routes.forEach((r, i) => {
+    if (isStaticSubpath(r.path)) lastAt.set(r.path, i);
+  });
+  if (lastAt.size === 0) return [...routes];
+  const out: RouterLine[] = [];
+  routes.forEach((r, i) => {
+    out.push(r);
+    if (lastAt.get(r.path) === i) out.push({ ...r, guard: true });
+  });
+  return out;
+}
+
 function renderVanillaRouter(
   appModule: string,
   apiRoutes: ApiRoute[],
@@ -673,8 +725,12 @@ function renderVanillaRouter(
   const scopedApiRoutes = apiRoutes.filter(
     (r) => !r.path.startsWith("!root:") && !r.path.startsWith("!sse:"),
   );
-  const routeLines = scopedApiRoutes
-    .map((r) => `    ${r.method} "${r.path}", ${r.controller}, ${r.action}`)
+  const routeLines = withStaticSubpathGuards(scopedApiRoutes)
+    .map((r) =>
+      r.guard
+        ? `    match :*, "${r.path}", NotFoundController, :not_found`
+        : `    ${r.method} "${r.path}", ${r.controller}, ${r.action}`,
+    )
     .join("\n");
   const rootApiLines = rootApiRoutes
     .map((r) => {

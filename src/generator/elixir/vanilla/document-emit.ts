@@ -126,6 +126,22 @@ function docFields(agg: AggregateIR): FieldIR[] {
  *  (`createdAt`/`updatedAt` under `auditable` / an explicit `stamp`) is
  *  excluded: it is merged in by {@link docStampAttrs} at the write seam, and
  *  requiring it of the caller would 422 every create. */
+/** The optional twin of {@link docRequiredFields} — the stored fields a
+ *  full-replacement update must NULL when the body omits them.  Server-stamped
+ *  fields and managed timestamps are excluded for the same reason they are
+ *  excluded there: the caller does not own their value, so their absence from
+ *  the body says nothing. */
+function docOptionalFields(agg: AggregateIR): FieldIR[] {
+  const managedTs = managedTimestampNames(agg);
+  const stamped = new Set(
+    (agg.contextStamps ?? []).flatMap((r) => r.assignments.map((a) => a.field)),
+  );
+  return docFields(agg).filter(
+    (f) =>
+      (f.optional || f.type.kind === "optional") && !managedTs.has(f.name) && !stamped.has(f.name),
+  );
+}
+
 function docRequiredFields(agg: AggregateIR): FieldIR[] {
   const managedTs = managedTimestampNames(agg);
   const stamped = new Set(
@@ -346,6 +362,46 @@ export function renderDocChangeset(appModule: string, ctxModule: string, agg: Ag
       .map((f) => `:${snake(f.name)}`)
       .join(", ")}])`
       : "";
+  // The OPTIONAL twin of the presence check above, and the same divergence one
+  // level down.  `cast_embed` with `on_replace: :update` MERGES the incoming
+  // attrs onto the stored embed, so a key the body omits keeps whatever the
+  // document held — while the other four backends rebuild the aggregate from the
+  // request DTO and therefore null it.  Measured on a booted Phoenix: `POST
+  // /api/carts/<id>/update {"reference": "R2"}` against a cart created with
+  // `note: "hello"` answered 204 and read back `{"note": "hello", "reference":
+  // "R2"}`.  Clearing happens BEFORE `cast_embed` by injecting an explicit
+  // `nil` for each absent optional key, which is the only lever on this path —
+  // a root-level `put_change` cannot reach inside the embed.  The relational
+  // twin is `changeset-emit.ts`'s `__clear_absent/3`.
+  const updateOptional = docOptionalFields(agg);
+  // Emitted only where there IS an optional field to clear, so a document
+  // aggregate whose updatable fields are all required stays byte-identical.
+  const clearAbsentData =
+    updateOptional.length > 0
+      ? `__clear_absent(__normalize_keys(attrs), [${updateOptional
+          .map((f) => `:${snake(f.name)}`)
+          .join(", ")}])`
+      : "attrs";
+  const clearAbsentHelper =
+    updateOptional.length > 0
+      ? `
+
+  # The optional twin of the presence check above.  A full-replacement update
+  # that OMITS an optional field is asking for it to be cleared, but
+  # \`cast_embed\` MERGES onto the stored embed, so the old value survived.  An
+  # explicit \`nil\` is injected for each absent optional key before the embed
+  # sees the attrs; \`<Agg>.Data.changeset/2\` re-normalizes keys, so handing it
+  # the already-snake-cased map is a no-op.  A key that IS present and null
+  # already reaches the embed, so neither path double-writes.
+  defp __clear_absent(attrs, fields) do
+    Enum.reduce(fields, attrs, fn field, acc ->
+      if Map.has_key?(acc, Atom.to_string(field)) or Map.has_key?(acc, field),
+        do: acc,
+        else: Map.put(acc, Atom.to_string(field), nil)
+    end)
+  end`
+      : "";
+
   const requireKeysHelper =
     updateRequired.length > 0
       ? `
@@ -362,10 +418,12 @@ export function renderDocChangeset(appModule: string, ctxModule: string, agg: Ag
         do: cs,
         else: add_error(cs, field, "can't be blank", validation: :required)
     end)
-  end
-
-${NORMALIZE_KEYS_DEFP}`
+  end`
       : "";
+  // `__normalize_keys/1` is shared by both checks, so it rides in when EITHER
+  // is emitted — it used to hang off the presence helper alone.
+  const normalizeKeysHelper =
+    updateRequired.length > 0 || updateOptional.length > 0 ? `\n\n${NORMALIZE_KEYS_DEFP}` : "";
   return `# Auto-generated.
 defmodule ${changesetMod} do
   @moduledoc "Casts document attrs into the embedded \`:data\` schema + stamps the version."
@@ -382,10 +440,10 @@ defmodule ${changesetMod} do
   @doc "The UPDATE seam — \`document_changeset/3\` plus the raw-attrs presence check."
   def document_update_changeset(%${aggMod}{} = record, attrs, version) when is_map(attrs) do
     record
-    |> cast(%{"data" => attrs}, [])${requireKeys}
+    |> cast(%{"data" => ${clearAbsentData}}, [])${requireKeys}
     |> cast_embed(:data, with: &${aggMod}.Data.changeset/2, required: true)
     |> put_change(:version, version)
-  end${requireKeysHelper}
+  end${requireKeysHelper}${clearAbsentHelper}${normalizeKeysHelper}
 end
 `;
 }

@@ -13,6 +13,7 @@ import type {
   WorkflowStmtIR,
 } from "../../ir/types/loom-ir.js";
 import { durableEventTypes } from "../../ir/util/channels.js";
+import { valueObjectPool } from "../../ir/util/reachable-types.js";
 import { lines } from "../../util/code-builder.js";
 import { escapePythonIdent, snake } from "../../util/naming.js";
 import { numericEncode } from "../_numeric/target.js";
@@ -151,7 +152,7 @@ export function buildPyDispatchFile(
         .filter((n) => ppRefers(n))
         .sort();
       const ppVoEnumNames = [
-        ...ctx.valueObjects.map((v) => v.name),
+        ...valueObjectPool(ctx).map((v) => v.name),
         ...ctx.enums.map((e) => e.name),
       ]
         .filter(ppRefers)
@@ -398,7 +399,7 @@ export function buildPyDispatchFile(
     .map((a) => `${a.name}Id`)
     .filter((n) => refersTo(n))
     .sort();
-  const voEnumNames = [...ctx.valueObjects.map((v) => v.name), ...ctx.enums.map((e) => e.name)]
+  const voEnumNames = [...valueObjectPool(ctx).map((v) => v.name), ...ctx.enums.map((e) => e.name)]
     .filter(refersTo)
     .sort();
 

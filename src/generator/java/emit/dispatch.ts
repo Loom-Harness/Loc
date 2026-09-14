@@ -19,7 +19,7 @@ import { collectUnionFindLets, renderWorkflowStmtChunks } from "../../_workflow/
 import { collectJavaExprImports, renderJavaExpr, renderJavaType } from "../render-expr.js";
 import type { OpFragment } from "./entity.js";
 import { projectionRowClass } from "./projection-state.js";
-import { javaWorkflowStmtTarget, repoField, reposUsed } from "./workflow.js";
+import { javaWorkflowStmtTarget, reactorReposUsed, repoField } from "./workflow.js";
 import { esEventLogTable, esWorkflowStateClass } from "./workflow-eventsourced.js";
 import { workflowStateClass } from "./workflow-state.js";
 
@@ -428,7 +428,13 @@ export function renderJavaDispatcher(
   // fold their `<wf>_events` stream over a shared JdbcTemplate instead.
   const stateWfs = subscribedWfs.filter((wf) => !wf.eventSourced);
   const esPresent = subscribedWfs.some((wf) => wf.eventSourced);
-  const repoAggs = [...new Set(subscribedWfs.flatMap((wf) => reposUsed(wf, ctx)))].sort();
+  // The bodies THIS class renders are the reactor / event-create ones, so size
+  // the injected repository set from those — not from `reposUsed`, which reads
+  // `wf.statements` (the primary-create facade) and is empty for a reactor-only
+  // workflow.  That mismatch is what emitted `notesRepository.save(n)` and
+  // `followsRepository.runFindAllBy…(…)` against fields the class never
+  // declared (`javac: cannot find symbol`).
+  const repoAggs = [...new Set(subscribedWfs.flatMap((wf) => reactorReposUsed(wf, ctx)))].sort();
   const factoryAggs = [
     ...new Set(
       subscribedWfs.flatMap((wf) =>

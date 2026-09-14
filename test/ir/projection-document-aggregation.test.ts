@@ -37,16 +37,17 @@
 // a document table is a real query, and four backends emit it correctly.  Only
 // java cannot — its aggregation runs JPQL through the `EntityManager` and a
 // document aggregate has no JPA entity at all (it round-trips one jsonb column
-// through a `JdbcTemplate` repository) — so that one is a per-backend gate in
-// the `PROJECTION_AGG_SUPPORTED` shape, and the four working cells must keep
-// working (pinned positively by
-// `test/fixtures/corpus/projection-document-aggregation.ddd`).
+// through a `JdbcTemplate` repository) — so java carried a SECOND, per-backend
+// gate on top of the universal one, reusing the two already-registered
+// "deployable D (platform P) cannot generate this arm" codes.
 //
-// That per-backend refusal reuses the two codes that ALREADY mean "deployable D
-// (platform P) cannot generate this aggregation arm" —
-// `loom.projection-whole-table-aggregation-unsupported` and
-// `loom.projection-groupby-unsupported-backend` — through their `#document`
-// message variants, rather than minting a third way to say the same thing.
+// M-T4.2 (wave C2 packet 2d) DRAINED that gate.  Java's aggregation over a
+// document source now runs the same query as a NATIVE one —
+// `entityManager.createNativeQuery("select count(*) from <schema>.<table> e")`,
+// same binding and capability-bypass machinery, only the text differs.  The
+// per-backend gate, its `#document` message variants and this file's negative
+// arms are gone; all five cells are positive, pinned here and by
+// `test/fixtures/corpus/projection-document-aggregation.ddd`.
 
 import { describe, expect, it } from "vitest";
 import { enrichLoomModel } from "../../src/ir/enrich/enrichments.js";
@@ -72,7 +73,11 @@ const PLATFORMS = [
 ];
 
 /** The four backends that DO aggregate a document table correctly. */
-const DOCUMENT_AGG_PLATFORMS = PLATFORMS.filter((p) => p !== "java");
+// M-T4.2 (wave C2 packet 2d): java joined this set.  Its aggregation over a
+// document source runs the SAME query NATIVE (`createNativeQuery`,
+// `select count(*) from <schema>.<table> e`) rather than as JPQL over an
+// `@Entity` that does not exist — see `QueryProjectionCtx.documentTableOf`.
+const DOCUMENT_AGG_PLATFORMS = PLATFORMS;
 
 /** A tenanted system whose `Order` header and projection body are swappable. */
 const SYS = (platform: string, aggHeader: string, projection: string) => `
@@ -280,29 +285,20 @@ describe("BARE aggregation over a document source", () => {
     });
   }
 
-  it("java refuses it — its JPQL has no entity to name", async () => {
-    // `select count(e) from Order e` through the `EntityManager`, against an
-    // aggregate with no `@Entity` anywhere in the emitted project: Hibernate
-    // fails the query with "could not resolve root entity" at request time.
-    // Broken with NO capabilities at all, which is why this gate is separate
-    // from the filtered one above.
-    expect(await codesFor(BARE_SYS("java", DOC_BARE, COUNT))).toContain(BACKEND_SINGLETON);
+  // M-T4.2 — java USED to refuse both direct-table arms here, because
+  // `select count(e) from Order e` names an `@Entity` a document aggregate does
+  // not have (Hibernate: "could not resolve root entity", at request time).  It
+  // now runs the same query NATIVE against the `(id, data, version)` table, so
+  // the refusal is gone and the cell is positive like every other.
+  it("java emits the singleton arm — native, not JPQL", async () => {
+    expect(await codesFor(BARE_SYS("java", DOC_BARE, COUNT))).not.toContain(BACKEND_SINGLETON);
   });
 
-  it("java refuses the GROUPED arm too, under the grouped code", async () => {
-    // The other direct-table arm, and the other already-registered per-backend
-    // code.  Routing both through one code would have made the grouped refusal
-    // read as a whole-table one; routing the grouped one through the singleton
-    // code would have been worse still.
-    const codes = await codesFor(BARE_SYS("java", DOC_BARE, GROUPED_BY_ID));
-    expect(codes).toContain(BACKEND_GROUPED);
-    expect(codes).not.toContain(BACKEND_SINGLETON);
-  });
-
-  it("the other four emit the GROUPED arm over a document source", async () => {
+  it("every backend emits the GROUPED arm over a document source", async () => {
     for (const platform of DOCUMENT_AGG_PLATFORMS) {
       const codes = await codesFor(BARE_SYS(platform, DOC_BARE, GROUPED_BY_ID));
       expect(codes, platform).not.toContain(BACKEND_GROUPED);
+      expect(codes, platform).not.toContain(BACKEND_SINGLETON);
     }
   });
 
@@ -319,14 +315,6 @@ describe("BARE aggregation over a document source", () => {
     // The row read goes through the `JdbcTemplate` document repository, which
     // has no JPA entity to need.
     expect(await codesFor(BARE_SYS("java", DOC_BARE, PER_ROW))).not.toContain(BACKEND_SINGLETON);
-  });
-
-  it("names the deployable, its platform, and the document source", async () => {
-    const [message] = await messagesFor(BARE_SYS("java", DOC_BARE, COUNT), BACKEND_SINGLETON);
-    expect(message).toContain("'OrderVolume'");
-    expect(message).toContain("'shape: document' aggregate 'Order'");
-    expect(message).toContain("'d'");
-    expect(message).toContain("'java'");
   });
 });
 

@@ -14,9 +14,10 @@
 
 import { createInputFields } from "../../ir/enrich/wire-projection.js";
 import type { EnumIR, ExprIR, TypeIR, ValueObjectIR } from "../../ir/types/loom-ir.js";
+import { findsOfAggregate, resolveAggregateRead } from "../../ir/util/page-read.js";
 import { humanize, plural, snake } from "../../util/naming.js";
 import { iconA11yAttr } from "../_walker/a11y-emit.js";
-import { tryDetectApiHook } from "../_walker/api-hook-detector.js";
+import { type DetectedApiCall, tryDetectApiHook } from "../_walker/api-hook-detector.js";
 import { giveUpText } from "../_walker/give-up.js";
 import { isEntityHistoryRead } from "../_walker/history-read.js";
 import { lookupBuiltinIcon } from "../_walker/icons.js";
@@ -347,10 +348,22 @@ export function renderForm(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkCon
   // module-name resolution against contexts + workflows.
   const ofPascal = findPascalArg(expr, "of");
   const runsPascal = findPascalArg(expr, "runs");
+  // A WORKFLOW form's fields are the workflow's command-triggered `create`
+  // params (`WorkflowIR.params`, the same list the TSX `emitFormRuns` reads).
+  // Carried on the binding so `liveview-emit.ts` can both seed `@form` under
+  // the workflow's own `as:` prefix and destructure the submitted params in the
+  // `handle_event("run_<wf>", …)` clause — the clause that did not exist at all
+  // until M-T6.56 F61, so `phx-submit="run_<wf>"` raised `FunctionClauseError`
+  // and killed the LiveView.
+  const runsWorkflow = runsPascal ? ctx.workflowsByName.get(runsPascal) : undefined;
   if (ofPascal) {
     ctx.formBindings.push({ kind: "aggregate", name: ofPascal });
   } else if (runsPascal) {
-    ctx.formBindings.push({ kind: "workflow", name: runsPascal });
+    ctx.formBindings.push({
+      kind: "workflow",
+      name: runsPascal,
+      ...(runsWorkflow ? { params: runsWorkflow.params } : {}),
+    });
   }
   // Field inputs — derive one <.input> per user-input field on the
   // bound aggregate.  Excludes the `id` primary key (auto-generated on
@@ -361,7 +374,26 @@ export function renderForm(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkCon
   // validator catches unknowns upstream, but the fallback keeps the
   // emitter total).
   const inputs: string[] = [];
-  if (ofPascal) {
+  if (runsWorkflow) {
+    // One `<.input>` per workflow param, typed by `renderFieldInputForField`
+    // exactly as an aggregate create form's fields are — the HEEx form used to
+    // emit a single `<.input field={@form[:_placeholder]} label="Field" />`
+    // while React emitted the real set, so the two frontends asked the user for
+    // different data from the same `.ddd`.
+    for (const pparam of runsWorkflow.params) {
+      inputs.push(
+        `  ${renderFieldInputForField(
+          pparam,
+          "form",
+          ctx.enumsByName,
+          ctx.idOptionsBindings,
+          ctx.valueObjectsByName,
+          "@",
+          testidNs ? `${testidNs}-input-${pparam.name}` : undefined,
+        )}`,
+      );
+    }
+  } else if (ofPascal) {
     const agg = ctx.aggregatesByName.get(ofPascal);
     if (agg) {
       // Render the create-input contract (`createInputFields`), not raw
@@ -864,21 +896,54 @@ function resolveQueryAggregate(arg: ExprIR): string | undefined {
  *  Elixir.  Only a `method-call` carries args (`<api>.<Agg>.all(page, …)`); a
  *  plain member access (`<api>.<Agg>.all`) has none, so the load stays the
  *  parameterless `list_<agg>s()` it has always been. */
-/** The READ a `QueryView` `of:` call names — `all` for the auto-`findAll`,
- *  otherwise the declared `find`'s name.  Both spellings the walker accepts
- *  carry it in the same slot: `<api>.<Agg>.byOwner(x)` is a method-call whose
- *  `member` is the find, `<api>.<Agg>.all` a member access whose `member` is
- *  `all`.  A bare `ref` (the aggregate alone) names no read → `undefined`. */
-function queryRetrievalName(arg: ExprIR | undefined): string | undefined {
-  if (arg?.kind === "method-call") return arg.member;
-  if (arg?.kind === "member" && arg.receiver.kind === "member") return arg.member;
-  if (arg?.kind === "member" && arg.receiver.kind === "ref") return arg.member;
-  return undefined;
-}
-
 function queryCallArgs(arg: ExprIR | undefined, ctx: WalkContext): string[] | undefined {
   if (arg?.kind !== "method-call" || arg.args.length === 0) return undefined;
   return arg.args.map((a) => renderExpr(a, { ...ctx, position: "handler" }));
+}
+
+/** The CONTEXT-MODULE FUNCTION a `QueryView` `of:` aggregate read calls.
+ *
+ *  The emitter used to derive this from the read's SHAPE alone — list-shaped ⇒
+ *  `list_<agg>s`, single-shaped ⇒ `get_<agg>` — which is right only for the two
+ *  standard ops and silently wrong for every FILTERED read: a page asking for
+ *  `Product.findAllBySellable()` loaded the whole table, and `Item.byState(Live)`
+ *  passed the filter value into `list_items/4`'s `page` parameter.  The
+ *  operation the author named is the fact that decides this, so it is what gets
+ *  consulted — through `resolveAggregateRead`, the same resolution the validator
+ *  runs to reject a read that names nothing (`loom.ui-read-unresolved`).
+ *
+ *  `undefined` means exactly that: the operation resolved to no declaration, so
+ *  there is no honest function to call and the load block refuses instead of
+ *  substituting the list.  An `of:` the DETECTOR cannot read at all (a bare ref,
+ *  an unknown receiver) keeps the shape-derived default — those never named an
+ *  operation to route by, and the answer is byte-identical to before. */
+function contextReadFn(
+  aggName: string,
+  isSingle: boolean,
+  ctx: WalkContext,
+  detected: DetectedApiCall | null,
+): string | undefined {
+  const aggSnake = snake(aggName);
+  const shapeDefault = isSingle ? `get_${aggSnake}` : `list_${aggSnake}s`;
+  if (detected?.kind !== "aggregate" || detected.aggregateName !== aggName) return shapeDefault;
+  const target = resolveAggregateRead(
+    detected.operation,
+    findsOfAggregate(aggName, ctx.bcByAggregate.get(aggName)),
+  );
+  switch (target.kind) {
+    case "find-all":
+      return `list_${aggSnake}s`;
+    case "by-id":
+      return `get_${aggSnake}`;
+    case "find":
+      // The `defdelegate <find>_<agg>(...)` the context module emits beside the
+      // CRUD ones (`vanilla/context-emit.ts`, `customFindsOf`).
+      return `${snake(target.find.name)}_${aggSnake}`;
+    default:
+      // `history` is detected one level up (`historyRead`) and never reaches
+      // this arm; `unresolved` names no declaration — refuse.
+      return undefined;
+  }
 }
 
 export function renderQueryView(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkContext): string {
@@ -1057,11 +1122,11 @@ export function renderQueryView(expr: Extract<ExprIR, { kind: "call" }>, ctx: Wa
       // never moves off 1.  HANDLER position — the load block is a function
       // body, so state refs must render `socket.assigns.<f>`, not `@<f>`.
       listArgs: queryCallArgs(ofArgNode, ctx),
-      // WHICH read the `of:` named.  A filter-bar arm names a declared `find`,
-      // whose context function is `<find>_<agg>` — calling `list_<agg>s` with
-      // its argument put the filter value in the paged list's `page` slot
-      // (`("" - 1) * page_size` → ArithmeticError; schemathesis elixir E5).
-      retrieval: isSingle ? undefined : queryRetrievalName(ofArgNode),
+      // WHICH context function this read calls.  Resolved from the `of:` call's
+      // OPERATION, not assumed from the read's shape — see `contextReadFn`.
+      // (This subsumes the earlier `retrieval` slot, which derived the same
+      // `list_<agg>s` / `<find>_<agg>` choice from the call's SHAPE.)
+      readFn: contextReadFn(aggName, isSingle, ctx, detected),
       // …and only when the enclosing `match` arm is the one being rendered.
       gate: isSingle ? undefined : ctx.matchGate,
     });
@@ -1539,14 +1604,30 @@ export function renderDivider(expr: Extract<ExprIR, { kind: "call" }>, ctx: Walk
 /** `Image(src, alt)` → `<img src=… alt=… />`.  Literal attrs render as
  *  quoted strings; refs render as `{@assign}` HEEx expressions. */
 export function renderImage(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkContext): string {
-  let srcAttr = "";
-  let altAttr = "";
+  // M-T6.56 / audit F22 — this read ONLY the named `src:`/`alt:`, so the
+  // POSITIONAL shorthand every other target renders (`Image { "/logo.png" }` /
+  // `Image { row.thumbnailUrl }`, the same first-positional-is-the-value rule
+  // Text / Money / EnumBadge follow) emitted an `<img>` with NO `src` on
+  // LiveView alone.  `decorative: true` is read too, for the same reason: the
+  // JSX walker turns it into an explicit empty `alt`, and dropping it here left
+  // a decorative image announcing itself to assistive tech.
+  let srcArg: ExprIR | undefined;
+  let altArg: ExprIR | undefined;
+  let decorative = false;
+  let positional: ExprIR | undefined;
   for (let i = 0; i < expr.args.length; i++) {
     const name = expr.argNames?.[i];
     const arg = expr.args[i]!;
-    if (name === "src") srcAttr = ` src=${attrValue(arg, ctx)}`;
-    else if (name === "alt") altAttr = ` alt=${attrValue(arg, ctx)}`;
+    if (name === "src") srcArg = arg;
+    else if (name === "alt") altArg = arg;
+    else if (name === "decorative" && arg.kind === "literal")
+      decorative = String(arg.value) === "true";
+    else if (name === undefined && positional === undefined) positional = arg;
   }
+  // A named `src:` wins over the shorthand, matching `emitImage`.
+  const src = srcArg ?? positional;
+  const srcAttr = src ? ` src=${attrValue(src, ctx)}` : "";
+  const altAttr = altArg ? ` alt=${attrValue(altArg, ctx)}` : decorative ? ` alt=""` : "";
   const testidAttr = testIdAttr(expr, ctx);
   return `<img${srcAttr}${altAttr}${testidAttr} />`;
 }
@@ -2221,27 +2302,28 @@ export function renderIcon(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkCon
     } else if (argName === "decorative" && arg.kind === "literal")
       decorative = String(arg.value) === "true";
   }
-  // User-supplied SVG wins; falls back to the builtin registry (same
-  // precedence as the TSX emitter at `walker/primitives/icon.ts:32`).
-  // Walker doesn't import the registry today — pages that pass `name:`
-  // without `svg:` against an unknown builtin surface as an empty
-  // icon.  Acceptable for v0; a future change can import the registry
-  // and emit a `<!-- unknown icon: <name> -->` comment for unresolved
-  // names matching the TSX shape.
+  // User-supplied SVG wins; falls back to the builtin registry — the SAME
+  // precedence, and now the same lookup, as the TSX emitter
+  // (`_walker/primitives/icon.ts`).
   //
-  // NARROW give-up (M-T9.55): the case where the author named NOTHING at all.
-  // `Icon { }` carries no `name:` and no `svg:`, so there is no glyph to look
-  // up on any target — the JSX walker gives up (`Icon needs name: or svg:`)
-  // while HEEx emitted `<span class="loom-icon" aria-hidden="true"></span>`,
-  // an empty element that reads as a rendered icon.  The WIDER gap above (a
-  // `name:` the builtin registry does not resolve still emits an empty span
-  // here, because this emitter does not consult the registry) is a HEEx parity
-  // defect, not a give-up routing one, and is handed off rather than smuggled
-  // into this drain — closing it changes the bytes of every valid named icon.
-  if (customSvg === undefined && name === undefined)
-    return `<!-- ${giveUpText("loom.page-primitive-arg-missing", "Icon needs name: or svg:")} -->`;
-  void name;
-  const svg = customSvg ?? "";
+  // M-T6.56 / audit F22.  This emitter used to `void name` and render
+  // `<span class="loom-icon">` with an EMPTY body, so `Icon { name: "check" }`
+  // — the ordinary spelling, and the one every other target renders — produced
+  // an empty span on LiveView alone.  The registry was already imported here
+  // (`renderButton`'s `icon:` arm resolves through it), so the divergence was a
+  // missing call, not a missing capability.
+  //
+  // Both refusals now match the JSX walker arm for arm: an author who named
+  // NOTHING (`Icon { }` — no glyph to look up on any target) and a `name:` the
+  // builtin registry does not resolve are separate give-ups with separate
+  // codes, rather than one silently-empty element that reads as a rendered
+  // icon.
+  const svg = customSvg ?? (name !== undefined ? lookupBuiltinIcon(name) : undefined);
+  if (svg === undefined) {
+    return name === undefined
+      ? `<!-- ${giveUpText("loom.page-primitive-arg-missing", "Icon needs name: or svg:")} -->`
+      : `<!-- ${giveUpText("loom.page-primitive-arg-invalid", `unknown icon name '${name}'`)} -->`;
+  }
   const sizeClass = size ? ` loom-icon-${size}` : "";
   const testidAttr = testIdAttr(expr, ctx);
   // Decorative-by-default (icon a11y contract): hidden from assistive tech
