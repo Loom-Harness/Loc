@@ -1,0 +1,33 @@
+// F-010 (vue) / F-011 (svelte), both SILENT: `DestroyForm` on a detail page
+// emits broken code, differently per frontend.  Flip the frontend `platform:`.
+//   vue    -> src/pages/product_detail.vue: error TS2551:
+//               Property 'onDeleteProduct' does not exist … Did you mean 'deleteProduct'?
+//             (template emits @click='onDeleteProduct'; script emits `deleteProduct`)
+//   svelte -> +page.svelte: [PARSE_ERROR] Unexpected token
+//               const deleteProduct = useDeleteProduct(() => );   <- empty arrow body
+//   react  -> compiles
+system F010 {
+  subdomain S { context C {
+    aggregate Product with crudish { name: string  derived display: string = name }
+    repository Products for Product { }
+  } }
+  api CApi from S
+  ui W {
+    api C: CApi
+    page Home { route: "/" body: Heading { "Home", level: 1 } }
+    page ProductDetail(id: Product id) {
+      route: "/products/:id"
+      body: QueryView {
+        of: C.Product.byId(id), single: true,
+        data: p => Stack {
+          Heading { p.name, level: 2 },
+          DestroyForm { of: Product, then: navigate(Home) }
+        }
+      }
+    }
+  }
+  storage primary { type: postgres }
+  resource cs { for: C, kind: state, use: primary }
+  deployable api { platform: node, contexts: [C], dataSources: [cs], serves: CApi, port: 3000 }
+  deployable w { platform: vue, targets: api, ui: W { C: api }, port: 3001 }
+}

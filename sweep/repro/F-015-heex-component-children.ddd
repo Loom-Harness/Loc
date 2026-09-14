@@ -1,0 +1,36 @@
+// F-015 (SILENT, elixir/HEEx — BOTH packs): invoking a user `component` with
+// CHILDREN (a `Slot { }` component) emits a DUPLICATE `title=` attribute whose
+// second value is raw HEEx markup, so the template does not tokenize.
+//   node bin/cli.js generate system sweep/repro/F-015-heex-component-children.ddd -o /tmp/f015
+//   docker run --rm --network host -v /tmp/f015/api:/src -w /src \
+//     -e HEX_CACERTS_PATH=… hexpm/elixir:1.18.4-… \
+//     sh -c 'mix local.hex --force && mix deps.get && mix compile'
+//   -> ** (Phoenix.LiveView.TagEngine.Tokenizer.ParseError)
+//        lib/api_web/live/home_live.ex:NN: expected closing `}` for expression
+// The emitted line:
+//   <…UiComponents.page_box title={"Slotted"} title={<p> … </p>} />
+system F015 {
+  subdomain S { context C { aggregate T with crudish { label: string } repository Ts for T { } } }
+  api CApi from S
+  ui W {
+    api C: CApi
+    component PageBox(title: string) {
+      body: Card { Heading { title, level: 3 }, Slot { } }
+    }
+    page Home {
+      route: "/"
+      body: Stack { PageBox { title: "Slotted", Text { "children passed through Slot" } } }
+    }
+  }
+  storage primary { type: postgres }
+  resource cs { for: C, kind: state, use: primary }
+  deployable api {
+    platform: elixir
+    contexts: [C]
+    dataSources: [cs]
+    serves: CApi
+    ui: W { C: api }
+    port: 4000
+    design: coreComponents
+  }
+}

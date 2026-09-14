@@ -1,0 +1,33 @@
+// F-018 (SILENT, every JSX/SFC pack): an unrecognised `Button variant:` value is
+// downgraded to `ghost` (a borderless text button) with NO diagnostic.  The
+// supported vocabulary is primary | secondary | ghost
+// (src/generator/_walker/primitives/controls.ts:144).
+//   node bin/cli.js generate system sweep/repro/F-018-button-variant-silent-fallback.ddd -o /tmp/f018
+//   grep -o '<Button[^>]*>' /tmp/f018/w/src/pages/p.tsx
+//     <Button variant="default">   <- primary
+//     <Button variant="outline">   <- secondary
+//     <Button variant="ghost">     <- ghost
+//     <Button variant="ghost">     <- "filled"   SILENT fallback
+//     <Button variant="ghost">     <- "wombat"   SILENT fallback
+// `"filled"` is the value the repo's OWN primitive reference uses:
+// docs/language-reference/16-ui-walker-primitives.md shows
+//   Button { "Save", variant: "filled" }
+// loom.page-primitive-unknown-arg rejects unknown argument NAMES; unknown
+// argument VALUES are unchecked.
+system B {
+  subdomain S { context C { aggregate T with crudish { label: string } repository Ts for T { } } }
+  api CApi from S
+  ui W { api C: CApi
+    page P { route: "/"
+      body: Stack {
+        Button { "Primary", variant: "primary" },
+        Button { "Secondary", variant: "secondary" },
+        Button { "Ghost", variant: "ghost" },
+        Button { "Filled", variant: "filled" },
+        Button { "Nonsense", variant: "wombat" }
+      } } }
+  storage primary { type: postgres }
+  resource cs { for: C, kind: state, use: primary }
+  deployable api { platform: node, contexts: [C], dataSources: [cs], serves: CApi, port: 3000 }
+  deployable w { platform: react, targets: api, ui: W { C: api }, port: 3001, design: shadcn }
+}

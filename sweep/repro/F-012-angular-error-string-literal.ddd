@@ -1,0 +1,26 @@
+// F-012 (SILENT, angular — all 3 packs): an input `error:` expression containing
+// a STRING LITERAL is interpolated unescaped into a double-quoted Angular
+// attribute, so the inner `"` closes the attribute.
+//   node bin/cli.js generate system sweep/repro/F-012-angular-error-string-literal.ddd -o /tmp/f012
+//   cd /tmp/f012/web_app && npm i && npx ng build     (needs node >= 22.22.3)
+//   -> ✘ NG5002: Opening tag "input" not terminated.
+// The emitted line:
+//   <input matInput [attr.aria-invalid]="!!( (nameOk() ? "" : "Required") ) || null" …
+// `error:` on an input is the shape docs/page-metamodel.md §8.2 documents.
+system F012 {
+  subdomain S { context C { aggregate T with crudish { label: string } repository Ts for T { } } }
+  api CApi from S
+  ui W {
+    api C: CApi
+    page P {
+      route: "/"
+      state { name: string = "" }
+      derived nameOk: bool = name.length > 0
+      body: Stack { Field { "Name", bind: name, error: nameOk ? "" : "Required" } }
+    }
+  }
+  storage primary { type: postgres }
+  resource cs { for: C, kind: state, use: primary }
+  deployable api { platform: node, contexts: [C], dataSources: [cs], serves: CApi, port: 3000 }
+  deployable w { platform: angular, targets: api, ui: W { C: api }, port: 3001 }
+}

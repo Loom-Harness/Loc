@@ -1,0 +1,28 @@
+// F-031 (SILENT, mui@v5, S1, RUNTIME): the mui v5 app SHELL throws React #130 on
+// every route, so the whole app renders nothing but the error boundary.  Builds
+// completely green — `tsc --noEmit` and `vite build` both pass.
+//
+//   node bin/cli.js generate system sweep/repro/F-031-mui-v5-blank-app.ddd -o /tmp/f031
+//   cd /tmp/f031/w && npm i && npm run build && npx vite preview
+//   -> every page: "Something went wrong. Minified React error #130 … args[]=object"
+//
+// Cause, proven by mutation: App.tsx's AppBar hamburger renders
+//     import MenuIcon from "@mui/icons-material/Menu";   … <MenuIcon />
+// and on @mui/icons-material@5 (CJS deep import) Vite resolves that default to a
+// MODULE OBJECT, not a component.  Replacing `<MenuIcon />` with `<span>M</span>`
+// and rebuilding makes the identical app render correctly:
+//     "Skip to content M5 AGGREGATES Hello no chart here"
+// mui@v7 (ESM icons package) is unaffected — same model, same page, renders fine.
+// Nothing in the page body matters: this minimal Heading+Text page reproduces it.
+system F031 {
+  subdomain S { context C { aggregate T with crudish { label: string } repository Ts for T { } } }
+  api CApi from S
+  ui W {
+    api C: CApi
+    page Home { route: "/" body: Stack { Heading { "Hello", level: 1 }, Text { "no chart here" } } }
+  }
+  storage primary { type: postgres }
+  resource cs { for: C, kind: state, use: primary }
+  deployable api { platform: node, contexts: [C], dataSources: [cs], serves: CApi, port: 3000 }
+  deployable w { platform: react, targets: api, ui: W { C: api }, port: 3001, design: "mui@v5" }
+}

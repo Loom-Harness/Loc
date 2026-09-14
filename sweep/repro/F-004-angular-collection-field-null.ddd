@@ -1,0 +1,22 @@
+// F-004 (SILENT, Angular): a non-optional COLLECTION field (`string[]`) on an
+// aggregate makes the scaffolded Angular create/update forms seed the control
+// with `null`, which does not satisfy the generated `Create/UpdateXRequest`
+// (`tags: string[]`).  `ng build` fails with TS2322/TS2345.
+//   node bin/cli.js generate system sweep/repro/F-004-angular-collection-field-null.ddd -o /tmp/f004
+//   cd /tmp/f004/web_app && npm i && npx ng build     (needs node >= 22.22.3)
+//   → Type 'null' is not assignable to type 'string[]'.
+system F004 {
+  subdomain S { context C {
+    aggregate Thing with crudish {
+      label: string
+      tags: string[]
+    }
+    repository Things for Thing { }
+  } }
+  api CApi from S
+  ui WebApp with scaffold(subdomains: [S]) { api C: CApi }
+  storage primary { type: postgres }
+  resource cState { for: C, kind: state, use: primary }
+  deployable api { platform: node, contexts: [C], dataSources: [cState], serves: CApi, port: 3000 }
+  deployable webApp { platform: angular, targets: api, ui: WebApp { C: api }, port: 3001 }
+}

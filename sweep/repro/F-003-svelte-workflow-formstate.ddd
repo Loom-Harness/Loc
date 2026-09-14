@@ -1,0 +1,22 @@
+// F-003 (SILENT, Svelte): a `workflow` with a `money` PARAM emits a form page that imports
+// `type <Wf>FormState` from `$lib/api/workflows`, which only exports
+// `<Wf>Request`.  The FormState type is never emitted.
+//   node bin/cli.js generate system sweep/repro/F-003-svelte-workflow-formstate.ddd -o /tmp/f003
+//   cd /tmp/f003/web_app && npm i && npm run check
+//   → src/routes/(app)/workflows/<wf>/+page.svelte: Module '"$lib/api/workflows"'
+//     has no exported member '<Wf>FormState'.
+system F003 {
+  subdomain S { context C {
+    aggregate Thing with crudish { label: string }
+    repository Things for Thing { }
+    workflow rename {
+      create(label: string, amount: money) { let t = Thing.create({ label: label }) }
+    }
+  } }
+  api CApi from S
+  ui WebApp with scaffold(subdomains: [S]) { api C: CApi }
+  storage primary { type: postgres }
+  resource cState { for: C, kind: state, use: primary }
+  deployable api { platform: node, contexts: [C], dataSources: [cState], serves: CApi, port: 3000 }
+  deployable webApp { platform: svelte, targets: api, ui: WebApp { C: api }, port: 3001 }
+}

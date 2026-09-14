@@ -1,0 +1,189 @@
+[
+  {
+    "pack": "chakra@v2",
+    "fw": "react",
+    "id": "chakra-v2",
+    "gen_ok": true,
+    "gen_ms": 2644,
+    "gen_err": "",
+    "project": "web_app",
+    "files": 51,
+    "kb": 104
+  },
+  {
+    "pack": "chakra@v3",
+    "fw": "react",
+    "id": "chakra-v3",
+    "gen_ok": true,
+    "gen_ms": 2546,
+    "gen_err": "",
+    "project": "web_app",
+    "files": 52,
+    "kb": 108
+  },
+  {
+    "pack": "mantine@v7",
+    "fw": "react",
+    "id": "mantine-v7",
+    "gen_ok": true,
+    "gen_ms": 2564,
+    "gen_err": "",
+    "project": "web_app",
+    "files": 51,
+    "kb": 98
+  },
+  {
+    "pack": "mantine@v9",
+    "fw": "react",
+    "id": "mantine-v9",
+    "gen_ok": true,
+    "gen_ms": 2622,
+    "gen_err": "",
+    "project": "web_app",
+    "files": 51,
+    "kb": 99
+  },
+  {
+    "pack": "mui@v5",
+    "fw": "react",
+    "id": "mui-v5",
+    "gen_ok": true,
+    "gen_ms": 2655,
+    "gen_err": "",
+    "project": "web_app",
+    "files": 51,
+    "kb": 100
+  },
+  {
+    "pack": "mui@v7",
+    "fw": "react",
+    "id": "mui-v7",
+    "gen_ok": true,
+    "gen_ms": 2657,
+    "gen_err": "",
+    "project": "web_app",
+    "files": 51,
+    "kb": 100
+  },
+  {
+    "pack": "shadcn@v3",
+    "fw": "react",
+    "id": "shadcn-v3",
+    "gen_ok": true,
+    "gen_ms": 2527,
+    "gen_err": "",
+    "project": "web_app",
+    "files": 70,
+    "kb": 138
+  },
+  {
+    "pack": "shadcn@v4",
+    "fw": "react",
+    "id": "shadcn-v4",
+    "gen_ok": true,
+    "gen_ms": 2565,
+    "gen_err": "",
+    "project": "web_app",
+    "files": 68,
+    "kb": 138
+  },
+  {
+    "pack": "shadcnVue@v1",
+    "fw": "vue",
+    "id": "shadcnVue-v1",
+    "gen_ok": true,
+    "gen_ms": 2627,
+    "gen_err": "",
+    "project": "web_app",
+    "files": 90,
+    "kb": 122
+  },
+  {
+    "pack": "vuetify@v3",
+    "fw": "vue",
+    "id": "vuetify-v3",
+    "gen_ok": true,
+    "gen_ms": 2734,
+    "gen_err": "",
+    "project": "web_app",
+    "files": 53,
+    "kb": 97
+  },
+  {
+    "pack": "flowbite@v1",
+    "fw": "svelte",
+    "id": "flowbite-v1",
+    "gen_ok": true,
+    "gen_ms": 2772,
+    "gen_err": "",
+    "project": "web_app",
+    "files": 53,
+    "kb": 101
+  },
+  {
+    "pack": "shadcnSvelte@v1",
+    "fw": "svelte",
+    "id": "shadcnSvelte-v1",
+    "gen_ok": true,
+    "gen_ms": 2566,
+    "gen_err": "",
+    "project": "web_app",
+    "files": 55,
+    "kb": 106
+  },
+  {
+    "pack": "angularMaterial@v1",
+    "fw": "angular",
+    "id": "angularMaterial-v1",
+    "gen_ok": true,
+    "gen_ms": 2647,
+    "gen_err": "",
+    "project": "web_app",
+    "files": 44,
+    "kb": 101
+  },
+  {
+    "pack": "primeng@v1",
+    "fw": "angular",
+    "id": "primeng-v1",
+    "gen_ok": true,
+    "gen_ms": 2573,
+    "gen_err": "",
+    "project": "web_app",
+    "files": 44,
+    "kb": 104
+  },
+  {
+    "pack": "spartanNg@v1",
+    "fw": "angular",
+    "id": "spartanNg-v1",
+    "gen_ok": true,
+    "gen_ms": 2611,
+    "gen_err": "",
+    "project": "web_app",
+    "files": 44,
+    "kb": 105
+  },
+  {
+    "pack": "coreComponents@v3",
+    "fw": "elixir",
+    "id": "coreComponents-v3",
+    "gen_ok": true,
+    "gen_ms": 2426,
+    "gen_err": "",
+    "project": "api",
+    "files": 102,
+    "kb": 208
+  },
+  {
+    "pack": "daisyui@v1",
+    "fw": "elixir",
+    "id": "daisyui-v1",
+    "gen_ok": true,
+    "gen_ms": 2449,
+    "gen_err": "",
+    "project": "api",
+    "files": 102,
+    "kb": 207
+  }
+]

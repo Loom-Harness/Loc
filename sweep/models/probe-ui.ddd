@@ -1,0 +1,299 @@
+// ---------------------------------------------------------------------------
+// probe-ui.ddd — the T2/T3 design-pack stress model for the target-matrix sweep.
+//
+// Goal: touch EVERY walker primitive (56 top-level + 2 sub-elements, enumerated
+// from src/util/walker-primitive-names.ts) at least once, so a pack that only
+// looks fine on a scaffolded CRUD app is still measured on the other four
+// fifths of the primitive set.  Plus: a form with validation, a detail page,
+// a dashboard and an empty-state page.
+//
+// Held CONSTANT across every pack cell; only the frontend deployable's
+// `platform:` / `design:` (and the ui's `framework:`) are rewritten.
+//
+// The two include-markers (see sweep/render-ui.mjs) are not content: `DataGrid` is
+// a permanent compile error on HEEx and Flutter (loom.datagrid-unsupported-
+// target) and ProvenanceInfo does not render on Flutter, so those two lines are
+// dropped for exactly those targets.  Every other primitive is identical in
+// every cell.
+// ---------------------------------------------------------------------------
+
+system ProbeUi {
+
+  theme {
+    primary: "#2563eb"
+    neutral: "#475569"
+    radius: "md"
+    fontFamily: "Inter, system-ui, sans-serif"
+  }
+
+  subdomain Shop {
+    context Shop {
+
+      enum Visibility { Private, Internal, Public }
+
+      aggregate Product audited with crudish {
+        name: string
+        price: money
+        stock: int provenanced
+        visibility: Visibility
+        createdAt: datetime
+        attachment: File?
+        derived display: string = name
+
+        operation publish() {
+          visibility := Public
+        }
+        operation archive(reason: string) {
+          precondition reason.length > 0
+          visibility := Private
+        }
+        operation restock(by: int) {
+          precondition by > 0
+          stock := stock + by
+        }
+      }
+
+      repository Products for Product { }
+
+      // Grouped projection — the only shape `Chart { of: … }` accepts.
+      projection SalesByVisibility {
+        visibility: Visibility
+        productCount: int
+        revenue: money
+        from Product as p
+        group by p.visibility
+        select visibility = p.visibility, productCount = count(), revenue = sum(p.price)
+      }
+
+      workflow registerProduct {
+        create(name: string, price: money) {
+          let p = Product.create({
+            name: name, price: price, stock: 0,
+            visibility: Private, createdAt: now()
+          })
+        }
+      }
+    }
+  }
+
+  api ShopApi from Shop
+
+  ui WebApp {
+__UI_FRAMEWORK__
+    api Shop: ShopApi
+
+    // ── component with Slot (Slot is component-body-only) ──────────────
+    component PageBox(title: string) {
+      body: Card { Heading { title, level: 3 }, Slot { } }
+    }
+
+    // ── component with instance-qualified Action + Modal/OperationForm ──
+    component ProductActions(product: Product) {
+      body: Toolbar {
+        Action { product.publish, then: navigate(Home) },
+        label: "Product actions"
+      }
+    }
+
+    // ── 1. Dashboard: Grid / Card / Stat / Chart / Money ───────────────
+    page Home {
+      route: "/"
+      title: "Probe dashboard"
+      body: Container {
+        Stack {
+          Breadcrumbs { Anchor { "Home", to: "/" }, Text { "Dashboard" } },
+          Heading { "Probe dashboard", level: 1 },
+          Grid {
+            Card { Stat { "Products", 42 } },
+            Card { Stat { "Revenue", Money { "1999.5000", currency: "USD", decimals: 2 } } },
+            Card { Stat { "Last import", DateDisplay { "2026-01-02T03:04:05Z" } } },
+            cols: 3
+          },
+          Paper {
+            Chart { kind: "bar", of: Shop.SalesByVisibility, x: r => r.visibility, y: r => r.revenue },
+            padding: "md"
+          },
+          PageBox { title: "Slotted", Text { "children passed through Slot" } }
+        },
+        size: "lg"
+      }
+    }
+
+    // ── 2. Layout primitives ───────────────────────────────────────────
+    page LayoutDemo {
+      route: "/layout"
+      state { editing: bool = false }
+      body: Stack {
+        Section {
+          Heading { "Layout", level: 2 },
+          Group { Avatar { alt: "Probe avatar" }, Text { "Group puts children in a row" } },
+          KeyValueRow { "Owner", Text { "platform-team" } },
+          Divider { label: "Surfaces" },
+          id: "layout"
+        },
+        Sticky { Toolbar { Button { "Save", variant: "filled" }, label: "Sticky actions" }, top: 0 },
+        Tabs {
+          Tab { "Overview", Text { "Overview body" } },
+          Tab { "Details", Toggle { "Editing", bind: editing } }
+        },
+        Alert { "Layout rendered.", title: "Done", color: "green" }
+      }
+      menu { section: "Probe", label: "Layout" }
+    }
+
+    // ── 3. Display + formatter primitives ──────────────────────────────
+    page DisplayDemo {
+      route: "/display"
+      body: Stack {
+        Heading { "Typography", level: 2 },
+        Text { "Plain text" },
+        Bold { "Bold text" },
+        Italic { "Italic text" },
+        InlineCode { "ddd generate system" },
+        Badge { "Beta" },
+        EnumBadge { "Public" },
+        Anchor { "Loom docs", to: "/docs" },
+        Icon { name: "check", label: "Verified" },
+        Image { "/logo.png", alt: "Probe logo" },
+        CodeBlock { "let x = 1", language: "ts", title: "Sample" },
+        Skeleton { count: 3 },
+        Loader { size: "sm" },
+        Money { "12.3456" },
+        DateDisplay { "2026-01-02T03:04:05Z" },
+        For { each: ["alpha", "beta"], empty: Empty { "No tags" }, tag => Badge { tag } }
+      }
+      menu { section: "Probe", label: "Display" }
+    }
+
+    // ── 4. Form with validation + every input primitive ────────────────
+    page Inputs {
+      route: "/inputs"
+      state {
+        name: string = ""
+        qty: int = 0
+        pw: string = ""
+        bio: string = ""
+        vis: string = ""
+        notify: bool = false
+        doc: File
+      }
+      derived pwOk: bool = pw.length >= 8
+      derived nameOk: bool = name.length > 0
+      action save() { toast("Saved") }
+      body: Stack {
+        Heading { "Inputs", level: 2 },
+        Field { "Name", bind: name, error: nameOk ? "" : "Required" },
+        NumberField { "Quantity", bind: qty },
+        PasswordField { "Password", bind: pw, error: pwOk ? "" : "At least 8 characters" },
+        MultilineField { "Bio", bind: bio },
+        SelectField { "Visibility", bind: vis, options: ["Private", "Internal", "Public"] },
+        Toggle { "Notifications", bind: notify },
+        FileUpload { "Attachment", bind: doc },
+        Button { "Save", onClick: save, variant: "filled" },
+        match {
+          pwOk == true => Badge { "password ok" },
+          else => Text { "password too short" }
+        }
+      }
+      menu { section: "Probe", label: "Inputs" }
+    }
+
+    // ── 5. Forms: Create / Workflow ────────────────────────────────────
+    page ProductNew {
+      route: "/products/new"
+      body: Stack {
+        Heading { "Create product", level: 2 },
+        Card { CreateForm { of: Product, testid: "products-new" } },
+        Divider { label: "or run the workflow" },
+        Card { WorkflowForm { runs: registerProduct, testid: "register" } }
+      }
+      menu { section: "Probe", label: "New product" }
+    }
+
+    // ── 6. List: QueryView 4-arm + Table/Column (+ DataGrid where it ships) ──
+    page ProductList {
+      route: "/products"
+      state { picked: string[] }
+      body: QueryView {
+        of: Shop.Product.all,
+        loading: Skeleton { count: 5 },
+        error: Alert { "Couldn't load products" },
+        empty: Empty { "No products yet." },
+        data: rows => Stack {
+          Paper {
+            Table {
+              rows: rows, striped: true, highlight: true,
+              Column { "ID", o => IdLink { o.id, of: Product } },
+              Column { "Name", o => Text { o.name } },
+              Column { "Visibility", o => EnumBadge { o.visibility } },
+              Column { "Price", o => Money { o.price, currency: "USD" } },
+              Column { "Created", o => DateDisplay { o.createdAt } }
+            },
+            padding: "md"
+          }__DATAGRID__
+        }
+      }
+      menu { section: "Probe", label: "Products" }
+    }
+
+    // ── 7. Detail: single QueryView + Timeline + ProvenanceInfo + FileLink
+    //        + DestroyForm + the Action/Modal component ─────────────────
+    page ProductDetail(id: Product id) {
+      route: "/products/:id"
+      body: QueryView {
+        of: Shop.Product.byId(id), single: true,
+        loading: Loader {},
+        empty: Empty { "Product not found" },
+        data: p => Stack {
+          Heading { p.name, level: 2 },
+          KeyValueRow { "Price", Money { p.price, currency: "USD" } },
+          KeyValueRow { "Visibility", EnumBadge { p.visibility } },
+          Group { Text { p.stock }__PROVENANCE__ },
+          FileLink { p.attachment },
+          ProductActions { product: p },
+          Modal { trigger: Button { "Restock…" }, title: "Restock", OperationForm { p.restock } },
+          DestroyForm { of: Product, then: navigate(Home) }
+        }
+      }
+    }
+
+    page ProductHistory(id: Product id) {
+      route: "/products/:id/history"
+      body: QueryView {
+        of: Shop.Product.history(id),
+        data: entries => Timeline { of: entries, testid: "product-history" }
+      }
+    }
+
+    // ── 8. Empty-state page ────────────────────────────────────────────
+    page Nothing {
+      route: "/nothing"
+      body: Container {
+        Empty { "Nothing here yet." },
+        size: "sm"
+      }
+      menu { section: "Probe", label: "Empty state" }
+    }
+  }
+
+  storage primary { type: postgres }
+  storage blobs   { type: localDisk }
+  resource shopState { for: Shop, kind: state, use: primary }
+  resource shopBlobs { for: Shop, kind: objectStore, use: blobs }
+
+  deployable api {
+    platform: node
+    contexts: [Shop]
+    dataSources: [shopState, shopBlobs]
+    serves: ShopApi
+    port: 3000
+  }
+
+  deployable webApp {
+    platform: __FRONTEND__
+    targets: api
+    ui: WebApp { Shop: api }
+    port: 3001
+__FRONTEND_EXTRA__
+  }
+}

@@ -1,0 +1,646 @@
+[
+  {
+    "pack": "mui-v7",
+    "page": "home",
+    "route": "/",
+    "viewport": "desktop",
+    "scheme": "light",
+    "file": "sweep/shots/mui-v7/home-desktop.png",
+    "err": "",
+    "consoleErrors": [
+      "Failed to load resource: net::ERR_CONNECTION_RESET",
+      "Failed to load resource: net::ERR_CONNECTION_RESET"
+    ],
+    "failedReqs": [
+      "GET https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/github-dark.min.css",
+      "GET https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js"
+    ],
+    "chars": 266,
+    "nodes": 140,
+    "hOverflow": false,
+    "focusables": 18,
+    "headings": 6,
+    "sample": "Skip to content Probe Ui PROBE Layout Display Inputs New product Products Empty state PAGES ProductRegister Home / Dashboard Probe dashboard Products 42 Revenue"
+  },
+  {
+    "pack": "mui-v7",
+    "page": "layout",
+    "route": "/layout",
+    "viewport": "desktop",
+    "scheme": "light",
+    "file": "sweep/shots/mui-v7/layout-desktop.png",
+    "err": "",
+    "consoleErrors": [
+      "Failed to load resource: net::ERR_CONNECTION_RESET",
+      "Failed to load resource: net::ERR_CONNECTION_RESET"
+    ],
+    "failedReqs": [
+      "GET https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/github-dark.min.css",
+      "GET https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js"
+    ],
+    "chars": 246,
+    "nodes": 129,
+    "hOverflow": false,
+    "focusables": 21,
+    "headings": 2,
+    "sample": "Skip to content Probe Ui PROBE Layout Display Inputs New product Products Empty state PAGES ProductRegister Layout Group puts children in a row Owner platform-t"
+  },
+  {
+    "pack": "mui-v7",
+    "page": "display",
+    "route": "/display",
+    "viewport": "desktop",
+    "scheme": "light",
+    "file": "sweep/shots/mui-v7/display-desktop.png",
+    "err": "",
+    "consoleErrors": [
+      "Failed to load resource: net::ERR_CONNECTION_RESET",
+      "Failed to load resource: net::ERR_CONNECTION_RESET"
+    ],
+    "failedReqs": [
+      "GET https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/github-dark.min.css",
+      "GET https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js"
+    ],
+    "chars": 254,
+    "nodes": 121,
+    "hOverflow": true,
+    "focusables": 18,
+    "headings": 2,
+    "sample": "Skip to content Probe Ui PROBE Layout Display Inputs New product Products Empty state PAGES ProductRegister Typography Plain text Bold text Italic text ddd gene"
+  },
+  {
+    "pack": "mui-v7",
+    "page": "inputs",
+    "route": "/inputs",
+    "viewport": "desktop",
+    "scheme": "light",
+    "file": "sweep/shots/mui-v7/inputs-desktop.png",
+    "err": "",
+    "consoleErrors": [
+      "Failed to load resource: net::ERR_CONNECTION_RESET",
+      "Failed to load resource: net::ERR_CONNECTION_RESET"
+    ],
+    "failedReqs": [
+      "GET https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/github-dark.min.css",
+      "GET https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js"
+    ],
+    "chars": 253,
+    "nodes": 147,
+    "hOverflow": false,
+    "focusables": 27,
+    "headings": 2,
+    "sample": "Skip to content Probe Ui PROBE Layout Display Inputs New product Products Empty state PAGES ProductRegister Inputs Name Name Quantity Quantity Password Password"
+  },
+  {
+    "pack": "mui-v7",
+    "page": "products",
+    "route": "/products",
+    "viewport": "desktop",
+    "scheme": "light",
+    "file": "sweep/shots/mui-v7/products-desktop.png",
+    "err": "",
+    "consoleErrors": [
+      "Failed to load resource: net::ERR_CONNECTION_RESET",
+      "Failed to load resource: net::ERR_CONNECTION_RESET"
+    ],
+    "failedReqs": [
+      "GET https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/github-dark.min.css",
+      "GET https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js"
+    ],
+    "chars": 130,
+    "nodes": 94,
+    "hOverflow": false,
+    "focusables": 17,
+    "headings": 1,
+    "sample": "Skip to content Probe Ui PROBE Layout Display Inputs New product Products Empty state PAGES ProductRegister Couldn't load products"
+  },
+  {
+    "pack": "mui-v7",
+    "page": "new",
+    "route": "/products/new",
+    "viewport": "desktop",
+    "scheme": "light",
+    "file": "sweep/shots/mui-v7/new-desktop.png",
+    "err": "",
+    "consoleErrors": [
+      "Failed to load resource: net::ERR_CONNECTION_RESET",
+      "Failed to load resource: net::ERR_CONNECTION_RESET"
+    ],
+    "failedReqs": [
+      "GET https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/github-dark.min.css",
+      "GET https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js"
+    ],
+    "chars": 215,
+    "nodes": 135,
+    "hOverflow": false,
+    "focusables": 24,
+    "headings": 2,
+    "sample": "Skip to content Probe Ui PROBE Layout Display Inputs New product Products Empty state PAGES ProductRegister Create product Name Name Price Price Stock Stock Vis"
+  },
+  {
+    "pack": "mui-v7",
+    "page": "empty",
+    "route": "/nothing",
+    "viewport": "desktop",
+    "scheme": "light",
+    "file": "sweep/shots/mui-v7/empty-desktop.png",
+    "err": "",
+    "consoleErrors": [
+      "Failed to load resource: net::ERR_CONNECTION_RESET",
+      "Failed to load resource: net::ERR_CONNECTION_RESET"
+    ],
+    "failedReqs": [
+      "GET https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/github-dark.min.css",
+      "GET https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js"
+    ],
+    "chars": 126,
+    "nodes": 92,
+    "hOverflow": false,
+    "focusables": 17,
+    "headings": 1,
+    "sample": "Skip to content Probe Ui PROBE Layout Display Inputs New product Products Empty state PAGES ProductRegister Nothing here yet."
+  },
+  {
+    "pack": "mui-v7",
+    "page": "home",
+    "route": "/",
+    "viewport": "tablet",
+    "scheme": "light",
+    "file": "sweep/shots/mui-v7/home-tablet.png",
+    "err": "",
+    "consoleErrors": [
+      "Failed to load resource: net::ERR_CONNECTION_RESET",
+      "Failed to load resource: net::ERR_CONNECTION_RESET"
+    ],
+    "failedReqs": [
+      "GET https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/github-dark.min.css",
+      "GET https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js"
+    ],
+    "chars": 266,
+    "nodes": 140,
+    "hOverflow": false,
+    "focusables": 18,
+    "headings": 6,
+    "sample": "Skip to content Probe Ui PROBE Layout Display Inputs New product Products Empty state PAGES ProductRegister Home / Dashboard Probe dashboard Products 42 Revenue"
+  },
+  {
+    "pack": "mui-v7",
+    "page": "layout",
+    "route": "/layout",
+    "viewport": "tablet",
+    "scheme": "light",
+    "file": "sweep/shots/mui-v7/layout-tablet.png",
+    "err": "",
+    "consoleErrors": [
+      "Failed to load resource: net::ERR_CONNECTION_RESET",
+      "Failed to load resource: net::ERR_CONNECTION_RESET"
+    ],
+    "failedReqs": [
+      "GET https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/github-dark.min.css",
+      "GET https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js"
+    ],
+    "chars": 246,
+    "nodes": 129,
+    "hOverflow": false,
+    "focusables": 21,
+    "headings": 2,
+    "sample": "Skip to content Probe Ui PROBE Layout Display Inputs New product Products Empty state PAGES ProductRegister Layout Group puts children in a row Owner platform-t"
+  },
+  {
+    "pack": "mui-v7",
+    "page": "display",
+    "route": "/display",
+    "viewport": "tablet",
+    "scheme": "light",
+    "file": "sweep/shots/mui-v7/display-tablet.png",
+    "err": "",
+    "consoleErrors": [
+      "Failed to load resource: net::ERR_CONNECTION_RESET",
+      "Failed to load resource: net::ERR_CONNECTION_RESET"
+    ],
+    "failedReqs": [
+      "GET https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/github-dark.min.css",
+      "GET https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js"
+    ],
+    "chars": 254,
+    "nodes": 121,
+    "hOverflow": true,
+    "focusables": 18,
+    "headings": 2,
+    "sample": "Skip to content Probe Ui PROBE Layout Display Inputs New product Products Empty state PAGES ProductRegister Typography Plain text Bold text Italic text ddd gene"
+  },
+  {
+    "pack": "mui-v7",
+    "page": "inputs",
+    "route": "/inputs",
+    "viewport": "tablet",
+    "scheme": "light",
+    "file": "sweep/shots/mui-v7/inputs-tablet.png",
+    "err": "",
+    "consoleErrors": [
+      "Failed to load resource: net::ERR_CONNECTION_RESET",
+      "Failed to load resource: net::ERR_CONNECTION_RESET"
+    ],
+    "failedReqs": [
+      "GET https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/github-dark.min.css",
+      "GET https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js"
+    ],
+    "chars": 253,
+    "nodes": 147,
+    "hOverflow": false,
+    "focusables": 27,
+    "headings": 2,
+    "sample": "Skip to content Probe Ui PROBE Layout Display Inputs New product Products Empty state PAGES ProductRegister Inputs Name Name Quantity Quantity Password Password"
+  },
+  {
+    "pack": "mui-v7",
+    "page": "products",
+    "route": "/products",
+    "viewport": "tablet",
+    "scheme": "light",
+    "file": "sweep/shots/mui-v7/products-tablet.png",
+    "err": "",
+    "consoleErrors": [
+      "Failed to load resource: net::ERR_CONNECTION_RESET",
+      "Failed to load resource: net::ERR_CONNECTION_RESET"
+    ],
+    "failedReqs": [
+      "GET https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/github-dark.min.css",
+      "GET https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js"
+    ],
+    "chars": 130,
+    "nodes": 94,
+    "hOverflow": false,
+    "focusables": 17,
+    "headings": 1,
+    "sample": "Skip to content Probe Ui PROBE Layout Display Inputs New product Products Empty state PAGES ProductRegister Couldn't load products"
+  },
+  {
+    "pack": "mui-v7",
+    "page": "new",
+    "route": "/products/new",
+    "viewport": "tablet",
+    "scheme": "light",
+    "file": "sweep/shots/mui-v7/new-tablet.png",
+    "err": "",
+    "consoleErrors": [
+      "Failed to load resource: net::ERR_CONNECTION_RESET",
+      "Failed to load resource: net::ERR_CONNECTION_RESET"
+    ],
+    "failedReqs": [
+      "GET https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/github-dark.min.css",
+      "GET https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js"
+    ],
+    "chars": 215,
+    "nodes": 135,
+    "hOverflow": false,
+    "focusables": 24,
+    "headings": 2,
+    "sample": "Skip to content Probe Ui PROBE Layout Display Inputs New product Products Empty state PAGES ProductRegister Create product Name Name Price Price Stock Stock Vis"
+  },
+  {
+    "pack": "mui-v7",
+    "page": "empty",
+    "route": "/nothing",
+    "viewport": "tablet",
+    "scheme": "light",
+    "file": "sweep/shots/mui-v7/empty-tablet.png",
+    "err": "",
+    "consoleErrors": [
+      "Failed to load resource: net::ERR_CONNECTION_RESET",
+      "Failed to load resource: net::ERR_CONNECTION_RESET"
+    ],
+    "failedReqs": [
+      "GET https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/github-dark.min.css",
+      "GET https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js"
+    ],
+    "chars": 126,
+    "nodes": 92,
+    "hOverflow": false,
+    "focusables": 17,
+    "headings": 1,
+    "sample": "Skip to content Probe Ui PROBE Layout Display Inputs New product Products Empty state PAGES ProductRegister Nothing here yet."
+  },
+  {
+    "pack": "mui-v7",
+    "page": "home",
+    "route": "/",
+    "viewport": "phone",
+    "scheme": "light",
+    "file": "sweep/shots/mui-v7/home-phone.png",
+    "err": "",
+    "consoleErrors": [
+      "Failed to load resource: net::ERR_CONNECTION_RESET",
+      "Failed to load resource: net::ERR_CONNECTION_RESET"
+    ],
+    "failedReqs": [
+      "GET https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/github-dark.min.css",
+      "GET https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js"
+    ],
+    "chars": 183,
+    "nodes": 140,
+    "hOverflow": false,
+    "focusables": 18,
+    "headings": 6,
+    "sample": "Skip to content Probe Ui Home / Dashboard Probe dashboard Products 42 Revenue USD 1999.50 Last import Jan 02, 2026, 03:04 AM No data to display Slotted children"
+  },
+  {
+    "pack": "mui-v7",
+    "page": "layout",
+    "route": "/layout",
+    "viewport": "phone",
+    "scheme": "light",
+    "file": "sweep/shots/mui-v7/layout-phone.png",
+    "err": "",
+    "consoleErrors": [
+      "Failed to load resource: net::ERR_CONNECTION_RESET",
+      "Failed to load resource: net::ERR_CONNECTION_RESET"
+    ],
+    "failedReqs": [
+      "GET https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/github-dark.min.css",
+      "GET https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js"
+    ],
+    "chars": 163,
+    "nodes": 129,
+    "hOverflow": false,
+    "focusables": 21,
+    "headings": 2,
+    "sample": "Skip to content Probe Ui Layout Group puts children in a row Owner platform-team Surfaces SAVE OVERVIEW DETAILS Overview body Editing Done — Layout rendered."
+  },
+  {
+    "pack": "mui-v7",
+    "page": "display",
+    "route": "/display",
+    "viewport": "phone",
+    "scheme": "light",
+    "file": "sweep/shots/mui-v7/display-phone.png",
+    "err": "",
+    "consoleErrors": [
+      "Failed to load resource: net::ERR_CONNECTION_RESET",
+      "Failed to load resource: net::ERR_CONNECTION_RESET"
+    ],
+    "failedReqs": [
+      "GET https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/github-dark.min.css",
+      "GET https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js"
+    ],
+    "chars": 171,
+    "nodes": 121,
+    "hOverflow": true,
+    "focusables": 18,
+    "headings": 2,
+    "sample": "Skip to content Probe Ui Typography Plain text Bold text Italic text ddd generate system Beta Public Loom docs Sample let x = 1 12.3456 Jan 02, 2026, 03:04 AM a"
+  },
+  {
+    "pack": "mui-v7",
+    "page": "inputs",
+    "route": "/inputs",
+    "viewport": "phone",
+    "scheme": "light",
+    "file": "sweep/shots/mui-v7/inputs-phone.png",
+    "err": "",
+    "consoleErrors": [
+      "Failed to load resource: net::ERR_CONNECTION_RESET",
+      "Failed to load resource: net::ERR_CONNECTION_RESET"
+    ],
+    "failedReqs": [
+      "GET https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/github-dark.min.css",
+      "GET https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js"
+    ],
+    "chars": 170,
+    "nodes": 147,
+    "hOverflow": false,
+    "focusables": 27,
+    "headings": 2,
+    "sample": "Skip to content Probe Ui Inputs Name Name Quantity Quantity Password Password Bio Bio Visibility ​ Visibility Notifications Attachment Attachment SAVE password "
+  },
+  {
+    "pack": "mui-v7",
+    "page": "products",
+    "route": "/products",
+    "viewport": "phone",
+    "scheme": "light",
+    "file": "sweep/shots/mui-v7/products-phone.png",
+    "err": "",
+    "consoleErrors": [
+      "Failed to load resource: net::ERR_CONNECTION_RESET",
+      "Failed to load resource: net::ERR_CONNECTION_RESET"
+    ],
+    "failedReqs": [
+      "GET https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/github-dark.min.css",
+      "GET https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js"
+    ],
+    "chars": 47,
+    "nodes": 94,
+    "hOverflow": false,
+    "focusables": 17,
+    "headings": 1,
+    "sample": "Skip to content Probe Ui Couldn't load products"
+  },
+  {
+    "pack": "mui-v7",
+    "page": "new",
+    "route": "/products/new",
+    "viewport": "phone",
+    "scheme": "light",
+    "file": "sweep/shots/mui-v7/new-phone.png",
+    "err": "",
+    "consoleErrors": [
+      "Failed to load resource: net::ERR_CONNECTION_RESET",
+      "Failed to load resource: net::ERR_CONNECTION_RESET"
+    ],
+    "failedReqs": [
+      "GET https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/github-dark.min.css",
+      "GET https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js"
+    ],
+    "chars": 132,
+    "nodes": 135,
+    "hOverflow": false,
+    "focusables": 24,
+    "headings": 2,
+    "sample": "Skip to content Probe Ui Create product Name Name Price Price Stock Stock Visibility Private Visibility Created At Created At CREATE"
+  },
+  {
+    "pack": "mui-v7",
+    "page": "empty",
+    "route": "/nothing",
+    "viewport": "phone",
+    "scheme": "light",
+    "file": "sweep/shots/mui-v7/empty-phone.png",
+    "err": "",
+    "consoleErrors": [
+      "Failed to load resource: net::ERR_CONNECTION_RESET",
+      "Failed to load resource: net::ERR_CONNECTION_RESET"
+    ],
+    "failedReqs": [
+      "GET https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/github-dark.min.css",
+      "GET https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js"
+    ],
+    "chars": 43,
+    "nodes": 92,
+    "hOverflow": false,
+    "focusables": 17,
+    "headings": 1,
+    "sample": "Skip to content Probe Ui Nothing here yet."
+  },
+  {
+    "pack": "mui-v7",
+    "page": "home",
+    "route": "/",
+    "viewport": "desktop",
+    "scheme": "dark",
+    "file": "sweep/shots/mui-v7/home-desktop-dark.png",
+    "err": "",
+    "consoleErrors": [
+      "Failed to load resource: net::ERR_CONNECTION_RESET",
+      "Failed to load resource: net::ERR_CONNECTION_RESET"
+    ],
+    "failedReqs": [
+      "GET https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/github-dark.min.css",
+      "GET https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js"
+    ],
+    "chars": 266,
+    "nodes": 140,
+    "hOverflow": false,
+    "focusables": 18,
+    "headings": 6,
+    "sample": "Skip to content Probe Ui PROBE Layout Display Inputs New product Products Empty state PAGES ProductRegister Home / Dashboard Probe dashboard Products 42 Revenue"
+  },
+  {
+    "pack": "mui-v7",
+    "page": "layout",
+    "route": "/layout",
+    "viewport": "desktop",
+    "scheme": "dark",
+    "file": "sweep/shots/mui-v7/layout-desktop-dark.png",
+    "err": "",
+    "consoleErrors": [
+      "Failed to load resource: net::ERR_CONNECTION_RESET",
+      "Failed to load resource: net::ERR_CONNECTION_RESET"
+    ],
+    "failedReqs": [
+      "GET https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/github-dark.min.css",
+      "GET https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js"
+    ],
+    "chars": 246,
+    "nodes": 129,
+    "hOverflow": false,
+    "focusables": 21,
+    "headings": 2,
+    "sample": "Skip to content Probe Ui PROBE Layout Display Inputs New product Products Empty state PAGES ProductRegister Layout Group puts children in a row Owner platform-t"
+  },
+  {
+    "pack": "mui-v7",
+    "page": "display",
+    "route": "/display",
+    "viewport": "desktop",
+    "scheme": "dark",
+    "file": "sweep/shots/mui-v7/display-desktop-dark.png",
+    "err": "",
+    "consoleErrors": [
+      "Failed to load resource: net::ERR_CONNECTION_RESET",
+      "Failed to load resource: net::ERR_CONNECTION_RESET"
+    ],
+    "failedReqs": [
+      "GET https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/github-dark.min.css",
+      "GET https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js"
+    ],
+    "chars": 254,
+    "nodes": 121,
+    "hOverflow": true,
+    "focusables": 18,
+    "headings": 2,
+    "sample": "Skip to content Probe Ui PROBE Layout Display Inputs New product Products Empty state PAGES ProductRegister Typography Plain text Bold text Italic text ddd gene"
+  },
+  {
+    "pack": "mui-v7",
+    "page": "inputs",
+    "route": "/inputs",
+    "viewport": "desktop",
+    "scheme": "dark",
+    "file": "sweep/shots/mui-v7/inputs-desktop-dark.png",
+    "err": "",
+    "consoleErrors": [
+      "Failed to load resource: net::ERR_CONNECTION_RESET",
+      "Failed to load resource: net::ERR_CONNECTION_RESET"
+    ],
+    "failedReqs": [
+      "GET https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/github-dark.min.css",
+      "GET https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js"
+    ],
+    "chars": 253,
+    "nodes": 147,
+    "hOverflow": false,
+    "focusables": 27,
+    "headings": 2,
+    "sample": "Skip to content Probe Ui PROBE Layout Display Inputs New product Products Empty state PAGES ProductRegister Inputs Name Name Quantity Quantity Password Password"
+  },
+  {
+    "pack": "mui-v7",
+    "page": "products",
+    "route": "/products",
+    "viewport": "desktop",
+    "scheme": "dark",
+    "file": "sweep/shots/mui-v7/products-desktop-dark.png",
+    "err": "",
+    "consoleErrors": [
+      "Failed to load resource: net::ERR_CONNECTION_RESET",
+      "Failed to load resource: net::ERR_CONNECTION_RESET"
+    ],
+    "failedReqs": [
+      "GET https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/github-dark.min.css",
+      "GET https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js"
+    ],
+    "chars": 130,
+    "nodes": 94,
+    "hOverflow": false,
+    "focusables": 17,
+    "headings": 1,
+    "sample": "Skip to content Probe Ui PROBE Layout Display Inputs New product Products Empty state PAGES ProductRegister Couldn't load products"
+  },
+  {
+    "pack": "mui-v7",
+    "page": "new",
+    "route": "/products/new",
+    "viewport": "desktop",
+    "scheme": "dark",
+    "file": "sweep/shots/mui-v7/new-desktop-dark.png",
+    "err": "",
+    "consoleErrors": [
+      "Failed to load resource: net::ERR_CONNECTION_RESET",
+      "Failed to load resource: net::ERR_CONNECTION_RESET"
+    ],
+    "failedReqs": [
+      "GET https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/github-dark.min.css",
+      "GET https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js"
+    ],
+    "chars": 215,
+    "nodes": 135,
+    "hOverflow": false,
+    "focusables": 24,
+    "headings": 2,
+    "sample": "Skip to content Probe Ui PROBE Layout Display Inputs New product Products Empty state PAGES ProductRegister Create product Name Name Price Price Stock Stock Vis"
+  },
+  {
+    "pack": "mui-v7",
+    "page": "empty",
+    "route": "/nothing",
+    "viewport": "desktop",
+    "scheme": "dark",
+    "file": "sweep/shots/mui-v7/empty-desktop-dark.png",
+    "err": "",
+    "consoleErrors": [
+      "Failed to load resource: net::ERR_CONNECTION_RESET",
+      "Failed to load resource: net::ERR_CONNECTION_RESET"
+    ],
+    "failedReqs": [
+      "GET https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/github-dark.min.css",
+      "GET https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js"
+    ],
+    "chars": 126,
+    "nodes": 92,
+    "hOverflow": false,
+    "focusables": 17,
+    "headings": 1,
+    "sample": "Skip to content Probe Ui PROBE Layout Display Inputs New product Products Empty state PAGES ProductRegister Nothing here yet."
+  }
+]

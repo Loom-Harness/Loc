@@ -1,0 +1,562 @@
+[
+  {
+    "pack": "mui-v5-nochart",
+    "page": "home",
+    "route": "/",
+    "viewport": "desktop",
+    "scheme": "light",
+    "file": "sweep/shots/mui-v5-nochart/home-desktop.png",
+    "err": "",
+    "consoleErrors": [
+      "Error: Minified React error #130; visit https://reactjs.org/docs/error-decoder.html?invariant=130&args[]=object&args[]= for the full message or use the non-minified dev environment for full errors and",
+      "[react] Uncaught render error: Error: Minified React error #130; visit https://reactjs.org/docs/error-decoder.html?invariant=130&args[]=object&args[]= for the full message or use the non-minified dev "
+    ],
+    "failedReqs": [],
+    "chars": 244,
+    "nodes": 4,
+    "hOverflow": false,
+    "focusables": 0,
+    "headings": 1,
+    "sample": "Something went wrong. Minified React error #130; visit https://reactjs.org/docs/error-decoder.html?invariant=130&args[]=object&args[]= for the full message or u"
+  },
+  {
+    "pack": "mui-v5-nochart",
+    "page": "layout",
+    "route": "/layout",
+    "viewport": "desktop",
+    "scheme": "light",
+    "file": "sweep/shots/mui-v5-nochart/layout-desktop.png",
+    "err": "",
+    "consoleErrors": [
+      "Error: Minified React error #130; visit https://reactjs.org/docs/error-decoder.html?invariant=130&args[]=object&args[]= for the full message or use the non-minified dev environment for full errors and",
+      "[react] Uncaught render error: Error: Minified React error #130; visit https://reactjs.org/docs/error-decoder.html?invariant=130&args[]=object&args[]= for the full message or use the non-minified dev "
+    ],
+    "failedReqs": [],
+    "chars": 244,
+    "nodes": 4,
+    "hOverflow": false,
+    "focusables": 0,
+    "headings": 1,
+    "sample": "Something went wrong. Minified React error #130; visit https://reactjs.org/docs/error-decoder.html?invariant=130&args[]=object&args[]= for the full message or u"
+  },
+  {
+    "pack": "mui-v5-nochart",
+    "page": "display",
+    "route": "/display",
+    "viewport": "desktop",
+    "scheme": "light",
+    "file": "sweep/shots/mui-v5-nochart/display-desktop.png",
+    "err": "",
+    "consoleErrors": [
+      "Error: Minified React error #130; visit https://reactjs.org/docs/error-decoder.html?invariant=130&args[]=object&args[]= for the full message or use the non-minified dev environment for full errors and",
+      "[react] Uncaught render error: Error: Minified React error #130; visit https://reactjs.org/docs/error-decoder.html?invariant=130&args[]=object&args[]= for the full message or use the non-minified dev "
+    ],
+    "failedReqs": [],
+    "chars": 244,
+    "nodes": 4,
+    "hOverflow": false,
+    "focusables": 0,
+    "headings": 1,
+    "sample": "Something went wrong. Minified React error #130; visit https://reactjs.org/docs/error-decoder.html?invariant=130&args[]=object&args[]= for the full message or u"
+  },
+  {
+    "pack": "mui-v5-nochart",
+    "page": "inputs",
+    "route": "/inputs",
+    "viewport": "desktop",
+    "scheme": "light",
+    "file": "sweep/shots/mui-v5-nochart/inputs-desktop.png",
+    "err": "",
+    "consoleErrors": [
+      "Error: Minified React error #130; visit https://reactjs.org/docs/error-decoder.html?invariant=130&args[]=object&args[]= for the full message or use the non-minified dev environment for full errors and",
+      "[react] Uncaught render error: Error: Minified React error #130; visit https://reactjs.org/docs/error-decoder.html?invariant=130&args[]=object&args[]= for the full message or use the non-minified dev "
+    ],
+    "failedReqs": [],
+    "chars": 244,
+    "nodes": 4,
+    "hOverflow": false,
+    "focusables": 0,
+    "headings": 1,
+    "sample": "Something went wrong. Minified React error #130; visit https://reactjs.org/docs/error-decoder.html?invariant=130&args[]=object&args[]= for the full message or u"
+  },
+  {
+    "pack": "mui-v5-nochart",
+    "page": "products",
+    "route": "/products",
+    "viewport": "desktop",
+    "scheme": "light",
+    "file": "sweep/shots/mui-v5-nochart/products-desktop.png",
+    "err": "",
+    "consoleErrors": [
+      "Error: Minified React error #130; visit https://reactjs.org/docs/error-decoder.html?invariant=130&args[]=object&args[]= for the full message or use the non-minified dev environment for full errors and",
+      "[react] Uncaught render error: Error: Minified React error #130; visit https://reactjs.org/docs/error-decoder.html?invariant=130&args[]=object&args[]= for the full message or use the non-minified dev "
+    ],
+    "failedReqs": [],
+    "chars": 244,
+    "nodes": 4,
+    "hOverflow": false,
+    "focusables": 0,
+    "headings": 1,
+    "sample": "Something went wrong. Minified React error #130; visit https://reactjs.org/docs/error-decoder.html?invariant=130&args[]=object&args[]= for the full message or u"
+  },
+  {
+    "pack": "mui-v5-nochart",
+    "page": "new",
+    "route": "/products/new",
+    "viewport": "desktop",
+    "scheme": "light",
+    "file": "sweep/shots/mui-v5-nochart/new-desktop.png",
+    "err": "",
+    "consoleErrors": [
+      "Error: Minified React error #130; visit https://reactjs.org/docs/error-decoder.html?invariant=130&args[]=object&args[]= for the full message or use the non-minified dev environment for full errors and",
+      "[react] Uncaught render error: Error: Minified React error #130; visit https://reactjs.org/docs/error-decoder.html?invariant=130&args[]=object&args[]= for the full message or use the non-minified dev "
+    ],
+    "failedReqs": [],
+    "chars": 244,
+    "nodes": 4,
+    "hOverflow": false,
+    "focusables": 0,
+    "headings": 1,
+    "sample": "Something went wrong. Minified React error #130; visit https://reactjs.org/docs/error-decoder.html?invariant=130&args[]=object&args[]= for the full message or u"
+  },
+  {
+    "pack": "mui-v5-nochart",
+    "page": "empty",
+    "route": "/nothing",
+    "viewport": "desktop",
+    "scheme": "light",
+    "file": "sweep/shots/mui-v5-nochart/empty-desktop.png",
+    "err": "",
+    "consoleErrors": [
+      "Error: Minified React error #130; visit https://reactjs.org/docs/error-decoder.html?invariant=130&args[]=object&args[]= for the full message or use the non-minified dev environment for full errors and",
+      "[react] Uncaught render error: Error: Minified React error #130; visit https://reactjs.org/docs/error-decoder.html?invariant=130&args[]=object&args[]= for the full message or use the non-minified dev "
+    ],
+    "failedReqs": [],
+    "chars": 244,
+    "nodes": 4,
+    "hOverflow": false,
+    "focusables": 0,
+    "headings": 1,
+    "sample": "Something went wrong. Minified React error #130; visit https://reactjs.org/docs/error-decoder.html?invariant=130&args[]=object&args[]= for the full message or u"
+  },
+  {
+    "pack": "mui-v5-nochart",
+    "page": "home",
+    "route": "/",
+    "viewport": "tablet",
+    "scheme": "light",
+    "file": "sweep/shots/mui-v5-nochart/home-tablet.png",
+    "err": "",
+    "consoleErrors": [
+      "Error: Minified React error #130; visit https://reactjs.org/docs/error-decoder.html?invariant=130&args[]=object&args[]= for the full message or use the non-minified dev environment for full errors and",
+      "[react] Uncaught render error: Error: Minified React error #130; visit https://reactjs.org/docs/error-decoder.html?invariant=130&args[]=object&args[]= for the full message or use the non-minified dev "
+    ],
+    "failedReqs": [],
+    "chars": 244,
+    "nodes": 4,
+    "hOverflow": false,
+    "focusables": 0,
+    "headings": 1,
+    "sample": "Something went wrong. Minified React error #130; visit https://reactjs.org/docs/error-decoder.html?invariant=130&args[]=object&args[]= for the full message or u"
+  },
+  {
+    "pack": "mui-v5-nochart",
+    "page": "layout",
+    "route": "/layout",
+    "viewport": "tablet",
+    "scheme": "light",
+    "file": "sweep/shots/mui-v5-nochart/layout-tablet.png",
+    "err": "",
+    "consoleErrors": [
+      "Error: Minified React error #130; visit https://reactjs.org/docs/error-decoder.html?invariant=130&args[]=object&args[]= for the full message or use the non-minified dev environment for full errors and",
+      "[react] Uncaught render error: Error: Minified React error #130; visit https://reactjs.org/docs/error-decoder.html?invariant=130&args[]=object&args[]= for the full message or use the non-minified dev "
+    ],
+    "failedReqs": [],
+    "chars": 244,
+    "nodes": 4,
+    "hOverflow": false,
+    "focusables": 0,
+    "headings": 1,
+    "sample": "Something went wrong. Minified React error #130; visit https://reactjs.org/docs/error-decoder.html?invariant=130&args[]=object&args[]= for the full message or u"
+  },
+  {
+    "pack": "mui-v5-nochart",
+    "page": "display",
+    "route": "/display",
+    "viewport": "tablet",
+    "scheme": "light",
+    "file": "sweep/shots/mui-v5-nochart/display-tablet.png",
+    "err": "",
+    "consoleErrors": [
+      "Error: Minified React error #130; visit https://reactjs.org/docs/error-decoder.html?invariant=130&args[]=object&args[]= for the full message or use the non-minified dev environment for full errors and",
+      "[react] Uncaught render error: Error: Minified React error #130; visit https://reactjs.org/docs/error-decoder.html?invariant=130&args[]=object&args[]= for the full message or use the non-minified dev "
+    ],
+    "failedReqs": [],
+    "chars": 244,
+    "nodes": 4,
+    "hOverflow": false,
+    "focusables": 0,
+    "headings": 1,
+    "sample": "Something went wrong. Minified React error #130; visit https://reactjs.org/docs/error-decoder.html?invariant=130&args[]=object&args[]= for the full message or u"
+  },
+  {
+    "pack": "mui-v5-nochart",
+    "page": "inputs",
+    "route": "/inputs",
+    "viewport": "tablet",
+    "scheme": "light",
+    "file": "sweep/shots/mui-v5-nochart/inputs-tablet.png",
+    "err": "",
+    "consoleErrors": [
+      "Error: Minified React error #130; visit https://reactjs.org/docs/error-decoder.html?invariant=130&args[]=object&args[]= for the full message or use the non-minified dev environment for full errors and",
+      "[react] Uncaught render error: Error: Minified React error #130; visit https://reactjs.org/docs/error-decoder.html?invariant=130&args[]=object&args[]= for the full message or use the non-minified dev "
+    ],
+    "failedReqs": [],
+    "chars": 244,
+    "nodes": 4,
+    "hOverflow": false,
+    "focusables": 0,
+    "headings": 1,
+    "sample": "Something went wrong. Minified React error #130; visit https://reactjs.org/docs/error-decoder.html?invariant=130&args[]=object&args[]= for the full message or u"
+  },
+  {
+    "pack": "mui-v5-nochart",
+    "page": "products",
+    "route": "/products",
+    "viewport": "tablet",
+    "scheme": "light",
+    "file": "sweep/shots/mui-v5-nochart/products-tablet.png",
+    "err": "",
+    "consoleErrors": [
+      "Error: Minified React error #130; visit https://reactjs.org/docs/error-decoder.html?invariant=130&args[]=object&args[]= for the full message or use the non-minified dev environment for full errors and",
+      "[react] Uncaught render error: Error: Minified React error #130; visit https://reactjs.org/docs/error-decoder.html?invariant=130&args[]=object&args[]= for the full message or use the non-minified dev "
+    ],
+    "failedReqs": [],
+    "chars": 244,
+    "nodes": 4,
+    "hOverflow": false,
+    "focusables": 0,
+    "headings": 1,
+    "sample": "Something went wrong. Minified React error #130; visit https://reactjs.org/docs/error-decoder.html?invariant=130&args[]=object&args[]= for the full message or u"
+  },
+  {
+    "pack": "mui-v5-nochart",
+    "page": "new",
+    "route": "/products/new",
+    "viewport": "tablet",
+    "scheme": "light",
+    "file": "sweep/shots/mui-v5-nochart/new-tablet.png",
+    "err": "",
+    "consoleErrors": [
+      "Error: Minified React error #130; visit https://reactjs.org/docs/error-decoder.html?invariant=130&args[]=object&args[]= for the full message or use the non-minified dev environment for full errors and",
+      "[react] Uncaught render error: Error: Minified React error #130; visit https://reactjs.org/docs/error-decoder.html?invariant=130&args[]=object&args[]= for the full message or use the non-minified dev "
+    ],
+    "failedReqs": [],
+    "chars": 244,
+    "nodes": 4,
+    "hOverflow": false,
+    "focusables": 0,
+    "headings": 1,
+    "sample": "Something went wrong. Minified React error #130; visit https://reactjs.org/docs/error-decoder.html?invariant=130&args[]=object&args[]= for the full message or u"
+  },
+  {
+    "pack": "mui-v5-nochart",
+    "page": "empty",
+    "route": "/nothing",
+    "viewport": "tablet",
+    "scheme": "light",
+    "file": "sweep/shots/mui-v5-nochart/empty-tablet.png",
+    "err": "",
+    "consoleErrors": [
+      "Error: Minified React error #130; visit https://reactjs.org/docs/error-decoder.html?invariant=130&args[]=object&args[]= for the full message or use the non-minified dev environment for full errors and",
+      "[react] Uncaught render error: Error: Minified React error #130; visit https://reactjs.org/docs/error-decoder.html?invariant=130&args[]=object&args[]= for the full message or use the non-minified dev "
+    ],
+    "failedReqs": [],
+    "chars": 244,
+    "nodes": 4,
+    "hOverflow": false,
+    "focusables": 0,
+    "headings": 1,
+    "sample": "Something went wrong. Minified React error #130; visit https://reactjs.org/docs/error-decoder.html?invariant=130&args[]=object&args[]= for the full message or u"
+  },
+  {
+    "pack": "mui-v5-nochart",
+    "page": "home",
+    "route": "/",
+    "viewport": "phone",
+    "scheme": "light",
+    "file": "sweep/shots/mui-v5-nochart/home-phone.png",
+    "err": "",
+    "consoleErrors": [
+      "Error: Minified React error #130; visit https://reactjs.org/docs/error-decoder.html?invariant=130&args[]=object&args[]= for the full message or use the non-minified dev environment for full errors and",
+      "[react] Uncaught render error: Error: Minified React error #130; visit https://reactjs.org/docs/error-decoder.html?invariant=130&args[]=object&args[]= for the full message or use the non-minified dev "
+    ],
+    "failedReqs": [],
+    "chars": 244,
+    "nodes": 4,
+    "hOverflow": false,
+    "focusables": 0,
+    "headings": 1,
+    "sample": "Something went wrong. Minified React error #130; visit https://reactjs.org/docs/error-decoder.html?invariant=130&args[]=object&args[]= for the full message or u"
+  },
+  {
+    "pack": "mui-v5-nochart",
+    "page": "layout",
+    "route": "/layout",
+    "viewport": "phone",
+    "scheme": "light",
+    "file": "sweep/shots/mui-v5-nochart/layout-phone.png",
+    "err": "",
+    "consoleErrors": [
+      "Error: Minified React error #130; visit https://reactjs.org/docs/error-decoder.html?invariant=130&args[]=object&args[]= for the full message or use the non-minified dev environment for full errors and",
+      "[react] Uncaught render error: Error: Minified React error #130; visit https://reactjs.org/docs/error-decoder.html?invariant=130&args[]=object&args[]= for the full message or use the non-minified dev "
+    ],
+    "failedReqs": [],
+    "chars": 244,
+    "nodes": 4,
+    "hOverflow": false,
+    "focusables": 0,
+    "headings": 1,
+    "sample": "Something went wrong. Minified React error #130; visit https://reactjs.org/docs/error-decoder.html?invariant=130&args[]=object&args[]= for the full message or u"
+  },
+  {
+    "pack": "mui-v5-nochart",
+    "page": "display",
+    "route": "/display",
+    "viewport": "phone",
+    "scheme": "light",
+    "file": "sweep/shots/mui-v5-nochart/display-phone.png",
+    "err": "",
+    "consoleErrors": [
+      "Error: Minified React error #130; visit https://reactjs.org/docs/error-decoder.html?invariant=130&args[]=object&args[]= for the full message or use the non-minified dev environment for full errors and",
+      "[react] Uncaught render error: Error: Minified React error #130; visit https://reactjs.org/docs/error-decoder.html?invariant=130&args[]=object&args[]= for the full message or use the non-minified dev "
+    ],
+    "failedReqs": [],
+    "chars": 244,
+    "nodes": 4,
+    "hOverflow": false,
+    "focusables": 0,
+    "headings": 1,
+    "sample": "Something went wrong. Minified React error #130; visit https://reactjs.org/docs/error-decoder.html?invariant=130&args[]=object&args[]= for the full message or u"
+  },
+  {
+    "pack": "mui-v5-nochart",
+    "page": "inputs",
+    "route": "/inputs",
+    "viewport": "phone",
+    "scheme": "light",
+    "file": "sweep/shots/mui-v5-nochart/inputs-phone.png",
+    "err": "",
+    "consoleErrors": [
+      "Error: Minified React error #130; visit https://reactjs.org/docs/error-decoder.html?invariant=130&args[]=object&args[]= for the full message or use the non-minified dev environment for full errors and",
+      "[react] Uncaught render error: Error: Minified React error #130; visit https://reactjs.org/docs/error-decoder.html?invariant=130&args[]=object&args[]= for the full message or use the non-minified dev "
+    ],
+    "failedReqs": [],
+    "chars": 244,
+    "nodes": 4,
+    "hOverflow": false,
+    "focusables": 0,
+    "headings": 1,
+    "sample": "Something went wrong. Minified React error #130; visit https://reactjs.org/docs/error-decoder.html?invariant=130&args[]=object&args[]= for the full message or u"
+  },
+  {
+    "pack": "mui-v5-nochart",
+    "page": "products",
+    "route": "/products",
+    "viewport": "phone",
+    "scheme": "light",
+    "file": "sweep/shots/mui-v5-nochart/products-phone.png",
+    "err": "",
+    "consoleErrors": [
+      "Error: Minified React error #130; visit https://reactjs.org/docs/error-decoder.html?invariant=130&args[]=object&args[]= for the full message or use the non-minified dev environment for full errors and",
+      "[react] Uncaught render error: Error: Minified React error #130; visit https://reactjs.org/docs/error-decoder.html?invariant=130&args[]=object&args[]= for the full message or use the non-minified dev "
+    ],
+    "failedReqs": [],
+    "chars": 244,
+    "nodes": 4,
+    "hOverflow": false,
+    "focusables": 0,
+    "headings": 1,
+    "sample": "Something went wrong. Minified React error #130; visit https://reactjs.org/docs/error-decoder.html?invariant=130&args[]=object&args[]= for the full message or u"
+  },
+  {
+    "pack": "mui-v5-nochart",
+    "page": "new",
+    "route": "/products/new",
+    "viewport": "phone",
+    "scheme": "light",
+    "file": "sweep/shots/mui-v5-nochart/new-phone.png",
+    "err": "",
+    "consoleErrors": [
+      "Error: Minified React error #130; visit https://reactjs.org/docs/error-decoder.html?invariant=130&args[]=object&args[]= for the full message or use the non-minified dev environment for full errors and",
+      "[react] Uncaught render error: Error: Minified React error #130; visit https://reactjs.org/docs/error-decoder.html?invariant=130&args[]=object&args[]= for the full message or use the non-minified dev "
+    ],
+    "failedReqs": [],
+    "chars": 244,
+    "nodes": 4,
+    "hOverflow": false,
+    "focusables": 0,
+    "headings": 1,
+    "sample": "Something went wrong. Minified React error #130; visit https://reactjs.org/docs/error-decoder.html?invariant=130&args[]=object&args[]= for the full message or u"
+  },
+  {
+    "pack": "mui-v5-nochart",
+    "page": "empty",
+    "route": "/nothing",
+    "viewport": "phone",
+    "scheme": "light",
+    "file": "sweep/shots/mui-v5-nochart/empty-phone.png",
+    "err": "",
+    "consoleErrors": [
+      "Error: Minified React error #130; visit https://reactjs.org/docs/error-decoder.html?invariant=130&args[]=object&args[]= for the full message or use the non-minified dev environment for full errors and",
+      "[react] Uncaught render error: Error: Minified React error #130; visit https://reactjs.org/docs/error-decoder.html?invariant=130&args[]=object&args[]= for the full message or use the non-minified dev "
+    ],
+    "failedReqs": [],
+    "chars": 244,
+    "nodes": 4,
+    "hOverflow": false,
+    "focusables": 0,
+    "headings": 1,
+    "sample": "Something went wrong. Minified React error #130; visit https://reactjs.org/docs/error-decoder.html?invariant=130&args[]=object&args[]= for the full message or u"
+  },
+  {
+    "pack": "mui-v5-nochart",
+    "page": "home",
+    "route": "/",
+    "viewport": "desktop",
+    "scheme": "dark",
+    "file": "sweep/shots/mui-v5-nochart/home-desktop-dark.png",
+    "err": "",
+    "consoleErrors": [
+      "Error: Minified React error #130; visit https://reactjs.org/docs/error-decoder.html?invariant=130&args[]=object&args[]= for the full message or use the non-minified dev environment for full errors and",
+      "[react] Uncaught render error: Error: Minified React error #130; visit https://reactjs.org/docs/error-decoder.html?invariant=130&args[]=object&args[]= for the full message or use the non-minified dev "
+    ],
+    "failedReqs": [],
+    "chars": 244,
+    "nodes": 4,
+    "hOverflow": false,
+    "focusables": 0,
+    "headings": 1,
+    "sample": "Something went wrong. Minified React error #130; visit https://reactjs.org/docs/error-decoder.html?invariant=130&args[]=object&args[]= for the full message or u"
+  },
+  {
+    "pack": "mui-v5-nochart",
+    "page": "layout",
+    "route": "/layout",
+    "viewport": "desktop",
+    "scheme": "dark",
+    "file": "sweep/shots/mui-v5-nochart/layout-desktop-dark.png",
+    "err": "",
+    "consoleErrors": [
+      "Error: Minified React error #130; visit https://reactjs.org/docs/error-decoder.html?invariant=130&args[]=object&args[]= for the full message or use the non-minified dev environment for full errors and",
+      "[react] Uncaught render error: Error: Minified React error #130; visit https://reactjs.org/docs/error-decoder.html?invariant=130&args[]=object&args[]= for the full message or use the non-minified dev "
+    ],
+    "failedReqs": [],
+    "chars": 244,
+    "nodes": 4,
+    "hOverflow": false,
+    "focusables": 0,
+    "headings": 1,
+    "sample": "Something went wrong. Minified React error #130; visit https://reactjs.org/docs/error-decoder.html?invariant=130&args[]=object&args[]= for the full message or u"
+  },
+  {
+    "pack": "mui-v5-nochart",
+    "page": "display",
+    "route": "/display",
+    "viewport": "desktop",
+    "scheme": "dark",
+    "file": "sweep/shots/mui-v5-nochart/display-desktop-dark.png",
+    "err": "",
+    "consoleErrors": [
+      "Error: Minified React error #130; visit https://reactjs.org/docs/error-decoder.html?invariant=130&args[]=object&args[]= for the full message or use the non-minified dev environment for full errors and",
+      "[react] Uncaught render error: Error: Minified React error #130; visit https://reactjs.org/docs/error-decoder.html?invariant=130&args[]=object&args[]= for the full message or use the non-minified dev "
+    ],
+    "failedReqs": [],
+    "chars": 244,
+    "nodes": 4,
+    "hOverflow": false,
+    "focusables": 0,
+    "headings": 1,
+    "sample": "Something went wrong. Minified React error #130; visit https://reactjs.org/docs/error-decoder.html?invariant=130&args[]=object&args[]= for the full message or u"
+  },
+  {
+    "pack": "mui-v5-nochart",
+    "page": "inputs",
+    "route": "/inputs",
+    "viewport": "desktop",
+    "scheme": "dark",
+    "file": "sweep/shots/mui-v5-nochart/inputs-desktop-dark.png",
+    "err": "",
+    "consoleErrors": [
+      "Error: Minified React error #130; visit https://reactjs.org/docs/error-decoder.html?invariant=130&args[]=object&args[]= for the full message or use the non-minified dev environment for full errors and",
+      "[react] Uncaught render error: Error: Minified React error #130; visit https://reactjs.org/docs/error-decoder.html?invariant=130&args[]=object&args[]= for the full message or use the non-minified dev "
+    ],
+    "failedReqs": [],
+    "chars": 244,
+    "nodes": 4,
+    "hOverflow": false,
+    "focusables": 0,
+    "headings": 1,
+    "sample": "Something went wrong. Minified React error #130; visit https://reactjs.org/docs/error-decoder.html?invariant=130&args[]=object&args[]= for the full message or u"
+  },
+  {
+    "pack": "mui-v5-nochart",
+    "page": "products",
+    "route": "/products",
+    "viewport": "desktop",
+    "scheme": "dark",
+    "file": "sweep/shots/mui-v5-nochart/products-desktop-dark.png",
+    "err": "",
+    "consoleErrors": [
+      "Error: Minified React error #130; visit https://reactjs.org/docs/error-decoder.html?invariant=130&args[]=object&args[]= for the full message or use the non-minified dev environment for full errors and",
+      "[react] Uncaught render error: Error: Minified React error #130; visit https://reactjs.org/docs/error-decoder.html?invariant=130&args[]=object&args[]= for the full message or use the non-minified dev "
+    ],
+    "failedReqs": [],
+    "chars": 244,
+    "nodes": 4,
+    "hOverflow": false,
+    "focusables": 0,
+    "headings": 1,
+    "sample": "Something went wrong. Minified React error #130; visit https://reactjs.org/docs/error-decoder.html?invariant=130&args[]=object&args[]= for the full message or u"
+  },
+  {
+    "pack": "mui-v5-nochart",
+    "page": "new",
+    "route": "/products/new",
+    "viewport": "desktop",
+    "scheme": "dark",
+    "file": "sweep/shots/mui-v5-nochart/new-desktop-dark.png",
+    "err": "",
+    "consoleErrors": [
+      "Error: Minified React error #130; visit https://reactjs.org/docs/error-decoder.html?invariant=130&args[]=object&args[]= for the full message or use the non-minified dev environment for full errors and",
+      "[react] Uncaught render error: Error: Minified React error #130; visit https://reactjs.org/docs/error-decoder.html?invariant=130&args[]=object&args[]= for the full message or use the non-minified dev "
+    ],
+    "failedReqs": [],
+    "chars": 244,
+    "nodes": 4,
+    "hOverflow": false,
+    "focusables": 0,
+    "headings": 1,
+    "sample": "Something went wrong. Minified React error #130; visit https://reactjs.org/docs/error-decoder.html?invariant=130&args[]=object&args[]= for the full message or u"
+  },
+  {
+    "pack": "mui-v5-nochart",
+    "page": "empty",
+    "route": "/nothing",
+    "viewport": "desktop",
+    "scheme": "dark",
+    "file": "sweep/shots/mui-v5-nochart/empty-desktop-dark.png",
+    "err": "",
+    "consoleErrors": [
+      "Error: Minified React error #130; visit https://reactjs.org/docs/error-decoder.html?invariant=130&args[]=object&args[]= for the full message or use the non-minified dev environment for full errors and",
+      "[react] Uncaught render error: Error: Minified React error #130; visit https://reactjs.org/docs/error-decoder.html?invariant=130&args[]=object&args[]= for the full message or use the non-minified dev "
+    ],
+    "failedReqs": [],
+    "chars": 244,
+    "nodes": 4,
+    "hOverflow": false,
+    "focusables": 0,
+    "headings": 1,
+    "sample": "Something went wrong. Minified React error #130; visit https://reactjs.org/docs/error-decoder.html?invariant=130&args[]=object&args[]= for the full message or u"
+  }
+]

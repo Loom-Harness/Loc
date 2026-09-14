@@ -1,0 +1,45 @@
+// Three pack-layer defects from ONE page.  Flip the frontend `platform:` +
+// `design:` to see each:
+//
+// F-013 (SILENT, shadcnVue@v1 only, S2) — `Image { "/logo.png" }` emits a raw
+//   <img src="/logo.png"> inside an SFC template, and Vue's transformAssetUrls
+//   turns that into a BUILD-TIME import:
+//     [UNRESOLVED_IMPORT] Could not resolve '/logo.png' in src/pages/p.vue
+//   vuetify@v3 emits <v-img src="/logo.png"> (a component prop, not transformed)
+//   and bundles fine; every React/Svelte/Angular pack degrades to a runtime 404.
+//
+// F-014 (SILENT, primeng@v1 only, S1) — `SelectField { options: [...] }` emits
+//     <p-select [options]="["Private", "Internal", "Public"]" …>
+//   nesting double quotes inside a double-quoted attribute:
+//     ✘ NG5002: Opening tag "p-select" not terminated.
+//   angularMaterial@v1 and spartanNg@v1 render the same SelectField correctly.
+//
+// F-016 (SILENT, 10 of 15 packs, S1) — `Icon { … }` emits an inline <svg viewBox>
+//   with NO width/height inside <span class="loom-icon">.  Only 5 packs define
+//   the .loom-icon CSS (angularMaterial, flowbite, primeng, shadcnSvelte,
+//   spartanNg); on the other 10 the icon fills its container — a 16px check
+//   renders ~900px tall (sweep/shots/shadcn-v4/display-desktop.png), and on MUI
+//   it pushes the page into horizontal overflow at all three widths.
+//     grep -rl '\.loom-icon' designs/*/*/     # the 5 that define it
+//     grep -rl  'loom-icon'  designs/*/*/primitive-icon.hbs   # the 15 that emit it
+system F013 {
+  subdomain S { context C { aggregate T with crudish { label: string } repository Ts for T { } } }
+  api CApi from S
+  ui W {
+    api C: CApi
+    page P {
+      route: "/"
+      state { vis: string = "" }
+      body: Stack {
+        Icon { name: "check", label: "Verified" },
+        Image { "/logo.png", alt: "Probe logo" },
+        Badge { "Beta" },
+        SelectField { "Visibility", bind: vis, options: ["Private", "Internal", "Public"] }
+      }
+    }
+  }
+  storage primary { type: postgres }
+  resource cs { for: C, kind: state, use: primary }
+  deployable api { platform: node, contexts: [C], dataSources: [cs], serves: CApi, port: 3000 }
+  deployable w { platform: vue, targets: api, ui: W { C: api }, port: 3001, design: shadcnVue }
+}

@@ -1,0 +1,18 @@
+// F-002 (SILENT): a repository `find` whose WHERE compares a `decimal`
+// field emits `gt(<numeric column>, <number>)`.  Drizzle types a pg
+// `numeric` column as `string`, so no overload matches.
+//   node bin/cli.js generate system sweep/repro/F-002-decimal-find-compare.ddd -o /tmp/f002
+//   cd /tmp/f002/api && npm i && npx tsc --noEmit
+//   → db/repositories/thing-repository.ts(…): error TS2769: No overload matches this call.
+system F002 {
+  subdomain S { context C {
+    aggregate Thing with crudish { label: string  weight: decimal }
+    repository Things for Thing {
+      find heavierThan(limit: decimal): Thing[] where this.weight > limit
+    }
+  } }
+  api CApi from S
+  storage primary { type: postgres }
+  resource cState { for: C, kind: state, use: primary }
+  deployable api { platform: node, contexts: [C], dataSources: [cState], serves: CApi, port: 3000 }
+}

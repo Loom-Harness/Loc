@@ -1,0 +1,31 @@
+// F-007 (SILENT, all 8 React packs): a page whose body hosts TWO forms
+// (here `CreateForm` + `WorkflowForm`) emits BOTH forms' top-level
+// react-hook-form declarations into the SAME component scope, so every
+// destructured name is declared twice.
+//   node bin/cli.js generate system sweep/repro/F-007-two-forms-one-page.ddd -o /tmp/f007
+//   cd /tmp/f007/web_app && npm i && npm run build
+//   -> src/pages/two_forms.tsx: error TS2451: Cannot redeclare block-scoped
+//      variable 'register' / 'handleSubmit' / 'setError' / 'control' / 'errors'
+//      (shadcn: 'form'; chakra: also 'toast').
+system F007 {
+  subdomain S { context C {
+    aggregate Thing with crudish { label: string }
+    repository Things for Thing { }
+    workflow makeThing { create(label: string) { let t = Thing.create({ label: label }) } }
+  } }
+  api CApi from S
+  ui WebApp {
+    api C: CApi
+    page TwoForms {
+      route: "/"
+      body: Stack {
+        Card { CreateForm { of: Thing } },
+        Card { WorkflowForm { runs: makeThing } }
+      }
+    }
+  }
+  storage primary { type: postgres }
+  resource cState { for: C, kind: state, use: primary }
+  deployable api { platform: node, contexts: [C], dataSources: [cState], serves: CApi, port: 3000 }
+  deployable webApp { platform: react, targets: api, ui: WebApp { C: api }, port: 3001, design: shadcn }
+}

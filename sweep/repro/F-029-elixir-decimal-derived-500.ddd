@@ -1,0 +1,31 @@
+// F-029 (SILENT, Elixir/Phoenix, RUNTIME): a `derived` field doing decimal
+// arithmetic makes EVERY read of that aggregate return HTTP 500.  The project
+// compiles clean and the app boots clean; the serializer then raises:
+//   ** (ArgumentError) implicit conversion of 1.0 to Decimal is not allowed.
+//      Use Decimal.from_float/1
+//      (decimal) lib/decimal.ex:1254: Decimal.mult/2
+//      (api) lib/api_web/controllers/product_controller.ex:218: …serialize/1
+// POST works (201); GET /{id} and GET (findAll) both 500.
+//   node bin/cli.js generate system sweep/repro/F-029-elixir-decimal-derived-500.ddd -o /tmp/f029
+//   (boot it against postgres, POST a Product, then GET it back)
+system F029 {
+  subdomain S { context C {
+    valueobject Dimensions {
+      width: decimal
+      height: decimal
+      invariant width > 0
+      invariant height > 0
+    }
+    aggregate Product with crudish {
+      name: string
+      size: Dimensions
+      derived display: string = name
+      derived footprint: decimal = size.width * size.height
+    }
+    repository Products for Product { }
+  } }
+  api CApi from S
+  storage primary { type: postgres }
+  resource cState { for: C, kind: state, use: primary }
+  deployable api { platform: elixir, contexts: [C], dataSources: [cState], serves: CApi, port: 4000 }
+}

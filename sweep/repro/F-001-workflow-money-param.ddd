@@ -1,0 +1,19 @@
+// F-001 (SILENT): a `workflow` with a `money` parameter emits
+// `http/workflows.ts` referencing `moneySchema` WITHOUT importing it.
+// The sibling route emitters (`*.routes.ts`) do emit the import.
+//   node bin/cli.js generate system sweep/repro/F-001-workflow-money-param.ddd -o /tmp/f001
+//   cd /tmp/f001/api && npm i && npx tsc --noEmit
+//   → http/workflows.ts(…): error TS2304: Cannot find name 'moneySchema'.
+system F001 {
+  subdomain S { context C {
+    aggregate Thing with crudish { label: string }
+    repository Things for Thing { }
+    workflow charge {
+      create(label: string, amount: money) { let t = Thing.create({ label: label }) }
+    }
+  } }
+  api CApi from S
+  storage primary { type: postgres }
+  resource cState { for: C, kind: state, use: primary }
+  deployable api { platform: node, contexts: [C], dataSources: [cState], serves: CApi, port: 3000 }
+}
