@@ -272,7 +272,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.feliz-async-effect-unsupported",
     kind: "gap",
-    site: "src/ir/validate/checks/store-checks.ts:449",
+    site: "src/ir/validate/checks/store-checks.ts:462",
     what:
       "`match await` on Feliz in a COMPONENT host, or whose awaited subject is not an aggregate " +
       "INSTANCE op — a page-hosted instance-op effect renders (MVU trigger/result pair)",
@@ -317,7 +317,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.flutter-async-effect-unsupported",
     kind: "scope",
-    site: "src/ir/validate/checks/store-checks.ts:500",
+    site: "src/ir/validate/checks/store-checks.ts:513",
     what:
       "`match await` in a COMPONENT action.  RE-CLASSED `gap` -> `scope` under " +
       "**D-FLUTTER-COMPONENT-BINDINGS**: `match await <api>.<Agg>.<op>()` on an INSTANCE " +
@@ -565,7 +565,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.store-lifetime-target-unsupported",
     kind: "gap",
-    site: "src/ir/validate/checks/store-checks.ts:327",
+    site: "src/ir/validate/checks/store-checks.ts:364",
     what: "a persisted store field with no total F# (feliz) or Dart (flutter) codec",
     mission: "M-T1.20",
   },
