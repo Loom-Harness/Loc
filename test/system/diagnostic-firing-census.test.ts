@@ -329,6 +329,18 @@ system S {
     repository Invoices for Invoice { }`),
 
   // --- structural ---------------------------------------------------------
+  // Two entity parts that contain each other.  `contains` is ownership, so the
+  // graph must be a tree; the cycle used to parse clean and then blow the JS
+  // stack inside the TypeScript repository emitter's `nestedContainLoads`.
+  "loom.containment-cycle": repoOnly(`    aggregate A {
+      n: string
+      contains xs: X[]
+      derived display: string = n
+      entity X { contains ys: Y[] }
+      entity Y { contains zs: X[] }
+    }
+    repository As for A { }`),
+
   // A block-bodied `function` that mutates aggregate state.  The purity gate had
   // no catalog entry and no firing proof at all until W4.1 — the scanner never
   // saw the site, because its `message` was a shorthand property.

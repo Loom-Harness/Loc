@@ -619,6 +619,11 @@ export const DIAGNOSTIC_MESSAGES = {
     `'action(${p.argBase})' is not allowed — the callback argument must be a data type (primitive, aggregate, value object, …), not another UI marker.`,
   "loom.bare-aggregate-in-type": (p: { aggName: unknown }) =>
     `References across aggregate boundaries need an id link — write '${p.aggName} id' (or '${p.aggName} id[]' for many-to-many).`,
+  "loom.containment-cycle": (p: { cycle: unknown; name: unknown; target: unknown }) =>
+    `Cyclic containment in aggregate '${p.name}': ${p.cycle}. ` +
+    `'contains' is ownership, so an aggregate's parts must form a tree — a cycle can be neither loaded nor persisted ` +
+    `(every backend's eager-load walks 'contains' recursively). ` +
+    `Break the loop: drop this containment, or reference the other aggregate's root with '<Aggregate> id' instead of containing '${p.target}'.`,
   "loom.cross-aggregate-entity-part": (p: { name: unknown; ownerName: unknown }) =>
     `Entity part '${p.name}' belongs to aggregate '${p.ownerName}'; cross-aggregate references must go through the root: use '${p.ownerName} id'.`,
   "loom.ambiguous-part-ref": (p: { name: unknown; list: unknown; names: unknown }) =>
