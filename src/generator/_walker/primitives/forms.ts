@@ -496,7 +496,7 @@ function emitFormOnSubmit(
   if (onSubmitAction) {
     ctx.usedActions?.add(onSubmitAction.actionName);
     const arg = onSubmitAction.paramType ? "vals" : "";
-    return `{ ${actionHandlerName(onSubmitAction.actionName)}(${arg}); }`;
+    return `{ ${actionHandlerName(onSubmitAction.actionName, ctx.target)}(${arg}); }`;
   }
   const onSubmit = lambdaArg(call, "onSubmit");
   if (!onSubmit) return null;
