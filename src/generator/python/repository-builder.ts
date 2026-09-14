@@ -12,6 +12,7 @@ import {
   type FindIR,
   findUsesCurrentUser,
   isQueryTimeProjection,
+  type ParamIR,
   type RepositoryIR,
   type RetrievalIR,
   type TypeIR,
@@ -25,6 +26,10 @@ import {
 export interface AggregateReadShape {
   name: string;
   source: { kind: "aggregate"; name: string };
+  /** The projection's declared parameters.  Its inlined `where` references
+   *  them by name, so the synthesised read must bind them — a parameterless
+   *  method rendered a predicate over a free variable. */
+  params?: ParamIR[];
   filter?: ExprIR;
   bypassAll?: boolean;
   bypassCaps?: string[];
@@ -38,6 +43,7 @@ import {
   ownFieldsOf,
   tableOwnerName,
 } from "../../ir/util/inheritance.js";
+import { findValueObjectInScope, valueObjectPool } from "../../ir/util/reachable-types.js";
 import { sortableFields } from "../../ir/util/sortable-fields.js";
 import { type ValueCollectionIR, valueCollectionsFor } from "../../ir/util/value-collections.js";
 import { aggregateIsVersioned } from "../../ir/util/versioned-capability.js";
@@ -67,6 +73,7 @@ import {
   rowClassName,
   valueCollectionRowClassName,
 } from "./py-columns.js";
+import { wireHelperImport } from "./py-type-imports.js";
 import { renderPyExpr, renderPyType } from "./render-expr.js";
 
 // ---------------------------------------------------------------------------
@@ -357,7 +364,7 @@ export function buildPyRepositoryFile(
       ].filter(refersTo),
     ),
   ].sort();
-  const voEnumNames = [...ctx.valueObjects.map((v) => v.name), ...ctx.enums.map((e) => e.name)]
+  const voEnumNames = [...valueObjectPool(ctx).map((v) => v.name), ...ctx.enums.map((e) => e.name)]
     .filter(refersTo)
     .sort();
   const rowNames = [
@@ -435,9 +442,7 @@ export function buildPyRepositoryFile(
     refersTo("PagedResult") ? "from app.domain.paging import PagedResult" : null,
     hasProv ? "from app.db.provenance import ProvenanceRecord" : null,
     rowNames.length > 0 ? `from app.db.schema import ${rowNames.join(", ")}` : null,
-    refersTo("iso") || refersTo("money_str")
-      ? `from app.db.wire import ${[refersTo("iso") ? "iso" : null, refersTo("money_str") ? "money_str" : null].filter(Boolean).join(", ")}`
-      : null,
+    wireHelperImport(refersTo),
     aggregateIsVersioned(agg)
       ? "from app.domain.errors import AggregateNotFoundError, ConcurrencyError"
       : "from app.domain.errors import AggregateNotFoundError",
@@ -556,6 +561,61 @@ export function relationalFindMethod(
   );
 }
 
+/**
+ * An IN-MEMORY paged find over a NON-RELATIONAL carrier (`shape: document`,
+ * `persistedAs: eventLog`) — ledger row `F2-CB-C1`.
+ *
+ * Both those repositories rehydrate the whole set and filter it in Python, and
+ * neither had a paged branch: the route, the port Protocol and the response
+ * model all read `pagedReturn(find.returnType)` and were built for the
+ * `PagedResult` contract with four extra arguments, while the implementation
+ * kept emitting the unpaged `async def in_region(self, region) -> Order`.  The
+ * route then called it with five arguments and read `.items` off the answer —
+ * a `TypeError` on the first request, from a model that generates and validates
+ * clean.
+ *
+ * Semantics follow java's shipped in-memory implementation (the reference the
+ * ledger names): filter, then a WHITELISTED sort, then the slice, with `total`
+ * counted BEFORE the page.  `sortableFields` is the same allowlist the
+ * relational branch uses, so an unknown `?sort=` key can never reach an
+ * attribute name, and the default order is the id.
+ *
+ * `loadLines` binds `items`; `filteredExpr` is the caller's own comprehension
+ * over it, so each builder keeps its capability-filter composition.
+ */
+export function pyInMemoryPagedFind(
+  agg: EnrichedAggregateIR,
+  find: FindIR,
+  opts: { sig: string; loadLines: readonly string[]; filteredExpr: string },
+): string {
+  const sortMap = sortableFields(agg)
+    .map((wf) => `${JSON.stringify(wf)}: ${JSON.stringify(snake(wf))}`)
+    .join(", ");
+  return lines(
+    `    async def ${snake(find.name)}(${opts.sig}) -> PagedResult[${agg.name}]:`,
+    ...opts.loadLines,
+    `        matched = ${opts.filteredExpr}`,
+    "        total = len(matched)",
+    "        total_pages = (total + page_size - 1) // page_size if page_size > 0 else 0",
+    `        _sort_columns = {${sortMap}}`,
+    '        _sort_attr = _sort_columns.get(sort, "id")',
+    '        matched = sorted(matched, key=lambda x: getattr(x, _sort_attr), reverse=dir == "desc")',
+    "        offset = (page - 1) * page_size",
+    "        page_items = matched[offset : offset + page_size]",
+    findExecutedLine(agg, find.name, "len(page_items)"),
+    "        return PagedResult(items=page_items, page=page, page_size=page_size, total=total, total_pages=total_pages)",
+  );
+}
+
+/** The paged find's four extra wire parameters, in the order every backend's
+ *  route passes them. */
+export const PY_PAGED_FIND_PARAMS: readonly string[] = [
+  "page: int",
+  "page_size: int",
+  "sort: str",
+  "dir: str",
+];
+
 /** The `find_executed` (debug) catalog line for a repository find method —
  *  `rows` is an integer count expression (cardinality-mapped by the caller).
  *  Mirrors the Hono/.NET repo emission so cross-backend log consumers see the
@@ -621,6 +681,7 @@ export function queryProjectionViews(
     .map((p) => ({
       name: p.name,
       source: { kind: "aggregate" as const, name: agg.name },
+      params: p.params ?? [],
       ...(p.query?.filter ? { filter: p.query.filter } : {}),
       ...(p.query?.bypassAll ? { bypassAll: true } : {}),
       ...(p.query?.bypassCaps ? { bypassCaps: p.query.bypassCaps } : {}),
@@ -707,8 +768,10 @@ function viewFindMethod(
         })
       : filterPred;
   const where = rootWhere(pred, root, kind, methodFilterPred);
+  const viewParams = (view.params ?? []).map((p) => `${snake(p.name)}: ${renderPyType(p.type)}`);
+  const viewSig = ["self", ...viewParams].join(", ");
   return lines(
-    `    async def ${snake(view.name)}(self) -> list[${agg.name}]:`,
+    `    async def ${snake(view.name)}(${viewSig}) -> list[${agg.name}]:`,
     `        rows = (await self._session.execute(select(${root})${where})).scalars().all()`,
     `        items = ${hydrateListExpr(agg)}`,
     findExecutedLine(agg, view.name, "len(items)"),
@@ -840,24 +903,48 @@ function hydrateVo(
   prefix: string,
   optional: boolean,
   ctx: EnrichedBoundedContextIR,
+  /** True when this group's leaf columns are ALL nullable because this value
+   *  object — or one enclosing it — is optional.  Distinct from `optional`,
+   *  which is only about THIS field: a required `Geo` nested inside an optional
+   *  `Addr` has non-null-looking leaves in the IR and nullable columns in the
+   *  schema, so the unwrap below has to follow the enclosing group, not the
+   *  field. */
+  nullableGroup: boolean = optional,
 ): string | undefined {
   const vo = ctx.valueObjects.find((v) => v.name === voName);
   if (!vo) return undefined;
   const args = vo.fields
     .map((vf) => {
       const inner = vf.type.kind === "optional" ? vf.type.inner : vf.type;
+      const leafOptional = vf.optional || vf.type.kind === "optional";
       const path = `${prefix}_${vf.name}`;
       if (inner.kind === "valueobject") {
         const nested = hydrateVo(
           rowVar,
           inner.name,
           path,
-          vf.optional || vf.type.kind === "optional",
+          leafOptional,
           ctx,
+          nullableGroup || leafOptional,
         );
         if (nested !== undefined) return nested;
       }
-      return hydrateScalar(`${rowVar}.${snake(path)}`, vf.type, false);
+      // An optional value object makes EVERY one of its flattened leaf columns
+      // nullable, but the `is not None` probe below narrows only the ONE column
+      // it reads — the rest stay `str | None` (`Decimal | None`, …) against a
+      // constructor wanting `str`, which mypy --strict rejects once per
+      // required subfield per read path.  Inside the guard the value object is
+      // known present, so each REQUIRED leaf is unwrapped by `required()` — the
+      // python spelling of the node backend's `!`.  A subfield that is optional
+      // IN the value object keeps its own null: with the VO present that one
+      // really can be absent.  (Ported from #2872, which fixed the pre-recursion
+      // inline version this helper replaced.)
+      const col = `${rowVar}.${snake(path)}`;
+      return hydrateScalar(
+        nullableGroup && !leafOptional ? `required(${col})` : col,
+        vf.type,
+        false,
+      );
     })
     .join(", ");
   const ctor = `${voName}(${args})`;
@@ -889,7 +976,7 @@ export function hydrateValueCollection(
   rowVar: string,
   ctx: EnrichedBoundedContextIR,
 ): string {
-  const vo = ctx.valueObjects.find((v) => v.name === vc.voName);
+  const vo = findValueObjectInScope(ctx, vc.voName);
   const args = (vo?.fields ?? [])
     .map((vf) => hydrateScalar(`${rowVar}.${snake(vf.name)}`, vf.type, false))
     .join(", ");
@@ -1563,7 +1650,7 @@ function syncValueCollection(
   aggVar: string,
 ): string[] {
   const vcRow = valueCollectionRowClassName(vc.childTable);
-  const vo = ctx.valueObjects.find((v) => v.name === vc.voName);
+  const vo = findValueObjectInScope(ctx, vc.voName);
   const v = snake(vc.fieldName);
   // Flattened VO column kwargs: `amount=Decimal(str(__e.amount)), …`.
   const voKwargs = (vo?.fields ?? []).map(
@@ -1694,7 +1781,7 @@ export function wireValue(
     return optional ? `(None if ${expr} is None else ${wire})` : wire;
   }
   if (t.kind === "valueobject") {
-    const vo = ctx.valueObjects.find((v) => v.name === t.name);
+    const vo = findValueObjectInScope(ctx, t.name);
     if (!vo) return expr;
     const fields = vo.fields
       .map((vf) => `"${vf.name}": ${wireValue(`${expr}.${snake(vf.name)}`, vf.type, ctx, false)}`)

@@ -102,9 +102,12 @@ describe("the completion plan's ยง1 denominators are computed, not remembered (ย
   it("unsupported-register gap/scope match the imported module", async () => {
     d ??= await computeDenominators();
     const gap = UNSUPPORTED_REGISTER.filter((e) => e.kind === "gap").length;
+    const seam = UNSUPPORTED_REGISTER.filter((e) => e.kind === "seam").length;
     const scope = UNSUPPORTED_REGISTER.filter((e) => e.kind === "scope").length;
     expect(d.unsupportedRegister.gap).toBe(gap);
+    expect(d.unsupportedRegister.seam).toBe(seam);
     expect(d.unsupportedRegister.scope).toBe(scope);
+    expect(gap + seam + scope).toBe(UNSUPPORTED_REGISTER.length);
   });
 
   it("the three importable pin registers match their modules", async () => {

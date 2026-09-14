@@ -21,12 +21,48 @@
 //   int 1.5                        4xx     4xx     4xx     4xx     4xx
 //   int "5"    (stringified)       4xx     4xx     4xx     ACCEPT  ACCEPT
 //   money 12.5 (JSON number)       4xx     4xx     4xx     4xx     ACCEPT
-//   money 40 digits                accept  4xx     accept  accept  accept
+//   money 40 digits                4xx     4xx     4xx     4xx     4xx
+//                                  ^ was "accept" on four until the range guard
+//   long 2^53  (past the ceiling)  4xx     accept  accept  accept  accept
 //
-// The first two rows are the mission's guarantee and are asserted as seams
-// below.  The last three are DIVERGENCES that the arms did not close, and they
-// are pinned here rather than left unrecorded — see the `DIVERGENCES` block at
-// the bottom of this file, which is what a future strictness ruling deletes.
+// ## The `long` row (added 2026-09-13, M-T5.23 / `D-LONG-AVG-DEFAULTS`)
+//
+// MEASURED against the real zod, both majors the two hono packages pin:
+// zod 4's `.int()` ALREADY refuses anything outside ±(2^53−1)
+// (`Too big: expected int to be <=9007199254740991`), while zod 3's accepts
+// `1e19` — so the v5 package enforced the declared `long` ceiling by accident
+// of its zod major and the v4 package wrote a corrupted value into a bigint
+// column.  `LONG_SAFE` (`hono/v4/routes-builder.ts`) states it on both, as a
+// `.refine` so it is enforced WITHOUT being published (node-only bounds in the
+// OpenAPI would make one `.ddd` publish two contracts).
+//
+// The other four ACCEPT past the ceiling and carry the value exactly (int64
+// columns, arbitrary-precision or 64-bit integers), and that is the ruling's
+// own shape: option (a) declared the ceiling and enforced it "on the affected
+// paths" — the paths whose REPRESENTATION cannot hold more — rather than
+// upgrade node to BigInt (option (b)) or narrow four working backends.  The
+// residual is real and recorded in the pins below: a value written through
+// java and read back through node rounds.  Closing it is either the
+// representation upgrade or a uniform ingress narrowing, and the second is the
+// owner-only class `D-NUMERIC-INGRESS-STRICT` covers.  Note this row is NOT the
+// money one above it: the money range guard (wave C1) closed a defect nobody
+// relied on, while narrowing `long` on the other four would take away values
+// they carry correctly today.
+//
+// Rows 1, 2 and 5 are guarantees and are asserted as seams below.  Row 5 was a
+// DIVERGENCE until wave C1 (ledger row `G2644` / M-T6.60 divergence 3): a
+// 40-digit money string is perfectly WELL-FORMED, so the format guard passed it
+// through to NUMERIC(19,4) and the DATABASE refused it — the same
+// client-fault-reported-as-server-fault this mission removed, arriving one layer
+// later.  Its fix is a RANGE check derived from the column's own precision
+// (`MONEY_INTEGER_DIGITS` in `src/generator/money-scale.ts`), not a second
+// format guard, which is why it was scheduled apart from rows 3 and 4.
+//
+// Rows 3 and 4 are the DIVERGENCES that remain: both are a backend being more
+// PERMISSIVE than the contract, and narrowing them breaks clients relying on
+// that lenience today — an owner ruling, not a codegen bug.  They are pinned in
+// the `DIVERGENCES` block at the bottom of this file, which is what that ruling
+// deletes.
 //
 // The gate is STATIC for the same reason RS-9's is: the emitted test suites
 // only make requests the API serves, so no runtime tier reaches malformed
@@ -294,6 +330,82 @@ const STRINGIFIED_NUMBER: Record<Platform, Seam[]> = {
   elixir: [],
 };
 
+/** Probe 5 — a money value too large for `NUMERIC(19,4)` ("<40 digits>").
+ *
+ *  NOT a format problem: the string is a well-formed decimal every parser
+ *  accepts, so it sailed past each backend's format guard, reached the column,
+ *  and the DATABASE refused it — a 500 for a client fault (M-T6.60 divergence
+ *  3).  The bound is derived ONCE, from the column's own precision
+ *  (`MONEY_INTEGER_DIGITS`), so one constant governs the guard and the DDL.
+ *
+ *  Each seam is the RANGE arm specifically — anchored on the refusal MESSAGE
+ *  (`Money out of range`, one text on all five so the wire-golden differential
+ *  sees no divergence) or on the bound itself, never on the format guard beside
+ *  it, so deleting the range check cannot be masked by the format check. */
+const MONEY_OUT_OF_RANGE: Record<Platform, Seam[]> = {
+  node: [
+    { why: "integer-digit bound in moneySchema", shape: /\.length > 15\)/ },
+    {
+      why: "its own typed issue",
+      shape: /message: `Money out of range: \$\{JSON\.stringify\(s\)\}`/,
+    },
+  ],
+  dotnet: [
+    {
+      why: "post-parse magnitude guard",
+      shape: /System\.Math\.Abs\(__wp_request_Price\) < 1000000000000000m/,
+      file: /Controller\.cs$/,
+    },
+    {
+      why: "its own WireFormatException message",
+      shape: /WireFormatException\("\/price", \$"Money out of range/,
+      file: /Controller\.cs$/,
+    },
+    // The nested value-object path is a separate emission and the arm most
+    // likely to be missed.
+    {
+      why: "value-object money range guard",
+      shape: /WireFormatException\("\/best\/price", \$"Money out of range/,
+      file: /Controller\.cs$/,
+    },
+  ],
+  java: [
+    {
+      why: "integer-digit bound off BigDecimal's own precision",
+      shape: /parsed\.precision\(\) - parsed\.scale\(\) > 15/,
+    },
+    {
+      why: "its own WireFormatException message",
+      shape: /throw new WireFormatException\(pointer, "Money out of range: " \+ quote\(value\)\)/,
+    },
+  ],
+  python: [
+    { why: "integer-digit bound in _money_str", shape: /\) > 15:/ },
+    { why: "its own PydanticCustomError code", shape: /"money_range", "Money out of range/ },
+  ],
+  elixir: [
+    // Elixir has TWO wire paths into a money column and they share no code:
+    // operation params never reach a changeset, and the create/update path
+    // never reaches the op-param guard.  Both are asserted.
+    {
+      why: "op-param range guard",
+      shape: /if __loom_money_in_range\?\(Decimal\.new\(value\)\) do/,
+    },
+    {
+      why: "op-param refusal message",
+      shape: /__loom_param_error\(record, field, value, "Money out of range"\)/,
+    },
+    {
+      why: "changeset-path validate_change on the money column",
+      shape: /\|> validate_change\(:price, &__loom_money_range\/2\)/,
+    },
+    {
+      why: "changeset-path bound",
+      shape: /Decimal\.lt\?\(Decimal\.abs\(value\), Decimal\.new\("1000000000000000"\)\)/,
+    },
+  ],
+};
+
 async function emit(platform: string): Promise<Map<string, string>> {
   return await generateSystemFiles(SOURCE(platform));
 }
@@ -324,6 +436,10 @@ describe("M-T6.48 — malformed numeric input answers a typed 4xx (all five back
 
     it(`${platform}: a fractional value for an int field is refused`, async () => {
       assertSeams(await emit(platform), platform, FRACTIONAL_INT[platform], "int 1.5");
+    });
+
+    it(`${platform}: a money value too large for NUMERIC(19,4) is refused`, async () => {
+      assertSeams(await emit(platform), platform, MONEY_OUT_OF_RANGE[platform], "money 40 digits");
     });
   }
 
@@ -432,19 +548,32 @@ describe("M-T6.48 — request-side numeric strictness still diverges (pinned)", 
     );
   });
 
-  it("only dotnet refuses a money value too large for its domain type", async () => {
-    // MEASURED: a 40-digit money string parses on node (decimal.js), java
-    // (BigDecimal), python (str passthrough) and elixir (Decimal); dotnet's
-    // `decimal.TryParse` returns false past ~29 significant digits, so dotnet
-    // alone answers 4xx.  On the other four the value reaches NUMERIC(19,4)
-    // and the DATABASE rejects it — a 500, not a typed 4xx.
+  it("node refuses a `long` past the declared ceiling; the other four accept it", async () => {
+    // The node half is a SEAM (the contract this packet added), the other four
+    // are pinned CHARACTERIZATIONS of the residual the ruling accepted.
     //
-    // Closing this means a range check against the money column's precision at
-    // the wire boundary on four backends; it is a separate fix from the format
-    // guard this mission shipped.
+    // MEASURED with the real deserializers: zod 3.25.76 `z.number().int()`
+    // accepts `9007199254740993` and `1e19`; with the emitted
+    // `.refine(...)` it refuses both.  zod 4.4.3's `.int()` already refused
+    // them, so the refine is the explicit statement of a contract v5 held only
+    // by accident.
     const node = scope(await emit("node"));
-    expect(node, "node now range-checks money at ingress — delete this pin").not.toMatch(
-      /MONEY_MAX_PRECISION|money_out_of_range/,
+    expect(node, "node no longer bounds an inbound `long` to the safe-integer range").toMatch(
+      /long[\s\S]*?refine\(\(n: number\) => n >= -9007199254740991 && n <= 9007199254740991\)|sold: z\.number\(\)\.int\(\)\.refine/,
     );
+    // Unpublished on purpose — a `.min`/`.max` pair would appear in the
+    // OpenAPI and make node's published contract narrower than java's for the
+    // same `.ddd`.
+    expect(node, "the long bound is published — it must stay enforced-only").not.toMatch(
+      /\.min\(-9007199254740991\)/,
+    );
+    // The four that carry int64 exactly declare no such bound; each would need
+    // a wire guard, which is the narrowing `D-NUMERIC-INGRESS-STRICT` owns.
+    for (const platform of ["dotnet", "java", "python", "elixir"] as const) {
+      expect(
+        scope(await emit(platform)),
+        `${platform} now bounds an inbound long — the ceiling went uniform, update the matrix row and delete this pin`,
+      ).not.toMatch(/9007199254740991/);
+    }
   });
 });

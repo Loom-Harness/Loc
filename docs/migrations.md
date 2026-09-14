@@ -32,10 +32,11 @@ interface MigrationsIR {
 ```
 
 A `SchemaSnapshot` is an alphabetically-sorted list of `TableShape`s
-(`{ name, schema?, columns, primaryKey, foreignKeys, indexes }`). `MigrationStep`
-is a closed union of `createTable` / `dropTable` / `renameTable` / `addColumn` /
-`dropColumn` / `renameColumn` / `alterColumnNullable` / `alterColumnType` /
-`alterColumnDefault` / `addIndex` / `dropIndex` / `renameIndex` / `sqlComment` /
+(`{ name, schema?, columns, primaryKey, foreignKeys, indexes, checks? }`).
+`MigrationStep` is a closed union of `createTable` / `dropTable` / `renameTable` /
+`addColumn` / `dropColumn` / `renameColumn` / `alterColumnNullable` /
+`alterColumnType` / `alterColumnDefault` / `addIndex` / `dropIndex` /
+`renameIndex` / `addCheck` / `dropCheck` / `sqlComment` /
 `backfillColumn` / `sqlExec`. Backends only translate steps to native syntax —
 they never re-derive the schema from the IR.
 
@@ -66,7 +67,10 @@ unblocks table drops) → drop tables in **reverse-topological (child-first)** o
 so a parent is never dropped while a child still references it → create tables in
 **topological (parent-first)** order (Kahn's sort with an alphabetical tiebreak) so
 an inline `REFERENCES` never points at a not-yet-created table → add columns (their
-FK targets now exist) → alter columns → add indexes. Tables are matched by
+FK targets now exist) → alter columns → add indexes. `CHECK` constraints bracket
+the column work — dropped first (a Postgres constraint keeps its columns alive,
+so it must go before they can be dropped or renamed) and added last (every column
+it names then exists under its final name). Tables are matched by
 schema-qualified name (`sales.orders` ≠ `billing.orders`); an old snapshot whose
 tables predate schema-qualification (no `schema` field) is reconciled by bare name
 against a single same-named next table, so a format bump reads as "same table, now
@@ -170,11 +174,44 @@ and, unless the generate run passes `--allow-destructive`, **aborts** with a
 - **Required-column adds.** A NOT-NULL `addColumn` with no default on a
   previously-existing table fails on any populated table → blocked unless a
   **backfill step** covers it (see § Data migrations — the safe sequence with
-  a real `UPDATE`, no flag needed) or the run passes `--allow-destructive`.
+  a real `UPDATE`, no flag needed), the field carries a **scalar-literal
+  default** (below), or the run passes `--allow-destructive`.
   Under the flag it is rewritten into the safe sequence with a
   `-- TODO backfill …` comment in place of the `UPDATE`: add the column
   *nullable* → TODO → `SET NOT NULL` (`alterColumnNullable`). Fill in the
   backfill before applying to real data.
+- **Field defaults (M-T2.16).** A declared default — `status: string =
+  "pending"` — makes the add above non-destructive on its own, with no
+  `migration` block to write:
+
+  ```sql
+  ALTER TABLE "ord"."orders" ADD COLUMN "status" TEXT NOT NULL DEFAULT 'pending';
+  ALTER TABLE "ord"."orders" ALTER COLUMN "status" DROP DEFAULT;
+  ```
+
+  Postgres fills the existing rows from the DEFAULT as part of the ADD, and the
+  DEFAULT is dropped again **in the same migration**. So the column ends up
+  exactly as a fresh `CREATE TABLE` lays it down — a database grown by
+  migration and one built from scratch are the same database — and the value
+  the domain layer owns never becomes a second source of truth in the schema.
+  Three consequences worth stating plainly:
+
+  - the **initial** `CREATE TABLE` carries no `DEFAULT`, then or ever;
+  - after the migration the column has no default, so an `INSERT` that omits
+    it is refused exactly as it is on a fresh create — supplying the value
+    stays the domain layer's job;
+  - editing the default on a column that already exists emits nothing, because
+    there is no DB default to alter.
+
+  Restricted to the **scalar-literal** subset a column default can hold:
+  string / int / long / decimal / money / bool literals and enum values.
+  `now()`, `currentUser.*`, sibling-field references and value-object leaves
+  are excluded — a column default is evaluated with no row in scope, so
+  Postgres forbids any reference to another column. Those belong in a
+  `migration` block backfill, whose subset is wider for exactly that reason.
+  A backfill step **wins** where both could apply: it is the author's explicit
+  statement about this one migration, and it is the only one of the two that
+  can express a per-row value.
 - **NULL → NOT NULL flips** (M-T2.3). Making an existing column required
   fails at apply time on any row holding NULL, so the flip is classified
   destructive too — unless a backfill step covers the column, in which case
@@ -387,6 +424,64 @@ sort guarantees the parent is created first even though `pipelines` sorts before
 `price_amount`, `price_currency` (recursively for nested VOs), each tagged with a
 `voGroup` so Phoenix/Ecto can regroup them into a single `:map`. Relational
 backends emit the columns as-is.
+
+**An OPTIONAL value object carries a null-consistency `CHECK`.** Flattening an
+optional VO makes N *independent* nullable columns, but every backend reads the
+group atomically — java's record compact constructor runs the VO's invariant,
+node asserts each leaf non-null, python passes each leaf straight in. A
+partially-null row therefore crashes the load, and nothing else in the schema
+forbids one (a hand-written `UPDATE`, a bad backfill, a future partial-update
+path). The builder emits one `CheckShape` per optional VO *node*:
+
+```ddd
+valueobject Geo  { lat: decimal  lng: decimal }
+valueobject Addr { line1: string  line2: string?  city: string  geo: Geo? }
+aggregate Order { shipTo: Addr? }
+```
+
+```sql
+CONSTRAINT "orders_ship_to_null_consistent" CHECK (
+  ("ship_to_line1" IS NULL     AND "ship_to_city" IS NULL) OR
+  ("ship_to_line1" IS NOT NULL AND "ship_to_city" IS NOT NULL)),
+CONSTRAINT "orders_ship_to_geo_null_consistent" CHECK (
+  ("ship_to_geo_lat" IS NULL     AND "ship_to_geo_lng" IS NULL) OR
+  ("ship_to_geo_lat" IS NOT NULL AND "ship_to_geo_lng" IS NOT NULL))
+```
+
+The grouping rules, each of which exists to keep the constraint from rejecting
+*valid* data:
+
+- **Optional nodes only.** A required VO's leaves are already `NOT NULL`, so the
+  constraint would be a tautology. (A `NOT NULL`-only group is dropped, which is
+  also the safety net for builders that derive nullability their own way.)
+- **A subfield that is itself optional is excluded.** `line2: string?` is a
+  legitimately-null column of a *present* address.
+- **Whole tree, one constraint per optional node.** A required nested VO
+  (present exactly when its parent is) folds into the parent's group; an
+  optional nested VO gets its own and leaves the parent's. They compose — when
+  the outer node is absent every leaf is null, which satisfies the inner
+  constraint too.
+- **Fewer than two required leaves ⇒ nothing.** One column makes the predicate a
+  tautology; zero means an absent VO and a present all-null one are the same row.
+
+On an EXISTING database the `ALTER` path renders `NOT VALID`: stored rows may
+already violate the constraint (nothing enforced it before), so validating
+retroactively would abort the migration on exactly the database that most needs
+the guard. Every future `INSERT`/`UPDATE` is enforced immediately; the emitted
+comment names the `ALTER TABLE … VALIDATE CONSTRAINT …` an operator runs to
+back-check the old rows deliberately. A `createTable` carries its checks inline,
+where there is nothing to validate.
+
+Phoenix emits none — Ecto stores a value object as one `:map` cell, so the group
+cannot be half-written and the leaf columns the constraint names do not exist.
+
+Checks are derived for the **domain** tables only: the aggregate root, its TPH
+shared table, its contained-part tables, and its value-collection child table —
+the rows a repository hydrates back into a real value object. The projection
+read-model and workflow-state tables also flatten, but both make their non-key
+columns nullable *on purpose* (a fold or a workflow step upserts only the fields
+the event it is handling carries), so a half-filled row there is the designed
+state and a constraint could fail on legitimate data.
 
 **Reference collections → join tables.** A `X id[]` field never produces a column.
 Enrichment derives one `AssociationIR` per such field, and the builder lays down a

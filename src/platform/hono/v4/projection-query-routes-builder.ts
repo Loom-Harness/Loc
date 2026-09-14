@@ -1,3 +1,4 @@
+import { integralWireRange, numericKindOf } from "../../../generator/_numeric/codec.js";
 import { numericEncode } from "../../../generator/_numeric/target.js";
 import { renderHonoLogCall } from "../../../generator/_obs/render-hono.js";
 import { whereToMikroFilter } from "../../../generator/typescript/emit/mikroorm.js";
@@ -36,8 +37,10 @@ import {
   groupKeyOf,
   wholeTableAggregates,
 } from "../../../ir/util/projection-aggregate.js";
+import { valueObjectPool } from "../../../ir/util/reachable-types.js";
 import { resolveErrorStatus } from "../../../util/error-defaults.js";
 import { lowerFirst, plural, snake, upperFirst } from "../../../util/naming.js";
+import { wireToDomainExpr, zodFor } from "./routes-builder.js";
 
 // ---------------------------------------------------------------------------
 // Hono query-time projection routes emission (read-path-architecture.md
@@ -209,9 +212,10 @@ export function buildQueryProjectionsFile(
   if (usingMikro) {
     for (const p of projections) {
       const f = p.query?.filter;
-      const parts = [...(f ? [mikroFilterFor(f)] : []), ...mikroCapabilityFilters(p, ctx)].filter(
-        (x): x is string => x !== undefined,
-      );
+      const parts = [
+        ...(f ? [mikroFilterFor(f, p, ctx)] : []),
+        ...mikroCapabilityFilters(p, ctx),
+      ].filter((x): x is string => x !== undefined);
       mikroWheres.set(
         p.name,
         parts.length === 0
@@ -270,12 +274,13 @@ export function buildQueryProjectionsFile(
       `import { ${aggName}Repository } from "../db/repositories/${lowerFirst(aggName)}-repository";`,
     );
   }
-  const vos = ctx.valueObjects.map((v) => v.name);
+  const vos = valueObjectPool(ctx).map((v) => v.name);
   const enums = ctx.enums.map((e) => e.name);
   if (vos.length + enums.length > 0) {
     lines.push(`import { ${[...vos, ...enums].join(", ")} } from "../domain/value-objects";`);
   }
   lines.push("");
+  if (anyIntegralAggregate(projections)) lines.push(...INT_WIRE_HELPER);
 
   // Per-projection row / response schema (the declared `<Proj>Row` shape).
   for (const p of projections) {
@@ -297,6 +302,19 @@ export function buildQueryProjectionsFile(
         ? `const ${T}Response = ${T}Row.openapi("${T}Response");`
         : `const ${T}Response = z.array(${T}Row).openapi("${T}Response");`,
     );
+    // A parameterised projection binds its parameters from the QUERY STRING —
+    // the same wire position a parameterised repository `find` uses, and the
+    // same `zodFor(..., "query")` coercion, so `?p=<uuid>` / `?min=3` parse
+    // identically on both reads.  Without this the parameters were dropped
+    // wholesale: the route took no input and the synthesised repo method read a
+    // free variable (see `synthProjectionFinds`).
+    if (p.params.length > 0) {
+      lines.push(`const ${T}Query = z.object({`);
+      for (const param of p.params) {
+        lines.push(`  ${param.name}: ${zodFor(param.type, "query")},`);
+      }
+      lines.push(`}).openapi("${T}Query");`);
+    }
   }
   lines.push("");
 
@@ -431,6 +449,9 @@ function emitQueryProjectionRoute(
   out.push(`    path: "/${snake(p.name)}",`);
   out.push(`    tags: ["projections", "${aggSlug}"],`);
   out.push(`    operationId: "projection${T}",`);
+  if (p.params.length > 0) {
+    out.push(`    request: { query: ${T}Query },`);
+  }
   out.push(`    responses: {`);
   out.push(
     `      200: { description: "OK", content: { "application/json": { schema: ${T}Response } } },`,
@@ -445,6 +466,12 @@ function emitQueryProjectionRoute(
   // aggregate's own `wireProjectionValue`.
   const rowFieldType = new Map(p.stateFields.map((f) => [f.name, f.type] as const));
   out.push(`  async (httpCtx) => {`);
+  // The projection's own parameters, validated + coerced by the `<T>Query`
+  // schema above.  Bound BEFORE the gate: a `requires` predicate may read a
+  // parameter, exactly as a find's gate may.
+  if (p.params.length > 0) {
+    out.push(`    const params = httpCtx.req.valid("query");`);
+  }
   // The `requires` gate (and any currentUser-scoped filter) needs the request
   // principal in scope; a failing gate denies with 403 (ForbiddenError → 403)
   // BEFORE the query runs.
@@ -652,7 +679,14 @@ function emitQueryProjectionRoute(
     return out;
   }
   out.push(`    const repo = new ${source}Repository(db, events);`);
-  out.push(`    const rows = await repo.${lowerFirst(p.name)}(${usesUser ? "currentUser" : ""});`);
+  // Argument order matches the synthesised find's signature: the projection's
+  // declared params, then the trailing `currentUser` a principal-reading
+  // predicate adds — the same order `findQueryMethod` emits.
+  const projArgs = [
+    ...p.params.map((param) => wireToDomainExpr(`params.${param.name}`, param.type, ctx)),
+    ...(usesUser ? ["currentUser"] : []),
+  ];
+  out.push(`    const rows = await repo.${lowerFirst(p.name)}(${projArgs.join(", ")});`);
   // Bulk-load every `join` follow (dependency-ordered), then project.  Each
   // join binds an ALIAS (`c`) to the loaded-by-id map; a `select` reads through
   // that alias (`c.name`), rewritten to `<mapVar>.get(<idRowExpr> as string)!`.
@@ -755,8 +789,16 @@ function mikroRowClassFor(p: ProjectionIR, source: string): string {
  *  predicate is an internal contradiction, exactly like `aggregateColumn`'s
  *  non-column argument.  Swallowing it would drop the filter and answer a
  *  plausible WRONG number. */
-function mikroFilterFor(filter: ExprIR): string {
-  return whereToMikroFilter(filter);
+function mikroFilterFor(filter: ExprIR, p: ProjectionIR, ctx: EnrichedBoundedContextIR): string {
+  // The source aggregate's associations travel with the predicate so a
+  // `this.<refColl>.contains(x)` membership can name its join table — the same
+  // handle the repository finds pass.  A raw-table source (`from <Workflow>` /
+  // `from <Projection>`) carries none, and cannot express the shape anyway.
+  return whereToMikroFilter(
+    filter,
+    undefined,
+    projectionSourceAggregate(p, ctx)?.associations ?? [],
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -829,7 +871,7 @@ function mikroCapabilityFilters(p: ProjectionIR, ctx: EnrichedBoundedContextIR):
   const agg = projectionSourceAggregate(p, ctx);
   if (!agg) return [];
   return allContextFilterEntries(agg, projectionBypass(p)).map((e) =>
-    whereToMikroFilter(e.predicate),
+    whereToMikroFilter(e.predicate, undefined, agg.associations),
   );
 }
 
@@ -909,7 +951,23 @@ function aggregateColumn(arg: ExprIR, sourceTable: string): string {
  *  field means zero. */
 function coerceAggregate(sel: AggregateSelect, expr: string): string {
   const c = aggregateCoercion(sel);
-  if (c.isCount) return `Number(${expr} ?? 0)`;
+  // An INTEGRAL declared field (`int` / `long`, `count` included) is checked
+  // against its type's exact range rather than passed through `Number(...)`
+  // (M-T5.23 / `D-LONG-AVG-DEFAULTS`).  Two silent narrowings lived here:
+  // node stores `long` as a JS `number` (`bigint(col, { mode: "number" })`), so
+  // a `bigint` sum past 2^53 came back through `Number("9007199254740993")` as
+  // `…92`; and a `sum(int)`/`count(*)` — both bigints in SQL — shipped a value
+  // outside the `format: int32` the same field publishes.  The ruling unified
+  // the five backends on refusal: a value that does not fit is an ERROR (java
+  // wrapped, .NET's cast and python's `Int32` bound already failed).
+  const kind = numericKindOf(sel.type);
+  if (kind === "int" || kind === "long") {
+    const { min, max } = integralWireRange(kind);
+    const checked = (e: string) => `__intWire(${e}, ${min}, ${max}, ${JSON.stringify(sel.field)})`;
+    // `count` is never optional (`AggregateCoercion.optional` excludes it), so
+    // the null arm below is the `sum`/`min`/`max`-over-an-empty-table one.
+    return c.optional ? `${expr} == null ? null : ${checked(expr)}` : checked(`${expr} ?? 0`);
+  }
   // money pins the FIXED wire scale (RS-12) rather than echoing the scale the
   // driver hands back: `sum`/`max`/`min` return the STORED scale (2dp for a
   // `money("10.00")` write) and the empty-table default would ship a bare
@@ -923,6 +981,47 @@ function coerceAggregate(sel: AggregateSelect, expr: string): string {
   if (c.optional) return `${expr} == null ? null : ${c.asString ? "String" : "Number"}(${expr})`;
   return c.asString ? `String(${expr} ?? "0")` : `Number(${expr} ?? 0)`;
 }
+
+/** Whether any projection here has an INTEGRAL aggregate — the gate for the
+ *  `__intWire` helper `coerceAggregate` emits calls into.  Same adjacency rule
+ *  as the `decimal.js` import below: emitting the call without the definition
+ *  is a `TS2304`. */
+function anyIntegralAggregate(projections: readonly ProjectionIR[]): boolean {
+  return projections.some((p) => {
+    const grouped = groupedAggregates(p);
+    const aggs = grouped?.aggregates ?? wholeTableAggregates(p) ?? [];
+    return aggs.some((a) => {
+      const kind = numericKindOf(a.type);
+      return kind === "int" || kind === "long";
+    });
+  });
+}
+
+/** The emitted `__intWire` helper — the ONE place an integral aggregate's range
+ *  is enforced in a generated node project.  A module-level function rather
+ *  than an inline expression per select so the throw message (and the bound it
+ *  names) is written once, the way the elixir emitter keeps `__money_wire/1`. */
+const INT_WIRE_HELPER: readonly string[] = [
+  "/** An integral aggregate's wire value, or a thrown error when it does not fit.",
+  " *",
+  " *  `sum(int)` and `count(*)` are BIGINTS in SQL and a `long` column is a",
+  " *  bigint too, while this backend carries both as a JS `number` — so a value",
+  " *  past the declared type's exact range would be silently rounded (`long`",
+  " *  past 2^53) or silently out of contract (an `int` past int32, which this",
+  " *  same field publishes as `format: int32`).  Every backend refuses it",
+  " *  instead: java throws from `Math.toIntExact`, python's `Int32` bound fails",
+  " *  the response model, .NET's cast fails. */",
+  "function __intWire(value: unknown, min: number, max: number, field: string): number {",
+  "  const n = Number(value);",
+  "  if (!Number.isInteger(n) || n < min || n > max) {",
+  "    throw new Error(",
+  "      `projection field '${field}': integral aggregate ${String(value)} is outside the exact range [${min}, ${max}] of its declared type`,",
+  "    );",
+  "  }",
+  "  return n;",
+  "}",
+  "",
+];
 
 /** Whether any projection here aggregates a `money` column — the gate for the
  *  `decimal.js` import `coerceAggregate` emits calls into.  Emitting the call

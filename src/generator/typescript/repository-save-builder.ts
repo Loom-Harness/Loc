@@ -14,6 +14,7 @@ import type {
   TypeIR,
 } from "../../ir/types/loom-ir.js";
 import { discriminatorValue, tableOwnerName } from "../../ir/util/inheritance.js";
+import { findValueObjectInScope } from "../../ir/util/reachable-types.js";
 import { isValueCollectionType, valueCollectionsFor } from "../../ir/util/value-collections.js";
 import { aggregateIsVersioned } from "../../ir/util/versioned-capability.js";
 import { lines } from "../../util/code-builder.js";
@@ -122,7 +123,7 @@ function saveTxBody(agg: EnrichedAggregateIR, ctx: BoundedContextIR, emitTrace: 
   // identity-less, so there is nothing to diff on.  Delete every child row
   // for this owner, then re-insert the current list with its ordinals.
   const valueCollectionBlocks = valueCollectionsFor(agg).flatMap((vc) => {
-    const vo = ctx.valueObjects.find((v) => v.name === vc.voName);
+    const vo = findValueObjectInScope(ctx, vc.voName);
     const voEntries = (vo?.fields ?? []).flatMap((vf) =>
       projectValueEntries(vf.name, vf.type, `e.${vf.name}`, ctx, vf.optional),
     );
@@ -427,7 +428,7 @@ function projectValueEntries(
     return [{ fieldName, expr: optional ? `${valueExpr} === null ? null : ${mapped}` : mapped }];
   }
   if (t.kind === "valueobject") {
-    const vo = ctx.valueObjects.find((v) => v.name === t.name);
+    const vo = findValueObjectInScope(ctx, t.name);
     if (!vo) return [{ fieldName, expr: valueExpr }];
     if (optional) {
       // An OPTIONAL value object may be null on the domain object, so the

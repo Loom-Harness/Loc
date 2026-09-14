@@ -38,24 +38,22 @@ const ALL: readonly Backend[] = BACKENDS;
  *  `deep` sentinel rendered by `renderDeepScopeInApp`. */
 const IN_APP_DOCUMENT_FILTER: readonly Backend[] = ALL;
 
-/** The backends that can AGGREGATE a `shape: document` table in SQL.
+
+/** The backends that can express a capability `filter` over a TPH
+ *  (`sharedTable`) concrete — i.e. a predicate reading a column that exists on
+ *  only ONE subtype of the shared table.
  *
- *  A document aggregate is `(id, data, version)`, so the only aggregation it
- *  can express is the row count — and four backends emit exactly that: drizzle
- *  / mikroorm `count()` over the row table, SQLAlchemy `func.count()` over
- *  `<Agg>Row`, Ecto `count(record.id)` over the document schema, and both .NET
- *  adapters over `DbSet<<Agg>Document>` / the raw table.
- *
- *  `java` is absent, and this is the NAME of that exclusion.  Its aggregation
- *  runs JPQL through the `EntityManager` (`select count(e) from Article e`),
- *  and a document aggregate has no JPA `@Entity` anywhere in the emitted
- *  project — it round-trips one jsonb column through a `JdbcTemplate`
- *  repository — so Hibernate fails the query with "could not resolve root
- *  entity" at request time.  Refused honestly by
- *  `loom.projection-whole-table-aggregation-unsupported#document`; the key returns
- *  here the day that emitter learns to read a document table (a native
- *  `select count(*) from <schema>.<table>`). */
-const DOCUMENT_TABLE_AGGREGATION: readonly Backend[] = ALL.filter((b) => b !== "java");
+ *  `dotnet` is absent, and this is the NAME of that exclusion.  EF Core applies
+ *  a query filter to the ROOT entity type of a hierarchy only ("A filter may
+ *  only be applied to the root entity type"), and a root-hosted filter must
+ *  typecheck against the root for EVERY concrete — so a predicate over a
+ *  sibling-only column is not expressible: a CLR downcast raises "No coercion
+ *  operator is defined between types", and `EF.Property<T>(x, "…")` raises "the
+ *  specified property does not exist on the entity type" (both reproduced
+ *  against EF Core 10.0.10; see `nonRootFilterFields`, src/ir/util/inheritance.ts).
+ *  Refused honestly by `loom.tph-filter-unsupported`, not silently dropped; the
+ *  key returns the day that gate closes. */
+const TPH_CAPABILITY_FILTER: readonly Backend[] = ALL.filter((b) => b !== "dotnet");
 
 export interface CorpusFeature {
   /** Matches `<id>.ddd` in this directory. */
@@ -88,6 +86,21 @@ export const CORPUS: readonly CorpusFeature[] = [
   { id: "operation-returns", title: "exception-less `T or Error` operation returns", doc: "payloads", backends: ALL },
   { id: "union-find-absence", title: "union-returning finds (`Order or NotFound`, `Order option`)", doc: "payloads", backends: ALL },
   { id: "paged", title: "pagination — `find ... paged` Paged<T> envelope", doc: "payloads", backends: ALL },
+  {
+    id: "envelope",
+    title: "`find … : T envelope` — the single-row find carrier (M-T6.57)",
+    doc: "payloads",
+    backends: ALL,
+    note: "Minted by audit F57.  NO `.ddd` in the repo instantiated `envelope` before this fixture, so every compile gate was blind to the carrier by construction — java emitted an UNDECLARED `Envelope<Order>` in three signatures (port, Spring-Data interface, impl) and dotnet returned a bare `Order` from a `Task<Envelope<Order>>` (CS0029), while elixir `Repo.all`-ed EVERY row and answered a JSON array against its own single-object OpenAPI.  The carrier is ratified as a single-row find, so the point of the fixture is that `T envelope` emits exactly what `T` emits.",
+  },
+  {
+    id: "paged-nonrelational",
+    title:
+      "`find … paged` × a NON-RELATIONAL carrier — the paged contract over a `shape: document` and a `persistedAs: eventLog` repository, both of which page in memory",
+    doc: "payloads",
+    backends: ALL,
+    note: "Minted by ledger row F2-CB-C1.  Pagination and the storage shapes each had a fixture; their CROSSING did not, and that is exactly where it broke.  The route, the repository port and the response model all derive their contract from `pagedReturn(returnType)` and declared the 5-argument `Paged<T>` shape, while the document / event-log repository builders — which rehydrate and filter in app — had no paged branch and kept emitting the 1-argument unpaged method: CS0535 + CS0029 on .NET, a 5-arg call into a 1-arg `async def` (then `result.items`) on python.  No diagnostic anywhere — all five backends reported OK.  node / java / elixir already paged both carriers, which is the other half of why it stayed invisible: a fixture on any ONE of them would have passed.  `shape: embedded` is deliberately absent — it reuses the relational row table, so its paged find was always correct and `embedded.ddd` owns that shape.",
+  },
   { id: "single-containment", title: "single (non-collection) containment — hidden `_parent`", doc: "language", backends: ALL },
   { id: "value-collections", title: "value-object array (`Money[]`) stored inline", doc: "language", backends: ALL },
   { id: "document", title: "`shape: document` — whole aggregate in one jsonb column", doc: "language", backends: ALL },
@@ -103,10 +116,48 @@ export const CORPUS: readonly CorpusFeature[] = [
   { id: "embedded-optional", title: "shape: embedded — optional single containment (nullable jsonb)", doc: "language", backends: ALL },
   { id: "inheritance", title: "aggregate inheritance — TPH (sharedTable) + TPC (ownTable)", doc: "inheritance", backends: ALL },
   { id: "tph", title: "TPH-only (sharedTable) hierarchy — Vehicle/Car/Truck canonical fixture", doc: "inheritance", backends: ALL },
+  {
+    id: "tph-crossings",
+    title:
+      "TPH (sharedTable) × a CAPABILITY — a `softDeletable` concrete whose filter reads a column the shared table made nullable",
+    doc: "inheritance",
+    backends: TPH_CAPABILITY_FILTER,
+    note: "Minted by pairwise F15.  `tph.ddd`'s concretes carry no capability, so nothing in the curated corpus crossed inheritance with a capability `filter` — and the crossing is where it broke: sharing a table makes a subtype's OWN columns nullable, so `softDeletable`'s `is_deleted` types as `bool | None` and python's `not_(Row.is_deleted)` stopped being a `ColumnElement[bool]` (4 × `mypy --strict` arg-type, once per emitted read).  The sibling crossing `shape: embedded` × TPH (pairwise F13) belongs in this fixture too and is named in its header: it waits on pairwise F11 (the drizzle repository targets the concrete's own, non-existent table), since adding it here would turn `corpus-tsc-build` red on a defect this fixture is not about.",
+  },
   { id: "event-sourcing", title: "`persistedAs: eventLog` — append-only stream + appliers", doc: "workflow", backends: ALL },
   { id: "eventsourced-workflow", title: "event-sourced saga folding its own emitted events", doc: "workflow", backends: ALL },
   { id: "saga", title: "in-process dispatch / saga with persisted correlation", doc: "workflow", backends: ALL },
+  {
+    id: "workflow-enum-state",
+    title: "workflow whose persisted state field is an enum — the instance-response DTO names <Enum>Schema",
+    doc: "workflow",
+    backends: ALL,
+    note: "No corpus .ddd carried an enum-typed workflow STATE field before this one, so the compile tier never reached the emitters that name <Enum>Schema off instanceWireShape: node emitted 'claimState: ClaimStateSchema' with that name bound nowhere in the tree (TS2304), and react/vue/svelte imported it from whichever aggregate happened to be declared first (#2864 D4/T3).",
+  },
+  {
+    id: "workflow-command-payload",
+    title:
+      "explicit-command workflow starter — `create(c: FileClaim)` over a declared `command` payload, whose wire record + wire→domain coercion every backend must emit",
+    doc: "payloads",
+    backends: ALL,
+    note: "Added with #2864 D7/T2: no corpus fixture reached a payload-typed workflow param, and all five backends emitted a request record naming a wire type none of them declared.",
+  },
+  {
+    id: "workflow-create-state",
+    title:
+      "COMMAND-triggered `create(params)` on a STATE-BEARING workflow — the create writes saga state, an `on(...)` reactor routes back onto the row it persisted",
+    doc: "workflow",
+    backends: ALL,
+    note: "minted by the 2026-09-09 verification fleet (F58 / M-T6.62, P0): the corpus had event-triggered creates (`saga`) and stateless command creates, but NOTHING paired a command `create(params)` with workflow `Property` state — so the command route rendered its body against the default `this` receiver on all five backends and never loaded or saved the correlation row.  Four of the five emitted projects did not compile (`this.status` in a Hono module-scope arrow = TS2683; `this.Status` on a .NET handler with no such member; `this.setStatus(...)` on a Java service without it; an unbound `state` in the Elixir `with`-chain), python's `self._status` in a module-level `async def` was the silent one — and the missing row meant the reactor logged `event_unrouted` forever.  The COMPILE tier is what sees this class, which is what the fixture is for.  No `test e2e`: driving the command → event → reactor cascade over the wire reads the saga row back through the workflow-instance route, and minting that five-way golden is a behavioural-tier change of its own (same posture as `numeric-operands` / `collection-op-shapes`); the domain `test` block rides every backend's unit tier",
+  },
   { id: "projection", title: "folded projection — read model folded from aggregate events (keyed row + on() folds)", backends: ALL },
+  {
+    id: "projection-fold-statements",
+    title:
+      "folded-projection fold body — the FULL pure statement vocabulary (`let` read by a later assign, scalar `+=`/`-=` over int and money, collection `+=`/`-=`)",
+    backends: ALL,
+    note: "Minted by ledger row F2-XB-4.  Every corpus fold was `:=`-only, so the other THREE kinds `foldImpurity` admits were unexercised on every backend — and four of five mis-emitted them, silently: .NET / java / elixir filtered the body to `kind === \"assign\"` (a `let` vanished while its uses survived → CS0103 / 'cannot find symbol' / 'undefined variable'; `+=` was dropped outright, so the column never accumulated), and python delegated to the EVENT-SOURCED applier renderer, whose list-only `.append` spelling is wrong on a projection row (every non-key column is nullable, and a scalar `+=` is not a list at all).  The money `+=` arm is deliberate: three backends have no `+` operator on their money representation (`Decimal.add` / `BigDecimal.add` / decimal.js), so a fold that reached the generic integer spelling would not compile.",
+  },
   { id: "projection-aggregation", title: "whole-table aggregation — singleton query-time projection (count/sum/avg/min/max pushed to SQL)", doc: "language", backends: ALL },
   { id: "projection-groupby", title: "group by — grouped query-time projection (one row per group, key selects + per-group aggregates, GROUP BY/ORDER BY pushed to SQL)", doc: "language", backends: ALL },
   {
@@ -118,12 +169,28 @@ export const CORPUS: readonly CorpusFeature[] = [
     note: "minted by audit A1: the aggregation shapes read the source table DIRECTLY, so four backends applied only the projection's own `where` — a cross-tenant COUNT/SUM leak no fixture crossed",
   },
   {
+    id: "part-rules-private-op",
+    title:
+      "part-level `check` / `invariant`, a GUARDED single-field invariant (messaged and not), and a private-operation call from a sibling operation — three domain rules with one enforcement site each",
+    doc: "language",
+    backends: ALL,
+    note: "minted by M-T6.55 (F14/F15/F24).  All three shipped on node/.NET/java/python and were SILENT on Phoenix: the part changeset only `cast`, a guarded rule fell between the native `validate_*` path (which refuses a guard) and the residual carrier (which asked the native classifier and got null), and a bare private-op call rendered `_ = nil  # vanilla: bare call to 'recompute' (no callable target); record unchanged` — a comment in emitted output, not a diagnostic.  `Invoice.total` is assigned ONLY by the private operation, so a half-fix that emits the call but leaves `persistPutBodies` walking the caller's own statements still ships a row whose `total` never changes.  UNIT-TIER: a domain `test` block (no `test e2e`) is the runtime oracle for that write on all five — the `numeric-operands` shape.  NOT `with crudish`: that plus a relational entity part emits an `UpdateInvoiceRequest(… List<LineResponse>)` against an `Invoice.update(String, List<Line>)` and javac rejects the project — an older, separate java gap this fixture found and does not own (handed off in wave-c1-1f).",
+  },
+  {
+    id: "find-bypass",
+    title:
+      "repository `find … ignoring <Cap>` / `ignoring *` — the capability-filter bypass on the ROW-shaped read path, crossed with a principal (`tenantOwned`) and a non-principal (`softDeletable`) filter, on a relational AND a `shape: document` aggregate",
+    doc: "tenancy",
+    backends: ALL,
+    note: "minted by M-T6.54 F18.  `projection-agg-filters` witnesses `ignoring` on a query-time PROJECTION and the tenancy fixtures witness the filters with no bypass anywhere, so `find … ignoring` over a PRINCIPAL filter had no fixture at all — and java kept the tenant conjunct on both of its read surfaces (relational @Query JPQL and the document `findAll()`) while `loom.filter-bypass-unsupported`'s family list certified it as honouring the clause.  Every assertion over it is paired presence + ABSENCE: the failure mode is a RETAINED conjunct, invisible to a presence-only check.  Also pins the fail-OPEN direction — the root `findAll`/by-id reads carry no `ignoring` clause, so no OTHER find's bypass may widen them.",
+  },
+  {
     id: "projection-document-aggregation",
     title:
       "whole-table aggregation over a `shape: document` source — the row count (`count(*)` over the `(id, data, version)` triple), beside the per-row arm over the same source",
     doc: "language",
-    backends: DOCUMENT_TABLE_AGGREGATION,
-    note: "minted by audit A1: `loom.projection-columnless-source` deliberately allows `count()` over a document source, and NOTHING pinned that the allowed cell still emits — while java's cell was broken outright.  The filtered crossing is refused universally (`loom.projection-document-source-capability-filtered`); both negatives live in `test/ir/projection-document-aggregation.test.ts`.",
+    backends: ALL,
+    note: "minted by audit A1: `loom.projection-columnless-source` deliberately allows `count()` over a document source, and NOTHING pinned that the allowed cell still emits — while java's cell was broken outright.  Java JOINED the row 2026-09-13 (M-T4.2, wave C2 packet 2d): its aggregation over a document source runs the same query NATIVE (`createNativeQuery`, `select count(*) from <schema>.<table> e`) instead of as JPQL over an `@Entity` a document aggregate does not have, so the per-backend gate and its two `#document` message variants are deleted.  Proved on a BOOTED Spring Boot app against Postgres 18: the singleton arm answers `{\"articles\":0}` then `{\"articles\":3}` after three creates, and the grouped arm answers one row per id — numbers from the database, not from the emitter.  The filtered crossing is still refused universally (`loom.projection-document-source-capability-filtered`); that negative lives in `test/ir/projection-document-aggregation.test.ts`.",
   },
   {
     id: "projection-join",
@@ -142,8 +209,23 @@ export const CORPUS: readonly CorpusFeature[] = [
     backends: ALL,
     note: "D6/P2 of docs/audits/2026-09-10-eshop-dev-experience.md — a claim naming a generated domain symbol broke four of five backends at once (doubled optional marker: `Ids.CustomerId | null | null` / `CustomerId | None | None` / a .NET `CustomerId??` that does not parse; plus a missing id import on node, java and python's OIDC verifier, where it is a per-call NameError rather than a type error).  The compile tier is the point of this fixture: java's leg is one line and catches the missing import outright.",
   },
+  {
+    id: "auth-id-claim-stub",
+    title:
+      "NON-optional id-typed user claim — `customerId: Customer id` with no `auth { … }` block, so every backend emits its DEV-STUB principal",
+    doc: "auth",
+    backends: ALL,
+    note: "the sibling `auth-id-claim` covers the OPTIONAL spelling under `auth { oidc }`, and structurally cannot reach this: an optional claim short-circuits to null/None/nil in every stub table before the type is consulted, and on node/python/elixir the OIDC verifier REPLACES the dev stub rather than joining it.  So the `id` arm of the five stub value tables was corpus-unreachable — and four of the five wrote a raw scalar against a nominal id type (node TS2322 against the `__brand`, dotnet CS0029 against `readonly record struct CustomerId(Guid)`, java a null strong id where the others carry the zero id, elixir right by construction but decided alone).  Fixed once in `src/generator/_auth/dev-stub-id.ts`; the compile tier is the oracle, two of the four symptoms being hard compile errors.",
+  },
   { id: "read-gates", title: "read-side requires gates — gated list read + folded and query-time projections", doc: "auth", backends: ALL },
   { id: "outbox", title: "durable channel / transactional outbox + relay", doc: "workflow", backends: ALL },
+  {
+    id: "workflow-primitive-params",
+    title: "a command workflow's PRIMITIVE params at the wire boundary (RS-26) — every param kind in one create",
+    doc: "workflow",
+    backends: ALL,
+    note: "the shape no fixture carried: a scalar request component cannot express absence, so java's `TopUpRequest(int qty, …)` bound a missing key to `0` while its own RequiredSet published the field as required",
+  },
   {
     id: "channels-broker",
     title: "broker-bound channel — channelSource binds `queue/work` to rabbitmq, real driver code emitted",
@@ -165,6 +247,14 @@ export const CORPUS: readonly CorpusFeature[] = [
     doc: "language",
     backends: ALL,
     note: "Minted by M-T6.42.  The class was unexercised: no fixture named a reserved word, so the Dapper adapter's bare identifiers (DDL *and* DML) were invisible to every gate — the C# compiles because the SQL is a string literal, and `schema-load` covered only the MIGRATION chain, which that adapter does not use.  Covers four clause positions a partial fix would miss: CREATE TABLE, the SELECT/INSERT column lists, a `find` WHERE, a retrieval ORDER BY, and CREATE INDEX.  Deliberately NOT a host-language-keyword test (`is` / `default` / `class` break the generated DTO, a different class no backend claims).  JAVA WAS EXCLUDED HERE UNTIL M-T6.43 — a gap, not a rejection: it generated and COMPILED, then 500d on the first insert, because the JPA entity emitted `@Column(name = \"order\")` bare and Hibernate derived `insert into ... (order, group, limit, ...)` from it.  Found by running this fixture's behavioural leg on a real booted Spring Boot + Postgres while landing M-T6.42.  Fixed by backtick-quoting the mapping annotations (Hibernate's portable quoting) off the SHARED word list in `src/generator/sql-reserved.ts`, and this row widening back to ALL is that mission's ratchet.",
+  },
+  {
+    id: "java-reserved-words",
+    title:
+      "field / parameter / enum-value names that are HOST-LANGUAGE reserved words (`final`, `native`, `synchronized`, `transient`, `throws`, `strictfp`, `boolean`) — the java-identifier class `reserved-words.ddd` deliberately excludes",
+    doc: "language",
+    backends: ALL,
+    note: "Minted by M-T6.36 (wave C2 packet 2d).  `reserved-words.ddd`'s closing note names this class and declines it: a host-language keyword breaks the generated DTO / entity, not the SQL, and no backend claimed it.  Java was the one that could not simply escape — C# has verbatim identifiers, TS allows any property name, python/elixir escape locals only — because a Java record component name IS the Jackson property, the springdoc schema key and the Spring binding path, so a rename moves the wire on java alone.  That is why the shape was REFUSED (`loom.java-reserved-identifier-unsupported`) rather than emitted.  The fix pairs a mangled host identifier with an explicit wire annotation at every such site, and this fixture is the ratchet on the pairing: the names are reserved in JAVA ONLY and are not Postgres reserved words, so the other four backends must keep emitting them bare (that is the `ALL` row, not a java-only one) and the SQL-quoting concern stays with `reserved-words.ddd`.",
   },
   {
     id: "vo-field-default",
@@ -325,6 +415,14 @@ export const CORPUS: readonly CorpusFeature[] = [
     doc: "language",
     backends: ALL,
     note: "minted by the Fable field test (A1): node's zod refine rendered `==` as JS `===`, so an omitted optional key — `undefined`, the wire's OTHER spelling of absent — failed the guard and `POST /api/tasks` answered 422 where .NET and Python answered 201.  No corpus fixture omitted an optional field a rule then referenced, so the five-way wire golden could not see the divergence at all.  The aggregate is `Ticket`, not the `Task` the field test used: an aggregate named `Task` shadows `System.Threading.Tasks.Task` inside the generated .NET repository, so `ITaskRepository` and `TaskRepository` disagree on `SaveAsync(Task, CancellationToken)` and the project does not compile (CS0535/CS0738, reproduced on the behavioral-dotnet leg).  That BCL-name collision is real and unfixed — `loom.dotnet-name-collision` (#2737) refuses a member colliding with a SIBLING type, not an aggregate colliding with a type the emitter itself uses — but it is not what this fixture is for, and pinning it here would make the absent-optional row unreachable on .NET",
+  },
+  {
+    id: "optional-reference",
+    title:
+      "an OPTIONAL cross-aggregate reference (`lastKnownLocation: Location id?`) beside a required one — a nullable cross-aggregate FK",
+    doc: "language",
+    backends: ALL,
+    note: "minted by audit #2864 finding T4 (M-T1.33): every `X id` in the corpus was REQUIRED, so no fixture ever generated a page that had to render a reference which might not be there — and the reference-LINK path was the one place the frontends' null guard had never been applied.  Unguarded it broke all six frontends at once, two of them fatally (vue-tsc TS2345 on `:title`, an F# `string` + `string option` on Feliz); the other four compiled and linked to the literal path `/locations/null`.  The `origin` field is required deliberately: the guard applies to the optional reference ONLY, so a regression that guards every reference is caught by the same generation.  Backend-side this is an ordinary nullable FK, which is why the row is ALL — the fixture's value is the SHAPE, not a backend gap.  It carries NO `ui`: the corpus is a backend matrix (`clause-census.test.ts` states that), so the frontend half of the defect is gated by `test/generator/_walker/id-link-optional-cross-target.test.ts` plus the vue and feliz `scaffold` build cases, which now carry an optional reference each.",
   },
   {
     id: "validation-messages",

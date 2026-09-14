@@ -3,8 +3,9 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
-import { describe, it } from "vitest";
+import { afterAll, describe, it } from "vitest";
 import { CORPUS_DEPLOYABLE, materializeCorpusFixture } from "../fixtures/corpus/harness.js";
+import { gradleCmd, stopGradleDaemon } from "./support/gradle.js";
 
 // ---------------------------------------------------------------------------
 // Generator regression test: emit each fixture via `ddd generate system`,
@@ -212,6 +213,10 @@ const FIXTURES: Array<[string, string]> = [
 describe.skipIf(!ENABLED)(
   "generated Java project compiles under `gradle testClasses bootJar` (LOOM_JAVA_BUILD=1)",
   () => {
+    // One daemon serves every fixture in the leg (see `support/gradle.ts`), so
+    // it is reaped once at the end rather than per case.
+    afterAll(stopGradleDaemon);
+
     it.each(FIXTURES)(
       "%s — `ddd generate system` output builds",
       (fixture, slug) => {
@@ -224,7 +229,7 @@ describe.skipIf(!ENABLED)(
             stdio: "inherit",
             cwd: repoRoot,
           });
-          execSync(`gradle --no-daemon -q testClasses bootJar`, {
+          execSync(gradleCmd("testClasses", "bootJar"), {
             cwd: path.join(outDir, slug),
             stdio: "inherit",
             timeout: 600_000,
@@ -259,7 +264,7 @@ describe.skipIf(!ENABLED)(
           .filter(Boolean);
         if (smaps.length === 0) throw new Error("no .smap sidecars emitted under src/main/java");
 
-        execSync(`gradle --no-daemon -q testClasses`, {
+        execSync(gradleCmd("testClasses"), {
           cwd: projectDir,
           stdio: "inherit",
           timeout: 600_000,

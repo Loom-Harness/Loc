@@ -22,6 +22,7 @@ import {
 } from "../../../ir/types/loom-ir.js";
 import { directParentName, partsChildrenFirst } from "../../../ir/util/containment-parent.js";
 import { operationBody, operationBodyUsesCurrentUser } from "../../../ir/util/op-gates.js";
+import { valueObjectPool } from "../../../ir/util/reachable-types.js";
 import { walkStmtExprsDeep } from "../../../ir/util/walk.js";
 import { lines } from "../../../util/code-builder.js";
 import { snake } from "../../../util/naming.js";
@@ -206,7 +207,7 @@ export function renderPyAggregate(
   // stripped, the TS emitter's trick) for VO / enum / id-factory needs.
   const scan = body.replace(/"(?:\\.|[^"\\])*"/g, '""');
   const refersTo = (name: string): boolean => new RegExp(`\\b${name}\\b`).test(scan);
-  const voEnumNames = [...ctx.valueObjects.map((v) => v.name), ...ctx.enums.map((e) => e.name)]
+  const voEnumNames = [...valueObjectPool(ctx).map((v) => v.name), ...ctx.enums.map((e) => e.name)]
     .filter(refersTo)
     .sort();
   const ownIdNames = [agg.name, ...agg.parts.map((p) => p.name)];
@@ -262,9 +263,14 @@ export function renderPyAggregate(
   const bodyUsesCast = /\bcast\(/.test(body);
   // Domain-service calls render as bare functions (`quote(...)`), so the
   // aggregate module imports them by name from app.domain.services.* —
-  // collected from every operation / applier / es-create body.
+  // collected from every operation / applier / es-create body.  The BODY, not
+  // `op.statements`: an operation's LEADING `requires` run is hoisted to the
+  // calling route (op-gates.ts), which imports what the gate needs itself
+  // (`domainServiceImportLinesForExprs`, ledger row F2-CB-C7) — collecting it
+  // here too left `from app.domain.services.… import …` unused in the
+  // aggregate module (ruff F401 under the corpus python leg).
   const serviceImports = domainServiceImportLines([
-    ...shapes.flatMap((s) => s.operations.flatMap((op) => op.statements)),
+    ...shapes.flatMap((s) => s.operations.flatMap((op) => operationBody(op))),
     ...shapes.flatMap((s) => (s.appliers ?? []).flatMap((ap) => ap.statements)),
     ...shapes.flatMap((s) => s.esCreate?.statements ?? []),
   ]);

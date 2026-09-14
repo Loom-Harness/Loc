@@ -116,7 +116,7 @@ or switching to `inheritanceUsing: ownTable` (which works everywhere).
 | `loom.abstract-aggregate-contains` | an abstract base declares `contains` — the base owns no repository and concretes do not inherit its parts, so the part's table would have no reader and no writer. Declare the containment on each concrete instead |
 | `loom.abstract-repository` | a `repository` targets an abstract base |
 | `loom.polymorphic-id-ref-unsupported` | a `<Base> id` reference to an `ownTable` (TPC) base |
-| `loom.es-tph-forced-own-table` | event-sourced / document opt-out forces `ownTable` on a TPH member |
+| `loom.es-tph-forced-own-table` | event-sourced / document / embedded opt-out forces `ownTable` on a TPH member (D-EMBEDDED-TPH) |
 | `loom.tph-filter-unsupported` | **.NET only** — a TPH *subtype* carries a capability `filter` whose predicate reads a column the hierarchy ROOT does not declare (see below) |
 | `loom.tenancy-inherited-stance-conflict` | a subtype declares the opposite tenancy stance from the base it inherits its columns from (`abstract … with tenantOwned` + `… extends … crossTenant`) |
 | (storage gate) | a `sharedTable` (TPH) hierarchy whose context has no node/Hono, .NET, Phoenix, Python, or Java host |

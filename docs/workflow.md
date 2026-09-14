@@ -11,14 +11,20 @@ context Sales {
   enum OrderStatus { Draft, Confirmed, Shipped }
 
   aggregate Customer {
-    name: string display
+    name: string
     creditLimit: decimal
+    derived display: string = name
     invariant creditLimit >= 0
 
     operation deductCredit(amount: decimal) {
       precondition amount > 0
       precondition creditLimit >= amount
       creditLimit := creditLimit - amount
+    }
+
+    operation addCredit(amount: decimal) {
+      precondition amount > 0
+      creditLimit := creditLimit + amount
     }
   }
 
@@ -34,23 +40,27 @@ context Sales {
   event OrderPlaced { order: Order id, at: datetime }
 
   // Non-transactional: each save commits independently.
-  workflow placeOrder(customerId: Customer id, placedAt: datetime) {
-    let customer = Customers.getById(customerId)
-    let order = Order.create({
-      customerId: customerId,
-      status: Draft,
-      placedAt: placedAt
-    })
-    emit OrderPlaced { order: order.id, at: placedAt }
+  workflow placeOrder {
+    create(customerId: Customer id, placedAt: datetime) {
+      let customer = Customers.getById(customerId)
+      let order = Order.create({
+        customerId: customerId,
+        status: Draft,
+        placedAt: placedAt
+      })
+      emit OrderPlaced { order: order.id, at: placedAt }
+    }
   }
 
   // Transactional: all-or-nothing within one DB transaction.
-  workflow transferCredit(from: Customer id, to: Customer id, amount: decimal) transactional {
-    precondition amount > 0
-    let src = Customers.getById(from)
-    let dst = Customers.getById(to)
-    src.deductCredit(amount)
-    dst.addCredit(amount)
+  workflow transferCredit transactional {
+    create(src: Customer id, dst: Customer id, amount: decimal) {
+      precondition amount > 0
+      let source = Customers.getById(src)
+      let target = Customers.getById(dst)
+      source.deductCredit(amount)
+      target.addCredit(amount)
+    }
   }
 }
 ```
@@ -315,11 +325,13 @@ is members-only — `workflow X { create(...) { ... } }`):
 | Member | Trigger |
 | --- | --- |
 | `create [name](params) [by <expr>] { ... }` | A starter.  The parameter shape discriminates the trigger (resolved at lowering): positional domain params synthesise an implicit command; a single payload param (`create(c: PlaceOrder)`) is an explicit command; a single event param with a `by` clause (`create(e: OrderPlaced) by e.order`) is event-triggered. |
-| `handle name(params) { ... }` | A continuation command handler — own-state mutation, may call other aggregates / repos.  Multiple handles make a multi-command saga. |
+| `handle name(params) { ... }` | **Not implemented — refused by the compiler** (`loom.workflow-handle-unsupported`).  Parses and reaches the IR, but no backend emits a route, a handler, or a method for it, so a saga could be started and read and never advanced.  See [below](#handle-is-refused-not-shipped). |
 | `on(e: Event) [by <expr>] { ... }` | An external-event reactor. |
 
-A `create` or `handle` parameter may be typed by an **event** or a
-**payload** (`command` / `query` / `response` / `error`) named directly:
+A `create` parameter may be typed by an **event** or a
+**payload** (`command` / `query` / `response` / `error`) named directly
+(`handle` accepts the same parameter forms grammatically, but is refused — see
+below):
 
 ```ddd
 command SettleOrder { order: Order id, note: string }
@@ -330,9 +342,32 @@ workflow Fulfillment {
 
   create(c: SettleOrder)               { ... }   // explicit command-triggered
   create(paid: PaymentReceived) by paid.order { ... }   // event-triggered
-  handle settle(c: SettleOrder)        { ... }   // continuation command
 }
 ```
+
+### `handle` is refused, not shipped
+
+`handle name(params) { ... }` parses and type-checks, and **no backend has ever
+emitted anything for it** — searching a generated tree for the handler's name
+finds only the mermaid diagram.  This page previously advertised it as the
+multi-command saga surface; that was wrong, and a model using it compiled into a
+saga that could be started and read (`/instances`, `/instances/{id}`) but never
+advanced, with no diagnostic (audit #2864 D5).
+
+The compiler now refuses it outright rather than emitting silence:
+
+```
+error: workflow 'Review': 'handle approve(…)' is not emitted by any backend …
+```
+
+Model a continuation one of the two ways that do work today:
+
+* **as an aggregate `operation`** — the aggregate owns the state transition, and
+  the operation gets a route on every backend; or
+* **as a second workflow** started by the event the first one emits.
+
+Whether Loom grows real multi-command sagas is a deferred feature decision
+(mission **M-T6.58**), not a documentation gap.
 
 The bound parameter is a flat transport record: `paid.amount` resolves
 to the field's declared type and is type-checked like any other

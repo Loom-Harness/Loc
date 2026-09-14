@@ -213,15 +213,61 @@ Parallel agents collide on claims. Two shapes are on record: #2349/#2351 were **
 
 Sources: [quality-audit-2026-08](../audits/quality-audit-2026-08.md) R12. Minted by [#2495](https://github.com/lemmit/Loc/pull/2495).
 
-## M-T9.38 — Flutter and Feliz have no runtime leg: a money crash ships behind a green compile gate — `open` (unblocked 2026-09-10) · **L** · P2
+## M-T9.38 — Flutter and Feliz have no runtime leg: a money crash ships behind a green compile gate — `done` (2026-09-13, [#2898](https://github.com/Loom-Harness/Loc/pull/2898)) · **L** · P2
 
 Found 2026-08-23 by the numeric-types audit ([F17](../audits/numeric-types-audit-2026-08-23.md)). `generated-flutter-build.yml` / `generated-feliz-build.yml` are compile-only, and Dart's `(x as num)` on a wire string compiles clean — so F1's crash-on-first-read shipped green. React/Vue/Svelte/Angular have real e2e legs; the two self-hosting frontends (the pair M-T1.20 already flags as carrying most frontend residue) have none.
 
-**The work:** a minimal boot + list-read + create-submit smoke for each, against a real backend, over a numeric-rich fixture (money, decimal, int, long) — the runtime twin of the build gates, wired to a `run-*` label per the post-merge-gate convention. **Both blockers are in** — M-T1.21 as [#2678](https://github.com/lemmit/Loc/pull/2678) and M-T1.22 as [#2674](https://github.com/lemmit/Loc/pull/2674) (merged 2026-09-10) — so the legs would now be born green rather than red, which was the whole reason to hold them.
+> **Half the premise was already stale when this row was picked up (2026-09-13).** "FELIZ still has
+> none" — the wording in both this mission and its ledger row (`G2644-M-T9.38-frontend-runtime-legs`)
+> — rested on `ls test/behavioral | grep -i feliz` being empty and no `*feliz*e2e.yml` existing. Both
+> are true and neither is the question: **Feliz has had a real-backend leg since the testid-emission
+> PR**, as a BLOCKING `feliz` cell of `frontend-fullstack-e2e.yml` running the SHARED `run-ui.mjs`
+> against `sales-system-feliz` — generate → `dotnet fable` + vite → the built bundle and the generated
+> Hono backend on PGlite on ONE origin → the emitted `*.ui.spec.ts` page-object round-trip. A leg that
+> reuses a shared runner leaves no file with its name on it, so a filename census cannot see it. What
+> was genuinely missing was the NUMERIC half, on both legs: `grep -nE 'money|decimal'` over either
+> found nothing.
 
-**Verification when it lands.** The legs themselves, mutation-proved by re-seeding F1's `as num` decode on a scratch branch and watching the flutter leg fail.
+**What landed (#2898).** Both fixtures grew a numeric `Product` row — one field per host type, four
+different wire spellings (`money` a scale-4 STRING per RS-12, `decimal` a JSON number per RS-24,
+`int`/`long` JSON integers) — and both legs now assert the RENDERED value, so a silently-wrong decode
+fails as well as a throwing one. The seed and the expectations live in ONE table
+(`test/behavioral/numeric-ui-contract.mjs`) that both legs read, with a fast-suite ratchet
+(`numeric-ui-legs.test.ts`) over the fixtures, the wiring and the expectations' discriminating-ness —
+without it, deleting a field would leave two nightly legs green and pointless.
 
-Sources: [numeric-types-audit-2026-08-23](../audits/numeric-types-audit-2026-08-23.md) F17, plan.json N17. Relates to M-T9.14 (Flutter runtime gates), M-T1.20.
+Measured on the landing head, locally, both legs: **feliz 11 passed / 0 failed** (the numeric
+round-trip fills all four through the real create FORM and reads them back off the detail page),
+**flutter 4 passed / 0 failed**. Mutation-proved on both sides: re-seeding F1 (`'${json[…]}'` →
+`(… as num).toString()` in `flutter/dart-types.ts`) turns BOTH money-bearing flutter probes red on
+`Couldn't load products` while customers and orders stay green; routing the Feliz money decoder
+through a double (`feliz/wire.ts`) renders `98.76` for an expected `98.7600` and turns ONLY the new
+numeric round-trip red. Each mutation was reverted by file copy, md5-verified, and rebuilt.
+
+Two findings fell out of it, both recorded rather than carried silently: **[M-T9.65](#m-t965)** (a
+`money` literal in a ui e2e body is emitted as a bare JS number, losing the scale the api renderer
+keeps) and the money RENDERING divergence between the two frontends — Flutter formats through
+`NumberFormat.decimalPattern()` and drops the scale, Feliz keeps it. The divergence is pinned in the
+contract table so whichever way it is later unified, that table is what changes.
+
+**What is deliberately NOT here, with the reason** (so nobody re-opens this row for it):
+
+1. **Flutter's WRITE half stays seeded over `/api`, not driven through the form.** Flutter web exposes
+   a text field to the DOM only while it is focused, so a form-driven write is a flake source — on a
+   leg that is already one of the three at a 0 % first-attempt pass rate, that trades a real gate for
+   an unreliable one. Form interaction on Flutter is covered in-process instead, by the `flutter test`
+   widget tests riding `generated-flutter-build.yml`. The create-submit half of the original ask is
+   covered at RUNTIME on Feliz, which posts through the real form.
+2. **Per-PR path-scoped promotion.** The mission's "then per-PR once the flake budget holds" half is
+   [`verification-waves-2026-09`](verification-waves-2026-09.md) G1 / wave C0 packet 0.2(b) work
+   ([#2636](https://github.com/Loom-Harness/Loc/issues/2636)), not this row's: the legs are wired to
+   the `frontend-fullstack` label and run nightly. Note that label predates the `run-<feature>`
+   convention this mission's text assumes; renaming it is a `docs/ci-gating.md` + label-registry
+   change and was left alone rather than done as a drive-by.
+3. **M-T9.14's residue** (flutter per-kind `ExprIR` pinning, the runtime auth-UI leg) is that
+   mission's, unchanged.
+
+Sources: [numeric-types-audit-2026-08-23](../audits/numeric-types-audit-2026-08-23.md) F17, plan.json N17. Relates to M-T9.14 (Flutter runtime gates), M-T1.20, [M-T9.65](#m-t965).
 
 ## M-T9.39 — The i18n round-trip gate: every catalog key needs a consumption site, and every user-visible slot needs a key — `open` · **M** · P2
 
@@ -499,27 +545,28 @@ Minted 2026-09-07, from the isolation leak [#2766](https://github.com/Loom-Harne
 
 Sources: [verification-waves-2026-09](verification-waves-2026-09.md) — the isolation-leak section. Relates to M-T9.8 (hollow work: a test asserting against leaked state is green for the wrong reason), M-T9.50 (the `test/` typecheck baseline, the other shrink-only census).
 
-## M-T9.55 — The give-up routing gate scans 40 of 140 walker files and reports green — `in-flight` ([#2843](https://github.com/Loom-Harness/Loc/pull/2843), open) · **S** to fix, **L** to drain · P0 ⭐
+## M-T9.55 — The give-up routing gate scans 40 of 140 walker files and reports green — `done` (2026-09-11) · P0 ⭐
 
 Found 2026-09-09 by the verification fleet ([F63](../audits/2026-09-03-language-docs-audit-findings.md)).
-`test/system/walker-give-up-routing.test.ts` enumerates its files by shelling
-`git ls-files 'src/generator/<target>/**/*.ts'`. **That pathspec matches subdirectories only.** Measured:
+`test/system/walker-give-up-routing.test.ts` enumerated its files by shelling
+`git ls-files 'src/generator/<target>/**/*.ts'`. **That pathspec matches subdirectories only** —
+40 of 140 files were scanned (flutter and feliz at ZERO each) and the test passed. The repo's own
+recurring failure shape (`experience_gathered.md` §59, §63): a check that never reaches the thing
+it names.
 
-| tree | `<t>/*.ts` | `<t>/**/*.ts` |
-|---|---:|---:|
-| `_walker` | 39 | 19 |
-| react | 22 | 9 |
-| flutter | 22 | **0** |
-| feliz | 13 | **0** |
+**Closed in three slices.**
 
-40 of 140 files are scanned. The unscanned 100 contain **28 direct `renderComment` / `renderNotice`
-give-ups** — six in the shared `walker-core.ts`, five in `flutter-target.ts`, three each in
-`feliz-target.ts` and the Angular destroy-form fork. The test passes.
+| Slice | What landed | Evidence |
+|---|---|---|
+| 1 — the glob | `WALKER_GLOBS` carries TWO entries per tree (`git ls-files` will not do it with one); the 26 hidden sites appeared | #2843 |
+| 2 — route them | all 26 through `giveUp()` — none earned a `NOT_A_GIVE_UP` row, every one is a genuine degradation | #2843 |
+| 3 — the drain + the invariant | every give-up now names a catalogued `loom.*` **code**, the tolerated set is **0**, and the walker invariant is a conformance gate | wave C1, packet 1d-i |
 
-This is the repo's own recurring failure shape (`experience_gathered.md` §59, §63): a check that never
-reaches the thing it names. **Land it first** — any conformance gate built on the `loom:unrendered`
-sentinel is a no-op until it does, including the "a walker never declines without a diagnostic" gate
-W2.3 is meant to produce.
+**Why slice 3 was needed at all.** Slices 1+2 made every decline FINDABLE and left all ~64 of them
+UNEXPLAINED — the reason was prose at the emission site, so the reader of a generated page got a
+sentence with nothing to look up. Measured before the slice: `body: Stack { CreateForm { } }` and
+`Stack { DestroyForm { } }` are valid `.ddd` (`ddd parse` → `0 error(s), 0 warning(s)`) and generate
+a page whose entire body is one `loom:unrendered` comment — a blank screen, no diagnostic anywhere.
 
 **Two slices.** (1) Fix `WALKER_GLOBS` to carry two entries per tree — `git ls-files` will not do it
 with one — and watch the 28 sites appear. (2) Drain them: route each through `giveUp()` or add a
@@ -540,7 +587,46 @@ varies only the glob: one unrouted give-up in `flutter-target.ts` (a file the ol
 makes the fixed glob **fail** naming `flutter-target.ts:601` while the old one **passes**. Same defect,
 same tree, opposite verdicts.
 
-## M-T9.56 — 130 validator conditions reach the user as one non-catalog code — `open` · **S/M** for the ratchet, ~**70-78 h** for the drain · P1
+**Landed by Wave C1 packet 1d-i (2026-09-11), on top of #2843:**
+
+`giveUp(target, code, text)` now takes a `DiagnosticMessageKey` (so an invented code fails `tsc`) and
+renders it into the comment: `loom:unrendered [loom.page-primitive-arg-missing] CreateForm(of: …): …`.
+Five codes minted (`page-primitive-arg-missing` / `-arg-invalid`, `page-ref-unreachable`,
+`page-expr-unrenderable`, `page-primitive-target-gap`), three existing ones reused where the
+condition already had one (`loom.unresolved-page-ref`, `loom.unknown-page-element`,
+`loom.sub-primitive-misplaced` — each is raised ahead of the walker by `ui-page-structure-checks.ts`,
+so those sites are a validator's backstop, not a new refusal).
+
+**A second blind spot closed with it.** The routing gate scans for `renderComment`/`renderNotice`
+CALLS, so it never saw the parallel HEEx engine, which builds fourteen `<!-- … -->` / `<%!-- … --%>`
+give-ups inline with no sentinel at all. Routing those surfaced two silent declines the cross-target
+sweep then caught: `QueryView { }` with no `of:` rendered an EMPTY `true ->` arm (a framed panel
+reading as "loaded, nothing to show"), and `Icon { }` with neither `name:` nor `svg:` emitted an
+empty `<span class="loom-icon">`.
+
+**Gates.** `walker-give-up-routing.test.ts` ratchets the census (every give-up names a catalogued
+code; `UNCODED_GIVE_UPS` is shrink-only and EMPTY; a vacuity guard requires > 50 sites over > 10
+files). `test/generator/_walker/walker-declines-with-a-code.test.ts` is the invariant W2.3 asked
+for — all 58 registry primitives spelled with no arguments, driven through all SEVEN targets, each
+bracketed by probe markers so a primitive that renders NOTHING is named rather than hidden in a
+joined body. `test/fixtures/walker-give-up-shapes.ddd` is the first checked-in `.ddd` that authors a give-up —
+in `test/fixtures/`, NOT the corpus, because two corpus gates state normatively that the corpus is a
+BACKEND matrix (`clause-census`'s "the corpus fixtures still carry no `ui`", retro §82, and
+`feature-doc-coverage`'s FEATURE_DOCS). Both caught the first placement.
+
+**One gap REVEALED (not introduced).** Giving the HEEx give-ups a sentinel made the cross-frontend
+matrix able to see them, and one cell went red: `Console`'s standalone instance-qualified
+`OperationForm` is not rendered on LiveView (it needs the `handle_event` + form-binding half
+`renderModal` owns). The emitter has said so in the output since #2652; the marker simply carried no
+sentinel. Frozen as a reasoned `GAPS` entry with the closing recipe Flutter already used.
+
+**Residue (not this mission's).** Codegen has no diagnostic channel, so the codes reach the user in
+the generated comment, not on `ddd generate`'s stderr — lifting them into real CLI diagnostics is a
+`src/system/` pass, tracked in the packet hand-off
+([`waves/handoffs/wave-c1-1d-giveup-drain.md`](waves/handoffs/wave-c1-1d-giveup-drain.md)) along with
+the HEEx named-icon parity gap the drain deliberately did not smuggle in.
+
+## M-T9.56 — 128 validator conditions reach the user as one non-catalog code (the gate half landed with Wave C1 packet 1g; the drain is Wave C4's) — `open` · ~**70-78 h** for the drain · P1
 
 Found 2026-09-09 ([F55](../audits/2026-09-03-language-docs-audit-findings.md), extended as F64). Across
 `src/language/validators/**` + `ddd-validator.ts`: **196 `accept` sites carry a code, 119 errors and 11
@@ -556,13 +642,41 @@ incoherent regardless — seven type-mismatch codes already exist, and the coded
 700 lines from six identical uncoded resolution errors.
 
 **A 130-entry waiver is the wrong instrument** (a code-less site has no stable key to waive; line
-numbers churn, message text rewords). Use a **12-row per-file EXACT count**, shrink-only, following
+numbers churn, message text rewords). Use a **per-file EXACT count**, shrink-only, following
 `test/system/legacy-generate-path-ratchet.test.ts`, as a fifth invariant inside
 `diagnostic-catalog.test.ts` — it already owns the scanners. Add, in the same slice, an assertion that
 no `FIRING_FIXTURES` fixture raises `loom.unknown`, and a length baseline for `UNDOCUMENTED_CODES`
-(368 entries, currently unpinned, so new codes can land wholly undocumented).
+(currently unpinned, so new codes can land wholly undocumented).
 
-Then ~10 drain slices; the triage, per-site cost and ordering are in the fleet plan.
+### Gate half — `done` (Wave C1 packet 1g)
+
+Measured on the tree, not from the audit: **129** uncoded sites (118 errors, 11 warnings) across **12**
+files — `deployable.ts` 24, `statements.ts` 23, `ui.ts` 21, `types.ts` 15, `match.ts` 12,
+`datasource.ts` 9, `traceability.ts` 9, `structural.ts` 7, `ddd-validator.ts` 6, `_shared.ts` 1,
+`repository.ts` 1, `toplevel-function.ts` 1. The IR check leaves, the macro expander and the `src/api/`
+entry points hold no row — they are already clean. Three gates landed, all shrink-only:
+
+- **invariant 5** in `diagnostic-catalog.test.ts`, over the per-file baseline
+  `test/system/diagnostic-uncoded-baseline.ts`. Grow a row → it fails naming the site; drain one without
+  lowering the row → it fails as STALE; a row reaching 0 is deleted, not left at 0.
+- **`diagnostic-firing-census.test.ts`** — no `FIRING_FIXTURES` fixture may raise `loom.unknown`. On its
+  first run it found exactly one (`loom.workflow-emit-unknown-field`'s fixture, hitting
+  `statements.ts`'s `checkEmit`); that site was drained here, so its waiver table
+  (`FIXTURES_RAISING_UNKNOWN`) ships **empty**. Separately measured: **357** standalone tracked `.ddd`
+  files raise `loom.unknown` **zero** times — the generic code reaches a user only through a defect
+  source, which is why the fixture population is the one that matters.
+- **`diagnostic-docs-anchors.test.ts`** — `UNDOCUMENTED_CODES`' LENGTH is pinned (369). Membership was
+  already gated, but membership alone is satisfied by appending the new code to the undocumented list.
+
+One site drained as the proof the drain path works end to end: `checkEmit`'s unknown-field arm now
+raises **`loom.emit-unknown-field`** (wording in `messages.ts`, anchor
+`06-behavior-and-statements.md#let--emit` in `code-docs.ts`, an aggregate-emit firing fixture — the half
+the workflow-only IR check never sees). **128 left.**
+
+### Drain half — `open` (Wave C4, ~10 slices)
+
+The triage, per-site cost and ordering are in the fleet plan. Each slice lowers its row in
+`diagnostic-uncoded-baseline.ts` in the same change; the whole file is deleted when the last row goes.
 
 ## M-T9.57 — `pr-gate` parks: two 2026-09-10 measurements disagree on whether tail `workflow_run` dispatches are dropped — `done` ([#2859](https://github.com/Loom-Harness/Loc/pull/2859) retired every branch-filtered claim; Wave C0 packet 0.3 ([#2863](https://github.com/Loom-Harness/Loc/pull/2863)) counted unfiltered and landed the bounded tail watch — **owner ruling pending on which reading stands**) · **S** · P1
 
@@ -829,3 +943,49 @@ attributed to the generator. A green first run proves neither.
 
 Relates to [M-T9.8](#m-t98) (same "valid input, wrong output" class, found generatively) and
 [M-T9.42](#m-t942) (the shrunk models graduate into the corpus).
+
+## M-T9.65 — A `money` literal in a `test e2e … against <ui>` body is emitted as a JS NUMBER, losing the scale the api renderer keeps — `open` · **S** · P3
+
+Found 2026-09-13 while landing [M-T9.38](#m-t938)'s numeric round-trip (PR #2898), by
+reading the emitted spec the new Feliz assertion drives.
+
+`renderLiteral` in `src/system/ui-e2e-render.ts:511-516` handles `string`, `now` and `null`
+and returns `value` verbatim for everything else — so a `money` literal falls through to a
+**bare JS number**:
+
+```
+// .ddd (a ui e2e body)
+let prod = ui.products.create({ …, listPrice: money("98.7600") })
+
+// emitted *.ui.spec.ts — measured
+await __new.fill(({ …, listPrice: 98.7600 }));   // → String(98.76) is typed into the form
+```
+
+The api-side renderer does the opposite, deliberately, and says why in a nine-line comment:
+`src/system/e2e-render.ts:591` is `if (lit === "money") return JSON.stringify(value);`
+because "`money` crosses the wire as a STRING on every backend". The UI renderer is the same
+boundary — the value is typed into a form field and POSTed — so it wants the same string.
+
+**Consequences, in order of severity.** (1) The SCALE is lost before the value reaches the app
+(`"98.7600"` → `98.76`), so a spec cannot assert a scale-sensitive money round-trip through the
+form at all; M-T9.38's Feliz assertion survives only because the `NUMERIC(19,4)` column
+re-scales it on the way back. (2) A money literal past double precision — or past 17
+significant digits, the second half of M-T9.37's `offContractNumber` rule — is **corrupted by
+the spec itself**, so the test would report a divergence the backend never produced. (3) It is
+the one arm of the money contract where two renderers of the same boundary disagree, which is
+the `_expr`-target class the repo has otherwise been consolidating.
+
+**The fix:** a `money` arm in `ui-e2e-render.ts`'s `renderLiteral` returning `JSON.stringify(value)`,
+matching `e2e-render.ts`. Check the `convert` arm below it (`e.target === "money"` already emits
+`new Decimal(…)`, which is the DOMAIN idiom, not the wire one) while you are there.
+
+**Verification when it lands.** A generator test asserting the emitted `fill(...)` carries the
+quoted, full-scale money string for a `money(...)` literal — mutation-proved by reverting the
+arm, since a presence-only assertion on `listPrice` passes for either spelling. Then extend
+M-T9.38's numeric UI round-trip with a money value whose scale-4 tail is non-zero
+(`money("98.7654")`) and watch the Feliz leg's `toHaveText` hold it end to end; that is the
+assertion the current lossy path cannot support.
+
+Sources: measured on `main` @ `09427a5` while landing M-T9.38. Relates to RS-12 (money wire
+scale), [M-T9.37](#m-t937) (the wire-golden `offContractNumber` rule, whose >17-significant-digit
+half is the one this defect would trip), and M-T9.38 (the leg that found it).

@@ -22,6 +22,7 @@ import { lines } from "../../../util/code-builder.js";
 import { messageCode } from "../../../util/message-code.js";
 import { upperFirst } from "../../../util/naming.js";
 import { javaCodePointLength } from "../../_expr/code-point.js";
+import { jid } from "../java-ident.js";
 import {
   collectJavaExprImports,
   collectJavaRegexLiterals,
@@ -275,12 +276,12 @@ export function javaCommandValidatorNames(
 function voNestedInvokes(spec: CommandSpec): string[] {
   const out: string[] = [];
   for (const f of spec.voFields) {
-    const accessor = `request.${f.field}()`;
+    const accessor = `request.${jid(f.field)}()`;
     if (f.each) {
       out.push(
         `        if (${accessor} != null) {`,
         `            for (int i = 0; i < ${accessor}.size(); i++) {`,
-        `                errors.pushNestedPath("${f.field}[" + i + "]");`,
+        `                errors.pushNestedPath("${jid(f.field)}[" + i + "]");`,
         `                ValidationUtils.invokeValidator(new ${f.voClass}(), ${accessor}.get(i), errors);`,
         `                errors.popNestedPath();`,
         `            }`,
@@ -289,7 +290,7 @@ function voNestedInvokes(spec: CommandSpec): string[] {
     } else {
       out.push(
         `        if (${accessor} != null) {`,
-        `            errors.pushNestedPath("${f.field}");`,
+        `            errors.pushNestedPath("${jid(f.field)}");`,
         `            ValidationUtils.invokeValidator(new ${f.voClass}(), ${accessor}, errors);`,
         `            errors.popNestedPath();`,
         `        }`,
@@ -310,12 +311,15 @@ function renderValidatorClass(spec: CommandSpec, pkg: string, basePkg: string): 
   // Parse-locals only for fields the checks actually reference (bare names),
   // mirroring the service's wire→domain parse so predicates run over the domain
   // value (a money field becomes a `BigDecimal` local, etc.).
+  // The checks render through `renderJavaExpr`, which spells a keyword-named
+  // param with its MANGLED host identifier (`do` → `do_`), so the reference
+  // probe has to look for the same spelling — `\bdo\b` never matches `do_`.
   const referenced = spec.params.filter((p) =>
-    new RegExp(`\\b${p.name}\\b`).test(checks.join("\n")),
+    new RegExp(`\\b${jid(p.name)}\\b`).test(checks.join("\n")),
   );
   const lets = referenced.map((p) => {
     collectWireToDomainImports(eff(p.type, !!p.optional), imports, basePkg);
-    return `        var ${p.name} = ${validatorLocal(eff(p.type, !!p.optional), `request.${p.name}()`)};`;
+    return `        var ${jid(p.name)} = ${validatorLocal(eff(p.type, !!p.optional), `request.${jid(p.name)}()`)};`;
   });
 
   const patternFields = [...regexFields].map(
@@ -489,7 +493,8 @@ function nullSkipRefs(
     guards.set(depth, at);
   };
   for (const p of spec.params) {
-    if (p.nullable && new RegExp(`\\b${p.name}\\b`).test(predicate)) add(0, `${p.name} == null`);
+    if (p.nullable && new RegExp(`\\b${jid(p.name)}\\b`).test(predicate))
+      add(0, `${jid(p.name)} == null`);
   }
   // …and every MEMBER STEP along a chain rooted at one of those params.
   // `balance == null` alone still left `balance.amount()` returning null into
@@ -554,7 +559,12 @@ function mentionsNullLiteral(expr: ExprIR): boolean {
  *  advice re-prefixes `/`), `code` the wire code (or the message-less sentinel),
  *  `message` the resolved default text. */
 function reject(field: string, code: string, message: string, cond: string): string {
-  return `        if (!(${cond})) errors.rejectValue(${JSON.stringify(field)}, ${JSON.stringify(code)}, ${JSON.stringify(message)});`;
+  // `rejectValue` names the JAVA property — `AbstractBindingResult` reads the
+  // field's actual value off the bound record to build the error, so a wire
+  // spelling that has no such accessor throws `NotReadablePropertyException`.
+  // The wire spelling is restored one layer out, in the advice's `pointerOf`
+  // (M-T6.36).
+  return `        if (!(${cond})) errors.rejectValue(${JSON.stringify(jid(field))}, ${JSON.stringify(code)}, ${JSON.stringify(message)});`;
 }
 
 function patternCheck(
@@ -568,10 +578,11 @@ function patternCheck(
 ): string[] {
   const moneyLike =
     type?.kind === "primitive" && (type.name === "money" || type.name === "decimal");
+  const local = jid(field);
   const cmp = (op: string, n: number): string =>
     moneyLike
-      ? `${field}.compareTo(new java.math.BigDecimal("${n}")) ${op} 0`
-      : `${field} ${op} ${n}`;
+      ? `${local}.compareTo(new java.math.BigDecimal("${n}")) ${op} 0`
+      : `${local} ${op} ${n}`;
   // A NULL field SKIPS its bound rather than failing it (F23). This validator
   // is a Spring `Validator` that Bean Validation runs ALONGSIDE the record's
   // own `@NotNull`, not after it — so with `{"sku": null}` the length check
@@ -594,7 +605,7 @@ function patternCheck(
   // `Integer.intValue()` and threw — F23's 500 one command shape over (W11/W12
   // on `POST /api/orders/{id}/add_line`). `nullable` is now carried from the
   // record's own boxing decision (`wireComponentNullable`).
-  const nullSkip = (cond: string): string => (nullable ? `${field} == null || ${cond}` : cond);
+  const nullSkip = (cond: string): string => (nullable ? `${local} == null || ${cond}` : cond);
   const fail = (cond: string): string => reject(field, code, message, nullSkip(cond));
   switch (pattern.kind) {
     case "min":
@@ -609,15 +620,15 @@ function patternCheck(
     // the emitted OpenAPI publishes as `minLength`/`maxLength`
     // (src/generator/_expr/code-point.ts).
     case "len-min":
-      return [fail(`${javaCodePointLength(field)} >= ${pattern.n}`)];
+      return [fail(`${javaCodePointLength(local)} >= ${pattern.n}`)];
     case "len-max":
-      return [fail(`${javaCodePointLength(field)} <= ${pattern.n}`)];
+      return [fail(`${javaCodePointLength(local)} <= ${pattern.n}`)];
     case "len-eq":
-      return [fail(`${javaCodePointLength(field)} == ${pattern.n}`)];
+      return [fail(`${javaCodePointLength(local)} == ${pattern.n}`)];
     case "len-range":
       return [
         fail(
-          `${javaCodePointLength(field)} >= ${pattern.lo} && ${javaCodePointLength(field)} <= ${pattern.hi}`,
+          `${javaCodePointLength(local)} >= ${pattern.lo} && ${javaCodePointLength(local)} <= ${pattern.hi}`,
         ),
       ];
     case "regex": {
@@ -626,7 +637,7 @@ function patternCheck(
         name = `MATCHES_PATTERN_${regexFields.size}`;
         regexFields.set(pattern.pattern, name);
       }
-      return [fail(`${name}.matcher(${field}).find()`)];
+      return [fail(`${name}.matcher(${local}).find()`)];
     }
   }
 }

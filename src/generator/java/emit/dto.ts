@@ -18,9 +18,11 @@ import type {
   TypeIR,
   WireField,
 } from "../../../ir/types/loom-ir.js";
+import { valueObjectFieldLookup } from "../../../ir/util/reachable-types.js";
 import { lines } from "../../../util/code-builder.js";
 import { snake, upperFirst } from "../../../util/naming.js";
-import { javaValueTypeForId, renderJavaExpr } from "../render-expr.js";
+import { jid, jsonProp } from "../java-ident.js";
+import { collectJavaExprImports, javaValueTypeForId, renderJavaExpr } from "../render-expr.js";
 import { JAVA_PROVENANCED_RECORD, javaProvSibling } from "./provenance.js";
 import {
   bearsNestedRecord,
@@ -216,7 +218,7 @@ export function renderDtoFiles(
       const noNul = bearsWireString(f.type);
       if (noNul) imports.add(`${basePkg}.api.NoNulChar`);
       const marks = `${guardable ? "@NotNull " : ""}${nested ? "@Valid " : ""}`;
-      return `${marks}${noNul ? nulGuarded(javaType) : javaType} ${f.name}`;
+      return `${jsonProp(f.name, imports)}${marks}${noNul ? nulGuarded(javaType) : javaType} ${jid(f.name)}`;
     });
     out.push({
       name: `Create${agg.name}Request.java`,
@@ -231,7 +233,8 @@ export function renderDtoFiles(
     const imports = new Set<string>();
     const components = op.params.map((p) => {
       collectWireImports(p.type, imports, "Request");
-      if (isOptionalType(p.type)) return `${wireJavaType(p.type, "Request")} ${p.name}`;
+      if (isOptionalType(p.type))
+        return `${jsonProp(p.name, imports)}${wireJavaType(p.type, "Request")} ${jid(p.name)}`;
       // RS-26: an omitted operation param must be REJECTED, not silently
       // zero-valued.  A primitive component cannot express absence — Jackson
       // deserializes a missing `boolean active` to `false` and a missing
@@ -249,7 +252,7 @@ export function renderDtoFiles(
       const noNul = bearsWireString(p.type);
       if (noNul) imports.add(`${basePkg}.api.NoNulChar`);
       const boxedType = wireJavaType(boxed, "Request");
-      return `@NotNull ${nested ? "@Valid " : ""}${noNul ? nulGuarded(boxedType) : boxedType} ${p.name}`;
+      return `${jsonProp(p.name, imports)}@NotNull ${nested ? "@Valid " : ""}${noNul ? nulGuarded(boxedType) : boxedType} ${jid(p.name)}`;
     });
     out.push({
       name: `${upperFirst(op.name)}${agg.name}Request.java`,
@@ -372,7 +375,7 @@ function bearsWireString(t: TypeIR): boolean {
   }
 }
 
-function voRecord(
+export function voRecord(
   vo: string,
   fields: readonly FieldIR[],
   dir: WireDir,
@@ -393,19 +396,19 @@ function voRecord(
     if (noNul) imports.add(`${basePkg}.api.NoNulChar`);
     const guardedType = noNul ? nulGuarded(javaType) : javaType;
     if (dir === "Response" || f.optional || JAVA_PRIMITIVES.has(javaType)) {
-      return `${guardedType} ${f.name}`;
+      return `${jsonProp(f.name, imports)}${guardedType} ${jid(f.name)}`;
     }
     imports.add("jakarta.validation.constraints.NotNull");
     const nested = bearsNestedRecord(t);
     if (nested) imports.add("jakarta.validation.Valid");
-    return `@NotNull ${nested ? "@Valid " : ""}${guardedType} ${f.name}`;
+    return `${jsonProp(f.name, imports)}@NotNull ${nested ? "@Valid " : ""}${guardedType} ${jid(f.name)}`;
   });
   const body =
     dir === "Response"
       ? [
           `    public static ${vo}Response from(${vo} value) {`,
           `        return new ${vo}Response(${fields
-            .map((f) => domainToWire(eff(f.type, f.optional), `value.${f.name}()`))
+            .map((f) => domainToWire(eff(f.type, f.optional), `value.${jid(f.name)}()`))
             .join(", ")});`,
           `    }`,
         ]
@@ -447,7 +450,9 @@ function wireRecord(
     if (idW) {
       const t = wireFieldType(idW);
       collectWireImports(t, imports, "Response");
-      components.push(`${wireJavaType(t, "Response")} ${idW.name}`);
+      components.push(
+        `${jsonProp(idW.name, imports)}${wireJavaType(t, "Response")} ${jid(idW.name)}`,
+      );
       args.push(domainToWire(t, `value.${accessor(idW)}`));
     }
     // A DECLARED record names DOMAIN types, so a field the aggregate declares
@@ -461,14 +466,16 @@ function wireRecord(
         imports.add(`${basePkg}.domain.common.ProvLineage`);
         collectWireImports(f.type, imports, "Response");
         components.push(
-          `${JAVA_PROVENANCED_RECORD}<${wireJavaType(f.type, "Response", true)}> ${f.name}`,
+          `${jsonProp(f.name, imports)}${JAVA_PROVENANCED_RECORD}<${wireJavaType(f.type, "Response", true)}> ${jid(f.name)}`,
         );
         args.push(
           `new ${JAVA_PROVENANCED_RECORD}<>(${payloadFieldToWire(f, declared.payloads)}, value.${javaProvSibling(f.name)}())`,
         );
         continue;
       }
-      components.push(`${payloadFieldJavaType(f, declared.payloads, imports)} ${f.name}`);
+      components.push(
+        `${jsonProp(f.name, imports)}${payloadFieldJavaType(f, declared.payloads, imports)} ${jid(f.name)}`,
+      );
       args.push(payloadFieldToWire(f, declared.payloads));
     }
   } else {
@@ -489,7 +496,7 @@ function wireRecord(
         imports.add(`${basePkg}.domain.common.${JAVA_PROVENANCED_RECORD}`);
         imports.add(`${basePkg}.domain.common.ProvLineage`);
       }
-      components.push(`${wireJavaType(t, "Response")} ${w.name}`);
+      components.push(`${jsonProp(w.name, imports)}${wireJavaType(t, "Response")} ${jid(w.name)}`);
       // A provenanced field folds the domain's two co-located accessors into
       // the one carrier: `new Provenanced<>(value.total(), value.totalProvenance())`.
       const projected = carried
@@ -504,6 +511,16 @@ function wireRecord(
         // .currentOrNull()` (a static mapper injects no bean); an unauthenticated
         // request (`__maskUser == null`) always redacts.
         maskedAny = true;
+        // The rendered predicate is Java source like any other, and its LEAF
+        // renderings carry imports: a string/ref `==` becomes
+        // `Objects.equals(...)` (java.util.Objects), `matches` becomes
+        // `Pattern.compile(...)`, a decimal/money literal a `BigDecimal`, a
+        // `now()` an `Instant`.  `renderJavaExpr` writes the source but cannot
+        // reach this file's import set, so the collector has to be called
+        // alongside it — otherwise the mapper names a symbol the file never
+        // imports and `javac` fails on the `mask unless` field-redaction
+        // control itself.
+        collectJavaExprImports(w.maskUnless!, imports);
         const pred = renderJavaExpr(w.maskUnless!, {
           thisName: "value",
           currentUserExpr: "__maskUser",
@@ -600,7 +617,7 @@ function payloadFieldJavaType(
  *  `domainToWire`, which would double-suffix (`LineResponseResponse::from`). */
 function payloadFieldToWire(f: FieldIR, payloads: readonly PayloadIR[]): string {
   const t = eff(f.type, f.optional);
-  const accessorExpr = `value.${f.name}()`;
+  const accessorExpr = `value.${jid(f.name)}()`;
   const base = t.kind === "array" ? t.element : t;
   if (base.kind === "entity" && isResponsePayloadName(payloads, base.name)) {
     if (t.kind === "array") return `${accessorExpr}.stream().map(${base.name}::from).toList()`;
@@ -655,7 +672,7 @@ export function renderReadModelVoResponseDtos(
   pkg: string,
   basePkg: string,
 ): DtoFile[] {
-  const voLookup = new Map(ctx.valueObjects.map((v) => [v.name, v.fields] as const));
+  const voLookup = valueObjectFieldLookup(ctx);
   const voNames = new Set<string>();
   for (const wf of observableWorkflowsOf(ctx)) {
     referencedValueObjects(
@@ -673,5 +690,5 @@ export function renderReadModelVoResponseDtos(
 }
 
 function accessor(w: WireField): string {
-  return `${w.name}()`;
+  return `${jid(w.name)}()`;
 }

@@ -54,9 +54,43 @@ const IF_BODY = `        if n > 0 {
         }`;
 const NO_IF_BODY = `        count := n`;
 
+// M-T6.59 NARROWED THIS GATE.  The `if` STATEMENT itself now RENDERS on elixir
+// (a value-producing `record = if … do … record else … record end`,
+// `src/generator/elixir/vanilla/if-stmt-emit.ts`), so the blanket refusal is
+// gone.  What survives are three sub-shapes the vanilla body renderers cannot
+// express, each with its own `#slug` message — and the gate is proved BOTH
+// ways: the sub-shape errors, the renderable shape does not.
+/** A RETURNING operation body — `return` only parses with a value, so the
+ *  `#return-in-branch` sub-shape needs its own one-context system. */
+const returningSys = (platform: string): string => `system S {
+  subdomain M { context C {
+    aggregate Task {
+      title: string
+      count: int
+      operation run(n: int): int {
+        if n > 0 {
+          return 1
+        }
+        count := n
+        return count
+      }
+    }
+    repository Tasks for Task {}
+  } }
+  storage primary { type: postgres }
+  resource state { for: C, kind: state, use: primary }
+  deployable api { platform: ${platform}, contexts: [C], dataSources: [state], port: 3000 }
+}`;
+const GUARD_IN_BRANCH = `        if n > 0 {
+          precondition count > 0
+          count := 1
+        }`;
+
 describe("loom.elixir-if-stmt-unsupported", () => {
-  it("errors when an elixir deployable hosts a context whose operation uses `if`", async () => {
-    expect(await codes(backendSys("elixir", IF_BODY))).toContain("loom.elixir-if-stmt-unsupported");
+  it("does NOT fire for a plain assigning `if` — elixir renders it (M-T6.59)", async () => {
+    expect(await codes(backendSys("elixir", IF_BODY))).not.toContain(
+      "loom.elixir-if-stmt-unsupported",
+    );
   });
 
   it("does NOT fire on the four backends that render the statement", async () => {
@@ -73,13 +107,36 @@ describe("loom.elixir-if-stmt-unsupported", () => {
     );
   });
 
-  it("reaches an `if` NESTED inside another branch", async () => {
+  it("does NOT fire for an `if` NESTED inside another branch — both render", async () => {
     const nested = `        if n > 0 {
           if n > 5 {
             count := 1
           }
         }`;
-    expect(await codes(backendSys("elixir", nested))).toContain("loom.elixir-if-stmt-unsupported");
+    expect(await codes(backendSys("elixir", nested))).not.toContain(
+      "loom.elixir-if-stmt-unsupported",
+    );
+  });
+
+  it("refuses a `return` inside a branch of an operation body (#return-in-branch)", async () => {
+    expect(await codes(returningSys("elixir"))).toContain("loom.elixir-if-stmt-unsupported");
+  });
+
+  it("refuses a `precondition` nested in a branch (#guard-in-branch)", async () => {
+    expect(await codes(backendSys("elixir", GUARD_IN_BRANCH))).toContain(
+      "loom.elixir-if-stmt-unsupported",
+    );
+  });
+
+  it("does NOT refuse either sub-shape on the four rendering backends", async () => {
+    for (const p of ["node", "dotnet", "java", "python"]) {
+      expect(await codes(backendSys(p, GUARD_IN_BRANCH)), `platform ${p}`).not.toContain(
+        "loom.elixir-if-stmt-unsupported",
+      );
+      expect(await codes(returningSys(p)), `platform ${p}`).not.toContain(
+        "loom.elixir-if-stmt-unsupported",
+      );
+    }
   });
 });
 

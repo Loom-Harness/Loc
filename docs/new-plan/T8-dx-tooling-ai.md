@@ -133,4 +133,3 @@ that silently moves comments is worse than none.
 
 **Gate:** `ddd fmt --check` over the repo's own `.ddd` corpus, which also gives
 [M-T9.51](T9-toolchain-health.md#m-t951)'s widened example glob a second job.
->>>>>>> a4e41edc8 (An independent audit, run without reading the ones already in the repo)

@@ -6,6 +6,12 @@
 // the point of this file.
 //
 //   gap    — a target hasn't implemented it yet.  A TODO.  DRAINS TO ZERO.
+//   seam   — the gate's membership set already names EVERY shipping target
+//            (or is empty), so it can fire only for a target that does not
+//            exist yet, or for a deployable that hosts no backend at all.  Not
+//            work on any shipping target; kept as the seam the NEXT
+//            backend/frontend gates on until it ports (Wave C2's coordinator
+//            commit, 2026-09-13 — see LATENT ROWS below).
 //   scope  — a declared v1 limit with a named successor.  Owned by a mission;
 //            becomes a `gap` when that mission starts, or is renamed out (as
 //            below) if the limit is re-justified as permanent.
@@ -34,23 +40,22 @@
 // `verified` marks rows whose classification a human has confirmed against the
 // emission site.  Rows land `false` and are promoted on review.
 //
-// LATENT ROWS — why a `gap` can be a gate nothing can trip.  Many gates' Sets
-// (EVENT_SOURCING_BACKENDS, PROJECTION_*_SUPPORTED, SUPPORTED_UNION_BACKENDS,
-// FIELD_MASK_BACKENDS, CHART_FRAMEWORKS, PROJECTION_READ_FRAMEWORKS, …) name
-// every shipping target, so the gate fires for nothing that exists.  Those
-// gates are deliberately KEPT — they are the seam the NEXT backend/frontend
-// gates on until it ports, the pattern CHART_FRAMEWORKS documents at
-// system-checks.ts.  Their rows stay too, because the code IS still emitted in
-// `src/` and that invariant demands a row; such a row's `what` says "ships on
-// all five; latent seam for a NEW target" rather than reading as a TODO.
-//
-// So the `gap` count is NOT a backlog depth: a latent row drains only when the
-// gate itself is deleted (a decision about the seam), while a live row drains
-// when a target ports.  Read each row's `what` to tell which you are looking at
-// — "latent seam" / "dormant" / "unreachable backstop" mark the former.  The
-// classification stayed `gap` on purpose: nothing here is a declared v1 limit
-// with a successor mission (that is `scope`), and inventing a third kind would
-// change what the pin counts without changing what is true.
+// LATENT ROWS — the `seam` kind.  Many gates' Sets (EVENT_SOURCING_BACKENDS,
+// PROJECTION_*_SUPPORTED, SUPPORTED_UNION_BACKENDS, FIELD_MASK_BACKENDS,
+// CHART_FRAMEWORKS, PROJECTION_READ_FRAMEWORKS, …) name every shipping target,
+// so the gate fires for nothing that exists — or only for a context no backend
+// deployable hosts at all.  Those gates are deliberately KEPT: they are the
+// seam the NEXT backend/frontend gates on until it ports, the pattern
+// CHART_FRAMEWORKS documents at system-checks.ts.  Their rows stay too,
+// because the code IS still emitted in `src/` and that invariant demands a
+// row — but they are `kind: "seam"`, not `gap`, so `openGaps()` (and the
+// `MAX_OPEN_GAPS` pin) counts only rows a SHIPPING target has left undone.
+// Until Wave C2 they sat under `gap` with "latent seam" / "dormant" /
+// "unreachable backstop" in their `what` (24 of 51 rows); the plan's exit
+// criterion is `MAX_OPEN_GAPS` = 0 LIVE rows, which the prose marker could
+// not express.  A seam row drains only when the gate itself is deleted (a
+// decision about the seam) or when a new target ports and the row becomes a
+// live `gap` for it; `latentSeams()` lists them, pinned exactly in the test.
 //
 // GATED BY `test/system/unsupported-register.test.ts`: every suffixed code in
 // `src/` must appear here and every row must still be emitted, so a new gap
@@ -61,7 +66,7 @@
 /** How a `*-unsupported` code relates to work — now or later.  See the header.
  *  A code that is NEITHER (impossible, refused, or a plain rule) does not
  *  belong in the suffix at all — rename it, per the header. */
-export type UnsupportedKind = "gap" | "scope";
+export type UnsupportedKind = "gap" | "seam" | "scope";
 
 export interface UnsupportedEntry {
   /** The `loom.*` diagnostic code. */
@@ -82,8 +87,20 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   // gap — real parity TODOs.  This is the sprint backlog.  Drains to zero.
   // -------------------------------------------------------------------------
   {
-    code: "loom.audited-backend-unsupported",
+    code: "loom.workflow-handle-unsupported",
     kind: "gap",
+    site: "src/ir/validate/checks/workflow-checks.ts:294",
+    what:
+      "`handle name(…) { … }`, the multi-command saga continuation, is emitted by NO backend — " +
+      "not a route, not a handler, not a method.  It was silent before M-T5.34 (audit #2864 D5): " +
+      "a saga could be started and read and never advanced.  A genuine five-backend gap, not a " +
+      "latent seam — the emitter is the deferred half of decision D-1(c)",
+    mission: "M-T6.58",
+    verified: true,
+  },
+  {
+    code: "loom.audited-backend-unsupported",
+    kind: "seam",
     site: "src/ir/validate/checks/storage-inheritance-checks.ts:537",
     what:
       "audit-record emission (`operation … audited`, `audited create|destroy`) ships on all five " +
@@ -92,23 +109,16 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
     mission: "M-T6.32",
   },
   {
-    code: "loom.audited-returning-operation-unsupported",
-    kind: "gap",
-    site: "src/ir/validate/checks/storage-inheritance-checks.ts:614",
-    what: "`audited`/`provenanced` × a RETURNING operation falls into node's void-204 handler",
-    mission: "M-T6.32",
-  },
-  {
     code: "loom.auth-ui-unsupported-framework",
-    kind: "gap",
-    site: "src/ir/validate/checks/ui-framework-checks.ts:307",
+    kind: "seam",
+    site: "src/ir/validate/checks/ui-framework-checks.ts:425",
     what: "`auth: ui` ships on every frontend; the seam a NEW one gates on",
     mission: "M-T1.20",
   },
   {
     code: "loom.chart-unsupported-target",
-    kind: "gap",
-    site: "src/ir/validate/checks/ui-framework-checks.ts:193",
+    kind: "seam",
+    site: "src/ir/validate/checks/ui-framework-checks.ts:311",
     what:
       "`Chart` renders on every shipping frontend (CHART_FRAMEWORKS names all seven) — latent " +
       "seam a NEW framework gates on until it ports",
@@ -126,7 +136,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   },
   {
     code: "loom.context-test-unsupported",
-    kind: "gap",
+    kind: "seam",
     site: "src/language/validators/test-placement.ts:104",
     what:
       "context-level `test` whose target context no INTEGRATION_BACKENDS deployable hosts — all " +
@@ -139,16 +149,22 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
     site: "src/ir/validate/checks/orm-adapter-checks.ts:51",
     what:
       "the .NET Dapper residue after full EF parity: an AGGREGATING query-time projection over a " +
-      "document/event-sourced source, a hierarchical (deep/global) tenancy scope filter, and the " +
-      "two self-provisioning limits — declared migration steps and Postgres schema placement " +
-      "(migration-checks.ts, `validateMigrationAdapterSupport` / " +
-      "`validateSelfProvisioningSchemaSupport`)",
+      "document/event-sourced source, and the two self-provisioning limits — declared migration " +
+      "steps (`#migrations`, owned by M-T2.17 per D-DAPPER-ALTER: it closes when the " +
+      "`test:migration-evolution-dapper` leg is green, NOT when the gate widens) and Postgres " +
+      "schema placement (`#schema-split` / `#schema-ignored`, the twin limit of the same " +
+      "boot-time schema owner — also M-T2.17) (migration-checks.ts, " +
+      "`validateMigrationAdapterSupport` / `validateSelfProvisioningSchemaSupport`).  The " +
+      "hierarchical (deep/global) tenancy `#deep-scope` clause DRAINED in wave C2 packet 2b: " +
+      "`authzFilterToSql` renders the descendant-or-self fragment as raw Postgres and " +
+      "`collectFilterPrincipalRefs` (now on `walkExprDeep`) binds its four params, proven on a " +
+      "booted Dapper backend by `test/e2e/tenancy-hierarchy-dapper.test.ts`",
     mission: "M-T6.35",
   },
   {
     code: "loom.component-children-unsupported",
     kind: "gap",
-    site: "src/ir/validate/checks/ui-framework-checks.ts:574",
+    site: "src/ir/validate/checks/ui-framework-checks.ts:690",
     what:
       "a user component invoked WITH CHILDREN on angular.  Angular has no PascalCase component " +
       "tag, so a call site is `<ng-container [ngComponentOutlet]=…>`, and `ngComponentOutlet` " +
@@ -166,7 +182,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.page-form-locals-unsupported",
     kind: "gap",
-    site: "src/ir/validate/checks/ui-framework-checks.ts:614",
+    site: "src/ir/validate/checks/ui-framework-checks.ts:730",
     what:
       "two forms on ONE page whose generated page-local bindings collide.  Every JS frontend " +
       "splices a form's mutation hook + form handle in as page-scope consts named by the design " +
@@ -183,7 +199,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   },
   {
     code: "loom.datagrid-unsupported-target",
-    kind: "gap",
+    kind: "seam",
     site: "src/ir/validate/checks/ui-framework-checks.ts:63",
     what:
       "`DataGrid` (a TanStack row model) outside DATA_GRID_FRAMEWORKS.  LATENT seam for a NEW " +
@@ -211,7 +227,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   },
   {
     code: "loom.event-sourced-workflow-unsupported",
-    kind: "gap",
+    kind: "seam",
     site: "src/ir/validate/checks/storage-inheritance-checks.ts:233",
     what:
       "`workflow … eventSourced` runtime ships on all five backends " +
@@ -220,7 +236,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   },
   {
     code: "loom.event-sourcing-backend-unsupported",
-    kind: "gap",
+    kind: "seam",
     site: "src/ir/validate/checks/storage-inheritance-checks.ts:191",
     what:
       "`persistedAs: eventLog` storage ships on all five backends (EVENT_SOURCING_BACKENDS) — " +
@@ -230,15 +246,26 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.elixir-if-stmt-unsupported",
     kind: "gap",
-    site: "src/ir/validate/checks/if-stmt-checks.ts:74",
+    site: "src/ir/validate/checks/if-stmt-checks.ts:265",
     what:
-      "the `if` STATEMENT in a domain body an elixir deployable emits — every Phoenix body renderer " +
-      "threads its result through a rebound `record`, and an Elixir `if` block's bindings do not " +
-      "escape the block, so an assigning branch would compile and silently do nothing.  Closing it " +
-      "means making each branch value-producing (`record = if … do … record else record end`) in " +
-      "every vanilla body renderer; the other four backends render the statement today.  " +
-      "raised by the M-FT.11 field-test slice, which shipped the statement on the four spine " +
-      "backends and gated elixir rather than half-render it",
+      "FOUR narrow sub-shapes of the `if` STATEMENT in a domain body an elixir deployable emits.  " +
+      "The statement ITSELF now renders (M-T6.59, wave C2 2a): `vanilla/if-stmt-emit.ts` makes it " +
+      "value-producing (`record = if … do … record else record end`) and `opBodyStmtsDeep` makes " +
+      "every persist/containment probe deep-walk the branches, so a branch assignment survives " +
+      "`Repo.update` (boot-proved on real Postgres).  What is left: `#return-in-branch` (an EARLY " +
+      "EXIT — the linear body renderers would have to restructure the statements FOLLOWING the " +
+      "`if` into a `case` arm, a list-level transform that also breaks the same-length " +
+      "`statementSubRegions` sourcemap zip; allowed already in a TAIL-VALUE body, where every " +
+      "`return` is already tail-position), `#guard-in-branch` (the op path hoists top-level " +
+      "`requires`/`precondition` into a `with :ok <- ensure(…)` chain answering 403/422; a nested " +
+      "one would raise → 500, a wire divergence worse than the refusal), and `#event-sourced` (an " +
+      "ES command body is sorted into `with`-clauses / `let`s / one `events = […]` list, not " +
+      "rendered as a statement sequence, so a conditional `emit` has nowhere to go), and " +
+      "`#branch-statement` (the CLOSED branch vocabulary — an `emit`, an effect-form `match` or a " +
+      "PROVENANCED write in a branch: each RENDERS, but the emitters decide an operation's " +
+      "supporting machinery by scanning its TOP-LEVEL statements, so a conditional `emit` gets no " +
+      "`require Logger` and cannot be hoisted past the commit by the S5a restructure, and a nested " +
+      "provenanced write captures lineage in an op the route layer never put in flush mode)",
     mission: "M-T6.59",
     verified: true,
   },
@@ -253,7 +280,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   },
   {
     code: "loom.field-mask-unsupported",
-    kind: "gap",
+    kind: "seam",
     site: "src/ir/validate/checks/storage-inheritance-checks.ts:426",
     what:
       "`mask unless` read redaction ships on all five backends (FIELD_MASK_BACKENDS) — fires " +
@@ -262,7 +289,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   },
   {
     code: "loom.filter-bypass-unsupported",
-    kind: "gap",
+    kind: "seam",
     site: "src/ir/validate/checks/context-filter-checks.ts:268",
     what:
       "`ignoring` is honored by every backend family (FILTER_BYPASS_FAMILIES) — latent: it can " +
@@ -274,8 +301,17 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
     kind: "gap",
     site: "src/ir/validate/checks/orm-adapter-checks.ts:284",
     what:
-      "a find / retrieval / query-time-projection / capability-filter predicate outside the " +
-      "opt-in `persistence: dapper|mikroorm` SQL subset (EF Core + Drizzle lower it in full)",
+      "ONE shape is left on the opt-in `persistence: mikroorm` FilterQuery subset (EF Core + " +
+      "Drizzle are the full-subset baseline; the DAPPER arm drained before this row was last " +
+      "reviewed and is not work: `find-predicate-capability.ts` sets `DAPPER_SUBSET = FULL_SUBSET`, " +
+      "so `whereToSql` lowers the whole queryable subset, membership subquery included): a " +
+      "reference-collection membership whose ARGUMENT is a column rather than a bindable value " +
+      "(`this.<refColl>.contains(<column>)`), which only a query-time projection `where` " +
+      "can produce since it has no parameters.  mikroorm's remaining narrowings drained in " +
+      "wave C2 (the queryable intrinsics and `currentUser` arms, then general membership — an " +
+      "uncorrelated `id in (select <ownerFk> from <joinTable> where <targetFk> = ?)` raw " +
+      "fragment, the FilterQuery mirror of Dapper's EXISTS subquery and of drizzle's own " +
+      "`inArray` subselect)",
     mission: "M-T6.35",
   },
   {
@@ -287,11 +323,39 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   },
   {
     code: "loom.flutter-primitive-unsupported",
-    kind: "gap",
-    site: "src/ir/validate/checks/ui-framework-checks.ts:520",
+    kind: "seam",
+    site: "src/ir/validate/checks/ui-framework-checks.ts:638",
     what:
       "every page primitive now renders on Flutter — FLUTTER_UNRENDERED_PRIMITIVES " +
       "(src/util/flutter-deferred-primitives.ts) is EMPTY, so the gate is a dormant re-arm net",
+    mission: "M-T1.20",
+  },
+  {
+    code: "loom.flutter-action-body-unsupported",
+    kind: "gap",
+    site: "src/ir/validate/checks/ui-framework-checks.ts:822",
+    what:
+      "two Flutter action-body shapes every other frontend renders: a `toast(…)` view " +
+      "effect (a Riverpod Notifier holds no BuildContext, so it reaches no ScaffoldMessenger; " +
+      "`navigate(…)` reaches the router through the generated lib/nav.dart bridge since " +
+      "Wave C1 packet 1e-ii) and a `match await` on one of the five " +
+      "STANDARD aggregate ops (the async-effect emitter resolves its op through " +
+      "`agg.operations`, which holds only DECLARED ones). Both emitted a " +
+      "`// TODO(flutter full-parity)` comment into the Dart before Wave C1 1d-ii — the " +
+      "action was wired and silently did nothing",
+    mission: "M-T1.32",
+  },
+  {
+    code: "loom.frontend-prop-type-unsupported",
+    kind: "gap",
+    site: "src/ir/validate/checks/ui-framework-checks.ts:160",
+    what:
+      "a declared `component` param / `extern` function signature type the shared TypeScript " +
+      "prop layer has no spelling for — `money`, `File` and a `valueobject`, each of which " +
+      "HAS a wire shape (a decimal string re-parsed to Decimal, a fixed FileRef object, a " +
+      "VO DTO) and is therefore portable work rather than an impossibility. Before Wave C1 " +
+      "1d-ii these were the `default: throw` arms in `_frontend/component-prop-type.ts` / " +
+      "`extern-functions.ts`: a raw stack trace on `.ddd` that validated clean",
     mission: "M-T1.20",
   },
   {
@@ -313,7 +377,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   },
   {
     code: "loom.generic-carrier-unsupported",
-    kind: "gap",
+    kind: "seam",
     site: "src/ir/validate/checks/structural-checks.ts:344",
     what:
       "`paged`/`envelope` generic carriers ship on all five backends " +
@@ -323,27 +387,13 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.if-stmt-page-body-unsupported",
     kind: "scope",
-    site: "src/ir/validate/checks/if-stmt-checks.ts:109",
+    site: "src/ir/validate/checks/if-stmt-checks.ts:333",
     what:
       "the `if` STATEMENT in a `ui` page / component / store body, on EVERY frontend.  A page body " +
       "is an expression tree — a condition is a VALUE there (`cond ? a : b`, `match`) — and no " +
       "frontend emitter (JS walker / Feliz update / Flutter notifier / HEEx handler) has a " +
       "statement-position conditional.  A declared limit of the page surface, not a per-target gap: " +
       "it would be lifted by a decision to give page bodies statement-form control flow",
-    verified: true,
-  },
-  {
-    code: "loom.java-reserved-identifier-unsupported",
-    kind: "gap",
-    site: "src/ir/validate/checks/backend-syntax-checks.ts:246",
-    what:
-      "a `.ddd` field / param / operation named after a JAVA reserved word (`case`, `do`, " +
-      '`new`, …). The SQL half is quoted (`@Column(name = "`case`")`); the host-identifier ' +
-      "half emits `String case;` / `public String case() {`, which javac rejects. Refused " +
-      "rather than escaped because Java has no verbatim identifier and a rename would move " +
-      "the JSON property on java alone — drained by emitting a mangled field plus an explicit " +
-      "`@JsonProperty` at every wire site",
-    mission: "M-T6.36",
     verified: true,
   },
   {
@@ -354,7 +404,15 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
       "on MikroORM: the two self-provisioning limits — declared migration steps and Postgres " +
       "schema placement (migration-checks.ts, `#migrations` / `#schema-split` / " +
       "`#schema-ignored`) — this adapter's boot-time `orm.schema.updateSchema()` schema owner " +
-      "genuinely cannot express.  Two prior residents drained: the root SCALAR/ENUM " +
+      "does not express today.  BOTH are OWNER-RULED as builds, not as permanent limits: " +
+      "`#migrations` by D-DAPPER-ALTER (its mikroorm twin is ruled the same way there) — " +
+      "render the MigrationsIR chain behind a `__loom_migrations` ledger and flip " +
+      "`!usingMikro` at `src/platform/hono/v4/emit.ts`, a named T2 mission, with the widened " +
+      "refusal landing first as the interim), and `#schema-*` by measurement (C2 packet 2c): " +
+      "a MikroORM `EntitySchema` takes a `schema:` key and `updateSchema` provisions it, so " +
+      "the gap is that `renderMikroEntities` is never handed the per-aggregate " +
+      "`resolveDataSourceConfig` the drizzle `renderSchema` already receives at the same call " +
+      "site (`emit.ts:705`).  Two prior residents drained: the root SCALAR/ENUM " +
       "scalar-array shape (`#scalar-array` — `columnsForType` grew a native-Postgres-array " +
       "column arm mirroring drizzle's; `validateMikroOrmSupport` and the reject itself are " +
       "gone) and the abstract-inheritance-base-with-`contains` shape (promoted to the " +
@@ -365,7 +423,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   },
   {
     code: "loom.operation-return-unsupported",
-    kind: "gap",
+    kind: "seam",
     site: "src/ir/validate/checks/structural-checks.ts:628",
     what:
       "`or`-union operation returns ship on all five backends (SUPPORTED_RETURN_BACKENDS) — " +
@@ -374,8 +432,8 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   },
   {
     code: "loom.paged-query-handler-unsupported-backend",
-    kind: "gap",
-    site: "src/ir/validate/checks/projection-backend-checks.ts:321",
+    kind: "seam",
+    site: "src/ir/validate/checks/projection-backend-checks.ts:247",
     what:
       "a `paged` queryHandler return ships on all five backends (PAGED_QH_SUPPORTED) — latent " +
       "seam for a NEW backend",
@@ -404,7 +462,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   },
   {
     code: "loom.projection-groupby-unsupported-backend",
-    kind: "gap",
+    kind: "seam",
     site: "src/ir/validate/checks/projection-backend-checks.ts:108",
     what:
       "`group by` grouped read models ship on all five backends (PROJECTION_GROUPBY_SUPPORTED) " +
@@ -413,8 +471,8 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   },
   {
     code: "loom.projection-query-time-unsupported",
-    kind: "gap",
-    site: "src/ir/validate/checks/projection-backend-checks.ts:348",
+    kind: "seam",
+    site: "src/ir/validate/checks/projection-backend-checks.ts:274",
     what:
       "query-time projections ship on all five backends (PROJECTION_QT_SUPPORTED) — latent seam " +
       "for a NEW backend",
@@ -422,8 +480,8 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   },
   {
     code: "loom.projection-source-unsupported-backend",
-    kind: "gap",
-    site: "src/ir/validate/checks/projection-backend-checks.ts:434",
+    kind: "seam",
+    site: "src/ir/validate/checks/projection-backend-checks.ts:360",
     what:
       "a projection sourced from another projection's rows ships on all five backends " +
       "(PROJECTION_PROJ_SOURCE_SUPPORTED) — latent seam for a NEW backend",
@@ -431,7 +489,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   },
   {
     code: "loom.projection-whole-table-aggregation-unsupported",
-    kind: "gap",
+    kind: "seam",
     site: "src/ir/validate/checks/projection-backend-checks.ts:72",
     what:
       "whole-table `select f = agg(…)` SQL push-down ships on all five backends " +
@@ -440,8 +498,8 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   },
   {
     code: "loom.projection-workflow-source-unsupported-backend",
-    kind: "gap",
-    site: "src/ir/validate/checks/projection-backend-checks.ts:391",
+    kind: "seam",
+    site: "src/ir/validate/checks/projection-backend-checks.ts:317",
     what:
       "a projection sourced from a workflow's instance rows ships on all five backends " +
       "(PROJECTION_WF_SOURCE_SUPPORTED) — latent seam for a NEW backend",
@@ -449,7 +507,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   },
   {
     code: "loom.provenanced-backend-unsupported",
-    kind: "gap",
+    kind: "seam",
     site: "src/ir/validate/checks/storage-inheritance-checks.ts:267",
     what:
       "the provenance runtime (lineage column + history flush) ships on all five backends " +
@@ -458,7 +516,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   },
   {
     code: "loom.remote-api-op-unsupported",
-    kind: "gap",
+    kind: "seam",
     site: "src/ir/validate/checks/resource-capability-checks.ts:118",
     what:
       "every backend emits the typed in-system api client — REMOTE_API_OP_UNSUPPORTED is an " +
@@ -467,7 +525,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   },
   {
     code: "loom.saving-shape-unsupported",
-    kind: "gap",
+    kind: "seam",
     site: "src/ir/validate/checks/datasource-checks.ts:214",
     what:
       "re-classified from a live latent seam to a dormant one: every platform key already in " +
@@ -543,7 +601,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   },
   {
     code: "loom.tph-backend-unsupported",
-    kind: "gap",
+    kind: "seam",
     site: "src/ir/validate/checks/storage-inheritance-checks.ts:98",
     what:
       "sharedTable (TPH) storage ships on all five backends (TPH_CAPABLE) — fires only when no " +
@@ -552,7 +610,13 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   },
   {
     code: "loom.tph-filter-unsupported",
-    kind: "gap",
+    // `gap` -> `scope` (D-TPH-SUBTYPE-FILTER, wave C2 packet 2b).  Not
+    // half-built work on a shipping target: the refusal is true and narrow (the
+    // EF adapter only — Dapper generates the identical model), and the drain is
+    // a read-path rewrite whose failure mode is a silent leak of a declared read
+    // restriction across ~30 emitter sites with no compiler help.  Commissioned
+    // as M-T6.72 with a booted-app acceptance instead of swept up in a drain.
+    kind: "scope",
     site: "src/ir/validate/checks/storage-inheritance-checks.ts:148",
     what:
       "a TPH SUBTYPE's capability `filter` reading a column the hierarchy ROOT does not declare, " +
@@ -567,12 +631,12 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
       "guarded, and are NOT gated.  Replaces a silent drop (`tph ? [] :`, F2-CB-C2).  Drains if " +
       "the .NET read path moves capability filters off HasQueryFilter onto the per-read LINQ " +
       "`.Where(...)`, which is per-DbSet and therefore subtype-typed",
-    mission: "M-T5.7",
+    mission: "M-T6.72",
   },
   {
     code: "loom.ui-projection-read-unsupported",
     kind: "gap",
-    site: "src/ir/validate/checks/ui-framework-checks.ts:261",
+    site: "src/ir/validate/checks/ui-framework-checks.ts:379",
     what:
       "a KEYED or FOLDED projection read from a page/component — not ui-consumable on ANY target " +
       "(ui-checks.ts:1538).  The per-framework half is fully ported: PROJECTION_READ_FRAMEWORKS " +
@@ -582,13 +646,13 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.ui-realtime-unsupported",
     kind: "gap",
-    site: "src/ir/validate/checks/ui-framework-checks.ts:446",
+    site: "src/ir/validate/checks/ui-framework-checks.ts:564",
     what: "`on <channel>.<Event>` handlers vs. a backend that serves no SSE wire",
     mission: "M-T1.20",
   },
   {
     code: "loom.union-unsupported",
-    kind: "gap",
+    kind: "seam",
     site: "src/ir/validate/checks/structural-checks.ts:517",
     what:
       "discriminated-union tagged wire ships on all five backends (SUPPORTED_UNION_BACKENDS) — " +
@@ -598,16 +662,21 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.vanilla-document-unsupported",
     kind: "gap",
-    site: "src/ir/validate/checks/datasource-checks.ts:530",
+    site: "src/ir/validate/checks/datasource-checks.ts:552",
     what:
       "elixir `shape: document`, the residue after CRUD + scalar finds/ops landed: a PROVENANCED " +
-      "op, or a body/find predicate reading a derived field, a dereferenced cross-aggregate " +
-      "entity, a value-object/private/service/resource call, or a REFERENCE collection (`X id[]`)",
+      "op, or a body/find predicate reading a dereferenced cross-aggregate entity, a " +
+      "value-object/private/service/resource call, or a REFERENCE collection (`X id[]`).  The " +
+      "DERIVED-read clause drained in wave C2 packet 2a: a `this-derived` read has no stored " +
+      "`data` key, which is what the refusal reasoned from, but `render-expr.ts` INLINES the " +
+      "derived's defining expression (an Elixir struct carries no computed field either — #1765), " +
+      "so the read is emittable exactly when the referenced derived's OWN expression is — the gate " +
+      "now recurses into it (cycle-guarded) instead of refusing outright",
     mission: "M-T6.35",
   },
   {
     code: "loom.when-unsupported",
-    kind: "gap",
+    kind: "seam",
     site: "src/ir/validate/checks/structural-checks.ts:587",
     what:
       "the `when` canCommand gate ships on all five backends (SUPPORTED_WHEN_BACKENDS) — latent " +
@@ -619,6 +688,19 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   // scope — a declared v1 limit with a named successor.  Mission-owned; not
   // sprint work until its mission starts.
   // -------------------------------------------------------------------------
+  {
+    code: "loom.entity-part-param-unsupported",
+    kind: "scope",
+    site: "src/ir/validate/checks/entity-part-param-checks.ts:73",
+    what:
+      "an entity-PART-typed parameter on a public action.  A declared limit, not a per-target " +
+      "gap: materializing one means ruling on whether client-supplied parts REPLACE the " +
+      "collection (new ids, history orphaned) or MERGE by id, which the DSL has never answered.  " +
+      "Decision D-2 of the freight-audit fleet plan refuses it and defers that question to a " +
+      "proposal; the value-object spelling is emitted correctly today and is what the message " +
+      "points at.  Lifted by the proposal, or re-justified as permanent and renamed to -invalid",
+    verified: true,
+  },
   {
     code: "loom.criterion-unsupported-target",
     kind: "scope",
@@ -677,7 +759,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.workflow-load-array-unsupported",
     kind: "scope",
-    site: "src/ir/validate/checks/workflow-checks.ts:643",
+    site: "src/ir/validate/checks/workflow-checks.ts:919",
     what: "workflow load of an array result — v1 is single non-nullable",
     verified: true,
   },
@@ -699,7 +781,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.workflow-load-nullable-unsupported",
     kind: "scope",
-    site: "src/ir/validate/checks/workflow-checks.ts:656",
+    site: "src/ir/validate/checks/workflow-checks.ts:932",
     what: "workflow load of a nullable result — v1 is single non-nullable",
     verified: true,
   },
@@ -725,4 +807,11 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
 /** Rows that are actual work.  The sprint backlog; empty is the target state. */
 export function openGaps(): readonly UnsupportedEntry[] {
   return UNSUPPORTED_REGISTER.filter((e) => e.kind === "gap");
+}
+
+/** Latent seams: gates whose membership set already names every shipping
+ *  target.  Not work; they become `gap` rows for a NEW target the day it is
+ *  registered, and drain only when the gate itself is deleted. */
+export function latentSeams(): readonly UnsupportedEntry[] {
+  return UNSUPPORTED_REGISTER.filter((e) => e.kind === "seam");
 }

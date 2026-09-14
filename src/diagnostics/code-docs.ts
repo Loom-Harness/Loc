@@ -40,18 +40,27 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.multiple-systems": "02-systems-and-topology.md#system",
   "loom.duplicate-theme-block": "02-systems-and-topology.md#theme",
   "loom.entity-field-modifier": "03-domain-modeling.md#entity-parts--contains",
+  "loom.entity-part-param-unsupported": "03-domain-modeling.md#entity-parts--contains",
   "loom.entity-field-optional-collection": "04-type-system.md#collections--t",
   "loom.generic-arg-not-carrier": "04-type-system.md#generic-carriers--paged-envelope-option",
   "loom.generic-position": "04-type-system.md#generic-carriers--paged-envelope-option",
   "loom.token-nullable": "04-type-system.md#options--t",
   "loom.bare-aggregate-in-type": "04-type-system.md#x-id--cross-aggregate-references",
+  "loom.money-literal-malformed": "05-expressions.md#money-literals-vs-moneyx-conversion",
   "loom.unknown-name": "05-expressions.md#member-access--calls",
+  "loom.unknown-user-claim": "05-expressions.md#member-access--calls",
+  "loom.emit-unknown-field": "06-behavior-and-statements.md#let--emit",
   "loom.applier-on-non-event-sourced":
     "06-behavior-and-statements.md#applye-event--the-event-sourcing-fold",
   "loom.reserved-derived-on-vo": "07-invariants-derived-functions.md#reserved-display-and-inspect",
   "loom.function-block-impure": "07-invariants-derived-functions.md#function--a-pure-helper",
   "loom.when-references-op-param":
     "06-behavior-and-statements.md#when-also-auto-exposes-get-idcan_op",
+  "loom.variant-match-placement":
+    "06-behavior-and-statements.md#match--the-effect-form-variant-match",
+  "loom.for-placement": "06-behavior-and-statements.md#for--if-let--workflow-bodies-only",
+  "loom.if-let-placement": "06-behavior-and-statements.md#for--if-let--workflow-bodies-only",
+  "loom.vanilla-op-call-actor": "06-behavior-and-statements.md#operation--a-mutating-method",
   "loom.abstract-aggregate-behavior":
     "08-inheritance-and-polymorphism.md#abstract-aggregate--the-base",
   "loom.abstract-repository": "08-inheritance-and-polymorphism.md#abstract-aggregate--the-base",
@@ -69,7 +78,9 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.unmapped-error-status":
     "09-payloads-and-unions.md#error--httpstatus--exception-less-problemdetails",
   "loom.criterion-impure": "10-repositories-and-queries.md#criterion",
+  "loom.integer-literal-imprecise": "04-type-system.md#numeric-representation-rules",
   "loom.projection-aggregate-arg-not-columnar": "10-repositories-and-queries.md#grouped--group-by",
+  "loom.projection-aggregate-type-mismatch": "10-repositories-and-queries.md#grouped--group-by",
   "loom.projection-groupby-join-invalid": "10-repositories-and-queries.md#grouped--group-by",
   "loom.projection-groupby-key-not-columnar": "10-repositories-and-queries.md#grouped--group-by",
   "loom.projection-groupby-keyed-invalid": "10-repositories-and-queries.md#grouped--group-by",
@@ -105,9 +116,15 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.canonical-create-duplicate-workflow":
     "13-workflows.md#create--handle--starters--continuations",
   "loom.create-name-conflict-workflow": "13-workflows.md#create--handle--starters--continuations",
+  "loom.workflow-handle-unsupported": "13-workflows.md#create--handle--starters--continuations",
   "loom.workflow-applier-on-non-event-sourced":
     "13-workflows.md#create--handle--starters--continuations",
   "loom.correlation-type-mismatch": "13-workflows.md#one-event--the-event-reactor",
+  // M-T5.34.  The missing-starter ruling documents against the reactor section
+  // (that is the member whose behaviour is inert without a starter); the
+  // command-side correlation ruling and the `handle` refusal both belong to the
+  // starters-and-continuations section that declares those two members.
+  "loom.reactor-without-starter": "13-workflows.md#one-event--the-event-reactor",
   "loom.correlation-uninferrable": "13-workflows.md#one-event--the-event-reactor",
   "loom.reactor-event-uncarried": "13-workflows.md#one-event--the-event-reactor",
   "loom.resource-op-in-transaction": "13-workflows.md#resource-consumption",
@@ -116,6 +133,7 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.transactional-no-effect": "13-workflows.md#transactional--isolation",
   "loom.correlation-field-ambiguous": "13-workflows.md#workflow--state",
   "loom.workflow-correlation-required": "13-workflows.md#workflow--state",
+  "loom.workflow-create-correlation-unsupplied": "13-workflows.md#workflow--state",
   "loom.channel-key-missing-field": "14-apis-storage-resources-channels.md#channel--channelsource",
   "loom.reserved-not-emitted": "14-apis-storage-resources-channels.md#connection-sources",
   "loom.channelsource-incompatible":
@@ -128,9 +146,17 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.angular-deployable-missing-ui": "15-ui-pages-structure.md#ui-block--deployable-binding",
   "loom.feliz-deployable-missing-ui": "15-ui-pages-structure.md#ui-block--deployable-binding",
   "loom.flutter-deployable-missing-ui": "15-ui-pages-structure.md#ui-block--deployable-binding",
+  "loom.flutter-action-statement-unsupported": "15-ui-pages-structure.md#state--derived--action",
+  "loom.flutter-action-body-unsupported": "15-ui-pages-structure.md#state--derived--action",
+  "loom.ui-body-statement-kind": "15-ui-pages-structure.md#state--derived--action",
+  "loom.ui-page-route-collision": "15-ui-pages-structure.md#page--route-title-body",
+  "loom.heex-handler-name-collision": "15-ui-pages-structure.md#state--derived--action",
+  "loom.heex-stateful-component-reused": "15-ui-pages-structure.md#component--reusable-region-tree",
+  "loom.frontend-prop-type-unsupported": "15-ui-pages-structure.md#component--reusable-region-tree",
   "loom.react-deployable-missing-ui": "15-ui-pages-structure.md#ui-block--deployable-binding",
   "loom.svelte-deployable-missing-ui": "15-ui-pages-structure.md#ui-block--deployable-binding",
   "loom.ui-framework-unhostable": "15-ui-pages-structure.md#ui-block--deployable-binding",
+  "loom.ui-read-unresolved": "16-ui-walker-primitives.md#queryview--async-data-branching",
   "loom.vue-deployable-missing-ui": "15-ui-pages-structure.md#ui-block--deployable-binding",
   "loom.chart-accessor-not-field":
     "16-ui-walker-primitives.md#chart--grouped-projection-series-every-frontend",
@@ -142,7 +168,20 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
     "16-ui-walker-primitives.md#the-form-family--createform-operationform-workflowform-destroyform",
   "loom.page-form-locals-unsupported":
     "16-ui-walker-primitives.md#the-form-family--createform-operationform-workflowform-destroyform",
+  "loom.destroy-form-of-unresolved":
+    "16-ui-walker-primitives.md#the-form-family--createform-operationform-workflowform-destroyform",
   "loom.component-children-unsupported": "16-ui-walker-primitives.md#slot",
+  // The body-walker give-up codes (M-T9.55).  The first four are argument /
+  // reference / expression refusals — the chapter's own gate section lists the
+  // sibling `loom.page-primitive-*` codes — and the fifth is a porting gap, so
+  // it anchors on the per-target table instead.
+  "loom.page-primitive-arg-missing":
+    "16-ui-walker-primitives.md#arity-argument-and-placement-gates",
+  "loom.page-primitive-arg-invalid":
+    "16-ui-walker-primitives.md#arity-argument-and-placement-gates",
+  "loom.page-ref-unreachable": "16-ui-walker-primitives.md#arity-argument-and-placement-gates",
+  "loom.page-expr-unrenderable": "16-ui-walker-primitives.md#the-dispatch-model",
+  "loom.page-primitive-target-gap": "16-ui-walker-primitives.md#per-target-honest-gates",
   "loom.auth-missing-issuer": "17-auth.md#auth-----oidc-config",
   "loom.auth-unknown-claim-field": "17-auth.md#auth-----oidc-config",
   "loom.auth-without-user": "17-auth.md#auth-required--per-deployable-middleware--verifier-seam",
@@ -151,6 +190,7 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.auth-unknown-provider": "17-auth.md#errors",
   "loom.duplicate-permission": "17-auth.md#permissions--a-typed-catalogue-with-implies",
   "loom.unknown-permission": "17-auth.md#permissions--a-typed-catalogue-with-implies",
+  "loom.create-params-not-wire": "06-behavior-and-statements.md#create--destroy--lifecycle-actions",
   "loom.default-deny-ungated": "17-auth.md#requires--the-authorization-gate-http-403",
   "loom.sensitive-wire-unsupported": "17-auth.md#sensitive--field-tagging",
   "loom.duplicate-user-block": "17-auth.md#user--the-principal-claim-shape",

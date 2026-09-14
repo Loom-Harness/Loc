@@ -2,6 +2,7 @@ import {
   isServerSourcedDefault,
   serverSourcedDefaultFields,
 } from "../../../generator/_frontend/server-default.js";
+import { LONG_SAFE_MAX, LONG_SAFE_MIN } from "../../../generator/_numeric/codec.js";
 import { numericEncode } from "../../../generator/_numeric/target.js";
 import { renderHonoLogCall } from "../../../generator/_obs/render-hono.js";
 import {
@@ -28,6 +29,7 @@ import {
   historySelectStatement,
   renderHistoryEntryMapper,
 } from "../../../generator/typescript/emit/audit-history.js";
+import { domainServiceNamesInExprs } from "../../../generator/typescript/emit/domain-service.js";
 import { TS_NUMERIC } from "../../../generator/typescript/numeric-codec.js";
 import { renderTsExpr } from "../../../generator/typescript/render-expr.js";
 import { aggHasFieldMask } from "../../../generator/typescript/repository-wire-builder.js";
@@ -91,6 +93,7 @@ import {
 } from "../../../ir/util/api-surface.js";
 import { partsChildrenFirst } from "../../../ir/util/containment-parent.js";
 import {
+  callerGates,
   lifecycleGates,
   lifecycleGatesReadRow,
   lifecycleGatesUseCurrentUser,
@@ -112,7 +115,11 @@ import {
   opOperation,
 } from "../../../ir/util/openapi-ids.js";
 import { opHasProvSite } from "../../../ir/util/prov-id.js";
-import { collectReachableTypes } from "../../../ir/util/reachable-types.js";
+import {
+  collectReachableTypes,
+  findValueObjectInScope,
+  valueObjectPool,
+} from "../../../ir/util/reachable-types.js";
 import { aggregateIsEventSourced } from "../../../ir/util/resolve-datasource.js";
 import { sortableFields } from "../../../ir/util/sortable-fields.js";
 import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
@@ -465,7 +472,7 @@ export function buildRoutesFile(
   // reading the principal from the ambient request context.
   const lines: string[] = [];
   lines.push("// Auto-generated.  Do not edit by hand.");
-  if (aggregateUsesMoneyDeep(agg, ctx.valueObjects)) {
+  if (aggregateUsesMoneyDeep(agg, valueObjectPool(ctx))) {
     // Money-bearing routes consume the parsed `Decimal` via Zod's
     // type inference through `moneySchema`; the route file itself
     // never names `Decimal` directly, so a `moneySchema` import is
@@ -509,6 +516,22 @@ export function buildRoutesFile(
     ...(hasExternOp ? ["NotImplementedError"] : []),
   ];
   lines.push(`import { ${errorNames.join(", ")} } from "../domain/errors";`);
+  // Domain-service namespaces the module's GATE expressions call.  A
+  // `requires` gate is HOISTED out of the operation body to the caller
+  // (`src/ir/util/op-gates.ts`), so it renders `Rules.fee(...)` INTO this file
+  // while every other collector here only ever looked at operation bodies —
+  // ledger row `F2-CB-C7`, a TS2304 in a project that generated clean.  The
+  // gate set comes from `callerGates` rather than a local re-enumeration, so a
+  // sixth gate site cannot reintroduce the hole; the `when` state gates and the
+  // find read-gates render into the same file and join it.
+  const gateServices = domainServiceNamesInExprs([
+    ...callerGates(agg).map((g) => g.expr),
+    ...agg.operations.map((o) => o.when),
+    ...(repo?.finds ?? []).map((f) => f.requires),
+  ]);
+  if (gateServices.length > 0) {
+    lines.push(`import { ${gateServices.join(", ")} } from "../domain/services";`);
+  }
   // `when` gates (and their auto-exposed can-query companions) render enum
   // values like `OrderStatus.Shipped` in the route file; import those enums
   // from value-objects so the predicate type-checks (else TS2304).
@@ -1715,6 +1738,118 @@ function emitCanOpRoute(
   return out;
 }
 
+/** The AUDITED / PROVENANCED write path of an operation route, emitted once and
+ *  shared by the void-204 handler and the returning (`X or NotFound`) one.
+ *
+ *  Load, mutate, save, then write the audit row and/or flush the provenance
+ *  history in ONE transaction (built on `db`, mirroring the workflow routes) so
+ *  the state change and its derived records commit or roll back atomically —
+ *  D-WRITE-TX's "state + audit + provenance in one tx; dispatch after commit".
+ *
+ *  `capture: true` makes the transaction RETURN the operation's tagged result
+ *  (`db.transaction` / `em.transactional` both resolve to their callback's
+ *  value), binding it to `result` outside the transaction so the caller can
+ *  translate an error variant to ProblemDetails AFTER the commit.  That is the
+ *  whole of what `loom.audited-returning-operation-unsupported` used to refuse:
+ *  the route shape was the void one, so the declared result was discarded.
+ *  Without it the block is byte-identical to what the void handler emitted
+ *  before this extraction. */
+function auditProvTxLines(args: {
+  agg: AggregateIR;
+  op: OperationIR;
+  ctx: BoundedContextIR;
+  audit: boolean;
+  prov: boolean;
+  usingMikro: boolean;
+  usesUser: boolean;
+  isVersionedUpdate: boolean;
+  mutation: (pad: string) => string[];
+  capture?: boolean;
+}): string[] {
+  const { agg, op, ctx, audit, prov, usingMikro, usesUser, isVersionedUpdate, mutation } = args;
+  const out: string[] = [];
+  if (audit) {
+    // Actor = the typed currentUser if the body already reads it, else
+    // the inbound claim via the untyped-key bridge (null when no auth).
+    const actorExpr = usesUser
+      ? "currentUser"
+      : `(c as unknown as { get(k: "currentUser"): unknown }).get("currentUser") ?? null`;
+    out.push(`    const actor = ${actorExpr};`);
+  }
+  // The request correlation id + frame scope id stamped onto every audit /
+  // provenance row, tying each to the request (and its causality position)
+  // that produced it.  Read from the ambient RequestContext opened by the
+  // request-id middleware.
+  out.push(`    const reqCtx = requestContext();`);
+  out.push(`    const __deferred = deferredDispatcher(events);`);
+  out.push(`    ${args.capture ? "const result = await" : "await"} ${txWrapperCall(usingMikro)}`);
+  out.push(`      const repoTx = new ${agg.name}Repository(tx, __deferred);`);
+  out.push(`      const aggregate = await repoTx.getById(Ids.${agg.name}Id(id));`);
+  if (isVersionedUpdate) {
+    out.push(`      const ifMatch = c.req.header("if-match");`);
+    out.push(`      const expectedVersion = parseIfMatch(ifMatch, aggregate.version);`);
+  }
+  out.push(...requiresGateLines(op, "      ", ctx));
+  out.push(...whenGateLine(agg, op, "      "));
+  if (audit) out.push(`      const before = repoTx.toWire(aggregate);`);
+  out.push(...mutation("      "));
+  out.push(
+    isVersionedUpdate
+      ? `      await repoTx.save(aggregate, expectedVersion);`
+      : `      await repoTx.save(aggregate);`,
+  );
+  if (audit) {
+    out.push(`      const after = repoTx.toWire(aggregate);`);
+    out.push(`      await ${historyInsertCall(usingMikro, "auditRecords")}`);
+    out.push(`        auditId: randomUUID(),`);
+    out.push(`        operationId: "${camelId(opOperation(agg.name, op.name))}",`);
+    out.push(`        action: "${op.name}",`);
+    out.push(`        targetType: "${agg.name}",`);
+    out.push(`        targetId: id,`);
+    out.push(`        actor,`);
+    out.push(`        before,`);
+    out.push(`        after,`);
+    out.push(`        at: new Date(),`);
+    out.push(`        status: "ok",`);
+    out.push(`        correlationId: reqCtx?.correlationId ?? null,`);
+    out.push(`        scopeId: reqCtx?.scopeId ?? null,`);
+    out.push(`        parentId: reqCtx?.parentId ?? null,`);
+    out.push(`      });`);
+    out.push(
+      `      ${renderHonoLogCall("auditRecorded", `action: "${op.name}", target: "${agg.name}", actor`)}`,
+    );
+  }
+  if (prov) {
+    // One history row per provenanced write captured during the mutation;
+    // traceId + at are stamped here so the domain layer stays pure.
+    out.push(`      const __prov = aggregate.drainProv();`);
+    out.push(`      for (const t of __prov) {`);
+    out.push(`        await ${historyInsertCall(usingMikro, "provenanceRecords")}`);
+    out.push(`          traceId: randomUUID(),`);
+    out.push(`          snapshotId: t.snapshotId,`);
+    out.push(`          targetType: t.target.type,`);
+    out.push(`          field: t.target.field,`);
+    out.push(`          inputs: t.inputs,`);
+    out.push(`          computedValue: t.computedValue,`);
+    out.push(`          at: new Date(),`);
+    out.push(`          correlationId: reqCtx?.correlationId ?? null,`);
+    out.push(`          scopeId: reqCtx?.scopeId ?? null,`);
+    out.push(`          actorId: reqCtx?.actorId ?? null,`);
+    out.push(`          parentId: reqCtx?.parentId ?? null,`);
+    out.push(`        });`);
+    out.push(`      }`);
+    out.push(`      if (__prov.length > 0) {`);
+    out.push(
+      `        ${renderHonoLogCall("provenanceRecorded", `aggregate: "${agg.name}", count: __prov.length`)}`,
+    );
+    out.push(`      }`);
+  }
+  if (args.capture) out.push(`      return __result;`);
+  out.push(`    });`);
+  out.push(`    await __deferred.flush();`);
+  return out;
+}
+
 function emitOperationRoute(
   agg: AggregateIR,
   op: OperationIR,
@@ -1731,10 +1866,16 @@ function emitOperationRoute(
   // Exception-less operation (`operation foo(): X or NotFound`): the route
   // captures the tagged-union result and translates an `error`-variant to an
   // RFC-7807 ProblemDetails status, a success to HTTP 200 (exception-less.md).
-  // The spike supports the plain repo path only (audit / prov / extern return-
-  // typed ops are a later slice); they fall through to the void handler.
-  if (op.returnType && !audit && !prov && !op.extern) {
-    return emitReturningOperationRoute(agg, op, ctx, entry, emitTrace);
+  //
+  // `audited` / `provenanced` returning ops take the SAME route, with the
+  // transactional audit/provenance block wrapped around the call and the result
+  // carried out of the transaction (M-T6.32 — retired
+  // `loom.audited-returning-operation-unsupported`, which existed because they
+  // used to fall through to the void-204 handler and lose the declared result).
+  // `extern` returning ops remain a separate (declared) seam — the body lives
+  // outside the toolchain.
+  if (op.returnType && !op.extern) {
+    return emitReturningOperationRoute(agg, op, ctx, entry, emitTrace, audit, prov, usingMikro);
   }
   // The canonical `update(...)` operation (crudish, or a hand-declared one of
   // the same name) is the one route that honours the client's optimistic-
@@ -1846,88 +1987,19 @@ function emitOperationRoute(
         : `    await repo.save(aggregate);`,
     );
   } else {
-    // Audited / provenanced: load, mutate, save, then write the audit row
-    // and/or flush the provenance history in ONE transaction (built on
-    // `db`, mirroring the workflow routes) so the state change and its
-    // derived records commit or roll back atomically.
-    if (audit) {
-      // Actor = the typed currentUser if the body already reads it, else
-      // the inbound claim via the untyped-key bridge (null when no auth).
-      const actorExpr = usesUser
-        ? "currentUser"
-        : `(c as unknown as { get(k: "currentUser"): unknown }).get("currentUser") ?? null`;
-      out.push(`    const actor = ${actorExpr};`);
-    }
-    // The request correlation id + frame scope id stamped onto every audit /
-    // provenance row, tying each to the request (and its causality position)
-    // that produced it.  Read from the ambient RequestContext opened by the
-    // request-id middleware.
-    out.push(`    const reqCtx = requestContext();`);
-    out.push(`    const __deferred = deferredDispatcher(events);`);
-    out.push(`    await ${txWrapperCall(usingMikro)}`);
-    out.push(`      const repoTx = new ${agg.name}Repository(tx, __deferred);`);
-    out.push(`      const aggregate = await repoTx.getById(Ids.${agg.name}Id(id));`);
-    if (isVersionedUpdate) {
-      out.push(`      const ifMatch = c.req.header("if-match");`);
-      out.push(`      const expectedVersion = parseIfMatch(ifMatch, aggregate.version);`);
-    }
-    out.push(...requiresGateLines(op, "      ", ctx));
-    out.push(...whenGateLine(agg, op, "      "));
-    if (audit) out.push(`      const before = repoTx.toWire(aggregate);`);
-    out.push(...mutation("      "));
     out.push(
-      isVersionedUpdate
-        ? `      await repoTx.save(aggregate, expectedVersion);`
-        : `      await repoTx.save(aggregate);`,
+      ...auditProvTxLines({
+        agg,
+        op,
+        ctx,
+        audit,
+        prov,
+        usingMikro,
+        usesUser,
+        isVersionedUpdate,
+        mutation,
+      }),
     );
-    if (audit) {
-      out.push(`      const after = repoTx.toWire(aggregate);`);
-      out.push(`      await ${historyInsertCall(usingMikro, "auditRecords")}`);
-      out.push(`        auditId: randomUUID(),`);
-      out.push(`        operationId: "${camelId(opOperation(agg.name, op.name))}",`);
-      out.push(`        action: "${op.name}",`);
-      out.push(`        targetType: "${agg.name}",`);
-      out.push(`        targetId: id,`);
-      out.push(`        actor,`);
-      out.push(`        before,`);
-      out.push(`        after,`);
-      out.push(`        at: new Date(),`);
-      out.push(`        status: "ok",`);
-      out.push(`        correlationId: reqCtx?.correlationId ?? null,`);
-      out.push(`        scopeId: reqCtx?.scopeId ?? null,`);
-      out.push(`        parentId: reqCtx?.parentId ?? null,`);
-      out.push(`      });`);
-      out.push(
-        `      ${renderHonoLogCall("auditRecorded", `action: "${op.name}", target: "${agg.name}", actor`)}`,
-      );
-    }
-    if (prov) {
-      // One history row per provenanced write captured during the mutation;
-      // traceId + at are stamped here so the domain layer stays pure.
-      out.push(`      const __prov = aggregate.drainProv();`);
-      out.push(`      for (const t of __prov) {`);
-      out.push(`        await ${historyInsertCall(usingMikro, "provenanceRecords")}`);
-      out.push(`          traceId: randomUUID(),`);
-      out.push(`          snapshotId: t.snapshotId,`);
-      out.push(`          targetType: t.target.type,`);
-      out.push(`          field: t.target.field,`);
-      out.push(`          inputs: t.inputs,`);
-      out.push(`          computedValue: t.computedValue,`);
-      out.push(`          at: new Date(),`);
-      out.push(`          correlationId: reqCtx?.correlationId ?? null,`);
-      out.push(`          scopeId: reqCtx?.scopeId ?? null,`);
-      out.push(`          actorId: reqCtx?.actorId ?? null,`);
-      out.push(`          parentId: reqCtx?.parentId ?? null,`);
-      out.push(`        });`);
-      out.push(`      }`);
-      out.push(`      if (__prov.length > 0) {`);
-      out.push(
-        `        ${renderHonoLogCall("provenanceRecorded", `aggregate: "${agg.name}", count: __prov.length`)}`,
-      );
-      out.push(`      }`);
-    }
-    out.push(`    });`);
-    out.push(`    await __deferred.flush();`);
   }
   out.push(`    return c.body(null, 204);`);
   out.push(`  },`);
@@ -1963,6 +2035,9 @@ function emitReturningOperationRoute(
   ctx: BoundedContextIR,
   entry: ApiOperationIR,
   emitTrace: boolean,
+  audit = false,
+  prov = false,
+  usingMikro = false,
 ): string[] {
   // Lifecycle stamps are applied persist-time in the drizzle save(); the
   // operation route does not stamp.
@@ -2029,13 +2104,38 @@ function emitReturningOperationRoute(
   }
   const baseCallArgs = op.params.map((p) => wireToDomainExpr(`body.${p.name}`, p.type, ctx));
   const callArgs = (usesUser ? [...baseCallArgs, "currentUser"] : baseCallArgs).join(", ");
-  out.push(`    const aggregate = await repo.getById(Ids.${agg.name}Id(id));`);
-  out.push(...requiresGateLines(op, "    ", ctx));
-  out.push(...whenGateLine(agg, op, "    "));
-  // Lifecycle stamps are applied persist-time in the drizzle save()
-  // — the handler does not stamp.
-  out.push(`    const result = aggregate.${lowerFirst(op.name)}(${callArgs});`);
-  out.push(`    await repo.save(aggregate);`);
+  if (audit || prov) {
+    // The audited / provenanced shape: the same transactional block the void
+    // handler emits, with the tagged result carried out of the transaction so
+    // the ProblemDetails translation below runs on the committed value.
+    out.push(
+      ...auditProvTxLines({
+        agg,
+        op,
+        ctx,
+        audit,
+        prov,
+        usingMikro,
+        usesUser,
+        // A returning `update` does not take the `If-Match` precondition path —
+        // the void handler owns the canonical crudish update; a hand-declared
+        // returning op of the same name keeps the write-time CAS fallback.
+        isVersionedUpdate: false,
+        mutation: (pad) => [
+          `${pad}const __result = aggregate.${lowerFirst(op.name)}(${callArgs});`,
+        ],
+        capture: true,
+      }),
+    );
+  } else {
+    out.push(`    const aggregate = await repo.getById(Ids.${agg.name}Id(id));`);
+    out.push(...requiresGateLines(op, "    ", ctx));
+    out.push(...whenGateLine(agg, op, "    "));
+    // Lifecycle stamps are applied persist-time in the drizzle save()
+    // — the handler does not stamp.
+    out.push(`    const result = aggregate.${lowerFirst(op.name)}(${callArgs});`);
+    out.push(`    await repo.save(aggregate);`);
+  }
   // Translate each error variant to a ProblemDetails before the success path.
   // Status / title / type come from the stdlib defaults (exception-less.md A1);
   // the error payload's own fields ride along as RFC-7807 §3.2 extension members
@@ -2387,9 +2487,25 @@ export const QUERY_BOOL =
  *  rejection the shared 422 `defaultHook` answers, and `.openapi({format})`
  *  makes the published shape match the two backends that were already right.
  *
- *  `long` is deliberately left bare: it is a `bigint` column, and the int64
- *  range it would declare is wider than a JS number carries exactly — a bound
- *  nothing enforces is worse than none. */
+ *  `long` carries the SAFE-INTEGER bound instead of an int64 one (M-T5.23 /
+ *  `D-LONG-AVG-DEFAULTS`).  The earlier reading — "a bound nothing enforces is
+ *  worse than none" — was right about int64 and wrong about the alternative:
+ *  this backend stores `long` as a JS `number`
+ *  (`bigint(col, { mode: "number" })`), so ±(2^53−1) is not an arbitrary
+ *  narrowing, it is the exact range the backend can hold, and it IS enforceable
+ *  because the value is already a JS number by the time zod sees it.  The
+ *  ruling declared that ceiling rather than upgrade the representation.
+ *
+ *  MEASURED 2026-09-13 against the real deserializers, which is what decided
+ *  the shape: zod 4's own `.int()` already refuses anything outside
+ *  ±(2^53−1) (`Too big: expected int to be <=9007199254740991`), so the v5
+ *  package enforced the ceiling by accident of its zod major — while v4 (zod
+ *  `^3.25`, whose `.int()` is `Number.isInteger`) accepted `1e19` and wrote it
+ *  into a bigint column.  `LONG_SAFE` makes the contract explicit on both, and
+ *  as a `.refine` rather than `.min`/`.max` it is deliberately ENFORCED WITHOUT
+ *  BEING PUBLISHED — the same call `NO_NUL` makes below: java/.NET/elixir carry
+ *  int64 exactly and publish `format: int64`, and a node-only bound in the
+ *  OpenAPI would make the SAME `.ddd` publish two different contracts. */
 /** The int4 range an `int` column has, as a zod chain fragment. Split out from
  *  the published format so a field that declares its OWN, tighter bound can
  *  drop the range and keep the format (see `INT32_RANGE` use below). */
@@ -2415,6 +2531,11 @@ const NO_NUL = '.refine((s: string) => !s.includes("\\u0000"))';
 const PLAIN_STRING_BASE = "z.string()";
 
 const INT32_RANGE = ".min(-2147483648).max(2147483647)";
+/** `long`'s enforced-but-unpublished safe-integer bound — see the block comment
+ *  above.  A `.refine` is invisible to the OpenAPI emitter, so the published
+ *  shape stays the plain integer every other backend publishes while this
+ *  backend refuses the values it cannot carry exactly. */
+const LONG_SAFE = `.refine((n: number) => n >= ${LONG_SAFE_MIN} && n <= ${LONG_SAFE_MAX})`;
 /** The published `format`, WITHOUT the bound.  This is the whole RESPONSE
  *  half: a response value came out of the very `int4` column the bound
  *  describes, so validating it again buys nothing — but the published shape
@@ -2425,7 +2546,7 @@ const INT32 = `${INT32_RANGE}${INT32_FORMAT}`;
 
 const QUERY_PRIMITIVE: Record<WirePrimitive, string> = {
   int: `z.coerce.number().int()${INT32}`,
-  long: "z.coerce.number().int()",
+  long: `z.coerce.number().int()${LONG_SAFE}`,
   decimal: "z.coerce.number()",
   money: "moneySchema",
   string: "z.string()",
@@ -2438,7 +2559,7 @@ const QUERY_PRIMITIVE: Record<WirePrimitive, string> = {
 
 const BODY_PRIMITIVE: Record<WirePrimitive, string> = {
   int: `z.number().int()${INT32}`,
-  long: "z.number().int()",
+  long: `z.number().int()${LONG_SAFE}`,
   decimal: "z.number()",
   money: "moneySchema",
   string: "z.string()",
@@ -2644,8 +2765,9 @@ function collectUsedValueObjects(
   repo: RepositoryIR | undefined,
   ctx: BoundedContextIR,
 ): ValueObjectIR[] {
-  const { valueObjects } = collectReachableTypes(aggSchemaSeeds(agg, repo), ctx.valueObjects);
-  return ctx.valueObjects.filter((v) => valueObjects.has(v.name));
+  const pool = valueObjectPool(ctx);
+  const { valueObjects } = collectReachableTypes(aggSchemaSeeds(agg, repo), pool);
+  return pool.filter((v) => valueObjects.has(v.name));
 }
 
 function collectUsedEnums(
@@ -2653,7 +2775,7 @@ function collectUsedEnums(
   repo: RepositoryIR | undefined,
   ctx: BoundedContextIR,
 ): EnumIR[] {
-  const { enums } = collectReachableTypes(aggSchemaSeeds(agg, repo), ctx.valueObjects);
+  const { enums } = collectReachableTypes(aggSchemaSeeds(agg, repo), valueObjectPool(ctx));
   return ctx.enums.filter((e) => enums.has(e.name));
 }
 
@@ -2811,15 +2933,28 @@ export function wireToDomainExpr(expr: string, t: TypeIR, ctx?: BoundedContextIR
       // VO ctor args follow the DSL's field declaration order.  Walk
       // ctx.valueObjects to find the field list; bare-name fallback
       // covers the (rare) case where ctx isn't threaded.
-      const vo = ctx?.valueObjects.find((v) => v.name === info.base);
+      const vo = ctx ? findValueObjectInScope(ctx, info.base) : undefined;
       if (!vo) return `new ${info.base}(${expr})`;
       const args = vo.fields
         .map((f) => wireToDomainExpr(`${expr}.${f.name}`, f.type, ctx))
         .join(", ");
       return `new ${info.base}(${args})`;
     }
-    case "entity":
-      return expr;
+    case "entity": {
+      // A declared record PAYLOAD — the workflow explicit-command param
+      // (`create(c: FileClaim)`, #2864 D7/T2).  A payload has no domain CLASS
+      // on this backend, so its domain form is a plain object whose fields are
+      // each coerced: an `X id` field has to arrive branded, or the first
+      // `Agg.create({ ref: c.<idField> })` downstream is a TS2322
+      // (`string` is not assignable to `CargoId`).  Every other `entity` here
+      // is a containment part, which keeps the pass-through.
+      const pl = ctx?.payloads.find((p) => p.name === info.base && !p.variants);
+      if (!pl) return expr;
+      const entries = pl.fields
+        .map((f) => `${f.name}: ${wireToDomainExpr(`${expr}.${f.name}`, f.type, ctx)}`)
+        .join(", ");
+      return `{ ${entries} }`;
+    }
     case "provenanced":
       // Unreachable: request-side only (see `zodFor`).  The domain keeps the
       // scalar — the carrier is a serialization shape, not an in-memory one.

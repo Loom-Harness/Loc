@@ -11,6 +11,7 @@ import { diagMessage } from "../../../diagnostics/messages.js";
 import { RENDERABLE_FILTER_PRIMITIVES } from "../../../util/filter-param-kinds.js";
 import {
   isWalkerPrimitive,
+  WALKER_READ_PRIMITIVES,
   WALKER_SUB_PRIMITIVE_PARENTS,
 } from "../../../util/walker-primitive-names.js";
 import type {
@@ -23,10 +24,11 @@ import type {
   StmtIR,
   TypeIR,
 } from "../../types/loom-ir.js";
+import { readableOperations, resolveAggregateRead } from "../../util/page-read.js";
 import { typeLabel } from "../../util/type-label.js";
 import { walkExprChildren, walkExprDeep, walkStmtExprsDeep } from "../../util/walk.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
-import { VIEW_EFFECT_BUILTINS, walkerRenderedExprs } from "./ui-checks-shared.js";
+import { namedArg, VIEW_EFFECT_BUILTINS, walkerRenderedExprs } from "./ui-checks-shared.js";
 
 // -------------------------------------------------------------------------
 // `loom.instance-effect-needs-route-id` (M-T6.17) — a page action whose body
@@ -377,6 +379,109 @@ export function checkOpFormRouteId(page: PageIR, diags: LoomDiagnostic[]): void 
 }
 
 // -------------------------------------------------------------------------
+// `loom.destroy-form-of-unresolved` — the `DestroyForm { of: … }` whose `of:`
+// does not resolve to an aggregate with a canonical destroy (F11 / F62).
+//
+// `OperationForm` got its by-name gate one site up; `DestroyForm` never got
+// the twin, and the three ways its `of:` can fail were all silent:
+//
+//   NOT A REF          `DestroyForm { row }` / `{ of: row.thing }` — the
+//                      positional slot and any non-ref expression.
+//   UNRESOLVED         `DestroyForm { of: p }` over a `QueryView` binding, or
+//                      over a value object / enum / typo.
+//   NO CANONICAL       `DestroyForm { of: Note }` where `Note` declares no
+//                      `destroy { }` and is not `with crudish`.
+//
+// Five of the six frontends degrade to a give-up COMMENT
+// (`src/generator/_walker/primitives/forms.ts`, three branches) — the page
+// silently loses its delete button.  FELIZ MISCOMPILES: `renderDestroyForm`
+// (`feliz-target.ts`) interpolates the raw ref NAME into a `Delete<Name>`
+// dispatch without ever consulting `ctx.aggregatesByName`, while the `Msg`
+// case is collected by `formOfAggs` (`feliz/wire.ts`), which DOES filter by
+// that map.  The two disagree, so an unresolved `of:` emits
+// `dispatch (DeleteGadget id)` against a `Msg` union with no such case —
+// `dotnet fable` FS0039, from a `.ddd` that reported `0 error(s)`.
+//
+// Modelled on `checkOpFormRouteId` above, and run for BOTH pages and
+// components (a component body renders the same primitive through the same
+// walker).  Aggregate resolution is model-wide (`allAggregates`), matching the
+// walker's own name map rather than narrowing by deployable.
+// -------------------------------------------------------------------------
+
+/** How a non-ref `of:` argument is described back to the author.  A TABLE, not
+ *  a `switch (of.kind)`: this is a small open-ended labelling map, not a
+ *  dispatch that must cover every `ExprIR.kind`, and `ir-walk-census.test.ts`
+ *  is right to refuse a hand-rolled non-exhaustive switch here. */
+const DESTROY_FORM_OF_SHAPE: Partial<Record<ExprIR["kind"], string>> = {
+  member: "`of:` a member access",
+  call: "`of:` a call",
+  lambda: "`of:` a lambda",
+  literal: "`of:` a literal",
+};
+
+/** A short human description of an `of:` argument the check refuses because it
+ *  is not a plain aggregate reference.  Doubles as the dedupe key. */
+function destroyFormOfShape(of: ExprIR | undefined): string {
+  if (of === undefined) return "no `of:` argument at all";
+  return DESTROY_FORM_OF_SHAPE[of.kind] ?? `\`of:\` a ${of.kind} expression`;
+}
+
+/** Reject a `DestroyForm` whose `of:` is not an aggregate carrying a canonical
+ *  destroy.  One diagnostic per (host, offending `of:`) — a body repeating the
+ *  same form is one mistake. */
+export function checkDestroyFormOf(
+  host: PageIR | ComponentIR,
+  where: string,
+  aggByName: ReadonlyMap<string, AggregateIR>,
+  diags: LoomDiagnostic[],
+): void {
+  const flagged = new Set<string>();
+  const push = (key: string, d: LoomDiagnostic): void => {
+    if (flagged.has(key)) return;
+    flagged.add(key);
+    diags.push(d);
+  };
+  for (const root of walkerRenderedExprs(host)) {
+    walkExprDeep(root, (e) => {
+      if (e.kind !== "call" || e.callKind !== "free" || e.name !== "DestroyForm") return;
+      const names = e.argNames ?? [];
+      let of: ExprIR | undefined;
+      for (let i = 0; i < e.args.length; i++) if (names[i] === "of") of = e.args[i];
+      if (of === undefined || of.kind !== "ref") {
+        const shape = destroyFormOfShape(of);
+        push(`shape:${shape}`, {
+          severity: "error",
+          code: "loom.destroy-form-of-unresolved",
+          message: diagMessage("loom.destroy-form-of-unresolved#not-a-ref", { shape }),
+          source: where,
+        });
+        return;
+      }
+      const agg = aggByName.get(of.name);
+      if (agg === undefined) {
+        push(`unresolved:${of.name}`, {
+          severity: "error",
+          code: "loom.destroy-form-of-unresolved",
+          message: diagMessage("loom.destroy-form-of-unresolved#unresolved", { name: of.name }),
+          source: where,
+        });
+        return;
+      }
+      if (!agg.canonicalDestroy) {
+        push(`no-destroy:${agg.name}`, {
+          severity: "error",
+          code: "loom.destroy-form-of-unresolved",
+          message: diagMessage("loom.destroy-form-of-unresolved#no-canonical-destroy", {
+            name: agg.name,
+          }),
+          source: where,
+        });
+      }
+    });
+  }
+}
+
+// -------------------------------------------------------------------------
 // `loom.unresolved-page-ref` — the last silent-drop door in a page body.
 //
 // A bare name in a rendered position resolves at emit time against the route
@@ -688,4 +793,95 @@ function typeFamily(t: TypeIR): "numeric" | "string" | "bool" | undefined {
 
 export function pageWhere(p: PageIR): string {
   return `page '${p.name}'`;
+}
+
+// -------------------------------------------------------------------------
+// `loom.ui-read-unresolved` — a page read that names no operation.
+//
+// `QueryView { of: <Agg>.<op>(…) }` (and `Chart`'s `of:`) resolves at emit time
+// against a CLOSED set: the auto-`findAll` (`all`), `byId`, the derived
+// `history` read, or a `find` declared on the aggregate's repository.  Anything
+// else names nothing — and until this gate, nothing said so.  What happened
+// instead depended on the target, which is the worst possible shape for a
+// mistake this easy to make (a typo, a criterion whose `scaffoldPaged` was
+// never applied, a find deleted from the repository):
+//
+//   * the JSX / Feliz / Flutter clients import a hook the api emitter never
+//     wrote — `useFindAllBySellableProduct` against an `api/product.ts` that has
+//     no such export.  A BUILD error: loud, late, but findable.
+//   * Phoenix LiveView substituted `list_<agg>s()` — THE UNFILTERED TABLE — and
+//     rendered every row with no error at all.  A storefront page asking for
+//     in-stock published products showed drafts and discontinued ones.
+//
+// So the check is target-agnostic on purpose: one model, one verdict, refused
+// before it can mean two different things.  The Phoenix emitter no longer has
+// a fallback to reach for either (`liveview-emit.ts::renderUnresolvedRead`), so
+// the two halves agree — this is the message, that is the backstop.
+// -------------------------------------------------------------------------
+
+/** The aggregate + operation an `of:` read names, mirroring the walker's
+ *  detector patterns A/B (`<apiParam>.<Agg>.<op>`) and D/E (bare `<Agg>.<op>`),
+ *  in both their member and method-call forms.  Null for every other shape — a
+ *  projection read, a workflow-instance read, a bare ref — each of which has its
+ *  own gate. */
+
+function resolveOfRead(
+  of: ExprIR,
+  apiParamNames: ReadonlySet<string>,
+  aggNames: ReadonlySet<string>,
+): { aggregate: string; operation: string } | null {
+  const recv = of.kind === "member" || of.kind === "method-call" ? of.receiver : undefined;
+  const operation = of.kind === "member" ? of.member : of.kind === "method-call" ? of.member : "";
+  if (!recv) return null;
+  if (
+    recv.kind === "member" &&
+    recv.receiver.kind === "ref" &&
+    apiParamNames.has(recv.receiver.name) &&
+    aggNames.has(recv.member)
+  ) {
+    return { aggregate: recv.member, operation };
+  }
+  if (recv.kind === "ref" && aggNames.has(recv.name)) {
+    return { aggregate: recv.name, operation };
+  }
+  return null;
+}
+
+/** Reject every `of:` read whose operation resolves to no declaration. */
+
+export function checkOfReadResolves(
+  host: PageIR | ComponentIR,
+  where: string,
+  apiParamNames: ReadonlySet<string>,
+  aggNames: ReadonlySet<string>,
+  findsByAggregate: ReadonlyMap<string, ReadonlyMap<string, FindIR>>,
+  diags: LoomDiagnostic[],
+): void {
+  const seen = new Set<string>();
+  for (const root of walkerRenderedExprs(host)) {
+    walkExprDeep(root, (e) => {
+      if (e.kind !== "call" || !WALKER_READ_PRIMITIVES.has(e.name)) return;
+      const of = namedArg(e, "of");
+      if (!of) return;
+      const read = resolveOfRead(of, apiParamNames, aggNames);
+      if (!read) return;
+      const finds = findsByAggregate.get(read.aggregate);
+      if (resolveAggregateRead(read.operation, finds).kind !== "unresolved") return;
+      // One verdict per aggregate+operation: the same read bound twice on a page
+      // (a `Chart` and a `Table` over one query) is one mistake, not two.
+      const key = `${read.aggregate}.${read.operation}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      diags.push({
+        severity: "error",
+        code: "loom.ui-read-unresolved",
+        message: diagMessage("loom.ui-read-unresolved", {
+          aggregate: read.aggregate,
+          operation: read.operation,
+          known: `'${read.aggregate}' exposes: ${readableOperations(finds).join(", ")}.`,
+        }),
+        source: where,
+      });
+    });
+  }
 }

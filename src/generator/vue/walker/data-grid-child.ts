@@ -52,9 +52,15 @@ export function renderVueDataGridChild(spec: DataGridSpec, ctx: WalkContext): Da
     // `@selection-change` is the kebab-case form of the `selectionChange` emit;
     // the payload is the id array, written straight into the page's ref (Vue
     // unwraps a top-level ref in an inline template handler).
-    callSite: selection
-      ? `<${spec.componentName} :rows="${spec.rowsExpr}" @selection-change="${selection} = $event" />`
-      : `<${spec.componentName} :rows="${spec.rowsExpr}" />`,
+    // `:rows` is an HTML attribute, so a `"` inside the rendered expression
+    // would terminate it — the same break the `v-for` templates carried.  Vue
+    // decodes the entity before compiling the expression.
+    callSite: (() => {
+      const rows = spec.rowsExpr.replace(/&/g, "&amp;").replace(/"/g, "&quot;");
+      return selection
+        ? `<${spec.componentName} :rows="${rows}" @selection-change="${selection} = $event" />`
+        : `<${spec.componentName} :rows="${rows}" />`;
+    })(),
   };
 }
 

@@ -1,3 +1,4 @@
+import { pagedReturn } from "../../ir/stdlib/generics.js";
 import type {
   ContainmentIR,
   EnrichedAggregateIR,
@@ -10,6 +11,7 @@ import type {
 } from "../../ir/types/loom-ir.js";
 import { findUsesCurrentUser } from "../../ir/types/loom-ir.js";
 import { aggHasAuditedTarget } from "../../ir/util/audit-capability.js";
+import { findValueObjectInScope, valueObjectPool } from "../../ir/util/reachable-types.js";
 import { aggregateIsVersioned } from "../../ir/util/versioned-capability.js";
 import { lines } from "../../util/code-builder.js";
 import { snake } from "../../util/naming.js";
@@ -30,7 +32,9 @@ import {
   authUserImport,
   emittableFinds,
   findExecutedLine,
+  PY_PAGED_FIND_PARAMS,
   partWireMethod,
+  pyInMemoryPagedFind,
   queryProjectionViews,
   recordAuditMethod,
   toWireMaskedMethod,
@@ -258,7 +262,7 @@ export function buildPyDocumentRepositoryFile(
   ]
     .filter(refersTo)
     .sort();
-  const voEnumNames = [...ctx.valueObjects.map((v) => v.name), ...ctx.enums.map((e) => e.name)]
+  const voEnumNames = [...valueObjectPool(ctx).map((v) => v.name), ...ctx.enums.map((e) => e.name)]
     .filter(refersTo)
     .sort();
   const domainNames = [agg.name, ...parts.map((p) => p.name)].filter(refersTo);
@@ -309,6 +313,10 @@ export function buildPyDocumentRepositoryFile(
       ? "from app.domain.events import DomainEvent, DomainEventDispatcher"
       : "from app.domain.events import DomainEventDispatcher",
     idNames.length > 0 ? `from app.domain.ids import ${idNames.join(", ")}` : null,
+    // The shared paging carrier — demand-gated like every import here, so a
+    // document repository with no `find … paged` stays byte-identical
+    // (F2-CB-C1 taught the in-memory paged branch to this builder).
+    refersTo("PagedResult") ? "from app.domain.paging import PagedResult" : null,
     domainNames.length > 0
       ? `from app.domain.${snake(agg.name)} import ${domainNames.join(", ")}`
       : null,
@@ -339,7 +347,8 @@ export function buildPyDocumentRepositoryFile(
 function projectionViewFind(agg: EnrichedAggregateIR, view: AggregateReadShape): FindIR {
   return {
     name: view.name,
-    params: [],
+    // The projection's own parameters — its inlined `where` names them.
+    params: view.params ?? [],
     returnType: { kind: "array", element: { kind: "entity", name: agg.name } },
     ...(view.filter ? { filter: view.filter } : {}),
     ...(view.bypassAll ? { bypassAll: true } : {}),
@@ -367,7 +376,11 @@ function findMethod(
     : conventionPredicate(agg, find);
   const isList = find.returnType.kind === "array";
   const isOptional = find.returnType.kind === "optional";
+  const isPaged = !!pagedReturn(find.returnType);
   const ret = isList ? `list[${agg.name}]` : isOptional ? `${agg.name} | None` : agg.name;
+  // `find … paged` over a document carrier — the four wire controls join the
+  // signature and the body pages in memory (`pyInMemoryPagedFind`, F2-CB-C1).
+  const pagedSig = ["self", ...params, ...PY_PAGED_FIND_PARAMS].join(", ");
 
   // When the aggregate carries a capability `filter` (DEBT-02 tail), a find
   // must apply the capability predicate too — but it reads a RAW load (not the
@@ -391,14 +404,17 @@ function findMethod(
       : conventionInline(agg, find);
     const conds = [cap?.expr, findCond].filter((c): c is string => c != null).map((c) => `(${c})`);
     const filtered = conds.length > 0 ? `[x for x in items if ${conds.join(" and ")}]` : "items";
-    out = [
-      `    async def ${snake(find.name)}(${sig}) -> ${ret}:`,
+    const loadLines = [
       `        rows = (await self._session.execute(select(${rowClassName(agg.name)}))).scalars().all()`,
       ...(bindPrincipal ? ["        current_user = require_current_user()"] : []),
       aggregateIsVersioned(agg)
         ? `        items = [_${snake(agg.name)}_from_doc(r.data, r.version) for r in rows]`
         : `        items = [_${snake(agg.name)}_from_doc(r.data) for r in rows]`,
     ];
+    if (isPaged) {
+      return pyInMemoryPagedFind(agg, find, { sig: pagedSig, loadLines, filteredExpr: filtered });
+    }
+    out = [`    async def ${snake(find.name)}(${sig}) -> ${ret}:`, ...loadLines];
     if (isList) {
       out.push(`        result = ${filtered}`);
       out.push(findExecutedLine(agg, find.name, "len(result)"));
@@ -414,6 +430,13 @@ function findMethod(
   }
 
   const filtered = pred ? `[x for x in items if (${pred})(x)]` : "items";
+  if (isPaged) {
+    return pyInMemoryPagedFind(agg, find, {
+      sig: pagedSig,
+      loadLines: ["        items = await self.all()"],
+      filteredExpr: filtered,
+    });
+  }
   out = [
     `    async def ${snake(find.name)}(${sig}) -> ${ret}:`,
     "        items = await self.all()",
@@ -541,7 +564,7 @@ function serialize(t: TypeIR, acc: string, ctx: EnrichedBoundedContextIR): strin
   if (t.kind === "id") return `str(${acc})`;
   if (t.kind === "enum") return `${acc}.value`;
   if (t.kind === "valueobject") {
-    const vo = ctx.valueObjects.find((v) => v.name === t.name);
+    const vo = findValueObjectInScope(ctx, t.name);
     if (!vo) return acc;
     const fields = vo.fields
       .map((vf) => `"${snake(vf.name)}": ${serialize(vf.type, `${acc}.${snake(vf.name)}`, ctx)}`)
@@ -568,7 +591,7 @@ function deserialize(t: TypeIR, acc: string, ctx: EnrichedBoundedContextIR): str
   if (t.kind === "id") return `${t.targetName}Id(cast(str, ${acc}))`;
   if (t.kind === "enum") return `${t.name}(cast(str, ${acc}))`;
   if (t.kind === "valueobject") {
-    const vo = ctx.valueObjects.find((v) => v.name === t.name);
+    const vo = findValueObjectInScope(ctx, t.name);
     if (!vo) return acc;
     const m = `cast(dict[str, object], ${acc})`;
     const args = vo.fields

@@ -2,6 +2,12 @@ import type { BoundedContextIR, TypeIR } from "../../../ir/types/loom-ir.js";
 import { lines } from "../../../util/code-builder.js";
 import { provenancedTypeMembers } from "../../_payload/provenanced-wire.js";
 import {
+  MONEY_INTEGER_DIGITS,
+  MONEY_PRECISION,
+  MONEY_RANGE_MESSAGE,
+  MONEY_WIRE_SCALE,
+} from "../../money-scale.js";
+import {
   createFieldConstraints,
   createModelValidator,
   withFieldConstraint,
@@ -77,6 +83,16 @@ const PY_MONEY_STR_DEF = [
   "        # value containing braces would otherwise be re-interpreted as one.",
   "        raise PydanticCustomError(",
   '            "money_format", "Invalid decimal: {value}", {"value": json.dumps(value)}',
+  "        )",
+  "    # RANGE, not format: the grammar above already passed, and what is left is",
+  "    # a magnitude question the COLUMN answers.  Without this a 40-digit price",
+  "    # is a well-formed decimal string a str passthrough happily forwards, so it",
+  `    # reached NUMERIC(${MONEY_PRECISION},${MONEY_WIRE_SCALE}) and the DATABASE refused it — a 500 for a`,
+  "    # client fault (M-T6.60 divergence 3).  Counted on the digits rather than",
+  "    # computed, so a value too large to hold is never constructed.",
+  `    if len(value.lstrip("-").split(".")[0].lstrip("0") or "0") > ${MONEY_INTEGER_DIGITS}:`,
+  "        raise PydanticCustomError(",
+  `            "money_range", ${JSON.stringify(`${MONEY_RANGE_MESSAGE}: {value}`)}, {"value": json.dumps(value)}`,
   "        )",
   "    return value",
   "",
@@ -467,13 +483,25 @@ export function renderPyWireModels(ctx: BoundedContextIR): string {
       "",
       "",
       `class ${vo.name}(BaseModel):`,
-      vo.fields.map((f) =>
-        withFieldConstraint(
-          f.name,
-          wireFieldType(f.type, ctx, "request", ""),
-          constraints.get(f.name),
-        ),
-      ),
+      vo.fields.map((f) => {
+        // A VO subfield declared optional (`line2: string?`) must be OMISSIBLE
+        // on the wire.  Pydantic reads `X | None` with NO DEFAULT as
+        // required-but-nullable, so without the `= None` a body that simply
+        // leaves the subfield out is rejected with
+        // `422 … {"pointer": "/home/line2", "message": "Field required"}` —
+        // while the aggregate's own optional fields, emitted by
+        // `routes-builder`, always carried the default.  Same rule, applied to
+        // the nested VO model.  `withFieldConstraint` folds the default into
+        // `Field(default=None, …)` when the subfield also carries an invariant.
+        const optional = f.optional || f.type.kind === "optional";
+        const base = wireFieldType(f.type, ctx, "request", "");
+        const decl = !optional
+          ? base
+          : base.endsWith("| None")
+            ? `${base} = None`
+            : `${base} | None = None`;
+        return withFieldConstraint(f.name, decl, constraints.get(f.name));
+      }),
       validator,
     );
   });

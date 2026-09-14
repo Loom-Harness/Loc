@@ -82,6 +82,29 @@ describe(".NET TPH emission", () => {
     expect(cust).toContain("e.Id = new PartyId(");
   });
 
+  // M-T5.7 — the identity type that LEAVES the hierarchy.  Every emitter renders
+  // a referenced id as `<targetName>Id` from the IR's own `targetName`,
+  // independently, in ~20 places, so a cross-aggregate `customer: Customer id`
+  // produced `CustomerId` on the field / event record / commands / EF converter
+  // while `ICustomerRepository.GetByIdAsync` took `PartyId` — CS1503 the first
+  // time generated code passed one to the other.  A global ALIAS makes them one
+  // CLR type, which is what the shared table already means.
+  it("a TPH concrete's id class is a global alias for the hierarchy root's", async () => {
+    const out = await emitTph();
+    const at = (p: string): string => [...out].find(([k]) => k.endsWith(p))?.[1] ?? "";
+    const alias = at("Domain/Ids/CustomerId.cs");
+    expect(alias).toContain("global using CustomerId = Api.Domain.Ids.PartyId;");
+    // An alias, not a second struct: two distinct structs is exactly the bug.
+    expect(alias).not.toContain("record struct CustomerId");
+    expect(at("Domain/Ids/VendorId.cs")).toContain(
+      "global using VendorId = Api.Domain.Ids.PartyId;",
+    );
+    // The ROOT keeps a real struct — aliasing it to itself would be circular.
+    expect(at("Domain/Ids/PartyId.cs")).toContain(
+      "public readonly record struct PartyId(Guid Value)",
+    );
+  });
+
   it("a concrete config carries only its own columns (no ToTable/HasKey)", async () => {
     const out = await emitTph();
     const cfg = [...out].find(([p]) => p.endsWith("CustomerConfiguration.cs"))?.[1] ?? "";

@@ -53,6 +53,7 @@ import {
   wholeTableAggregates,
 } from "../../../ir/util/projection-aggregate.js";
 import { snake, upperFirst } from "../../../util/naming.js";
+import { integralWireRange, numericKindOf } from "../../_numeric/codec.js";
 import { numericEncode } from "../../_numeric/target.js";
 import type { SourceMapRecorder } from "../../_trace/sourcemap.js";
 import type { ApiRoute } from "../api-emit.js";
@@ -69,7 +70,8 @@ import {
 } from "./capability-filter.js";
 import { denialOverrides, denialResponse } from "./denial.js";
 import { docFilterLambdaArg, docPredReadsRecord, isVanillaDocAgg } from "./document-emit.js";
-import { ELIXIR_NUMERIC } from "./numeric-codec.js";
+import { findParamRead } from "./find-controller.js";
+import { ELIXIR_NUMERIC, elixirMoneyRoundHelper } from "./numeric-codec.js";
 import { hasRefColls, preloadSuffix } from "./ref-collection-emit.js";
 import { renderWireSerialize } from "./wire-serialize.js";
 
@@ -331,8 +333,8 @@ defmodule ${moduleName} do
   alias ${appModule}.Repo
 
   @doc "Execute the grouped aggregation and return one projected row per group."
-  @spec run(any()) :: [map()]
-  def run(current_user \\\\ nil) do
+  ${runHead(proj).spec} :: [map()]
+  ${runHead(proj).head} do
 ${lines.filter((l) => l !== "").join("\n")}
   end
 ${
@@ -351,7 +353,7 @@ ${
     do: ndt |> DateTime.from_naive!("Etc/UTC") |> DateTime.truncate(:second)
 `
     : ""
-}${moneyWireHelper(grouped.aggregates, grouped.keys)}end
+}${moneyWireHelper(grouped.aggregates, grouped.keys)}${intWireHelper(grouped.aggregates)}end
 `;
   }
 
@@ -388,11 +390,11 @@ defmodule ${moduleName} do
   alias ${appModule}.Repo
 
   @doc "Execute the whole-table aggregation and return the single projected row."
-  @spec run(any()) :: map()
-  def run(current_user \\\\ nil) do
+  ${runHead(proj).spec} :: map()
+  ${runHead(proj).head} do
 ${lines.filter((l) => l !== "").join("\n")}
   end
-${moneyWireHelper(aggregates)}end
+${moneyWireHelper(aggregates)}${intWireHelper(aggregates)}end
 `;
   }
 
@@ -553,13 +555,11 @@ defmodule ${moduleName} do
 ${ectoQueryImport}  alias ${appModule}.Repo
 
   @doc "Execute the query-time projection and return the projected rows."
-  @spec run(any()) :: [map()]
-  def run(current_user \\\\ nil) do
+  ${runHead(proj).spec} :: [map()]
+  ${runHead(proj).head} do
 ${body}
   end${projectionHelpers}${denyHelper}${
-    usesMoneyRound
-      ? `\n\n  defp __money_round(nil), do: nil\n\n  defp __money_round(%Decimal{} = dec), do: ${numericEncode(ELIXIR_NUMERIC, "money", "dto-map", "dec")}`
-      : ""
+    usesMoneyRound ? `\n\n${elixirMoneyRoundHelper()}` : ""
   }${joinedHelper(body)}
 end
 `;
@@ -601,6 +601,40 @@ function moneyWireHelper(
 `;
 }
 
+/** The integral kind of a (possibly optional) declared row type, or `null`. */
+function integralKind(t: TypeIR): "int" | "long" | null {
+  const kind = numericKindOf(t);
+  return kind === "int" || kind === "long" ? kind : null;
+}
+
+/** The `__int_wire/4` guard, emitted beside the calls `ectoCoerce` renders
+ *  (M-T5.23).  Same adjacency rule as `__money_wire/1`: a call to an undefined
+ *  private function fails a `--warnings-as-errors` compile, so the helper
+ *  travels with the projections that need it. */
+function intWireHelper(aggregates: readonly AggregateSelect[]): string {
+  // AGGREGATES only — deliberately not grouping keys.  A key is a STORED column
+  // value read back through Ecto's schema type, already inside its column's
+  // range, and `groupKeyCoerce` emits no `__int_wire` call for it.  Emitting
+  // the helper for a key would leave it UNUSED, which is itself a
+  // `--warnings-as-errors` failure (the mirror of the missing-definition one).
+  const needed = aggregates.some((a) => integralKind(a.type) !== null);
+  if (!needed) return "";
+  return `
+  # An integral aggregate is checked against the exact range of its DECLARED
+  # type instead of being passed through: \`sum\` over an \`integer\` column and
+  # \`count\` are both bigints in SQL, and the same field publishes
+  # \`format: int32\`.  Every backend refuses a value that does not fit rather
+  # than shipping one out of contract (M-T5.23).
+  defp __int_wire(value, min, max, _field)
+       when is_integer(value) and value >= min and value <= max,
+       do: value
+
+  defp __int_wire(value, min, max, field) do
+    raise "projection field '#{field}': integral aggregate #{inspect(value)} is outside the exact range [#{min}, #{max}] of its declared type"
+  end
+`;
+}
+
 /** The Ecto aggregate call for one `select`.  `count` counts ROWS (Ecto needs a
  *  column, so it counts the primary key — equivalent to `COUNT(*)` for a table
  *  whose id is non-null); the rest take the aggregated column off `record`. */
@@ -626,7 +660,22 @@ function ectoAggregate(agg: ProjectionAggregateIR): string {
 function ectoCoerce(s: AggregateSelect, read: string): string {
   const c = aggregateCoercion(s);
   const inner = s.type.kind === "optional" ? s.type.inner : s.type;
-  if (c.isCount) return `${read} || 0`;
+  // An INTEGRAL field is range-checked against its declared type, not passed
+  // through (M-T5.23) — `count` included, since `count` is a bigint in SQL like
+  // `sum(int)` is.  BEAM integers are arbitrary-precision, so nothing here ever
+  // CORRUPTED — but elixir alone shipped a value outside the `format: int32`
+  // the same field publishes, where java now throws from `Math.toIntExact`,
+  // .NET's cast fails and python's `Int32` bound fails the response model.  One
+  // contract, five backends: a value that does not fit is an error.
+  const integral = integralKind(s.type);
+  if (integral) {
+    const { min, max } = integralWireRange(integral);
+    // `count` is never optional (`AggregateCoercion.optional` excludes it), so
+    // the nil arm is the sum/min/max-over-an-empty-table one.
+    return c.optional
+      ? `if(is_nil(${read}), do: nil, else: __int_wire(${read}, ${min}, ${max}, "${s.field}"))`
+      : `__int_wire(${read} || 0, ${min}, ${max}, "${s.field}")`;
+  }
   // money pins the FIXED wire scale (RS-12) instead of echoing the aggregate's
   // own: `sum`/`max`/`min` come back at the scale the rows were STORED at, so a
   // `money("10.00")` write read back through a projection shipped `"40.00"`
@@ -771,6 +820,20 @@ end
   }));
 }
 
+/** The `run/N` head of a projection module.
+ *
+ *  A parameterised projection's inlined `where` names its parameters, so they
+ *  must be BOUND — a `run/1` that took only `current_user` emitted
+ *  `where: record.owner == ^o` over an undefined `o`, which does not compile.
+ *  The declared params LEAD; `current_user` keeps its trailing default-arg
+ *  position (a default argument must come last in Elixir). */
+function runHead(proj: ProjectionIR): { spec: string; head: string } {
+  const names = proj.params.map((p) => snake(p.name));
+  const specArgs = [...names.map(() => "any()"), "any()"].join(", ");
+  const headArgs = [...names, "current_user \\\\ nil"].join(", ");
+  return { spec: `@spec run(${specArgs})`, head: `def run(${headArgs})` };
+}
+
 function renderQueryProjectionAction(
   ctx: EnrichedBoundedContextIR,
   proj: ProjectionIR,
@@ -790,9 +853,15 @@ function renderQueryProjectionAction(
         contextModule,
       })
     : null;
+  // A parameterised projection binds its parameters from the QUERY STRING,
+  // coerced by the same `__find_*` helpers a parameterised find's action uses
+  // (Phoenix delivers every query param as a string).  They LEAD `run/N`'s
+  // argument list, ahead of the trailing `current_user`.
+  const paramArg = proj.params.length > 0 ? "params" : "_params";
+  const runArgs = [...proj.params.map((p) => findParamRead(p)), "current_user"].join(", ");
   if (gate) {
     return `  @doc "GET /api/projections/${slug}"
-  def ${slug}(conn, _params) do
+  def ${slug}(conn, ${paramArg}) do
     current_user = Map.get(conn.assigns, :current_user)
 
     if not (${gate}) do
@@ -803,15 +872,15 @@ function renderQueryProjectionAction(
         `${webModule}.ProblemDetails`,
       )}
     else
-      data = ${projModule}.run(current_user)
+      data = ${projModule}.run(${runArgs})
       json(conn, data)
     end
   end`;
   }
   return `  @doc "GET /api/projections/${slug}"
-  def ${slug}(conn, _params) do
+  def ${slug}(conn, ${paramArg}) do
     current_user = Map.get(conn.assigns, :current_user)
-    data = ${projModule}.run(current_user)
+    data = ${projModule}.run(${runArgs})
     json(conn, data)
   end`;
 }

@@ -26,6 +26,7 @@ import {
   ownFieldsOf,
   tphConcretesOf,
 } from "../../../ir/util/inheritance.js";
+import { findValueObjectInScope } from "../../../ir/util/reachable-types.js";
 import { isValueCollectionType } from "../../../ir/util/value-collections.js";
 import { lines } from "../../../util/code-builder.js";
 import { plural, snake, upperFirst } from "../../../util/naming.js";
@@ -145,7 +146,7 @@ function columnsForType(
     case "id":
       return [{ prop, mikroType: "string", tsType: "string", nullable, primary: false }];
     case "valueobject": {
-      const vo = ctx.valueObjects.find((v) => v.name === type.name);
+      const vo = findValueObjectInScope(ctx, type.name);
       if (!vo) return [{ prop, mikroType: "string", tsType: "string", nullable, primary: false }];
       return vo.fields.flatMap((sub) => {
         const { type: st, nullable: sn } = unwrapOptional(sub.type);

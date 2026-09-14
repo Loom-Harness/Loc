@@ -47,9 +47,20 @@ const BASE_TIMESTAMP = 20260101000000;
  *  error).  A plain literal (number/boolean, e.g. `0`) stays bare. */
 function ectoDefaultClause(def: string | undefined): string {
   if (def === undefined) return "";
+  const d = def.trim();
   // A SQL function-call default (`now()`, `gen_random_uuid()`) → fragment.
-  const isSqlExpr = /^[a-z_][a-z0-9_]*\s*\(.*\)$/i.test(def.trim());
-  return isSqlExpr ? `, default: fragment(${JSON.stringify(def)})` : `, default: ${def}`;
+  const isSqlExpr = /^[a-z_][a-z0-9_]*\s*\(.*\)$/i.test(d);
+  // A SQL *string* literal (`'pending'`) → fragment too.  Single quotes mean
+  // something else entirely in Elixir: a bare `default: 'pending'` is a
+  // CHARLIST, not a string, so Ecto would emit a Postgres integer array
+  // (`{112,101,110,...}`) into the DDL.  Passing the SQL text straight through
+  // `fragment/1` also keeps the doubled-quote escaping (`'it''s'`) that
+  // `sqlStr` produced byte-for-byte, so the DEFAULT Phoenix writes is the one
+  // the four SQL backends write (M-T2.16 / #2864 G1).
+  const isSqlString = /^'(?:[^']|'')*'$/.test(d);
+  return isSqlExpr || isSqlString
+    ? `, default: fragment(${JSON.stringify(def)})`
+    : `, default: ${def}`;
 }
 
 /** Ecto option string for a table / index / reference that lives in a
@@ -564,6 +575,12 @@ end
 }
 
 function emitDelta(m: MigrationsIR, appModule: string, out: Map<string, string>): void {
+  // A generation whose every step renders to nothing on this backend — today
+  // that means a generation of value-object null-consistency CHECKs alone,
+  // which Ecto has no columns to constrain — would otherwise land an `.exs`
+  // with an empty `change/0`: a migration version recorded in
+  // `schema_migrations` that does nothing.  Emit no file instead.
+  if (m.steps.flatMap((s) => renderEctoStep(s)).length === 0) return;
   const path = `priv/repo/migrations/${m.version}_${snake(m.name)}.exs`;
   out.set(path, renderDeltaFile(m, appModule));
 }
@@ -599,9 +616,15 @@ export function renderEctoStep(step: MigrationStep): string[] {
       const decl = step.fk
         ? `references(:${step.fk.refTable}${prefix}, type: ${ectoPrimaryKeyType(c.type)}, on_delete: :${step.fk.onDelete === "cascade" ? "delete_all" : "restrict"})`
         : `${ectoColumnType(c.type)}${ectoColumnOpts(c.type)}`;
+      // The column's `default` is load-bearing on an ADD, not cosmetic: it is
+      // what backfills the pre-existing rows so a NOT-NULL add succeeds at all
+      // (M-T2.16 / #2864 G1).  Dropping it here left Phoenix emitting a bare
+      // `add …, null: false` where the four SQL backends emitted
+      // `ADD COLUMN … NOT NULL DEFAULT …` — the same step, one backend failing.
+      // Same clause `renderEctoColumn` uses for the CREATE TABLE path.
       return [
         `alter table(:${step.table}${prefix}) do`,
-        `  add :${c.name}, ${decl}, null: ${c.nullable}`,
+        `  add :${c.name}, ${decl}, null: ${c.nullable}${ectoDefaultClause(c.default)}`,
         `end`,
       ];
     }
@@ -648,6 +671,15 @@ export function renderEctoStep(step: MigrationStep): string[] {
     }
     case "dropIndex":
       return [`drop index(:${step.table}, name: "${step.name}"${prefixOpt(step.schema)})`];
+    case "addCheck":
+    case "dropCheck":
+      // Value-object null-consistency CHECKs (CheckShape) are meaningless here
+      // and would not even parse: Ecto stores a value object as ONE `:map`
+      // column (`collapseVoGroups`), so the `ship_to_line1` / `ship_to_city`
+      // leaf columns the constraint names do not exist on this backend — and
+      // the invariant they enforce cannot be violated, because a `:map` cell is
+      // written whole.  Skipped exactly as the value-array child table is.
+      return [];
     case "renameIndex":
       // Ecto has no `rename index` DSL — wrap the shared schema-qualified SQL in
       // `execute/1` (the `CREATE SCHEMA` precedent), so the DDL is bit-identical

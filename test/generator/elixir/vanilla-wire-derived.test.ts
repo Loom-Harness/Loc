@@ -60,10 +60,17 @@ describe("vanilla wireShape-driven serialize — derived projection", () => {
     expect(ctrl).toContain('"doubleScore" => record.score * 2');
   });
 
-  it("skips a derived-of-derived (no stored column to read)", async () => {
+  it("PROJECTS a derived-of-derived by inlining it (M-T6.56 / audit F60)", async () => {
+    // This used to assert the opposite — the field was SKIPPED, while the
+    // emitted OpenAPI schema declared it and listed it in `required:`, so every
+    // response violated the contract the app publishes.  `derivedRenderable`
+    // now resolves the referenced derived, which is what `render-expr.ts` had
+    // been doing all along (an Elixir struct carries no computed field, so
+    // `record.<name>` would raise `KeyError` — #1765).
     const ctrl = ctrlOf(await generateSystemFiles(SOURCE));
-    expect(ctrl).not.toContain('"quadScore"');
-    // Never emits a struct read of the derived name itself.
+    expect(ctrl).toContain('"quadScore" => (record.score * 2) * 2');
+    // Still never a struct read of the derived name itself — the inline goes
+    // all the way down to stored columns.
     expect(ctrl).not.toContain("record.double_score");
   });
 });

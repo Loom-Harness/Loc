@@ -127,6 +127,43 @@ The four numeric types follow one cross-cutting contract (`docs/conformance-sema
 | `decimal` | `DECIMAL` | **number** (float64, lossy by design) | `number` / `System.Decimal` (→ `double` on the response) / `BigDecimal` (→ `double` on the response) / `float` (column `Decimal`) / `%Decimal{}` (→ `Decimal.to_float` on the response) |
 | `money` | `DECIMAL(19, 4)` | **string**, always 4 decimals (`"12.5000"`) | decimal.js `Decimal` / `decimal` / `BigDecimal` / `Decimal` / `%Decimal{}` |
 
+A query-time projection's **`avg` over a money column is `money`**, not
+`decimal` — the mean of exact money is money, and it ships as the same
+fixed-scale string every other money field does (M-T5.24). `avg` over an
+integral or `decimal` column is a `decimal` mean, as before. The declared row
+field must carry the aggregation's own type; a mismatch is
+`loom.projection-aggregate-type-mismatch` rather than a silent re-coding, since
+the DECLARED type is what every backend's coercion and the response schema are
+built from.
+
+**The `long` ceiling.** `long` persists as `BIGINT`, but its DECLARED contract is
+the **safe-integer range ±(2^53−1)** — the range every backend carries exactly,
+which the node backend's JS `number` representation is what bounds
+(`D-LONG-AVG-DEFAULTS`, `src/util/numeric-range.ts`). Enforced in two places, so
+a value outside it is refused rather than silently rounded:
+
+- **at compile time** — an integer literal past the ceiling is
+  `loom.integer-literal-imprecise`. The `INT` terminal returns a JS `number`, so
+  `9007199254740993` was already `…92` before any emitter ran, and every target
+  emitted the rounded value;
+- **at the wire boundary** — the node request schema bounds an inbound `long`
+  (enforced, deliberately not published: .NET/java/elixir carry int64 and
+  publish the plain integer, and a node-only bound in the OpenAPI would make one
+  `.ddd` publish two contracts).
+
+An integral **aggregate** (`sum(o.qty)`, `count()`) is range-checked the same
+way on every backend — `sum(int)` and `count(*)` are bigints in SQL, so the
+result routinely exceeds the declared row field's range, and a value that does
+not fit now fails the read on all five instead of wrapping (java), rounding
+(node) or shipping out of contract (elixir). Declare the row field `long` when a
+total can outgrow int32; that widening is admitted by
+`loom.projection-aggregate-type-mismatch`.
+
+Past the ceiling the four non-node backends still ACCEPT an inbound value and
+store it exactly, so a value written through java and read back through node
+rounds; lifting node's representation (BigInt / string wire) is the named
+follow-up if the ceiling ever pinches.
+
 **Widening.** `int → long → decimal` is implicit (`isAssignable` in `type-system.ts`); `money` is a closed type that never joins the chain. Integral division widens to `decimal` (`5 / 2` is `2.5` on every backend, so `derived half: int = a / b` is a type error — declare it `decimal` or use `a.divTrunc(b)`); `+ - * %` stay int-preserving. Money arithmetic admits only `money ± money`, `money × {int|long|decimal}` (commutative) and `money ÷ {int|long|decimal}` — `total + rate` with `rate: decimal` is rejected (*Allowed for money: money ± money, money × {int|long|decimal}, money ÷ {int|long|decimal}*). Bare numeric literals promote to the typed position they sit in (`subtotal >= 0` with `subtotal: money`). The operator surface is [Expressions](05-expressions.md#arithmetic--widening).
 
 ## `money` — precise column, string on the wire
@@ -482,11 +519,11 @@ aggregate Order {
 
 ## Generic carriers — `paged`, `envelope`, `option`
 
-Three **carrier-bounded generic payloads** are built in, instantiated ML-postfix (the keyword follows its argument): `T paged`, `T envelope`, `T option`. A carrier may appear only in a **transport position** — a repository `find` return type, a `queryHandler` return type, or a payload field — never as a stored aggregate property (`loom.generic-position`: *A generic carrier ('paged') is a transport shape*). The argument must itself be a carrier (a primitive, an `X id`, an enum, a value object, or an aggregate, which projects through its `<Agg>Wire`); nesting two constructors (`Order envelope paged`) or a `slot` argument is rejected (`loom.generic-arg-not-carrier`). The pinned shapes:
+Three **carrier-bounded generic payloads** are built in, instantiated ML-postfix (the keyword follows its argument): `T paged`, `T envelope`, `T option`. A carrier may appear only in a **transport position** — a repository `find` return type, a `queryHandler` return type, or a payload field — never as a stored aggregate property (`loom.generic-position`: *A generic carrier ('paged') is a transport shape*). The argument must itself be a carrier (a primitive, an `X id`, an enum, a value object, or an aggregate, which projects through its `<Agg>Wire`); nesting two constructors (`Order envelope paged`) or a `slot` argument is rejected (`loom.generic-arg-not-carrier`). The pinned shapes — note that `envelope` is the odd one out: it is a *read cardinality*, not a wire wrapper (see [§ `envelope`](#envelope)):
 
 ```
 paged(T)    → { items: T[]; page: int; pageSize: int; total: int; totalPages: int }   # 1-based
-envelope(T) → { id: string; ts: datetime; body: T }
+envelope(T) → T                                    # a SINGLE-ROW find: the bare body, 404 when absent
 option(T)   → the 2-variant union  union[T, none]  (an untagged 200 / 404 as a find return)
 ```
 
@@ -548,32 +585,79 @@ end
 
 ### `envelope`
 
-The pinned contract is `envelope(T) → { id, ts, body }`. **Honest gap:** the repository layer knows the carrier (dotnet `public sealed record Envelope<T>(string Id, DateTime Ts, T Body)`, java `Envelope<Order> audit()`), but no backend projects the wrapper onto the route — node, dotnet, java and python return the bare body (`OrderResponse`, `404` when empty), and elixir's `audit/0` returns `Repo.all` → a JSON **array** of bodies:
+`find audit(): Order envelope` is a **single-row find**: the repository answers
+one `Order`, the route serialises the **bare body** at `200`, and an empty result
+set is the not-found rung — `404` ProblemDetails. It is wire-identical to
+`find audit(): Order`, and that is the whole of its meaning. All five backends
+agree by construction (`test/generator/envelope-carrier.test.ts` asserts that
+`T envelope` and `T` emit byte-identically; `test/fixtures/corpus/envelope.ddd`
+is the fixture the compile gates read).
 
 ::: tabs backend
 == node
 ```ts
-// http/order.routes.ts — the envelope find's route schema is bare OrderResponse,
-// not the { id, ts, body } wrapper
-200: { description: "OK", content: { "application/json": { schema: OrderResponse } } },
-// return c.json(repo.toWire(result) as z.infer<typeof OrderResponse>, 200);
+// db/repositories/order-repository.ts
+async audit(): Promise<Order> {
+  const rootRows = await this.db.select().from(schema.orders).limit(1);
+  if (rootRows.length === 0) throw new AggregateNotFoundError("not found");
+  return Order._rehydrate({ … });
+}
+// http/order.routes.ts — 200 OrderResponse | 404, no wrapper
 ```
 == dotnet
 ```csharp
-// Api/OrdersController.cs + Application/Orders/Queries/AuditQuery.cs
-[HttpGet("audit")]
-public async Task<ActionResult<OrderResponse>> AuditOrder()   // bare OrderResponse
+// Domain/Orders/IOrderRepository.cs
+Task<Order> Audit(CancellationToken cancellationToken = default);
+// Infrastructure — FirstOrDefaultAsync(…) ?? throw new AggregateNotFoundException("not_found")
+// Api/OrdersController.cs — ActionResult<OrderResponse>
+```
+== java
+```java
+// features/orders/OrderRepository.java
+Order audit();
+// OrderService.audit(): found == null ? null : OrderResponse.from(found)
+// OrdersController.auditOrder(): null → AggregateNotFoundException → 404
+```
+== python
+```python
+# app/db/repositories/order_repository.py
+async def audit(self) -> Order | None:
+    row = (await self._session.execute(select(OrderRow))).scalars().first()
+    return None if row is None else await self._hydrate(row)
+# app/http/order_routes.py — response_model=OrderResponse, 404 when absent
 ```
 == elixir
 ```elixir
-# lib/api_elixir_web/controllers/order_controller.ex — a list, not a body
-def audit(conn, _params) do
-  with {:ok, records} <- Orders.audit_order(), do: json(conn, Enum.map(records, &serialize/1))
-end
+# lib/api_elixir/orders/order_repository.ex
+@spec audit() :: {:ok, ApiElixir.Orders.Order.t() | nil} | {:error, term()}
+def audit(), do: {:ok, Repo.one(from(record in ApiElixir.Orders.Order))}
+# controller: {:ok, nil} → 404 ProblemDetails; {:ok, record} → json(conn, serialize(record))
 ```
 ::: end
 
-> Treat `{ id, ts, body }` as the carrier's intended contract, but do not rely on it: it is the least uniformly projected of the three carriers, and the five backends do not even agree on the unwrapped shape.
+> **What changed, and why the keyword now carries no distinct meaning.** This
+> section used to pin `envelope(T) → { id, ts, body }` and flag an "honest gap":
+> the repository layer knew the carrier while no backend projected the wrapper
+> onto the route. The gap was worse than honest. **java did not compile** — it
+> named `Envelope<Order>` in the repository port, the Spring Data interface and
+> the impl and declared the type *nowhere* (no class, no import), then called
+> `OrderResponse.from(…)` on it; a `@Query(…) Envelope<Order> audit();` is not a
+> Spring-Data-mappable return either. **dotnet did not compile** — it declared
+> `record Envelope<T>(string Id, DateTime Ts, T Body)` and then returned a bare
+> `Order` from a `Task<Envelope<Order>>` (**CS0029**). **elixir** answered a JSON
+> array of every row while its own published OpenAPI declared a single object.
+> Only node and python were coherent.
+>
+> The `{ id, ts, body }` wrapper could not be made to ship: nothing in the IR can
+> source `ts`. So the carrier was **ratified as the single-row find** node and
+> python already implemented (M-T6.57), the wrapper record was deleted from the
+> .NET emission, and `envelope` is unwrapped to its argument at each backend's
+> find-return seam. `envelope` is retained as documentation-in-the-signature —
+> "this read yields at most one row" — not as a wire shape.
+>
+> Nothing caught this for as long as it did because **no `.ddd` in the repository
+> instantiated the carrier**, so every compile gate was blind to it by
+> construction. `test/fixtures/corpus/envelope.ddd` is the fix for that half.
 
 ### `option`
 

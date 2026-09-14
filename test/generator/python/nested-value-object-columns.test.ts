@@ -126,8 +126,15 @@ describe("python repository — a value object inside a value object", () => {
     );
     // The read probes a leaf column, not the VO-typed field, and rebuilds the
     // whole tree inside the guard.
+    // Every REQUIRED leaf under a nullable group is unwrapped with
+    // `required()` — the whole flattened group is nullable in the schema, but
+    // the guard's probe narrows only the column it reads, so the rest would be
+    // `Decimal | None` against a ctor wanting `Decimal` (#2872, mypy --strict
+    // `arg-type`).  Note the SECOND case: the outer `Addr` is required, so its
+    // own leaf is not unwrapped, while the optional inner `Geo`'s leaves are —
+    // the unwrap follows the nullable GROUP, not the field.
     expect(repo).toContain(
-      "home=(Addr(row.home_line1, Geo(float(row.home_geo_lat), float(row.home_geo_lng))) if row.home_line1 is not None else None),",
+      "home=(Addr(required(row.home_line1), Geo(float(required(row.home_geo_lat)), float(required(row.home_geo_lng)))) if row.home_line1 is not None else None),",
     );
   });
 
@@ -146,7 +153,7 @@ describe("python repository — a value object inside a value object", () => {
       '"home_geo_lat": (Decimal(str(aggregate.home.geo.lat)) if aggregate.home.geo is not None else None),',
     );
     expect(repo).toContain(
-      "home=Addr(row.home_line1, (Geo(float(row.home_geo_lat), float(row.home_geo_lng)) if row.home_geo_lat is not None else None)),",
+      "home=Addr(row.home_line1, (Geo(float(required(row.home_geo_lat)), float(required(row.home_geo_lng))) if row.home_geo_lat is not None else None)),",
     );
   });
 });

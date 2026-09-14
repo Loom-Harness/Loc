@@ -13,7 +13,6 @@ export {
 export {
   validateDotnetNameCollisions,
   validateElixirOpSelfCallPosition,
-  validateJavaReservedIdentifiers,
 } from "./backend-syntax-checks.js";
 export {
   FILTER_BYPASS_FAMILIES,
@@ -44,7 +43,6 @@ export {
   PROJECTION_QT_SUPPORTED,
   PROJECTION_WF_SOURCE_SUPPORTED,
   validateColumnlessProjectionSources,
-  validateDocumentAggregationBackend,
   validateDocumentAggregationFilters,
   validateGroupedProjectionBackend,
   validatePagedQueryHandlerBackend,
@@ -68,7 +66,6 @@ export {
   FIELD_MASK_BACKENDS,
   maskLaunderingEvents,
   validateAuditedOperationSupport,
-  validateAuditedReturningOperationSupport,
   validateEventSourcedStorage,
   validateEventSourcedWorkflowStorage,
   validateFieldMask,
@@ -90,9 +87,13 @@ export {
   validateComponentChildrenSupport,
   validateCurrentUserNeedsAuthUi,
   validateDataGridFramework,
+  validateFlutterActionBodies,
   validateFlutterPrimitiveSupport,
   validateFormLocalCollisions,
+  validateFrontendPropTypes,
   validateHeexComponentHostState,
+  validateLiveViewHoisting,
+  validateUiBodyStatementKinds,
   validateUiProjectionReadFramework,
   validateUiRealtimeSupport,
 } from "./ui-framework-checks.js";

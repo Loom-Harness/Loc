@@ -17,6 +17,7 @@
 // orchestrator splices into router.ex.
 // ---------------------------------------------------------------------------
 
+import { diagMessage } from "../../diagnostics/messages.js";
 import type {
   AggregateIR,
   BoundedContextIR,
@@ -43,7 +44,7 @@ import {
 } from "../../ir/util/page-kind.js";
 import { isFrontendReadableProjection } from "../../ir/util/projection-read.js";
 import { listReadGate } from "../../ir/util/read-gates.js";
-import { lowerFirst, plural, snake, upperFirst } from "../../util/naming.js";
+import { elixirString, lowerFirst, plural, snake, upperFirst } from "../../util/naming.js";
 import {
   E2E_FIXTURES_TS,
   E2E_PACKAGE_JSON_PHOENIX,
@@ -221,8 +222,15 @@ export function emitLiveViewPages(args: {
   // Entity-history reads a page body may render (docs/audit.md), keyed by the
   // audited aggregate's name — same in-process story as the projections above.
   const historyReads = new Map<string, HistoryRead>();
+  // Workflow PascalCase name → its runner module, for the `run_<wf>` clause a
+  // `WorkflowForm` needs.  Built from the same `<App>.<Ctx>` prefix the HTTP
+  // `WorkflowsController` resolves against.
+  const workflowModuleByName = new Map<string, string>();
   for (const ctx of contexts) {
     const ctxModule = `${appModule}.${upperFirst(ctx.name)}`;
+    for (const wf of ctx.workflows ?? []) {
+      workflowModuleByName.set(wf.name, `${ctxModule}.Workflows.${upperFirst(wf.name)}`);
+    }
     for (const proj of ctx.projections ?? []) {
       if (!isFrontendReadableProjection(proj)) continue;
       projectionReads.set(proj.name, {
@@ -386,6 +394,7 @@ export function emitLiveViewPages(args: {
       enumsByName,
       valueObjectsByName,
       contextModuleByAggName,
+      workflowModuleByName,
       projectionReads,
       listReadGateByAggName,
       historyReads,
@@ -498,6 +507,12 @@ interface RenderArgs {
    *  keyed by aggregate PascalCase name.  Used to build the
    *  `change_<agg>(%<Ctx>.<Agg>{})` create-form changeset in mount/3. */
   contextModuleByAggName: ReadonlyMap<string, string>;
+  /** Module-qualified workflow runner keyed by workflow PascalCase name
+   *  (`<App>.<Ctx>.Workflows.<Wf>`) — what a `WorkflowForm { runs: W }`'s
+   *  `handle_event("run_<wf>", …)` clause calls `run/1` on (M-T6.56 F61).
+   *  Same source as the HTTP `WorkflowsController` action, so the two seams
+   *  cannot dispatch to different modules. */
+  workflowModuleByName: ReadonlyMap<string, string>;
   /** Frontend-readable query-time projections, keyed by projection name — the
    *  `run/1` module (and any `requires` gate) a `QueryView { of:
    *  <api>.<Projection> }` load resolves to. */
@@ -627,8 +642,19 @@ function gatherComponentHandlers(
       const clash = byName.get(h.name);
       if (clash) {
         if (clash.body.join("\n") !== h.body.join("\n")) {
+          // INTERNAL FLOOR.  `loom.heex-handler-name-collision` (phase ⑦,
+          // `ui-framework-checks.ts`) refuses the cross-surface name collision
+          // on a validated model, so reaching here means the generator was
+          // handed an unvalidated one (the api toolkit and the playground both
+          // can).  Re-derived from the RENDERED clause bodies rather than from
+          // the validator's verdict — the two disagree loudly rather than one
+          // silently trusting the other.
           throw new Error(
-            `platform: elixir — page '${pageName}' hoists two different \`${h.name}\` handlers into one LiveView (component '${name}' collides with another handler of that name). Rename one of the \`action\`s: a LiveView dispatches every \`phx-click\` by name, so only one of them could ever run.`,
+            diagMessage("loom.heex-handler-name-collision#emit-invariant", {
+              page: pageName,
+              handler: h.name,
+              component: name,
+            }),
           );
         }
         continue;
@@ -694,8 +720,15 @@ function assertSingleInstancePerStatefulComponent(
   walk(pageUses, 1, []);
   for (const [name, count] of total) {
     if (count > 1 && (componentInfo.get(name)?.state.length ?? 0) > 0) {
+      // INTERNAL FLOOR — see the sibling note in `gatherComponentHandlers`.
+      // `loom.heex-stateful-component-reused` (phase ⑦) refuses this shape on
+      // a validated model.
       throw new Error(
-        `platform: elixir — page '${pageName}' renders component '${name}' ${count} times, but '${name}' declares \`state\`. A HEEx function component holds no state of its own, so Loom lifts it into the host LiveView's assigns — one cell per component, which ${count} instances would share. Render it once, or move the state into a page \`state { … }\` field passed down as a param.`,
+        diagMessage("loom.heex-stateful-component-reused#emit-invariant", {
+          page: pageName,
+          component: name,
+          count,
+        }),
       );
     }
   }
@@ -872,6 +905,7 @@ function renderLiveView(a: RenderArgs): { source: string; usesChart: boolean } {
       aggregatesByName,
     ) +
     renderOperationEventClauses(walked.formBindings, detailBaseRoute, contextModuleByAggName) +
+    renderWorkflowEventClauses(walked.formBindings, a.workflowModuleByName) +
     renderTableControlClauses(
       walked.tableControls,
       walked.queryBindings,
@@ -1214,10 +1248,13 @@ function renderMount(
       );
       break; // single @form per page
     } else if (fb.kind === "workflow") {
-      // Workflow form — placeholder until workflow-form mounting lands.
-      // Keeps the page mountable (form is empty but the assigns shape
-      // matches what the HEEx body expects).
-      assigns.push(`      |> assign(:form, %{} |> to_form())`);
+      // Workflow form (M-T6.56 F61).  `to_form(%{}, as: "<wf>")` rather than a
+      // bare `to_form(%{})`: the `as:` is what namespaces the rendered input
+      // names (`<wf>[<field>]`), and therefore what makes the submitted params
+      // arrive as `%{"<wf>" => %{…}}` — the shape the `run_<wf>` clause below
+      // matches, and the same shape an aggregate create form gets for free
+      // from `to_form(changeset)` (whose `as:` Ecto derives from the struct).
+      assigns.push(`      |> assign(:form, to_form(%{}, as: "${snake(fb.name)}"))`);
       break;
     }
   }
@@ -1258,6 +1295,16 @@ function renderQueryLoadBlock(
   listGate?: ListReadGate,
 ): string {
   const aggSnake = snake(qb.aggregate);
+  // WHICH function this read calls.  Resolved from the `of:` call's OPERATION by
+  // the walker (`contextReadFn` → `resolveAggregateRead`), never assumed from the
+  // read's shape: assuming it is what made every filtered read on this backend
+  // load `list_<agg>s()` — the whole table — while the JSX frontends loaded the
+  // filter the page named.  `undefined` = the operation named no declaration at
+  // all, which `loom.ui-read-unresolved` rejects upstream; the block below then
+  // refuses rather than substituting a read the page did not ask for.
+  const isAggregateRead = qb.source === undefined || qb.source === "aggregate";
+  if (isAggregateRead && qb.readFn === undefined) return renderUnresolvedRead(qb);
+  const readFn = qb.readFn ?? (qb.kind === "single" ? `get_${aggSnake}` : `list_${aggSnake}s`);
   if (qb.kind === "single") {
     const opAssigns = opFbs.map(
       (fb) =>
@@ -1274,9 +1321,24 @@ function renderQueryLoadBlock(
           |> assign(:${qb.assign}, record)
 ${opAssigns.map((a) => `  ${a}`).join("\n")}`
         : `        {:ok, record} -> assign(socket, :${qb.assign}, record)`;
+    // The read's ARGUMENT.  `byId(id)` on a scaffolded detail page renders
+    // `socket.assigns.id`, which is also the fallback for a read that passed
+    // none — but a SINGLE-shaped custom find (`find byName(n: string): Item?`)
+    // carries its own argument, and reaching for the route id instead both
+    // dropped the filter and read an assign such a page never binds.
+    const singleArgs = qb.listArgs?.length ? qb.listArgs.join(", ") : "socket.assigns.id";
+    // A single-shaped custom FIND wraps `Repo.one/1`, so absence is `{:ok, nil}`
+    // — not the `{:error, :not_found}` the by-id fetch returns.  Without this
+    // arm a miss falls into `{:ok, record}` and the page renders its DATA slot
+    // over `nil`.  Only emitted for the find (the by-id fetch never yields it),
+    // so the scaffolded detail page stays byte-identical.
+    const nilArm =
+      readFn === `get_${aggSnake}`
+        ? ""
+        : `        {:ok, nil} -> assign(socket, :${qb.assign}, :not_found)\n`;
     return `    socket =
-      case ${ctxModule}.get_${aggSnake}(socket.assigns.id) do
-${okArm}
+      case ${ctxModule}.${readFn}(${singleArgs}) do
+${nilArm}${okArm}
         {:error, :not_found} -> assign(socket, :${qb.assign}, :not_found)
         _ -> assign(socket, :${qb.assign}, :error)
       end`;
@@ -1290,11 +1352,21 @@ ${okArm}
   // `{:error, _}` arm maps to the `:error` sentinel the list `cond` renders as
   // the error slot.
   const listArgs = (qb.listArgs ?? []).join(", ");
-  const read = `      case ${ctxModule}.list_${aggSnake}s(${listArgs}) do
+  const read = `      case ${ctxModule}.${readFn}(${listArgs}) do
         {:ok, items} -> assign(socket, :${qb.assign}, items)
         _ -> assign(socket, :${qb.assign}, :error)
       end`;
-  if (!listGate) return `    socket =\n${read}`;
+  // A `match`-arm read runs ONLY when its arm is the one the template renders
+  // (`QueryBinding.gate`): the else branch leaves the socket untouched rather
+  // than taking the `:error` sentinel, because a non-matching arm is not a
+  // failure — the arm that DOES match owns the assign.  Without this every arm
+  // loaded on every `handle_params`, the last write won, and the filter reads
+  // ran with their own UNSET values.
+  const gated = (block: string): string =>
+    qb.gate === undefined
+      ? block
+      : `      if ${qb.gate} do\n${block.replace(/^ {6}/gm, "        ")}\n      else\n        socket\n      end`;
+  if (!listGate) return `    socket =\n${gated(read)}`;
   // Gated list read — denial takes the same `:error` sentinel the projection
   // loader uses, so the page renders its error slot instead of the rows.  The
   // gate is evaluated BEFORE the query, matching the `index` action's contract:
@@ -1305,11 +1377,26 @@ ${okArm}
     ? "    current_user = Map.get(socket.assigns, :current_user)\n"
     : "";
   return `${cuBind}    socket =
-      if ${listGate.expr} do
+${gated(`      if ${listGate.expr} do
 ${read.replace(/^ {6}/gm, "        ")}
       else
         assign(socket, :${qb.assign}, :error)
-      end`;
+      end`)}`;
+}
+
+/** The load block for a read whose `of:` operation resolved to NO declaration.
+ *
+ *  The old emitter had no such case: an unrecognised operation fell through to
+ *  `list_<agg>s()`, so a typo'd or never-declared find quietly rendered the
+ *  whole table.  `loom.ui-read-unresolved` rejects that model in phase ⑦, so
+ *  this is the backstop for a codegen call that skipped validation — and its
+ *  contract is that the page shows its ERROR slot, never other rows.  The
+ *  comment names the operation so the generated source says why. */
+function renderUnresolvedRead(qb: import("./heex-walker.js").QueryBinding): string {
+  return `    # Loom: '${qb.aggregate}' read refused — the page's 'of:' names no repository
+    # operation on this aggregate, and substituting the unfiltered list would
+    # render rows the page never asked for.  See loom.ui-read-unresolved.
+    socket = assign(socket, :${qb.assign}, :error)`;
 }
 
 /** The `handle_params` load line for a `QueryView { of: <api>.<Projection> }`
@@ -1687,6 +1774,127 @@ ${usesUser ? "    current_user = Map.get(socket.assigns, :current_user)\n" : ""}
     end
   end\n`;
 }
+
+/** The `handle_event("run_<wf>", …)` clause a `WorkflowForm { runs: W }` needs.
+ *
+ *  Without it the emitted page carried `phx-submit="run_<wf>"` and ZERO matching
+ *  clauses, so pressing Submit raised `FunctionClauseError` and killed the
+ *  LiveView — a 500 on a page that looked correct in every static read (audit
+ *  F61, M-T6.56).  `renderCreateEventClauses` filters `kind === "aggregate"`,
+ *  which is exactly why the workflow binding fell through it silently.
+ *
+ *  Two things the aggregate path gets for free have to be done by hand here:
+ *
+ *   - REKEYING.  The form field is `snake(param)` (that is what
+ *     `renderFieldInputForField` emits and what `@form[:…]` addresses), while
+ *     the workflow module destructures its params by the DECLARED name
+ *     (`%{"initialTitle" => …} = params`), so a multi-word param would arrive
+ *     under a key the workflow never reads and bind `nil`.
+ *   - COERCION.  A browser form submits strings; the HTTP route feeds the same
+ *     `run/1` typed JSON.  An aggregate create hides this behind Ecto's `cast`,
+ *     but a workflow body uses its params directly, so `qty: int` would reach
+ *     arithmetic as `"3"`.  `__wf_param/2` narrows at the boundary.
+ *
+ *  Empty (byte-identical) when the page binds no workflow form. */
+function renderWorkflowEventClauses(
+  formBindings: readonly import("./heex-walker.js").FormBinding[],
+  workflowModuleByName: ReadonlyMap<string, string>,
+): string {
+  const runs = formBindings.filter((fb) => fb.kind === "workflow");
+  if (runs.length === 0) return "";
+  const fb = runs[0]!; // single @form per page, like the create path
+  const wfModule = workflowModuleByName.get(fb.name);
+  if (!wfModule) return ""; // unresolved — validator catches; silent skip
+  const wfSnake = snake(fb.name);
+  const params = fb.params ?? [];
+  // A param-less workflow reads nothing off the submitted map, so bind `_raw`
+  // rather than trip `--warnings-as-errors` on an unused variable.
+  const rawVar = params.length > 0 ? "raw" : "_raw";
+  const built =
+    params.length > 0
+      ? `%{\n${params
+          .map(
+            (pp) =>
+              // Through the backend's escape funnel, not `JSON.stringify` — the
+              // census's rule, and these two ARE Elixir string literals (the
+              // wire key the workflow module destructures, and the form field
+              // name the browser submits).
+              `      ${elixirString(pp.name)} => __wf_param(Map.get(raw, ${elixirString(
+                snake(pp.name),
+              )}), :${wfParamKind(pp.type)})`,
+          )
+          .join(",\n")}\n    }`
+      : "%{}";
+  const coercer = params.length > 0 ? WF_PARAM_COERCER : "";
+  return `\n  @impl true
+  def handle_event("run_${wfSnake}", %{"${wfSnake}" => ${rawVar}}, socket) do
+    params = ${built}
+
+    case ${wfModule}.run(params) do
+      {:ok, _result} ->
+        {:noreply, put_flash(socket, :info, "${humanizeOp(wfSnake)} started")}
+
+      {:error, %Ecto.Changeset{} = changeset} ->
+        {:noreply, assign(socket, :form, to_form(changeset))}
+
+      {:error, {_kind, detail}} when is_binary(detail) ->
+        {:noreply, put_flash(socket, :error, detail)}
+
+      {:error, reason} ->
+        {:noreply, put_flash(socket, :error, "${humanizeOp(wfSnake)} failed: #{inspect(reason)}")}
+    end
+  end\n${coercer}`;
+}
+
+/** The `__wf_param/2` kind token for a workflow param's declared type — the
+ *  coarse buckets a browser form's string needs narrowing into. */
+function wfParamKind(t: TypeIR): "int" | "decimal" | "bool" | "string" {
+  const inner = t.kind === "optional" ? t.inner : t;
+  if (inner.kind !== "primitive") return "string";
+  switch (inner.name) {
+    case "int":
+    case "long":
+      return "int";
+    case "decimal":
+    case "money":
+      return "decimal";
+    case "bool":
+      return "bool";
+    default:
+      return "string";
+  }
+}
+
+/** Narrow one submitted form value to its declared kind.  Emitted once beside
+ *  the `run_<wf>` clause when the workflow takes at least one param. */
+const WF_PARAM_COERCER = `
+  # A browser form submits strings; the HTTP route feeds this same \`run/1\`
+  # typed JSON.  An aggregate create hides the difference behind Ecto's
+  # \`cast\`, but a workflow body uses its params directly — so narrow here,
+  # at the one boundary where the declared type is still known.  An
+  # unparseable value becomes \`nil\` rather than a raise: the workflow's own
+  # \`precondition\`s then answer 422-shaped, which is what the HTTP route does
+  # with the same bad input.
+  defp __wf_param(nil, _kind), do: nil
+  defp __wf_param("", _kind), do: nil
+
+  defp __wf_param(v, :int) when is_binary(v) do
+    case Integer.parse(v) do
+      {n, ""} -> n
+      _ -> nil
+    end
+  end
+
+  defp __wf_param(v, :decimal) when is_binary(v) do
+    case Decimal.parse(v) do
+      {d, ""} -> d
+      _ -> nil
+    end
+  end
+
+  defp __wf_param(v, :bool) when is_binary(v), do: v in ["true", "on", "1"]
+  defp __wf_param(v, _kind), do: v
+`;
 
 /** One `handle_<field>_progress/3` per `FileUpload` binding.  Referenced by the
  *  mount `allow_upload(..., progress: &…/3)` seam.  On a completed entry it

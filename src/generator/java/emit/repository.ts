@@ -1,4 +1,5 @@
 import { wireFieldsForAggregate } from "../../../ir/enrich/wire-projection.js";
+import { envelopeReturn } from "../../../ir/stdlib/generics.js";
 import type {
   EnrichedAggregateIR,
   FindIR,
@@ -14,10 +15,12 @@ import { lines } from "../../../util/code-builder.js";
 import { upperFirst } from "../../../util/naming.js";
 import { javaLogEvent } from "../../_obs/render-java.js";
 import {
+  bypassDrops,
   bypassedPromotedCaps,
   type FilterBypass,
   wrapWithFilterBypass,
 } from "../capability-filter.js";
+import { isMangled, jid } from "../java-ident.js";
 import {
   boxedJavaType,
   collectJavaExprImports,
@@ -76,7 +79,9 @@ export interface JavaRepoCtx {
   bypassByRetrieval?: ReadonlyMap<string, FilterBypass>;
 }
 
-const dottedSortPath = (t: SortTermIR): string => t.path.map((s) => s.name).join(".");
+// A JPA property PATH — every segment is the (possibly mangled) java field the
+// entity emitter declared, not the `.ddd` name (M-T6.36).
+const dottedSortPath = (t: SortTermIR): string => t.path.map((s) => jid(s.name)).join(".");
 
 /** `Sort.by(Sort.Order.asc("a.b"), …)` for the Specification path. */
 function springSort(sort: readonly SortTermIR[]): string {
@@ -94,7 +99,7 @@ function jpqlOrderBy(sort: readonly SortTermIR[]): string {
 /** A `sort:` term as a chained accessor key extractor over `x`
  *  (`x.a().b()`) for an in-memory `Comparator`. */
 function inMemorySortKey(t: SortTermIR): string {
-  return `x -> x.${t.path.map((s) => `${s.name}()`).join(".")}`;
+  return `x -> x.${t.path.map((s) => `${jid(s.name)}()`).join(".")}`;
 }
 
 /** The in-memory `Comparator<Agg>` chain for a retrieval's `sort:`, or
@@ -131,30 +136,42 @@ export function inMemoryRetrievalLines(
    *  when there are none.  Absent → no promoted re-application (event store /
    *  the relational path's always-on @Filter handles it at the DB). */
   promotedClauseFor?: (retrievalName: string, varName: string) => string,
+  /** The rehydrate call each `run<Name>` streams off.  Defaults to the
+   *  canonical `findAll()`.  A document repo whose aggregate carries a
+   *  BYPASSABLE capability filter passes the unfiltered `rehydrateAll()`
+   *  instead — `findAll()` is itself a scoped read there (M-T6.54 F18), so a
+   *  retrieval that `ignoring`s a cap cannot widen out of it. */
+  baseCall?: string,
+  /** Statement lines emitted before a retrieval's `return` (e.g. binding
+   *  `currentUser` for a principal capability conjunct evaluated in-app). */
+  preludeFor?: (retrievalName: string) => readonly string[],
 ): string[] {
   if (retrievals.length === 0) return [];
   if (retrievals.some((r) => r.sort.length > 0)) exprImports.add("java.util.Comparator");
   return retrievals.flatMap((r) => {
     const declared = r.params.map((p) => {
       collectJavaTypeImports(p.type, exprImports);
-      return `${renderJavaType(p.type)} ${p.name}`;
+      return `${renderJavaType(p.type)} ${jid(p.name)}`;
     });
     collectJavaExprImports(r.where, exprImports);
     const where = renderJavaExpr(r.where, { thisName: "x", agg, accessorProps: true });
     const cmp = inMemoryComparator(r.sort, agg.name);
     const promotedClause = promotedClauseFor?.(r.name, "x") ?? "";
-    const filtered = `findAll().stream().filter(x -> ${where})${promotedClause}`;
+    const filtered = `${baseCall ?? "findAll()"}.stream().filter(x -> ${where})${promotedClause}`;
     const sorted = cmp ? `${filtered}.sorted(${cmp})` : filtered;
+    const prelude = [...(preludeFor?.(r.name) ?? [])];
     const bareParams = declared.join(", ");
     const pagedParams = [bareParams, "Integer offset, Integer limit"].filter(Boolean).join(", ");
     return [
       `    @Override`,
       `    public List<${agg.name}> run${upperFirst(r.name)}(${bareParams}) {`,
+      ...prelude,
       `        return ${sorted}.toList();`,
       `    }`,
       ``,
       `    @Override`,
       `    public List<${agg.name}> run${upperFirst(r.name)}(${pagedParams}) {`,
+      ...prelude,
       `        return ${sorted}`,
       `            .skip(offset == null ? 0L : offset.longValue())`,
       `            .limit(limit == null ? Long.MAX_VALUE : limit.longValue())`,
@@ -207,11 +224,14 @@ export function inMemoryPagedSortLines(agg: EnrichedAggregateIR): string[] {
   const arm = (wf: string): string => {
     const t = wireType(wf);
     const prim = t?.kind === "primitive" ? t.name : undefined;
+    // The `case` label is the WIRE sort key (`?sort=case`); the method
+    // reference names the java accessor, which is mangled when the `.ddd` name
+    // is a reserved word (M-T6.36).
     if (prim === "int")
-      return `            case "${wf}" -> java.util.Comparator.comparingInt(${agg.name}::${wf});`;
+      return `            case "${wf}" -> java.util.Comparator.comparingInt(${agg.name}::${jid(wf)});`;
     if (prim === "long")
-      return `            case "${wf}" -> java.util.Comparator.comparingLong(${agg.name}::${wf});`;
-    return `            case "${wf}" -> java.util.Comparator.comparing(${agg.name}::${wf});`;
+      return `            case "${wf}" -> java.util.Comparator.comparingLong(${agg.name}::${jid(wf)});`;
+    return `            case "${wf}" -> java.util.Comparator.comparing(${agg.name}::${jid(wf)});`;
   };
   return [
     `        String __sortField = java.util.List.of(${sortableFields(agg)
@@ -246,12 +266,12 @@ function findSignature(find: FindIR, imports: Set<string>): string {
   const params = [
     ...find.params.map((p) => {
       collectJavaTypeImports(p.type, imports);
-      return `${renderJavaType(p.type)} ${p.name}`;
+      return `${renderJavaType(p.type)} ${jid(p.name)}`;
     }),
     ...(isPagedFind(find) ? ["int page", "int pageSize", "String sort", "String dir"] : []),
   ].join(", ");
   const ret = findReturn(find.returnType, imports);
-  return `${ret} ${find.name}(${params})`;
+  return `${ret} ${jid(find.name)}(${params})`;
 }
 
 function findReturn(t: TypeIR, imports: Set<string>): string {
@@ -262,6 +282,15 @@ function findReturn(t: TypeIR, imports: Set<string>): string {
   if (t.kind === "genericInstance" && t.ctor === "paged") {
     return `Paged<${boxedJavaType(t.arg)}>`;
   }
+  // `T envelope` is a SINGLE-ROW find (M-T6.57): the carrier carries no wire
+  // shape, so the repository answers the carried `T` — the same signature
+  // `find x(): T` produces.  Without this the shared type printer rendered
+  // `Envelope<Order>` into the port, the Spring Data interface AND the impl,
+  // and NOTHING declared or imported it: the generated project did not compile,
+  // `OrderResponse.from(...)` was called on it, and `@Query(…) Envelope<Order>`
+  // is not a Spring-Data-mappable return in the first place.
+  const carried = envelopeReturn(t);
+  if (carried) return findReturn(carried, imports);
   collectJavaTypeImports(t, imports);
   return renderJavaType(t);
 }
@@ -283,7 +312,7 @@ export function renderJavaRepositoryInterface(
     const params = r.params
       .map((p) => {
         collectJavaTypeImports(p.type, imports);
-        return `${renderJavaType(p.type)} ${p.name}`;
+        return `${renderJavaType(p.type)} ${jid(p.name)}`;
       })
       .join(", ");
     const pagedParams = [params, "Integer offset, Integer limit"].filter(Boolean).join(", ");
@@ -360,9 +389,14 @@ export function renderJavaSpringDataRepository(
   // derives, so we override them with a scoped @Query).  `null` when the
   // aggregate has no principal filter — every other repository stays identical.
   const principalClause = principalJpqlClause(agg, enumsPkg);
-  const jpqlWhere = (base: string | null): string => {
-    const combined =
-      base && principalClause ? `(${base}) and ${principalClause}` : (base ?? principalClause);
+  // The per-read form: a read carrying `ignoring <Cap>` / `ignoring *` drops the
+  // principal conjuncts that cap contributed (M-T6.54 F18).  The root
+  // `findAll`/`findById` overrides below keep the unconditional
+  // `principalClause` — they are the canonical scoped reads and carry no
+  // `ignoring` clause of their own.
+  const jpqlWhere = (base: string | null, bypass?: FilterBypass): string => {
+    const clause = bypass ? principalJpqlClause(agg, enumsPkg, bypass) : principalClause;
+    const combined = base && clause ? `(${base}) and ${clause}` : (base ?? clause);
     return combined ? ` where ${combined}` : "";
   };
   const methodLines = finds.flatMap((f) => {
@@ -372,10 +406,11 @@ export function renderJavaSpringDataRepository(
       f.filter
         ? renderJpqlWhere(f.filter, { alias: "e", enumsPkg, mode: "jpql-spring-data" })
         : null,
+      { bypassAll: f.bypassAll, bypassCaps: f.bypassCaps },
     );
     const declaredParams = f.params.map((p) => {
       collectJavaTypeImports(p.type, imports);
-      return `@Param("${p.name}") ${renderJavaType(p.type)} ${p.name}`;
+      return `@Param("${jid(p.name)}") ${renderJavaType(p.type)} ${jid(p.name)}`;
     });
     if (isPagedFind(f)) {
       // Spring Data derives the count query from the @Query + Pageable.
@@ -384,14 +419,14 @@ export function renderJavaSpringDataRepository(
       const arg = f.returnType.kind === "genericInstance" ? f.returnType.arg : f.returnType;
       return [
         `    @Query("select e from ${agg.name} e${where}")`,
-        `    Page<${boxedJavaType(arg)}> ${f.name}(${[...declaredParams, "Pageable pageable"].join(", ")});`,
+        `    Page<${boxedJavaType(arg)}> ${jid(f.name)}(${[...declaredParams, "Pageable pageable"].join(", ")});`,
         ``,
       ];
     }
     const ret = findReturn(f.returnType, imports);
     return [
       `    @Query("select e from ${agg.name} e${where}")`,
-      `    ${ret} ${f.name}(${declaredParams.join(", ")});`,
+      `    ${ret} ${jid(f.name)}(${declaredParams.join(", ")});`,
       ``,
     ];
   });
@@ -409,11 +444,12 @@ export function renderJavaSpringDataRepository(
       imports.add("org.springframework.data.domain.Pageable");
       const where = jpqlWhere(
         renderJpqlWhere(r.where, { alias: "e", enumsPkg, mode: "jpql-spring-data" }),
+        ctx.bypassByRetrieval?.get(r.name),
       );
       const params = r.params
         .map((p) => {
           collectJavaTypeImports(p.type, imports);
-          return `@Param("${p.name}") ${renderJavaType(p.type)} ${p.name}`;
+          return `@Param("${jid(p.name)}") ${renderJavaType(p.type)} ${jid(p.name)}`;
         })
         .join(", ");
       const sigParams = [params, "Pageable pageable"].filter(Boolean).join(", ");
@@ -535,9 +571,30 @@ export function renderJavaSpringDataRepository(
  *  predicate (each parenthesised, AND-ed) under the `e` alias, or null when it
  *  has none.  Non-principal filters are excluded — they ride the entity's
  *  static `@SQLRestriction` (see `emit/entity.ts`); only principal filters need
- *  the per-query SpEL-principal form. */
-function principalJpqlClause(agg: EnrichedAggregateIR, enumsPkg: string): string | null {
-  const preds = (agg.contextFilters ?? []).filter(exprUsesCurrentUser);
+ *  the per-query SpEL-principal form.
+ *
+ *  `bypass` is the READ's own `ignoring` clause (M-T6.54 F18).  A principal
+ *  predicate contributed by a CAPABILITY (`contextFilterOrigins[i] !== undefined`,
+ *  e.g. `with tenantOwned`) that the read names — or that `ignoring *` drops —
+ *  is omitted, exactly as node drops the conjunct and .NET emits
+ *  `IgnoreQueryFilters`.  A BARE `filter … currentUser …` (undefined origin) is
+ *  never bypassable, matching `capability-filter.ts`'s triage rule.  Without
+ *  this the clause was AND-ed unconditionally and `find … ignoring tenantOwned`
+ *  silently kept returning only the caller's own tenant — the same `.ddd`, a
+ *  different row set on Java, and `FILTER_BYPASS_FAMILIES` certifying otherwise.
+ *  The aggregation path in `emit/query-projection-reads.ts` (`aggregationScope`)
+ *  is the line-for-line template this mirrors. */
+function principalJpqlClause(
+  agg: EnrichedAggregateIR,
+  enumsPkg: string,
+  bypass?: FilterBypass,
+): string | null {
+  const origins = agg.contextFilterOrigins ?? [];
+  const preds = (agg.contextFilters ?? []).filter((p, i) => {
+    if (!exprUsesCurrentUser(p)) return false;
+    const origin = origins[i];
+    return !(origin !== undefined && bypassDrops(origin, bypass));
+  });
   if (preds.length === 0) return null;
   return preds
     .map((p) => `(${renderJpqlWhere(p, { alias: "e", enumsPkg, mode: "jpql-spring-data" })})`)
@@ -563,9 +620,29 @@ export function renderJavaRepositoryImpl(
   const provenance = !!ctx.provenance;
   const versioned = aggregateIsVersioned(agg);
   const versionField = versionFieldName(agg);
-  const tenantScopeAnd = injectAccessor
-    ? `.and(${agg.name}Criteria.tenantScope(currentUserAccessor.user()))`
-    : "";
+  // `tenantScope(User)` is one factory over ALL of the aggregate's principal
+  // predicates, so a read can only take it whole or leave it whole: a retrieval
+  // whose `ignoring` drops EVERY principal capability omits it (M-T6.54 F18,
+  // matching the `jpqlWhere` arm above).  A PARTIAL drop — two principal
+  // capabilities, `ignoring` naming one — keeps the whole scope, i.e. it
+  // over-restricts rather than widening; splitting the factory per capability is
+  // `emit/criteria.ts` work and is handed off (wave-c1-1f).
+  const principalCapOrigins = new Set(
+    (agg.contextFilterOrigins ?? []).filter(
+      (o, i): o is string => o != null && exprUsesCurrentUser((agg.contextFilters ?? [])[i]!),
+    ),
+  );
+  const dropsEveryPrincipalCap = (bypass: FilterBypass | undefined): boolean =>
+    principalCapOrigins.size > 0 &&
+    (agg.contextFilters ?? []).every((p, i) => {
+      if (!exprUsesCurrentUser(p)) return true;
+      const o = (agg.contextFilterOrigins ?? [])[i];
+      return o != null && bypassDrops(o, bypass);
+    });
+  const tenantScopeAndFor = (bypass: FilterBypass | undefined): string =>
+    injectAccessor && !dropsEveryPrincipalCap(bypass)
+      ? `.and(${agg.name}Criteria.tenantScope(currentUserAccessor.user()))`
+      : "";
   // §11.6 selective bypass: a find / retrieval read that `ignoring`s a
   // PROMOTED capability runs with that cap's Hibernate named @Filter DISABLED.
   // The impl wraps the delegate body with `session.disableFilter/enableFilter`;
@@ -584,7 +661,7 @@ export function renderJavaRepositoryImpl(
     const params = r.params
       .map((p) => {
         collectJavaTypeImports(p.type, imports);
-        return `${renderJavaType(p.type)} ${p.name}`;
+        return `${renderJavaType(p.type)} ${jid(p.name)}`;
       })
       .join(", ");
     const pagedParams = [params, "Integer offset, Integer limit"].filter(Boolean).join(", ");
@@ -600,7 +677,7 @@ export function renderJavaRepositoryImpl(
         collectJavaExprImports(a, imports);
         return renderJavaExpr(a);
       });
-      const spec = `${agg.name}Criteria.${r.criterionRef.name}(${args.join(", ")})${tenantScopeAnd}`;
+      const spec = `${agg.name}Criteria.${r.criterionRef.name}(${args.join(", ")})${tenantScopeAndFor(retrievalBypass)}`;
       return [
         `    @Override`,
         `    public List<${agg.name}> run${upperFirst(r.name)}(${params}) {`,
@@ -651,7 +728,7 @@ export function renderJavaRepositoryImpl(
       imports.add("org.springframework.data.domain.PageRequest");
       imports.add("org.springframework.data.domain.Sort");
       const args = [
-        ...f.params.map((p) => p.name),
+        ...f.params.map((p) => jid(p.name)),
         "PageRequest.of(page - 1, pageSize, __sort)",
       ].join(", ");
       // Server-side sort (M-T2.6): whitelist the wire key against the sortable
@@ -665,8 +742,9 @@ export function renderJavaRepositoryImpl(
         `    public ${sig} {`,
         ...wrapBypass(findBypass, [
           `        String __sortField = java.util.List.of(${sortWhitelist}).contains(sort) ? sort : "id";`,
-          `        Sort __sort = Sort.by("desc".equals(dir) ? Sort.Direction.DESC : Sort.Direction.ASC, __sortField);`,
-          `        var result = jpa.${f.name}(${args});`,
+          ...sortPropertyLines(agg),
+          `        Sort __sort = Sort.by("desc".equals(dir) ? Sort.Direction.DESC : Sort.Direction.ASC, ${sortPropertyVar(agg)});`,
+          `        var result = jpa.${jid(f.name)}(${args});`,
           findExecutedLog(f, "result.getTotalElements()"),
           `        return new Paged<>(result.getContent(), page, pageSize, (int) result.getTotalElements(), result.getTotalPages());`,
         ]),
@@ -674,7 +752,7 @@ export function renderJavaRepositoryImpl(
         ``,
       ];
     }
-    const args = f.params.map((p) => p.name).join(", ");
+    const args = f.params.map((p) => jid(p.name)).join(", ");
     const rowsExpr = f.returnType.kind === "array" ? "result.size()" : "result == null ? 0 : 1";
     return [
       `    @Override`,
@@ -853,7 +931,8 @@ export function renderJavaRepositoryImpl(
           `    @Override`,
           `    public Paged<${agg.name}> findAllPaged(int page, int pageSize, String sort, String dir) {`,
           `        String __sortField = java.util.List.of(${pagedAllSortWhitelist}).contains(sort) ? sort : "id";`,
-          `        Sort __sort = Sort.by("desc".equals(dir) ? Sort.Direction.DESC : Sort.Direction.ASC, __sortField);`,
+          ...sortPropertyLines(agg),
+          `        Sort __sort = Sort.by("desc".equals(dir) ? Sort.Direction.DESC : Sort.Direction.ASC, ${sortPropertyVar(agg)});`,
           `        var result = jpa.findAllPaged(PageRequest.of(page - 1, pageSize, __sort));`,
           `        CatalogLog.event(${javaLogEvent("findExecuted")}, "aggregate", "${agg.name}", "find", "all", "rows", result.getTotalElements());`,
           `        return new Paged<>(result.getContent(), page, pageSize, (int) result.getTotalElements(), result.getTotalPages());`,
@@ -944,4 +1023,28 @@ export function renderOffsetLimitPageRequest(pkg: string): string {
     `}`,
     ``,
   );
+}
+
+// M-T6.36 — the `?sort=` whitelist above holds WIRE keys; `Sort.by` resolves a
+// JPA PROPERTY path.  They are the same string for every ordinary name, and
+// diverge exactly when the `.ddd` name is a Java reserved word and the entity
+// declared it mangled.  One translation line, emitted only when a sortable
+// field actually mangles, so every other project stays byte-identical.
+function mangledSortables(agg: EnrichedAggregateIR): string[] {
+  return sortableFields(agg).filter((wf) => isMangled(wf));
+}
+
+function sortPropertyVar(agg: EnrichedAggregateIR): string {
+  return mangledSortables(agg).length > 0 ? "__sortProperty" : "__sortField";
+}
+
+function sortPropertyLines(agg: EnrichedAggregateIR): string[] {
+  const mangled = mangledSortables(agg);
+  if (mangled.length === 0) return [];
+  const arms = mangled
+    .map((wf) => `case ${JSON.stringify(wf)} -> ${JSON.stringify(jid(wf))}; `)
+    .join("");
+  return [
+    `        String __sortProperty = switch (__sortField) { ${arms}default -> __sortField; };`,
+  ];
 }

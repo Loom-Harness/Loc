@@ -7,15 +7,23 @@ import { diagMessage } from "../../../diagnostics/messages.js";
 import { createInputFields, omittableCreateInputs } from "../../enrich/wire-projection.js";
 import { verbsForKind } from "../../resource-verbs.js";
 import type {
+  AggregateIR,
   BoundedContextIR,
   EventIR,
   ExprIR,
+  RepositoryIR,
   TypeIR,
   WorkflowIR,
   WorkflowStmtIR,
 } from "../../types/loom-ir.js";
 import { findUsesCurrentUser } from "../../types/loom-ir.js";
 import { walkExprDeep, walkStmtExprsDeep } from "../../util/walk.js";
+import { emitsCommandRoute } from "../../util/workflow-command-route.js";
+import {
+  commandCreateCorrelationParam,
+  facadeCreate,
+  workflowBodyUsesOwnState,
+} from "../../util/workflow-own-state.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
 
 // ---------------------------------------------------------------------------
@@ -192,8 +200,11 @@ export function validateWorkflows(
     }
     validateWorkflowBody(ctx, wf, diags);
     validateWorkflowCorrelation(ctx, wf, diags, allEvents);
+    validateWorkflowOwnStateAddressable(ctx, wf, diags);
     validateWorkflowCreates(wf, diags, ctx.name);
     validateWorkflowFunctions(wf, diags, ctx.name);
+    validateWorkflowHandlers(wf, diags, ctx.name);
+    validateWorkflowStarter(wf, diags, ctx.name);
   }
 }
 
@@ -256,6 +267,71 @@ function validateWorkflowFunctions(wf: WorkflowIR, diags: LoomDiagnostic[], ctxN
 // so a `create` and an `on` for one event necessarily agree.  (Both rules 23
 // and 24 are now expressible: `CreateIR.eventRef` / `correlation` are derived
 // for event-triggered creates.)
+// -------------------------------------------------------------------------
+// M-T5.34 — the two workflow rulings (#2864 D5 and G2).
+//
+// The packet's third command-side ruling (#2850 case (B)) is NOT here: it
+// landed independently on `main` as `loom.workflow-create-correlation-unsupplied`
+// (above), with a better rule than this packet had drafted — it also accepts a
+// `<corr> := <param>` assignment and only fires when the body touches own
+// state.  Nothing was kept from the draft.
+// -------------------------------------------------------------------------
+
+// D5 / decision D-1(c).  `handle <name>(…)` is documented as the multi-command
+// saga surface (`docs/workflow.md`) and emits NOTHING on any of the five
+// backends — searching a generated tree for the handler name finds only the
+// mermaid diagram.  So a saga can be started and read (`/instances`,
+// `/instances/{id}`) and never advanced, silently.
+//
+// The ruling is to REJECT, not to emit: the silence is the bug, and whether
+// Loom grows multi-command sagas is a feature decision that should not be
+// taken under time pressure (tracked as its own mission).  The message names
+// the two spellings that DO work today, so the author is not merely refused.
+function validateWorkflowHandlers(wf: WorkflowIR, diags: LoomDiagnostic[], ctxName: string): void {
+  for (const h of wf.handlers ?? []) {
+    diags.push({
+      severity: "error",
+      code: "loom.workflow-handle-unsupported",
+      message: diagMessage("loom.workflow-handle-unsupported", {
+        name: wf.name,
+        handler: h.name,
+      }),
+      source: `${ctxName}/${wf.name}`,
+    });
+  }
+}
+
+// G2.  A workflow with `on(…)` reactors and no `create(…)` starter compiles
+// clean and is a runtime no-op forever: nothing ever inserts a correlation row,
+// so every inbound event misses the load and logs `event_unrouted`.  The
+// create-less workflow still emits an empty POST route that logs
+// `workflow_started` / `workflow_completed` and inserts nothing, which is why
+// the shape looks alive from the outside.
+//
+// Sibling of `loom.reactor-event-uncarried` (same class of check, different
+// cause: there the event reaches no channel, here it reaches no instance).
+// Kept independent of the correlation rules deliberately — this fires on the
+// STRUCTURE (reactors, no starter) and needs no correlation field to be
+// decidable, so it still lands on a workflow that is also missing one.
+function validateWorkflowStarter(wf: WorkflowIR, diags: LoomDiagnostic[], ctxName: string): void {
+  const reactors = wf.subscriptions ?? [];
+  if (reactors.length === 0) return;
+  if ((wf.creates ?? []).length > 0) return;
+  // An `eventSourced` workflow folds its state from the stream via `apply(…)`
+  // rather than from a persisted row — but it still needs a starter to bring an
+  // instance into being, so the rule is the same.  (Its appliers are not
+  // starters: `apply` folds an event into an instance that must already exist.)
+  diags.push({
+    severity: "error",
+    code: "loom.reactor-without-starter",
+    message: diagMessage("loom.reactor-without-starter", {
+      name: wf.name,
+      reactors: reactors.map((r) => `on(${r.event})`).join(", "),
+    }),
+    source: `${ctxName}/${wf.name}`,
+  });
+}
+
 function validateWorkflowCreates(wf: WorkflowIR, diags: LoomDiagnostic[], ctxName: string): void {
   const src = `${ctxName}/${wf.name}`;
   const creates = wf.creates ?? [];
@@ -438,11 +514,144 @@ function validateWorkflowCorrelation(
   }
 }
 
+// ---------------------------------------------------------------------------
+// Own-state addressability (F58 / M-T6.62 — the case #2850 deferred).
+//
+// Workflow `Property` members are SAGA STATE: they live in a persisted
+// correlation row keyed by the workflow's one id-shaped state field, and every
+// backend renders a body that touches them against that LOADED row
+// (`thisName: "state"`).  A command create that names no key has no such row,
+// so the body falls back to the default `this` receiver — unbound in a Hono
+// module-scope arrow (TS2683), on a .NET/Java handler class with no such
+// member, in a module-level python `async def`, and inside an Elixir
+// `with`-chain.
+//
+// `commandCreateCorrelationParam` (ir/util/workflow-own-state.ts) is the single
+// rule both halves read: the key is the param NAMED for the correlation field,
+// else the param a `<corr> := <param>` statement assigns it from.  This check is
+// its exact complement — everything that rule cannot address, and that would
+// therefore render unbound, is refused here rather than emitted:
+//
+//   loom.workflow-create-correlation-unsupplied           no such param
+//   loom.workflow-create-correlation-unsupplied#payload   the key is a FIELD of
+//       a payload-typed param (`create(c: FileClaim)`, reported on #2850).
+//       Refused rather than followed one level down, for two reasons: the
+//       emitters would render `c.<corr>` against a param that has no wire
+//       contract yet (it emits `z.unknown()`, so the key would be
+//       `unknown`-typed and node still would not compile — that half is
+//       #2886's), and the author has a spelling that works today.
+//
+// TWO THINGS DELIBERATELY NOT GATED, named so the silence is not read as a
+// claim that they are fine:
+//
+//   * a workflow with `Property` members and NO id-shaped field at all.  That
+//     is a SHIPPED shape, not a gap: M-T6.50 (b) made python emit a
+//     request-scoped scratch (`self = SimpleNamespace(...)`) for it.  node,
+//     .NET and java still emit an unbound `this` there — a cross-backend parity
+//     gap on M-T6.62, not something to refuse.
+//   * a command create whose body does NOT touch own state: it emits fine, but
+//     still creates no row, so an `on` reactor for the same key logs
+//     `event_unrouted` forever (the reactor path loads, it does not allocate).
+//     A row-allocation question, not a receiver-binding one; refusing it would
+//     refuse a legitimately stateless command starter.
+function validateWorkflowOwnStateAddressable(
+  ctx: BoundedContextIR,
+  wf: WorkflowIR,
+  diags: LoomDiagnostic[],
+): void {
+  const stateFields = wf.stateFields ?? [];
+  if (stateFields.length === 0) return;
+  const src = `${ctx.name}/${wf.name}`;
+  const idFields = stateFields.filter((f) => f.type.kind === "id");
+  if (idFields.length !== 1) return; // 0: see above.  >1: `correlation-field-ambiguous`.
+  if (wf.eventSourced) return; // folded from a stream; no mutable row to key.
+  if (!emitsCommandRoute(wf)) return; // event-triggered facade: routed by `by`.
+  if (commandCreateCorrelationParam(wf)) return; // addressable — the emitters key on it.
+
+  const corr = idFields[0].name;
+  // The primary (facade) create is the one the command route renders.  Only a
+  // body that touches own state renders against the instance at all.
+  const facade = facadeCreate(wf);
+  if (!facade || !workflowBodyUsesOwnState(facade.statements)) return;
+
+  // The reported payload-typed form: a param whose own fields carry a
+  // name-match.  Same code, a message that can name the field it found.
+  const nested = payloadFieldMatch(ctx, wf, corr);
+  diags.push({
+    severity: "error",
+    message: nested
+      ? diagMessage("loom.workflow-create-correlation-unsupplied#payload", {
+          name: wf.name,
+          corr,
+          param: nested.param,
+          payload: nested.payload,
+        })
+      : diagMessage("loom.workflow-create-correlation-unsupplied", {
+          name: wf.name,
+          corr,
+          params: wf.params.length > 0 ? wf.params.map((p) => p.name).join(", ") : "(none)",
+        }),
+    source: src,
+    code: "loom.workflow-create-correlation-unsupplied",
+  });
+}
+
+/** A create param whose PAYLOAD type declares a field named `corr` — the
+ *  `create(c: FileClaim)` shape, where the key is one level down.  Returns the
+ *  param and payload names so the diagnostic can point at them. */
+function payloadFieldMatch(
+  ctx: BoundedContextIR,
+  wf: WorkflowIR,
+  corr: string,
+): { param: string; payload: string } | undefined {
+  for (const p of wf.params) {
+    const t = p.type;
+    if (t.kind !== "entity" && t.kind !== "valueobject") continue;
+    const payload = ctx.payloads.find((pl) => pl.name === t.name);
+    if (payload?.fields.some((f) => f.name === corr)) {
+      return { param: p.name, payload: payload.name };
+    }
+  }
+  return undefined;
+}
+
+/** Every executable body a workflow declares, in declaration order.
+ *
+ *  `wf.statements` is only a FACADE over the primary (unnamed,
+ *  command-triggered) create — so validating it alone left every `on(e: Event)`
+ *  reactor, every non-primary / event-triggered `create`, and every named
+ *  `handle` body completely unchecked.  That blind spot is what let
+ *  `for f in Follows.run(FollowersOf(e.author))` — a shape
+ *  `loom.workflow-foreach-source` rejects in a `create` body — reach codegen
+ *  from a reactor body: the elixir reactor emitter then THREW
+ *  (`unsupported reactor statement kind 'for-each'`, aborting the whole
+ *  `generate system` run), and java / hono / python / .NET each emitted a
+ *  `Repo.run(<the criterion predicate inlined as a boolean>)` call that exists
+ *  on no repository.  Every body now walks the same checks. */
+function workflowBodies(wf: {
+  statements: import("../../types/loom-ir.js").WorkflowStmtIR[];
+  creates?: { statements: import("../../types/loom-ir.js").WorkflowStmtIR[] }[];
+  subscriptions?: { statements: import("../../types/loom-ir.js").WorkflowStmtIR[] }[];
+  handlers?: { statements: import("../../types/loom-ir.js").WorkflowStmtIR[] }[];
+}): import("../../types/loom-ir.js").WorkflowStmtIR[][] {
+  // `creates` is the source of truth and CONTAINS the primary, so `statements`
+  // is only the fallback for a shape that lowered no creates at all.
+  const creates = wf.creates ?? [];
+  return [
+    ...(creates.length > 0 ? creates.map((c) => c.statements) : [wf.statements]),
+    ...(wf.subscriptions ?? []).map((s) => s.statements),
+    ...(wf.handlers ?? []).map((h) => h.statements),
+  ];
+}
+
 function validateWorkflowBody(
   ctx: BoundedContextIR,
   wf: {
     name: string;
     statements: import("../../types/loom-ir.js").WorkflowStmtIR[];
+    creates?: { statements: import("../../types/loom-ir.js").WorkflowStmtIR[] }[];
+    subscriptions?: { statements: import("../../types/loom-ir.js").WorkflowStmtIR[] }[];
+    handlers?: { statements: import("../../types/loom-ir.js").WorkflowStmtIR[] }[];
     transactional: boolean;
     eventSourced?: boolean;
     isolation?: import("../../types/loom-ir.js").IsolationLevel;
@@ -453,11 +662,78 @@ function validateWorkflowBody(
   const aggsByName = new Map(ctx.aggregates.map((a) => [a.name, a] as const));
   const reposByName = new Map(ctx.repositories.map((r) => [r.name, r] as const));
   const eventsByName = new Map(ctx.events.map((e) => [e.name, e] as const));
-  const bindingAgg = new Map<string, string>(); // bindingName -> aggName
-  const arrayBindingAgg = new Map<string, string>(); // repo-run binding -> element aggName
+  // `mutated` accumulates across EVERY body — a `transactional` workflow whose
+  // only effect lives in a reactor body still has an effect.
   let mutated = false;
+  for (const body of workflowBodies(wf)) {
+    // Bindings are body-scoped: a `let` in one create is not in scope in
+    // another create's body, nor in a reactor's.
+    const bindingAgg = new Map<string, string>(); // bindingName -> aggName
+    const arrayBindingAgg = new Map<string, string>(); // repo-run binding -> element aggName
+    validateWorkflowStatements(
+      ctx,
+      wf,
+      body,
+      diags,
+      aggsByName,
+      reposByName,
+      eventsByName,
+      bindingAgg,
+      arrayBindingAgg,
+      () => {
+        mutated = true;
+      },
+    );
+  }
 
-  for (const st of wf.statements) {
+  if (wf.transactional && !mutated) {
+    diags.push({
+      severity: "warning",
+      code: "loom.transactional-no-effect",
+      message: diagMessage("loom.transactional-no-effect", { name: wf.name }),
+      source: `${ctx.name}/${wf.name}`,
+    });
+  }
+
+  // Defence-in-depth: the grammar already gates the isolation level
+  // behind the `transactional` keyword, but if a future grammar
+  // change drops the gating we'd silently accept a meaningless
+  // setting.  Surface it as an error here too.
+  if (wf.isolation && !wf.transactional) {
+    diags.push({
+      severity: "error",
+      code: "loom.isolation-requires-transactional",
+      message: diagMessage("loom.isolation-requires-transactional", {
+        name: wf.name,
+        isolation: wf.isolation,
+      }),
+      source: `${ctx.name}/${wf.name}`,
+    });
+  }
+}
+
+/** The per-body statement walk.  Extracted verbatim from `validateWorkflowBody`
+ *  so it can run once per declared body (create / reactor / handler) instead of
+ *  once per workflow over the primary-create facade. */
+function validateWorkflowStatements(
+  ctx: BoundedContextIR,
+  wf: {
+    name: string;
+    transactional: boolean;
+    eventSourced?: boolean;
+    isolation?: import("../../types/loom-ir.js").IsolationLevel;
+    params: import("../../types/loom-ir.js").ParamIR[];
+  },
+  statements: import("../../types/loom-ir.js").WorkflowStmtIR[],
+  diags: LoomDiagnostic[],
+  aggsByName: Map<string, AggregateIR>,
+  reposByName: Map<string, RepositoryIR>,
+  eventsByName: Map<string, EventIR>,
+  bindingAgg: Map<string, string>,
+  arrayBindingAgg: Map<string, string>,
+  markMutated: () => void,
+): void {
+  for (const st of statements) {
     switch (st.kind) {
       case "precondition":
       case "requires":
@@ -522,7 +798,7 @@ function validateWorkflowBody(
             });
           }
         }
-        mutated = true;
+        markMutated();
         break;
       }
       case "factory-let": {
@@ -582,7 +858,7 @@ function validateWorkflowBody(
           }
         }
         bindingAgg.set(st.name, st.aggName);
-        mutated = true;
+        markMutated();
         break;
       }
       case "repo-let": {
@@ -817,7 +1093,7 @@ function validateWorkflowBody(
         bindingAgg.set(st.var, st.varAggName);
         for (const inner of st.body) {
           if (inner.kind === "op-call") {
-            mutated = true;
+            markMutated();
             if (!bindingAgg.get(inner.target)) {
               diags.push({
                 severity: "error",
@@ -921,7 +1197,7 @@ function validateWorkflowBody(
           const branchLocal: string[] = [];
           for (const inner of body) {
             if (inner.kind === "op-call") {
-              mutated = true;
+              markMutated();
               if (!bindingAgg.get(inner.target)) {
                 diags.push({
                   severity: "error",
@@ -934,7 +1210,7 @@ function validateWorkflowBody(
                 });
               }
             } else if (inner.kind === "emit" || inner.kind === "factory-let") {
-              mutated = true;
+              markMutated();
             }
             if (
               (inner.kind === "repo-let" || inner.kind === "factory-let") &&
@@ -1001,13 +1277,13 @@ function validateWorkflowBody(
         // emission paths construct the wire-typed request from the
         // workflow's domain args via `domainToRequestExpr` (.NET) /
         // a per-VO object-literal projection (TS).)
-        mutated = true;
+        markMutated();
         break;
       }
       case "repo-delete":
         // `<Repo>.delete(o)` — a repository DELETE is a persistence mutation, so
         // it satisfies a `transactional` workflow's effect requirement.
-        mutated = true;
+        markMutated();
         break;
       case "assign":
         // `field := value` / `field += value` / `field -= value` — own-state
@@ -1032,7 +1308,7 @@ function validateWorkflowBody(
             source: `${ctx.name}/${wf.name}`,
           });
         }
-        mutated = true;
+        markMutated();
         break;
       case "expr-let": {
         if (st.name === "__bad__") {
@@ -1068,31 +1344,6 @@ function validateWorkflowBody(
         void _exhaustive;
       }
     }
-  }
-
-  if (wf.transactional && !mutated) {
-    diags.push({
-      severity: "warning",
-      code: "loom.transactional-no-effect",
-      message: diagMessage("loom.transactional-no-effect", { name: wf.name }),
-      source: `${ctx.name}/${wf.name}`,
-    });
-  }
-
-  // Defence-in-depth: the grammar already gates the isolation level
-  // behind the `transactional` keyword, but if a future grammar
-  // change drops the gating we'd silently accept a meaningless
-  // setting.  Surface it as an error here too.
-  if (wf.isolation && !wf.transactional) {
-    diags.push({
-      severity: "error",
-      code: "loom.isolation-requires-transactional",
-      message: diagMessage("loom.isolation-requires-transactional", {
-        name: wf.name,
-        isolation: wf.isolation,
-      }),
-      source: `${ctx.name}/${wf.name}`,
-    });
   }
 }
 

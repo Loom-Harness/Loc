@@ -936,10 +936,10 @@ export function isCommandHandler(item: unknown): item is CommandHandler {
     return reflection.isInstance(item, CommandHandler.$type);
 }
 
-export type CommonSoftKeywords = 'action' | 'asc' | 'body' | 'by' | 'canonical' | 'channels' | 'command' | 'config' | 'connection' | 'crossTenant' | 'dataSources' | 'desc' | 'description' | 'env' | 'envelope' | 'error' | 'eventLog' | 'every' | 'favicon' | 'filter' | 'group' | 'handle' | 'immutable' | 'implements' | 'instance' | 'internal' | 'isolationLevel' | 'join' | 'key' | 'keyPrefix' | 'kind' | 'literal' | 'loads' | 'mailer' | 'managed' | 'message' | 'migration' | 'money' | 'objectStore' | 'ogImage' | 'option' | 'or' | 'paged' | 'parent' | 'payload' | 'query' | 'queue' | 'readonly' | 'replica' | 'resource' | 'response' | 'retain' | 'retrieval' | 'schema' | 'secret' | 'select' | 'service' | 'snapshot' | 'sort' | 'sql' | 'stamp' | 'state' | 'store' | 'tablePrefix' | 'tenancy' | 'title' | 'token' | 'ttl' | 'use' | 'write';
+export type CommonSoftKeywords = 'action' | 'allow' | 'asc' | 'body' | 'by' | 'canonical' | 'channels' | 'command' | 'config' | 'connection' | 'crossTenant' | 'dataSources' | 'deep' | 'deny' | 'desc' | 'description' | 'env' | 'envelope' | 'error' | 'eventLog' | 'every' | 'favicon' | 'filter' | 'global' | 'group' | 'handle' | 'immutable' | 'implements' | 'instance' | 'internal' | 'isolationLevel' | 'join' | 'key' | 'keyPrefix' | 'kind' | 'literal' | 'loads' | 'local' | 'mailer' | 'managed' | 'message' | 'migration' | 'money' | 'objectStore' | 'of' | 'ogImage' | 'option' | 'or' | 'paged' | 'parent' | 'payload' | 'persistence' | 'policy' | 'query' | 'queue' | 'readonly' | 'replica' | 'resource' | 'response' | 'retain' | 'retrieval' | 'schema' | 'secret' | 'select' | 'service' | 'snapshot' | 'sort' | 'sql' | 'stamp' | 'state' | 'store' | 'tablePrefix' | 'tenancy' | 'title' | 'token' | 'ttl' | 'use' | 'write';
 
 export function isCommonSoftKeywords(item: unknown): item is CommonSoftKeywords {
-    return item === 'action' || item === 'asc' || item === 'body' || item === 'by' || item === 'canonical' || item === 'channels' || item === 'command' || item === 'config' || item === 'connection' || item === 'crossTenant' || item === 'dataSources' || item === 'desc' || item === 'description' || item === 'env' || item === 'envelope' || item === 'error' || item === 'eventLog' || item === 'every' || item === 'favicon' || item === 'filter' || item === 'group' || item === 'handle' || item === 'immutable' || item === 'implements' || item === 'instance' || item === 'internal' || item === 'isolationLevel' || item === 'join' || item === 'key' || item === 'keyPrefix' || item === 'kind' || item === 'literal' || item === 'loads' || item === 'mailer' || item === 'managed' || item === 'message' || item === 'migration' || item === 'money' || item === 'objectStore' || item === 'ogImage' || item === 'option' || item === 'or' || item === 'paged' || item === 'parent' || item === 'payload' || item === 'query' || item === 'queue' || item === 'readonly' || item === 'replica' || item === 'resource' || item === 'response' || item === 'retain' || item === 'retrieval' || item === 'schema' || item === 'secret' || item === 'select' || item === 'service' || item === 'snapshot' || item === 'sort' || item === 'sql' || item === 'stamp' || item === 'state' || item === 'store' || item === 'tablePrefix' || item === 'tenancy' || item === 'title' || item === 'token' || item === 'ttl' || item === 'use' || item === 'write';
+    return item === 'action' || item === 'allow' || item === 'asc' || item === 'body' || item === 'by' || item === 'canonical' || item === 'channels' || item === 'command' || item === 'config' || item === 'connection' || item === 'crossTenant' || item === 'dataSources' || item === 'deep' || item === 'deny' || item === 'desc' || item === 'description' || item === 'env' || item === 'envelope' || item === 'error' || item === 'eventLog' || item === 'every' || item === 'favicon' || item === 'filter' || item === 'global' || item === 'group' || item === 'handle' || item === 'immutable' || item === 'implements' || item === 'instance' || item === 'internal' || item === 'isolationLevel' || item === 'join' || item === 'key' || item === 'keyPrefix' || item === 'kind' || item === 'literal' || item === 'loads' || item === 'local' || item === 'mailer' || item === 'managed' || item === 'message' || item === 'migration' || item === 'money' || item === 'objectStore' || item === 'of' || item === 'ogImage' || item === 'option' || item === 'or' || item === 'paged' || item === 'parent' || item === 'payload' || item === 'query' || item === 'persistence' || item === 'policy' || item === 'queue' || item === 'readonly' || item === 'replica' || item === 'resource' || item === 'response' || item === 'retain' || item === 'retrieval' || item === 'schema' || item === 'secret' || item === 'select' || item === 'service' || item === 'snapshot' || item === 'sort' || item === 'sql' || item === 'stamp' || item === 'state' || item === 'store' || item === 'tablePrefix' || item === 'tenancy' || item === 'title' || item === 'token' || item === 'ttl' || item === 'use' || item === 'write';
 }
 
 export interface Component extends langium.AstNode {
@@ -1417,7 +1417,7 @@ export function isExpectStmt(item: unknown): item is ExpectStmt {
     return reflection.isInstance(item, ExpectStmt.$type);
 }
 
-export type Expression = AwaitExpr | BinaryChain | BuilderCall | IdRef | Lambda | ListLit | LiteralExpr | MatchExpr | MoneyLit | NameRef | NowExpr | ObjectLit | ParenExpr | PostfixChain | PrimitiveConversion | RetrievalLiteral | TemplateStr | TernaryExpr | ThisRef | UnaryExpr;
+export type Expression = AwaitExpr | BinaryChain | BuilderCall | IdRef | Lambda | ListLit | LiteralExpr | MatchExpr | NameRef | NowExpr | ObjectLit | ParenExpr | PostfixChain | PrimitiveConversion | RetrievalLiteral | TemplateStr | TernaryExpr | ThisRef | UnaryExpr;
 
 export const Expression = {
     $type: 'Expression'
@@ -1954,10 +1954,10 @@ export function isLoadSegment(item: unknown): item is LoadSegment {
     return reflection.isInstance(item, LoadSegment.$type);
 }
 
-export type LooseName = 'aggregates' | 'allow' | 'api' | 'await' | 'bind' | 'cache' | 'component' | 'contains' | 'contexts' | 'deep' | 'design' | 'directoryLayout' | 'framework' | 'from' | 'global' | 'id' | 'ignoring' | 'link' | 'local' | 'menu' | 'modules' | 'of' | 'page' | 'permissions' | 'persistence' | 'policy' | 'route' | 'section' | 'static' | 'targets' | 'transactional' | 'ui' | 'urlStyle' | 'views' | 'workflows' | CommonSoftKeywords | string;
+export type LooseName = 'aggregates' | 'api' | 'await' | 'bind' | 'cache' | 'component' | 'contains' | 'contexts' | 'design' | 'directoryLayout' | 'framework' | 'from' | 'id' | 'ignoring' | 'link' | 'menu' | 'modules' | 'page' | 'permissions' | 'route' | 'section' | 'static' | 'targets' | 'transactional' | 'ui' | 'urlStyle' | 'views' | 'workflows' | CommonSoftKeywords | string;
 
 export function isLooseName(item: unknown): item is LooseName {
-    return isCommonSoftKeywords(item) || item === 'aggregates' || item === 'allow' || item === 'api' || item === 'await' || item === 'bind' || item === 'cache' || item === 'component' || item === 'contains' || item === 'contexts' || item === 'deep' || item === 'design' || item === 'directoryLayout' || item === 'framework' || item === 'from' || item === 'global' || item === 'id' || item === 'ignoring' || item === 'link' || item === 'local' || item === 'menu' || item === 'modules' || item === 'of' || item === 'page' || item === 'permissions' || item === 'persistence' || item === 'policy' || item === 'route' || item === 'section' || item === 'static' || item === 'targets' || item === 'transactional' || item === 'ui' || item === 'urlStyle' || item === 'views' || item === 'workflows' || (typeof item === 'string' && (/[_a-zA-Z][\w_]*/.test(item)));
+    return isCommonSoftKeywords(item) || item === 'aggregates' || item === 'api' || item === 'await' || item === 'bind' || item === 'cache' || item === 'component' || item === 'contains' || item === 'contexts' || item === 'design' || item === 'directoryLayout' || item === 'framework' || item === 'from' || item === 'id' || item === 'ignoring' || item === 'link' || item === 'menu' || item === 'modules' || item === 'page' || item === 'permissions' || item === 'route' || item === 'section' || item === 'static' || item === 'targets' || item === 'transactional' || item === 'ui' || item === 'urlStyle' || item === 'views' || item === 'workflows' || (typeof item === 'string' && (/[_a-zA-Z][\w_]*/.test(item)));
 }
 
 export interface LValue extends langium.AstNode {
@@ -1967,6 +1967,7 @@ export interface LValue extends langium.AstNode {
     call: boolean;
     head: LValueIdent;
     tail: Array<LValueIdent>;
+    thisRef: boolean;
 }
 
 export const LValue = {
@@ -1974,7 +1975,8 @@ export const LValue = {
     args: 'args',
     call: 'call',
     head: 'head',
-    tail: 'tail'
+    tail: 'tail',
+    thisRef: 'thisRef'
 } as const;
 
 export function isLValue(item: unknown): item is LValue {
@@ -1990,7 +1992,7 @@ export function isLValueIdent(item: unknown): item is LValueIdent {
 export interface MacroArg extends langium.AstNode {
     readonly $container: MacroCall;
     readonly $type: 'MacroArg';
-    name: LooseName;
+    name: MacroArgName;
     value: MacroArgValue;
 }
 
@@ -2032,6 +2034,12 @@ export const MacroArgInt = {
 
 export function isMacroArgInt(item: unknown): item is MacroArgInt {
     return reflection.isInstance(item, MacroArgInt.$type);
+}
+
+export type MacroArgName = 'requires' | LooseName;
+
+export function isMacroArgName(item: unknown): item is MacroArgName {
+    return isLooseName(item) || item === 'requires';
 }
 
 export interface MacroArgRef extends langium.AstNode {
@@ -2326,21 +2334,6 @@ export const ModelMember = {
 
 export function isModelMember(item: unknown): item is ModelMember {
     return reflection.isInstance(item, ModelMember.$type);
-}
-
-export interface MoneyLit extends langium.AstNode {
-    readonly $container: AssignOrCallStmt | AwaitExpr | BinaryChain | BodyProp | BuilderEntry | CallArg | ColumnStep | Component | Criterion | DerivedProp | EmitField | ExpectStmt | FilterDecl | FindDecl | ForStmt | FunctionDecl | HandleDecl | IfLetStmt | IfStmt | Invariant | LValue | Lambda | LayoutNamedSlot | LetStmt | ListLit | MatchArm | MatchExpr | MatchStmt | MenuLinkProp | MenuMetaEntry | ObjectFieldInit | OnDecl | Operation | Parameter | ParenExpr | PolicyDecl | PostfixChain | PreconditionStmt | PrimitiveConversion | Projection | ProjectionJoin | ProjectionOn | ProjectionSelect | Property | RequirementProp | RequiresProp | RequiresStmt | Retrieval | RetrievalLiteral | ReturnStmt | StateField | TemplateHole | TernaryExpr | TitleProp | UnaryExpr | VariantArm | Workflow | WorkflowCreateDecl;
-    readonly $type: 'MoneyLit';
-    value?: string;
-}
-
-export const MoneyLit = {
-    $type: 'MoneyLit',
-    value: 'value'
-} as const;
-
-export function isMoneyLit(item: unknown): item is MoneyLit {
-    return reflection.isInstance(item, MoneyLit.$type);
 }
 
 export type NamedDecl = Aggregate | EntityPart | EnumDecl | EventDecl | PayloadDecl | ValueObject;
@@ -4424,7 +4417,6 @@ export type DddAstType = {
     MigrationStepDecl: MigrationStepDecl
     Model: Model
     ModelMember: ModelMember
-    MoneyLit: MoneyLit
     NameRef: NameRef
     NamedDecl: NamedDecl
     NamedType: NamedType
@@ -5737,6 +5729,11 @@ export class DddAstReflection extends langium.AbstractAstReflection {
                     name: LValue.tail,
                     defaultValue: [],
                     optional: true
+                },
+                thisRef: {
+                    name: LValue.thisRef,
+                    defaultValue: false,
+                    optional: true
                 }
             },
             superTypes: []
@@ -6143,16 +6140,6 @@ export class DddAstReflection extends langium.AbstractAstReflection {
             properties: {
             },
             superTypes: []
-        },
-        MoneyLit: {
-            name: MoneyLit.$type,
-            properties: {
-                value: {
-                    name: MoneyLit.value,
-                    optional: true
-                }
-            },
-            superTypes: [Expression.$type]
         },
         NameRef: {
             name: NameRef.$type,
