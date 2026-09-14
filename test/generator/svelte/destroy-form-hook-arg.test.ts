@@ -120,8 +120,12 @@ describe("Svelte DestroyForm — the delete hook takes no hook-time argument", (
 
     // Svelte's `use<Op><Agg>` takes `id: () => string`, so an Action's id MUST
     // stay wrapped — the fix skips the thunk only where there is no id at all.
+    // The thunk is what this pins; the id expression INSIDE it is `controls.ts`'s
+    // business and has already been widened once (`order?.id` → `order?.id ?? ""`,
+    // #2865), so matching its exact tail here would only re-break on the next
+    // such change without making the assertion any stronger.
     expect(panel!, "Action keeps its accessor thunk").toMatch(
-      /const confirmOrder = useConfirmOrder\(\(\) => order\?\.id\)/,
+      /const confirmOrder = useConfirmOrder\(\(\) => order\?\.id\b/,
     );
     expect(syntaxErrors(scriptBlock(panel!)), "the Action component's script parses").toEqual([]);
   });
