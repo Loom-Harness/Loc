@@ -1,0 +1,1 @@
+context C { enum E { X, Y }  aggregate A { e: E  invariant e == Z } repository As for A { } }

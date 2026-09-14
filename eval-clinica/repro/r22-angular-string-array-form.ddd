@@ -1,0 +1,17 @@
+// Probe: an aggregate with a `string[]` field makes the generated Angular
+// create-form fail `ng build` (React/Vue/Svelte build fine from the same model).
+system R22 {
+  subdomain S { context C {
+    aggregate Tech {
+      fullName: string
+      skills: string[]
+      derived display: string = fullName
+      create() { }
+    }
+    repository Techs for Tech { }
+  } }
+  ui W with scaffold(subdomains: [S]) { framework: angular }
+  storage p { type: postgres }  resource r { for: C, kind: state, use: p }
+  deployable api { platform: node, contexts: [C], dataSources: [r], port: 3000 }
+  deployable web { platform: angular, targets: api, ui: W, design: angularMaterial, port: 3004 }
+}
