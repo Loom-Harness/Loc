@@ -575,6 +575,12 @@ end
 }
 
 function emitDelta(m: MigrationsIR, appModule: string, out: Map<string, string>): void {
+  // A generation whose every step renders to nothing on this backend — today
+  // that means a generation of value-object null-consistency CHECKs alone,
+  // which Ecto has no columns to constrain — would otherwise land an `.exs`
+  // with an empty `change/0`: a migration version recorded in
+  // `schema_migrations` that does nothing.  Emit no file instead.
+  if (m.steps.flatMap((s) => renderEctoStep(s)).length === 0) return;
   const path = `priv/repo/migrations/${m.version}_${snake(m.name)}.exs`;
   out.set(path, renderDeltaFile(m, appModule));
 }
@@ -665,6 +671,15 @@ export function renderEctoStep(step: MigrationStep): string[] {
     }
     case "dropIndex":
       return [`drop index(:${step.table}, name: "${step.name}"${prefixOpt(step.schema)})`];
+    case "addCheck":
+    case "dropCheck":
+      // Value-object null-consistency CHECKs (CheckShape) are meaningless here
+      // and would not even parse: Ecto stores a value object as ONE `:map`
+      // column (`collapseVoGroups`), so the `ship_to_line1` / `ship_to_city`
+      // leaf columns the constraint names do not exist on this backend — and
+      // the invariant they enforce cannot be violated, because a `:map` cell is
+      // written whole.  Skipped exactly as the value-array child table is.
+      return [];
     case "renameIndex":
       // Ecto has no `rename index` DSL — wrap the shared schema-qualified SQL in
       // `execute/1` (the `CREATE SCHEMA` precedent), so the DDL is bit-identical

@@ -1374,16 +1374,96 @@ system H {
   deployable api { platform: dotnet { persistence: dapper }  contexts: [O]  dataSources: [s]  serves: A  port: 8080  auth: required }
 }`;
 
-  it("rejects a hierarchical scope filter with loom.dapper-unsupported instead of crashing", async () => {
-    const { errors } = await emit(hierarchical);
-    expect(
-      errors.some((e) => /hierarchical \(deep\/global\) tenancy scope filter/.test(e)),
-      `expected the deep-scope boundary diagnostic, got: ${errors.join(" | ")}`,
-    ).toBe(true);
-    // The generic `loom.dapper-unsupported` tail claims every surviving reject
-    // has no relational mapping on ANY adapter — false here, efcore renders it.
-    expect(errors.some((e) => /use 'persistence: efcore' on this deployable/.test(e))).toBe(true);
-    // And it must be a DIAGNOSTIC, not the old generator throw.
-    expect(errors.some((e) => /outside the Dapper SQL subset/.test(e))).toBe(false);
+  // The hierarchical (`deep`/`global`) sentinel used to be REFUSED on this
+  // adapter (`loom.dapper-unsupported#deep-scope`) on the stated ground that the
+  // principal claims it reads could not be bound.  Wave C2 packet 2b renders it:
+  // this pins BOTH halves, because they are the pair that can disagree silently
+  // — a fragment naming a parameter nobody binds is a RUNTIME "parameter not
+  // supplied", invisible to `dotnet build`.
+  it("renders the deep-scope subtree predicate as raw SQL on every read", async () => {
+    const { files, errors } = await emit(hierarchical);
+    expect(errors, `expected clean generation, got: ${errors.join(" | ")}`).toEqual([]);
+    const repo = files.get("api/Infrastructure/Repositories/AccountRepository.cs");
+    expect(repo, "no Dapper AccountRepository emitted").toBeDefined();
+    // Every SELECT over the aggregate's table carries the descendant-or-self
+    // predicate — the by-id read, the write-scope existence guard, the bulk
+    // by-ids load and the paged findAll.  Swept rather than spot-checked: a
+    // filter applied to three of four reads is the leak this predicate exists
+    // to stop (rule 11).
+    const selects = repo!.split("\n").filter((l) => /SELECT[^"]*FROM accounts/.test(l));
+    expect(selects.length, "no SELECTs over `accounts`").toBeGreaterThanOrEqual(4);
+    for (const line of selects) {
+      expect(
+        line,
+        `a read over accounts with no subtree predicate: ${line.trim().slice(0, 120)}`,
+      ).toMatch(/data_key IS NOT NULL AND \(data_key = @__cu_orgPath/);
+      // The anchored RECHECK is what decides the row; the LIKE beside it is only
+      // the sargable prefilter, so its absence would be a cross-subtree leak
+      // that still returns plausible rows (`orgXa.leak` under `org_a`).
+      expect(line).toContain("strpos(data_key, @__cu_orgPath__needle) = 1");
+      expect(line).toContain("escape '!'");
+      // …and the NULL-`data_key` fallback degrades to the flat floor.
+      expect(line).toContain("data_key IS NULL AND tenant_id = @__cu_tenantId");
+    }
+    // BINDINGS — the half `whereToSql` alone cannot get right.  All four
+    // parameters the fragment names must be supplied from the ambient principal,
+    // with the LIKE pattern escaped app-side (the shared `_expr/subtree-like.ts`
+    // chain, escape character FIRST).
+    expect(repo).toContain("__cu_orgPath = RequestContext.Current!.CurrentUser!.OrgPath");
+    expect(repo).toContain("__cu_tenantId = RequestContext.Current!.CurrentUser!.TenantId");
+    expect(repo).toContain(
+      '__cu_orgPath__like = RequestContext.Current!.CurrentUser!.OrgPath.Replace("!", "!!")' +
+        '.Replace("%", "!%").Replace("_", "!_") + ".%"',
+    );
+    expect(repo).toContain(
+      '__cu_orgPath__needle = RequestContext.Current!.CurrentUser!.OrgPath + "."',
+    );
+    // No statement may name a parameter its own anonymous object does not bind.
+    for (const line of selects) {
+      for (const param of [...line.matchAll(/@(__cu_[A-Za-z0-9_]+)/g)].map((m) => m[1])) {
+        expect(line, `${param} is referenced but never bound`).toMatch(
+          new RegExp(`\\b${param} = `),
+        );
+      }
+    }
+  });
+
+  // The registry SELF-SCOPE comparison (`this.id == currentUser.tenantId`) is
+  // the one place a raw-SQL adapter compares two DIFFERENT Postgres types.
+  // Rendering the claim as the plain text `@__cu_tenantId` produced `id =
+  // @__cu_tenantId` → `42883: operator does not exist: uuid = text`, a 500 on
+  // EVERY read of the registry — reproduced on a booted generated app, and
+  // invisible to `dotnet build /warnaserror` because the predicate is a string.
+  it("binds the registry self-scope claim as a PARSED uuid, not the text claim", async () => {
+    const { files, errors } = await emit(hierarchical);
+    expect(errors).toEqual([]);
+    const repo = files.get("api/Infrastructure/Repositories/OrgRepository.cs")!;
+    expect(repo, "no Dapper OrgRepository emitted").toBeDefined();
+    // The comparison names the uuid param…
+    expect(repo).toContain("id = @__cu_tenantId__uuid");
+    // …bound through the fail-closed parse (a malformed claim reads empty, the
+    // same answer a foreign-but-well-formed one gives — never a FormatException).
+    expect(repo).toContain(
+      "__cu_tenantId__uuid = __ClaimGuid(RequestContext.Current!.CurrentUser!.TenantId)",
+    );
+    expect(repo).toContain(
+      "private static Guid? __ClaimGuid(string? __s) => Guid.TryParse(__s, out var __g) ? __g : (Guid?)null;",
+    );
+    // The uuid-typed comparison must not ALSO drag in the text claim parameter:
+    // a bound parameter the SQL never names is the F2-ADP-9 shape.
+    expect(repo).not.toContain("id = @__cu_tenantId)");
+    for (const line of repo.split("\n").filter((l) => /SELECT[^"]*FROM orgs/.test(l))) {
+      expect(line, `text claim bound but not referenced: ${line.trim().slice(0, 120)}`).not.toMatch(
+        /__cu_tenantId = /,
+      );
+    }
+  });
+
+  it("keeps the deny sentinel as the always-false term", async () => {
+    const { files, errors } = await emit(
+      hierarchical.replace("allow deep on Account", "deny on Account"),
+    );
+    expect(errors).toEqual([]);
+    expect(files.get("api/Infrastructure/Repositories/AccountRepository.cs")).toContain("1 = 0");
   });
 });

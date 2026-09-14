@@ -16,6 +16,7 @@ import {
   problemTitle,
   UNPROCESSABLE_ENTITY,
 } from "../../../ir/util/openapi-errors.js";
+import { valueObjectPool } from "../../../ir/util/reachable-types.js";
 import { listReadFind } from "../../../ir/util/read-gates.js";
 import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { lines } from "../../../util/code-builder.js";
@@ -29,6 +30,7 @@ import { plural, snake, upperFirst } from "../../../util/naming.js";
 import { javaLogEvent } from "../../_obs/render-java.js";
 import { findUnionSpec } from "../../_payload/union-wire.js";
 import { PG_FOREIGN_KEY_VIOLATION, PG_RESTRICT_VIOLATION } from "../../_persistence/pg-sqlstate.js";
+import { jid, requestParam } from "../java-ident.js";
 import {
   collectJavaExprImports,
   javaValueTypeForId,
@@ -232,7 +234,7 @@ export function renderJavaController(
               `                problem.setDetail(${JSON.stringify(a.title)});`,
               ...props.map(
                 (f) =>
-                  `                problem.setProperty(${JSON.stringify(f.name)}, v.${f.name}()${f.isId ? ".value()" : ""});`,
+                  `                problem.setProperty(${JSON.stringify(f.name)}, v.${jid(f.name)}()${f.isId ? ".value()" : ""});`,
               ),
               `                yield ResponseEntity.status(${a.status}).contentType(MediaType.APPLICATION_PROBLEM_JSON).body(problem);`,
               `            }`,
@@ -252,8 +254,8 @@ export function renderJavaController(
           `        CatalogLog.event(${javaLogEvent("operationInvoked")}, "aggregate", "${agg.name}", "op", "${op.name}", "id", id);`,
           `        httpMetrics.recordDomainOperation("${agg.name}", "${op.name}");`,
           hasParams
-            ? `        var result = service.${op.name}(new ${idClass}(id), request${ifMatchServiceArg});`
-            : `        var result = service.${op.name}(new ${idClass}(id)${ifMatchServiceArg});`,
+            ? `        var result = service.${jid(op.name)}(new ${idClass}(id), request${ifMatchServiceArg});`
+            : `        var result = service.${jid(op.name)}(new ${idClass}(id)${ifMatchServiceArg});`,
           `        return switch (result) {`,
           ...arms,
           `        };`,
@@ -283,8 +285,8 @@ export function renderJavaController(
           `        CatalogLog.event(${javaLogEvent("operationInvoked")}, "aggregate", "${agg.name}", "op", "${op.name}", "id", id);`,
           `        httpMetrics.recordDomainOperation("${agg.name}", "${op.name}");`,
           hasParams
-            ? `        var result = service.${op.name}(new ${idClass}(id), request${ifMatchServiceArg});`
-            : `        var result = service.${op.name}(new ${idClass}(id)${ifMatchServiceArg});`,
+            ? `        var result = service.${jid(op.name)}(new ${idClass}(id), request${ifMatchServiceArg});`
+            : `        var result = service.${jid(op.name)}(new ${idClass}(id)${ifMatchServiceArg});`,
           `        return ResponseEntity.ok(result);`,
           `    }`,
           ``,
@@ -300,8 +302,8 @@ export function renderJavaController(
         `        CatalogLog.event(${javaLogEvent("operationInvoked")}, "aggregate", "${agg.name}", "op", "${op.name}", "id", id);`,
         `        httpMetrics.recordDomainOperation("${agg.name}", "${op.name}");`,
         hasParams
-          ? `        service.${op.name}(new ${idClass}(id), request${ifMatchServiceArg});`
-          : `        service.${op.name}(new ${idClass}(id)${ifMatchServiceArg});`,
+          ? `        service.${jid(op.name)}(new ${idClass}(id), request${ifMatchServiceArg});`
+          : `        service.${jid(op.name)}(new ${idClass}(id)${ifMatchServiceArg});`,
         `    }`,
         ``,
         ...canRouteLines(op),
@@ -317,14 +319,21 @@ export function renderJavaController(
       // service call — Spring has no `String → <Agg>Id` value-type converter, so
       // binding `@RequestParam OrderId` 500s.  Mirrors the getById path variable
       // (`@PathVariable UUID id` → `new OrderId(id)`).
+      // M-T6.36 — a param named after a Java reserved word binds under a
+      // MANGLED java identifier, so the query-parameter key has to be named
+      // explicitly (`@RequestParam("case") String case_`); Spring would
+      // otherwise publish `?case_=` on java alone.  `requestParam` is the
+      // bare `@RequestParam` for every other name, so output is unmoved.
       const declared = f.params.map((p) =>
         p.type.kind === "id"
-          ? `@RequestParam ${javaValueTypeForId(p.type.valueType)} ${p.name}`
-          : `@RequestParam ${renderJavaType(p.type)} ${p.name}`,
+          ? `${requestParam(p.name)} ${javaValueTypeForId(p.type.valueType)} ${jid(p.name)}`
+          : `${requestParam(p.name)} ${renderJavaType(p.type)} ${jid(p.name)}`,
       );
       const params = declared.join(", ");
       const args = f.params
-        .map((p) => (p.type.kind === "id" ? `new ${p.type.targetName}Id(${p.name})` : p.name))
+        .map((p) =>
+          p.type.kind === "id" ? `new ${p.type.targetName}Id(${jid(p.name)})` : jid(p.name),
+        )
         .join(", ");
       // Union find (`Order or NotFound` / `Order option`): the service returns
       // the success variant's `<Agg>Response` (or null).  Per exception-less.md
@@ -368,7 +377,7 @@ export function renderJavaController(
           `    @GetMapping("${relativeOpPath(entry)}")`,
           `    public ResponseEntity<?> ${f.name}${agg.name}(${params}) {`,
           ...(f.requires ? findGateLines(f) : []),
-          `        var r = service.${f.name}(${args});`,
+          `        var r = service.${jid(f.name)}(${args});`,
           `        if (r == null) {`,
           ...absent,
           `        }`,
@@ -391,7 +400,7 @@ export function renderJavaController(
           `    @GetMapping("${relativeOpPath(entry)}")`,
           `    public ${agg.name}Paged ${f.name}${agg.name}(${pagedParams}) {`,
           ...(f.requires ? findGateLines(f) : []),
-          `        var result = service.${f.name}(${pagedArgs});`,
+          `        var result = service.${jid(f.name)}(${pagedArgs});`,
           `        return new ${agg.name}Paged(result.items(), result.page(), result.pageSize(), result.total(), result.totalPages());`,
           `    }`,
           ``,
@@ -405,8 +414,8 @@ export function renderJavaController(
         `    public ${retType} ${f.name}${agg.name}(${params}) {`,
         ...(f.requires ? findGateLines(f) : []),
         single
-          ? `        var response = service.${f.name}(${args});`
-          : `        return service.${f.name}(${args});`,
+          ? `        var response = service.${jid(f.name)}(${args});`
+          : `        return service.${jid(f.name)}(${args});`,
         single
           ? // RS-22/RS-27 — same repair as the `option` arm above: an OPTIONAL
             // find (`find byEmail(...): Customer?`) is wire-identical to
@@ -532,7 +541,8 @@ export function renderJavaController(
       : null,
     // WebDataBinder for the @InitBinder that registers this aggregate's command
     // validators — only when at least one is emitted.
-    javaCommandValidatorNames(agg, ctx.boundedContext?.valueObjects ?? []).length > 0
+    javaCommandValidatorNames(agg, ctx.boundedContext ? valueObjectPool(ctx.boundedContext) : [])
+      .length > 0
       ? `import org.springframework.web.bind.WebDataBinder;`
       : null,
     ``,
@@ -549,7 +559,7 @@ export function renderJavaController(
     anyFindGateUsesUser ? `        this.currentUserAccessor = currentUserAccessor;` : null,
     `    }`,
     ``,
-    ...initBinderLines(agg, ctx.boundedContext?.valueObjects ?? []),
+    ...initBinderLines(agg, ctx.boundedContext ? valueObjectPool(ctx.boundedContext) : []),
     ...body,
     `}`,
     ``,
@@ -766,6 +776,12 @@ export function renderApiExceptionAdvice(
    *  integrity handler then carries the 23503 → domain-floor arm.  See
    *  `aggregatesCanTripDanglingReference`. */
   hasDanglingRef = false,
+  /** The `.ddd` member names in this project whose Java identifier had to be
+   *  mangled (M-T6.36).  The pointer mapper inverts them so a validation error
+   *  on a reserved-word field publishes `/case`, not `/case_` — the same
+   *  pointer every other backend answers with.  Empty ⇒ byte-identical to
+   *  pre-M-T6.36 output. */
+  mangledWireNames: readonly string[] = [],
 ): string {
   // Structural-conflict statuses resolved through the `httpStatus` mapper
   // (expressible-builtins.md §3 / M-T3.4a): a literal 409 by default, or the
@@ -1228,10 +1244,29 @@ export function renderApiExceptionAdvice(
     `        }`,
     `        var out = new StringBuilder();`,
     `        for (var seg : segments) {`,
+    mangledWireNames.length > 0 ? `            seg = WIRE_NAMES.getOrDefault(seg, seg);` : null,
     `            out.append('/').append(seg.replace("~", "~0").replace("/", "~1"));`,
     `        }`,
     `        return out.toString();`,
     `    }`,
+    // M-T6.36: a `.ddd` member named after a Java reserved word is declared
+    // with a mangled host identifier (`case` -> `case_`) plus `@JsonProperty`,
+    // so Jackson and springdoc keep the wire spelling.  Spring's own binding
+    // paths do NOT go through Jackson — a Bean Validation violation and an
+    // `Errors.rejectValue(...)` both name the JAVA property — so the pointer
+    // mapper is where the wire spelling is restored.  One entry per mangled
+    // name in this project; absent entirely when there is none.
+    mangledWireNames.length > 0
+      ? [
+          ``,
+          `    private static final java.util.Map<String, String> WIRE_NAMES = java.util.Map.ofEntries(`,
+          ...mangledWireNames.map(
+            (n, i) =>
+              `        java.util.Map.entry(${JSON.stringify(`${n}_`)}, ${JSON.stringify(n)})${i < mangledWireNames.length - 1 ? "," : ""}`,
+          ),
+          `    );`,
+        ]
+      : null,
 
     // The SQLState reader is emitted only alongside the DataIntegrityViolation
     // handler that calls it, so a project with neither integrity arm stays

@@ -880,6 +880,48 @@ describe.skipIf(!ENABLED)(
       }
     }, 600_000);
 
+    // M-T5.7 — a CROSS-AGGREGATE `X id` reference TO a TPH concrete.  `tph.ddd`
+    // above covers the hierarchy's own emission; this covers the identity type
+    // that leaves it.  EF-native TPH keys the hierarchy on the base's
+    // `PartyId`, but every emitter renders a referenced id as `${targetName}Id`
+    // independently, so `Invoice.customer` / the event record / the commands /
+    // the EF converter said `CustomerId` while `ICustomerRepository
+    // .GetByIdAsync` said `PartyId`.  The two only MEET where generated code
+    // passes one to the other — the fixture's reactor `Customers.getById(
+    // e.customer)` — which was `CS1503: cannot convert from 'CustomerId' to
+    // 'PartyId'` with `ddd parse` reporting zero errors.
+    it("system TPH cross-aggregate `X id` reference — `<Concrete>Id` aliases the root id under /warnaserror", () => {
+      const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "loom-tph-crossref-"));
+      try {
+        execSync(
+          `node ${cli} generate system test/e2e/fixtures/dotnet-build/tph-crossref.ddd -o ${outDir}`,
+          { stdio: "inherit", cwd: repoRoot },
+        );
+        const proj = path.join(outDir, "api");
+        // The alias itself — a `global using`, so it holds in every emitted file
+        // rather than only where an import list happens to mention it.
+        expect(
+          fs.readFileSync(path.join(proj, "Domain", "Ids", "CustomerId.cs"), "utf8"),
+        ).toContain("global using CustomerId = Api.Domain.Ids.PartyId;");
+        // …and the root's own id is still a real struct, not an alias to itself.
+        expect(fs.readFileSync(path.join(proj, "Domain", "Ids", "PartyId.cs"), "utf8")).toContain(
+          "public readonly record struct PartyId(Guid Value)",
+        );
+        execSync(`dotnet restore --nologo`, { cwd: proj, stdio: "inherit", timeout: 240_000 });
+        execSync(`dotnet build --no-restore --nologo /warnaserror`, {
+          cwd: proj,
+          stdio: "inherit",
+          timeout: 180_000,
+        });
+      } finally {
+        try {
+          fs.rmSync(outDir, { recursive: true, force: true });
+        } catch {
+          /* ignore */
+        }
+      }
+    }, 600_000);
+
     // Dapper event sourcing (appliers, Dapper edition): a `persistence: dapper`
     // deployable hosting a `persistedAs: eventLog` aggregate emits the raw-Npgsql
     // event-store repository (read stream → fold, append on save) + the

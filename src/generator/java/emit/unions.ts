@@ -8,6 +8,7 @@ import type {
 import { lines } from "../../../util/code-builder.js";
 import { defaultErrorStatus, errorTitle, errorTypeUri } from "../../../util/error-defaults.js";
 import { type UnionMember, unionMembers } from "../../_payload/union-wire.js";
+import { jid } from "../java-ident.js";
 import { collectJavaTypeImports, renderJavaType } from "../render-expr.js";
 import { collectWireImports, domainToWire, wireJavaType } from "./wire.js";
 
@@ -185,7 +186,7 @@ export function renderJavaUnionWireFiles(
 export function unionWireCtorArgs(m: UnionMember): string[] {
   if (m.shape === "none") return [];
   if (m.shape === "scalar") return [domainToWire(m.type, "v.value()")];
-  return m.fields.map((f) => domainToWire(eff(f.type, f.optional), `v.${f.name}()`));
+  return m.fields.map((f) => domainToWire(eff(f.type, f.optional), `v.${jid(f.name)}()`));
 }
 
 function memberDomainParams(m: UnionMember, imports: Set<string>): string {

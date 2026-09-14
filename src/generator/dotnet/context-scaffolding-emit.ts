@@ -1,5 +1,11 @@
 import type { BoundedContextIR, EnrichedBoundedContextIR } from "../../ir/types/loom-ir.js";
-import { isTpcBase, isTpcConcrete, isTphBase } from "../../ir/util/inheritance.js";
+import {
+  isTpcBase,
+  isTpcConcrete,
+  isTphBase,
+  isTphConcrete,
+  rootBaseOf,
+} from "../../ir/util/inheritance.js";
 import { plural } from "../../util/naming.js";
 import type { SourceMapRecorder } from "../_trace/sourcemap.js";
 import {
@@ -14,6 +20,7 @@ import {
   renderId,
   renderInProcessDispatcher,
   renderNoopDispatcher,
+  renderTphConcreteIdAlias,
   renderValueObject,
 } from "./emit.js";
 
@@ -52,7 +59,20 @@ export function emitIds(ctx: BoundedContextIR, ns: string, out: Map<string, stri
     // A TPH base, by contrast, OWNS the shared single-table key — emit its
     // `<Base>Id`, which the concretes inherit (they declare none of their own).
     if (agg.isAbstract && !isTphBase(agg, ctx.aggregates)) continue;
-    out.set(`Domain/Ids/${agg.name}Id.cs`, renderId(agg.name, agg.idValueType, ns));
+    // A TPH CONCRETE has no id of its own — the hierarchy keys on the base's.
+    // Its `<Concrete>Id` is emitted as a global ALIAS for `<Root>Id` so a
+    // cross-aggregate `Customer id` reference and `ICustomerRepository
+    // .GetByIdAsync(PartyId)` name the same CLR type (M-T5.7; see
+    // `renderTphConcreteIdAlias` for the CS1503 this closes).
+    const tphRoot = isTphConcrete(agg, ctx.aggregates)
+      ? rootBaseOf(agg, ctx.aggregates).name
+      : undefined;
+    out.set(
+      `Domain/Ids/${agg.name}Id.cs`,
+      tphRoot
+        ? renderTphConcreteIdAlias(agg.name, tphRoot, ns)
+        : renderId(agg.name, agg.idValueType, ns),
+    );
     for (const part of agg.parts) {
       out.set(`Domain/Ids/${part.name}Id.cs`, renderId(part.name, agg.idValueType, ns));
     }

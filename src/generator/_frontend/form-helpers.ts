@@ -1,4 +1,5 @@
 import type { AggregateIR, BoundedContextIR, ExprIR, TypeIR } from "../../ir/types/loom-ir.js";
+import { findValueObjectInScope } from "../../ir/util/reachable-types.js";
 import { lowerFirst, plural } from "../../util/naming.js";
 import { type DefaultSeedCtx, renderDefaultSeed } from "./default-seed.js";
 
@@ -65,7 +66,7 @@ export function needsController(
       return !!target?.displayDerived;
     }
     if (inner.kind === "valueobject") {
-      const vo = ctx.valueObjects.find((v) => v.name === inner.name);
+      const vo = findValueObjectInScope(ctx, inner.name);
       return !!vo && vo.fields.some((f) => probe(f.type));
     }
     // An array field never needs `Controller` — an object array renders through
@@ -100,7 +101,7 @@ export function idTargetsInFields(
       return;
     }
     if (inner.kind === "valueobject") {
-      const vo = ctx.valueObjects.find((v) => v.name === inner.name);
+      const vo = findValueObjectInScope(ctx, inner.name);
       if (vo) for (const f of vo.fields) visit(f.type);
       return;
     }
@@ -170,7 +171,7 @@ function initialValueTs(t: TypeIR, ctx: BoundedContextIR, optional: boolean): st
     return en ? JSON.stringify(en.values[0]) : `""`;
   }
   if (inner.kind === "valueobject") {
-    const vo = ctx.valueObjects.find((v) => v.name === inner.name);
+    const vo = findValueObjectInScope(ctx, inner.name);
     if (!vo) return "{}";
     const inner2 = vo.fields
       .map((vf) => `${vf.name}: ${initialValueTs(vf.type, ctx, false)}`)

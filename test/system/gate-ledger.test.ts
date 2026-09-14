@@ -52,6 +52,8 @@ import { BACKENDS } from "../fixtures/corpus/backends.js";
 const BEHAVIOURAL_ABSENT: Record<string, string> = {
   "auth-id-claim":
     "an `X id?` user claim is a STATIC contract, and all four of its symptoms are compile-visible on the tier that already gates it: TS2503 (tsc), `cannot find symbol` (gradle), a `CustomerId??` that does not parse (dotnet build), and — the one that reads as a runtime bug — python's missing import, which `corpus-python-build` catches as ruff F821 + mypy `name-defined` before anything boots.  A behavioural block would boot a CRUD round-trip wearing an OIDC hat, which `auth-oidc` already records, and mint a wire golden with no oracle of its own.  NOT a drain candidate for M-T9.13 (docs/audits/2026-09-10-eshop-dev-experience.md §D6/P2, #2869): unlike every sibling here it is not a tier gap, so the honest move if it ever stops paying for itself is to delete the fixture, not to boot it",
+  "auth-id-claim-stub":
+    "the NON-optional twin of `auth-id-claim`, and compile-visible for the same reason: four of the five dev-stub principal VALUE tables wrote a raw scalar where the emitted id is a nominal type, and two of those are hard compile errors on the tier that already gates the cell — `TS2322: Type 'string' is not assignable to type 'CustomerId'` (tsc, against the `__brand`) and CS0029 (dotnet build, against `readonly record struct CustomerId(Guid)`).  java's arm compiled but carried a NULL strong id; that one IS a runtime shape — and the oracle for it is the emitted value, which the compile tier reads directly, not a booted round-trip.  A behavioural block would boot the same CRUD round-trip `auth-simple` already boots and mint a wire golden whose only new content is the /auth/me projection of a claim the harness's `x-loom-dev-claims` cannot even set (the shared `devClaimKind` classifier carries `string` and `string[]` only, so the id claim keeps its built-in stub value on every backend).  Same disposition as its sibling: NOT a drain candidate for M-T9.13",
   "projection-agg-filters":
     "aggregation × capability filters — the cross-tenant COUNT/SUM leak audit A1 minted this fixture for is a RUNTIME value; the compile tier cannot see a wrong number",
   "projection-document-aggregation":
@@ -72,6 +74,8 @@ const BEHAVIOURAL_ABSENT: Record<string, string> = {
     "the question is what a request body OMITS, and the `test e2e` vocabulary cannot pose it — a workflow call there is type-checked against the declared params, so an absent required field is not expressible; the compile tier proves every backend still builds with the boxed components, and the 422 itself is the Schemathesis legs' question",
   "collection-op-shapes":
     "collection-op VALUE semantics (empty sum, avg of none, sort stability) — the exact class a string assertion cannot see",
+  "workflow-enum-state":
+    'an enum-typed workflow STATE field — both defects it exists for are STATIC and land on the compile tier that already gates it: node named `<Enum>Schema` with the name bound nowhere in the tree (TS2304) and then seeded the fresh saga row with `""` for a column drizzle types as a literal union (TS2345), both caught by corpus-tsc.  The workflow is EVENT-TRIGGERED, so it has no command route to POST and its only api surface is the pair of read-only instance endpoints; reaching them at runtime needs a `ClaimFiled` emitter this fixture deliberately does not have, because the shape under test is the enum in the state row, not the dispatch that fills it — `saga` and `eventsourced-workflow` already boot that dispatch path (#2864 D4/T3)',
   "workflow-command-payload":
     "the defect (#2864 D7/T2) is on the WORKFLOW command route, and the e2e DSL has no form that calls one — a booted caller could only drive the two crudish aggregates, never the payload wire contract the fixture exists for; the five compile legs are its oracle (M-T9.13 owns the drain: POST the payload from an e2e block once the DSL can call a workflow)",
   "projection-fold-statements":
@@ -136,14 +140,20 @@ describe("gate ledger", () => {
     // These pin the two readers that could do that.
 
     it("skipKeys reads a POPULATED register — it can see keys at all", () => {
-      // Every COMPILE_SKIP map in the tree is currently drained to empty, so a
-      // parser that returned `[]` unconditionally would pass every other
-      // assertion in this file while scoring the whole matrix as compiled.
-      // `DAPPER_UNSUPPORTED` is the one populated register of this exact shape,
-      // and it is what makes the drained readings below mean something.
-      expect(skipKeys("test/e2e/corpus-dotnet-dapper-build.test.ts", "DAPPER_UNSUPPORTED")).toEqual(
-        ["tenancy-hierarchy"],
-      );
+      // Every corpus COMPILE_SKIP / UNSUPPORTED map in the tree is now drained
+      // to empty, so a parser that returned `[]` unconditionally would pass
+      // every other assertion in this file while scoring the whole matrix as
+      // compiled.  The subject MOVED here in wave C2 packet 2b: it used to be
+      // `DAPPER_UNSUPPORTED`, whose last entry (`tenancy-hierarchy`) drained
+      // when the Dapper adapter learned the hierarchical subtree predicate —
+      // draining the very register that made the drained readings mean
+      // something.  `KNOWN_HEEX_GAPS` is the replacement because it is the one
+      // register of this exact shape that is SETTLED rather than pending
+      // (`DataGrid` on HEEx is a decided non-goal, D-DATAGRID-TARGETS), so it
+      // cannot drain out from under this guard the way a TODO register does.
+      expect(skipKeys("test/generator/elixir/heex-parity.test.ts", "KNOWN_HEEX_GAPS")).toEqual([
+        "DataGrid",
+      ]);
     });
 
     it("skipKeys is not fooled by the prose a drained register leaves behind", () => {

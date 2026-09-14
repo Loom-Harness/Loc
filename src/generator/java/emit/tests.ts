@@ -14,6 +14,7 @@ import { lines } from "../../../util/code-builder.js";
 import { intrinsicMatcherSig } from "../../../util/intrinsic-matchers.js";
 import { escapeJavaIdent, upperFirst } from "../../../util/naming.js";
 import { isServerSourcedDefault } from "../../_frontend/server-default.js";
+import { jid } from "../java-ident.js";
 import { collectJavaExprImports, collectJavaTypeImports, renderJavaExpr } from "../render-expr.js";
 import { stubUserValue } from "./auth.js";
 
@@ -214,7 +215,7 @@ export function renderOperationCall(
     const p = op.params[i];
     return p ? coerceLiteralToJavaType(p.type, a, rendered, imports) : rendered;
   });
-  return `${recv}.${e.member}(${args.join(", ")})`;
+  return `${recv}.${jid(e.member)}(${args.join(", ")})`;
 }
 
 /** `Agg.create({...})` → the positional `Agg.create(...)` factory call,

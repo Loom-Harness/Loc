@@ -34,7 +34,7 @@ import {
   auditEntryWireShape,
   auditFieldChangeWireShape,
 } from "../../ir/util/audit-history.js";
-import { collectReachableTypes } from "../../ir/util/reachable-types.js";
+import { collectReachableTypes, valueObjectPool } from "../../ir/util/reachable-types.js";
 import type { ClassifyContext, SingleFieldPattern } from "../../ir/validate/invariant-classify.js";
 import { PROVENANCED_REQUEST_ERROR, provenancedEntries } from "../_payload/provenanced-wire.js";
 import {
@@ -377,9 +377,16 @@ export function collectUsedTypes(
       for (const d of part.derived) yield d.type;
     }
   };
-  const { valueObjects, enums } = collectReachableTypes(seeds(), ctx.valueObjects);
+  // POOL, not emission list: a `valueobject` declared in a SIBLING context and
+  // referenced from this one is legal, and the per-aggregate module that
+  // references it imports nothing from the declaring context's module — so the
+  // schema has to be declared HERE or the bundle carries an undefined
+  // `<Vo>Schema`.  The reachability filter below still keeps only what the
+  // aggregate's own surface names.
+  const pool = valueObjectPool(ctx);
+  const { valueObjects, enums } = collectReachableTypes(seeds(), pool);
   return {
-    valueObjects: ctx.valueObjects.filter((v) => valueObjects.has(v.name)),
+    valueObjects: pool.filter((v) => valueObjects.has(v.name)),
     enums: ctx.enums.filter((e) => enums.has(e.name)),
   };
 }

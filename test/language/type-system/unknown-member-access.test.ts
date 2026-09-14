@@ -6,7 +6,10 @@
 //
 // The check is fail-open: it must NOT fire on arrays (collection ops),
 // primitives (`.length`), magic identifiers (`currentUser`), or any receiver
-// that already typed as `unknown`.
+// that already typed as `unknown`.  The principal has its OWN code — an
+// undeclared `currentUser.<claim>` is `loom.unknown-user-claim`, because the
+// fix is to declare the claim in `user { }`, not to correct a typo on a
+// domain record (`unknown-user-claim.test.ts`).
 
 import { describe, expect, it } from "vitest";
 import { parseString } from "../../_helpers/index.js";

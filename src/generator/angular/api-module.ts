@@ -6,6 +6,7 @@ import {
 } from "../../ir/stdlib/generics.js";
 import { unionReturn, variantTag } from "../../ir/stdlib/unions.js";
 import type {
+  AggregateIR,
   BoundedContextIR,
   EnrichedAggregateIR,
   EntityPartIR,
@@ -23,6 +24,7 @@ import {
   auditFieldChangeWireShape,
 } from "../../ir/util/audit-history.js";
 import { partsChildrenFirst } from "../../ir/util/containment-parent.js";
+import { valueObjectPool } from "../../ir/util/reachable-types.js";
 import { lines } from "../../util/code-builder.js";
 import { lowerFirst, plural, snake, upperFirst } from "../../util/naming.js";
 import { aggregateHasProvenanced, historyHookName } from "../_frontend/api-module.js";
@@ -146,7 +148,13 @@ function collectResponseTypes(
   types: readonly TypeIR[],
   bc: BoundedContextIR | undefined,
 ): { vos: ValueObjectIR[]; enums: EnumIR[] } {
-  const voByName = new Map((bc?.valueObjects ?? []).map((v) => [v.name, v]));
+  // POOL, not emission list: a `valueobject` declared in a SIBLING context and
+  // referenced from this one is legal, but the declaration never enters this
+  // context's `valueObjects` — resolving against that alone made `visit` bail
+  // (`if (!vo) return`) and the emitted response interface then named an
+  // undeclared `MoneyResponse`.  `visit` still only walks what the wire shape
+  // reaches, so an unreferenced sibling VO emits nothing.
+  const voByName = new Map((bc ? valueObjectPool(bc) : []).map((v) => [v.name, v] as const));
   const enumByName = new Map((bc?.enums ?? []).map((e) => [e.name, e]));
   const vos = new Map<string, ValueObjectIR>();
   const enums = new Map<string, EnumIR>();
@@ -164,6 +172,36 @@ function collectResponseTypes(
   };
   for (const t of types) visit(t);
   return { vos: [...vos.values()], enums: [...enums.values()] };
+}
+
+/** The response-side types the aggregate module `api/<agg>.ts` EXPORTS: the
+ *  `<Enum>` unions and `<Vo>Response` interfaces it declares ahead of its own
+ *  response interface.  A VO / enum reached only through a containment part
+ *  (e.g. `OrderLine.price: Money`) is collected too, by seeding with each
+ *  part's own response fields.
+ *
+ *  Exported so a SIBLING module can ask which aggregate module — if any —
+ *  already exports a type name it needs.  `workflows-module.ts` asks exactly
+ *  that: an enum reachable only from a workflow's persisted state is exported
+ *  by no aggregate module, and must be declared locally rather than imported
+ *  from one that does not have it (#2864 T3). */
+export function exportedResponseTypes(
+  agg: AggregateIR,
+  bc: BoundedContextIR | undefined,
+): { vos: ValueObjectIR[]; enums: EnumIR[] } {
+  return collectResponseTypes(
+    [
+      ...forApiRead(wireFieldsFor(agg))
+        .filter((f) => f.source !== "id")
+        .map((f) => f.type),
+      ...partsChildrenFirst(agg.parts).flatMap((p) =>
+        forApiRead(wireFieldsFor(p))
+          .filter((f) => f.source !== "id")
+          .map((f) => f.type),
+      ),
+    ],
+    bc,
+  );
 }
 
 /** `export type <Enum> = "A" | "B";` — the response-side enum union. */
@@ -327,17 +365,7 @@ export function buildAngularApiModule(
   // response interface so its precise (non-`unknown`) field types resolve.  A
   // VO / enum reached only through a containment part (e.g. `OrderLine.price:
   // Money`) is collected too by seeding with each part's own response fields.
-  const { vos: responseVos, enums: responseEnums } = collectResponseTypes(
-    [
-      ...fields.filter((f) => f.source !== "id").map((f) => f.type),
-      ...parts.flatMap((p) =>
-        forApiRead(wireFieldsFor(p))
-          .filter((f) => f.source !== "id")
-          .map((f) => f.type),
-      ),
-    ],
-    bc,
-  );
+  const { vos: responseVos, enums: responseEnums } = exportedResponseTypes(agg, bc);
 
   // Public domain operations → a `POST /<tag>/:id/<op>` mutation each
   // (request type = op params, mirrors the React op-mutation shape).  The

@@ -560,6 +560,16 @@ export function emitOperationCommandAndHandler(
           auditStage +
           `        await _repo.SaveAsync(aggregate, cancellationToken);\n` +
           `        return Unit.Value;\n`;
+    // An AUDITED returning op's handler imports `Application.<Agg>.Responses`
+    // (for the `<Agg>Response.From(...)` before/after snapshots) beside
+    // `Domain.<Agg>` — and the wire twin of the domain union carries the SAME
+    // bare name (`intOrNotFound` in both namespaces), so the bare return type
+    // is CS0104-ambiguous there.  Name the Domain union in full on that path
+    // only; the unaudited handler has no `Responses` using and stays bare.
+    const handlerReturnType =
+      audited && returnUnion
+        ? `${ns}.Domain.${plural(agg.name)}.${returnUnion}`
+        : (returnUnion ?? scalarWireType);
     out.set(
       `Application/${aggFolder}/Commands/${upperFirst(op.name)}Handler.cs`,
       renderCommandHandler({
@@ -567,7 +577,7 @@ export function emitOperationCommandAndHandler(
         aggName: agg.name,
         handlerName: `${upperFirst(op.name)}Handler`,
         commandName: `${upperFirst(op.name)}Command`,
-        returnType: returnUnion ?? scalarWireType,
+        returnType: handlerReturnType,
         extraDeps: [...userExtraDeps, ...auditDeps],
         extraUsings: [...userExtraUsings, ...auditUsings],
         body: handlerBody,

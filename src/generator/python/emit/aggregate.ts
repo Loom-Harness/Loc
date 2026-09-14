@@ -22,6 +22,7 @@ import {
 } from "../../../ir/types/loom-ir.js";
 import { directParentName, partsChildrenFirst } from "../../../ir/util/containment-parent.js";
 import { operationBody, operationBodyUsesCurrentUser } from "../../../ir/util/op-gates.js";
+import { valueObjectPool } from "../../../ir/util/reachable-types.js";
 import { walkStmtExprsDeep } from "../../../ir/util/walk.js";
 import { lines } from "../../../util/code-builder.js";
 import { snake } from "../../../util/naming.js";
@@ -206,7 +207,7 @@ export function renderPyAggregate(
   // stripped, the TS emitter's trick) for VO / enum / id-factory needs.
   const scan = body.replace(/"(?:\\.|[^"\\])*"/g, '""');
   const refersTo = (name: string): boolean => new RegExp(`\\b${name}\\b`).test(scan);
-  const voEnumNames = [...ctx.valueObjects.map((v) => v.name), ...ctx.enums.map((e) => e.name)]
+  const voEnumNames = [...valueObjectPool(ctx).map((v) => v.name), ...ctx.enums.map((e) => e.name)]
     .filter(refersTo)
     .sort();
   const ownIdNames = [agg.name, ...agg.parts.map((p) => p.name)];

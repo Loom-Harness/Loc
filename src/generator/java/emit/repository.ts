@@ -20,6 +20,7 @@ import {
   type FilterBypass,
   wrapWithFilterBypass,
 } from "../capability-filter.js";
+import { isMangled, jid } from "../java-ident.js";
 import {
   boxedJavaType,
   collectJavaExprImports,
@@ -78,7 +79,9 @@ export interface JavaRepoCtx {
   bypassByRetrieval?: ReadonlyMap<string, FilterBypass>;
 }
 
-const dottedSortPath = (t: SortTermIR): string => t.path.map((s) => s.name).join(".");
+// A JPA property PATH — every segment is the (possibly mangled) java field the
+// entity emitter declared, not the `.ddd` name (M-T6.36).
+const dottedSortPath = (t: SortTermIR): string => t.path.map((s) => jid(s.name)).join(".");
 
 /** `Sort.by(Sort.Order.asc("a.b"), …)` for the Specification path. */
 function springSort(sort: readonly SortTermIR[]): string {
@@ -96,7 +99,7 @@ function jpqlOrderBy(sort: readonly SortTermIR[]): string {
 /** A `sort:` term as a chained accessor key extractor over `x`
  *  (`x.a().b()`) for an in-memory `Comparator`. */
 function inMemorySortKey(t: SortTermIR): string {
-  return `x -> x.${t.path.map((s) => `${s.name}()`).join(".")}`;
+  return `x -> x.${t.path.map((s) => `${jid(s.name)}()`).join(".")}`;
 }
 
 /** The in-memory `Comparator<Agg>` chain for a retrieval's `sort:`, or
@@ -148,7 +151,7 @@ export function inMemoryRetrievalLines(
   return retrievals.flatMap((r) => {
     const declared = r.params.map((p) => {
       collectJavaTypeImports(p.type, exprImports);
-      return `${renderJavaType(p.type)} ${p.name}`;
+      return `${renderJavaType(p.type)} ${jid(p.name)}`;
     });
     collectJavaExprImports(r.where, exprImports);
     const where = renderJavaExpr(r.where, { thisName: "x", agg, accessorProps: true });
@@ -221,11 +224,14 @@ export function inMemoryPagedSortLines(agg: EnrichedAggregateIR): string[] {
   const arm = (wf: string): string => {
     const t = wireType(wf);
     const prim = t?.kind === "primitive" ? t.name : undefined;
+    // The `case` label is the WIRE sort key (`?sort=case`); the method
+    // reference names the java accessor, which is mangled when the `.ddd` name
+    // is a reserved word (M-T6.36).
     if (prim === "int")
-      return `            case "${wf}" -> java.util.Comparator.comparingInt(${agg.name}::${wf});`;
+      return `            case "${wf}" -> java.util.Comparator.comparingInt(${agg.name}::${jid(wf)});`;
     if (prim === "long")
-      return `            case "${wf}" -> java.util.Comparator.comparingLong(${agg.name}::${wf});`;
-    return `            case "${wf}" -> java.util.Comparator.comparing(${agg.name}::${wf});`;
+      return `            case "${wf}" -> java.util.Comparator.comparingLong(${agg.name}::${jid(wf)});`;
+    return `            case "${wf}" -> java.util.Comparator.comparing(${agg.name}::${jid(wf)});`;
   };
   return [
     `        String __sortField = java.util.List.of(${sortableFields(agg)
@@ -260,12 +266,12 @@ function findSignature(find: FindIR, imports: Set<string>): string {
   const params = [
     ...find.params.map((p) => {
       collectJavaTypeImports(p.type, imports);
-      return `${renderJavaType(p.type)} ${p.name}`;
+      return `${renderJavaType(p.type)} ${jid(p.name)}`;
     }),
     ...(isPagedFind(find) ? ["int page", "int pageSize", "String sort", "String dir"] : []),
   ].join(", ");
   const ret = findReturn(find.returnType, imports);
-  return `${ret} ${find.name}(${params})`;
+  return `${ret} ${jid(find.name)}(${params})`;
 }
 
 function findReturn(t: TypeIR, imports: Set<string>): string {
@@ -306,7 +312,7 @@ export function renderJavaRepositoryInterface(
     const params = r.params
       .map((p) => {
         collectJavaTypeImports(p.type, imports);
-        return `${renderJavaType(p.type)} ${p.name}`;
+        return `${renderJavaType(p.type)} ${jid(p.name)}`;
       })
       .join(", ");
     const pagedParams = [params, "Integer offset, Integer limit"].filter(Boolean).join(", ");
@@ -404,7 +410,7 @@ export function renderJavaSpringDataRepository(
     );
     const declaredParams = f.params.map((p) => {
       collectJavaTypeImports(p.type, imports);
-      return `@Param("${p.name}") ${renderJavaType(p.type)} ${p.name}`;
+      return `@Param("${jid(p.name)}") ${renderJavaType(p.type)} ${jid(p.name)}`;
     });
     if (isPagedFind(f)) {
       // Spring Data derives the count query from the @Query + Pageable.
@@ -413,14 +419,14 @@ export function renderJavaSpringDataRepository(
       const arg = f.returnType.kind === "genericInstance" ? f.returnType.arg : f.returnType;
       return [
         `    @Query("select e from ${agg.name} e${where}")`,
-        `    Page<${boxedJavaType(arg)}> ${f.name}(${[...declaredParams, "Pageable pageable"].join(", ")});`,
+        `    Page<${boxedJavaType(arg)}> ${jid(f.name)}(${[...declaredParams, "Pageable pageable"].join(", ")});`,
         ``,
       ];
     }
     const ret = findReturn(f.returnType, imports);
     return [
       `    @Query("select e from ${agg.name} e${where}")`,
-      `    ${ret} ${f.name}(${declaredParams.join(", ")});`,
+      `    ${ret} ${jid(f.name)}(${declaredParams.join(", ")});`,
       ``,
     ];
   });
@@ -443,7 +449,7 @@ export function renderJavaSpringDataRepository(
       const params = r.params
         .map((p) => {
           collectJavaTypeImports(p.type, imports);
-          return `@Param("${p.name}") ${renderJavaType(p.type)} ${p.name}`;
+          return `@Param("${jid(p.name)}") ${renderJavaType(p.type)} ${jid(p.name)}`;
         })
         .join(", ");
       const sigParams = [params, "Pageable pageable"].filter(Boolean).join(", ");
@@ -655,7 +661,7 @@ export function renderJavaRepositoryImpl(
     const params = r.params
       .map((p) => {
         collectJavaTypeImports(p.type, imports);
-        return `${renderJavaType(p.type)} ${p.name}`;
+        return `${renderJavaType(p.type)} ${jid(p.name)}`;
       })
       .join(", ");
     const pagedParams = [params, "Integer offset, Integer limit"].filter(Boolean).join(", ");
@@ -722,7 +728,7 @@ export function renderJavaRepositoryImpl(
       imports.add("org.springframework.data.domain.PageRequest");
       imports.add("org.springframework.data.domain.Sort");
       const args = [
-        ...f.params.map((p) => p.name),
+        ...f.params.map((p) => jid(p.name)),
         "PageRequest.of(page - 1, pageSize, __sort)",
       ].join(", ");
       // Server-side sort (M-T2.6): whitelist the wire key against the sortable
@@ -736,8 +742,9 @@ export function renderJavaRepositoryImpl(
         `    public ${sig} {`,
         ...wrapBypass(findBypass, [
           `        String __sortField = java.util.List.of(${sortWhitelist}).contains(sort) ? sort : "id";`,
-          `        Sort __sort = Sort.by("desc".equals(dir) ? Sort.Direction.DESC : Sort.Direction.ASC, __sortField);`,
-          `        var result = jpa.${f.name}(${args});`,
+          ...sortPropertyLines(agg),
+          `        Sort __sort = Sort.by("desc".equals(dir) ? Sort.Direction.DESC : Sort.Direction.ASC, ${sortPropertyVar(agg)});`,
+          `        var result = jpa.${jid(f.name)}(${args});`,
           findExecutedLog(f, "result.getTotalElements()"),
           `        return new Paged<>(result.getContent(), page, pageSize, (int) result.getTotalElements(), result.getTotalPages());`,
         ]),
@@ -745,7 +752,7 @@ export function renderJavaRepositoryImpl(
         ``,
       ];
     }
-    const args = f.params.map((p) => p.name).join(", ");
+    const args = f.params.map((p) => jid(p.name)).join(", ");
     const rowsExpr = f.returnType.kind === "array" ? "result.size()" : "result == null ? 0 : 1";
     return [
       `    @Override`,
@@ -924,7 +931,8 @@ export function renderJavaRepositoryImpl(
           `    @Override`,
           `    public Paged<${agg.name}> findAllPaged(int page, int pageSize, String sort, String dir) {`,
           `        String __sortField = java.util.List.of(${pagedAllSortWhitelist}).contains(sort) ? sort : "id";`,
-          `        Sort __sort = Sort.by("desc".equals(dir) ? Sort.Direction.DESC : Sort.Direction.ASC, __sortField);`,
+          ...sortPropertyLines(agg),
+          `        Sort __sort = Sort.by("desc".equals(dir) ? Sort.Direction.DESC : Sort.Direction.ASC, ${sortPropertyVar(agg)});`,
           `        var result = jpa.findAllPaged(PageRequest.of(page - 1, pageSize, __sort));`,
           `        CatalogLog.event(${javaLogEvent("findExecuted")}, "aggregate", "${agg.name}", "find", "all", "rows", result.getTotalElements());`,
           `        return new Paged<>(result.getContent(), page, pageSize, (int) result.getTotalElements(), result.getTotalPages());`,
@@ -1015,4 +1023,28 @@ export function renderOffsetLimitPageRequest(pkg: string): string {
     `}`,
     ``,
   );
+}
+
+// M-T6.36 — the `?sort=` whitelist above holds WIRE keys; `Sort.by` resolves a
+// JPA PROPERTY path.  They are the same string for every ordinary name, and
+// diverge exactly when the `.ddd` name is a Java reserved word and the entity
+// declared it mangled.  One translation line, emitted only when a sortable
+// field actually mangles, so every other project stays byte-identical.
+function mangledSortables(agg: EnrichedAggregateIR): string[] {
+  return sortableFields(agg).filter((wf) => isMangled(wf));
+}
+
+function sortPropertyVar(agg: EnrichedAggregateIR): string {
+  return mangledSortables(agg).length > 0 ? "__sortProperty" : "__sortField";
+}
+
+function sortPropertyLines(agg: EnrichedAggregateIR): string[] {
+  const mangled = mangledSortables(agg);
+  if (mangled.length === 0) return [];
+  const arms = mangled
+    .map((wf) => `case ${JSON.stringify(wf)} -> ${JSON.stringify(jid(wf))}; `)
+    .join("");
+  return [
+    `        String __sortProperty = switch (__sortField) { ${arms}default -> __sortField; };`,
+  ];
 }

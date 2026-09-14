@@ -23,8 +23,14 @@
 // the bug, and it lives in the generated project, where this repo's own `tsc`
 // never looks.
 //
-// The one surviving narrowing is `this.<refColl>.contains(x)` — a correlated
-// join subquery the adapter emits nowhere — pinned negatively at the bottom.
+// (3) **`this.<refColl>.contains(x)` membership** ("needs a correlated join the
+//     adapter emits nowhere") was the LAST narrowing, and it went the same way:
+//     the stated reason was about the EXISTS SPELLING, not the adapter.  An
+//     uncorrelated `id in (select <ownerFk> from <joinTable> where <targetFk> =
+//     ?)` raw fragment says the same thing and needs no outer alias — which is
+//     what the drizzle twin emits too (`inArray(articles.id, db.select(...))`).
+//     Pinned POSITIVELY at the bottom, on the emitted SQL and on its absence
+//     from the refusal set.  `MIKROORM_SUBSET` is now the EF Core baseline.
 
 import { describe, expect, it } from "vitest";
 import { enrichLoomModel } from "../../../src/ir/enrich/enrichments.js";
@@ -191,12 +197,10 @@ describe("a principal-referencing find declares the parameter its caller passes"
 });
 
 // ---------------------------------------------------------------------------
-// The one surviving narrowing
+// The LAST narrowing, drained (C2 packet 2c)
 // ---------------------------------------------------------------------------
 
-describe("reference-collection membership stays an honest refusal", () => {
-  it("`this.<refColl>.contains(x)` is refused — no correlated join on this adapter", async () => {
-    const src = system(`
+const MEMBERSHIP_SYSTEM = `
         aggregate Tag with crudish { label: string }
         aggregate Doc with crudish {
           title: string
@@ -206,12 +210,28 @@ describe("reference-collection membership stays an honest refusal", () => {
         repository Docs for Doc {
           find tagged(t: Tag id): Doc[] where this.tags.contains(t)
         }
-    `);
-    const es = await errors(src);
+    `;
+
+describe("reference-collection membership lowers on MikroORM", () => {
+  it("is no longer refused by the adapter capability gate", async () => {
+    const es = await errors(system(MEMBERSHIP_SYSTEM));
     expect(
-      es.some((e) => /loom\.find-predicate-unsupported/.test(e)),
-      `expected the membership narrowing, got: ${es.join(" | ")}`,
-    ).toBe(true);
-    expect(es.some((e) => /contains\(x\)' membership/.test(e))).toBe(true);
+      es.filter((e) => /loom\.find-predicate-unsupported/.test(e)),
+      "the membership shape must not be refused on any adapter any more",
+    ).toEqual([]);
+  });
+
+  it("emits the join-table subquery as a raw FilterQuery fragment, with the id bound", async () => {
+    const src = await file(system(MEMBERSHIP_SYSTEM), "db/repositories/doc-repository.ts");
+    // The predicate itself — an UNCORRELATED `id in (select …)`, because
+    // MikroORM names the root table `e0` in the SQL it builds and an EXISTS
+    // fragment correlating on `docs.id` would fail with "missing FROM-clause
+    // entry".  `?` + the bound param, never the value interpolated into the SQL.
+    expect(src).toContain(
+      'raw("id in (select __j.doc_id from doc_tags __j where __j.tag_id = ?)", [t])',
+    );
+    // …and it must NOT have fallen through to the adapter's runtime-throwing
+    // stub, which is what the narrowing produced before the gate was added.
+    expect(src).not.toContain("this find's predicate is not yet supported");
   });
 });
