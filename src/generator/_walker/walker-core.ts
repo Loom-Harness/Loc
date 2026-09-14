@@ -1213,8 +1213,31 @@ export function walk(expr: ExprIR, ctx: WalkContext, depth: number): string {
       // method-call */` while the visually identical `Text` twin rendered
       // `"abc".toUpperCase()` — the same expression, two outcomes, one page.
       return ctx.target.renderInterpolation(emitExpr(expr, ctx), provableStringType(expr));
-    default:
+    // The kinds MARKUP-CHILD position cannot render.  Every one degrades
+    // through the catalogued `loom.page-expr-unrenderable` give-up sentinel —
+    // a visible, scannable comment in the emitted page, never a silent drop.
+    // They are enumerated rather than swept into a bare `default` so a NEW
+    // `ExprIR.kind` is a compile error here (the `never` below), on all six
+    // frontends at once, instead of quietly defaulting to "unrenderable".
+    case "this":
+    case "id":
+    case "lambda":
+    case "new":
+    case "object":
+    case "list":
+    case "authz-filter":
+    case "paren":
+    case "unary":
+    case "binary":
+    case "convert":
+    case "duration":
+    case "i18nFormat":
+    case "action-ref":
       return giveUp(ctx.target, "loom.page-expr-unrenderable", `unsupported expr: ${expr.kind}`);
+    default: {
+      const _exhaustive: never = expr;
+      return _exhaustive;
+    }
   }
 }
 
@@ -2326,11 +2349,23 @@ export function emitStmt(stmt: StmtIR, ctx: WalkContext): string {
     }
     case "variant-match":
       return emitVariantMatch(stmt, ctx);
-    default:
+    // The BACKEND-body statement forms.  Refused in a page event handler —
+    // enumerated instead of swept into a bare `default` so a NEW `StmtIR` kind
+    // is a compile error here (the `never` below), on every frontend at once,
+    // and has to be classified rather than silently inheriting the refusal.
+    case "precondition":
+    case "requires":
+    case "return":
+    case "emit":
+    case "if":
       return unsupportedPageStmt(
         `statement '${stmt.kind}'`,
         "it has no meaning in a React page event handler",
       );
+    default: {
+      const _exhaustive: never = stmt;
+      return _exhaustive;
+    }
   }
 }
 
