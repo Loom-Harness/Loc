@@ -1,6 +1,6 @@
 # Wave C2 packet 2j — flutter
 
-*Branch `claude/c2-flutter`, base `11ed7b31f` (a merge of `fb8f86730`, the batch-2 coordinator head, which is `main` @ `9713ffa18` + the wave-log commit + packet 2g's shared-walker fold). Commits `96d298c29..f118a19fb` (seven, all SSH-signed). Tree fence: `src/generator/flutter/**`, `src/ir/util/flutter-persist-codec.ts`, the flutter half of `src/ir/util/realtime-rooms.ts`, the `messages.ts` / `unsupported-register.ts` rows a closed row required, `test/generator/flutter/**`, `test/platform/allowlist-ratchet.test.ts`, `.github/workflows/generated-{flutter-build,a11y}.yml`, plus the docs and ledger.*
+*Branch `claude/c2-flutter`, base `11ed7b31f` (a merge of `fb8f86730`, the batch-2 coordinator head, which is `main` @ `9713ffa18` + the wave-log commit + packet 2g's shared-walker fold). Commits `96d298c29..<head>` (eight, all SSH-signed). Tree fence: `src/generator/flutter/**`, `src/ir/util/flutter-persist-codec.ts`, the flutter half of `src/ir/util/realtime-rooms.ts`, the `messages.ts` / `unsupported-register.ts` rows a closed row required, `test/generator/flutter/**`, `test/platform/allowlist-ratchet.test.ts`, `.github/workflows/generated-{flutter-build,a11y}.yml`, plus the docs and ledger.*
 
 **Local Flutter SDK found, and it changes what "proved" means for this tree.** There is a full Flutter **3.47.3** checkout at `/tmp/.../scratchpad/fl/flutter` (left by wave C1 packet 1e-ii; `flutter --version` works on the host as root with `PUB_CACHE=/tmp/.../scratchpad/fl/.pub-cache`). So every row below is proved by **generating and then compiling and RUNNING the Dart**, not by asserting on emitted strings. Three rows are additionally proved by hand-written `flutter test` widget cases driving the real framework. Recommend recording the SDK path in `docs/tools.md` — the `loom-test-suites` skill has no Flutter recipe, and the docker route is not usable here (`ghcr.io/cirruslabs/flutter:stable` is ~3 GB and the box has ~1–2 GB free).
 
@@ -216,6 +216,8 @@ An eleventh arm is named but not re-measured: **Flutter is the ONE frontend with
 | `npm test` (full fast suite) | see below |
 
 **`npm test`:** the run started at hand-off time on the merged tree. Batch 1 and packet 2h both record the same worktree-only reds — `test/platform/packaging-split-*` cannot pass in ANY git worktree (no `node_modules/@loom` workspace symlinks), and contention timeouts on this 4-core box need re-running alone. Nothing in this packet's diff touches `src/platform/fs-discovery.ts` or those symlinks. Every targeted suite in the blast radius (`test/generator/flutter/`, `test/ir/`, `test/system/`, `test/generator/_frontend/realtime-stream-auth.test.ts`, `test/platform/allowlist-ratchet.test.ts`) was run green individually; `test/system/` was run in full (99 files) and is green after fixing the one failure it found — `direct-generate-systems-ratchet` caught this packet's own `sourcemap.test.ts` importing `generateSystems` directly, now on `generateSystemFiles(source, { sourcemap: true })`.
+
+**Commit signatures.** All eight commits carry an SSH signature (the commit object shows the `gpgsig` header). `--format=%G?` reports `N` for every one, because this container has no `gpg.ssh.allowedSignersFile` — the same verification artefact packet 2g recorded. Not a signing failure.
 
 ## Decisions needed from the owner
 
