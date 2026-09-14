@@ -120,7 +120,7 @@ export function commandCreateCorrelationParam(wf: WorkflowIR): ParamIR | undefin
  *  `test/generator/workflow-instance-gate.test.ts` drives on all five. */
 function correlationAssignedFromParam(wf: WorkflowIR, corr: string): ParamIR | undefined {
   const facade = facadeCreate(wf);
-  if (!facade || facade.triggerKind !== "command") return undefined;
+  if (facade?.triggerKind !== "command") return undefined;
   for (const st of facade.statements) {
     if (st.kind !== "assign") continue;
     if (st.target.segments.length !== 1 || st.target.segments[0] !== corr) continue;

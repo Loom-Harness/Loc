@@ -37,7 +37,7 @@ import { backendServesRealtime } from "../../ir/util/channels.js";
 import { type PageNameCtx, pageEmitName } from "../../ir/util/page-kind.js";
 import { walkExprDeep } from "../../ir/util/walk.js";
 import { lines } from "../../util/code-builder.js";
-import { humanize, snake, upperFirst } from "../../util/naming.js";
+import { humanize, upperFirst } from "../../util/naming.js";
 import { pageFileBase } from "../_frontend/page-identity.js";
 import { storeMemberLocal } from "../_walker/js-target-helpers.js";
 import type { ApiCallSite } from "../_walker/target.js";

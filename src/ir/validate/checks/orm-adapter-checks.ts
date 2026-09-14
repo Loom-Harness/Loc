@@ -17,7 +17,6 @@ import {
   isFindPredicateAdapter,
 } from "../../util/find-predicate-capability.js";
 import { effectiveSavingShape, resolveDataSourceConfig } from "../../util/resolve-datasource.js";
-import { typeLabel } from "../../util/type-label.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
 
 // ---------------------------------------------------------------------------

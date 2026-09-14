@@ -358,7 +358,11 @@ export function validateUiBodies(loom: EnrichedLoomModel, diags: LoomDiagnostic[
  *  than shipping unbuildable output.  Delete this carve-out when the walker
  *  grows a lambda seam and `feliz-target.ts` renders `List.map`. */
 
-const MAP_UNRENDERED_FRAMEWORK = "feliz";
+// (The `MAP_UNRENDERED_FRAMEWORK = "feliz"` constant this comment used to
+//  introduce is gone.  #2729 rendered `map` on all seven emitters and deleted
+//  every USE of it — satisfying the "delete this carve-out when feliz-target.ts
+//  renders map" condition stated above — but left the declaration behind, where
+//  it sat unreferenced until Wave CR1's lint ratchet made a warning fail.)
 
 // -------------------------------------------------------------------------
 // `loom.user-component-deferred-target` — a user `component` whose SHAPE the
