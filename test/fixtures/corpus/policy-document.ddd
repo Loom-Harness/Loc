@@ -39,7 +39,7 @@
 // The deployable platform is substituted per leg (node/python/java/dotnet) —
 // the four backends that filter a document aggregate IN-APP.  ELIXIR is the ONE
 // exclusion, and it refuses this crossing BY NAME
-// (`loom.context-filter-unsupported`, raised twice on this fixture): an honest,
+// (`loom.context-filter-no-principal`, raised twice on this fixture): an honest,
 // coded rejection — the contract being honoured, not a gap.
 //
 // .NET used to be the second exclusion, for the OPPOSITE reason — a silent GAP:

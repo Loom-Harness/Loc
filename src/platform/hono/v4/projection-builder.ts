@@ -57,40 +57,35 @@ export function buildProjectionsFile(ctx: EnrichedBoundedContextIR, usingMikro =
   const folded = ctx.projections.filter(isMaterializedProjection);
   if (folded.length === 0) return "";
 
-  // A fold only runs for an event some `channel` CARRIES.  In-process dispatch
-  // is channel-routed — `deriveEventSubscriptions` (ir/enrich) records a
-  // subscription only when a channel carries the event, and that is exactly
-  // what `loom.projection-event-uncarried` warns about: *"this fold never runs
-  // and the read-model row is never written"*.  Every other backend honours it
-  // (python and elixir emit no fold module at all for an uncarried projection),
-  // and so does node's OWN workflow-reactor path (`workflow-builder.ts` gates on
-  // `ctx.eventSubscriptions.length > 0`) — but this emitter keyed off
-  // `isMaterializedProjection` alone, so node folded events nothing carried and
-  // wired the tee as `createApp`'s default dispatcher.  The generated node
-  // project therefore CONTRADICTED the warning that shipped beside it
-  // (G2646).  Filtering by the subscription set makes the warning true on all
-  // five backends; declaring the channel the warning names restores the fold.
-  const carriedFolds = new Set(
-    ctx.eventSubscriptions
-      .filter((s) => s.projection !== undefined)
-      .map((s) => `${s.projection} ${s.event}`),
-  );
-  const carriedHandlers = (p: ProjectionIR): ProjectionOnIR[] =>
-    p.handlers.filter((h) => carriedFolds.has(`${p.name} ${h.event}`));
+  // EVERY declared fold is emitted and routed, carried by a `channel` or not
+  // (**D-PROJECTION-IMPLICIT-SUB**): `on(e: E)` IS the subscription, and a
+  // channel decides cross-deployable delivery and durability rather than whether
+  // a handler runs.  This emitter briefly filtered by `ctx.eventSubscriptions`
+  // (G2646) to agree with `loom.projection-event-uncarried`'s claim that an
+  // uncarried fold "never runs and the read-model row is never written" — the
+  // decision went the other way: the warning is gone and the other four backends
+  // dispatch the uncarried fold too (corpus `projection-implicit-sub.ddd`).
+  //
+  // Reading the handler list off the projection rather than off
+  // `ctx.eventSubscriptions` also removes a trap: the ENRICHER-stored
+  // `eventSubscriptions` is derived without projections
+  // (`enrichContext` passes only channels + workflows), so the filter answered
+  // differently depending on which context variant the caller had merged.
+  const foldHandlers = (p: ProjectionIR): ProjectionOnIR[] => p.handlers;
 
   const body: string[] = [];
   for (const p of folded) body.push(...emitResponseSchemas(p), "");
   for (const p of folded) {
-    // A projection whose every fold is uncarried keeps its READ surface (the
-    // row table and its routes still exist — the model declared them) but emits
-    // no fold and no load/save helpers, which would otherwise be dead code the
+    // A projection with no `on` handler at all keeps its READ surface (the row
+    // table and its routes still exist — the model declared them) but emits no
+    // fold and no load/save helpers, which would otherwise be dead code the
     // generated-project lint rejects.
-    const hs = carriedHandlers(p);
+    const hs = foldHandlers(p);
     if (hs.length === 0) continue;
     body.push(...emitStateHelpers(p, usingMikro), "");
     for (const h of hs) body.push(...emitFoldHandler(p, h, usingMikro), "");
   }
-  body.push(...emitProjectionTee(folded, carriedHandlers, usingMikro), "");
+  body.push(...emitProjectionTee(folded, foldHandlers, usingMikro), "");
   body.push(...emitProjectionRoutes(folded, usingMikro, ctx));
   const bodyText = body.join("\n");
 
@@ -353,23 +348,23 @@ function lastSegment(target: { segments: string[] }): string {
  *  realtime / noop).  Composes without touching the workflow dispatcher. */
 function emitProjectionTee(
   projections: ProjectionIR[],
-  carriedHandlers: (p: ProjectionIR) => ProjectionOnIR[],
+  foldHandlers: (p: ProjectionIR) => ProjectionOnIR[],
   usingMikro = false,
 ): string[] {
-  // event type → the fold calls it triggers (one per CARRIED handler — an
-  // uncarried fold emits no function, so a tee case for it would name a
-  // symbol the module does not declare).
+  // event type → the fold calls it triggers.  One case per declared handler:
+  // the tee and the fold-function emission above read the SAME list, so a case
+  // can never name a symbol the module does not declare.
   const byEvent = new Map<string, string[]>();
   for (const p of projections) {
-    for (const h of carriedHandlers(p)) {
+    for (const h of foldHandlers(p)) {
       const call = `await fold${h.event}Into${upperFirst(p.name)}(db, event as Events.${h.event});`;
       const calls = byEvent.get(h.event) ?? [];
       calls.push(call);
       byEvent.set(h.event, calls);
     }
   }
-  // No CARRIED fold in this deployable: the tee has nothing to route, so it is
-  // the identity decorator.  Emitted rather than skipped because `createApp`
+  // No fold handler at all in this deployable: the tee has nothing to route, so
+  // it is the identity decorator.  Emitted rather than skipped because `createApp`
   // imports it unconditionally; `_db` keeps the generated-project Biome gate
   // (`noUnusedFunctionParameters: error`) quiet without changing the signature.
   if (byEvent.size === 0) {

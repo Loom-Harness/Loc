@@ -59,9 +59,13 @@ describe("HEEx For comprehension (DEBT-05)", () => {
     expect(heex).toMatch(/<%= for n <- /);
     // The slot is a user-visible INTERPOLATION, so it is translated (M-T1.11,
     // D-I18N-HEEX-ICU) — which sharpens this test rather than weakening it: the
-    // loop local has to resolve correctly in the ICU BINDING, `n: n`, and a
-    // wrong `@n` there would render the assign instead of the iteration value.
-    expect(heex).toContain("[n: n]");
+    // loop local has to resolve correctly in the ICU BINDING, and a wrong `@n`
+    // there would render the assign instead of the iteration value.  The
+    // binding is `to_string(n)`, not a bare `n`, because the item param now
+    // carries the collection's ELEMENT type (`int` here) — a non-string
+    // template hole stringifies at lowering, exactly as a DECLARED `int`
+    // component param has always emitted it.
+    expect(heex).toContain("[n: to_string(n)]");
     expect(heex).not.toContain("@n");
   });
 
