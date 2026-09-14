@@ -1228,6 +1228,28 @@ The projection verbs read a folded `projection`'s read model (see
 assert the state an operation's events fold into (drive an operation,
 then `byKey` the row and `expect` its columns).
 
+**Every verb must resolve to a route this same compilation emits.**  The
+table above is what a verb *lowers to*, not a promise that the route is
+there: `POST /<plural>` appears only when the aggregate declares a
+canonical `create` (by hand or via `with crudish`), `DELETE /{id}` only
+when it declares an unnamed `destroy`, `GET /<plural>/{id}/history` only
+when it is `auditable`, and a find route only for a *declared* find (a
+compiler-synthesized retrieval has none).  Calling a verb whose route the
+model does not emit is `loom.e2e-unrouted-verb` — a phase-⑦ error naming
+the aggregate, the verb and the fix.  The check resolves each verb against
+`deriveAggregateOperations`, the same derivation every backend's route
+builder renders from, so it cannot drift from what the backends mount.
+Before it existed, `api.products.create({…})` on an aggregate with no
+`create` compiled with **0 errors** and shipped a suite that answered
+`405 Method Not Allowed` against the very backend the same run generated.
+
+On the `ui` side the harness drives page objects rather than routes, and
+addresses exactly three shapes — the New-page `create` flow (present only
+when the aggregate has a create surface, the same gate that drops the
+scaffolded `New` page), the Detail-page `getById`, and a public
+`operation`'s detail-page action.  A `ui.<agg>.<find>(…)` has no page
+object and raises the same code.
+
 An e2e body speaks **wire, not domain**: it sends JSON and reads JSON
 back, and it resolves no context-scoped names (one body may drive several
 contexts, so there is no single scope to resolve against).  The only
