@@ -130,6 +130,14 @@ const SHOWCASE: Case = {
     'inputmode="decimal"',
     `<app-panel [label]='"Summary"'>`,
     "projected child",
+    // The Angular validation fork (M-T1.12 slice 6).  Pack-NEUTRAL on purpose:
+    // the message carries an id a screen reader can be pointed at, under both
+    // shapes the fork emits — a `<mat-error>` inside the form field on
+    // angularMaterial (`MatFormField` derives `aria-describedby` from it), a
+    // trailing `<p>` plus explicit `[attr.aria-*]` on the raw packs.  A pin on
+    // either spelling would fail on two thirds of this matrix.
+    `id="orders-new-error-customerId"`,
+    "@if (orderForm.controls.customerId.invalid && orderForm.controls.customerId.touched)",
   ],
   source: `
     system Shop {
@@ -149,6 +157,15 @@ const SHOWCASE: Case = {
             // it never proved the string seed.
             price: money
             total: money?
+            // Wire-translatable invariants — the only shape that reaches
+            // \`angularValidatorMap\`, and with it the inline \`ValidatorFn\`
+            // (an \`AbstractControl\` arrow) and the two \`[attr.aria-*]\`
+            // bindings on the control (M-T1.12 slice 6).  Nothing in this
+            // matrix carried an invariant before, so the whole Angular
+            // validation fork — a TEMPLATE expression on a typed
+            // \`FormGroup\`, which only \`ng build\` checks — was never compiled.
+            invariant customerId.length >= 1
+            invariant priority >= 1
             operation confirm() { }
           }
           repository Orders for Order { }
