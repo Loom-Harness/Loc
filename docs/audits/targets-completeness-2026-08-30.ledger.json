@@ -2187,40 +2187,6 @@
    "P": 4
   },
   {
-   "id": "M-T3.16-C4-forbidden-remap-golden",
-   "title": "C4 — no golden covers a remapped `Forbidden` on the lifecycle rungs",
-   "kind": "breadth",
-   "class": null,
-   "confidence": "likely",
-   "targets": [
-    "node",
-    "dotnet",
-    "java",
-    "python",
-    "elixir"
-   ],
-   "fileTrees": [
-    "test/conformance/"
-   ],
-   "evidence": [
-    {
-     "fleet": 1,
-     "id": "M-T3.16-C4-forbidden-remap-golden",
-     "text": "`errorStatuses(\"destroy\", guarded, resolve)` resolves `forbidden` through the override map (src/ir/util/openapi-errors.ts:129,183-185), but the existing parity suite test/conformance/denial-ladder-override-parity.test.ts overrides `DomainError`; nothing asserts an `httpStatus Forbidden -> N` moving a guarded create/destroy on all five."
-    }
-   ],
-   "repro": null,
-   "impact": null,
-   "fix": "One case in the existing override-parity test: `httpStatus Forbidden -> 451` and assert both the declared set and the runtime handler arm move on all five backends.",
-   "size": "S",
-   "sources": [
-    "fleet1:t3-t5-auth-lang"
-   ],
-   "related_to": [],
-   "securityClass": false,
-   "P": 4
-  },
-  {
    "id": "M-T3.9-logged-marker",
    "title": "The `logged` marker never shipped",
    "kind": "mission",
@@ -5098,42 +5064,6 @@
    "note": "Re-verified reproducing on 29db198c1 (`src/platform/metadata.ts:170` mountsUi: false, the one `false` among the backends).  Owner: M-T9.4 A7.4."
   },
   {
-   "id": "drizzle-projection-membership-column-arg-crash",
-   "title": "A query-time `projection … where <alias>.<refColl>.contains(<column>)` validates clean on a bare `platform: node` deployable and then CRASHES codegen (\"internal: where-clause for projection 'X' could not lower to Drizzle, but the validator should have caught this\")",
-   "kind": "silent",
-   "class": null,
-   "confidence": "proven",
-   "targets": [
-    "node"
-   ],
-   "fileTrees": [
-    "src/platform/hono/v4/projection-query-routes-builder.ts",
-    "src/generator/typescript/repository-find-predicate.ts",
-    "src/ir/validate/checks/orm-adapter-checks.ts",
-    "src/ir/validate/checks/query-checks.ts"
-   ],
-   "evidence": [
-    {
-     "fleet": 0,
-     "id": "drizzle-projection-membership-column-arg-crash",
-     "bucket": "wave-c2:2c-node",
-     "text": "Found while draining the mikroorm half of `loom.find-predicate-unsupported`.  `validateFindPredicateAdapterSupport` keys on `dep.persistence`, which a bare `platform: node` deployable does not carry, so the gate that refuses this shape under `persistence: mikroorm` never runs for the DEFAULT adapter — and `lowerToDrizzle` returns null for it (the membership subquery binds its target as a parameter; a column argument has nowhere to bind), which `buildQueryProjectionsFile` turns into a loud generate-time throw.  `firstNonQueryableNode` admits the shape, so nothing upstream refuses it either.  The same predicate in a repository find is unreachable (a find HAS parameters), which is why only the projection site produces it."
-    }
-   ],
-   "repro": "projection MyTotals { orders: int  from Order as o  where o.tags.contains(o.id)  select orders = count } on `deployable d { platform: node }` (no `persistence:`): `ddd generate system` prints `0 error(s), 0 warning(s)` and then throws `internal: where-clause for projection 'MyTotals' could not lower to Drizzle`.",
-   "impact": "A crash instead of an answer on the DEFAULT node adapter — the class C2 exists to remove.  Not a regression: reproduces identically on 29db198c1.",
-   "fix": "Decide where the refusal belongs: (a) target-neutral — `firstNonQueryableNode` stops admitting a membership whose argument is not a bindable value, which covers all five backends and every site at once (the shape is unlowerable everywhere, and `orm-adapter-checks.ts`'s own header says a shape impossible on every backend belongs in a target-neutral rule); or (b) `validateFindPredicateAdapterSupport` resolves the DEFAULT adapter for a deployable with no `persistence:` selector, which fixes node only.  (a) is the recommendation.  Either way the mikroorm arm of the narrowing in `find-predicate-capability.ts` (`isColumnArgMembership`) is deleted in the same PR.",
-   "size": "S",
-   "sources": [
-    "wave-c2:2c-node"
-   ],
-   "related_to": [
-    "M-T6.35 — the `loom.find-predicate-unsupported` register row, whose remaining narrowing is exactly this shape on the opt-in adapters"
-   ],
-   "securityClass": false,
-   "P": 3
-  },
-  {
    "id": "dapper-no-schema-evolution",
    "title": "`persistence: dapper` has no ALTER path at all — every post-first-boot model change is silently unapplied (migrations-on-adapters slice 2)",
    "kind": "silent",
@@ -7160,6 +7090,92 @@
     "verdict": "closed",
     "remainingTargets": []
    }
+  },
+  {
+   "id": "drizzle-projection-membership-column-arg-crash",
+   "title": "CLOSED (wave C2, packet 2f) — `<refColl>.contains(<column>)` is refused TARGET-NEUTRALLY: the crash on the default node adapter and the per-adapter refusal on mikroorm are now one rule.",
+   "kind": "honest",
+   "class": null,
+   "confidence": "proven",
+   "targets": [
+    "node"
+   ],
+   "fileTrees": [
+    "src/platform/hono/v4/projection-query-routes-builder.ts",
+    "src/generator/typescript/repository-find-predicate.ts",
+    "src/ir/validate/checks/orm-adapter-checks.ts",
+    "src/ir/validate/checks/query-checks.ts"
+   ],
+   "evidence": [
+    {
+     "fleet": 0,
+     "id": "drizzle-projection-membership-column-arg-crash",
+     "bucket": "wave-c2:2c-node",
+     "text": "Found while draining the mikroorm half of `loom.find-predicate-unsupported`.  `validateFindPredicateAdapterSupport` keys on `dep.persistence`, which a bare `platform: node` deployable does not carry, so the gate that refuses this shape under `persistence: mikroorm` never runs for the DEFAULT adapter — and `lowerToDrizzle` returns null for it (the membership subquery binds its target as a parameter; a column argument has nowhere to bind), which `buildQueryProjectionsFile` turns into a loud generate-time throw.  `firstNonQueryableNode` admits the shape, so nothing upstream refuses it either.  The same predicate in a repository find is unreachable (a find HAS parameters), which is why only the projection site produces it."
+    }
+   ],
+   "repro": "projection MyTotals { orders: int  from Order as o  where o.tags.contains(o.id)  select orders = count } on `deployable d { platform: node }` (no `persistence:`): `ddd generate system` prints `0 error(s), 0 warning(s)` and then throws `internal: where-clause for projection 'MyTotals' could not lower to Drizzle`.",
+   "impact": "A crash instead of an answer on the DEFAULT node adapter — the class C2 exists to remove.  Not a regression: reproduces identically on 29db198c1.",
+   "fix": "DONE, by option (a) — the recommendation.  `firstNonQueryableNode` (`src/ir/validate/checks/shared.ts`, the `contains` arm) now rejects a membership whose ARGUMENT is a column: the join-table subquery binds its target as a parameter on EVERY adapter (drizzle `inArray`, Dapper EXISTS, MikroORM an uncorrelated `id in (select …)`, EF Core `Any(...)` over a closed-over value), so a column there has nowhere to go on any of them.  It is a POSITION check, structurally the same as the `startsWith`-receiver check a few lines below — `firstNonQueryableNode` alone admits a column, because a column IS queryable in a general predicate.  Being target-neutral, it reaches every site and every backend at once, including the one that had no gate: `validateFindPredicateAdapterSupport` keys on `dep.persistence`, which a deployable on the DEFAULT adapter does not carry.  The mikroorm arm went with it in the same commit as the row's `fix` field required — `isColumnArgMembership` is deleted and `MIKROORM_SUBSET` now admits membership in both positions.  Gate: `test/ir/membership-column-argument.test.ts` — the refused shape in BOTH a projection `where` and a find `where`, swept across 7 platform clauses (both node adapters + the other four backends), with the bindable-argument CONTROL asserted on each so the crash is not closed by deleting a working feature, plus a message assertion (the diagnostic must name the ARGUMENT, not the membership) and a generation assertion.  Mutation-proved: reverting the arm to `return firstNonQueryableNode(e.args[0]!)` fails 15 of 23 — all fourteen refusal cases plus 'the diagnostic names the argument, not the membership'.",
+   "size": "S",
+   "sources": [
+    "wave-c2:2c-node"
+   ],
+   "related_to": [
+    "M-T6.35 — the `loom.find-predicate-unsupported` register row, whose remaining narrowing is exactly this shape on the opt-in adapters"
+   ],
+   "securityClass": false,
+   "P": 3,
+   "verified": {
+    "date": "2026-09-14",
+    "against": "wave C2 batch 2 (claude/c2-ir)",
+    "method": "row's own repro re-run (`ddd generate system` printed `0 error(s)` then threw); re-run after the fix answers `loom.projection-where-not-queryable`",
+    "verdict": "closed",
+    "remainingTargets": []
+   },
+   "note": "Handed to 2f by 2c, which found it while draining the mikroorm half of `loom.find-predicate-unsupported`.  A SECOND finding came out of closing it and is NOT closed: with this narrowing gone, no adapter descriptor carries a NAMED shape any more (`efcore`/`drizzle` were always FULL_SUBSET, 2b proved `DAPPER_SUBSET = FULL_SUBSET`), so `loom.find-predicate-unsupported` may now be unreachable.  A spot probe (arithmetic in a predicate position on mikroorm) was preempted upstream by `loom.find-where-not-queryable` — suggestive, not a proof over the whole queryable subset, so the register row is KEPT with the drain condition written into its `what` for M-T6.35."
+  },
+  {
+   "id": "M-T3.16-C4-forbidden-remap-golden",
+   "title": "CLOSED (wave C2, packet 2f) — a remapped `Forbidden` on the canonical `create` and `destroy` is goldened per ROUTE on all five backends.",
+   "kind": "mission",
+   "class": null,
+   "confidence": "likely",
+   "targets": [
+    "node",
+    "dotnet",
+    "java",
+    "python",
+    "elixir"
+   ],
+   "fileTrees": [
+    "test/conformance/"
+   ],
+   "evidence": [
+    {
+     "fleet": 1,
+     "id": "M-T3.16-C4-forbidden-remap-golden",
+     "text": "`errorStatuses(\"destroy\", guarded, resolve)` resolves `forbidden` through the override map (src/ir/util/openapi-errors.ts:129,183-185), but the existing parity suite test/conformance/denial-ladder-override-parity.test.ts overrides `DomainError`; nothing asserts an `httpStatus Forbidden -> N` moving a guarded create/destroy on all five."
+    }
+   ],
+   "repro": null,
+   "impact": null,
+   "fix": "DONE, and larger than 'one case in the existing override-parity test'.  That test (`domain-floor-status-override.test.ts`) remaps `Forbidden` on an OPERATION and scans the whole emitted project as one string, so it cannot tell a create route's declaration from an operation route's — it would pass with the lifecycle rungs stuck at 403.  The new gate `test/generator/lifecycle-forbidden-remap.test.ts` uses a system whose ONLY guarded routes are the canonical `create` and `destroy` (plus an UNGATED `bump` as the control), so 451 has exactly one possible source, and reads each rung's declaration ROUTE-SCOPED: java and python declare the whole per-route status set on one line (`new Route(\"post\", \"/api/orders\", …, new int[] {400, 415, 422, 451}, …)`, the `@router.post(... responses={...451...})` decorator), and node / dotnet / elixir are sliced between their own route markers — a project-wide 451 count would pass if BOTH landed on one route.  Three assertions per backend: the control (no override → both rungs declare 403, 451 appears nowhere), the override (both rungs declare 451 and neither still declares 403), and the runtime arm.  MEASURED FIRST: all five already emitted it correctly, so this is a pure pin — the row was a missing golden, not a gap, which is what it said.  One finding recorded rather than 'fixed': the 451 title is the generic \"Error\" because `problemTitle` deliberately has no 451 entry — `test/conformance/override-status-title-parity.test.ts` relies on exactly that to prove the title follows the resolved STATUS and not the error NAME, so adding an entry would have silently removed that suite's discriminator.",
+   "size": "S",
+   "sources": [
+    "fleet1:t3-t5-auth-lang"
+   ],
+   "related_to": [],
+   "securityClass": false,
+   "P": 4,
+   "verified": {
+    "date": "2026-09-14",
+    "against": "wave C2 batch 2 (claude/c2-ir)",
+    "method": "generated the guarded-lifecycle system on all five with and without the override; read each route's declared status set and the runtime arm",
+    "verdict": "closed",
+    "remainingTargets": []
+   },
+   "note": "C2 (the elixir 403-vs-422 golden) is NOT closed and is handed off: its own fix field requires moving elixir's controller gate relative to the changeset cast (2a's fence) plus a five-backend wire-golden capture, which belongs with the coordinated C5 re-capture rather than an elixir gate move alone."
   }
  ],
  "conflicts": [

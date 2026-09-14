@@ -141,20 +141,20 @@ gate already encodes the row's claim, run the gate.
 
 | metric | value |
 |---|---|
-| open rows | **130** |
+| open rows | **128** |
 | P0 | 0 |
 | P1 | 1 |
 | P2 | 9 |
-| P3 | 33 |
-| P4 | 78 |
+| P3 | 32 |
+| P4 | 77 |
 | P5 | 9 |
-| kind: silent / honest / breadth / mission / stale-prose | 11 / 32 / 21 / 57 / 9 |
-| confidence: proven / likely / suspected | 23 / 106 / 1 |
+| kind: silent / honest / breadth / mission / stale-prose | 10 / 32 / 20 / 57 / 9 |
+| confidence: proven / likely / suspected | 22 / 105 / 1 |
 | class: faulty-fix / regression | 1 / 0 |
-| size S / M / L | 35 / 54 / 41 |
-| provenance: fleet1-only / fleet2-only / corroborated by both | 117 / 10 / 1 |
+| size S / M / L | 33 / 54 / 41 |
+| provenance: fleet1-only / fleet2-only / corroborated by both | 116 / 10 / 1 |
 | claimed by an open PR | 60 |
-| done / merged | 159 |
+| done / merged | 161 |
 | declined (not a gap: stale / breadth / duplicate / decided) | 7 |
 | conflicts | 10 |
 | checkedOk entries | 146 |
@@ -217,7 +217,6 @@ Sorted P0 (security / data-integrity, silent, proven) → P1 (other silent prove
 | P4 | `M-T3.11-execution-context-build-flags` | mission | like | language, node, dotnet, java, python, elixir | S | No user-facing `emitContextBoundaries`/`emitProvenance`/`emitTracing` build-flag surface |
 | P4 | `M-T3.15-E1-handler-header-gate` | mission | like | language, node, dotnet, java, python, elixir | S | E1 — `commandHandler`/`queryHandler` still have no header `requires` (the default-deny half landed) |
 | P4 | `M-T3.16-C2-elixir-403-vs-422` | breadth | prov | elixir, node, dotnet, java, python | S | C2 — a guarded create with an invalid body answers 403 on Elixir vs 422 elsewhere, ungoldened |
-| P4 | `M-T3.16-C4-forbidden-remap-golden` | breadth | like | node, dotnet, java, python, elixir | S | C4 — no golden covers a remapped `Forbidden` on the lifecycle rungs |
 | P4 | `M-T3.9-logged-marker` | mission | like | language, node, dotnet, java, python, elixir | S | The `logged` marker never shipped |
 | P4 | `M-T6.11` | mission | like | node, dotnet, java, python, elixir | S | Reserved compose slots — three optional `ComposeServiceShape` data slots, undefined on every backend |
 | P4 | `M-T6.14` | mission | like | dotnet, elixir, node | S | Small parity leftovers — the register is partly stale; one of its four items is verifiably drained |
@@ -296,7 +295,6 @@ Sorted P0 (security / data-integrity, silent, proven) → P1 (other silent prove
 | P5 | `surface-dangling-emit-hooks` | stale-prose | like | node, dotnet, java, python, elixir | S | `PlatformSurface` doc comments still reference `emitAuditInit` / `emitI18nAdapter`, hooks that do not exist |
 | P5 | `t6-duplicate-heading-M-T6.43` | stale-prose | like | node, dotnet, java, python, elixir | S | T6 carries TWO `## M-T6.60` headings — the sixth dup-ID incident (the M-T6.43 instance this row was filed against was fixed; the class was not) |
 | P3 | `G2646-open-node-mounts-ui-false` | honest | like | node | M | #2646 documented, NOT fixed: node is the only backend with mountsUi: false |
-| P3 | `drizzle-projection-membership-column-arg-crash` | silent | prov | node | S | A query-time `projection … where <alias>.<refColl>.contains(<column>)` validates clean on a bare `platform: node` deployable and then CRASHES codegen ("internal: where-clause for projection 'X' could not lower to Drizzle, but the validator should have caught this") |
 | P2 ! | `dapper-no-schema-evolution` | silent | like | dotnet | L | `persistence: dapper` has no ALTER path at all — every post-first-boot model change is silently unapplied (migrations-on-adapters slice 2) |
 
 ## Conflicts (10)
