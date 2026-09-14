@@ -67,6 +67,22 @@ export function buildRepositoryFile(
   // / inArray) are always pulled in; the lowering may add ne / gt /
   // gte / lt / lte / or / not depending on the expression shape.
   const drizzleOps = new Set<string>(["eq", "and", "inArray"]);
+  // Query-time projections (read-path-architecture.md rev.13) sourced from this
+  // aggregate synthesise a parameterless-find repository read —
+  // `repo.<projName>()` returns the filtered aggregate
+  // rows the projection route then follows (`join`) + projects (`select`).
+  // Shared with the MikroORM + document builders (`projection-finds.ts`), which
+  // must emit the same method names for the same routes.
+  //
+  // Synthesised HERE, above the operator walk, rather than beside the other
+  // method builders: the synthesised find carries the projection's `where` as
+  // its filter, so its operators are exactly as much a part of this file's
+  // `drizzle-orm` import line as a declared find's.  Computing it after the
+  // walk meant `projection P { … where t.st != Closed }` emitted
+  // `.where(ne(schema.tickets.st, "Closed"))` into a module that imported
+  // `and, asc, count, desc, eq, inArray` — valid model, uncompilable output,
+  // and no diagnostic (F-013).
+  const projectionFinds: FindIR[] = synthProjectionFinds(agg.name, ctx);
   // A paged find runs a `count()` aggregate for its total (P3b).  Added as a
   // candidate; the import narrower below keeps it only if `count(` is emitted.
   // A paged find runs a `count()` for the total and an `asc`/`desc` ORDER BY
@@ -78,7 +94,7 @@ export function buildRepositoryFile(
     drizzleOps.add("desc");
   }
   const allFilters = [
-    ...(repo?.finds ?? [])
+    ...[...(repo?.finds ?? []), ...projectionFinds]
       .map((f) => f.filter)
       .filter((x): x is import("../../ir/types/loom-ir.js").ExprIR => !!x),
     // Non-principal capability filters (`filter !this.isDeleted`) AND
@@ -152,14 +168,6 @@ export function buildRepositoryFile(
   const valueObjectsUsed = collectValueObjects(agg, ctx);
   const enumsUsed = collectEnums(agg, ctx);
   const voOrEnumImports = [...valueObjectsUsed, ...enumsUsed];
-  // Query-time projections (read-path-architecture.md rev.13) sourced from this
-  // aggregate synthesise a parameterless-find repository read —
-  // `repo.<projName>()` returns the filtered aggregate
-  // rows the projection route then follows (`join`) + projects (`select`).
-  // Shared with the MikroORM + document builders (`projection-finds.ts`), which
-  // must emit the same method names for the same routes.
-  const projectionFinds: FindIR[] = synthProjectionFinds(agg.name, ctx);
-
   // Individual methods, hoisted so the same strings feed BOTH the class body
   // AND the derived repository PORT (audit S7 — the concrete `implements` a
   // domain-side `<Agg>RepositoryPort`; the members are extracted from these

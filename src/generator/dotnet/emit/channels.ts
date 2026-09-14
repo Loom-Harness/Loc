@@ -946,12 +946,12 @@ public sealed class ChannelTransports : IAsyncDisposable
 public sealed class ChannelPublishTeeDispatcher : IDomainEventDispatcher
 {
     private readonly ChannelTransports _transports;
-    private readonly ${ns}.Infrastructure.Events.${innerDispatcherType} _inner;
+    private readonly global::${ns}.Infrastructure.Events.${innerDispatcherType} _inner;
     private readonly ILogger<ChannelPublishTeeDispatcher> _log;
 
     public ChannelPublishTeeDispatcher(
         ChannelTransports transports,
-        ${ns}.Infrastructure.Events.${innerDispatcherType} inner,
+        global::${ns}.Infrastructure.Events.${innerDispatcherType} inner,
         ILogger<ChannelPublishTeeDispatcher> log)
     {
         _transports = transports;

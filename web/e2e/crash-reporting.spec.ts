@@ -43,7 +43,7 @@ test("?crash=app renders the ROOT fallback with working report actions", async (
   const href = await github.getAttribute("href");
   expect(href).toBeTruthy();
   const url = new URL(href!);
-  expect(url.origin + url.pathname).toBe("https://github.com/lemmit/Loc/issues/new");
+  expect(url.origin + url.pathname).toBe("https://github.com/Loom-Harness/Loc/issues/new");
   expect(url.searchParams.get("template")).toBe("crash-report.yml");
   expect(url.searchParams.get("labels")).toBe("crash-report");
   expect(url.searchParams.get("body")).toBeNull();

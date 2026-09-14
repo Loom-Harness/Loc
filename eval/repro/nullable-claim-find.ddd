@@ -1,0 +1,17 @@
+// A row-level find comparing an aggregate FK against a NULLABLE user claim
+// generates TypeScript that does not type-check.
+system X {
+  user { id: string  technicianId: Technician id? }
+  auth { oidc { issuer: env("I") clientId: env("C") } }
+  subdomain S { context C {
+    aggregate Technician with crudish { fullName: string  derived display: string = fullName }
+    aggregate WorkOrder with crudish { technicianId: Technician id?  derived display: string = "wo" }
+    repository Technicians for Technician { }
+    repository WorkOrders for WorkOrder {
+      find mine(): WorkOrder[] requires true where this.technicianId == currentUser.technicianId
+    }
+  } }
+  storage p { type: postgres }
+  resource r { for: C, kind: state, use: p }
+  deployable api { platform: node, contexts: [C], dataSources: [r], auth: required, port: 3000 }
+}

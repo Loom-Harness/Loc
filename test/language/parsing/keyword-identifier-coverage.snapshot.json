@@ -386,6 +386,8 @@
   ],
   "if": [],
   "ignoring": [
+    "fieldName",
+    "fieldNameAfterField",
     "memberAccess",
     "nameRef",
     "paramName"

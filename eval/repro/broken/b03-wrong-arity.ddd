@@ -1,0 +1,14 @@
+// 3. wrong call arity
+system X {
+  subdomain S {
+    context C {
+      aggregate Order with crudish { total: int  derived display: string = "x"
+        function fee(a: int, b: int): int = a + b
+        derived f: int = fee(1) }
+      repository Orders for Order { }
+    }
+  }
+  storage p { type: postgres }
+  resource r { for: C, kind: state, use: p }
+  deployable api { platform: node, contexts: [C], dataSources: [r], port: 3000 }
+}

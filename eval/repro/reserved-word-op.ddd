@@ -1,0 +1,18 @@
+// An operation named with a JavaScript reserved word emits `const void = ...`
+// in the generated React detail page → syntactically invalid TSX.
+system X {
+  subdomain S { context C {
+    enum St { Draft, Void }
+    aggregate Invoice with crudish {
+      st: St
+      derived display: string = "inv"
+      operation void() when st == Draft { st := Void }
+    }
+    repository Invoices for Invoice { }
+  } }
+  ui Web with scaffold(subdomains: [S]) { framework: react }
+  storage p { type: postgres }
+  resource r { for: C, kind: state, use: p }
+  deployable api { platform: node, contexts: [C], dataSources: [r], port: 3000 }
+  deployable web { platform: react, targets: api, ui: Web, port: 3001 }
+}

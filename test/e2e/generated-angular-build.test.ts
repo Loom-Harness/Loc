@@ -84,7 +84,17 @@ const MINIMAL: Case = {
 const SCAFFOLD: Case = {
   name: "scaffold",
   angularDir: "web",
-  mustEmit: ['price: new FormControl("0"', 'inputmode="decimal"'],
+  mustEmit: [
+    'price: new FormControl("0"',
+    'inputmode="decimal"',
+    // The scalar-array control seeds [] (not null) so `getRawValue()` stays
+    // assignable to `string[]`, and renders the same DISABLED honest-degradation
+    // input the three JSX frontends do rather than an editable box bound to an
+    // array.  Pinning both halves keeps a green `ng build` from hiding the
+    // second one.
+    "tags: new FormControl([]",
+    "(arrays not yet supported in forms)",
+  ],
   source: `
     system Shop {
       subdomain Sales {
@@ -97,6 +107,15 @@ const SCAFFOLD: Case = {
           aggregate Order with crudish {
             total: int
             items: LineItem[]
+            // A SCALAR array, which is NOT the same shape as the value-object
+            // array above: a VO array is diverted to a FormArray of row groups,
+            // a scalar array falls through to a plain FormControl.  This case
+            // carried only the VO array, and its only scalar array lived in a
+            // store/state block — a position that structurally cannot reach
+            // controlInit — so the gate contained the literal string[] and
+            // still never touched the code under test, and
+            // FormControl(null, { nonNullable: true }) shipped (F-033).
+            tags: string[]
           }
         }
       }

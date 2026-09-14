@@ -19,7 +19,14 @@ import type {
 } from "../../../ir/types/loom-ir.js";
 import { typeUsesMoney } from "../../../ir/types/loom-ir.js";
 import { walkExprDeep } from "../../../ir/util/walk.js";
-import { humanize, lowerFirst, plural, snake, upperFirst } from "../../../util/naming.js";
+import {
+  escapeTsIdent,
+  humanize,
+  lowerFirst,
+  plural,
+  snake,
+  upperFirst,
+} from "../../../util/naming.js";
 import { coerceMoneyStateInit, usesDecimalBinding } from "../../_expr/js-intrinsics.js";
 import { componentPropTsType } from "../../_frontend/component-prop-type.js";
 import { renderGateExpr } from "../../_frontend/gate-expr.js";
@@ -811,7 +818,7 @@ function renderFormOpWiring(
     aggregateNameCamel: lowerFirst(agg.name),
     opName: op.name,
     opPascal,
-    opCamel: lowerFirst(op.name),
+    opCamel: escapeTsIdent(lowerFirst(op.name)),
     idExpr,
     humanOp: humanize(op.name),
     // The dialog title: the authored `Modal { title: … }` (already translated,

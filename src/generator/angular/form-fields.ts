@@ -239,6 +239,16 @@ export function controlInit(t: TypeIR): string {
   // stays assignable to the request DTO — a `FormControl(null)` typed as
   // `FormControl<null>` failed `mutateAsync` under `ng build` (TS2345/2322).
   if (t.kind === "id") return '""';
+  // A SCALAR array (`skills: string[]`, `tags: Status[]`, `memberIds: User id[]`)
+  // — a value-object array never reaches here, it is diverted to a `FormArray`
+  // of row `FormGroup`s by `isArray`/`arrayVoFields` upstream.  Its request
+  // field is `string[]`/`number[]`, so the zero value is the EMPTY ARRAY: a
+  // `FormControl(null, { nonNullable: true })` types as `FormControl<null>` and
+  // `getRawValue()` is then unassignable to the request DTO, which is `ng build`
+  // failing on a model that generated `0 error(s), 0 warning(s)` (F-033).
+  // Matches `defaultInitForJs`'s `array` arm, which the react/vue/svelte
+  // frontends have used for the same reason.
+  if (t.kind === "array") return "[]";
   // Optional id (`t.kind === "optional"`), value objects and nested entities
   // keep `null`: their request type is nullable or `unknown` (request-side VO/
   // entity stay `unknown` in `wireTsType`), both null-assignable.
@@ -326,6 +336,29 @@ export function fieldInput(
   // through to the plain text input below (the user types the raw id).  Each
   // option's `data-testid="<ns>-input-<name>-option-<id>"` matches the
   // combobox page-object locator (`page-objects-builder.ts`).
+  // A SCALAR array (`skills: string[]`) has no editor on any frontend: the
+  // three JSX packs render a DISABLED input carrying the pack's
+  // `arrayUnsupported` chrome ("(arrays not yet supported in forms)"), which is
+  // an honest, visible degradation.  Angular rendered a live, editable text
+  // input bound to an array control instead — so once the `FormControl([])`
+  // init below made it BUILD, it would have shipped a field that silently
+  // writes a string into a `string[]`.  Trading a loud compile failure for a
+  // quiet runtime one is the exact class this fixes, so the degradation is made
+  // to match its siblings.  (A value-object array never reaches here — it is
+  // diverted to a `FormArray` of row groups upstream.)
+  if (inner.kind === "array") {
+    const ph = ' placeholder="(arrays not yet supported in forms)" disabled';
+    if (style === "material") {
+      addNg(ctx, "@angular/material/form-field", "MatFormFieldModule");
+      addNg(ctx, "@angular/material/input", "MatInputModule");
+      return `<mat-form-field class="loom-field"><mat-label>${label}</mat-label><input matInput${ph}${testid}></mat-form-field>`;
+    }
+    if (style === "primeng") {
+      addNg(ctx, "primeng/inputtext", "InputTextModule");
+      return `<label class="loom-field"><span class="loom-label">${label}</span><input pInputText class="loom-input"${ph}${testid} /></label>`;
+    }
+    return `<label class="loom-field"><span class="loom-label">${label}</span><input class="loom-input"${ph}${testid} /></label>`;
+  }
   const idTarget = idTargetForField(t, bc, ctx);
   if (idTarget) {
     const { hookVar } = idTarget;

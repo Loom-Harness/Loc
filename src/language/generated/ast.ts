@@ -2929,7 +2929,7 @@ export interface Property extends langium.AstNode {
     default?: Expression;
     maskUnless?: Expression;
     message?: string;
-    name: 'await' | 'page' | CommonSoftKeywords | string;
+    name: 'await' | 'ignoring' | 'page' | CommonSoftKeywords | string;
     provenanced: boolean;
     sensitivity?: SensitivityClause;
     type: TypeRef;

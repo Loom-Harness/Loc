@@ -19,7 +19,7 @@ system Billder {
 
   subdomain Billing {
     context Catalog {
-      crossTenant aggregate Plan { code: string  monthlyPrice: decimal }
+      aggregate Plan crossTenant { code: string  monthlyPrice: decimal }
     }
     context Invoicing {
       aggregate Invoice with tenantOwned { number: string  amountDue: decimal }

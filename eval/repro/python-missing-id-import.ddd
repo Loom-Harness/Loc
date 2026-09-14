@@ -1,0 +1,21 @@
+// A cross-context `X id` create parameter emits a Python route that references
+// `XId(...)` without importing it → NameError at request time (not at import).
+system X {
+  subdomain S {
+    context A { aggregate Foo with crudish { name: string  derived display: string = name }
+                repository Foos for Foo { } }
+    context B {
+      aggregate Bar {
+        fooId: Foo id
+        tag: string
+        derived display: string = tag
+        create(fooId: Foo id, tag: string) { requires true }
+      }
+      repository Bars for Bar { }
+    }
+  }
+  storage p { type: postgres }
+  resource ra { for: A, kind: state, use: p }
+  resource rb { for: B, kind: state, use: p }
+  deployable api { platform: python, contexts: [A, B], dataSources: [ra, rb], port: 8000 }
+}

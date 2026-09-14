@@ -25,6 +25,7 @@ import type {
   StmtIR,
   TestIR,
   TypeIR,
+  UiIR,
 } from "../../types/loom-ir.js";
 import { allContexts } from "../../types/loom-ir.js";
 import { isTphBase, isTphConcrete } from "../../util/inheritance.js";
@@ -2150,4 +2151,44 @@ export function validateNamedLifecycleDropped(
       }
     }
   }
+}
+
+/** The `permissions.<name>` sentinel check, for a UI's page gates and bodies.
+ *
+ *  `validatePermissionRefs` walks CONTEXT bodies; a `ui` is a system member, so
+ *  nothing looked at a page.  That mattered once `lowerUi` started receiving a
+ *  catalogue (F-011): a name the catalogue cannot resolve — misspelled, or a
+ *  bare name TWO subdomains declare with different runtime strings — still
+ *  lowers to the `__unknown_permission__:` sentinel, which renders as a literal
+ *  no principal can ever hold.  The page is then permanently forbidden, with no
+ *  diagnostic anywhere: a silent authorization outcome, which is strictly worse
+ *  than the crash this replaced.  Same code, same message, same sentinel — only
+ *  the walk is new. */
+export function validateUiPermissionRefs(ui: UiIR, diags: LoomDiagnostic[]): void {
+  const flagOne = (location: string, e: ExprIR): void => {
+    if (
+      e.kind === "literal" &&
+      e.lit === "string" &&
+      e.value.startsWith(UNKNOWN_PERMISSION_SENTINEL)
+    ) {
+      diags.push({
+        severity: "error",
+        code: "loom.unknown-permission",
+        message: diagMessage("loom.unknown-permission#ui", {
+          name: e.value.slice(UNKNOWN_PERMISSION_SENTINEL.length),
+        }),
+        source: `${ui.name}/${location}`,
+      });
+    }
+  };
+  const flag = (location: string, expr: ExprIR | undefined): void => {
+    if (!expr) return;
+    walkExpr(expr, (e) => flagOne(location, e));
+  };
+  for (const page of ui.pages) {
+    flag(`page[${page.name}].requires`, page.requires);
+    flag(`page[${page.name}]`, page.body);
+    flag(`page[${page.name}].title`, page.title);
+  }
+  for (const c of ui.components) flag(`component[${c.name}]`, c.body);
 }

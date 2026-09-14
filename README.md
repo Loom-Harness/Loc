@@ -15,7 +15,7 @@ line that's generated.
 - All the source you'd write by hand
 - Zero vendor lock-in
 
-**Live site:** <https://lemmit.github.io/Loc/> — landing, browser
+**Live site:** <https://loom-harness.github.io/Loc/> — landing, browser
 playground (typed editor + visual system builder + live preview +
 in-browser test runner), and the full documentation set.
 
@@ -51,7 +51,7 @@ everything turns into a check mark:
   the model doesn't have or write a frontend that disagrees with its
   backend.
 
-Full feature-by-feature comparison: <https://lemmit.github.io/Loc/#compare>.
+Full feature-by-feature comparison: <https://loom-harness.github.io/Loc/#compare>.
 
 ## Quick example
 
@@ -215,7 +215,7 @@ just templates against a small page contract.
 builder for deployables and modules, live preview of the generated
 app booting in a sandboxed iframe, in-browser test runner.  Same
 `.ddd` source across all views.  Open it at
-<https://lemmit.github.io/Loc/playground/>.
+<https://loom-harness.github.io/Loc/playground/>.
 
 **Built-in traceability.** Declare `requirement`, `solution`, and
 `testCase` alongside your domain.  Executable tests link back to test
@@ -348,7 +348,7 @@ derived-artifact directory, and
 The live roadmap lives under [`docs/new-plan/`](docs/new-plan/) (tracks
 + agent-pickable missions); the archived design corpus &mdash; frozen
 proposals and plans &mdash; lives under `docs/old/` (not deployed to
-the docs site; [browse on GitHub](https://github.com/lemmit/Loc/tree/main/docs/old/));
+the docs site; [browse on GitHub](https://github.com/Loom-Harness/Loc/tree/main/docs/old/));
 empirical snapshots live under [`docs/audits/`](docs/audits/).
 
 Plus [`experience_gathered.md`](experience_gathered.md) &mdash; running

@@ -240,7 +240,14 @@ function coerceOpParam(varName: string, type: TypeIR | undefined): string {
       return `(if is_nil(${varName}), do: nil, else: ${numericEncode(ELIXIR_NUMERIC, "decimal", "find-param", varName)})`;
     case "datetime":
       // `:utc_datetime` wants a DateTime struct; the wire is ISO-8601 text.
-      return `(case ${varName} do\n      nil -> nil\n      %DateTime{} = __dt -> __dt\n      __s when is_binary(__s) -> (case DateTime.from_iso8601(__s) do\n        {:ok, __d, _} -> DateTime.truncate(__d, :second)\n        _ -> __s\n      end)\n      __other -> __other\n    end)`;
+      //
+      // The clause bindings are named WITHOUT a leading underscore on purpose:
+      // every one of them is read on the right-hand side, and Elixir warns on an
+      // underscored variable that is then used ("the underscored variable
+      // \"__dt\" is used after being set").  Six of those warnings are enough to
+      // fail `mix compile --warnings-as-errors`, the flag the generated
+      // project's own CI recipe runs.
+      return `(case ${varName} do\n      nil -> nil\n      %DateTime{} = dt -> dt\n      s when is_binary(s) -> (case DateTime.from_iso8601(s) do\n        {:ok, d, _} -> DateTime.truncate(d, :second)\n        _ -> s\n      end)\n      other -> other\n    end)`;
     default:
       return varName;
   }

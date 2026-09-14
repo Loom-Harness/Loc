@@ -1,0 +1,35 @@
+--- /tmp/wire-node.txt	2026-09-13 11:13:26.496120792 +0000
++++ /tmp/wire-python.txt	2026-09-13 11:13:44.424120414 +0000
+@@ -6,7 +6,7 @@
+ "createdBy": "u-a",
+ "currency": "EUR",
+ "customerId": "<uuid>",
+-"display": "WO Draft for 01a09a78-d7cc-7773-9f6e-297e2922069b",
++"display": "WO Draft for 01a09a79-1e86-75ec-abe3-fa951e1ad64a",
+ "id": "<uuid>",
+ "isOpen": true,
+ "lines": [
+@@ -15,7 +15,7 @@
+ "description": "Diagnostics",
+ "id": "<uuid>",
+ "kind": "Labour",
+-"quantity": 2,
++"quantity": 2.0,
+ "subtotal": "100.5000",
+ "unitPrice": "50.2500"
+ }
+@@ -34,7 +34,7 @@
+ "version": 2
+ }
+ ### GET /work_orders (paged envelope keys)
+-['items', 'page', 'pageSize', 'total', 'totalPages'] total= 4
++['items', 'page', 'pageSize', 'total', 'totalPages'] total= 1
+ ### statuses
+ unauth           200
+ invariant(422?)  422
+@@ -46,4 +46,4 @@
+ mask(null?)      None
+ ### error body shape (invariant)
+ ['detail', 'errors', 'instance', 'status', 'title', 'type']
+-{"detail": "One or more fields are invalid.", "errors": [{"message": "Billing Email is not in the expected format", "pointer": "/billingEmail"}], "status": 422, "title": "Validation failed", "type": "about:blank"}
++{"detail": "One or more fields are invalid.", "errors": [{"message": "String should match pattern '^[^@]+@[^@]+\\.[^@]+$'", "pointer": "/billingEmail"}], "status": 422, "title": "Validation failed", "type": "about:blank"}
