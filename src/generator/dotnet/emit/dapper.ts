@@ -73,6 +73,7 @@ import {
 } from "../render-expr.js";
 import { csClaimStampsFor } from "./entity.js";
 import { inMemoryPagedFindLines, renderRetrievalParamsWithCt } from "./repository.js";
+import { csStateHolderOf } from "./state-holder.js";
 
 // ---------------------------------------------------------------------------
 // Reserved-word identifier quoting (M-T6.42).
@@ -581,7 +582,7 @@ function partRowAndMap(pc: PartChild): string {
     "    }",
     "",
     `    private static ${pc.part.name} Map${pc.part.name}(${pc.part.name}Row r${dictParams.join("")}) =>`,
-    `        ${pc.part.name}._Create(new ${pc.part.name}.State`,
+    `        ${pc.part.name}._Create(new ${csStateHolderOf(pc.part.name)}`,
     "        {",
     `            Id = new ${pc.part.name}Id(r.id),`,
     `            ParentId = new ${pc.parentEntityId}Id(r.${escapeCsharpIdent(pc.parentFk)}),`,
@@ -659,7 +660,7 @@ function containmentMembers(
     `        if (rows.Count == 0) return new List<${agg.name}>();`,
     "        var __ids = rows.Select(r => r.id).ToArray();",
     ...loadBlocks,
-    `        return rows.Select(r => ${agg.name}._Create(new ${agg.name}.State`,
+    `        return rows.Select(r => ${agg.name}._Create(new ${csStateHolderOf(agg.name)}`,
     "            {",
     ...rootStateBody,
     ...slotLines,
@@ -1947,7 +1948,7 @@ export function renderDapperRepository(
         ? []
         : [
             `    private static ${agg.name} Map(Row r) =>`,
-            `        ${agg.name}._Create(new ${agg.name}.State`,
+            `        ${agg.name}._Create(new ${csStateHolderOf(agg.name)}`,
             "        {",
             ...mapBody,
             "        });",

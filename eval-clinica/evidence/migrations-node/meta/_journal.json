@@ -1,0 +1,55 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1767225600000,
+      "tag": "20260101000000_scheduling_initial",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1767405601001,
+      "tag": "20260101500001_scheduling_migrate",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1767405602002,
+      "tag": "20260101500002_scheduling_migrate",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1767405603003,
+      "tag": "20260101500003_scheduling_remove_insurance_policy_ref_from_patients",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1767405604004,
+      "tag": "20260101500004_scheduling_alter_timezone_on_clinics",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1767405605005,
+      "tag": "20260101500005_scheduling_migrate",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1767405606006,
+      "tag": "20260101500006_scheduling_add_triage_note_to_appointments",
+      "breakpoints": true
+    }
+  ]
+}

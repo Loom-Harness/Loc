@@ -1,0 +1,24 @@
+// F-014 minimal repro: `loom.construction-missing-field` does not fire for a
+// value object named exactly `Money`, and the emitted TS does not compile.
+//   node bin/cli.js parse    eval/repro/F014-money-ctor-unchecked.ddd  -> 0 errors
+//   node bin/cli.js generate system eval/repro/F014-money-ctor-unchecked.ddd -o /tmp/f14
+//   cd /tmp/f14/api && npm i && npx tsc --noEmit
+//   -> domain/t.ts: error TS2554: Expected 2 arguments, but got 1.
+// Rename the value object to ANY other identifier (Cash, Monies, MONEY, money2)
+// and the same omission is correctly rejected:
+//   error: 'Cash' construction is missing required field: currency.
+system Ct {
+  subdomain S { context C {
+    valueobject Money { amount: money  currency: string }
+    aggregate T with crudish {
+      m: Money
+      qty: int
+      derived display: string = "t"
+      operation o() { m := Money { amount: money("1.00") } }   // `currency` omitted
+    }
+    repository Ts for T { }
+  } }
+  storage primary { type: postgres }
+  resource cState { for: C, kind: state, use: primary }
+  deployable api { platform: node, contexts: [C], dataSources: [cState], port: 3000 }
+}
