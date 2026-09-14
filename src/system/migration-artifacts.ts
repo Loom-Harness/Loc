@@ -3,6 +3,9 @@ import * as path from "node:path";
 
 import type { EnrichedLoomModel } from "../ir/types/loom-ir.js";
 import type { MigrationsIR } from "../ir/types/migrations-ir.js";
+import type { MigrationHistoryLedger } from "./migration-ledger.js";
+import { LEDGER_REL_PATH } from "./migration-ledger.js";
+import { BASE_TIMESTAMP, MODULE_VERSION_STRIDE } from "./migrations-builder.js";
 
 // ---------------------------------------------------------------------------
 // Migration-baseline safety guards (M-T2.2).
@@ -22,12 +25,30 @@ import type { MigrationsIR } from "../ir/types/migrations-ir.js";
 // same pattern as `SnapshotStore`), then runs three pure checks against the
 // freshly-built `MigrationsIR[]`:
 //
-//   (a) refuse "Initial" when migration files already exist but the
-//       snapshot is missing (override with `allowRebaseline`);
-//   (b) verify the on-disk files match `baseline.migrationHistory`
-//       (a missing or unexpected file is drift the operator must resolve);
+//   (a) refuse "Initial" when migration files already exist IN THIS
+//       MODULE'S VERSION BLOCK but the snapshot is missing;
+//   (b) verify `baseline.migrationHistory` ⊆ the on-disk files (a history
+//       entry with no file is drift the operator must resolve; the converse
+//       is deliberately NOT checked — see the comment at the check);
 //   (c) reject a version number that already exists on disk (the tell of a
-//       stale baseline reissuing a used version).
+//       stale baseline reissuing a used version);
+//   (d) refuse "Initial" when the SOURCE-SIDE LEDGER records history for the
+//       module, whatever the output tree holds — the F-029 case, where a
+//       CLEAN `-o` has no snapshot and no files and so reads as a first run;
+//   (e) refuse a version the ledger records but this output tree lacks — an
+//       older copy of the tree, internally consistent but behind the model.
+//
+// (a), (d) and (e) are overridden by `allowRebaseline`.
+//
+// Guards (a)–(c) read only the output tree, so they are blind to the case
+// where the output tree is the thing that is missing; (d)/(e) read the
+// ledger beside the `.ddd` (see `migration-ledger.ts`) and close that gap.
+// The per-module VERSION BLOCK narrowing on (a) matters independently: the
+// index can only answer per DEPLOYABLE, and one deployable hosts many
+// modules, so before the narrowing a brand-new module saw a sibling's files
+// and was refused — prescribing `--allow-rebaseline`, which would have
+// discarded the SIBLING's history.  That false positive also trained
+// operators to pass the one flag that switches (d) off.
 //
 // The interface is fs-free so tests inject an in-memory index and the web
 // playground (which never scans a real output tree) simply omits it.  Only
@@ -154,16 +175,70 @@ export function memoryMigrationArtifactIndex(
 }
 
 export interface CheckMigrationBaselineOptions {
-  /** Override guard (a): permit re-emitting "Initial" even though migration
-   *  files already exist and the snapshot is missing.  The escape hatch for
-   *  a deliberate re-baseline (the CLI `--allow-rebaseline` flag). */
+  /** Override guards (a), (d) and (e): permit re-emitting "Initial" (or
+   *  re-issuing a recorded version) even though the module demonstrably has
+   *  migration history.  The escape hatch for a deliberate re-baseline (the
+   *  CLI `--allow-rebaseline` flag). */
   allowRebaseline?: boolean;
+  /** The source-side migration-history ledger
+   *  (`<source-dir>/.loom/migration-history.json`), when the caller could
+   *  read one.  `null`/omitted for a project that has never generated with a
+   *  ledger-aware toolchain, or a caller with no source directory (the web
+   *  playground) — guards (d)/(e) are then skipped and (a) falls back to
+   *  the output tree alone.  See {@link MigrationHistoryLedger}. */
+  recordedHistory?: MigrationHistoryLedger | null;
+  /** Path to name in the refusal messages, so the operator can go look at
+   *  the file that made the claim.  Defaults to {@link LEDGER_REL_PATH}. */
+  ledgerPath?: string;
+}
+
+/** Lowest version in the same per-module block as `version`.
+ *
+ *  Migration versions are allocated in disjoint per-module BLOCKS
+ *  (`BASE_TIMESTAMP + block * MODULE_VERSION_STRIDE`, see
+ *  `migrations-builder.ts`), which is what lets several modules share one
+ *  backend's migrations directory.  That same arithmetic is the only
+ *  per-module attribution available to a guard looking at a flat directory,
+ *  because `MigrationArtifactIndex` can see a DEPLOYABLE's files but not
+ *  which module emitted each one — and the Ecto emitter's filenames
+ *  (`<version>_create_<table>.exs`) don't carry the module either, so
+ *  filename matching would only work on four of the five backends.
+ *
+ *  `null` for a version below the base (not block-allocated at all). */
+function versionBlockFloor(version: string): bigint | null {
+  if (!/^\d+$/.test(version)) return null;
+  const v = BigInt(version);
+  const base = BigInt(BASE_TIMESTAMP);
+  if (v < base) return null;
+  const stride = BigInt(MODULE_VERSION_STRIDE);
+  return base + ((v - base) / stride) * stride;
+}
+
+/** The subset of `onDisk` that belongs to the module whose next version is
+ *  `version` — i.e. the files inside that module's own version block.
+ *
+ *  This is what stops guard (a) from refusing a BRAND-NEW module because a
+ *  SIBLING module hosted by the same deployable has migration files: the new
+ *  module is allocated a fresh block above every block in use, so nothing on
+ *  disk falls inside it.  Files outside every real block (the far-future
+ *  `2999…` provenance/audit migrations) are attributed to no module, which
+ *  matches guard (b)'s deliberate one-directionality. */
+function versionsInBlockOf(onDisk: readonly string[], version: string): string[] {
+  const floor = versionBlockFloor(version);
+  if (floor === null) return [...onDisk];
+  const ceiling = floor + BigInt(MODULE_VERSION_STRIDE);
+  return onDisk.filter((v) => {
+    if (!/^\d+$/.test(v)) return false;
+    const n = BigInt(v);
+    return n >= floor && n < ceiling;
+  });
 }
 
 /**
- * Run the three baseline-safety checks over freshly-built migrations.  Pure
- * (no fs) — the on-disk state arrives through `index`.  Throws
- * {@link MigrationBaselineError} on the first violation.
+ * Run the baseline-safety checks over freshly-built migrations.  Pure (no
+ * fs) — the on-disk state arrives through `index` and the recorded history
+ * through `options.recordedHistory`.  Throws {@link MigrationBaselineError}
+ * on the first violation.
  */
 export function checkMigrationBaseline(
   migrations: readonly MigrationsIR[],
@@ -171,15 +246,54 @@ export function checkMigrationBaseline(
   options: CheckMigrationBaselineOptions = {},
 ): void {
   const allowRebaseline = options.allowRebaseline ?? false;
+  const ledgerPath = options.ledgerPath ?? LEDGER_REL_PATH;
   for (const m of migrations) {
-    const onDisk = index.versions(m.module);
+    // Attribute the deployable's files to THIS module by version block —
+    // see `versionsInBlockOf`.  Everything below reads the narrowed list.
+    const onDisk = versionsInBlockOf(index.versions(m.module), m.version);
     const onDiskSet = new Set(onDisk);
+    const recorded = options.recordedHistory?.modules[m.module]?.versions ?? [];
 
-    // (a) Missing snapshot + existing migration files ⇒ this run would emit
-    //     a fresh "Initial" and reset the version/history chain against a
-    //     database that already has migrations.  Refuse unless overridden.
     if (m.baseline === null) {
-      if (onDisk.length > 0 && !allowRebaseline) {
+      // An explicit re-baseline overrides every "this module has history"
+      // signal; that is the whole point of the flag.
+      if (allowRebaseline) continue;
+
+      // (d) The output tree says nothing, but the LEDGER — which travels
+      //     with the `.ddd` rather than with `-o` — records migrations this
+      //     module has already emitted.  This is F-029: generating into a
+      //     CLEAN directory has no snapshot AND no files, so guard (a) below
+      //     sees a first run and `buildMigrations` re-issues "Initial" under
+      //     the SAME base version as the migration a database has already
+      //     applied.  The migrator matches the tag, considers it applied, and
+      //     skips the changed content — the new column never lands, the
+      //     container reports healthy, and every query naming it fails.
+      if (recorded.length > 0) {
+        const latest = [...recorded].sort().at(-1);
+        throw new MigrationBaselineError(
+          m.module,
+          `refusing to re-baseline module '${m.module}': this run would emit a fresh ` +
+            `"Initial" migration, but ${ledgerPath} records that the module has already ` +
+            `emitted ${recorded.length} migration(s), up to version ${latest}. The output ` +
+            `tree at -o carries neither those migration files nor the baseline snapshot ` +
+            `(.loom/snapshots/${m.module}.snapshot.json), so the "Initial" would re-use a ` +
+            `version number that has already been applied: a database that ran the earlier ` +
+            `migration will match the version, consider it applied, and SKIP the new ` +
+            `contents — leaving the schema silently behind the model. Recover either way:\n` +
+            `  - point -o at the output tree that holds this module's migration history ` +
+            `(the one you generated before), and re-run to get an incremental delta; or\n` +
+            `  - re-run with --allow-rebaseline to discard the recorded history and start ` +
+            `over from a single "Initial". Only safe against a database you can also ` +
+            `recreate — an existing one still has the old migrations applied.`,
+        );
+      }
+
+      // (a) Missing snapshot + existing migration files IN THIS MODULE'S
+      //     version block ⇒ this run would emit a fresh "Initial" and reset
+      //     the version/history chain against a database that already has
+      //     migrations.  Refuse.  (The block narrowing is what keeps a
+      //     brand-new module from being refused for a sibling's files.)
+      if (onDisk.length > 0) {
         throw new MigrationBaselineError(
           m.module,
           `refusing to re-baseline module '${m.module}': its migration snapshot ` +
@@ -191,8 +305,10 @@ export function checkMigrationBaseline(
             `deliberately.`,
         );
       }
-      // Fresh module (no snapshot, no files) or an explicit re-baseline —
-      // nothing more to verify.
+      // Fresh module (no snapshot, no recorded history, no files in its own
+      // block) — a genuine first run for this module.  Stay SILENT: `ddd
+      // new` → first generate is the most-travelled path in the toolchain,
+      // and adding a subdomain to an existing model takes this branch too.
       continue;
     }
 
@@ -243,6 +359,27 @@ export function checkMigrationBaseline(
           `snapshot's baseline is stale (its lastVersion lags the migration files on disk). ` +
           `Restore the snapshot from version control so the next version is assigned after the ` +
           `latest file.`,
+      );
+    }
+
+    // (e) The snapshot and the files in this tree agree with each other — so
+    //     (b) and (c) both pass — but the LEDGER records a version this run
+    //     is about to emit.  That is an OLDER COPY of the output tree (a
+    //     stale checkout, a `-o` pointed at last week's build): internally
+    //     consistent, behind the model's real history, and about to re-issue
+    //     a version number some database has already applied.  Same failure
+    //     mode as (d), reached from the other side.
+    if (m.steps.length > 0 && recorded.includes(m.version) && !allowRebaseline) {
+      throw new MigrationBaselineError(
+        m.module,
+        `refusing to re-issue migration version '${m.version}' for module '${m.module}': it ` +
+          `is already recorded in ${ledgerPath}, but the output tree at -o does not contain ` +
+          `it. That tree is behind this model's real migration history — an older copy, or a ` +
+          `different output directory than the one the recorded migrations were written to. ` +
+          `Re-issuing the version would produce a DIFFERENT migration under a number a ` +
+          `database may already have applied, and the migrator would skip it. Point -o at the ` +
+          `output tree that holds the recorded history, or re-run with --allow-rebaseline to ` +
+          `discard that history deliberately.`,
       );
     }
   }
