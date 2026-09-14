@@ -149,8 +149,8 @@ and, unless the generate run passes `--allow-destructive`, **aborts** with a
   collection (`Other.xs: Order id[]`) is not yet cascaded — that sibling join
   table's `targetFk` change falls under the destructive gate (never silent).
 - **Rename detection (heuristic fallback).** With no explicit block, a table with
-  *exactly one* `dropColumn` and *one* `addColumn` **of identical type** is an
-  unambiguous rename → the pair collapses into a single non-destructive
+  *exactly one* `dropColumn` and *one* `addColumn` of **identical type *and*
+  nullability** is an unambiguous rename → the pair collapses into a single non-destructive
   `renameColumn` (`ALTER TABLE … RENAME COLUMN a TO b`). Any other drop/add mix on
   one table — the two shapes the heuristic **cannot** collapse (a rename that also
   changes type, or two renames at once) — is *rename-shaped* but ambiguous. Rather
@@ -167,19 +167,26 @@ and, unless the generate run passes `--allow-destructive`, **aborts** with a
   one `dropColumn`, one `addColumn`, same type, one table. Guessing wrong is not
   a failed migration but **silent misattribution**: every row's bin code becomes
   its supplier reference. So the collapse fires only where the author has given
-  **no contrary signal**, and any contrary signal wins. Two signals count, both
-  of them the author positively asserting the added column is NEW (a renamed
-  column arrives carrying its own data, so neither statement would mean anything
-  about it):
+  **no contrary signal**, and any contrary signal wins. Three signals count —
+  the first says the two columns aren't even the same *shape*; the other two are
+  the author positively asserting the added column is NEW (a renamed column
+  arrives carrying its own data, so neither statement would mean anything about
+  it):
 
-  1. a **declared backfill** on the added column — `migration "…" { Agg.newField
+  1. a **nullability change** between the two columns — a rename leaves a
+     column's shape alone, so `binCode: string` becoming `note: string?` is a
+     shape change on top of a name change, the same family as a rename that
+     changes type. (It matters more than it looks: that shape needs neither a
+     backfill nor a default to clear every other gate, so it was the last one
+     that could collapse silently.)
+  2. a **declared backfill** on the added column — `migration "…" { Agg.newField
      = <expr> }`. *A backfilled add is an explicit new column, never treated as
      a rename.*
-  2. a **scalar-literal field default** on the added column — `supplierRef:
+  3. a **scalar-literal field default** on the added column — `supplierRef:
      string = "NO-SUPPLIER"` (§ Field defaults).
 
-  Neither signal costs data when the author really did mean a rename: the
-  uncollapsed `dropColumn` is destructive, so the run **aborts** and names the
+  No signal costs data when the author really did mean a rename: the uncollapsed
+  `dropColumn` is destructive, so the run **aborts** and names the
   explicit-rename remedy rather than writing anything.
 
   **Expressing a genuine drop + unrelated add in one change** is therefore the
