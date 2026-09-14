@@ -117,6 +117,31 @@ const DELIBERATELY_INVALID = [
   "test/language/validators/fixtures/stmt-placement-variant-match.ddd",
   "test/language/validators/fixtures/stmt-placement-for.ddd",
   "test/language/validators/fixtures/stmt-placement-if-let.ddd",
+  // The error-QUALITY corpus from the external evaluation in `eval/`: ten models,
+  // each carrying one realistic authoring mistake, written to measure whether the
+  // diagnostic points at the right line and is actionable.  Being refused IS the
+  // assertion, so they belong here rather than being "fixed".
+  //
+  // Pinning them buys something beyond silencing this gate: the control below
+  // asserts each still produces at least one error, so this list is now a
+  // regression net for the eight diagnostics the evaluation measured.  If a
+  // validator change ever made one of these validate clean, that control fails.
+  //
+  // Only the AST-level eight are listed.  Three of the ten are absent on purpose:
+  //   * `broken/08-page-wrong-aggregate.ddd` and `broken/09-unqueryable-filter.ddd`
+  //     are refused at the IR layer (phase (7)), which this census does not run;
+  //   * `broken/05-cyclic-containment.ddd` currently validates CLEAN — that is the
+  //     open defect F-020 (it crashes the generator with a RangeError instead of
+  //     diagnosing).  When F-020 is fixed it will start failing this gate and must
+  //     be added here in the same change.
+  "eval/repro/H-rowlevel-currentuser.ddd",
+  "eval/repro/broken/01-typo-type.ddd",
+  "eval/repro/broken/02-invariant-unknown-field.ddd",
+  "eval/repro/broken/03-wrong-arity.ddd",
+  "eval/repro/broken/04-bare-aggregate-ref.ddd",
+  "eval/repro/broken/06-duplicate-names.ddd",
+  "eval/repro/broken/07-bad-enum-value.ddd",
+  "eval/repro/broken/10-type-mismatch.ddd",
 ] as const;
 
 /** Entry files of a multi-file project whose SIBLINGS are imported but which
