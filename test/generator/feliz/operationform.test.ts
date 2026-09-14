@@ -57,17 +57,17 @@ async function appFs(source: string): Promise<string> {
 describe("feliz operation forms", () => {
   it("emits an op-param form record + encoder", async () => {
     const app = await appFs(OPFORM);
-    expect(app).toContain("type RenameProductForm =\n  {\n    newName: string\n  }");
-    expect(app).toContain("let emptyRenameProductForm : RenameProductForm =");
-    expect(app).toContain("let renameProductForm (form: RenameProductForm) : JsonValue =");
+    expect(app).toContain("type RenameProductOpForm =\n  {\n    newName: string\n  }");
+    expect(app).toContain("let emptyRenameProductOpForm : RenameProductOpForm =");
+    expect(app).toContain("let renameProductOpForm (form: RenameProductOpForm) : JsonValue =");
     expect(app).toContain('"newName", Encode.string form.newName');
-    expect(app).toContain("RenameProductForm: RenameProductForm");
+    expect(app).toContain("RenameProductOpForm: RenameProductOpForm");
   });
 
   it("emits a curried id-qualified operation Api fn (POST /<id>/<op>, 204 → unit)", async () => {
     const app = await appFs(OPFORM);
     expect(app).toContain(
-      "let renameProduct (id: string) (form: RenameProductForm) : Async<Result<unit, string>> =",
+      "let renameProduct (id: string) (form: RenameProductOpForm) : Async<Result<unit, string>> =",
     );
     expect(app).toContain('Http.request (sprintf "/api/products/%s/rename" id)');
     expect(app).toContain("|> Http.method POST");
@@ -77,41 +77,41 @@ describe("feliz operation forms", () => {
 
   it("wires per-param Set Msgs + Submit (carrying id) + Done", async () => {
     const app = await appFs(OPFORM);
-    expect(app).toContain("| SetRenameProductFormNewName of string");
-    expect(app).toContain("| SubmitRenameProductForm of string");
-    expect(app).toContain("| RenameProductDone of Result<unit, string>");
+    expect(app).toContain("| SetRenameProductOpFormNewName of string");
+    expect(app).toContain("| SubmitRenameProductOpForm of string");
+    expect(app).toContain("| RenameProductOpDone of Result<unit, string>");
   });
 
   it("wires the update arms (setter, curried submit Cmd, done navigate)", async () => {
     const app = await appFs(OPFORM);
     expect(app).toContain(
-      "  | SetRenameProductFormNewName v -> { model with RenameProductForm = { model.RenameProductForm with newName = v } }, Cmd.none",
+      "  | SetRenameProductOpFormNewName v -> { model with RenameProductOpForm = { model.RenameProductOpForm with newName = v } }, Cmd.none",
     );
     // The curried `Api.renameProduct id` partial-app is the Cmd's async fn.
     expect(app).toContain(
-      "  | SubmitRenameProductForm id -> model, Cmd.OfAsync.perform (Api.renameProduct id) model.RenameProductForm RenameProductDone",
+      "  | SubmitRenameProductOpForm id -> model, Cmd.OfAsync.perform (Api.renameProduct id) model.RenameProductOpForm RenameProductOpDone",
     );
     expect(app).toContain(
-      '  | RenameProductDone (Ok ()) -> { model with RenameProductForm = emptyRenameProductForm }, Cmd.navigatePath("products")',
+      '  | RenameProductOpDone (Ok ()) -> { model with RenameProductOpForm = emptyRenameProductOpForm }, Cmd.navigatePath("products")',
     );
-    expect(app).toContain("  | RenameProductDone (Error _) -> model, Cmd.none");
+    expect(app).toContain("  | RenameProductOpDone (Error _) -> model, Cmd.none");
   });
 
   it("the OperationForm renders inputs + a submit dispatching Submit… id", async () => {
     const app = await appFs(OPFORM);
     expect(app).toContain(
-      'Html.input [ prop.custom("data-testid", "products-op-rename-input-newName"); prop.className "input input-bordered w-full"; prop.placeholder "newName"; prop.value model.RenameProductForm.newName; prop.onChange (fun (v: string) -> dispatch (SetRenameProductFormNewName v)); prop.onBlur (fun _ -> dispatch (TouchRenameProductForm "newName"))',
+      'Html.input [ prop.custom("data-testid", "products-op-rename-input-newName"); prop.className "input input-bordered w-full"; prop.placeholder "newName"; prop.value model.RenameProductOpForm.newName; prop.onChange (fun (v: string) -> dispatch (SetRenameProductOpFormNewName v)); prop.onBlur (fun _ -> dispatch (TouchRenameProductOpForm "newName"))',
     );
     // The submit carries the route id (instance-qualified op) + a validity guard,
     // plus the `<plural>-op-<op>-submit` testid the op page-object method clicks.
     expect(app).toContain(
-      'Html.button [ prop.custom("data-testid", "products-op-rename-submit"); prop.className "btn btn-primary"; prop.disabled (not (Validation.renameProductFormValid model.RenameProductForm)); prop.onClick (fun _ -> dispatch (SubmitRenameProductForm id)); prop.text "Rename Product" ]',
+      'Html.button [ prop.custom("data-testid", "products-op-rename-submit"); prop.className "btn btn-primary"; prop.disabled (not (Validation.renameProductOpFormValid model.RenameProductOpForm)); prop.onClick (fun _ -> dispatch (SubmitRenameProductOpForm id)); prop.text "Rename Product" ]',
     );
     // The form container carries `<plural>-op-<op>-form` (waited for after the
     // trigger click, detached after submit).
     expect(app).toContain('prop.custom("data-testid", "products-op-rename-form")');
     // The op form's field is validated too (shares the Validation module).
-    expect(app).toContain("  let renameProductFormValid (form: RenameProductForm) : bool =");
+    expect(app).toContain("  let renameProductOpFormValid (form: RenameProductOpForm) : bool =");
     expect(app).not.toContain("useForm");
     expect(app).not.toContain("mutateAsync");
   });
