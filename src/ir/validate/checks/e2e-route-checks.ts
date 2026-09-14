@@ -522,10 +522,14 @@ function collectContexts(
 //     `all(...)` sites in the corpus depend on it.  Their RESPONSE is a
 //     per-cardinality envelope (`{items,total}` for a list find, a bare row for
 //     a unique-key one), which this layer has no derivation for.
-//   - a non-literal value.  `cust.id`, `money("5.00")`'s companion conversions,
-//     a nested `{…}` and a `[…]` are all admissible wire values whose type this
-//     layer cannot decide; only a LITERAL is judged, and only against a SCALAR
-//     declared type.
+//   - a non-literal value.  A member read (`cust.id`), a nested `{…}` for a
+//     value object, a `[…]`, a bare `ref` and a conversion call (`decimal(x)`)
+//     are all admissible wire values whose type this layer cannot decide; only
+//     a LITERAL is judged, and only against a SCALAR declared type.  Note that
+//     `money("5.00")` IS a literal — lowering gives it `lit: "money"`, not a
+//     call — so it is judged, and accepted.
+//   - an explicit `null`.  Nullability is not decidable from `TypeIR` alone
+//     here; see the note on the `null` arm below.
 //   - a payload that is not an object literal at all (a bare `ref`).
 //   - the `ui.` surface.  A `ui` body fills a FORM; its field vocabulary is the
 //     page object's, not the wire's.

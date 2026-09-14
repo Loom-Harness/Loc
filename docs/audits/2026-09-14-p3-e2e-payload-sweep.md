@@ -1,9 +1,12 @@
 # P3 / F4 — the e2e payload gate, and the corpus sweep that proved it safe
 
-Companion to [`2026-09-13-testability-audit.md`](2026-09-13-testability-audit.md) (F4)
-and the [fleet plan](2026-09-14-testability-fleet-plan.md) (packet P3). The gate lives in
-`src/ir/validate/checks/e2e-route-checks.ts`; this file is the EVIDENCE that it turns no
-valid model red.
+Companion to the testability audit's **F4** and to packet **P3** of its fleet plan —
+`docs/audits/2026-09-13-testability-audit.md` and
+`docs/audits/2026-09-14-testability-fleet-plan.md`, which land on their own branch
+(`claude/loom-testability-audit-36emx6`) and so are named here rather than linked.
+
+The gate lives in `src/ir/validate/checks/e2e-route-checks.ts`; this file is the EVIDENCE
+that it turns no valid model red.
 
 ## The defect, re-verified on fresh `main @ 9e03c0ff`
 
