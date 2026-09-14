@@ -71,7 +71,7 @@ import {
 import { denialOverrides, denialResponse } from "./denial.js";
 import { docFilterLambdaArg, docPredReadsRecord, isVanillaDocAgg } from "./document-emit.js";
 import { findParamRead } from "./find-controller.js";
-import { ELIXIR_NUMERIC } from "./numeric-codec.js";
+import { ELIXIR_NUMERIC, elixirMoneyRoundHelper } from "./numeric-codec.js";
 import { hasRefColls, preloadSuffix } from "./ref-collection-emit.js";
 import { renderWireSerialize } from "./wire-serialize.js";
 
@@ -559,9 +559,7 @@ ${ectoQueryImport}  alias ${appModule}.Repo
   ${runHead(proj).head} do
 ${body}
   end${projectionHelpers}${denyHelper}${
-    usesMoneyRound
-      ? `\n\n  defp __money_round(nil), do: nil\n\n  defp __money_round(%Decimal{} = dec), do: ${numericEncode(ELIXIR_NUMERIC, "money", "dto-map", "dec")}`
-      : ""
+    usesMoneyRound ? `\n\n${elixirMoneyRoundHelper()}` : ""
   }${joinedHelper(body)}
 end
 `;

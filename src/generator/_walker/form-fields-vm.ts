@@ -165,8 +165,12 @@ export function prepareFormFieldVM(
           return NUMERIC.has(vm.template) ? { ...vm, valueAsNumber: true } : vm;
         });
         // A fresh-row default for `append(...)` — zero value per sub-field kind.
-        // Money seeds the STRING "0", not `""`: `moneySchema`'s string arm is
-        // `/^-?\d+(\.\d+)?$/`, so an empty seed can never parse.
+        // Money seeds a real `new Decimal("0")`, not the string `"0"`: form
+        // state holds an already-constructed Decimal (the money input control
+        // converts on change — `moneySchema`'s own doc comment), and Vue's and
+        // Svelte's `FormValues<T>` are the schema's OUTPUT type, where that slot
+        // is `Decimal` and a string seed is `TS2322: Type 'string' is not
+        // assignable to type 'Decimal'` (2026-09-10 e-shop audit, P8).
         const defaultRowJson = `{ ${rowFields
           .map((f) => `${f.path}: ${defaultRowValue(f)}`)
           .join(", ")} }`;
@@ -192,9 +196,15 @@ export function prepareFormFieldVM(
 /** The zero value a freshly-appended dynamic row seeds one sub-field with.
  *  Keyed off the field's TEMPLATE (not `valueAsNumber`), so `money` — which is
  *  no longer numeric — still gets a parseable seed rather than falling into the
- *  `""` bucket that `moneySchema` rejects. */
+ *  `""` bucket that `moneySchema` rejects.
+ *
+ *  The money seed is a CONSTRUCTED `Decimal`, matching what the single-field
+ *  money input writes on change.  `new Decimal(…)` in the emitted page is also
+ *  what pulls the import in: every JS frontend's page shell decides the
+ *  `decimal.js` import by scanning the assembled file for the binding
+ *  (`usesDecimalBinding`), so the seed needs no import wiring of its own. */
 function defaultRowValue(f: FormFieldVM): string {
-  if (f.template === "field-input-money") return '"0"';
+  if (f.template === "field-input-money") return 'new Decimal("0")';
   if (f.template === "field-input-bool") return "false";
   return f.valueAsNumber ? "0" : '""';
 }

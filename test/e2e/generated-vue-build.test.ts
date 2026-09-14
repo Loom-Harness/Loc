@@ -80,6 +80,14 @@ const MINIMAL: Case = {
  *    price: money            a `money` field on a form: the input model is a
  *                            `Decimal`, and the pack template wrote a bare
  *                            `string` into it (TS2322)
+ *    LineItem.price: money   the SAME money slot one level down, inside an
+ *                            array of value objects — the repeatable row group
+ *                            routed its cell through the generic string arm and
+ *                            seeded a fresh row with the string `"0"`, both
+ *                            against a `Decimal` slot (§P8).  `items:
+ *                            LineItem[]` was already here; only the money
+ *                            sub-field was missing, which is why the row half
+ *                            of the defect outlived the field half's fix
  *    description: string?    an optional scalar bound to a typed input, which
  *                            rejects `string | null | undefined` (TS2322)
  *    tier: Tier?             the same, through the enum-select arm
@@ -115,7 +123,7 @@ const SCAFFOLD: Case = {
             // label for its options.
             derived display: string = name
           }
-          valueobject LineItem { sku: string  qty: int }
+          valueobject LineItem { sku: string  qty: int  price: money }
           aggregate Order with crudish {
             total: int
             items: LineItem[]

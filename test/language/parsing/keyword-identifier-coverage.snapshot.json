@@ -25,7 +25,13 @@
     "paramName"
   ],
   "allow": [
-    "paramName"
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "nameRef",
+    "paramName",
+    "stateField"
   ],
   "angular": [],
   "angularMaterial": [],
@@ -189,10 +195,24 @@
   "datetime": [],
   "decimal": [],
   "deep": [
-    "paramName"
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "nameRef",
+    "paramName",
+    "stateField"
   ],
   "delivery": [],
-  "deny": [],
+  "deny": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
   "denyByDefault": [],
   "deployable": [],
   "derived": [],
@@ -328,7 +348,13 @@
   ],
   "function": [],
   "global": [
-    "paramName"
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "nameRef",
+    "paramName",
+    "stateField"
   ],
   "group": [
     "fieldName",
@@ -484,7 +510,13 @@
     "stateField"
   ],
   "local": [
-    "paramName"
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "nameRef",
+    "paramName",
+    "stateField"
   ],
   "localDisk": [],
   "log": [],
@@ -567,7 +599,13 @@
     "stateField"
   ],
   "of": [
-    "paramName"
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "nameRef",
+    "paramName",
+    "stateField"
   ],
   "ogImage": [
     "fieldName",
@@ -649,12 +687,24 @@
   "persist": [],
   "persistedAs": [],
   "persistence": [
-    "paramName"
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "nameRef",
+    "paramName",
+    "stateField"
   ],
   "phoenixLiveView": [],
   "platform": [],
   "policy": [
-    "paramName"
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "nameRef",
+    "paramName",
+    "stateField"
   ],
   "port": [],
   "postgres": [],
