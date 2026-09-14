@@ -22,6 +22,23 @@
 //
 // Compile-proven: before the fix `dotnet build App.fsproj` on the COLLIDE
 // system below reported 25 `error FS…`; after it, `Build succeeded`.
+//
+// OTHER FRONTENDS — the same MODEL is still broken on react / vue / svelte,
+// by a different mechanism, and is NOT fixed here (a different emitter,
+// `src/generator/_frontend/`).  The op request schema lands in the aggregate
+// api module and the workflow request schema in `api/workflows.ts`, both named
+// `<Wf>Request`, and the hosting page imports BOTH:
+//
+//     import { ScheduleWorkOrderRequest, useScheduleWorkOrderWorkflow } from "../api/workflows";
+//     import { ScheduleWorkOrderRequest, useScheduleWorkOrder } from "../api/workOrder";
+//
+// → `TS2300: Duplicate identifier 'ScheduleWorkOrderRequest'` (verified with
+// `tsc --strict` on a reduced two-module case).  angular escapes only because
+// its page imports the workflow request and not the operation's; flutter
+// escapes by construction — its widget names already carry per-family suffixes
+// (`Create<Agg>Form` / `<Op><Agg>Form` / `<Wf>WorkflowForm` /
+// `Delete<Agg>Form`, `flutter/forms-emit.ts`), which is the same shape this
+// fix gives Feliz.
 
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../../_helpers/generate.js";
