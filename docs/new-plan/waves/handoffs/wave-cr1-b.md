@@ -272,6 +272,21 @@ and were not booted here — their backends already read `OIDC_AUDIENCE` on
 3. **`test/e2e/support/**` has no path-filter coverage rule.** Fixed by hand for
    the one file this packet added; the general gap belongs with CR1-a's
    `workflow-path-coverage.test.ts` work.
+4. **Watch the first CI run of the three legs I could not boot.** The probe's
+   second instance shares the leg's postgres, so it re-runs whatever the
+   generated app does at startup (Flyway / EF `__EFMigrationsHistory` /
+   SQLAlchemy create-all). All three are idempotent and the primary has already
+   migrated by then, so this should be a no-op — but it is the one thing about
+   the row that is asserted rather than measured on dotnet/java/python. The
+   hono leg was measured, green and red-on-mutation. If one of the three trips,
+   the cheapest fix is to give the probe instance its own database name rather
+   than to drop the row.
+5. **The elixir compose leg (`elixir-oidc-e2e`) has no audience row.** It is not
+   one of "the four" the brief named, and its fixture
+   (`vanilla-auth-oidc.ddd`) already declares `audience: "vanilla-api"`, so the
+   elixir emitter change is byte-identical there and the leg's existing
+   `src/generator/elixir/**` trigger covers it. An undeclared-audience elixir
+   runtime row would be a genuine addition, just not this packet's.
 
 ## Gates run
 
