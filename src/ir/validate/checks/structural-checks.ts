@@ -33,6 +33,7 @@ import { aggregateIsEventSourced, resolveDataSourceConfig } from "../../util/res
 import {
   walkExprDeep,
   walkStmtExprsDeep as walkExprsInStmt,
+  walkStmtsDeep,
   walkWorkflowStmtExprsDeep,
 } from "../../util/walk.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
@@ -1190,7 +1191,17 @@ export function validateFunctionBlockBodies(ctx: BoundedContextIR, diags: LoomDi
     const push = (message: string): void => {
       diags.push({ severity: "error", code: "loom.function-block-impure", message, source });
     };
-    for (const stmt of fn.body.stmts) {
+    // DEEP, not one level: a pure `function` block may carry an `if`
+    // (`loom.function-block-no-return` stopped refusing the branching shape in
+    // wave C2, and all five backends render it), so a mutation / `emit` /
+    // operation call hidden in a BRANCH is exactly as impure as the same
+    // statement at the top of the block — and was silently accepted while its
+    // top-level twin was refused.  `walkStmtsDeep` is the census-sanctioned
+    // traversal (CLAUDE.md §No hand-rolled IR walks); the expression sweep
+    // below was already deep, so only the STATEMENT channel was short.
+    const stmts: StmtIR[] = [];
+    for (const top of fn.body.stmts) walkStmtsDeep(top, (n) => stmts.push(n));
+    for (const stmt of stmts) {
       // Statement-level impurity — a `this`-rooted write, an `emit`, or a bare
       // call statement to something other than a pure function.
       switch (stmt.kind) {
@@ -1219,9 +1230,15 @@ export function validateFunctionBlockBodies(ctx: BoundedContextIR, diags: LoomDi
           }
           break;
       }
-      // Expression-level impurity — any call that is not to a pure function or
-      // a value-object constructor (operation / repo read / domain service /
-      // resource op / workflow start / page action / extern / api / free).
+    }
+    // Expression-level impurity — any call that is not to a pure function or a
+    // value-object constructor (operation / repo read / domain service /
+    // resource op / workflow start / page action / extern / api / free).
+    // Deliberately over the TOP-LEVEL statements, not the flattened list:
+    // `walkStmtExprsDeep` already descends into nested statements, so running
+    // it per flattened entry would report every expression inside an `if`
+    // once per enclosing level.
+    for (const stmt of fn.body.stmts) {
       walkExprsInStmt(stmt, (e) => {
         if (e.kind === "call" && !PURE_FUNCTION_CALL_KINDS.has(e.callKind)) {
           push(

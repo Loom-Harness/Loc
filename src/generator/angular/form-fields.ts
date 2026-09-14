@@ -28,6 +28,13 @@ export interface AngularFormControlSpec {
    *  `File` field uses `FileRef | null` so the uploaded ref + the `null` seed
    *  both assign (a `nonNullable` string control rejects the FileRef). */
   tsType?: string;
+  /** Explicit control generic for a control that STAYS `nonNullable` — emits as
+   *  `new FormControl<${nonNullableTsType}>(${init}, { nonNullable: true })`.
+   *  Used by array-valued fields (`Tag id[]`, `string[]`): the request DTO
+   *  types them `string[]`, and the bare `new FormControl([], …)` would infer
+   *  `FormControl<never[]>` — assignable only by accident.  Distinct from
+   *  {@link tsType}, which drops `nonNullable` (a nullable control). */
+  nonNullableTsType?: string;
   /** `Validators.*` calls derived from the aggregate's wire-translatable
    *  invariants (`Validators.min(N)`, `Validators.pattern(/…/)`, …) — the
    *  Angular twin of the zod native-chain the other frontends emit on
@@ -239,15 +246,15 @@ export function controlInit(t: TypeIR): string {
   // stays assignable to the request DTO — a `FormControl(null)` typed as
   // `FormControl<null>` failed `mutateAsync` under `ng build` (TS2345/2322).
   if (t.kind === "id") return '""';
-  // A SCALAR array (`skills: string[]`, `tags: Status[]`, `memberIds: User id[]`)
-  // — a value-object array never reaches here, it is diverted to a `FormArray`
-  // of row `FormGroup`s by `isArray`/`arrayVoFields` upstream.  Its request
-  // field is `string[]`/`number[]`, so the zero value is the EMPTY ARRAY: a
-  // `FormControl(null, { nonNullable: true })` types as `FormControl<null>` and
-  // `getRawValue()` is then unassignable to the request DTO, which is `ng build`
-  // failing on a model that generated `0 error(s), 0 warning(s)` (F-033).
-  // Matches `defaultInitForJs`'s `array` arm, which the react/vue/svelte
-  // frontends have used for the same reason.
+  // An array field the VO-row `FormArray` path did NOT claim — a reference
+  // collection (`Tag id[]`), a primitive collection (`string[]`), an enum
+  // collection.  The request DTO types these `string[]` / `number[]` / …, so
+  // the control must seed an EMPTY ARRAY: `null` typed the control
+  // `FormControl<null>` and `getRawValue()` then failed `ng build` with
+  // TS2322/TS2345 against `Create<Agg>Request` (the whole `{ …; tags: null }`
+  // object was rejected).  `flatControls` pairs this with an explicit
+  // `nonNullableTsType` so the control types as `FormControl<string[]>` rather
+  // than the accidental `FormControl<never[]>` a bare `[]` would infer.
   if (t.kind === "array") return "[]";
   // Optional id (`t.kind === "optional"`), value objects and nested entities
   // keep `null`: their request type is nullable or `unknown` (request-side VO/
@@ -255,10 +262,152 @@ export function controlInit(t: TypeIR): string {
   return "null";
 }
 
+// ---------------------------------------------------------------------------
+// Field validation messages, and the ARIA that makes them audible
+// (M-T1.12 slice 6, the Angular half).
+//
+// Angular is the one frontend that builds its form controls ITSELF rather than
+// through a design-pack template or a UI-kit field component, so the wiring the
+// others inherit for free — Mantine's `error` prop, vuetify's
+// `<v-text-field>`, formsnap on Svelte — has no equivalent here.  What shipped
+// was a visible message appended AFTER the whole control:
+//
+//     <mat-form-field><input matInput formControlName="sku"></mat-form-field>
+//     @if (f.controls.sku.invalid && f.controls.sku.touched) {
+//       <p class="loom-error" data-testid="…-error-sku">Sku is invalid</p> }
+//
+// Sighted users saw it; a screen reader announced nothing, because nothing tied
+// the message to the control.  The remedy diverges by pack style, and the
+// divergence is the point — spelling ARIA a library already host-binds makes it
+// WORSE, not better:
+//
+//   material — `MatInput` host-binds `[attr.aria-invalid]` off its own
+//     `errorState` (`invalid && (touched || submitted)`, which is our
+//     condition), and `MatFormField` sets the input's `aria-describedby` from
+//     the `<mat-error>` children it finds.  So the message moves INSIDE the
+//     form field as a `<mat-error>` and the association is the library's.  An
+//     explicit `[attr.aria-invalid]` beside the host binding would be a second
+//     writer on one attribute — measured in a booted bundle, where the
+//     attribute was present on load and was not ours.
+//
+//   primeng / plain — `pInputText` and the spartanNg input are plain `<input>`
+//     elements with no directive managing either attribute, so Loom spells both
+//     itself, bound to exactly the condition the visible message is gated on.
+// ---------------------------------------------------------------------------
+
+/** The two ARIA bindings a RAW form control carries when its field has a
+ *  client-side constraint.  Both are `[attr.…]` bindings evaluating to `null`
+ *  while the field is valid or untouched, so each attribute is absent from the
+ *  DOM exactly when the visible message is — one condition, both channels. */
+export interface AngularFieldAria {
+  /** Template expression for `[attr.aria-invalid]`. */
+  invalid: string;
+  /** Template expression for `[attr.aria-describedby]`. */
+  describedBy: string;
+}
+
+/** The ARIA bindings as an attribute fragment — empty for a field with no
+ *  constraint, which is what keeps a validator-free form byte-identical. */
+function fieldAriaAttrs(a: AngularFieldAria | undefined): string {
+  if (!a) return "";
+  return ` [attr.aria-invalid]="${a.invalid}" [attr.aria-describedby]="${a.describedBy}"`;
+}
+
+/** The id of a constrained field's inline message, and the `aria-describedby`
+ *  target that points at it.  ONE definition, so the two halves cannot drift
+ *  into a dangling reference. */
+export function fieldErrorId(ns: string, name: string): string {
+  return `${ns}-error-${name}`;
+}
+
+/** The `@if` condition a constrained field's message is gated on — and, on the
+ *  raw packs, the expression both ARIA bindings evaluate. */
+function fieldErrorWhen(formVar: string, name: string): string {
+  return `${formVar}.controls.${name}.invalid && ${formVar}.controls.${name}.touched`;
+}
+
+/** The ARIA bindings for one constrained flat field of `formVar`'s group. */
+export function fieldAriaFor(formVar: string, ns: string, name: string): AngularFieldAria {
+  const when = fieldErrorWhen(formVar, name);
+  return {
+    invalid: `${when} ? 'true' : null`,
+    describedBy: `${when} ? '${fieldErrorId(ns, name)}' : null`,
+  };
+}
+
+/** Attach a constrained field's inline message to its rendered control.
+ *
+ *  On `material` the message is a `<mat-error>` spliced INSIDE the
+ *  `<mat-form-field>` — that placement is what makes `MatFormField` point the
+ *  input's `aria-describedby` at it.  A control that is NOT a form field (a
+ *  `mat-checkbox`, the plain File input every pack shares) has nowhere inside
+ *  to put it, so it falls back to the trailing `<p>` like the raw packs, which
+ *  is why this branches on the rendered markup rather than on the style alone.
+ *  On `primeng` / `plain` the message always trails and the control carries the
+ *  ARIA itself. */
+export function withFieldError(
+  markup: string,
+  style: AngularFormStyle,
+  error: { id: string; testid: string; when: string; text: string } | undefined,
+): string {
+  if (!error) return markup;
+  const { id, testid, when, text } = error;
+  const CLOSE = "</mat-form-field>";
+  if (style === "material" && markup.endsWith(CLOSE)) {
+    const inner = `@if (${when}) {<mat-error id="${id}" data-testid="${testid}">${text}</mat-error>}`;
+    return `${markup.slice(0, -CLOSE.length)}${inner}${CLOSE}`;
+  }
+  return `${markup}@if (${when}) {<p id="${id}" class="loom-error" data-testid="${testid}">${text}</p>}`;
+}
+
+/** The explicit `FormControl` generic for an array-valued field, or
+ *  `undefined` when the field is not a bare (non-optional) array.
+ *
+ *  Mirrors the request DTO's element typing (the `wireTsType` conventions the
+ *  api emitter uses): `X id[]` / `string[]` / `datetime[]` / an enum collection
+ *  → `string[]`, numeric collections → `number[]`, `bool[]` → `boolean[]`.
+ *  Anything else the DTO leaves `unknown` → `unknown[]`. */
+export function controlTsType(t: TypeIR): string | undefined {
+  if (t.kind !== "array") return undefined;
+  return `${elementTsType(unwrapOpt(t.element))}[]`;
+}
+
+function elementTsType(el: TypeIR): string {
+  if (el.kind === "id" || el.kind === "enum") return "string";
+  if (el.kind === "primitive") {
+    switch (el.name) {
+      case "int":
+      case "long":
+      case "decimal":
+        return "number";
+      case "bool":
+        return "boolean";
+      case "string":
+      case "datetime":
+      case "guid":
+      case "money":
+        return "string";
+      default:
+        return "unknown";
+    }
+  }
+  return "unknown";
+}
+
+/** Placeholder text on the disabled input an unclaimed array field renders —
+ *  the Angular twin of the JSX packs' `arrayUnsupported` chrome string
+ *  (each pack's `field-input-array.hbs`).  The Angular form fields are emitted
+ *  procedurally (not through pack templates), so the string lives here. */
+const ARRAY_UNSUPPORTED_PLACEHOLDER = "(arrays not yet supported in forms)";
+
 /** Render one field's control markup, registering the Material module it needs.
  *  `testidBase` overrides the field's `data-testid` (default `${ns}-input-${name}`)
  *  — a value-object sub-field passes `${container}-${sub}` so its testid nests
- *  under the fieldset container (`products-new-input-price-amount`). */
+ *  under the fieldset container (`products-new-input-price-amount`).
+ *  `a11y` is set only for a FLAT field of a form whose group variable is known
+ *  and whose name carries a constraint — a value-object sub-field or an array
+ *  row resolves against a nested group, so `formVar.controls.<name>` would not
+ *  address it. */
 export function fieldInput(
   name: string,
   t: TypeIR,
@@ -267,9 +416,14 @@ export function fieldInput(
   ctx: WalkContext,
   testidBase: string = `${ns}-input-${name}`,
   formVar?: string,
+  a11y?: AngularFieldAria,
 ): string {
   const label = humanize(name);
-  const testid = ` data-testid="${testidBase}"`;
+  // Attributes every branch puts on the CONTROL element itself (never on a
+  // wrapper): the test id, plus — when this field carries a client-side
+  // constraint — the two ARIA bindings that announce its error state.  Folded
+  // into one string so a new control branch cannot forget half of it.
+  const testid = ` data-testid="${testidBase}"${fieldAriaAttrs(a11y)}`;
   const cn = JSON.stringify(name);
   const style = formStyle(ctx);
   // Dispatch on the UNWRAPPED type — an optional field (`attachment: File?`,
@@ -296,6 +450,27 @@ export function fieldInput(
     // the attribute early.  Field names are safe identifiers (no escaping needed).
     const change = formVar ? ` (change)="onFileUpload($event, ${formVar}.get('${name}'))"` : "";
     return `<label class="loom-field"><span class="loom-label">${label}</span><input type="file" class="loom-input"${testid}${change} /></label>`;
+  }
+  // An array-valued field that the VO-row `FormArray` path did not claim (a
+  // reference collection `Tag id[]`, a primitive/enum collection).  Rendered
+  // like the JSX frontends' `field-input-array` fallback: a DISABLED,
+  // placeholder-only input.  Crucially it carries NO `formControlName` — the
+  // default value accessor would write the typed STRING back into an array
+  // control, so the form would POST `"a,b"` where the wire wants `["a","b"]`.
+  // Left unbound, the control keeps its `[]` seed and the submit path sends an
+  // array.  (Same reasoning as the `File` branch above.)
+  if (inner.kind === "array") {
+    const ph = ARRAY_UNSUPPORTED_PLACEHOLDER;
+    if (style === "material") {
+      addNg(ctx, "@angular/material/form-field", "MatFormFieldModule");
+      addNg(ctx, "@angular/material/input", "MatInputModule");
+      return `<mat-form-field class="loom-field"><mat-label>${label}</mat-label><input matInput placeholder="${ph}" disabled${testid}></mat-form-field>`;
+    }
+    if (style === "primeng") {
+      addNg(ctx, "primeng/inputtext", "InputTextModule");
+      return `<label class="loom-field"><span class="loom-label">${label}</span><input pInputText class="loom-input" placeholder="${ph}" disabled${testid} /></label>`;
+    }
+    return `<label class="loom-field"><span class="loom-label">${label}</span><input class="loom-input" placeholder="${ph}" disabled${testid} /></label>`;
   }
   if (inner.kind === "enum") {
     const en = bc.enums.find((e) => e.name === inner.name);
@@ -336,29 +511,6 @@ export function fieldInput(
   // through to the plain text input below (the user types the raw id).  Each
   // option's `data-testid="<ns>-input-<name>-option-<id>"` matches the
   // combobox page-object locator (`page-objects-builder.ts`).
-  // A SCALAR array (`skills: string[]`) has no editor on any frontend: the
-  // three JSX packs render a DISABLED input carrying the pack's
-  // `arrayUnsupported` chrome ("(arrays not yet supported in forms)"), which is
-  // an honest, visible degradation.  Angular rendered a live, editable text
-  // input bound to an array control instead — so once the `FormControl([])`
-  // init below made it BUILD, it would have shipped a field that silently
-  // writes a string into a `string[]`.  Trading a loud compile failure for a
-  // quiet runtime one is the exact class this fixes, so the degradation is made
-  // to match its siblings.  (A value-object array never reaches here — it is
-  // diverted to a `FormArray` of row groups upstream.)
-  if (inner.kind === "array") {
-    const ph = ' placeholder="(arrays not yet supported in forms)" disabled';
-    if (style === "material") {
-      addNg(ctx, "@angular/material/form-field", "MatFormFieldModule");
-      addNg(ctx, "@angular/material/input", "MatInputModule");
-      return `<mat-form-field class="loom-field"><mat-label>${label}</mat-label><input matInput${ph}${testid}></mat-form-field>`;
-    }
-    if (style === "primeng") {
-      addNg(ctx, "primeng/inputtext", "InputTextModule");
-      return `<label class="loom-field"><span class="loom-label">${label}</span><input pInputText class="loom-input"${ph}${testid} /></label>`;
-    }
-    return `<label class="loom-field"><span class="loom-label">${label}</span><input class="loom-input"${ph}${testid} /></label>`;
-  }
   const idTarget = idTargetForField(t, bc, ctx);
   if (idTarget) {
     const { hookVar } = idTarget;
@@ -613,6 +765,10 @@ export function partitionAngularFields(
   ns: string,
   ctx: WalkContext,
   formVar?: string,
+  /** Flat field names carrying a client-side constraint (from
+   *  `angularValidatorMap`).  Each gets the two ARIA bindings that announce its
+   *  error state; every other field is byte-identical to before. */
+  errorFields?: ReadonlySet<string>,
 ): {
   flatControls: AngularFormControlSpec[];
   flatMarkup: string[];
@@ -667,12 +823,42 @@ export function partitionAngularFields(
         // A File control holds a nullable FileRef, not a nonNullable string.
         return { name: f.name, init: "null", tsType: "FileRef | null" };
       }
+      // An array-valued field (a reference collection `Tag id[]`, a primitive
+      // collection) that the VO-row `FormArray` path did not claim: seed `[]`
+      // and pin the control generic to the request DTO's element type, so
+      // `getRawValue()` stays assignable under `ng build`.
+      const arrayTsType = controlTsType(f.type);
+      if (arrayTsType) {
+        return { name: f.name, init: controlInit(f.type), nonNullableTsType: arrayTsType };
+      }
       return {
         name: f.name,
         init: (f.default ? renderDefaultSeed(f.default) : null) ?? controlInit(f.type),
       };
     }),
-    flatMarkup: flat.map((f) => fieldInput(f.name, f.type, bc, ns, ctx, undefined, formVar)),
+    // A constrained field renders its message WITH its control (so the
+    // material placement can be inside the form field) and, on a raw pack,
+    // carries the matching ARIA.  A field with no constraint passes `undefined`
+    // for both and is byte-identical to before.
+    flatMarkup: flat.map((f) => {
+      const constrained = formVar !== undefined && (errorFields?.has(f.name) ?? false);
+      const style = formStyle(ctx);
+      const aria =
+        constrained && style !== "material" ? fieldAriaFor(formVar!, ns, f.name) : undefined;
+      const error = constrained
+        ? {
+            id: fieldErrorId(ns, f.name),
+            testid: `${ns}-error-${f.name}`,
+            when: fieldErrorWhen(formVar!, f.name),
+            text: `${humanize(f.name)} is invalid`,
+          }
+        : undefined;
+      return withFieldError(
+        fieldInput(f.name, f.type, bc, ns, ctx, undefined, formVar, aria),
+        style,
+        error,
+      );
+    }),
     flatNames: flat.map((f) => f.name),
     // A value-object sub-field that is itself an `X id` needs the target's
     // `useAll<X>()` Select query hoisted too (rare, but kept uniform).

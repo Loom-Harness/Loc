@@ -35,6 +35,7 @@ import {
   extendLambdaParams,
   type FormOfState,
   type OperationFormState,
+  renderActionMutationArg,
   type WalkContext,
   type WalkResult,
   walkBody,
@@ -539,7 +540,9 @@ export function renderVuePage(input: VuePageShellInput): string {
   for (const m of result.actionMutations) {
     if (seenVars.has(m.localVar)) continue;
     seenVars.add(m.localVar);
-    hookLines.push(`const ${m.localVar} = reactive(${m.hookName}(${scriptArgs([m.idExpr])}));`);
+    hookLines.push(
+      `const ${m.localVar} = reactive(${m.hookName}(${renderActionMutationArg(m, (id) => scriptArgs([id]))}));`,
+    );
     vueImports.add("reactive");
     const from = `../api/${m.aggCamel}`;
     const names = apiImports.get(from) ?? new Set<string>();
@@ -1127,7 +1130,9 @@ export function renderVueComponentFile(
     // instance id (`use<Op><Agg>(<idExpr>)` — matches React/Svelte).  The
     // raw `idExpr` (`order.id`) is rewritten to `props.order.id` by the
     // `rewriteScript` map below, since the instance is a component prop.
-    hookLines.push(`const ${m.localVar} = reactive(${m.hookName}(${m.idExpr}));`);
+    hookLines.push(
+      `const ${m.localVar} = reactive(${m.hookName}(${renderActionMutationArg(m, (id) => id)}));`,
+    );
     vueImports.add("reactive");
     const from = `../api/${m.aggCamel}`;
     const names = apiImports.get(from) ?? new Set<string>();

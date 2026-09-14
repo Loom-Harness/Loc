@@ -77,7 +77,7 @@ describe("node embedded capability filter (DEBT-02 slice 2)", () => {
 // principal predicate reuses the relational-principal path: every embedded
 // root read AND-s `eq(schema.<agg>.tenantId, requireCurrentUser().tenantId)`,
 // and the repository imports `requireCurrentUser` from `../../auth/middleware`.
-// Previously gated by `loom.context-filter-unsupported`; the system needs a
+// Previously gated by `loom.context-filter-no-principal`; the system needs a
 // `user {}` block AND `auth: required`.
 // ---------------------------------------------------------------------------
 

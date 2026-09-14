@@ -393,6 +393,7 @@ function emitSystem(
     out.set(`e2e/${sys.name}.e2e.test.ts`, e2eFile);
     out.set("e2e/package.json", E2E_PACKAGE_JSON);
     out.set("e2e/tsconfig.json", E2E_TSCONFIG_JSON);
+    out.set("e2e/vitest.config.ts", E2E_VITEST_CONFIG_TS);
   }
 
   // UI e2e specs — one per deployable that mounts a `ui:` and has
@@ -459,6 +460,33 @@ const E2E_PACKAGE_JSON =
     null,
     2,
   ) + "\n";
+
+// The e2e project's OWN vitest config.  Without it the emitted `e2e/` is not a
+// self-contained project: vitest, finding no config in the directory it is run
+// from, walks UPWARD looking for one — and an output tree lives exactly where
+// there is something above it.  Dropped into a repo that has a vitest config at
+// its root, `npx vitest run` inside the generated `e2e/` loaded the ANCESTOR's
+// config, took the ancestor's `include` globs, matched none of the suite it was
+// pointed at, and exited 1 with `No test files found, exiting with code 1` —
+// naming include globs from a project the developer never mentioned.  Green
+// compile, empty run, and a message that sends the reader to the wrong file.
+//
+// `root` is pinned to this file's own directory rather than left to `cwd` so
+// the suite also runs when the config is passed by path from elsewhere
+// (`vitest run --config out/e2e/vitest.config.ts`), and `include` names the one
+// shape `renderE2EFile` emits.
+const E2E_VITEST_CONFIG_TS = `// Auto-generated.  Do not edit by hand.
+import { fileURLToPath } from "node:url";
+import { defineConfig } from "vitest/config";
+
+export default defineConfig({
+  test: {
+    // Pinned so vitest never walks up out of this project looking for a config.
+    root: fileURLToPath(new URL(".", import.meta.url)),
+    include: ["**/*.e2e.test.ts"],
+  },
+});
+`;
 
 const E2E_TSCONFIG_JSON =
   JSON.stringify(

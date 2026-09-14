@@ -1,626 +1,518 @@
-# Loom — build-on-it evaluation for the architecture council
+# Loom — adoption evaluation
 
-**Author:** staff engineering, platform · **Date:** 2026-09-13 · **Effort:** one-day timeboxed spike
-**Subject:** `Loom-Harness/Loc` @ `09427a5` · **Method:** everything below was executed, not read.
+**Question:** should we build our next product (**Commons**, a customer community
+platform) on Loom, and under what conditions?
+
+**Method:** a time-boxed spike. I built my own application incrementally
+(`eval/commons/`, 320 `.ddd` lines), ran it against a real Postgres and a real
+OIDC provider, regenerated it onto every advertised target and compiled what I
+could, evolved it against a populated database, and attacked it from outside.
+Every claim below is backed by a command in `eval/EVAL-LOG.md` and a finding in
+`eval/FINDINGS.md`. I read the maintainers' internal material only in Phase 6,
+after the empirical work was done.
+
+**Repo:** `Loom-Harness/loc` @ `bcd25e3e`. Evaluated 2026-09-13.
 
 ---
 
 ## 1. Recommendation
 
-> ### **Pilot on a non-critical project only.**
+### **Pilot only.** Do not build Commons on Loom yet.
 
-Loom's compiler is genuinely good and its migration story is better than what most of our teams
-hand-roll — but **none of the five advertised backends compiled the app I wrote without me patching
-the generated source**, and on .NET the generated service boots healthy and then fails
-*every single write* with a 500. That is not a maturity curve you put a flagship B2B product on.
+Not "do not adopt" — there is real engineering here, and on several axes it is
+better than what we would build ourselves. But three things block production
+commitment today, and all three are checkable:
 
-**We would move to "Adopt with conditions" when all five of these are true** (each checkable in an
-afternoon):
+1. **Four of the eleven targets do not compile the model I wrote**, each from an
+   ordinary shape, with `parse` and `generate` green: a value object declared in
+   another context (F-001), a field named `state` (F-015), a field named
+   `member` (F-022), a `Tag id[]` (F-016), `mask unless` on Java (F-020), a
+   `for` loop in a reactor (F-013/F-021). Build red minutes later — or, worse,
+   build green and the defect reaches runtime (F-014).
+2. **The recommended security posture cannot be expressed.** `denyByDefault` +
+   `permissions` + a frontend crashes the generator (F-005), and `denyByDefault`
+   does not gate list reads anyway (F-006). Commons' entire social graph would
+   be enumerable by any signed-in account.
+3. **Bus factor 1.** One human name in the entire visible commit history (the
+   clone is shallow, so this is a ~3-week window, not the project's age); 669 of
+   810 commits in that window authored by `Claude <noreply@anthropic.com>`. A
+   single-maintainer project with an unusually high change rate.
 
-| # | Condition | How we verify it |
+### What would move it to *Adopt with conditions*
+
+Each is a specific, checkable gate. I would re-run this spike against them.
+
+| # | Condition | How we check it |
 |---|---|---|
-| C1 | A model *we* write — not a vendor example — generates and **compiles clean on all five backends** with zero hand patches. | Re-run `eval/fieldops/main-devauth.ddd` through the matrix in §4. Today: 0/5. |
-| C2 | `tenantOwned + auditable` (the default shape of every B2B record) **writes successfully on all five backends** at runtime. | Re-run the round-trip in §7. Today: F-035 breaks .NET; Java/Elixir unverified at runtime. |
-| C3 | Loom publishes **versioned, tagged releases with a changelog**, and generated projects ship a **dependency lockfile**. | `git tag`, `CHANGELOG.md`, `find <out> -name '*lock*'`. Today: none, none. |
-| C4 | The **generated OIDC login flow works end to end** on the stack Loom itself emits, with no hand edits. | `docker compose up` + a browser login. Today: F-024, two hand fixes needed. |
-| C5 | A **second maintainer** with merge rights, and a stated support/response commitment. | Today: 1 human, 80% of commits authored by an AI agent. |
+| C1 | F-001, F-014, F-015, F-016, F-020, F-021, F-022 fixed **and** each has a regression test that fails when reverted | Re-run `eval/repro/*.ddd`; ask for the test names; confirm they're in the per-PR tier, not a nightly |
+| C2 | `renderGateExpr` no longer throws — every page-gate call site routes through `tryRenderGate` (the contract their **own** test already asserts) | `eval/repro/F005-ui-gate-crash.ddd` + a `find all() requires <policy>()` generates clean on react/vue/svelte/angular |
+| C3 | `enforcement: denyByDefault` gates the auto-`findAll` list route, or refuses to compile without an explicit per-aggregate decision | The 8× `200` in F-006 becomes `403` |
+| C4 | A **compile gate** for every target on every PR, plus a **per-target reserved-word map** | Ask to see the CI config; confirm `tsc --noEmit` / `dotnet build` / `gradle testClasses` / `mix compile` / `ng build` / `dotnet fable` / `flutter analyze` all run on generated output for one corpus model containing a shared VO, a field named `state`, a field named `member`, an `X id[]` and a `for`-loop reactor |
+| C5 | Generated node backend type-checks in its own Dockerfile (`tsc --noEmit` before `tsup`) | F-014's broken output must fail `docker compose build` |
+| C6 | A second maintainer with commit rights, or a written continuity plan | `git shortlog -sn` shows ≥2 humans over a quarter |
+| C7 | A data-preserving path for moving an aggregate between contexts | `migration "m" { C.Thing -> D.Thing }` or equivalent emits `ALTER TABLE … SET SCHEMA` |
 
-**We would move to "Do not adopt"** if C1 is still false in six months, or if the project's single
-human maintainer stops.
+C1–C5 are weeks of work for someone who knows the codebase. C6 is a business
+decision and is the one I would weight highest.
 
----
+### What would move it to *Do not adopt*
 
-## 2. Executive summary
-
-**What it is.** You write one file describing your domain — aggregates, invariants, operations,
-workflows, permissions, tenancy, pages — and Loom generates a complete, runnable system: backend,
-database migrations, REST API with OpenAPI, a SPA, docker-compose, an end-to-end test suite and a
-Helm chart. You keep the generated source; there is no runtime to license.
-
-**What it genuinely does well.** The modelling language is expressive and its diagnostics are better
-than most commercial compilers — 8 of 10 deliberately-broken files got a precise, actionable error
-with a suggested fix. Multi-tenant isolation, which is the thing we would be buying it for, is
-**airtight in the code I ran**: a second tenant could not list, read, mutate or read the audit
-history of the first tenant's data, and a malformed or missing tenant claim fails closed. A
-transactional stock-decrement across aggregates rolled back correctly at `serializable`. The
-migration engine detected a column rename on a populated table and preserved the data, and refused —
-with exit code 1 and a named fix — to drop a populated column or to add a NOT NULL constraint over
-NULL rows. Generation is byte-deterministic, so the output is reviewable. An outsider got from
-`git clone` to a running, HTTP-verified full stack in about **four minutes** of hands-on work.
-
-**What it cannot do.** It cannot reliably produce code that compiles. From one 594-line model I
-wrote, I found **16 separate defects where the toolchain reported success and the output did not
-build or did not work** — a missing import, a private method called from generated code, a JS
-reserved word used as a variable, a triple brace in JSX, a missing dependency injection, an unbound
-Ecto variable, a namespace that cannot resolve. Every one was shallow (a 1–3 line fix). None was
-caught by anything Loom runs. Three further inputs crashed the generator outright with a raw Node stack trace.
-Beyond that, three limits shape how you would have to model: a `create` cannot run any
-logic, a workflow cannot reach a repository in another bounded context (so bounded contexts collapse),
-and the recommended security posture (`denyByDefault`) is incompatible with the CRUD macro and with
-the scaffolded UI's reference pickers. **Only the second is permanent** — see the correction at §7;
-the third is claimed by an open PR, and the underlying cross-context *refusal* turns out to be worse
-than a limit: the read-only spelling is not refused at all and ships five non-compiling backends.
-
-**The one-sentence version.** *Loom is a finished compiler wrapped in an unfinished product* — which
-is, word for word, the verdict of the maintainers' own internal audit dated three days before this
-one. I reached it independently, from the outside, in a day.
+If, on re-evaluation, the SILENT count has not fallen — if fixing these seven
+surfaces three more of the same shape — then the defect class is structural
+(one emitter per target, no shared conformance oracle over ordinary model
+shapes) and no amount of individual bug-fixing closes it.
 
 ---
 
-## 3. Claim verification matrix
+## 2. Claim verification matrix
 
-Every claim is quoted verbatim from `README.md`. **Verified** = I executed it and it did what it says.
+Every claim is quoted verbatim from `README.md` unless marked otherwise.
 
-| # | Claim (verbatim) | Grade | Evidence |
+| # | Claim | Grade | Evidence |
 |---|---|---|---|
-| 1 | "The speed of no-code." | **Verified** | `ddd new` → `generate system` → `docker compose up` → verified HTTP read+write in **~4 min** hands-on (18 min wall in this sandbox, incl. a TLS detour the docs cover). 594 `.ddd` lines → 189 files / 20,657 lines (**35×**). |
-| 2 | "The keys to the codebase … walk away with real, owned source code" | **Partially verified** | The source is real, readable, idiomatic and yours *legally*. But **every generated file is overwritten on every run** (docs/tools.md:203). Unpinned hand edits vanish with no warning. `.loomignore` works, and hands you the drift. **F-037** |
-| 3 | "across five backends (Hono, .NET, Phoenix LiveView, Java/Spring Boot, Python/FastAPI)" | **Contradicted** | All five *generate*. **0 of 5 compiled my model unpatched.** Patches needed: node 3, .NET 2, python 2, java 3, elixir 1. **F-013…F-015, F-025…F-030** |
-| 4 | "six frontends (React, Vue, Svelte, Angular, Feliz, Flutter)" | **Partially verified** | React (4 packs) `tsc` clean; Svelte `npm run build` clean. **Vue** and **Angular** fail their own build on ordinary constructs (**F-032**, **F-033**). Feliz and Flutter **unverified** — no toolchain here. |
-| 5 | "No vendor lock-in." | **Verified** | Generator is FSL-1.1→Apache-2.0; generated code is MIT. The output is ordinary Hono/EF/Ecto/Spring/FastAPI you could maintain by hand. (README overstates one detail: `ddd generate` does **not** emit the MIT LICENSE file — **F-045**.) |
-| 6 | "No scaling cliff." | **Verified** at the size tested | 8 → **40 aggregates**: parse 2.9s→7.8s, generate 3.9s→8.0s, 442 files / 51,005 lines, generated `tsc --noEmit` 18s clean. Roughly linear, no cliff. Untested beyond 40. |
-| 7 | "No drift between layers." | **Contradicted** | Three measured drifts: the deny-by-default `find all(): T[]` shape breaks every scaffolded FK picker (**F-018**); a `ui` scaffolding an unserved subdomain emits pages against an api client that was never generated (**F-019**, a *documented* validator obligation that does not fire); the .NET EF interceptor's `onCreate` stamp omits the columns the same tool marked `NOT NULL` (**F-035**). |
-| 8 | "Thirteen design packs … swap any time" | **Verified** (React), partially elsewhere | 4 React packs generated and typechecked **0 errors** each. vuetify / shadcnSvelte / angularMaterial generate. The pack↔framework validator is excellent; the Feliz one suggests a value the grammar rejects (**F-031**). |
-| 9 | "Pick a runtime per deployable. Switch any time." | **Partially verified** | The *switch* really is one line (`platform:`) — verified on all five backends and six frontends. The cost is not the switch; it is that the target you switch to may not compile (claims 3–4). |
-| 10 | "Identical API contracts" | **Partially verified** | node vs python, same model, both booted, one identical probe: **every status code, the paged envelope, the full field set, money precision, enums, nulls, containment, tenancy 404s and field masking matched exactly.** Two diverged, but **only one is a defect**: python returns Pydantic's raw message (echoing the regex) instead of Loom's derived text (**F-034b**). The `2` vs `2.0` decimal spelling is a **deliberate, already-adjudicated tolerance** (`test/_helpers/wire-record.ts:352`) — I withdrew that half. Sample: 2 of 5, at runtime. |
-| 11 | "Built-in traceability … `ddd verify` … per-requirement Definition-of-Done verdicts" | **Verified** | `requirement`/`solution`/`testCase` parse; `ddd verify` produced `.loom/verification.{json,md,mmd}`, a correct rollup, and **exit 1** on a failing requirement. You write the runner-JSON adapter yourself (documented). |
-| 12 | "LLM-safe by construction … Validation gates catch hallucinated fields … before any code is emitted" | **Partially verified** | True **at the model layer**: a hallucinated field is rejected (`ok:false`) through `loom_validate`; 14 agent tools work. **Not true of the output**: 16 of my findings are models that validate `ok:true` and then fail to compile — and 3 crash the generator *after* validation passes. |
-| 13 | "Browser playground … typed editor … visual system builder … live preview … in-browser test runner" | **Partially verified** | The advertised URL is **404** — the project changed GitHub org and the README didn't (**F-043**). Built and served it locally: loads clean, validates (0 errors) and generates **107 files in the browser**, with Explorer/Diagrams/API/Traceability/Builder/Chat tabs and no page errors. "Boot" showed *blocked*. **Smoke-tested only** — I could not drive a 600-line paste through Monaco headlessly. |
-| 14 | "`docker compose up -d` → everything running" | **Contradicted, then verified after 1 fix** | The generated compose pins `minio/minio:latest`, which **no longer exists on Docker Hub** — compose aborts before any service starts (**F-020**). With one image fix, all 7 services came up healthy in 1m27s. |
-| 15 | "1,300+ test files / 9,000+ tests" | **Verified (exceeded)** | 2,070 `*.test.ts`, ~15,740 `it(`/`test(` call sites, 67 workflows, 493 `loom.*` diagnostic codes, 915 source files / 352,848 LOC. |
-| 16 | "Generated migrations (Drizzle / EF Core / Ecto / JPA / SQLAlchemy)" | **Verified** | Incremental deltas derived from the model diff; rename detection; destructive-change gate; declarative backfills. See §7. The best part of the product. |
+| 1 | "The speed of no-code. The keys to the codebase." | **Partial** | Speed is real: 320 `.ddd` lines → 225 files / ~26k lines, generated in 2.4s, booted in ~70s. "Keys to the codebase" is true only in the read/fork sense — see #3. |
+| 2 | "All the speed of no-code" | **Verified** | 5→40 aggregates: 3.9s→6.6s, flat. 86:1 line amplification. §4. |
+| 3 | "the keys to the codebase" / "full ownership of every line that's generated" | **Partial** | You own it like a build artifact. Hand-edits are **silently clobbered** on regenerate; `.loomignore` pins a file but then it goes permanently stale with no detector. **F-008** |
+| 4 | "Zero vendor lock-in" | **Partial** | Real: output is plain Hono/EF/Ecto/FastAPI/Spring, MIT-granted, no runtime dependency on Loom. But the *modelling* lock-in is total — leaving means owning 26k–56k lines you didn't write. §8 exit cost. |
+| 5 | "No scaling cliff" | **Verified (compile-time)** / **Unverified (runtime)** | Generation is flat to 40 aggregates. I did not load-test the generated app; the read model's single-table ceiling (**F-002**) is an architectural scaling constraint, not a performance one. |
+| 6 | "No drift between layers" | **Contradicted** | The generator emitted an e2e suite calling routes it did not generate (**F-003**, 3/3 tests fail with 405). The supported customisation hatch manufactures permanent API↔DB drift (**F-008**). |
+| 7 | "Five backends from one source … **Identical API contracts**" | **Partial** | *Identical* is verified where both run: node vs python returned **byte-identical JSON** on a 10-field aggregate incl. money scaling, enum casing, ISO timestamps and a derived VO. *Five* is not, on my model: **node, python and elixir compile** (elixir clean under `--warnings-as-errors`), **dotnet and java do not** (F-015; F-020 + F-021), and elixir needs the fan-out reactor removed to generate at all (F-013). One boundary divergence: `long` = 2⁵³+1 → node 422, python 201. |
+| 8 | "Six frontends … The page DSL is identical; only the rendering changes" | **Partial** | **Four of six compile** from one model: react, vue, svelte, and flutter (`flutter analyze`: 0 errors, 0 warnings). **Angular** fails on any `X id[]` (**F-016**). **Feliz** fails on a field named `member` (**F-022**) — rename it and it builds a real 894 kB bundle, so the frontend works and the emitter lacks a reserved-word map. |
+| 9 | "Thirteen design packs … swap any time" | **Unverified** | I exercised `mantine` end-to-end and generated with the default. I did not build ≥3 packs; **not tested**. |
+| 10 | "Pick per deployable. Switch any time." (per-deployable runtime) | **Verified** | One system, 4 backends + 5 frontends, 1148 files, one command. Two frontends on one backend and two backends in one system both generate and (for node+dotnet, node+python) boot together. |
+| 11 | "Browser playground … visual system builder … live preview" | **Unverified** | Requires `cd web && npm install`; I did not stand it up. **Not tested.** |
+| 12 | "Built-in traceability … `ddd verify` rolls results into per-requirement Definition-of-Done verdicts" | **Partial** | The chain works (2/2 VERIFIED, good `verification.md`). But it needs a hand-written results adapter, the join is a stringly-typed `(suite, name)`, and **it exits 0 when nothing is verified** (**F-017**). |
+| 13 | "LLM-safe by construction … Validation gates catch hallucinated fields … **before any code is emitted**" | **Contradicted** | A missing required field in a construction is caught for every value-object name **except `Money`** — the name used in the README, the language reference and four examples (**F-014**). Emitted `new Money(x)` against a 2-arg constructor; `tsc` rejects it; the Docker build ships it anyway. |
+| 14 | "the CLI emits a `LICENSE` file at the output-directory root" (§License) | **Contradicted** | `ddd generate` emits none. `ddd new` does. The vendor's own `docs/tools.md:110` says "`ddd generate` writes none of these". **F-007** |
+| 15 | "Generated end-to-end tests against the live stack" | **Contradicted** | On the README's own example: 3 failed / 3. **F-003** |
+| 16 | "`docker compose up -d` → everything running on ports 3000/8080/4000/3001" | **Partial** | True after working around F-001. 3 of 4 services healthy; elixir blocked by a sandbox hex/TLS issue (environment). |
+| 17 | Storage matrix: "search `elastic` / `meilisearch`" (`docs/language.md:235`) | **Contradicted** | Declarable as a `storage`, but **no resource `kind` accepts it** (all 9 tried). `docs/resources.md`, named as the home of the matrix, contains no occurrence of "search". **F-010** |
+| 18 | "1,300+ test files / 9,000+ tests … CI matrix … backends compiled against real toolchains" | **Partial** | The suite is real and the diagnostics it produces are excellent (9/10 adversarial cases). But six ordinary-model SILENT defects survived it, and none appear in the maintainers' own 135-row gap ledger. **F-019** |
 
 ---
 
-## 4. Target matrix
+## 3. Target matrix
 
-One model (`eval/fieldops/main-devauth.ddd`, 594 lines). Toolchains run in docker.
+One model (`eval/commons/breadth.ddd`, 320 `.ddd` lines → 1148 files, `generate`
+exit 0). **Compiles** = a real toolchain. **Boots**/**wire** = a live container
+against Postgres.
+
+> **Second pass.** My first pass marked java / elixir / feliz / flutter
+> "unverified — sandbox proxy". `docs/tools.md` documents a working recipe for
+> each of the four **by name**, including two sections titled for exactly the
+> TLS-fingerprinting failure I hit (§624 `LOOM_HEX_MIRROR`, §666 Java, §912
+> frontends, §944 Flutter). Using them: **two of the four passed and two failed
+> with real, new S1 defects.** The rows below are the corrected results.
 
 ### Backends
-| backend | generates | **compiles** | patches to compile | boots | wire-probed at runtime |
-|---|---|---|---|---|---|
-| node · Hono + Drizzle | ✅ 178 files | ❌ → ✅ | **3** (F-013, F-014, F-015) | ✅ | ✅ **reference** — full round-trip, tenancy, errors, rollback |
-| dotnet · ASP.NET + EF | ✅ 401 files | ❌ → ✅ | **2** (F-025, F-015) | ✅ healthy | ❌ **every create 500s** (F-035) |
-| python · FastAPI + SQLAlchemy | ✅ 189 files | ⚠ compiles & imports; **mypy finds 3** | **2** (F-026, F-027) | ✅ | ✅ — 2 wire diffs vs node (F-034) |
-| java · Spring Boot + JPA | ✅ 317 files | ❌ → ✅ | **3** (F-028, F-015×2) | *not booted* | *unverified* — F-035 present statically |
-| elixir · Phoenix + Ecto | ✅ 284 files | ❌ → ✅ (fails `--warnings-as-errors`) | **1** (F-029) | *not booted* | *unverified* |
+
+| Backend | Generates | Compiles | Boots | Wire-identical |
+|---|---|---|---|---|
+| **node** (Hono) | ✅ | ✅ | ✅ healthy | ✅ reference |
+| **python** (FastAPI) | ✅ | ✅ image built | ✅ healthy | ✅ **byte-identical to node** |
+| **elixir** (Phoenix) | ❌ **crash** on the fan-out workflow (**F-013**); ✅ without it | ✅ **`mix compile --warnings-as-errors` exit 0** on the full Commons domain, via the documented hex mirror | not booted | not compared |
+| **dotnet** (ASP.NET) | ✅ | ❌ `CS0102`/`CS0542` — field named `state` (**F-015**) | ✅ on a model without that field | not compared |
+| **java** (Spring Boot) | ✅ | ❌ **two defects**: `mask unless` emits no `import java.util.Objects` (**F-020**); the fan-out reactor emits an undeclared repo, a bogus `run(<predicate>)` call and a wrong record accessor (**F-021**) | — | — |
 
 ### Frontends
-| frontend | generates | **builds** | notes |
+
+| Frontend | Generates | Compiles | Boots |
 |---|---|---|---|
-| react · mantine / shadcn / mui / chakra | ✅ | ✅ **0 tsc errors, all four packs** | the real path |
-| svelte · shadcnSvelte | ✅ | ✅ `npm run build` — 0 errors, 0 warnings | |
-| vue · vuetify | ✅ | ❌ `vue-tsc` fails on a nullable `X id` (F-032) — **FIXED on fresh `main` by `d8b5f7c1`/#2885; re-verified green** | |
-| angular · angularMaterial | ✅ | ❌ `ng build` fails on a `string[]` field (F-033) | also needs Node ≥ 22.22.3 |
-| feliz (F#/Fable) | ✅ 118 files | **unverified** | no Fable toolchain in this environment |
-| flutter (Dart) | ✅ 142 files | **unverified** | no Flutter SDK in this environment |
+| **react** | ✅ | ✅ | ✅ healthy (Commons `web`) |
+| **vue** | ✅ | ✅ image built | not booted |
+| **svelte** | ✅ | ✅ `svelte-check found 0 errors and 0 warnings` | not booted |
+| **flutter** | ✅ | ✅ **`flutter analyze`: 0 errors, 0 warnings** (153 `info` lints, so `analyze` still exits 1) | not booted |
+| **angular** | ✅ | ❌ `TS2322`/`TS2345` on any `X id[]` (**F-016**) | — |
+| **feliz** (F#/Fable) | ✅ | ⚠️ **both** — fails on the Commons model (invalid F#: a field named `member`, an F# keyword, emitted verbatim into a record — **F-022**; plus the **F-021** workflow arm). Rename that one field and `dotnet fable` + vite **build a real 894 kB bundle, exit 0**. So Feliz works; the emitter has no reserved-word map. | not booted |
 
-**Wire-identical**: verified only node↔python (see claim 10). Not measured for dotnet (broken), java,
-elixir, or any frontend pair.
+**What I actually sampled, stated plainly.** Eleven targets generated from one
+model, all eleven compile-tested, **none left unverified**.
 
-> The maintainers' own corpus explains the frontend column exactly: their `.ddd` corpus declares
-> react 34 times, svelte 9, vue 6, flutter 3, feliz 2, angular 2 — a **17× skew**
-> (`docs/audits/2026-09-10-independent-completeness-audit.md` §F9). The two frontends that broke for
-> me are the two with almost no corpus behind them.
+- **Seven compile the Commons model as written:** node, python, elixir, react,
+  vue, svelte, flutter.
+- **Four do not:** dotnet, java, angular, feliz — each from an ordinary model
+  shape, each with `parse` and `generate` green.
+- **Three of those four are one field or one construct away from compiling.**
+  Rename `state` → dotnet builds; rename `member` → **feliz builds a real
+  894 kB bundle**; drop the fan-out reactor → **elixir compiles
+  `--warnings-as-errors` clean**. Only angular's `X id[]` and java's two defects
+  need emitter work rather than a model rename.
+
+**The headline number changed in the second pass, and in both directions.**
+First pass: 2 broken / 5 compiled / 4 unverified. Second pass: **4 broken / 7
+compiled / 0 unverified.** Elixir and Flutter turned out to be *passes* I had
+written off; java and feliz turned out to be *failures* I had excused. The
+correction that matters: **"unverified" is not a neutral row** — mine was hiding
+two passes and two S1 defects in equal measure, and I should have looked for the
+vendor's own recipe before recording it.
+
+**The defect shape is now unmistakable.** Six of the ten S1 defects are one
+pattern: **a name or a construct that is legal in Loom and fatal in the target
+language, emitted verbatim with no escaping and no gate.**
+
+| Model shape (all legal `.ddd`) | Target it breaks |
+|---|---|
+| value object declared in another context | dotnet, react, vue, svelte, angular (F-001) |
+| field named `state` | dotnet — collides with the nested `State` class (F-015) |
+| field named `member` | feliz — reserved F# keyword (F-022) |
+| value object named `Money` | node — skips construction validation (F-014) |
+| reference collection `X id[]` | angular (F-016) |
+| `for x in Repo.run(C(...))` in a reactor | elixir crash, java + feliz non-compiling (F-013, F-021) |
+
+Five distinct targets, one root cause class: **emitters that interpolate model
+identifiers into target syntax without a reserved-word map or a post-emit
+compile check.** That is a structural finding, not six unrelated bugs, and it is
+what condition **C4** (a per-target compile gate over a corpus of ordinary
+shapes) exists to catch.
+
+## 4. What using it is actually like
+
+### Phase 0 — cold start
+
+The install is genuinely clean: `npm install` runs the whole `prepare`
+lifecycle in 28 seconds and `node bin/cli.js --help` works immediately. No
+version wrangling, no missing generated parser. Better than most toolchains.
+
+Then I copied the README's own Quick Example into a file. It parsed. It
+generated 226 files in 1.6 seconds. And it did not build, because the example
+declares `valueobject Money` inside `context Orders` while `Product` lives in
+`context Products`, and the .NET emitter writes the `MoneyResponse` record into
+only the first context's namespace (**F-001**). The React frontend failed the
+same way (`Cannot find name 'MoneySchema'`). Hoisting `Money` to the model root
+fixed both.
+
+**Time to first running app by an outsider: ≈95 minutes**, of which ~35 was my
+sandbox's proxy and registry limits and ~35 was F-001. On a clean network, with
+F-001 known: **≈10 minutes**. That number is real and it is the product's best
+argument.
+
+Then I ran the e2e suite the generator emitted. 3 failed out of 3 — it POSTs to
+`/api/products`, which the same compilation declined to emit (**F-003**).
+
+### Phase 1 — modelling Commons
+
+This is where Loom is at its most impressive and its most limiting, often on the
+same page.
+
+**What went in directly** (first or second try): aggregates, entity containment,
+value objects with invariants, enums, optional and collection types, derived
+fields, pure functions, operations with preconditions, events, repositories and
+custom finds, cross-aggregate and **self**-references (the arbitrarily-deep
+comment tree is just `parent: Comment id?`, and the emitted schema has the
+correct self-FK), `unique (a, b)` natural keys, capabilities (`auditable`,
+`softDeletable`), the `crudish` macro, `permissions` with an `implies` closure,
+`requires` gates, `mask unless`, OIDC config, channels, a transactional workflow
+with a reactor, multi-context systems, three deployables, i18n.
+
+**What went in awkwardly:**
+- *Notification fan-out.* A keyed fold can't fan one event to N rows, so it
+  became a workflow reactor looping over followers — which forces a persisted
+  saga instance with a correlation field per post. It works; it is heavier than
+  the domain needs. (And it is the shape that crashes Elixir — F-013.)
+- *Authorization gates.* The permission model had to be flattened to
+  `currentUser.role == "literal"` at list reads and workflow reads, because the
+  permission-based form crashes the generator (**F-005**). Two gate dialects in
+  one file.
+- *Search.* "Search across posts" is `title.startsWith(q)`. `.contains` is
+  refused; the advertised search stores can't be bound (**F-010**).
+
+**What could not be said at all** — this is the real output of the phase:
+
+| Requirement | Diagnostic | Consequence |
+|---|---|---|
+| Home feed: "posts from people I follow, newest first" | `loom.projection-where-not-queryable` | No read whose selectivity lives in a *related table*. Must be denormalised into a materialised feed with write-time fan-out. **F-002** |
+| Group-only post visibility | `loom.criterion-not-selectable` | Authorization filters are single-table predicates. Group membership must be copied onto the post. **F-012** |
+| Substring / full-text search | `loom.find-where-not-queryable` | Prefix match on one column, or an out-of-model search service. **F-010** |
+| Rate limiting on posting and reporting | no surface at all | Hand-written middleware in a `.loomignore`-pinned file → permanent drift (**F-008**), or a proxy in front. |
+| Move an aggregate to the right context, later | `DROP TABLE` | Context boundaries are expensive to change. **F-009** |
+
+The pattern is consistent and worth stating once: **Loom's query and
+authorization languages are single-table predicate languages.** Anything whose
+truth lives one join away must be denormalised into the row being read, and you
+must maintain that denormalisation yourself. For a social product — feeds,
+group visibility, follower fan-out — that is most of the interesting reads.
+It is not a bug; it is the ceiling, and the diagnostics are honest about it.
+
+**GDPR erasure** worked better than expected. Scrubbing PII in place on the
+`Member` row keeps every FK valid, so comment trees survive and the row *is* the
+tombstone. And `mask unless` is correctly enforced on the audit-history
+endpoint, with generated code that explains *why* it drops the change entry
+rather than redacting it ("a redacted-but-present entry would still disclose
+that it changed, when, and by whom"). That is thoughtful security engineering,
+generated.
+
+### Phase 5 — evolution
+
+The best part of the product, with one gap.
+
+Additive change on a populated database: correct, safe SQL (nullable add;
+`NOT NULL` via `DEFAULT` then `DROP DEFAULT`), applied, data preserved. A rename
+was **auto-detected** and emitted as `RENAME COLUMN` — `mathematician` survived.
+An *ambiguous* rename (drop 2, add 1) was **refused**, with the exact ledger
+syntax to disambiguate it and a named `--allow-destructive` opt-out. Dropping a
+populated column, retyping, and flipping optional→required with NULLs present:
+all three **refused**, and the `migration "…" { Member.phone = "" }` backfill
+ledger emitted `UPDATE … WHERE IS NULL` then `SET NOT NULL`, in that order.
+
+I could not make Loom destroy data by accident. That is a strong result and the
+main reason this is "Pilot only" and not "Do not adopt".
+
+The gap: **moving an aggregate between bounded contexts is `DROP TABLE`** and no
+safe spelling exists (**F-009**) — the canonical DDD refactor, in a DDD tool.
 
 ---
 
-## 5. What it is actually like to use
+## 5. Direct answers
 
-### Hour 0 — cold start (headline number)
-`npm install` 33s · `ddd new` 1.9s · `generate system` 1.9s · `docker compose up --build` 1m10s.
-**~4 minutes of hands-on work to a running stack**, verified by HTTP, not by exit code:
+**How long to a running app?** ~95 min as a true outsider; ~10 min once F-001 is
+known. **To a modelled domain?** Commons' domain — 10 aggregates, workflows,
+auth, channels, i18n — took me about 4 hours including the dead ends, at 320
+lines. That is genuinely fast. **To a safe breaking change?** Additive: one
+regenerate, ~10s. A rename, retype, or required-flip: one regenerate, read the
+refusal, add a 1-line `migration` ledger block, regenerate. Minutes, and safe by
+default.
 
-```
-POST /api/projects {"name":"Roof survey"} → 201 {"id":"01a09a1f-…"}   (uuidv7)
-GET  /api/projects → {"items":[{…,"version":1,"display":"Roof survey"}],"page":1,"total":1}
-GET  http://localhost:3001/ → 200  (React SPA)      GET /openapi.json → 7 paths
-```
-Migrations applied to an empty database with no manual step. This is a real result and it is the
-best thing about the product.
+**What the DSL cannot express, and what you do then.** Multi-table reads,
+multi-table authorization, full-text search, rate limiting. You denormalise into
+the aggregate, or you step outside the model — a sidecar service, or a pinned
+file. Stepping outside costs you regeneration on that file, permanently.
 
-### Hours 1–3 — modelling FieldOps (expressiveness)
-Written from `docs/` alone; the first 128-line slice parsed **clean on the first try**. Expressed
-directly, with no fight: aggregates + contained entities, enums, `money` with closed arithmetic,
-guarded lifecycle transitions (`when` → 409), `unique (tenantId, serial)`, a collection invariant
-across lines, `mask unless` field redaction, `tenantOwned` + `tenantRegistry`, a `permissions{}`
-catalogue with `implies`, read gates, criteria, a grouped projection, traceability declarations,
-api + ui e2e tests, and a hand-written dashboard page.
+**Exactly what happens to hand-edits on regenerate.** They are overwritten
+without a word. `--dry-run` shows `write` vs `unchanged`, but `write` does not
+distinguish "new file" from "your edits die here". `.loomignore` pins a file
+reliably (`skipped (.loomignore): 1`) — and that file then never receives another
+model change, with no staleness detector. I demonstrated it: pinned
+`member.routes.ts`, added two fields to `Member`, and got a database column and a
+repository that write a field the API cannot accept. **"You own the source"
+means "until the next regenerate", unless you pin it, and then it means "and it
+stops tracking the model".**
 
-Three diagnostics caught real modelling bugs I made naturally — `unique (serial)` was global across
-tenants; `GET /invoices/{id}/history` was reachable by any authenticated caller; 21 commands and
-reads were ungated. I would not have caught the second one in review.
+**Does a breaking migration keep data?** Yes, for column-level changes — verified
+against a populated database for add, rename, and required-flip; refused rather
+than destroyed for drop and retype. No, for moving an aggregate between contexts.
 
-**Where the ceiling is** — three limits, not bugs:
+**Does isolation hold in the generated code or only in the model?** **In the
+generated code.** `mask unless` compiles to a real `toWireMasked(root, currentUser)`
+at the serialization boundary, every read path uses it, and a non-admin token
+against a live server got `email: null`. Capability `filter`s install at the
+query layer on every read. This is the strongest single result in the
+evaluation. The caveat is scope, not enforcement: `denyByDefault` leaves the
+auto-`findAll` list route ungated (**F-006**), so 8 of 10 Commons list reads
+were open to a token with no role and no permissions.
 
-> **CORRECTION (2026-09-13, after re-verification on fresh `main`).** This framing was too generous to
-> two of the three. **Only limit 2 is architectural** — *there is no transactional consistency across a
-> bounded context, and there never will be.* That is orthodox DDD, ruled on in writing
-> (`docs/domain-services.md:130`, "permanent by design"), and correct. The adoption consequence
-> sharpens rather than softens: **context boundaries in Loom are transaction boundaries you cannot
-> renegotiate later** — getting them wrong is a re-architecture, not a refactor.
-> **Limit 3 is transitional, not structural:** #2877 is open and adds `with crudish(requires: <Policy>)`,
-> which closes F-008 fully.
-> And the *communication* of limit 2 is itself a defect worth more than the limit: the one doc that
-> rules on it says cross-context orchestration *"belongs in workflows"* (`docs/domain-services.md:130`)
-> — which reads as permission; the workflow surface then refuses it with a diagnostic that blames a
-> `let`; and the **read-only spelling refuses nothing at all**, emitting a dangling receiver on all
-> five backends from a model that parses `0 error(s), 0 warning(s)`. Fix the diagnostic and the docs;
-> keep the limit. Two further items I framed as structural are ordinary defects — **F-002** (one
-> validator arm that forgot what its sibling already does; all five backends emit correct code today)
-> and **F-003** (a flag set at 1 of 3 call sites). Full reasoning: [`fix-plans/I-language-design.md`](fix-plans/I-language-design.md).
+**Are the targets interchangeable, or is one real and the rest demos?** Between
+node and python, genuinely interchangeable — byte-identical JSON on a
+10-field aggregate. Not a demo. But node is clearly the reference
+implementation: it is the default, it is what worked first every time, and the
+other four each failed differently (dotnet compile, elixir crash, java/elixir
+unverified). Call it **two real backends, one likely-real (java), two needing
+proof**; and **three real frontends of six**.
 
-1. **A `create` body cannot assign** (F-007). "A work order always starts in `Draft`", "stamp
-   `issuedAt` server-side", "derive the invoice number" are not expressible at construction. Real
-   construction logic becomes a `workflow` with its own HTTP route. 33 errors on my model from this
-   one rule.
-2. **A workflow cannot reach another context's repository** (F-009). FieldOps' stated requirement —
-   completing a work order decrements part stock atomically — spans Field and Inventory. To express
-   it I had to **merge the two bounded contexts**. Loom's real consistency boundary is the *context*,
-   not the aggregate. Design your contexts accordingly on day one.
-3. **`with crudish` and `enforcement: denyByDefault` cannot be combined** (F-008). The recommended
-   security posture forbids the CRUD macro on every aggregate; I hand-wrote ~90 lines of
-   create/update/destroy boilerplate that the macro exists to remove.
+**Could we operate and debug it at 3am?** Partially. In favour: structured logs
+with `requestLog().debug({event, aggregate, find, rows})`, health and ready
+endpoints, an observability compose overlay, ProblemDetails errors with stable
+shapes, a `.loom/` bundle with ER/sequence/deployment diagrams and a LikeC4
+model. Against: `ddd trace` cannot map the default backend's own shipped bundle
+(it ships as a `tsup` single file — **F-018**), `breakpoints` precision is
+uneven, and when the generator itself fails it throws a JS stack trace naming
+`out/generator/...` with no `.ddd` line (**F-005**, **F-013**). Your SRE can
+operate the *generated app*; debugging the *generator* needs someone who knows
+Loom's internals, and there is one such person.
 
-Plus one shape the language forces: `for` can only iterate a repository result, and a `let` inside a
-`for` body is rejected (F-002) — so per-child cross-aggregate writes push the child out of its
-containment boundary into its own aggregate. You can have a `derived total` over contained lines, or
-per-line cross-aggregate writes. Not both.
+**Exit cost in year two.** Moderate and bounded, which is the honest good news.
+You keep the generated tree — idiomatic Hono/EF/Ecto/FastAPI/Spring, MIT-granted,
+no Loom runtime dependency. You delete `.ddd`, delete the regenerate step, and
+own the code. For Commons at ~26k lines (one backend + one frontend) that is a
+real but survivable inheritance; at 40 aggregates and 56k lines across targets it
+is a serious one. The thing you actually lose is the *reason the code is
+consistent* — after exit, nothing keeps the frontend agreeing with the backend.
+Budget one to two engineer-quarters to re-establish ownership (tests, CI,
+conventions, an ADR explaining why the code looks generated).
 
-### Hours 3–6 — running it (where it fell over)
-`tsc --noEmit` on the generated backend: **4 errors, 3 distinct bugs.** On the frontend: **10 errors,
-3 distinct bugs.** All from a model that `ddd parse` and `ddd generate system` both accepted with
-exit code 0. Once patched, everything worked — and worked well (§7).
+**The most likely way this decision blows up — and how we'd see it coming.**
+Not a dramatic failure. It is: six months in, someone needs a feed query, or
+group-scoped visibility, or rate limiting, or a webhook signature check. Each is
+individually small and individually outside the DSL. Each gets a `.loomignore`
+pin. Within a year a meaningful fraction of the codebase is pinned, those files
+no longer track the model, and the product's central promise — one source of
+truth, no drift — is quietly false while the build stays green. **The leading
+indicator is the line count of `.loomignore`.** Make it a metric from day one;
+if it grows monotonically past ~5 entries, the fit is wrong and you should exit
+early while the tree is small.
 
-### Hours 6–9 — six months of product work in an afternoon
-Additive change: 3.9s, a scoped 34-file diff, a correct incremental `ALTER TABLE`. Rename of a
-populated column: auto-detected, data preserved. Destructive change: refused with a named fix.
-Regeneration: **clobbered every patch, silently, every time** — I ended up scripting the re-patch
-(`eval/repatch.sh`). The `.loomignore` escape hatch works and is honest; pinning then transfers
-drift ownership to you, and the compiler catches that drift on typed backends but not on Python or
-Elixir.
-
-**Answer to "you own the source":** you own it until the next `ddd generate`. Pin a file and you own
-keeping it in sync with the model. That is a defensible, clearly documented contract — it is simply
-not what "the keys to the codebase" implies.
+The second, faster failure mode: a SILENT emission bug ships to production
+because four gates in a row were green (**F-014**). The indicator there is
+whether C4/C5 are in place.
 
 ---
 
 ## 6. Gap register
 
-**45 findings: 16 S1 · 16 S2 · 12 S3 · 1 S4.**
-**Class split: 25 SILENT · 10 HONEST · 3 CRASH · 3 CONTRADICTED-doc · 2 DOCUMENTED · 2 other.**
+19 findings. Counted by class:
 
-The ratio is the story. **25 silent to 10 honest.** A mature generator has the opposite ratio: it
-refuses what it cannot do. Loom refuses beautifully when it refuses at all — its honest gaps are
-among the best diagnostics I have used — but its dominant failure mode is exit code 0 over broken
-output.
-
-### S1 — cannot ship (16, all SILENT)
-Thirteen are "the generated code does not compile"; three are "it compiles, boots, and is wrong".
-
-| ID | One line | Blast radius |
+| Class | Count | Findings |
 |---|---|---|
-| **F-035** | `tenantOwned` + `auditable` → **.NET** drops the `createdAt`/`createdBy` stamp; **every create 500s** against the NOT NULL column the same tool emitted. *(Filed as .NET+Java; the Java half was my error — see the correction in FINDINGS.md.)* | **the default shape of every B2B record** |
-| F-018 | Declaring `find all(): T[]` — which deny-by-default *forces* — breaks every scaffolded FK picker | 8 of 14 pages in my model |
-| F-024 | The generated OIDC login fails against the generated Keycloak realm (`offline_access`), then redirects to a 404 | the single most visible user path |
-| F-027 | python: cross-context `X id` used without its import → `NameError` at request time; invisible to `compileall` *and* to `import` | any multi-context python deployable |
-| F-015/026 | a workflow calling an aggregate `function` emits a call to a `private` method — **node, .NET, python, java** | cross-aggregate business rules |
-| F-013 | `!=` in a filter emits Drizzle `ne(...)` and never imports it | any model with `!=` in a `where` |
-| F-014 | an FK compared to a **nullable** user claim emits uncompilable Drizzle | row-level visibility |
-| F-016 | an operation named `void` emits `const void = …` | any reserved-word domain verb |
-| F-017 | `Chart` emits `yAxisProps={{{` | the only charting primitive |
-| F-019 | a `ui` scaffolding an unserved subdomain emits pages against a missing api client — a **documented** validator obligation that does not fire | any multi-deployable system |
-| F-025 | .NET channel transport emits an unqualified namespace that binds to the wrong one | .NET + any broker |
-| F-028 | java never injects a repository used inside `for`→`if let` | java + the shape F-002 forces on you |
-| F-029 | elixir emits an **unbound** `current_user` in an Ecto query (the other four are correct) | row-level visibility on Phoenix |
-| F-032 | vue: a nullable `X id` breaks `vue-tsc` — **FIXED, `d8b5f7c1`/#2885** | any optional FK |
-| F-033 | angular: a `string[]` field initialises to `null` | any tags/skills/roles field |
+| **SILENT** — valid input, exit 0, output wrong / uncompilable / crashed | **12** | F-001, F-003, F-004, F-005, F-013, F-014, F-015, F-016, F-017, F-020, F-021, F-022 |
+| **HONEST** — refused with a clear, actionable diagnostic | **4** | F-002, F-009, F-010, F-012 |
+| **DOCUMENTED** — named up front | **3** | F-006, F-008 (overwrite contract), F-018 |
+| **Docs-vs-reality** | **2** | F-007, F-011 |
+| **Reconciliation** (Phase 6 only) | **1** | F-019 |
 
-### S2 — major (16)
-`create` cannot run logic (F-007) · no cross-context workflows (F-009) · `crudish` ⊥ deny-by-default
-(F-008) · `let` in a `for` body rejected (F-002) · **two generator crashes with raw stack traces**
-(F-011 page gate naming a permission; F-012 e2e + multi-word aggregate + second deployable) · a third
-crash on cyclic containment (F-040) · compose references a dead image (F-020) · optimistic
-concurrency is off by default and the generated UI never sends the precondition (F-023) · node↔python
-wire divergence (F-034) · `string`→`enum` leaves unvalidated legacy rows served as valid (F-036) ·
-hand edits silently clobbered (F-037) · **no lockfile in any generated project** (F-038) · **no
-version tags, no changelog, no releases** (F-039) · the Keycloak realm carries none of the declared
-claims (F-022) · the i18n catalog never reaches the generated app (F-044).
+By severity: **S1 ×10** (F-001, F-003, F-005, F-013, F-014, F-015, F-016, F-020,
+F-021, F-022), **S2 ×6**, **S3 ×6**, **S4 ×0**.
 
-### S3/S4 — friction (13)
-Mostly documentation: the dev-claims example in the docs doesn't work (F-021), the live-site links
-are 404 (F-043), the README's LICENSE claim is wrong (F-045), the tenancy-bootstrap example is
-unreachable (F-005), `create` params are ignored contrary to the docs (F-006), deny-by-default forces
-the construct the linter deprecates (F-010), a Feliz fixit that doesn't parse (F-031), a false-positive
-`transactional-no-effect` warning (F-004), a page-body typo that no validator catches (F-041),
-`ddd trace` cannot read a production trace (F-042), elixir fails its own `--warnings-as-errors` gate
-(F-030), `this.id` unusable in a criterion (F-003), the starter template warns on its own output (F-001).
+Separately, the ten adversarial models in Phase 6 produced **9 HONEST refusals
+and 1 SILENT miss** (the miss is F-014) — so the diagnostic layer scores well
+when the defect is in the *user's* model, and badly when it is in the emitter.
+
+**Let the ratio speak.** Twelve SILENT to four HONEST is the wrong way round for
+a compiler — and the ratio got *worse* in the second pass, because the four
+targets I had left unverified contributed two more silent S1s and no honest
+ones. The HONEST gaps are genuinely excellent — `loom.projection-where-not-queryable`,
+`loom.criterion-not-selectable`, the destructive-migration gate, the
+`denyByDefault` endpoint report, the `patch` address book — several are better
+than what mainstream tools produce. But a compiler's job is that *everything*
+lands in that column, and here the ordinary shapes (a shared VO, a field named
+`state`, a `Tag id[]`, a VO named `Money`) land in the silent one. Notably,
+**the silent failures are concentrated in the non-reference targets and the
+cross-cutting emitters** — which is exactly where a per-target emitter
+architecture with no shared conformance oracle would put them.
 
 ---
 
-## 7. What genuinely works — verified, at runtime
+## 7. Risk register
 
-I want the council to weigh these as heavily as the gap register. Each was executed.
+| Risk | Severity | Evidence | Mitigation |
+|---|---|---|---|
+| **Bus factor 1.** One human in the entire visible history (135 commits); 669 of 810 authored by `Claude <noreply@anthropic.com>`; 6 by `claude[bot]`. | **High** | `git shortlog -sn`. (The clone is shallow, so this is the visible window — ~3 weeks, PRs #2563–#2910 — not the project's age. I do not claim the project is new.) | Escrow + the FSL's 2-year Apache conversion give legal continuity, not engineering continuity. Require C6, or accept that we fork on abandonment. |
+| **AI-authored codebase at high velocity.** ~800 commits and ~350 PRs in the visible window. | Medium-High | same | This cuts both ways: it explains the unusual breadth *and* the six ordinary-shape defects. Judge by the gates (C4), not the velocity. |
+| **SILENT emission defects reach production.** Four green gates then a runtime failure. | **High** | F-014 | C5 (type-check in the generated Dockerfile) + our own compile gate over generated output for every target we ship. |
+| **Security posture cannot be expressed as recommended.** | **High** | F-005 + F-006 | C2 + C3. Until then: gate every list read explicitly with a comparison, and pen-test the enumerable surface. |
+| **Customisation drift.** Pinned files silently stop tracking the model. | **High (organizational)** | F-008 | Track `.loomignore` length as a metric. Code-review rule: a pinned file's aggregate changing requires re-reviewing the pin. |
+| **Read-model ceiling forces denormalisation.** | Medium (design-time) | F-002, F-012 | Decide it up front. It is a legitimate architecture; just not one we'd have chosen freely. |
+| **Context boundaries are expensive to change.** | Medium | F-009 | Spend real design time on boundaries before the first production write. |
+| **Docs are ahead of the code.** README contradicted on 5 claims; maintainers track 9 "stale-prose" rows themselves. | Medium | F-007, F-010, F-011, F-019 | Treat `docs/audits/` + `src/diagnostics/unsupported-register.ts` as the real status document. Re-read at every upgrade. |
+| **Toolchain-upgrade stability.** Not tested — the visible history is too short and there are no releases to upgrade between. | **Unknown** | — | Before adopting, pin a version and do one upgrade on a copy of Commons; measure what the regenerate diff does. |
+| **Licence.** FSL-1.1-Apache-2.0. Internal use is an explicit Permitted Purpose; per-release 2-year Apache conversion. Generated code is MIT-granted — but that grant ships only via `ddd new`, not `ddd generate`. | Low-Medium | `LICENSE`, F-007 | Fine for Commons (internal product). Get the MIT grant over generated output in writing; don't rely on a README sentence. |
 
-**Tenant isolation is airtight in the generated code, not just the model.** Two principals, same
-API, node backend:
-```
-A lists work orders                  → total 1
-B lists work orders                  → total 0
-B GET   /work_orders/{A's id}        → 404   (existence hidden)
-B POST  /work_orders/{A's id}/cancel → 404
-B GET   /work_orders/{A's id}/history→ 404
-tenantId = "" / claim absent         → empty list      (fail-closed)
-tenantId = "' OR '1'='1"             → 0 rows          (parameterised; no injection)
-```
+### Team workflow
 
-**Transactional cross-aggregate rollback works.** Part stock 3, usages 2 + 5:
-```
-POST /workflows/complete_work_order → 422 {"detail":"insufficient stock"}
-GET  /parts/{id}       → stockOnHand = 3      ← the 2-unit decrement rolled back
-GET  /work_orders/{id} → status = InProgress  ← not completed
-```
-
-**The error contract is correct and RFC 7807 throughout.** invariant → 422 with a field pointer ·
-`when` state gate → 409 · `requires` → 403 · unauthenticated → 401 · missing → 404. `mask unless`
-redacted a technician's cost rate to `null` for an unprivileged caller and returned it for an
-authorised one.
-
-**Values are right.** `money` survives the wire as an exact decimal string (`"50.2500"` → subtotal
-`"100.5000"` → derived total `"100.5000"`); enums are strings; nullables are `null`; containment
-round-trips; audit columns stamp the acting principal; a `version` column is maintained.
-
-**Migrations are the strongest single component.** Rename of a populated column detected
-automatically and applied as `RENAME COLUMN` with zero data loss; `DROP COLUMN` on populated data
-refused with exit 1; `SET NOT NULL` over NULL rows refused, then made safe by a declarative
-`migration "…" { Site.addressLine = "unknown" }` block that emitted `UPDATE … WHERE IS NULL` +
-`SET NOT NULL`. I could not get it to destroy data.
-
-**Diagnostics.** 8 of 10 broken models produced a precise, actionable error — several restate the
-whole rule inline ("Allowed for money: money ± money, money × {int|long|decimal}…") or give a fixit
-("write `Customer id`", "did you mean 'total'?").
-
-**The customization gradient is real.** Override-by-name replaced exactly one scaffolded page (4
-files changed). `unfold` ejected genuine `.ddd` source that parses clean and **regenerates
-byte-identical output**. Generation itself is deterministic: the same model into two fresh
-directories produced **0** differing files.
-
-**Ops.** `/health` `/ready` `/metrics` `/openapi.json` all 200; structured JSON logs with
-`request_id`/`trace_id`/`span_id`; an opt-in Prometheus+Jaeger overlay; `--k8s` emits a Helm chart
-that **`helm lint`s clean** with a proper secret/config split.
+**Is output committed?** It has to be, in practice: the compile gate you need
+(C4) runs on the generated tree, `.loomignore` pins live in it, and `ddd verify`
+consumes test results from it. That means **every model change produces a
+diff in the hundreds-to-thousands of lines** — my two-field additive change
+rewrote 23 files. Code review has to become "review the `.ddd` diff, confirm the
+generated diff is mechanical" — which is a real discipline change, and which
+nothing in the tooling helps you enforce. A parallel-edit merge on generated
+files is meaningless: you resolve the `.ddd` and regenerate. That is actually
+*easier* than merging hand-written code — a genuine plus — provided everyone
+understands the generated tree is not to be edited.
 
 ---
 
-## 8. Risk register
+## 8. Fit analysis
 
-| Risk | L | I | Evidence | Mitigation |
+**Good fit** — CRUD-heavy internal line-of-business systems; multi-tenant SaaS
+admin surfaces; anything where the hard part is breadth (many aggregates, many
+screens, consistent auth, audit trails, migrations) rather than depth (clever
+queries, novel interaction); teams who will accept the DSL's ceiling as an
+architectural constraint; and greenfield work where context boundaries are
+already well understood.
+
+**Poor fit — and this is Commons.** A social product is mostly *relationship
+reads*: a feed, a follower fan-out, group-scoped visibility, search, a
+notification inbox. Four of Commons' headline requirements sit on the wrong side
+of Loom's single-table read ceiling, and the workaround for each is the same
+one: maintain a denormalised copy by hand. We would be fighting the tool on the
+core of the product while enjoying its benefits on the periphery (moderation
+queue, bans, appeals, audit trail — which Loom models beautifully).
+
+**Recommendation for Commons specifically:** even if C1–C7 were all satisfied, I
+would not pick Loom for *this* product. I would pilot it on our next internal
+admin/back-office system instead, where the fit is genuinely good, and let
+Commons use a conventional stack.
+
+---
+
+## 9. Comparison
+
+| | **Loom** | **Framework + AI assistant** (Rails/Phoenix + Claude/Cursor) | **No-code** (Retool/Bubble) | **In-house scaffolding** |
 |---|---|---|---|---|
-| **Generated code doesn't compile on the target we pick** | **High** | **High** | 0/5 backends, 2/4 buildable frontends | Pick node+React (the only pair that compiled clean) and treat the other nine as unavailable. Add a "compile the generated output" job to *our* CI on every model change. |
-| **A silent runtime defect reaches production** | **High** | **High** | F-035 (.NET every write 500s), F-027 (python NameError at request time), F-023 (lost updates) | Our own e2e suite against the generated stack, per target, per release. Do not trust "generation succeeded". |
-| **Bus factor = 1** | Medium | **High** | 131 of 668 commits from one human; **536 from an AI agent**; no second maintainer | Vendor the toolchain at a pinned SHA. Budget for owning the fork. |
-| **No release engineering** | **High** | Medium | 0 tags, 0 releases, no changelog, version `0.1.0`; no lockfile in generated projects | Pin a SHA, commit the generated tree, commit lockfiles, gate regeneration behind review. |
-| **Unstable `main`** | **High** | Medium | **~50 of 92 issues are auto-filed "🔴 main is red"** in 14 days; 4 open "flaky gate" issues | Never track `main`. Upgrade deliberately, re-run C1/C2 each time. |
-| **Abstraction ceiling forces model compromises** | Medium | **High** | F-007, F-009 (contexts collapse), F-008 | Prototype the three hardest use cases in `.ddd` *before* committing. Accept context = consistency boundary. |
-| **Supply chain** | Medium | **High** | No lockfile, caret ranges, no dependabot/audit gate on either surface; 11 advisories (4 high) in the toolchain's dev tree | Commit lockfiles; run our own SCA on the generated tree. |
-| **Exit cost** | Low | Medium | The output is ordinary Hono/EF/Ecto/Spring/FastAPI; MIT-licensed | See §10. This risk is genuinely low — the best structural property of the product. |
-| **Hiring / onboarding** | Medium | Medium | ~25k lines of docs; I was productive in ~2h, blocked for ~6h on generator bugs | Budget 1 week to productive, 1 month to fluent. The *DSL* is easy; the *failure modes* are the learning curve. |
+| Time to first running app | ~10 min (known-issues) | ~1 hr | ~30 min | ~2 weeks to build the scaffolder |
+| Consistency across layers | **Structural** — the model is the only input | Degrades with each prompt | N/A (one layer) | As good as you maintain it |
+| Ceiling | **Hard** — single-table reads/filters; outside it you leave the model | **None** — it's just code | Hard, and you can't leave | None |
+| Cost of leaving the ceiling | Permanent drift on a pinned file | Zero | Rewrite | Zero |
+| Multi-target | 2 verified, 5 claimed | One, well | One | One |
+| Data-safe evolution | **Best in class here** — refuses destructive changes, auto-detects renames, backfill ledger | You write the migration; the assistant will happily write a destructive one | Opaque | Whatever you built |
+| Source ownership | Yes, MIT, no runtime dep | Yes | No | Yes |
+| Bus factor | **1** | Framework: thousands | Vendor | Yours |
+| Silent-defect risk | **9 found in one afternoon** | Assistant hallucination, but you review the diff | Vendor bugs, opaque | Yours, and you can fix them |
+
+The honest framing: **Loom's real competitor is a framework plus an AI
+assistant**, and the axis it wins on is *not* speed — it is **structural
+consistency and data-safe evolution**. An assistant will write you a feed query
+in thirty seconds that Loom cannot express at all; it will also, six months
+later, have written three subtly different serializations of the same entity,
+and a migration that drops a column. Loom will not do either. That trade is
+genuinely attractive for the right product. Commons is not that product, and the
+bus factor makes it a bet on one person regardless.
 
 ---
 
-## 9. Fit analysis
+## 10. Top 10 fixes, ranked by adoption impact
 
-**Clearly good for:** internal CRUD-shaped line-of-business apps; a well-understood domain with many
-similar aggregates; anything where multi-tenant isolation correctness matters more than UI
-distinctiveness; prototypes and pitch demos; a team already on Node+React that wants to stop writing
-the same repository/route/form/migration layer.
-
-**Clearly wrong for:** anything where the UI *is* the product; real-time/streaming/collaborative
-systems; heavy analytical read paths (no window functions, no full-text search, no sorting on a
-derived field, no ordering on a projection); a team that wants to pick .NET, Java, Elixir, Vue or
-Angular today; anything under a compliance regime that needs reproducible builds.
-
-**Where our next product falls:** multi-tenant B2B with a rich operational UI. The domain half is
-squarely in Loom's sweet spot and the tenancy work alone would save us real months. The UI half and
-the "we might want .NET" half are exactly where it is weakest. That is why the answer is *pilot*,
-not *no* — and why the pilot should be a real internal tool on **node + React**, nothing else.
-
----
-
-## 10. Comparison with the alternatives
-
-| | Loom | Framework + AI assistant | No/low-code (Retool, OutSystems) | In-house scaffolding |
-|---|---|---|---|---|
-| Time to first app | **~4 min** (measured) | ~1 day | ~1 hour | n/a — months to build |
-| Consistency across layers | **Enforced by the compiler** | Drifts after a few prompts | Enforced, inside the platform | Whatever we enforce |
-| Multi-tenant isolation | **Compile-time stance + verified airtight at runtime** | Hand-written; the leak is a matter of time | Platform-provided, opaque | Hand-written |
-| Migrations | **Derived, rename-aware, destructive-gated** (best in class here) | Hand-written | Platform-managed | Hand-written |
-| Output compiles | **0/5 backends unpatched** | Always (you iterate until it does) | n/a | Always |
-| Ownership / exit | Real source, MIT | Real source | **None** — rewrite | Total |
-| Vendor risk | **1 human maintainer, 0 releases** | None | Priced, contractual | None |
-| Cost to change the abstraction | Wait for upstream, or fork | Nothing | Impossible | Our sprint |
-
-**Against a framework + an AI assistant** — today's realistic default — Loom wins decisively on
-*consistency*: the model is the single source of truth, and a hallucinated field is a compile error
-rather than a bug. It loses on *reliability of the output*, which is the one thing the assistant path
-never gets wrong because you iterate until the code builds. Loom's pitch is that you shouldn't have
-to iterate. Today you do, and you iterate on generated code you don't own the next morning.
-
-**Exit cost if we abandon Loom in year two:** genuinely low, and this is its best structural
-property. We keep the generated tree — a normal Hono+Drizzle+Postgres app and a normal React app,
-MIT-licensed, with real migrations and a real test suite. We delete the `.ddd` file and the
-`.loom/` directory and carry on. What we lose is the regeneration leverage and, for the first few
-months, engineers who know the domain through the model rather than the code. Call it **two to four
-weeks of re-orientation, not a rewrite.**
-
----
-
-## 11. Reconciliation with the maintainers' own material
-
-Read only after the evaluation was complete.
-
-1. **They already know.** `docs/audits/2026-09-10-independent-completeness-audit.md` — three days
-   before mine — opens with: *"Loom is a finished compiler wrapped in an unfinished product."* Its
-   F4 is my F-039 (cannot be installed: no tags, no releases, no publish workflow). Its F5 is my
-   F-038 (no lockfile, no advisory gate). Its F8 names verification tiers CI can never run. Its F9
-   measures the 17× frontend corpus skew that explains exactly why Vue and Angular broke for me and
-   React did not. **The self-assessment is unusually honest and largely correct.**
-2. **The one place they measured wrong.** That audit's §2 says *"Generated output is clean"* —
-   established by grepping 1,153 emitted files for `loom:unrendered` / `TODO` markers, over **three
-   of their own example models**. I measured the same property with a compiler, over **a model I
-   wrote**, and got 16 defects in an afternoon. Marker debt is not compilability, and the vendor
-   corpus is not a customer's domain. That gap between instrument and claim is the single most
-   important thing on this page.
-3. **The failure class is named in their own retrospective.** `experience_gathered.md` §104
-   (2026-09-09): *"The fast suite asserts on emitted TEXT, so a name that does not resolve is
-   invisible to it… `npm test` cannot catch this class, structurally."* That is precisely F-013 (a
-   missing Drizzle operator import) and F-027 (missing id-type imports in python). They wrote the
-   lesson down four days before I re-discovered two fresh instances of it.
-4. **Closed issues are the same shapes:** #2549 "Phoenix drops money to 2 decimal places through the
-   projection-aggregation path", #2563 ".NET truncates a wire decimal", #2548 "`/api/auth/me` returns
-   a different principal shape on node and phoenix", #1796 "Vanilla Elixir: relational operations
-   silently drop their writes", #2433 "Flutter: a zero-parameter find emits invalid Dart",
-   #763 "Guarded workflows return 500 on Phoenix and .NET (should be 403)". Open right now: #2649, a
-   node emitter calling a handle that was never threaded — the same shape as my F-028.
-5. **Overclaiming in user-facing docs is itself a finding**, and there is some: five backends and six
-   frontends presented as equivalent when two of them cannot build an ordinary model; "no drift
-   between layers" with three measured drifts; a live site that 404s; a LICENSE the CLI doesn't
-   write; a dev-claims example that doesn't work. None is malicious — all are a fast-moving project's
-   docs outrunning its gates — but a buyer reading only the README would form a materially wrong
-   picture.
-6. **Project health, plainly.** 668 commits over ~14 days of visible history. **536 by
-   `Claude <noreply@anthropic.com>`; 131 by one human.** ~50 auto-filed "main is red" issues in that
-   window. Zero releases, zero tags, no changelog. 67 CI workflows and 2,070 test files — the *gate
-   machinery* is serious, and the merge queue, the pr-gate aggregate check and the mutation-proof
-   discipline documented in the repo are better than most commercial projects. **The vendor risk is
-   not "will they build it" — they are building it extraordinarily fast. The risk is that the whole
-   thing depends on one person plus an agent fleet, with no release contract, and no way for us to
-   pin a version or read what changed.**
-
----
-
-## 12. Top 10 fixes, ranked by adoption impact
-
-> **Follow-up (2026-09-13).** Every finding has since been re-verified against fresh `main` and planned
-> out at `file:line`, one agent per subsystem — see **[`FIX-PLAN.md`](FIX-PLAN.md)** and the ten
-> per-cluster reports in [`fix-plans/`](fix-plans/). Two items below moved: **#7's Vue half is FIXED**
-> (`d8b5f7c1`/#2885), and **#2 needs sharpening** — see the note after item 10.
-
-
-1. **Fix F-035** — `tenantOwned + auditable` must write on .NET. One line:
-   `dotnet/emit/auditable-interceptor.tpl.ts:157-158` uses `.find()` where every other consumer uses
-   `.filter().flatMap()`. Today the most common B2B aggregate shape 500s on that backend.
-2. **Compile the generated output of a NON-vendor model, per backend, per PR.** Every one of my 16
-   S1s dies here. A fuzz-generated or contributor-supplied corpus, not `examples/`.
-3. **Ship releases**: tags, a changelog, semver, and a lockfile in every generated project. Until
-   then Loom cannot be depended on by anyone who has to answer "what version are we on?".
-4. **Make the OIDC demo path work end to end** (F-024, F-022): grant `offline_access` in the emitted
-   realm, set `OIDC_POST_LOGIN_REDIRECT`, and seed protocol mappers for the declared `user { … }`
-   claims so the shipped stack can demonstrate its own authorization model.
-5. **Close the deny-by-default interaction set** (F-008, F-010, F-018, F-011): give `crudish` a gate
-   argument; stop warning about the `find all()` the security posture requires; make the FK picker
-   follow the declared return shape; let a page gate name a permission instead of crashing.
-6. **No generator crash without a `loom.*` diagnostic.** Three crashes (F-011, F-012, F-040) reached
-   me as raw Node stack traces into `out/`. Any throw that escapes codegen is a missing validator.
-7. **Fix the Vue and Angular build breaks** (F-032, F-033) and add a per-target corpus floor so the
-   17× skew fails rather than accumulates.
-8. **Warn or refuse on hand-edited files** before overwriting them (F-037) — even a
-   "`N file(s) differ from the last generation; overwrite? [--force]`" would end the whole class.
-9. **Connect the i18n halves** (F-044): emit every `locales/*.json` and register it in the generated
-   runtime.
-10. **Fix the docs a buyer reads first**: the 404 live-site links, the LICENSE claim, the dev-claims
-    example, the tenancy-bootstrap example, and the five-backends/six-frontends framing.
-
-> **Sharpening #2 and #6, after ten agents each asked "why did no gate catch this?".** They converged
-> on one answer, and it is not the one I wrote here. **The gates fail on REACH, not on POWER.** The
-> per-PR corpus *does* compile generated output on every backend. `test/system/pipeline-fuzz.test.ts`
-> *does* assert "a crash on a valid model is always a bug", in 13 seconds, on every PR. Neither is
-> missing. What they have never been handed is an input that reaches the code under test: **F-025**
-> fires only when the deployable is *named* `api` (67 corpus fixtures name theirs `d`; `ddd new`
-> scaffolds `api`); **F-033**'s Angular gate contains the literal `string[]` in a position that
-> structurally cannot reach the code it names; **F-035**'s broken output *compiles green*; and the fuzz
-> generator's name pool is **eight single-word names**, which makes F-012 unreachable by construction.
-> Zero corpus fixtures use `!=` in a projection `where`, contain both a `workflow` and a `function`,
-> put `currentUser` in a find filter, or contain `requires true`.
-> So the durable fix is **seven fixture-and-reach changes, not eighty patches** — each an edit to a gate
-> that already exists, none adding a CI leg but one. `FIX-PLAN.md` §5 has them costed. The cheapest is
-> three words added to one array (multi-word names in the fuzz generator), and it would have caught
-> F-012 and an unknown number of its siblings.
-
----
-
-## 13. Coverage and limits of this evaluation
-
-**What I did.** Built a 594-line multi-tenant B2B model from the docs; generated it onto 5 backends
-and 6 frontends; compiled 5 backends and 4 frontends in real toolchains under docker; booted 3 full
-stacks against Postgres; drove them with HTTP probes including tenancy, authorization, masking,
-concurrency and SQL-injection attempts; exercised 6 schema-evolution scenarios against a database
-with real rows; ran the generated e2e suite (3/3 pass) and `ddd verify`; wrote 10 deliberately
-broken models; exercised `--sourcemap`/`trace`/`breakpoints`, the 14-tool agent surface, the i18n
-CLI, `--k8s` + `helm lint`, and the playground built locally; scaled the model to 40 aggregates.
-Every S1/S2 has a minimal reproduction in `eval/repro/`.
-
-**What I did not do — do not infer coverage here.**
-- **Feliz and Flutter are unverified.** No Fable or Flutter toolchain in this environment. They
-  generate; whether they build is unknown.
-- **Java and Elixir were compiled but never booted.** My claim that F-035 also affected Java was a
-  static inference and has since been **disproved** — Java routes audit stamps through Spring Data
-  annotations, not `@PrePersist`. Corrected in FINDINGS.md.
-- **Wire parity was measured for exactly one backend pair** (node↔python). Four pairs untested.
-- **The playground is smoke-tested only.** I could not paste a 600-line model through Monaco
-  headlessly; the "visual system builder", "live preview" and "in-browser test runner" claims are
-  **unverified**, only observed as present.
-- Event sourcing (`persistedAs: eventLog`), aggregate inheritance (TPH/TPC), `extern`, domain
-  services, provenance/`ddd snapshot`, the DAP adapter, `ddd patch`, the MCP server over a real
-  transport, brokers at runtime (rabbitmq/kafka), and the conformance/Schemathesis harness were
-  **not tested** — generated-only or not touched.
-- I did not test beyond 40 aggregates, nor with a large data volume, nor under concurrency.
-- **Disclosure:** this environment injected the maintainers' `CLAUDE.md` into my context at session
-  start, so the Phase 0–6 blindness to internal material was imperfect for that one file. I did not
-  consult it for answers — every finding below came from the public docs, the CLI, and execution —
-  but the council should know.
-
-**Where my confidence is low:** the Feliz/Flutter row; whether the 16 S1s are the whole set or a
-sample (I stopped looking, I did not run out); and how fast the team fixes them — the closed-issue
-history says *very* fast, which is the main reason this is a pilot recommendation and not a refusal.
-
----
-
-## Appendix A — Appendix-B questions, answered directly
-
-1. **How long to a running app?** ~4 min hands-on (18 min wall here). To model a realistic domain:
-   ~3 hours to a clean parse, ~6 more to a running system because of generator bugs. To make the
-   first breaking change safely: ~20 minutes, and it was safe.
-2. **What can the DSL not express?** Construction-time logic (F-007); cross-context transactional
-   orchestration (F-009); a `let` inside a loop (F-002); an identity criterion (F-003); page gates
-   over permissions (F-011); group-by/window/full-text/derived-field-sorting read paths; array
-   editing in forms. You escape via workflows, by merging contexts, or by owning a hand-written page.
-3. **What happens when you regenerate over hand edits?** They are overwritten, silently, with no
-   backup — unless listed in `.loomignore`, which preserves them and hands you the drift.
-4. **Can a breaking schema change ship against production without data loss?** **Yes, demonstrated.**
-   Renames preserve data automatically; drops and NOT NULL flips are refused with exit 1 and a named
-   declarative fix. The one blind spot is `string`→`enum` (F-036).
-5. **Is tenant isolation airtight in the generated code?** On node, **yes** — verified by probe, and
-   fail-closed on a missing or malformed claim. Unverified on java/elixir; .NET could not be
-   exercised because writes 500.
-6. **Are the five backends and six frontends interchangeable?** **No.** node+React is the real path.
-   The others are between "one patch away" and "unverified".
-7. **Could our SRE team operate it? Could our engineers debug it?** Operate: yes — health/ready/
-   metrics, structured logs with trace ids, a lint-clean Helm chart. Two fixes needed: no `restart:`
-   policy, and no lockfile. Debug: partly — `ddd breakpoints` maps a model line to generated
-   `file:line:col` precisely, but `ddd trace` cannot read a production stack trace because the
-   shipped image is a bundle run without source maps (F-042).
-8. **Exit cost in year two?** Two to four weeks of re-orientation. We keep everything.
-9. **The most likely way this blows up:** we pilot on node+React, it works, we grow confident, and
-   then a second team picks .NET or Vue — or we add an `auditable` tenant aggregate on .NET — and
-   discover the target was never really there. **Early warning:** run condition C1 (compile the
-   generated output of *our* model on *every* target) in our own CI from day one. The day it goes
-   from 1/5 to 5/5 is the day this becomes an "Adopt".
-10. **Verdict:** **Pilot on a non-critical project only**, on node + React, with C1–C5 as the exit
-    criteria from pilot to adoption.
-
----
-
-## Appendix B — feature coverage (the brief's checklist)
-
-**exercised** = used in FieldOps or a dedicated repro AND the result observed at compile or run time ·
-**smoke** = generated and eyeballed, not compiled/run · **not tested** = untouched.
-
-### Language core
-| Feature | | Verdict |
+| # | Fix | Why it ranks here |
 |---|---|---|
-| aggregates, entities, containment | exercised | ✅ works, round-trips over the wire |
-| value objects + invariants | exercised | ✅ 422 + field pointer |
-| enums, optional + collection types | exercised | ✅; `string[]` breaks Angular forms (F-033) |
-| derived fields | exercised | ✅ incl. money arithmetic and interpolation |
-| functions (expression form) | exercised | ✅ — but `private` when called from a workflow (F-015/026) |
-| operations + preconditions + `when` gates | exercised | ✅ 422 / 409 correctly separated |
-| events and `emit` | exercised | ✅ emitted; broker delivery **not tested** at runtime |
-| repositories and custom `find`s | exercised | ✅; `currentUser` finds break node (F-014) + elixir (F-029) |
-| cross-aggregate refs (`X id`) | exercised | ✅; python misses the import (F-027) |
-| criterion | exercised | ✅; no identity criterion (F-003) |
-| payload/command/query/response/error | smoke | generated only |
-| discriminated unions, `option` | not tested | |
-| abstract aggregates, `extends`, TPC/TPH, polymorphic reads | not tested | (issue #2806 says java was broken here recently) |
-| domain services | not tested | (issue #2649 open against node) |
-| capabilities (`auditable`, `tenantOwned`, `tenantRegistry`) | exercised | ✅ model-side; **F-035 breaks .NET at runtime** |
-| `softDeletable`, `versioned` | not tested | |
-| macros (`scaffold`, `crudish`) + unfold | exercised | ✅ unfold round-trips byte-identically |
-| multi-file models + imports | not tested | |
-| stdlib (scalars, collection ops, money, date/time) | exercised | ✅ money closed arithmetic enforced and correct on the wire |
-| `extern` operations | not tested | |
-| provenanced fields, `ddd snapshot` | smoke | `.loom/snapshots/` emitted |
+| 1 | **Route every page-gate call site through `tryRenderGate`** (F-005) | Unblocks the entire recommended security posture. Their own test already specifies the contract; two call sites don't use it. Likely a one-line change per site. |
+| 2 | **Gate the auto-`findAll` route under `denyByDefault`** (F-006) | `denyByDefault` currently leaves most of the API enumerable. Highest security impact per unit of work. |
+| 3 | **Type-check generated TypeScript in its own Dockerfile** (F-014 amplifier) | Converts the worst failure shape (four green gates, runtime defect) into a build failure. Adds one line to a template. |
+| 4 | **Fix cross-context value-object emission on dotnet + the 4 JSX frontends** (F-001) | Breaks the vendor's own front-page example on 5 of 9 targets. First thing a new user hits. |
+| 5 | **Validate `test e2e` calls against emitted routes** (F-003) | Both halves are in one IR. Turns the "no drift" claim from marketing into a gate, and fixes the README example. |
+| 6 | **Make `Money` not special-case construction validation** (F-014) | The gate exists and works for every other name. Restores the "LLM-safe" claim's stated mechanism. |
+| 7 | **A conformance corpus of *ordinary shapes*, compiled on every target** — a shared VO, a field named `state`, a field named `member`, an `X id[]`, a `for`-loop reactor, `mask unless`, a VO named `Money` — plus a **per-target reserved-word escape map** | This is the structural fix, and it moved up in the second pass: it would have caught **8 of the 10** S1 defects. Their absence is why a 16-agent internal audit missed all of them. |
+| 8 | **Replace emitter `throw`s with `loom.*-unsupported-backend` diagnostics** (F-005, F-013) | The register's own header demands this. Converts crashes into HONEST gaps — the single best ratio improvement available. |
+| 9 | **Stale-pin detection**: warn when a `.loomignore`-pinned file's aggregate changed (F-008) | Makes the escape hatch safe to use, which makes "you own the source" honest. |
+| 10 | **Qualify the README** to match `docs/audits/` (F-019), and emit the MIT LICENSE from `generate` (F-007) | Cheapest items on the list; they are what a technical buyer checks first, and getting caught on them costs more trust than the bugs do. |
 
-### Systems layer
-| Feature | | Verdict |
-|---|---|---|
-| subdomains/contexts, api/storage/ui/deployable | exercised | ✅ |
-| multiple deployables, per-deployable platform | exercised | ✅ — and it triggers F-012 + F-019 |
-| docker compose output | exercised | ✅ after F-020 |
-| resources (objectStore, mailer, api) | smoke | minio + mailpit sidecars emitted; not exercised |
-| channels/brokers, CloudEvents, outbox | smoke | redis sidecar + wiring emitted; **not tested at runtime** |
-| workflows (transactional, isolation) | exercised | ✅ **serializable rollback verified** |
-| Kubernetes/Helm | exercised | ✅ `helm lint` clean, secret/config split |
-| migrations + destructive gating | exercised | ✅ **the strongest component** |
-| observability envelope + logs | exercised | ✅ `/metrics`, structured logs, Prom+Jaeger overlay |
-| `.loom/` artifact bundle | exercised | ✅ wire-spec, mermaid, LikeC4, traceability, verification, sourcemap |
+---
 
-### Frontend
-| Feature | | Verdict |
-|---|---|---|
-| page DSL + primitives (Stack/QueryView/Table/Money/KeyValueRow/Chart) | exercised | ✅ except `Chart` (F-017) |
-| scaffolded vs hand-written (the gradient) | exercised | ✅ rungs 0/1/2 all verified |
-| the six frameworks | exercised ×4, unverified ×2 | see §4 |
-| design packs + swapping | exercised | ✅ 4 React packs clean |
-| navigation/menus | exercised | ✅ rendered in the browser |
-| forms + client validation | exercised | ✅ (arrays honestly disabled on React) |
-| i18n (`t()`, catalog, sync/check) | exercised | ⚠ CLI works, runtime never receives it (F-044) |
-| generated Playwright page objects + e2e | exercised | ✅ emitted; api e2e **3/3 pass** |
+## 11. Coverage limits — what I did not test
 
-### Auth, tenancy, governance
-| Feature | | Verdict |
-|---|---|---|
-| OIDC code flow + PKCE + refresh rotation | exercised | ❌ fails out of the box (F-024); works after 2 hand fixes |
-| `enforcement: denyByDefault` | exercised | ✅ caught 21 ungated surfaces — excellent |
-| permissions catalogue with `implies` | exercised | ✅ backend; ❌ crashes the page-gate renderer (F-011) |
-| `requires` gates (op/find/projection/page) | exercised | ✅ 403 verified |
-| `mask unless` | exercised | ✅ redacts for the unauthorised caller |
-| `currentUser` | exercised | ✅ |
-| multi-tenancy stances, `tenantRegistry` | exercised | ✅ **isolation verified airtight on node** |
-| hierarchical scoping, `policy {}` ladder, `crossTenant` | smoke | declared, not exercised |
-| audit trail + history read | exercised | ✅ `/history` route + gate; **F-035 blocks it on .NET** |
+Stated plainly, because the recommendation should not be read as broader than
+the evidence.
 
-### Quality and tooling
-| Feature | | Verdict |
-|---|---|---|
-| inline domain tests | smoke | declared and emitted |
-| API e2e / UI e2e tests | exercised | ✅ api 3/3 pass; ❌ F-012 breaks generation with 2 deployables |
-| `requirement`/`solution`/`testCase` + `ddd verify` | exercised | ✅ correct rollup + exit 1 |
-| OpenAPI conformance harness | not tested | |
-| `--dry-run`, watch mode, `.loomignore` | exercised (`.loomignore`) | ✅ works and is reported |
-| `--sourcemap` + `trace` + `breakpoints` + DAP | exercised (DAP not tested) | ✅ breakpoints precise; ❌ trace on production (F-042) |
-| `ddd patch` | not tested | |
-| MCP / agent tool surface | exercised | ✅ 14 tools work |
-| browser playground | smoke | loads, validates, generates 107 files in-browser |
-| `ddd new` templates | exercised | ✅ (warns on its own output, F-001) |
-| the docs site | exercised | ❌ advertised URL 404s (F-043) |
+- **Everything generated is now compile-tested.** No target is left
+  "unverified": all five backends and all six frontends were built with their
+  real toolchains (node/vue/svelte/angular/react via npm + tsc/vue-tsc/
+  svelte-check/ng, dotnet via `dotnet publish`, java via `gradle:9-jdk25`,
+  elixir via `mix compile --warnings-as-errors` behind the documented hex
+  mirror, feliz via `dotnet fable` + vite, flutter via `flutter analyze`).
+- **Not booted:** vue, svelte, flutter, feliz, elixir, java. Only node, python
+  and (on a reduced model) dotnet ran as live services. **Wire identity was
+  verified for exactly one pair** (node ↔ python); the "identical API contracts"
+  claim rests on that one comparison, not on five.
+- **Design packs: not tested.** I used `mantine` and the default. The "swap any
+  time" and "thirteen packs" claims are **Unverified**, not verified.
+- **Playground / visual builder / VS Code extension / MCP server: not tested.**
+  These are a significant part of the pitch and I have no evidence either way.
+- **Kubernetes output, observability overlay, provenance/`snapshot`, event
+  sourcing (`persistedAs: eventLog`), inheritance (TPC/TPH, polymorphic reads),
+  domain services, `extern`, seeds, multi-file `import`:** not exercised.
+- **Runtime performance and load:** not tested. "No scaling cliff" is verified
+  only for *generation* time.
+- **Toolchain upgrade stability:** not tested — no releases to move between in
+  the visible history. This is a real blind spot for a multi-year commitment.
+- **Flutter/Feliz `X id[]` and cross-context VO behaviour:** unknown; they may
+  share F-001/F-016 or not.
+- **Confidence is highest** on: the modelling ceiling (F-002, F-012 — tested
+  from several angles), migration safety (six change classes against a populated
+  DB), and runtime authorization enforcement (live server, real OIDC tokens,
+  two principals). **Confidence is lowest** on: runtime behaviour of the seven
+  targets I compiled but never booted, the design packs, the playground, and
+  toolchain-upgrade stability.
+
+One methodological note: the harness auto-injected the repository's `CLAUDE.md`
+into my context before Phase 0, so I was not perfectly blind to internals. I did
+not open `docs/new-plan/`, `docs/old/`, `docs/audits/`, `experience_gathered.md`,
+`.claude/` or `test/` until Phase 6, and every finding is grounded in a command
+run from outside.

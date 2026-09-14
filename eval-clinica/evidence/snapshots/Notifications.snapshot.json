@@ -1,0 +1,74 @@
+{
+  "schemaVersion": 1,
+  "tables": [
+    {
+      "name": "on_appt_confirmeds",
+      "ownerModule": "Notifications",
+      "columns": [
+        {
+          "name": "appointment_id",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        }
+      ],
+      "primaryKey": [
+        "appointment_id"
+      ],
+      "foreignKeys": [],
+      "indexes": [],
+      "schema": "notifier"
+    },
+    {
+      "name": "reminders",
+      "ownerModule": "Notifications",
+      "columns": [
+        {
+          "name": "id",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        },
+        {
+          "name": "appointment",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": false
+        },
+        {
+          "name": "sent_at",
+          "type": {
+            "kind": "datetime"
+          },
+          "nullable": false
+        },
+        {
+          "name": "version",
+          "type": {
+            "kind": "int"
+          },
+          "nullable": false,
+          "default": "1"
+        }
+      ],
+      "primaryKey": [
+        "id"
+      ],
+      "foreignKeys": [],
+      "indexes": [],
+      "schema": "notifier",
+      "savingShape": "relational"
+    }
+  ],
+  "lastVersion": "20260102500000",
+  "migrationHistory": [
+    {
+      "version": "20260102000000",
+      "name": "Initial"
+    }
+  ],
+  "versionBlock": 1
+}

@@ -101,6 +101,17 @@ system SvelteShop {
             body: Card { "Welcome", Stack { Text { name }, Slot {} } }
         }
 
+        // `DestroyForm` hoists `useDeleteCustomer()` — the ONE mutation hook
+        // that takes no hook-time argument, where every other one takes an id
+        // accessor.  Svelte's shell wrapped all of them in a thunk, so this
+        // page used to emit `useDeleteCustomer(() => )` — a parse error no
+        // svelte matrix example reached, because none carried a DestroyForm.
+        page CustomerRemove {
+            route: "/customers/:id/remove"
+            title: "Remove customer"
+            body: Stack { DestroyForm { of: Customer } }
+        }
+
         page Welcome {
             route: "/welcome"
             title: "Welcome"
