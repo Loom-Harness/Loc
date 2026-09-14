@@ -153,6 +153,8 @@ An eleventh arm is named but not re-measured: **Flutter is the ONE frontend with
 
 **Runtime proof:** five `flutter test` cases against a mocked `shared_preferences` — absent → null, present → value, junk → null without throwing, a nested `json` payload verbatim, and a setter write → `listenSelf` mirror → re-boot round trip. **Mutation-proved:** deleting the two new arms refuses all five cells at generate (`field 'nickname' | 'retryCount' | 'lastSeen' | 'blob' | 'extra' cannot be persisted`) and fails 10 of the 12 new vitest cases.
 
+**Blast-radius note, the same lesson batch 1 recorded.** The codec change's own suites were green while `test/ir/store-lifetime-target-unsupported.test.ts` — the CODE-named unit test, which nothing in the feature-named suites touches — still asserted the two REFUSALS this row drains (`flags an optional cell`, `flags a json cell`). Only the full run found it. The two rows now assert the ship, plus a new one pinning the `url`-tier exception in both directions.
+
 **Ledger `feliz-flutter-persist-codec-asymmetry` stays open and is honestly narrower.** `json` no longer diverges (both persist it — this was the ONE divergence pointing feliz-permissive); `optional` now diverges the other way and is pinned as such; what remains — datetime / enum / guid / decimal[] / money[] / optional on flutter but not feliz — is the FELIZ table's work.
 
 ---

@@ -127,17 +127,48 @@ describe("loom.store-lifetime-target-unsupported — the flutter FIELD-scoped ha
   }
 
   // … but a cell whose Dart codec has no total conversion is still refused,
-  // because it would silently vanish from the stored state.
+  // because it would silently vanish from the stored state.  `fromJson` throws
+  // on junk, which is what rules the record shapes out.
   for (const [what, cells] of [
     ["a value-object cell", "count: int = 0  price: Money"],
     ["a File cell", "count: int = 0  doc: File"],
-    ["an optional cell", "count: int = 0  note: string?"],
-    ["a json cell", "count: int = 0  blob: json"],
   ] as const) {
     it(`flags ${what}`, async () => {
       expect(await codes("flutter", "flutter", "local", cells)).toContain(CODE);
     });
   }
+
+  // WIDENED in wave C2: an OPTIONAL scalar and a `json` cell both persist now.
+  // Neither was ever a totality problem — an absent key restores a `T?` cell as
+  // `null` (its RIGHT value, not a lost one), and a `json` cell IS json, so
+  // storing the decoded value back is the identity.  The four JS frontends had
+  // always persisted both (Zustand serialises the whole state), so refusing
+  // them was a per-target gap.  These two rows used to assert the refusal and
+  // now assert the ship, which is the direction a drained gap moves in.
+  for (const [what, cells] of [
+    ["an optional cell", "count: int = 0  note: string?"],
+    ["a json cell", "count: int = 0  blob: json"],
+  ] as const) {
+    it(`does NOT flag ${what} at a blob tier`, async () => {
+      expect(await codes("flutter", "flutter", "local", cells)).not.toContain(CODE);
+      expect(await codes("flutter", "flutter", "session", cells)).not.toContain(CODE);
+    });
+  }
+
+  // …with ONE tier-scoped exception, and it is about the RESTORE side rather
+  // than the encode side: `hydrateFromUrl` re-seeds through `copyWith`, whose
+  // `x ?? this.x` cannot set a cell to null, so an absent query param would
+  // silently KEEP the old value — a wrong value, not a missing feature.
+  it("still flags an optional cell under `persist: url`, where null cannot be restored", async () => {
+    expect(await codes("flutter", "flutter", "url", "count: int = 0  note: string?")).toContain(
+      CODE,
+    );
+    // `json` is unaffected: its absent-value fallback is the cell's own
+    // declared default, which is never null, so `copyWith` restores it.
+    expect(await codes("flutter", "flutter", "url", "count: int = 0  blob: json")).not.toContain(
+      CODE,
+    );
+  });
 
   it("names the offending FIELD, not just the store", async () => {
     const d = (
