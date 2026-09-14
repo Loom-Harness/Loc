@@ -900,7 +900,16 @@ export function checkParameterDefault(p: Parameter, env: Env, accept: Validation
 // ---------------------------------------------------------------------------
 
 /** Declaration kinds that exist in a rule expression's neighbourhood but are
- *  NOT addressable from one.  `$type` → the word the diagnostic uses. */
+ *  NOT addressable from one.  `$type` → the word the diagnostic uses.
+ *
+ *  Deliberately excludes the INFRASTRUCTURE handles — `resource`, `storage`,
+ *  `channel`, `channelSource`.  A resource handle is AMBIENT over its context
+ *  (`lowerContext` seeds `resources` into the same `Env` an aggregate body
+ *  resolves against), so it genuinely resolves at the IR layer even though the
+ *  AST-side `envForNode` does not model it — and its misuse in a rule already
+ *  has a dedicated, better-worded gate (`loom.resource-op-outside-workflow`,
+ *  `src/ir/validate/checks/…`) that names the resource verb.  Listing them here
+ *  would double-report and pre-empt the specific diagnostic with a generic one. */
 const UNADDRESSABLE_FROM_RULE: ReadonlyMap<string, string> = new Map([
   ["Repository", "repository"],
   ["Aggregate", "aggregate"],
@@ -913,10 +922,6 @@ const UNADDRESSABLE_FROM_RULE: ReadonlyMap<string, string> = new Map([
   ["Component", "component"],
   ["Store", "store"],
   ["Deployable", "deployable"],
-  ["Storage", "storage"],
-  ["Resource", "resource"],
-  ["Channel", "channel"],
-  ["ChannelSource", "channel source"],
   ["Subdomain", "subdomain"],
   ["BoundedContext", "context"],
   ["System", "system"],
