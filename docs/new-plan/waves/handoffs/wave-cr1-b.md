@@ -298,12 +298,19 @@ and were not booted here — their backends already read `OIDC_AUDIENCE` on
 |---|---|
 | `npx tsc -b` | clean |
 | `npm run lint` (`biome ci .`) | exit 0; 24 warnings, all pre-existing (25 → 24 after I dropped a now-unused param; **no new warning from this packet**) |
-| `npx vitest run test/language test/generator/typescript` | 281 files, 2548 passed / 2 skipped |
-| `npx vitest run test/system/diagnostic-{firing-census,catalog,docs-anchors}.test.ts` | 415 passed |
+| `npx vitest run test/system` | **98 files passed** / 1 skipped · 2151 tests passed / 30 skipped |
+| `npx vitest run test/language test/generator/typescript` | **281 files passed** · 2548 tests passed / 2 skipped |
+| `npx vitest run test/ir` | **270 files passed** · 3180 tests passed / 1 skipped |
 | `npx vitest run test/generator/elixir/auth-oidc-emit.test.ts` | 19 passed |
 | `npx vitest run test/language/auth-block.test.ts` | 14 passed |
 | `LOOM_AUTH_E2E=1 npx vitest run test/e2e/auth-oidc-e2e.test.ts` (real docker Keycloak) | 1 passed |
+| caught by a gate, fixed here | `test/system/archived-docs-fence.test.ts` — the hand-off's link to `docs/audits/code-review-2026-09-13.md` was dead in THIS tree (the audit lands with #2938): *"dead link into the frozen archive"*. Now a plain reference with a note to relink at the fold |
 | mutation proofs | **4** — validator (×2 gates), hono emitter unit, elixir emitter unit, and the hono **runtime** e2e row; each failing assertion quoted above |
+
+> **Runner note.** The box was saturated by a sibling agent's session (load avg
+> ~57) and every `test/system` run under vitest's default forks pool was
+> SIGKILLed mid-run with an empty log. `--pool=threads --no-file-parallelism`
+> survives it. Worth knowing before reading an empty vitest log as a hang.
 
 ## Files touched
 
