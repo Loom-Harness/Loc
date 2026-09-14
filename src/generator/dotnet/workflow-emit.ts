@@ -2135,7 +2135,7 @@ export function renderExprWithCmdParams(
  *  A service is `reading` when a called operation consumes at least one
  *  read-port; a PURE-only service is excluded (its calls stay the static shape,
  *  needing no injection).  De-duplicated by service name. */
-function collectReadingServices(wf: WorkflowIR, ctx: EnrichedBoundedContextIR): Set<string> {
+export function collectReadingServices(wf: WorkflowIR, ctx: EnrichedBoundedContextIR): Set<string> {
   const out = new Set<string>();
   for (const s of wf.statements) {
     walkWorkflowStmtExprsDeep(s, (e) => {
@@ -2154,7 +2154,7 @@ function collectReadingServices(wf: WorkflowIR, ctx: EnrichedBoundedContextIR): 
  *  `<service>.<op>` call to its injected receiver (`_<service>`) + async method
  *  (`<Op>Async`).  Returns undefined for a PURE op, so the `domain-service`
  *  render arm keeps the static `Service.Op(...)` shape (byte-identical). */
-function workflowReadingServiceCallResolver(
+export function workflowReadingServiceCallResolver(
   ctx: EnrichedBoundedContextIR,
 ): NonNullable<CsRenderContext["domainServiceReadingCall"]> {
   return (service, op) => {

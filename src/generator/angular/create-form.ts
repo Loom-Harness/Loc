@@ -12,7 +12,7 @@ import {
   formButton,
   partitionAngularFields,
 } from "./form-fields.js";
-import { applyAngularValidators } from "./form-validators.js";
+import { angularValidatorMap, applyAngularValidators } from "./form-validators.js";
 import { angularSink } from "./walker/sink.js";
 
 // ---------------------------------------------------------------------------
@@ -117,16 +117,17 @@ export function renderAngularCreateForm(
   const close = "  ".repeat(depth);
   // Split array-of-value-object inputs off — they render as a `FormArray` of
   // row groups; every other field stays a flat `FormControl`.
-  const parts = partitionAngularFields(fields, bc, ns, ctx, formVar);
-
   // Fold the aggregate's wire-translatable invariants into per-field
   // `Validators.*` (the Angular twin of the other frontends' zod native chain),
   // over the create-input fields only — invariants over excluded (managed /
   // token) fields stay server-side, exactly as the zod `Create<Agg>Request`
   // gates them.  A field with a constraint also gets an inline error that
   // reveals once the field is touched (the submit handler marks all touched on
-  // a blocked submit).
+  // a blocked submit), and — computed HERE, before the markup is built — the
+  // matching `aria-invalid` / `aria-describedby` on the control itself.
   const available = new Set(fields.map((f) => f.name));
+  const errorFields = new Set(angularValidatorMap(agg.invariants, available).keys());
+  const parts = partitionAngularFields(fields, bc, ns, ctx, formVar, errorFields);
   const fieldMarkup = applyAngularValidators(parts, agg.invariants, available, formVar, ns, ctx);
   const submit = formButton(ctx, {
     type: "submit",

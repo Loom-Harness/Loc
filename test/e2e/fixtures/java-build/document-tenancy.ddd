@@ -8,7 +8,7 @@
 // `currentUser != null && (Objects.equals(x.tenantId(), currentUser.tenantId()))`
 // in-app predicate to every read.  `auth: required` emits the
 // CurrentUserAccessor / User the accessor resolves through.  Previously gated by
-// `loom.context-filter-unsupported`.
+// `loom.context-filter-no-principal`.
 //
 // Decisive check that the generated in-app document store compiles under
 // `gradle testClasses bootJar` (the java-build gate).
