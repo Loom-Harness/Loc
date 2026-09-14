@@ -43,7 +43,6 @@ import {
   isMatchExpr,
   isMemberSuffix,
   isModel,
-  isMoneyLit,
   isNameRef,
   isNowExpr,
   isNullLit,
@@ -63,6 +62,7 @@ import {
   isValueObject,
   type TemplateStr,
 } from "../../language/generated/ast.js";
+import { moneyLiteralText } from "../../language/money-literal.js";
 import { isCollectionOp } from "../../util/collection-ops.js";
 import { bodyTypeOf } from "../../util/expr-body-type.js";
 import { isIntrinsicMatcher } from "../../util/intrinsic-matchers.js";
@@ -1138,8 +1138,13 @@ function lowerExprInner(expr: Expression | undefined, env: Env): ExprIR {
   if (isTemplateStr(expr)) return lowerTemplateString(expr, env);
   if (isIntLit(expr)) return lit("int", String(expr.value));
   if (isDecLit(expr)) return lit("decimal", expr.value);
-  if (isMoneyLit(expr)) return lit("money", expr.value ?? "0");
   if (isPrimitiveConversion(expr)) {
+    // `money("10.50")` — the string-arg LITERAL form.  One grammar rule now
+    // serves both it and `money(someDecimal)` (see src/language/money-literal.ts
+    // for why); the argument's shape is what separates them, and the literal
+    // lowers to exactly the `lit("money", …)` the deleted `MoneyLit` rule did.
+    const moneyText = moneyLiteralText(expr);
+    if (moneyText !== undefined) return lit("money", moneyText);
     const fromType = inferExprType(expr.value, env);
     // Aggregate → string lowers to `aggregate.display` member access.
     // The validator has already ensured `display` exists; if it
@@ -1956,7 +1961,6 @@ export function inferExprType(expr: Expression | undefined, env: Env): TypeIR {
   if (isTemplateStr(expr)) return { kind: "primitive", name: "string" };
   if (isIntLit(expr)) return { kind: "primitive", name: "int" };
   if (isDecLit(expr)) return { kind: "primitive", name: "decimal" };
-  if (isMoneyLit(expr)) return { kind: "primitive", name: "money" };
   if (isPrimitiveConversion(expr)) {
     return { kind: "primitive", name: expr.target as PrimitiveName };
   }
@@ -1975,14 +1979,7 @@ export function inferExprType(expr: Expression | undefined, env: Env): TypeIR {
     return { kind: "array", element: elementType };
   }
   if (isNowExpr(expr)) return { kind: "primitive", name: "datetime" };
-  if (isThisRef(expr)) {
-    if (env.part) return { kind: "entity", name: env.part.name };
-    if (env.aggregate) return { kind: "entity", name: env.aggregate.name };
-    if (env.valueObject) return { kind: "valueobject", name: env.valueObject.name };
-    if (env.workflow) return { kind: "entity", name: env.workflow.name };
-    if (env.projection) return { kind: "entity", name: env.projection.name };
-    return { kind: "primitive", name: "string" };
-  }
+  if (isThisRef(expr)) return thisTypeOf(env);
   if (isIdRef(expr)) {
     if (env.part) return { kind: "id", targetName: env.part.name, valueType: "guid" };
     if (env.aggregate) {
@@ -2583,8 +2580,11 @@ function memberType(t: TypeIR, name: string, env: Env): TypeIR {
   // `currentUser.<field>` — synthetic entity backed by the system's
   // user block.  Walked via env.user.fields rather than the
   // bounded-context registry.  Unknown members fall through to the
-  // string fallback; the validator will surface the broken reference
-  // with a friendlier message.
+  // string fallback — the AST validator has already rejected a
+  // source-written one (`loom.unknown-user-claim`,
+  // `validators/types.ts` → `absentUserClaim`), so what still reaches
+  // here is a macro/capability splice whose principal side phase ⑥
+  // rebinds (`tenantOwned`'s `currentUser.tenantId` placeholder).
   if (t.kind === "entity" && t.name === USER_SHAPE_NAME && env.user) {
     // `currentUser.orgPath` — the derived tenant materialized-path member
     // (tenancy.md).  Not a `user {}` claim; computed per
@@ -2893,12 +2893,40 @@ export function provSiteFor(
   };
 }
 
-export function pathType(path: PathIR, env: Env): TypeIR {
+/**
+ * Type of the `this` receiver in the current env — the enclosing entity part,
+ * aggregate, value object, workflow or projection, in that shadowing order.
+ * Shared by `inferExprType`'s `ThisRef` arm and the statement lowerer's
+ * `this.<prop>.<verb>(…)` path so the two cannot disagree about what `this` is.
+ */
+export function thisTypeOf(env: Env): TypeIR {
+  if (env.part) return { kind: "entity", name: env.part.name };
+  if (env.aggregate) return { kind: "entity", name: env.aggregate.name };
+  if (env.valueObject) return { kind: "valueobject", name: env.valueObject.name };
+  if (env.workflow) return { kind: "entity", name: env.workflow.name };
+  if (env.projection) return { kind: "entity", name: env.projection.name };
+  return { kind: "primitive", name: "string" };
+}
+
+/**
+ * Type of an assignment target path.
+ *
+ * `thisRooted` says the SOURCE spelled the path `this.x` rather than `x`.  A
+ * `PathIR` is always rooted in `this` either way (see its doc comment), but the
+ * two spellings resolve their HEAD differently: the implicit form has always
+ * consulted locals first — which is what lets `count := count + 1` read a
+ * `let count` — while the explicit form must not, because naming the field is
+ * the entire reason to write it.  Without the distinction,
+ * `this.total := 0.50` inside `operation adjust(total: decimal)` would take the
+ * PARAMETER's `decimal` as its target type and drop the money elaboration the
+ * `total: money` field calls for.
+ */
+export function pathType(path: PathIR, env: Env, thisRooted = false): TypeIR {
   if (path.segments.length === 0) return { kind: "primitive", name: "string" };
   const head = path.segments[0]!;
   let cur: TypeIR;
-  // Try locals
-  const local = env.locals.get(head);
+  // Try locals — unless the source rooted the path in `this.` explicitly.
+  const local = thisRooted ? undefined : env.locals.get(head);
   if (local) cur = local.type;
   else if (env.aggregate) cur = memberOnEntity(env.aggregate, head);
   else if (env.workflow) cur = memberOnWorkflow(env.workflow, head);

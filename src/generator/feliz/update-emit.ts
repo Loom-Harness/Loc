@@ -191,7 +191,7 @@ function formFieldMsgs(f: FormRecord): string[] {
 function formFieldSetterArms(f: FormRecord): string[] {
   return f.fields.flatMap((fld) => {
     const set = (v: string): string =>
-      `{ model with ${f.formField} = { model.${f.formField} with ${fld.wireName} = ${v} } }, Cmd.none`;
+      `{ model with ${f.formField} = { model.${f.formField} with ${fld.fsName} = ${v} } }, Cmd.none`;
     if (fld.inputKind !== "file") return [`  | ${fld.setMsg} v -> ${set("v")}`];
     const pick = formFileSelectMsg(f.formType, fld.wireName);
     const done = formFileUploadedMsg(f.formType, fld.wireName);
@@ -230,7 +230,7 @@ function fieldArrayUpdateArms(f: FormRecord): string[] {
     ...fa.rowFields.map(
       (rf) =>
         `  | ${rf.setMsg} (i, v) -> ${withForm(
-          `${acc}${fa.fieldName} |> List.mapi (fun j row -> if j = i then { row with ${rf.wireName} = v } else row)`,
+          `${acc}${fa.fieldName} |> List.mapi (fun j row -> if j = i then { row with ${rf.fsName} = v } else row)`,
           fa,
         )}`,
     ),

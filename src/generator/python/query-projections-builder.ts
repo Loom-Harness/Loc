@@ -20,8 +20,9 @@ import {
 import { lines } from "../../util/code-builder.js";
 import { snake } from "../../util/naming.js";
 import { refuseOutOfVocabulary } from "../_expr/target.js";
+import { numericKindOf } from "../_numeric/codec.js";
 import { numericEncode } from "../_numeric/target.js";
-import { responsePyType, wireModelImport } from "./emit/http-models.js";
+import { paramPyType, responsePyType, wireModelImport } from "./emit/http-models.js";
 import {
   contextFilterPredicate,
   lowerProjectionFilterToSqlAlchemy,
@@ -34,6 +35,7 @@ import { PY_NUMERIC } from "./numeric-codec.js";
 import { rowClassName } from "./py-columns.js";
 import { renderPyExpr, renderPyNegatedGuard } from "./render-expr.js";
 import { authUserImport, wireValue } from "./repository-builder.js";
+import { pyWireToDomain } from "./routes-builder.js";
 
 /** Conjoin a projection's own `where` with the source aggregate's capability
  *  filters — either may be absent; two present become one `and_(...)`. */
@@ -326,7 +328,17 @@ function projectionRoute(
   // `requires` gate.
   const gate = proj.query!.requires;
   const needsUser = queryProjectionUsesCurrentUser(proj) || !!gate;
-  const sig = [...(needsUser ? ["request: Request"] : []), "session: SessionDep"].join(", ");
+  // A parameterised projection binds its parameters from the QUERY STRING —
+  // FastAPI infers that from a plain scalar function parameter, exactly as a
+  // parameterised `find` route does.  They lead the signature so the
+  // `request` / `session` dependencies keep their trailing position.
+  const projParams = proj.params.map((p) => `${snake(p.name)}: ${paramPyType(p.type, ctx)}`);
+  const sig = [
+    ...projParams,
+    ...(needsUser ? ["request: Request"] : []),
+    "session: SessionDep",
+  ].join(", ");
+  const projArgs = proj.params.map((p) => pyWireToDomain(snake(p.name), p.type, ctx)).join(", ");
   const out: string[] = [
     `@router.get("/${fn}", response_model=${proj.name}Response, operation_id="projection${proj.name}")`,
     `async def ${fn}_projection(${sig}) -> list[dict[str, object]]:`,
@@ -340,7 +352,7 @@ function projectionRoute(
         ]
       : []),
     `    repo = ${source}Repository(session, ${dispatcherExpr})`,
-    `    rows = await repo.${fn}()`,
+    `    rows = await repo.${fn}(${projArgs})`,
   ].filter((l): l is string => l != null);
   // join alias → { mapVar, idRow } and the bulk-load lines (dependency order).
   const aliasMap = new Map<string, { mapVar: string; idRow: string }>();
@@ -498,6 +510,18 @@ function pyCoerce(s: AggregateSelect, expr: string): string {
     return c.optional
       ? `None if ${expr} is None else ${numericEncode(PY_NUMERIC, "money", "projection-read", expr)}`
       : numericEncode(PY_NUMERIC, "money", "projection-read", `Decimal(${expr} or 0)`);
+  }
+  // An INTEGRAL declared field (`int` / `long`) is an integer on the wire
+  // (NUMERIC_WIRE_CODEC), and `float(...)` is not an integer: past 2^53 it
+  // corrupts silently (a `long` sum came back `9007199254740992.0` for
+  // `…93`), and below it, it shipped `2.0` into a field pydantic declares as
+  // `Int32` — accepted only because lax mode re-narrows an integral float
+  // (M-T5.23 / F13).  `int(...)` is exact at any magnitude.
+  const kind = numericKindOf(s.type);
+  if (kind === "int" || kind === "long") {
+    return c.optional
+      ? `None if ${expr} is None else ${numericEncode(PY_NUMERIC, kind, "projection-read", expr)}`
+      : numericEncode(PY_NUMERIC, kind, "projection-read", `${expr} or 0`);
   }
   if (c.optional) return `None if ${expr} is None else ${c.asString ? "str" : "float"}(${expr})`;
   return c.asString ? `str(${expr} or "0")` : `float(${expr} or 0)`;

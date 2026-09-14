@@ -802,9 +802,10 @@ export function checkEmit(stmt: EmitStmt, env: Env, accept: ValidationAcceptor):
     seen.add(f.name);
     const expected = declared.get(f.name);
     if (!expected) {
-      accept("error", `Event '${ev.name}' has no field '${f.name}'.`, {
+      accept("error", diagMessage("loom.emit-unknown-field", { evName: ev.name, f: f.name }), {
         node: f,
         property: "name",
+        code: "loom.emit-unknown-field",
       });
       continue;
     }
@@ -999,7 +1000,14 @@ export function lvalueType(
   accept: ValidationAcceptor,
 ): DddType {
   // Resolve the head: a parameter, let-binding, or an aggregate property.
-  const headSym = env.resolve(lv.head);
+  //
+  // An EXPLICIT `this.` prefix takes the first two off the table.  Skipping
+  // `env.resolve` is the whole point of the spelling: in
+  // `operation rename(name: string) { this.name := name }` the head and the
+  // parameter share a name, and resolving the head against the parameter would
+  // type-check the assignment against the WRONG member — silently, whenever
+  // the two types happen to be compatible.
+  const headSym = lv.thisRef ? undefined : env.resolve(lv.head);
   let cur: DddType;
   if (headSym) {
     cur = headSym.type;

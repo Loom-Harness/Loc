@@ -20,11 +20,12 @@
 // uses a globally unique `__unitTest_` name behind a `lookupMacro` guard, so a
 // re-run inside one worker cannot trip the duplicate error.
 //
-// The reset test below WIPES the shared registry.  That is safe because vitest
-// isolates each test FILE's module graph (`isolate: true`, the default), so the
-// registry this file mutates is its own instance — and it is restored from a
-// snapshot in `afterAll` regardless, with the following `describe` asserting
-// the restoration actually happened.
+// The reset test below WIPES the shared registry.  The unit project runs with
+// `isolate: false` (one module graph per worker), so the registry this file
+// mutates IS shared with whichever files land in the same worker — it is
+// restored from a snapshot in `afterAll`, with the following `describe`
+// asserting the restoration actually happened, and every other file that
+// registers into it boots the stdlib first so the head order holds.
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { MacroDefinition } from "../../src/macros/api/define.js";

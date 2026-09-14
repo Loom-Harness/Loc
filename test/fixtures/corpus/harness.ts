@@ -78,8 +78,9 @@ export function materializeCorpusFixture(
 export async function generateCorpusCase(
   featureId: string,
   backend: Backend,
+  persistence?: string,
 ): Promise<Map<string, string>> {
-  const source = corpusSourceFor(featureId, backend);
+  const source = corpusSourceFor(featureId, backend, persistence);
   const { model, errors } = await parseString(source);
   if (errors.length > 0) {
     throw new Error(`parse/validation errors:\n${errors.join("\n")}`);

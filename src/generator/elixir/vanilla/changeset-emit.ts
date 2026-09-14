@@ -30,6 +30,12 @@ import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { singleFieldConstraints } from "../../../ir/validate/invariant-classify.js";
 import { plural, snake, upperFirst } from "../../../util/naming.js";
 import { isServerSourcedDefault } from "../../_frontend/server-default.js";
+import {
+  MONEY_MAX_EXCLUSIVE,
+  MONEY_PRECISION,
+  MONEY_RANGE_MESSAGE,
+  MONEY_WIRE_SCALE,
+} from "../../money-scale.js";
 import { renderExpr as renderElixirExpr } from "../render-expr.js";
 import {
   aggregateHasResidualInvariants,
@@ -258,7 +264,43 @@ function renderChangeset(
           .filter((c) => castFields.has(snake(c.field)))
           .map((c) => ectoValidator(snake(c.field), c.pattern, inv.message?.text)),
   );
-  const validatorBlock = validatorLines.length > 0 ? `\n${validatorLines.join("\n")}` : "";
+  // Money RANGE (M-T6.60 divergence 3) — one `validate_change` per cast money
+  // COLUMN.  The create/update path never reaches `__loom_decimal_param` (the
+  // op-param guard): it casts straight onto the `:decimal` field, and
+  // `Ecto.Type.cast(:decimal, "<40 digits>")` succeeds, so the value reached
+  // NUMERIC(${MONEY_PRECISION},${MONEY_WIRE_SCALE}) and the DATABASE refused it — a 500 for a client fault.
+  // A value-object's money is deliberately NOT covered: it rides a jsonb column
+  // with no precision bound, so it cannot produce that failure.
+  const moneyColumns = allFields
+    .filter((f) => {
+      const t = f.type.kind === "optional" ? f.type.inner : f.type;
+      return t.kind === "primitive" && t.name === "money";
+    })
+    .map((f) => snake(f.name));
+  const moneyRangeLines = moneyColumns.map(
+    (f) => `    |> validate_change(:${f}, &__loom_money_range/2)`,
+  );
+  const moneyRangeHelper =
+    moneyColumns.length > 0
+      ? `
+
+  # The money column is NUMERIC(${MONEY_PRECISION},${MONEY_WIRE_SCALE}); a well-formed decimal string of any
+  # magnitude casts cleanly onto it, so without this the DATABASE is what
+  # refuses an over-large price — a 500 for a client fault.  The bound is
+  # derived from the column's own precision, so one constant governs the guard
+  # and the DDL (M-T6.60 divergence 3).
+  defp __loom_money_range(field, %Decimal{} = value) do
+    if Decimal.lt?(Decimal.abs(value), Decimal.new(${JSON.stringify(MONEY_MAX_EXCLUSIVE)})),
+      do: [],
+      else: [{field, ${JSON.stringify(MONEY_RANGE_MESSAGE)}}]
+  end
+
+  defp __loom_money_range(_field, _value), do: []`
+      : "";
+  const validatorBlock =
+    validatorLines.length > 0 || moneyRangeLines.length > 0
+      ? `\n${[...validatorLines, ...moneyRangeLines].join("\n")}`
+      : "";
 
   // Containments round-trip via `cast_embed` (embedded jsonb) or `cast_assoc`
   // (relational child table, §11c — `on_replace: :delete` gives
@@ -528,6 +570,41 @@ ${keyAliasPairs.join(",\n")}
   const updateRequiredNames = updateFields.filter((f) => isRequiredUpdateInput(f));
   const emitPresenceCheck = emitUpdateChangeset && updateRequiredNames.length > 0;
   const presenceLine = emitPresenceCheck ? `\n    |> __require_keys(attrs, ${updateReqList})` : "";
+  // RS-26's OPTIONAL twin.  The update contract is FULL REPLACEMENT, but
+  // `cast/3` ignores a key the attrs do not carry — so an OMITTED optional field
+  // kept whatever the loaded row held, while the other four backends rebuild the
+  // aggregate from the request DTO and therefore null it.  Measured on
+  // `corpus/optional-valueobject`: a PUT that drops `office` read back with the
+  // previous `Addr` still in place (`expected {"city":"Shelbyville", …} to be
+  // null`).  Clearing is explicit here, against the raw attrs, for exactly the
+  // NULLABLE update-editable fields — a field that is merely omittable-with-a-
+  // default is not nullable and is deliberately excluded.
+  //
+  // Emitted only where there is an optional field to clear, so an aggregate whose
+  // updatable fields are all required stays byte-identical.
+  const updateOptionalNames = updateFields.filter((f) => f.optional || f.type.kind === "optional");
+  const emitClearAbsent = emitUpdateChangeset && updateOptionalNames.length > 0;
+  const clearAbsentDecl = emitClearAbsent
+    ? `\n  @update_optional [${updateOptionalNames.map((f) => `:${snake(f.name)}`).join(", ")}]`
+    : "";
+  const clearAbsentLine = emitClearAbsent ? `\n    |> __clear_absent(attrs, @update_optional)` : "";
+  const clearAbsentHelper = emitClearAbsent
+    ? `
+
+  # The optional twin of the presence check above.  A full-replacement PUT that
+  # OMITS an optional field is asking for it to be cleared, but \`cast/3\` skips a
+  # key the attrs do not carry, so the stored value survived.  Null it explicitly
+  # — against the raw attrs, for the nullable update-editable fields only.  A key
+  # that IS present and null already reaches \`cast\`, so neither path double-writes.
+  defp __clear_absent(changeset, attrs, fields) do
+    Enum.reduce(fields, changeset, fn field, cs ->
+      if Map.has_key?(attrs, Atom.to_string(field)) or Map.has_key?(attrs, field),
+        do: cs,
+        else: put_change(cs, field, nil)
+    end)
+  end`
+    : "";
+
   const presenceHelper = emitPresenceCheck
     ? `
 
@@ -552,7 +629,7 @@ ${keyAliasPairs.join(",\n")}
   def update_changeset(struct, attrs) do
     attrs = __normalize_keys(attrs)
     ${voKeyNormalizeLine}${updateVcPrep}struct
-    |> cast(attrs, ${updateColsList})${presenceLine}
+    |> cast(attrs, ${updateColsList})${presenceLine}${clearAbsentLine}
     |> validate_required(${updateReqList})${validatorBlock}${castAssocBlock}${voBlock}${uniqueBlock}${fkBlock}${invBlock}${optimisticLine}
   end`
     : "";
@@ -595,7 +672,7 @@ defmodule ${changesetMod} do
   alias ${aggModule}
 
   @all_fields [${allCols}]
-  @required_fields [${requiredCols}]${updateAttrDecls}
+  @required_fields [${requiredCols}]${updateAttrDecls}${clearAbsentDecl}
 
   @doc "Default cast/3 helper applied by every per-action changeset below."
   def base_changeset(struct \\\\ %${aggPascal}{}, attrs) do
@@ -603,7 +680,7 @@ defmodule ${changesetMod} do
     ${voKeyNormalizeLine}${valueCollections.length > 0 ? "attrs = prepare_vc_attrs(attrs)\n\n    " : ""}struct
     |> cast(attrs, @all_fields)${defaultBlock}
     |> validate_required(@required_fields)${validatorBlock}${castEmbedBlock}${castAssocBlock}${voBlock}${uniqueBlock}${fkBlock}${invBlock}
-  end${updateChangesetBlock}${invariantFnBlock}${keyNormalizeHelper}${presenceHelper}${defaultHelper}${voHelper}${normalizeHelper}${ordinalHelper}
+  end${updateChangesetBlock}${invariantFnBlock}${keyNormalizeHelper}${presenceHelper}${clearAbsentHelper}${defaultHelper}${moneyRangeHelper}${voHelper}${normalizeHelper}${ordinalHelper}
 
 ${actionHelpers}
 end

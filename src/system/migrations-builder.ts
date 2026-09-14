@@ -1,4 +1,5 @@
 import { MONEY_PRECISION, MONEY_WIRE_SCALE } from "../generator/money-scale.js";
+import { qIdent } from "../generator/sql-pg.js";
 import { renderSqlScalarExpr } from "../generator/sql-pg-expr.js";
 import type {
   AggregateIR,
@@ -24,6 +25,7 @@ import type {
 } from "../ir/types/loom-ir.js";
 import { isMaterializedProjection } from "../ir/types/loom-ir.js";
 import type {
+  CheckShape,
   ColumnShape,
   ColumnType,
   FKShape,
@@ -52,6 +54,7 @@ import {
   resolveDataSourceConfig,
   resolveDataSourceForAggregate,
 } from "../ir/util/resolve-datasource.js";
+import { sqlLiteralColumnDefault } from "../ir/util/sql-renderable-expr.js";
 import {
   isValueCollectionType,
   type ValueCollectionIR,
@@ -739,12 +742,14 @@ function matchTables(prev: readonly TableShape[], next: readonly TableShape[]): 
 
 interface DiffBuckets {
   dropIndex: MigrationStep[];
+  dropCheck: MigrationStep[];
   dropColumn: MigrationStep[];
   rename: MigrationStep[];
   addColumn: MigrationStep[];
   alter: MigrationStep[];
   renameIndex: MigrationStep[];
   addIndex: MigrationStep[];
+  addCheck: MigrationStep[];
 }
 
 export function diffSchema(
@@ -802,12 +807,14 @@ export function diffSchema(
 
   const buckets: DiffBuckets = {
     dropIndex: [],
+    dropCheck: [],
     dropColumn: [],
     rename: [],
     addColumn: [],
     alter: [],
     renameIndex: [],
     addIndex: [],
+    addCheck: [],
   };
   for (const [p, n] of pairs) {
     diffTable(p, n, buckets, renamesByTable.get(qkey(n.schema, n.name)) ?? []);
@@ -832,8 +839,13 @@ export function diffSchema(
   //   adds/alters so a renamed column exists under its new name for a
   //   subsequent type alter) → add columns (targets now exist) → alter columns
   //   → add indexes.
+  // Checks bracket the column work: a CHECK is dropped FIRST (before the
+  // columns it constrains can be dropped or renamed out from under it — a
+  // Postgres constraint keeps its columns alive) and added LAST (after every
+  // column it names exists under its final name).
   return [
     ...buckets.dropIndex,
+    ...buckets.dropCheck,
     ...buckets.dropColumn,
     ...dropTableSteps,
     ...tableRenameSteps,
@@ -843,6 +855,7 @@ export function diffSchema(
     ...buckets.alter,
     ...buckets.renameIndex,
     ...buckets.addIndex,
+    ...buckets.addCheck,
   ];
 }
 
@@ -1052,6 +1065,29 @@ function diffTable(
   for (const i of addedIdx) {
     if (!claimedAdd.has(i)) buckets.addIndex.push({ op: "addIndex", index: i, schema });
   }
+
+  // CHECK diff — matched by name like the index diff (the name is a pure
+  // function of the table + the value-object group, so a check that "moved"
+  // is a different check).  A baseline that predates `checks` reads as none,
+  // so the first regen after this lands ADDS them: correct, and safe on a
+  // populated database because the ALTER renders `NOT VALID` (see the step's
+  // doc comment).  A CHANGED expression under an unchanged name — the group
+  // gained or lost a leaf — is a drop + re-add, which is the only way to
+  // replace a constraint in Postgres.
+  const prevChecks = new Map((prev.checks ?? []).map((c) => [c.name, c] as const));
+  const nextChecks = new Map((next.checks ?? []).map((c) => [c.name, c] as const));
+  for (const c of prevChecks.values()) {
+    const n = nextChecks.get(c.name);
+    if (!n || n.expression !== c.expression) {
+      buckets.dropCheck.push({ op: "dropCheck", table: next.name, schema, name: c.name });
+    }
+  }
+  for (const c of nextChecks.values()) {
+    const p = prevChecks.get(c.name);
+    if (!p || p.expression !== c.expression) {
+      buckets.addCheck.push({ op: "addCheck", check: c, schema });
+    }
+  }
 }
 
 /** True when a dropped and an added index are the SAME index whose DERIVED name
@@ -1178,7 +1214,13 @@ function qualifiedName(schema: string | undefined, name: string): string {
 /** True for a NOT-NULL column add without a default.  Because `diffTable`
  *  only emits `addColumn` for tables present on BOTH sides (new tables carry
  *  their columns inline via `createTable`), such an add always targets a
- *  previously-existing table — the exact case that fails on populated data. */
+ *  previously-existing table — the exact case that fails on populated data.
+ *
+ *  A step whose column carries a `default` is NOT blocking: Postgres fills every
+ *  existing row from it as part of the ADD.  That is what makes the M-T2.16
+ *  rewrite (field default → add-with-default + DROP DEFAULT) clear this gate
+ *  without a `--allow-destructive` flag or a TODO comment — the rewrite is
+ *  applied upstream of this predicate, in the weaving pass. */
 function isBlockingNotNullAdd(s: MigrationStep): boolean {
   return s.op === "addColumn" && !s.column.nullable && s.column.default === undefined;
 }
@@ -1188,7 +1230,11 @@ function isBlockingNotNullAdd(s: MigrationStep): boolean {
  *  add or a NULL→NOT-NULL flip WITH a matching backfill becomes the safe
  *  add-nullable → UPDATE → SET NOT NULL sequence and does NOT trip the gate;
  *  without one, both are destructive (the flip fails on any row holding NULL
- *  — previously ungated).  Returns the final step list (possibly rewritten
+ *  — previously ungated).  A NOT-NULL add with NO backfill but a scalar-literal
+ *  field default (`addColumnDefault`) instead becomes add-WITH-DEFAULT →
+ *  DROP DEFAULT, which is likewise non-destructive and leaves the column with
+ *  no DB default (M-T2.16 / #2864 G1, D-3); a declared backfill takes
+ *  precedence over it.  Returns the final step list (possibly rewritten
  *  for the `--allow-destructive` NOT-NULL path), or throws
  *  {@link MigrationDestructiveError} when a destructive step remains and the
  *  flag is off.  First-run (baseline null) migrations are returned untouched. */
@@ -1319,6 +1365,49 @@ export function applyDestructivePolicy(
           out.push(flip);
         }
         return out;
+      }
+      // No declared backfill — but the field may carry a `.ddd` default
+      // (`status: string = "pending"`).  Add the column WITH that default so
+      // Postgres backfills every existing row in the one statement, then drop
+      // the default again in the SAME migration (M-T2.16 / #2864 G1, D-3).
+      //
+      // Ordering matters and is not incidental: the declared-backfill branch
+      // above returns first, so a `migration "…" { A.status = … }` block always
+      // WINS over a field default.  The block is the author's explicit,
+      // reviewed statement about this one migration — a field default is a
+      // standing statement about every future row — and only the block can
+      // express the per-row forms (a sibling-field ref, a ternary) that a
+      // column default cannot hold at all.  Running both would be redundant
+      // anyway: the block's UPDATE is `WHERE <col> IS NULL`, and a default-
+      // backfilled column has no NULLs left for it to touch.
+      //
+      // Why the DROP DEFAULT: D-3's whole point is that the column must end up
+      // EXACTLY as it is today — identical to what a fresh `CREATE TABLE` lays
+      // down — so a redeploy from a clean database and one grown by migration
+      // agree, and a row written outside the app does not silently acquire
+      // domain semantics.  The default exists only for the width of this
+      // migration, purely to make the backfill automatic.
+      //
+      // Guarded on `blocking` (NOT NULL, no default of its own): a nullable add
+      // needs no backfill to succeed, and a column that legitimately carries a
+      // DB default (`gen_random_uuid()` on a system table) must keep it.
+      if (isBlockingNotNullAdd(s) && s.column.addColumnDefault !== undefined) {
+        const lit = s.column.addColumnDefault;
+        const withDefault: ColumnShape = { ...s.column, default: lit };
+        const add: MigrationStep = s.fk
+          ? { op: "addColumn", table: s.table, schema: s.schema, column: withDefault, fk: s.fk }
+          : { op: "addColumn", table: s.table, schema: s.schema, column: withDefault };
+        return [
+          add,
+          {
+            op: "alterColumnDefault",
+            table: s.table,
+            schema: s.schema,
+            name: s.column.name,
+            from: lit,
+            to: undefined,
+          },
+        ];
       }
       return [s];
     }
@@ -2336,6 +2425,7 @@ function tableForAggregate(
     primaryKey: ["id"],
     foreignKeys,
     indexes,
+    checks: finalizeChecks(checksForFields(tableName, agg.fields, voLookup), columns),
   };
 }
 
@@ -2385,12 +2475,32 @@ function tphTableForAggregate(
     }
   };
 
+  const derivedChecks: DerivedCheck[] = [];
   for (const f of base.fields) pushField(f, false);
+  derivedChecks.push(...checksForFields(tableName, base.fields, voLookup));
   for (const concrete of tphConcretesOf(base, pool)) {
-    for (const f of ownFieldsOf(concrete, base)) pushField(f, true);
+    const own = ownFieldsOf(concrete, base);
+    for (const f of own) pushField(f, true);
+    // A concrete subtype's OPTIONAL value object is still all-or-nothing: a row
+    // of another `kind` leaves every leaf null (which satisfies the check), and
+    // a row of THIS kind either carries the whole VO or none of it.  A REQUIRED
+    // one gets no check: `forceNullable` made its leaves nullable for the shared
+    // table's sake, so "all present" is not a schema-expressible invariant here
+    // (only rows of this `kind` must carry it, and the check has no discriminator
+    // to condition on).  `finalizeChecks` drops any check whose columns lost the
+    // by-name de-duplication above.
+    derivedChecks.push(...checksForFields(tableName, own, voLookup));
   }
 
-  return { name: tableName, ownerModule, columns, primaryKey: ["id"], foreignKeys, indexes };
+  return {
+    name: tableName,
+    ownerModule,
+    columns,
+    primaryKey: ["id"],
+    foreignKeys,
+    indexes,
+    checks: finalizeChecks(derivedChecks, columns),
+  };
 }
 
 function tableForPart(
@@ -2457,6 +2567,7 @@ function tableForPart(
     primaryKey: ["id"],
     foreignKeys,
     indexes,
+    checks: finalizeChecks(checksForFields(tableName, part.fields, voLookup), columns),
   };
 }
 
@@ -2525,14 +2636,23 @@ function valueCollectionTableShape(
 ): TableShape {
   const ownerTable = partName ? plural(snake(partName)) : plural(snake(parentAgg.name));
   const idType = idColumnType(parentAgg.idValueType);
+  const elementFields = voLookup.get(vc.voName) ?? [];
+  const columns: ColumnShape[] = [
+    { name: vc.parentFk, type: idType, nullable: false },
+    { name: "ordinal", type: { kind: "int" }, nullable: false },
+    ...valueObjectChildColumns("", elementFields, voLookup),
+  ];
+  // The ELEMENT value object is never absent — a row IS an element — so the
+  // root node gets no check (`nodeOptional: false`); an OPTIONAL value object
+  // nested inside it flattens into the same nullable-columns shape as anywhere
+  // else and does.
+  const derivedChecks: DerivedCheck[] = [];
+  valueObjectChecks(vc.childTable, "", elementFields, voLookup, false, derivedChecks);
   return {
     name: vc.childTable,
     ownerModule,
-    columns: [
-      { name: vc.parentFk, type: idType, nullable: false },
-      { name: "ordinal", type: { kind: "int" }, nullable: false },
-      ...valueObjectChildColumns("", voLookup.get(vc.voName) ?? [], voLookup),
-    ],
+    columns,
+    checks: finalizeChecks(derivedChecks, columns),
     primaryKey: [vc.parentFk, "ordinal"],
     foreignKeys: [{ column: vc.parentFk, refTable: ownerTable, onDelete: "cascade" }],
     indexes: [
@@ -2614,12 +2734,202 @@ function flattenValueObject(
   });
 }
 
+/** `<prefix>_<leaf>`, or the bare leaf at the root of an unprefixed flatten
+ *  (the value-collection child table starts at `""`). */
+function joinColumnPath(prefix: string, leaf: string): string {
+  return prefix ? `${prefix}_${leaf}` : leaf;
+}
+
+/** `(a IS NULL AND b IS NULL) OR (a IS NOT NULL AND b IS NOT NULL)` — the
+ *  all-null-or-all-present predicate over a value object's leaf columns.
+ *  Spelled out rather than `num_nonnulls(a, b) IN (0, 2)` because the
+ *  migration file is something an operator reads: the two arms name the two
+ *  legal states directly, and it stays plain SQL every Postgres version
+ *  accepts. */
+function nullConsistentSql(columns: readonly string[]): string {
+  const allNull = columns.map((c) => `${qIdent(c)} IS NULL`).join(" AND ");
+  const allSet = columns.map((c) => `${qIdent(c)} IS NOT NULL`).join(" AND ");
+  return `(${allNull}) OR (${allSet})`;
+}
+
+/** Derive the all-null-or-all-present CHECK constraints for ONE flattened
+ *  value-object field, and return that node's REQUIRED leaf columns (the ones
+ *  that must be present whenever the node is).
+ *
+ *  The flatten in {@link flattenValueObject} makes a VO's leaves N independent
+ *  nullable columns; the backends then read the group atomically, so a
+ *  partially-null row crashes java's compact constructor and silently
+ *  malforms node's / python's VO (audit P9, measured on a Hibernate 7 + H2
+ *  probe against the emitted mapping).  Only the schema can forbid such a row,
+ *  because no application write path produces one — a hand-written UPDATE, a
+ *  bad backfill or a future partial-update path is what does.
+ *
+ *  Which columns join a group, and why:
+ *
+ *  - **Optional VO nodes only.**  A REQUIRED value object's leaves are already
+ *    `NOT NULL`, so the constraint would be a tautology — pure DDL noise.  The
+ *    node's own optionality (`nodeOptional`) is therefore the gate.
+ *  - **A subfield that is itself optional is EXCLUDED** — `valueobject Addr {
+ *    line1: string  line2: string?  city: string }` may legitimately store a
+ *    present address with a null `line2`, so a group of `{line1, line2, city}`
+ *    would reject valid data, which is strictly worse than the gap it closes.
+ *    The group is `{line1, city}`.
+ *  - **Nested VOs are covered WHOLE-TREE, one constraint per optional node.**
+ *    A required nested VO contributes its own required leaves to the parent's
+ *    group (it is present exactly when the parent is), so the parent's
+ *    constraint spans the whole subtree.  An OPTIONAL nested VO gets its own
+ *    constraint instead and is excluded from the parent's — `Addr { line1,
+ *    geo: Geo? }` can hold an address with no coordinates.  The two compose:
+ *    when the outer node is absent every leaf is null, which satisfies the
+ *    inner constraint too.
+ *  - **Fewer than two required leaves ⇒ nothing.**  With one column
+ *    "all-null-or-all-present" is the tautology `c IS NULL OR c IS NOT NULL`;
+ *    with zero (every subfield optional) there is no observable difference
+ *    between an absent VO and a present all-null one, so there is nothing to
+ *    assert. */
+function valueObjectChecks(
+  table: string,
+  prefix: string,
+  voFields: readonly FieldIR[],
+  voLookup: VoLookup,
+  nodeOptional: boolean,
+  out: DerivedCheck[],
+): string[] {
+  const required: string[] = [];
+  for (const vf of voFields) {
+    const name = joinColumnPath(prefix, snake(vf.name));
+    const vfOptional = vf.optional || vf.type.kind === "optional";
+    const base = vf.type.kind === "optional" ? vf.type.inner : vf.type;
+    const inner = base.kind === "valueobject" ? voLookup.get(base.name) : undefined;
+    if (inner) {
+      // An optional nested VO owns its own group (it may be absent while the
+      // parent is present); a required one folds into the parent's.
+      if (vfOptional) valueObjectChecks(table, name, inner, voLookup, true, out);
+      else required.push(...valueObjectChecks(table, name, inner, voLookup, false, out));
+      continue;
+    }
+    if (!vfOptional) required.push(name);
+  }
+  if (nodeOptional && required.length >= 2) {
+    out.push({ name: `${table}_${prefix}_null_consistent`, table, columns: [...required] });
+  }
+  return required;
+}
+
+/** A check before it is rendered — the column list is kept alongside so
+ *  {@link finalizeChecks} can verify every one of them actually landed in the
+ *  table without re-parsing SQL out of the expression. */
+interface DerivedCheck {
+  name: string;
+  table: string;
+  columns: string[];
+}
+
+/** Every all-null-or-all-present CHECK a field list contributes, for the
+ *  flattening (relational) table builders.  A non-VO field, a VO the lookup
+ *  can't resolve (it collapses to one `json` column, nothing to split), and a
+ *  value-object ARRAY field (its elements live in the id-less child table —
+ *  see {@link valueCollectionTableShape}, which derives its own) all
+ *  contribute nothing.
+ *
+ *  Called from the DOMAIN tables only — the aggregate root, its TPH shared
+ *  table, its contained-part tables and its value-collection child table.
+ *  Those are the rows a repository hydrates back into a real value object,
+ *  which is where the partial-row crash lives.  The two other builders that
+ *  flatten through `columnsForField` are deliberately excluded:
+ *  `projectionTableShape` makes every non-key column nullable ON PURPOSE — a
+ *  fold upserts only the fields the event it is folding carries, so a
+ *  half-filled read-model row is the DESIGNED state, and a constraint there
+ *  could fail a fold on legitimate data — and `workflowStateTableShape` is
+ *  written incrementally by the same kind of partial upsert.  Rejecting valid
+ *  data is strictly worse than the gap being closed, so both stay out until
+ *  someone measures that their writes really are whole-VO. */
+function checksForFields(
+  table: string,
+  fields: readonly FieldIR[],
+  voLookup: VoLookup,
+): DerivedCheck[] {
+  const out: DerivedCheck[] = [];
+  for (const f of fields) {
+    if (isReferenceCollection(f.type) || isValueCollectionType(f.type)) continue;
+    const optional = f.optional || f.type.kind === "optional";
+    const base = f.type.kind === "optional" ? f.type.inner : f.type;
+    if (base.kind !== "valueobject") continue;
+    const voFields = voLookup.get(base.name);
+    if (!voFields) continue;
+    valueObjectChecks(table, snake(f.name), voFields, voLookup, optional, out);
+  }
+  return out;
+}
+
+/** Render the derived checks, dropping any whose columns did not all land in
+ *  the table.  The TPH builder de-duplicates columns by NAME across concrete
+ *  subtypes (first field wins), so two same-named fields of DIFFERENT value
+ *  object types would otherwise let the loser's check reference a column that
+ *  was never created — invalid DDL from a shape the column emitter silently
+ *  tolerates.  Cheap, and it makes "a check never outruns its columns" a
+ *  property of the builder rather than of each call site.  Returns `undefined`
+ *  when there are none, so a table with no flattened optional value object is
+ *  byte-identical to what it was before this field existed (an empty array
+ *  would churn every stored snapshot). */
+function finalizeChecks(
+  derived: readonly DerivedCheck[],
+  columns: readonly ColumnShape[],
+): CheckShape[] | undefined {
+  // NULLABLE columns only.  A check over columns the table already declares
+  // `NOT NULL` is the tautology `NOT NULL AND NOT NULL`, so it would be pure
+  // DDL noise — this is the safety net under "optional VO nodes only", and it
+  // also catches the shapes where a builder derives nullability differently
+  // from `flattenValueObject` (the value-collection child table does).
+  const present = new Map(columns.filter(isDiffableColumn).map((c) => [c.name, c] as const));
+  const seen = new Set<string>();
+  const checks: CheckShape[] = [];
+  for (const d of derived) {
+    // Name collision mirrors the column collision it comes from (two TPH
+    // subtypes declaring the same field name): first wins, same as `pushField`.
+    if (seen.has(d.name)) continue;
+    if (!d.columns.every((n) => present.get(n)?.nullable === true)) continue;
+    seen.add(d.name);
+    checks.push({ name: d.name, table: d.table, expression: nullConsistentSql(d.columns) });
+  }
+  return checks.length > 0 ? checks : undefined;
+}
+
 function mapField(f: FieldIR): MappedColumn {
   const { type, fkRefTable } = mapTypeToColumn(f.type);
+  const addColumnDefault = addColumnDefaultFor(f);
   return {
-    column: { name: snake(f.name), type, nullable: f.optional },
+    column:
+      addColumnDefault === undefined
+        ? { name: snake(f.name), type, nullable: f.optional }
+        : { name: snake(f.name), type, nullable: f.optional, addColumnDefault },
     fkRefTable,
   };
+}
+
+/** Render a field's declared default (`status: string = "pending"`) as a
+ *  Postgres scalar literal for the **add-column diff**, or undefined when the
+ *  field has no default or the default is outside the literal subset a column
+ *  DEFAULT may hold (M-T2.16 / #2864 G1, decision D-3).
+ *
+ *  This is the ONLY place a `.ddd` default enters `MigrationsIR`, and it lands
+ *  on `addColumnDefault` — deliberately NOT on `default`, which is what every
+ *  `CREATE TABLE` renderer reads.  So the initial DDL is untouched: the column
+ *  keeps its current `"status" TEXT NOT NULL` spelling, and the default the
+ *  domain layer owns does not become a second source of truth in the schema.
+ *  `applyDestructivePolicy` is the sole consumer; see `ColumnShape.addColumnDefault`.
+ *
+ *  `sqlLiteralColumnDefault` is narrower than the backfill subset
+ *  (`sqlRenderableExpr`) on purpose — a column default is evaluated with no row
+ *  in scope, so Postgres refuses any reference to another column.  Everything it
+ *  admits, `renderSqlScalarExpr` renders without ever calling `columnFor` (that
+ *  path is reached only through `this-prop`, which the predicate rejects), which
+ *  is why the context below can refuse outright rather than resolve a name. */
+function addColumnDefaultFor(f: FieldIR): string | undefined {
+  if (!f.default || !sqlLiteralColumnDefault(f.default)) return undefined;
+  return renderSqlScalarExpr(f.default, {
+    columnFor: () => undefined, // unreachable: the predicate admits no column ref
+  });
 }
 
 function mapTypeToColumn(t: TypeIR): {
@@ -2794,6 +3104,10 @@ function describeMigration(steps: MigrationStep[]): string {
         return `AddIndex${columnToPascal(s.index.name)}`;
       case "dropIndex":
         return `DropIndex${columnToPascal(s.name)}`;
+      case "addCheck":
+        return `AddCheck${columnToPascal(s.check.name)}`;
+      case "dropCheck":
+        return `DropCheck${columnToPascal(s.name)}`;
       case "renameIndex":
         return `RenameIndex${columnToPascal(s.from)}To${columnToPascal(s.to)}`;
       case "backfillColumn":

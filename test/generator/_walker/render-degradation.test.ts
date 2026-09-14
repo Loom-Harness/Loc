@@ -104,13 +104,20 @@ const SENTINELS: ReadonlyArray<{
     ],
   },
   {
+    // Wave C1 packet 1d-ii: the bare `TODO` — which named a `hooks {}` binding
+    // the language does not have — now routes through `giveUpText` with
+    // `loom.method-call-unresolved-receiver`, the phase-⑦ gate that makes the
+    // arm unreachable.  The `origins` template pins the INNER prose, because
+    // the outer `giveUpText(...)` call defeats the `${…}` substitution this
+    // scan performs (it does not nest) — the same accommodation the three
+    // `giveUpText` sites in the drain needed.
     label: "unresolved method-call",
-    re: /TODO: method-call/g,
+    re: /method-call .*: receiver did not resolve/g,
     origins: [
       {
         file: "src/generator/_walker/walker-core.ts",
         template:
-          "`/* TODO: method-call ${receiverDesc}.${expr.member}(${argsRendered}) — needs hooks {} binding */ undefined`",
+          "`method-call ${receiverDesc}.${expr.member}(${argsRendered}): receiver did not resolve`",
       },
     ],
   },
@@ -146,11 +153,16 @@ const SENTINELS: ReadonlyArray<{
     origins: [
       {
         file: "src/generator/flutter/pack.ts",
-        template: '`// ${GIVE_UP_SENTINEL} flutter pack: no renderer for "${name}"`',
+        // The origin is the PROSE template handed to `giveUpText`, not the whole
+        // comment expression: the sentinel and the code are the helper's job now
+        // (M-T9.55), and the pattern below reads the prose.  Naming the outer
+        // expression would also defeat the `${…}` substitution in the render
+        // check, which does not nest.
+        template: '`flutter pack: no renderer for "${name}"`',
       },
       {
         file: "src/generator/feliz/pack.ts",
-        template: '`(* ${GIVE_UP_SENTINEL} feliz pack: no renderer for "${name}" *)`',
+        template: '`feliz pack: no renderer for "${name}"`',
       },
     ],
   },
@@ -190,8 +202,7 @@ const SENTINELS: ReadonlyArray<{
       },
       {
         file: "src/generator/elixir/heex-walker-core.ts",
-        template:
-          "`<%!-- ${GIVE_UP_SENTINEL} ${expr.name}: not supported by Phoenix LiveView target --%>`",
+        template: "`${expr.name}: not supported by Phoenix LiveView target`",
       },
     ],
   },

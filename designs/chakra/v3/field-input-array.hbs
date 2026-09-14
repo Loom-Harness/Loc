@@ -2,7 +2,7 @@
           <Text fontWeight="medium">{{label}}</Text>
           { {{path}}Fields.map((field, index) => (
             <HStack key={field.id} align="flex-end">
-{{#each rowFields}}              <Input placeholder="{{label}}" {...register(`{{../path}}.${index}.{{path}}`{{#if valueAsNumber}}, { valueAsNumber: true }{{/if}})} data-testid={`{{../testId}}-${index}-{{path}}`} />
+{{#each rowFields}}              <Input placeholder="{{label}}"{{#if (eq template "field-input-money")}} inputMode="decimal"{{/if}} {...register(`{{../path}}.${index}.{{path}}`{{#if valueAsNumber}}, { valueAsNumber: true }{{/if}}{{#if (eq template "field-input-money")}}, { setValueAs: (v: string) => { try { return new Decimal(v || "0"); } catch { return new Decimal("0"); } } }{{/if}})} data-testid={`{{../testId}}-${index}-{{path}}`} />
 {{/each}}              <Button colorPalette="red" size="sm" onClick={() => remove{{arrayPascal}}(index)}>{{{chrome "removeItem"}}}</Button>
             </HStack>
           )) }

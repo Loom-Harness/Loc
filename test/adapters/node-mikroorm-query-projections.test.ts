@@ -190,7 +190,9 @@ describe("MikroORM query-time projections", () => {
     // is additionally pinned to the FIXED wire scale (RS-12 / #2549) — the
     // mikro arm shares `coerceAggregate` with the drizzle one, so it gets the
     // same formatting rather than shipping the scale SQL happened to return.
-    expect(src).toContain("orders: Number(row?.orders ?? 0),");
+    expect(src).toContain(
+      'orders: __intWire(row?.orders ?? 0, -2147483648, 2147483647, "orders"),',
+    );
     expect(src).toContain("revenue: new Decimal(row?.revenue ?? 0).toFixed(4),");
     expect(src).toContain("avgLines: Number(row?.avg_lines ?? 0),");
   });

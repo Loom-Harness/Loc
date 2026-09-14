@@ -148,13 +148,30 @@ const BACKENDS: BackendCensus[] = [
       { pattern: /\.toPlainString\(\)/, label: "bare .toPlainString() money wire format" },
       { pattern: /\.doubleValue\(\)/, label: "bare .doubleValue() decimal narrowing" },
       { pattern: /new BigDecimal\(/, label: "bare new BigDecimal( construction" },
+      // M-T5.23 added the integral boundary to this seam: `intValue()` on a
+      // boxed provider `Number` DISCARDS the high bits, so a `sum(int)` /
+      // `count` (both bigints in SQL) answered a wrapped number instead of
+      // failing.  `JAVA_NUMERIC.int` is `Math.toIntExact(...)` now, and the
+      // census keeps the next read path from spelling the unchecked form.
+      //
+      // MEASURED LIMIT of this (and every) signature, found by mutation-proving
+      // it: the census greps GENERATOR SOURCE text, so it catches the literal
+      // spelling every call site actually used
+      // (`((Number) ${get}).intValue()` — proven: re-introducing it in
+      // `emit/channels.ts` fails this test naming the line) but NOT a computed
+      // member (`.${asLong ? "longValue" : "intValue"}()`), which is a
+      // different string.  The two `jpqlCoerce` arms that were spelled that way
+      // are routed through the seam in the same change, so the evadable form
+      // exists nowhere; a future one would need its own signature.
+      { pattern: /\(\(Number\) [^)]*\)\.intValue\(\)/, label: "bare ((Number) x).intValue()" },
+      { pattern: /\(\(Number\) [^)]*\)\.longValue\(\)/, label: "bare ((Number) x).longValue()" },
     ],
     waivers: [
       {
         file: "src/generator/java/emit/common.ts",
-        contains: "return new BigDecimal(value);",
+        contains: "BigDecimal parsed = new BigDecimal(value);",
         reason:
-          "the emitted `WireFormatException.money(value, pointer)` helper — the SINGLE\n           java money-ingress funnel, which is what replaced the scattered bare\n           `new BigDecimal(expr)` at the call sites this census exists to find.\n           Waiving the seam, not a coercion: the validated parse and the javadoc\n           naming what it replaced both live here and nowhere else",
+          "the emitted `WireFormatException.money(value, pointer)` helper — the SINGLE\n           java money-ingress funnel, which is what replaced the scattered bare\n           `new BigDecimal(expr)` at the call sites this census exists to find.\n           Waiving the seam, not a coercion: the validated parse (bound to a local\n           since Wave C1 packet 1e-i added the integer-digit RANGE guard behind\n           it — the 40-digit-money row) and the javadoc naming what it replaced\n           both live here and nowhere else",
       },
       {
         file: "src/generator/java/emit/common.ts",

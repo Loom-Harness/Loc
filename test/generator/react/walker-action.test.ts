@@ -57,8 +57,12 @@ describe("Action primitive — instance-qualified operation refs", () => {
     const files = await buildAndGenerate(SRC);
     const tsx = files.get("web/src/components/OrderPanel.tsx");
     expect(tsx, "OrderPanel component is generated").toBeDefined();
-    expect(tsx!).toMatch(/const confirmOrder = useConfirmOrder\(order\?\.id\)/);
-    expect(tsx!).toMatch(/const cancelOrder = useCancelOrder\(order\?\.id\)/);
+    // The id is optional-chained (the receiver may be pending query data) AND
+    // coalesced (`use<Op><Agg>` is typed `(id: string)`) — see
+    // `test/generator/_walker/action-mutation-id-coalesce.test.ts` for the
+    // Detail-page shape where the missing `?? ""` was an actual TS2345.
+    expect(tsx!).toMatch(/const confirmOrder = useConfirmOrder\(order\?\.id \?\? ""\)/);
+    expect(tsx!).toMatch(/const cancelOrder = useCancelOrder\(order\?\.id \?\? ""\)/);
     // Hooks imported from the aggregate's api module (one hop up).
     expect(tsx!).toMatch(
       /import \{[^}]*useCancelOrder[^}]*useConfirmOrder[^}]*\} from "\.\.\/api\/order"/,

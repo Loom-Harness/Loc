@@ -34,9 +34,16 @@ export const PY_NUMERIC: NumericTarget = {
   },
   int: {
     "repo-read": (e) => `cast(int, ${e})`,
+    // A SQL aggregate over an integral column is an INTEGER — `int(...)`, never
+    // `float(...)`.  Python's `int` is arbitrary-precision, so this is the
+    // exact read; the `float(...)` this replaced corrupted silently past 2^53
+    // (M-T5.23 / F13) and shipped `2.0` where the response model declares an
+    // `Int32`, which pydantic's lax mode then quietly re-narrowed.
+    "projection-read": (e) => `int(${e})`,
   },
   long: {
     "repo-read": (e) => `cast(int, ${e})`,
+    "projection-read": (e) => `int(${e})`,
   },
 };
 
