@@ -776,11 +776,11 @@ function formTypeName(family: FormFamily, stem: string): string {
  *  type/encoder/Model-field/init renderers consume this; only the Msg/update/Api
  *  wiring differs between create and operation forms. */
 export interface FormRecord {
-  /** F# form-record type name (`ProductForm` / `RenameProductForm`). */
+  /** F# form-record type name (`ProductCreateForm` / `RenameProductOpForm`). */
   formType: string;
   /** Model field holding the in-progress form (same as `formType`). */
   formField: string;
-  /** The empty-form value binding (`emptyProductForm`). */
+  /** The empty-form value binding (`emptyProductCreateForm`). */
   emptyBinding: string;
   /** Thoth encoder fn name (`Encoders.<encoderFn>`). */
   encoderFn: string;
@@ -796,8 +796,8 @@ export interface FormRecord {
 }
 
 /** A create form a page hosts (`CreateForm(of: X)`), projected to its full MVU
- *  wiring: a string-typed `<Agg>Form` record in the Model, one `Set` `Msg` per
- *  field, a `Submit<Agg>Form` trigger that POSTs the Thoth-encoded body, and a
+ *  wiring: a string-typed `<Agg>CreateForm` record in the Model, one `Set` `Msg` per
+ *  field, a `Submit<Agg>CreateForm` trigger that POSTs the Thoth-encoded body, and a
  *  `<Agg>Created` result that navigates to the list on success.  v1 renders the
  *  REQUIRED scalar create-input fields (`createInputFields` minus optionals and
  *  non-scalars — nested/collection inputs are a follow-up). */
@@ -806,7 +806,7 @@ export interface FelizForm extends FormRecord {
   aggregate: string;
   /** F# api fn name (`createProduct`). */
   apiFn: string;
-  /** `Msg` the submit button dispatches (`SubmitProductForm`). */
+  /** `Msg` the submit button dispatches (`SubmitProductCreateForm`). */
   submitMsg: string;
   /** `Msg` carrying the created record `Result` (`ProductCreated`). */
   resultMsg: string;
@@ -821,9 +821,9 @@ export interface FelizForm extends FormRecord {
 }
 
 /** An operation form a page hosts (`OperationForm(of: X, op: Y)`), projected to
- *  its MVU wiring: a string-typed `<Op><Agg>Form` record, one `Set` `Msg` per
- *  op param, a `Submit<Op><Agg>Form of string` trigger (carrying the route id)
- *  that POSTs to `/api/<agg>/<id>/<op>`, and a `<Op><Agg>Done` result (204, no
+ *  its MVU wiring: a string-typed `<Op><Agg>OpForm` record, one `Set` `Msg` per
+ *  op param, a `Submit<Op><Agg>OpForm of string` trigger (carrying the route id)
+ *  that POSTs to `/api/<agg>/<id>/<op>`, and a `<Op><Agg>OpDone` result (204, no
  *  body → `unit`) that navigates to the list.  v1 renders the scalar op params;
  *  the form lives on a detail page (route `id`). */
 export interface FelizOperationForm extends FormRecord {
@@ -834,9 +834,9 @@ export interface FelizOperationForm extends FormRecord {
   /** F# api fn name (`renameProduct`) — CURRIED `(id) (form)`. */
   apiFn: string;
   /** `Msg` the submit button dispatches, carrying the route id
-   *  (`SubmitRenameProductForm`). */
+   *  (`SubmitRenameProductOpForm`). */
   submitMsg: string;
-  /** `Msg` carrying the op's `Result<unit, string>` (`RenameProductDone`). */
+  /** `Msg` carrying the op's `Result<unit, string>` (`RenameProductOpDone`). */
   doneMsg: string;
   /** Collection base route (`/api/products`) — the api fn appends `/<id>/<op>`. */
   route: string;
@@ -1338,18 +1338,19 @@ export function felizOperationForm(
 }
 
 /** A workflow form a page hosts (`WorkflowForm(runs: Y)`), projected to its MVU
- *  wiring: a string-typed `<Wf>Form` record, one `Set` `Msg` per workflow param,
- *  a paramless `Submit<Wf>Form` trigger that POSTs to `/api/workflows/<wf>`, and
- *  a `<Wf>Done` result (204, no body → `unit`) that resets + navigates home.
+ *  wiring: a string-typed `<Wf>WorkflowForm` record, one `Set` `Msg` per workflow
+ *  param, a paramless `Submit<Wf>WorkflowForm` trigger that POSTs to
+ *  `/api/workflows/<wf>`, and a `<Wf>WorkflowDone` result (204, no body → `unit`)
+ *  that resets + navigates home.
  *  The create form's POST (no id) with the operation form's 204 result. */
 export interface FelizWorkflowForm extends FormRecord {
   /** The workflow run (`openAccount`). */
   workflow: string;
-  /** F# api fn name (`runOpenAccount`). */
+  /** F# api fn name (`runOpenAccountWorkflow`). */
   apiFn: string;
-  /** `Msg` the submit button dispatches (`SubmitOpenAccountForm`). */
+  /** `Msg` the submit button dispatches (`SubmitOpenAccountWorkflowForm`). */
   submitMsg: string;
-  /** `Msg` carrying the workflow's `Result<unit, string>` (`OpenAccountDone`). */
+  /** `Msg` carrying the workflow's `Result<unit, string>` (`OpenAccountWorkflowDone`). */
   doneMsg: string;
   /** Full POST route (`/api/workflows/open_account`). */
   route: string;
