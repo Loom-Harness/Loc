@@ -1355,6 +1355,23 @@ system P {
   // `api` identifier the emitted file never binds.  `sum` on purpose: it
   // collides with the collection intrinsic, which is the arm that MIS-COMPILED
   // (to a `.reduce(…)` fold) rather than merely failing at run time.
+  // An e2e body calling a verb whose ROUTE this same compilation does not emit:
+  // `Product` declares no `create` (no `crudish`), so no backend mounts
+  // `POST /api/products` — and the emitted suite would POST there anyway.
+  "loom.e2e-unrouted-verb": `
+system S {
+  subdomain D { context C {
+    aggregate Product { sku: string }
+  } }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable d { platform: node, contexts: [C], dataSources: [st], port: 4100 }
+  test e2e "t" against d {
+    let p = api.products.create({ sku: "W-1" })
+    expect(p.sku).toBe("W-1")
+  }
+}`,
+
   "loom.e2e-unaddressable-call": `
 system S {
   subdomain D { context C {

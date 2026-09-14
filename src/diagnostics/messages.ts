@@ -3264,6 +3264,40 @@ export const DIAGNOSTIC_MESSAGES = {
     `Available aggregates: ${p.known}.`,
 
   // ----------------------------------------------------------------------
+  // src/ir/validate/checks/e2e-route-checks.ts
+  // ----------------------------------------------------------------------
+  "loom.e2e-unrouted-verb#create": (p: { magicId: unknown; slug: unknown; aggregate: unknown }) =>
+    `e2e: '${p.magicId}.${p.slug}.create(…)' has no route — '${p.aggregate}' declares no create ` +
+    `action, so no backend mounts 'POST /api/${p.slug}' and the generated suite would call a ` +
+    `route this same compilation did not emit (405). Add 'with crudish' to '${p.aggregate}', ` +
+    `or give it an explicit 'create(...) { … }'.`,
+  "loom.e2e-unrouted-verb#destroy": (p: { slug: unknown; aggregate: unknown }) =>
+    `e2e: 'api.${p.slug}.destroy(…)' has no route — '${p.aggregate}' declares no canonical ` +
+    `'destroy { }', so no backend mounts 'DELETE /api/${p.slug}/{id}'. Add 'with crudish' to ` +
+    `'${p.aggregate}', or give it an unnamed 'destroy { … }' (a NAMED destroy is a domain ` +
+    `command and gets no DELETE route).`,
+  "loom.e2e-unrouted-verb#history": (p: { slug: unknown; aggregate: unknown }) =>
+    `e2e: 'api.${p.slug}.history(…)' has no route — '${p.aggregate}' is not audited, so no ` +
+    `backend mounts 'GET /api/${p.slug}/{id}/history'. Add 'with auditable' to '${p.aggregate}'.`,
+  "loom.e2e-unrouted-verb#find": (p: { slug: unknown; verb: unknown; aggregate: unknown }) =>
+    `e2e: 'api.${p.slug}.${p.verb}(…)' has no route — the find '${p.verb}' on '${p.aggregate}' is ` +
+    `compiler-synthesized (an internal retrieval materialised behind a criterion read), and the ` +
+    `api surface mounts only DECLARED finds. Declare 'find ${p.verb}(...)' on the repository to ` +
+    `give it a 'GET /api/${p.slug}/${p.verb}' route.`,
+  "loom.e2e-unrouted-verb#verb": (p: {
+    slug: unknown;
+    verb: unknown;
+    aggregate: unknown;
+    routed: unknown;
+  }) =>
+    `e2e: 'api.${p.slug}.${p.verb}(…)' resolves to no route this model emits for ` +
+    `'${p.aggregate}'. Routed verbs: ${p.routed}.`,
+  "loom.e2e-unrouted-verb#ui-verb": (p: { slug: unknown; verb: unknown; known: unknown }) =>
+    `ui e2e: 'ui.${p.slug}.${p.verb}(…)' drives no page object — the Playwright harness ` +
+    `addresses the New-page create flow, the Detail-page read, and a public operation's ` +
+    `detail-page action. Addressable: ${p.known}.`,
+
+  // ----------------------------------------------------------------------
   // src/ir/validate/checks/timer-checks.ts
   // ----------------------------------------------------------------------
   "loom.timer-event-shape#not-infrastructure-only": (p: {

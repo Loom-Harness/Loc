@@ -28,6 +28,13 @@ export interface AngularFormControlSpec {
    *  `File` field uses `FileRef | null` so the uploaded ref + the `null` seed
    *  both assign (a `nonNullable` string control rejects the FileRef). */
   tsType?: string;
+  /** Explicit control generic for a control that STAYS `nonNullable` — emits as
+   *  `new FormControl<${nonNullableTsType}>(${init}, { nonNullable: true })`.
+   *  Used by array-valued fields (`Tag id[]`, `string[]`): the request DTO
+   *  types them `string[]`, and the bare `new FormControl([], …)` would infer
+   *  `FormControl<never[]>` — assignable only by accident.  Distinct from
+   *  {@link tsType}, which drops `nonNullable` (a nullable control). */
+  nonNullableTsType?: string;
   /** `Validators.*` calls derived from the aggregate's wire-translatable
    *  invariants (`Validators.min(N)`, `Validators.pattern(/…/)`, …) — the
    *  Angular twin of the zod native-chain the other frontends emit on
@@ -239,6 +246,16 @@ export function controlInit(t: TypeIR): string {
   // stays assignable to the request DTO — a `FormControl(null)` typed as
   // `FormControl<null>` failed `mutateAsync` under `ng build` (TS2345/2322).
   if (t.kind === "id") return '""';
+  // An array field the VO-row `FormArray` path did NOT claim — a reference
+  // collection (`Tag id[]`), a primitive collection (`string[]`), an enum
+  // collection.  The request DTO types these `string[]` / `number[]` / …, so
+  // the control must seed an EMPTY ARRAY: `null` typed the control
+  // `FormControl<null>` and `getRawValue()` then failed `ng build` with
+  // TS2322/TS2345 against `Create<Agg>Request` (the whole `{ …; tags: null }`
+  // object was rejected).  `flatControls` pairs this with an explicit
+  // `nonNullableTsType` so the control types as `FormControl<string[]>` rather
+  // than the accidental `FormControl<never[]>` a bare `[]` would infer.
+  if (t.kind === "array") return "[]";
   // Optional id (`t.kind === "optional"`), value objects and nested entities
   // keep `null`: their request type is nullable or `unknown` (request-side VO/
   // entity stay `unknown` in `wireTsType`), both null-assignable.
@@ -343,6 +360,46 @@ export function withFieldError(
   return `${markup}@if (${when}) {<p id="${id}" class="loom-error" data-testid="${testid}">${text}</p>}`;
 }
 
+/** The explicit `FormControl` generic for an array-valued field, or
+ *  `undefined` when the field is not a bare (non-optional) array.
+ *
+ *  Mirrors the request DTO's element typing (the `wireTsType` conventions the
+ *  api emitter uses): `X id[]` / `string[]` / `datetime[]` / an enum collection
+ *  → `string[]`, numeric collections → `number[]`, `bool[]` → `boolean[]`.
+ *  Anything else the DTO leaves `unknown` → `unknown[]`. */
+export function controlTsType(t: TypeIR): string | undefined {
+  if (t.kind !== "array") return undefined;
+  return `${elementTsType(unwrapOpt(t.element))}[]`;
+}
+
+function elementTsType(el: TypeIR): string {
+  if (el.kind === "id" || el.kind === "enum") return "string";
+  if (el.kind === "primitive") {
+    switch (el.name) {
+      case "int":
+      case "long":
+      case "decimal":
+        return "number";
+      case "bool":
+        return "boolean";
+      case "string":
+      case "datetime":
+      case "guid":
+      case "money":
+        return "string";
+      default:
+        return "unknown";
+    }
+  }
+  return "unknown";
+}
+
+/** Placeholder text on the disabled input an unclaimed array field renders —
+ *  the Angular twin of the JSX packs' `arrayUnsupported` chrome string
+ *  (each pack's `field-input-array.hbs`).  The Angular form fields are emitted
+ *  procedurally (not through pack templates), so the string lives here. */
+const ARRAY_UNSUPPORTED_PLACEHOLDER = "(arrays not yet supported in forms)";
+
 /** Render one field's control markup, registering the Material module it needs.
  *  `testidBase` overrides the field's `data-testid` (default `${ns}-input-${name}`)
  *  — a value-object sub-field passes `${container}-${sub}` so its testid nests
@@ -393,6 +450,27 @@ export function fieldInput(
     // the attribute early.  Field names are safe identifiers (no escaping needed).
     const change = formVar ? ` (change)="onFileUpload($event, ${formVar}.get('${name}'))"` : "";
     return `<label class="loom-field"><span class="loom-label">${label}</span><input type="file" class="loom-input"${testid}${change} /></label>`;
+  }
+  // An array-valued field that the VO-row `FormArray` path did not claim (a
+  // reference collection `Tag id[]`, a primitive/enum collection).  Rendered
+  // like the JSX frontends' `field-input-array` fallback: a DISABLED,
+  // placeholder-only input.  Crucially it carries NO `formControlName` — the
+  // default value accessor would write the typed STRING back into an array
+  // control, so the form would POST `"a,b"` where the wire wants `["a","b"]`.
+  // Left unbound, the control keeps its `[]` seed and the submit path sends an
+  // array.  (Same reasoning as the `File` branch above.)
+  if (inner.kind === "array") {
+    const ph = ARRAY_UNSUPPORTED_PLACEHOLDER;
+    if (style === "material") {
+      addNg(ctx, "@angular/material/form-field", "MatFormFieldModule");
+      addNg(ctx, "@angular/material/input", "MatInputModule");
+      return `<mat-form-field class="loom-field"><mat-label>${label}</mat-label><input matInput placeholder="${ph}" disabled${testid}></mat-form-field>`;
+    }
+    if (style === "primeng") {
+      addNg(ctx, "primeng/inputtext", "InputTextModule");
+      return `<label class="loom-field"><span class="loom-label">${label}</span><input pInputText class="loom-input" placeholder="${ph}" disabled${testid} /></label>`;
+    }
+    return `<label class="loom-field"><span class="loom-label">${label}</span><input class="loom-input" placeholder="${ph}" disabled${testid} /></label>`;
   }
   if (inner.kind === "enum") {
     const en = bc.enums.find((e) => e.name === inner.name);
@@ -744,6 +822,14 @@ export function partitionAngularFields(
       if (u.kind === "primitive" && u.name === "File") {
         // A File control holds a nullable FileRef, not a nonNullable string.
         return { name: f.name, init: "null", tsType: "FileRef | null" };
+      }
+      // An array-valued field (a reference collection `Tag id[]`, a primitive
+      // collection) that the VO-row `FormArray` path did not claim: seed `[]`
+      // and pin the control generic to the request DTO's element type, so
+      // `getRawValue()` stays assignable under `ng build`.
+      const arrayTsType = controlTsType(f.type);
+      if (arrayTsType) {
+        return { name: f.name, init: controlInit(f.type), nonNullableTsType: arrayTsType };
       }
       return {
         name: f.name,
