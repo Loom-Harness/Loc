@@ -788,6 +788,9 @@ export function renderEntity(
         : renderCsExpr(omission.expr, renderCtx);
     }
     if (omission.kind === "false") return "false";
+    // A non-nullable collection materializes as the empty collection; the
+    // target type (the field's `List<T>`) infers the element type.
+    if (omission.kind === "empty-collection") return "[]";
     return undefined; // plain optional — already nullable
   };
   const createAssignments = createInputFieldList.map((f) => {

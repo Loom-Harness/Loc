@@ -135,6 +135,14 @@ function omissionValueFor(f: RequirableInput): CreateOmissionValue {
   if (f.default !== undefined) return { kind: "default", expr: f.default };
   const base = f.type.kind === "optional" ? f.type.inner : f.type;
   if (base.kind === "primitive" && base.name === "bool") return { kind: "false" };
+  // Kept in step with `createOmissionValue`'s collection arm: a non-nullable
+  // collection omits to the empty collection, a nullable one to `null`.
+  // `test/ir/wire/create-input-contract.test.ts` pins the two in agreement —
+  // this is a deliberate second copy (it generalises over `RequirableInput`),
+  // so the pin is what stops them drifting.
+  if (base.kind === "array" && f.type.kind !== "optional" && f.optional !== true) {
+    return { kind: "empty-collection" };
+  }
   return { kind: "null" };
 }
 

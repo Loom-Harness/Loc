@@ -1677,7 +1677,8 @@ function csIsolationLevel(level: import("../../ir/types/loom-ir.js").IsolationLe
 /** Render the omission value of a create-input field the workflow `create`
  * left unset, into the C# the named-arg `Create(...)` call passes for it:
  * a `= default`'s literal (via the workflow expr renderer), a bare bool's
- * `false`, or an optional's `null`. */
+ * `false`, a non-nullable collection's empty collection, or an optional's
+ * `null`. */
 function renderCsOmission(
   v: ReturnType<typeof createOmissionValue>,
   renderArg: (e: import("../../ir/types/loom-ir.js").ExprIR) => string,
@@ -1687,6 +1688,8 @@ function renderCsOmission(
       return renderArg(v.expr);
     case "false":
       return "false";
+    case "empty-collection":
+      return "[]";
     case "null":
       return "null";
   }

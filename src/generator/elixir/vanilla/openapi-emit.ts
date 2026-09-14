@@ -1,6 +1,7 @@
 import {
   createInputFields,
   forApiRead,
+  isRequiredCreateInput,
   wireCreateDefault,
   wireFieldsFor,
 } from "../../../ir/enrich/wire-projection.js";
@@ -1008,14 +1009,20 @@ function renderProperties(
     // backend's own runtime: `@update_required` in the emitted changeset
     // already lists every bool, so a client trusting the spec and omitting
     // `active` gets a 422 the spec said would not happen.
-    const optionalBoolRequest =
-      slot === "create" &&
-      !info.isNullable &&
-      info.refKind === "primitive" &&
-      info.primitive === "bool";
+    // Consume the create-input seam rather than re-deciding from the type.
+    // This used to hand-roll the bool arm of `hasImplicitDefault`, which is why
+    // it did not pick up the `array` arm when that was added (#2864 G4) — the
+    // served spec went on calling a COLLECTION required while this backend's own
+    // runtime accepted its omission (`cast_assoc` over an absent key casts no
+    // children; a scalar array takes the changeset `__default`).  That is the
+    // same "document promising what the runtime does not check" failure the
+    // RS-26 note above describes, inverted, and it showed up as
+    // `required-only-elixir=[legs,tags]` against java's dropped required-set.
+    const optionalCreateInput =
+      slot === "create" && !isRequiredCreateInput({ optional: f.optional, type: f.type });
     // An explicitly-defaulted request field is optional input (Ash applies
     // the default on omission), so it drops from the required set too.
-    if (!f.optional && !optionalBoolRequest && !f.wireDefault) requiredAtoms.push(`:${key}`);
+    if (!f.optional && !optionalCreateInput && !f.wireDefault) requiredAtoms.push(`:${key}`);
   }
 
   return { propsLines, requiredAtoms };

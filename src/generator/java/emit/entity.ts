@@ -258,6 +258,14 @@ export function renderJavaEntity(
         : renderJavaExpr(omission.expr, renderCtx);
     }
     if (omission.kind === "false") return "false";
+    // A non-nullable collection materializes as an empty MUTABLE list.
+    // `List.of()` would be shorter but is immutable, and Hibernate manages
+    // these fields after construction — an `@ElementCollection` it tries to
+    // add into would throw `UnsupportedOperationException` at flush.
+    if (omission.kind === "empty-collection") {
+      javaImports.add("java.util.ArrayList");
+      return "new ArrayList<>()";
+    }
     return undefined; // plain optional — already nullable
   };
   const eventSourced = isAgg(entity) && entity.persistedAs === "eventLog";
