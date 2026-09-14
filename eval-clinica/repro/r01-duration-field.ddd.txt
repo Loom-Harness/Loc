@@ -1,0 +1,9 @@
+// Probe: is `duration` usable as a field type? (docs/language.md says
+// "There is no duration field type on the wire")
+context Sched {
+  aggregate Appointment {
+    startAt: datetime
+    length: duration
+  }
+  repository Appointments for Appointment { }
+}

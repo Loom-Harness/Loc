@@ -1,0 +1,1 @@
+context C { aggregate A { n: int  function f(x: int): int = x + 1  derived d: int = f(1, 2) } repository As for A { } }
