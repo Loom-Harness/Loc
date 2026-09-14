@@ -18,7 +18,12 @@ import type {
   WorkflowStmtIR,
 } from "../../types/loom-ir.js";
 import { findUsesCurrentUser } from "../../types/loom-ir.js";
-import { walkExprDeep, walkStmtExprsDeep, walkWorkflowStmtExprsDeep } from "../../util/walk.js";
+import {
+  walkExprDeep,
+  walkStmtExprsDeep,
+  walkWorkflowStmtExprsDeep,
+  walkWorkflowStmtsDeep,
+} from "../../util/walk.js";
 import { emitsCommandRoute } from "../../util/workflow-command-route.js";
 import {
   commandCreateCorrelationParam,
@@ -26,6 +31,7 @@ import {
   workflowBodyUsesOwnState,
 } from "../../util/workflow-own-state.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
+import { foreignRepositoryOwners } from "./shared.js";
 
 // ---------------------------------------------------------------------------
 // Workflow validation.
@@ -115,8 +121,14 @@ export function validateEventChannelAmbiguous(
 export function validateWorkflows(
   ctx: BoundedContextIR,
   diags: LoomDiagnostic[],
-  allEvents?: EventIR[],
+  allEvents: EventIR[],
+  /** Every context in the model — the cross-context-repository gate's input.
+   *  REQUIRED, not optional: an omitted list would silently disable that gate,
+   *  which is the exact failure shape it exists to close. */
+  allCtxs: readonly BoundedContextIR[],
 ): void {
+  // Repository names this context does NOT declare but a sibling does.
+  const foreignRepos = foreignRepositoryOwners(ctx, allCtxs);
   // Reserved-name guard: workflows share the context namespace with
   // aggregates, value objects, enums, events, repositories.
   const namesUsed = new Map<string, string>();
@@ -150,7 +162,16 @@ export function validateWorkflows(
         source: `${ctx.name}/${wf.name}`,
       });
     }
-    validateWorkflowBody(ctx, wf, diags);
+    // Runs BEFORE the body check: it reports the boundary violation and returns
+    // the let-bindings it poisoned, so the body check can stay quiet about the
+    // downstream symptoms instead of adding a second, misleading diagnostic.
+    const crossContextBindings = validateWorkflowCrossContextRepositories(
+      ctx,
+      wf,
+      foreignRepos,
+      diags,
+    );
+    validateWorkflowBody(ctx, wf, diags, crossContextBindings);
     validateWorkflowInlineRepoCalls(ctx, wf, diags);
     validateWorkflowCorrelation(ctx, wf, diags, allEvents);
     validateWorkflowOwnStateAddressable(ctx, wf, diags);
@@ -688,6 +709,167 @@ function payloadFieldMatch(
   return undefined;
 }
 
+// ---------------------------------------------------------------------------
+// CROSS-CONTEXT REPOSITORY READS — `loom.workflow-cross-context-repository`.
+//
+// A workflow is the ONE construct that legitimately orchestrates several
+// aggregates through their repositories — but only the repositories of its OWN
+// context.  Nothing said so, and the boundary failed in two DIFFERENT ways for
+// the same model shape.
+//
+// THE MECHANISM.  `lowerWorkflow` (and `ctxAggRepoMaps`, the `handle`/`on`
+// twin) index `reposByName` from `ctx.members` ALONE, so `matchRepoCall`
+// DECLINES a foreign repository name.  The `let` therefore never becomes a
+// `repo-let` `WorkflowStmtIR` at all — it falls through to the generic
+// `expr-let` arm, where `lowerExpr` leaves the unresolved receiver as a `ref`
+// with `refKind: "unknown"`.  Three consequences, all of them silent:
+//
+//   1. the `repo-let` case's own `loom.workflow-unknown-repository` branch is
+//      UNREACHABLE for this shape — no `repo-let` node ever reaches it;
+//   2. no `repo-let` means no repository is instantiated by the workflow
+//      emitters, and the call is not awaited; and
+//   3. nothing records a binding, so `bindingAgg` never learns the let's
+//      aggregate.
+//
+// Re-verified 2026-09-13 on a two-context system where `context Dispatch`'s
+// `workflow scheduleWorkOrder` reads `context Directory`'s `Technicians`.  The
+// two observed behaviours, from ONE root cause:
+//
+//   - the binding is later used as an op-call receiver (`part.decrement(qty)`)
+//     → consequence 3 surfaces as `loom.workflow-unknown-binding`, on the
+//       WRONG line (the use, not the `let`) and with wording that reads like a
+//       typo'd variable name rather than a context-boundary crossing; while
+//   - the binding is only READ (`precondition tech.skills.count > 0`)
+//     → NOTHING fires.  `ddd parse` reports 0 errors, `ddd generate system`
+//       writes the tree, and node's `api/http/workflows.ts` contains
+//
+//         const workOrders = new WorkOrderRepository(tx, events);
+//         const tech = Technicians.getById(assignTo);        // no repo, no await
+//         const wo = await workOrders.getById(workOrderId);  // the local sibling
+//
+//       — `Technicians` is never constructed or imported (`tsc`: "Cannot find
+//       name 'Technicians'"), and `.count` renders verbatim because the
+//       receiver has no type.  Every backend that runs domain logic renders
+//       the same dangling receiver.
+//
+// So this is one MODEL-level shape no backend supports, not five per-backend
+// gaps — the identical call `domain-service-checks.ts` makes for
+// `loom.domain-service-cross-context-read` (whose header note this one mirrors):
+// reject at the source rather than let five emitters fail five different silent
+// ways.  BOTH gates key on the same `foreignRepositoryOwners` map (`shared.ts`).
+//
+// NOT A DEPLOYMENT QUESTION.  Both repros put both contexts on ONE deployable,
+// sharing one database and one transaction, and the read is still broken — the
+// name does not resolve at lowering, long before any deployable is considered.
+// Supporting it would mean teaching the lowerer, every backend's repository
+// wiring, and the per-context directory layouts to cross the boundary, for a
+// read that DDD says should cross at the context's public surface anyway.  So
+// the gate is context-boundary-shaped, not deployment-shaped.
+//
+// SCOPE.  A bare `ref` that (a) did not resolve (`refKind: "unknown"`, so a
+// param or local shadowing the name is never flagged) and (b) names a
+// repository declared in some OTHER context of the model.  Covers EVERY
+// workflow body — the primary create, named `create`s, `handle`s and `on`
+// reactors — not just the one `validateWorkflowBody` sees.  Defence-in-depth:
+// a `repo-let` / `repo-run` / `repo-delete` node that somehow DID carry a
+// foreign `repoName` is caught too, so if lowering ever learns to resolve the
+// name the gate still stands until a backend can actually emit it.
+// ---------------------------------------------------------------------------
+
+/** Every workflow body, with the label naming the member it came from.  The
+ *  `statements`/`params` facade on `WorkflowIR` aliases the PRIMARY create, so
+ *  iterating `creates` alone covers it without double-reporting.
+ *
+ *  Named distinctly from {@link workflowBodiesLabeled} above (the
+ *  `loom.workflow-inline-repository-call` gate's own label formatting) and
+ *  {@link workflowBodies} below (main's unlabeled, statements-only twin used
+ *  by {@link validateWorkflowBody}'s per-body loop) — three callers, three
+ *  slightly different shapes, not worth unifying at the cost of either
+ *  gate's exact wording. */
+function workflowBodiesLabeledCrossContext(
+  wf: WorkflowIR,
+): { label: string; statements: WorkflowStmtIR[] }[] {
+  const creates = wf.creates ?? [];
+  return [
+    ...(creates.length > 0
+      ? creates.map((cr) => ({
+          label: cr.name ? `create '${cr.name}'` : "create",
+          statements: cr.statements,
+        }))
+      : // Legacy/partial IR with no `creates` — fall back to the facade so the
+        // primary body is still scanned.
+        [{ label: "create", statements: wf.statements }]),
+    ...(wf.handlers ?? []).map((h) => ({ label: `handle '${h.name}'`, statements: h.statements })),
+    ...(wf.subscriptions ?? []).map((s) => ({
+      label: `on(${s.event})`,
+      statements: s.statements,
+    })),
+  ];
+}
+
+/** `loom.workflow-cross-context-repository` — see the header note above.
+ *
+ *  Returns the names of the let-bindings poisoned by such a read, so
+ *  {@link validateWorkflowBody} can suppress the downstream
+ *  `loom.workflow-unknown-binding` cascade: the two variants of this ONE bug
+ *  must produce the SAME diagnostic, not a boundary error in one shape and a
+ *  misleading binding error in the other. */
+function validateWorkflowCrossContextRepositories(
+  ctx: BoundedContextIR,
+  wf: WorkflowIR,
+  foreignRepos: ReadonlyMap<string, string>,
+  diags: LoomDiagnostic[],
+): ReadonlySet<string> {
+  const poisoned = new Set<string>();
+  if (foreignRepos.size === 0) return poisoned;
+  // One diagnostic per repository per workflow, not per mention — a body
+  // reading the same foreign repository twice states one boundary problem.
+  const flagged = new Set<string>();
+  for (const { label, statements } of workflowBodiesLabeledCrossContext(wf)) {
+    for (const st of statements) {
+      // (a) the unresolved-receiver residue — the shape that actually occurs.
+      walkWorkflowStmtsDeep(st, (inner) => {
+        const names = new Set<string>();
+        walkWorkflowStmtExprsDeep(inner, (e) => {
+          if (e.kind === "ref" && e.refKind === "unknown" && foreignRepos.has(e.name)) {
+            names.add(e.name);
+          }
+        });
+        if (names.size === 0) return;
+        // The `let` that bound the broken read — its name is now poisoned, so
+        // every later use of it is a symptom, not a separate defect.
+        if (inner.kind === "expr-let") poisoned.add(inner.name);
+        for (const n of names) report(n, label);
+      });
+      // (b) defence-in-depth — a resolved repo statement naming a foreign repo.
+      walkWorkflowStmtsDeep(st, (inner) => {
+        const repoName =
+          inner.kind === "repo-let" || inner.kind === "repo-run" || inner.kind === "repo-delete"
+            ? inner.repoName
+            : undefined;
+        if (repoName !== undefined && foreignRepos.has(repoName)) report(repoName, label);
+      });
+    }
+  }
+  return poisoned;
+
+  function report(repoName: string, label: string): void {
+    if (flagged.has(repoName)) return;
+    flagged.add(repoName);
+    diags.push({
+      severity: "error",
+      code: "loom.workflow-cross-context-repository",
+      message: diagMessage("loom.workflow-cross-context-repository", {
+        where: `workflow '${wf.name}' ${label}`,
+        repoName,
+        ownContext: ctx.name,
+        otherContext: foreignRepos.get(repoName) as string,
+      }),
+      source: `${ctx.name}/${wf.name}`,
+    });
+  }
+}
+
 /** Every executable body a workflow declares, in declaration order.
  *
  *  `wf.statements` is only a FACADE over the primary (unnamed,
@@ -731,6 +913,8 @@ function validateWorkflowBody(
     params: import("../../types/loom-ir.js").ParamIR[];
   },
   diags: LoomDiagnostic[],
+  /** Let-bindings already reported by the cross-context gate — see its note. */
+  crossContextBindings: ReadonlySet<string> = new Set(),
 ): void {
   const aggsByName = new Map(ctx.aggregates.map((a) => [a.name, a] as const));
   const reposByName = new Map(ctx.repositories.map((r) => [r.name, r] as const));
@@ -756,6 +940,7 @@ function validateWorkflowBody(
       () => {
         mutated = true;
       },
+      crossContextBindings,
     );
   }
 
@@ -805,6 +990,9 @@ function validateWorkflowStatements(
   bindingAgg: Map<string, string>,
   arrayBindingAgg: Map<string, string>,
   markMutated: () => void,
+  /** Let-bindings already reported by the cross-context gate — see its note
+   *  on {@link validateWorkflowBody}. */
+  crossContextBindings: ReadonlySet<string> = new Set(),
 ): void {
   for (const st of statements) {
     switch (st.kind) {
@@ -1167,7 +1355,9 @@ function validateWorkflowStatements(
         for (const inner of st.body) {
           if (inner.kind === "op-call") {
             markMutated();
-            if (!bindingAgg.get(inner.target)) {
+            // A binding poisoned by a cross-context repository read is already
+            // reported at its `let` — see the op-call arm below.
+            if (!bindingAgg.get(inner.target) && !crossContextBindings.has(inner.target)) {
               diags.push({
                 severity: "error",
                 code: "loom.workflow-foreach-unknown-binding",
@@ -1271,7 +1461,8 @@ function validateWorkflowStatements(
           for (const inner of body) {
             if (inner.kind === "op-call") {
               markMutated();
-              if (!bindingAgg.get(inner.target)) {
+              // Same suppression as the `for-each` arm above.
+              if (!bindingAgg.get(inner.target) && !crossContextBindings.has(inner.target)) {
                 diags.push({
                   severity: "error",
                   code: "loom.workflow-foreach-unknown-binding",
@@ -1304,6 +1495,19 @@ function validateWorkflowStatements(
       case "op-call": {
         const aggName = bindingAgg.get(st.target);
         if (!aggName) {
+          if (crossContextBindings.has(st.target)) {
+            // The binding is missing BECAUSE its `let` read a repository of
+            // another context, which `loom.workflow-cross-context-repository`
+            // has already reported at the `let` itself.  Reporting
+            // `workflow-unknown-binding` here too would describe the same one
+            // defect twice — and describe it wrongly, pointing at the USE and
+            // sounding like a typo'd variable name.  The mutation the author
+            // wrote is real, so it also counts as an effect: without this the
+            // rejected model additionally collects a `transactional-no-effect`
+            // warning that vanishes the moment the boundary is fixed.
+            markMutated();
+            break;
+          }
           diags.push({
             severity: "error",
             code: "loom.workflow-unknown-binding",

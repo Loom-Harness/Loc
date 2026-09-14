@@ -425,3 +425,31 @@ export function firstNonQueryableNode(e: ExprIR): string | null {
  *  drift on `convert.value`, `list.elements`, and block-body lambda
  *  statements. */
 export const walkExpr = walkExprDeep;
+
+/** repository name → the OTHER context that declares it (first wins).  Names
+ *  `ctx` itself declares are EXCLUDED, so a locally-resolving read is never a
+ *  candidate and a same-name repository in two contexts keeps resolving
+ *  locally.
+ *
+ *  Shared by the two gates that reject a body reaching across the context
+ *  boundary for a repository — `loom.domain-service-cross-context-read`
+ *  (`domain-service-checks.ts`) and `loom.workflow-cross-context-repository`
+ *  (`workflow-checks.ts`).  Both rest on the same mechanism: the lowerer indexes
+ *  the repositories it resolves reads against from the ENCLOSING context's
+ *  members alone, so a foreign name never resolves and survives into the IR as a
+ *  `ref` with `refKind: "unknown"`. */
+export function foreignRepositoryOwners(
+  ctx: BoundedContextIR,
+  allCtxs: readonly BoundedContextIR[],
+): ReadonlyMap<string, string> {
+  const local = new Set(ctx.repositories.map((r) => r.name));
+  const owners = new Map<string, string>();
+  for (const other of allCtxs) {
+    if (other.name === ctx.name) continue;
+    for (const repo of other.repositories) {
+      if (local.has(repo.name) || owners.has(repo.name)) continue;
+      owners.set(repo.name, other.name);
+    }
+  }
+  return owners;
+}

@@ -113,6 +113,7 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.self-outside-capability":
     "11-capabilities-filters-stamps.md#self-id--self-reference-inside-a-capability",
   "loom.workflow-load-array-unsupported": "13-workflows.md#body-vocabulary",
+  "loom.workflow-cross-context-repository": "13-workflows.md#body-vocabulary",
   "loom.workflow-private-operation": "13-workflows.md#body-vocabulary",
   "loom.workflow-unrecognised-statement": "13-workflows.md#body-vocabulary",
   "loom.workflow-inline-repository-call": "13-workflows.md#body-vocabulary",
