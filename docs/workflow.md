@@ -81,6 +81,42 @@ context Sales {
 | `let x = expr` | Plain expression binding. |
 | `emit EventName { field: expr, ... }` | Workflow-level event.  Event must be declared in the same context.  Drains through `IDomainEventDispatcher` after all saves (after commit when `transactional`). |
 
+Every `Repo.…` form above names a repository of the workflow's **own
+context** — see below.
+
+### Repositories are context-local — `loom.workflow-cross-context-repository`
+
+A workflow orchestrates the aggregates of ONE bounded context.  Naming a
+repository declared in another context is an error
+(`loom.workflow-cross-context-repository`), even when both contexts ride the
+same deployable and share one transaction:
+
+A fragment, deliberately REJECTED — `Technicians` is declared in `context
+Directory`, while the workflow is in `context Dispatch`:
+
+```ddd
+workflow scheduleWorkOrder transactional {
+  create(workOrderId: WorkOrder id, assignTo: Technician id) {
+    let tech = Technicians.getById(assignTo)   // ERROR — `Technicians` is Directory's
+    let wo   = WorkOrders.getById(workOrderId) // fine — Dispatch's own
+    wo.assign()
+  }
+}
+```
+
+Lowering resolves a `let` read against the enclosing context's repositories
+alone, so a foreign name never becomes a repository load at all — before the
+gate, every backend rendered the receiver verbatim into code that references a
+name it never defines (node: `const tech = Technicians.getById(assignTo);` —
+no repository constructed, no `await`, `tsc`: *Cannot find name 'Technicians'*).
+
+Reach the other context at its **public surface** instead — the same two
+sanctioned crossings [`domain-services.md`](domain-services.md#cross-context-data-in-ddd-terms-a-decision-not-a-todo)
+names, both of which a workflow may use: call `Directory`'s api through a
+`resource { kind: api }` binding, or read a local projection folded over
+`Directory`'s published events.  If the two aggregates genuinely change
+together in one transaction, they belong in the same context.
+
 ### `if let` — single-result criterion lookup
 
 `Repo.find(<Criterion>)` is the single-result sibling of `Repo.findAll`: it
@@ -325,11 +361,13 @@ is members-only — `workflow X { create(...) { ... } }`):
 | Member | Trigger |
 | --- | --- |
 | `create [name](params) [by <expr>] { ... }` | A starter.  The parameter shape discriminates the trigger (resolved at lowering): positional domain params synthesise an implicit command; a single payload param (`create(c: PlaceOrder)`) is an explicit command; a single event param with a `by` clause (`create(e: OrderPlaced) by e.order`) is event-triggered. |
-| `handle name(params) { ... }` | A continuation command handler — own-state mutation, may call other aggregates / repos.  Multiple handles make a multi-command saga. |
+| `handle name(params) { ... }` | **Not implemented — refused by the compiler** (`loom.workflow-handle-unsupported`).  Parses and reaches the IR, but no backend emits a route, a handler, or a method for it, so a saga could be started and read and never advanced.  See [below](#handle-is-refused-not-shipped). |
 | `on(e: Event) [by <expr>] { ... }` | An external-event reactor. |
 
-A `create` or `handle` parameter may be typed by an **event** or a
-**payload** (`command` / `query` / `response` / `error`) named directly:
+A `create` parameter may be typed by an **event** or a
+**payload** (`command` / `query` / `response` / `error`) named directly
+(`handle` accepts the same parameter forms grammatically, but is refused — see
+below):
 
 ```ddd
 command SettleOrder { order: Order id, note: string }
@@ -340,9 +378,32 @@ workflow Fulfillment {
 
   create(c: SettleOrder)               { ... }   // explicit command-triggered
   create(paid: PaymentReceived) by paid.order { ... }   // event-triggered
-  handle settle(c: SettleOrder)        { ... }   // continuation command
 }
 ```
+
+### `handle` is refused, not shipped
+
+`handle name(params) { ... }` parses and type-checks, and **no backend has ever
+emitted anything for it** — searching a generated tree for the handler's name
+finds only the mermaid diagram.  This page previously advertised it as the
+multi-command saga surface; that was wrong, and a model using it compiled into a
+saga that could be started and read (`/instances`, `/instances/{id}`) but never
+advanced, with no diagnostic (audit #2864 D5).
+
+The compiler now refuses it outright rather than emitting silence:
+
+```
+error: workflow 'Review': 'handle approve(…)' is not emitted by any backend …
+```
+
+Model a continuation one of the two ways that do work today:
+
+* **as an aggregate `operation`** — the aggregate owns the state transition, and
+  the operation gets a route on every backend; or
+* **as a second workflow** started by the event the first one emits.
+
+Whether Loom grows real multi-command sagas is a deferred feature decision
+(mission **M-T6.58**), not a documentation gap.
 
 The bound parameter is a flat transport record: `paid.amount` resolves
 to the field's declared type and is type-checked like any other

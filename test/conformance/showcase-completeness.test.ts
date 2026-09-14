@@ -82,6 +82,16 @@ const ALLOWLIST = new Set<string>([
   // construction, not a coverage gap.
   "MacroArgString",
   "MacroArgInt",
+  // `handle name(…) { … }` is REFUSED by the compiler as of M-T5.34
+  // (`loom.workflow-handle-unsupported`, audit #2864 D5): it parses and reaches
+  // the IR, and no backend has ever emitted a route, a handler or a method for
+  // it, so a saga could be started and read but never advanced.  showcase.ddd's
+  // own contract is "parses + validates with zero errors", so the two
+  // requirements are now mutually exclusive and the showcase gave up its
+  // `handle reset()`.  Unreachable from any VALID `.ddd`, not a coverage gap.
+  // Delete this entry together with the emitter (mission M-T6.58) — the
+  // ratchet below fails if showcase.ddd exercises it again.
+  "HandleDecl",
   // showcase.ddd is the single-file cross-generator conformance fixture; an
   // `import` would make it a multi-file project (a second partial file in
   // examples/ that standalone-generate matrices would choke on, plus the

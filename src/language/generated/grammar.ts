@@ -828,17 +828,50 @@ export const DddGrammar = (): Grammar => loadedDddGrammar ?? (loadedDddGrammar =
             "value": "{"
           },
           {
-            "$type": "Assignment",
-            "feature": "fields",
-            "operator": "+=",
-            "terminal": {
-              "$type": "RuleCall",
-              "rule": {
-                "$ref": "#/rules@13"
+            "$type": "Group",
+            "elements": [
+              {
+                "$type": "Assignment",
+                "feature": "fields",
+                "operator": "+=",
+                "terminal": {
+                  "$type": "RuleCall",
+                  "rule": {
+                    "$ref": "#/rules@13"
+                  },
+                  "arguments": []
+                }
               },
-              "arguments": []
-            },
-            "cardinality": "*"
+              {
+                "$type": "Group",
+                "elements": [
+                  {
+                    "$type": "Keyword",
+                    "value": ",",
+                    "cardinality": "?"
+                  },
+                  {
+                    "$type": "Assignment",
+                    "feature": "fields",
+                    "operator": "+=",
+                    "terminal": {
+                      "$type": "RuleCall",
+                      "rule": {
+                        "$ref": "#/rules@13"
+                      },
+                      "arguments": []
+                    }
+                  }
+                ],
+                "cardinality": "*"
+              },
+              {
+                "$type": "Keyword",
+                "value": ",",
+                "cardinality": "?"
+              }
+            ],
+            "cardinality": "?"
           },
           {
             "$type": "Keyword",
@@ -8001,17 +8034,50 @@ export const DddGrammar = (): Grammar => loadedDddGrammar ?? (loadedDddGrammar =
             "value": "{"
           },
           {
-            "$type": "Assignment",
-            "feature": "members",
-            "operator": "+=",
-            "terminal": {
-              "$type": "RuleCall",
-              "rule": {
-                "$ref": "#/rules@100"
+            "$type": "Group",
+            "elements": [
+              {
+                "$type": "Assignment",
+                "feature": "members",
+                "operator": "+=",
+                "terminal": {
+                  "$type": "RuleCall",
+                  "rule": {
+                    "$ref": "#/rules@100"
+                  },
+                  "arguments": []
+                }
               },
-              "arguments": []
-            },
-            "cardinality": "*"
+              {
+                "$type": "Group",
+                "elements": [
+                  {
+                    "$type": "Keyword",
+                    "value": ",",
+                    "cardinality": "?"
+                  },
+                  {
+                    "$type": "Assignment",
+                    "feature": "members",
+                    "operator": "+=",
+                    "terminal": {
+                      "$type": "RuleCall",
+                      "rule": {
+                        "$ref": "#/rules@100"
+                      },
+                      "arguments": []
+                    }
+                  }
+                ],
+                "cardinality": "*"
+              },
+              {
+                "$type": "Keyword",
+                "value": ",",
+                "cardinality": "?"
+              }
+            ],
+            "cardinality": "?"
           },
           {
             "$type": "Keyword",
@@ -8284,17 +8350,50 @@ export const DddGrammar = (): Grammar => loadedDddGrammar ?? (loadedDddGrammar =
             "value": "{"
           },
           {
-            "$type": "Assignment",
-            "feature": "members",
-            "operator": "+=",
-            "terminal": {
-              "$type": "RuleCall",
-              "rule": {
-                "$ref": "#/rules@110"
+            "$type": "Group",
+            "elements": [
+              {
+                "$type": "Assignment",
+                "feature": "members",
+                "operator": "+=",
+                "terminal": {
+                  "$type": "RuleCall",
+                  "rule": {
+                    "$ref": "#/rules@110"
+                  },
+                  "arguments": []
+                }
               },
-              "arguments": []
-            },
-            "cardinality": "*"
+              {
+                "$type": "Group",
+                "elements": [
+                  {
+                    "$type": "Keyword",
+                    "value": ",",
+                    "cardinality": "?"
+                  },
+                  {
+                    "$type": "Assignment",
+                    "feature": "members",
+                    "operator": "+=",
+                    "terminal": {
+                      "$type": "RuleCall",
+                      "rule": {
+                        "$ref": "#/rules@110"
+                      },
+                      "arguments": []
+                    }
+                  }
+                ],
+                "cardinality": "*"
+              },
+              {
+                "$type": "Keyword",
+                "value": ",",
+                "cardinality": "?"
+              }
+            ],
+            "cardinality": "?"
           },
           {
             "$type": "Keyword",
@@ -9647,17 +9746,50 @@ export const DddGrammar = (): Grammar => loadedDddGrammar ?? (loadedDddGrammar =
             "value": "{"
           },
           {
-            "$type": "Assignment",
-            "feature": "members",
-            "operator": "+=",
-            "terminal": {
-              "$type": "RuleCall",
-              "rule": {
-                "$ref": "#/rules@125"
+            "$type": "Group",
+            "elements": [
+              {
+                "$type": "Assignment",
+                "feature": "members",
+                "operator": "+=",
+                "terminal": {
+                  "$type": "RuleCall",
+                  "rule": {
+                    "$ref": "#/rules@125"
+                  },
+                  "arguments": []
+                }
               },
-              "arguments": []
-            },
-            "cardinality": "*"
+              {
+                "$type": "Group",
+                "elements": [
+                  {
+                    "$type": "Keyword",
+                    "value": ",",
+                    "cardinality": "?"
+                  },
+                  {
+                    "$type": "Assignment",
+                    "feature": "members",
+                    "operator": "+=",
+                    "terminal": {
+                      "$type": "RuleCall",
+                      "rule": {
+                        "$ref": "#/rules@125"
+                      },
+                      "arguments": []
+                    }
+                  }
+                ],
+                "cardinality": "*"
+              },
+              {
+                "$type": "Keyword",
+                "value": ",",
+                "cardinality": "?"
+              }
+            ],
+            "cardinality": "?"
           },
           {
             "$type": "Keyword",
@@ -14167,6 +14299,10 @@ export const DddGrammar = (): Grammar => loadedDddGrammar ?? (loadedDddGrammar =
           },
           {
             "$type": "Keyword",
+            "value": "allow"
+          },
+          {
+            "$type": "Keyword",
             "value": "asc"
           },
           {
@@ -14207,6 +14343,14 @@ export const DddGrammar = (): Grammar => loadedDddGrammar ?? (loadedDddGrammar =
           },
           {
             "$type": "Keyword",
+            "value": "deep"
+          },
+          {
+            "$type": "Keyword",
+            "value": "deny"
+          },
+          {
+            "$type": "Keyword",
             "value": "desc"
           },
           {
@@ -14240,6 +14384,10 @@ export const DddGrammar = (): Grammar => loadedDddGrammar ?? (loadedDddGrammar =
           {
             "$type": "Keyword",
             "value": "filter"
+          },
+          {
+            "$type": "Keyword",
+            "value": "global"
           },
           {
             "$type": "Keyword",
@@ -14295,6 +14443,10 @@ export const DddGrammar = (): Grammar => loadedDddGrammar ?? (loadedDddGrammar =
           },
           {
             "$type": "Keyword",
+            "value": "local"
+          },
+          {
+            "$type": "Keyword",
             "value": "mailer"
           },
           {
@@ -14316,6 +14468,10 @@ export const DddGrammar = (): Grammar => loadedDddGrammar ?? (loadedDddGrammar =
           {
             "$type": "Keyword",
             "value": "objectStore"
+          },
+          {
+            "$type": "Keyword",
+            "value": "of"
           },
           {
             "$type": "Keyword",
@@ -14344,6 +14500,14 @@ export const DddGrammar = (): Grammar => loadedDddGrammar ?? (loadedDddGrammar =
           {
             "$type": "Keyword",
             "value": "query"
+          },
+          {
+            "$type": "Keyword",
+            "value": "persistence"
+          },
+          {
+            "$type": "Keyword",
+            "value": "policy"
           },
           {
             "$type": "Keyword",
@@ -14388,6 +14552,10 @@ export const DddGrammar = (): Grammar => loadedDddGrammar ?? (loadedDddGrammar =
           {
             "$type": "Keyword",
             "value": "service"
+          },
+          {
+            "$type": "Keyword",
+            "value": "slot"
           },
           {
             "$type": "Keyword",
@@ -14474,10 +14642,6 @@ export const DddGrammar = (): Grammar => loadedDddGrammar ?? (loadedDddGrammar =
           },
           {
             "$type": "Keyword",
-            "value": "allow"
-          },
-          {
-            "$type": "Keyword",
             "value": "api"
           },
           {
@@ -14506,10 +14670,6 @@ export const DddGrammar = (): Grammar => loadedDddGrammar ?? (loadedDddGrammar =
           },
           {
             "$type": "Keyword",
-            "value": "deep"
-          },
-          {
-            "$type": "Keyword",
             "value": "design"
           },
           {
@@ -14526,10 +14686,6 @@ export const DddGrammar = (): Grammar => loadedDddGrammar ?? (loadedDddGrammar =
           },
           {
             "$type": "Keyword",
-            "value": "global"
-          },
-          {
-            "$type": "Keyword",
             "value": "id"
           },
           {
@@ -14542,10 +14698,6 @@ export const DddGrammar = (): Grammar => loadedDddGrammar ?? (loadedDddGrammar =
           },
           {
             "$type": "Keyword",
-            "value": "local"
-          },
-          {
-            "$type": "Keyword",
             "value": "menu"
           },
           {
@@ -14554,23 +14706,11 @@ export const DddGrammar = (): Grammar => loadedDddGrammar ?? (loadedDddGrammar =
           },
           {
             "$type": "Keyword",
-            "value": "of"
-          },
-          {
-            "$type": "Keyword",
             "value": "page"
           },
           {
             "$type": "Keyword",
             "value": "permissions"
-          },
-          {
-            "$type": "Keyword",
-            "value": "persistence"
-          },
-          {
-            "$type": "Keyword",
-            "value": "policy"
           },
           {
             "$type": "Keyword",
@@ -16113,6 +16253,25 @@ export const DddGrammar = (): Grammar => loadedDddGrammar ?? (loadedDddGrammar =
       "definition": {
         "$type": "Group",
         "elements": [
+          {
+            "$type": "Group",
+            "elements": [
+              {
+                "$type": "Assignment",
+                "feature": "thisRef",
+                "operator": "?=",
+                "terminal": {
+                  "$type": "Keyword",
+                  "value": "this"
+                }
+              },
+              {
+                "$type": "Keyword",
+                "value": "."
+              }
+            ],
+            "cardinality": "?"
+          },
           {
             "$type": "Assignment",
             "feature": "head",

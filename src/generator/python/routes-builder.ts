@@ -56,6 +56,7 @@ import {
   opGetById,
   opOperation,
 } from "../../ir/util/openapi-ids.js";
+import { findValueObjectInScope, valueObjectPool } from "../../ir/util/reachable-types.js";
 import { listReadFind } from "../../ir/util/read-gates.js";
 import { aggregateIsVersioned } from "../../ir/util/versioned-capability.js";
 import { type LinesPart, lines } from "../../util/code-builder.js";
@@ -248,11 +249,11 @@ export function buildPyRoutesFile(
     .map((e) => e.name)
     .filter(refersTo)
     .sort();
-  const voDomainNames = ctx.valueObjects
+  const voDomainNames = valueObjectPool(ctx)
     .map((v) => v.name)
     .filter(refersTo)
     .sort();
-  const voModelImports = ctx.valueObjects
+  const voModelImports = valueObjectPool(ctx)
     .map((v) => v.name)
     .filter((n) => refersTo(`${n}Model`))
     .sort();
@@ -781,7 +782,7 @@ export function pyWireToDomain(expr: string, t: TypeIR, ctx: BoundedContextIR): 
     case "id":
       return `${t.targetName}Id(${expr})`;
     case "valueobject": {
-      const vo = ctx.valueObjects.find((v) => v.name === t.name);
+      const vo = findValueObjectInScope(ctx, t.name);
       if (!vo) return expr;
       const args = vo.fields
         .map((vf) => pyWireToDomain(`${expr}.${vf.name}`, vf.type, ctx))

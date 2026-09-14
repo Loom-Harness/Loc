@@ -163,14 +163,6 @@ const VARIABLE_ARG_SITES: { site: string; why: string }[] = [
     why: "the mikroorm arm of the same hoisted `params` object",
   },
   {
-    site: "src/ir/validate/checks/projection-backend-checks.ts :: loom.projection-groupby-unsupported-backend#document",
-    why: "document-shape projection gate: one `params` hoisted above the grouped/whole-table arms, each with its own literal code",
-  },
-  {
-    site: "src/ir/validate/checks/projection-backend-checks.ts :: loom.projection-whole-table-aggregation-unsupported#document",
-    why: "the whole-table arm of the same hoisted `params` object",
-  },
-  {
     site: "src/ir/validate/checks/default-deny-checks.ts :: loom.default-deny-ungated#denybydefault-handler-extern",
     why: "denyByDefault handler gate: one `params` hoisted above the extern/normal arms, which share one code but two keys",
   },
@@ -211,8 +203,6 @@ const INTERPOLATES_UNDEFINED_AT_VARIABLE_ARG_SITES = [
   "loom.mikroorm-unsupported#migrations",
   "loom.mikroorm-unsupported#schema-ignored",
   "loom.mikroorm-unsupported#schema-split",
-  "loom.projection-groupby-unsupported-backend#document",
-  "loom.projection-whole-table-aggregation-unsupported#document",
 ];
 
 /** Key groups that render the SAME text on purpose.  A group is written as its

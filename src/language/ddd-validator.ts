@@ -54,6 +54,7 @@ import {
   checkIconOnlyButtonName,
   checkImageAltText,
   checkInheritance,
+  checkIntegerLiteralPrecision,
   checkIntrinsicCalls,
   checkLayout,
   checkLegacyConstructorCalls,
@@ -356,6 +357,10 @@ export class DddValidator {
     guard("intrinsic-calls", model, () => checkIntrinsicCalls(model, accept));
     // A5 duration constructors (days/hours/minutes): arity + int amount.
     guard("duration-constructors", model, () => checkDurationConstructors(model, accept));
+    // An integer literal the `INT` terminal could not hold exactly — the
+    // written digits are already lost by the time any emitter runs
+    // (loom.integer-literal-imprecise, M-T5.23).
+    guard("integer-literal-precision", model, () => checkIntegerLiteralPrecision(model, accept));
     // A6 string-interpolation hole types (loom.interp-hole-type).
     guard("template-holes", model, () => checkTemplateHoles(model, accept));
     // Top-level functions: block-form rejection + recursion cycle

@@ -23,7 +23,7 @@ system Acme {
       channel Lifecycle { carries: OrderPlaced }
       workflow placeOrder {
         orderId: Order id
-        handle place(orderId: Order id) {
+        create(orderId: Order id) {
           emit OrderPlaced { orderId: orderId }
         }
       }
@@ -33,6 +33,7 @@ system Acme {
       repository Shipments for Shipment {}
       workflow Fulfil {
         orderId: Order id
+        create(orderId: Order id) { }
         on(e: OrderPlaced) by e.orderId {
           let s = Shipment.create({ orderRef: "from-broker" })
         }

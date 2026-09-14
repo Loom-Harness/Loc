@@ -176,7 +176,7 @@ export function lowerLayout(layout: Layout): LayoutIR {
   // Each non-main slot is lowered with an empty env — layouts have no
   // params or state, and the validator rejects refs to anything other
   // than walker-stdlib primitives + user components + helper imports.
-  const env: Env = { locals: new Map(), user: undefined };
+  const env: Env = { locals: new Map(), user: undefined, ui: true };
   let header: ExprIR | undefined;
   let sidebar: ExprIR | undefined;
   let footer: ExprIR | undefined;
@@ -240,7 +240,7 @@ export function lowerUi(ui: Ui, user?: UserIR): UiIR {
     else if (m.$type === "Area") collectArea(m, []);
     else if (m.$type === "Component") components.push(lowerComponent(m, user, storeIndex));
     else if (m.$type === "Store") {
-      const env: Env = { locals: new Map(), user, stores: storeIndex };
+      const env: Env = { locals: new Map(), user, stores: storeIndex, ui: true };
       stores.push(lowerStore(m, env));
     } else if (m.$type === "UiApiParam") {
       apiParams.push({
@@ -265,7 +265,7 @@ export function lowerUi(ui: Ui, user?: UserIR): UiIR {
       // NameRefs — carry the resolved query-key tag so backends never
       // re-derive it (mirrors the mutation-success `["<tag>"]` key).
       const eventName = m.event?.$refText ?? "";
-      const env: Env = { locals: new Map(), user: undefined };
+      const env: Env = { locals: new Map(), user: undefined, ui: true };
       const inner = withLocal(env, m.bind, "param", { kind: "entity", name: eventName });
       const toasts: ExprIR[] = [];
       const refetches: RefetchTargetIR[] = [];
@@ -288,7 +288,7 @@ export function lowerUi(ui: Ui, user?: UserIR): UiIR {
         ...(refetches.length > 0 ? { refetches } : {}),
       });
     } else if (m.$type === "UiFunction") {
-      const env: Env = { locals: new Map(), user: undefined };
+      const env: Env = { locals: new Map(), user: undefined, ui: true };
       functions.push({
         name: m.name,
         params: (m.params ?? []).map((p) => ({ name: p.name, type: lowerType(p.type, env) })),
@@ -343,7 +343,7 @@ function lowerPage(p: Page, user?: UserIR, stores?: Env["stores"]): PageIR {
   // string-concat convert injection) don't mis-fire on page bodies.
   // `user` is threaded so a page `requires` gate (and any page-scope
   // `currentUser` ref) resolves to a `current-user` ref rather than `unknown`.
-  let env: Env = { locals: new Map(), user, stores };
+  let env: Env = { locals: new Map(), user, stores, ui: true };
   for (const param of p.params ?? []) {
     env = withLocal(env, param.name, "param", lowerType(param.type));
   }
@@ -463,7 +463,7 @@ export function lowerComponent(c: Component, user?: UserIR, stores?: Env["stores
   // `currentUser` read in a component body is the same session read and
   // must lower to a resolved `current-user` ref — otherwise it stays
   // unresolved and escapes `loom.current-user-needs-auth-ui`.
-  let env: Env = { locals: new Map(), user, stores };
+  let env: Env = { locals: new Map(), user, stores, ui: true };
   for (const param of c.params) {
     env = withLocal(env, param.name, "param", lowerType(param.type));
   }
@@ -510,7 +510,7 @@ function lowerStateField(f: StateField, env: Env): StateFieldIR {
 }
 
 function lowerMenuBlock(m: MenuBlock): MenuBlockIR {
-  const env: Env = { locals: new Map(), user: undefined };
+  const env: Env = { locals: new Map(), user: undefined, ui: true };
   return {
     sections: m.sections.map((sec) => ({
       label: sec.label,

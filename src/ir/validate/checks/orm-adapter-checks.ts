@@ -17,7 +17,6 @@ import {
   isFindPredicateAdapter,
 } from "../../util/find-predicate-capability.js";
 import { effectiveSavingShape, resolveDataSourceConfig } from "../../util/resolve-datasource.js";
-import { isDeepScopeFilter } from "../../util/tenant-stance.js";
 import { typeLabel } from "../../util/type-label.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
 
@@ -172,30 +171,17 @@ export function validateDapperSupport(sys: SystemIR, diags: LoomDiagnostic[]): v
         // the EF AuditableInterceptor.  A principal stamp on a no-auth
         // deployable stays rejected by the category-A loom.stamp-principal-without-auth.
         //
-        // HIERARCHICAL TENANCY.  The `deep`/`global` read level lowers to the
-        // materialized-path `authz-filter` sentinel, whose `currentUser.<claim>`
-        // sub-expressions the Dapper principal-param collector does not descend
-        // into — so it cannot bind the `@__cu_*` params the fragment would need.
-        // Gated here as an honest boundary rather than left to crash codegen.
-        // The `deny` sentinel is principal-free and DOES render (`1 = 0`), so it
-        // is deliberately not gated.
-        for (const f of [...(a.contextFilters ?? []), a.writeScopeFilter].filter(
-          (x): x is ExprIR => x != null,
-        )) {
-          if (isDeepScopeFilter(f)) {
-            diags.push({
-              severity: "error",
-              message: diagMessage("loom.dapper-unsupported#deep-scope", {
-                name: dep.name,
-                subject: where,
-                reason: "carries a hierarchical (deep/global) tenancy scope filter",
-              }),
-              source: `${sys.name}/${dep.name}`,
-              code: "loom.dapper-unsupported",
-            });
-            break;
-          }
-        }
+        // HIERARCHICAL TENANCY is supported (wave C2 packet 2b).  The
+        // `deep`/`global` read level lowers to the materialized-path
+        // `authz-filter` sentinel, which `authzFilterToSql` now renders as the
+        // raw-Postgres descendant-or-self fragment (`data_key = @anchor OR
+        // (data_key LIKE @pattern ESCAPE '!' AND strpos(data_key, @needle) =
+        // 1)`, with the NULL-`data_key` flat-tenant fallback) — the twin of the
+        // MikroORM `raw()` rendering.  The sentinel carries no child
+        // `currentUser.<claim>` node, so `collectFilterPrincipalRefs`
+        // contributes its four bindings BY KIND; that gap in a hand-rolled walk
+        // was the whole of the old refusal, and the collector now rides
+        // `walkExprDeep`.  The `deny` sentinel renders `1 = 0` as before.
         // Capability filters are supported too (spliced into every SELECT's
         // WHERE); a principal-referencing one lowers `currentUser.<claim>` to a
         // `@__cu_<claim>` Dapper param bound from the same ambient principal.

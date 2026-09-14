@@ -316,6 +316,18 @@ export function lowerProject(models: ReadonlyArray<Model>): RawLoomModel {
       if ("members" in m && Array.isArray((m as { members?: unknown }).members)) {
         indexMembers((m as { members: AstNode[] }).members);
       }
+      // A `subdomain` holds its bounded contexts in `contexts`, NOT in
+      // `members` — so the `members` recursion above walks straight past
+      // every declaration nested in `subdomain > context` and the index is
+      // blind to it.  That made the backstop fire only for a context declared
+      // DIRECTLY under `system`: the same model wrapped in a `subdomain` (the
+      // README's own shape) collapsed a macro-emitted cross-context VO/enum
+      // param type to `string` — `crudish`'s `update(total: Money)` became
+      // `update(total: string)`, which every backend then emitted as a
+      // string-to-value-object assignment.
+      if ("contexts" in m && Array.isArray((m as { contexts?: unknown }).contexts)) {
+        indexMembers((m as { contexts: AstNode[] }).contexts);
+      }
     }
   };
   indexMembers(allMembers);

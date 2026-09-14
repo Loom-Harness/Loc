@@ -97,6 +97,48 @@ describe("java money ingress (M-T6.48)", () => {
     expect(cfg).toContain("LogicalType.Integer,");
   });
 
+  // ------------------------------------------------------------------------
+  // The OTHER coercion direction, found 2026-09-13 by the java Schemathesis
+  // leg (audit finding F21 / waiver W34, wave C2 packet 2d) and diagnosed on a
+  // BOOTED Spring Boot app against a real Postgres — the rule's own recorded
+  // reason had guessed at an unenforced `minLength`, which the measurement
+  // disproved.
+  //
+  // WHAT THE FUZZER ACTUALLY FOUND: `POST /api/customers` with
+  // `{"name": "", "email": 0}` and `{"name": "", "email": false}` answered
+  // **201**, for a body the API's OWN published schema declares as
+  // `type: string`.  Jackson's default coercion turns a JSON number or boolean
+  // into the Strings `"0"` / `"false"`, so a schema-violating body was accepted
+  // and a row created with an email nobody sent.  The same coercion reaches
+  // EVERY string-typed wire field, which on java includes `money` (it rides the
+  // wire as a decimal STRING), so `{"price": 12.5}` was accepted too — the one
+  // `numeric-ingress-parity`'s header table records java as REFUSING.
+  //
+  // MEASURED FROM OUTSIDE BOTH EMITTERS (rule 12): the same fuzzer, the same
+  // fixture, the same check on the NODE leg reports nothing on that route —
+  // `z.string()` refuses a number — so this was java alone, not the contract.
+  // ------------------------------------------------------------------------
+  it("refuses a JSON number / boolean where the schema declares a string", async () => {
+    const files = await generateSystemFiles(SRC);
+    const cfg = [...files.entries()].find(([p]) =>
+      p.endsWith("config/WireNumberStrictness.java"),
+    )?.[1] as string;
+    expect(cfg).toBeDefined();
+    expect(cfg).toContain("LogicalType.Textual,");
+    for (const shape of ["Integer", "Float", "Boolean"]) {
+      expect(cfg, `CoercionInputShape.${shape} must not coerce into a string wire field`).toContain(
+        `cfg.setCoercion(CoercionInputShape.${shape}, CoercionAction.Fail);`,
+      );
+    }
+    // THE CONTROL, so this never becomes "refuse every coercion": a String IS
+    // what a string field expects, and the Integer arm above still has to keep
+    // its own String→Integer refusal.
+    expect(cfg).not.toContain(
+      "cfg.setCoercion(CoercionInputShape.String, CoercionAction.Fail);\n                    ",
+    );
+    expect(cfg).toContain("LogicalType.Integer,");
+  });
+
   it("leaves non-money conversions alone — `int` and `string` are the control", async () => {
     const { service } = await filesFor();
     // `qty` is an int: a JSON number already, so it needs no wire parse and

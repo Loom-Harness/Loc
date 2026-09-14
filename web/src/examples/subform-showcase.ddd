@@ -23,6 +23,17 @@ system SubformShowcase {
       valueobject LineItem {
         sku: string
         qty: int
+        // A `money` SUB-FIELD (2026-09-10 e-shop audit, P8).  A money cell in a
+        // repeatable row is rendered by the pack's `field-input-array`, NOT by
+        // `field-input-money`, so it is a SECOND money renderer per pack — one
+        // that went on routing the cell through its generic string arm, and
+        // seeding a fresh row with the string `"0"`, long after the single-field
+        // arm was taught to write a real `Decimal` (#2876).  React types its
+        // form on `z.input` (`Decimal | string`), so React never failed to
+        // compile on it — which is exactly why the shape has to be IN this
+        // corpus: React is where the row templates are edited, and its own
+        // gate could not see the divergence.
+        price: money
       }
       aggregate Order with crudish {
         reference: string
