@@ -1,0 +1,89 @@
+// Row-level security: `currentUser` INSIDE a repository read filter
+// (criterion.md + auth.md).  Two independent defect classes meet here, so the
+// fixture drives both — and the COMPILE tier is the point, because both were
+// invisible to every emission assertion:
+//
+//  (1) THE PRINCIPAL WAS EMITTED UNBOUND.  The tenancy/capability path passes
+//      each backend an explicit principal accessor; the AUTHOR-WRITTEN `where`
+//      path did not, so `currentUser.id` lowered to a bare `current_user` /
+//      `currentUser` that nothing bound.  python: `mypy` → `Name
+//      "current_user" is not defined` (a runtime `NameError` → 500 on every
+//      read through it, which nothing but a type-checker would have told you);
+//      elixir: `mix compile` → `** (Ecto.Query.CompileError) unbound variable
+//      \`current_user\` in query`; node: a bare `currentUser` in a `run<Name>`
+//      that declares no such parameter (TS2304).  dotnet and java were correct.
+//      The find and the retrieval are BOTH here because they bind the principal
+//      differently (a threaded parameter vs the ambient accessor) and only the
+//      find was ever right.
+//
+//  (2) A PRINCIPAL CLAIM OTHER THAN `.id` CRASHED CODEGEN.  `currentUser.role
+//      == "admin"` has no column on either side, so the narrow query renderers
+//      — which only ever implemented `<column> <op> <value>` — returned null,
+//      and every caller turns null into `refuseOutOfVocabulary`: `ddd parse`
+//      said `0 error(s)`, `ddd generate system` died with an uncaught
+//      `QueryEmissionRefusal`.  Such a term is a REQUEST constant, so it now
+//      folds in the host language into an always-true / always-false SQL term
+//      (`src/ir/util/request-constant.ts`).
+//
+// The criterion below is therefore the canonical row-level rule that was NOT
+// expressible in any spelling before: a technician sees only their own
+// documents, an admin sees all.
+system CritCurrentUser {
+  user { id: string  role: string }
+  subdomain Field {
+    context Work {
+      aggregate Doc with crudish {
+        ownerUserId: string
+        title: string
+      }
+      criterion Visible() of Doc =
+        currentUser.role == "admin" || this.ownerUserId == currentUser.id
+      repository Docs for Doc {
+        find visible(): Doc[] where Visible()
+      }
+      retrieval MyVisible() of Doc { where: Visible() }
+      // The SAME rule spelled INLINE rather than as a criterion reference.
+      // Not redundant: node REIFIES a `where <Criterion>()` into a module-level
+      // fn, and that fn was always lowered against the ambient accessor — which
+      // is precisely why the criterion spelling looked correct while the inline
+      // one emitted a bare `currentUser` into a `run<Name>` that declares no
+      // such parameter.  Both spellings have to bind the principal.
+      retrieval MyOwn() of Doc {
+        where: currentUser.role == "admin" || ownerUserId == currentUser.id
+      }
+    }
+  }
+  storage primary { type: postgres }
+  resource workState { for: Work, kind: state, use: primary }
+  api WorkApi from Field
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Work]
+    serves: WorkApi
+    dataSources: [workState]
+    port: 4000
+    auth: required
+  }
+
+  // The behavioural harness authenticates as the canonical principal, whose
+  // `role` is "agent" (cases.mjs DEV_CLAIMS) — NOT "admin".  So the first
+  // disjunct is FALSE for this run and `visible` reduces to the ownership test.
+  // That is the branch worth driving: the request-constant term has to fold to
+  // always-FALSE, and a fold that went the other way (or an `or` that swallowed
+  // the column half) would return the row below.
+  //
+  // The assertion deliberately does NOT name the principal's own id — each
+  // backend's dev stub mints its own — so it asserts the EXCLUSION: a row owned
+  // by a different user is invisible to this principal, while the unfiltered
+  // root list still sees it.  Two reads over the same table, one filtered and
+  // one not, is what separates "the filter works" from "the table is empty".
+  test e2e "a non-admin principal does not see another user's rows" against d {
+    let theirs = api.docs.create({ ownerUserId: "someone-else", title: "Theirs" })
+    let read = api.docs.getById(theirs)
+    expect(read.title).toBe("Theirs")
+    let listed = api.docs.all()
+    expect(listed.total).toBe(1)
+    let visible = api.docs.visible()
+    expect(visible.length).toBe(0)
+  }
+}
