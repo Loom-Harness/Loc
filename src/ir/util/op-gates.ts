@@ -25,11 +25,11 @@
 
 import {
   type ExprIR,
+  exprUsesCurrentUser,
   type OperationIR,
   type StmtIR,
-  type WorkflowStmtIR,
-  exprUsesCurrentUser,
   stmtUsesCurrentUser,
+  type WorkflowStmtIR,
 } from "../types/loom-ir.js";
 import { walkExprDeep, walkWorkflowStmtExprsDeep, walkWorkflowStmtsDeep } from "./walk.js";
 
