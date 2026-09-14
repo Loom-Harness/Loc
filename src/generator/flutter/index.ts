@@ -422,7 +422,7 @@ export function generateFlutterForContexts(
   // canvas-rendered Flutter build.  Boots the real app with the semantics tree
   // enabled and asserts Flutter's built-in WCAG guidelines on the first frame.
   // Runs under the same `flutter test` step (whole `test/` dir) as the smoke.
-  out.set("test/a11y_test.dart", renderA11yTest(pkg));
+  out.set("test/a11y_test.dart", renderA11yTest(pkg, rendered));
 
   // The money runtime (M-T1.21).  Same use-driven rule as the modal bridge and
   // the chart painter above, but the scan is over EVERY emitted file and it
@@ -1597,17 +1597,30 @@ void main() {
  *  all real HTTP (status 400), which surfaces as an unrelated
  *  `NetworkImageLoadException` — drained via `takeException()` so it can't fail
  *  the a11y assertion. */
-function renderA11yTest(pkg: string): string {
-  return `import 'package:flutter_test/flutter_test.dart';
-import 'package:${pkg}/main.dart';
-
-void main() {
-  testWidgets('boot frame meets WCAG accessibility guidelines', (WidgetTester tester) async {
+function renderA11yTest(pkg: string, pages: readonly RenderedPage[]): string {
+  // PER-PAGE, not boot-frame-only.  `generated-a11y.yml` scans every route of
+  // the showcase on the five DOM frontends; Flutter web renders to CANVAS and
+  // publishes no DOM for axe-core to read, so its a11y leg is this emitted
+  // `flutter test` file (run by `generated-flutter-build.yml`) — which means
+  // this file is the whole of Flutter's a11y coverage, and a boot-frame-only
+  // scan left every page but `/` unchecked.
+  //
+  // Each page is pumped DIRECTLY rather than navigated to: the page shells are
+  // all `const <X>Page()`, and a `:id` route's shell reads its parameters from
+  // `ModalRoute.settings.arguments`, which the harness supplies uniformly (a
+  // paramless page simply ignores them).  Going through `App()` instead would
+  // put every gated page behind `AuthGate`'s session probe, which never
+  // resolves under `flutter_test`.
+  const probe =
+    pages.length > 0
+      ? pages.map(
+          (p) => `
+  testWidgets('${p.className} meets WCAG accessibility guidelines', (WidgetTester tester) async {
     final SemanticsHandle handle = tester.ensureSemantics();
-    await tester.pumpWidget(const App());
+    await tester.pumpWidget(_probe(const ${p.className}()));
     await tester.pump();
-    // Drain expected NetworkImage load failures (flutter_test returns HTTP 400
-    // for every request) so they don't fail the guideline checks below.
+    // Drain expected NetworkImage / api load failures (flutter_test answers
+    // HTTP 400 for every request) so they don't fail the guideline checks.
     while (tester.takeException() != null) {}
     await expectLater(tester, meetsGuideline(androidTapTargetGuideline));
     await expectLater(tester, meetsGuideline(iOSTapTargetGuideline));
@@ -1615,7 +1628,56 @@ void main() {
     await expectLater(tester, meetsGuideline(textContrastGuideline));
     while (tester.takeException() != null) {}
     handle.dispose();
-  });
+  });`,
+        )
+      : [
+          `
+  testWidgets('boot frame meets WCAG accessibility guidelines', (WidgetTester tester) async {
+    final SemanticsHandle handle = tester.ensureSemantics();
+    await tester.pumpWidget(const App());
+    await tester.pump();
+    while (tester.takeException() != null) {}
+    await expectLater(tester, meetsGuideline(androidTapTargetGuideline));
+    await expectLater(tester, meetsGuideline(iOSTapTargetGuideline));
+    await expectLater(tester, meetsGuideline(labeledTapTargetGuideline));
+    await expectLater(tester, meetsGuideline(textContrastGuideline));
+    while (tester.takeException() != null) {}
+    handle.dispose();
+  });`,
+        ];
+  const imports =
+    pages.length > 0
+      ? [
+          "import 'package:flutter/material.dart';",
+          "import 'package:flutter_riverpod/flutter_riverpod.dart';",
+          "import 'package:flutter_test/flutter_test.dart';",
+          ...pages.map((p) => `import 'package:${pkg}/pages/${p.fileBase}.dart';`),
+        ]
+      : ["import 'package:flutter_test/flutter_test.dart';", `import 'package:${pkg}/main.dart';`];
+  const harness =
+    pages.length > 0
+      ? `
+/// One page under a router that answers every route with THAT page and hands it
+/// the same placeholder arguments a ':id' route would carry, so a detail page
+/// binds an id instead of throwing before a single frame is laid out.
+Widget _probe(Widget page) {
+  return ProviderScope(
+    child: MaterialApp(
+      theme: ThemeData(useMaterial3: true, colorSchemeSeed: Colors.indigo),
+      onGenerateRoute: (_) => MaterialPageRoute<void>(
+        settings: const RouteSettings(
+          arguments: <String, String>{'id': '00000000-0000-0000-0000-000000000000'},
+        ),
+        builder: (_) => page,
+      ),
+    ),
+  );
+}
+`
+      : "";
+  return `${imports.join("\n")}
+${harness}
+void main() {${probe.join("\n")}
 }
 `;
 }

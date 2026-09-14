@@ -385,6 +385,14 @@ jobs:
       # Runs the whole test/ dir: the boot smoke (widget_test.dart) AND the
       # runtime a11y gate (a11y_test.dart — WCAG meetsGuideline matchers, the
       # axe analogue for Flutter's canvas render).  See the Flutter a11y audit.
+      #
+      # THIS IS THE WHOLE OF FLUTTER'S a11y COVERAGE — `generated-a11y.yml`'s
+      # axe matrix cannot include a canvas-rendered frontend (its own matrix
+      # comment says why).  Since wave C2 the emitted file carries ONE CASE PER
+      # PAGE rather than a single boot-frame scan, so a violation on any page
+      # but `/` is no longer invisible: seeding an 8x8 unlabeled tap target
+      # into the generated `insights_page.dart` fails this step, and left the
+      # pre-widening boot-frame-only file green.
       - name: flutter test (runtime smoke + a11y guidelines)
         working-directory: ${{ steps.proj.outputs.dir }}
         run: flutter test

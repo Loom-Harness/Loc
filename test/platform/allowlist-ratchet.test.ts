@@ -331,6 +331,29 @@ const REGISTERED: Ratchet[] = [
     kind: "record",
     max: 0,
   },
+  // The Flutter parity freeze's pinned-gap allowlist — the sibling of
+  // `KNOWN_HEEX_GAPS` above, and the one suppression construct the 2026-07-13
+  // sweep that built this register MISSED (M-T1.18 recorded the omission in
+  // prose and nothing acted on it; wave C2 packet 2j is that action).
+  //
+  // EMPTY, and the emptiness is the point: `analyzeFlutterParity` reports a
+  // finding for every form-field shape the Dart emitter degrades to a comment,
+  // and all four that were pinned here — nested-VO sub-field, value-object
+  // array with a non-scalar sub-field, bool element array, enum element array
+  // — were closed with real widgets by wave C1 packet 1e-ii.  Verified empty
+  // on this tree before registering, which is what "drain, then pin at the
+  // drained count" means.
+  //
+  // The freeze test already fails on a re-added entry that matches no finding;
+  // this ratchet is the other direction — a NEW pin quietly added next to a new
+  // degradation.  Belt and braces on the same construct, which is exactly the
+  // arrangement `KNOWN_HEEX_GAPS` has.
+  {
+    file: "test/generator/flutter/parity-freeze.test.ts",
+    name: "KNOWN_FLUTTER_GAPS",
+    kind: "record",
+    max: 0,
+  },
   // The corpus features whose cells stop at the COMPILE tier — nothing boots
   // them, so no gate observes their runtime behaviour.  Signed with a reason
   // each; M-T9.13 owns the drain.  Unlike the skip maps above this register is
