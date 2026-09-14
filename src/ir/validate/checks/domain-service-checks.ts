@@ -63,6 +63,7 @@ import { aggregateOpResolver, classifyDomainServiceTier } from "../../util/domai
 import { isWriteMethod } from "../../util/repo-methods.js";
 import { walkStmtExprsDeep } from "../../util/walk.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
+import { foreignRepositoryOwners } from "./shared.js";
 
 export function validateDomainServices(
   ctx: BoundedContextIR,
@@ -302,24 +303,10 @@ function checkOperationBody(
 // boundary this gate describes.
 // ---------------------------------------------------------------------------
 
-/** repository name → the OTHER context that declares it (first wins).  Names
- *  this context declares are excluded, so a locally-resolving read is never a
- *  candidate. */
-function foreignRepositoryOwners(
-  ctx: BoundedContextIR,
-  allCtxs: readonly BoundedContextIR[],
-): ReadonlyMap<string, string> {
-  const local = new Set(ctx.repositories.map((r) => r.name));
-  const owners = new Map<string, string>();
-  for (const other of allCtxs) {
-    if (other.name === ctx.name) continue;
-    for (const repo of other.repositories) {
-      if (local.has(repo.name) || owners.has(repo.name)) continue;
-      owners.set(repo.name, other.name);
-    }
-  }
-  return owners;
-}
+// `foreignRepositoryOwners` (repository name → the OTHER context that declares
+// it) lives in `shared.ts`: the workflow-body twin of this gate,
+// `loom.workflow-cross-context-repository`, keys on exactly the same map, and a
+// second copy would drift.
 
 /** `loom.domain-service-cross-context-read` — see the header note above. */
 function checkCrossContextRepoReads(
