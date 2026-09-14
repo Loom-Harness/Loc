@@ -125,7 +125,14 @@ against the enclosing context's repositories alone, so a cross-context name
 never becomes a `repo-read` and every backend would render the unresolved
 receiver verbatim (`Customers.byName(r)` with nothing defining `Customers`).
 Move the service into the other context, or have the orchestrating workflow do
-the read and pass the value in as a parameter.
+the read and pass the value in as a parameter. Note that "the orchestrating
+workflow does the read" means through one of the two sanctioned crossings
+below — a workflow is bound by the same boundary and may not name another
+context's repository either (`loom.workflow-cross-context-repository`,
+[`workflow.md`](workflow.md#repositories-are-context-local--loomworkflow-cross-context-repository));
+the workflow's privilege is that the application layer is where the api call
+and the projection read are *available*, not that it can reach into the other
+context's model.
 
 ## Cross-context data, in DDD terms (a decision, not a TODO)
 

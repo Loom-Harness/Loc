@@ -1,0 +1,15 @@
+system R05 {
+  user { id: string  role: string }
+  subdomain S { context C {
+    aggregate Patient { userRef: string  derived display: string = userRef }
+    repository Patients for Patient { }
+    aggregate Appointment { patient: Patient id  startAt: datetime }
+    repository Appointments for Appointment {
+      find mine(): Appointment[] where MineViaJoin
+    }
+    criterion MineViaJoin of Appointment = patient.userRef == currentUser.id
+  } }
+  storage primary { type: postgres }
+  resource st { for: C, kind: state, use: primary }
+  deployable api { platform: node, contexts: [C], dataSources: [st], port: 3000, auth: required }
+}

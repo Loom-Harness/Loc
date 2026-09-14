@@ -862,7 +862,15 @@
   "shape": [],
   "sharedTable": [],
   "sidebar": [],
-  "slot": [],
+  "slot": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
   "smtp": [],
   "snapshot": [
     "fieldName",
