@@ -24,6 +24,7 @@
 // ---------------------------------------------------------------------------
 
 import type { EnrichedBoundedContextIR } from "../../ir/types/loom-ir.js";
+import { valueObjectPool } from "../../ir/util/reachable-types.js";
 import { lines } from "../../util/code-builder.js";
 import { lowerFirst } from "../../util/naming.js";
 
@@ -106,7 +107,7 @@ export function renderRepositoryPortsFile(
 
   const usesIds = /\bIds\.\w/.test(scan);
   const usesUser = referenced("User");
-  const voEnumNames = [...ctx.valueObjects.map((v) => v.name), ...ctx.enums.map((e) => e.name)]
+  const voEnumNames = [...valueObjectPool(ctx).map((v) => v.name), ...ctx.enums.map((e) => e.name)]
     .filter(referenced)
     .sort();
   const aggNames = nonEmpty

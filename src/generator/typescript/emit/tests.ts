@@ -11,6 +11,7 @@ import type {
   ValueObjectIR,
 } from "../../../ir/types/loom-ir.js";
 import { operationBodyUsesCurrentUser } from "../../../ir/util/op-gates.js";
+import { findValueObjectInScope, valueObjectPool } from "../../../ir/util/reachable-types.js";
 import { escapeTsIdent, lowerFirst } from "../../../util/naming.js";
 import { renderTsExpr } from "../render-expr.js";
 
@@ -87,7 +88,9 @@ function renderTestsCore(
   const bodyStr = body.join("\n");
   const refs = (n: string): boolean => new RegExp(`\\b${n}\\b`).test(bodyStr);
   const subjectNames = subjectImport ? subjectImport.symbols.filter(refs) : [];
-  const voNames = ctx.valueObjects.map((v) => v.name).filter(refs);
+  const voNames = valueObjectPool(ctx)
+    .map((v) => v.name)
+    .filter(refs);
   const enumNames = ctx.enums.map((e) => e.name).filter(refs);
   const usesIds = /\bIds\.\w/.test(bodyStr);
   // A money literal / money expression in a test body renders as
@@ -233,7 +236,7 @@ function coerceCreateValue(value: ExprIR, type: TypeIR | undefined, ctx: Bounded
     return `Ids.${type.targetName}Id(${renderTestExpr(value, ctx)})`;
   }
   if (type?.kind === "valueobject" && value.kind === "object") {
-    const vo = ctx.valueObjects.find((v) => v.name === type.name);
+    const vo = findValueObjectInScope(ctx, type.name);
     if (vo) {
       const byName = new Map(value.fields.map((f) => [f.name, f.value] as const));
       const args = vo.fields.map((vf) => {

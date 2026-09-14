@@ -24,7 +24,7 @@
 // ---------------------------------------------------------------------------
 
 import { dedupeByName } from "../../util/dedupe.js";
-import type { EnrichedBoundedContextIR } from "../types/loom-ir.js";
+import type { EnrichedBoundedContextIR, EnrichedValueObjectIR } from "../types/loom-ir.js";
 
 /** Union enriched bounded contexts into one synthetic merged context (ambient
  *  enums / VOs deduped by name, every other member a plain union). */
@@ -74,7 +74,33 @@ export function mergeContexts(contexts: EnrichedBoundedContextIR[]): EnrichedBou
     structuralErrorStatuses: contexts.find((c) => c.structuralErrorStatuses !== undefined)
       ?.structuralErrorStatuses,
     errorStatusOverrides: mergeErrorStatusOverrides(contexts),
+    // Sibling-context value objects (the cross-context lookup pool).  The merge
+    // already unions every member's OWN `valueObjects` above, so a VO that was a
+    // "sibling" to one member but is declared by another member is now local and
+    // must not appear twice — the pool carries only the ones still declared
+    // OUTSIDE this deployable.  Undefined when nothing is left, so a
+    // single-deployable-spans-everything model's merged context is unchanged.
+    siblingValueObjects: mergeSiblingValueObjects(contexts),
   };
+}
+
+/** The still-external half of the merged contexts' sibling pools: every
+ *  `siblingValueObjects` entry whose name is not declared by one of the merged
+ *  contexts, de-duplicated first-wins. */
+function mergeSiblingValueObjects(
+  contexts: EnrichedBoundedContextIR[],
+): EnrichedValueObjectIR[] | undefined {
+  const local = new Set(contexts.flatMap((c) => c.valueObjects).map((v) => v.name));
+  const out: EnrichedValueObjectIR[] = [];
+  const seen = new Set<string>();
+  for (const c of contexts) {
+    for (const v of c.siblingValueObjects ?? []) {
+      if (local.has(v.name) || seen.has(v.name)) continue;
+      seen.add(v.name);
+      out.push(v);
+    }
+  }
+  return out.length > 0 ? out : undefined;
 }
 
 /** Per-subdomain `httpStatus` overrides folded across the contexts of one

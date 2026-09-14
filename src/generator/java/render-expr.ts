@@ -24,6 +24,7 @@ import {
 } from "../_expr/target.js";
 import type { UnionMember } from "../_payload/union-wire.js";
 import { renderTypeWith, type TypeTarget } from "../_type/target.js";
+import { jid } from "./java-ident.js";
 
 // ---------------------------------------------------------------------------
 // Expression renderer for the Java / Spring backend.
@@ -415,29 +416,32 @@ function renderRef(e: RefExpr, ctx: JavaRenderContext): string {
       // use matches the (also-escaped) binding (`let class` → `class_`).
       return escapeJavaIdent(e.name);
     case "param":
-      return ctx.paramExpr?.(e.name) ?? e.name;
+      return ctx.paramExpr?.(e.name) ?? jid(e.name);
     case "this-prop":
     case "this-vo-prop":
-      if (ctx.bareProps) return e.name;
-      if (ctx.accessorProps) return `${ctx.thisName}.${e.name}()`;
-      return `${ctx.thisName}.${e.name}`;
+      if (ctx.bareProps) return jid(e.name);
+      if (ctx.accessorProps) return `${ctx.thisName}.${jid(e.name)}()`;
+      return `${ctx.thisName}.${jid(e.name)}`;
     case "this-derived":
       // Derived properties are methods on the Java side.
-      return `${ctx.thisName}.${e.name}()`;
+      return `${ctx.thisName}.${jid(e.name)}()`;
     case "helper-fn":
       // A bare helper reference is a value position (passed to a
       // collection op) — Java spells that as a method reference.
-      return `${ctx.thisName}::${e.name}`;
+      return `${ctx.thisName}::${jid(e.name)}`;
     case "workflow-fn":
       // Bare reference to a workflow helper — a method reference on the
       // shared `<Ctx>Workflows` bean, scoped by workflow.
       return `${ctx.thisName}::${workflowFnCamel(e.wfScope!, e.name)}`;
     case "enum-value":
-      return `${e.enumName}.${e.name}`;
+      // The enum CONSTANT is mangled when the `.ddd` value is a Java reserved
+      // word (M-T6.36); the wire/column spelling is restored by the enum's
+      // `@JsonProperty` and its `Codec` converter, not here.
+      return `${e.enumName}.${jid(e.name)}`;
     case "current-user":
       return ctx.currentUserExpr ?? "currentUser";
     default:
-      return e.name;
+      return jid(e.name);
   }
 }
 
@@ -452,7 +456,7 @@ function renderMember(recv: string, e: MemberExpr, ctx: JavaRenderContext = DEFA
     e.receiver.refKind === "param" &&
     ctx.recordParams?.has(e.receiver.name)
   ) {
-    return e.member;
+    return jid(e.member);
   }
   // Collections lower to `List<T>` (`.size()`); the DSL admits both
   // `.count` and `.length` on arrays.
@@ -474,8 +478,9 @@ function renderMember(recv: string, e: MemberExpr, ctx: JavaRenderContext = DEFA
     return javaCodePointLength(recv);
   }
   // Record-style accessor — every generated domain type (record or
-  // class) exposes `member()` readers.
-  return `${recv}.${e.member}()`;
+  // class) exposes `member()` readers.  `jid` keeps the read in step with the
+  // (possibly mangled) accessor the entity / record emitter declared.
+  return `${recv}.${jid(e.member)}()`;
 }
 
 // Scalar-intrinsic snippet table (src/util/intrinsics.ts) — one arm per
@@ -579,7 +584,7 @@ function renderMethodCall(
     const intrinsic = JAVA_INTRINSIC_RENDERERS[intrinsicKey(e.receiverType.name, e.member)];
     if (intrinsic) return intrinsic(recv, args);
   }
-  return `${recv}.${e.member}(${args.join(", ")})`;
+  return `${recv}.${jid(e.member)}(${args.join(", ")})`;
 }
 
 /** Element type a `sum` reduces over: the projected λ-body type for
@@ -681,7 +686,7 @@ function renderCall(args: string[], e: CallExpr, ctx: JavaRenderContext): string
       return `new ${upperFirst(e.name)}(${argList})`;
     case "function":
     case "private-operation":
-      return `${ctx.thisName}.${e.name}(${argList})`;
+      return `${ctx.thisName}.${jid(e.name)}(${argList})`;
     case "workflow-fn":
       // A workflow's own helper — a `private` method on the shared
       // `<Ctx>Workflows` bean, scoped by workflow (two workflows share the class).

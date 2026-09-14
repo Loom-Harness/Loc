@@ -17,6 +17,7 @@ import type {
 import type { OriginRef } from "../../ir/types/origin.js";
 import { durableEventTypes } from "../../ir/util/channels.js";
 import { resolveContextSchema } from "../../ir/util/resolve-datasource.js";
+import { walkWorkflowStmtExprsDeep, walkWorkflowStmtsDeep } from "../../ir/util/walk.js";
 import { escapeElixirIdent, plural, snake, upperFirst } from "../../util/naming.js";
 import { renderPhoenixLogCall } from "../_obs/render-phoenix.js";
 import { lineCount, type SourceMapRecorder } from "../_trace/sourcemap.js";
@@ -437,62 +438,32 @@ end
 // Handler module
 // ---------------------------------------------------------------------------
 
-/** Does any expression in the body reference `this` (a saga-state field)? */
+/** Does any expression in the body reference `this` (a saga-state field)?
+ *
+ *  Rides the SHARED `walkWorkflowStmtsDeep` / `walkWorkflowStmtExprsDeep`
+ *  rather than a local `WorkflowStmtIR.kind` / `ExprIR.kind` switch.  The hand-rolled version
+ *  it replaces had no `for-each` / `if-let` / `repo-run` / `repo-delete` /
+ *  `resource-call` / `domain-service-call` arm at all, so a `state.<field>` read
+ *  nested inside a loop body read as UNUSED — the handler then bound `_state`
+ *  and the loop named an undefined variable (`--warnings-as-errors`).  An
+ *  `assign` still forces `state`: its write target IS the row. */
 function bodyUsesThis(statements: WorkflowStmtIR[]): boolean {
   let used = false;
-  const visitExpr = (e: ExprIR): void => {
-    if (used) return;
-    if (e.kind === "ref") {
-      if (e.refKind === "this-prop" || e.refKind === "this-vo-prop" || e.refKind === "this-derived")
+  for (const st of statements) {
+    // The write target IS `state` (`Repo.update!(… state …)`), so an own-state
+    // assignment always references it — bind `state`, not `_state`.  Checked at
+    // every depth: an assign inside a `for-each` body counts too.
+    walkWorkflowStmtsDeep(st, (n) => {
+      if (n.kind === "assign") used = true;
+    });
+    walkWorkflowStmtExprsDeep(st, (e) => {
+      if (
+        e.kind === "ref" &&
+        (e.refKind === "this-prop" || e.refKind === "this-vo-prop" || e.refKind === "this-derived")
+      )
         used = true;
-      return;
-    }
-    if (e.kind === "member") visitExpr(e.receiver);
-    else if (e.kind === "method-call") {
-      visitExpr(e.receiver);
-      e.args.forEach(visitExpr);
-    } else if (e.kind === "call") e.args.forEach(visitExpr);
-    else if (e.kind === "binary") {
-      visitExpr(e.left);
-      visitExpr(e.right);
-    } else if (e.kind === "unary") visitExpr(e.operand);
-    else if (e.kind === "paren") visitExpr(e.inner);
-    else if (e.kind === "ternary") {
-      visitExpr(e.cond);
-      visitExpr(e.then);
-      visitExpr(e.otherwise);
-    } else if (e.kind === "new" || e.kind === "object") {
-      for (const f of e.fields) visitExpr(f.value);
-    } else if (e.kind === "lambda" && e.body) visitExpr(e.body);
-  };
-  const visitStmt = (st: WorkflowStmtIR): void => {
-    switch (st.kind) {
-      case "factory-let":
-      case "emit":
-        for (const f of st.fields) visitExpr(f.value);
-        break;
-      case "repo-let":
-        st.args.forEach(visitExpr);
-        break;
-      case "op-call":
-        st.args.forEach(visitExpr);
-        break;
-      case "expr-let":
-        visitExpr(st.expr);
-        break;
-      case "assign":
-        // The write target IS `state` (`Repo.update!(... state ...)`), so an
-        // own-state assignment always references it — bind `state`, not `_state`.
-        used = true;
-        visitExpr(st.value);
-        break;
-      case "precondition":
-      case "requires":
-        visitExpr(st.expr);
-        break;
-    }
-  };
-  statements.forEach(visitStmt);
+    });
+  }
   return used;
 }
 
@@ -1107,10 +1078,186 @@ function renderStmt(
       const expr = renderExpr(st.expr, renderCtx);
       return [{ kind: "guard", text: `unless ${expr}, do: throw({:error, ${denialTerm(st)}})` }];
     }
+    case "repo-run": {
+      // `let xs = Repo.run(<Retrieval>(args), page?)` →
+      // `{:ok, xs} <- <Ctx>.run_<ret>_<agg>(args…, limit: N, offset: M)`.
+      // Identical call shape to the vanilla command path
+      // (`vanilla/workflow-execution-emit.ts`), so a fan-out reactor and a
+      // command workflow reach the SAME generated retrieval function.
+      return [
+        {
+          kind: "with-clause",
+          text: `{:ok, ${snake(st.name)}} <- ${retrievalRunCall(st, renderCtx, contextModule)}`,
+          bindName: snake(st.name),
+        },
+      ];
+    }
+    case "for-each": {
+      // `for x in xs { … }` →
+      // `{:ok, _} <- Enum.reduce_while(xs, {:ok, nil}, fn x, _acc -> … end)`,
+      // the same shape the vanilla command path emits: each iteration runs a
+      // `with`-chain, the first failure `{:halt, err}`s out and threads
+      // `{:error, _}` up the handler's own with-chain.
+      //
+      // This whole loop is ONE `BodyLine` whose `text` embeds its nested
+      // statements' rendering.  It has to be: `renderBody` buckets lines by
+      // kind (guards first, then the chain, then dispatches), so a nested
+      // `emit` returned as its own `dispatch` line would be hoisted OUT of the
+      // loop and fire once instead of per element.
+      const iterable = renderExpr(st.iterable, renderCtx);
+      // An unread loop var must be `_`-prefixed or `mix compile
+      // --warnings-as-errors` fails on the unused binding.
+      const loopVar = loopBindUsed(st.var, st.body) ? snake(st.var) : `_${snake(st.var)}`;
+      const bodyLines = renderReactorLoopBody(st.body, ctx, renderCtx, contextModule, channels);
+      // Continuation lines carry absolute indentation: the with-chain assembler
+      // only prefixes the FIRST line of a multi-line clause (see `renderBody`),
+      // and `indent()` then shifts every PHYSICAL line uniformly.  11 columns
+      // aligns the body under the `Enum.reduce_while(` opener — so split the
+      // rendered body on newlines FIRST, or a nested `with`-chain's own
+      // continuations keep only their relative offset and land left of the
+      // clause they continue.
+      return [
+        {
+          kind: "with-clause",
+          text: [
+            `{:ok, _} <- Enum.reduce_while(${iterable}, {:ok, nil}, fn ${loopVar}, _acc ->`,
+            ...bodyLines.flatMap((l) => l.split("\n")).map((l) => `           ${l}`),
+            `         end)`,
+          ].join("\n"),
+        },
+      ];
+    }
     default:
-      // for-each / repo-run / resource-call don't appear in validated
-      // reactor / starter bodies today (channels.md defers them); guard
-      // against silently emitting nothing.
+      // repo-delete / if-let / resource-call / domain-service-call don't appear
+      // in validated reactor / starter bodies today; guard against silently
+      // emitting nothing.
       throw new Error(`dispatch-emit: unsupported reactor statement kind '${st.kind}'`);
   }
+}
+
+/** `<Ctx>.run_<retrieval>_<agg>(args…, opts)` — the vanilla retrieval entry a
+ *  `repo-run` (and the `for-each` that consumes one) calls.  Pagination and
+ *  `ignoring` bypasses ride as a trailing keyword list, exactly as the command
+ *  path spells them. */
+function retrievalRunCall(
+  st: Extract<WorkflowStmtIR, { kind: "repo-run" }>,
+  renderCtx: RenderCtx,
+  contextModule: string,
+): string {
+  const args = st.retrievalArgs.map((a) => renderExpr(a, renderCtx));
+  const optEntries: string[] = [];
+  if (st.page?.offset) optEntries.push(`offset: ${renderExpr(st.page.offset, renderCtx)}`);
+  if (st.page?.limit) optEntries.push(`limit: ${renderExpr(st.page.limit, renderCtx)}`);
+  if (st.bypassAll) optEntries.push("ignore_all_filters: true");
+  else if ((st.bypassCaps?.length ?? 0) > 0)
+    optEntries.push(`ignore_filters: [${st.bypassCaps!.map((c) => JSON.stringify(c)).join(", ")}]`);
+  if (optEntries.length > 0) args.push(optEntries.join(", "));
+  return `${contextModule}.run_${snake(st.retrievalName)}_${snake(st.aggName)}(${args.join(", ")})`;
+}
+
+/** Is `name` read anywhere inside a loop body?
+ *
+ *  Rides `walkWorkflowStmtExprsDeep` (so a reference nested in an `if-let`
+ *  branch, a `match` arm or a `list` literal counts) PLUS the `op-call` TARGET,
+ *  which is not an expression: it is the bound aggregate the call mutates
+ *  (`n.markSeen()`), so it has no child-expression slot for the walker to hand
+ *  over.  Missing it is not cosmetic — the loop var reads as unused, the
+ *  callback binds `fn _n, _acc ->`, and the body the renderer emits still says
+ *  `mark_seen_note(n, %{})`: `** (CompileError) undefined variable "n"` on
+ *  every `mix compile`.  The vanilla command path carries the same carve-out
+ *  (`collectWorkflowStmtParamRefsAll`). */
+function loopBindUsed(name: string, body: WorkflowStmtIR[]): boolean {
+  let used = false;
+  const visit = (s: WorkflowStmtIR): void => {
+    if (s.kind === "op-call" && s.target === name) used = true;
+  };
+  for (const s of body) {
+    walkWorkflowStmtsDeep(s, visit);
+    walkWorkflowStmtExprsDeep(s, (e) => {
+      if (e.kind === "ref" && e.name === name) used = true;
+    });
+  }
+  return used;
+}
+
+/** The inner lines of a reactor `for`-loop's `Enum.reduce_while/3` callback,
+ *  which must return `{:cont, _}` per element and `{:halt, err}` on the first
+ *  failure.
+ *
+ *  Deliberately NOT `vanilla/workflow-execution-emit.ts`'s `renderLoopBody`:
+ *  that one renders `emit` as a bare `Phoenix.PubSub.broadcast`, while a
+ *  REACTOR body's `emit` must re-enter the context `Dispatcher` (or the broker
+ *  tee) so choreography chains keep fanning out.  Reusing dispatch-emit's own
+ *  `renderStmt` keeps every arm — emit, guards, the ungated create seam — on
+ *  the reactor's semantics. */
+function renderReactorLoopBody(
+  body: WorkflowStmtIR[],
+  ctx: EnrichedBoundedContextIR,
+  renderCtx: RenderCtx,
+  contextModule: string,
+  channels?: ElixirChannelsCfg,
+): string[] {
+  if (body.length === 0) return ["{:cont, {:ok, nil}}"];
+  const rendered = body.flatMap((s) => renderStmt(s, ctx, renderCtx, contextModule, channels));
+  // `_`-discard a bind nothing LATER in the loop body reads, the same rule
+  // `renderBody` applies at the top level — an unused plain bind fails
+  // `mix compile --warnings-as-errors`.
+  for (let i = 0; i < rendered.length; i++) {
+    const l = rendered[i]!;
+    if (!l.bindName) continue;
+    const word = new RegExp(`\\b${l.bindName}\\b`);
+    if (rendered.slice(i + 1).some((later) => word.test(later.text))) continue;
+    l.text =
+      l.kind === "with-clause"
+        ? l.text.replace(`{:ok, ${l.bindName}}`, `{:ok, _${l.bindName}}`)
+        : l.text.replace(new RegExp(`^${l.bindName} = `), `_${l.bindName} = `);
+  }
+
+  const clauses: string[] = [];
+  const doLines: string[] = [];
+  let lastBind = "nil";
+  for (const l of rendered) {
+    switch (l.kind) {
+      case "guard": {
+        // A loop-body guard must short-circuit THIS REDUCE, not `throw` out of
+        // the whole handler mid-fan-out: re-shape the top-level `unless …, do:
+        // throw({:error, t})` into a with-clause so a failing element halts
+        // with the SAME tagged denial term.
+        const m = /^unless (.*), do: throw\((\{:error, .*)\)$/.exec(l.text);
+        clauses.push(m ? `:ok <- (if ${m[1]}, do: :ok, else: ${m[2]})` : `:ok <- (${l.text})`);
+        break;
+      }
+      case "dispatch":
+        // `emit` (re-entrant dispatch / broker tee) and own-state assigns are
+        // infallible side effects — they run in the do-branch, per element.
+        doLines.push(l.text);
+        break;
+      case "expr": {
+        // `name = <expr>` → `name <- (<expr>)` so it keeps its position in the
+        // chain (a `with` clause with no failure mode).
+        const eq = l.text.indexOf(" = ");
+        const name = l.text.slice(0, eq);
+        clauses.push(`${name} <- (${l.text.slice(eq + 3)})`);
+        if (!name.startsWith("_")) lastBind = name;
+        break;
+      }
+      default:
+        clauses.push(l.text);
+        if (l.bindName && l.text.includes(`{:ok, ${l.bindName}}`)) lastBind = l.bindName;
+        break;
+    }
+  }
+
+  if (clauses.length === 0) {
+    // Pure side-effect body (emit only) — nothing fallible to gate on.
+    return [...doLines, `{:cont, {:ok, ${lastBind}}}`];
+  }
+  return [
+    `with ${clauses.join(",\n     ")} do`,
+    ...doLines.map((l) => `  ${l}`),
+    `  {:cont, {:ok, ${lastBind}}}`,
+    `else`,
+    `  err -> {:halt, err}`,
+    `end`,
+  ];
 }

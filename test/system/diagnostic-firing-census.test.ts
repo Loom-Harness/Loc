@@ -506,6 +506,23 @@ system S {
         create(code: string) { code := code }
         create draft(code: string) { code := code }
       }`),
+  // --- undeclared principal claim (audit D2) ------------------------------
+  // The `user { }` block declares `id` and `role`; the gate reads a third,
+  // undeclared claim.  Both member-typing sites fail OPEN on the principal
+  // (unknown ⇒ `string`), so before this check the model parsed, validated and
+  // GENERATED clean — and the emitted backend then failed its own compile
+  // against a `UserClaims` shape built from exactly these two fields.
+  "loom.unknown-user-claim": `
+system S {
+  user { id: string  role: string }
+  subdomain Sub { context C {
+    aggregate Widget with crudish {
+      name: string
+      operation touch() { requires currentUser.totallyBogusField == "x" }
+    }
+    repository Widgets for Widget { }
+  } }
+}`,
   // --- workflow instance-read gate (M-T3.15 §A2) --------------------------
   // The header gate runs BEFORE any instance is loaded, so only `currentUser`
   // is in scope; `stage` is a workflow STATE field and has no value to read.
@@ -534,6 +551,48 @@ system S {
     port: 3000
     auth: required
   }
+}`,
+
+  // An integer literal the `INT` terminal cannot hold: `9007199254740993`
+  // reaches the AST as `…92`, so the value the author wrote is already gone
+  // before any emitter runs (M-T5.23).  The fixture writes it in a `derived`
+  // body — the position where it survived all the way into emitted source.
+  "loom.integer-literal-imprecise": `
+system S {
+  subdomain D { context C {
+    aggregate Thing with crudish {
+      name: string
+      derived big: long = 9007199254740993
+    }
+    repository Things for Thing { }
+  } }
+  api Api from D
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable d { platform: node contexts: [C] dataSources: [st] serves: Api port: 3000 }
+}`,
+
+  // A declared row field whose type disagrees with the aggregation filling it
+  // (M-T5.24): `avg` over a MONEY column is money, and the declaration says
+  // `decimal` — which is what every backend's coercion reads, so the exact
+  // money mean would have shipped as a lossy float64 JSON number.  The fixture
+  // uses `avg` specifically because that is the operator the retype moved; a
+  // `sum` mismatch fires the same arm.
+  "loom.projection-aggregate-type-mismatch": `
+system S {
+  subdomain Sales { context Orders {
+    aggregate Order with crudish { code: string  total: money }
+    repository Orders for Order { }
+    projection SalesTotals {
+      avgTotal: decimal
+      from Order as o
+      select avgTotal = avg(o.total)
+    }
+  } }
+  api Api from Sales
+  storage pg { type: postgres }
+  resource st { for: Orders, kind: state, use: pg }
+  deployable d { platform: node contexts: [Orders] dataSources: [st] serves: Api port: 3000 }
 }`,
 
   // A query-time projection whose direct-table arm aggregates a field that has
@@ -770,17 +829,6 @@ system S {
       code: string
       operation dispatch() audited { code := "x" }
     }`),
-  // Needs the DEPLOYMENT side: the refusal is per-backend (node emits only the
-  // void-204 handler for an audited RETURNING operation; python emits both),
-  // so a declaration-only system raises nothing.
-  "loom.audited-returning-operation-unsupported": deployed(`      error NotFound { message: string }
-      aggregate Order with crudish {
-        qty: int
-        operation take(n: int) audited : Order or NotFound {
-          qty := qty - n
-          return this
-        }
-      }`),
   // A FOURTH of the same shape, found by reading `validateFieldMask` for the
   // `anyBackend` arm rather than trusting `FIELD_MASK_BACKENDS` (which does
   // list all five families).  `mask unless` on a context nothing hosts is the
@@ -818,17 +866,6 @@ system P {
   storage pg { type: postgres }
   resource st { for: Orders, kind: state, use: pg }
   deployable d { platform: dotnet, contexts: [Orders], dataSources: [st], serves: A, port: 4000 }
-}`,
-  "loom.java-reserved-identifier-unsupported": `
-system P {
-  subdomain D { context Orders {
-    aggregate Order with crudish { case: string }
-    repository Orders for Order { }
-  } }
-  api A from D
-  storage pg { type: postgres }
-  resource st { for: Orders, kind: state, use: pg }
-  deployable d { platform: java, contexts: [Orders], dataSources: [st], serves: A, port: 4000 }
 }`,
   // --- workflow-checks.ts --------------------------------------------------
   // M-T9.19 recorded FOUR of this file's codes as unemittable from source.
@@ -1189,6 +1226,30 @@ system S {
   deployable api { platform: node contexts: [C] dataSources: [st] serves: Api port: 3000 }
   deployable web { platform: static targets: api ui: WebApp { C: api } port: 3001 }
 }`,
+  // A `QueryView` `of:` naming an operation the repository never declares.
+  // `findAllBySellable` is the shape a criterion gets only where `scaffoldPaged`
+  // synthesizes it; without that macro the criterion exists and the find does
+  // not, and the read used to become the unfiltered list on Phoenix.
+  "loom.ui-read-unresolved": `
+system S {
+  subdomain Sub { context C {
+    aggregate Product with crudish { name: string }
+    repository Products for Product { }
+  } }
+  api Api from Sub
+  ui WebApp {
+    framework: react
+    api C: Api
+    page Shop {
+      route: "/shop"
+      body: QueryView { of: Product.findAllBySellable(), data: rows => Text { rows.count } }
+    }
+  }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable api { platform: node contexts: [C] dataSources: [st] serves: Api port: 3000 }
+  deployable web { platform: static targets: api ui: WebApp { C: api } port: 3001 }
+}`,
   // `OperationForm { of:, op: }` names no record, so every frontend targets the
   // page's route `:id` — on a route that declares none it submits an empty id.
   "loom.op-form-needs-route-id": `
@@ -1258,6 +1319,23 @@ system P {
   // `api` identifier the emitted file never binds.  `sum` on purpose: it
   // collides with the collection intrinsic, which is the arm that MIS-COMPILED
   // (to a `.reduce(…)` fold) rather than merely failing at run time.
+  // An e2e body calling a verb whose ROUTE this same compilation does not emit:
+  // `Product` declares no `create` (no `crudish`), so no backend mounts
+  // `POST /api/products` — and the emitted suite would POST there anyway.
+  "loom.e2e-unrouted-verb": `
+system S {
+  subdomain D { context C {
+    aggregate Product { sku: string }
+  } }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable d { platform: node, contexts: [C], dataSources: [st], port: 4100 }
+  test e2e "t" against d {
+    let p = api.products.create({ sku: "W-1" })
+    expect(p.sku).toBe("W-1")
+  }
+}`,
+
   "loom.e2e-unaddressable-call": `
 system S {
   subdomain D { context C {
@@ -1273,10 +1351,12 @@ system S {
   }
 }`,
 
-  // An `if` STATEMENT in an operation body, on a context an elixir deployable
-  // emits.  The four spine backends render it; Phoenix would silently drop an
-  // assigning branch (its bodies thread a REBOUND `record`, and an Elixir `if`
-  // block's bindings do not escape the block).
+  // M-T6.59 narrowed this code: the `if` STATEMENT itself RENDERS on elixir now
+  // (a value-producing `record = if … do … record else record end`), so the
+  // firing shape is one of the three sub-shapes that still cannot render.  This
+  // is `#guard-in-branch` — a `precondition` nested in a branch, which the op
+  // path cannot hoist into its `with :ok <- ensure(…)` chain, so it would raise
+  // (500) where the other four backends answer a typed 403/422.
   "loom.elixir-if-stmt-unsupported": `
 system P {
   subdomain D { context C {
@@ -1285,6 +1365,7 @@ system P {
       count: int
       operation bump(n: int) {
         if n > 0 {
+          precondition count > 0
           count := 1
         } else {
           count := 2
@@ -1650,6 +1731,59 @@ system S {
     aggregate Org with crudish { name: string }
     repository Invoices for Invoice { }
     seed default { Invoice { label: "Seeded" } }
+  } }
+}`,
+  // --- M-T5.34: the four rulings (#2864 D5/D6/G2, #2850 case B) ------------
+  // Each fixture is minimal and ISOLATING — it raises its own code and no
+  // sibling from the packet, so a future regression names one gate.
+  //
+  // `handle` on a workflow whose command create DOES supply the correlation
+  // key ('doc'), so `loom.workflow-create-correlation-unsupplied` stays quiet
+  // and this fixture is about the handler alone.
+  "loom.workflow-handle-unsupported": `
+system S {
+  subdomain D { context Ops {
+    aggregate Doc { title: string }
+    repository Docs for Doc { }
+    workflow Review {
+      doc: Doc id
+      st: string
+      create(doc: Doc id) { st := "Filed" }
+      handle approve() { st := "Approved" }
+    }
+  } }
+}`,
+  // An entity-part-typed parameter on a PUBLIC operation.  The value-object
+  // spelling of the very same model is the passing sibling (it emits
+  // `z.array(LineSchema)` + `new Line(e.sku, e.qty)`), pinned in
+  // test/ir/entity-part-param.test.ts.
+  "loom.entity-part-param-unsupported": `
+system S {
+  subdomain D { context Ops {
+    aggregate Order {
+      ref: string
+      lines: Line[]
+      entity Line { sku: string  qty: int }
+      operation replaceLines(newLines: Line[]) { lines := newLines }
+    }
+    repository Orders for Order { }
+  } }
+}`,
+  // Reactors, no starter.  The event IS carried by a channel, so
+  // `loom.reactor-event-uncarried` (the sibling gate for the other cause)
+  // stays quiet and this fixture isolates the missing-starter cause.
+  "loom.reactor-without-starter": `
+system S {
+  subdomain D { context Ops {
+    aggregate Order { ref: string }
+    repository Orders for Order { }
+    event OrderPaid { order: Order id }
+    channel bus { carries: OrderPaid  delivery: broadcast  retention: ephemeral }
+    workflow Settle {
+      order: Order id
+      st: string
+      on(e: OrderPaid) { st := "paid" }
+    }
   } }
 }`,
 };
