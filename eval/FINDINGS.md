@@ -926,6 +926,26 @@ compilation, passes import, boots, serves `/ready` — and then 500s the first t
 invoice. Only `mypy` catches it, and `mypy` is not something the generated project runs by default
 (it is in the `dev` dependency group; the Dockerfile builds with `uv sync --no-dev`).
 
+> **UPDATE (2026-09-14) — fixed on `main`; the AXIS gate is what was still missing.**
+> Re-running the repro on fresh `main` shows `from app.domain.ids import BarId, FooId` — the route
+> collector now offers every context aggregate's id as a candidate, and a dedicated regression test
+> (`routes-cross-aggregate-id-import.test.ts`) pins that alias.  So the instance is closed.
+>
+> What was still open is FIX-PLAN §5.3's point: the question to sweep is *"does every name in this
+> module resolve?"*, not *"is this particular alias imported?"*.  `python-symbol-resolution.test.ts`
+> now asks it — every capitalised name in every emitted `.py`, allowlisting the CPython builtins and
+> **nothing else**, over all 75 corpus features (fast tier, 15 s, zero findings on landing).
+>
+> Its reach over the per-alias tests is measured, not asserted.  Two mutations:
+> * revert the F-027 fix itself (`idNames` back to the aggregate's own id) → **6** corpus features
+>   red on the new gate, and the two per-alias tests red as well.  Equal reach.
+> * delete one line — `refersTo("Decimal") ? "from decimal import Decimal" : null` → **12** corpus
+>   features red on the new gate, and **95 of the 96** python test files stay **green**.  The one
+>   that fails is this one.
+>
+> The second mutation is the argument: the per-alias tests close the instance in front of them, and
+> a `NameError` in a *different* import on a *different* emitter is invisible to all of them.
+
 ### F-028 — `java`: a repository used only inside an `if let` in a `for` body is never injected
 Severity: **S1** (generated Java does not compile)   Class: **SILENT**
 Area: generator / java / workflow emitter (dependency collection)
