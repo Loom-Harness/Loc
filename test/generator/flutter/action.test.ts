@@ -1,10 +1,11 @@
 // Phase 5 — Action(<instance>.<op>).  On a byId detail page, a parameter-less
 // public op on the loaded record renders as a one-click ElevatedButton that
 // POSTs /<coll>/${record.id}/<op>; the page gains http + config imports on
-// demand.  A parameterised op falls to a diagnostic comment (→ OperationForm).
+// demand.  A parameterised op is REFUSED at phase ⑦ (loom.action-op-has-params),
+// and the walker steers to OperationForm for the model that reaches it.
 
 import { describe, expect, it } from "vitest";
-import { generateSystemFiles } from "../../_helpers/generate.js";
+import { generateSystemFiles, generateSystemFilesUnchecked } from "../../_helpers/generate.js";
 
 const SRC = `
 system Shop {
@@ -50,9 +51,22 @@ describe("flutter Action buttons", () => {
     expect([...files.keys()].some((k) => k.endsWith("lib/config.dart"))).toBe(true);
   });
 
-  it("steers a parameterised op to OperationForm via a diagnostic comment", async () => {
-    const files = await generateSystemFiles(
-      SRC.replace("Action { p.activate }", "Action { p.discount }"),
+  it("REFUSES a parameterised op at phase ⑦, and steers to OperationForm", async () => {
+    // `loom.action-op-has-params` reads the instance ref's declared aggregate
+    // type (`ui-action-body-checks.ts` — `recv.type?.kind !== "entity"` bails
+    // otherwise).  A `QueryView`'s `data:` binding used to carry the `string`
+    // placeholder, so the gate was silent on the ONE shape it exists for — a
+    // detail page's loaded record — and this case degraded to a comment inside
+    // generated Dart instead.  Now the binding carries `entity Product`, so the
+    // model is rejected before emission, which is the honest outcome.
+    const bad = SRC.replace("Action { p.activate }", "Action { p.discount }");
+    await expect(generateSystemFiles(bad)).rejects.toThrow(/loom\.action-op-has-params/);
+    // The walker's own give-up still steers to `OperationForm`, for the model
+    // that reaches it (a `--dry-run` read of a rejected model, say).
+    const files = await generateSystemFilesUnchecked(
+      bad,
+      "the phase-⑦ refusal above IS the subject; this asserts what the walker " +
+        "emits for the model that reaches it",
     );
     const page = [...files.entries()].find(([k]) => k.endsWith("product_detail_page.dart"))![1];
     expect(page).toContain("no parameter-less public operation");

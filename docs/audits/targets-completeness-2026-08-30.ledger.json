@@ -209,74 +209,6 @@
    }
   },
   {
-   "id": "queryview-lambda-int-plus-literal-concat",
-   "title": "An int LITERAL operand of `+` against a read-record member in a page body lowers to string concatenation — silently wrong on the four JS frontends (`o.qty + String(1)`) and a HARD BUILD BREAK on feliz and flutter",
-   "kind": "silent",
-   "class": null,
-   "confidence": "likely",
-   "targets": [
-    "react",
-    "vue",
-    "svelte",
-    "angular",
-    "feliz",
-    "flutter"
-   ],
-   "fileTrees": [
-    "src/ir/lower/lower-expr.ts",
-    "src/generator/_walker/walker-core.ts"
-   ],
-   "evidence": [
-    {
-     "fleet": 1,
-     "id": "queryview-lambda-int-plus-literal-concat",
-     "text": "PROBE on this checkout: page body `QueryView { of: A.Order.byId(id), data: o => Stack { Text { string(o.qty + 1) } } }` over `qty: int` parses `0 error(s), 0 warning(s)` and emits `web/src/pages/detail.tsx` `<Text>{String((orderById.data.qty + String(1)))}</Text>` — i.e. `\"51\"` for qty=5, not 6. `1 + o.qty` gives the mirror `String(1) + orderById.data.qty`. Isolated: `o.qty * 2` → `(orderById.data.qty * 2)` (correct), `o.qty + o.qty` → `(orderById.data.qty + orderById.data.qty)` (correct), `o.qty > 5` → correct, and the SAME arithmetic over a component PARAM is correct — web/src/examples/expression-showcase.ddd:91 `Text { string((level + 1) * 2) }` emits `String((((level + 1)) * 2))` in the generated `web_app/src/components/TierBadge.tsx:14`. So the trigger is the member type of the `data:` lambda param, not the literal: src/ir/lower/lower-expr.ts:2258-2274 `binaryResultType` selects implicit string concat (and the `convert` wrap) when either operand types as `primitive string`, which means `o.qty`'s `memberType` is resolving to `string` rather than `int` for a QueryView lambda receiver. The walker itself is innocent — src/generator/_walker/walker-core.ts:1500-1514 just calls `ctx.target.exprBinary`. CAVEAT: verified on today's main, but I could not date this to the 08-17..HEAD window — treat as possibly pre-existing and dedupe against the other buckets."
-    }
-   ],
-   "repro": null,
-   "impact": null,
-   "fix": "Fix the member typing of the `QueryView`/`of:`-lambda parameter so `o.<field>` carries the field's declared `TypeIR` (the wire shape already has it — src/ir/enrich/wire-projection.ts). Then `binaryResultType` picks arithmetic and the `convert` wrap disappears. Add a walker test pinning `o.<int> + 1` on all four JS frontends plus Feliz/Flutter, and mutation-prove by reverting the typing.",
-   "size": "M",
-   "sources": [
-    "fleet1:fresh-gate-probe"
-   ],
-   "related_to": [
-    "queryview-single-lambda-paramtypes (plan-residue) — suspected same root (QueryView `data:` lambda param typing); that probe itself asks to dedupe"
-   ],
-   "securityClass": false,
-   "P": 2,
-   "verified": {
-    "date": "2026-09-03",
-    "against": "bd7aaeedc",
-    "method": "each row's own repro re-run; emitted output read",
-    "verdict": "open",
-    "note": "BROADER AND MORE SEVERE than filed: silently wrong on the four JS targets (`o.qty + 1` → \"51\"), and a HARD BUILD BREAK on feliz (`int + string`) and flutter (`int + String`). `o.qty * 2` and `o.qty + o.qty` are correct, isolating it to the literal operand",
-    "remainingTargets": [
-     "react",
-     "vue",
-     "svelte",
-     "angular",
-     "feliz",
-     "flutter"
-    ]
-   },
-   "reverified": {
-    "date": "2026-09-10",
-    "against": "bc7ed8f8",
-    "method": "reconciliation 3 (packet C0.5) — repro re-run on this head, emitted output read",
-    "verdict": "reproduces",
-    "note": "RE-RUN: `QueryView { of: Sales.Order.all(), data: o => Stack { Text { o.qty + 1 }, Text { o.qty * 2 }, Text { o.qty + o.qty } } }` on all six frontends.  Silently wrong on the four JS targets — react `home.tsx:21 (orderAll.data.items.qty + String(1))`, vue/svelte/angular identical.  HARD BUILD BREAK on feliz `App.fs:91 (allOrders.qty + (string 1))` (F# `int + string`) and flutter `home_page.dart:16 (orderAll.qty + 1.toString())` (Dart `int + String`).  `* 2` and `+ o.qty` are correct on all six, isolating it to the LITERAL operand exactly as filed.  `targets` widened from four to six.",
-    "remainingTargets": [
-     "react",
-     "vue",
-     "svelte",
-     "angular",
-     "feliz",
-     "flutter"
-    ]
-   }
-  },
-  {
    "id": "schemathesis-F11-int32-range",
    "title": "F11 — ELIXIR publishes a bare `%OpenApiSpex.Schema{type: :integer}` for an `int` body field against an int4 column, so a contract-conforming value 500s (node and python now publish the bound; dotnet and java always did)",
    "kind": "silent",
@@ -7199,6 +7131,67 @@
    "id": "static-subpath-405-node-only",
    "title": "CLOSED (wave C2, packet 2a — elixir was the last arm). Phoenix now mounts `match :*, \"<static sub-path>\", NotFoundController, :not_found` right after the LAST real route for each one-segment static sub-path, inside `scope \"/api\"`: the real routes still win for the verbs they serve (phoenix matches in declaration order) and every other verb lands on the controller that already derives `Allow` from `Phoenix.Router.route_info/4` — so the header comes from the ROUTER, not from a second copy of the route table that could drift. The guarded set is derived from the routes this router actually mounts (`withStaticSubpathGuards`, src/generator/elixir/vanilla/shell-emit.ts), so a backend-specific static route is covered by construction. BOOT-PROVED on real Postgres: `DELETE /api/articles/by_owner` answered 422 from the `:id` cast before and answers 405 with `allow: GET` under `application/problem+json` now; `POST` likewise; `GET /api/articles/by_owner` still 200; `DELETE /api/articles/<uuid>` still 204 and `DELETE /api/articles/not-a-uuid` still 422, so the `:id` route is unshadowed. Pinned by test/generator/elixir/static-subpath-method-guard.test.ts — a SWEEP over every route in the `/api` scope (guarded set == static set, guard after its own routes and before `/:id`, no `:`-bearing path guarded) with a vacuity guard on the fixture's static set; mutation-proved by making `withStaticSubpathGuards` a pass-through, which fails \"guards EVERY one-segment static sub-path the router mounts\" and \"places each guard AFTER its real routes and BEFORE the `:id` route\". Compile-gated through the existing `vanilla-finds.ddd` elixir build fixture (`mix compile --warnings-as-errors`).",
    "source": "fleet1:schemathesis-F8 / ledger reconciliation 3"
+  },
+  {
+   "id": "queryview-lambda-int-plus-literal-concat",
+   "title": "CLOSED (wave C2, packet 2g). A page-body read's lambda binding now carries the RECORD type, so `o.qty + 1` is arithmetic on all six frontends. The read is headed by a ui-local `api <handle>: <Api>` alias that links to nothing, so the chain lowered to an untyped `method-call` and the `data:` lambda bound its parameter at the bare-lambda `string` placeholder; every member read off it typed `string`, and `binaryResultType` selected implicit string concatenation. Two halves: (1) `ofReadResultType` (src/ir/lower/lower-expr.ts) recovers the declared result type from the aggregate the chain NAMES plus the verb (a standard read, or a declared `find`'s `returnType`), so the alias never has to link; (2) `indexMembers` (src/ir/lower/lower.ts) now recurses into a `subdomain`'s `contexts` — its own comment always claimed to index entities \"recursing into systems / subdomains / contexts\", but a Subdomain's children hang off `contexts`, not `members`, so the project-global ambient entity index was EMPTY for the overwhelmingly common layout and (1)'s `entity Order` binding still could not resolve `qty`. `For`/`Table`/`DataGrid` thread the element type to every lambda in their subtree via `Env.rowElem`, so a nested `Column { field: r => … }` binds it too. VERIFIED on all six frontends from one .ddd mounting six deployables: react `String((o.qty + 1))`, vue/angular `{{ String((o.qty + 1)) }}`, svelte `{String((o.qty + 1))}`, feliz `string (o.qty + 1)` (was `o.qty + (string 1)`, F# `int + string`), flutter `(o.qty + 1).toString()` (was `o.qty + 1.toString()`, Dart `int + String`); `* 2` and `+ o.qty` byte-identical. Pinned by test/ir/page-read-lambda-element-type.test.ts, which also pins that a genuinely `string` member STILL concatenates (`o.label + String(1)`) — the fix is a binding fix, not \"stop wrapping literals\". Mutation-proved by file-copy revert, each half separately: 2 of 5 fail on `expected '…' to contain 'String((orderById.data.qty + 1))'`.",
+   "kind": "silent",
+   "class": null,
+   "confidence": "likely",
+   "targets": [
+    "react",
+    "vue",
+    "svelte",
+    "angular",
+    "feliz",
+    "flutter"
+   ],
+   "fileTrees": [
+    "src/ir/lower/lower-expr.ts",
+    "src/generator/_walker/walker-core.ts"
+   ],
+   "evidence": [
+    {
+     "fleet": 1,
+     "id": "queryview-lambda-int-plus-literal-concat",
+     "text": "PROBE on this checkout: page body `QueryView { of: A.Order.byId(id), data: o => Stack { Text { string(o.qty + 1) } } }` over `qty: int` parses `0 error(s), 0 warning(s)` and emits `web/src/pages/detail.tsx` `<Text>{String((orderById.data.qty + String(1)))}</Text>` — i.e. `\"51\"` for qty=5, not 6. `1 + o.qty` gives the mirror `String(1) + orderById.data.qty`. Isolated: `o.qty * 2` → `(orderById.data.qty * 2)` (correct), `o.qty + o.qty` → `(orderById.data.qty + orderById.data.qty)` (correct), `o.qty > 5` → correct, and the SAME arithmetic over a component PARAM is correct — web/src/examples/expression-showcase.ddd:91 `Text { string((level + 1) * 2) }` emits `String((((level + 1)) * 2))` in the generated `web_app/src/components/TierBadge.tsx:14`. So the trigger is the member type of the `data:` lambda param, not the literal: src/ir/lower/lower-expr.ts:2258-2274 `binaryResultType` selects implicit string concat (and the `convert` wrap) when either operand types as `primitive string`, which means `o.qty`'s `memberType` is resolving to `string` rather than `int` for a QueryView lambda receiver. The walker itself is innocent — src/generator/_walker/walker-core.ts:1500-1514 just calls `ctx.target.exprBinary`. CAVEAT: verified on today's main, but I could not date this to the 08-17..HEAD window — treat as possibly pre-existing and dedupe against the other buckets."
+    }
+   ],
+   "repro": null,
+   "impact": null,
+   "fix": "Fix the member typing of the `QueryView`/`of:`-lambda parameter so `o.<field>` carries the field's declared `TypeIR` (the wire shape already has it — src/ir/enrich/wire-projection.ts). Then `binaryResultType` picks arithmetic and the `convert` wrap disappears. Add a walker test pinning `o.<int> + 1` on all four JS frontends plus Feliz/Flutter, and mutation-prove by reverting the typing.",
+   "size": "M",
+   "sources": [
+    "fleet1:fresh-gate-probe"
+   ],
+   "related_to": [
+    "queryview-single-lambda-paramtypes (plan-residue) — suspected same root (QueryView `data:` lambda param typing); that probe itself asks to dedupe"
+   ],
+   "securityClass": false,
+   "P": 2,
+   "verified": {
+    "date": "2026-09-03",
+    "against": "bd7aaeedc",
+    "method": "each row's own repro re-run; emitted output read",
+    "verdict": "open",
+    "note": "BROADER AND MORE SEVERE than filed: silently wrong on the four JS targets (`o.qty + 1` → \"51\"), and a HARD BUILD BREAK on feliz (`int + string`) and flutter (`int + String`). `o.qty * 2` and `o.qty + o.qty` are correct, isolating it to the literal operand",
+    "remainingTargets": [
+     "react",
+     "vue",
+     "svelte",
+     "angular",
+     "feliz",
+     "flutter"
+    ]
+   },
+   "reverified": {
+    "date": "2026-09-14",
+    "against": "claude/c2-walker (wave C2 batch 2, base main @ 9713ffa18)",
+    "method": "repro re-run on the fixed head; emitted output read on all six frontends",
+    "verdict": "fixed",
+    "note": "See title. Mutation-proved both halves.",
+    "remainingTargets": []
+   }
   }
  ],
  "conflicts": [
