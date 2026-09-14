@@ -2,6 +2,7 @@ import {
   isServerSourcedDefault,
   serverSourcedDefaultFields,
 } from "../../../generator/_frontend/server-default.js";
+import { LONG_SAFE_MAX, LONG_SAFE_MIN } from "../../../generator/_numeric/codec.js";
 import { numericEncode } from "../../../generator/_numeric/target.js";
 import { renderHonoLogCall } from "../../../generator/_obs/render-hono.js";
 import {
@@ -2482,9 +2483,25 @@ export const QUERY_BOOL =
  *  rejection the shared 422 `defaultHook` answers, and `.openapi({format})`
  *  makes the published shape match the two backends that were already right.
  *
- *  `long` is deliberately left bare: it is a `bigint` column, and the int64
- *  range it would declare is wider than a JS number carries exactly — a bound
- *  nothing enforces is worse than none. */
+ *  `long` carries the SAFE-INTEGER bound instead of an int64 one (M-T5.23 /
+ *  `D-LONG-AVG-DEFAULTS`).  The earlier reading — "a bound nothing enforces is
+ *  worse than none" — was right about int64 and wrong about the alternative:
+ *  this backend stores `long` as a JS `number`
+ *  (`bigint(col, { mode: "number" })`), so ±(2^53−1) is not an arbitrary
+ *  narrowing, it is the exact range the backend can hold, and it IS enforceable
+ *  because the value is already a JS number by the time zod sees it.  The
+ *  ruling declared that ceiling rather than upgrade the representation.
+ *
+ *  MEASURED 2026-09-13 against the real deserializers, which is what decided
+ *  the shape: zod 4's own `.int()` already refuses anything outside
+ *  ±(2^53−1) (`Too big: expected int to be <=9007199254740991`), so the v5
+ *  package enforced the ceiling by accident of its zod major — while v4 (zod
+ *  `^3.25`, whose `.int()` is `Number.isInteger`) accepted `1e19` and wrote it
+ *  into a bigint column.  `LONG_SAFE` makes the contract explicit on both, and
+ *  as a `.refine` rather than `.min`/`.max` it is deliberately ENFORCED WITHOUT
+ *  BEING PUBLISHED — the same call `NO_NUL` makes below: java/.NET/elixir carry
+ *  int64 exactly and publish `format: int64`, and a node-only bound in the
+ *  OpenAPI would make the SAME `.ddd` publish two different contracts. */
 /** The int4 range an `int` column has, as a zod chain fragment. Split out from
  *  the published format so a field that declares its OWN, tighter bound can
  *  drop the range and keep the format (see `INT32_RANGE` use below). */
@@ -2510,6 +2527,11 @@ const NO_NUL = '.refine((s: string) => !s.includes("\\u0000"))';
 const PLAIN_STRING_BASE = "z.string()";
 
 const INT32_RANGE = ".min(-2147483648).max(2147483647)";
+/** `long`'s enforced-but-unpublished safe-integer bound — see the block comment
+ *  above.  A `.refine` is invisible to the OpenAPI emitter, so the published
+ *  shape stays the plain integer every other backend publishes while this
+ *  backend refuses the values it cannot carry exactly. */
+const LONG_SAFE = `.refine((n: number) => n >= ${LONG_SAFE_MIN} && n <= ${LONG_SAFE_MAX})`;
 /** The published `format`, WITHOUT the bound.  This is the whole RESPONSE
  *  half: a response value came out of the very `int4` column the bound
  *  describes, so validating it again buys nothing — but the published shape
@@ -2520,7 +2542,7 @@ const INT32 = `${INT32_RANGE}${INT32_FORMAT}`;
 
 const QUERY_PRIMITIVE: Record<WirePrimitive, string> = {
   int: `z.coerce.number().int()${INT32}`,
-  long: "z.coerce.number().int()",
+  long: `z.coerce.number().int()${LONG_SAFE}`,
   decimal: "z.coerce.number()",
   money: "moneySchema",
   string: "z.string()",
@@ -2533,7 +2555,7 @@ const QUERY_PRIMITIVE: Record<WirePrimitive, string> = {
 
 const BODY_PRIMITIVE: Record<WirePrimitive, string> = {
   int: `z.number().int()${INT32}`,
-  long: "z.number().int()",
+  long: `z.number().int()${LONG_SAFE}`,
   decimal: "z.number()",
   money: "moneySchema",
   string: "z.string()",

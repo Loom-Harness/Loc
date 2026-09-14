@@ -155,8 +155,13 @@ function fromDataExpr(
       case "id": {
         const vt = idValueTypeOf(inner.targetName);
         if (vt === "string") return `new ${inner.targetName}Id((String) ${get})`;
-        if (vt === "int") return `new ${inner.targetName}Id(((Number) ${get}).intValue())`;
-        if (vt === "long") return `new ${inner.targetName}Id(((Number) ${get}).longValue())`;
+        // Through the numeric seam like the scalar arms above (M-T5.23): an
+        // int-keyed id decoded with a bare `intValue()` wrapped an envelope
+        // value that does not fit into a DIFFERENT id, silently.
+        if (vt === "int")
+          return `new ${inner.targetName}Id(${numericEncode(JAVA_NUMERIC, "int", "find-param", get)})`;
+        if (vt === "long")
+          return `new ${inner.targetName}Id(${numericEncode(JAVA_NUMERIC, "long", "find-param", get)})`;
         imports.add("java.util.UUID");
         return `new ${inner.targetName}Id(UUID.fromString((String) ${get}))`;
       }

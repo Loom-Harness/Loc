@@ -3051,6 +3051,21 @@ Each arm is mutation-proved by file-copy revert.
 
 **Unblocks.** M-T5.23 and M-T5.24 → wave **C2 packet 2f**.
 
+**LANDED 2026-09-13** (PR [#2903](https://github.com/Loom-Harness/Loc/pull/2903)).
+Both options (a) are implemented, and one thing the decision's text did not
+anticipate is worth recording: the `avg` retype alone would have been **inert**.
+The DECLARED projection row type is what every backend's coercion dispatches on
+and nothing checked it, so an author could keep declaring `decimal` for a money
+mean and keep the lossy float — the retype ships with
+`loom.projection-aggregate-type-mismatch`, which also admits the one widening
+(`int` → `long`) an author needs to opt out of the integral range refusal. The
+`long` ceiling is enforced at the literal (`loom.integer-literal-imprecise`) and
+at the node wire boundary; the residual — the four non-node backends still accept
+past the ceiling and store exactly — is pinned in
+`test/conformance/numeric-ingress-parity.test.ts` and belongs to
+`D-NUMERIC-INGRESS-STRICT`, since closing it is either a representation upgrade
+or a uniform ingress narrowing.
+
 **Sources.** [`T5-language-core.md`](new-plan/T5-language-core.md) M-T5.23,
 M-T5.24; [`numeric-types-audit-2026-08-23.md`](audits/numeric-types-audit-2026-08-23.md)
 F13, F14; RS-12; `src/ir/lower/lower-projection.ts`,

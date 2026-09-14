@@ -128,6 +128,13 @@ export const CORPUS: readonly CorpusFeature[] = [
   { id: "eventsourced-workflow", title: "event-sourced saga folding its own emitted events", doc: "workflow", backends: ALL },
   { id: "saga", title: "in-process dispatch / saga with persisted correlation", doc: "workflow", backends: ALL },
   {
+    id: "workflow-enum-state",
+    title: "workflow whose persisted state field is an enum — the instance-response DTO names <Enum>Schema",
+    doc: "workflow",
+    backends: ALL,
+    note: "No corpus .ddd carried an enum-typed workflow STATE field before this one, so the compile tier never reached the emitters that name <Enum>Schema off instanceWireShape: node emitted 'claimState: ClaimStateSchema' with that name bound nowhere in the tree (TS2304), and react/vue/svelte imported it from whichever aggregate happened to be declared first (#2864 D4/T3).",
+  },
+  {
     id: "workflow-command-payload",
     title:
       "explicit-command workflow starter — `create(c: FileClaim)` over a declared `command` payload, whose wire record + wire→domain coercion every backend must emit",
