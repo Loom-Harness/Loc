@@ -3,9 +3,13 @@
 // them.
 //
 // This exists because F-007 was found on ONE backend and the first question was
-// "which of the other four have it too?".  The answer was three already correct
-// and one (Python) lint-dirty — but that answer was a one-off observation, and
-// an observation does not survive the next emitter refactor.  The per-backend
+// "which of the other four have it too?".  The answer was NONE: java, elixir
+// and .NET each already reached IS [NOT] NULL, and python's `!= None` was the
+// correct SQLAlchemy overload (its emitted pyproject waives the matching style
+// rule deliberately).  Only Drizzle bound the literal as a value, and only
+// Drizzle's type signature made that a hard compile error.  But that answer was
+// a one-off observation, and an observation does not survive the next emitter
+// refactor — hence one file that states it.  The per-backend
 // tests pin node (`test/generator/typescript/criterion-null-compare.test.ts`)
 // and python (`test/generator/python/python-criterion-null-and-principal.test.ts`)
 // in detail; this pins the CROSS-BACKEND claim, in one place, so a future
@@ -85,8 +89,9 @@ describe("`x != null` / `x == null` reaches IS [NOT] NULL on every backend", () 
     const src = await emitted("python", /run_(?:un)?assigned_orders/);
     expect(src).toContain("WorkOrderRow.technician_id.is_not(None)");
     expect(src).toContain("WorkOrderRow.technician_id.is_(None)");
-    // `col != None` is valid SQLAlchemy but ruff E711 on a project whose own
-    // pyproject declares ruff.
+    // `col != None` is valid SQLAlchemy (and the emitted pyproject waives the
+    // E711 that would flag it) — this is the CLEANUP half of F-007, pinned so
+    // the explicit spelling is not lost, not a defect the way node's was.
     expect(src).not.toMatch(/[!=]= None\b/);
   }, 60_000);
 

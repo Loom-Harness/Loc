@@ -1,11 +1,13 @@
-// Two defects in the Python/FastAPI read path, both in a `criterion` a
-// `retrieval` runs, and both invisible to `python -m compileall` (Python binds
-// names at execution, and `x == None` is perfectly legal syntax).  The
-// generated project's OWN linter is what sees them — `pyproject.toml` declares
-// `ruff>=0.8,<1`, and ruff's default rule set (`E4`, `E7`, `E9`, `F`) carries
-// both codes.
+// Two changes to the Python/FastAPI read path, both in a `criterion` a
+// `retrieval` runs — one a real defect, one a cleanup.  Kept in one file
+// because they are one emission path, but they are NOT the same severity and
+// the file says which is which.
 //
-// F-013 — `criterion Mine() of WorkOrder = this.technicianUserId == currentUser.id`
+// F-013 — THE DEFECT.  Invisible to `python -m compileall`, because Python
+// binds names at execution: an unbound name is a valid module that raises
+// `NameError` on the first request.
+//
+// `criterion Mine() of WorkOrder = this.technicianUserId == currentUser.id`
 //   emitted, inside `run_my_work_orders(self, offset, limit)`:
 //
 //     query = select(WorkOrderRow).where((WorkOrderRow.technician_user_id == current_user.id))
@@ -18,10 +20,20 @@
 //   and gains none, so the name is simply free.  `ruff check` → `F821 Undefined
 //   name 'current_user'`; at runtime, `NameError` on the first request.
 //
-// F-007 (python half) — `this.technicianId != null` emitted
-//   `(WorkOrderRow.technician_id != None)`.  SQLAlchemy overloads `__ne__`, so
-//   the SQL is right (`IS NOT NULL`) — but the LINE is `E711 comparison to
-//   None`.  `.is_not(None)` is the same SQL and the lint-clean spelling.
+// F-007 (python half) — THE CLEANUP, and it is honest about being one.
+//   `this.technicianId != null` emitted `(WorkOrderRow.technician_id != None)`.
+//   SQLAlchemy overloads `__ne__`, so that SQL is right (`IS NOT NULL`), and the
+//   emitted `pyproject.toml` already waives the style rule that would flag it —
+//   `ignore = ["E711", …]`, with a comment saying exactly why ("in SQLAlchemy
+//   predicates `== True` / `!= None` are the operator-overloaded forms, not
+//   style slips").  Nothing was red.  Unlike the node half, where `ne(col,
+//   null)` was a hard TS2769.
+//
+//   `.is_not(None)` is pinned anyway: same SQL, same shape as the node fix, and
+//   it removes the predicate side of the reason the waiver exists.  Measured:
+//   with the waiver dropped (`ruff --isolated --select E4,E7,E9,F`), E711 no
+//   longer fires on the showcase python deployable at all — only E712
+//   (`== True`), which is a different shape and a different slice.
 //
 // NON-VACUITY is asserted in both directions: an ordinary comparison in the
 // same system must still render `==`/`!=` against a bind value, and a find (the
@@ -105,7 +117,7 @@ describe("python retrieval reads the principal through require_current_user() (F
   });
 });
 
-describe("python lowers a null comparison to is_() / is_not() (F-007, E711)", () => {
+describe("python lowers a null comparison to is_() / is_not() (F-007 cleanup)", () => {
   it("`!= null` becomes .is_not(None) and `== null` becomes .is_(None)", async () => {
     const src = await repo(`      criterion Assigned() of WorkOrder = this.technicianId != null
       criterion Unassigned() of WorkOrder = null == this.technicianId

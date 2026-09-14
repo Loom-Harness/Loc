@@ -352,14 +352,25 @@ function lower(
         );
         if (temporal != null) return temporal;
       }
-      // `this.<optionalCol> == null` / `!= null` — SQL's IS [NOT] NULL.  The
-      // generic arm below renders `(col == None)`, which SQLAlchemy DOES
-      // compile to `IS NULL` (it overloads `__eq__` on `InstrumentedAttribute`),
-      // so the QUERY is right — but the emitted line is a ruff **E711**
-      // ("comparison to `None` should be `cond is None`") on a project whose own
-      // `pyproject.toml` declares and configures ruff, and whose `python-build`
-      // gate runs it (F-015 / F-007's python half).  `.is_(None)` /
-      // `.is_not(None)` is the same SQL and the lint-clean spelling.
+      // `this.<optionalCol> == null` / `!= null` — SQL's IS [NOT] NULL, spelled
+      // explicitly.
+      //
+      // This is a CLEANUP, not a defect fix, and the distinction matters: the
+      // generic arm below renders `(col == None)`, which SQLAlchemy compiles to
+      // `IS NULL` (it overloads `__eq__` on `InstrumentedAttribute`), so the
+      // query was always right.  The emitted `pyproject.toml` already carries
+      // `ignore = ["E711", …]` with a comment saying exactly that — "in
+      // SQLAlchemy predicates `== True` / `!= None` are the operator-overloaded
+      // forms, not style slips".  So nothing was red.
+      //
+      // The explicit spelling is still worth having: it is the same SQL, it
+      // matches what the node half emits after F-007 (`isNull`/`isNotNull`,
+      // which there was a genuine TS2769), and it removes the predicate side of
+      // the reason the E711 waiver exists.  Measured after this change: with
+      // the waiver dropped (`ruff --isolated --select E4,E7,E9,F`), E711 no
+      // longer fires anywhere on the showcase python deployable — only E712
+      // (`== True`, the bool-column twin) does, which is untouched here and
+      // would be its own slice.
       //
       // Restricted to an operand that lowered to a ROW COLUMN: `.is_(None)` is
       // a method on a SQLAlchemy column element, so applying it to a bound
