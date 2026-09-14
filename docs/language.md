@@ -78,10 +78,14 @@ bare expression ref (it is the `match await` marker there); `api`, `route`,
 `component`, `menu`, `section`, `link`, `targets`, `framework`, `design`,
 `ui`, `page` … are admissible as parameter / argument names and expression
 refs but — apart from `page` — **not** as field names (`aggregate Order {
-route: string }` is a parse error); `of`, `allow`, `deep`, `global`,
-`policy`, `persistence` are soft only as parameter / clause names.  The source of
-truth is the rule set in `src/language/ddd.langium`, pinned by
-`test/language/keyword-identifier-completeness.test.ts`.
+route: string }` is a parse error).  `of`, `allow`, `deny`, `local`, `deep`,
+`global`, `policy` and `persistence` were soft only as parameter / clause
+names until
+audit finding D4; they are now in the shared set, so `aggregate Claim { policy:
+Policy id }` parses.  The source of truth is the rule set in
+`src/language/ddd.langium`, pinned by
+`test/language/parsing/keyword-identifier-completeness.test.ts` and
+`test/language/parsing/reserved-field-name-widening.test.ts`.
 
 ```ddd
 context Orders {
@@ -1407,6 +1411,13 @@ The validator runs after parsing and reports errors for:
   parts, value objects, events / payloads, and `X id` references; it does
   not fire on collection ops (`lines.first`), string members (`s.length`),
   or receivers whose type couldn't be resolved.
+- Access to a claim the principal doesn't carry — `currentUser.totallyBogus`
+  where the system's `user { … }` block never declares it
+  (`loom.unknown-user-claim`). The generated backend's `UserClaims` type is
+  emitted from exactly that block, so an undeclared claim otherwise reaches
+  it verbatim and breaks the generated project's own compile. The derived
+  tenancy members `currentUser.orgPath` / `.rootOrg` are always valid (using
+  them without a `tenancy by` line is `loom.orgpath-without-tenancy`).
 - Assignment to a derived property.
 - `emit` payloads that don't match the event's declared shape.
 - **Record construction** (`X { field: value }` for a value object, entity part,

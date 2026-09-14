@@ -51,6 +51,7 @@ import type {
   UiIR,
   WorkflowIR,
 } from "../../ir/types/loom-ir.js";
+import { valueObjectPool } from "../../ir/util/reachable-types.js";
 import { lines } from "../../util/code-builder.js";
 import { humanize, lowerFirst, plural, snake, upperFirst } from "../../util/naming.js";
 import { STANDARD_AGG_OPS } from "../_walker/walker-core.js";
@@ -479,10 +480,16 @@ function enumsFromBc(bc: EnrichedBoundedContextIR | undefined): Map<string, stri
   return m;
 }
 
-/** Value-object name → its fields from a bounded context. */
+/** Value-object name → its fields, over the context's own declarations PLUS the
+ *  sibling contexts' — a `valueobject` declared in another context and merely
+ *  REFERENCED here resolves through `valueObjectPool` (see
+ *  `BoundedContextIR.siblingValueObjects`).  Without it the form field silently
+ *  became `// TODO(flutter form-field): … unresolved value-object … dropped`
+ *  while the SAME VO on a same-context aggregate flattened into its
+ *  `<field>Amount` / `<field>Currency` inputs. */
 function vosFromBc(bc: EnrichedBoundedContextIR | undefined): Map<string, readonly FieldIR[]> {
   const m = new Map<string, readonly FieldIR[]>();
-  if (bc) for (const vo of bc.valueObjects) m.set(vo.name, vo.fields);
+  if (bc) for (const vo of valueObjectPool(bc)) m.set(vo.name, vo.fields);
   return m;
 }
 

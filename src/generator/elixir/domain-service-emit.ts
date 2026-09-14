@@ -47,9 +47,11 @@ import {
   aggregateOpResolver,
   classifyDomainServiceTier,
 } from "../../ir/util/domain-service-tier.js";
+import { elixirIfRefusal } from "../../ir/validate/checks/if-stmt-checks.js";
 import { escapeElixirIdent, snake, upperFirst } from "../../util/naming.js";
 import { type RenderCtx, renderExpr, renderTypespec } from "./render-expr.js";
 import { appModuleOf, guardRaiseLine } from "./vanilla/denial.js";
+import { renderElixirIfStmt } from "./vanilla/if-stmt-emit.js";
 import { opCallParamFields } from "./vanilla/workflow-execution-emit.js";
 
 // ---------------------------------------------------------------------------
@@ -472,6 +474,17 @@ function renderOperation(
     );
   }
 
+  // M-T6.59 — the `if` sub-shapes a tail-value body cannot express are refused
+  // at phase ⑦; assert with the SAME predicate so a bypassed validator fails
+  // loudly here instead of emitting a body that drops an early exit.
+  const ifRefusal = elixirIfRefusal(op.body, "value");
+  if (ifRefusal) {
+    throw new Error(
+      `platform: elixir — an 'if' statement with a ${ifRefusal} reached the domain-service ` +
+        `emitter for operation '${op.name}'; it is refused at validation ` +
+        `(loom.elixir-if-stmt-unsupported#${ifRefusal}).`,
+    );
+  }
   const bodyLines = op.body.map((s) => renderStatement(s, ctx, renderCtx, isUnion));
 
   return `${specLine}
@@ -543,16 +556,17 @@ function renderStatement(
     case "variant-match":
       return `    # unreachable: ${s.kind} rejected by the domain-service validator floor`;
     case "if":
-      // The `if` STATEMENT is a node/.NET/java/python form today; on Phoenix
-      // every body renderer threads its result through a rebound `record` (or
-      // a tail expression), and an Elixir `if` block's bindings do not escape
-      // it — so a branch that assigns would compile and then silently do
-      // nothing.  Refused up front by `loom.elixir-if-stmt-unsupported`
-      // (ir/validate/checks/if-stmt-checks.ts); this arm is the defensive
-      // fail-fast, unreachable on validated `.ddd`.
-      throw new Error(
-        "platform: elixir — an `if` statement reached the domain-service emitter; it is " +
-          "refused at validation (loom.elixir-if-stmt-unsupported).",
-      );
+      // M-T6.59 — a domain-service body is a TAIL-VALUE body (nothing is
+      // appended after `bodyLines`), so the `if` renders as a plain
+      // value-producing Elixir `if` and needs no threaded variable: a tail `if`
+      // whose branches `return` IS the function's result.  The sub-shapes that
+      // cannot render (a non-tail `return`, a nested guard) are refused up
+      // front by `loom.elixir-if-stmt-unsupported` — re-asserted once per body
+      // by the caller, with the SAME predicate the gate uses.
+      return renderElixirIfStmt(s, {
+        indent: "    ",
+        cond: renderExpr(s.cond, rc),
+        renderInner: (stmts) => stmts.map((st) => renderStatement(st, ctx, rc, isUnion)),
+      });
   }
 }

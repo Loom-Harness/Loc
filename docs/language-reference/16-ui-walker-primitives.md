@@ -971,7 +971,7 @@ end
 
 ## `QueryView` — async data branching
 
-`QueryView { of:, loading:, error:, empty:, data: rows => … }` reads a query — `<api>.<Agg>.all`, `.byId(id)`, a declared `find`, a projection — and renders one of four arms by state. `single: true` marks a one-record read (derived anyway from `byId` / a `T?` find); `paged: true` binds the **envelope** instead of the rows (§9.2 of [page-metamodel.md](../page-metamodel.md)). Because `.all` is paged by default, the simplest table over it is rewritten at the macro layer into the scaffold's server-paged shape — `pageNum` / `sortKey` / `sortDir` state, the args threaded into the hook, sortable headers, a pager — so `unfold` ejects real source:
+`QueryView { of:, loading:, error:, empty:, data: rows => … }` reads a query — `<api>.<Agg>.all`, `.byId(id)`, `.history(id)` on an audited aggregate, a declared `find` (including the paged `findAllBy<Criterion>` `scaffoldPaged` synthesizes), or a projection — and renders one of four arms by state. That list is CLOSED: an `of:` naming anything else is refused with `loom.ui-read-unresolved`, which names what the aggregate does expose. (It is an error on every target because the failure was not: the JSX clients imported a hook that was never emitted, while Phoenix LiveView substituted the unfiltered `list_<agg>s()` and rendered every row silently.) `single: true` marks a one-record read (derived anyway from `byId` / a `T?` find); `paged: true` binds the **envelope** instead of the rows (§9.2 of [page-metamodel.md](../page-metamodel.md)). Because `.all` is paged by default, the simplest table over it is rewritten at the macro layer into the scaffold's server-paged shape — `pageNum` / `sortKey` / `sortDir` state, the args threaded into the hook, sortable headers, a pager — so `unfold` ejects real source:
 
 ```ddd
 page Products {
@@ -1369,6 +1369,7 @@ Where a target cannot render a primitive the compiler says so — a `loom.*` err
 | `loom.user-component-deferred-target` | a `component` shape the Angular / Feliz emitter filters out — `slot` / `action` params, a Feliz body with `Action { … }`, a `byId` or store read, an Angular read fed by an `@Input()` ([15](15-ui-pages-structure.md)) |
 | `loom.heex-component-host-state-unsupported` | inputs / forms / queries / uploads / table controls inside a `component` on Phoenix — only `state` and named `action`s are lifted to the host LiveView |
 | `loom.feliz-async-effect-unsupported` · `loom.flutter-async-effect-unsupported` | `match await` in a component action ([actions.md](../actions.md)) |
+| `loom.ui-read-unresolved` | a `QueryView` / `Chart` `of:` naming an operation the aggregate's repository does not declare (any target) |
 | `loom.ui-projection-read-unsupported` | a keyed or folded projection read from a page, or a frontend without a projection client |
 | `loom.toast-message-unsupported` | a realtime `toast(…)` message outside the literal / `e.field` / binary-op subset |
 

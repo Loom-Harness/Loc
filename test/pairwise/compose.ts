@@ -30,8 +30,9 @@
 // matrix spent a third of its crossings bouncing off two diagnostics instead
 // of reaching an emitter:
 //
-//   - a `shape: document` / `persistedAs: eventLog` concrete of a `sharedTable`
-//     base is FORCED to `ownTable`, and `loom.es-tph-forced-own-table` says so
+//   - a `shape: document` / `shape: embedded` / `persistedAs: eventLog` concrete
+//     of a `sharedTable` base is FORCED to `ownTable`, and
+//     `loom.es-tph-forced-own-table` says so
 //     in as many words ("declare 'inheritanceUsing: ownTable' on 'Thing'").  So
 //     the concrete declares it.  700 of 4200 crossings — one sixth of the whole
 //     matrix — were re-proving that one validator, which is the same waste the
@@ -134,9 +135,16 @@ function header(cap: Capability, shape: Shape, authz: Authz, inh: Inheritance): 
   return parts.length > 0 ? ` ${parts.join(" ").replace(/,$/, "")}` : "";
 }
 
-/** Shapes that cannot share a TPH base's table (`loom.es-tph-forced-own-table`). */
+/** Shapes that cannot share a TPH base's table (`loom.es-tph-forced-own-table`).
+ *
+ *  `embedded` joined `document` / `eventLog` in wave C2 (D-EMBEDDED-TPH): it was
+ *  the crossing behind compile waiver F11 (node) and F13 (python), and the rule
+ *  that already forced the other two non-relational shapes out of a shared table
+ *  is what the language says about it now.  So the composer writes the override
+ *  for it too, exactly as a user must — and the crossing this matrix reaches is
+ *  `embedded × ownTable`, which every backend emits. */
 function forcedOwnTable(shape: Shape): boolean {
-  return shape === "document" || shape === "eventLog";
+  return shape === "document" || shape === "eventLog" || shape === "embedded";
 }
 
 /** An abstract base is `persistedAs: state` regardless of what its concrete is,

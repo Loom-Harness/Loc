@@ -1,0 +1,37 @@
+// M-T6.56 / language-docs audit F60 — a `derived` that READS another `derived`.
+//
+// `derivedRenderable` (`vanilla/wire-serialize.ts`) refused a `this-derived`
+// read, so `label` was dropped from `serialize/1` while the emitted
+// `OrderResponse` schema declared it AND listed it in `required:` — every
+// response violated the contract the app itself publishes, on elixir alone.
+//
+// The renderer was never the blocker (`render-expr.ts` INLINES a `this-derived`
+// read, because an Elixir struct carries no computed field and `record.<name>`
+// raises `KeyError` — #1765); only the projection predicate disagreed with it.
+// This fixture compiles the resulting nested inline under
+// `mix compile --warnings-as-errors`, and the chain is three deep so the
+// recursion is exercised rather than a single hop.
+system Shop {
+  subdomain Sales {
+    context Ordering {
+      aggregate Order with crudish {
+        qty: int
+        unitPrice: int
+        derived subtotal: int = qty * unitPrice
+        derived withTax: int = subtotal + subtotal
+        derived label: string = "n=" + withTax
+      }
+      repository Orders for Order { }
+    }
+  }
+  api OrderingApi from Sales
+  storage primary { type: postgres }
+  resource orderingState { for: Ordering, kind: state, use: primary }
+  deployable api {
+    platform: elixir
+    contexts: [Ordering]
+    dataSources: [orderingState]
+    serves: OrderingApi
+    port: 4000
+  }
+}

@@ -3,6 +3,7 @@ import { AUTH_BASE_PATH } from "../../util/api-base.js";
 import { lines } from "../../util/code-builder.js";
 import { snake } from "../../util/naming.js";
 import { claimIdTargets } from "../_auth/claim-types.js";
+import { devStubIdExpr } from "../_auth/dev-stub-id.js";
 import { renderPyType } from "./render-expr.js";
 
 /** The branded id NewTypes an auth module must import from `app.domain.ids`
@@ -117,8 +118,11 @@ function stubValueForType(t: TypeIR): string {
         default:
           return '""';
       }
+    // Already constructed through the NewType factory — the only one of the
+    // five stub tables that did.  Routed through the shared arm so it stays
+    // that way (and widens with the id's value type).
     case "id":
-      return `${t.targetName}Id("00000000-0000-0000-0000-000000000000")`;
+      return devStubIdExpr(t, "python");
     case "array":
       return "[]";
     default:

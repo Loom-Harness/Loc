@@ -51,7 +51,7 @@ import { lines } from "../../../util/code-builder.js";
 import { snake, upperFirst } from "../../../util/naming.js";
 import { numericEncode } from "../../_numeric/target.js";
 import type { ApiRoute } from "../api-emit.js";
-import { ELIXIR_NUMERIC } from "./numeric-codec.js";
+import { ELIXIR_NUMERIC, elixirMoneyRoundHelper } from "./numeric-codec.js";
 
 /** The SSE endpoint, spelled from the router ROOT (the `:sse` pipeline sits
  *  outside `scope "/api"`, so the prefix is explicit here).  `API_BASE_PATH` +
@@ -183,14 +183,7 @@ function renderVanillaRealtimeController(
   if (money) {
     // RS-12 — the FIXED money wire scale, same coercion the REST serializer
     // applies (`Decimal.round/2` is `:half_up` and keeps trailing zeros).
-    helpers.push(
-      "",
-      "  defp __money_round(nil), do: nil",
-      "",
-      `  defp __money_round(%Decimal{} = dec), do: ${numericEncode(ELIXIR_NUMERIC, "money", "dto-map", "dec")}`,
-      "",
-      "  defp __money_round(other), do: other",
-    );
+    helpers.push("", elixirMoneyRoundHelper());
   }
   if (dec) {
     // RS-24 — a plain `decimal` is a JSON NUMBER on every other backend, but

@@ -86,14 +86,18 @@ const DAPPER_COMPILE_SKIP: Record<string, string> = {};
 // to have no corpus witness: an aggregation whose source aggregate keeps its
 // fields somewhere other than columns (`shape: document`, event-sourced) — see
 // `dapperQueryProjectionGap`.
-const DAPPER_UNSUPPORTED: Record<string, string> = {
-  "tenancy-hierarchy":
-    "hierarchical tenancy's capability filter is outside the Dapper SQL subset; the validator " +
-    "says so with loom.dapper-unsupported.  NOTE: that claim was FALSE until M-T6.29 — the " +
-    "deep-scope sentinel escaped `validateDapperSupport` exactly as the deny sentinel did, and " +
-    "this fixture CRASHED codegen with the same 'outside the Dapper SQL subset' throw.  The " +
-    "gate now exists, so the rationale is true; re-verified by generating the fixture.",
-};
+//
+// 1 -> 0 (wave C2 packet 2b).  The last entry was `tenancy-hierarchy`:
+// "hierarchical tenancy's capability filter is outside the Dapper SQL subset".
+// It is not — `authzFilterToSql`'s `scope` arm now renders the
+// descendant-or-self fragment as raw Postgres (the MikroORM `raw()` twin), and
+// the one thing that genuinely blocked it — a hand-rolled principal-ref
+// collector that could not see the sentinel's derived claims — was fixed by
+// putting that collector on `walkExprDeep` and contributing the four bindings
+// by kind.  The fixture now COMPILES here, and `tenancy-hierarchy-dapper.test.ts`
+// runs the subtree/delimiter/wildcard-trap isolation assertions against a booted
+// Dapper backend on a real Postgres, which is the only tier that can see them.
+const DAPPER_UNSUPPORTED: Record<string, string> = {};
 
 const dapperFeatures = CORPUS.filter((f) => f.backends.includes("dotnet"))
   .filter((f) => !(f.id in DAPPER_COMPILE_SKIP))

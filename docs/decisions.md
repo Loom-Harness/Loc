@@ -486,6 +486,10 @@ D-DOCUMENT-AXIS: a `shape: document` (document) concrete of a
 raises an error (not a silent coercion) so the author writes the
 forced modifier explicitly.
 
+**Extended by D-EMBEDDED-TPH** (wave C2): `shape: embedded` joins the
+forced set — the third non-relational shape, missed when this rule was
+generalised, and the one compile waivers F11 / F13 were recording.
+
 **Affects.** `aggregate-inheritance.md`; the persistence adapter's
 table-layout resolution.
 
@@ -3454,3 +3458,322 @@ wave **C6**.
 [`T3-security-governance.md`](new-plan/T3-security-governance.md) M-T3.11 and
 [`execution-context.md`](old/proposals/execution-context.md) §Open questions;
 D-CTX-SHAPE.
+
+---
+
+## D-TPH-BEATS-SHAPE — a TPH concrete's `shape:` never reaches storage
+
+**Status:** PINNED (2026-09-13, wave C2 packet 2e).
+
+**Question.** What does `aggregate Container extends Shipment shape: embedded`
+mean when `Shipment` is `inheritanceUsing: sharedTable`? Two header modifiers
+each claim to decide where the concrete's row lives, and nothing said which wins
+— so each emitter answered on its own, and three of them answered differently.
+
+**What the code already ruled, before anyone wrote it down.** Phase ⑨ decides
+what tables EXIST, and `tablesForOneAggregate`
+(`src/system/migrations-builder.ts`) tests `isTphConcrete`/`isTphBase` **before**
+the shape arms: a TPH concrete gets the shared base table plus RELATIONAL child
+tables for its containments, and **no jsonb column anywhere**. The drizzle
+schema emitter agrees. So the DDL a `shape: embedded` TPH concrete runs against
+has never had a place to put an embedded document, on any backend.
+
+**Decision.** **TPH wins.** A concrete that shares its base's table owns no table
+of its own, therefore has nowhere to put a jsonb containment column, therefore
+its `shape:` modifier does not apply: containments persist relationally, FK'd to
+the shared row. Every backend's schema emitter and repository builder must agree
+with the phase-⑨ DDL, which is the single authority on what exists.
+
+This is the same rule `loom.es-tph-forced-own-table` already enforces for the two
+shapes that CANNOT degrade — `persistedAs: eventLog` and `shape: document` have
+no queryable root row to share, so the validator makes the author write
+`inheritanceUsing: ownTable` explicitly. `embedded` is the one shape that *can*
+degrade (its root already is a queryable row), which is why it is allowed through
+rather than refused.
+
+**Follow-up, deliberately NOT taken here.** A silent degrade is still a silent
+degrade: the author wrote `shape: embedded` and got relational children. The
+honest alternative is to extend rule 4 of `src/language/validators/inheritance.ts`
+so `shape: embedded` under a `sharedTable` base is refused the same way, with the
+same "declare `inheritanceUsing: ownTable`" remedy. That is a **language-layer**
+change touching every backend's expectations at once (it would also close
+pairwise F11 on node by deleting the crossing), so it belongs to the packet that
+owns `src/ir/**` + `src/language/**` — wave **C2 packet 2f** — not to a
+per-backend packet. Until it is taken, the degrade is at least *coherent*: every
+target does the same thing, and the same thing is what the DDL creates.
+
+**Consequences.** Pairwise **F13** closes as a python conformance fix (the schema
+emitter's TPH arms move ahead of the shape arms; a TPH concrete takes the
+relational repository builder). Pairwise **F11** on node is re-read the same way:
+the drizzle repository must target the owner table, not the concrete's own. The
+crossing enters the curated corpus with `tph-crossings.ddd`, whose header names
+the embedded half as the widening step once F11 closes.
+
+**Superseded in part at the wave fold (2026-09-13).** The follow-up this entry declined to take was taken in the same wave by packet 2c as [`D-EMBEDDED-TPH`](#d-embedded-tph--a-shape-embedded-concrete-of-a-sharedtable-base-is-forced-to-owntable-like-the-other-two-non-relational-shapes): `shape: embedded` under a `sharedTable` base is now REFUSED at phase ④ (`loom.es-tph-forced-own-table`), so the crossing this entry ruled on is unreachable from `.ddd` and there is no degrade left to be coherent about. What survives of this entry is its floor: the python schema emitter and repository builder test the TPH arms before the shape arms, mirroring `migrations-builder.ts`, so a TPH concrete can never again be handed a table phase ⑨ does not create. The python gate that drove the crossing (`tph-embedded-storage.test.ts`) was deleted at the fold because its fixture no longer validates; the ordering is pinned by the phase-④ refusal plus the migrations builder's own arm order, and the coordinator recorded the trade in `docs/new-plan/waves/wave-c2.md`.
+
+**Sources.** `src/system/migrations-builder.ts` `tablesForOneAggregate`;
+`src/ir/util/inheritance.ts` `tableOwnerName`;
+`src/language/validators/inheritance.ts` rule 4;
+[`inheritance.md`](inheritance.md);
+`docs/audits/pairwise-corpus-findings-2026-08.md` §F11/§F13.
+
+---
+
+## D-PYTHON-SINGLE-REALIZATION — python ships one realization, and that is not a gap
+
+**Status:** PINNED (2026-09-13, wave C2 packet 2e).
+
+**Question.** Ledger row `G2646-open-python-no-realization-axes` reads python's
+absence from `src/platform/adapter-metadata.ts` as debt: `persistence:` and
+`directoryLayout:` "offer no choice on that backend while node (drizzle/mikroorm)
+and dotnet (EF/dapper) do". Sized **L**, unowned, and re-opened by every parity
+sweep.
+
+**Measured, on fresh `main`.** The asymmetry the row describes is not
+python-vs-the-rest — it is *two adapters vs one*. `BACKEND_ADAPTER_METADATA`
+lists `elixir` with exactly one persistence adapter (`ecto`) and `java` with
+exactly one (`jpa`); neither offers a choice either. Three of five backends ship
+a single realization. Python's only real difference is that it is ABSENT from the
+mirror rather than present with a single-valued menu — and the file says that
+absence is deliberate and matches the live surface (its `PlatformSurface` omits
+`adapters()`).
+
+**Decision.** **Python ships one realization — SQLAlchemy 2 async over asyncpg,
+one directory layout — and that is a product statement, not an incomplete
+implementation.** The row is re-classed `scope`. A second python persistence
+adapter (Tortoise, Piccolo, raw asyncpg) is a T6-track *mission* to be minted
+when a user need names the adapter, with the same bar every adapter carries: its
+own pairwise cover cell, its own corpus compile leg, its own behavioural leg.
+Nothing about the current state is silent — there is no gate to add, because
+there is no `persistence:` value a user can write that python drops.
+
+**Owner.** The T6 backend track, on demand. Not a completeness row, and not wave
+C2's: no packet closes it by building, and leaving it `open` guarantees it is
+re-derived by the next sweep.
+
+**Consequences.** `G2646-open-python-no-realization-axes` moves out of the
+ledger's `open` bucket. If python ever does grow a second adapter, the honest
+first step is the `adapter-metadata.ts` entry (a single-valued menu, like java's
+and elixir's), so the mirror stops being read as a completeness signal —
+recorded here as the shape of that change, not scheduled.
+
+**Sources.** `src/platform/adapter-metadata.ts` (`BACKEND_ADAPTER_METADATA`, and
+its own note on python's absence); [`platforms.md`](platforms.md);
+`docs/audits/targets-completeness-2026-08-30.ledger.json`.
+## D-EMBEDDED-TPH — a `shape: embedded` concrete of a `sharedTable` base is forced to `ownTable`, like the other two non-relational shapes
+
+**Status:** proposed (default applies 48 h after merge unless overridden).
+
+**Question.** `shape: embedded` × TPH (`inheritanceUsing: sharedTable`) does not
+work on any backend that implements `embedded`. Is that a cross-emitter mission,
+or does the language refuse the crossing the way it already refuses the other two
+non-relational shapes under a shared table?
+
+**Options.** (a) build it — the TPH owner table grows one nullable jsonb column
+per embedded concrete's containment, on node (drizzle + mikroorm), python and
+.NET, plus the matching phase-⑨ DDL; (b) extend Rule 4's `forcesOwn` set with
+`embedded`, so the author declares `inheritanceUsing: ownTable` exactly as an
+event-sourced or document concrete must; (c) leave it — a recorded compile
+waiver per backend.
+
+**Decision.** (b).
+
+**Rationale.**
+
+- **The rule already exists and already covers the neighbours.** `persistedAs:
+  eventLog` and `shape: document` are forced to `ownTable` by
+  `loom.es-tph-forced-own-table` (`src/language/validators/inheritance.ts`
+  Rule 4, D-ES-TPH) for the same underlying reason: their truth is not a row in
+  a shared table. `embedded` is the third non-relational shape and was simply
+  missed — (b) adds one disjunct to a set, one word to a message and nothing to
+  the surface. (a) adds a per-backend feature nobody has asked for.
+- **What (c) was actually recording, measured.** On node, the drizzle embedded
+  repository named `schema.things` while a TPH concrete's row lives in
+  `schema.thingBases` (19 × TS2339 per case, compile waiver **F11**; MikroORM
+  had the same defect one name over, `ThingRow` vs `ThingBaseRow`) — and the
+  schema emitter did not put the jsonb containment column on the owner table
+  either: it emitted a relational `lines` CHILD TABLE, so re-pointing the
+  repository would have moved the error rather than removed it. Python emits
+  BOTH tables (**F13**); .NET maps no containment at all. Three backends, three
+  different wrong answers, and the phase-⑨ migration DDL mirrors the schema
+  emitter's mistake on all of them.
+- **(a) is a four-file change per backend for a shape with no demand.** Two
+  emitters and the phase-⑨ DDL on each of node/python/.NET, held together by a
+  drizzle-schema-vs-migration agreement nothing currently gates. The crossing
+  came from the pairwise MATRIX, not from a user: it is a cell the generator
+  enumerates, not a shape anyone wrote.
+- **The forced form is not a downgrade.** `embedded × ownTable` compiles and runs
+  on both node adapters today (verified: `tsc --noEmit` clean on the generated
+  project for drizzle and mikroorm), and it is what the author wanted anyway —
+  an aggregate whose containments fold into ITS row needs a row of its own.
+
+**Consequences.** `loom.es-tph-forced-own-table` gains `shape: embedded`; its
+message names the shape rather than only the event-sourced arm. `COMPILE_WAIVERS`
+entry **F11** is deleted (the crossing can no longer be written), and the pairwise
+composer writes the forced override for `embedded` as it already does for
+`document` / `eventLog`, so the cover reaches `embedded × ownTable` instead of
+spending its TPH cells on a validator floor. The python twin **F13** loses its
+source the same way — 2e deletes its own entry. M-T2.10's "`embedded` on Drizzle
+still emits relationally" clause is resolved by the same measurement: it emits
+jsonb correctly, and emitted relationally ONLY under TPH.
+
+**Reversible.** If a real model ever needs the crossing, (a) is unblocked by
+deleting one disjunct — nothing here bakes the refusal into an emitter.
+
+**Sources.** `test/pairwise/waivers-compile.ts` F11 (and F13);
+[`targets-completeness-2026-08-30.ledger.json`](audits/targets-completeness-2026-08-30.ledger.json);
+[`T2-data-evolution.md`](new-plan/T2-data-evolution.md) M-T2.10;
+[`inheritance.md`](inheritance.md); D-ES-TPH (the rule this extends).
+## D-TPH-SUBTYPE-FILTER — a TPH subtype's capability filter is a declared v1 limit on the EF adapter, not a gap
+
+**Status:** proposed (default applies 48 h after merge unless overridden).
+Raised by wave C2 packet 2b, which was asked to "build or decide" this row.
+
+**Question.** `loom.tph-filter-unsupported` refuses a `sharedTable` (TPH)
+SUBTYPE whose capability `filter` reads a column the hierarchy ROOT does not
+declare, on `platform: dotnet` + `persistence: efcore`. Is that a gap to drain
+or a declared limit?
+
+**Options.** (a) leave it a `gap` and drain it by moving the .NET read path's
+capability filters off `HasQueryFilter` onto a per-read LINQ `.Where(...)`,
+which is per-`DbSet` and therefore subtype-typed; (b) re-class it a `scope` row
+with a named successor, keeping the honest refusal until someone commissions
+(a); (c) refuse it permanently and rename the code out of the `-unsupported`
+suffix.
+
+**Decision.** (b) — **`scope`, with M-T6.72 as the named successor.** NOT (c):
+the shape is expressible, on this very adapter, by a different read strategy;
+and NOT (a) inside a per-target drain packet, for the reason below.
+
+**Rationale.**
+
+- **The refusal is TRUE, and narrow.** It is scoped to the EF adapter, not to
+  `platform: dotnet` — Dapper splices the same predicate into raw SQL against
+  the shared table, where a subtype column is just a column, so the identical
+  model generates there. Filters reading ROOT columns (the common
+  `tenantOwned`-on-the-base case) are emitted, discriminator-guarded, and are
+  not gated. The diagnostic names all three ways out (move the field to the
+  base, `inheritanceUsing: ownTable`, or host the context elsewhere).
+- **EF's restriction is real and was measured, not assumed.** EF Core registers
+  every query filter in an inheritance hierarchy on the ROOT entity type, and
+  both workarounds fail once the query source is a SIBLING subtype (verified
+  against EF Core 10.0.10: a CLR downcast gives "No coercion operator is defined
+  between types 'Truck' and 'Car'"; `EF.Property` gives "the specified property
+  does not exist on the entity type"). The gate replaced a SILENT drop (`tph ?
+  [] :` — every declared read restriction on a subtype discarded with no error,
+  F2-CB-C2), so the honest refusal is already a large improvement over what it
+  replaced.
+- **(a) is an L-sized read-path rewrite whose failure mode is a security-shaped
+  silent leak, which is exactly what a drain packet must not risk.** Measured on
+  the emitter rather than estimated: `_db.${setName}` appears **19** times in
+  `src/generator/dotnet/emit/repository.ts` and the sibling read emitters
+  (`find-emit.ts`, `criteria-emit.ts`, `query-projection-emit.ts`,
+  `spec-emit.ts`) hold **11** more `_db.` reads. Every one must route through
+  the new per-read predicate — the paged find's COUNT query as well as its PAGE
+  query, the by-id read, the bulk by-ids load, the write-scope existence guard,
+  each retrieval, each criterion Specification, each direct-table aggregation,
+  and the polymorphic `find all <Base>` reader, which must apply each concrete's
+  own filter per concrete. A site missed is not a compile error and not a wrong
+  answer a test would notice by shape: it is one read path that returns rows a
+  declared restriction excludes. That asymmetry — 30 sites, no compiler help,
+  the failure indistinguishable from success without a purpose-built runtime
+  probe — is what makes it a commissioned mission with a booted-app acceptance
+  rather than a row in a per-target sweep.
+- **And the move has a second cost worth pricing before it is paid.** A model
+  filter is enforced by EF for EVERY query against the entity, including ones no
+  Loom emitter wrote (a raw `_db.Set<Car>()` in hand-written code the
+  customization gradient invites). A per-read `.Where` is enforced only where
+  the emitter put it. Moving the whole adapter's filters off the model to reach
+  one subtype shape would trade a framework-enforced guarantee for an
+  emitter-enforced one across the board; the successor should therefore move
+  only the filters that CANNOT be model-hosted, and say so.
+
+**Consequences.** The register row's `kind` becomes `scope` and `MAX_OPEN_GAPS`
+drops by one — the row is no longer counted as an undone gap on a shipping
+target, which is the honest reading: nothing here is half-built. The code, its
+message and its `code-docs.ts` anchor are unchanged, so nothing a user sees
+moves. `M-T6.72` owns the build; its acceptance is a booted .NET app on a real
+Postgres showing the subtype filter applied on every read path AND absent from
+none — the compile tier cannot see a missing `.Where`.
+
+**Unblocks.** `loom.tph-filter-unsupported` → wave **C2 packet 2b** (this
+re-class); the build → **M-T6.72**.
+
+**Sources.** `src/ir/validate/checks/storage-inheritance-checks.ts`
+(`validateTphFilterExpressibility`), `src/ir/util/inheritance.ts`
+(`nonRootFilterFields`), `src/generator/dotnet/emit/efcore.ts` (the
+`isTphConcreteCfg` filter host), `src/diagnostics/unsupported-register.ts`;
+[`T5-language-core.md`](new-plan/T5-language-core.md) M-T5.7 (the inheritance
+tail this sits beside); the F2-CB-C2 silent-drop row it replaced.
+## D-PHOENIX-FORMAT-GATE — the generated-Elixir `mix format` gate is declined permanently; Dialyzer is unscheduled
+
+**Status:** proposed (default applies 48 h after merge unless overridden).
+
+**Question.** M-T6.3 has deferred the `mix format` / Dialyzer CI gates over
+generated Phoenix output twice, each time with the same reasoning and no ruling.
+Wave C2 packet 2a was told to decide rather than defer a third time. Does Loom
+ever run `mix format --check-formatted` (or Dialyzer) over the projects it
+emits?
+
+**Options.** (a) activate `mix format --check-formatted` as a per-PR gate and
+teach the emitters to satisfy it; (b) activate it nightly-only, accepting a red
+nightly until (a) is done; (c) decline the format gate permanently and close the
+mission; (d) decline the format gate and schedule Dialyzer instead.
+
+**Decision.** **(c).** `mix format --check-formatted` is **never** run over
+generated output, in any tier. Dialyzer and Credo over generated output are
+**unscheduled** — not deferred, not owned by a mission; anyone who wants either
+opens a new mission carrying its own evidence that it finds a class of defect
+the compile gate does not. M-T6.3 closes on this ruling; its slice-1 work (the
+`.formatter.exs` that scopes the OpenApiSpex subtree out) stays, because it is
+emitted config a human running `mix format` by hand benefits from — it is not a
+gate.
+
+**Rationale.**
+
+- **The measurement is already done and it is not close.** M-T6.3's own
+  source-grounded scoping (2026-07-21, real `mix format` in the `hexpm/elixir`
+  image, the api_spec subtree excluded) found an **irreducible ~250-diff-line /
+  20-file structural residual** — blank-line insertion, `case`-clause
+  consistency, un-wrapping the emitter's own pre-wraps — that `line_length`
+  plateaus against (447 → 253 diff-lines between 98 and 200, then flat) and that
+  no other configuration reaches, because `mix format` is deliberately
+  non-configurable: no per-rule toggles, no `# format: off` regions.
+- **So the only close is teaching ~10 emitters the formatter's rules**, which is
+  an L grind whose result is *brittle in the worst direction*: an all-or-nothing
+  gate that any future Elixir-emitter edit can break, re-checkable only through
+  the slow docker + hex-mirror loop. That is a gate whose expected cost is
+  dominated by false alarms on unrelated changes.
+- **The payoff is cosmetic, and the non-cosmetic property is already gated.**
+  Generated Elixir compiles `mix compile --warnings-as-errors` clean in
+  `elixir-vanilla-build.yml`; that catches unused bindings, undefined
+  references, and unreachable clauses — everything about the output a reader
+  depends on. Nobody hand-edits a generated `.ex`, which is the only situation
+  where a formatting standard earns its keep.
+- **Deferring again is worse than declining.** A mission parked with "reassess
+  if a cheaper mechanism appears" is a standing invitation to re-derive the same
+  measurement; two agents have now paid for it. A named decline stops that, and
+  is trivially reversible — if Elixir ever ships an ignore-region directive, the
+  new mission opens with a one-line premise instead of a re-scoping.
+- **Dialyzer is a different question and gets a different answer.** It finds
+  real type errors rather than cosmetics, so "declined" would be wrong — but on
+  GENERATED code its candidate findings are emitter bugs, and the compile gate
+  plus the per-backend boot legs already reach most of them. A PLT build per run
+  is not free. It has no evidence behind it today, so it gets no mission; it
+  gets the same treatment as any unproposed gate.
+
+**Consequences.** M-T6.3 moves to `archive/T6-done.md` with this tag as its
+evidence. No workflow gains a `mix format` step, and a future agent finding
+unformatted generated Elixir should cite this tag rather than open a row. The
+reusable measurement tooling the scoping produced (the real-formatter diff loop:
+`startHexMirror` → `generate system` → `mix format` with `import_deps` resolved
+→ diff) stays described in the archived mission, so reversing the ruling starts
+from a recipe rather than from scratch.
+
+**Unblocks.** M-T6.3 → wave **C2 packet 2a** (closed by this ruling, no code).
+
+**Sources.** [`T6-backend-parity.md`](new-plan/T6-backend-parity.md) M-T6.3 and
+its two deferrals; [`vanilla-phoenix-gaps.md`](old/plans/vanilla-phoenix-gaps.md)
+§7; [`static-analysis-followups.md`](old/proposals/static-analysis-followups.md)
+Slices 1–2; `src/generator/elixir/vanilla/shell-emit.ts`
+(`renderVanillaFormatterExs`).
