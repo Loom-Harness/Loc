@@ -165,7 +165,9 @@ export function emitDestroyForm(
   const localVar = `delete${agg.name}`;
   const hookName = `useDelete${agg.name}`;
   if (!ctx.actionMutations.some((m) => m.localVar === localVar)) {
-    ctx.actionMutations.push({ localVar, hookName, aggCamel: lowerFirst(agg.name), idExpr: "" });
+    // No `idExpr`: `useDelete<Agg>()` takes no hook-time argument (see
+    // `ActionMutationState.idExpr`) — the id is passed to `mutateAsync`.
+    ctx.actionMutations.push({ localVar, hookName, aggCamel: lowerFirst(agg.name) });
   }
   // The confirm handler reads the route `id` — mark it used AND flag the route
   // id so the shell both imports `useParams` and types the `<{ id: string }>`
