@@ -5057,68 +5057,6 @@
    }
   },
   {
-   "id": "M-T5.14-reading-service-readport-not-threaded",
-   "title": "A `reading` domain service called from an explicit `commandHandler`/`queryHandler` emits a port-less call that does not compile on dotnet, java and elixir (node and python thread it; the workflow caller is correct everywhere; the aggregate-body caller is honestly refused)",
-   "kind": "silent",
-   "class": null,
-   "confidence": "likely",
-   "targets": [
-    "dotnet",
-    "java",
-    "elixir"
-   ],
-   "fileTrees": [
-    "src/generator/",
-    "src/platform/hono/",
-    "src/ir/validate/checks/"
-   ],
-   "evidence": [
-    {
-     "fleet": 1,
-     "id": "M-T5.14-reading-service-readport-not-threaded",
-     "text": "src/generator/python/render-expr.ts:649 `const ports = ctx.readPortArgs?.(ref.service, ref.op) ?? []` and src/generator/typescript/render-expr.ts:559 (same shape) drop the read-port handles when the caller context supplies no resolver — and the ONLY suppliers are the workflow builders (src/platform/hono/v4/workflow-builder.ts:1835, src/generator/python/workflows-builder.ts:627). The reading op DECLARES those handles as leading params (src/generator/python/emit/domain-service.ts:176-190), so the call is arity-short. The validator only bans such calls from AGGREGATE bodies (src/ir/validate/checks/domain-service-checks.ts:154-196 `checkInfraCallsFromAggregates`), even though its own comment says the orchestrator may be a 'workflow / command handler'. .NET has an explicit 'no handle wired' fallthrough it calls 'validator-unreachable' (src/generator/dotnet/render-expr.ts:1049-1051). Filed as issue #2649 from PR #2648, which explicitly leaves it out — unclaimed."
-    }
-   ],
-   "repro": null,
-   "impact": null,
-   "fix": "Either thread a `readPortArgs` resolver from the explicit-handler emitters (the workflow resolver is the template) or extend `checkInfraCallsFromAggregates` to reject non-pure service calls from any caller that cannot supply ports — pick one and mutation-prove it by seeding a handler-side call.",
-   "size": "M",
-   "sources": [
-    "fleet1:t3-t5-auth-lang"
-   ],
-   "related_to": [
-    "domainservice-member-chained-repo-read (fresh-gate-probe) — same broken output (port-less domain-service call, non-compiling), different root cause"
-   ],
-   "securityClass": false,
-   "P": 2,
-   "note": "Wave 1 packet 1c: node arm verified fixed. Wave C2 packet 2e: PYTHON arm fixed — `explicit-handlers-emit.ts` now builds its render context with `readPortArgs: pyReadPortResolver(ctx)`, folds `collectServiceReadPorts(h.statements, ctx)` into the repo set it constructs, and emits the `app.domain.services.*` import line it had never had at all (src/generator/python/explicit-handlers-emit.ts). Both helpers are the workflow builder's, exported rather than copied, over the shared `readPortsForOperation` (src/ir/util/domain-service-read-ports.ts). Gated by test/generator/python/handler-domain-service-read-port.test.ts (3 mutations named) and verified on a booted app against a real Postgres. dotnet/java/elixir arms remain open — wave C2 packet 2f owns them; see handoffs/wave-c2-2e-python.md for the per-backend shape. Wave 1 packet 1c: node arm verified fixed; python/java/.NET/elixir arms open — see handoffs/wave-1-node-ts.md for the per-backend shape.  Re-verified on the C2 head (packet 2c): the node arm is closed on BOTH caller sites — `readPortResolver(ctx)` is threaded through `honoWorkflowStmtTarget` for statement bodies (`src/platform/hono/v4/workflow-builder.ts:1968`) AND through the explicit handler's `return` render (`explicit-handlers-builder.ts:480,491`), with `serviceReadPorts` constructing the port repos; pinned by `test/generator/typescript/handler-reading-service.test.ts` (5 cases, green).  `remainingTargets` unchanged: dotnet, java, python, elixir.",
-   "verified": {
-    "date": "2026-09-03",
-    "against": "bd7aaeedc",
-    "method": "each row's own repro re-run; emitted output read",
-    "verdict": "partial",
-    "note": "node constructs and threads the port. The other four emit a non-compiling call (static call on an instance class, no import, arity-short, or a module that is never emitted)",
-    "remainingTargets": [
-     "dotnet",
-     "java",
-     "python",
-     "elixir"
-    ]
-   },
-   "reverified": {
-    "date": "2026-09-13",
-    "against": "6d6c1a1 + wave C2 coordinator commit",
-    "method": "wave C2 packet 2e — repro re-run on this head (a `reading` service called from a queryHandler), emitted output read, then booted",
-    "verdict": "partial",
-    "note": "python arm CLOSED; the remaining three are dotnet, java and elixir",
-    "remainingTargets": [
-     "dotnet",
-     "java",
-     "elixir"
-    ]
-   }
-  },
-  {
    "id": "G2646-open-node-mounts-ui-false",
    "title": "#2646 documented, NOT fixed: node is the only backend with mountsUi: false",
    "kind": "honest",
@@ -7178,6 +7116,50 @@
     "remainingTargets": []
    },
    "note": "Closed by packet 2f.  2b measured the dotnet arm as a no-op and 2c measured the node arm as not a node arm; both were right — the defect was the shared derivation, and the only per-backend residue was the two emitter-side copies of the same carriage filter (elixir, node) named in `fix`."
+  },
+  {
+   "id": "M-T5.14-reading-service-readport-not-threaded",
+   "title": "CLOSED (wave C2, packet 2f — the last three arms). A `reading` domain service called from an explicit `commandHandler`/`queryHandler` now reaches its handle on all five backends.",
+   "kind": "mission",
+   "class": null,
+   "confidence": "likely",
+   "targets": [
+    "dotnet",
+    "java",
+    "elixir"
+   ],
+   "fileTrees": [
+    "src/generator/",
+    "src/platform/hono/",
+    "src/ir/validate/checks/"
+   ],
+   "evidence": [
+    {
+     "fleet": 1,
+     "id": "M-T5.14-reading-service-readport-not-threaded",
+     "text": "src/generator/python/render-expr.ts:649 `const ports = ctx.readPortArgs?.(ref.service, ref.op) ?? []` and src/generator/typescript/render-expr.ts:559 (same shape) drop the read-port handles when the caller context supplies no resolver — and the ONLY suppliers are the workflow builders (src/platform/hono/v4/workflow-builder.ts:1835, src/generator/python/workflows-builder.ts:627). The reading op DECLARES those handles as leading params (src/generator/python/emit/domain-service.ts:176-190), so the call is arity-short. The validator only bans such calls from AGGREGATE bodies (src/ir/validate/checks/domain-service-checks.ts:154-196 `checkInfraCallsFromAggregates`), even though its own comment says the orchestrator may be a 'workflow / command handler'. .NET has an explicit 'no handle wired' fallthrough it calls 'validator-unreachable' (src/generator/dotnet/render-expr.ts:1049-1051). Filed as issue #2649 from PR #2648, which explicitly leaves it out — unclaimed."
+    }
+   ],
+   "repro": null,
+   "impact": null,
+   "fix": "DONE.  Each backend's handle shape is different, which is why this was three fixes and not one.  **dotnet**: `renderArg` in `src/generator/dotnet/explicit-handlers-emit.ts` now passes `workflowReadingServiceCallResolver(ctx)` (exported from `workflow-emit.ts`), so a reading call renders `(await _registration.IsHolderFreeAsync(..., cancellationToken))`; the handler injects the service the way the workflow does, and one `using <ns>.Domain.Services;` is emitted when the body names ANY service.  **java**: `handlerRenderCtx` threads `serviceReading`, the handler constructor-injects each reading `@Service` bean (`registration.isHolderFree(holder)`), and the domain-service classes are imported one per class from `pkgFor(\"domain-service\")` — threaded into `emitExplicitHandlers` as a new `domainServicePkg` argument.  **elixir**: `explicit-handlers-emit.ts` threads `domainServiceTier` + `readingServiceModule`, so the call is `Context.is_holder_free(holder)` under the emitted `alias D.<Ctx>, as: Context` instead of `D.Domain.Services.Registration.is_holder_free(...)` — a module emitted only for PURE ops, i.e. an `UndefinedFunctionError` at runtime out of code that compiled.  A SECOND defect closed with it on java and .NET: the PURE call had no import/using either.  The 'which services does this body call, at which tier' walk moved into `src/ir/util/domain-service-read-ports.ts` (`domainServicesCalled`, riding `walkWorkflowStmtExprsDeep`) rather than becoming a fourth per-backend copy.  A THIRD, unrelated defect surfaced while compiling the corpus shape and was fixed in the same commit: `inferExprType` had no repo-read probe for a domain-service body, so `let hits = Orders.byCode(c)` bound as `string` and `hits.count` rendered as a record accessor — java emitted `hits.count()` on a `List<Order>` (`cannot find symbol` at `gradle testClasses`).  Gate: `test/generator/handler-domain-service-read-port-parity.test.ts` (19 cases: per-backend declaration + one-port + two-port + pure control, plus a per-backend reachability sweep with a vacuity guard), node as the control.  Corpus: `handler-triad.ddd` grows a reading service, a pure service and two handlers calling them — COMPILED on all five (dotnet `dotnet build /warnaserror` in sdk:10.0, java `gradle testClasses bootJar` in gradle:9-jdk25, elixir `mix compile --warnings-as-errors` in hexpm/elixir, node `tsc --noEmit`, python `uv sync` + ruff + mypy --strict).",
+   "size": "M",
+   "sources": [
+    "fleet1:t3-t5-auth-lang"
+   ],
+   "related_to": [
+    "domainservice-member-chained-repo-read (fresh-gate-probe) — same broken output (port-less domain-service call, non-compiling), different root cause"
+   ],
+   "securityClass": false,
+   "P": 2,
+   "note": "Closed by packet 2f, as 2e handed off.  2e's note called the defect 'the same three-in-one' as python's (no import, no port, no await) — accurate for the CALL, but the handle itself is per-backend (injected object on dotnet/java, nothing at all on elixir), so the python diff was a template for the SHAPE of the fix, not its content.",
+   "verified": {
+    "date": "2026-09-14",
+    "against": "wave C2 batch 2 (claude/c2-ir)",
+    "method": "repro generated per backend and read; then the extended corpus fixture COMPILED on all five",
+    "verdict": "closed",
+    "remainingTargets": []
+   }
   }
  ],
  "conflicts": [

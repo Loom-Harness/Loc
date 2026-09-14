@@ -2090,6 +2090,39 @@ export function inferExprType(expr: Expression | undefined, env: Env): TypeIR {
     return inferBuilderCallType(expr, env);
   }
   if (isPostfixChain(expr)) {
+    // Probe: a repository READ in a `reading` domain-service body — the SECOND
+    // inference pass over the arm `lowerPostfixChain` opens with.  Without it a
+    // `let hits = Orders.byCode(c)` in a service body binds as `string` (the
+    // fall-through placeholder), so the next line's `hits.count` gets
+    // `receiverType: string` and every backend renders a RECORD-ACCESSOR read
+    // instead of a collection size — java emitted `hits.count()` on a
+    // `List<Order>` ("cannot find symbol", measured on `gradle testClasses`).
+    // The workflow/handler path does not have the bug because it lowers the same
+    // read to a `repo-let` statement, which carries the find's declared type.
+    //
+    // `env.serviceRepos` is set only while lowering a domain-service operation,
+    // so nothing else changes shape.
+    if (env.serviceRepos) {
+      const read = matchRepoRead(expr, env.serviceRepos, runCriterionMatcher(env.ctx));
+      if (read) {
+        const aggName = read.repo.aggregate?.ref?.name;
+        // A declared `find` states its own return type (`Order[]`, `Order?`, a
+        // union…).  The criterion / retrieval shapes (`find`/`findAll`/`run`)
+        // have no declaration to read, and all three yield a collection of the
+        // repository's aggregate — matching `readKind` in the emitted call.
+        const declared = read.repo.finds?.find((f) => f.name === read.method)?.returnType;
+        let readType: TypeIR = declared
+          ? lowerType(declared, env)
+          : aggName
+            ? { kind: "array", element: { kind: "entity", name: aggName } }
+            : { kind: "primitive", name: "string" };
+        // `Repo.find(<Criterion>)` is the SINGLE-row shape of the same read.
+        if (!declared && read.kind === "find" && aggName) {
+          readType = { kind: "optional", inner: { kind: "entity", name: aggName } };
+        }
+        return readType;
+      }
+    }
     // Probe: `permissions.<name>` always types as string.
     const first = expr.suffixes[0];
     if (
