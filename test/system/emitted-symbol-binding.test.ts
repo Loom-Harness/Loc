@@ -237,7 +237,9 @@ describe("the shipped example corpus binds every symbol it names", () => {
       for (const dir of honoProjectDirs(files)) {
         projectsScanned++;
         offenders.push(
-          ...unboundSymbols(files, dir).map((f) => `${file} → ${dir}/${f.file}: TS${f.code}: ${f.message}`),
+          ...unboundSymbols(files, dir).map(
+            (f) => `${file} → ${dir}/${f.file}: TS${f.code}: ${f.message}`,
+          ),
         );
       }
     }
@@ -245,7 +247,10 @@ describe("the shipped example corpus binds every symbol it names", () => {
     // The vacuity guard.  An empty offender list means "clean" only when the
     // sweep actually compiled something; a harness that silently generated no
     // hono project would otherwise report a comforting green.
-    expect(projectsScanned, "no example produced a node backend — the sweep is vacuous").toBeGreaterThan(5);
+    expect(
+      projectsScanned,
+      "no example produced a node backend — the sweep is vacuous",
+    ).toBeGreaterThan(5);
     expect(offenders, "an unbound symbol in a shipped example").toEqual([]);
   }, 300_000);
 });
