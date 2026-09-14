@@ -56,10 +56,16 @@ plus the system-level heads — `system`, `subdomain`, `deployable`,
 `auth`, `policy`, `projection`, `workflow`, `capability`, `seed`,
 `criterion`, `domainService`, `commandHandler`, `queryHandler`, `channel`,
 `channelSource`, `timerSource`, `requirement`, `solution`, `testCase`,
-`layout`, `import`).  None of these can name a **field**; a handful
-(`api`, `ui`, `component`, `policy`, `id`, `contains`, `permissions`,
-`create`, `destroy`) are nonetheless admitted as parameter / argument
-names or bare expression refs by the per-rule extras described next.
+`layout`, `import`).  None of these can name a **field**, and none can name
+a **declaration** either — `command File { … }` is a parse error for the same
+reason `File: string` is.  Both now say so: a keyword in a name
+position reports `'File' is a Loom keyword, so it cannot be used as a name
+here`, rather than Chevrotain's `Expecting token of type 'ID'` (audit #2864).
+The wording says "here" because most of Loom's keywords are soft — `page` is a
+field name but not a `derived` name — so the bar is positional, not global.
+A handful (`api`, `ui`, `component`, `policy`, `id`, `contains`,
+`permissions`, `create`, `destroy`) are nonetheless admitted as parameter /
+argument names or bare expression refs by the per-rule extras described next.
 
 Everything else that acts as a keyword *somewhere* is a **soft keyword** —
 reserved only where its own rule begins, and admitted as an ordinary
@@ -67,8 +73,8 @@ identifier elsewhere.  The grammar factors the shared set into one rule,
 `CommonSoftKeywords` (`state`, `kind`, `payload`, `command`, `query`,
 `response`, `error`, `paged`, `envelope`, `option`, `or`, `money`,
 `parent`, `title`, `body`, `sort`, `select`, `join`, `key`, `group`, `filter`,
-`stamp`, `store`, `schema`, `ttl`, `use`, `write`, `migration`, `tenancy`,
-`immutable` / `managed` / `token` / `internal` / `secret`, …), composed
+`stamp`, `store`, `schema`, `slot`, `ttl`, `use`, `write`, `migration`,
+`tenancy`, `immutable` / `managed` / `token` / `internal` / `secret`, …), composed
 into every *value* position: a field name (`Property.name`), a parameter /
 argument / clause name (`LooseName`), a bare reference in an expression
 (`NameRefIdent`), an assignment target (`LValueIdent`) and a member name
@@ -82,7 +88,9 @@ route: string }` is a parse error).  `of`, `allow`, `deny`, `local`, `deep`,
 `global`, `policy` and `persistence` were soft only as parameter / clause
 names until
 audit finding D4; they are now in the shared set, so `aggregate Claim { policy:
-Policy id }` parses.  The source of truth is the rule set in
+Policy id }` parses.  `slot` joined them for #2864: its only hard position is
+the `component` element-param type, exactly the shape `money` and `action`
+already had, so `valueobject Berth { slot: int }` parses now.  The source of truth is the rule set in
 `src/language/ddd.langium`, pinned by
 `test/language/parsing/keyword-identifier-completeness.test.ts` and
 `test/language/parsing/reserved-field-name-widening.test.ts`.
