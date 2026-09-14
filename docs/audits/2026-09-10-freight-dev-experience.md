@@ -287,13 +287,17 @@ spelling already treats it that way.
 - **`ddd parse` prints two contradictory summary lines**: the AST phase says
   `0 error(s), 0 warning(s).`, then the IR phase prints its own findings and
   `1 error(s).` A reader who stops at the first line concludes the model is clean.
-- **Deleting the generated output directory leaves a stale migration baseline.**
-  `rm -rf api && ddd generate system main.ddd -o .` fails the destructive gate,
-  because the baseline lives in `.loom/snapshots/` while the migrations live in
-  `api/db/migrations/`. The advice printed is "re-run with `--allow-destructive`",
-  which is the wrong remedy when the real state is "there is no database yet".
-  (By contrast the *drift* diagnostic for the same directory pair is the best
-  message in the toolchain — see "What worked".)
+- ~~**Deleting the generated output directory leaves a stale migration
+  baseline**, and the advice printed is the wrong remedy.~~ **RETRACTED
+  2026-09-14 — this does not reproduce, and the original reading conflated two
+  causes.** Re-run on fresh `main`: `rm -rf api && ddd generate system` alone
+  prints the *drift* diagnostic, which names the missing file, the snapshot and
+  both recovery paths — the message this audit praises under "What worked".
+  The `--allow-destructive` advice I attributed to the deletion belongs to a
+  **model change**, where it is the correct advice; my original session did both
+  at once (deleted `api/` and switched `Leg` from an entity to a value object)
+  and credited the deletion for a gate the model change had fired. Verified
+  both ways separately.
 - **Reserved words that cannot name a field give an unexplained parse error.**
   `command File { … }` → `Expecting token of type 'ID' but found 'File'`;
   `valueobject Berth { slot: int }` → `Expecting '}' but found 'slot'`. Neither
@@ -485,12 +489,17 @@ implementation.
 
 ## T7 — two Angular notes
 
-- The generated root `tsconfig.json` includes `e2e/**`, and **no** frontend
-  declares `@playwright/test` in its `package.json`. On react/vue/svelte the
-  build script uses a narrower config so nothing notices; on Angular a plain
+- The generated root `tsconfig.json` includes `e2e/**`, so on Angular a plain
   `npx tsc -p tsconfig.json` (or opening the project in an editor) reports 20+
-  errors before any app code is reached. Either declare the dev dependency or
-  exclude `e2e` from the root config.
+  errors before any app code is reached; react/vue/svelte build through a
+  narrower config so nothing notices. **Fixed by #2905**, which excludes `e2e`
+  from the root config.
+  ~~and **no** frontend declares `@playwright/test` in its `package.json`.~~
+  **That half is RETRACTED 2026-09-14 — it was my measurement error.** I read
+  only the outer `web/package.json`. The e2e harness is its own sub-package:
+  `web/e2e/package.json` declares `@playwright/test` and carries its own
+  `tsconfig.json` and `test` / `test:install` scripts. The dependency was
+  always there, one directory down, and the split is deliberate.
 - `ng build` refuses to run on Node 22.22.2 (the Angular CLI floor is 22.22.3).
   The generated Dockerfile uses `node:24-alpine`, so compose is unaffected — but
   a contributor on the same Node the toolchain repo uses cannot build the
