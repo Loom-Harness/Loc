@@ -30,7 +30,7 @@ Six of the ten S1s are that pattern, across five different targets:
 
 | Model shape (all legal `.ddd`, all `parse` + `generate` clean) | Target it breaks |
 |---|---|
-| `valueobject` declared in context A, used from context B | dotnet, react, vue, svelte, angular |
+| `valueobject` declared in context A, used from context B | dotnet, react, vue, svelte, angular — **and node, java, python** (see correction below) |
 | field named `state` | dotnet — collides with the emitter's nested `State` class |
 | field named `member` | feliz — reserved F# keyword |
 | record named `Money` (or `Card`, `Table`, `Badge`, `Alert`, `Field`, …) | **every** target — construction validation is silently skipped |
@@ -41,28 +41,29 @@ Six of the ten S1s are that pattern, across five different targets:
 
 | ID | Sev | Class | Title | Status |
 |---|---|---|---|---|
-| F-001 | S1 | SILENT | cross-context value object → undefined type on dotnet + 4 JSX frontends | open |
+| F-001 | S1 | SILENT | cross-context value object → broken emission on **all nine** targets (see correction) | #2925 |
 | F-002 | S2 | HONEST | multi-table reads not expressible (home feed) | ceiling, not a defect |
-| F-003 | S1 | SILENT | generator emits an e2e suite calling routes it did not generate | open |
-| F-004 | S3 | SILENT | generated `e2e/` has no vitest config, inherits an ancestor's | open |
+| F-003 | S1 | SILENT | generator emits an e2e suite calling routes it did not generate | #2927 |
+| F-004 | S3 | SILENT | generated `e2e/` has no vitest config, inherits an ancestor's | #2927 |
 | F-005 | S1 | SILENT | a call in a page gate crashes the generator | **claimed by #2871** |
 | F-006 | S2 | DOCUMENTED | `denyByDefault` does not gate the auto-`findAll` list route | open (posture) |
-| F-007 | S3 | SILENT | MIT `LICENSE` not emitted by `generate` (README says it is) | open |
+| F-007 | S3 | SILENT | MIT `LICENSE` not emitted by `generate` (README says it is) | #2924 |
 | F-008 | S2 | DOCUMENTED | `.loomignore` pin goes permanently stale with no detector | open (design) |
 | F-009 | S2 | HONEST | no data-preserving move of an aggregate between contexts | open (feature) |
-| F-010 | S3 | HONEST | `elastic`/`meilisearch` declarable but no resource kind accepts them | open |
-| F-011 | S3 | SILENT | reference docs show comma syntax the grammar rejects | open |
+| F-010 | S3 | HONEST | `elastic`/`meilisearch` declarable but no resource kind accepts them | #2924 |
+| F-011 | S3 | SILENT | reference docs show comma syntax the grammar rejects | #2924 (partial — `user {}` row left to #2873) |
 | F-012 | S2 | HONEST | group-scoped visibility not expressible | ceiling, not a defect |
-| F-013 | S1 | SILENT | `for-each` in a reactor crashes the elixir emitter (raw throw) | open |
-| F-014 | S1 | SILENT | a record named after a walker primitive skips construction validation | open |
-| F-015 | S1 | SILENT | field named `state` → uncompilable C# | open |
-| F-016 | S1 | SILENT | `X id[]` → uncompilable Angular | open |
-| F-017 | S3 | SILENT | `ddd verify` exits 0 when nothing is verified | open |
+| F-013 | S1 | SILENT | `for-each` in a reactor crashes the elixir emitter (raw throw) | #2926 |
+| F-014 | S1 | SILENT | a record named after a walker primitive skips construction validation | #2923 |
+| F-015 | S1 | SILENT | field named `state` → uncompilable C# | #2923 |
+| F-016 | S1 | SILENT | `X id[]` → uncompilable Angular | #2927 |
+| F-017 | S3 | SILENT | `ddd verify` exits 0 when nothing is verified | #2924 |
 | F-018 | S3 | DOCUMENTED | `ddd trace` cannot map the default backend's own bundle | open |
 | F-019 | S2 | — | README's unqualified cross-target claims vs the internal ledger | docs |
-| F-020 | S1 | SILENT | `mask unless` emits Java missing `import java.util.Objects` | open |
-| F-021 | S1 | SILENT | reactor `for-each` emits non-compiling Java | open |
-| F-022 | S1 | SILENT | field named `member` → invalid F# | open |
+| F-020 | S1 | SILENT | `mask unless` emits Java missing `import java.util.Objects` | #2925 |
+| F-021 | S1 | SILENT | reactor `for-each` emits non-compiling Java | #2926 |
+| F-022 | S1 | SILENT | field named `member` → invalid F# | #2923 |
+| F-023 | S1 | SILENT | a workflow + a Feliz UI references a `Model` field never declared (`model.AllWs`) — found while fixing the above | #2923 |
 
 ## Target matrix (one model, real toolchains, zero unverified)
 
@@ -81,6 +82,46 @@ Six of the ten S1s are that pattern, across five different targets:
 Seven of eleven compile the model as written. **Three of the four failures are
 one field-rename away from compiling** — which is what makes the reserved-word
 map (below) the highest-leverage fix in the register.
+
+## Found while fixing, deliberately NOT fixed
+
+Each was surfaced by a wave agent, verified, and left out of scope rather than
+silently widening a PR. Recorded here so they are not lost:
+
+| What | Where | Why deferred |
+|---|---|---|
+| `with crudish, auditable` emits `createdBy: User id` against a `User` aggregate the model need not declare — the generated Java fails with `symbol: class UserId`. 12-line repro. | `crudish` + `auditable` interaction | Unrelated to any wave's brief; wants its own issue |
+| Other .NET entity members a field can collide with (`Create`, `AssertInvariants`, `Id`, …) — the same class as F-015, partly gated by `loom.dotnet-name-collision` | `dotnet/emit/entity.ts` | Separate defect class; F-015's fix is class-proof for the holder only |
+| A cross-context value object reached **only through a workflow** still degrades — `java/emit/workflow*.ts` and `elixir/**` still resolve against `ctx.valueObjects` | java + elixir workflow emitters | Those dirs were reserved to another wave; named as a known gap in #2925 |
+| `loom.workflow-foreach-unknown-binding` false-positives on a loop-body `factory-let` (pre-existing, reproduces identically on `main`) | `ir/validate/checks/workflow-checks.ts` | Pre-existing; fix location identified, not this wave's |
+| A domain `valueobject` named after a walker primitive **captured** the primitive in lowering, silently disabling every CallIR-keyed page validator | `lowerBuilderCall` | **Fixed** in #2925 via `Env.ui` — noted here because it is F-014's mirror image, from the lowering side rather than the validator side |
+
+## Correction to F-001, recorded 2026-09-14
+
+**The original entry understated the scope, and the method error is worth
+recording.** The first pass graded node / python / java as *unaffected* by
+inspecting the emitted files — a shared `value-objects` module existed, so the
+row was marked OK. It was never compiled. Compiling it shows two further
+defects, measured on `main` @ `c89ccb44` with a two-context model whose
+aggregates carry `with crudish`:
+
+```
+node:  domain/beta.ts references Money 7x; its imports are Ids and Events only
+java:  public void update(String price)        <- the `Money` parameter collapsed to String
+```
+
+The second is a **separate root cause**: `indexMembers` in `lower.ts` walked
+`members`, but a `Subdomain` holds its contexts in `contexts`, so the member
+index was empty for any subdomain-wrapped model and `crudish`'s
+`update(paid: Money)` lowered to `update(paid: string)` **on all five
+backends**. That is silently-wrong typing, not a missing import — worse than
+the row it was found under.
+
+The same evaluation's own report flagged three frontends as "confirmed by
+inspection of the emitted text only — I did not stand up their toolchains" and
+then failed to apply that qualifier to the backends. **Inspection is not a
+compile**, and the register should not have carried an unqualified OK for a
+target that was never built.
 
 ## What the evaluator could not find in the tree
 
