@@ -1,7 +1,11 @@
 # Wave CR1 — packet b (OIDC audience) hand-off
 
 *Branch: `worktree-agent-a969add743a0d89c7`. Base: `main` @ `76ef74ad`.*
-*Row: **P0-4** of [`docs/audits/code-review-2026-09-13.md`](../../../audits/code-review-2026-09-13.md).*
+*Row: **P0-4** of `docs/audits/code-review-2026-09-13.md` — left as a plain
+reference, not a link: the audit lands with the Wave CR1 coordinator branch
+(#2938), and `test/system/archived-docs-fence.test.ts` fails a live doc that
+links to a file not in the tree. Turn it into a link when the fold brings the
+audit in.*
 
 ## What landed
 
