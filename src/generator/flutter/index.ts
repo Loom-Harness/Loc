@@ -34,11 +34,12 @@ import type {
   WorkflowIR,
 } from "../../ir/types/loom-ir.js";
 import { backendServesRealtime } from "../../ir/util/channels.js";
-import { type PageNameCtx, pageEmitName } from "../../ir/util/page-kind.js";
+import { type PageNameCtx, pageConstructId, pageEmitName } from "../../ir/util/page-kind.js";
 import { walkExprDeep } from "../../ir/util/walk.js";
 import { lines } from "../../util/code-builder.js";
 import { humanize, snake, upperFirst } from "../../util/naming.js";
 import { pageFileBase } from "../_frontend/page-identity.js";
+import { lineCount, type SourceMapRecorder } from "../_trace/sourcemap.js";
 import { storeMemberLocal } from "../_walker/js-target-helpers.js";
 import type { ApiCallSite } from "../_walker/target.js";
 import { type ApiHookUse, emitExpr, walkBody } from "../_walker/walker-core.js";
@@ -87,6 +88,20 @@ import {
 
 export interface GenerateFlutterOptions {
   apiBaseUrl?: string;
+  /** Generate-time source-map recorder (`--sourcemap`).  Undefined on the
+   *  default path, so every emitted byte is unchanged when the flag is off.
+   *
+   *  Flutter records the SAME two construct families the four static-bundle
+   *  frontends do — one region per page file, one per user component — but the
+   *  component half rides `fragment()` rather than `file()`, because Flutter
+   *  pools every component into one `lib/components.dart` (see
+   *  `FlutterComponentsFile`).  Everything else Flutter emits is either a
+   *  runtime file with no `.ddd` origin (`money.dart`, `nav.dart`, the realtime
+   *  transport) or a pooled projection of many constructs (`models.dart`,
+   *  `reads.dart`, `forms.dart`, `stores.dart`), so it stays unmapped rather
+   *  than getting a misleading single-origin region — the recorder's own
+   *  documented rule. */
+  sourcemap?: SourceMapRecorder;
 }
 
 /** Emit the file map for one `platform: flutter` deployable, paths relative to
@@ -98,7 +113,6 @@ export function generateFlutterForContexts(
   deployable: DeployableIR,
   options: GenerateFlutterOptions = {},
 ): Map<string, string> {
-  void options;
   const out = new Map<string, string>();
 
   // Not `snake(name)` directly — a deployable named `web` (or any other package
@@ -297,7 +311,22 @@ export function generateFlutterForContexts(
       componentParams,
       componentCtx,
     );
-    if (componentsFile) out.set("lib/components.dart", componentsFile);
+    if (componentsFile.source) {
+      out.set("lib/components.dart", componentsFile.source);
+      // One region per COMPONENT, anchored in the pooled file by its own block
+      // text.  `file()` would record `[1, eof]` against whichever component
+      // happened to be first — a pooled file's whole-file region is exactly the
+      // misleading mapping `SourceMapRecorder` tells callers not to emit.
+      for (const b of componentsFile.blocks) {
+        options.sourcemap?.fragment("lib/components.dart", componentsFile.source, b.text, [
+          {
+            rel: [1, lineCount(b.text)],
+            origin: b.component.origin,
+            construct: `${ui.name}.${b.component.name}`,
+          },
+        ]);
+      }
+    }
   }
 
   // `AppConfig`/`apiUri` is shared by the read providers, the form widgets, AND
@@ -336,7 +365,14 @@ export function generateFlutterForContexts(
   };
   if (rendered.length > 0) {
     for (const r of rendered) {
-      out.set(`lib/pages/${r.fileBase}.dart`, r.source);
+      const pagePath = `lib/pages/${r.fileBase}.dart`;
+      out.set(pagePath, r.source);
+      options.sourcemap?.file(
+        pagePath,
+        r.source,
+        r.page.origin,
+        pageConstructId((ui as UiIR).name, r.page),
+      );
     }
     out.set("lib/main.dart", renderMainWithRoutes(title, rendered, persistBoot));
   } else {

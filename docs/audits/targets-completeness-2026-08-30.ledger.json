@@ -312,14 +312,13 @@
     ]
    },
    "reverified": {
-    "date": "2026-09-10",
-    "against": "bc7ed8f8",
-    "method": "reconciliation 3 (packet C0.5) — repro re-run on this head, emitted output read",
-    "verdict": "reproduces",
-    "note": "RE-RUN `generate system … --sourcemap` on one `.ddd` across react / feliz / flutter and read `.loom/sourcemap.json`'s `files` map: react carries `web/src/pages/home.tsx` (4 files, 1 frontend); feliz and flutter carry 3 files each, ALL backend — zero `web/` entries.  No `loom.sourcemap-target-unsupported` exists, so neither the emission nor the honest gate landed.",
+    "date": "2026-09-14",
+    "against": "wave C2 packet 2j (claude/c2-flutter)",
+    "method": "repro re-run on the batch-2 base, emitted `.loom/sourcemap.json` read, then `ddd breakpoints` run against the generated tree",
+    "verdict": "half closed",
+    "note": "FLUTTER HALF CLOSED (the REAL landing, not the honest gate).  Repro on the base: the showcase generated 8 `app/lib/pages/*.dart` files and `.loom/sourcemap.json` carried 7 entries, all `api/**`; `ddd breakpoints showcase.ddd --line 115` (the `page Home` line) answered \"No generated location maps to showcase.ddd:115.\".  `src/platform/flutter.ts` did not destructure `sourcemap` at all.  Now threaded into `GenerateFlutterOptions` and recorded at two sites in `src/generator/flutter/index.ts`: one `file()` region per page file, and — because Flutter POOLS every user component into one `lib/components.dart` — one `fragment()`-anchored region per component, so the two components in the showcase land on distinct, non-overlapping line ranges instead of both claiming `[1, eof]`.  `ddd breakpoints --line 115` now answers `app/lib/pages/home_page.dart:1` and `--line 106` (a `component`) answers `app/lib/components.dart:18`.  Gated by `test/generator/flutter/sourcemap.test.ts` (5 cases, mutation-proved: reverting the `sourcemap` forward in `src/platform/flutter.ts` fails 4 of 5 with \"no region recorded for app/lib/pages/board_page.dart\").  THE FELIZ HALF IS UNCHANGED and is packet 2i's row.",
     "remainingTargets": [
-     "feliz",
-     "flutter"
+     "feliz"
     ]
    }
   },
