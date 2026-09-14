@@ -1,0 +1,1 @@
+context C { aggregate A { xs: int[]  derived d: int = xs.fold(0, (a, b) => a + b) } repository As for A { } }

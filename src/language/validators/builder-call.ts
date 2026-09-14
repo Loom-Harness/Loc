@@ -33,6 +33,7 @@ import {
   isPostfixChain,
   isProperty,
   isStateField,
+  isUi,
   isValueObject,
 } from "../generated/ast.js";
 import {
@@ -217,17 +218,42 @@ export function checkLegacyConstructorCalls(model: Model, accept: ValidationAcce
 // arg surfaces and are skipped.
 // ---------------------------------------------------------------------------
 
+/** True when `node` sits inside a FRONTEND declaration — a `ui` block (which
+ *  encloses its areas, pages, components and stores) or a model-level
+ *  `component` (the one frontend declaration that may also live at the root of
+ *  a document, so the `ui` container check alone misses it).
+ *
+ *  This is the POSITION half of walker-primitive resolution.  `Money`, `Card`,
+ *  `Table`, `Stack`, `Badge`, `Field`, … are walker primitives only where the
+ *  walker runs: in a page/component body.  In an aggregate `operation`, a
+ *  `derived` / `invariant`, a value-object body, a workflow or a domain
+ *  service, a `Money { … }` is an ordinary record construction, and treating it
+ *  as a primitive there silently disables every construction check on it
+ *  (`loom.unknown-construction-field`, `loom.construction-missing-field`,
+ *  `loom.create-field-type`) — 18 of the 56 primitive names are plausible
+ *  domain records, so the hole is wide.  Erring toward "primitive" INSIDE the
+ *  frontend subtree keeps page bodies exactly as they were: `Money { p.price }`
+ *  on a page is still the formatter, and still reports nothing. */
+function inFrontendDecl(node: AstNode): boolean {
+  return (
+    AstUtils.getContainerOfType(node, isUi) !== undefined ||
+    AstUtils.getContainerOfType(node, isComponent) !== undefined
+  );
+}
+
 /** Resolve a `BuilderCall` to the RECORD declaration it constructs — a value
  *  object, an entity part, or a record payload (`error`/`payload`/… with fields,
  *  not a `= A | B` union) — mirroring `checkBuilderCallType`'s record branches.
- *  Returns undefined for walker primitives, components, and unknown names (those
- *  aren't records; `checkBuilderCallType` owns their diagnostics). */
+ *  Returns undefined for components and unknown names (those aren't records;
+ *  `checkBuilderCallType` owns their diagnostics), and for walker primitives
+ *  spelled INSIDE a page/component body, where the name is the primitive rather
+ *  than a record (see `inFrontendDecl`). */
 export function resolveRecordDecl(
   bc: BuilderCall,
   model: Model,
 ): ValueObject | EntityPart | PayloadDecl | undefined {
   const name = bc.type;
-  if (isWalkerPrimitive(name)) return undefined;
+  if (isWalkerPrimitive(name) && inFrontendDecl(bc)) return undefined;
   const isRecordPayload = (m: unknown): m is PayloadDecl =>
     isPayloadDecl(m) && m.name === name && m.variants.length === 0;
   const ctx = AstUtils.getContainerOfType(bc, isBoundedContext);

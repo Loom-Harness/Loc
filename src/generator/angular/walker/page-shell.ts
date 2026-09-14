@@ -53,6 +53,12 @@ function formGroupBody(form: {
     // an explicit generic and no `nonNullable`; such fields carry no
     // wire-translatable invariant, so no validators option applies.
     if (c.tsType) return `${c.name}: new FormControl<${c.tsType}>(${c.init})`;
+    // An array-valued control keeps `nonNullable` but pins its generic — a bare
+    // `new FormControl([], { nonNullable: true })` infers `FormControl<never[]>`,
+    // which satisfies the DTO only by accident.
+    if (c.nonNullableTsType) {
+      return `${c.name}: new FormControl<${c.nonNullableTsType}>(${c.init}, { nonNullable: true })`;
+    }
     // A field carrying wire-translatable invariants gets a `validators: [ … ]`
     // option (the Angular twin of the other frontends' zod native chain);
     // fields without one stay byte-identical to the validator-free form.
