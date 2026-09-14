@@ -1037,10 +1037,11 @@ The seed widens with the aggregate's id value type (`int`/`long` → zero,
 ## Token audience (`aud`)
 
 `oidc { audience: … }` is the token's intended recipient. When it resolves to a
-non-empty value, every backend's verifier requires the token's `aud` claim to
-carry it; when it resolves to empty, the `aud` check is **skipped** and the
-verifier accepts any token the issuer signed — including one that issuer minted
-for a *different* client of the same realm.
+value, every backend's verifier requires the token's `aud` claim to carry it.
+When it resolves to **nothing** — no `audience:` declared *and* `OIDC_AUDIENCE`
+unset — the `aud` check is skipped and the verifier accepts any token the issuer
+signed, including one that issuer minted for a *different* client of the same
+realm.
 
 That default is unsafe often enough to be stated, so an `oidc { … }` block with
 no `audience:` raises **`loom.auth-oidc-no-audience`** (warning, not error — a
