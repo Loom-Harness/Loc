@@ -829,17 +829,6 @@ system S {
       code: string
       operation dispatch() audited { code := "x" }
     }`),
-  // Needs the DEPLOYMENT side: the refusal is per-backend (node emits only the
-  // void-204 handler for an audited RETURNING operation; python emits both),
-  // so a declaration-only system raises nothing.
-  "loom.audited-returning-operation-unsupported": deployed(`      error NotFound { message: string }
-      aggregate Order with crudish {
-        qty: int
-        operation take(n: int) audited : Order or NotFound {
-          qty := qty - n
-          return this
-        }
-      }`),
   // A FOURTH of the same shape, found by reading `validateFieldMask` for the
   // `anyBackend` arm rather than trusting `FIELD_MASK_BACKENDS` (which does
   // list all five families).  `mask unless` on a context nothing hosts is the
@@ -877,17 +866,6 @@ system P {
   storage pg { type: postgres }
   resource st { for: Orders, kind: state, use: pg }
   deployable d { platform: dotnet, contexts: [Orders], dataSources: [st], serves: A, port: 4000 }
-}`,
-  "loom.java-reserved-identifier-unsupported": `
-system P {
-  subdomain D { context Orders {
-    aggregate Order with crudish { case: string }
-    repository Orders for Order { }
-  } }
-  api A from D
-  storage pg { type: postgres }
-  resource st { for: Orders, kind: state, use: pg }
-  deployable d { platform: java, contexts: [Orders], dataSources: [st], serves: A, port: 4000 }
 }`,
   // --- workflow-checks.ts --------------------------------------------------
   // M-T9.19 recorded FOUR of this file's codes as unemittable from source.
@@ -1356,10 +1334,12 @@ system S {
   }
 }`,
 
-  // An `if` STATEMENT in an operation body, on a context an elixir deployable
-  // emits.  The four spine backends render it; Phoenix would silently drop an
-  // assigning branch (its bodies thread a REBOUND `record`, and an Elixir `if`
-  // block's bindings do not escape the block).
+  // M-T6.59 narrowed this code: the `if` STATEMENT itself RENDERS on elixir now
+  // (a value-producing `record = if … do … record else record end`), so the
+  // firing shape is one of the three sub-shapes that still cannot render.  This
+  // is `#guard-in-branch` — a `precondition` nested in a branch, which the op
+  // path cannot hoist into its `with :ok <- ensure(…)` chain, so it would raise
+  // (500) where the other four backends answer a typed 403/422.
   "loom.elixir-if-stmt-unsupported": `
 system P {
   subdomain D { context C {
@@ -1368,6 +1348,7 @@ system P {
       count: int
       operation bump(n: int) {
         if n > 0 {
+          precondition count > 0
           count := 1
         } else {
           count := 2

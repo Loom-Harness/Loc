@@ -51,7 +51,6 @@ import {
   backendPlatformsHostingEachContext,
   validateApiResourceBindings,
   validateAuditedOperationSupport,
-  validateAuditedReturningOperationSupport,
   validateAuth,
   validateAuthUiFramework,
   validateChannelWiring,
@@ -66,7 +65,6 @@ import {
   validateDataSourceCoverage,
   validateDataSourceUnwiredKnobs,
   validateDefaultDeny,
-  validateDocumentAggregationBackend,
   validateDocumentAggregationFilters,
   validateDotnetNameCollisions,
   validateElixirOpSelfCallPosition,
@@ -84,7 +82,6 @@ import {
   validateGuardPrincipalWithoutAuth,
   validateHeexComponentHostState,
   validateInheritanceStorage,
-  validateJavaReservedIdentifiers,
   validateLiveViewHoisting,
   validateNeedCapabilities,
   validatePagedQueryHandlerBackend,
@@ -179,7 +176,6 @@ export function validateLoomModel(loom: EnrichedLoomModel): LoomDiagnostic[] {
     validateElixirOpSelfCallPosition(sys, diags);
     validateContextFilterSupport(sys, diags);
     validateFilterBypassSupport(sys, diags);
-    validateJavaReservedIdentifiers(sys, diags);
     validateDotnetNameCollisions(sys, diags);
     validateStampSupport(sys, diags);
     validateGuardPrincipalWithoutAuth(sys, diags);
@@ -217,7 +213,6 @@ export function validateLoomModel(loom: EnrichedLoomModel): LoomDiagnostic[] {
     validateGroupedProjectionBackend(sys, diags);
     validateColumnlessProjectionSources(sys, diags);
     validateDocumentAggregationFilters(sys, diags);
-    validateDocumentAggregationBackend(sys, diags);
     validateWorkflowSourceProjectionBackend(sys, diags);
     validateProjectionSourceProjectionBackend(sys, diags);
     validateDefaultDeny(sys, diags);
@@ -311,11 +306,6 @@ export function validateLoomModel(loom: EnrichedLoomModel): LoomDiagnostic[] {
     validateProvenancedStorage(c, diags, backendPlatformsByContext.get(c.name) ?? new Set());
     validateFieldMask(c, diags, backendPlatformsByContext.get(c.name) ?? new Set());
     validateAuditedOperationSupport(c, diags, backendPlatformsByContext.get(c.name) ?? new Set());
-    validateAuditedReturningOperationSupport(
-      c,
-      diags,
-      backendPlatformsByContext.get(c.name) ?? new Set(),
-    );
   }
   validateExprIntegrity(loom, diags);
   // Migration-block data steps (M-T2.3): expression renderability / target /

@@ -49,59 +49,6 @@
    }
   },
   {
-   "id": "dapper-no-schema-evolution",
-   "title": "`persistence: dapper` has no ALTER path at all — every post-first-boot model change is silently unapplied (migrations-on-adapters slice 2)",
-   "kind": "silent",
-   "class": null,
-   "confidence": "likely",
-   "targets": [
-    "dotnet"
-   ],
-   "fileTrees": [
-    "src/generator/dotnet/emit/dapper.ts",
-    "src/generator/dotnet/index.ts",
-    "src/ir/validate/checks/migration-checks.ts"
-   ],
-   "evidence": [
-    {
-     "fleet": 1,
-     "id": "dapper-no-schema-evolution",
-     "text": "Slice 1 (the honest gate) DID land: src/ir/validate/checks/migration-checks.ts:201 `SELF_PROVISIONING_ADAPTERS = new Set([\"dapper\", \"mikroorm\"])` and :203-260 `validateMigrationAdapterSupport` raise `loom.dapper-unsupported#migrations` / `loom.mikroorm-unsupported#migrations` — but ONLY when the model declares a `migration` block (it indexes `loom.renameIntents` / `tableRenameIntents` / `backfillIntents` / `sqlMigrationSteps` and returns early at :225 when all are empty). Slice 2 (running the MigrationsIR chain on these adapters) did NOT land: src/generator/dotnet/index.ts:990 `const hasMigrations = !usingDapper && …` and src/platform/hono/v4/emit.ts:1067 `const hasMigrations = !usingMikro && …` still suppress it. For dapper the fallback is CREATE-only: src/generator/dotnet/emit/dapper.ts:2229-2233 `renderDapperSchema` is documented as 'a self-applied CREATE TABLE IF NOT EXISTS per aggregate', and `grep -c 'ALTER TABLE|ADD COLUMN' src/generator/dotnet/emit/dapper.ts` = 0. So on a dapper deployable: add a field to an existing DB → the column is never created and the app 500s; drop a field → the column lingers; change a type → nothing. No diagnostic fires because no `migration` block was declared. There is also no dapper/mikroorm leg in the migration-evolution gate (`.github/workflows/migration-evolution-e2e.yml`; the five npm scripts are test:migration-evolution{,-dotnet,-elixir,-java,-python}, all on the default efcore/drizzle adapters)."
-    }
-   ],
-   "repro": null,
-   "impact": null,
-   "fix": "Two options. Honest (S, do first): widen `validateMigrationAdapterSupport` beyond declared-intent — when a self-provisioning deployable is regenerated against an EXISTING baseline snapshot whose derived diff is non-empty, raise the same `#migrations` error (the snapshot store is already threaded into phase ⑨ via `fsSnapshotStore(outDir)`, src/cli/main.ts:~500). Real (L): render the MigrationsIR chain for dapper — `emitDotnetMigrations` already produces platform-neutral Postgres via src/generator/sql-pg.ts; emit it as a plain ordered `.sql` set applied by `DbSchema.EnsureAsync` with a `__loom_migrations` ledger, then flip `hasMigrations` to `!!system?.migrations?.length` at src/generator/dotnet/index.ts:990. Add a `test:migration-evolution-dapper` leg.",
-   "size": "L",
-   "sources": [
-    "fleet1:t2-t4-data-workflow"
-   ],
-   "related_to": [],
-   "securityClass": true,
-   "P": 2,
-   "note": "Packet 1b (dotnet-adapters): premise partly stale -- a second dapper run exits 1 via the M-T2.2 baseline guard with a misdirected error, not silently. The silent half is the CREATE-only runtime schema (no ALTER path); the gate belongs in src/system/migrations-builder.ts (phase 9). Handed off from packet 1b; the gate-vs-build decision is still pending.",
-   "verified": {
-    "date": "2026-09-03",
-    "against": "bd7aaeedc",
-    "method": "each row's own repro re-run; emitted output read",
-    "verdict": "open",
-    "note": "the SILENT half of the premise is stale — a second generate exits 1. But it fails on snapshot drift, which names neither the dapper limitation nor a remedy, and `--allow-rebaseline` does not clear it. No ALTER path, `hasMigrations` still gated off, no dapper CI leg",
-    "remainingTargets": [
-     "dotnet"
-    ]
-   },
-   "reverified": {
-    "date": "2026-09-10",
-    "against": "bc7ed8f8",
-    "method": "reconciliation 3 (packet C0.5) — repro re-run on this head, emitted output read",
-    "verdict": "reproduces",
-    "note": "RE-DERIVED at the code path: `src/generator/dotnet/index.ts:1014 const hasMigrations = !usingDapper && …` — the migration path is still gated OFF for dapper by construction, so there is no ALTER path at all.  The 09-03 correction stands: the second generate does exit 1, but on snapshot drift, which names neither the dapper limitation nor a remedy.",
-    "remainingTargets": [
-     "dotnet"
-    ]
-   }
-  },
-  {
    "id": "F2-W-06",
    "title": "elixir persists `datetime` at SECOND precision (`:utc_datetime`) where the other four use TIMESTAMPTZ(µs)",
    "kind": "silent",
@@ -258,70 +205,6 @@
     "remainingTargets": [
      "feliz",
      "flutter"
-    ]
-   }
-  },
-  {
-   "id": "M-T5.14-reading-service-readport-not-threaded",
-   "title": "A `reading` domain service called from an explicit `commandHandler`/`queryHandler` emits a port-less call that does not compile on dotnet, java, python and elixir (node threads it; the workflow caller is correct everywhere; the aggregate-body caller is honestly refused)",
-   "kind": "silent",
-   "class": null,
-   "confidence": "likely",
-   "targets": [
-    "dotnet",
-    "java",
-    "python",
-    "elixir"
-   ],
-   "fileTrees": [
-    "src/generator/",
-    "src/platform/hono/",
-    "src/ir/validate/checks/"
-   ],
-   "evidence": [
-    {
-     "fleet": 1,
-     "id": "M-T5.14-reading-service-readport-not-threaded",
-     "text": "src/generator/python/render-expr.ts:649 `const ports = ctx.readPortArgs?.(ref.service, ref.op) ?? []` and src/generator/typescript/render-expr.ts:559 (same shape) drop the read-port handles when the caller context supplies no resolver — and the ONLY suppliers are the workflow builders (src/platform/hono/v4/workflow-builder.ts:1835, src/generator/python/workflows-builder.ts:627). The reading op DECLARES those handles as leading params (src/generator/python/emit/domain-service.ts:176-190), so the call is arity-short. The validator only bans such calls from AGGREGATE bodies (src/ir/validate/checks/domain-service-checks.ts:154-196 `checkInfraCallsFromAggregates`), even though its own comment says the orchestrator may be a 'workflow / command handler'. .NET has an explicit 'no handle wired' fallthrough it calls 'validator-unreachable' (src/generator/dotnet/render-expr.ts:1049-1051). Filed as issue #2649 from PR #2648, which explicitly leaves it out — unclaimed."
-    }
-   ],
-   "repro": null,
-   "impact": null,
-   "fix": "Either thread a `readPortArgs` resolver from the explicit-handler emitters (the workflow resolver is the template) or extend `checkInfraCallsFromAggregates` to reject non-pure service calls from any caller that cannot supply ports — pick one and mutation-prove it by seeding a handler-side call.",
-   "size": "M",
-   "sources": [
-    "fleet1:t3-t5-auth-lang"
-   ],
-   "related_to": [
-    "domainservice-member-chained-repo-read (fresh-gate-probe) — same broken output (port-less domain-service call, non-compiling), different root cause"
-   ],
-   "securityClass": false,
-   "P": 2,
-   "note": "Wave 1 packet 1c: node arm verified fixed; python/java/.NET/elixir arms open — see handoffs/wave-1-node-ts.md for the per-backend shape.",
-   "verified": {
-    "date": "2026-09-03",
-    "against": "bd7aaeedc",
-    "method": "each row's own repro re-run; emitted output read",
-    "verdict": "partial",
-    "note": "node constructs and threads the port. The other four emit a non-compiling call (static call on an instance class, no import, arity-short, or a module that is never emitted)",
-    "remainingTargets": [
-     "dotnet",
-     "java",
-     "python",
-     "elixir"
-    ]
-   },
-   "reverified": {
-    "date": "2026-09-10",
-    "against": "bc7ed8f8",
-    "method": "reconciliation 3 (packet C0.5) — repro re-run on this head, emitted output read",
-    "verdict": "reproduces",
-    "note": "RE-RUN at the row's OWN call site — an explicit `queryHandler` calling a reading-tier domainService (corpus `handler-triad.ddd` + `queryHandler IsFree(code) { return Registration.isFree(code) }`).  node threads the port (`a-routes.ts:99 await Registration.isFree(orders, code)`).  The other four do not, and the shapes are sharper than the 09-03 note: dotnet `IsFreeHandler.cs:19 return Registration.IsFree(command.Code);` — a STATIC call on an instance class whose method is `IsFreeAsync(string, CT)`, un-awaited, no `using D.Domain.Services` (CS0103/CS1061); java `IsFreeHandler.java:15 return Registration.isFree(code);` — static call on an instance `@Service` bean, no import; python `is_free.py:7 async def is_free(session, code): return is_free(code)` — INFINITE SELF-RECURSION, the module-local name shadows the service, plus no import and arity-short; elixir `is_free.ex:11 D.Domain.Services.Registration.is_free(code)` — that module is NEVER EMITTED (`d/lib/d/domain/services/` does not exist; the reading service is emitted as `D.Sales.is_free/1` on the context facade).  Note for the implementer: the WORKFLOW caller is correct on all five (corpus `domain-services.ddd` re-run), and the AGGREGATE-body caller is now honestly refused (`loom.domain-service-infra-call-from-aggregate`) — it is the explicit command/query handler, and only that, which is broken.",
-    "remainingTargets": [
-     "dotnet",
-     "java",
-     "python",
-     "elixir"
     ]
    }
   },
@@ -509,60 +392,6 @@
    }
   },
   {
-   "id": "static-subpath-405-node-only",
-   "title": "The F8 static-sub-path 405 guard is missing on ELIXIR alone — a wrong verb on a static sub-path matches the sibling `/:id` route and answers its 422 (#2764 closed the other four)",
-   "kind": "silent",
-   "class": null,
-   "confidence": "likely",
-   "targets": [
-    "elixir"
-   ],
-   "fileTrees": [
-    "src/platform/hono/v4/routes-builder.ts",
-    "src/generator/dotnet/emit/",
-    "src/generator/java/emit/api.ts",
-    "src/generator/python/",
-    "src/generator/elixir/vanilla/shell-emit.ts"
-   ],
-   "evidence": [
-    {
-     "fleet": 1,
-     "id": "static-subpath-405-node-only",
-     "text": "745d635 (#2612, merged 2026-08-18, inside the window) is titled '…on node' and its only routing-guard src change is src/platform/hono/v4/routes-builder.ts (+98). `grep -rn \"static sub-path\" src/` returns exactly ONE site — src/platform/hono/v4/routes-builder.ts:349 '/** The router-level guard that turns a wrong verb on a static sub-path into the …'. The commit body records the defect verbatim: `DELETE /api/customers/by_email` matched `delete /{id}` with id=\"by_email\" and the param validator answered `422 {\"pointer\":\"/id\",\"message\":\"Invalid UUID\"}` for a path with no DELETE. The corresponding waiver W9 was deleted from test/behavioral/schemathesis-waivers.json in that same commit — i.e. the register now claims the class is CLOSED while four backends still reproduce it, and the schemathesis leg only fuzzes node today (test/behavioral/run-schemathesis.mjs). Not claimed for a FIX: open PR #2664 adds the four missing fuzz LEGS and re-waives the finding leg-scoped (its body independently reports F8 reproducing on python + java); it does not touch the four emitters."
-    }
-   ],
-   "repro": null,
-   "impact": null,
-   "fix": "Port the guard per backend, each in the layer that runs BEFORE param binding: .NET a route-constraint / endpoint filter over the static sub-paths, java a `HandlerInterceptor` or explicit `@RequestMapping` method:405 stubs, python a FastAPI router-level dependency or explicit 405 route registrations, elixir extra `match`/`forward` clauses in the aggregate router scope. Each fix must ALSO fix the `Allow` header those paths advertise (the node commit notes `GET, DELETE` was advertised on a GET-only path). Pin per backend mirroring test/generator/hono/declared-validation-status-and-method-guard.test.ts.",
-   "size": "M",
-   "sources": [
-    "fleet1:fresh-gate-probe"
-   ],
-   "related_to": [],
-   "securityClass": false,
-   "P": 2,
-   "verified": {
-    "date": "2026-09-03",
-    "against": "bd7aaeedc",
-    "method": "each row's own repro re-run; emitted output read",
-    "verdict": "partial",
-    "note": "#2764 closed node/python/java/dotnet. elixir emits no guard at all — `DELETE /api/customers/by_email` answers 422 from `:__cast_path_id`, not 405 + Allow. TITLE IS NOW WRONG: it is elixir-only, not node-only",
-    "remainingTargets": [
-     "elixir"
-    ]
-   },
-   "reverified": {
-    "date": "2026-09-10",
-    "against": "bc7ed8f8",
-    "method": "reconciliation 3 (packet C0.5) — repro re-run on this head, emitted output read",
-    "verdict": "reproduces",
-    "note": "RE-RUN with `find byOwner(...)` mounted at the static sub-path `/by_owner`.  Four backends emit the guard — node `article.routes.ts:49 const staticSubpathMethods … { by_owner: [\"GET\"] }`, java `StaticSubpathMethodFilter.java:26`, dotnet `Program.cs:413 [\"/api/articles/by_owner\"] = new[] { \"GET\" }`, python `main.py:60`.  ELIXIR emits none: `router.ex` routes `delete \"/articles/:id\"` which MATCHES `DELETE /api/articles/by_owner` with `id = \"by_owner\"`, so the request never reaches `NotFoundController` (the only 405+Allow source) and answers 422 from `article_controller.ex:8 plug :__cast_path_id`.  Title corrected: it is elixir-only, the exact inverse of what the row was filed as.",
-    "remainingTargets": [
-     "elixir"
-    ]
-   }
-  },
-  {
    "id": "M-T1.11-domain-floor-message-code",
    "title": "M-T1.11 item (c) — `DomainError` carries no `code` on node, dotnet, java and python, so a rule enforced only at the domain floor is unlocalizable (elixir partly fixed: preconditions and invariants, not the value-object floor)",
    "kind": "silent",
@@ -667,69 +496,6 @@
     "note": "RE-DERIVED at the code path: `src/generator/feliz/index.ts:702 function renderNavbar(pages, brand, i18nEnabled)` — the only page fields it reads are `route` (`:708`) and `name` (`:709 humanizeLabel(p.name)`); `requires` is never consulted, so under `auth: ui` the navbar advertises routes the backend answers 403 for.",
     "remainingTargets": [
      "feliz"
-    ]
-   }
-  },
-  {
-   "id": "G2646-open-projection-on-event-no-channel",
-   "title": "`projection … on(Event)` with no `channel` carrying it never folds on ANY backend — now honestly warned by `loom.projection-event-uncarried` rather than silent",
-   "kind": "honest",
-   "class": null,
-   "confidence": "likely",
-   "targets": [
-    "node",
-    "dotnet",
-    "java",
-    "python",
-    "elixir"
-   ],
-   "fileTrees": [
-    "src/ir/enrich/enrichments.ts",
-    "src/generator/typescript/emit/routes.ts"
-   ],
-   "evidence": [
-    {
-     "fleet": 1,
-     "id": "G2646-open-projection-on-event-no-channel",
-     "text": "VERIFIED still open on main and NOT in #2646's diff. src/ir/enrich/enrichments.ts:1281-1300 `deriveEventSubscriptions` early-returns `if (!channels || channels.length === 0) return []` (:1288) and pushes a subscription only when `carrier(on.event)` resolves a channel that CARRIES the event (:1296-1300) — so a projection handler on an event no channel carries produces no subscription anywhere. Node nonetheless mounts its fold tee off `isMaterializedProjection` (src/generator/typescript/emit/routes.ts:120), so node folds and the other four do not. #2646's audit lists this as 'open — B20, needs a semantics decision'."
-    }
-   ],
-   "repro": null,
-   "impact": null,
-   "fix": "Owner semantics decision first: does `on(Event)` without a channel mean (a) an implicit in-process subscription every backend honours, or (b) an error? Then either derive the subscription unconditionally in enrichments.ts:1288-1300 (dropping the channels early-return) or mint a `loom.*` refusal. Add a corpus case with a channel-less projection handler asserting the same fold on all five.",
-   "size": "M",
-   "sources": [
-    "fleet1:pr-registers"
-   ],
-   "related_to": [],
-   "securityClass": true,
-   "P": 3,
-   "verified": {
-    "date": "2026-09-03",
-    "against": "bd7aaeedc",
-    "method": "each row's own repro re-run; emitted output read",
-    "verdict": "open",
-    "note": "`deriveEventSubscriptions` still early-returns when no channel carries the event",
-    "remainingTargets": [
-     "node",
-     "dotnet",
-     "java",
-     "python",
-     "elixir"
-    ]
-   },
-   "reverified": {
-    "date": "2026-09-10",
-    "against": "bc7ed8f8",
-    "method": "reconciliation 3 (packet C0.5) — repro re-run on this head, emitted output read",
-    "verdict": "honest-gated",
-    "note": "SILENT → HONEST.  RE-RUN: corpus `projection.ddd` with its `channel Lifecycle` block deleted, generated on all five.  `deriveEventSubscriptions` still guards on a carrying channel (`enrichments.ts:1303 if (!channels || channels.length === 0) return []`, then a per-handler `if (channel)`), so NO backend derives the subscription — including node, which the row said folded: the premise 'folds on node only' is stale, it folds nowhere.  But the compiler now SAYS SO: `loom.projection-event-uncarried` warns once per handler, names the fold that will never run and gives the remedy (`declare a channel (e.g. 'channel C { carries: OrderPlaced }')`).  Added by #2705.  Reclassified silent→honest and P2→P3 to keep the doc's own P-tier rule (P1/P2 = silent, P3 = honest) true.",
-    "remainingTargets": [
-     "node",
-     "dotnet",
-     "java",
-     "python",
-     "elixir"
     ]
    }
   },
@@ -1169,46 +935,6 @@
     "note": "RE-DERIVED at the code path (still `suspected` — confirming it needs a booted .NET app, which this sandbox has no SDK for).  Both halves of the premise hold: `Application/Widgets/Responses/stringOrAbsent.cs` is `[JsonPolymorphic(TypeDiscriminatorPropertyName = \"type\")] public abstract record stringOrAbsent;` — an abstract base with no properties — and `grep UseOneOfForPolymorphism Program.cs` returns nothing.",
     "remainingTargets": [
      "dotnet"
-    ]
-   }
-  },
-  {
-   "id": "G2646-open-node-mounts-ui-false",
-   "title": "#2646 documented, NOT fixed: node is the only backend with mountsUi: false",
-   "kind": "honest",
-   "class": null,
-   "confidence": "likely",
-   "targets": [
-    "node"
-   ],
-   "fileTrees": [
-    "src/platform/metadata.ts"
-   ],
-   "evidence": [
-    {
-     "fleet": 1,
-     "id": "G2646-open-node-mounts-ui-false",
-     "text": "Documented by #2646's audit node row as HONEST/MATURITY, citing src/platform/metadata.ts:166 — a node deployable cannot host a ui:, unlike the other four. Not addressed by its diff."
-    }
-   ],
-   "repro": null,
-   "impact": null,
-   "fix": "Either implement static-bundle hosting on the Hono backend surface (composeService + mountsUi: true) or record it as a settled non-goal in docs/platforms.md so it stops appearing in parity sweeps.",
-   "size": "M",
-   "sources": [
-    "fleet1:pr-registers"
-   ],
-   "related_to": [],
-   "securityClass": false,
-   "P": 3,
-   "reverified": {
-    "date": "2026-09-10",
-    "against": "bc7ed8f8",
-    "method": "reconciliation 3 (packet C0.5) — repro re-run on this head, emitted output read",
-    "verdict": "reproduces",
-    "note": "RE-DERIVED: `src/platform/metadata.ts:170 mountsUi: false` on the node entry; every other backend in the file is `true`.",
-    "remainingTargets": [
-     "node"
     ]
    }
   },
@@ -1826,47 +1552,6 @@
     "method": "reconciliation 3 (packet C0.5) — repro re-run on this head, emitted output read",
     "verdict": "reproduces",
     "note": "RE-DERIVED: `columnlessProjectionSource` in `src/ir/util/query-projection-arm.ts` still refuses all three column-less source kinds; nothing narrows it per backend."
-   }
-  },
-  {
-   "id": "dapper-tenancy-hierarchy-unsupported",
-   "title": "`tenancy-hierarchy` is the sole surviving `DAPPER_UNSUPPORTED` entry — hierarchical tenancy's capability filter is outside the Dapper SQL subset",
-   "kind": "honest",
-   "class": null,
-   "confidence": "likely",
-   "targets": [
-    "dotnet"
-   ],
-   "fileTrees": [
-    "src/generator/dotnet/",
-    "src/ir/validate/checks/system-checks.ts"
-   ],
-   "evidence": [
-    {
-     "fleet": 1,
-     "id": "dapper-tenancy-hierarchy-unsupported",
-     "text": "test/e2e/corpus-dotnet-dapper-build.test.ts:89-96 — `DAPPER_UNSUPPORTED = { \"tenancy-hierarchy\": \"hierarchical tenancy's capability filter is outside the Dapper SQL subset; the validator says so with loom.dapper-unsupported. …\" }`, and nothing else. Honest by the file's own oracle (:105-140 asserts every entry's diagnostic really fires). Its sibling `DAPPER_COMPILE_SKIP` DRAINED to `{}` in-window (:72, was `{ \"policy-document\": … }` at the audit base — see the 2->0/0->1/1->0 history comment at :47-71). Register row for the code: src/diagnostics/unsupported-register.ts:104-110 (kind `gap`, mission M-T6.35). Unclaimed by any of the seven open PRs."
-    }
-   ],
-   "repro": null,
-   "impact": null,
-   "fix": "Port the deep/global subtree filter to raw Npgsql the way M-T6.25 ported the four direct-table projection arms — the `DapperOrgPathResolver.cs` that #2652's sibling work added (reading the registry's `data_key` with one raw statement) is the missing half's foundation. Delete the `DAPPER_UNSUPPORTED` entry and the `validateDapperSupport` arm in the same PR; the oracle at :105 fails a stale entry.",
-   "size": "L",
-   "sources": [
-    "fleet1:fresh-gate-probe"
-   ],
-   "related_to": [],
-   "securityClass": false,
-   "P": 3,
-   "reverified": {
-    "date": "2026-09-10",
-    "against": "bc7ed8f8",
-    "method": "reconciliation 3 (packet C0.5) — repro re-run on this head, emitted output read",
-    "verdict": "reproduces",
-    "note": "RE-DERIVED: `DAPPER_UNSUPPORTED` in `test/e2e/corpus-dotnet-dapper-build.test.ts` still holds exactly one entry, `tenancy-hierarchy`, and the file's own oracle asserts its diagnostic really fires.",
-    "remainingTargets": [
-     "dotnet"
-    ]
    }
   },
   {
@@ -4133,37 +3818,6 @@
    "P": 4
   },
   {
-   "id": "G2646-open-python-no-realization-axes",
-   "title": "#2646 documented, NOT fixed: python has no realization axes (no directoryLayout: menu, no second persistence adapter)",
-   "kind": "mission",
-   "class": null,
-   "confidence": "likely",
-   "targets": [
-    "python"
-   ],
-   "fileTrees": [
-    "src/platform/adapter-metadata.ts",
-    "src/generator/python/"
-   ],
-   "evidence": [
-    {
-     "fleet": 1,
-     "id": "G2646-open-python-no-realization-axes",
-     "text": "Documented by #2646's audit python row as MATURITY: src/platform/adapter-metadata.ts has no python key at all, so `persistence:` and `directoryLayout:` offer no choice on that backend while node (drizzle/mikroorm) and dotnet (EF/dapper) do. Not addressed by its diff."
-    }
-   ],
-   "repro": null,
-   "impact": null,
-   "fix": "Roadmap-scale: decide whether python gets a second persistence adapter and a layout menu at all. If not, record it as a settled non-goal in adapter-metadata.ts + docs/platforms.md so it stops reading as debt; if yes, mint the mission with the adapter choice named.",
-   "size": "L",
-   "sources": [
-    "fleet1:pr-registers"
-   ],
-   "related_to": [],
-   "securityClass": false,
-   "P": 4
-  },
-  {
    "id": "G2667-C5-outbox-insert-outside-tx",
    "title": "08-17 register #5: workflow/extern/timer outbox inserts sit outside any transaction (node AND .NET)",
    "kind": "mission",
@@ -5401,6 +5055,262 @@
     "verdict": "reproduces",
     "note": "THE CLASS RECURS, THE INSTANCE MOVED.  `grep -n '^## M-T6' docs/new-plan/T6-backend-parity.md | uniq -d` on this head reports **M-T6.60**, not M-T6.43 — the M-T6.43 duplicate was fixed and a new one appeared, which is the sixth dup-ID incident and the second to reach `main`.  That is the argument for a gate rather than another one-off fix."
    }
+  },
+  {
+   "id": "M-T5.14-reading-service-readport-not-threaded",
+   "title": "A `reading` domain service called from an explicit `commandHandler`/`queryHandler` emits a port-less call that does not compile on dotnet, java and elixir (node and python thread it; the workflow caller is correct everywhere; the aggregate-body caller is honestly refused)",
+   "kind": "silent",
+   "class": null,
+   "confidence": "likely",
+   "targets": [
+    "dotnet",
+    "java",
+    "elixir"
+   ],
+   "fileTrees": [
+    "src/generator/",
+    "src/platform/hono/",
+    "src/ir/validate/checks/"
+   ],
+   "evidence": [
+    {
+     "fleet": 1,
+     "id": "M-T5.14-reading-service-readport-not-threaded",
+     "text": "src/generator/python/render-expr.ts:649 `const ports = ctx.readPortArgs?.(ref.service, ref.op) ?? []` and src/generator/typescript/render-expr.ts:559 (same shape) drop the read-port handles when the caller context supplies no resolver — and the ONLY suppliers are the workflow builders (src/platform/hono/v4/workflow-builder.ts:1835, src/generator/python/workflows-builder.ts:627). The reading op DECLARES those handles as leading params (src/generator/python/emit/domain-service.ts:176-190), so the call is arity-short. The validator only bans such calls from AGGREGATE bodies (src/ir/validate/checks/domain-service-checks.ts:154-196 `checkInfraCallsFromAggregates`), even though its own comment says the orchestrator may be a 'workflow / command handler'. .NET has an explicit 'no handle wired' fallthrough it calls 'validator-unreachable' (src/generator/dotnet/render-expr.ts:1049-1051). Filed as issue #2649 from PR #2648, which explicitly leaves it out — unclaimed."
+    }
+   ],
+   "repro": null,
+   "impact": null,
+   "fix": "Either thread a `readPortArgs` resolver from the explicit-handler emitters (the workflow resolver is the template) or extend `checkInfraCallsFromAggregates` to reject non-pure service calls from any caller that cannot supply ports — pick one and mutation-prove it by seeding a handler-side call.",
+   "size": "M",
+   "sources": [
+    "fleet1:t3-t5-auth-lang"
+   ],
+   "related_to": [
+    "domainservice-member-chained-repo-read (fresh-gate-probe) — same broken output (port-less domain-service call, non-compiling), different root cause"
+   ],
+   "securityClass": false,
+   "P": 2,
+   "note": "Wave 1 packet 1c: node arm verified fixed. Wave C2 packet 2e: PYTHON arm fixed — `explicit-handlers-emit.ts` now builds its render context with `readPortArgs: pyReadPortResolver(ctx)`, folds `collectServiceReadPorts(h.statements, ctx)` into the repo set it constructs, and emits the `app.domain.services.*` import line it had never had at all (src/generator/python/explicit-handlers-emit.ts). Both helpers are the workflow builder's, exported rather than copied, over the shared `readPortsForOperation` (src/ir/util/domain-service-read-ports.ts). Gated by test/generator/python/handler-domain-service-read-port.test.ts (3 mutations named) and verified on a booted app against a real Postgres. dotnet/java/elixir arms remain open — wave C2 packet 2f owns them; see handoffs/wave-c2-2e-python.md for the per-backend shape. Wave 1 packet 1c: node arm verified fixed; python/java/.NET/elixir arms open — see handoffs/wave-1-node-ts.md for the per-backend shape.  Re-verified on the C2 head (packet 2c): the node arm is closed on BOTH caller sites — `readPortResolver(ctx)` is threaded through `honoWorkflowStmtTarget` for statement bodies (`src/platform/hono/v4/workflow-builder.ts:1968`) AND through the explicit handler's `return` render (`explicit-handlers-builder.ts:480,491`), with `serviceReadPorts` constructing the port repos; pinned by `test/generator/typescript/handler-reading-service.test.ts` (5 cases, green).  `remainingTargets` unchanged: dotnet, java, python, elixir.",
+   "verified": {
+    "date": "2026-09-03",
+    "against": "bd7aaeedc",
+    "method": "each row's own repro re-run; emitted output read",
+    "verdict": "partial",
+    "note": "node constructs and threads the port. The other four emit a non-compiling call (static call on an instance class, no import, arity-short, or a module that is never emitted)",
+    "remainingTargets": [
+     "dotnet",
+     "java",
+     "python",
+     "elixir"
+    ]
+   },
+   "reverified": {
+    "date": "2026-09-13",
+    "against": "6d6c1a1 + wave C2 coordinator commit",
+    "method": "wave C2 packet 2e — repro re-run on this head (a `reading` service called from a queryHandler), emitted output read, then booted",
+    "verdict": "partial",
+    "note": "python arm CLOSED; the remaining three are dotnet, java and elixir",
+    "remainingTargets": [
+     "dotnet",
+     "java",
+     "elixir"
+    ]
+   }
+  },
+  {
+   "id": "G2646-open-projection-on-event-no-channel",
+   "title": "`projection … on(Event)` with no `channel` carrying it never folds on ANY backend — now honestly warned by `loom.projection-event-uncarried` rather than silent",
+   "kind": "honest",
+   "class": null,
+   "confidence": "likely",
+   "targets": [
+    "node",
+    "dotnet",
+    "java",
+    "python",
+    "elixir"
+   ],
+   "fileTrees": [
+    "src/ir/enrich/enrichments.ts",
+    "src/generator/typescript/emit/routes.ts"
+   ],
+   "evidence": [
+    {
+     "fleet": 1,
+     "id": "G2646-open-projection-on-event-no-channel",
+     "text": "VERIFIED still open on main and NOT in #2646's diff. src/ir/enrich/enrichments.ts:1281-1300 `deriveEventSubscriptions` early-returns `if (!channels || channels.length === 0) return []` (:1288) and pushes a subscription only when `carrier(on.event)` resolves a channel that CARRIES the event (:1296-1300) — so a projection handler on an event no channel carries produces no subscription anywhere. Node nonetheless mounts its fold tee off `isMaterializedProjection` (src/generator/typescript/emit/routes.ts:120), so node folds and the other four do not. #2646's audit lists this as 'open — B20, needs a semantics decision'."
+    }
+   ],
+   "repro": null,
+   "impact": null,
+   "fix": "Owner semantics decision first: does `on(Event)` without a channel mean (a) an implicit in-process subscription every backend honours, or (b) an error? Then either derive the subscription unconditionally in enrichments.ts:1288-1300 (dropping the channels early-return) or mint a `loom.*` refusal. Add a corpus case with a channel-less projection handler asserting the same fold on all five.",
+   "size": "M",
+   "sources": [
+    "fleet1:pr-registers"
+   ],
+   "related_to": [],
+   "securityClass": true,
+   "P": 3,
+   "verified": {
+    "date": "2026-09-03",
+    "against": "bd7aaeedc",
+    "method": "each row's own repro re-run; emitted output read",
+    "verdict": "open",
+    "note": "`deriveEventSubscriptions` still early-returns when no channel carries the event",
+    "remainingTargets": [
+     "node",
+     "dotnet",
+     "java",
+     "python",
+     "elixir"
+    ]
+   },
+   "reverified": {
+    "date": "2026-09-10",
+    "against": "bc7ed8f8",
+    "method": "reconciliation 3 (packet C0.5) — repro re-run on this head, emitted output read",
+    "verdict": "honest-gated",
+    "note": "SILENT → HONEST.  RE-RUN: corpus `projection.ddd` with its `channel Lifecycle` block deleted, generated on all five.  `deriveEventSubscriptions` still guards on a carrying channel (`enrichments.ts:1303 if (!channels || channels.length === 0) return []`, then a per-handler `if (channel)`), so NO backend derives the subscription — including node, which the row said folded: the premise 'folds on node only' is stale, it folds nowhere.  But the compiler now SAYS SO: `loom.projection-event-uncarried` warns once per handler, names the fold that will never run and gives the remedy (`declare a channel (e.g. 'channel C { carries: OrderPlaced }')`).  Added by #2705.  Reclassified silent→honest and P2→P3 to keep the doc's own P-tier rule (P1/P2 = silent, P3 = honest) true.",
+    "remainingTargets": [
+     "node",
+     "dotnet",
+     "java",
+     "python",
+     "elixir"
+    ]
+   },
+   "note": "Wave C2 packet 2c: the NODE arm is not a node arm.  `deriveEventSubscriptions` (`src/ir/enrich/enrichments.ts:1303`) early-returns when no channel carries the event, so no backend derives the subscription and none folds — the emitters are already correct downstream of it (node mounts its fold tee off `isMaterializedProjection`, `src/generator/typescript/emit/routes.ts:120`, and would fold the moment a subscription exists).  D-PROJECTION-IMPLICIT-SUB rules that an `on(Event)` subscribes in-process with or without a channel, so the fix is ONE change in `enrichments.ts` (drop the channels early-return, derive unconditionally) plus the corpus case — a 2f change on the shared IR, not five per-backend arms.  Handed off to 2f; nothing in `src/platform/hono/**` or `src/generator/typescript/**` needs to move."
+  },
+  {
+   "id": "G2646-open-node-mounts-ui-false",
+   "title": "#2646 documented, NOT fixed: node is the only backend with mountsUi: false",
+   "kind": "honest",
+   "class": null,
+   "confidence": "likely",
+   "targets": [
+    "node"
+   ],
+   "fileTrees": [
+    "src/platform/metadata.ts"
+   ],
+   "evidence": [
+    {
+     "fleet": 1,
+     "id": "G2646-open-node-mounts-ui-false",
+     "text": "Documented by #2646's audit node row as HONEST/MATURITY, citing src/platform/metadata.ts:166 — a node deployable cannot host a ui:, unlike the other four. Not addressed by its diff."
+    }
+   ],
+   "repro": null,
+   "impact": null,
+   "fix": "OWNER NAMED (wave C2 packet 2c, 2026-09-13): this is M-T9.4's A7.4 \"fullstack-embed seam on PlatformSurface\", not an ownerless parity cell — it is a FEATURE the other four backends have, not a gap a refusal could close, so it stays `open` under that mission rather than becoming a `scope` row.  The shape is settled by the four that ship it: the SPA bundle is built in a multi-stage Dockerfile stage and copied into the server's static root, the api routes move under `/api/*`, and an index.html fallback serves every other path (.NET `UseStaticFiles` + `MapFallbackToFile` into `wwwroot/`, `src/generator/dotnet/index.ts:316-320`).  On Hono that is `serveStatic` from `@hono/node-server/serve-static` plus an `app.get('*')` fallback, `mountsUi: true` on BOTH the descriptor (`src/platform/metadata.ts:170`) and the surface (`src/platform/hono/v4/index.ts:60` — `descriptor-consistency.test.ts` pins the pair), and the frontend build stage in the emitted Dockerfile.  Size M, and it needs a booted-app proof (the SPA route answering index.html while `/api/*` still answers JSON), which is why it was not folded into a packet whose other rows are refusals.",
+   "size": "M",
+   "sources": [
+    "fleet1:pr-registers"
+   ],
+   "related_to": [],
+   "securityClass": false,
+   "P": 3,
+   "reverified": {
+    "date": "2026-09-10",
+    "against": "bc7ed8f8",
+    "method": "reconciliation 3 (packet C0.5) — repro re-run on this head, emitted output read",
+    "verdict": "reproduces",
+    "note": "RE-DERIVED: `src/platform/metadata.ts:170 mountsUi: false` on the node entry; every other backend in the file is `true`.",
+    "remainingTargets": [
+     "node"
+    ]
+   },
+   "note": "Re-verified reproducing on 29db198c1 (`src/platform/metadata.ts:170` mountsUi: false, the one `false` among the backends).  Owner: M-T9.4 A7.4."
+  },
+  {
+   "id": "drizzle-projection-membership-column-arg-crash",
+   "title": "A query-time `projection … where <alias>.<refColl>.contains(<column>)` validates clean on a bare `platform: node` deployable and then CRASHES codegen (\"internal: where-clause for projection 'X' could not lower to Drizzle, but the validator should have caught this\")",
+   "kind": "silent",
+   "class": null,
+   "confidence": "proven",
+   "targets": [
+    "node"
+   ],
+   "fileTrees": [
+    "src/platform/hono/v4/projection-query-routes-builder.ts",
+    "src/generator/typescript/repository-find-predicate.ts",
+    "src/ir/validate/checks/orm-adapter-checks.ts",
+    "src/ir/validate/checks/query-checks.ts"
+   ],
+   "evidence": [
+    {
+     "fleet": 0,
+     "id": "drizzle-projection-membership-column-arg-crash",
+     "bucket": "wave-c2:2c-node",
+     "text": "Found while draining the mikroorm half of `loom.find-predicate-unsupported`.  `validateFindPredicateAdapterSupport` keys on `dep.persistence`, which a bare `platform: node` deployable does not carry, so the gate that refuses this shape under `persistence: mikroorm` never runs for the DEFAULT adapter — and `lowerToDrizzle` returns null for it (the membership subquery binds its target as a parameter; a column argument has nowhere to bind), which `buildQueryProjectionsFile` turns into a loud generate-time throw.  `firstNonQueryableNode` admits the shape, so nothing upstream refuses it either.  The same predicate in a repository find is unreachable (a find HAS parameters), which is why only the projection site produces it."
+    }
+   ],
+   "repro": "projection MyTotals { orders: int  from Order as o  where o.tags.contains(o.id)  select orders = count } on `deployable d { platform: node }` (no `persistence:`): `ddd generate system` prints `0 error(s), 0 warning(s)` and then throws `internal: where-clause for projection 'MyTotals' could not lower to Drizzle`.",
+   "impact": "A crash instead of an answer on the DEFAULT node adapter — the class C2 exists to remove.  Not a regression: reproduces identically on 29db198c1.",
+   "fix": "Decide where the refusal belongs: (a) target-neutral — `firstNonQueryableNode` stops admitting a membership whose argument is not a bindable value, which covers all five backends and every site at once (the shape is unlowerable everywhere, and `orm-adapter-checks.ts`'s own header says a shape impossible on every backend belongs in a target-neutral rule); or (b) `validateFindPredicateAdapterSupport` resolves the DEFAULT adapter for a deployable with no `persistence:` selector, which fixes node only.  (a) is the recommendation.  Either way the mikroorm arm of the narrowing in `find-predicate-capability.ts` (`isColumnArgMembership`) is deleted in the same PR.",
+   "size": "S",
+   "sources": [
+    "wave-c2:2c-node"
+   ],
+   "related_to": [
+    "M-T6.35 — the `loom.find-predicate-unsupported` register row, whose remaining narrowing is exactly this shape on the opt-in adapters"
+   ],
+   "securityClass": false,
+   "P": 3
+  },
+  {
+   "id": "dapper-no-schema-evolution",
+   "title": "`persistence: dapper` has no ALTER path at all — every post-first-boot model change is silently unapplied (migrations-on-adapters slice 2)",
+   "kind": "silent",
+   "class": null,
+   "confidence": "likely",
+   "targets": [
+    "dotnet"
+   ],
+   "fileTrees": [
+    "src/generator/dotnet/emit/dapper.ts",
+    "src/generator/dotnet/index.ts",
+    "src/ir/validate/checks/migration-checks.ts"
+   ],
+   "evidence": [
+    {
+     "fleet": 1,
+     "id": "dapper-no-schema-evolution",
+     "text": "Slice 1 (the honest gate) DID land: src/ir/validate/checks/migration-checks.ts:201 `SELF_PROVISIONING_ADAPTERS = new Set([\"dapper\", \"mikroorm\"])` and :203-260 `validateMigrationAdapterSupport` raise `loom.dapper-unsupported#migrations` / `loom.mikroorm-unsupported#migrations` — but ONLY when the model declares a `migration` block (it indexes `loom.renameIntents` / `tableRenameIntents` / `backfillIntents` / `sqlMigrationSteps` and returns early at :225 when all are empty). Slice 2 (running the MigrationsIR chain on these adapters) did NOT land: src/generator/dotnet/index.ts:990 `const hasMigrations = !usingDapper && …` and src/platform/hono/v4/emit.ts:1067 `const hasMigrations = !usingMikro && …` still suppress it. For dapper the fallback is CREATE-only: src/generator/dotnet/emit/dapper.ts:2229-2233 `renderDapperSchema` is documented as 'a self-applied CREATE TABLE IF NOT EXISTS per aggregate', and `grep -c 'ALTER TABLE|ADD COLUMN' src/generator/dotnet/emit/dapper.ts` = 0. So on a dapper deployable: add a field to an existing DB → the column is never created and the app 500s; drop a field → the column lingers; change a type → nothing. No diagnostic fires because no `migration` block was declared. There is also no dapper/mikroorm leg in the migration-evolution gate (`.github/workflows/migration-evolution-e2e.yml`; the five npm scripts are test:migration-evolution{,-dotnet,-elixir,-java,-python}, all on the default efcore/drizzle adapters)."
+    }
+   ],
+   "repro": null,
+   "impact": null,
+   "fix": "OWNED (wave C2 packet 2b): D-DAPPER-ALTER rules option (c) — build the chain — with the widened refusal (b) as the interim, and requires a named T2 mission to own it. That mission is now minted: M-T2.17 (docs/new-plan/T2-data-evolution.md), slices (b) the phase-9 widened refusal, (c) the ordered .sql set applied by DbSchema.EnsureAsync behind a __loom_migrations ledger + flipping the two `hasMigrations` guards, and (d) the Postgres schema-PLACEMENT twin (`#schema-split` / `#schema-ignored`), folded in because it is the same boot-time schema owner slice (c) has to rewrite. Packet 2b did NOT build any of it: slice (b) lives in phase 9 (`src/system/**`), outside the packet's `src/generator/dotnet/**` fence. Closes when `test:migration-evolution-dapper` is green, per the decision's Consequences — not when the gate widens. Two options. Honest (S, do first): widen `validateMigrationAdapterSupport` beyond declared-intent — when a self-provisioning deployable is regenerated against an EXISTING baseline snapshot whose derived diff is non-empty, raise the same `#migrations` error (the snapshot store is already threaded into phase ⑨ via `fsSnapshotStore(outDir)`, src/cli/main.ts:~500). Real (L): render the MigrationsIR chain for dapper — `emitDotnetMigrations` already produces platform-neutral Postgres via src/generator/sql-pg.ts; emit it as a plain ordered `.sql` set applied by `DbSchema.EnsureAsync` with a `__loom_migrations` ledger, then flip `hasMigrations` to `!!system?.migrations?.length` at src/generator/dotnet/index.ts:990. Add a `test:migration-evolution-dapper` leg.",
+   "size": "L",
+   "sources": [
+    "fleet1:t2-t4-data-workflow"
+   ],
+   "related_to": [],
+   "securityClass": true,
+   "P": 2,
+   "note": "Packet 1b (dotnet-adapters): premise partly stale -- a second dapper run exits 1 via the M-T2.2 baseline guard with a misdirected error, not silently. The silent half is the CREATE-only runtime schema (no ALTER path); the gate belongs in src/system/migrations-builder.ts (phase 9). Handed off from packet 1b; the gate-vs-build decision is still pending.",
+   "verified": {
+    "date": "2026-09-03",
+    "against": "bd7aaeedc",
+    "method": "each row's own repro re-run; emitted output read",
+    "verdict": "open",
+    "note": "the SILENT half of the premise is stale — a second generate exits 1. But it fails on snapshot drift, which names neither the dapper limitation nor a remedy, and `--allow-rebaseline` does not clear it. No ALTER path, `hasMigrations` still gated off, no dapper CI leg",
+    "remainingTargets": [
+     "dotnet"
+    ]
+   },
+   "reverified": {
+    "date": "2026-09-10",
+    "against": "bc7ed8f8",
+    "method": "reconciliation 3 (packet C0.5) — repro re-run on this head, emitted output read",
+    "verdict": "reproduces",
+    "note": "RE-DERIVED at the code path: `src/generator/dotnet/index.ts:1014 const hasMigrations = !usingDapper && …` — the migration path is still gated OFF for dapper by construction, so there is no ALTER path at all.  The 09-03 correction stands: the second generate does exit 1, but on snapshot drift, which names neither the dapper limitation nor a remedy.",
+    "remainingTargets": [
+     "dotnet"
+    ]
+   }
   }
  ],
  "checkedOk": [
@@ -6071,11 +5981,6 @@
    "title": "Value-on-left comparison on persistence: mikroorm emits a runtime-throwing stub the capability gate promised couldn't exist"
   },
   {
-   "id": "G2667-A6-audited-returning-op-contract-drop",
-   "claimedBy": "#2667",
-   "title": "audited/provenanced on a RETURNING operation silently discards the whole return contract (node)"
-  },
-  {
    "id": "G2667-A20-nested-match-binding-clobber",
    "claimedBy": "#2667",
    "title": "Nested variant-`match` clobbers outer bindings in the shared expr dispatcher"
@@ -6633,13 +6538,6 @@
    "note": "fixed: the event-sourced write-scope repository port member is now implemented on both adapters; dedicated gate test/generator/dotnet/repository-port-implemented.test.ts (cites F2-ADP-4) walks the whole port shape matrix and passes."
   },
   {
-   "id": "F2-ADP-7",
-   "title": "A `.ddd` field named after a TARGET-LANGUAGE keyword emits uncompilable C# and Java — the host-identifier twin the M-T6.42/M-T6.43 quoting fixes left open",
-   "pr": "#2668 (dotnet) + #2703 (java)",
-   "sha": "e0aff5a / 84c2291",
-   "note": "fixed on both named backends: a target-language-keyword field now emits a verbatim `@identifier` on C# (test/generator/dotnet/cs-reserved-identifiers.test.ts) and an escaped identifier on java (test/generator/java/java-reserved-identifier.test.ts)."
-  },
-  {
    "id": "F2-ADP-5",
    "title": "drizzle — the DEFAULT node adapter — enforces `writeScopeFilter` only on the relational shape; mikroorm (the adapter that got the fix) enforces all four",
    "pr": "#2668",
@@ -7004,13 +6902,6 @@
    "note": "fixed: java's declared paged find now returns the concrete `<Agg>Paged` record instead of the springdoc-flattened generic (test/generator/java/paged-envelope-name.test.ts)."
   },
   {
-   "id": "M-T6.36",
-   "title": "Java emitter shape gaps — two narrow honest rejections still live",
-   "pr": "#2703",
-   "sha": "84c2291",
-   "note": "gated: entity-typed read-model fields are refused with `loom.java-*-field-unsupported` instead of being silently unreachable (test/generator/java/generator-java-readmodel-gates.test.ts)."
-  },
-  {
    "id": "G2646-open-feliz-honest-residue",
    "title": "#2646 documented, NOT fixed: feliz `.map(λ)` has no lambda seam; component-host `match await` gated; three of four newly-throwing sub-shapes still lack validator gates",
    "pr": "#2698",
@@ -7278,6 +7169,36 @@
    "id": "G2644-M-T9.38-frontend-runtime-legs",
    "title": "M-T9.38 — BOTH self-hosting frontends now have a numeric-rich real-backend leg. Half this row's premise was stale: its 'FELIZ still has none' rested on `ls test/behavioral | grep -i feliz` being empty, but feliz has had a BLOCKING real-backend cell in frontend-fullstack-e2e.yml since the testid-emission PR — it reuses the shared run-ui.mjs, so no file carries its name and a filename census cannot see it. What was genuinely missing, on both legs, was the numeric half: #2898 adds money/decimal/int/long to both fixtures, asserts each RENDERED value (so a silently-wrong decode fails, not only a throwing one), puts the seed and the expectations in one shared table both legs read, and ratchets all of it in the fast suite. Measured locally: feliz 11/11, flutter 4/4; mutation-proved on both sides (re-seeded F1 turns both money-bearing flutter probes red; a double-routed feliz money decoder renders 98.76 for an expected 98.7600).",
    "source": "PR #2898 (2026-09-13)"
+  },
+  {
+   "id": "G2667-A6-audited-returning-op-contract-drop",
+   "title": "audited/provenanced on a RETURNING operation silently discards the whole return contract (node)",
+   "note": "Wave C2 packet 2c (node): the Hono operation route now dispatches an audited/provenanced RETURNING op to emitReturningOperationRoute with the audit/provenance transaction wrapped around it (src/platform/hono/v4/routes-builder.ts auditProvTxLines + the capture flag); loom.audited-returning-operation-unsupported retired with its gate, message, register row and census fixture."
+  },
+  {
+   "id": "dapper-tenancy-hierarchy-unsupported",
+   "title": "`tenancy-hierarchy` is the sole surviving `DAPPER_UNSUPPORTED` entry — hierarchical tenancy's capability filter is outside the Dapper SQL subset",
+   "note": "fixed (wave C2 packet 2b): the claim was false. `authzFilterToSql`'s `scope` arm (src/generator/dotnet/emit/dapper.ts) renders the descendant-or-self subtree predicate as raw Postgres — the MikroORM `raw()` twin, anchored `strpos(col, anchor || '.') = 1` recheck plus the sargable escaped LIKE prefilter plus the NULL-`data_key` flat-tenant fallback. What genuinely blocked it was one layer out, exactly as the row's `fix` field guessed for the M-T6.23/M-T6.29 precedents: `collectFilterPrincipalRefs` hand-rolled a four-kind recursion that could not see the sentinel (which carries no child `currentUser.<claim>` node at all — the claims are derived from the `scope` decision). It now rides `walkExprDeep` and contributes the four bindings by kind, and its `ir-walk-census` waiver is gone. The `DAPPER_UNSUPPORTED` corpus entry and its `allowlist-ratchet` pin both drained to zero in the same commit. Booting the fixture also surfaced and fixed a second, compile-invisible defect on the same path: the registry self-scope comparison rendered `id = @__cu_tenantId`, i.e. `uuid = text`, so every read of the registry answered 42883. Proof: `test/e2e/tenancy-hierarchy-dapper.test.ts` (new leg, wired into tenancy-e2e.yml) runs the shared subtree / delimiter-trap / wildcard-trap / NULL-dataKey assertions against a booted Dapper backend on a real Postgres.",
+   "source": "wave-c2:2b-dotnet"
+  },
+  {
+   "id": "F2-ADP-7",
+   "title": "A `.ddd` field named after a TARGET-LANGUAGE keyword emits uncompilable C# and Java — the host-identifier twin the M-T6.42/M-T6.43 quoting fixes left open",
+   "pr": "#2668 (dotnet) + #2703 (java gate) + wave C2 packet 2d (java drain)",
+   "sha": "e0aff5a / 84c2291",
+   "note": "fixed on both named backends, but DIFFERENTLY, and the first note here said otherwise: C# emits a verbatim `@identifier` (lexically the same identifier, so the wire never moved — test/generator/dotnet/cs-reserved-identifiers.test.ts), while java could only RENAME, and a Java record component name is also the Jackson property — so the java arm shipped as a REFUSAL (`loom.java-reserved-identifier-unsupported`), not as an escape.  DRAINED 2026-09-13 (wave C2 packet 2d, M-T6.36): java now emits a mangled host identifier plus an explicit `@JsonProperty` / `@RequestParam` / enum `AttributeConverter` at every wire site, the gate and its register row are deleted, and the round trip is boot-proved on Postgres 18 (test/generator/java/java-reserved-identifier.test.ts, test/fixtures/corpus/java-reserved-words.ddd)."
+  },
+  {
+   "id": "M-T6.36",
+   "title": "Java emitter shape gaps — two narrow honest rejections still live",
+   "pr": "#2703 + wave C2 packet 2d",
+   "sha": "84c2291",
+   "note": "gated 2026-08 (#2703), then RESOLVED: the two codes this row was written about were phantoms and were deleted, and the one real gap it inherited — `loom.java-reserved-identifier-unsupported` — was DRAINED 2026-09-13 (wave C2 packet 2d).  A `.ddd` field / param / operation / derived member / part field / helper function / ENUM VALUE named after a Java reserved word now emits; MAX_OPEN_GAPS 27 -> 26.  The enum-value arm was a second, previously silent gap found while draining the first."
+  },
+  {
+   "id": "static-subpath-405-node-only",
+   "title": "CLOSED (wave C2, packet 2a — elixir was the last arm). Phoenix now mounts `match :*, \"<static sub-path>\", NotFoundController, :not_found` right after the LAST real route for each one-segment static sub-path, inside `scope \"/api\"`: the real routes still win for the verbs they serve (phoenix matches in declaration order) and every other verb lands on the controller that already derives `Allow` from `Phoenix.Router.route_info/4` — so the header comes from the ROUTER, not from a second copy of the route table that could drift. The guarded set is derived from the routes this router actually mounts (`withStaticSubpathGuards`, src/generator/elixir/vanilla/shell-emit.ts), so a backend-specific static route is covered by construction. BOOT-PROVED on real Postgres: `DELETE /api/articles/by_owner` answered 422 from the `:id` cast before and answers 405 with `allow: GET` under `application/problem+json` now; `POST` likewise; `GET /api/articles/by_owner` still 200; `DELETE /api/articles/<uuid>` still 204 and `DELETE /api/articles/not-a-uuid` still 422, so the `:id` route is unshadowed. Pinned by test/generator/elixir/static-subpath-method-guard.test.ts — a SWEEP over every route in the `/api` scope (guarded set == static set, guard after its own routes and before `/:id`, no `:`-bearing path guarded) with a vacuity guard on the fixture's static set; mutation-proved by making `withStaticSubpathGuards` a pass-through, which fails \"guards EVERY one-segment static sub-path the router mounts\" and \"places each guard AFTER its real routes and BEFORE the `:id` route\". Compile-gated through the existing `vanilla-finds.ddd` elixir build fixture (`mix compile --warnings-as-errors`).",
+   "source": "fleet1:schemathesis-F8 / ledger reconciliation 3"
   }
  ],
  "conflicts": [
@@ -7647,6 +7568,39 @@
    "reason": "DELIBERATELY PARKED, by the track's own text.  `docs/new-plan/T2-data-evolution.md:43-45` calls `encryptedAtRest` a 'Deliberately parked stub' needing a full proposal first (key management, deterministic-encryption / blind-index finds, per-backend matrix).  The modifier is a hard parse error, so the gap is honest; what is missing is a PROPOSAL, which is a docs/new-plan item, not a completeness row.",
    "declinedBy": "reconciliation 3 (packet C0.5), 2026-09-10 against bc7ed8f8",
    "source": "fleet1:t2-t4-data-workflow"
+  },
+  {
+   "id": "G2646-open-python-no-realization-axes",
+   "title": "#2646 documented, NOT fixed: python has no realization axes (no directoryLayout: menu, no second persistence adapter)",
+   "kind": "mission",
+   "class": null,
+   "confidence": "likely",
+   "targets": [
+    "python"
+   ],
+   "fileTrees": [
+    "src/platform/adapter-metadata.ts",
+    "src/generator/python/"
+   ],
+   "evidence": [
+    {
+     "fleet": 1,
+     "id": "G2646-open-python-no-realization-axes",
+     "text": "Documented by #2646's audit python row as MATURITY: src/platform/adapter-metadata.ts has no python key at all, so `persistence:` and `directoryLayout:` offer no choice on that backend while node (drizzle/mikroorm) and dotnet (EF/dapper) do. Not addressed by its diff."
+    }
+   ],
+   "repro": null,
+   "impact": null,
+   "fix": "Roadmap-scale: decide whether python gets a second persistence adapter and a layout menu at all. If not, record it as a settled non-goal in adapter-metadata.ts + docs/platforms.md so it stops reading as debt; if yes, mint the mission with the adapter choice named.",
+   "size": "L",
+   "sources": [
+    "fleet1:pr-registers"
+   ],
+   "related_to": [],
+   "securityClass": false,
+   "P": 4,
+   "reason": "SCOPE, decided — D-PYTHON-SINGLE-REALIZATION (docs/decisions.md, wave C2 packet 2e). Re-measured on fresh `main`: the asymmetry this row describes is TWO adapters vs ONE, not python vs the rest. `BACKEND_ADAPTER_METADATA` lists elixir with exactly one persistence adapter (`ecto`) and java with exactly one (`jpa`); neither offers a choice either, so three of five backends ship a single realization. Python's only real difference is being ABSENT from the mirror rather than present with a single-valued menu, and adapter-metadata.ts says that absence is deliberate and matches the live surface (its PlatformSurface omits `adapters()`). Nothing is silent: there is no `persistence:` or `directoryLayout:` value a user can write that python drops. A second python adapter is a T6-track mission to mint when a user need names the adapter, carrying the usual bar (pairwise cover cell, corpus compile leg, behavioural leg) — not a completeness row.",
+   "declinedBy": "wave C2 packet 2e, 2026-09-13 — re-classed `scope` under D-PYTHON-SINGLE-REALIZATION"
   }
  ]
 }

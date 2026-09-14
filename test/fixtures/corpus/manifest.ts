@@ -38,24 +38,22 @@ const ALL: readonly Backend[] = BACKENDS;
  *  `deep` sentinel rendered by `renderDeepScopeInApp`. */
 const IN_APP_DOCUMENT_FILTER: readonly Backend[] = ALL;
 
-/** The backends that can AGGREGATE a `shape: document` table in SQL.
+
+/** The backends that can express a capability `filter` over a TPH
+ *  (`sharedTable`) concrete — i.e. a predicate reading a column that exists on
+ *  only ONE subtype of the shared table.
  *
- *  A document aggregate is `(id, data, version)`, so the only aggregation it
- *  can express is the row count — and four backends emit exactly that: drizzle
- *  / mikroorm `count()` over the row table, SQLAlchemy `func.count()` over
- *  `<Agg>Row`, Ecto `count(record.id)` over the document schema, and both .NET
- *  adapters over `DbSet<<Agg>Document>` / the raw table.
- *
- *  `java` is absent, and this is the NAME of that exclusion.  Its aggregation
- *  runs JPQL through the `EntityManager` (`select count(e) from Article e`),
- *  and a document aggregate has no JPA `@Entity` anywhere in the emitted
- *  project — it round-trips one jsonb column through a `JdbcTemplate`
- *  repository — so Hibernate fails the query with "could not resolve root
- *  entity" at request time.  Refused honestly by
- *  `loom.projection-whole-table-aggregation-unsupported#document`; the key returns
- *  here the day that emitter learns to read a document table (a native
- *  `select count(*) from <schema>.<table>`). */
-const DOCUMENT_TABLE_AGGREGATION: readonly Backend[] = ALL.filter((b) => b !== "java");
+ *  `dotnet` is absent, and this is the NAME of that exclusion.  EF Core applies
+ *  a query filter to the ROOT entity type of a hierarchy only ("A filter may
+ *  only be applied to the root entity type"), and a root-hosted filter must
+ *  typecheck against the root for EVERY concrete — so a predicate over a
+ *  sibling-only column is not expressible: a CLR downcast raises "No coercion
+ *  operator is defined between types", and `EF.Property<T>(x, "…")` raises "the
+ *  specified property does not exist on the entity type" (both reproduced
+ *  against EF Core 10.0.10; see `nonRootFilterFields`, src/ir/util/inheritance.ts).
+ *  Refused honestly by `loom.tph-filter-unsupported`, not silently dropped; the
+ *  key returns the day that gate closes. */
+const TPH_CAPABILITY_FILTER: readonly Backend[] = ALL.filter((b) => b !== "dotnet");
 
 export interface CorpusFeature {
   /** Matches `<id>.ddd` in this directory. */
@@ -118,6 +116,14 @@ export const CORPUS: readonly CorpusFeature[] = [
   { id: "embedded-optional", title: "shape: embedded — optional single containment (nullable jsonb)", doc: "language", backends: ALL },
   { id: "inheritance", title: "aggregate inheritance — TPH (sharedTable) + TPC (ownTable)", doc: "inheritance", backends: ALL },
   { id: "tph", title: "TPH-only (sharedTable) hierarchy — Vehicle/Car/Truck canonical fixture", doc: "inheritance", backends: ALL },
+  {
+    id: "tph-crossings",
+    title:
+      "TPH (sharedTable) × a CAPABILITY — a `softDeletable` concrete whose filter reads a column the shared table made nullable",
+    doc: "inheritance",
+    backends: TPH_CAPABILITY_FILTER,
+    note: "Minted by pairwise F15.  `tph.ddd`'s concretes carry no capability, so nothing in the curated corpus crossed inheritance with a capability `filter` — and the crossing is where it broke: sharing a table makes a subtype's OWN columns nullable, so `softDeletable`'s `is_deleted` types as `bool | None` and python's `not_(Row.is_deleted)` stopped being a `ColumnElement[bool]` (4 × `mypy --strict` arg-type, once per emitted read).  The sibling crossing `shape: embedded` × TPH (pairwise F13) belongs in this fixture too and is named in its header: it waits on pairwise F11 (the drizzle repository targets the concrete's own, non-existent table), since adding it here would turn `corpus-tsc-build` red on a defect this fixture is not about.",
+  },
   { id: "event-sourcing", title: "`persistedAs: eventLog` — append-only stream + appliers", doc: "workflow", backends: ALL },
   { id: "eventsourced-workflow", title: "event-sourced saga folding its own emitted events", doc: "workflow", backends: ALL },
   { id: "saga", title: "in-process dispatch / saga with persisted correlation", doc: "workflow", backends: ALL },
@@ -183,8 +189,8 @@ export const CORPUS: readonly CorpusFeature[] = [
     title:
       "whole-table aggregation over a `shape: document` source — the row count (`count(*)` over the `(id, data, version)` triple), beside the per-row arm over the same source",
     doc: "language",
-    backends: DOCUMENT_TABLE_AGGREGATION,
-    note: "minted by audit A1: `loom.projection-columnless-source` deliberately allows `count()` over a document source, and NOTHING pinned that the allowed cell still emits — while java's cell was broken outright.  The filtered crossing is refused universally (`loom.projection-document-source-capability-filtered`); both negatives live in `test/ir/projection-document-aggregation.test.ts`.",
+    backends: ALL,
+    note: "minted by audit A1: `loom.projection-columnless-source` deliberately allows `count()` over a document source, and NOTHING pinned that the allowed cell still emits — while java's cell was broken outright.  Java JOINED the row 2026-09-13 (M-T4.2, wave C2 packet 2d): its aggregation over a document source runs the same query NATIVE (`createNativeQuery`, `select count(*) from <schema>.<table> e`) instead of as JPQL over an `@Entity` a document aggregate does not have, so the per-backend gate and its two `#document` message variants are deleted.  Proved on a BOOTED Spring Boot app against Postgres 18: the singleton arm answers `{\"articles\":0}` then `{\"articles\":3}` after three creates, and the grouped arm answers one row per id — numbers from the database, not from the emitter.  The filtered crossing is still refused universally (`loom.projection-document-source-capability-filtered`); that negative lives in `test/ir/projection-document-aggregation.test.ts`.",
   },
   {
     id: "projection-join",
@@ -241,6 +247,14 @@ export const CORPUS: readonly CorpusFeature[] = [
     doc: "language",
     backends: ALL,
     note: "Minted by M-T6.42.  The class was unexercised: no fixture named a reserved word, so the Dapper adapter's bare identifiers (DDL *and* DML) were invisible to every gate — the C# compiles because the SQL is a string literal, and `schema-load` covered only the MIGRATION chain, which that adapter does not use.  Covers four clause positions a partial fix would miss: CREATE TABLE, the SELECT/INSERT column lists, a `find` WHERE, a retrieval ORDER BY, and CREATE INDEX.  Deliberately NOT a host-language-keyword test (`is` / `default` / `class` break the generated DTO, a different class no backend claims).  JAVA WAS EXCLUDED HERE UNTIL M-T6.43 — a gap, not a rejection: it generated and COMPILED, then 500d on the first insert, because the JPA entity emitted `@Column(name = \"order\")` bare and Hibernate derived `insert into ... (order, group, limit, ...)` from it.  Found by running this fixture's behavioural leg on a real booted Spring Boot + Postgres while landing M-T6.42.  Fixed by backtick-quoting the mapping annotations (Hibernate's portable quoting) off the SHARED word list in `src/generator/sql-reserved.ts`, and this row widening back to ALL is that mission's ratchet.",
+  },
+  {
+    id: "java-reserved-words",
+    title:
+      "field / parameter / enum-value names that are HOST-LANGUAGE reserved words (`final`, `native`, `synchronized`, `transient`, `throws`, `strictfp`, `boolean`) — the java-identifier class `reserved-words.ddd` deliberately excludes",
+    doc: "language",
+    backends: ALL,
+    note: "Minted by M-T6.36 (wave C2 packet 2d).  `reserved-words.ddd`'s closing note names this class and declines it: a host-language keyword breaks the generated DTO / entity, not the SQL, and no backend claimed it.  Java was the one that could not simply escape — C# has verbatim identifiers, TS allows any property name, python/elixir escape locals only — because a Java record component name IS the Jackson property, the springdoc schema key and the Spring binding path, so a rename moves the wire on java alone.  That is why the shape was REFUSED (`loom.java-reserved-identifier-unsupported`) rather than emitted.  The fix pairs a mangled host identifier with an explicit wire annotation at every such site, and this fixture is the ratchet on the pairing: the names are reserved in JAVA ONLY and are not Postgres reserved words, so the other four backends must keep emitting them bare (that is the `ALL` row, not a java-only one) and the SQL-quoting concern stays with `reserved-words.ddd`.",
   },
   {
     id: "vo-field-default",

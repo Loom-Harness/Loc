@@ -55,12 +55,18 @@ import { lines } from "../../util/code-builder.js";
 import { plural, snake } from "../../util/naming.js";
 import { SCAFFOLD_ONCE_MARKER } from "../../util/scaffold-once.js";
 import { renderWorkflowStmtChunks } from "../_workflow/stmt-target.js";
+import { domainServiceImportLinesForWorkflow } from "./emit/domain-service.js";
 import { paramPyType, requestPyType, wireModelImport } from "./emit/http-models.js";
 import { type PyRenderContext, renderPyExpr, renderPyType } from "./render-expr.js";
 import { aggHasFieldMask } from "./repository-builder.js";
 import { resourceImportLines } from "./resource-clients.js";
 import { PY_PAGED_CONTROLS, pyWireToDomain } from "./routes-builder.js";
-import { collectUsedLetNames, pyWorkflowStmtTarget } from "./workflows-builder.js";
+import {
+  collectServiceReadPorts,
+  collectUsedLetNames,
+  pyReadPortResolver,
+  pyWorkflowStmtTarget,
+} from "./workflows-builder.js";
 
 type Handler = CommandHandlerIR | QueryHandlerIR;
 
@@ -386,7 +392,21 @@ function renderHandlerModule(
   // (byte-identical to the flat-param form) — and the body's `cmd.<field>`
   // resolves to the flat field local via `recordParamNames` on the render ctx.
   const records = recordParamNames(h, ctx);
-  const rctx: PyRenderContext = { thisName: "self", recordParamNames: records };
+  // Read-port wiring (domain-services.md rev. 4, M-T5.14's python arm).  A
+  // `reading`-tier domain-service operation declares one repository parameter
+  // per repo it reads, and the ORCHESTRATOR supplies the handle.  A `workflow`
+  // is not the only orchestrator: an explicit `commandHandler`/`queryHandler`
+  // can call one too, and this emitter supplied no resolver — so the call
+  // rendered port-less and un-awaited (`free = is_holder_free(holder)` against
+  // an `async def is_holder_free(accounts, holder)`), arity-short by exactly the
+  // number of ports.  Resolver, port collection and the shared
+  // `readPortsForOperation` derivation are the workflow builder's, not a second
+  // copy.  A PURE service call has zero ports → byte-identical.
+  const rctx: PyRenderContext = {
+    thisName: "self",
+    recordParamNames: records,
+    readPortArgs: pyReadPortResolver(ctx),
+  };
   const params = [
     "session: AsyncSession",
     ...flatHandlerParams(h, ctx).map((p) => `${snake(p.name)}: ${renderPyType(p.type)}`),
@@ -394,6 +414,13 @@ function renderHandlerModule(
   ].join(", ");
 
   const repos = collectRepos(h);
+  // …and the handles have to EXIST: a repository the handler's own body never
+  // touches, read only through a service port, still needs constructing here.
+  // Appended after the handler's own repos, de-duplicated by repo name, so a
+  // port-less handler stays byte-identical.
+  for (const port of collectServiceReadPorts(h.statements, ctx)) {
+    if (!repos.has(port.repo)) repos.set(port.repo, port.aggregate);
+  }
   const dispatcherExpr = hasDispatch ? "make_dispatcher(session)" : "NoopDomainEventDispatcher()";
 
   // C2 (Python sibling of .NET C1/#1830): a handler returning an aggregate/entity
@@ -524,6 +551,20 @@ function renderHandlerModule(
       .filter((n) => refersTo(n))
       .sort()
       .map((n) => `from app.domain.${snake(n)} import ${n}`),
+    // Domain-service calls render as bare module functions (`is_holder_free(…)`)
+    // — import them by name from `app.domain.services.*`, exactly as the
+    // workflow-routes module does.  This emitter had no such line at all, so
+    // ANY service call from an explicit handler was ruff F821 / a runtime
+    // `NameError`, whatever its tier (M-T5.14's python arm; the handler-shaped
+    // sibling of the workflow import hole `emit/domain-service.ts` records).
+    // Filtered through `refersTo` so a call the renderer folded away emits
+    // nothing, and placed here so the block stays import-sorted.
+    ...domainServiceImportLinesForWorkflow(h.statements).filter((line) =>
+      line
+        .slice(line.indexOf(" import ") + 8)
+        .split(", ")
+        .some((fn) => refersTo(fn)),
+    ),
     [...enumNames, ...voNames].length > 0
       ? `from app.domain.value_objects import ${[...enumNames, ...voNames].sort().join(", ")}`
       : null,
