@@ -197,31 +197,21 @@ system Freight {
       event ClaimFiled { cargo: Cargo id, amount: money }
       event ClaimSettled { cargo: Cargo id, approved: bool }
 
-      // A multi-command saga: file → approve / reject.
+      // Filed only.  The `handle approve` / `handle reject` continuations this
+      // model originally carried are what finding D5 reported: they emitted
+      // nothing on any backend.  `loom.workflow-handle-unsupported` now refuses
+      // them (decision D-1c), so the shapes live on verbatim in the audit's D5
+      // rather than here — this file stays a model the toolchain accepts.
       workflow ClaimHandling {
         cargo: Cargo id
         claimState: ClaimState
         amount: money
 
-        create(c: FileClaim) {
-          cargo := c.cargo
+        create(cargo: Cargo id, c: FileClaim) {
+          cargo := cargo
           claimState := Filed
           amount := c.amount
           emit ClaimFiled { cargo: c.cargo, amount: c.amount }
-        }
-
-        handle approve(c: ApproveClaim) {
-          requires currentUser.permissions.contains(permissions.agencyAdmin)
-          precondition claimState == Filed message "Only a filed claim can be approved"
-          claimState := Approved
-          emit ClaimSettled { cargo: cargo, approved: true }
-        }
-
-        handle reject(c: RejectClaim) {
-          requires currentUser.permissions.contains(permissions.agencyAdmin)
-          precondition claimState == Filed message "Only a filed claim can be rejected"
-          claimState := Rejected
-          emit ClaimSettled { cargo: cargo, approved: false }
         }
       }
 

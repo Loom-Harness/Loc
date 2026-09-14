@@ -42,11 +42,6 @@ const WAIVERS: ReadonlyArray<{ name: string; file: RegExp; mission: string }> = 
     file: /\/domain\/value-objects\.ts$/,
     mission: "M-T6.64 — the value-object emitter omits its `Ids` import (#2864 D3)",
   },
-  {
-    name: "ClaimStateSchema",
-    file: /\/http\/workflows\.ts$/,
-    mission: "M-T6.65 — an enum-stated workflow references an unemitted `<Enum>Schema` (#2864 D4)",
-  },
 ];
 
 const waived = (path: string, name: string): boolean =>
@@ -127,11 +122,12 @@ const FIXTURES: ReadonlyArray<{
   { label: "a value object holding an `X id`", source: VO_WITH_ID, name: "Ids", state: "broken" },
   // Fixed by #2869 (audit D6/P2) — four backends, not the one it was filed as.
   { label: "a `user {}` claim typed `X id?`", source: USER_ID_CLAIM, name: "Ids", state: "fixed" },
+  // Fixed by #2894 (audit D4/T3) — the node backend AND four frontends.
   {
     label: "a workflow with an enum state field",
     source: ENUM_STATED_WORKFLOW,
     name: "ClaimStateSchema",
-    state: "broken",
+    state: "fixed",
   },
 ];
 
