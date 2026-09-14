@@ -208,11 +208,15 @@ export function renderSchema(
     // row per element keyed by (parent_id, ordinal), columns flattened
     // from the value object.  Plain relational shape (portable).
     for (const vc of valueCollectionsFor(agg)) {
-      tables.push(emitValueCollectionTable(vc, ctx, agg.idValueType, { schema, prefix }));
+      tables.push(emitValueCollectionTable(vc, agg.name, ctx, agg.idValueType, { schema, prefix }));
     }
     for (const part of agg.parts) {
       for (const vc of valueCollectionsFor(part)) {
-        tables.push(emitValueCollectionTable(vc, ctx, agg.idValueType, { schema, prefix }));
+        // Owner is the PART, not the aggregate — the child table's FK points at
+        // the part row (`valueCollectionTableShape(..., partName)` agrees).
+        tables.push(
+          emitValueCollectionTable(vc, part.name, ctx, agg.idValueType, { schema, prefix }),
+        );
       }
     }
   }
@@ -683,6 +687,12 @@ function emitTphTable(
  *  SQL backend that shares the database. */
 function emitValueCollectionTable(
   vc: ValueCollectionIR,
+  // The row this child table hangs off — the aggregate, or the entity part
+  // when the `<VO>[]` field is declared on a part.  REQUIRED: the FK and its
+  // index are both named after it, and `valueCollectionTableShape` in the
+  // migration builder resolves the same owner (`partName ?? parentAgg.name`).
+  // Deriving it from `vc.parentFk` instead would mean un-snaking a name.
+  ownerName: string,
   ctx: BoundedContextIR,
   idType: IdValueType,
   options: { schema?: string; prefix?: string } = {},
@@ -690,17 +700,27 @@ function emitValueCollectionTable(
   const vo = ctx.valueObjects.find((v) => v.name === vc.voName);
   const tableName = options.prefix ? `${options.prefix}${vc.childTable}` : vc.childTable;
   const tableFactory = options.schema ? `${schemaConstName(options.schema)}.table` : "pgTable";
+  const ownerTableConst = lowerFirst(plural(ownerName));
   const lines: string[] = [];
   lines.push(`export const ${vc.tableConst} = ${tableFactory}("${tableName}", {`);
-  lines.push(`  parentId: ${drizzleIdColumn(idType, vc.parentFk)}.notNull(),`);
+  // `.references()` mirrors the migration's `FOREIGN KEY … REFERENCES …
+  // ON DELETE CASCADE`, exactly as the containment-part table does.
+  lines.push(
+    `  parentId: ${drizzleIdColumn(idType, vc.parentFk)}.notNull().references(() => ${ownerTableConst}.id, { onDelete: "cascade" }),`,
+  );
   lines.push(`  ordinal: integer("ordinal").notNull(),`);
   for (const f of vo?.fields ?? []) {
     lines.push(...drizzleColumnLines(f, ctx).map((s) => `  ${s}`));
   }
   lines.push(`}, (table) => ({`);
   lines.push(`  ${vc.tableConst}Pk: primaryKey({ columns: [table.parentId, table.ordinal] }),`);
+  // Index name keys off the REAL FK column (`vc.parentFk`, e.g. `order_id`),
+  // matching `valueCollectionTableShape`'s `<child>_<parentFk>_idx` — the same
+  // rule the part table above follows.  The literal `parent_id` this used to
+  // emit names no column that exists, so the ORM and the migration could never
+  // agree and `drizzle-kit` would try to create a second index.
   lines.push(
-    `  ${vc.tableConst}ParentIdIdx: index("${tableName}_parent_id_idx").on(table.parentId),`,
+    `  ${vc.tableConst}${pascalize(snake(ownerName))}IdIdx: index("${tableName}_${vc.parentFk}_idx").on(table.parentId),`,
   );
   lines.push(`}));`);
   return lines.join("\n");
