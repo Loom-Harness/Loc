@@ -184,7 +184,13 @@ describe("enrichment — idempotency", () => {
     });
   });
 
-  it("omits a subscription for an event no channel carries (channel-routed)", async () => {
+  // **D-PROJECTION-IMPLICIT-SUB**: an `on(e: E)` IS the subscription.  This case
+  // used to assert the opposite — that an event no `channel` carries yields NO
+  // subscription — which is what left the handler unemitted on every backend
+  // (ledger `G2646-open-projection-on-event-no-channel`).  It now pins the
+  // implicit subscription AND the fact that `channel` still reports the carrier
+  // when there is one, since that field is what a broker-bound emitter reads.
+  it("derives an IMPLICIT subscription for an event no channel carries", async () => {
     const SRC = `
       context Sales {
         aggregate Order { total: int }
@@ -199,10 +205,17 @@ describe("enrichment — idempotency", () => {
       }`;
     const loom = await buildLoomModel(SRC);
     const ctx = allContexts(loom).find((c) => c.name === "Sales")!;
-    expect(ctx.eventSubscriptions.some((s) => s.event === "Ignored")).toBe(false);
+    const sub = ctx.eventSubscriptions.find((s) => s.event === "Ignored");
+    expect(sub, "the uncarried consumer must still subscribe").toBeDefined();
+    expect(sub?.channel, "…with no carrier named").toBeUndefined();
+    expect(sub).toMatchObject({ workflow: "W", trigger: "on", param: "i" });
   });
 
-  it("yields [] for a channel-less context (byte-identical / Noop path)", async () => {
+  // Still `[]` — but now because `SRC` declares no event CONSUMER at all, not
+  // because it declares no channel.  (The distinction is the whole of
+  // D-PROJECTION-IMPLICIT-SUB; keeping the case pins the Noop-dispatcher path
+  // for a context that genuinely has nothing to dispatch.)
+  it("yields [] for a context with no event consumer (byte-identical / Noop path)", async () => {
     const loom = await buildLoomModel(SRC);
     for (const ctx of allContexts(loom)) {
       expect(ctx.eventSubscriptions).toEqual([]);

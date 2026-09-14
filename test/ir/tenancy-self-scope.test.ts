@@ -239,7 +239,7 @@ describe("loom.tenancy-claim-type-mismatch", () => {
 });
 
 describe("registry filter trips the principal-filter auth gate", () => {
-  it("errors loom.context-filter-unsupported when the hosting deployable has no auth", async () => {
+  it("errors loom.context-filter-no-principal when the hosting deployable has no auth", async () => {
     const { model } = await parseString(
       `
       system Billder {
@@ -266,7 +266,7 @@ describe("registry filter trips the principal-filter auth gate", () => {
       { validate: false },
     );
     const diags = validateLoomModel(enrichLoomModel(lowerModel(model))).filter(
-      (d) => d.code === "loom.context-filter-unsupported",
+      (d) => d.code === "loom.context-filter-no-principal",
     );
     expect(diags).toHaveLength(1);
     expect(diags[0]!.message).toContain("Organization");

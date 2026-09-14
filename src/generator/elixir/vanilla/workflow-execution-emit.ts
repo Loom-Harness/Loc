@@ -816,7 +816,7 @@ export function opCallParamFields(
  *  (domain-services.md rev. 4).  Threaded onto the workflow render context so a
  *  `reading` service call renders as a context fn (decision B); a `pure` call
  *  (or an unresolvable ref) keeps the `Domain.Services` module shape. */
-function lookupServiceTier(
+export function lookupServiceTier(
   ctx: BoundedContextIR,
   service: string,
   opName: string,
