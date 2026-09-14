@@ -19,7 +19,12 @@ import { API_BASE_PATH } from "../../util/api-base.js";
 import { humanize, lowerFirst, snake } from "../../util/naming.js";
 import { buildApiModule } from "../_frontend/api-module.js";
 import { AUTH_GATE_TSX, AUTH_SESSION_TS } from "../_frontend/auth-ui.js";
-import { renderI18nModule, renderLocaleCatalog } from "../_frontend/i18n-runtime.js";
+import {
+  renderI18nModule,
+  renderLocaleCatalog,
+  renderTranslatedCatalogs,
+  type TranslationCatalogs,
+} from "../_frontend/i18n-runtime.js";
 import { LIB_SCHEMAS_PROV_TS, PROV_LINEAGE_SCHEMA_BLOCK } from "../_frontend/lib-schemas.js";
 import { MONEY_TEXT_SOURCE } from "../_frontend/money-format.js";
 import { buildPageModuleIndex } from "../_frontend/page-identity.js";
@@ -112,6 +117,12 @@ export interface GenerateReactOptions {
    *  `emitPagesForUi`'s context so the page/component loop can record
    *  whole-file regions alongside each `out.set(...)`. */
   sourcemap?: SourceMapRecorder;
+  /** Translated locale catalogs from the `ddd i18n` translator tree, keyed by
+   *  locale tag — see `PlatformSurface.emitProject`'s `translations`.  Each is
+   *  emitted as `src/locales/<locale>.json` beside `en.json` and registered in the
+   *  generated i18n shim, under the SAME `i18nEnabled` gate as `en.json`.
+   *  Absent / empty is the normal case → byte-identical output. */
+  translations?: TranslationCatalogs;
 }
 
 export function generateReactForContexts(
@@ -226,8 +237,17 @@ export function generateReactForContexts(
     i18nEnabled,
   };
   if (i18nEnabled) {
+    // The source-language catalog, then every TRANSLATED catalog `ddd i18n`
+    // produced (scoped to this ui's keys, `TODO:` values already dropped by
+    // the loader).  The shim imports and registers exactly the locales emitted
+    // here, so what the translator wrote is what the app can resolve — with no
+    // translator tree the list is empty and the shim is byte-identical.
     out.set("src/locales/en.json", renderLocaleCatalog(ui, packChrome));
-    out.set("src/i18n.ts", renderI18nModule());
+    const translated = renderTranslatedCatalogs(ui, options.translations, packChrome);
+    for (const [locale, content] of translated) {
+      out.set(`src/locales/${locale}.json`, content);
+    }
+    out.set("src/i18n.ts", renderI18nModule([...translated.keys()]));
   }
   const pages = emitPagesForUi(ui, emitCtx);
   for (const [path, content] of pages) out.set(path, content);

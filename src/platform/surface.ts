@@ -277,6 +277,15 @@ export interface PlatformSurface extends PlatformDescriptor {
      *  phase 6a); platforms without one simply ignore it.  No effect
      *  unless `sourcemap` is also present (same honest-skip convention). */
     sourceTexts?: ReadonlyMap<string, string>;
+    /** Translated locale catalogs from the `ddd i18n` translator tree, keyed
+     *  by locale tag (`de`, `pt-BR`), supplied by the caller that owns a
+     *  filesystem (the CLI's `loadTranslations`; the playground's VFS).  A
+     *  frontend platform with a JSON-file translation runtime emits one
+     *  `src/locales/<locale>.json` per entry — scoped to its own ui's keys —
+     *  and registers each in the generated `src/i18n.ts`.  Every backend
+     *  platform, and the three frontends that compile their catalog into
+     *  source (Phoenix/HEEx, Feliz, Flutter), ignore it. */
+    translations?: ReadonlyMap<string, Record<string, string>>;
   }): Map<string, string>;
   /** Inputs for the deployable's docker-compose service stanza. */
   composeService(args: {
