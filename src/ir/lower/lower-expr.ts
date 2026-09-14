@@ -69,6 +69,7 @@ import { isIntrinsicMatcher } from "../../util/intrinsic-matchers.js";
 import { intrinsicFor, intrinsicReturnType } from "../../util/intrinsics.js";
 import { PRINCIPAL_ORG_PATH, PRINCIPAL_ROOT_ORG } from "../../util/principal.js";
 import { durationUnitOf } from "../../util/temporal.js";
+import { isWalkerPrimitive } from "../../util/walker-primitive-names.js";
 import { findVerb, type ResourceVerbDef } from "../resource-verbs.js";
 import { variantTag } from "../stdlib/unions.js";
 import type {
@@ -901,6 +902,42 @@ function applySuffixToRecv(
         return { recv: orExpr, recvType: bool };
       }
     }
+    // `this.<fn>(args)` / `this.<op>(args)` — an EXPLICIT self-call on an
+    // aggregate-local `function` or `operation`.  The bare spelling
+    // (`strictfp(x)`) lowers above to a `call` with `callKind: "function"` /
+    // `"private-operation"`, which every backend renders against the helper's
+    // DEF-SITE name (python `self._strictfp`, java `this.strictfp_`, elixir
+    // `strictfp(record, …)`).  The dotted spelling used to fall through to a
+    // generic `method-call` on a `this` receiver, so the backends whose def-site
+    // name differs from the declared one rendered a member that does not exist
+    // (python `AttributeError: 'Ticket' object has no attribute 'strictfp'`,
+    // elixir `record.strictfp(x)` on a struct) — the two spellings of one call
+    // must produce one IR shape.  A `this.<collectionOp>(…)` (e.g. a VO with a
+    // `contains` member) is left to the collection-op path, and an unresolved
+    // name stays a `method-call` so the validator can report it.
+    if (recv.kind === "this" && !collectionOp) {
+      const selfKind = resolveCallKind(ms.member, env);
+      if (selfKind === "function" || selfKind === "private-operation") {
+        const callIR: ExprIR = {
+          kind: "call",
+          callKind: selfKind,
+          name: ms.member,
+          args,
+          ...(argNames.some((n) => n !== undefined) ? { argNames } : {}),
+          ...(selfKind === "private-operation"
+            ? { targetPrivate: findOperationInEnv(env, ms.member)?.private ?? false }
+            : {}),
+        };
+        const fn = findFunctionInEnv(env, ms.member);
+        const op = fn ? undefined : findOperationInEnv(env, ms.member);
+        const resultType: TypeIR = fn
+          ? lowerType(fn.returnType)
+          : op?.returnType
+            ? lowerType(op.returnType, env)
+            : { kind: "primitive", name: "string" };
+        return { recv: callIR, recvType: resultType };
+      }
+    }
     const mcIR: ExprIR = {
       kind: "method-call",
       receiver: recv,
@@ -1334,7 +1371,9 @@ function lowerExprInner(expr: Expression | undefined, env: Env): ExprIR {
  *      dispatches by name on the resulting CallIR. */
 function lowerBuilderCall(expr: BuilderCall, env: Env): ExprIR {
   const name = expr.type;
-  const vo = findValueObjectByName(env, name);
+  // Inside a `ui` body the walker stdlib owns the name (see `Env.ui`): a
+  // domain `valueobject Money` must not capture the `Money` page primitive.
+  const vo = env.ui && isWalkerPrimitive(name) ? undefined : findValueObjectByName(env, name);
   if (vo) {
     // Carry the value object's declared field order so backends that need
     // named construction (Phoenix `%Mod.VO{field: …}` structs) always have
@@ -1394,7 +1433,7 @@ function lowerBuilderCall(expr: BuilderCall, env: Env): ExprIR {
 
 function inferBuilderCallType(expr: BuilderCall, env: Env): TypeIR {
   const name = expr.type;
-  const vo = findValueObjectByName(env, name);
+  const vo = env.ui && isWalkerPrimitive(name) ? undefined : findValueObjectByName(env, name);
   if (vo) return { kind: "valueobject", name };
   const ent = findEntityByName(env, name);
   if (ent) return { kind: "entity", name };
@@ -2020,14 +2059,7 @@ export function inferExprType(expr: Expression | undefined, env: Env): TypeIR {
     return { kind: "array", element: elementType };
   }
   if (isNowExpr(expr)) return { kind: "primitive", name: "datetime" };
-  if (isThisRef(expr)) {
-    if (env.part) return { kind: "entity", name: env.part.name };
-    if (env.aggregate) return { kind: "entity", name: env.aggregate.name };
-    if (env.valueObject) return { kind: "valueobject", name: env.valueObject.name };
-    if (env.workflow) return { kind: "entity", name: env.workflow.name };
-    if (env.projection) return { kind: "entity", name: env.projection.name };
-    return { kind: "primitive", name: "string" };
-  }
+  if (isThisRef(expr)) return thisTypeOf(env);
   if (isIdRef(expr)) {
     if (env.part) return { kind: "id", targetName: env.part.name, valueType: "guid" };
     if (env.aggregate) {
@@ -2628,8 +2660,11 @@ function memberType(t: TypeIR, name: string, env: Env): TypeIR {
   // `currentUser.<field>` — synthetic entity backed by the system's
   // user block.  Walked via env.user.fields rather than the
   // bounded-context registry.  Unknown members fall through to the
-  // string fallback; the validator will surface the broken reference
-  // with a friendlier message.
+  // string fallback — the AST validator has already rejected a
+  // source-written one (`loom.unknown-user-claim`,
+  // `validators/types.ts` → `absentUserClaim`), so what still reaches
+  // here is a macro/capability splice whose principal side phase ⑥
+  // rebinds (`tenantOwned`'s `currentUser.tenantId` placeholder).
   if (t.kind === "entity" && t.name === USER_SHAPE_NAME && env.user) {
     // `currentUser.orgPath` — the derived tenant materialized-path member
     // (tenancy.md).  Not a `user {}` claim; computed per
@@ -2938,12 +2973,40 @@ export function provSiteFor(
   };
 }
 
-export function pathType(path: PathIR, env: Env): TypeIR {
+/**
+ * Type of the `this` receiver in the current env — the enclosing entity part,
+ * aggregate, value object, workflow or projection, in that shadowing order.
+ * Shared by `inferExprType`'s `ThisRef` arm and the statement lowerer's
+ * `this.<prop>.<verb>(…)` path so the two cannot disagree about what `this` is.
+ */
+export function thisTypeOf(env: Env): TypeIR {
+  if (env.part) return { kind: "entity", name: env.part.name };
+  if (env.aggregate) return { kind: "entity", name: env.aggregate.name };
+  if (env.valueObject) return { kind: "valueobject", name: env.valueObject.name };
+  if (env.workflow) return { kind: "entity", name: env.workflow.name };
+  if (env.projection) return { kind: "entity", name: env.projection.name };
+  return { kind: "primitive", name: "string" };
+}
+
+/**
+ * Type of an assignment target path.
+ *
+ * `thisRooted` says the SOURCE spelled the path `this.x` rather than `x`.  A
+ * `PathIR` is always rooted in `this` either way (see its doc comment), but the
+ * two spellings resolve their HEAD differently: the implicit form has always
+ * consulted locals first — which is what lets `count := count + 1` read a
+ * `let count` — while the explicit form must not, because naming the field is
+ * the entire reason to write it.  Without the distinction,
+ * `this.total := 0.50` inside `operation adjust(total: decimal)` would take the
+ * PARAMETER's `decimal` as its target type and drop the money elaboration the
+ * `total: money` field calls for.
+ */
+export function pathType(path: PathIR, env: Env, thisRooted = false): TypeIR {
   if (path.segments.length === 0) return { kind: "primitive", name: "string" };
   const head = path.segments[0]!;
   let cur: TypeIR;
-  // Try locals
-  const local = env.locals.get(head);
+  // Try locals — unless the source rooted the path in `this.` explicitly.
+  const local = thisRooted ? undefined : env.locals.get(head);
   if (local) cur = local.type;
   else if (env.aggregate) cur = memberOnEntity(env.aggregate, head);
   else if (env.workflow) cur = memberOnWorkflow(env.workflow, head);

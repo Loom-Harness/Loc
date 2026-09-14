@@ -16,19 +16,30 @@ Two adjacent gaps drained with it: (a) a `Money[]` value-object *collection* on 
 Remaining rows of the old gap register (re-verified 2026-07-13): **§12 residual** document-shape gate still rejects audited/provenanced ops, collection mutation, derived reads (blocked on shared bug #1765), dereferenced-entity members, paged/union finds — drain or leave honestly gated; **§14 tail** audit `wireSnapshot` + `WorkflowsController` `serialize/1` snake_case leak; **§13** LiveView action-button auth not actor-threaded from `socket.assigns`; Phoenix OpenAPI surface for workflow-instance views.
 
 **Register re-verified again 2026-08-14** (docs-only pass, `ae0cb24`) — two corrections to the paragraph above: (a) the **§14 tail is four sites, not two** — `workflow-execution-emit.ts` and `audit-emit.ts` as listed, **plus** `explicit-handlers-emit.ts` (the same `defp serialize(%_{} = struct)` dump on the explicit query/command-handler controller; the file postdates the original count) and a deliberate, in-code-documented carve-out in `eventsourced-emit.ts` (an ES aggregate carrying a **ref collection** keeps the raw dump, because `__ref_ids/1`'s Ecto-assoc semantics don't hold for an in-memory fold). The workflow + explicit-handler serializers are being drained now. (b) the **§12 collection-mutation** clause can no longer lean on "gated upstream by `loom.vanilla-containment-unsupported` anyway" — that gate is retired (see the §11c drain above), so the clause stands on its own. Also confirmed spent and marked as such in the archived doc: §11's "To restore the gate" block (the 5-backend `conformance-parity` flip has landed — `examples/showcase.ddd` carries `platform: elixir`, no skip variable in the workflow), §2's remaining ask (now **inverted** — the wire settled on an *untagged* success record and `union-wire-parity.test.ts` pins that, so acting on the row would regress union parity) and §4's dead-Ash-arm cleanup (done; `relationshipNameFor` has zero occurrences).
+
+> **§13 and §14 RE-VERIFIED DRAINED 2026-09-13 (wave C2, packet 2a); no code.** Both were re-run
+> against emitted output on this head rather than read off a PR body.
+>
+> **§14 (`serialize/1` snake_case tail) — drained at all four sites.** The deployable-level
+> controllers now DISPATCH per aggregate through `wireShape`: `controller-serialize.ts` emits one
+> `defp serialize(%<App>.<Ctx>.<Agg>{} = record), do: serialize_<ctx>_<agg>(record)` head per hosted
+> aggregate ahead of the `%_{}` raw-struct clause, which survives only as the last-resort arm for a
+> NON-aggregate struct a handler can return. Generated `workflows_controller.ex` confirms the
+> shape. The audit arm is drained the same way: every live `wireSnapshot(...)` call site
+> (`context-emit.ts:1203,1392`, `operation-returns-emit.ts:713,909`, `document-emit.ts:914,946,1068,1145`)
+> passes `appModule`, so the function's legacy raw-dump branch is unreachable and the snapshot rides
+> `<App>.Audit.Wire.wire/1` — the same `wireShape` dispatcher the create/destroy snapshot uses. The
+> `eventsourced-emit.ts` ref-collection carve-out stays, documented in code.
+>
+> **§13 (LiveView action-button auth not actor-threaded) — drained on both halves.** The BUTTON is
+> gated (`heex-walker-core.ts:1073` `gateActionButton` wraps it in
+> `<%= if (@current_user.role == "manager") do %>` when every `requires` on the op is
+> currentUser-only), and the HANDLER threads the actor:
+> `PhoenixApp.Sales.confirm_customer!(record, Map.get(socket.assigns, :current_user))`. Re-derived
+> by generating `vanilla-auth-op-gate.ddd` and reading `detail_live.ex`, not from the fixture's own
+> comment. §12's document clauses are the live remainder — see M-T6.35, whose DERIVED-read clause
+> drained in the same packet.
 Sources: [vanilla-phoenix-gaps](../old/plans/vanilla-phoenix-gaps.md) §11c/§12/§13/§14, [vanilla-document-route-a](../old/plans/vanilla-document-route-a.md).
-
-## M-T6.3 — Phoenix output hygiene: `mix format` + Dialyzer gates — `deferred` (slice 1 landed) · **L (was M)** · P2
-**Slice 1 landed** (`.formatter.exs` scoping): the generated `lib/<app>_web/api/**` OpenApiSpex layer (`<api>_spec.ex` spec module + request/response schema modules) is a machine-emitted nested-struct literal `mix format` reflows by width — **~73% of the whole format diff** on a broad project, never hand-edited — and is now excluded from the format gate via a computed `inputs` (rejects the `_web/api/` subtree, correct for any app name; `renderVanillaFormatterExs`, `shell-emit.ts`).
-
-**Gate activation deferred** after a source-grounded scoping (2026-07-21, real `mix format` in the `hexpm/elixir` image, api_spec excluded):
-- `mix format` is **deliberately non-configurable** — no per-rule toggles, no `# format: off` ignore comments/regions. The only dials are `line_length`, `locals_without_parens`, and which files are checked. So the "un-handy" rules (blank-line insertion, `case`-clause consistency, call-wrapping) **cannot be suppressed by config**.
-- `line_length` is the one lever for the dominant width-driven wrapping, but it **plateaus**: on the `vanilla-workflows` fixture the churn falls 447→253 diff-lines (98→200) then flattens — an **irreducible ~250-line / 20-file structural residual** (blank lines + clause consistency + un-wrapping emitter pre-wraps) no config reaches. Pushing `line_length` past ~150 also just trades wrap-churn for collapse-churn and leaves 150-col lines.
-- Closing the residual means teaching **~10 emitters** (controllers, context, changeset, telemetry, boilerplate, workflows) to replicate the formatter's width + blank-line + clause rules — an **L grind, and brittle**: every future Elixir-emitter edit can silently re-break the all-or-nothing gate, re-checkable only via the slow docker+hex-mirror `mix format` loop. Payoff is cosmetic — generated Elixir already compiles `mix compile --warnings-as-errors` clean.
-- **Decision: defer the gate** (same disposition as M-T6.20 — L/risky for a narrow benefit). Reassess if a cheaper mechanism appears (e.g. a real ignore-comment lands in Elixir, or the emitters gain a shared format-aware line builder). Dialyzer/Credo remain future nightly-only.
-
-Reusable tooling from the scoping: a real-formatter diff loop (`startHexMirror` → `generate system` → `mix format` with `import_deps` resolved → diff) makes the grind a measure-fix-remeasure cycle if picked up.
-Sources: [vanilla-phoenix-gaps](../old/plans/vanilla-phoenix-gaps.md) §7, [static-analysis-followups](../old/proposals/static-analysis-followups.md) Slices 1–2.
 
 ## M-T6.11 — Reserved compose slots (was: `PlatformSurface` hooks, DEBT-27) — `blocked(T3/T4 features)` · — · P3
 **Corrected 2026-08-14 — the five hooks this mission named do not exist.** `PlatformSurface` (`src/platform/surface.ts`) declares exactly one `emit*` method, `emitProject`; `emitAuthGate` / `emitCompliancePolicy` / `emitTenancyFilter` have zero occurrences anywhere in `src/`, and `emitAuditInit` / `emitI18nAdapter` survive only inside the doc comments of the slots below (a dangling reference worth scrubbing when someone next touches that file).
@@ -39,113 +50,55 @@ Disposition unchanged: don't build speculatively — each slot fills when its ow
 Doc-level `x-tagGroups` per served `api` across the five backends (design audited + simulated; resolve decision (f) on .NET/Java per-op tags first).
 Sources: [api-openapi-tag-grouping](../old/proposals/api-openapi-tag-grouping.md), ddd-review api-grouping gap.
 
-## M-T6.14 — Small parity leftovers — `open` · **S** · P3
-DEBT-12 Phoenix `verify_token` niche; DEBT-08 `envelope` carrier (deferred — no live use; signpost via M-T5.9a); saga/projection EF `HasColumnName` correlation-column bug (from S7 Slice C review); domain-seam log-catalog §3 residue ⚠ partly stale.
+## M-T6.14 — Small parity leftovers — `partial` (DEBT-12 closed 2026-09-13, wave C2 packet 2a) · **S** · P3
 
-## M-T6.26 — `= default` / required-input parity across create & update paths — `partial` · **S** · P2
-*(Renumbered from the placeholder "M-T6.x" and re-statused 2026-08-05 — `landed` isn't a legend status. Create-path parity is done (below, #2377); the update-path halves landed via #2392 ("a default never relaxes an update" — Elixir enforced less than promised, Java rejected what it advertised); the remaining residue is fixed and awaiting merge as PR #2440 — Elixir accepts a PUT that omits a required field (presence is a deserialization question there too), with retro §80 (PR #2415, also awaiting merge) as its documentation twin.)*
+> **DEBT-12 (Phoenix `verify_token`) — VERIFIED SHIPPED 2026-09-13 (wave C2, packet 2a); no code.** Re-run against `src/generator/elixir/auth-emit.ts` on this head, all three of the debt entry's items are emitted: the `verify_token/1` auth helper in BOTH modes — a real OIDC verifier delegating to `<App>Web.Auth.Token` (joken + joken_jwks against the issuer's cached JWKS, `:515-562`) when the system declares `auth { oidc }`, and the permissive dev stub matching the Hono / .NET dev-stub verifiers otherwise (`:331`, `:343`) — the `requires` guard, which is no longer bind-only (`liveview-emit.ts` renders the find's, the projection's and the operation's gate: `:235`, `:281`, `:745`, plus the `live_auth.ex` `on_mount` page gate), and new-parts-in-body, which `debt-prioritized-backlog.md:69` already recorded as shipped (`renderNew` in `heex-walker-core.ts`). Compile-gated by `vanilla-auth-oidc.ddd` / `vanilla-auth-op-gate.ddd` / `vanilla-auth-menu-gate.ddd`. The row was stale, not open. (`auth-emit.ts` is also in-flight on PR #2900, so this close is deliberately documentation-only.)
 
-Surfaced 2026-08-01 by the `audited` corpus fixture in the behavioral tier, not
-by anything audit-specific.
+## M-T6.35 — Persistence-adapter capability gaps — `open`; the `#migrations` + `#schema-*` sub-codes moved to M-T2.17 · **M** · P2
 
-A field declared with a default — `status: int = 0` — is treated as **optional
-create input** on node (`z.coerce.number().int().default(0)`, so `POST` without
-it succeeds) but the Elixir changeset still `validate_required`s it, so the same
-request 422s with `{"pointer":"/status","message":"can't be blank"}`.
+> **Wave C2 packet 2b drained two of this mission's clauses and re-homed three.**
+> **`loom.dapper-unsupported#deep-scope` is CLOSED** — a hierarchical
+> (`deep`/`global`) tenancy scope filter renders on the Dapper adapter
+> (`authzFilterToSql`'s `scope` arm, `src/generator/dotnet/emit/dapper.ts`), the
+> `DAPPER_UNSUPPORTED` corpus entry and its `allowlist-ratchet` pin drained to
+> zero with it, and `test/e2e/tenancy-hierarchy-dapper.test.ts` proves the subtree
+> / delimiter-trap / wildcard-trap reads on a booted backend against a real
+> Postgres. The refusal's stated reason — that the sentinel's principal claims
+> could not be bound — was a property of the hand-rolled principal-ref collector,
+> not of raw SQL; the collector now rides `walkExprDeep` and contributes them by
+> kind. **`loom.find-predicate-unsupported` on DAPPER was already drained** before
+> this review and is not work: `DAPPER_SUBSET = FULL_SUBSET`
+> (`src/ir/util/find-predicate-capability.ts`), so that code narrows mikroorm
+> only. **`#migrations` and `#schema-split`/`#schema-ignored` moved to
+> [M-T2.17](T2-data-evolution.md#m-t217)** — they are one seam (the boot-time
+> schema owner), the ruling on them is `D-DAPPER-ALTER`, and they close on a
+> `test:migration-evolution-dapper` leg rather than on anything in this mission.
 
-Same `.ddd`, same create call, different contract — a wire-level divergence the
-per-PR compile gates cannot see (both backends compile fine) and which the
-wire-golden differential misses because the request never reaches a comparable
-response. It took a behavioral run on the elixir leg to expose it.
-
-**Expected:** `= default` means "the client may omit this; the server supplies
-the value" on every backend. Fix is in the Elixir changeset emission — a
-defaulted field must be dropped from the required set.
-
-Check the other three backends (python/java/dotnet) before closing: only node
-and elixir were observed here, so the split may be wider than 1-vs-1.
-
-**Landed.** The split was **4-vs-1**, not 1-vs-1: python (`status: int = 0`),
-java (`RequiredSet("CreateThingRequest", ["name"])`) and dotnet
-(`int Status = 0`) already agreed with node. Elixir was the sole outlier —
-`changeset-emit.ts` derived its required set from `!f.optional`, ignoring both
-the explicit `= default` and the bare-`bool` implicit default, while the IR had
-already reified the rule as `CreateInputFieldIR.requiredInput`. Fixed by
-consuming it (`isRequiredCreateInput`, now exported alongside a new
-`isRequiredUpdateInput` for the PATCH seam).
-
-> **Correction (2026-08-03).** The CREATE half of this is sound and
-> runtime-proven. The UPDATE half shipped defective and the sentence that used
-> to stand here — "an explicit default stays required and only the bool
-> relaxation applies" — described the intent, not the code: `isRequiredUpdateInput`
-> tested `hasImplicitDefault` (a *create*-input predicate) first, so it returned
-> `false` for **any** `bool`, explicit default or not. `active: bool = true` came
-> back omittable and Elixir's changeset stopped enforcing a field its own
-> OpenApiSpex schema still advertised. #2392 (landed) fixed the predicate to
-> `!isNullable(f)` — only optionality relaxes an update, which is RS-26 (#2329) —
-> and found a sibling Java create-seam defect on the way (`emit/dto.ts` re-derived
-> omittability as `f.optional || f.default != null`, missing the bare `bool`).
-> The docstring, this entry and #2377's PR description all stated the rule
-> correctly while one line of code did not; see `experience_gathered.md` §80.
->
-> **Residual, still open** (re-verified on `main` after #2392 landed). It makes
-> the emitted artifacts agree, but the
-> cross-backend divergence survives it: `@update_required` is not enforcement on
-> the update seam. Ecto's `validate_required` resolves through `get_field`,
-> which falls back to the loaded row, so an omitted key is invisible — verified
-> against real Ecto (`omit active+flag against a stored row → valid?=true`).
-> Nothing upstream compensates (router is `plug :accepts, ["json"]`, no
-> `OpenApiSpex.Plug.CastAndValidate`; the controller passes raw params through).
-> A `PUT` omitting the field still answers **204 on Elixir, 422 on the other
-> four**. Fixed in PR #2440 (awaiting merge): `update_changeset/2` checks
-> presence against the raw attrs before `cast`, roughly where the create path
-> already coalesces defaults, using `validate_required/2`'s own error shape so
-> `ProblemDetails` still renders 422 `{"pointer":"/<field>"}` unchanged.
-> Coverage measured across the corpus: 55 of 56 changesets take the check; the
-> document aggregate (separate `cast_embed` emitter) is flagged, not claimed.
-
-Two findings worth keeping:
-
-- **The reported repro under-stated the fix.** `status: int = 0` alone did NOT
-  422: a *literal* default is also emitted as the Ecto schema `default:`, so
-  `%Agg{}` already carried it and `validate_required` passed by accident. The
-  shapes that actually failed were the ones no schema default covers — a bare
-  `bool` and an **enum-valued** default (`renderEctoDefault` returns null for
-  both). Dropping them from `validate_required` is only half the fix; the
-  column is `null: false`, so the changeset now also applies the declared value
-  via a `__default/3` step after `cast` (which additionally covers an explicit
-  `null` in the body). Server-sourced defaults (`now()`/`currentUser.*`) keep
-  their existing controller-side params coalesce.
-- **Why every gate was blind.** Compile tier: both backends build. Wire-golden
-  differential: the request 422s before producing a comparable response. And
-  the OpenAPI parity gate too — Elixir's own *spec* emitter already used the
-  correct rule (`wireCreateDefault`), so the disagreement was between Elixir's
-  published contract and Elixir's runtime enforcement, which no spec-vs-spec
-  diff can see. New gate `test/conformance/create-required-parity.test.ts`
-  therefore asserts each backend's **enforcement** surface (changeset / DTO /
-  validator) against the canonical `requiredInput` set — verified to fail on
-  the pre-fix emitter. `test/fixtures/corpus/audited.ddd` now OMITS the
-  defaulted field from its `test e2e` create call, making the behavioral legs
-  the runtime half of the same gate.
-
-Not addressed (noted, out of scope): the emitted `change_<create>/1` helper
-derives its required set from the create action's *params*, which for a
-`crudish` aggregate do not carry the field-level `default` — so it still
-over-requires. It has no caller in generated code (every write path goes
-through `base_changeset`); threading defaults onto crudish create params would
-ripple through every param-driven surface on all five backends.
-
-## M-T6.35 — Persistence-adapter capability gaps — `open`; the `#migrations` sub-code is `blocked(D-DAPPER-ALTER)` · **M** · P2
 The non-default persistence adapters reject shapes their EF/Ecto siblings accept: `loom.dapper-unsupported` (features Dapper does not emit), `loom.find-predicate-unsupported` (a find predicate the active adapter cannot lower), `loom.saving-shape-unsupported` (a `shape(...)` the hosting backend cannot persist — **re-classified 2026-09-03**: dormant, not live — every platform key in `PLATFORM_SAVING_SHAPES` already lists all three shapes, and a platform absent from the map is skipped rather than flagged, so this is an unreachable backstop, not a seam any live target trips), `loom.vanilla-document-unsupported` (`shape: document` only partly emitted on Elixir), and — **inherited 2026-08-24 from the now-`done` M-T6.23** — `loom.mikroorm-unsupported`, whose only surviving raiser is the migration-chain one (`migration-checks.ts` `#migrations`: neither MikroORM's `orm.schema.updateSchema()` nor Dapper's boot-time `CREATE TABLE IF NOT EXISTS` can apply a declared migration step, so a rename resolves as DROP + ADD or silently never runs — the `loom.dapper-unsupported#migrations` twin is the same shape). The adapter axis is where "all targets support the whole surface" costs the most, because each adapter multiplies the matrix again — worth confirming per row whether the adapter *cannot* express the shape (a permanent limit, so a rename) or merely *does not yet* (a gap). **`loom.persistence-mode-unsupported` moved OFF this mission 2026-09-03** — it never fit here: `validateDataSourceCoverage` refuses a hosted aggregate whose deployable declares no matching `dataSource` at all, which is a missing binding, not an adapter capability limit. It is now owned by M-T2.9 (the storage-config tail, where the `dataSource`-binding axis already lives).
+
+> **`vanilla-document-unsupported`'s DERIVED-read clause drained 2026-09-13 (wave C2, packet 2a).**
+> `docExprUnsupported` (`src/ir/validate/checks/datasource-checks.ts:316`) refused a
+> `refKind: "this-derived"` outright, reasoning from "a derived is not persisted, so there is no
+> `data` key to read". True, and irrelevant: `render-expr.ts:446` INLINES a `this-derived` read on
+> EVERY vanilla path, because an Elixir struct carries no computed field either (#1765) — so the
+> document op body renders `((record.item_count * record.unit_price) + …)` off the rehydrated embed,
+> exactly as the relational path does. The gate now recurses into the referenced derived
+> (cycle-guarded), so the read is refused only when that derived's own expression is. Verified by
+> running the repro both ways; compile-gated by the extended `vanilla-document.ddd` (a two-deep
+> chain read from an op guard); pinned in `test/ir/saving-shape-support.test.ts` in BOTH directions —
+> a derived over stored fields is accepted, a derived over a value-object METHOD call (which the
+> blob's bare map cannot serve) is still refused, and the mutation that replaces the recursion with
+> a bare `return false` fails exactly that second case. The rest of the residue — a PROVENANCED op,
+> a dereferenced cross-aggregate read, a VO/private/service/resource call, a REFERENCE collection —
+> is untouched and still honestly gated.
+
+**Wave C2 packet 2c — the mikroorm rows, re-verified by RUNNING each repro and dispositioned one at a time** (2026-09-13):
+- **`loom.find-predicate-unsupported` on mikroorm: drained to one true shape.** The general `this.<refColl>.contains(x)` membership narrowing is GONE — its recorded reason ("needs a correlated join the adapter emits nowhere") was a claim about the EXISTS spelling, not the adapter. `containsMembershipFragment` (`src/generator/typescript/emit/mikroorm-filter.ts`) renders an uncorrelated `id in (select <ownerFk> from <joinTable> where <targetFk> = ?)` `raw()` fragment — the FilterQuery mirror of Dapper's EXISTS subquery and of drizzle's own `inArray` subselect — and the owning aggregate's `associations` are threaded to every site that can carry one (relational + embedded finds, retrievals, query-time projection filters, capability filters). Runtime-proven on a booted app against a real Postgres, with the drizzle adapter run as the oracle on the identical scenario (both answer the same two rows). What is LEFT is strictly smaller and true: a membership whose ARGUMENT is a column (`where o.tags.contains(o.id)`), which only a query-time projection `where` can produce, having no parameters to bind.
+- **`#migrations`: owner-ruled, not an adapter limit.** [D-DAPPER-ALTER](../decisions.md#d-dapper-alter--dapper-and-mikroorm-get-a-real-alter-path-in-phase--the-widened-refusal-lands-first) rules the mikroorm twin the same way as dapper — build the chain in phase ⑨ (T2 mission), with the widened post-baseline refusal landing first as the interim. The interim gate is ONE change shared with the dapper half, and phase ⑨ is outside 2c's tree: handed to the coordinator rather than raced.
+- **`#schema-split` / `#schema-ignored`: measured EXPRESSIBLE, and the reason the gap exists is narrow.** A MikroORM `EntitySchema` takes a `schema:` key and `updateSchema()` provisions it; the gap is that `renderMikroEntities` is never handed the per-aggregate `resolveDataSourceConfig` that the drizzle `renderSchema` already receives at the same call site (`src/platform/hono/v4/emit.ts:705` vs `:730`). Sized S–M with a booted-app proof required (`updateSchema` creating the Postgres schema); not built in 2c.
+- **A NEW finding, filed not fixed:** a query-time `projection … where <alias>.<refColl>.contains(<column>)` on a bare `platform: node` deployable validates clean and then CRASHES codegen ("could not lower to Drizzle, but the validator should have caught this"). The gate keys on `dep.persistence`, which a default deployable does not carry. Ledger row `drizzle-projection-membership-column-arg-crash`; the fix belongs in the target-neutral queryable check, not in an adapter descriptor.
+
 Sources: M-T9.27 register rows. Relates to M-T6.23 (mikroorm) and M-T6.25 (dapper query-time projections) — the same axis, already missioned.
-
-## M-T6.36 — Java emitter shape gaps — `open` (rewritten 2026-08-31) · **M** · P1
-**The two codes this mission was written about were PHANTOMS, and are gone.** `loom.java-projection-field-unsupported` and `loom.java-workflow-instance-field-unsupported` refused an ENTITY (containment-part) typed read-model field. Probing the premise before implementing showed there is nothing to implement: a part type resolves only inside its own aggregate (`src/language/ddd-scope.ts`), so `projection P { line: Line }` and `workflow W { line: Line }` both fail at phase ③ with `Could not resolve reference to NamedDecl named 'Line'` — on EVERY platform, before any java check runs. Two backend-named codes for a shape the LANGUAGE refuses: java read as uniquely limited, and the M-T9.27 register carried two rows nothing could ever drain. Both codes, their register rows, their catalogue entries and their census entries were deleted; the emitters keep their `guardInstanceField` / `guardProjectionField` throws as internal invariants, and `test/generator/java/generator-java-readmodel-gates.test.ts` now pins the unreachability AT THE SCOPE LAYER, so a widening of that rule fails a test instead of crashing codegen. `MAX_OPEN_GAPS` came down accordingly. (The VO-typed half of the original gap was already implemented by M-T6.4.)
-
-**What the mission now owns** is the one REAL java shape gap, inherited from F2-ADP-7's java arm: `loom.java-reserved-identifier-unsupported`. A `.ddd` field / param / operation named after a **Java reserved word** (`case`, `do`, `new`, `int`, …) used to emit `String case;` / `public String case() {` / `record TicketResponse(String case, …)` — uncompilable Java, with zero diagnostics, so the failure surfaced only in a compile tier. It is now refused (java-hosted contexts only; the other four backends are untouched).
-
-Draining it means EMITTING the name instead of refusing it, and the reason that is real work rather than a one-line escape is the language asymmetry the .NET arm hides: C# has verbatim identifiers, so `@case` is lexically `case` and the JSON property System.Text.Json derives is unchanged. Java has none (JLS §3.9), so the only escape is a rename — and a Java record component name IS the Jackson property name. So the fix is a mangled host identifier (`case_`, the spelling `escapeJavaIdent` already uses for LOCALS) **plus an explicit `@JsonProperty("case")` at every wire site**, applied consistently enough that no DTO is missed — a missed site is a silent wire divergence on java alone, which is strictly worse than the compile error. Delete the register row and lower `MAX_OPEN_GAPS` when it lands.
-Sources: M-T9.27 register rows; the 2026-08-30 targets ledger rows `M-T6.36` (premise found stale) and `F2-ADP-7` (java arm).
 
 ## M-T6.60 — Request-side numeric strictness diverges three ways: TWO need an owner ruling; the third (40-digit money → database 500) was an ordinary defect and is CLOSED by Wave C1 packet 1e-i — `blocked(D-NUMERIC-INGRESS-STRICT)` · **M** · P2
 
@@ -222,6 +175,79 @@ Sources: [language-docs-audit-2026-09-03](../audits/2026-09-03-language-docs-aud
 > zero `handle_event/3` clauses raises `FunctionClauseError` and kills the LiveView (audit F61).
 > **Split F23 out**: shipping the field set without the handler looks correct and still 500s, and its
 > only proving leg (`phoenix-ui-e2e`) is in neither the per-PR set nor the merge queue.
+
+> **F16 / F60 CLOSED 2026-09-13 (wave C2, packet 2a).** `derivedRenderable`
+> (`src/generator/elixir/vanilla/wire-serialize.ts:91`) now resolves a `this-derived` read instead
+> of refusing it: a derived that reads another derived projects exactly when the referenced
+> derived's own expression does, with a cycle guard. The renderer was never the blocker —
+> `render-expr.ts:446` already INLINES a `this-derived` read (an Elixir struct carries no computed
+> field, so `record.<name>` would raise `KeyError`, #1765); only the projection PREDICATE disagreed
+> with it. Resolution goes through the same `ctx.agg.derived` list the renderer consults, so a PART
+> or VALUE-OBJECT serializer — whose render ctx carries the parent aggregate — still declines rather
+> than claiming an inline the renderer would not produce.
+>
+> Gated by `test/generator/elixir/derived-wire-contract.test.ts` as the INVARIANT rather than the one
+> field: for every aggregate response schema in the generated project, `required:` must equal the key
+> set `serialize/1` emits — the expected value read off the OpenAPI the backend publishes, not off
+> the serializer's emitter. Compile fixture `vanilla-derived-chain.ddd` (three-deep chain, so the
+> recursion is exercised). BOOT-PROVED on real Postgres: `GET /api/orders/:id` and the paged list
+> both answer `{"subtotal":15,"withTax":30,"label":"n=30",…}`. Mutation: forcing the `this-derived`
+> arm back to `false` fails "sweeps every aggregate response schema in the project" and "projects a
+> derived that READS another derived".
+>
+> **RESIDUE, pinned as a characterization in the same file.** A derived whose chain bottoms out on an
+> aggregate `function` call keeps the identical self-contradicting contract, by a different
+> mechanism: `function-emit.ts` puts `def twice(%Order{} = record)` on the CONTEXT FACADE module,
+> which the controller hosting `serialize/1` does not host, so inlining would emit an unbound
+> `twice(record)`. Closing it means qualifying the call at this one site (a `RenderCtx` seam) AND
+> reconciling the document / part / value-object serializers, which pass a struct the facade's
+> guarded clause head does not accept — its own slice. F20 stays a DECISION (see above).
+
+> **F22 CLOSED 2026-09-13 (same packet).** Two HEEx emitters read strictly less of their call than
+> every other target. `renderImage` (`heex-primitives.ts:1541`) read only the NAMED `src:`/`alt:`, so
+> the positional shorthand the JSX walker renders (`Image { "/logo.png" }` — the same
+> first-positional-is-the-value rule Text / Money / EnumBadge follow) emitted an `<img>` with no
+> `src` at all, and `decorative: true` was dropped, so a decorative image announced itself to
+> assistive tech on LiveView alone. `renderIcon` (`:2205`) `void name`d its `name:` and emitted an
+> EMPTY `<span class="loom-icon">` — an element that reads on screen as a rendered icon — while the
+> builtin registry it needed was ALREADY imported in the same file (`renderButton`'s `icon:` arm
+> resolves through it), so the divergence was a missing call, not a missing capability. Both
+> refusals now match the JSX walker arm for arm (`#arg-missing` for nothing named, `#arg-invalid`
+> for a name the registry cannot resolve). Pinned by
+> `test/generator/elixir/heex-image-icon-positional.test.ts`, every claim stated against the REACT
+> emission of the same `.ddd`; mutation-proved twice (dropping the positional fallback; replacing
+> the registry lookup with `""`).
+
+> **F61 CLOSED 2026-09-13 (same packet, its own commit as the plan required).** The HEEx
+> `WorkflowForm` emitted one `<.input field={@form[:_placeholder]}>` AND `phx-submit="run_<wf>"`
+> with zero matching `handle_event/3` clauses — `renderCreateEventClauses` filters
+> `kind === "aggregate"`, which is why the workflow binding fell through it silently and a submit
+> raised `FunctionClauseError`, killing the LiveView. Now: `renderWorkflowForm`
+> (`heex-primitives.ts`) emits one typed `<.input>` per the workflow's command-triggered `create`
+> params (resolved through a new `WalkContext.workflowsByName`, derived at walker entry from
+> `bcByAggregate` exactly as `projectionsByName` is, so no caller threads a second registry), and
+> `renderWorkflowEventClauses` (`liveview-emit.ts`) emits the matching clause over
+> `<App>.<Ctx>.Workflows.<Wf>.run/1`. Three things the aggregate create path gets for free are done
+> by hand there: the `as:` prefix (`to_form(%{}, as: "<wf>")`, without which the params never arrive
+> under the key the clause matches), the REKEY (the form field is `snake(param)`, the workflow module
+> destructures the DECLARED name, so a multi-word param would bind `nil`), and COERCION via
+> `__wf_param/2` (a browser form submits strings; the HTTP route feeds the same `run/1` typed JSON,
+> and a workflow body uses its params directly — no Ecto `cast` in between).
+>
+> BOOT-PROVED on real Postgres: `handle_event/3` is exported (it did not exist), a submit of
+> all-string params runs the workflow inside its transaction, and the row Ecto writes is
+> `qty=3` (integer), `total=Decimal.new("9.99")`, `rush=true` — so the coercion and the
+> `unit_total` → `unitTotal` rekey are proved by the database, not by the emitter. A param-less
+> workflow's clause binds `_raw` and emits no coercer (an emitted-but-uncalled `defp` fails
+> `--warnings-as-errors`). Compile fixture `vanilla-workflow-form.ddd`; pinned by
+> `test/generator/elixir/heex-workflow-form.test.ts` (8 cases, the `as:` read off the mount and fed
+> back into the handler assertion so the two cannot drift); mutation-proved twice — removing the
+> `renderWorkflowEventClauses` call fails five cases, disabling the field branch fails two.
+>
+> **`phoenix-ui-e2e` is still the only leg that would drive this in a browser, and it is in neither
+> the per-PR set nor the merge queue** — the reason the plan split F61 out. The boot proof above
+> calls the emitted clause directly for exactly that reason.
+
 ## M-T6.57 — `envelope` means something different on each of the five backends — scope it before fixing it — `done` (option B ratified as [D-ENVELOPE-RATIFY](../decisions.md), landed 2026-09-10) · **S** · P0
 
 Found 2026-09-03 by the language-docs audit ([F21](../audits/2026-09-03-language-docs-audit-findings.md), P2). The repository layer carries `Envelope<T>` on dotnet and java; node/dotnet/java/python routes return the bare response; elixir's controller returns a JSON array. Five targets, no agreed meaning.
@@ -280,7 +306,7 @@ Sources: [language-docs-audit-2026-09-03](../audits/2026-09-03-language-docs-aud
 > A third, benign: the `envelope` carrier in a PAYLOAD FIELD (the other position the AST gate
 > admits) is unreachable — the monomorphized `<T>Envelope` payload has no builder, so nothing can
 > construct one.
-## M-T6.58 — `handle` and named `create` are lowered, test-pinned and promised by a diagnostic — but no backend emits an entry point — `blocked(D-HANDLE-REMOVAL)` · **L** · P1 ⚠ verify-first, route to `language-feature-developer`
+## M-T6.58 — `handle` and named `create` are lowered, test-pinned and promised by a diagnostic — but no backend emits an entry point — `partial` (the `handle` gate landed; named `create` + the emitter remain) · **L** · P1 ⚠ verify-first, route to `language-feature-developer`
 
 Found 2026-09-03 by the language-docs audit ([F13](../audits/2026-09-03-language-docs-audit-findings.md), P1) — the only finding in the register that is a *missing feature* rather than a defect. `src/ir/lower/lower-workflow.ts:124-174` fills `WorkflowIR.handlers`/`.creates`, `test/ir/workflow-handle.test.ts` pins the lowering, and `loom.duplicate-handler` (`src/diagnostics/messages.ts:310`) promises that a `route -> Ctx.<handle>` is meaningful — yet no emitter reads `wf.handlers`. A workflow with `handle retry(...)` plus `api { route POST "/fulfil/retry" -> C.retry }` produces no route on node or dotnet, and no routes file at all.
 
@@ -301,7 +327,29 @@ Sources: [language-docs-audit-2026-09-03](../audits/2026-09-03-language-docs-aud
 > face" — three places promise routing works, zero deliver. **Blocked on M-T6.62** (the workflow-`create`
 > miscompile; renumbered from M-T6.60 on 2026-09-10), which must land
 > first: option (a) would be built on a create path that miscompiles on all five.
-## M-T6.59 — Phoenix cannot render the `if` statement: an assigning branch would compile and do nothing — `open` · **M** · P2
+
+> **Option (b)'s `handle` half LANDED 2026-09-13 — M-T5.34 (#2864 D5, fleet decision D-1(c)).**
+> `handle name(…) { … }` is now refused by `loom.workflow-handle-unsupported`, and the three
+> places that promised routing works have been cut to zero: `docs/workflow.md`'s members table
+> and `docs/language-reference/13-workflows.md` §"create / handle" now say it is refused rather
+> than selling it as the multi-command saga surface, and `loom.duplicate-handler`'s message no
+> longer implies a `route -> Ctx.<handle>` is meaningful. `examples/showcase.ddd` gave up its
+> `handle reset()` (the showcase's contract is "validates with zero errors"), which is why
+> `HandleDecl` now sits in the showcase ALLOWLIST and the clause census's `UNAUTHORED_CLAUSES`
+> — both entries name this mission as their drain condition.
+>
+> **What is still open here, unchanged:** (1) the **named `create`** half — still dropped by
+> `lowerWorkflow` picking one primary, and deliberately NOT gated by M-T5.34 (a named
+> *event*-triggered create IS dispatcher-routed and works; only the named *command* form is
+> silent, so one gate would have been wrong for half the shapes); (2) the **addressing**
+> question this note already identified as the packet's real content — `HandleDecl` has no `by`
+> clause and `HandleIR` carries no correlation, so nothing says which saga instance a handler
+> runs against. M-T5.34 deliberately did not answer it: the ruling was that the SILENCE is the
+> bug, and the emitter is a feature decision taken with user sign-off. The mission is no longer
+> `blocked` on D-HANDLE-REMOVAL for the gate half — that decision is made — but the emitter half
+> still routes through `language-feature-developer`.
+
+## M-T6.59 — Phoenix cannot render the `if` statement: an assigning branch would compile and do nothing — `partial` (statement lands; three sub-shapes stay gated) · **M** · P2
 
 Raised 2026-09-03 by the M-FT.11 field-test slice, which added the `if <cond> { … } else { … }` statement to operation bodies. It renders on node / dotnet / java / python through the shared `_stmt/target.ts` spine; elixir is refused up front by `loom.elixir-if-stmt-unsupported` (`src/ir/validate/checks/if-stmt-checks.ts`) rather than half-rendered.
 
@@ -310,6 +358,62 @@ Raised 2026-09-03 by the M-FT.11 field-test slice, which added the `if <cond> { 
 **The shape that works** is a value-producing branch — `record = if <cond> do <stmts>; record else record end` — applied in EVERY vanilla body renderer that owns a `record` (`vanilla/operation-returns-emit.ts`, `vanilla/context-emit.ts`, `vanilla/eventsourced-emit.ts`, `vanilla/function-emit.ts`, `domain-service-emit.ts`), each of which has its own indent and variable conventions. A `return` inside a branch is the sub-case that does NOT fit it (the returning-op path emits `{:ok, …}` tuples as the body's tail expression) and needs either a `with`-chain rendering or a narrower gate of its own.
 
 **Verification when it lands.** A `render-stmt`-level test per touched renderer, an elixir compile leg (`mix compile --warnings-as-errors`) over a model whose `if` branch ASSIGNS, and a behavioural check that the assignment is observable after the call — a compile-only gate cannot see this bug. Delete the `loom.elixir-if-stmt-unsupported` row from `src/diagnostics/unsupported-register.ts` and its arm in `if-stmt-checks.ts` in the same PR, and lower the gap pin.
+
+> **Landed 2026-09-13 (wave C2, packet 2a).** The statement RENDERS on elixir now.
+> `src/generator/elixir/vanilla/if-stmt-emit.ts` renders the value-producing shape
+> (`record = if … do … record else record end`, with the `else` arm SYNTHESISED when the
+> source has none — an Elixir `if` with no `else` answers `nil`, which would null the
+> threaded record), wired into `renderReturningStmt`
+> (`vanilla/operation-returns-emit.ts:1370`, reused by `context-emit.ts` + `document-emit.ts`),
+> `renderPureBlock` (`vanilla/function-emit.ts`) and the domain-service renderer
+> (`domain-service-emit.ts:545`).
+>
+> **The second half was the one a compile gate cannot see.** Every "does this body write a
+> column / mutate a containment / touch a ref collection" probe scanned `op.statements` ONE
+> LEVEL DEEP, so with the branch rendering correctly the persist tail still emitted
+> `change(%{})` with no `force_change` — the branch computed the new struct and `Repo.update`
+> wrote nothing. `opBodyStmtsDeep` (`src/generator/elixir/domain/predicates.ts`, riding
+> `walkStmtsDeep`) now feeds `persistPutBodies`, `opMutatesState`, `mutatesRefColl`,
+> `contextMutatesRefColl`, `contextUsesRefCollOp`, `contextMutatesRelationalContainment` and
+> `mutatesEmbeddedContainment`. `function-emit.ts`'s hand-rolled `bodyExprs` switch (five
+> kinds, no `if` arm) moved onto `walkStmtExprsDeep` in the same commit — otherwise a param
+> read only inside a branch was invisible and the clause head underscored it.
+>
+> **Boot-proved on real Postgres** (generated project, `mix ecto.migrate` + `mix phx.server`):
+> `POST /api/tasks/:id/grade {"bonus":9}` on `score: 5` reads back `score: 14, tier: "gold"`
+> — the branch's assignments persisted; a second op with an `else`-less `if` taken and then
+> untaken leaves the record intact (`attempts: 3`, not `nil`). Compile-gated by
+> `test/e2e/fixtures/elixir-vanilla-build/vanilla-if-stmt.ddd`
+> (`mix compile --warnings-as-errors`, green).
+>
+> **What stays gated**, each a strictly narrower `#slug` of `loom.elixir-if-stmt-unsupported`
+> (`src/ir/validate/checks/if-stmt-checks.ts:265`): `#return-in-branch` — an EARLY EXIT, which
+> needs the statements FOLLOWING the `if` restructured into a `case` arm (a list-level
+> transform that also breaks the same-length/same-order `statementSubRegions` zip the sourcemap
+> collector depends on); it IS allowed in a TAIL-VALUE body (domainService / pure `function`),
+> where every `return` is already the block's value. `#guard-in-branch` — the op path hoists
+> top-level `requires`/`precondition` into a `with :ok <- ensure(…)` chain answering 403/422,
+> and a nested one would raise → 500, a wire divergence worse than the refusal.
+> `#event-sourced` — an ES command body is sorted into `with`-clauses / `let`s / one
+> `events = […]` list, never rendered as a statement sequence, so a conditional `emit` has
+> nowhere to go (`eventsourced-emit.ts` grew a throwing arm; its `default: break` would have
+> dropped the branch silently). And `#branch-statement` — a CLOSED branch vocabulary
+> (`BRANCH_VOCABULARY`) rather than a list of known-bad shapes, because the value-producing
+> rendering is not the only thing a branch statement needs: the emitters decide an operation's
+> SUPPORTING machinery by scanning `op.statements`, and several of those scans are one level deep
+> by design. An `emit` in a branch is the sharp case — it renders fine, `contextEmitsEvent` does
+> not see it, so the host module carries no `require Logger` (a compile error), and the S5a
+> persist-then-dispatch restructure cannot hoist a CONDITIONAL emit past the commit anyway, so a
+> phantom event would fire on a failed write. A PROVENANCED write is the same shape one layer up
+> (`opHasProvSite`, `src/ir/util/prov-id.ts:49`, scans top-level statements only). Fail-closed: a
+> NEW `StmtIR` kind is refused in a branch until someone decides what it means there. The register
+> row narrows rather than drains.
+>
+> **Hand-off (outside the packet fence).** `loom.function-block-no-return`
+> (`src/language/validators/types.ts:906-957`) walks `fn.block` one level deep, so a pure
+> aggregate `function` whose only `return`s sit inside an `if` is refused at phase ④ on EVERY
+> backend — the identical tail-return shape a `domainService` operation accepts. Not an elixir
+> row; the elixir renderer already handles it.
 
 Sources: M-FT.11 (grammar slice: `key` / `if` / `??`). Relates to [`vanilla-phoenix-gaps.md`](../old/plans/vanilla-phoenix-gaps.md).
 
@@ -408,8 +512,11 @@ this repo already ratchets against. Mutation-prove by restoring the collision an
 to `test/fixtures/corpus/` so all five backends compile it from then on.
 
 **Sequencing:** this closes the deep fuzz leg's only current failures, so it unblocks
-[M-T9.64](T9-toolchain-health.md#m-t964). Relates to [M-T6.36](#m-t636) (`loom.java-reserved-identifier-unsupported`
-— the same class on Java, which *does* have a mission) and to
+[M-T9.64](T9-toolchain-health.md#m-t964). Relates to [M-T6.36](archive/T6-done.md#m-t636-java-emitter-shape-gaps--done-2026-09-13-wave-c2-packet-2d---m--p1)
+(the same class on Java, DRAINED 2026-09-13: a mangled host identifier plus an
+explicit `@JsonProperty` / `@RequestParam` / enum converter at every wire site —
+the shape this row could follow if the C# collision ever needs emitting rather
+than refusing) and to
 [M-T9.59](T9-toolchain-health.md#m-t959), which explains why this one did not.
 ## M-T6.70 — The elixir Schemathesis cell fuzzes the HTML routes, because elixir is the only backend that publishes a `servers` base path — `open` · **S** · P1 ⚠ verify-first
 
@@ -449,3 +556,56 @@ Shape to fix: cast in the repository's `find_by_id` (one site, every caller) and
 :not_found}`, or mirror the controller's plug in the LiveView `mount`. The first is cleaner but changes
 what the CONTROLLER would answer if its plug ever stopped firing (422 vs 404) — decide deliberately, and
 gate whichever you pick with a boot-verified request, not a compile.
+
+## M-T6.72 — Move the .NET capability filters that cannot be model-hosted onto the per-read query — `open` · **L** · P3
+
+Minted 2026-09-13 by wave C2 packet 2b as the named successor
+[`D-TPH-SUBTYPE-FILTER`](../decisions.md#d-tph-subtype-filter--a-tph-subtypes-capability-filter-is-a-declared-v1-limit-on-the-ef-adapter-not-a-gap)
+requires. It owns the `scope` row `loom.tph-filter-unsupported`.
+
+**The limit.** EF Core registers every query filter in an inheritance hierarchy
+on the ROOT entity type, so a `sharedTable` (TPH) SUBTYPE's capability `filter`
+reading a column only that subtype declares is not registrable at all. Both
+workarounds fail once the query source is a SIBLING subtype (measured on EF Core
+10.0.10: a CLR downcast → "No coercion operator is defined between types 'Truck'
+and 'Car'"; `EF.Property` → "the specified property does not exist on the entity
+type"). `validateTphFilterExpressibility` refuses the model rather than dropping
+the restriction silently, which is what the emitter used to do (`tph ? [] :`,
+F2-CB-C2). Scoped to the EF adapter: Dapper splices the same predicate into raw
+SQL against the shared table, where a subtype column is just a column.
+
+**The build.** Emit the affected filters as a per-read LINQ `.Where(...)` on the
+CONCRETE's `DbSet`, which is subtype-typed, instead of a model-level
+`HasQueryFilter`.
+
+**Why it is L and not S — the part to get right.** The predicate must reach
+EVERY read of that aggregate, and a missed site is neither a compile error nor a
+wrong-shaped answer: it is one read path returning rows a declared restriction
+excludes. Measured on the emitter: `_db.${setName}` appears 19 times in
+`src/generator/dotnet/emit/repository.ts`, and `find-emit.ts`,
+`criteria-emit.ts`, `query-projection-emit.ts` and `spec-emit.ts` hold 11 more
+`_db.` reads. The sites that must each be threaded: the by-id read, the bulk
+by-ids load, the write-scope existence pre-guard, every declared find (a paged
+one's COUNT query as well as its PAGE query), every retrieval, every criterion
+Specification, every direct-table aggregation, and the polymorphic
+`find all <Base>` reader — which must apply each concrete's own filter per
+concrete rather than one predicate over the base.
+
+**Scope discipline, from the decision.** Move only the filters that CANNOT be
+model-hosted. A model filter is enforced by EF for every query against the
+entity, including hand-written ones the customization gradient invites; a
+per-read `.Where` is enforced only where the emitter put it. Migrating the whole
+adapter would trade a framework-enforced guarantee for an emitter-enforced one
+across the board to reach one subtype shape.
+
+**Acceptance.** A booted .NET app on a real Postgres (not a compile) showing the
+subtype filter applied on every read path and absent from none — the shape
+`tenancy-hierarchy-dapper.test.ts` uses for the Dapper subtree predicate, whose
+failure mode is identical. Delete the register row, drop `MAX_OPEN_GAPS` and
+close this mission together.
+
+Sources: [`decisions.md`](../decisions.md) D-TPH-SUBTYPE-FILTER;
+`src/ir/validate/checks/storage-inheritance-checks.ts`,
+`src/ir/util/inheritance.ts` (`nonRootFilterFields`),
+`src/generator/dotnet/emit/efcore.ts`. Relates to
+[M-T5.7](T5-language-core.md#m-t57) (the inheritance tail).

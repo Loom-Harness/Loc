@@ -44,10 +44,29 @@ export const JAVA_NUMERIC: NumericTarget = {
     "find-param": (e) => `new BigDecimal(String.valueOf(${e}))`,
   },
   int: {
-    "projection-read": (e) => `((Number) ${e}).intValue()`,
-    "find-param": (e) => `((Number) ${e}).intValue()`,
+    // `Math.toIntExact`, NOT `intValue()` (M-T5.23 / `D-LONG-AVG-DEFAULTS`).
+    //
+    // Every value reaching an integral read boundary is a boxed `Number` whose
+    // runtime type the PROVIDER chooses: JPQL's `sum(e.qty)` over an `integer`
+    // column and `count(…)` both hand back a `Long`, and a channel envelope's
+    // `data` map carries whatever Jackson parsed.  `((Number) x).intValue()`
+    // narrows that by DISCARDING the high bits — a `sum` of 3 000 000 000
+    // answered `-1294967296`, silently, where .NET's cast and python's `Int32`
+    // bound both fail the read.  The ruling unified on the failure: a value
+    // that does not fit is an ERROR, because java's wrap was the one shape
+    // producing a wrong ANSWER instead of a refusal.  `toIntExact` throws
+    // `ArithmeticException` and needs no import (`java.lang.Math`).
+    //
+    // In-range values are byte-for-byte unchanged: `toIntExact(longValue())`
+    // is the identity on anything an int32 holds.
+    "projection-read": (e) => `Math.toIntExact(((Number) ${e}).longValue())`,
+    "find-param": (e) => `Math.toIntExact(((Number) ${e}).longValue())`,
   },
   long: {
+    // `long` needs no guard: `longValue()` on a provider `Long`/`BigInteger`
+    // from a `bigint` column is exact, and the declared 2^53 ceiling
+    // (`LONG_SAFE_MAX`) binds only the backends whose representation cannot
+    // hold int64 — node's JS `number`.  Java carries the whole range.
     "projection-read": (e) => `((Number) ${e}).longValue()`,
     "find-param": (e) => `((Number) ${e}).longValue()`,
   },

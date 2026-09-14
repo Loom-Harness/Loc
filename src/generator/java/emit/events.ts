@@ -9,12 +9,18 @@
 
 import type { EventIR } from "../../../ir/types/loom-ir.js";
 import { lines } from "../../../util/code-builder.js";
+import { jid, jsonProp } from "../java-ident.js";
 import { collectJavaTypeImports, renderJavaType } from "../render-expr.js";
 
 export function renderJavaEvent(e: EventIR, basePkg: string): string {
   const javaImports = new Set<string>();
   for (const f of e.fields) collectJavaTypeImports(f.type, javaImports);
-  const params = e.fields.map((f) => `${renderJavaType(f.type)} ${f.name}`).join(", ");
+  // An event record component is a WIRE name: it is the key in the event
+  // store's jsonb payload, in the outbox row and in the CloudEvents envelope
+  // every other backend writes with the `.ddd` spelling.
+  const params = e.fields
+    .map((f) => `${jsonProp(f.name, javaImports)}${renderJavaType(f.type)} ${jid(f.name)}`)
+    .join(", ");
   return lines(
     `package ${basePkg}.domain.events;`,
     ``,

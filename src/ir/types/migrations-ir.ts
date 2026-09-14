@@ -49,11 +49,22 @@ export interface ColumnShape {
   voGroup?: string;
   /** Set on the parent-table column standing in for a value-object
    *  *array* field (`charges: Money[]`).  Names the id-less child table the
-   *  elements actually live in.  Relational backends (Drizzle / EF) **skip**
-   *  this column — the data is in the child table — while Phoenix, which
-   *  models the array as a single `{:array, :map}` column, renders it
-   *  normally (the column's `array(json)` type already lowers to
-   *  `{:array, :map}`).  Absent on ordinary columns. */
+   *  elements actually live in.
+   *
+   *  **EVERY backend skips this column, and so does the diff.**  It is a
+   *  carrier for the child-table name, not a column anything creates:
+   *  `renderCreateTable` (sql-pg.ts) skips it, the Ecto emitter drops it at
+   *  all three of its create sites (`elixir/migrations-emit.ts`), and
+   *  `diffTable` filters it off both sides of the column diff
+   *  (`isDiffableColumn`).  Absent on ordinary columns.
+   *
+   *  Treat that as an invariant, not an incidental.  Phoenix DID once store
+   *  the array inline as a single `{:array, :map}` column and render this one
+   *  normally; it now emits the child table like everyone else.  Letting the
+   *  column back into any DDL path resurrects M-T2.15 (#2864 D1): the diff
+   *  emitted `ADD COLUMN … JSONB[]` + `SET NOT NULL` for it beside the correct
+   *  child table, and since no ORM maps the column, every later INSERT failed
+   *  the NOT NULL constraint permanently. */
   valueArrayChildTable?: string;
   /** A DSL field default (`status: string = "pending"`) rendered as a Postgres
    *  scalar literal — carried for the **add-column diff alone** (M-T2.16 /
@@ -119,6 +130,36 @@ export interface IndexShape {
   opclasses?: Record<string, string>;
 }
 
+/** A table-level `CHECK` constraint.
+ *
+ *  Emitted for one thing today: the all-null-or-all-present invariant of a
+ *  flattened OPTIONAL value object (`shipTo: Address?` → `ship_to_line1`,
+ *  `ship_to_city`, … all nullable and all mutually independent).  Every
+ *  backend that flattens reads the group atomically — java's record compact
+ *  constructor runs the VO's invariant, node asserts each leaf non-null,
+ *  python passes each leaf straight into the VO — so a PARTIALLY null row is
+ *  a load-time crash on java and a silently malformed VO elsewhere.  Nothing
+ *  else in the schema forbids one: N independent nullable columns is exactly
+ *  what a hand-written UPDATE, a bad backfill or a future partial-update path
+ *  can leave half-written.  See `valueObjectChecks` in
+ *  `migrations-builder.ts` for which columns join a group and which are
+ *  deliberately excluded.
+ *
+ *  Phoenix/Ecto stores a value object as ONE `:map` column (see `voGroup`), so
+ *  the group cannot be half-written there — the Ecto emitter skips checks
+ *  entirely, exactly as it skips a value-array child table. */
+export interface CheckShape {
+  /** Constraint name — deterministic, derived from the table + the value-object
+   *  group (`orders_ship_to_null_consistent`), so the diff can match a check
+   *  across generations by name the way it matches an index. */
+  name: string;
+  table: string;
+  /** Raw Postgres boolean expression that follows `CHECK` — the same "SQL text
+   *  in the platform-neutral IR" convention `IndexShape.predicate` and
+   *  `backfillColumn.valueSql` already use. */
+  expression: string;
+}
+
 export interface TableShape {
   name: string;
   /** Postgres schema the table lives in — the owning bounded context's
@@ -140,6 +181,11 @@ export interface TableShape {
    *  backends (Drizzle / EF) create it; Phoenix **skips** it — it stores
    *  the array inline as a `{:array, :map}` column on the parent instead. */
   valueCollection?: boolean;
+  /** Table-level `CHECK` constraints — see {@link CheckShape}.  Optional ⇒
+   *  `schemaVersion` stays 1, and a baseline snapshot that predates the field
+   *  reads as "no checks", so the diff adds them as a normal non-destructive
+   *  step on the next regen. */
+  checks?: CheckShape[];
   /** Reshape-detection stamp (M-T2.4): the effective saving shape of the
    *  aggregate whose ROOT table this is (`relational` / `embedded` /
    *  `document`).  Stamped on the aggregate root only (not parts / joins /
@@ -311,6 +357,19 @@ export type MigrationStep =
       valueSql: string;
       onlyNull: boolean;
     }
+  // Add a table-level CHECK constraint (see `CheckShape`).  Rendered
+  // `NOT VALID` by the SQL renderer: an ALTER only ever targets a table that
+  // already exists, and the constraint's whole point is that rows violating it
+  // are POSSIBLE — so validating retroactively would fail the migration on the
+  // exact database that most needs the guard.  `NOT VALID` enforces every
+  // future INSERT/UPDATE immediately and leaves already-stored rows alone; an
+  // operator who wants the back-check runs `VALIDATE CONSTRAINT` themselves
+  // (the emitted `sqlComment` says so).  A `createTable` carries its checks
+  // inline instead, where there is nothing to validate.
+  | { op: "addCheck"; check: CheckShape; schema?: string }
+  // Drop a table-level CHECK constraint.  Non-destructive (it only loosens),
+  // so it is never gated.
+  | { op: "dropCheck"; table: string; schema?: string; name: string }
   // Raw one-shot DML (M-T2.3): a `sql "…"` step from a `migration` block,
   // emitted verbatim.  NOT naturally inert — the builder records the step's
   // `<block>#<index>` key in the snapshot's `appliedDataMigrations` so it is

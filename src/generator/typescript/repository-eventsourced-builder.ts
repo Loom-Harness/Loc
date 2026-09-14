@@ -7,6 +7,7 @@ import type {
   RepositoryIR,
 } from "../../ir/types/loom-ir.js";
 import { aggregateUsesMoneyDeep, findUsesCurrentUser } from "../../ir/types/loom-ir.js";
+import { valueObjectPool } from "../../ir/util/reachable-types.js";
 import { lines } from "../../util/code-builder.js";
 import { lowerFirst } from "../../util/naming.js";
 import { renderHonoStoreLogCall } from "../_obs/render-hono.js";
@@ -204,7 +205,7 @@ export function buildEventSourcedRepositoryFile(
 
   return lines(
     "// Auto-generated.  Do not edit by hand.",
-    aggregateUsesMoneyDeep(agg, ctx.valueObjects) && `import Decimal from "decimal.js";`,
+    aggregateUsesMoneyDeep(agg, valueObjectPool(ctx)) && `import Decimal from "decimal.js";`,
     // Domain-side repository PORT this concrete implements (audit S7).
     repoPortImportLine(agg.name),
     `import type { NodePgDatabase } from "drizzle-orm/node-postgres";`,

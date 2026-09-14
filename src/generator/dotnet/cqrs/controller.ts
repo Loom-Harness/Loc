@@ -13,6 +13,7 @@ import {
   deriveAggregateOperations,
   isAllFind,
 } from "../../../ir/util/api-surface.js";
+import { valueObjectPool } from "../../../ir/util/reachable-types.js";
 import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { defaultErrorStatus, errorTitle, errorTypeUri } from "../../../util/error-defaults.js";
 import { escapeCsharpIdent, plural, upperFirst } from "../../../util/naming.js";
@@ -90,7 +91,7 @@ export function buildOperationSpec(
       requestVoValidatorName(
         `${upperFirst(op.name)}${agg.name}Request`,
         op.params.map((p) => ({ name: p.name, type: p.type })),
-        ctx.valueObjects,
+        valueObjectPool(ctx),
       ) ?? undefined,
     guarded: operationIsGuarded(op),
     // `when` canCommand gate: 409 on the action + the GET can_<op>
@@ -260,7 +261,7 @@ export function emitController(
         requestVoValidatorName(
           `Create${agg.name}Request`,
           requiredFields.map((f) => ({ name: f.name, type: f.type })),
-          ctx.valueObjects,
+          valueObjectPool(ctx),
         ) ?? undefined,
       createCmdArgs: requiredFields.map((f) => {
         const wireArg = wireToCommandArgument(`request.${upperFirst(f.name)}`, f.type, ctx, {

@@ -135,6 +135,8 @@ system ReservedWords {
 
   // NOT covered here, deliberately: a field named after a HOST-LANGUAGE
   // keyword (`is`, `default`, `class`).  That is a different class — it breaks
-  // the generated row DTO / entity, not the SQL — no backend claims to handle
-  // it, and pinning it here would turn one honest gate into two half-gates.
+  // the generated row DTO / entity, not the SQL — and pinning it here would
+  // turn one honest gate into two half-gates.  It has its own fixture now:
+  // `java-reserved-words.ddd` (M-T6.36), whose names are reserved in JAVA and
+  // ordinary in Postgres, exactly so the two classes stay apart.
 }

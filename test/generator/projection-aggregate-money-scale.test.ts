@@ -187,7 +187,7 @@ describe("money aggregate — the fixed wire scale, all five backends (#2549)", 
     // must keep its unformatted stringification, which is why `isMoney` is a
     // separate flag rather than a widening of `asString`.
     const node = file(await build("node"), "http/query-projections.ts");
-    expect(node).toContain("Number(row?.orders ?? 0)");
+    expect(node).toContain('__intWire(row?.orders ?? 0, -2147483648, 2147483647, "orders")');
     expect(node).not.toContain("new Decimal(row?.orders");
   });
 });

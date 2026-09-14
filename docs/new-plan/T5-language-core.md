@@ -25,8 +25,12 @@ A4 reductions verified complete 2026-07-13 (`src/util/collection-ops.ts:18-34` �
 Sources: [stdlib plan](../old/plans/stdlib.md), completeness-audit Tier 1.
 
 ## M-T5.7 — Inheritance tail — `partial` · **M** · P3
-I4 per-concrete storage override / mixed strategy (gated; UNION-ALL variant was dropped — re-justify before building); `<Concrete>Id → <Base>Id` threading across ~49 .NET application-layer sites (mechanical, `/warnaserror`-gated); polymorphic `<Base> id` refs.
+I4 per-concrete storage override / mixed strategy (gated; UNION-ALL variant was dropped — re-justify before building); polymorphic `<Base> id` refs (→ `loom.polymorphic-id-ref-unsupported`, wave C2 packet 2f).
 Sources: [aggregate-inheritance](../old/proposals/aggregate-inheritance.md), [dotnet-tph-emission](../old/proposals/dotnet-tph-emission.md) follow-on.
+
+- **`<Concrete>Id → <Base>Id` threading — DONE** (wave C2 packet 2b). Two findings, because the mission's "~49 application-layer sites" had already split in two by the time it was picked up.
+  - The sites it NAMES — the concrete handled by its OWN id — were already threaded on fresh `main`: `src/generator/dotnet/emit/repository.ts`, the Mediator command/query records, the controller route param and the response DTO all say `PartyId` for a `Customer` (verified by generating `test/e2e/fixtures/dotnet-build/tph.ddd`: two `CustomerId` occurrences in 71 files, both the id class's own declaration). Pinned by `test/generator/dotnet/dotnet-tph.test.ts:55`/`:75`.
+  - The residue it did NOT name was the identity that LEAVES the hierarchy: a cross-aggregate `customer: Customer id`. Each emitter renders a referenced id as `${targetName}Id` from the IR's own `targetName`, independently, in ~20 places, so the field / event record / commands / EF value-converter said `CustomerId` while `ICustomerRepository.GetByIdAsync` said `PartyId`. The two only MEET where generated code passes one to the other, so it needed a third construct to surface: a reactor's `Customers.getById(e.customer)` emitted `CS1503: cannot convert from 'CustomerId' to 'PartyId'` with `ddd parse` reporting 0 errors. Fixed at the root rather than per emitter: a TPH concrete's `Domain/Ids/<Concrete>Id.cs` is now a `global using` ALIAS for `<Root>Id` (`renderTphConcreteIdAlias`, `src/generator/dotnet/emit/ids.ts:7`), so all ~20 spellings name one CLR type by construction and the DSL-level name survives in signatures. Corpus fixture `test/e2e/fixtures/dotnet-build/tph-crossref.ddd` (TPH × cross-aggregate ref × a handler that loads through it — the crossing no existing fixture reached), gated by `dotnet build /warnaserror`.
 
 ## M-T5.8 — Lifecycle operations phases 3–5 — `partial` · **M** · P3
 Backend route emission per action kind + action-param walking in API generators; `crudish` reframing (`createOp`/`destroyOp` factories); scaffold macros emit noun-named ops by default (+ fixture re-baseline).
@@ -54,6 +58,9 @@ Sources: [multi-file-source](../old/plans/multi-file-source.md), [implicit-syste
 
 ## M-T5.14 — Domain-services Shape B — `open` · **M** · P3
 The coordinator shape (Phase 2); Shape C stays deferred. Plus shipped-tier refinements (read-port shape, `audited` on service ops).
+
+**Read-port shape — the explicit-handler caller.** A `reading`-tier operation declares one read-port repository parameter per repository it reads, and the ORCHESTRATOR supplies the handle. A `workflow` is not the only orchestrator: an explicit `commandHandler`/`queryHandler` can call one too, and no backend's handler emitter threaded it (ledger `M-T5.14-reading-service-readport-not-threaded`, issue #2649). **node** closed in improvement wave 1 (packet 1c); **python** closed in completion wave C2 (packet 2e) — `src/generator/python/explicit-handlers-emit.ts` builds its render context with `readPortArgs: pyReadPortResolver(ctx)`, folds `collectServiceReadPorts(h.statements, ctx)` into the repo set it constructs, and emits the `app.domain.services.*` import line the module had never had at all; both helpers are the workflow builder's, exported rather than copied, over the shared `readPortsForOperation` (`src/ir/util/domain-service-read-ports.ts`). Gate: `test/generator/python/handler-domain-service-read-port.test.ts`. **dotnet, java and elixir remain open** — wave C2 packet 2f owns them, and the python diff is the template (three defects in one emitter: no import, no port, no `await`).
+
 Sources: [domain-services](../old/proposals/domain-services.md).
 
 ## M-T5.16 — Compiler-internal fragility guards — `open` · **M** · P2
@@ -125,26 +132,6 @@ spelling too, not only on magnitude.
 **Verification when it lands.** The new corpus case green on all five behavioral legs; the RS entry in the registry; mutation-proved by reverting one exact-side backend. **Every leg is locally runnable** — including elixir, whose toolchain lifts out of the `hexpm/elixir` image onto the host (`docs/tools.md` → "Running `mix` on the HOST"); verified 2026-09-10 by running `node run-elixir.mjs core-domain` that way (`2 passed, 0 failed`, 0 divergences), which corrects [#2807](https://github.com/Loom-Harness/Loc/pull/2807)'s body where it claims the elixir leg does not run on a sandbox host. It does. Re-capture the goldens against a leg you have RUN, never against CI alone.
 
 Sources: [numeric-types-audit-2026-08-23](../audits/numeric-types-audit-2026-08-23.md) F11 + annex, plan.json N7. Relates to M-T6.46/M-T6.47 (the response-narrowing halves), RS-24.
-
-## M-T5.23 — `long` has no contract: silent corruption past 2^53 on node/python, 3-way divergent overflow — `blocked(D-LONG-AVG-DEFAULTS)` · **M** · P2
-
-Found 2026-08-23 by the numeric-types audit ([F13](../audits/numeric-types-audit-2026-08-23.md)). Node stores `long` as a JS `number` (`bigint(col, {mode: "number"})`, `src/generator/typescript/emit/schema.ts`; mikroorm `ts: "number"`) and python's aggregate arm routes declared int/long sums through `float()` — both silently corrupt past 2^53 while .NET/Java/Elixir carry int64 exactly. Aggregate int-overflow behavior is three-way divergent for the same `.ddd`: Java `((Number) x).intValue()` **wraps silently**, .NET's `(int)` cast **throws** (500), the rest pass the too-big value through. No validator, no doc caveat anywhere.
-
-**The work (proposed default, overridable):** document + validator-enforce a 2^53 safe-integer ceiling for `long` on the affected paths now — an honest `loom.*` diagnostic instead of silent corruption; a representation upgrade (BigInt / string wire) becomes a named follow-up mission only if the ceiling pinches. Route python's declared-int/long aggregates through `int()`. Unify overflow behavior (proposed: Java's wraparound becomes an error like .NET's).
-
-**Verification when it lands.** Validator tests; a >2^53 witness proving the exact backends carry it; python aggregate int test; each mutation-proved.
-
-Sources: [numeric-types-audit-2026-08-23](../audits/numeric-types-audit-2026-08-23.md) F13 + annex, plan.json N8.
-
-## M-T5.24 — Projection `avg` over money is typed `decimal`: the mean of exact money leaves as a lossy double — `blocked(D-LONG-AVG-DEFAULTS)` · **S** · P2
-
-Found 2026-08-23 by the numeric-types audit ([F14](../audits/numeric-types-audit-2026-08-23.md)). `src/ir/lower/lower-projection.ts` stamps query-time `avg → decimal` even over a money column, so the mean of exact money crosses the wire as a float64 JSON number — while the **in-memory** `avg` of the same field types `money?` (`type-system.ts`) and ships the 4-dp string. Same word, two semantics, no gate.
-
-**The work (proposed default, overridable):** retype projection `avg` over a money column to `money` — `aggregateCoercion`'s `isMoney` arm (`src/ir/util/projection-aggregate.ts`) already knows how to format it on all five backends; update the wire-golden capture with the retype.
-
-**Verification when it lands.** A lowering test plus a behavioral golden for an avg-over-money projection; mutation-proved through the coercion.
-
-Sources: [numeric-types-audit-2026-08-23](../audits/numeric-types-audit-2026-08-23.md) F14, plan.json N9. Relates to RS-12, #2560.
 
 ## M-T5.28 — `variant-match` off a page crashes all five backends; `for`/`if let` off a workflow emits `this.<unknown>()` — neither is gated — `done` (2026-09-11, Wave C1 packet 1b) · **M** · P1
 
@@ -244,3 +231,42 @@ This is the enabling change for the formatter work: a per-type formatter table c
 **Verification when it lands.** IR-level cases asserting `memberType` on a member access inside a page-body lambda over a non-string collection; the `string` placeholder removed rather than left beside the fix.
 
 Claimed by the #2861 author, offered to #2871 first as the enabling half of their D4.
+## M-T5.34 — the rulings the dev-experience audits deferred, as one diagnostics packet — `done` (2026-09-13) · **M** · P1
+
+Mints three `loom.*` codes in one packet because each one edits the shared catalog (`src/diagnostics/messages.ts`), and separate PRs against that file conflict on every merge. Closes [#2864](https://github.com/Loom-Harness/Loc/pull/2864) findings **D5**, **D6** and **G2**; implements decisions **D-1(c)** and **D-2** of the freight-audit fleet plan (`docs/audits/2026-09-10-freight-fleet-plan.md`, landing with #2864).
+
+**A fourth ruling was drafted and dropped.** The packet also drafted the command-side correlation gate for the case **(B)** that [#2850](https://github.com/Loom-Harness/Loc/pull/2850) deferred. It landed independently on `main` first, as `loom.workflow-create-correlation-unsupplied` (F58 / M-T6.62), with a **better** rule than the draft: it also accepts a `<corr> := <param>` assignment as supplying the key, and fires only when the create body actually touches own state. Nothing was kept from the draft — see the note under "What this packet does not own".
+
+| Code | Refuses | Source |
+|---|---|---|
+| `loom.workflow-handle-unsupported` | a `handle <name>(…)` continuation — emitted by no backend | #2864 D5 / D-1(c) |
+| `loom.entity-part-param-unsupported` | an entity-part-typed parameter on a public action | #2864 D6 / D-2 |
+| `loom.reactor-without-starter` | `on(…)` reactors with no `create(…)` starter | #2864 G2 |
+
+**Why each is a ruling and not an emitter.** D-1(c): the silence is the bug; whether Loom grows multi-command sagas is a feature decision — the emitter half stays with **M-T6.58**, whose option (b) this lands. D-2: materializing an entity-part parameter means answering whether client-supplied parts *replace* the collection (new ids, history orphaned) or *merge* by id, which the DSL has never answered — deferred to a proposal, with the diagnostic pointing at the value-object alternative that is already emitted correctly.
+
+**Two boundaries were verified against the emitters rather than assumed**, and both narrowed the packet: a `private` operation emits no wire contract at all (so the D6 gate is public-only), and a declared `create`'s parameter list is not the request contract (so the create position is out of scope — it is #2861's finding, and the create input already emits `<Part>Response` correctly from the aggregate's fields). **What this packet does not own.** The command-side correlation ruling is `loom.workflow-create-correlation-unsupplied`, landed separately; its rule lives in `src/ir/util/workflow-own-state.ts` so the phase-⑦ gate and the phase-⑧ emitters stay exact complements. The **create-parameter-list** question is `loom.create-params-not-wire` (#2861 slice 4, tracked by **M-T5.32**), which is why the entity-part gate here deliberately skips the `create` position rather than widening onto it.
+
+**Cost paid, named here so it is not rediscovered:** `examples/showcase.ddd` authored a `handle reset()`, so the ruling broke the repo's own conformance fixture. It gave up the member (its contract is "validates with zero errors"), which put `HandleDecl` into the showcase ALLOWLIST, the clause census's `UNAUTHORED_CLAUSES`, and cost `HandleIR.statements` its "arrived over a real example" proof. All three name M-T6.58 as the drain condition. The `*-unsupported` gap pin rose 51 → 52 for the `handle` row — the register's intended trade: a silent five-backend hole became a named, owned, drainable one.
+
+**Audit G4 (the value-object-collection create-input asymmetry) is NOT in this packet** — see M-T5.35.
+
+Sources: [#2864](https://github.com/Loom-Harness/Loc/pull/2864) — `docs/audits/2026-09-10-freight-dev-experience.md` D5/D6/G2 and `docs/audits/2026-09-10-freight-fleet-plan.md` D-1/D-2, both landing with that PR (cited by path, not linked, because they are not on `main` yet); #2850's `create-state.ts` header. Lands M-T6.58's option (b) for `handle`.
+
+## M-T5.35 — a value-object collection is required create input; an entity containment is not — `open` · **M** · P2 ⚠ carries a five-backend wire-contract change
+
+Audit **G4** of [#2864](https://github.com/Loom-Harness/Loc/pull/2864), **split out of M-T5.34** rather than folded into it — see "Why it is its own mission" below.
+
+Changing `entity Leg` to `valueobject Leg` turns a clean model into `loom.workflow-create-missing-field … missing required field 'legs'`, fixed only by passing `legs: []`. Reproduced on `main @ 58f7c5e`: the entity spelling of the same aggregate validates `0 error(s)`. An empty collection is the natural default and the entity spelling already treats it that way.
+
+**The asymmetry is structural, not a bug in one predicate.** A containment is not a create-input field at all — `buildCreateInput` reads `agg.fields`, and containments live in `agg.contains` / `agg.parts`. A value-object collection *is* a field, so it falls through to `isRequiredCreateInput`, which relaxes only for nullable, explicitly-defaulted, and implicitly-defaulted types — and `hasImplicitDefault` (`src/ir/enrich/wire-projection.ts`) admits `bool` and nothing else.
+
+**Why it is its own mission, not part of M-T5.34.** The fix is one line (`array` → has an implicit default), and applying it locally made the G4 repro pass and broke **nothing** in the fast suite. That understates it. The predicate is the single source every backend's required-set derivation consumes, so the change moves the **wire contract on all five backends** — zod `.default([])`, the Pydantic field initialiser, the record positional default, the Java `RequiredSet` row, the Ecto changeset — and therefore the `required` arrays in the served OpenAPI documents and `.loom/wire-spec.json`. The fast suite covers none of the tiers that would see that: the wire-golden differential, the 5-way OpenAPI parity diff, and the per-backend compile legs. It is also **wider than G4 asks**: it relaxes *every* non-nullable collection field (`tags: string[]`, `Money[]`), not just the value-object case. M-T5.34 was three refusals, which can only reject models that already miscompiled; this can change the contract of models that work today. Different risk class, different proof obligation, different PR.
+
+**Decide first, then build.** Two candidate rules, and the mission should rule between them rather than assume the one-liner: (a) **every collection field is omittable**, defaulting to `[]` — principled, matches the entity spelling, widest blast radius; (b) **only value-object collections**, which fixes the reported asymmetry but leaves `tags: string[]` required for no stated reason. (a) is the recommendation; it needs the wire-contract change named as such, not slipped in.
+
+**Coordinate with [#2861](https://github.com/Loom-Harness/Loc/pull/2861) slice 4**, whose two create-input gates read this same projection — land behind it.
+
+**Verification when it lands.** The G4 repro pair (value-object vs entity spelling of one aggregate, both clean); the required-set asserted per backend rather than inferred from node; the wire-golden differential and the 5-way OpenAPI parity diff run, not skipped; mutation-proved by file-copy revert.
+
+Sources: [#2864](https://github.com/Loom-Harness/Loc/pull/2864) G4 (`docs/audits/2026-09-10-freight-dev-experience.md`, landing with that PR); `src/ir/enrich/wire-projection.ts` (`hasImplicitDefault` / `isRequiredCreateInput`). Split from M-T5.34.
