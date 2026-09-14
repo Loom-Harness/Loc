@@ -37,6 +37,13 @@ const SYSTEM = `
 
         workflow W {
           memberId: Member id
+          // A starter is REQUIRED: a reactor-only workflow never has an
+          // instance to route to, so every inbound event logs event_unrouted
+          // and returns (refused by loom.reactor-without-starter, M-T5.34).
+          // This command create names the correlation field, so it is
+          // addressable — and the workflow still gets the synthesised
+          // <Wf>InstancesList / <Wf>InstanceDetail pages this test is about.
+          create(memberId: Member id) { }
           on(e: Pinged) by e.member {
             memberId := e.member
           }
