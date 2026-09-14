@@ -505,6 +505,25 @@ export function mapTypeToEcto(t: TypeIR, enumsByName: Map<string, EnumIR>): stri
       // when typed queries on inner fields are needed.
       return ":map";
     case "array": {
+      // An array of a declared `enum` cannot be built by wrapping the enum's
+      // own fragment: the enum arm returns `Ecto.Enum, values: [...]`, which is
+      // the field macro's ARG LIST, not a type — wrapping it yields
+      // `{:array, Ecto.Enum, values: [...]}`, and Ecto rejects it at compile
+      // time (`** (ArgumentError) invalid type ... for field :skills`), on a
+      // model that had just validated `0 error(s)`.  Ecto spells an array of
+      // enum with the values list as a FIELD OPTION beside the type:
+      //
+      //     field :skills, {:array, Ecto.Enum}, values: [:Electrical, ...]
+      //
+      // so the values move out of the tuple.  Every consumer interpolates this
+      // fragment directly after `field :<name>, `, which is exactly where the
+      // trailing option belongs; the `{:array, :text}` migration column is
+      // already correct, since `Ecto.Enum` dumps each member to its string.
+      const el = t.element.kind === "optional" ? t.element.inner : t.element;
+      if (el.kind === "enum" && enumsByName.has(el.name)) {
+        const values = (enumsByName.get(el.name) as EnumIR).values.map((v) => `:${v}`).join(", ");
+        return `{:array, Ecto.Enum}, values: [${values}]`;
+      }
       // Special-case array of VO → {:array, :map} (same JSONB shape).
       // Otherwise wrap the element's Ecto type.
       const inner = mapTypeToEcto(t.element, enumsByName);

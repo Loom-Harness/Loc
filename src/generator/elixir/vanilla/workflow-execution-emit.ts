@@ -87,7 +87,11 @@ import {
 import type { OriginRef } from "../../../ir/types/origin.js";
 import { classifyDomainServiceTier } from "../../../ir/util/domain-service-tier.js";
 import { resolveWorkflowIsolation } from "../../../ir/util/resolve-datasource.js";
-import { walkExprDeep, walkWorkflowStmtChildren } from "../../../ir/util/walk.js";
+import {
+  walkExprDeep,
+  walkWorkflowStmtChildren,
+  walkWorkflowStmtsDeep,
+} from "../../../ir/util/walk.js";
 import { snake, upperFirst } from "../../../util/naming.js";
 import { renderPhoenixLogCall } from "../../_obs/render-phoenix.js";
 import { lineCount, type SourceMapRecorder } from "../../_trace/sourcemap.js";
@@ -846,13 +850,18 @@ function workflowNeedsCurrentUser(wf: WorkflowIR, ctx: BoundedContextIR): boolea
 }
 
 function stmtsCallUserGatedOp(sts: WorkflowStmtIR[], ctx: BoundedContextIR): boolean {
-  return sts.some((s) => {
-    if (s.kind === "op-call") return opCallThreadsUser(s, ctx);
-    if (s.kind === "for-each") return stmtsCallUserGatedOp(s.body, ctx);
-    if (s.kind === "if-let")
-      return stmtsCallUserGatedOp(s.thenBody, ctx) || stmtsCallUserGatedOp(s.elseBody ?? [], ctx);
-    return false;
-  });
+  // Rides the shared deep walker rather than naming the nesting kinds by hand
+  // (CLAUDE.md, no hand-rolled IR walks): the `for-each` / `if-let` pair below
+  // was exhaustive only for as long as `WorkflowStmtIR` had no other child-
+  // bearing kind, and a missed one silently drops the threaded actor.
+  let found = false;
+  for (const top of sts) {
+    walkWorkflowStmtsDeep(top, (s) => {
+      if (!found && s.kind === "op-call" && opCallThreadsUser(s, ctx)) found = true;
+    });
+    if (found) return true;
+  }
+  return false;
 }
 
 /** Statement kinds that are themselves fallible control flow / repo binds —
