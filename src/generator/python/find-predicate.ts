@@ -6,6 +6,7 @@ import {
   exprUsesCurrentUser,
   type WorkflowIR,
 } from "../../ir/types/loom-ir.js";
+import { nullComparison } from "../../ir/util/comparison-operands.js";
 import { baseOf, isTphConcrete, ownFieldsOf, tableOwnerName } from "../../ir/util/inheritance.js";
 import { durationCtorOperand } from "../../ir/util/temporal.js";
 import {
@@ -350,6 +351,38 @@ function lower(
           nullBools,
         );
         if (temporal != null) return temporal;
+      }
+      // `this.<optionalCol> == null` / `!= null` — SQL's IS [NOT] NULL.  The
+      // generic arm below renders `(col == None)`, which SQLAlchemy DOES
+      // compile to `IS NULL` (it overloads `__eq__` on `InstrumentedAttribute`),
+      // so the QUERY is right — but the emitted line is a ruff **E711**
+      // ("comparison to `None` should be `cond is None`") on a project whose own
+      // `pyproject.toml` declares and configures ruff, and whose `python-build`
+      // gate runs it (F-015 / F-007's python half).  `.is_(None)` /
+      // `.is_not(None)` is the same SQL and the lint-clean spelling.
+      //
+      // Restricted to an operand that lowered to a ROW COLUMN: `.is_(None)` is
+      // a method on a SQLAlchemy column element, so applying it to a bound
+      // host value (`where: someParam == null`) would be an AttributeError at
+      // request time rather than a predicate.  Those keep the plain form.
+      {
+        const nullTest = nullComparison(e.op, e.left, e.right);
+        if (nullTest) {
+          const operand = lower(
+            nullTest.operand,
+            row,
+            associations,
+            ops,
+            principalAccessor,
+            nullBools,
+          );
+          if (operand != null && operand.startsWith(`${row}.`)) {
+            // `is_not` is the SQLAlchemy 2.0 spelling; the `.isnot` sites
+            // elsewhere in this file are the retained 1.4 synonym, left alone
+            // so their emission stays byte-identical.
+            return `${operand}.${nullTest.negated ? "is_not" : "is_"}(None)`;
+          }
+        }
       }
       const l = lower(e.left, row, associations, ops, principalAccessor, nullBools);
       const r = lower(e.right, row, associations, ops, principalAccessor, nullBools);
