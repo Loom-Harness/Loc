@@ -2026,6 +2026,19 @@ export const DIAGNOSTIC_MESSAGES = {
     findName: unknown;
   }) =>
     `denyByDefault: find '${p.name}.${p.findName}' is reachable on an 'auth: required' deployable but declares no \`requires\` gate. Add a \`requires <expr>\` (use \`requires true\` to allow anonymous access).`,
+  // The SYNTHESISED by-id read (F-009 / M-T3.19).  A WARNING with its own code
+  // rather than an arm of `loom.default-deny-ungated`, because it is the one
+  // ungated read the author cannot currently gate — see the long-form reason
+  // at the call site in `default-deny-checks.ts`.
+  "loom.default-deny-by-id-ungated": (p: { name: unknown; path: unknown }) =>
+    `denyByDefault: the synthesised by-id read '${p.path}' on aggregate '${p.name}' serves to ` +
+    `ANY authenticated caller — it is compiler-generated and has no author surface to attach a ` +
+    `\`requires\` gate to, so gating '${p.name}' elsewhere (an admin-only \`find all\`, gated ` +
+    `operations) does NOT cover reading a single record by id. Under a \`tenancy by\` system the ` +
+    `tenant filter still applies (a foreign tenant gets 404); what is NOT enforced is role ` +
+    `separation within a tenant. Until the by-id gate surface lands (mission M-T3.19), keep ` +
+    `role-sensitive fields off '${p.name}' (\`mask unless\`), or host it on a deployable whose ` +
+    `whole api is restricted.`,
   "loom.default-deny-ungated#denybydefault-projection": (p: { name: unknown }) =>
     `denyByDefault: projection '${p.name}' is served as a read endpoint on an 'auth: required' deployable but declares no \`requires\` gate. Add a \`requires <expr>\` after its declaration header (use \`requires true\` to allow anonymous access).`,
   "loom.default-deny-ungated#denybydefault-workflow-instances": (p: { name: unknown }) =>
@@ -2272,6 +2285,30 @@ export const DIAGNOSTIC_MESSAGES = {
     `${p.site} on aggregate '${p.ctxName}.${p.aggName}' ignores ` +
     `capability '${p.cap}', but that aggregate does not implement '${p.cap}'. Implement it ` +
     `(with ${p.cap} / implements ${p.cap}) or correct the capability name in the 'ignoring' clause.`,
+  // The tenancy half of the `ignoring` surface, and the one that is
+  // categorically different from its siblings: bypassing `softDeletable`
+  // widens a read to rows the caller's own tenant already owns, bypassing the
+  // tenant filter drops the isolation boundary itself.  A WARNING, not an
+  // error — the deliberate platform-admin cross-tenant report is a real,
+  // supported shape — but an unconditional one: it does not consult
+  // `auth { enforcement: }` (the default `opt` mode gates nothing, and
+  // `requires true` satisfies `denyByDefault` while leaking exactly as hard).
+  "loom.tenancy-filter-bypass": (p: {
+    site: unknown;
+    ctxName: unknown;
+    aggName: unknown;
+    dropped: unknown;
+    clause: unknown;
+    claim: unknown;
+  }) =>
+    `${p.site} on aggregate '${p.ctxName}.${p.aggName}' bypasses ${p.dropped}, so the ` +
+    `generated query carries NO tenant predicate and returns rows from every tenant to ` +
+    `any caller, whatever their 'currentUser.${p.claim}'. If that cross-tenant read is ` +
+    `deliberate (a platform-admin report), gate it behind an explicit platform-admin ` +
+    `'requires' and keep it off tenant-facing APIs; otherwise drop '${p.clause}' from the ` +
+    `'ignoring' clause. No 'auth { enforcement: }' mode restores the filter — ` +
+    `'enforcement: opt' checks nothing and 'requires true' satisfies ` +
+    `'enforcement: denyByDefault' while still leaking.`,
   "loom.filter-bypass-no-filter": (p: {
     site: unknown;
     ctxName: unknown;

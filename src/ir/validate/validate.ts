@@ -97,6 +97,7 @@ import {
   validateSavingShapeSupport,
   validateStampSupport,
   validateSystem,
+  validateTenancyFilterBypass,
   validateTphFilterExpressibility,
   validateUiBodyStatementKinds,
   validateUiProjectionReadFramework,
@@ -177,6 +178,9 @@ export function validateLoomModel(loom: EnrichedLoomModel): LoomDiagnostic[] {
     validateElixirOpSelfCallPosition(sys, diags);
     validateContextFilterSupport(sys, diags);
     validateFilterBypassSupport(sys, diags);
+    // F-005: dropping a TENANCY filter with `ignoring` is loud on its own
+    // merits, in every `auth { enforcement: }` mode.
+    validateTenancyFilterBypass(sys, diags);
     validateDotnetNameCollisions(sys, diags);
     validateStampSupport(sys, diags);
     validateGuardPrincipalWithoutAuth(sys, diags);
