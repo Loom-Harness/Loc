@@ -3138,7 +3138,7 @@ row `dapper-no-schema-evolution` (fix field: both options, sized);
 
 ## D-PROJECTION-IMPLICIT-SUB — an `on(Event)` handler subscribes in-process whether or not a channel carries the event
 
-**Status:** proposed (default applies 48 h after merge unless overridden).
+**Status:** PINNED — **APPLIED** (2026-09-14, wave C2 packet 2f).
 
 **Question.** Does a `projection … { on(e: E) { … } }` whose `E` is carried by no
 declared `channel` fold, or not? (Today node folds it; python, java, .NET and
@@ -3181,8 +3181,23 @@ the audit had to construct by deleting a block from `projection.ddd` — enters 
 fixture set in the same wave (rule 13), because a compile gate over a corpus that
 lacks the shape proves nothing.
 
-**Unblocks.** `G2646-open-projection-on-event-no-channel` (B20) → wave **C2
-packets 2b / 2c / 2d / 2e**.
+**Unblocks.** `G2646-open-projection-on-event-no-channel` (B20) → closed in wave
+**C2 packet 2f** (2b measured the dotnet arm as a no-op and 2c measured the node
+arm as "not a node arm"; both were right — it was one change on the shared IR,
+plus the two emitter-side copies of the same carriage filter, in elixir's
+`resolveProjectionSubs` and node's `buildProjectionsFile`).
+
+**As built.** `deriveEventSubscriptions` (`src/ir/enrich/enrichments.ts`) drops
+both filters and yields a subscription per consumer, with `channel: undefined`
+when nothing carries the event (`EventSubscriptionIR.channel` is now optional; no
+emitter read the field). BOTH warnings go, not just the projection one — this
+decision's own scope paragraph writes the rule once for both consumer kinds, so
+`loom.reactor-event-uncarried` had become exactly as false as
+`loom.projection-event-uncarried`. Corpus fixture
+`test/fixtures/corpus/projection-implicit-sub.ddd` (backends: ALL) carries an
+uncarried projection fold AND an uncarried workflow reactor;
+`test/generator/projection-implicit-sub.test.ts` names the emitted fold and
+reactor symbol per backend.
 
 **Sources.** [`behavioral-parity-bugs-2026-07.md`](audits/behavioral-parity-bugs-2026-07.md)
 B20; [`language-gaps-2026-08.md`](audits/language-gaps-2026-08.md) (the

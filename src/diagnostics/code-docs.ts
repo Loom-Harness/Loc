@@ -119,7 +119,6 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
     "13-workflows.md#create--handle--starters--continuations",
   "loom.correlation-type-mismatch": "13-workflows.md#one-event--the-event-reactor",
   "loom.correlation-uninferrable": "13-workflows.md#one-event--the-event-reactor",
-  "loom.reactor-event-uncarried": "13-workflows.md#one-event--the-event-reactor",
   "loom.resource-op-in-transaction": "13-workflows.md#resource-consumption",
   "loom.resource-verb-invalid": "13-workflows.md#resource-consumption",
   "loom.isolation-requires-transactional": "13-workflows.md#transactional--isolation",

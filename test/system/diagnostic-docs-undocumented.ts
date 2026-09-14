@@ -218,7 +218,6 @@ export const UNDOCUMENTED_CODES: readonly string[] = [
   "loom.policy-write-wider-than-read",
   "loom.polymorphic-id-ref-mixed-strategy",
   "loom.projection-duplicate-on",
-  "loom.projection-event-uncarried",
   "loom.projection-event-unkeyed",
   "loom.projection-fold-impure",
   "loom.projection-gate-not-current-user",

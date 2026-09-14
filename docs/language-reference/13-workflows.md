@@ -272,7 +272,7 @@ Both body forms ship: `= expr` and `{ return … }` emit the same helper on all 
 
 ## `on(e: Event)` — the event reactor
 
-`on(param: Event) [by <expr>] { body }` reacts to a fact dispatched from outside the workflow. Routing keys off the correlation field: the `by` expression must yield the correlation field's id type (`loom.correlation-type-mismatch`), or — if `by` is omitted — the event must carry a field named like the correlation field (`loom.correlation-uninferrable`). In-process delivery is **channel-routed**: a reactor whose event no `channel` carries is `loom.reactor-event-uncarried` (a warning — it never fires).
+`on(param: Event) [by <expr>] { body }` reacts to a fact dispatched from outside the workflow. Routing keys off the correlation field: the `by` expression must yield the correlation field's id type (`loom.correlation-type-mismatch`), or — if `by` is omitted — the event must carry a field named like the correlation field (`loom.correlation-uninferrable`). A `channel` is **not** required: an `on(e: E)` is itself the subscription, and an in-process handler in the same deployable as the emitter is dispatched whether or not a channel carries the event (**D-PROJECTION-IMPLICIT-SUB**). A `channel` is what makes delivery cross-deployable or durable.
 
 ```ddd
 channel sagaBus { carries: OrderPlaced, PaymentReceived, Settled }
@@ -648,4 +648,4 @@ The dev `docker-compose` gains a sidecar per object-store / queue / smtp-mailer 
 
 - **From a page.** A page drives a workflow through `WorkflowForm` / an `action` body ([UI primitives](16-ui-walker-primitives.md)); a `match await` on an *aggregate instance* operation needs the page's route `:id` to identify the record — a paramless page is `loom.instance-effect-needs-route-id`.
 - **From a projection.** A `projection` is the passive read-half — state fields plus pure `on(e: Event)` folds over foreign events, `keyed by` an explicit column, with no command side. It can fold the events a workflow emits; see [Repositories, queries & projections](10-repositories-and-queries.md#projection--the-read-model).
-- **From another deployable.** Events leave the process over a `channel` (and its `channelSource` binding); a workflow reactor whose event no channel carries never fires (`loom.reactor-event-uncarried`, a warning) — [APIs, storage, resources & channels](14-apis-storage-resources-channels.md#channel--channelsource).
+- **From another deployable.** Events leave the process over a `channel` (and its `channelSource` binding). Within ONE deployable no channel is needed — the `on(e: E)` subscribes in-process on its own (**D-PROJECTION-IMPLICIT-SUB**) — [APIs, storage, resources & channels](14-apis-storage-resources-channels.md#channel--channelsource).

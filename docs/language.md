@@ -1460,14 +1460,6 @@ Warnings (non-fatal):
 
 - Self-recursive operation calls (often unintentional).
 - `emit` payloads missing optional fields.
-- A workflow `on(e: Event)` reactor or event-triggered `create(e: Event) by`
-  starter whose event no `channel` carries (`loom.reactor-event-uncarried`):
-  in-process dispatch is channel-routed, so the consumer would never fire —
-  declare a `channel { carries: … }` for the event.
-- A `projection` `on(e: Event)` fold whose event no `channel` carries
-  (`loom.projection-event-uncarried`): the projection twin of the reactor rule —
-  the fold never runs and the read-model row is never written, so declare a
-  `channel { carries: … }` for the folded event.
 - A reactor / event-create whose event is carried by **more than one** channel
   in its context (`loom.reactor-channel-ambiguous`): in-process dispatch records
   the first channel by declaration order, so the binding is ambiguous — carry

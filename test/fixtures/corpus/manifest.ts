@@ -158,6 +158,14 @@ export const CORPUS: readonly CorpusFeature[] = [
     backends: ALL,
     note: "Minted by ledger row F2-XB-4.  Every corpus fold was `:=`-only, so the other THREE kinds `foldImpurity` admits were unexercised on every backend — and four of five mis-emitted them, silently: .NET / java / elixir filtered the body to `kind === \"assign\"` (a `let` vanished while its uses survived → CS0103 / 'cannot find symbol' / 'undefined variable'; `+=` was dropped outright, so the column never accumulated), and python delegated to the EVENT-SOURCED applier renderer, whose list-only `.append` spelling is wrong on a projection row (every non-key column is nullable, and a scalar `+=` is not a list at all).  The money `+=` arm is deliberate: three backends have no `+` operator on their money representation (`Decimal.add` / `BigDecimal.add` / decimal.js), so a fold that reached the generic integer spelling would not compile.",
   },
+  {
+    id: "projection-implicit-sub",
+    title:
+      "implicit in-process subscription — a folded projection AND a workflow reactor whose events NO `channel` carries",
+    doc: "channels",
+    backends: ALL,
+    note: "**D-PROJECTION-IMPLICIT-SUB**.  `deriveEventSubscriptions` used to open with `if (!channels || channels.length === 0) return []` and then keep only events some channel `carries:`, so an uncarried `on(e: E)` produced NO subscription on ANY backend — python emitted no `dispatch.py`, java/.NET/elixir no fold or reactor, node's route tee nothing to tee — and the read model it folds was never written.  The audit that found it had to construct the shape by DELETING the `channel` block from `projection.ddd`; this fixture is that shape, so the compile tier can finally see it.  No `test e2e`: the carried twin (`projection.ddd`) already runs the fold at runtime on the behavioural tier through the same dispatch path",
+  },
   { id: "projection-aggregation", title: "whole-table aggregation — singleton query-time projection (count/sum/avg/min/max pushed to SQL)", doc: "language", backends: ALL },
   { id: "projection-groupby", title: "group by — grouped query-time projection (one row per group, key selects + per-group aggregates, GROUP BY/ORDER BY pushed to SQL)", doc: "language", backends: ALL },
   {

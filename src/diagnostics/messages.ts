@@ -3236,16 +3236,6 @@ export const DIAGNOSTIC_MESSAGES = {
   // ----------------------------------------------------------------------
   // src/ir/validate/checks/workflow-checks.ts
   // ----------------------------------------------------------------------
-  "loom.reactor-event-uncarried": (p: { name: unknown; label: unknown; event: unknown }) =>
-    `workflow '${p.name}': ${p.label} subscribes to event '${p.event}', but no ` +
-    `'channel' carries it. In-process dispatch is channel-routed, so this consumer never ` +
-    `fires — declare a channel (e.g. 'channel C { carries: ${p.event} }') in the ` +
-    `event's context.`,
-  "loom.projection-event-uncarried": (p: { name: unknown; param: unknown; event: unknown }) =>
-    `projection '${p.name}': on(${p.param}: ${p.event}) folds event '${p.event}', but ` +
-    `no 'channel' carries it. In-process dispatch is channel-routed, so this fold never ` +
-    `runs and the read-model row is never written — declare a channel (e.g. ` +
-    `'channel C { carries: ${p.event} }') in the event's context.`,
   "loom.reactor-channel-ambiguous": (p: {
     name: unknown;
     label: unknown;
