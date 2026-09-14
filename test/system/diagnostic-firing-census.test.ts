@@ -895,6 +895,22 @@ system P {
       status: string
       create(oid: Order id) { status := "Pending" }
     }`),
+  // A repository reached INLINE, inside a `precondition` expression, instead of
+  // bound to its own `let`.  The let-bound sibling read (`Things.getById`) in
+  // the same body is the control: only the inline `Others` is flagged, which is
+  // what makes the fixture's diagnostic meaningful rather than a blanket
+  // "a repository name appears in this workflow".
+  "loom.workflow-inline-repository-call":
+    repoOnly(`    aggregate Thing with crudish { name: string  otherId: Other id }
+    repository Things for Thing { }
+    aggregate Other with crudish { label: string }
+    repository Others for Other { }
+    workflow W {
+      create(tid: Thing id) {
+        let t = Things.getById(tid)
+        precondition t.name == Others.getById(t.otherId).label
+      }
+    }`),
   // The code whose "covered by message in validation.test.ts" claim outlived
   // the file it cited (M-T9.33's own opening finding).  It fires: an `emit`
   // supplying a field the event does not declare.

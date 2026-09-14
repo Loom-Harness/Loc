@@ -3430,6 +3430,17 @@ export const DIAGNOSTIC_MESSAGES = {
     `Multi-command sagas via 'handle' are deferred, not shipped.`,
   "loom.workflow-unknown-name": (p: { name: unknown; kind: unknown; exprName: unknown }) =>
     `workflow '${p.name}': ${p.kind} references unknown name '${p.exprName}'.`,
+  "loom.workflow-inline-repository-call": (p: {
+    where: unknown;
+    repoName: unknown;
+    call: unknown;
+    binding: unknown;
+  }) =>
+    `${p.where} reaches repository '${p.repoName}' INLINE, inside an expression. A workflow ` +
+    `wires up a repository only for a read bound to its own 'let' statement, so an inline read ` +
+    `is dropped from codegen: no repository is ever instantiated, and every backend renders ` +
+    `'${p.repoName}' as a bare name nothing binds. Bind the read first, then reference the ` +
+    `binding: 'let ${p.binding} = ${p.call}'.`,
   "loom.workflow-emit-unknown-event": (p: { name: unknown; eventName: unknown }) =>
     `workflow '${p.name}': emit refers to unknown event '${p.eventName}'.`,
   "loom.workflow-emit-missing-field": (p: { name: unknown; evName: unknown; f: unknown }) =>
