@@ -58,7 +58,12 @@ import type {
   WalkContext,
   WorkflowFormState,
 } from "../../_walker/walker-core.js";
-import { emitExpr, renderActionHandlers, walkBody } from "../../_walker/walker-core.js";
+import {
+  emitExpr,
+  renderActionHandlers,
+  renderActionMutationArg,
+  walkBody,
+} from "../../_walker/walker-core.js";
 import { storeImportSpecifier, storeVarName } from "../store-builder.js";
 import { renderSvelteApiHookImports, renderSvelteImportLines } from "./import-lines.js";
 import { svelteTarget } from "./svelte-target.js";
@@ -80,7 +85,10 @@ function aggregateParamTypes(
 
 /** Function-top mutation-handle declarations + api imports for
  *  `Action(<instance>.<op>)`.  The svelte api factories take the id
- *  as an accessor, so the rendered idExpr wraps in a thunk. */
+ *  as an accessor, so a PRESENT idExpr wraps in a thunk — but an
+ *  ABSENT one must not, since `useDelete<Agg>()` (hoisted by
+ *  `DestroyForm`) takes no hook-time argument and `() => ` is a syntax
+ *  error.  `renderActionMutationArg` owns that distinction. */
 function renderActionMutations(actionMutations: readonly ActionMutationState[]): {
   imports: string;
   decls: string;
@@ -94,7 +102,10 @@ function renderActionMutations(actionMutations: readonly ActionMutationState[]):
     .map(([mod, names]) => `  import { ${[...names].sort().join(", ")} } from "${mod}";\n`)
     .join("");
   const decls = actionMutations
-    .map((m) => `  const ${m.localVar} = ${m.hookName}(() => ${m.idExpr});\n`)
+    .map(
+      (m) =>
+        `  const ${m.localVar} = ${m.hookName}(${renderActionMutationArg(m, (id) => `() => ${id}`)});\n`,
+    )
     .join("");
   return { imports, decls };
 }

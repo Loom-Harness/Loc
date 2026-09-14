@@ -36,7 +36,7 @@ import {
   takeDecimalImport,
 } from "../../_walker/render-primitive.js";
 import { collectStoreReads } from "../../_walker/shared/store-reads.js";
-import { renderActionHandlers } from "../../_walker/walker-core.js";
+import { renderActionHandlers, renderActionMutationArg } from "../../_walker/walker-core.js";
 import type {
   ActionMutationState,
   FormOfState,
@@ -82,7 +82,9 @@ function renderActionMutations(
     .map(([mod, names]) => `import { ${[...names].sort().join(", ")} } from "${mod}";\n`)
     .join("");
   const decls = actionMutations
-    .map((m) => `  const ${m.localVar} = ${m.hookName}(${m.idExpr});\n`)
+    .map(
+      (m) => `  const ${m.localVar} = ${m.hookName}(${renderActionMutationArg(m, (id) => id)});\n`,
+    )
     .join("");
   return { imports, decls };
 }
