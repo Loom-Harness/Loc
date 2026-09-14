@@ -542,7 +542,15 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
     code: "loom.store-lifetime-target-unsupported",
     kind: "gap",
     site: "src/ir/validate/checks/store-checks.ts:327",
-    what: "a persisted store field with no total F# (feliz) or Dart (flutter) codec",
+    what:
+      "a persisted store field with no total F# (feliz) or Dart (flutter) codec.  The FELIZ " +
+      "half narrowed in wave C2 packet 2i to exactly the cells that would need a RECORD codec " +
+      "the store path does not emit — `File`, `valueobject`, `entity` and arrays of them; " +
+      "`datetime`/`guid` grew `System.DateTime.TryParse`/`System.Guid.TryParse` arms, an enum " +
+      "rides F# as `string`, and list elements now cover every scalar.  What is left is the " +
+      "FLUTTER half: it still refuses `json` (the one remaining divergence between the two " +
+      "codec tables, pinned by test/ir/util/persist-codec-divergence.test.ts) on top of the " +
+      "same record-shaped set",
     mission: "M-T1.20",
   },
   {

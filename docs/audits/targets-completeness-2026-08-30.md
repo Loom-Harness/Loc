@@ -141,20 +141,20 @@ gate already encodes the row's claim, run the gate.
 
 | metric | value |
 |---|---|
-| open rows | **131** |
+| open rows | **130** |
 | P0 | 0 |
 | P1 | 1 |
 | P2 | 9 |
 | P3 | 34 |
 | P4 | 78 |
-| P5 | 9 |
-| kind: silent / honest / breadth / mission / stale-prose | 11 / 33 / 21 / 57 / 9 |
-| confidence: proven / likely / suspected | 22 / 108 / 1 |
+| P5 | 8 |
+| kind: silent / honest / breadth / mission / stale-prose | 11 / 33 / 21 / 57 / 8 |
+| confidence: proven / likely / suspected | 23 / 106 / 1 |
 | class: faulty-fix / regression | 1 / 0 |
-| size S / M / L | 34 / 56 / 41 |
-| provenance: fleet1-only / fleet2-only / corroborated by both | 119 / 10 / 1 |
+| size S / M / L | 34 / 55 / 41 |
+| provenance: fleet1-only / fleet2-only / corroborated by both | 118 / 10 / 1 |
 | claimed by an open PR | 60 |
-| done / merged | 158 |
+| done / merged | 159 |
 | declined (not a gap: stale / breadth / duplicate / decided) | 7 |
 | conflicts | 10 |
 | checkedOk entries | 146 |
@@ -192,7 +192,6 @@ Sorted P0 (security / data-integrity, silent, proven) → P1 (other silent prove
 | P3 | `M-T5.3-nested-carriers-and-option` | honest | like | language, node, dotnet, java, python, elixir, react | M | Nested carriers stay gated; `option` lowers but the three-state PATCH it unblocks is unbuilt |
 | P3 | `M-T5.7-inheritance-tail` | honest | like | dotnet, node, java, python, elixir | M | Inheritance tail — all three remaining items are honest register rows |
 | P3 | `M-T6.2-s12-vanilla-document-gate` | honest | like | elixir | M | §12 residue: the Elixir document-shape gate still honestly rejects named ops and non-scalar-predicate finds |
-| P3 | `feliz-flutter-persist-codec-asymmetry` | honest | like | feliz, flutter | M | The new field-scoped `loom.store-lifetime-target-unsupported` splits feliz and flutter into two DIFFERENT covered type sets — a `persist:` store portable between them does not exist |
 | P3 | `workflow-projection-rename-unexpressible` | honest | prov | node, dotnet, elixir, python, java | M | M-T2.1 slice (d) — renaming a `workflow` or `projection` drop+recreates its state/projection table; `TableRename` cannot name one |
 | P3 | `M-T1.3-keyed-folded-projection-reads` | honest | like | react, vue, svelte, angular, feliz, flutter, phoenixLiveView | L | M-T1.3 — KEYED and FOLDED projection reads are unreadable from any frontend (honest gate, unclaimed) |
 | P3 | `M-T3.15-B1-projection-masking` | honest | like | node, dotnet, java, python, elixir | L | B1 — gated projections and `mask unless` are still mutually exclusive by validator |
@@ -287,7 +286,6 @@ Sorted P0 (security / data-integrity, silent, proven) → P1 (other silent prove
 | P4 | `outbox-listen-notify` | mission | like | node, dotnet, elixir, python, java | L | M-T4.3 item 3 — every outbox/relay on every backend polls at 500 ms; LISTEN/NOTIFY is unimplemented |
 | P5 | `F2-XB-5` | stale-prose/faulty-fix | prov | node, dotnet, java, python, elixir | S | RS-18 still declares the pre-#2653 `<field>_provenance` wire key — a `behavioral`-tier conformance rule that is now false on all five backends |
 | P5 | `coverage-fleet-bug-hunt-13-live-stale` | stale-prose | prov | docs | S | coverage.md still says the fleet bug-hunt has 13 LIVE rows — the register is fully drained (M-T9.24 `done` is the true line) |
-| P5 | `feliz-persist-codec-stale-code-name` | stale-prose | like | feliz | S | `feliz-persist-codec.ts` documents a diagnostic code that exists nowhere in the repo |
 | P5 | `mikroorm-rename-rationale-stale` | stale-prose | prov | node | S | The mikroorm half of the self-provisioning-adapter gate rationale is factually wrong on today's emitter (`safe: true`) |
 | P5 | `register-rows-closed-missions` | stale-prose | like | node, dotnet, java, python, elixir | S | Six register `gap` rows are still owned by missions the track has CLOSED as premise-overturned (M-T6.32, M-T6.34) |
 | P5 | `register-rows-unowned-workflow-load` | stale-prose | like | register | S | `loom.workflow-load-array-unsupported` / `-nullable-unsupported` are register rows with no `mission:` link, though M-T4.7 explicitly owns them |
@@ -299,6 +297,7 @@ Sorted P0 (security / data-integrity, silent, proven) → P1 (other silent prove
 | P3 | `G2646-open-node-mounts-ui-false` | honest | like | node | M | #2646 documented, NOT fixed: node is the only backend with mountsUi: false |
 | P3 | `drizzle-projection-membership-column-arg-crash` | silent | prov | node | S | A query-time `projection … where <alias>.<refColl>.contains(<column>)` validates clean on a bare `platform: node` deployable and then CRASHES codegen ("internal: where-clause for projection 'X' could not lower to Drizzle, but the validator should have caught this") |
 | P2 ! | `dapper-no-schema-evolution` | silent | like | dotnet | L | `persistence: dapper` has no ALTER path at all — every post-first-boot model change is silently unapplied (migrations-on-adapters slice 2) |
+| P3 | `feliz-flutter-persist-codec-asymmetry` | honest | prov | flutter | S | FLUTTER ARM ONLY (the feliz arm closed in wave C2 packet 2i). The two `persist:` codec tables disagree on exactly ONE type now — `json`, which the F# table keeps as raw text and the Dart table refuses — so a `persist:` store holding a `json` cell ships on feliz and is refused on flutter |
 
 ## Conflicts (10)
 

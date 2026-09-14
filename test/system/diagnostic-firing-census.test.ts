@@ -1001,18 +1001,22 @@ system S {
   // The `persist:` ladder now ships on EVERY frontend, so the platform-wide arm
   // of this code is gone; what remains is field-scoped.  Persistence on feliz
   // and flutter crosses an untyped boundary per field, so a cell whose type has
-  // no total conversion in that language's codec (here a `datetime` on feliz)
-  // is refused rather than silently dropped from the stored blob.
+  // no total conversion in that language's codec is refused rather than
+  // silently dropped from the stored blob.  Since wave C2 packet 2i the FELIZ
+  // residue is exactly the types that would need a RECORD codec — a value
+  // object here; `datetime` (the fixture's old subject) now has a total
+  // `System.DateTime.TryParse` codec and rides the ladder.
   "loom.store-lifetime-target-unsupported": `
 system S {
   subdomain Sub { context C {
+    valueobject Money { amount: int  currency: string }
     aggregate Thing with crudish { name: string }
   } }
   api Api from Sub
   ui WebApp {
     framework: feliz
     api C: Api
-    store Cart persist: local { state { seenAt: datetime } }
+    store Cart persist: local { state { price: Money } }
     page Home { route: "/"  body: Stack { Heading { "hi", level: 3 } } }
   }
   storage pg { type: postgres }

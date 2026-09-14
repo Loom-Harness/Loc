@@ -1153,52 +1153,6 @@
    }
   },
   {
-   "id": "feliz-flutter-persist-codec-asymmetry",
-   "title": "The new field-scoped `loom.store-lifetime-target-unsupported` splits feliz and flutter into two DIFFERENT covered type sets — a `persist:` store portable between them does not exist",
-   "kind": "honest",
-   "class": null,
-   "confidence": "likely",
-   "targets": [
-    "feliz",
-    "flutter"
-   ],
-   "fileTrees": [
-    "src/generator/feliz/store-persist.ts",
-    "src/generator/flutter/store-persist.ts",
-    "src/ir/util/feliz-persist-codec.ts",
-    "src/ir/util/flutter-persist-codec.ts",
-    "src/ir/validate/checks/store-checks.ts"
-   ],
-   "evidence": [
-    {
-     "fleet": 1,
-     "id": "feliz-flutter-persist-codec-asymmetry",
-     "text": "In-window rewrite: src/ir/validate/checks/store-checks.ts deleted `LIFETIME_UNSUPPORTED_PLATFORMS` and replaced the platform-wide arm with two per-field blocks — :312-338 (feliz, `if (felizPersistCodec(f.type)) continue`, message key `loom.store-lifetime-target-unsupported#field`) and :340-361 (flutter, `flutterPersistCodec`, key `#flutter-field`). The two codec tables do NOT agree: src/ir/util/feliz-persist-codec.ts:60-72 `scalarCodec` returns undefined for datetime / duration / guid, and `felizPersistCodec` (:79-87) additionally refuses ARRAYS of decimal/money, plus enum / entity / valueobject (no `t.kind === \"enum\"` arm at all); src/ir/util/flutter-persist-codec.ts:64-90 COVERS datetime (`DateTime.tryParse`), guid, and enum (`t.kind === \"enum\" → \"string\"`) and arrays of all of them, but refuses json / File / entity / valueobject / optional (which feliz accepts for `json` — feliz-persist-codec.ts:69-70 maps `json → string`). So `persist: local` over a `datetime` or `enum` field ships on flutter and is REFUSED on feliz; over a `json` field it ships on feliz and is REFUSED on flutter. Register row src/diagnostics/unsupported-register.ts:288-294 (kind `gap`, mission M-T1.20) was reworded for this in-window but still names one code for two different boundaries.\n\n[ALSO REPORTED BY t1-frontend as `M-T1.20-store-lifetime-field-residue` (kind=honest, size=M)]: src/ir/validate/checks/store-checks.ts:20 records that `LIFETIME_UNSUPPORTED_PLATFORMS` had its last entry removed; the code now fires only through the `#field` / `#flutter-field` message variants for a cell type with no total F#/Dart conversion. Register row src/diagnostics/unsupported-register.ts:288-294 kind \"gap\", mission M-T1.20. Tracker: T1-ui-frontend.md:271,274 — \"what is left of this code is field-scoped on both frontends\"."
-    }
-   ],
-   "repro": null,
-   "impact": null,
-   "fix": "Pick the union as the target and drain both tables toward it. Feliz needs `System.DateTime.TryParse` / `System.Guid.TryParse` arms and an enum arm (parse by case name, fall back to the default case — total by construction, matching the JS decoders); Flutter needs a `json` arm (store the raw JSON string, restore as `dynamic`). Each addition deletes its exclusion from the codec table and its cell from the diagnostic. Pin with a matrix test over the two tables asserting set equality except for the entries carrying a written reason.\n\n[ALTERNATE FIX RECIPE from t1-frontend/M-T1.20-store-lifetime-field-residue]: Per-type codecs, both directions, in src/generator/feliz/store-persist.ts and src/generator/flutter/store-persist.ts: datetime ⇒ ISO-8601 round-trip (`DateTime.parse`/`toIso8601String`; `System.DateTime.Parse`/`ToString(\"o\")`), duration ⇒ the shared millisecond span (src/util/temporal.ts `DURATION_UNIT_MS`), guid ⇒ its string form, enum ⇒ the wire string, entity id ⇒ the id's own scalar. Value objects are the genuinely hard one (a total codec means serialising the whole record) — keep gated. Note the persisted keys must stay byte-compatible with the four JS store builders, which the mission already established as an invariant.",
-   "size": "M",
-   "sources": [
-    "fleet1:fresh-gate-probe"
-   ],
-   "related_to": [],
-   "securityClass": false,
-   "P": 3,
-   "reverified": {
-    "date": "2026-09-10",
-    "against": "bc7ed8f8",
-    "method": "reconciliation 3 (packet C0.5) — repro re-run on this head, emitted output read",
-    "verdict": "reproduces",
-    "note": "RE-DERIVED: `src/ir/validate/checks/store-checks.ts` still carries the two per-field arms keyed off `felizPersistCodec` and `flutterPersistCodec` separately (`loom.store-lifetime-target-unsupported`, 6 sites), so the two covered type sets remain different.",
-    "remainingTargets": [
-     "feliz",
-     "flutter"
-    ]
-   }
-  },
-  {
    "id": "workflow-projection-rename-unexpressible",
    "title": "M-T2.1 slice (d) — renaming a `workflow` or `projection` drop+recreates its state/projection table; `TableRename` cannot name one",
    "kind": "honest",
@@ -4765,36 +4719,6 @@
    "P": 5
   },
   {
-   "id": "feliz-persist-codec-stale-code-name",
-   "title": "`feliz-persist-codec.ts` documents a diagnostic code that exists nowhere in the repo",
-   "kind": "stale-prose",
-   "class": null,
-   "confidence": "likely",
-   "targets": [
-    "feliz"
-   ],
-   "fileTrees": [
-    "src/ir/util/feliz-persist-codec.ts"
-   ],
-   "evidence": [
-    {
-     "fleet": 1,
-     "id": "feliz-persist-codec-stale-code-name",
-     "text": "src/ir/util/feliz-persist-codec.ts:13 — '`store-checks.ts` raises `loom.store-persist-field-unsupported` for the fields that have none' — and :80 '(→ `loom.store-persist-field-unsupported`)'. The code the validator actually raises is `loom.store-lifetime-target-unsupported` with message key `#field` (src/ir/validate/checks/store-checks.ts:326-333). `grep -rn \"store-persist-field-unsupported\" src/ test/ docs/` returns those two comment lines and nothing else — no catalog entry in src/diagnostics/messages.ts, no register row. The sibling src/ir/util/flutter-persist-codec.ts:16 and :92 name the real code correctly, so the two halves of the same in-window change disagree."
-    }
-   ],
-   "repro": null,
-   "impact": null,
-   "fix": "Replace both mentions with `loom.store-lifetime-target-unsupported` (`#field` variant), matching flutter-persist-codec.ts:16.",
-   "size": "S",
-   "sources": [
-    "fleet1:fresh-gate-probe"
-   ],
-   "related_to": [],
-   "securityClass": false,
-   "P": 5
-  },
-  {
    "id": "mikroorm-rename-rationale-stale",
    "title": "The mikroorm half of the self-provisioning-adapter gate rationale is factually wrong on today's emitter (`safe: true`)",
    "kind": "stale-prose",
@@ -5266,6 +5190,47 @@
     "note": "RE-DERIVED at the code path: `src/generator/dotnet/index.ts:1014 const hasMigrations = !usingDapper && …` — the migration path is still gated OFF for dapper by construction, so there is no ALTER path at all.  The 09-03 correction stands: the second generate does exit 1, but on snapshot drift, which names neither the dapper limitation nor a remedy.",
     "remainingTargets": [
      "dotnet"
+    ]
+   }
+  },
+  {
+   "id": "feliz-flutter-persist-codec-asymmetry",
+   "title": "FLUTTER ARM ONLY (the feliz arm closed in wave C2 packet 2i). The two `persist:` codec tables disagree on exactly ONE type now — `json`, which the F# table keeps as raw text and the Dart table refuses — so a `persist:` store holding a `json` cell ships on feliz and is refused on flutter",
+   "kind": "honest",
+   "class": null,
+   "confidence": "proven",
+   "targets": [
+    "flutter"
+   ],
+   "fileTrees": [
+    "src/ir/util/flutter-persist-codec.ts",
+    "src/generator/flutter/store-persist.ts"
+   ],
+   "evidence": [
+    {
+     "fleet": 1,
+     "id": "feliz-flutter-persist-codec-asymmetry",
+     "text": "Wave C2 packet 2i drained the F# side toward the union, exactly as this row's `fix` asked: `src/ir/util/feliz-persist-codec.ts` gained `datetime` (`System.DateTime.TryParse`) and `guid` (`System.Guid.TryParse`) scalars, maps an `enum` to `string` (what every other Feliz seam already does), and its list element set is now the whole scalar set — so `datetime`, `guid`, `enum`, `decimal[]`, `money[]`, `datetime[]`, `guid[]` and `enum[]` all persist on feliz. FOUR of the five documented divergences are gone. The fifth is the flutter half the same `fix` named: `src/ir/util/flutter-persist-codec.ts` `scalarCodec` returns `undefined` for `json` (`dynamic` has no typed cell to restore into) where the F# table maps it to the verbatim `string` codec. `test/ir/util/persist-codec-divergence.test.ts` is rewritten around that single row plus an AGREE list carrying the four ex-divergences, so the flutter arm closes the asymmetry and nothing else can silently re-open it."
+    }
+   ],
+   "repro": "`store Draft persist: local { state { blob: json } }` on a `platform: flutter` deployable raises `loom.store-lifetime-target-unsupported` (`#flutter-field`); the identical model on `platform: feliz` validates clean and persists the cell as raw text.",
+   "impact": "A `persist:` store holding a `json` cell is not portable between the two self-hosting frontends.",
+   "fix": "Give the Dart table a `json` arm — store the raw JSON string, restore as `dynamic` (the shape the F# table already uses). That deletes the last row of `persist-codec-divergence.test.ts`'s divergence describe block and moves `json` into its AGREE list; the feliz half needs no further change.",
+   "size": "S",
+   "sources": [
+    "fleet1:fresh-gate-probe"
+   ],
+   "related_to": [],
+   "securityClass": false,
+   "P": 3,
+   "reverified": {
+    "date": "2026-09-14",
+    "against": "wave C2 packet 2i",
+    "method": "the feliz arm BUILT and mutation-proved; the flutter arm re-derived at the code path",
+    "verdict": "reproduces (flutter arm only)",
+    "note": "`flutter-persist-codec.ts` `scalarCodec` still returns `undefined` for `json`; `felizPersistCodec(prim('json'))` returns `{kind:'scalar',scalar:'string'}`.",
+    "remainingTargets": [
+     "flutter"
     ]
    }
   }
@@ -7161,6 +7126,11 @@
    "id": "feliz-navbar-ignores-page-requires",
    "title": "CLOSED (wave C2, packet 2i). `renderNavbar` (src/generator/feliz/index.ts) now takes the `pageGate` flag and wraps a nav entry whose page carries `requires <currentUser gate>` in exactly the guard the gated page view and the gated action button already use — `(match model.CurrentUser with Some currentUser when <F#-rendered gate> -> Html.li [ … ] | _ -> Html.none)`, one line per entry so the F# offside column of the `prop.children [ … ]` list is unchanged. An ungated entry and a gate-free app keep the bare `Html.li [ … ]`, byte-identical to the pre-fix shell. This is the Feliz half of the per-link auth the four JSX frontends get from `_frontend/menu-emitter.ts`'s `requiresJs`. Repro before: a three-page `auth: ui` app whose `/tickets` page carries `requires currentUser.role == \"agent\"` emitted `Html.li [ prop.children [ Html.a [ prop.href \"/tickets\"; … ] ] ]` unconditionally while the page view below it rendered `| _ -> forbiddenView`. Pinned by two cases in test/generator/feliz/auth-gate.test.ts (the gated entry's exact guard + the two ungated entries stay bare; a gate-free app grows no `Html.none)` at all); mutation-proved by collapsing the ternary to the bare `li`, which fails \"gates a navbar entry on its page's `requires`, and leaves ungated entries bare\" with `expected 'module App…' to contain '(match model.CurrentUser with Some cu…'`.",
    "source": "verify-2026-09-03"
+  },
+  {
+   "id": "feliz-persist-codec-stale-code-name",
+   "title": "CLOSED (wave C2, packet 2i). Both mentions in `src/ir/util/feliz-persist-codec.ts` now name the code the validator actually raises — `loom.store-lifetime-target-unsupported`, its `#field` message variant — matching the sibling `flutter-persist-codec.ts`. `grep -rn \"store-persist-field-unsupported\" src/ test/ docs/` returns nothing on this head (the two comment lines were its only occurrences anywhere in the repo, so there was never a catalog entry or a register row to retire with them). Fixed in the same commit that widened the F# codec table, whose header prose the two mentions sat in.",
+   "source": "fleet1:fresh-gate-probe"
   }
  ],
  "conflicts": [
