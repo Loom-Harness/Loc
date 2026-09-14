@@ -18,6 +18,7 @@ import type {
   TypeIR,
   WireField,
 } from "../../../ir/types/loom-ir.js";
+import { valueObjectFieldLookup } from "../../../ir/util/reachable-types.js";
 import { lines } from "../../../util/code-builder.js";
 import { snake, upperFirst } from "../../../util/naming.js";
 import { collectJavaExprImports, javaValueTypeForId, renderJavaExpr } from "../render-expr.js";
@@ -665,7 +666,7 @@ export function renderReadModelVoResponseDtos(
   pkg: string,
   basePkg: string,
 ): DtoFile[] {
-  const voLookup = new Map(ctx.valueObjects.map((v) => [v.name, v.fields] as const));
+  const voLookup = valueObjectFieldLookup(ctx);
   const voNames = new Set<string>();
   for (const wf of observableWorkflowsOf(ctx)) {
     referencedValueObjects(

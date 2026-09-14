@@ -4,6 +4,7 @@ import type {
   SeedRowIR,
   TypeIR,
 } from "../../../ir/types/loom-ir.js";
+import { valueObjectPool } from "../../../ir/util/reachable-types.js";
 import { lines } from "../../../util/code-builder.js";
 import { snake } from "../../../util/naming.js";
 import {
@@ -68,7 +69,7 @@ export function buildPySeedFile(
   const domainAggs = usedAggregates(datasets, seedable);
   const scan = body.replace(/"(?:\\.|[^"\\])*"/g, '""');
   const refersTo = (n: string): boolean => new RegExp(`\\b${n}\\b`).test(scan);
-  const voEnumNames = [...ctx.valueObjects.map((v) => v.name), ...ctx.enums.map((e) => e.name)]
+  const voEnumNames = [...valueObjectPool(ctx).map((v) => v.name), ...ctx.enums.map((e) => e.name)]
     .filter(refersTo)
     .sort();
   const idNames = ctx.aggregates

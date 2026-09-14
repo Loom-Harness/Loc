@@ -14,6 +14,7 @@ import type {
 } from "../../ir/types/loom-ir.js";
 import { directParentName } from "../../ir/util/containment-parent.js";
 import { isTphConcrete } from "../../ir/util/inheritance.js";
+import { findValueObjectInScope } from "../../ir/util/reachable-types.js";
 import { isValueCollectionType, type ValueCollectionIR } from "../../ir/util/value-collections.js";
 import { numericEncode } from "../_numeric/target.js";
 import { TS_NUMERIC } from "./numeric-codec.js";
@@ -59,7 +60,7 @@ export function valueCollectionElementExpr(
   rowVar: string,
   ctx: BoundedContextIR,
 ): string {
-  const vo = ctx.valueObjects.find((v) => v.name === vc.voName);
+  const vo = findValueObjectInScope(ctx, vc.voName);
   const args = (vo?.fields ?? [])
     .map((vf) => hydrateValueExpr(vf.name, vf.type, rowVar, ctx, vf.optional))
     .join(", ");
@@ -213,7 +214,7 @@ function hydrateValueExpr(
     // `new <Vo>(...)`.  The schema, save, and wire sides already recurse —
     // this arm used to read a single non-existent column (`row.offer_price`),
     // a latent tsc break on the VO-in-VO shape.
-    const vo = ctx.valueObjects.find((v) => v.name === t.name);
+    const vo = findValueObjectInScope(ctx, t.name);
     const args = (vo?.fields ?? [])
       .map((f) =>
         hydrateValueExpr(`${fieldName}_${f.name}`, f.type, rowVar, ctx, false, forceNonNull, true),
@@ -245,7 +246,7 @@ function arrayElementHydrate(t: TypeIR): ((v: string) => string) | null {
  *  an optional VO field's hydrate guards on.  Recurses through VO-typed
  *  first subfields (`offer` → `offer_price` → `offer_price_amount`). */
 function firstLeafColumn(fieldName: string, voName: string, ctx: BoundedContextIR): string {
-  const vo = ctx.valueObjects.find((v) => v.name === voName);
+  const vo = findValueObjectInScope(ctx, voName);
   const f = vo?.fields[0];
   if (!f) return fieldName;
   const inner = f.type.kind === "optional" ? f.type.inner : f.type;

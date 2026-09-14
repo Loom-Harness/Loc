@@ -36,6 +36,7 @@ import {
   groupKeyOf,
   wholeTableAggregates,
 } from "../../../ir/util/projection-aggregate.js";
+import { valueObjectPool } from "../../../ir/util/reachable-types.js";
 import { resolveErrorStatus } from "../../../util/error-defaults.js";
 import { lowerFirst, plural, snake, upperFirst } from "../../../util/naming.js";
 import { wireToDomainExpr, zodFor } from "./routes-builder.js";
@@ -271,7 +272,7 @@ export function buildQueryProjectionsFile(
       `import { ${aggName}Repository } from "../db/repositories/${lowerFirst(aggName)}-repository";`,
     );
   }
-  const vos = ctx.valueObjects.map((v) => v.name);
+  const vos = valueObjectPool(ctx).map((v) => v.name);
   const enums = ctx.enums.map((e) => e.name);
   if (vos.length + enums.length > 0) {
     lines.push(`import { ${[...vos, ...enums].join(", ")} } from "../domain/value-objects";`);

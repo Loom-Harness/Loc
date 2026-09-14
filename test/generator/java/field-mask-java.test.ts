@@ -126,7 +126,7 @@ const MASK_EXPR_SRC = `system S {
   user { sub: string  role: string  level: int  email: string }
   subdomain M {
     context C {
-      aggregate Person audited with crudish, auditable {
+      aggregate Person audited with crudish {
         name: string
         ssn: string mask unless currentUser.role == "admin"
         salary: decimal mask unless currentUser.level >= 3

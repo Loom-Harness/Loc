@@ -43,6 +43,7 @@ import {
   ownFieldsOf,
   tableOwnerName,
 } from "../../ir/util/inheritance.js";
+import { findValueObjectInScope, valueObjectPool } from "../../ir/util/reachable-types.js";
 import { sortableFields } from "../../ir/util/sortable-fields.js";
 import { type ValueCollectionIR, valueCollectionsFor } from "../../ir/util/value-collections.js";
 import { aggregateIsVersioned } from "../../ir/util/versioned-capability.js";
@@ -362,7 +363,7 @@ export function buildPyRepositoryFile(
       ].filter(refersTo),
     ),
   ].sort();
-  const voEnumNames = [...ctx.valueObjects.map((v) => v.name), ...ctx.enums.map((e) => e.name)]
+  const voEnumNames = [...valueObjectPool(ctx).map((v) => v.name), ...ctx.enums.map((e) => e.name)]
     .filter(refersTo)
     .sort();
   const rowNames = [
@@ -857,7 +858,7 @@ export function hydrateField(rowVar: string, f: FieldIR, ctx: EnrichedBoundedCon
   const t = f.type.kind === "optional" ? f.type.inner : f.type;
   const opt = f.optional || f.type.kind === "optional";
   if (t.kind === "valueobject") {
-    const vo = ctx.valueObjects.find((v) => v.name === t.name);
+    const vo = findValueObjectInScope(ctx, t.name);
     if (vo) {
       const args = vo.fields
         .map((vf) => hydrateScalar(`${rowVar}.${snake(`${f.name}_${vf.name}`)}`, vf.type, false))
@@ -883,7 +884,7 @@ export function hydrateValueCollection(
   rowVar: string,
   ctx: EnrichedBoundedContextIR,
 ): string {
-  const vo = ctx.valueObjects.find((v) => v.name === vc.voName);
+  const vo = findValueObjectInScope(ctx, vc.voName);
   const args = (vo?.fields ?? [])
     .map((vf) => hydrateScalar(`${rowVar}.${snake(vf.name)}`, vf.type, false))
     .join(", ");
@@ -1236,7 +1237,7 @@ export function persistField(
   const opt = f.optional || f.type.kind === "optional";
   const access = `${ownerExpr}.${snake(f.name)}`;
   if (t.kind === "valueobject") {
-    const vo = ctx.valueObjects.find((v) => v.name === t.name);
+    const vo = findValueObjectInScope(ctx, t.name);
     if (vo) {
       return vo.fields.map((vf) => {
         const sub = persistScalar(`${access}.${snake(vf.name)}`, vf.type, false);
@@ -1526,7 +1527,7 @@ function syncValueCollection(
   aggVar: string,
 ): string[] {
   const vcRow = valueCollectionRowClassName(vc.childTable);
-  const vo = ctx.valueObjects.find((v) => v.name === vc.voName);
+  const vo = findValueObjectInScope(ctx, vc.voName);
   const v = snake(vc.fieldName);
   // Flattened VO column kwargs: `amount=Decimal(str(__e.amount)), …`.
   const voKwargs = (vo?.fields ?? []).map(
@@ -1657,7 +1658,7 @@ export function wireValue(
     return optional ? `(None if ${expr} is None else ${wire})` : wire;
   }
   if (t.kind === "valueobject") {
-    const vo = ctx.valueObjects.find((v) => v.name === t.name);
+    const vo = findValueObjectInScope(ctx, t.name);
     if (!vo) return expr;
     const fields = vo.fields
       .map((vf) => `"${vf.name}": ${wireValue(`${expr}.${snake(vf.name)}`, vf.type, ctx, false)}`)

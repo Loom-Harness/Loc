@@ -16,6 +16,7 @@ import {
   problemTitle,
   UNPROCESSABLE_ENTITY,
 } from "../../../ir/util/openapi-errors.js";
+import { valueObjectPool } from "../../../ir/util/reachable-types.js";
 import { listReadFind } from "../../../ir/util/read-gates.js";
 import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { lines } from "../../../util/code-builder.js";
@@ -532,7 +533,8 @@ export function renderJavaController(
       : null,
     // WebDataBinder for the @InitBinder that registers this aggregate's command
     // validators — only when at least one is emitted.
-    javaCommandValidatorNames(agg, ctx.boundedContext?.valueObjects ?? []).length > 0
+    javaCommandValidatorNames(agg, ctx.boundedContext ? valueObjectPool(ctx.boundedContext) : [])
+      .length > 0
       ? `import org.springframework.web.bind.WebDataBinder;`
       : null,
     ``,
@@ -549,7 +551,7 @@ export function renderJavaController(
     anyFindGateUsesUser ? `        this.currentUserAccessor = currentUserAccessor;` : null,
     `    }`,
     ``,
-    ...initBinderLines(agg, ctx.boundedContext?.valueObjects ?? []),
+    ...initBinderLines(agg, ctx.boundedContext ? valueObjectPool(ctx.boundedContext) : []),
     ...body,
     `}`,
     ``,

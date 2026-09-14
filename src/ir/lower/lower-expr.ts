@@ -69,6 +69,7 @@ import { isIntrinsicMatcher } from "../../util/intrinsic-matchers.js";
 import { intrinsicFor, intrinsicReturnType } from "../../util/intrinsics.js";
 import { PRINCIPAL_ORG_PATH, PRINCIPAL_ROOT_ORG } from "../../util/principal.js";
 import { durationUnitOf } from "../../util/temporal.js";
+import { isWalkerPrimitive } from "../../util/walker-primitive-names.js";
 import { findVerb, type ResourceVerbDef } from "../resource-verbs.js";
 import { variantTag } from "../stdlib/unions.js";
 import type {
@@ -1334,7 +1335,9 @@ function lowerExprInner(expr: Expression | undefined, env: Env): ExprIR {
  *      dispatches by name on the resulting CallIR. */
 function lowerBuilderCall(expr: BuilderCall, env: Env): ExprIR {
   const name = expr.type;
-  const vo = findValueObjectByName(env, name);
+  // Inside a `ui` body the walker stdlib owns the name (see `Env.ui`): a
+  // domain `valueobject Money` must not capture the `Money` page primitive.
+  const vo = env.ui && isWalkerPrimitive(name) ? undefined : findValueObjectByName(env, name);
   if (vo) {
     // Carry the value object's declared field order so backends that need
     // named construction (Phoenix `%Mod.VO{field: …}` structs) always have
@@ -1394,7 +1397,7 @@ function lowerBuilderCall(expr: BuilderCall, env: Env): ExprIR {
 
 function inferBuilderCallType(expr: BuilderCall, env: Env): TypeIR {
   const name = expr.type;
-  const vo = findValueObjectByName(env, name);
+  const vo = env.ui && isWalkerPrimitive(name) ? undefined : findValueObjectByName(env, name);
   if (vo) return { kind: "valueobject", name };
   const ent = findEntityByName(env, name);
   if (ent) return { kind: "entity", name };

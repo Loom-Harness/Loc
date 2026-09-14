@@ -69,14 +69,18 @@ system Shared {
   resource betaState  { for: Beta,  kind: state, use: pg }
   deployable apiNet  { platform: dotnet, contexts: [Alpha, Beta], dataSources: [alphaState, betaState], serves: LeftApi, RightApi, port: 8080 }
   deployable apiJava { platform: java,   contexts: [Alpha, Beta], dataSources: [alphaState, betaState], serves: LeftApi, RightApi, port: 8082 }
+  deployable apiNode { platform: node,   contexts: [Alpha, Beta], dataSources: [alphaState, betaState], serves: LeftApi, RightApi, port: 8081 }
+  deployable apiPy   { platform: python, contexts: [Alpha, Beta], dataSources: [alphaState, betaState], serves: LeftApi, RightApi, port: 8083 }
   ui WebReact  with scaffold(subdomains: [Left, Right]) { framework: react   api Left: LeftApi  api Right: RightApi }
   ui WebVue    with scaffold(subdomains: [Left, Right]) { framework: vue     api Left: LeftApi  api Right: RightApi }
   ui WebSvelte with scaffold(subdomains: [Left, Right]) { framework: svelte  api Left: LeftApi  api Right: RightApi }
   ui WebNg     with scaffold(subdomains: [Left, Right]) { framework: angular api Left: LeftApi  api Right: RightApi }
+  ui WebFl     with scaffold(subdomains: [Left, Right]) { framework: flutter api Left: LeftApi  api Right: RightApi }
   deployable webReact  { platform: static, targets: apiNet, ui: WebReact  { Left: apiNet, Right: apiNet }, port: 3001 }
   deployable webVue    { platform: static, targets: apiNet, ui: WebVue    { Left: apiNet, Right: apiNet }, port: 3002 }
   deployable webSvelte { platform: static, targets: apiNet, ui: WebSvelte { Left: apiNet, Right: apiNet }, port: 3003 }
-  deployable webNg     { platform: static, targets: apiNet, ui: WebNg     { Left: apiNet, Right: apiNet }, port: 3004 }
+  deployable webNg     { platform: static,  targets: apiNet, ui: WebNg { Left: apiNet, Right: apiNet }, port: 3004 }
+  deployable webFl     { platform: flutter, targets: apiNet, ui: WebFl { Left: apiNet, Right: apiNet }, port: 3006 }
 }
 `;
 
@@ -152,6 +156,28 @@ describe("a value object declared in another context is DECLARED where it is use
     expect(payment).toMatch(/export interface MoneyResponse \{/);
   });
 
+  it("dotnet: the consuming aggregate's EF config maps the VO's columns", async () => {
+    // `OwnsOne<Money>(x => x.Paid, o => { })` with an EMPTY body is the
+    // degraded branch: EF then names the columns `Paid_Amount` / `Paid_Currency`
+    // while the migration created `paid_amount` / `paid_currency`.  It compiles;
+    // it fails at the first read.
+    const cfg = await emitted("Persistence/Configurations/PaymentConfiguration.cs");
+    expect(cfg).toContain('o.Property(x => x.Amount).HasColumnName("paid_amount");');
+    expect(cfg).toContain('o.Property(x => x.Currency).HasColumnName("paid_currency");');
+  });
+
+  it("dotnet: the read handler projects the VO instead of passing the domain type", async () => {
+    // The degraded branch returned the DOMAIN `Money` straight into a
+    // `MoneyResponse` slot → CS1503.
+    const handler = await emitted("Application/Payments/Queries/GetPaymentByIdHandler.cs");
+    expect(handler).toContain("new MoneyResponse(");
+  });
+
+  it("dotnet: the controller materialises the domain VO from the request record", async () => {
+    const controller = await emitted("Api/PaymentsController.cs");
+    expect(controller).toContain("new Money(");
+  });
+
   it("react: the scaffolded create form renders the VO's fields, not one text input", async () => {
     // The `undefined` branch of the VO lookup is a DEGRADED fallback (one
     // `register("paid")` text input for a whole object), not an error — so the
@@ -162,12 +188,61 @@ describe("a value object declared in another context is DECLARED where it is use
     expect(newPage).toContain('defaultValues: { paid: { amount: 0, currency: "" } }');
   });
 
+  it("flutter: the scaffolded form flattens the VO instead of dropping the field", async () => {
+    // Flutter's miss was HONEST but still a drop: the field became
+    // `// TODO(flutter form-field): paid — unresolved value-object Money field
+    // dropped`, while the same VO on the same-context aggregate flattened into
+    // its `<field>Amount` / `<field>Currency` inputs.
+    const forms = await emitted("web_fl/lib/forms.dart");
+    expect(forms).toContain("_paidAmountController");
+    expect(forms).toContain("_paidCurrencyController");
+    expect(forms).not.toContain("TODO(flutter form-field)");
+  });
+
   it("an unreferenced sibling VO is NOT pulled into a file that never names it", async () => {
     // `Invoice` references `Money` itself, so the pool cannot be proven inert
     // there — assert instead that the pool is a LOOKUP, not an emission list:
     // no aggregate module gains a schema for a type its wire shape never names.
     const invoice = await emitted("web_react/src/api/invoice.ts");
     expect(invoice).not.toContain("PaymentSchema");
+  });
+});
+
+// The three backends that emit their value objects into ONE project-wide module
+// still have to IMPORT that module from the consuming aggregate's file, and that
+// import list was gated on the same context-local lookup — so "node/python/java
+// are fine" held only for the module's CONTENT, not for reaching it.
+describe("the backends with a shared value-object module import it where it is used", () => {
+  it("node: the consuming aggregate's domain module imports the VO class", async () => {
+    const payment = await emitted("api_node/domain/payment.ts");
+    expect(payment).toContain("paid: Money");
+    expect(payment).toMatch(/import .*\bMoney\b.* from "\.\/value-objects"/);
+  });
+
+  it("node: the consuming aggregate's route module declares the VO schema", async () => {
+    const routes = await emitted("api_node/http/payment.routes.ts");
+    expect(routes).toContain("MoneySchema");
+    expect(routes).toMatch(/const MoneySchema = z\.object\(/);
+  });
+
+  it("python: the consuming aggregate's domain module imports the VO class", async () => {
+    const payment = await emitted("api_py/app/domain/payment.py");
+    expect(payment).toContain("paid: Money");
+    expect(payment).toContain("from app.domain.value_objects import Money");
+  });
+
+  it("python: the route module aliases the VO wire model it annotates with", async () => {
+    const routes = await emitted("api_py/app/http/payment_routes.py");
+    expect(routes).toContain("MoneyModel");
+    expect(routes).toContain("Money as MoneyModel");
+    // …and converts the wire model to the DOMAIN value object before the call.
+    expect(routes).toContain("Money(body.paid.amount, body.paid.currency)");
+  });
+
+  it("java: the service materialises the domain VO from the request record", async () => {
+    // The degraded branch emitted `return new Money();` against a two-arg record.
+    const svc = await emitted("features/payments/PaymentService.java");
+    expect(svc).toContain("return new Money(request.amount(), request.currency());");
   });
 });
 

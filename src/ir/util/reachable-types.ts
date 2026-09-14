@@ -16,7 +16,7 @@
 // closure that matches what the emitted `<Vo>Schema` bodies reference.
 // Pure IR traversal: consumed downward by the generators, no back-edge.
 
-import type { BoundedContextIR, TypeIR, ValueObjectIR } from "../types/loom-ir.js";
+import type { BoundedContextIR, FieldIR, TypeIR, ValueObjectIR } from "../types/loom-ir.js";
 
 /**
  * The value-object DECLARATIONS an emitter for this context may have to
@@ -39,6 +39,17 @@ import type { BoundedContextIR, TypeIR, ValueObjectIR } from "../types/loom-ir.j
 export function valueObjectPool(ctx: BoundedContextIR): ReadonlyArray<ValueObjectIR> {
   const siblings = ctx.siblingValueObjects;
   return siblings && siblings.length > 0 ? [...ctx.valueObjects, ...siblings] : ctx.valueObjects;
+}
+
+/** `valueObjectPool` as the `name → fields` map the flattening emitters want
+ *  (JPA / EF column names, request→domain constructors, projection state).
+ *  Their `undefined` branch is silent too: EF emits `OwnsOne<Money>(x => x.Paid,
+ *  o => { })` with no column names, and Java emits `new Money()` against a
+ *  two-arg record. */
+export function valueObjectFieldLookup(
+  ctx: BoundedContextIR,
+): ReadonlyMap<string, readonly FieldIR[]> {
+  return new Map(valueObjectPool(ctx).map((v) => [v.name, v.fields] as const));
 }
 
 /** Resolve one `valueobject` name against `valueObjectPool` — the lookup every
