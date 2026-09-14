@@ -7,7 +7,27 @@ Packets run as Opus agents in isolated worktrees on local `claude/cr1-<packet>` 
 onto `claude/loom-code-review-audit-790gec` (the only branch this coordinator pushes), one at a time.
 Hand-off notes land under `handoffs/wave-cr1-<packet>.md`.*
 
-## Status: **CR1-a folded; CR1-c complete and parked for the last fold; CR1-b / CR1-d running** (2026-09-14)
+## Status: **batch 1 COMPLETE — all four packets folded, full suite green** (2026-09-14)
+
+`npx tsc -b` clean · `npm run lint` **exit 0** (the new ratchet, on a clean tree) · full `npm test`
+**2,067 files / 24,314 tests passed**, 89 files and 1,142 tests skipped, 7 expected-fail, exit 0,
+on the folded tree merged with `origin/main` @ `c677f242`.
+
+**Every P0 and P1 row the audit opened is closed except the two L-drains and CR1-g/h**, which are
+batch 2 and blocked on #2933's `src/ir/**` + `src/generator/_*/**` fence (2f and 2j still running).
+
+### What the wave actually found — beyond the rows it was given
+
+Three of the four packets found something the audit had not, and one corrected the audit itself.
+That is the argument for running the drains rather than filing them:
+
+1. **A live, compile-breaking codegen defect in Hono** (CR1-d) — reached by draining a waiver, which
+   is precisely what the waiver was suppressing.
+2. **The audit's own elixir row was wrong** (CR1-b), and wrong in the direction that understated the
+   finding: the OIDC audience divergence was two backends, not one.
+3. **A second bug inside the gate being fixed** (CR1-a) — `_[a-z]+` silently dropped `_i18n`.
+4. **A spent carve-out orphaned by #2729** (the lint sweep) — the same merged PR whose stale fences
+   CR1-d drained. One PR left two kinds of residue and it took two packets to see either.
 
 ## Why a wave, and why this shape
 
@@ -127,7 +147,95 @@ the gitignored `.claude/skills/`, outside any packet fence), and **neither new j
 hex.pm egress and the Playwright download are unavailable in the sandbox, so their first triggered
 run needs watching. Two further findings became batch-2 row **CR1-i**.
 
-### CR1-c — complete, verified, parked (folds LAST by design)
+### CR1-b — folded (P0-4)
+
+`worktree-agent-a969add743a0d89c7`, `76ef74ad..513e5424` (5 commits).
+
+**This packet corrected the row it was draining, and the correction is the interesting part.** The
+audit's table listed elixir as already env-overridable with a documented `OIDC_AUDIENCE=""` opt-out.
+Measured, it was not: every audience construct in `renderOidcVerifier` — `audience/0`,
+`aud_present?/1`, the `add_claim("aud", …)` validator — sits behind `auth.oidc.audience ? … : ""`, so
+an undeclared audience emitted **no audience check at all**, exactly like node. The audit read the
+`envOrDeclared("OIDC_AUDIENCE", …)` call and inferred an env path without checking that the call only
+appears in the *declared* branch. **The divergence was two backends, not one.** The audit's table is
+struck through and corrected in place rather than rewritten, because the error mode — classifying by
+the shape of a call site instead of by what executes — is the same one the audit attributes to the
+waiver register in P0-2.
+
+Both backends now read `OIDC_AUDIENCE` at boot alongside `ISSUER` (in a generated Node service
+`process.env` at module load already *is* the deploy env; elixir reads per-verify only because a
+module attribute would freeze compile-time env into the release). Empty still means skip, preserving
+the documented opt-out. `hono/v5` shares the emitter, so `platform: node` inherits it.
+
+`loom.auth-oidc-no-audience` raised in `validators/auth.ts`, text in `messages.ts`, anchored in
+`code-docs.ts`, with a firing fixture in the census.
+
+**The e2e row is a runtime proof, not a string assertion**: it boots a second instance of the same
+artifact with `OIDC_AUDIENCE` set to an audience the token cannot carry and asserts the same real
+token is rejected — `/health` asserted first, so a 401 cannot be "never came up". Green against
+Keycloak 26 + PG 18, red on the reverted emitter. The probe was also added to all four legs' `paths:`
+blocks, since otherwise a change to the assertion would fire none of the legs it is the assertion for
+— P0-3's own bug shape, caught by the packet that had just read about it.
+
+**Residual divergence, recorded not fixed:** `OIDC_AUDIENCE=""` is an opt-out on node and elixir
+only. dotnet, java and python read the empty string as a *declared* audience of `""` and reject every
+token. Fail-closed, so not a hole — a deployment footgun, one line per backend, each named with its
+line number in the hand-off.
+
+### CR1-d — folded (P0-1)
+
+`worktree-agent-a07b4a9bb6cfc0217`, `8e5823ba..6e4c8398` (5 commits). Waivers **111 → 98**.
+
+**The mechanism.** A waiver is now a typed claim: `{ standing }` has no shelf life,
+`{ deferred, reviewUntil, blockedBy? }` is parked work that expires. Three failure modes on top of
+the two that existed — a past `reviewUntil`, a date parked beyond a 180-day cap (closing the
+`"2099-01-01"` escape), and a `blockedBy` naming a PR absent from the test's own `LIVE_FENCES` map.
+
+`blockedBy` resolves against that register rather than real merge state **on purpose**, and the
+reasoning is worth keeping: `test.yml` checks out at `fetch-depth: 1`, so
+`git log --grep "Merge pull request #2736"` finds nothing on a runner even for a PR merged months
+ago — and "nothing found" would read as "not merged". It would fail **open** exactly where the gate
+has to hold. The fence register is data, identical on runner and laptop.
+
+**The drain found a live codegen defect.** Hono's `serviceReadPorts` rode two hand-rolled child
+enumerations, both holed: no statement arm for `domain-service-call`/`assign`/`repo-delete`/
+`repo-run`, no expression arm for `match`/`list`/`convert`/`duration`/`i18nFormat`/`authz-filter` or
+lambda blocks. On a `.ddd` that parses and validates clean, a reading service call in a `match` arm
+derived no read port and the emitted handler passed an identifier it never bound — TS2304, the
+generated project did not compile. Python already rode the sanctioned walker; java/dotnet/elixir
+inject read-ports rather than pass them, so only Hono was exposed.
+
+**Coordinator sent the packet back for a regression test, and should have.** The fix first landed
+with none, and the packet's own byte-identical result was the evidence why that mattered: 42,859
+files with 0 diffs means **no corpus fixture exercises the shape**, so the census would have guarded
+the mechanism and not the behaviour — a future refactor riding `walk.ts` correctly and still dropping
+the port would pass. `test/generator/typescript/workflow-read-port-derivation.test.ts` now pins it:
+four slots, four services, four repositories so each port is independently observable, with
+`IfLetBranch` kept as a **control** because it worked pre-fix. The assertions distinguish a *binding*
+from a *use* — broken output is precisely the output that mentions the identifier without
+constructing it — and the fifth is name-independent: every bare-identifier argument to a
+reading-service call must have a `const <id> =` in the same handler, which is the TS2304 condition
+itself. Coordinator re-verified by copying the pre-fix emitter in: **4 failed, 1 passed** (the
+control), restore byte-identical.
+
+Corpus fixture **recommended against**, with reasoning: the defect is Hono-specific, so a fixture
+would fan five aggregates across four backends it proves nothing for, into the docker-booting compile
+legs — and assertion 5 already encodes the TS2304 condition at ~1s.
+
+Corrects the brief: the split is **13 free / 10 fenced**, not 14/9 —
+`backend-syntax-checks.ts#eachStmtExpr` is `src/ir/**`, packet 2f's tree. **None was re-waived:** 4
+migrated onto `walk.ts`, 9 given an explicit `never`-check.
+
+Worth noting for future packets: the first draft of the regression test copied the neighbouring
+suites' `generateHono(model)` import and tripped `legacy-generate-path-ratchet.test.ts` on all three
+assertions. The packet followed the ratchet rather than widening its pin. "Copy the neighbouring
+suite's imports" is the obvious move and it is the one that gate rejects.
+
+The **63 entries** whose own text said "follow-up drain" are now `deferred` with
+`reviewUntil: 2026-12-31` — deliberately, since leaving them `standing` would have built a mechanism
+with no subjects. One date, one batch, one future packet; CR1-e and CR1-f drain most of them.
+
+### CR1-c — folded last, as designed (P1-3, P1-5)
 
 `worktree-agent-acb4378b61255bd8d`, `76ef74ad..64bd1860` (3 commits). Coordinator re-verified rather
 than taking the report: `npm audit` → **0 vulnerabilities**; `npm run lint` → **exit 1** on the
@@ -171,6 +279,25 @@ bug); new script, same tree → **exit 1**.
    dead-or-dropped call after the sweep — Biome only renames it.
 2. The `@vitejs/devtools-vitest` override is **temporary scaffolding**; whoever lands the vitest 5
    bump deletes it in the same PR.
+
+### The lint sweep — carry-forward 1, resolved at the fold
+
+All 8 were swept rather than left, because a lint ratchet that ships with the tree red is not
+shipped, and waiting on #2933 would have blocked the wave indefinitely on four unused imports. Seven
+are Biome-fixable one-liners that compose trivially with any concurrent edit; #2933's coordinator
+composes at their fold.
+
+**The eighth was not mechanical, and is a find in its own right.**
+`MAP_UNRENDERED_FRAMEWORK = "feliz"` in `ui-checks.ts` is a carve-out whose own doc comment says
+*"Delete this carve-out when the walker grows a lambda seam and `feliz-target.ts` renders `map`."*
+#2729 did exactly that — rendered `map` on all seven emitters, removed **every use**, and left a
+comment reading *"There used to be a per-ui Feliz carve-out here"* — but left the declaration behind.
+Deleting it completes that removal.
+
+Which PR that was is the point: **#2729 is one of the same merged PRs whose stale `INFLIGHT_` fences
+CR1-d drained.** One spent PR left two different kinds of residue, and it took two different packets
+of this wave to see either — the waiver register could not notice its reason had expired, and the
+lint gate could not fail on the constant it orphaned. Neither gap was visible to the other.
 
 Gates stated: `tsc -b` clean; `test/system` + `test/platform` 2,613 passed (incl.
 `local-run-mapping`, `pr-gate`, `merge-queue-readiness`); `test/macro` + four generator dirs +
