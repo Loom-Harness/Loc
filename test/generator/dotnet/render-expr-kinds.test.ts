@@ -683,7 +683,7 @@ describe("dotnet renderCsExpr — lambda, new, list, object", () => {
         fields: [{ name: "sku", value: litStr("ABC") }],
       }),
     ).toBe(
-      'LineItem._Create(new LineItem.State { Id = LineItemId.New(), ParentId = this.Id, Sku = "ABC" })',
+      'LineItem._Create(new LineItem.__State { Id = LineItemId.New(), ParentId = this.Id, Sku = "ABC" })',
     );
   });
 

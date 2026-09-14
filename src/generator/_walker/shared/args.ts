@@ -80,9 +80,18 @@ export function actionRefArg(
  *  demand from the action name (NOT stamped; invariant #4).  The action name
  *  is already a camelCase identifier in source (`next`, `setCustomer`), so the
  *  hoisted function is named identically across the JSX frontends; a bare
- *  call-site reference binds `onClick={<handlerName>}` / `handleSubmit(<handlerName>)`. */
-export function actionHandlerName(actionName: string): string {
-  return actionName;
+ *  call-site reference binds `onClick={<handlerName>}` / `handleSubmit(<handlerName>)`.
+ *
+ *  `target` is optional and only consulted for its `escapeIdent` seam: on Feliz
+ *  an action named after an F# keyword (`action begin()`) must be referenced as
+ *  `` ``begin`` ``, matching the binding `renderNamedHandler` emits (F-022).
+ *  Omitted — or on any JSX target, which does not implement the seam — the name
+ *  is returned unchanged. */
+export function actionHandlerName(
+  actionName: string,
+  target?: { escapeIdent?(name: string): string | undefined },
+): string {
+  return target?.escapeIdent?.(actionName) ?? actionName;
 }
 
 /** Render a renderTextContent() result as an attribute value.  A
