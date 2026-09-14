@@ -465,7 +465,28 @@ const REGISTERED: Ratchet[] = [
     // the harness cannot even set an id claim — `devClaimKind` carries `string`
     // and `string[]` only — so a booted leg would assert the same built-in stub
     // value the compile tier reads straight off the emitted source.
-    max: 21,
+    //
+    // 21 -> 23 (audit F-013 + F-014, the two elixir S1 compile defects).  TWO
+    // RAISES, and the same shape as the four above rather than new M-T9.13
+    // debt: each new fixture's subject is a STATIC contract whose defect made
+    // `mix compile` FAIL on the emitted project, which is exactly what the
+    // corpus compile legs read.
+    //   * `enum-collection` — the enum × array crossing.  `field :skills,
+    //     {:array, Ecto.Enum, values: [...]}` →  `** (ArgumentError) invalid
+    //     type … for field :skills`.  Booting it would re-record a generic CRUD
+    //     round-trip and mint a golden over an enum-array JSON encoding no
+    //     cross-backend ruling has been asked for.
+    //   * `principal-read-filter` — an author-written `currentUser` predicate
+    //     in a `find`/`retrieval` `where`.  `** (Ecto.Query.CompileError)
+    //     unbound variable current_user in query`, then `error: undefined
+    //     variable "current_user"` once pinned.  This one IS a drain candidate,
+    //     but not yet: the row-level filter's runtime oracle needs the
+    //     principal's id to MATCH a seeded row's `technicianUserId`, and
+    //     `devClaimKind` carries `string` / `string[]` claims only — so a
+    //     booted leg would assert over the empty fail-closed result and prove
+    //     nothing about the filter.  Drain it (and lower this by one) when the
+    //     harness can seed a row owned by the authenticated principal.
+    max: 23,
   },
 ];
 

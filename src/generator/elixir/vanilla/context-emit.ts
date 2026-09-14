@@ -48,7 +48,7 @@ import { renderReadingServiceContextFns } from "../domain-service-emit.js";
 import { unguardedName } from "../lifecycle-seam.js";
 import { type RenderCtx, renderExpr } from "../render-expr.js";
 import { auditRecordCall, wireSnapshot } from "./audit-emit.js";
-import { aggregateUsesPrincipalContextFilter } from "./capability-filter.js";
+import { aggregateUsesPrincipalContextFilter, findUsesPrincipal } from "./capability-filter.js";
 import { aggregateHasResidualInvariants } from "./changeset-invariant-emit.js";
 import { denialTerm } from "./denial.js";
 import {
@@ -484,10 +484,13 @@ function renderContextModule(
             `dir \\\\ "asc"`,
           ]
         : [];
+      // A find whose own `where` reads `currentUser` carries the actor arg too —
+      // the repository fn declares it (see `findUsesPrincipal`), so a delegate
+      // built from the aggregate-level `principal` alone would mismatch arity.
       const findArgs = [
         ...baseArgs,
         ...pageArgs,
-        ...(principal ? ["current_user \\\\ nil"] : []),
+        ...(principal || findUsesPrincipal(f) ? ["current_user \\\\ nil"] : []),
       ].join(", ");
       return `  defdelegate ${findSnake}_${aggSnake}(${findArgs}), to: ${repoMod}, as: :${findSnake}`;
     });
