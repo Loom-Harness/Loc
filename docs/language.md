@@ -1148,7 +1148,7 @@ decimal`.
 | --- | --- |
 | `precondition Expression [message "…"]` | Runtime check; failure throws a domain error (HTTP 422 — RS-15).  The optional `message` is the user-facing text. |
 | `requires Expression` | Authorization gate (HTTP 403) — `currentUser` / `permissions.<x>` predicate; distinct from `precondition` (validity) and the header `when` (state, 409).  Also a header clause on `operation` / `create` / `handle` / `find` / `projection`.  See [`auth.md`](auth.md). |
-| `lhs := Expression` | Assignment to a property reachable from `this`.  Derived properties are not assignable; under `persistedAs: eventLog` assignments live only in `apply` bodies. |
+| `lhs := Expression` | Assignment to a property reachable from `this`, optionally spelled with an explicit `this.` prefix (`this.name := name`), which is what makes the assignment type-check against the field rather than against a same-named parameter — see [Behavior & statements](language-reference/06-behavior-and-statements.md#assignment-----).  Derived properties are not assignable; under `persistedAs: eventLog` assignments live only in `apply` bodies. |
 | `coll += value` | Append to a contained collection (or an `X id[]` reference collection). |
 | `coll -= value` | Remove from a contained collection. |
 | `emit EventName { field: expr, … }` | Raise a domain event; drained by the repository on `save`. |

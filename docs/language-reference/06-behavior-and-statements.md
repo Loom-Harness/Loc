@@ -310,7 +310,18 @@ On an event-sourced aggregate (`persistedAs: eventLog`), `emit` does **double du
 
 ## Assignment — `:=`, `+=`, `-=`
 
-`target := Expr` is scalar assignment; `target += Expr` / `target -= Expr` are collection append / remove (`add` / `remove` in the IR). The target is an `LValue` — a bare field name or a dotted path (`draft.zip`), never `this.`-prefixed. Assigning to a `derived` member is an error (`Cannot assign to derived property …`). A numeric/decimal literal flowing into a `money` target is elaborated to the precise money constructor at lowering (`subtotal := 0.50` → `money("0.50")`).
+`target := Expr` is scalar assignment; `target += Expr` / `target -= Expr` are collection append / remove (`add` / `remove` in the IR). The target is an `LValue` — a bare field name or a dotted path (`draft.zip`), optionally rooted with an explicit `this.` (`this.name`, `this.draft.zip`). Assigning to a `derived` member is an error (`Cannot assign to derived property …`). A numeric/decimal literal flowing into a `money` target is elaborated to the precise money constructor at lowering (`subtotal := 0.50` → `money("0.50")`).
+
+**`this.` is a disambiguator, not decoration.** Without it the head is resolved as a free name first, so a parameter named after the field it fills wins — and the assignment is then *type-checked against the parameter*, not against the member being written:
+
+```ddd
+operation rename(name: int) {
+  this.name := name   // error: Cannot assign 'int' to 'string'
+  name := name        // accepted — the head resolves to the int parameter
+}
+```
+
+Both spellings *emit* the same write (`this._name = name`), so the bare form on a mismatched pair emits an assignment its own target language rejects. Prefer the explicit prefix whenever a parameter shares a field's name. The same applies to a this-rooted **call**: `this.files.put(k, v)` is a member call on the aggregate even when a `resource files` is in scope, which the bare spelling would otherwise resolve to the resource.
 
 ```ddd
 aggregate Order {
