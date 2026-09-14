@@ -959,3 +959,60 @@ Severity: **S2**   Class: **SILENT** gap
 Area: codegen / Feliz walker list rendering
 Also found while building the F-017 repro; **not fixed** (separate emitter path).
 `dotnet build` → `error FS0747`. The agent rewrote its repro around the defect rather than widen the change.
+
+---
+
+### F-025 — A workflow parameter named `id` lowers to a `this-prop` ref and emits `self._id` / `this._id` in a module-level function
+Severity: **S1** (blocker — non-compiling on node, runtime `NameError` on python)   Class: **SILENT** gap
+Area: lowering / name resolution (`src/ir/lower/`)
+Found by the agent fixing F-007/F-013, via the new Python scope gate. **Not fixed** — it is neither
+F-007 nor F-013 and it touches the lowerer.
+
+```ddd
+workflow x { create(id: WorkOrder id) { let wo = WorkOrders.getById(id) } }
+```
+`ddd parse` → `0 error(s), 0 warning(s)`. Emitted, in a module-level function with no receiver:
+```python
+wo = await work_orders.get_by_id(self._id)      # ruff: F821 Undefined name `self`
+```
+```ts
+const wo = await workOrders.getById(this._id);  // node, same shape
+```
+Renaming the parameter makes it correct, so the parameter loses name resolution to the implicit
+aggregate `id`. Cross-backend.
+
+---
+
+## F-015 outcome — 3 of 4 fixed, 1 deliberately deferred with a reasoned argument
+
+Real `ruff check` over the whole generated FieldOps Python app: **4 errors → 1**.
+
+| ruff code | outcome |
+|---|---|
+| `F821` unbound `current_user` | **fixed** (that was F-013) |
+| `E714` ×2 (`not x is None`) | **fixed** — `renderPyNegatedGuard` now flips the operator rather than wrapping |
+| `F841` unused local `tech` | **not fixed, deliberately** |
+
+The `F841` is caused by *my own model* binding `let tech = Technicians.getById(technician)` and never
+reading it, so the right fix is a model-layer "unused `let`" warning. The agent prototyped that
+detector and measured it over the repo's own 91 `.ddd` files / 51 workflow `let`s:
+- naive "declared but never referenced" → **39 findings of 51**, because `let order = Order.create({…})`
+  *is* used: the workflow's `savesAtExit` emits `await orders.save(order)`;
+- excluding `savesAtExit` bindings → **11 findings across 9 files**, all `let x = Repo.getById(id)`.
+
+Those 11 are the crux: `getById` 404s when the row is absent, so such a binding is an **existence
+check**. Warning "unused" on it advises a behaviour change, and deleting it changes what the workflow
+does. Correctly, the agent stopped rather than guess, and the open design question is now recorded:
+*does a `savesAtExit` binding count as used, and is a bare repository read a side effect?* Both
+"yes" shrinks the warning to near-zero and makes it cheap. **This is a language-design decision, not
+a bug fix**, and it would have put warnings on 9 shipped examples that feed CI.
+
+### Correction to my own F-007 write-up
+I reported F-007 as node-only, which was right. During the fix an initial claim that Python's
+`!= None` was an `E711` lint failure was raised and then **withdrawn**: the emitted `pyproject.toml`
+waives `E711`/`E712`/`E741` on purpose, with a comment explaining that in SQLAlchemy predicates
+`== True` / `!= None` are the operator-overloaded forms, not style slips. Python's emission was
+correct SQL and deliberately waived; it was changed to `.is_not(None)` only as a cleanup so it
+matches the node shape. Cross-backend result for `this.technicianId != null`: **node was the only
+broken target** — .NET, Java and Elixir were already correct (`!= null` via EF, `cb.isNotNull(...)`,
+`not is_nil(...)`).
