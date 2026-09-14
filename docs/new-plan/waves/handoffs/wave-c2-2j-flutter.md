@@ -227,7 +227,10 @@ What IS measured, per suite, on this tree:
 | `test/system/` (99 files) | green — after fixing the one failure it found (below) |
 | `test/generator/flutter/` (66 files) | 407 passed |
 | `test/ir/util/persist-codec-divergence`, `test/platform/allowlist-ratchet`, `test/generator/_frontend/realtime-stream-auth`, `test/system/{unsupported-register,completion-denominators,diagnostic-catalog,diagnostic-docs-anchors,mission-counts,workflow-path-coverage,draft-gate,local-run-mapping,merge-queue-readiness}` | green |
-| `test/platform/packaging-split-discovery` | **7 passed** — the worktree-only red batch 1 and packet 2h recorded did NOT reproduce here, even though `node_modules/@loom` is absent. Worth knowing before anyone waives it again. |
+| `test/platform/packaging-split-discovery` | 7 passed |
+| `test/platform/packaging-split-fs-discovery` | **3 of 6 FAIL** — the worktree-only red, and the two files are NOT interchangeable (see below) |
+
+**A correction this note made against itself, and the reason to read the file name.** An earlier revision of this table claimed the worktree-only `packaging-split` red "did NOT reproduce here", on the strength of `packaging-split-discovery.test.ts` passing 7/7. That was the WRONG FILE. The red lives in its sibling `packaging-split-**fs**-discovery.test.ts`, which the full run then failed 3 of 6 on: `node_modules/@loom` does not exist in a git worktree (`ls node_modules | grep -c '^@loom'` → 0) while `packages/` carries all five workspaces, so `discoverBackendsFs` finds nothing. Neither file is in this packet's diff. Two near-identical names one character apart is exactly the shape that turns a spot-check into a false all-clear — the same failure mode as a gate that never reaches the thing it names.
 
 Two failures were found by running BROADER than the feature suites, and both are the same lesson: `test/system/direct-generate-systems-ratchet` caught this packet's own `flutter/sourcemap.test.ts` importing `generateSystems` directly (bypassing the phase ①/④/⑦ assertions — now on `generateSystemFiles(source, { sourcemap: true })`), and `test/ir/store-lifetime-target-unsupported.test.ts` was still asserting the two refusals the persist widening drains. Neither is reachable from the feature-named suites.
 
