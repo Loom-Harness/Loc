@@ -46,7 +46,7 @@ The starter template's own `main.ddd` parsed and generated with 0 errors / 0 war
 
 ## Phase 1 — modelling FieldOps (expressiveness)
 
-Wrote `eval/fieldops/main.ddd` in slices. Slice 1 (130 lines of pure domain: 6 aggregates,
+Wrote `eval-fieldops/fieldops/main.ddd` in slices. Slice 1 (130 lines of pure domain: 6 aggregates,
 containment, money arithmetic, enum collections, optional FKs, a multi-currency invariant)
 **parsed clean on the first attempt** and its generated node backend passed `tsc --noEmit`
 with exit 0. That is a real result and worth saying plainly: the language is learnable from
@@ -127,7 +127,7 @@ associations round-tripping, and a `{items,page,pageSize,total,totalPages}` page
 
 ## Phase 3 — breadth (the headline claims), measured
 
-Method: **one model** (`eval/fieldops/main.ddd`, 317 lines), only `platform:` / `design:` varied.
+Method: **one model** (`eval-fieldops/fieldops/main.ddd`, 317 lines), only `platform:` / `design:` varied.
 Every "compiles" verdict below is an executed build using **the generated project's own declared
 toolchain and version**, in a container matching its declared runtime.
 
@@ -160,7 +160,7 @@ compiled once the channel was dropped, so the *architecture* is sound; the *rele
 time. **Packs are the most solid part of the breadth story.**
 
 ### Mixing
-`eval/fieldops/mixed.ddd` — two backends (node + python) and two frontends (react + vue) pointing
+`eval-fieldops/fieldops/mixed.ddd` — two backends (node + python) and two frontends (react + vue) pointing
 at the same `api` in one system: generates 305 files and a coherent 9-service compose file
 (`api`, `api_py`, `web_app`, `web_app2`, `db`, `keycloak`, `bus`, `photos`, `mail`). Composition
 works.
@@ -238,7 +238,7 @@ generator.
 - CI must regenerate and then compile *every* target it ships (Phase 3 proves why).
 
 ### 6. Scaling — no cliff in the toolchain
-Scripted `eval/fieldops/scale.ddd`: **32 aggregates, 5 contexts, 992 lines** (added 24 aggregates
+Scripted `eval-fieldops/fieldops/scale.ddd`: **32 aggregates, 5 contexts, 992 lines** (added 24 aggregates
 each with containment, a derived money total, an invariant, a tenant-scoped unique, 2 operations, a
 criterion, a retrieval and a grouped projection).
 
@@ -259,7 +259,7 @@ build. (I did not measure a full multi-backend docker build at 32 aggregates.)
 
 ## Phase 6 — adversarial DX
 
-### Error quality — ten deliberately-broken models (`eval/repro/broken/`)
+### Error quality — ten deliberately-broken models (`eval-fieldops/repro/broken/`)
 | # | realistic mistake | diagnostic | right line? | actionable? |
 |---|---|---|---|---|
 | 1 | typo'd type (`strng`) | `Could not resolve reference to NamedDecl named 'strng'` | ✅ 2:20 | ok (doesn't suggest `string`) |
@@ -281,7 +281,7 @@ crashed (F-020). Diagnostics carry stable `loom.*` codes you can look up.
 - `--sourcemap` emits a 46 KB `.loom/sourcemap.json`.
 - **`ddd trace` works and is genuinely useful.** Given a real stack from generated code
   (`DomainError: Precondition failed: onHand >= qty  at Part.consume (…/api/domain/part.ts:48:39)`)
-  it annotated the frame as `Field.Part.consume (…/eval/fieldops/main.ddd:134)` — and line 134 is
+  it annotated the frame as `Field.Part.consume (…/eval-fieldops/fieldops/main.ddd:134)` — and line 134 is
   exactly `precondition onHand >= qty`. **Production triage from a stack trace back to the model
   works.**
 - **`ddd breakpoints` (the reverse) is unreliable** — declaration-level model lines resolve to

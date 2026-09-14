@@ -136,20 +136,29 @@ const DELIBERATELY_INVALID = [
   // and crash the generator with a `RangeError` naming an `out/**.js` frame, and
   // now `checkContainmentCycles` refuses it at the AST layer with a real
   // file:line ("Cyclic containment in aggregate 'A': X -> Y -> X").
-  "eval/repro/H-rowlevel-currentuser.ddd",
-  "eval/repro/broken/05-cyclic-containment.ddd",
+  "eval-fieldops/repro/H-rowlevel-currentuser.ddd",
+  "eval-fieldops/repro/broken/05-cyclic-containment.ddd",
   // Joined when F-003 was fixed, for the same reason as 05: the cross-aggregate
   // `invariant Technicians.getById(...)` used to validate clean and emit an
   // unresolvable identifier on four backends (and nothing at all on Phoenix);
   // `checkRuleExprPurity` now refuses it at the rule's own line.
-  "eval/repro/A-cross-agg-invariant.ddd",
-  "eval/repro/broken/01-typo-type.ddd",
-  "eval/repro/broken/02-invariant-unknown-field.ddd",
-  "eval/repro/broken/03-wrong-arity.ddd",
-  "eval/repro/broken/04-bare-aggregate-ref.ddd",
-  "eval/repro/broken/06-duplicate-names.ddd",
-  "eval/repro/broken/07-bad-enum-value.ddd",
-  "eval/repro/broken/10-type-mismatch.ddd",
+  "eval-fieldops/repro/A-cross-agg-invariant.ddd",
+  "eval-fieldops/repro/broken/01-typo-type.ddd",
+  "eval-fieldops/repro/broken/02-invariant-unknown-field.ddd",
+  "eval-fieldops/repro/broken/03-wrong-arity.ddd",
+  "eval-fieldops/repro/broken/04-bare-aggregate-ref.ddd",
+  "eval-fieldops/repro/broken/06-duplicate-names.ddd",
+  "eval-fieldops/repro/broken/07-bad-enum-value.ddd",
+  "eval-fieldops/repro/broken/10-type-mismatch.ddd",
+  // A SECOND, independent evaluation's repro corpus (`eval-clinica/`), already on
+  // main.  It found two of the same defects this branch fixes, which is useful
+  // corroboration in itself: r02 is a cross-aggregate `invariant` reaching a
+  // repository (F-003) and r18 is cyclic containment (F-020).  Both were written
+  // as deliberately-broken evidence and validated clean until these gates landed,
+  // so they belong here for exactly the reason the entries above do.
+  "eval-clinica/repro/r02-overlap.ddd",
+  "eval-clinica/repro/r02-overlap-system.ddd",
+  "eval-clinica/repro/r18-recursive-containment-crash.ddd",
 ] as const;
 
 // A third exclusion list used to sit here — `PROJECT_MEMBER_NOT_IMPORTED`,

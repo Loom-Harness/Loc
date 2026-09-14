@@ -26,7 +26,7 @@ Each is checkable, and none requires trusting a roadmap:
    green on the target backend + frontend in their CI for 30 consecutive days.
 2. **F-018 is fixed** — the migration rename heuristic must not silently reinterpret a
    delete-plus-add as a rename, and must never discard a declared backfill. Falsifiable: my repro
-   (`eval/repro/migr/`) either refuses or emits drop+add.
+   (`eval-fieldops/repro/migr/`) either refuses or emits drop+add.
 3. **A released, versioned artifact exists.** A published package, a version we can pin, a changelog,
    and a stated deprecation policy. Today there is no release at all (§7).
 4. **`enforcement: denyByDefault` is the language default**, or we adopt a lint that makes it
@@ -83,8 +83,8 @@ that not enough of it has been run.
 
 ## 3. Claim verification matrix
 
-Every claim quoted verbatim from `README.md`. Evidence is in `eval/EVAL-LOG.md`; finding IDs in
-`eval/FINDINGS.md`.
+Every claim quoted verbatim from `README.md`. Evidence is in `eval-fieldops/EVAL-LOG.md`; finding IDs in
+`eval-fieldops/FINDINGS.md`.
 
 | # | Claim (verbatim) | Grade | Evidence |
 |---|---|---|---|
@@ -109,7 +109,7 @@ Every claim quoted verbatim from `README.md`. Evidence is in `eval/EVAL-LOG.md`;
 
 ## 4. Target matrix
 
-One model (`eval/fieldops/main.ddd`, 317 lines); only `platform:` / `design:` varied. Every
+One model (`eval-fieldops/fieldops/main.ddd`, 317 lines); only `platform:` / `design:` varied. Every
 "compiles" verdict is an **executed build** using the generated project's own declared toolchain.
 
 ### Backends
@@ -449,5 +449,5 @@ not message flow); performance under load; anything at >32 aggregates.
 
 ---
 
-*Evidence: `eval/FINDINGS.md` (22 findings), `eval/EVAL-LOG.md` (chronological log with commands and
-output), `eval/fieldops/*.ddd` (the model), `eval/repro/*` (minimal reproductions for every S1/S2).*
+*Evidence: `eval-fieldops/FINDINGS.md` (22 findings), `eval-fieldops/EVAL-LOG.md` (chronological log with commands and
+output), `eval-fieldops/fieldops/*.ddd` (the model), `eval-fieldops/repro/*` (minimal reproductions for every S1/S2).*

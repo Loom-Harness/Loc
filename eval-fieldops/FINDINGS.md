@@ -56,7 +56,7 @@ Area: codegen / all five backends / aggregate invariants
 Claim under test: README — "walk away with real, owned source code across five backends";
 "Validation gates catch hallucinated fields and out-of-scope references **before any code is emitted**."
 
-Repro: `eval/repro/A-cross-agg-invariant.ddd` (19 lines). The rule is straight out of a
+Repro: `eval-fieldops/repro/A-cross-agg-invariant.ddd` (19 lines). The rule is straight out of a
 normal field-service spec: *a work order may only go to a technician whose skills cover
 the asset's required skill.*
 ```ddd
@@ -67,13 +67,13 @@ aggregate WorkOrder {
 }
 ```
 ```
-$ node bin/cli.js parse eval/repro/A-cross-agg-invariant.ddd
+$ node bin/cli.js parse eval-fieldops/repro/A-cross-agg-invariant.ddd
 0 error(s), 0 warning(s).
-OK: eval/repro/A-cross-agg-invariant.ddd
-$ node bin/cli.js generate system eval/repro/A-cross-agg-invariant.ddd -o eval/out-A
+OK: eval-fieldops/repro/A-cross-agg-invariant.ddd
+$ node bin/cli.js generate system eval-fieldops/repro/A-cross-agg-invariant.ddd -o eval-fieldops/out-A
 0 error(s), 0 warning(s).
-Wrote 48 file(s) in eval/out-A
-$ cd eval/out-A/api && npx tsc --noEmit
+Wrote 48 file(s) in eval-fieldops/out-A
+$ cd eval-fieldops/out-A/api && npx tsc --noEmit
 domain/workOrder.ts(37,11): error TS2304: Cannot find name 'Technicians'.
 domain/workOrder.ts(37,67): error TS2304: Cannot find name 'Assets'.
 ```
@@ -88,7 +88,7 @@ Observed, per backend (same model, only `platform:` changed):
 | **elixir** | **nothing at all** — `work_order_changeset.ex` contains no trace of the rule | **the business rule silently does not exist in the shipped app** |
 
 Elixir control: the same backend *does* emit a simple invariant — `invariant n >= 0` becomes
-`validate_number(:n, greater_than_or_equal_to: 0)` (`eval/out-inv-elixir`). So this is a
+`validate_number(:n, greater_than_or_equal_to: 0)` (`eval-fieldops/out-inv-elixir`). So this is a
 targeted silent drop of the cross-aggregate form, not "elixir doesn't do invariants".
 
 Expected: a `loom.*` diagnostic refusing repository access inside an `invariant` — the language
@@ -119,7 +119,7 @@ Claim under test: README — "Workflows (transactional, isolation, event drain)"
 "completing a work order must decrement stock transactionally and fail the whole operation if
 stock is insufficient."
 
-Repro: `eval/repro/B-workflow-stock.ddd` → `generate system` → `npx tsc --noEmit` **exit 0**.
+Repro: `eval-fieldops/repro/B-workflow-stock.ddd` → `generate system` → `npx tsc --noEmit` **exit 0**.
 Emitted (`http/workflows.ts`):
 ```ts
 await db.transaction(async (tx) => {
@@ -149,7 +149,7 @@ Claim under test: `docs/tenancy.md` — "the toolchain **guarantees** the read s
 generated query — the 'forgot the filter on one query' cross-tenant leak becomes a compile error
 instead of an incident."
 
-Repro: `eval/repro/C4-ignoring-ungated.ddd`
+Repro: `eval-fieldops/repro/C4-ignoring-ungated.ddd`
 ```ddd
 auth { enforcement: opt  … }          // ← the LANGUAGE DEFAULT
 tenancy by user.orgId of Org
@@ -161,7 +161,7 @@ projection PlatformRevenue {          // ← no `requires` gate
 }
 ```
 ```
-$ node bin/cli.js parse eval/repro/C4-ignoring-ungated.ddd
+$ node bin/cli.js parse eval-fieldops/repro/C4-ignoring-ungated.ddd
 0 error(s), 0 warning(s).
 ```
 Observed — emitted route has no auth check and no tenant predicate:
@@ -169,11 +169,11 @@ Observed — emitted route has no auth check and no tenant predicate:
 const [row] = await db.select({ revenue: sum(schema.workOrders.amount) }).from(schema.workOrders);
 ```
 `GET /projections/platform_revenue` returns the revenue sum **across every tenant** to any
-authenticated caller from any tenant. Compare the gated sibling (`eval/out-C`), which correctly
+authenticated caller from any tenant. Compare the gated sibling (`eval-fieldops/out-C`), which correctly
 emits `.where(eq(schema.workOrders.tenantId, requireCurrentUser().orgId))`.
 
 Mitigation that works (verified): flipping one line to `enforcement: denyByDefault`
-(`eval/repro/C5-…ddd`) turns it into a hard error —
+(`eval-fieldops/repro/C5-…ddd`) turns it into a hard error —
 `loom.default-deny-ungated projection/PlatformRevenue: … declares no requires gate. Add a
 requires <expr> … (use requires true to allow anonymous access).`
 
@@ -191,7 +191,7 @@ buyer must know that.
 
 **Expressiveness result for the spec's deliberate cross-tenant read:** *expressed directly.*
 `from WorkOrder as w ignoring tenantOwned` + `requires currentUser.role == "platformAdmin"`
-emits exactly the intended SQL (`eval/out-C2`) with the 403 gate ahead of it.
+emits exactly the intended SQL (`eval-fieldops/out-C2`) with the 403 gate ahead of it.
 Time lost: 25 min
 
 ---
@@ -203,7 +203,7 @@ Area: codegen / node backend / aggregate factories + invariants
 Claim under test: README — "Aggregate roots with private state, **factories**, invariant checks,
 derived properties, domain events"; "Validation gates catch … before any code is emitted."
 
-Repro: `eval/repro/G2-invariant-over-parts-breaks-create.ddd` (24 lines). The invariant is the
+Repro: `eval-fieldops/repro/G2-invariant-over-parts-breaks-create.ddd` (24 lines). The invariant is the
 spec's own multi-currency rule — *all lines share the order's currency*:
 ```ddd
 aggregate Order {
@@ -216,10 +216,10 @@ aggregate Order {
 workflow openOrder { create(currency: string) { let o = Order.create({ currency: currency }) } }
 ```
 ```
-$ node bin/cli.js parse   eval/repro/G2-….ddd   →  0 error(s), 0 warning(s).  OK
-$ node bin/cli.js generate system eval/repro/G2-….ddd -o eval/out-G2
+$ node bin/cli.js parse   eval-fieldops/repro/G2-….ddd   →  0 error(s), 0 warning(s).  OK
+$ node bin/cli.js generate system eval-fieldops/repro/G2-….ddd -o eval-fieldops/out-G2
 0 error(s), 0 warning(s).   Wrote 45 file(s)
-$ cd eval/out-G2/api && npx tsc --noEmit
+$ cd eval-fieldops/out-G2/api && npx tsc --noEmit
 domain/order.test.ts(7,21):  error TS2551: Property 'create' does not exist on type 'typeof Order'. Did you mean '_create'?
 http/workflows.ts(46,23):    error TS2551: Property 'create' does not exist on type 'typeof Order'. Did you mean '_create'?
 ```
@@ -270,7 +270,7 @@ Claim under test: `docs/criterion.md` / language reference — criteria are "reu
 predicate specifications"; "The queryable-subset validator rejects shapes that don't fit … with a
 clear diagnostic."
 
-Repro: `eval/repro/E-criterion-null-compare.ddd` (18 lines) — "work orders that have been assigned":
+Repro: `eval-fieldops/repro/E-criterion-null-compare.ddd` (18 lines) — "work orders that have been assigned":
 ```ddd
 aggregate WorkOrder { technicianId: Tech id? }
 criterion Assigned() of WorkOrder = this.technicianId != null
@@ -278,8 +278,8 @@ retrieval AssignedOrders() of WorkOrder { where: Assigned() }
 ```
 ```
 $ node bin/cli.js parse … → 0 error(s), 0 warning(s). OK
-$ node bin/cli.js generate system … -o eval/out-E → Wrote 45 file(s)
-$ cd eval/out-E/api && npx tsc --noEmit
+$ node bin/cli.js generate system … -o eval-fieldops/out-E → Wrote 45 file(s)
+$ cd eval-fieldops/out-E/api && npx tsc --noEmit
 db/repositories/workOrder-repository.ts(15,33): error TS2769: No overload matches this call.
   Argument of type 'null' is not assignable to parameter of type 'string | SQLWrapper'.
 ```
@@ -303,7 +303,7 @@ Claim under test: README — "`ddd generate system acme.ddd -o ./out` → runnab
 + `docker-compose.yml` … `docker compose up -d` → everything running".
 
 Repro: any model with `storage photos { type: s3, … }` + `resource … kind: objectStore`
-(`eval/fieldops/main.ddd`):
+(`eval-fieldops/fieldops/main.ddd`):
 ```
 $ docker compose up -d --build
  Image minio/minio:latest Error pull access denied for minio/minio, repository does not exist or may require 'docker login'
@@ -344,7 +344,7 @@ Claim under test: `docs/auth.md` — "Under `denyByDefault`, every **client-reac
 on an `auth: required` deployable must declare a `requires` gate … else `loom.default-deny-ungated`
 fires." (The doc lists exactly one exception, the auto-injected `find all`.)
 
-Repro: `eval/repro/I-byid-gate.ddd`
+Repro: `eval-fieldops/repro/I-byid-gate.ddd`
 ```ddd
 auth { enforcement: denyByDefault  … }
 aggregate Secret { body: string  create() { requires currentUser.role == "admin" } }
@@ -352,10 +352,10 @@ repository Secrets for Secret { find all(): Secret[] requires currentUser.role =
 deployable api { … auth: required … }
 ```
 ```
-$ node bin/cli.js parse eval/repro/I-byid-gate.ddd
+$ node bin/cli.js parse eval-fieldops/repro/I-byid-gate.ddd
 0 error(s), 0 warning(s).
 ```
-Observed — gate presence per emitted route (`eval/out-I/api/http/secret.routes.ts`):
+Observed — gate presence per emitted route (`eval-fieldops/out-I/api/http/secret.routes.ts`):
 ```
   POST  /        -> requires-gate
   GET   /        -> requires-gate
@@ -397,11 +397,11 @@ Area: codegen / .NET backend / channels (cross-deployable eventing)
 Claim under test: README — ".NET" as one of five backends; `docs/channels.md` — "cross-deployable
 eventing over external brokers"; README "Pick a runtime per deployable. Switch any time."
 
-Repro: `eval/repro/J-dotnet-channel-namespace.ddd` — 15 lines, one aggregate, one event, one
+Repro: `eval-fieldops/repro/J-dotnet-channel-namespace.ddd` — 15 lines, one aggregate, one event, one
 channel, `platform: dotnet`.
 ```
-$ node bin/cli.js parse eval/repro/J-dotnet-channel-namespace.ddd      → OK
-$ node bin/cli.js generate system … -o eval/out-J                      → Wrote 64 file(s)
+$ node bin/cli.js parse eval-fieldops/repro/J-dotnet-channel-namespace.ddd      → OK
+$ node bin/cli.js generate system … -o eval-fieldops/out-J                      → Wrote 64 file(s)
 $ docker run … mcr.microsoft.com/dotnet/sdk:10.0 dotnet build
 /w/api/Infrastructure/Channels/ChannelTransport.cs(239,26): error CS0234: The type or namespace
   name 'Infrastructure' does not exist in the namespace 'Api.Api' (are you missing an assembly reference?)
@@ -445,10 +445,10 @@ Area: codegen / Java (Spring Boot) backend / field masking
 Claim under test: README — "Java/Spring Boot" as a supported backend; `docs/auth.md` — "`mask unless`
 field read-redaction"; README "Identical API contracts; idiomatic per-runtime output."
 
-Repro: `eval/repro/K-java-mask-missing-import.ddd` — 16 lines, one aggregate, one masked field.
+Repro: `eval-fieldops/repro/K-java-mask-missing-import.ddd` — 16 lines, one aggregate, one masked field.
 ```
-$ node bin/cli.js parse eval/repro/K-java-mask-missing-import.ddd   → 0 error(s). OK
-$ node bin/cli.js generate system … -o eval/out-K                   → Wrote 68 file(s)
+$ node bin/cli.js parse eval-fieldops/repro/K-java-mask-missing-import.ddd   → 0 error(s). OK
+$ node bin/cli.js generate system … -o eval-fieldops/out-K                   → Wrote 68 file(s)
 $ docker run … gradle:9-jdk25 gradle testClasses
 /w/api/src/main/java/com/loom/api/features/teches/TechResponse.java:21: error: cannot find symbol
   symbol:   variable Objects
@@ -483,8 +483,8 @@ Area: codegen / python + elixir backends / criterion + retrieval lowering
 Claim under test: README — "Identical API contracts"; "five backends from one source";
 `docs/auth.md` — "`currentUser` admissible inside repository find `where` filters".
 
-Repro: the FieldOps row-level rule (`eval/repro/H2-rowlevel-denormalized.ddd`, and
-`eval/fieldops/main.ddd`):
+Repro: the FieldOps row-level rule (`eval-fieldops/repro/H2-rowlevel-denormalized.ddd`, and
+`eval-fieldops/fieldops/main.ddd`):
 ```ddd
 criterion MineAsTechnician() of WorkOrder = this.technicianUserId == currentUser.id
 retrieval MyWorkOrders() of WorkOrder { where: MineAsTechnician()  sort: [priority desc] }
@@ -539,10 +539,10 @@ Area: codegen / Elixir (Phoenix/Ecto) backend / enum collections
 Claim under test: README — "Phoenix LiveView" as a supported backend; `docs/language.md` — `T[]`
 denotes a collection of any `TypeRef`, including an enum.
 
-Repro: `eval/repro/L-elixir-enum-array.ddd` — 15 lines, one aggregate, one `Skill[]` field.
+Repro: `eval-fieldops/repro/L-elixir-enum-array.ddd` — 15 lines, one aggregate, one `Skill[]` field.
 ```
 $ node bin/cli.js parse … → 0 error(s). OK
-$ node bin/cli.js generate system … -o eval/out-L → Wrote 61 file(s)
+$ node bin/cli.js generate system … -o eval-fieldops/out-L → Wrote 61 file(s)
 $ docker run … hexpm/elixir:1.17.3 … mix compile
 == Compilation error in file lib/api/c/tech.ex ==
 ** (ArgumentError) invalid type {:array, Ecto.Enum, [values: [:Electrical, :Plumbing, :HVAC]]} for field :skills
@@ -593,11 +593,11 @@ Area: codegen / Angular frontend / scaffolded create+update forms
 Claim under test: README — "Angular" as one of six frontends; "Generated UI pages (list, detail,
 create) with a modal-form button per public operation."
 
-Repro: `eval/repro/M-angular-enum-array-form.ddd` — 18 lines, one aggregate with `skills: Skill[]`,
+Repro: `eval-fieldops/repro/M-angular-enum-array-form.ddd` — 18 lines, one aggregate with `skills: Skill[]`,
 scaffolded Angular UI.
 ```
 $ node bin/cli.js parse … → 0 error(s). OK
-$ node bin/cli.js generate system … -o eval/out-M → Wrote 76 file(s)
+$ node bin/cli.js generate system … -o eval-fieldops/out-M → Wrote 76 file(s)
 $ docker run … node:24-slim npm run build           # the project's own `ng build`
 Application bundle generation failed. [4.831 seconds]
 ✘ [ERROR] TS2322: Type '{ fullName: string; skills: null; }' is not assignable to type 'UpdateTechRequest'.
@@ -635,11 +635,11 @@ Claim under test: README — "Feliz (F#/Fable)" as one of six frontends.
 `dotnet build App.fsproj` on the full FieldOps Feliz output: **14 `error FS`** —
 `8× FS0001` (type mismatch), `1× FS0037` (duplicate type), `2× FS1129`, `2× FS0039`, `1× FS0764`.
 
-**Bug A — form-record name collision** (minimal repro `eval/repro/N-feliz-form-name-collision.ddd`,
+**Bug A — form-record name collision** (minimal repro `eval-fieldops/repro/N-feliz-form-name-collision.ddd`,
 26 lines). An aggregate operation `WorkOrder.schedule(...)` and a workflow `scheduleWorkOrder(...)`
 both lower to an F# record type named `ScheduleWorkOrderForm`:
 ```
-$ grep -c '^type ScheduleWorkOrderForm =' eval/out-N/web/src/App.fs
+$ grep -c '^type ScheduleWorkOrderForm =' eval-fieldops/out-N/web/src/App.fs
 2
 $ dotnet build App.fsproj
 src/App.fs(246,6): error FS0037: Duplicate definition of type, exception or module 'ScheduleWorkOrderForm'
@@ -670,7 +670,7 @@ Claim under test: `docs/migrations.md` §"Rename detection (heuristic fallback)"
 is an explicit new column, never treated as a rename.**"* and *"Rather than silently degrade to a
 data-losing drop+add, it **aborts** …"*
 
-Repro: `eval/repro/migr/v1.ddd` → `eval/repro/migr/v2.ddd` (two 14-line models).
+Repro: `eval-fieldops/repro/migr/v1.ddd` → `eval-fieldops/repro/migr/v2.ddd` (two 14-line models).
 v1 has `Part { sku, binCode }`. v2 **deletes `binCode`**, **adds an unrelated `supplierRef`**, and
 declares an explicit backfill for the new column:
 ```ddd
@@ -680,14 +680,14 @@ migration "add-supplier-ref" {
 … aggregate Part with crudish { sku: string  supplierRef: string … }
 ```
 ```
-$ node bin/cli.js generate system eval/repro/migr/v1.ddd -o eval/out-migr   # baseline
-$ node bin/cli.js generate system eval/repro/migr/v2.ddd -o eval/out-migr
+$ node bin/cli.js generate system eval-fieldops/repro/migr/v1.ddd -o eval-fieldops/out-migr   # baseline
+$ node bin/cli.js generate system eval-fieldops/repro/migr/v2.ddd -o eval-fieldops/out-migr
 0 error(s), 0 warning(s).
-Wrote 11 file(s) in eval/out-migr, unchanged: 31
+Wrote 11 file(s) in eval-fieldops/out-migr, unchanged: 31
 EXIT=0
-$ cat eval/out-migr/api/db/migrations/<newest>.sql
+$ cat eval-fieldops/out-migr/api/db/migrations/<newest>.sql
 ALTER TABLE "c"."parts" RENAME COLUMN "bin_code" TO "supplier_ref";
-$ grep -l 'NO-SUPPLIER' eval/out-migr/api/db/migrations/*.sql
+$ grep -l 'NO-SUPPLIER' eval-fieldops/out-migr/api/db/migrations/*.sql
   (no match — the author's declared backfill appears in NO migration file)
 ```
 Three things go wrong at once, all silently:
@@ -742,8 +742,8 @@ Claim under test: README — "**The keys to the codebase**", "walk away with rea
 Repro: edited two generated files by hand (a Drizzle repository and a scaffolded React page), each
 with a marker comment, then regenerated:
 ```
-$ node bin/cli.js generate system eval/fieldops/main.ddd -o eval/out-fieldops
-Wrote 3 file(s) in eval/out-fieldops, unchanged: 153
+$ node bin/cli.js generate system eval-fieldops/fieldops/main.ddd -o eval-fieldops/out-fieldops
+Wrote 3 file(s) in eval-fieldops/out-fieldops, unchanged: 153
 $ grep -c 'HAND-EDIT' …/part-repository.ts   → 0
 $ grep -c 'HAND-EDIT' …/pages/assets/detail.tsx → 0
 ```
@@ -756,8 +756,8 @@ sentence — *"every file Loom generates is overwritten on every run"* — every
 $ cat .loomignore
 api/db/repositories/part-repository.ts
 /docker-compose.yml
-$ node bin/cli.js generate system … -o eval/out-fieldops
-Wrote 1 file(s) in eval/out-fieldops, unchanged: 153, skipped (.loomignore): 2
+$ node bin/cli.js generate system … -o eval-fieldops/out-fieldops
+Wrote 1 file(s) in eval-fieldops/out-fieldops, unchanged: 153, skipped (.loomignore): 2
    → both hand edits survived
 $ node bin/cli.js generate system … --dry-run
   skip (.loomignore)  api/db/repositories/part-repository.ts  (6.3 KB)
@@ -779,14 +779,14 @@ Claim under test: README — "Validation gates catch hallucinated fields and out
 before any code is emitted"; `docs/tools.md` — "All `generate` sub-commands run validation first and
 refuse to emit if there are errors."
 
-Repro: `eval/repro/broken/05-cyclic-containment.ddd` — 8 lines. Entity `X` contains `Y[]`, entity `Y`
+Repro: `eval-fieldops/repro/broken/05-cyclic-containment.ddd` — 8 lines. Entity `X` contains `Y[]`, entity `Y`
 contains `X[]`.
 ```
-$ node bin/cli.js parse eval/repro/broken/05-cyclic-containment.ddd
+$ node bin/cli.js parse eval-fieldops/repro/broken/05-cyclic-containment.ddd
 0 error(s), 0 warning(s).
 OK: 05-cyclic-containment.ddd
 
-$ node bin/cli.js generate system eval/repro/broken/05-cyclic-containment.ddd -o eval/out-cyclic
+$ node bin/cli.js generate system eval-fieldops/repro/broken/05-cyclic-containment.ddd -o eval-fieldops/out-cyclic
 0 error(s), 0 warning(s).
 RangeError: Maximum call stack size exceeded
     at Array.find (<anonymous>)
@@ -818,8 +818,8 @@ generated file:line(s) it produced … the reverse of `ddd trace`"; `docs/debugg
 
 Repro (FieldOps, `--sourcemap`, 46 KB map emitted):
 ```
-$ node bin/cli.js breakpoints eval/fieldops/main.ddd --line 203 --map eval/out-fieldops/.loom/sourcemap.json
-eval/fieldops/main.ddd:203 maps to 2 generated location(s):
+$ node bin/cli.js breakpoints eval-fieldops/fieldops/main.ddd --line 203 --map eval-fieldops/out-fieldops/.loom/sourcemap.json
+eval-fieldops/fieldops/main.ddd:203 maps to 2 generated location(s):
 api/domain/workOrder.ts:1
 api/http/workOrder.routes.ts:1
 ```
@@ -837,7 +837,7 @@ from generated code —
 DomainError: Precondition failed: onHand >= qty
     at Part.consume (…/api/domain/part.ts:48:39)
 ```
-`ddd trace` annotated it as `Field.Part.consume (…/eval/fieldops/main.ddd:134)`, and line 134 is
+`ddd trace` annotated it as `Field.Part.consume (…/eval-fieldops/fieldops/main.ddd:134)`, and line 134 is
 exactly `precondition onHand >= qty` — the precise failing statement. **Production triage from a
 stack trace back to the model works.** Setting a breakpoint forward from the model does not.
 Time lost: 20 min
@@ -885,7 +885,7 @@ Repro:
 channel WorkOrderEvents { carries: [WorkOrderCompleted], delivery: broadcast, retention: ephemeral }
 ```
 ```
-$ node bin/cli.js parse eval/fieldops/main.ddd
+$ node bin/cli.js parse eval-fieldops/fieldops/main.ddd
 main.ddd:137:42 error: Expecting token of type 'ID' but found `[`.
 ```
 The grammar (`src/language/ddd.langium:1355`) takes a bare comma-separated list:

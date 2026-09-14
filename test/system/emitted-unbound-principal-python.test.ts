@@ -30,7 +30,7 @@ import {
   PY_PRINCIPAL_SCOPE,
   pyReferencingUnits,
   unboundPyReferences,
-} from "../_helpers/emitted-scope.js";
+} from "../_helpers/emitted-scope-python.js";
 import { generateSystemFiles } from "../_helpers/index.js";
 
 /** A python system whose `body` is dropped into one context.  `auth: required`
