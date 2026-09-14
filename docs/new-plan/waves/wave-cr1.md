@@ -7,7 +7,7 @@ Packets run as Opus agents in isolated worktrees on local `claude/cr1-<packet>` 
 onto `claude/loom-code-review-audit-790gec` (the only branch this coordinator pushes), one at a time.
 Hand-off notes land under `handoffs/wave-cr1-<packet>.md`.*
 
-## Status: **batch 1 claimed, four packets launching** (2026-09-14)
+## Status: **batch 1 running — CR1-c complete, verified, parked for the last fold** (2026-09-14)
 
 ## Why a wave, and why this shape
 
@@ -82,4 +82,51 @@ failing assertion quoted. Revert the mutation with a file copy, never `git check
 
 ## Folds
 
-*(appended as packets land)*
+### CR1-c — complete, verified, parked (folds LAST by design)
+
+`worktree-agent-acb4378b61255bd8d`, `76ef74ad..64bd1860` (3 commits). Coordinator re-verified rather
+than taking the report: `npm audit` → **0 vulnerabilities**; `npm run lint` → **exit 1** on the
+warning tree (the ratchet bites); the 68-line `predicates.ts` deletion is genuinely dead — the only
+surviving `walkExpr` references are two comments that already describe it as deleted, and the one in
+`workflow-execution-emit.ts` names the *validate-layer* function, not this one.
+
+Two corrections to the brief, both the packet's own finding:
+
+- **The advisory count had moved: 11, not 6** — all in-range and Surface A, cleared to 0 in one pass.
+  `ip-address`/`qs` trace solely to `packages/ddd-mcp` → `@modelcontextprotocol/sdk` → express, and
+  pin nowhere under `stacks/`, `designs/`, `packages/*/pins.ts`, `src/platform/hono/v*/pins.ts`,
+  `api/`, `vite/`, `docker/` — so the `dependency-upgrade` skill's Surface B (the generated
+  projects' stack templates) is genuinely not in play, and no compose-boot gate is implicated. The
+  `hono` advisory is a decoy: that is the MCP SDK's transitive copy, not the emitted pin string.
+- **`npm audit fix` is unusable on this tree** and was so on pristine `main` — it crashes arborist
+  (`Cannot read properties of null (reading 'edgesOut')`) because `vite@8` →
+  `@vitejs/devtools-vitest` → peer `vitest@*` resolves to **vitest 5**, the out-of-scope major.
+  Cleared instead with a lockfile-only `npm update` plus one scoped override pinning that nested
+  peer to `^4.1.11`. A top-level `vitest` override is refused (`EOVERRIDE`) and `$vitest` does not
+  resolve nested — both recorded in the hand-off.
+
+**Ratchet mechanism**: `--error-on-warnings` on the `lint` script rather than promoting rules to
+`error`, because the promote route must *enumerate* and an incomplete list silently re-opens the hole
+for the next rule — the exact failure P1-5 describes. `biome.json`'s `files.includes` is an
+allowlist, so 24 was the whole surface, not a partial view. Both enforcement points (`test.yml`, the
+`Stop` hook) already call `npm run lint`, so neither needed editing. Mutation-proved three ways, the
+third load-bearing: old `biome ci .` on a seeded unused import → `Found 1 warning`, **exit 0** (the
+bug); new script, same tree → **exit 1**.
+
+**Carry-forward for the coordinator — 2 items:**
+
+1. `npm run lint` is **RED on this branch by design**: 8 warnings remain, all inside #2933's fence
+   (`src/ir/**` ×7, `src/generator/flutter/**` ×1 — verified by the coordinator, list below). None
+   touch CR1-a/b/d, which carry no Biome warnings. Sweep at fold, or after #2933 merges if it is
+   still open — the conflict would be trivial (unused imports) but the fence is the fence.
+   `src/generator/flutter/index.ts:40` · `src/ir/types/loom-ir.ts:4137` ·
+   `src/ir/util/workflow-own-state.ts:123` · `src/ir/validate/checks/backend-syntax-checks.ts:123` ·
+   `orm-adapter-checks.ts:20` · `projection-backend-checks.ts:11` · `ui-checks.ts:361` ·
+   `ui-collection-display-checks.ts:28`. One (`MAP_UNRENDERED_FRAMEWORK`) needs a by-hand
+   dead-or-dropped call after the sweep — Biome only renames it.
+2. The `@vitejs/devtools-vitest` override is **temporary scaffolding**; whoever lands the vitest 5
+   bump deletes it in the same PR.
+
+Gates stated: `tsc -b` clean; `test/system` + `test/platform` 2,613 passed (incl.
+`local-run-mapping`, `pr-gate`, `merge-queue-readiness`); `test/macro` + four generator dirs +
+`test/language` 5,375 passed; suite reports `RUN v4.1.11`, so the vitest bump is live.
