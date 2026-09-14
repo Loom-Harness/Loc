@@ -18,10 +18,7 @@ import type {
   WorkflowStmtIR,
 } from "../../types/loom-ir.js";
 import { exprUsesCurrentUser } from "../../types/loom-ir.js";
-import {
-  TENANCY_SELF_SCOPE_ORIGIN,
-  TENANT_OWNED_CAPABILITY,
-} from "../../util/tenant-stance.js";
+import { TENANCY_SELF_SCOPE_ORIGIN, TENANT_OWNED_CAPABILITY } from "../../util/tenant-stance.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
 
 // ---------------------------------------------------------------------------

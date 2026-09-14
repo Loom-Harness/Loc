@@ -247,7 +247,7 @@ export function renderStarter(opts: {
 
   return `// ${sys} — scaffolded by \`ddd new\` (template: ${opts.template}, platform: ${opts.platform}).
 // Edit this model, then regenerate:
-//   ddd generate system main.ddd -o . && docker compose up
+//   npx ddd generate system main.ddd -o . && docker compose up
 
 system ${sys} {
 
@@ -329,20 +329,28 @@ A Loom project scaffolded with \`ddd new\` — platform **${opts.platform}**${
 
 \`\`\`bash
 # 1. Generate the project tree + docker-compose.yml in place
-ddd generate system main.ddd -o .
+npx ddd generate system main.ddd -o .
 
 # 2. Build and start the stack
 docker compose up --build
 \`\`\`
+
+(\`npx ddd\` — a bare \`ddd\` only works if you linked the CLI yourself; from a
+clone of the Loom repo the spelling is \`node bin/cli.js\`.)
 
 Then open:
 
 - Backend API:          http://localhost:${backendPort}
 ${frontendLine}
 
+Every REST route is mounted under \`/api\`, named by the aggregate's
+snake_cased plural — \`curl localhost:${backendPort}/api/<aggregates>\`, e.g. a
+\`Project\` aggregate serves \`GET /api/projects\` and \`GET /api/projects/{id}\`.
+The full surface is always \`GET /openapi.json\`.
+
 ## Edit the model
 
-Change \`main.ddd\` and re-run \`ddd generate system main.ddd -o .\`.
+Change \`main.ddd\` and re-run \`npx ddd generate system main.ddd -o .\`.
 Generation overwrites its own output every run; pin any file you hand-edit
 in \`.loomignore\` so it survives (see the comments in that file).
 

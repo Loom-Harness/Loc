@@ -90,10 +90,9 @@ describe("loom.tenancy-filter-bypass — the tenancy escape hatch is loud", () =
   });
 
   it("warns, never errors — the platform-admin cross-tenant report still compiles", async () => {
-    const { model } = await parseString(
-      sys({ projectionIgnoring: " ignoring tenantOwned" }),
-      { validate: false },
-    );
+    const { model } = await parseString(sys({ projectionIgnoring: " ignoring tenantOwned" }), {
+      validate: false,
+    });
     const diags = validateLoomModel(enrichLoomModel(lowerModel(model))).filter(
       (d) => d.code === CODE,
     );

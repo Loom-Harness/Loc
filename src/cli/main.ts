@@ -1105,7 +1105,10 @@ async function runNew(name: string, options: NewOptions): Promise<void> {
       "  platform: node (default) — also: dotnet, elixir, java, python (re-run with --platform <p>)",
     );
   }
-  console.log(`  next: cd ${where} && ddd generate system main.ddd -o . && docker compose up`);
+  // `npx ddd`, not a bare `ddd`: a clone's `npm install` links no global
+  // binary, so the bare form is the one command in this output that does not
+  // work when copied (finding F-001).
+  console.log(`  next: cd ${where} && npx ddd generate system main.ddd -o . && docker compose up`);
 }
 
 /** True iff the file at `absPath` exists and its bytes match `content`

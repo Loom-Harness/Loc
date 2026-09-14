@@ -7,8 +7,8 @@
 import { diagMessage } from "../../../diagnostics/messages.js";
 import { plural, snake } from "../../../util/naming.js";
 import type { SystemIR, WorkflowIR, WorkflowStmtIR } from "../../types/loom-ir.js";
-import { deriveContextOperations } from "../../util/api-surface.js";
 import { isMacroEmitted, macroNameOf } from "../../types/origin.js";
+import { deriveContextOperations } from "../../util/api-surface.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
 
 // Page/component `derived name: T = expr` bindings are supported on every

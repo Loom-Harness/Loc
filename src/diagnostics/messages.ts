@@ -2133,8 +2133,8 @@ export const DIAGNOSTIC_MESSAGES = {
     `so ${p.missing} is REQUIRED on the wire even though the declared \`create\` ` +
     `does not accept it — a client (or a \`test\` block) written from the ` +
     `declaration gets a 422 naming a field the create never mentions.${p.also}  ` +
-    `List every create-input field, or drop the parameter list: a narrowed one ` +
-    `shapes nothing.`,
+    `List every create-input field, or declare the empty list \`create()\` (the parens ` +
+    `themselves are mandatory): a narrowed list shapes nothing.`,
   "loom.persistence-mode-unsupported": (p: {
     name: unknown;
     ctxName: unknown;
