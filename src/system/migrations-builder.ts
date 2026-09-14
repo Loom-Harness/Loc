@@ -1285,18 +1285,17 @@ export function applyDestructivePolicy(
     arr.push(t);
     prevByBare.set(t.name, arr);
   }
-  const prevColType = (
+  const prevTable = (schema: string | undefined, table: string): TableShape | undefined => {
+    const t = prevByQ.get(qkey(schema, table));
+    if (t) return t;
+    const cands = prevByBare.get(table);
+    return cands && cands.length === 1 ? cands[0] : undefined;
+  };
+  const prevCol = (
     schema: string | undefined,
     table: string,
     col: string,
-  ): ColumnType | undefined => {
-    let t = prevByQ.get(qkey(schema, table));
-    if (!t) {
-      const cands = prevByBare.get(table);
-      if (cands && cands.length === 1) t = cands[0];
-    }
-    return t?.columns.find((c) => c.name === col)?.type;
-  };
+  ): ColumnShape | undefined => prevTable(schema, table)?.columns.find((c) => c.name === col);
 
   // Index the declared backfills FIRST — the rename heuristic below has to
   // consult them (F-018), not just the weaving pass further down.  Keyed by
@@ -1371,8 +1370,18 @@ export function applyDestructivePolicy(
     // Contrary signal (2): the added column carries a scalar-literal field
     // default, i.e. a declared value for the rows that already exist.
     if (a.column.addColumnDefault !== undefined) continue;
-    const dType = prevColType(d.schema, d.table, d.name);
-    if (!dType || !columnTypeEqual(dType, a.column.type)) continue;
+    const dropped = prevCol(d.schema, d.table, d.name);
+    if (!dropped || !columnTypeEqual(dropped.type, a.column.type)) continue;
+    // Contrary signal (3): the two columns don't even agree on NULLABILITY.
+    // A rename leaves the column's shape alone, so a NOT-NULL column becoming
+    // a nullable one is a shape change on top of the name change — the same
+    // family the docs already refuse to guess at ("a rename that also changes
+    // type").  It matters more than it looks: `drop bin_code NOT NULL` +
+    // `add note NULL` needs no backfill and no default to pass the other
+    // gates, so without this it was the last shape that could still collapse
+    // into a silent misattribution.  The explicit block handles a renaming
+    // shape change — it emits the follow-on alterColumnNullable.
+    if (dropped.nullable !== a.column.nullable) continue;
     collapsed.add(d);
     collapsed.add(a);
     renameFor.set(a, {

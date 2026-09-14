@@ -3004,6 +3004,31 @@ describe("applyDestructivePolicy — backfilled/defaulted adds are never renames
     expect(steps.map((s) => s.op)).toEqual(["dropColumn", "addColumn", "alterColumnDefault"]);
   });
 
+  it("a NULLABILITY mismatch blocks the collapse — the last shape that could still corrupt silently", () => {
+    // `drop bin_code NOT NULL` + `add note NULL` needs neither a backfill nor
+    // a default to clear every other gate, so before this it collapsed into a
+    // rename and the bin codes became notes.  A rename leaves a column's shape
+    // alone; a shape change on top of a name change is the family the docs
+    // already refuse to guess at.
+    const nullableAdd = parts([sku, { name: "note", type: { kind: "text" }, nullable: true }]);
+    let thrown: unknown;
+    try {
+      applyDestructivePolicy(diffSchema(prev, nullableAdd), prev, noFlag);
+    } catch (e) {
+      thrown = e;
+    }
+    // Rename-SHAPED and un-collapsible → the diagnostic that names the remedy.
+    expect(thrown).toBeInstanceOf(MigrationAmbiguousRenameError);
+    expect((thrown as MigrationAmbiguousRenameError).renames).toEqual([
+      { table: "parts", drops: ["bin_code"], adds: ["note"] },
+    ]);
+    // CONTROL: same diff with matching nullability still collapses.
+    const notNullAdd = parts([sku, { name: "note", type: { kind: "text" }, nullable: false }]);
+    expect(
+      applyDestructivePolicy(diffSchema(prev, notNullAdd), prev, noFlag).map((s) => s.op),
+    ).toEqual(["renameColumn"]);
+  });
+
   it("the signal is per-column: a backfill on a DIFFERENT column does not block the rename", () => {
     // Non-vacuity again — the gate must key on the ADDED column, not merely on
     // "this module declares some backfill somewhere".
