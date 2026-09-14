@@ -135,16 +135,28 @@ export function checkInheritance(model: Model, accept: ValidationAcceptor): void
       }
     }
 
-    // Rule 4 — D-ES-TPH: an event-sourced (`persistedAs: eventLog`) or
-    // document (`shape: document`) concrete cannot share its base table, so
-    // it cannot live under a `sharedTable` (TPH) base.  The validator raises
-    // an error rather than silently coercing, so the author writes the
-    // forced `inheritanceUsing: ownTable` explicitly.
+    // Rule 4 — D-ES-TPH / D-EMBEDDED-TPH: a concrete whose truth is stored
+    // NON-relationally cannot share its base's table, so it cannot live under a
+    // `sharedTable` (TPH) base.  The validator raises an error rather than
+    // silently coercing, so the author writes the forced
+    // `inheritanceUsing: ownTable` explicitly.
+    //
+    // Three shapes force it, for the same reason in three strengths:
+    //   `persistedAs: eventLog` — there is no table at all, only a stream.
+    //   `shape: document`       — the whole aggregate is one opaque jsonb blob
+    //                             `(id, data, version)`; a shared table's
+    //                             per-concrete columns have nowhere to live.
+    //   `shape: embedded`       — the root columns COULD share, but the jsonb
+    //                             containment columns are per-concrete, and no
+    //                             backend that implements `embedded` puts them
+    //                             on the TPH owner's table (D-EMBEDDED-TPH).
     if (base?.isAbstract) {
       const baseLayout = base.inheritanceUsing ?? DEFAULT_LAYOUT;
-      const forcesOwn = agg.persistedAs === "eventLog" || agg.shape === "document";
+      const forcesOwn =
+        agg.persistedAs === "eventLog" || agg.shape === "document" || agg.shape === "embedded";
       if (baseLayout === "sharedTable" && forcesOwn && agg.inheritanceUsing !== "ownTable") {
-        const why = agg.persistedAs === "eventLog" ? "persistedAs: eventLog" : "shape: document";
+        const why =
+          agg.persistedAs === "eventLog" ? "persistedAs: eventLog" : `shape: ${agg.shape}`;
         accept(
           "error",
           diagMessage("loom.es-tph-forced-own-table", { name: agg.name, why, baseName: base.name }),
@@ -168,11 +180,12 @@ export function checkInheritance(model: Model, accept: ValidationAcceptor): void
     // every polymorphic query, reject the override until full mixed-strategy
     // emission lands.  The event-sourced / document case (Rule 4 `forcesOwn`)
     // is the one sanctioned `ownTable`-under-`sharedTable`: it's a forced
-    // opt-out, not a free choice, and an ES/document concrete is never a
-    // polymorphic read target — so it stays allowed.
+    // opt-out, not a free choice, and an ES/document/embedded concrete is never
+    // a polymorphic read target — so it stays allowed.
     if (base?.isAbstract) {
       const baseLayout = base.inheritanceUsing ?? DEFAULT_LAYOUT;
-      const forcesOwn = agg.persistedAs === "eventLog" || agg.shape === "document";
+      const forcesOwn =
+        agg.persistedAs === "eventLog" || agg.shape === "document" || agg.shape === "embedded";
       if (baseLayout === "sharedTable" && agg.inheritanceUsing === "ownTable" && !forcesOwn) {
         accept(
           "error",

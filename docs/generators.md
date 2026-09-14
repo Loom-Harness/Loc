@@ -1164,6 +1164,28 @@ shapes are all **implemented** (java is in `SUPPORTED_UNION_BACKENDS`
 and `EVENT_SOURCING_BACKENDS`; `PLATFORM_SAVING_SHAPES.java` carries all
 three shapes).
 
+### Names that are Java reserved words
+
+A `.ddd` member, parameter, operation or enum value may be called `case`,
+`do`, `final`, `native`, … — anything the `.ddd` grammar admits.  Java has no
+verbatim identifier (JLS §3.9), so the emitted **host** identifier is mangled
+with a trailing underscore (`case` → `case_`, the spelling the emitters
+already used for `let` bindings), and the **wire** spelling is pinned back on
+wherever that identifier would otherwise have become the wire name:
+
+| position | what is emitted |
+|---|---|
+| request / response / event / VO / projection-row / workflow-instance record component | `@JsonProperty("case") String case_` — so the JSON body and the springdoc schema key both read `case` |
+| a `find` parameter | `@RequestParam("case") String case_` — the query key stays `?case=` |
+| a validation error | the advice's pointer mapper inverts the mangle, so the 422 names `/case` (Spring builds a binding path, which never goes through Jackson) |
+| the `?sort=` whitelist | the wire key, with one generated line translating it to the JPA property |
+| the column | unchanged — `@Column(name = "`case`")`, quoted since M-T6.42/M-T6.43 |
+| an enum value | `@JsonProperty("case") case_` plus a generated `<Enum>.Codec` `AttributeConverter`, because `@Enumerated(STRING)` would otherwise persist `Enum.name()` and write `case_` into the column |
+
+Nothing about the wire, the OpenAPI document or the stored data differs from
+the other four backends; the mangle is visible only in the generated Java.
+Emission for a keyword-free model is byte-identical to before.
+
 ---
 
 ## Python backend (`platform: python`)

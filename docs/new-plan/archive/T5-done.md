@@ -116,3 +116,48 @@ Same model, same intent, opposite data — decided by where in the clause list t
 **Verification when it lands.** A negative parse/validate test per admissible-but-illegal position; mutation-proved by deleting the gate and watching the fixture above go quiet again. Add the legal-position witness to the projection fixture so the *working* spelling is pinned too.
 
 Sources: [generator-code-review-2026-08-24](../../audits/generator-code-review-2026-08-24.md) §Follow-up register (2026-08-30) row 13. Relates to M-T4.2 (query-time projections), `named-filter-bypass.md` §11.
+
+
+## M-T5.23 — `long` has no contract: silent corruption past 2^53 on node/python, 3-way divergent overflow — `done` (2026-09-13) · **M** · P2
+
+**DONE — the ceiling is declared, and enforced at all three places it was breached silently.** `D-LONG-AVG-DEFAULTS` took option (a) (declare and enforce, not a representation upgrade), and the ceiling is now ONE fact in ONE place: `LONG_SAFE_MAX` / `integralWireRange` in `src/util/numeric-range.ts` — in `src/util/` because the AST validator and the read-boundary emitters both need it and `language → generator` is the wrong import direction. `_numeric/codec.ts` re-exports it, so the backends keep asking the numeric seam, as they do for `MONEY_WIRE_SCALE`.
+
+| breach | was | now |
+|---|---|---|
+| an integer LITERAL past 2^53 | `derived big: long = 9007199254740993` validated clean and emitted `9007199254740992` on **every** backend — the `INT` terminal returns a JS `number`, so the digits were gone before any phase could see them | `loom.integer-literal-imprecise` (phase ④), one gate covering all five targets |
+| an inbound `long` on the wire | zod 4's `.int()` already refused past ±(2^53−1), so hono **v5** enforced the ceiling by accident of its zod major, while **v4** (zod `^3.25`, whose `.int()` is `Number.isInteger`) accepted `1e19` and wrote it into a bigint column — MEASURED against both majors | `LONG_SAFE`, a `.refine` so it is enforced without being published (a node-only bound in the OpenAPI would make one `.ddd` publish two contracts) |
+| an integral AGGREGATE | `sum(int)`/`count(*)` are bigints in SQL: java `intValue()` **wrapped** (a wrong ANSWER), node `Number(...)` rounded past 2^53, python `float(...)` lost digits and pydantic's lax mode re-narrowed the integral float, elixir shipped a value outside its own `format: int32`; only .NET failed | a value that does not fit fails the read on all five — `Math.toIntExact` (java), `__intWire` (node), `int(...)` + the `Int32` bound (python), `__int_wire/4` (elixir) |
+
+Declaring the row field `long` is the author's opt-out for a total that outgrows int32, and `loom.projection-aggregate-type-mismatch` (M-T5.24) admits exactly that widening.
+
+**Residual, recorded rather than closed silently.** Past the ceiling the four non-node backends still ACCEPT an inbound value and store it exactly, so a value written through java and read back through node rounds. That is option (a)'s own shape — it enforces "on the affected paths", the ones whose representation cannot hold more — and the two ways to close it are the representation upgrade (BigInt / string wire on node) or a uniform ingress narrowing, which is the owner-only class `D-NUMERIC-INGRESS-STRICT` owns. Pinned per backend in `test/conformance/numeric-ingress-parity.test.ts`, whose header matrix carries the new `long` row, so a move in either direction fails there.
+
+Gates: `test/language/integer-literal-precision.test.ts`, `test/generator/projection-aggregate-integral.test.ts` (five backends, bounds read from the seam), the ingress matrix row, and the behavioural legs. Every arm mutation-proved by file-copy revert with the failing assertion named (see the PR body); the java arm additionally compile-proved in `gradle:9-jdk25`, the elixir arm under `mix compile --warnings-as-errors`, the python arm under `ruff` + `mypy --strict`.
+
+Original brief follows (status line as it stood).
+
+Found 2026-08-23 by the numeric-types audit ([F13](../../audits/numeric-types-audit-2026-08-23.md)). Node stores `long` as a JS `number` (`bigint(col, {mode: "number"})`, `src/generator/typescript/emit/schema.ts`; mikroorm `ts: "number"`) and python's aggregate arm routes declared int/long sums through `float()` — both silently corrupt past 2^53 while .NET/Java/Elixir carry int64 exactly. Aggregate int-overflow behavior is three-way divergent for the same `.ddd`: Java `((Number) x).intValue()` **wraps silently**, .NET's `(int)` cast **throws** (500), the rest pass the too-big value through. No validator, no doc caveat anywhere.
+
+**The work (proposed default, overridable):** document + validator-enforce a 2^53 safe-integer ceiling for `long` on the affected paths now — an honest `loom.*` diagnostic instead of silent corruption; a representation upgrade (BigInt / string wire) becomes a named follow-up mission only if the ceiling pinches. Route python's declared-int/long aggregates through `int()`. Unify overflow behavior (proposed: Java's wraparound becomes an error like .NET's).
+
+**Verification when it lands.** Validator tests; a >2^53 witness proving the exact backends carry it; python aggregate int test; each mutation-proved.
+
+Sources: [numeric-types-audit-2026-08-23](../../audits/numeric-types-audit-2026-08-23.md) F13 + annex, plan.json N8.
+
+## M-T5.24 — Projection `avg` over money is typed `decimal`: the mean of exact money leaves as a lossy double — `done` (2026-09-13) · **S** · P2
+
+**DONE — `avg` over a money column is `money`, and the declared row type is now checked so the retype is load-bearing.** `aggregateResultType` (`lower-projection.ts`) types the mean of a money column as money; every backend already knew how to format it (`aggregateCoercion`'s `isMoney` arm), so no emitter changed.
+
+**Measuring first showed the retype alone would have been INERT**, which is the part this mission's brief did not have. The DECLARED row field type is what every backend's coercion dispatches on (`aggregateCoercion` reads the declared row deliberately — the response schema is built from it), and NOTHING checked it. On `main` @ `09427a5` all three of these validated clean: `revenue: decimal = sum(o.total)` → `Number(row?.revenue ?? 0)` (money summed exactly in SQL, shipped lossy); `biggest: string = max(o.total)` → a published `z.string()` schema and a NUMBER on the wire, hidden by the row mapper's `as` cast; `lines: money = sum(o.qty)` → an int count dressed as a 4dp money string. So `loom.projection-aggregate-type-mismatch` now requires the declaration to carry the aggregation's own type, with ONE admitted widening (`int` → `long`, which SQL's own `sum`/`count` already are) and optionality excluded on both sides for a different reason each way.
+
+Verified at runtime, not only structurally: the corpus fixture grew `avgTotal: money = avg(o.total)` beside the existing `avgLines: decimal = avg(o.lineCount)` — one fixture, both meanings of `avg` — and its wire golden was re-captured for exactly that one added field (5 lines, reviewed diff-by-diff: `"0.0000"`, `"20.0000"`, `"25.0000"`; no existing value moved, so this is NOT an oracle shift). The node (oracle), python and elixir behavioural legs were all RUN locally and agree byte-for-byte.
+
+Original brief follows (status line as it stood).
+
+Found 2026-08-23 by the numeric-types audit ([F14](../../audits/numeric-types-audit-2026-08-23.md)). `src/ir/lower/lower-projection.ts` stamps query-time `avg → decimal` even over a money column, so the mean of exact money crosses the wire as a float64 JSON number — while the **in-memory** `avg` of the same field types `money?` (`type-system.ts`) and ships the 4-dp string. Same word, two semantics, no gate.
+
+**The work (proposed default, overridable):** retype projection `avg` over a money column to `money` — `aggregateCoercion`'s `isMoney` arm (`src/ir/util/projection-aggregate.ts`) already knows how to format it on all five backends; update the wire-golden capture with the retype.
+
+**Verification when it lands.** A lowering test plus a behavioral golden for an avg-over-money projection; mutation-proved through the coercion.
+
+Sources: [numeric-types-audit-2026-08-23](../../audits/numeric-types-audit-2026-08-23.md) F14, plan.json N9. Relates to RS-12, #2560.

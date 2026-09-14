@@ -3,6 +3,7 @@ import { walkStmtExprsDeep } from "../../ir/util/walk.js";
 import { escapeJavaIdent } from "../../util/naming.js";
 import { collectLeaves, indentNested, provTempNames, wrapProvCapture } from "../_stmt/leaves.js";
 import { renderStmtChunksWith, renderStmtsWith, type StmtTarget } from "../_stmt/target.js";
+import { jid } from "./java-ident.js";
 import { addJavaExprImport, type JavaRenderContext, renderJavaExpr } from "./render-expr.js";
 
 // ---------------------------------------------------------------------------
@@ -278,5 +279,8 @@ function withProvCapture(
  *  through its containments (`this.profile.bio = …`).  `this.` prefixes
  *  the head so operation params can't shadow the field. */
 function renderPath(p: PathIR): string {
-  return `this.${p.segments.join(".")}`;
+  // Each segment is a DECLARED member name, so it carries the same mangling
+  // the entity emitter applied to the field it writes (`this.case` →
+  // `this.case_`).  `jid` is identity for every non-keyword segment.
+  return `this.${p.segments.map(jid).join(".")}`;
 }

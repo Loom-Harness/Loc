@@ -7,7 +7,7 @@
 
 import { diagMessage } from "../../../diagnostics/messages.js";
 import { platformFamily } from "../../../language/validators/data/platform-rules.js";
-import { isJavaKeyword, upperFirst } from "../../../util/naming.js";
+import { upperFirst } from "../../../util/naming.js";
 import type {
   AggregateIR,
   BoundedContextIR,
@@ -182,114 +182,6 @@ function stmtReadsCurrentUser(s: StmtIR): boolean {
 // unreachability at the scope layer — so if that rule ever widens, the gap
 // becomes visible again as a test failure rather than as silent output.
 // ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
-// F2-ADP-7 (java arm) — a `.ddd` name that is a JAVA RESERVED WORD.
-//
-// The SQL half of this was closed by M-T6.42/M-T6.43: `@Column(name = …)` runs
-// through `hbIdent`, so a column called `case` is quoted.  The HOST-IDENTIFIER
-// half was left bare — `src/generator/java/emit/entity.ts` emits `String case;`
-// and `public String case() {`, and the DTO records emit
-// `record TicketResponse(String case, int do, …)`.  `javac` rejects all of it,
-// and codegen reports zero diagnostics, so the failure surfaces only in a
-// compile tier.
-//
-// WHY THIS REFUSES INSTEAD OF ESCAPING (probed, not assumed).  The .NET arm
-// escapes — `@case` is a C# VERBATIM IDENTIFIER: lexically the identifier
-// `case`, so the emitted member name, and therefore the JSON property
-// System.Text.Json derives from it, are byte-identical to today.  Java has no
-// verbatim-identifier syntax (JLS §3.9: a keyword is never an identifier), so
-// the only "escape" available is a RENAME — which is what `escapeJavaIdent`
-// does for LOCALS (`case` → `case_`).  Renaming a DECLARED field renames the
-// Java record component, and a record component name IS the Jackson property
-// name: `{"case": …}` would silently become `{"case_": …}` on java and java
-// only.  A wire divergence introduced to fix a compile error is a worse bug
-// than the compile error, so the honest answer at this layer is to refuse the
-// name while a java deployable hosts the declaration.
-//
-// SCOPED TO THE AXIS THE LIMITATION LIVES ON: it fires only for a context
-// hosted by a `platform: java` deployable.  The same model on node / python /
-// elixir / dotnet is untouched — `get case()`, `def case`, `field :case` and
-// `@case` are all legal there.
-// ---------------------------------------------------------------------------
-
-/** Every `.ddd`-declared name in `ctx` that the java emitters put in a bare
- *  Java identifier position, as `[what, owner, name]`. */
-
-function javaIdentifierPositions(ctx: BoundedContextIR): [string, string, string][] {
-  const out: [string, string, string][] = [];
-  const members = (owner: string, fields: { name: string }[], what: string): void => {
-    for (const f of fields) out.push([what, owner, f.name]);
-  };
-  const action = (owner: string, op: OperationIR): void => {
-    // The canonical `create` / `destroy` are unnamed — they emit as `create` /
-    // `destroy`, never as a `.ddd` name, so only their PARAMS are at risk.
-    if (!op.canonical) out.push(["operation", owner, op.name]);
-    for (const p of op.params) out.push(["parameter", `${owner}.${op.name}`, p.name]);
-  };
-  for (const agg of ctx.aggregates) {
-    members(agg.name, agg.fields, "field");
-    members(agg.name, agg.contains, "containment");
-    members(agg.name, agg.derived, "derived field");
-    for (const fn of agg.functions) {
-      out.push(["function", agg.name, fn.name]);
-      for (const p of fn.params) out.push(["parameter", `${agg.name}.${fn.name}`, p.name]);
-    }
-    for (const op of [...agg.operations, ...(agg.creates ?? []), ...(agg.destroys ?? [])])
-      action(agg.name, op);
-    for (const part of agg.parts) {
-      members(`${agg.name}.${part.name}`, part.fields, "field");
-      members(`${agg.name}.${part.name}`, part.contains, "containment");
-      members(`${agg.name}.${part.name}`, part.derived, "derived field");
-    }
-  }
-  for (const vo of ctx.valueObjects) {
-    members(vo.name, vo.fields, "field");
-    members(vo.name, vo.derived, "derived field");
-  }
-  for (const ev of ctx.events) members(ev.name, ev.fields, "field");
-  for (const proj of ctx.projections) {
-    members(proj.name, proj.stateFields, "field");
-    for (const p of proj.params) out.push(["parameter", proj.name, p.name]);
-  }
-  for (const wf of ctx.workflows) {
-    members(wf.name, wf.stateFields ?? [], "field");
-    for (const p of wf.params) out.push(["parameter", wf.name, p.name]);
-  }
-  return out;
-}
-
-export function validateJavaReservedIdentifiers(sys: SystemIR, diags: LoomDiagnostic[]): void {
-  const ctxByName = new Map<string, BoundedContextIR>();
-  for (const m of sys.subdomains) for (const c of m.contexts) ctxByName.set(c.name, c);
-  // One diagnostic per offending NAME, not per hosting deployable — two java
-  // deployables serving the same context describe one defect, not two.
-  const seen = new Set<string>();
-  for (const dep of sys.deployables) {
-    if (platformFamily(dep.platform) !== "java") continue;
-    for (const ctxName of dep.contextNames) {
-      const ctx = ctxByName.get(ctxName);
-      if (!ctx) continue;
-      for (const [what, owner, name] of javaIdentifierPositions(ctx)) {
-        if (!isJavaKeyword(name)) continue;
-        const key = `${ctxName}/${owner}/${what}/${name}`;
-        if (seen.has(key)) continue;
-        seen.add(key);
-        diags.push({
-          severity: "error",
-          message: diagMessage("loom.java-reserved-identifier-unsupported", {
-            what,
-            owner,
-            name,
-            ctxName,
-          }),
-          source: `${sys.name}/${ctxName}/${owner}`,
-          code: "loom.java-reserved-identifier-unsupported",
-        });
-      }
-    }
-  }
-}
 
 // ---------------------------------------------------------------------------
 // C# member-vs-type name collisions on the dotnet backend (F11).

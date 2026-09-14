@@ -287,12 +287,23 @@ export const SITES = {
     "WorkflowIR.statements",
     "WorkflowIR.subscriptions",
   ]),
-  /** `Enriched*` are branded subtypes of the plain IR types; the walk takes the
-   *  base and reaches these fields through it. */
+  /** Sites the walk deliberately does NOT name as its own, because it reaches
+   *  the very same declarations elsewhere and naming them again would
+   *  double-count rather than add coverage:
+   *
+   *  - `Enriched*` are branded subtypes of the plain IR types; the walk takes
+   *    the base and reaches these fields through it.
+   *  - `BoundedContextIR.siblingValueObjects` is a cross-context LOOKUP POOL,
+   *    not a declaration site: every entry is the identical `ValueObjectIR`
+   *    object the DECLARING context already exposes as `valueObjects`, which
+   *    the walk visits there.  Walking it again would report each sibling VO's
+   *    invariants and derived expressions once per consuming context. */
   aliased: new Set<string>([
+    "BoundedContextIR.siblingValueObjects",
     "EnrichedAggregateIR.createInput",
     "EnrichedAggregateIR.parts",
     "EnrichedBoundedContextIR.aggregates",
+    "EnrichedBoundedContextIR.siblingValueObjects",
     "EnrichedBoundedContextIR.valueObjects",
     "EnrichedLoomModel.contexts",
     "EnrichedLoomModel.rootValueObjects",

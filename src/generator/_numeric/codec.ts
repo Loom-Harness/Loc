@@ -84,3 +84,17 @@ export const NUMERIC_WIRE_CODEC: Readonly<Record<NumericKind, WireCodec>> = {
 export function wireCodecFor(kind: NumericKind): WireCodec {
   return NUMERIC_WIRE_CODEC[kind];
 }
+
+// The EXACT RANGE of the two integral kinds lives in `src/util/numeric-range.ts`
+// — the AST validator needs the same numbers and `language → generator` is the
+// wrong direction for that import (M-T5.23).  Re-exported here so the read-
+// boundary emitters keep asking the numeric seam for it, as they do for
+// `MONEY_WIRE_SCALE`.
+export {
+  INT32_MAX,
+  INT32_MIN,
+  integralWireRange,
+  isExactInteger,
+  LONG_SAFE_MAX,
+  LONG_SAFE_MIN,
+} from "../../util/numeric-range.js";

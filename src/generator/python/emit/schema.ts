@@ -73,6 +73,33 @@ export function renderPySchema(
     // every ES aggregate + ES workflow, discriminated by `stream_type`), not a
     // per-aggregate table.
     if (agg.persistedAs === "eventLog") continue;
+    // TPH (`sharedTable`) BEATS the saving-shape modifier, and the check has to
+    // come FIRST — before `document` / `embedded` — because a TPH concrete owns
+    // no table of its own at all.  The phase-⑨ migration builder already rules
+    // this way (`tablesForOneAggregate`, src/system/migrations-builder.ts: the
+    // `isTphConcrete` / `isTphBase` arms precede the shape arms, with the
+    // comment "mirrors the schema emitter"), and so does the drizzle schema
+    // emitter — so the runtime DDL for `shape: embedded` × TPH is the shared
+    // base table plus relational child tables for the containments, with NO
+    // jsonb column anywhere.
+    //
+    // Ordered the other way round (which is how this loop shipped), the
+    // embedded arm claimed the concrete first and python emitted a SECOND
+    // table — `things` with a jsonb `lines` column — that the DDL never
+    // creates, while the TPH base table already carried the same columns.  The
+    // repository then split across both (`save` → `ThingRow`, a `find` →
+    // `ThingBaseRow`), which is pairwise F13: `ruff` F821 on the un-imported
+    // owner row, and a write to a non-existent relation behind it.
+    //
+    // `document` / `persistedAs: eventLog` cannot reach a `sharedTable` base at
+    // all — `loom.es-tph-forced-own-table` (src/language/validators/
+    // inheritance.ts) makes the author write `inheritanceUsing: ownTable` — so
+    // `embedded` is the only crossing this ordering changes.
+    if (isTphBase(agg, ctx.aggregates) || isTphConcrete(agg, ctx.aggregates)) {
+      const tphDs = resolveDataSource?.(agg);
+      models.push(...tphModels(agg, ctx, tphDs?.schema, tphDs?.tablePrefix));
+      continue;
+    }
     // shape: document: the whole aggregate tree is one jsonb blob — the
     // canonical document triple `(id, data, version)`.
     if (effectiveSavingShape(agg as EnrichedAggregateIR, resolveDataSource?.(agg)) === "document") {
@@ -94,46 +121,6 @@ export function renderPySchema(
     const ds = resolveDataSource?.(agg);
     const schema = ds?.schema;
     const prefix = ds?.tablePrefix;
-    // TPH base: ONE shared table named for the base — id + kind
-    // discriminator + base columns + every concrete's own columns
-    // (forced nullable: only rows of that kind populate them).
-    if (isTphBase(agg, ctx.aggregates)) {
-      models.push(renderTphModel(agg, ctx, schema, prefix));
-      continue;
-    }
-    // TPH concrete: shares the base's table (no model of its own), but
-    // its contained parts still need tables — each FKs the SHARED
-    // table, so the parent column is `<base>_id`.
-    if (isTphConcrete(agg, ctx.aggregates)) {
-      const owner = tableOwnerName(agg, ctx.aggregates);
-      for (const part of agg.parts) {
-        models.push(
-          renderModel(
-            part.name,
-            part,
-            directParentName(agg, part.name, owner),
-            ctx,
-            schema,
-            prefix,
-          ),
-        );
-      }
-      for (const assoc of (agg as EnrichedAggregateIR).associations ?? []) {
-        models.push(renderJoinModel(assoc, schema, prefix));
-      }
-      // Value-object collections (`<VO>[]`) on a TPH concrete or its parts
-      // persist as id-less child tables (the parent FK points at the SHARED
-      // base table for the concrete's own VO[] fields).
-      for (const vc of valueCollectionsFor(agg)) {
-        models.push(renderValueCollectionModel(vc, ctx, schema, prefix));
-      }
-      for (const part of agg.parts) {
-        for (const vc of valueCollectionsFor(part)) {
-          models.push(renderValueCollectionModel(vc, ctx, schema, prefix));
-        }
-      }
-      continue;
-    }
     // TPC base: owns no table (each concrete is standalone).
     if (agg.isAbstract) continue;
     models.push(renderModel(agg.name, agg, undefined, ctx, schema, prefix));
@@ -542,6 +529,45 @@ function renderOutboxModel(): string {
     "    dispatched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))",
     `    attempts: Mapped[int] = mapped_column(Integer, server_default=text("0"))`,
   );
+}
+
+/** Every model a TPH (`sharedTable`) participant contributes.
+ *
+ *  The BASE owns the one shared table — id + `kind` discriminator + base
+ *  columns + every concrete's own columns, forced nullable (only rows of that
+ *  kind populate them).  A CONCRETE owns no table of its own, but its contained
+ *  parts, join tables and `<VO>[]` child tables still exist, each FK'd to the
+ *  SHARED table — so the parent column is `<base>_id`.
+ *
+ *  Extracted so the one `isTphBase || isTphConcrete` gate in the emit loop can
+ *  sit AHEAD of the saving-shape arms (see the comment there): a TPH concrete's
+ *  `shape:` modifier never reaches storage, on any backend. */
+function tphModels(
+  agg: EnrichedBoundedContextIR["aggregates"][number],
+  ctx: EnrichedBoundedContextIR,
+  schema?: string,
+  prefix?: string,
+): string[] {
+  if (isTphBase(agg, ctx.aggregates)) return [renderTphModel(agg, ctx, schema, prefix)];
+  const models: string[] = [];
+  const owner = tableOwnerName(agg, ctx.aggregates);
+  for (const part of agg.parts) {
+    models.push(
+      renderModel(part.name, part, directParentName(agg, part.name, owner), ctx, schema, prefix),
+    );
+  }
+  for (const assoc of (agg as EnrichedAggregateIR).associations ?? []) {
+    models.push(renderJoinModel(assoc, schema, prefix));
+  }
+  for (const vc of valueCollectionsFor(agg)) {
+    models.push(renderValueCollectionModel(vc, ctx, schema, prefix));
+  }
+  for (const part of agg.parts) {
+    for (const vc of valueCollectionsFor(part)) {
+      models.push(renderValueCollectionModel(vc, ctx, schema, prefix));
+    }
+  }
+  return models;
 }
 
 /** TPH shared-table model — the whole hierarchy in one table named for

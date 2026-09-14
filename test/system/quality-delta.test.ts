@@ -543,7 +543,7 @@ describe("quality-delta — register readers", () => {
       "  },",
       "];",
     ].join("\n");
-    expect(countOpenGaps(src)).toEqual({ gaps: 2, scope: 1, rows: 3 });
+    expect(countOpenGaps(src)).toEqual({ gaps: 2, seam: 0, scope: 1, rows: 3 });
   });
 
   it("throws rather than reporting 0 gaps when the register format moves", () => {
@@ -599,7 +599,9 @@ describe("quality-delta — the readers reach the live repo files", async () => 
 
   it("reads a plausible unsupported register (the population, not a zero)", () => {
     expect(registers.register.rows).toBeGreaterThan(10);
-    expect(registers.register.gaps + registers.register.scope).toBe(registers.register.rows);
+    expect(registers.register.gaps + registers.register.seam + registers.register.scope).toBe(
+      registers.register.rows,
+    );
   });
 
   it("reads every corpus backend's skip map", () => {

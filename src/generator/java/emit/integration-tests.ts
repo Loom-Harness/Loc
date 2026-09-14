@@ -27,6 +27,7 @@ import type {
 } from "../../../ir/types/loom-ir.js";
 import { lines } from "../../../util/code-builder.js";
 import { lowerFirst } from "../../../util/naming.js";
+import { jid } from "../java-ident.js";
 import { packagePath } from "../naming.js";
 import { collectJavaExprImports, renderJavaExpr } from "../render-expr.js";
 import { renderCreateCall, renderExplicitMatcher, renderOperationCall } from "./tests.js";
@@ -75,7 +76,7 @@ function findCallOf(e: ExprIR, ctx: BoundedContextIR, imports: Set<string>): str
   if (e.member === "getById") return `${field}.getById(${args})`;
   if (e.member === "findAll") return `${field}.findAll()`;
   const optional = custom?.returnType.kind === "optional" || custom?.returnType.kind === "union";
-  return `${field}.${e.member}(${args})${optional ? ".orElseThrow()" : ""}`;
+  return `${field}.${jid(e.member)}(${args})${optional ? ".orElseThrow()" : ""}`;
 }
 
 /** Render one integration-test statement (8-space body indent). */

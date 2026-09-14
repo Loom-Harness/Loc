@@ -141,7 +141,7 @@ ThemeProp:
 // implicit aggregate identity) is admissible here.
 UserBlock:
     'user' '{'
-        fields+=UserField*
+        (fields+=UserField (','? fields+=UserField)* ','?)?
     '}';
 
 UserField:
@@ -987,7 +987,7 @@ EnumValue:
 
 ValueObject:
     'valueobject' name=ID '{'
-        members+=ValueObjectMember*
+        (members+=ValueObjectMember (','? members+=ValueObjectMember)* ','?)?
     '}';
 
 ValueObjectMember:
@@ -1063,7 +1063,7 @@ Aggregate:
           | (audited?='audited' ','?)
         )*
         withClause=WithClause? '{'
-        members+=AggregateMember*
+        (members+=AggregateMember (','? members+=AggregateMember)* ','?)?
     '}';
 
 // Inheritance table layout — a header colon modifier on aggregates
@@ -1332,7 +1332,7 @@ ExpectStmt:
 
 EntityPart:
     'entity' name=ID '{'
-        members+=EntityPartMember*
+        (members+=EntityPartMember (','? members+=EntityPartMember)* ','?)?
     '}';
 
 EntityPartMember:
@@ -1960,12 +1960,12 @@ Parameter:
 // the factoring is byte-identical, and a keyword with a HARD position in one of
 // the three rules stays a per-rule extra, NOT here.
 CommonSoftKeywords returns string:
-      'action' | 'asc' | 'body' | 'by' | 'canonical' | 'channels' | 'command' | 'config' | 'connection'
-      | 'crossTenant' | 'dataSources' | 'desc' | 'description' | 'env' | 'envelope' | 'error' | 'eventLog'
-      | 'every' | 'favicon' | 'filter' | 'group' | 'handle' | 'immutable' | 'implements' | 'instance' | 'internal'
-      | 'isolationLevel' | 'join' | 'key' | 'keyPrefix' | 'kind' | 'literal' | 'loads' | 'mailer' | 'managed' | 'message' | 'migration' | 'money'
-      | 'objectStore' | 'ogImage' | 'option' | 'or' | 'paged' | 'parent' | 'payload' | 'query'
-      | 'queue' | 'readonly' | 'replica' | 'resource' | 'response' | 'retain' | 'retrieval' | 'schema'
+      'action' | 'allow' | 'asc' | 'body' | 'by' | 'canonical' | 'channels' | 'command' | 'config' | 'connection'
+      | 'crossTenant' | 'dataSources' | 'deep' | 'deny' | 'desc' | 'description' | 'env' | 'envelope' | 'error' | 'eventLog'
+      | 'every' | 'favicon' | 'filter' | 'global' | 'group' | 'handle' | 'immutable' | 'implements' | 'instance' | 'internal'
+      | 'isolationLevel' | 'join' | 'key' | 'keyPrefix' | 'kind' | 'literal' | 'loads' | 'local' | 'mailer' | 'managed' | 'message' | 'migration' | 'money'
+      | 'objectStore' | 'of' | 'ogImage' | 'option' | 'or' | 'paged' | 'parent' | 'payload' | 'query'
+      | 'persistence' | 'policy' | 'queue' | 'readonly' | 'replica' | 'resource' | 'response' | 'retain' | 'retrieval' | 'schema'
       | 'secret' | 'select' | 'service' | 'snapshot' | 'sort' | 'sql' | 'stamp' | 'state' | 'store' | 'tablePrefix'
       | 'tenancy' | 'title' | 'token' | 'ttl' | 'use' | 'write';
 
@@ -1983,10 +1983,10 @@ CommonSoftKeywords returns string:
 LooseName returns string:
     ID | CommonSoftKeywords
     // LooseName-only (soft here but not in every value position):
-    | 'aggregates' | 'allow' | 'api' | 'await' | 'bind' | 'cache' | 'component' | 'contains'
-    | 'contexts' | 'deep' | 'design' | 'directoryLayout' | 'framework' | 'from' | 'global' | 'id' | 'ignoring'
-    | 'link' | 'local' | 'menu' | 'modules' | 'of' | 'page' | 'permissions' | 'persistence'
-    | 'policy' | 'route' | 'section' | 'static' | 'targets' | 'transactional' | 'ui' | 'urlStyle'
+    | 'aggregates' | 'api' | 'await' | 'bind' | 'cache' | 'component' | 'contains'
+    | 'contexts' | 'design' | 'directoryLayout' | 'framework' | 'from' | 'id' | 'ignoring'
+    | 'link' | 'menu' | 'modules' | 'page' | 'permissions'
+    | 'route' | 'section' | 'static' | 'targets' | 'transactional' | 'ui' | 'urlStyle'
     | 'views' | 'workflows';
 
 // A dotted page reference for `menu { link <Area>.<Page> }` — lets a menu link
@@ -2217,8 +2217,19 @@ AssignOrCallStmt:
 // `ui.workflows.placeOrder({...})` and `ui.views.activeOrders()` parse
 // cleanly when `ui` / `workflows` / `views` are reserved by the page-
 // metamodel grammar.
+// An optional `this.` prefix roots the path in the enclosing aggregate
+// EXPLICITLY.  `docs/language.md` has always described `:=` as "assignment to
+// a property reachable from `this`", and the un-prefixed spelling stays exactly
+// that — but a factory / setter parameter named after the field it fills
+// (`operation rename(name: string) { this.name := name }`) has no other way to
+// say which side is which.  The flag is load-bearing at lowering, not cosmetic:
+// a `thisRef` head resolves straight to a this-prop and must NOT be considered
+// for the action / function / private-operation / store / domain-service /
+// resource call arms, nor be shadowed by a local of the same name when the
+// target's type is computed.  `'this'` is already a token (`ThisRef`) and the
+// same `('this' '.')?` prefix is already spelled on `LoadPath`.
 LValue:
-    head=LValueIdent ('.' tail+=LValueIdent)*
+    (thisRef?='this' '.')? head=LValueIdent ('.' tail+=LValueIdent)*
       (call?='(' (args+=Expression (',' args+=Expression)*)? ')')?;
 
 LValueIdent returns string:

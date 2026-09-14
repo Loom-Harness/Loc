@@ -1,0 +1,168 @@
+// Field, parameter and ENUM-VALUE names that are HOST-LANGUAGE reserved words.
+//
+// The sibling of `reserved-words.ddd`, one layer up: that fixture covers names
+// reserved by POSTGRES (`order`, `group`, `limit`) — a SQL-quoting concern, and
+// its closing note says, in as many words, that a name reserved by the HOST
+// LANGUAGE is "a different class … no backend claims to handle it".  M-T6.36
+// closed that class on java, and this fixture is what keeps it closed.
+//
+// WHY JAVA IS THE HARD ONE.  Every other backend can spell a reserved name in
+// host-identifier position without moving the wire:
+//
+//   - C#  — `@case` is a VERBATIM IDENTIFIER, lexically the identifier `case`,
+//           so the member name and the JSON property System.Text.Json derives
+//           are unchanged;
+//   - TS  — any string is a legal property name (`{ case: … }`, `obj.case`);
+//   - python / elixir — the emitters escape LOCALS only and never had to touch
+//           a declared field name.
+//
+// Java has no verbatim identifier (JLS §3.9), so the only escape is a RENAME —
+// and a Java record component name IS the Jackson property name, the springdoc
+// schema key and the Spring binding path.  A bare rename would therefore have
+// moved `{"final": …}` to `{"final_": …}` on java alone, which is why this was
+// REFUSED (`loom.java-reserved-identifier-unsupported`) before it was fixed.
+// The fix is a mangled host identifier PLUS an explicit wire annotation at
+// every site the java identifier would otherwise have become the wire name:
+// `@JsonProperty` on a record component and on an enum constant,
+// `@RequestParam("…")` on a find parameter, an inverse map in the RFC-7807
+// pointer mapper, and — for an enum column — a JPA `AttributeConverter`, since
+// `@Enumerated(STRING)` persists `Enum.name()` and would otherwise store the
+// mangled spelling where the other four backends store the declared one.
+//
+// THE NAMES ARE CHOSEN TO BE RESERVED IN JAVA AND ORDINARY EVERYWHERE ELSE —
+// `final`, `native`, `synchronized`, `transient`, `throws`, `strictfp` and
+// `boolean` are keywords in Java and legal identifiers in C#, TypeScript,
+// Python and Elixir, and none of them is a Postgres reserved word.  That keeps
+// this a HOST-IDENTIFIER fixture on all five backends rather than smuggling in
+// a second SQL-quoting test (which `reserved-words.ddd` already owns), and it
+// is why the row is `ALL` rather than java-only: the other four must keep
+// emitting the bare name, and this fixture is where that is checked.
+// `label` and `id` are the controls — unreserved everywhere, so their emission
+// must not change at all.
+system JavaReservedWords {
+  subdomain Sales {
+    context Orders {
+      // An enum whose VALUE is a Java keyword: the constant is mangled, the
+      // JSON wire and the stored column are not.
+      enum Mode { native, plain }
+
+      valueobject Window {
+        // A VO record component is a wire name twice over — Jackson serialises
+        // it on a response, and Hibernate's JSON FormatMapper serialises the
+        // record into a jsonb column on the `shape: embedded` / VO-array paths.
+        transient: int
+        label: string
+      }
+
+      aggregate Ticket with crudish {
+        final: bool
+        native: money
+        synchronized: int
+        mode: Mode
+        window: Window
+        label: string
+        // A DERIVED member is a method on the java side, and it rides the
+        // response record too.
+        derived throws: int = this.synchronized + 1
+        // A helper function and its parameter are both bare java identifiers.
+        function strictfp(boolean: int): int = boolean + this.synchronized
+        operation bump(boolean: int) {
+          synchronized := this.strictfp(boolean)
+        }
+        invariant synchronized >= 0
+      }
+
+      repository Tickets for Ticket {
+        // The parameter reaches the controller as a QUERY PARAMETER name and
+        // the JPQL as a BIND parameter — two more positions where the java
+        // identifier and the wire spelling have to be told apart.
+        find byLabel(final: bool, label: string): Ticket[] where this.label == label
+      }
+    }
+  }
+
+  api SalesApi from Sales
+  storage pg { type: postgres }
+  resource ticketState { for: Orders, kind: state, use: pg, index: [Ticket.label] }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Orders]
+    dataSources: [ticketState]
+    serves: SalesApi
+    port: 4000
+  }
+
+  // The compile tier proves the project BUILDS; only a booted backend can show
+  // that the wire spelling survived the mangle, which is the whole contract
+  // here — so every assertion below reads a key back off the wire rather than
+  // asserting a shape the emitter chose.
+  test e2e "host-reserved-word members round-trip with the declared wire keys" against d {
+    let a = api.tickets.create({
+      final: true,
+      native: money("12.50"),
+      synchronized: 3,
+      mode: "native",
+      window: { transient: 7, label: "w" },
+      label: "alpha"
+    })
+
+    let readBack = api.tickets.getById(a)
+    // Each of these READS A KEY that only exists on the wire if the mangled
+    // java identifier was re-annotated back to the `.ddd` spelling.
+    expect(readBack.final).toBe(true)
+    expect(decimal(readBack.native)).toBe(12.5)
+    expect(readBack.synchronized).toBe(3)
+    expect(readBack.label).toBe("alpha")
+    // The derived member — a method on java, a plain response component here.
+    expect(readBack.throws).toBe(4)
+    // A nested VO component, which rides a second record.
+    expect(readBack.window.transient).toBe(7)
+    // The ENUM value: `Mode.native` is the mangled constant `native_` in java,
+    // and it must still serialise as `"native"` — and be STORED as `native`,
+    // which the read-back proves by round-tripping through the column.
+    expect(readBack.mode).toBe("native")
+
+    // An operation whose parameter is also a reserved word — the request record
+    // component, the service local and the entity method parameter all mangle.
+    api.tickets.bump(a, { boolean: 4 })
+    expect(api.tickets.getById(a).synchronized).toBe(7)
+
+    // …and the UPDATE route, which is the FULL-REPLACEMENT path: every
+    // reserved-word component has to survive the request record, the service's
+    // wire→domain locals and the entity's own write in one go, where `create`
+    // only proves the factory.
+    api.tickets.update(a, {
+      final: false,
+      native: money("9.00"),
+      synchronized: 9,
+      mode: "plain",
+      window: { transient: 8, label: "w2" },
+      label: "beta"
+    })
+    let updated = api.tickets.getById(a)
+    expect(updated.final).toBe(false)
+    expect(updated.label).toBe("beta")
+    expect(updated.mode).toBe("plain")
+    expect(updated.window.transient).toBe(8)
+    expect(updated.synchronized).toBe(9)
+    // …and the DERIVED member recomputes off the replaced value rather than
+    // carrying the stale one.
+    expect(updated.throws).toBe(10)
+
+    // The find's query-parameter name is the `.ddd` spelling, not the mangled
+    // one — a client that sent `?final=` must still be understood.
+    let found = api.tickets.byLabel({ final: false, label: "beta" })
+    expect(found.count()).toBe(1)
+    expect(found.first().label).toBe("beta")
+
+    // …and the LIST read sorted by a reserved-word column: the `?sort=` key is
+    // the wire spelling while the ORDER BY names the JPA attribute, so a
+    // backend that forgot the translation answers 500 rather than a page.
+    let sorted = api.tickets.all({ sort: "synchronized", dir: "desc" })
+    expect(sorted.total).toBe(1)
+    expect(sorted.items.first().synchronized).toBe(9)
+
+    api.tickets.destroy(a)
+    expect(api.tickets.getById(a)).toThrow(404)
+  }
+}
