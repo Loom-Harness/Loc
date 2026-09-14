@@ -18,6 +18,7 @@ import {
   ownFieldsOf,
   tableOwnerName,
 } from "../../../ir/util/inheritance.js";
+import { valueObjectPool } from "../../../ir/util/reachable-types.js";
 import { isDenyFilter } from "../../../ir/util/tenant-stance.js";
 import { isValueCollectionType, valueCollectionsFor } from "../../../ir/util/value-collections.js";
 import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
@@ -404,7 +405,7 @@ export function renderConfiguration(
 ): string {
   const tph = options.tph;
   const isTphConcreteCfg = tph?.role === "concrete";
-  const voLookup: VoLookup = new Map(ctx.valueObjects.map((v) => [v.name, v.fields] as const));
+  const voLookup: VoLookup = new Map(valueObjectPool(ctx).map((v) => [v.name, v.fields] as const));
   // A TPH concrete configures only its OWN columns (the base columns belong to
   // the base config); a base / standalone aggregate configures all its fields.
   const cfgFields = tph?.role === "concrete" ? ownFieldsOf(agg, tph.base) : agg.fields;

@@ -115,7 +115,11 @@ import {
   opOperation,
 } from "../../../ir/util/openapi-ids.js";
 import { opHasProvSite } from "../../../ir/util/prov-id.js";
-import { collectReachableTypes } from "../../../ir/util/reachable-types.js";
+import {
+  collectReachableTypes,
+  findValueObjectInScope,
+  valueObjectPool,
+} from "../../../ir/util/reachable-types.js";
 import { aggregateIsEventSourced } from "../../../ir/util/resolve-datasource.js";
 import { sortableFields } from "../../../ir/util/sortable-fields.js";
 import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
@@ -468,7 +472,7 @@ export function buildRoutesFile(
   // reading the principal from the ambient request context.
   const lines: string[] = [];
   lines.push("// Auto-generated.  Do not edit by hand.");
-  if (aggregateUsesMoneyDeep(agg, ctx.valueObjects)) {
+  if (aggregateUsesMoneyDeep(agg, valueObjectPool(ctx))) {
     // Money-bearing routes consume the parsed `Decimal` via Zod's
     // type inference through `moneySchema`; the route file itself
     // never names `Decimal` directly, so a `moneySchema` import is
@@ -2761,8 +2765,9 @@ function collectUsedValueObjects(
   repo: RepositoryIR | undefined,
   ctx: BoundedContextIR,
 ): ValueObjectIR[] {
-  const { valueObjects } = collectReachableTypes(aggSchemaSeeds(agg, repo), ctx.valueObjects);
-  return ctx.valueObjects.filter((v) => valueObjects.has(v.name));
+  const pool = valueObjectPool(ctx);
+  const { valueObjects } = collectReachableTypes(aggSchemaSeeds(agg, repo), pool);
+  return pool.filter((v) => valueObjects.has(v.name));
 }
 
 function collectUsedEnums(
@@ -2770,7 +2775,7 @@ function collectUsedEnums(
   repo: RepositoryIR | undefined,
   ctx: BoundedContextIR,
 ): EnumIR[] {
-  const { enums } = collectReachableTypes(aggSchemaSeeds(agg, repo), ctx.valueObjects);
+  const { enums } = collectReachableTypes(aggSchemaSeeds(agg, repo), valueObjectPool(ctx));
   return ctx.enums.filter((e) => enums.has(e.name));
 }
 
@@ -2928,7 +2933,7 @@ export function wireToDomainExpr(expr: string, t: TypeIR, ctx?: BoundedContextIR
       // VO ctor args follow the DSL's field declaration order.  Walk
       // ctx.valueObjects to find the field list; bare-name fallback
       // covers the (rare) case where ctx isn't threaded.
-      const vo = ctx?.valueObjects.find((v) => v.name === info.base);
+      const vo = ctx ? findValueObjectInScope(ctx, info.base) : undefined;
       if (!vo) return `new ${info.base}(${expr})`;
       const args = vo.fields
         .map((f) => wireToDomainExpr(`${expr}.${f.name}`, f.type, ctx))

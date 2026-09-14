@@ -37,6 +37,7 @@ import { aggregateHasFileField } from "../../ir/util/file-field.js";
 import { foreignIdBrandNames, workflowIdTypeSources } from "../../ir/util/foreign-ids.js";
 import { isTpcBase, isTphBase, isTphConcrete, tableOwnerName } from "../../ir/util/inheritance.js";
 import { mergeContexts } from "../../ir/util/merge-contexts.js";
+import { valueObjectFieldLookup, valueObjectPool } from "../../ir/util/reachable-types.js";
 import {
   effectiveSavingShape,
   resolveContextSchema,
@@ -1130,7 +1131,7 @@ function emitProjectFromContexts(
     }
     // Reified criteria → Specification<T> factories (java consumes the
     // CriterionIR directly — the proposal's headline differentiator).
-    const voLookupCtx = new Map(ctx.valueObjects.map((v) => [v.name, v.fields] as const));
+    const voLookupCtx = valueObjectFieldLookup(ctx);
     for (const file of renderJavaCriteriaClasses(
       ctx,
       voLookupCtx,
@@ -1568,7 +1569,7 @@ function emitAggregate(
   // The JPA mapping mirrors `schemaFromModule`: binding-resolved schema +
   // flattened-VO column names (voLookup covers ambient VOs — enrichment
   // folds them into every context).
-  const voLookup = new Map(ctx.valueObjects.map((v) => [v.name, v.fields] as const));
+  const voLookup = valueObjectFieldLookup(ctx);
   // M-T6.36: enums whose java constants are mangled map through their generated
   // `<Enum>.Codec` converter rather than `@Enumerated(STRING)`, so the stored
   // value keeps the `.ddd` spelling.  Empty for every keyword-free model.
@@ -1855,12 +1856,12 @@ function emitAggregate(
   }
   // Wire-boundary validators — one Spring Validator per command shape, run at
   // the controller's `@Valid` seam (registered via @InitBinder in api.ts).
-  for (const v of renderJavaCommandValidators(agg, applicationPkg, basePkg, ctx.valueObjects)) {
+  for (const v of renderJavaCommandValidators(agg, applicationPkg, basePkg, valueObjectPool(ctx))) {
     place(`${v.className}.java`, "service", v.content, agg.name, agg.origin, construct);
   }
   // VO-invariant → 422: the `<VO>Validator`s the command validators nest-invoke
   // over each VO-typed wire request field (before the service builds domain VOs).
-  for (const v of renderJavaVoValidators(agg, ctx.valueObjects, applicationPkg, basePkg)) {
+  for (const v of renderJavaVoValidators(agg, valueObjectPool(ctx), applicationPkg, basePkg)) {
     place(`${v.className}.java`, "service", v.content, agg.name, agg.origin, construct);
   }
   place(

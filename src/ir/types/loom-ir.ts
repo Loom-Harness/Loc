@@ -1120,6 +1120,22 @@ export interface BoundedContextIR {
    *  `httpStatus UniquenessConflict -> 422` retargets both. Populated by
    *  `enrichLoomModel`; undefined in single-context (no-api) lowering. */
   structuralErrorStatuses?: Record<string, number>;
+  /** Value objects declared in the OTHER contexts of the same system — the
+   *  pool an emitter needs to look up a `valueobject` this context merely
+   *  REFERENCES.  A cross-context VO reference is legal and resolves at
+   *  lowering (`aggregate Payment { paid: Money }` in context Beta against
+   *  `valueobject Money` in context Alpha — the README's own Quick Example
+   *  shape), but the declaration stays in its own context, so
+   *  `ctx.valueObjects` alone cannot answer "what does this file have to
+   *  declare".  Emitters that materialise a per-file copy of each referenced
+   *  VO (the .NET request/response DTO records, the JSX frontends'
+   *  per-aggregate api modules) resolve the name through
+   *  `ctx.valueObjects` ∪ this, then keep only what the aggregate's wire
+   *  shape actually reaches.  Own names shadow; first declaration wins on a
+   *  cross-context collision (the validator owns the ambiguity diagnostic).
+   *  Populated by `enrichLoomModel`; undefined when the model has a single
+   *  context. */
+  siblingValueObjects?: ValueObjectIR[];
   /** Provenance chain back to the `.ddd` source — see
    * src/ir/types/origin.ts.  Populated at lowering; absent on purely
    * derived nodes. */
@@ -2108,9 +2124,15 @@ export interface EventSubscriptionIR {
   projection?: string;
 }
 
-export type EnrichedBoundedContextIR = Omit<BoundedContextIR, "aggregates" | "valueObjects"> & {
+export type EnrichedBoundedContextIR = Omit<
+  BoundedContextIR,
+  "aggregates" | "valueObjects" | "siblingValueObjects"
+> & {
   aggregates: EnrichedAggregateIR[];
   valueObjects: EnrichedValueObjectIR[];
+  /** Sibling-context value objects, enriched — see
+   *  `BoundedContextIR.siblingValueObjects`. */
+  siblingValueObjects?: EnrichedValueObjectIR[];
   /** Channel-routed event subscriptions in this context (in-process dispatch
    *  slice).  Derived by `enrichContext`; empty when the context declares no
    *  channel that carries a subscribed event. */
