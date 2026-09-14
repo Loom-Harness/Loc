@@ -1,11 +1,15 @@
 # Wave CR1 — packet b (OIDC audience) hand-off
 
 *Branch: `worktree-agent-a969add743a0d89c7`. Base: `main` @ `76ef74ad`.*
-*Row: **P0-4** of `docs/audits/code-review-2026-09-13.md` — left as a plain
-reference, not a link: the audit lands with the Wave CR1 coordinator branch
-(#2938), and `test/system/archived-docs-fence.test.ts` fails a live doc that
-links to a file not in the tree. Turn it into a link when the fold brings the
-audit in.*
+*Row: **P0-4** of [`../../../audits/code-review-2026-09-13.md`](../../../audits/code-review-2026-09-13.md).
+Relinked at the fold — this was a plain reference on the packet branch, where the audit was not yet in
+the tree and `test/system/archived-docs-fence.test.ts` correctly failed the dead link.*
+
+> **This packet corrected the row it was draining.** The audit's table listed elixir as already
+> env-overridable with a documented `OIDC_AUDIENCE=""` opt-out. It was not: every audience construct
+> in `renderOidcVerifier` sits behind `auth.oidc.audience ? … : ""`, so an undeclared audience
+> emitted no check at all — the same hole as node. The divergence was **two** backends, not one, and
+> the audit's own table is now struck through and corrected in place.
 
 ## What landed
 
