@@ -35,6 +35,7 @@ import {
   needsPackChromeT,
   takeDecimalImport,
 } from "../../_walker/render-primitive.js";
+import { collectStoreReads } from "../../_walker/shared/store-reads.js";
 import { renderActionHandlers } from "../../_walker/walker-core.js";
 import type {
   ActionMutationState,
@@ -1426,22 +1427,6 @@ function collectExprRefs(expr: ExprIR, out: Set<string>): void {
     if (e.kind === "ref" && e.refKind === "store-field") return;
     if (e.kind === "ref") out.add(e.name);
   });
-}
-
-/** The `<Store>.<field>` reads inside a `derived` initialiser, in encounter
- *  order.  Each renders as the page/component shell's hoisted selector local
- *  (`const count = useCart((s) => s.count)`), so the shell has to (a) record
- *  the member on the walk's `usedStores` map and (b) list the local in the
- *  memo's dependency array — a store cell changing has to recompute the
- *  derived, exactly like a state cell does. */
-function collectStoreReads(expr: ExprIR): Array<{ store: string; member: string }> {
-  const out: Array<{ store: string; member: string }> = [];
-  walkExprDeep(expr, (e) => {
-    if (e.kind === "ref" && e.refKind === "store-field" && e.storeName) {
-      out.push({ store: e.storeName, member: e.name });
-    }
-  });
-  return out;
 }
 
 /** Render one `state {}` field as a React `useState`

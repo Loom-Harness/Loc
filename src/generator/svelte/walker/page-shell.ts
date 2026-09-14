@@ -38,6 +38,7 @@ import { coerceMoneyStateInit, usesDecimalBinding } from "../../_expr/js-intrins
 import { paramPropTsType } from "../../_frontend/component-prop-type.js";
 import { idTargetHookVar } from "../../_frontend/form-helpers.js";
 import { renderGateExpr } from "../../_frontend/gate-expr.js";
+import { SVELTE_LIB_TOAST_EFFECT_IMPORT, usesToastEffect } from "../../_frontend/toast-effect.js";
 import type { LoadedPack } from "../../_packs/loader.js";
 import { storeMemberLocal } from "../../_walker/js-target-helpers.js";
 import {
@@ -47,6 +48,7 @@ import {
   takeDecimalImport,
 } from "../../_walker/render-primitive.js";
 import { indentJsx } from "../../_walker/shared/args.js";
+import { collidingDerivedNames } from "../../_walker/shared/store-reads.js";
 import type {
   ActionMutationState,
   ApiHookUse,
@@ -385,7 +387,14 @@ export function renderSveltePage(
   // Page `derived` bindings → hoisted `$derived` consts (runes auto-track).
   // A derived reading a state field forces the `$state` declaration even
   // when the body never reads it directly.
-  const derivedResult = buildDerivedLines(derived, pack, paramNames, stateNames);
+  const derivedResult = buildDerivedLines(
+    derived,
+    pack,
+    paramNames,
+    stateNames,
+    usedStores,
+    derivedNames,
+  );
   const derivedLines = derivedResult.lines;
 
   // Named-action handlers → `<script>` arrow consts (Proposal A Stage 1).
@@ -416,6 +425,7 @@ export function renderSveltePage(
       usesNavigate,
       authUi,
     },
+    { declared: externFunctions, used: usedExternFunctions ?? new Set() },
   );
   const actionLines = actionResult.lines;
   // Store wiring (Stage 5) — import + `$derived` field bindings.  Computed AFTER
@@ -501,6 +511,13 @@ export function renderSveltePage(
     usesNavigate || form.usesNavigate || actionResult.usesNavigate
       ? `  import { goto as navigate } from "$app/navigation";\n`
       : "";
+  // `toast(<msg>)` from an `action` body / an `Action { …, then: … }` slot
+  // renders as a bare call, so the page has to import the emitted effect
+  // module — without it the symbol is undeclared and `svelte-check` fails
+  // (F50, the Svelte twin of react's F3).
+  const toastImport = usesToastEffect(body, actions, externFunctions)
+    ? SVELTE_LIB_TOAST_EFFECT_IMPORT
+    : "";
   // Route params to bind: the declared/used ones plus the magic route `id`
   // (`byId(id)`) when the body — OR an awaited-op action handler (Stage 2, whose
   // `use<Op><Agg>(id)` hook binds off the route id) — referenced it.
@@ -537,7 +554,7 @@ export function renderSveltePage(
     content: withDecimalImport(
       `<!-- Auto-generated.  Do not edit by hand. -->
 <script lang="ts">
-${gate.import}${navigateImport}${pageStateImport}${decimalImport}${packImports}${tableSortImport}${chartImport}${apiHookImports}${store.imports}${actionWiring.imports}${userComponentImports}${externFunctionImports}${paramLines}${stateLines}${apiHookDecls}${store.decls}${actionWiring.decls}${form.decls}${derivedLines}${actionLines}${gate.binding}${titleEffect}</script>
+${gate.import}${navigateImport}${pageStateImport}${decimalImport}${packImports}${tableSortImport}${chartImport}${apiHookImports}${store.imports}${actionWiring.imports}${toastImport}${userComponentImports}${externFunctionImports}${paramLines}${stateLines}${apiHookDecls}${store.decls}${actionWiring.decls}${form.decls}${derivedLines}${actionLines}${gate.binding}${titleEffect}</script>
 
 ${markup}
 ${templateScope}`,
@@ -717,7 +734,14 @@ export function renderSvelteComponentFile(
   const gate = renderSveltePageGate(undefined, usesCurrentUser);
   // Component `derived` bindings → hoisted `$derived` consts.  A derived
   // reading a state field forces the `$state` declaration.
-  const derivedResult = buildDerivedLines(derived, pack, paramNames, stateNames);
+  const derivedResult = buildDerivedLines(
+    derived,
+    pack,
+    paramNames,
+    stateNames,
+    usedStores,
+    derivedNames,
+  );
   const derivedLines = derivedResult.lines;
   // Named-action handlers → `<script>` arrow consts (Proposal A Stage 1).
   // Share `usedStores` so an action-body store call is recorded for the shell.
@@ -728,6 +752,8 @@ export function renderSvelteComponentFile(
     paramNames,
     stateNames,
     usedStores,
+    undefined,
+    { declared: externFunctions, used: usedExternFunctions ?? new Set() },
   );
   const actionLines = actionResult.lines;
   // Store wiring (Stage 5) — after action handlers so action-body store use is
@@ -773,6 +799,10 @@ export function renderSvelteComponentFile(
     usesNavigate || form.usesNavigate
       ? `  import { goto as navigate } from "$app/navigation";\n`
       : "";
+  // Component twin of the page shell's toast import (F50).
+  const toastImport = usesToastEffect(body, actions, externFunctions)
+    ? SVELTE_LIB_TOAST_EFFECT_IMPORT
+    : "";
   // Same marker-keyed chart import as the page shell above — a ui-scoped
   // component can host a `Chart` too.
   const chartImport = tsx.includes("<LoomChart")
@@ -833,7 +863,7 @@ export function renderSvelteComponentFile(
   return withDecimalImport(
     `<!-- Auto-generated.  Do not edit by hand. -->
 <script lang="ts">
-${gate.import}${snippetImport}${navigateImport}${decimalImport}${packImports}${tableSortImport}${chartImport}${apiHookImports}${dtoImportLines}${store.imports}${actionWiring.imports}${userComponentImports}${externFunctionImports}${propsDestructure}${gate.binding}${stateLines}${apiHookDecls}${store.decls}${actionWiring.decls}${form.decls}${derivedLines}${actionLines}</script>
+${gate.import}${snippetImport}${navigateImport}${decimalImport}${packImports}${tableSortImport}${chartImport}${apiHookImports}${dtoImportLines}${store.imports}${actionWiring.imports}${toastImport}${userComponentImports}${externFunctionImports}${propsDestructure}${gate.binding}${stateLines}${apiHookDecls}${store.decls}${actionWiring.decls}${form.decls}${derivedLines}${actionLines}</script>
 
 ${indentJsx(markup, "")}
 ${templateScope}`,
@@ -1000,13 +1030,31 @@ function buildDerivedLines(
   pack: LoadedPack,
   paramNames: ReadonlySet<string>,
   stateNames: ReadonlySet<string>,
+  /** Shared BY REFERENCE with the body walk so a derived whose initialiser is
+   *  the ONLY reader of a store field (`derived itemCount: int = Cart.count`)
+   *  still records the use — `renderStoreWiring` runs after this and declares
+   *  one `$derived(<store>.<field>)` local per recorded member.  Without it
+   *  `recordStoreUse` no-opped into a throwaway context and the page emitted
+   *  `const itemCount = $derived(count);` against an unbound `count` (F50, the
+   *  Svelte twin of react's F9). */
+  usedStores?: Map<string, Set<string>>,
+  /** The page/component's FULL derived-name set.  `renderStoreWiring` reserves
+   *  it when it names a store member's local, so a context scoped to the
+   *  derived seen so far would disagree with it for a member whose name
+   *  matches the current or a later derived — `derived count: int = Cart.count`
+   *  emitted `const count = $derived(count);` beside a `cartCount` binding. */
+  allDerivedNames: ReadonlySet<string> = new Set(),
 ): { lines: string; usesState: boolean } {
   const seenDerived = new Set<string>();
   let lines = "";
   let usesState = false;
   for (const d of derived) {
     const dctx = dummyCtx(pack, paramNames, stateNames, new Set());
-    dctx.derivedNames = seenDerived;
+    if (usedStores) dctx.usedStores = usedStores;
+    dctx.derivedNames = new Set([
+      ...seenDerived,
+      ...collidingDerivedNames(d.expr, allDerivedNames, seenDerived),
+    ]);
     const exprStr = emitExpr(d.expr, dctx);
     if (dctx.usesState) usesState = true;
     lines += `  const ${d.name} = $derived(${exprStr});\n`;
@@ -1055,9 +1103,19 @@ function buildActionLines(
    *  lookups so an awaited op (Stage 2) hoists into the same shell.  Omitted for
    *  components (no api handles to await against). */
   shared?: ActionWalkShared,
+  /** The ui's `extern` frontend function names, plus the shell's used-set
+   *  shared BY REFERENCE — an extern called ONLY from an action body
+   *  (`action save() { track("saved") }`) never reached the body walk, so the
+   *  shell emitted the call with no `import { track } from "$lib/track"` beside
+   *  it: TS2304, the same shape as F50's bare `toast(...)`. */
+  externs?: { declared: ReadonlySet<string>; used: Set<string> },
 ): { lines: string; usesState: boolean; usesRouteId: boolean; usesNavigate: boolean } {
   const ctx = dummyCtx(pack, paramNames, stateNames, shared?.usedParams ?? new Set());
   if (usedStores) ctx.usedStores = usedStores;
+  if (externs) {
+    ctx.externFunctions = externs.declared;
+    ctx.usedExternFunctions = externs.used;
+  }
   if (shared) {
     ctx.imports = shared.imports;
     ctx.usedApiHooks = shared.usedApiHooks;
