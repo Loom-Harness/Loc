@@ -122,7 +122,7 @@ jobs:
       - id: set
         run: |
           if [ "${{ github.event_name }}" = "pull_request" ]; then
-            # Slim PR slice — 2 one-cell jobs.  showcase.ddd (the
+            # Slim PR slice — 4 one-cell jobs.  showcase.ddd (the
             # feature-comprehensive cross-generator conformance fixture,
             # #401) × two representative packs: one Mantine (the React
             # baseline) and one shadcn (the Tailwind/Radix family).  This
@@ -130,7 +130,16 @@ jobs:
             # remaining packs (mui, chakra, older versions) and per-example
             # drift are deferred to the push:main sweep below.  Full sweep
             # is one merge later — or force it with workflow_dispatch.
-            EXAMPLES='["examples/showcase.ddd"]'
+            #
+            # `subform-showcase.ddd` is the second PR-slice example, promoted
+            # out of the sweep for the same reason Vue promoted its `scaffold`
+            # case: showcase.ddd carries NO array-of-value-object form, so the
+            # repeatable row group — `field-input-array.hbs`, a per-pack
+            # renderer the single-field templates share nothing with — was
+            # edited per-PR and compiled only post-merge.  That is how the
+            # money row cell (2026-09-10 e-shop audit, P8) shipped writing
+            # strings into a `Decimal` slot.
+            EXAMPLES='["examples/showcase.ddd","web/src/examples/subform-showcase.ddd"]'
             PACKS='["mantine@v9","shadcn@v4"]'
             MATRIX=$(jq -cn --argjson ex "$EXAMPLES" --argjson packs "$PACKS" \
               '{include: [$ex[] as $e | $packs[] as $p | {case: "\($e):\($p)", label: "\($e) × \($p)"}]}')

@@ -42,7 +42,6 @@
   "test/generator/flutter/riverpod-state.test.ts": 1,
   "test/generator/java/generator-java-readmodel-gates.test.ts": 1,
   "test/generator/java/generator-java-scalar-returns.test.ts": 1,
-  "test/generator/java/java-reserved-identifier.test.ts": 1,
   "test/generator/java/render-expr-kinds.test.ts": 5,
   "test/generator/json-primitive-emission.test.ts": 1,
   "test/generator/python/render-expr-kinds.test.ts": 12,

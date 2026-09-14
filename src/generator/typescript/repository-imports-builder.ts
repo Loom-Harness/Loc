@@ -11,6 +11,7 @@
 // `enums` arrays so the emitted imports are stable across runs.
 
 import type { BoundedContextIR, EnrichedAggregateIR, TypeIR } from "../../ir/types/loom-ir.js";
+import { findValueObjectInScope, valueObjectPool } from "../../ir/util/reachable-types.js";
 
 export function collectValueObjects(agg: EnrichedAggregateIR, ctx: BoundedContextIR): string[] {
   const used = new Set<string>();
@@ -20,7 +21,7 @@ export function collectValueObjects(agg: EnrichedAggregateIR, ctx: BoundedContex
       // Transitive closure: a VO-in-VO hydrate constructs the NESTED VO too
       // (`new Offer(new Money(…))`), so the inner class needs importing —
       // recurse into the referenced VO's own fields (cycle-safe via `used`).
-      const vo = ctx.valueObjects.find((v) => v.name === t.name);
+      const vo = findValueObjectInScope(ctx, t.name);
       for (const f of vo?.fields ?? []) visit(f.type);
     }
     if (t.kind === "array") visit(t.element);
@@ -28,7 +29,9 @@ export function collectValueObjects(agg: EnrichedAggregateIR, ctx: BoundedContex
   };
   for (const f of agg.fields) visit(f.type);
   for (const part of agg.parts) for (const f of part.fields) visit(f.type);
-  return ctx.valueObjects.filter((v) => used.has(v.name)).map((v) => v.name);
+  return valueObjectPool(ctx)
+    .filter((v) => used.has(v.name))
+    .map((v) => v.name);
 }
 
 export function collectEnums(agg: EnrichedAggregateIR, ctx: BoundedContextIR): string[] {

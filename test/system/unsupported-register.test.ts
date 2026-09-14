@@ -2,7 +2,11 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { openGaps, UNSUPPORTED_REGISTER } from "../../src/diagnostics/unsupported-register.js";
+import {
+  latentSeams,
+  openGaps,
+  UNSUPPORTED_REGISTER,
+} from "../../src/diagnostics/unsupported-register.js";
 
 // ---------------------------------------------------------------------------
 // Gate for the `*-unsupported` register (M-T9.27).
@@ -273,7 +277,56 @@ const REGISTER_FILE = path.join(srcRoot, "diagnostics", "unsupported-register.ts
  *  HAVE wire shapes (a decimal string re-parsed to `Decimal`, a fixed
  *  `FileRef` object, a VO DTO), so this drains by teaching the prop layer to
  *  spell them, which deletes the row and lowers this back to 50. */
-const MAX_OPEN_GAPS = 51;
+/** Wave C2 coordinator commit (2026-09-13): 51 → 27.  Not a drain — the 24
+ *  rows whose gate set already names every shipping target (the "latent seam"
+ *  / "dormant" / "fires only when no backend hosts the context" rows) moved to
+ *  `kind: "seam"`, so this pin now counts exactly what the completion plan's
+ *  exit criterion names: LIVE gaps on a shipping target.  The seam rows are
+ *  pinned separately below (`LATENT_SEAMS`) so the move cannot hide a gap.
+ *
+ *  Wave C2 packet 2c (node): 27 → 26.  `loom.audited-returning-operation-
+ *  unsupported` DRAINED — the Hono operation route dispatches an `audited` /
+ *  `provenanced` returning operation to `emitReturningOperationRoute` with the
+ *  audit/provenance transaction wrapped around it and the tagged result carried
+ *  out of the transaction, so node emits both halves the other four backends
+ *  always did.  Gate, message, register row and firing-census fixture deleted
+ *  together (`test/generator/typescript/audited-returning-route.test.ts` is the
+ *  replacement, mutation-proved). */
+/** 26 -> 25 at the fold (wave C2 packet 2b, written as 27 -> 26 on its own branch): `loom.tph-filter-unsupported` re-classified
+ *  `gap` -> `scope` under D-TPH-SUBTYPE-FILTER, owner M-T6.72.  A re-class, not
+ *  a drain — the code still fires, and the pin moves because the row stopped
+ *  being half-built work on a shipping target: the EF-only refusal is true and
+ *  narrow (the same model generates under `persistence: dapper`), and its drain
+ *  is a ~30-site read-path rewrite whose failure mode is a silent leak. */
+/** 25 -> 24 at the fold (wave C2 packet 2d, M-T6.36, written as 27 → 26 on its own branch).  `loom.java-reserved-identifier-unsupported`
+ *  is DRAINED, not reclassified — a `.ddd` member / parameter / operation named
+ *  after a Java reserved word now emits a mangled host identifier plus an
+ *  explicit `@JsonProperty` (and, for an enum value, a JPA `AttributeConverter`)
+ *  at every wire site, so the JSON body, the springdoc schema, the query
+ *  parameter, the RFC-7807 error pointer and the stored column all keep the
+ *  `.ddd` spelling.  Compile- and BOOT-proved on a real Postgres
+ *  (`test/generator/java/java-reserved-identifier.test.ts`,
+ *  `test/fixtures/corpus/java-reserved-words.ddd`). */
+/** 24 -> 25 (M-T5.34, audit #2864 D5): +`loom.workflow-handle-unsupported`.
+ *  A LIVE gap on every shipping target, not a seam: `handle name(…) { … }` has
+ *  never been emitted by any backend — searching a generated tree for the
+ *  handler's name finds only the mermaid diagram — while `docs/workflow.md`
+ *  sold it as the multi-command saga surface, so a model using it validated
+ *  `0 error(s)` and produced a saga that could be started and read but never
+ *  advanced.  The register's intended trade: a silent five-backend hole becomes
+ *  a named, owned, drainable one.  Drained by mission M-T6.58 (the emitter),
+ *  which deletes the row and lowers this back to 24.
+ *
+ *  (`loom.entity-part-param-unsupported`, minted in the same packet, does NOT
+ *  move this number: it is `scope` — a declared limit pending a language
+ *  proposal on replace-vs-merge identity, per decision D-2.) */
+const MAX_OPEN_GAPS = 25;
+
+/** Exact count of `seam` rows.  Changes only for a reviewed reason: a gate
+ *  deleted (down), a new target registered that turns a seam back into a live
+ *  `gap` (down), or a gap re-classified as latent with the membership set
+ *  named in its `what` (up — the line a reviewer reads). */
+const LATENT_SEAMS = 24;
 
 function walk(dir: string, out: string[] = []): string[] {
   for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -319,7 +372,7 @@ describe("`*-unsupported` register (M-T9.27)", () => {
     expect(
       unregistered,
       "New `*-unsupported` code(s) with no register row. Add each to " +
-        "src/diagnostics/unsupported-register.ts, classified (gap | scope | never | rule) " +
+        "src/diagnostics/unsupported-register.ts, classified (gap | seam | scope | never | rule) " +
         "— a `gap` is a commitment under the no-permanent-skips policy.",
     ).toEqual([]);
   });
@@ -355,6 +408,28 @@ describe("`*-unsupported` register (M-T9.27)", () => {
       gaps.length,
       `Only ${gaps.length} open gaps remain — lower MAX_OPEN_GAPS to ${gaps.length}.`,
     ).toBe(MAX_OPEN_GAPS);
+  });
+
+  it("pins the latent-seam count exactly, so a gap cannot hide as a seam", () => {
+    const seams = latentSeams();
+    expect(
+      seams.length,
+      `${seams.length} seam rows against a pin of ${LATENT_SEAMS}. A seam is a gate whose ` +
+        "membership set already names every shipping target — say so in the row's `what` " +
+        "and move the pin in the same reviewed diff.",
+    ).toBe(LATENT_SEAMS);
+    // Every seam row says why it is one, in the words the header names.
+    const unexplained = seams
+      .filter(
+        (e) =>
+          !/latent|dormant|all five|every (shipping )?(frontend|backend)|EMPTY set|no backend deployable|frontend-only host/i.test(
+            e.what,
+          ),
+      )
+      .map((e) => e.code);
+    expect(unexplained, "seam row(s) whose `what` does not name the full membership set").toEqual(
+      [],
+    );
   });
 
   it("cites a site for every row", () => {

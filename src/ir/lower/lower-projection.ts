@@ -274,12 +274,26 @@ function wholeTableAggregation(expr: ExprIR): ProjectionAggregateIR | undefined 
 
 /** Result type of an aggregation, taken from the OPERATOR rather than from the
  *  unresolved expression.  `count` is a row count; `avg` is a mean, so it
- *  widens to decimal even over integers; `sum`/`min`/`max` preserve the
- *  aggregated column's own type (money stays money). */
+ *  widens to decimal over integers; `sum`/`min`/`max` preserve the
+ *  aggregated column's own type (money stays money).
+ *
+ *  `avg` over a MONEY column stays money (M-T5.24 / `D-LONG-AVG-DEFAULTS`).
+ *  The mean of exact money is money: stamping `decimal` sent it across the wire
+ *  as a float64 JSON number (RS-24) while the IN-MEMORY `avg` of the same field
+ *  types `money?` (`type-system.ts`) and ships the RS-12 four-decimal string —
+ *  one word, two semantics.  Every backend already knows how to format it:
+ *  `aggregateCoercion`'s `isMoney` arm (`ir/util/projection-aggregate.ts`) pins
+ *  the fixed scale on all five. */
 function aggregateResultType(agg: ProjectionAggregateIR, scope: Env): TypeIR {
   void scope;
   if (agg.op === "count") return { kind: "primitive", name: "int" };
-  if (agg.op === "avg") return { kind: "primitive", name: "decimal" };
+  if (agg.op === "avg") {
+    const col = columnType(agg.arg);
+    const inner = col?.kind === "optional" ? col.inner : col;
+    return inner?.kind === "primitive" && inner.name === "money"
+      ? { kind: "primitive", name: "money" }
+      : { kind: "primitive", name: "decimal" };
+  }
   return columnType(agg.arg) ?? { kind: "primitive", name: "decimal" };
 }
 

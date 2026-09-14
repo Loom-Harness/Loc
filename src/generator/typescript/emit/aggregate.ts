@@ -23,6 +23,7 @@ import { aggregateUsesMoney } from "../../../ir/types/loom-ir.js";
 import { directParentName } from "../../../ir/util/containment-parent.js";
 import { operationBody, operationBodyUsesCurrentUser } from "../../../ir/util/op-gates.js";
 import { stmtHasProv } from "../../../ir/util/prov-id.js";
+import { valueObjectPool } from "../../../ir/util/reachable-types.js";
 import { lines } from "../../../util/code-builder.js";
 import { lowerFirst } from "../../../util/naming.js";
 import { isServerSourcedDefault } from "../../_frontend/server-default.js";
@@ -96,7 +97,7 @@ export function renderAggregate(
   emitTrace = false,
   opFragments?: OpFragment[],
 ): string {
-  const valueObjectAliases = ctx.valueObjects.map((v) => v.name);
+  const valueObjectAliases = valueObjectPool(ctx).map((v) => v.name);
   const enumAliases = ctx.enums.map((e) => e.name);
   const hasProv =
     emitProvenance &&

@@ -1,5 +1,6 @@
 import type { ExprIR } from "../ir/types/loom-ir.js";
 import type {
+  CheckShape,
   ColumnShape,
   ColumnType,
   FKShape,
@@ -51,6 +52,16 @@ export function renderPgStep(step: MigrationStep): string {
       return renderAddIndex(step.index, step.schema);
     case "dropIndex":
       return `DROP INDEX ${qualified(step.schema, step.name)};`;
+    case "addCheck":
+      return renderAddCheck(step.check, step.schema);
+    case "dropCheck":
+      // `IF EXISTS` so re-running against a database whose constraint was
+      // dropped by hand (or that predates the constraint entirely) is not a
+      // hard failure — the drop is a loosening, it has nothing to protect.
+      return (
+        `ALTER TABLE ${qualified(step.schema, step.table)} ` +
+        `DROP CONSTRAINT IF EXISTS ${ident(step.name)};`
+      );
     case "renameIndex":
       return `${renderRenameIndexSql(step)};`;
     case "sqlComment":
@@ -151,6 +162,12 @@ function renderCreateTable(table: TableShape, ifNotExists = false): string {
   for (const fk of table.foreignKeys) {
     lines.push("  " + renderFkConstraint(fk, table.schema));
   }
+  // Value-object null-consistency checks (CheckShape) go inline: the table is
+  // being created, so there are no stored rows to validate against and no
+  // reason for the `NOT VALID` the ALTER path needs.
+  for (const ck of table.checks ?? []) {
+    lines.push(`  CONSTRAINT ${ident(ck.name)} CHECK (${ck.expression})`);
+  }
   const body = lines.join(",\n");
   // Create the owning context's schema first (idempotent) so the
   // `<schema>.<table>` the EF / Drizzle mappings query actually exists.
@@ -189,6 +206,39 @@ function renderColumnDef(c: ColumnShape): string {
   parts.push(c.nullable ? "NULL" : "NOT NULL");
   if (c.default !== undefined) parts.push(`DEFAULT ${c.default}`);
   return parts.join(" ");
+}
+
+/** `ALTER TABLE … ADD CONSTRAINT … CHECK (…) NOT VALID`.
+ *
+ *  `NOT VALID` is the load-bearing word.  This step only ever targets a table
+ *  that already exists (a new table carries its checks inline, below), and the
+ *  constraint being added — the all-null-or-all-present invariant of a
+ *  flattened optional value object — is precisely one that stored rows CAN
+ *  violate: nothing enforced it until now, so a hand-written `UPDATE` or an
+ *  old backfill may have left a half-written group behind.  A validating
+ *  `ADD CONSTRAINT` would abort the whole migration on exactly the database
+ *  that most needs the guard, which is strictly worse than the gap it closes.
+ *  `NOT VALID` enforces every future INSERT and UPDATE from the moment it is
+ *  applied and simply does not re-read the existing rows; the operator who
+ *  wants the back-check runs the `VALIDATE CONSTRAINT` the trailing comment
+ *  names (it takes only a `SHARE UPDATE EXCLUSIVE` lock, so it is safe to run
+ *  on a live table, and it reports the offending row instead of failing a
+ *  deploy).
+ *
+ *  The operator note LEADS the statement rather than trailing it, and carries
+ *  no `;` of its own: every consumer of this renderer splits the emitted file
+ *  on a statement terminator (the Python runner on `;\n`, Drizzle on its
+ *  breakpoint), so a trailing comment would be handed over as a statement of
+ *  its own — an empty query.  A leading comment is part of the statement it
+ *  introduces and survives every splitter unchanged. */
+function renderAddCheck(check: CheckShape, schema?: string): string {
+  const t = qualified(schema, check.table);
+  return (
+    `-- NOT VALID: already-stored rows are not re-checked. To verify them, run ` +
+    `ALTER TABLE ${t} VALIDATE CONSTRAINT ${ident(check.name)}\n` +
+    `ALTER TABLE ${t} ADD CONSTRAINT ${ident(check.name)} ` +
+    `CHECK (${check.expression}) NOT VALID;`
+  );
 }
 
 function renderFkConstraint(fk: FKShape, schema?: string): string {

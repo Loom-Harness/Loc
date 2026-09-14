@@ -6,7 +6,7 @@ import {
   exprUsesCurrentUser,
   type WorkflowIR,
 } from "../../ir/types/loom-ir.js";
-import { tableOwnerName } from "../../ir/util/inheritance.js";
+import { baseOf, isTphConcrete, ownFieldsOf, tableOwnerName } from "../../ir/util/inheritance.js";
 import { durationCtorOperand } from "../../ir/util/temporal.js";
 import {
   DATA_KEY_LIKE_ESCAPE,
@@ -23,7 +23,7 @@ import type { DurationUnit } from "../../util/temporal.js";
 import { desugarAuthzFilterInApp } from "../_expr/authz-filter-inapp.js";
 import { pySubtreeLikePattern } from "../_expr/subtree-like.js";
 import { refuseOutOfVocabulary } from "../_expr/target.js";
-import { joinRowClassName, rowClassName } from "./py-columns.js";
+import { columnsForFields, joinRowClassName, rowClassName } from "./py-columns.js";
 import { PY_INTRINSIC_RENDERERS, renderPyExpr } from "./render-expr.js";
 
 // ---------------------------------------------------------------------------
@@ -140,7 +140,47 @@ export function lowerToSqlAlchemy(
     rowClassName(tableOwnerName(agg, ctx.aggregates)),
     agg.associations ?? [],
     opts?.principalAccessor ?? "current_user",
+    tphNullableBoolColumns(agg, ctx),
   );
+}
+
+const NO_NULLABLE_BOOLS: ReadonlySet<string> = new Set<string>();
+
+/** The `bool` columns of `agg` that are NULLABLE on the row a predicate over it
+ *  queries — empty unless `agg` is a TPH (`sharedTable`) concrete.
+ *
+ *  Sharing a table is exactly what makes a subtype's own columns nullable: only
+ *  rows of that `kind` populate them, so the shared table declares them NULL and
+ *  SQLAlchemy types the attribute `Mapped[bool | None]`.  A bare
+ *  `InstrumentedAttribute[bool | None]` is then no longer a `ColumnElement[bool]`,
+ *  so `not_(Row.is_deleted)` is a `mypy --strict` `[arg-type]` — pairwise F15
+ *  (`softDeletable` × TPH: the capability is right, the layout is right, and the
+ *  INTERACTION — inheritance changing the nullability of a column the capability
+ *  filter reads — is what breaks).  {@link boolOperand} renders those columns
+ *  with the explicit `.is_(True/False)` spelling instead, which is both a
+ *  `ColumnElement[bool]` and the same SQL truth in a `WHERE` (`NOT NULL` and
+ *  `NULL IS false` each drop the row).
+ *
+ *  Derived exactly like `tphAssertNarrow`'s hydrate guards
+ *  (repository-builder.ts): a concrete's OWN fields — its declared fields minus
+ *  the base fields enrichment merged in — and only the NON-optional ones, since
+ *  a declared `bool?` is `Mapped[bool | None]` on a plain table too and the
+ *  queryable-shape validator never admits one in boolean position. */
+function tphNullableBoolColumns(
+  agg: EnrichedAggregateIR,
+  ctx: EnrichedBoundedContextIR,
+): ReadonlySet<string> {
+  if (!isTphConcrete(agg, ctx.aggregates)) return NO_NULLABLE_BOOLS;
+  const base = baseOf(agg, ctx.aggregates);
+  if (!base) return NO_NULLABLE_BOOLS;
+  const out = new Set<string>();
+  for (const f of ownFieldsOf(agg, base)) {
+    if (f.optional || f.type.kind === "optional") continue;
+    for (const col of columnsForFields([f], ctx)) {
+      if (col.pyType === "bool") out.add(col.attr);
+    }
+  }
+  return out;
 }
 
 /** Lower a workflow-sourced query-time projection's `where` filter (projection.md
@@ -150,7 +190,7 @@ export function lowerToSqlAlchemy(
  *  observable (has a `<Wf>Row` table), carries NO `join`/`ignoring`, and saga rows
  *  hold no reference collections, so the association/join arms never fire here. */
 export function lowerWorkflowFilterToSqlAlchemy(e: ExprIR, wf: WorkflowIR): PyPredicate | null {
-  return lowerOver(e, rowClassName(wf.name), [], "current_user");
+  return lowerOver(e, rowClassName(wf.name), [], "current_user", NO_NULLABLE_BOOLS);
 }
 
 /** Lower a projection-sourced query-time projection's `where` filter
@@ -164,7 +204,7 @@ export function lowerProjectionFilterToSqlAlchemy(
   e: ExprIR,
   sourceProjName: string,
 ): PyPredicate | null {
-  return lowerOver(e, rowClassName(sourceProjName), [], "current_user");
+  return lowerOver(e, rowClassName(sourceProjName), [], "current_user", NO_NULLABLE_BOOLS);
 }
 
 function lowerOver(
@@ -172,11 +212,31 @@ function lowerOver(
   row: string,
   associations: AssociationIR[],
   principalAccessor: string,
+  nullBools: ReadonlySet<string>,
 ): PyPredicate | null {
   const ops = new Set<string>();
-  const expr = lower(e, row, associations, ops, principalAccessor);
+  const expr = lower(e, row, associations, ops, principalAccessor, nullBools);
   if (expr == null) return null;
-  return { expr, ops };
+  // Top-level boolean position: a filter that IS a bare boolean column
+  // (`filter this.active`) lands straight in `.where(...)`, which wants the same
+  // `ColumnElement[bool]` that `not_` / `and_` want.
+  return { expr: boolOperand(expr, row, nullBools), ops };
+}
+
+/** A lowered fragment standing in BOOLEAN position — a `where`, a `not_`
+ *  operand, an `and_`/`or_` operand.  A bare TPH-nullable bool column takes the
+ *  explicit `.is_(True)` spelling so it typechecks as a `ColumnElement[bool]`;
+ *  every other fragment (a comparison, a call, a non-nullable column) already is
+ *  one and is returned untouched — so emission stays byte-identical everywhere
+ *  off the TPH path. */
+function boolOperand(expr: string, row: string, nullBools: ReadonlySet<string>): string {
+  return isNullableBoolColumn(expr, row, nullBools) ? `${expr}.is_(True)` : expr;
+}
+
+function isNullableBoolColumn(expr: string, row: string, nullBools: ReadonlySet<string>): boolean {
+  if (nullBools.size === 0) return false;
+  const prefix = `${row}.`;
+  return expr.startsWith(prefix) && nullBools.has(expr.slice(prefix.length));
 }
 
 /** Positional-argument prefix per duration unit for Postgres
@@ -196,6 +256,7 @@ function lower(
   associations: AssociationIR[],
   ops: Set<string>,
   principalAccessor: string,
+  nullBools: ReadonlySet<string>,
 ): string | null {
   switch (e.kind) {
     case "authz-filter": {
@@ -280,33 +341,45 @@ function lower(
       // `datetime - datetime` in where-position is NOT lowered — the gate
       // rejects it, so no arm is needed here.
       if (e.op === "+" || e.op === "-") {
-        const temporal = renderTemporalArith(e, row, associations, ops, principalAccessor);
+        const temporal = renderTemporalArith(
+          e,
+          row,
+          associations,
+          ops,
+          principalAccessor,
+          nullBools,
+        );
         if (temporal != null) return temporal;
       }
-      const l = lower(e.left, row, associations, ops, principalAccessor);
-      const r = lower(e.right, row, associations, ops, principalAccessor);
+      const l = lower(e.left, row, associations, ops, principalAccessor, nullBools);
+      const r = lower(e.right, row, associations, ops, principalAccessor, nullBools);
       if (l == null || r == null) return null;
       if (e.op === "&&") {
         ops.add("and_");
-        return `and_(${l}, ${r})`;
+        return `and_(${boolOperand(l, row, nullBools)}, ${boolOperand(r, row, nullBools)})`;
       }
       if (e.op === "||") {
         ops.add("or_");
-        return `or_(${l}, ${r})`;
+        return `or_(${boolOperand(l, row, nullBools)}, ${boolOperand(r, row, nullBools)})`;
       }
       return `(${l} ${e.op} ${r})`;
     }
     case "unary": {
-      const inner = lower(e.operand, row, associations, ops, principalAccessor);
+      const inner = lower(e.operand, row, associations, ops, principalAccessor, nullBools);
       if (inner == null) return null;
       if (e.op === "!") {
+        // A bare TPH-nullable bool column negates as `.is_(False)` rather than
+        // `not_(col)`: identical SQL truth in a WHERE (`NOT NULL` and
+        // `NULL IS false` both drop the row), but a `ColumnElement[bool]`
+        // instead of a `mypy --strict` `[arg-type]` — pairwise F15.
+        if (isNullableBoolColumn(inner, row, nullBools)) return `${inner}.is_(False)`;
         ops.add("not_");
         return `not_(${inner})`;
       }
       return `${e.op}${inner}`;
     }
     case "paren":
-      return lower(e.inner, row, associations, ops, principalAccessor);
+      return lower(e.inner, row, associations, ops, principalAccessor, nullBools);
     case "ref":
       // `this.<col>` → the row column; everything else (params, lets,
       // enum values, currentUser) renders as a plain bind value.
@@ -352,7 +425,7 @@ function lower(
               ? e.receiver.member
               : null;
         const assoc = fieldName ? associations.find((a) => a.fieldName === fieldName) : undefined;
-        const arg = lower(e.args[0]!, row, associations, ops, principalAccessor);
+        const arg = lower(e.args[0]!, row, associations, ops, principalAccessor, nullBools);
         if (assoc && arg != null) {
           const join = joinRowClassName(assoc);
           ops.add("select");
@@ -371,8 +444,10 @@ function lower(
         const key = intrinsicKey(e.receiverType.name, e.member);
         const sqlSnippet = SQLALCHEMY_INTRINSIC_SQL[key];
         if (sig?.queryable && sqlSnippet && isColumnRooted(e.receiver)) {
-          const recv = lower(e.receiver, row, associations, ops, principalAccessor);
-          const args = e.args.map((a) => lower(a, row, associations, ops, principalAccessor));
+          const recv = lower(e.receiver, row, associations, ops, principalAccessor, nullBools);
+          const args = e.args.map((a) =>
+            lower(a, row, associations, ops, principalAccessor, nullBools),
+          );
           if (recv == null || args.some((a) => a == null)) return null;
           ops.add("func");
           return sqlSnippet(recv, args as string[]);
@@ -407,9 +482,10 @@ function renderTemporalArith(
   associations: AssociationIR[],
   ops: Set<string>,
   principalAccessor: string,
+  nullBools: ReadonlySet<string>,
 ): string | null {
   if (e.kind === "paren")
-    return renderTemporalArith(e.inner, row, associations, ops, principalAccessor);
+    return renderTemporalArith(e.inner, row, associations, ops, principalAccessor, nullBools);
   if (e.kind !== "binary" || (e.op !== "+" && e.op !== "-")) return null;
   const rightDur = durationCtorOperand(e.right);
   const leftDur = e.op === "+" ? durationCtorOperand(e.left) : null;
@@ -418,14 +494,14 @@ function renderTemporalArith(
   if (!dur || !other || durationCtorOperand(other)) return null;
   // The datetime side: a nested temporal fragment / column lowers as-is;
   // a host value (param, `now()`) wraps in `literal(...)`.
-  const nested = renderTemporalArith(other, row, associations, ops, principalAccessor);
-  let side = nested ?? lower(other, row, associations, ops, principalAccessor);
+  const nested = renderTemporalArith(other, row, associations, ops, principalAccessor, nullBools);
+  let side = nested ?? lower(other, row, associations, ops, principalAccessor, nullBools);
   if (side == null) return null;
   if (nested == null && !isColumnRooted(other)) {
     ops.add("literal");
     side = `literal(${side})`;
   }
-  const amount = lower(dur.amount, row, associations, ops, principalAccessor);
+  const amount = lower(dur.amount, row, associations, ops, principalAccessor, nullBools);
   if (amount == null) return null;
   ops.add("func");
   const zeros = "0, ".repeat(MAKE_INTERVAL_ZEROS[dur.unit]);

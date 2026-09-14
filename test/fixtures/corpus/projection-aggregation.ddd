@@ -40,10 +40,19 @@ system ProjectionAggregationSys {
       criterion Confirmed of Order as o = o.status == OrderStatus.Confirmed
 
       // Filtered — every operator, `where` pushed into the same query.
+      //
+      // `avgTotal` is `avg` over a MONEY column and is declared `money`
+      // (M-T5.24 / D-LONG-AVG-DEFAULTS): the mean of exact money is money, so
+      // it crosses the wire as the RS-12 fixed-scale string like every other
+      // money field — not as the float64 JSON number `avg` used to be typed.
+      // It sits beside `avgLines` (the same operator over an `int` column,
+      // which IS a decimal mean) on purpose: one fixture, both meanings of
+      // `avg`, so the wire-golden differential sees the two forms side by side.
       projection SalesTotals {
         orders: int
         revenue: money
         avgLines: decimal
+        avgTotal: money
         biggest: money
         smallest: money
         from Order as o
@@ -51,6 +60,7 @@ system ProjectionAggregationSys {
         select orders = count(),
                revenue = sum(o.total),
                avgLines = avg(o.lineCount),
+               avgTotal = avg(o.total),
                biggest = max(o.total),
                smallest = min(o.total)
       }
@@ -105,6 +115,11 @@ system ProjectionAggregationSys {
     // wire-golden differential, which sees the raw response.
     expect(decimal(totals.revenue)).toBe(40)
     expect(decimal(totals.avgLines)).toBe(3)
+    // The mean of two exact money rows (10.00 and 30.00).  A backend that
+    // averaged them as a float64 and re-stringified would still read 20 here —
+    // the FORM (`"20.0000"` vs `20`) is the wire-golden differential's job, and
+    // the two are the halves of the same rule.
+    expect(decimal(totals.avgTotal)).toBe(20)
     expect(decimal(totals.biggest)).toBe(30)
     expect(decimal(totals.smallest)).toBe(10)
 
@@ -119,6 +134,10 @@ system ProjectionAggregationSys {
     let afterUpdate = api.salesTotals.list()
     expect(decimal(afterUpdate.revenue)).toBe(50)
     expect(afterUpdate.orders).toBe(2)
+    // 20.00 + 30.00 over two rows — a mean that is NOT a whole number of
+    // cents' worth of rows would hide a rounding divergence, so the update
+    // moves it to 25.
+    expect(decimal(afterUpdate.avgTotal)).toBe(25)
 
     let listed = api.orders.all()
     expect(listed.items.length).toBe(3)

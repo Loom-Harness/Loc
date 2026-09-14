@@ -566,9 +566,15 @@ function renderFindFn(
   // The document repository already did this; the relational path did not, and
   // no fixture crossed `ignoring` with a principal filter on a relational find
   // until `corpus/find-bypass` (M-T6.54 F18).
+  //
+  // The find's OWN parameters take the same derivation: a declared parameter
+  // the predicate never reads (`find byLabel(final: bool, label: string) …
+  // where this.label == label` — the wire still carries `?final=`) is bound
+  // and unread, the identical warning.  The arity stays (the controller passes
+  // every declared parameter positionally); only the unread NAME underscores.
   const headFor = (body: string): string =>
     [
-      ...argNames,
+      ...argNames.map((n) => (new RegExp(`\\b${n}\\b`).test(body) ? n : `_${n}`)),
       ...pageArgs,
       ...(principal ? [`${/\bcurrent_user\b/.test(body) ? "" : "_"}current_user \\\\ nil`] : []),
     ].join(", ");
