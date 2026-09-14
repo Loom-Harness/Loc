@@ -307,7 +307,20 @@ const REGISTER_FILE = path.join(srcRoot, "diagnostics", "unsupported-register.ts
  *  `.ddd` spelling.  Compile- and BOOT-proved on a real Postgres
  *  (`test/generator/java/java-reserved-identifier.test.ts`,
  *  `test/fixtures/corpus/java-reserved-words.ddd`). */
-const MAX_OPEN_GAPS = 24;
+/** 24 -> 25 (M-T5.34, audit #2864 D5): +`loom.workflow-handle-unsupported`.
+ *  A LIVE gap on every shipping target, not a seam: `handle name(…) { … }` has
+ *  never been emitted by any backend — searching a generated tree for the
+ *  handler's name finds only the mermaid diagram — while `docs/workflow.md`
+ *  sold it as the multi-command saga surface, so a model using it validated
+ *  `0 error(s)` and produced a saga that could be started and read but never
+ *  advanced.  The register's intended trade: a silent five-backend hole becomes
+ *  a named, owned, drainable one.  Drained by mission M-T6.58 (the emitter),
+ *  which deletes the row and lowers this back to 24.
+ *
+ *  (`loom.entity-part-param-unsupported`, minted in the same packet, does NOT
+ *  move this number: it is `scope` — a declared limit pending a language
+ *  proposal on replace-vs-merge identity, per decision D-2.) */
+const MAX_OPEN_GAPS = 25;
 
 /** Exact count of `seam` rows.  Changes only for a reviewed reason: a gate
  *  deleted (down), a new target registered that turns a seam back into a live

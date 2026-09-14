@@ -40,6 +40,7 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.multiple-systems": "02-systems-and-topology.md#system",
   "loom.duplicate-theme-block": "02-systems-and-topology.md#theme",
   "loom.entity-field-modifier": "03-domain-modeling.md#entity-parts--contains",
+  "loom.entity-part-param-unsupported": "03-domain-modeling.md#entity-parts--contains",
   "loom.entity-field-optional-collection": "04-type-system.md#collections--t",
   "loom.generic-arg-not-carrier": "04-type-system.md#generic-carriers--paged-envelope-option",
   "loom.generic-position": "04-type-system.md#generic-carriers--paged-envelope-option",
@@ -115,9 +116,15 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.canonical-create-duplicate-workflow":
     "13-workflows.md#create--handle--starters--continuations",
   "loom.create-name-conflict-workflow": "13-workflows.md#create--handle--starters--continuations",
+  "loom.workflow-handle-unsupported": "13-workflows.md#create--handle--starters--continuations",
   "loom.workflow-applier-on-non-event-sourced":
     "13-workflows.md#create--handle--starters--continuations",
   "loom.correlation-type-mismatch": "13-workflows.md#one-event--the-event-reactor",
+  // M-T5.34.  The missing-starter ruling documents against the reactor section
+  // (that is the member whose behaviour is inert without a starter); the
+  // command-side correlation ruling and the `handle` refusal both belong to the
+  // starters-and-continuations section that declares those two members.
+  "loom.reactor-without-starter": "13-workflows.md#one-event--the-event-reactor",
   "loom.correlation-uninferrable": "13-workflows.md#one-event--the-event-reactor",
   "loom.reactor-event-uncarried": "13-workflows.md#one-event--the-event-reactor",
   "loom.resource-op-in-transaction": "13-workflows.md#resource-consumption",

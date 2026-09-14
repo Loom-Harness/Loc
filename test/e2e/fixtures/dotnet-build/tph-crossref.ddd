@@ -53,6 +53,11 @@ system TphRef {
       // aggregate's id field.
       workflow Dunning {
         invoiceRef: Invoice id
+        // A starter is required: a reactor-only workflow never has an instance
+        // to route to, so every inbound event logs event_unrouted and returns
+        // (loom.reactor-without-starter, audit #2864 G2).  This command create
+        // names the correlation field, so the saga is addressable.
+        create(invoiceRef: Invoice id) { }
         on(e: InvoiceRaised) by e.invoice {
           let cust = Customers.getById(e.customer)
           let inv = Invoices.getById(e.invoice)

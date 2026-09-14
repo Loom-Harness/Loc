@@ -231,3 +231,42 @@ This is the enabling change for the formatter work: a per-type formatter table c
 **Verification when it lands.** IR-level cases asserting `memberType` on a member access inside a page-body lambda over a non-string collection; the `string` placeholder removed rather than left beside the fix.
 
 Claimed by the #2861 author, offered to #2871 first as the enabling half of their D4.
+## M-T5.34 — the rulings the dev-experience audits deferred, as one diagnostics packet — `done` (2026-09-13) · **M** · P1
+
+Mints three `loom.*` codes in one packet because each one edits the shared catalog (`src/diagnostics/messages.ts`), and separate PRs against that file conflict on every merge. Closes [#2864](https://github.com/Loom-Harness/Loc/pull/2864) findings **D5**, **D6** and **G2**; implements decisions **D-1(c)** and **D-2** of the freight-audit fleet plan (`docs/audits/2026-09-10-freight-fleet-plan.md`, landing with #2864).
+
+**A fourth ruling was drafted and dropped.** The packet also drafted the command-side correlation gate for the case **(B)** that [#2850](https://github.com/Loom-Harness/Loc/pull/2850) deferred. It landed independently on `main` first, as `loom.workflow-create-correlation-unsupplied` (F58 / M-T6.62), with a **better** rule than the draft: it also accepts a `<corr> := <param>` assignment as supplying the key, and fires only when the create body actually touches own state. Nothing was kept from the draft — see the note under "What this packet does not own".
+
+| Code | Refuses | Source |
+|---|---|---|
+| `loom.workflow-handle-unsupported` | a `handle <name>(…)` continuation — emitted by no backend | #2864 D5 / D-1(c) |
+| `loom.entity-part-param-unsupported` | an entity-part-typed parameter on a public action | #2864 D6 / D-2 |
+| `loom.reactor-without-starter` | `on(…)` reactors with no `create(…)` starter | #2864 G2 |
+
+**Why each is a ruling and not an emitter.** D-1(c): the silence is the bug; whether Loom grows multi-command sagas is a feature decision — the emitter half stays with **M-T6.58**, whose option (b) this lands. D-2: materializing an entity-part parameter means answering whether client-supplied parts *replace* the collection (new ids, history orphaned) or *merge* by id, which the DSL has never answered — deferred to a proposal, with the diagnostic pointing at the value-object alternative that is already emitted correctly.
+
+**Two boundaries were verified against the emitters rather than assumed**, and both narrowed the packet: a `private` operation emits no wire contract at all (so the D6 gate is public-only), and a declared `create`'s parameter list is not the request contract (so the create position is out of scope — it is #2861's finding, and the create input already emits `<Part>Response` correctly from the aggregate's fields). **What this packet does not own.** The command-side correlation ruling is `loom.workflow-create-correlation-unsupplied`, landed separately; its rule lives in `src/ir/util/workflow-own-state.ts` so the phase-⑦ gate and the phase-⑧ emitters stay exact complements. The **create-parameter-list** question is `loom.create-params-not-wire` (#2861 slice 4, tracked by **M-T5.32**), which is why the entity-part gate here deliberately skips the `create` position rather than widening onto it.
+
+**Cost paid, named here so it is not rediscovered:** `examples/showcase.ddd` authored a `handle reset()`, so the ruling broke the repo's own conformance fixture. It gave up the member (its contract is "validates with zero errors"), which put `HandleDecl` into the showcase ALLOWLIST, the clause census's `UNAUTHORED_CLAUSES`, and cost `HandleIR.statements` its "arrived over a real example" proof. All three name M-T6.58 as the drain condition. The `*-unsupported` gap pin rose 51 → 52 for the `handle` row — the register's intended trade: a silent five-backend hole became a named, owned, drainable one.
+
+**Audit G4 (the value-object-collection create-input asymmetry) is NOT in this packet** — see M-T5.35.
+
+Sources: [#2864](https://github.com/Loom-Harness/Loc/pull/2864) — `docs/audits/2026-09-10-freight-dev-experience.md` D5/D6/G2 and `docs/audits/2026-09-10-freight-fleet-plan.md` D-1/D-2, both landing with that PR (cited by path, not linked, because they are not on `main` yet); #2850's `create-state.ts` header. Lands M-T6.58's option (b) for `handle`.
+
+## M-T5.35 — a value-object collection is required create input; an entity containment is not — `open` · **M** · P2 ⚠ carries a five-backend wire-contract change
+
+Audit **G4** of [#2864](https://github.com/Loom-Harness/Loc/pull/2864), **split out of M-T5.34** rather than folded into it — see "Why it is its own mission" below.
+
+Changing `entity Leg` to `valueobject Leg` turns a clean model into `loom.workflow-create-missing-field … missing required field 'legs'`, fixed only by passing `legs: []`. Reproduced on `main @ 58f7c5e`: the entity spelling of the same aggregate validates `0 error(s)`. An empty collection is the natural default and the entity spelling already treats it that way.
+
+**The asymmetry is structural, not a bug in one predicate.** A containment is not a create-input field at all — `buildCreateInput` reads `agg.fields`, and containments live in `agg.contains` / `agg.parts`. A value-object collection *is* a field, so it falls through to `isRequiredCreateInput`, which relaxes only for nullable, explicitly-defaulted, and implicitly-defaulted types — and `hasImplicitDefault` (`src/ir/enrich/wire-projection.ts`) admits `bool` and nothing else.
+
+**Why it is its own mission, not part of M-T5.34.** The fix is one line (`array` → has an implicit default), and applying it locally made the G4 repro pass and broke **nothing** in the fast suite. That understates it. The predicate is the single source every backend's required-set derivation consumes, so the change moves the **wire contract on all five backends** — zod `.default([])`, the Pydantic field initialiser, the record positional default, the Java `RequiredSet` row, the Ecto changeset — and therefore the `required` arrays in the served OpenAPI documents and `.loom/wire-spec.json`. The fast suite covers none of the tiers that would see that: the wire-golden differential, the 5-way OpenAPI parity diff, and the per-backend compile legs. It is also **wider than G4 asks**: it relaxes *every* non-nullable collection field (`tags: string[]`, `Money[]`), not just the value-object case. M-T5.34 was three refusals, which can only reject models that already miscompiled; this can change the contract of models that work today. Different risk class, different proof obligation, different PR.
+
+**Decide first, then build.** Two candidate rules, and the mission should rule between them rather than assume the one-liner: (a) **every collection field is omittable**, defaulting to `[]` — principled, matches the entity spelling, widest blast radius; (b) **only value-object collections**, which fixes the reported asymmetry but leaves `tags: string[]` required for no stated reason. (a) is the recommendation; it needs the wire-contract change named as such, not slipped in.
+
+**Coordinate with [#2861](https://github.com/Loom-Harness/Loc/pull/2861) slice 4**, whose two create-input gates read this same projection — land behind it.
+
+**Verification when it lands.** The G4 repro pair (value-object vs entity spelling of one aggregate, both clean); the required-set asserted per backend rather than inferred from node; the wire-golden differential and the 5-way OpenAPI parity diff run, not skipped; mutation-proved by file-copy revert.
+
+Sources: [#2864](https://github.com/Loom-Harness/Loc/pull/2864) G4 (`docs/audits/2026-09-10-freight-dev-experience.md`, landing with that PR); `src/ir/enrich/wire-projection.ts` (`hasImplicitDefault` / `isRequiredCreateInput`). Split from M-T5.34.

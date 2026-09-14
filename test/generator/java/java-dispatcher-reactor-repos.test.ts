@@ -38,6 +38,11 @@ const FANOUT = `system S { subdomain D { context Community {
   channel Feed { carries: PostPublished }
   workflow FanOut {
     postId: Post id
+    // A starter is REQUIRED: a reactor-only workflow never has an instance to
+    // route to, so every inbound event logs event_unrouted and returns
+    // (refused by loom.reactor-without-starter, M-T5.34 / audit #2864 G2).
+    // This command create names the correlation field, so it is addressable.
+    create(postId: Post id) { }
     on(e: PostPublished) by e.post {
       let fs = Follows.run(FollowersOf(e.author), page: { offset: 0, limit: 100 })
       for f in fs {
@@ -100,10 +105,16 @@ describe("java dispatcher injects the repositories its reactor bodies use", () =
     // starter's body just as invisible to the facade as a reactor's.  With the
     // starter ALONE the facade falls back to `creates[0]` — which is the
     // starter — and the bug does not reproduce.
+    //
+    // That unnamed command create now lives in FANOUT itself (it is the starter
+    // `loom.reactor-without-starter` requires), so the event starter added here
+    // is NAMED — two unnamed creates would be
+    // `loom.canonical-create-duplicate-workflow`.  The facade still resolves to
+    // the unnamed command body, so the shape under test is unchanged.
     const d = await dispatcher(
       FANOUT.replace(
         "on(e: PostPublished) by e.post {",
-        "create bootstrap(p: Post id) { let sp = Posts.getById(p) }\n    create(e: PostPublished) by e.post {",
+        "create bootstrap(p: Post id) { let sp = Posts.getById(p) }\n    create onPublish(e: PostPublished) by e.post {",
       ),
     );
     expect(d).toContain("private final FollowRepository followsRepository;");

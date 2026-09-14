@@ -119,6 +119,15 @@ const UNAUTHORED_CLAUSES: Record<string, string> = {
   // two literal arms of `MacroArgValue` have never been parsed from a fixture.
   MacroArgInt: "no fixture passes an INT macro argument (`with m(n: 2)`)",
   MacroArgString: 'no fixture passes a STRING macro argument (`with m(s: "x")`)',
+  // Not "no fixture authors it" but "no fixture MAY author it": M-T5.34 made
+  // `handle name(…) { … }` a hard error (`loom.workflow-handle-unsupported`,
+  // audit #2864 D5) because no backend has ever emitted anything for it.  The
+  // clause still parses and lowers, so it stays a concrete AST type; it simply
+  // cannot appear in a fixture that is expected to validate.  This entry goes
+  // away when the emitter lands (mission M-T6.58) and a fixture can author it
+  // again.
+  HandleDecl:
+    "`handle` is refused by loom.workflow-handle-unsupported — no valid fixture can author it (M-T6.58 restores it)",
 };
 
 describe("clause census — what the corpus authors, and what it never does", () => {

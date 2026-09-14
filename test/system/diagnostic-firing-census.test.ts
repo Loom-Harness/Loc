@@ -1716,6 +1716,59 @@ system S {
     seed default { Invoice { label: "Seeded" } }
   } }
 }`,
+  // --- M-T5.34: the four rulings (#2864 D5/D6/G2, #2850 case B) ------------
+  // Each fixture is minimal and ISOLATING — it raises its own code and no
+  // sibling from the packet, so a future regression names one gate.
+  //
+  // `handle` on a workflow whose command create DOES supply the correlation
+  // key ('doc'), so `loom.workflow-create-correlation-unsupplied` stays quiet
+  // and this fixture is about the handler alone.
+  "loom.workflow-handle-unsupported": `
+system S {
+  subdomain D { context Ops {
+    aggregate Doc { title: string }
+    repository Docs for Doc { }
+    workflow Review {
+      doc: Doc id
+      st: string
+      create(doc: Doc id) { st := "Filed" }
+      handle approve() { st := "Approved" }
+    }
+  } }
+}`,
+  // An entity-part-typed parameter on a PUBLIC operation.  The value-object
+  // spelling of the very same model is the passing sibling (it emits
+  // `z.array(LineSchema)` + `new Line(e.sku, e.qty)`), pinned in
+  // test/ir/entity-part-param.test.ts.
+  "loom.entity-part-param-unsupported": `
+system S {
+  subdomain D { context Ops {
+    aggregate Order {
+      ref: string
+      lines: Line[]
+      entity Line { sku: string  qty: int }
+      operation replaceLines(newLines: Line[]) { lines := newLines }
+    }
+    repository Orders for Order { }
+  } }
+}`,
+  // Reactors, no starter.  The event IS carried by a channel, so
+  // `loom.reactor-event-uncarried` (the sibling gate for the other cause)
+  // stays quiet and this fixture isolates the missing-starter cause.
+  "loom.reactor-without-starter": `
+system S {
+  subdomain D { context Ops {
+    aggregate Order { ref: string }
+    repository Orders for Order { }
+    event OrderPaid { order: Order id }
+    channel bus { carries: OrderPaid  delivery: broadcast  retention: ephemeral }
+    workflow Settle {
+      order: Order id
+      st: string
+      on(e: OrderPaid) { st := "paid" }
+    }
+  } }
+}`,
 };
 
 /**
