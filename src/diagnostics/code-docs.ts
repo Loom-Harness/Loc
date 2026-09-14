@@ -51,6 +51,10 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.unknown-name": "05-expressions.md#member-access--calls",
   "loom.unknown-user-claim": "05-expressions.md#member-access--calls",
   "loom.emit-unknown-field": "06-behavior-and-statements.md#let--emit",
+  "loom.create-call-not-constructible":
+    "06-behavior-and-statements.md#create--destroy--lifecycle-actions",
+  "loom.create-call-missing-field":
+    "06-behavior-and-statements.md#create--destroy--lifecycle-actions",
   "loom.applier-on-non-event-sourced":
     "06-behavior-and-statements.md#applye-event--the-event-sourcing-fold",
   "loom.reserved-derived-on-vo": "07-invariants-derived-functions.md#reserved-display-and-inspect",

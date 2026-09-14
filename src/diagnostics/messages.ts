@@ -2130,6 +2130,23 @@ export const DIAGNOSTIC_MESSAGES = {
     `channel — the SSE relay can't legally serve those events, so the handler receives ` +
     `nothing. Host '${p.owner}' on '${p.relayName}', or add a channelSource for ` +
     `'${p.channelName}' to its 'channels:' clause.`,
+  "loom.create-call-not-constructible": (p: { agg: unknown; blocking: unknown }) =>
+    `\`${p.agg}.create({ … })\` calls a factory that does not exist: '${p.agg}' is NOT CONSTRUCTIBLE, ` +
+    `so every backend deliberately emits no \`create\`.${p.blocking}  ` +
+    `An aggregate is constructible only when every invariant can be satisfied from the create input alone; ` +
+    `one that reads containments, managed fields or post-create state cannot be built by a plain create. ` +
+    `Build it through an explicit \`create(...)\` action (or \`with crudish\`), or relax the invariant to the create payload. ` +
+    `Left alone this emits \`${p.agg}.create(...)\` against a class that has none — the generated project fails its own compiler.`,
+  "loom.create-call-missing-field": (p: {
+    agg: unknown;
+    missing: unknown;
+    plural: unknown;
+    input: unknown;
+  }) =>
+    `\`${p.agg}.create({ … })\` omits ${p.missing}, which ${p.plural} REQUIRED create input. ` +
+    `The factory input is the field-derived create-input contract, not the keys the call happens to pass: ` +
+    `${p.input}.  A field is omittable only when it is optional, carries an \`= default\`, or has a ` +
+    `language-defined implicit default (a bare \`bool\`). Supply it, give it a default, or make it optional.`,
   "loom.create-params-not-wire": (p: { agg: unknown; missing: unknown; also: unknown }) =>
     `Aggregate '${p.agg}': the canonical \`create\`'s parameter list is not the ` +
     `request contract.  \`POST /<plural>\` takes the FIELD-DERIVED create input, ` +
