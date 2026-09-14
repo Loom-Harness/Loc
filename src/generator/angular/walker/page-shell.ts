@@ -686,13 +686,6 @@ export function renderAngularPage(input: AngularPageShellInput): string {
     members.push(`  protected readonly ${fn} = ${fn};`);
   }
 
-  // Extern components the walked body renders (extern-component-escape-hatch.md)
-  // — invoked via `<ng-container [ngComponentOutlet]="<Name>" …>`
-  // (`angularTarget.renderUserComponent`).  Import each component CLASS from its
-  // re-export shim (`src/components/<Name>.ts` → `../../components/<Name>` from
-  // `src/app/pages/`), re-expose it as a member (the outlet reads it against the
-  // instance), and register Angular's `NgComponentOutlet` directive in the
-  // standalone `imports: []` (from `@angular/common`).
   // `DataGrid` children hoisted into their own component files — a plain
   // standalone component used by TAG, so it takes one import line and one
   // `imports: []` entry (unlike the extern components below, which route
@@ -705,24 +698,39 @@ export function renderAngularPage(input: AngularPageShellInput): string {
     componentImports.add(g.className);
   }
 
+  // User components the walked body renders.  The two addressing forms
+  // (`renderAngularUserComponent`) need two different registrations, and which
+  // one a name takes is decided by the SAME set the call-site renderer keyed
+  // on — `walkedComponents` — so the markup and its registration cannot drift:
+  //
+  //   WALKED — a class Loom emitted at `src/app/components/<Name>.ts` (a
+  //   sibling of the page dir, and of another component).  Addressed by its
+  //   kebab TAG, so the CLASS goes in the standalone `imports: []`, exactly
+  //   like the hoisted `DataGrid` child above.  No instance member: an element
+  //   tag is resolved by Angular's compiler, not against `this`.
+  //
+  //   EXTERN — the re-export shim at `src/components/<Name>.ts`, two hops up
+  //   from either (extern-component-escape-hatch.md).  Its selector is the
+  //   author's, so it is addressed through `<ng-container
+  //   [ngComponentOutlet]="<Name>">`: the class is re-exposed as an instance
+  //   member (the outlet reads it against the component) and Angular's
+  //   `NgComponentOutlet` directive is registered instead of the class.
   const usedComponents = [...result.usedUserComponents].sort();
-  if (usedComponents.length > 0) {
-    imports.push('import { NgComponentOutlet } from "@angular/common";');
-    componentImports.add("NgComponentOutlet");
-    for (const name of usedComponents) {
-      // A WALKED component is a class Loom emitted at
-      // `src/app/components/<Name>.ts` — a sibling of the page dir (and of
-      // another component); an EXTERN one is the re-export shim at
-      // `src/components/<Name>.ts`, two hops up from either.
-      const walked = input.walkedComponents?.has(name) ?? false;
-      const from = walked
-        ? cm
-          ? `./${name}`
-          : `../components/${name}`
-        : `../../components/${name}`;
-      imports.push(`import { ${name} } from "${from}";`);
+  let usesComponentOutlet = false;
+  for (const name of usedComponents) {
+    const walked = input.walkedComponents?.has(name) ?? false;
+    const from = walked ? (cm ? `./${name}` : `../components/${name}`) : `../../components/${name}`;
+    imports.push(`import { ${name} } from "${from}";`);
+    if (walked) {
+      componentImports.add(name);
+    } else {
+      usesComponentOutlet = true;
       members.push(`  protected readonly ${name} = ${name};`);
     }
+  }
+  if (usesComponentOutlet) {
+    imports.push('import { NgComponentOutlet } from "@angular/common";');
+    componentImports.add("NgComponentOutlet");
   }
 
   // Bind each route param synchronously as a class field so both the template

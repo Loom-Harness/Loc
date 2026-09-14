@@ -120,7 +120,17 @@ const SHOWCASE: Case = {
   // for M-T1.24: a `FormControl(0)` behind the `price: string` request field is
   // exactly the TS2345 `ng build` catches.  Pinning both halves (the string seed
   // and the non-numeric input) keeps a green build honest.
-  mustEmit: ['price: new FormControl("0"', 'inputmode="decimal"'],
+  //
+  // The last two pins are wave C2 packet 2h's: a walked component is invoked by
+  // its own TAG, and the children passed at the call site are really IN the
+  // page's template (they used to be dropped with a comment).  A green build
+  // alone would not say that — the outlet form also builds.
+  mustEmit: [
+    'price: new FormControl("0"',
+    'inputmode="decimal"',
+    `<app-panel [label]='"Summary"'>`,
+    "projected child",
+  ],
   source: `
     system Shop {
       api SalesApi from Sales
@@ -198,12 +208,23 @@ const SHOWCASE: Case = {
             Button { "more", onClick: bump }
           }
         }
+        // A component that RECEIVES CHILDREN (wave C2 packet 2h).  Its call
+        // site is \`<app-panel [label]='…'>…</app-panel>\` — a real element tag,
+        // which only \`ng build\` can prove resolves: an unknown element under
+        // strictTemplates is NG8001, and a class missing from the standalone
+        // \`imports: []\` is exactly what produces one.  The old
+        // \`ngComponentOutlet\` form could never fail that way (the outlet is
+        // selector-free), so this shape is the one the build gate gained.
+        component Panel(label: string) {
+          body: Card { Heading { label, level: 3 }, Slot { } }
+        }
         page OrderList {
           route: "/"
           body: Stack {
             Heading { "Orders" },
             TierBadge { label: "gold", level: 3 },
             Ticker { caption: "hits" },
+            Panel("Summary", Text { "projected child" }),
             OrderCount { },
             QueryView {
               of: Sales.Order.all,

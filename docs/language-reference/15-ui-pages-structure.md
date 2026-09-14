@@ -430,20 +430,19 @@ export default function OrderConsole() {
 ```
 == angular
 ```ts
-// src/app/pages/order-console.component.ts — user components mount via ngComponentOutlet
-@Component({ imports: [MatProgressSpinnerModule, NgComponentOutlet], template: `
+// src/app/pages/order-console.component.ts — a WALKED component mounts by its own selector
+@Component({ imports: [MatProgressSpinnerModule, OrderActions], template: `
   <div>
     @if (orderById.isLoading()) { <mat-progress-spinner mode="indeterminate" diameter="32"></mat-progress-spinner> }
     @if (!orderById.isLoading() && !orderById.isError() && !orderById.data()) {
       <div class="loom-empty">{{ t("page.OrderConsole.empty.r9m7fu", "Order not found") }}</div>
     }
     @if (orderById.data()) {
-      <ng-container [ngComponentOutlet]="OrderActions" [ngComponentOutletInputs]='{ order: orderById.data()! }'></ng-container>
+      <app-order-actions [order]='orderById.data()!'></app-order-actions>
     }
   </div>
 `})
 export class OrderConsoleComponent {
-  protected readonly OrderActions = OrderActions;
   private readonly route = inject(ActivatedRoute);
   readonly id = this.route.snapshot.paramMap.get("id") ?? "";
   readonly orderById = useOrderById(this.id);

@@ -307,7 +307,16 @@ const REGISTER_FILE = path.join(srcRoot, "diagnostics", "unsupported-register.ts
  *  `.ddd` spelling.  Compile- and BOOT-proved on a real Postgres
  *  (`test/generator/java/java-reserved-identifier.test.ts`,
  *  `test/fixtures/corpus/java-reserved-words.ddd`). */
-const MAX_OPEN_GAPS = 24;
+/** 24 -> 23 (wave C2 packet 2h): `loom.component-children-unsupported` re-classified
+ *  `gap` -> `scope` under D-ANGULAR-EXTERN-CHILDREN, owner M-T1.33.  Half drain,
+ *  half re-class — the WALKED flavour the row was opened for is BUILT (a walked
+ *  component's Angular call site is now its own kebab tag, with the class in the
+ *  page's standalone `imports: []`, so children project into the body's
+ *  `Slot { }` / `<ng-content>`), and the gate no longer fires for it.  What
+ *  remains is `extern` only, and that is not half-built Angular work: an extern
+ *  component's selector belongs to the author, so addressing it by tag needs a
+ *  LANGUAGE surface (a selector clause on `extern from`) — M-T1.33. */
+const MAX_OPEN_GAPS = 23;
 
 /** Exact count of `seam` rows.  Changes only for a reviewed reason: a gate
  *  deleted (down), a new target registered that turns a seam back into a live

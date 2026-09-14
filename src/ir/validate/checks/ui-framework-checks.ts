@@ -649,27 +649,31 @@ export function validateFlutterPrimitiveSupport(sys: SystemIR, diags: LoomDiagno
   }
 }
 
-/** A user component invoked WITH CHILDREN on the Angular frontend.
+/** An EXTERN user component invoked WITH CHILDREN on the Angular frontend.
  *
- *  HONEST GAP.  Angular has no PascalCase component tag, so a user component
- *  is invoked through `<ng-container [ngComponentOutlet]="X" …>`, and
- *  `ngComponentOutlet` cannot project content from a template
- *  (`ngComponentOutletContent` takes pre-built DOM nodes — TS-side only).  So
- *  the extra positional argument that every JSX-family frontend renders as
- *  children was DROPPED, silently: the child markup appeared nowhere in the
- *  emitted project, and `renderUserComponent`'s doc comment admitting the drop
- *  was the only trace anywhere.
+ *  HONEST GAP, now at its floor.  Angular has no PascalCase component tag, so
+ *  a component whose selector Loom does not know is invoked through
+ *  `<ng-container [ngComponentOutlet]="X" …>`, and `ngComponentOutlet` cannot
+ *  project content from a template (`ngComponentOutletContent` takes pre-built
+ *  DOM nodes — TS-side only).  The extra positional argument that every
+ *  JSX-family frontend renders as children is therefore DROPPED — with a
+ *  degradation comment at the call site (#2734) and this diagnostic at compile
+ *  time, so it is not silent in either place.
+ *
+ *  The WALKED flavour is no longer refused: Loom emits that class and stamps
+ *  its selector, so its call site is `<app-x …>children</app-x>` with the
+ *  class in the page's standalone `imports: []`, and the children land in the
+ *  body's `Slot { }` (`<ng-content>`, `angularTarget.renderChildrenSlot`).
+ *  `componentChildrenHosts` keys on `c.extern` for exactly that reason.
  *
  *  Angular-scoped on purpose — react / vue / svelte render the children into
  *  the component's `Slot { }` correctly, and feliz / flutter / heex were not
  *  probed, so naming them would be an unverified refusal.
  *
- *  Ratchet: a WALKED component already carries a kebab selector
- *  (`components-emit.ts`) and its `Slot { }` already emits `<ng-content>`
- *  (`angular-target.renderChildrenSlot`), so the call site can switch from the
- *  outlet to `<app-x …>children</app-x>` with the class in the page's
- *  standalone `imports: []`.  That PR narrows this gate to `extern` components
- *  (no Loom-known selector) or deletes it. */
+ *  What is left is not a ratchet but a language question: an extern component
+ *  is a hand-written Angular class, and Loom would have to be TOLD its
+ *  selector (a second clause on `extern from`) to address it by tag.  Until
+ *  that surface exists this row stays a `scope` row, not a gap. */
 export function validateComponentChildrenSupport(sys: SystemIR, diags: LoomDiagnostic[]): void {
   for (const d of sys.deployables) {
     for (const { ui, fw } of mountedUis(sys, d)) {

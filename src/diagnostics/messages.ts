@@ -1872,16 +1872,16 @@ export const DIAGNOSTIC_MESSAGES = {
     component: unknown;
     dName: unknown;
   }) =>
-    `${p.what} invokes component '${p.component}' with CHILDREN, which deployable '${p.dName}' ` +
-    `(frontend 'angular') drops. Angular has no PascalCase component tag, so a user component is ` +
-    `invoked through '<ng-container [ngComponentOutlet]=…>', and 'ngComponentOutlet' cannot ` +
-    `project content from a template — the extra positional argument has nowhere to go, so the ` +
-    `children vanish from the emitted project with no other symptom. Every other frontend ` +
-    `renders them into the component's 'Slot { }'. Pass the content as a declared parameter, or ` +
-    `host this page on another frontend. (The fix is Angular-local: a WALKED component already ` +
-    `has a kebab selector and its 'Slot { }' already emits '<ng-content>', so the call site can ` +
-    `switch from the outlet to '<app-x …>children</app-x>'; an extern component has no ` +
-    `Loom-known selector and keeps the outlet.)`,
+    `${p.what} invokes EXTERN component '${p.component}' with CHILDREN, which deployable ` +
+    `'${p.dName}' (frontend 'angular') drops. An extern component's class is hand-written, so ` +
+    `Loom does not know its element selector and has to invoke it through '<ng-container ` +
+    `[ngComponentOutlet]=…>' — and 'ngComponentOutlet' cannot project content from a template, ` +
+    `so the extra positional argument has nowhere to go and the children vanish from the ` +
+    `emitted project (an '<!-- … projected child dropped -->' comment marks the spot). Every ` +
+    `other frontend renders them into the component's 'Slot { }'. Drop the 'extern from' clause ` +
+    `so Loom emits the component itself — a WALKED component is invoked by its own tag ` +
+    `('<app-x …>children</app-x>') and projects children into '<ng-content>' — or pass the ` +
+    `content as a declared parameter, or host this page on another frontend.`,
   "loom.chart-unsupported-target": (p: { what: unknown; name: unknown; uiFramework: unknown }) =>
     `${p.what} uses 'Chart', which deployable '${p.name}' can't render ` +
     `(frontend '${p.uiFramework}'). Chart ships on every shipping frontend — react, vue, ` +

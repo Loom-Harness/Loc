@@ -1468,11 +1468,15 @@ system P {
   deployable app { platform: react targets: api ui: WebApp { C: api } port: 3001 }
 }`,
 
-  // A user component invoked with CHILDREN on an Angular-hosted ui.  Angular
-  // has no PascalCase component tag, so the call site is
-  // `<ng-container [ngComponentOutlet]=…>` and `ngComponentOutlet` cannot
-  // project content from a template — the extra positional argument was
-  // dropped and the child markup appeared nowhere in the emitted project.
+  // An EXTERN user component invoked with CHILDREN on an Angular-hosted ui.
+  // An extern component's `@Component({ selector })` is the author's, so Loom
+  // has no tag to spell and the call site is `<ng-container
+  // [ngComponentOutlet]=…>` — which cannot project content from a template, so
+  // the extra positional argument is dropped and the child markup appears
+  // nowhere in the emitted project.  The declaration must be `extern` (wave C2
+  // packet 2h, D-ANGULAR-EXTERN-CHILDREN): a WALKED component is addressed by
+  // the selector Loom stamped on it and projects its children correctly, so it
+  // no longer raises this.
   "loom.component-children-unsupported": `
 system P {
   subdomain D { context C {
@@ -1481,7 +1485,7 @@ system P {
   api Api from D
   ui WebApp {
     api C: Api
-    component Panel(label: string) { body: Card { Text { label }, Slot { } } }
+    component Panel(label: string) extern from "widgets/panel"
     page Home { route: "/" body: Stack { Panel("a", Text { "child" }) } }
   }
   storage pg { type: postgres }

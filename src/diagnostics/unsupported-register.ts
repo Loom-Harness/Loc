@@ -151,21 +151,25 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   },
   {
     code: "loom.component-children-unsupported",
-    kind: "gap",
-    site: "src/ir/validate/checks/ui-framework-checks.ts:690",
+    kind: "scope",
+    site: "src/ir/validate/checks/ui-framework-checks.ts:695",
     what:
-      "a user component invoked WITH CHILDREN on angular.  Angular has no PascalCase component " +
-      "tag, so a call site is `<ng-container [ngComponentOutlet]=…>`, and `ngComponentOutlet` " +
-      "cannot project content from a template — the extra positional arg was dropped and the " +
-      "child markup appeared NOWHERE in the emitted project.  Every other JS frontend renders it " +
-      "into the component's `Slot { }`.  Raised as a WARNING, not an error: #2734 made the same " +
-      "drop visible at the call site with a degradation comment in the emitted Angular, so the " +
-      "comment documents the loss in the output while this diagnostic tells the author at compile " +
-      "time — between them the drop is no longer silent anywhere, and neither half refuses a " +
-      "model that has always generated.  Drained by switching a WALKED component's call site to " +
-      "its own kebab selector (`<app-x …>children</app-x>`; the selector and the `<ng-content>` " +
-      "both already exist), which narrows this to `extern` components or deletes it.",
-    mission: "M-T1.1",
+      "an EXTERN user component invoked WITH CHILDREN on angular.  The WALKED half DRAINED in " +
+      "wave C2 packet 2h: Loom emits that class and stamps its selector, so its call site is " +
+      "`<app-x [p]='…'>children</app-x>` with the class in the page's standalone `imports: []`, " +
+      "and the children land in the body's `Slot { }` (`<ng-content>`).  What is left is the " +
+      "`extern` flavour, and it is a LANGUAGE limit rather than an Angular TODO: an extern " +
+      "component is a hand-written Angular class whose `@Component({ selector })` is the " +
+      "author's, so Loom cannot spell a tag for it and must invoke it through `<ng-container " +
+      "[ngComponentOutlet]=…>`, which has no content-projection channel (`ngComponentOutletContent` " +
+      "takes pre-built DOM nodes, TS-side only).  Addressing it by tag needs a SURFACE — a " +
+      "selector clause on `extern from` — which is D-ANGULAR-EXTERN-CHILDREN's successor, " +
+      "M-T1.33.  Raised as a WARNING, not an error: #2734 made the same drop visible at the call " +
+      "site with a degradation comment in the emitted Angular, so the comment documents the loss " +
+      "in the output while this diagnostic tells the author at compile time — and neither half " +
+      "refuses a model that has always generated.",
+    mission: "M-T1.33",
+    verified: true,
   },
   {
     code: "loom.page-form-locals-unsupported",

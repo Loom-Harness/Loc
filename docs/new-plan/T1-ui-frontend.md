@@ -390,3 +390,38 @@ All three compiled: valid Dart, a clean `flutter analyze`, and a button wired to
 **Verification when it lands.** Per half: a generated-Dart assertion on the emitted page (the `ref.listen` consumer; the `http.delete` + switch), plus the register row deleted and `MAX_OPEN_GAPS` lowered in the same PR — the gate ratchets, so a stale row fails it. The negative probes live in `test/generator/flutter/action-body-gaps.test.ts` and must flip from "refused" to "emitted" together with the gate arm they name.
 
 Sources: Wave C1 packet 1d-ii hand-off (`docs/new-plan/waves/handoffs/wave-c1-1d-sentinels.md`), §18 of the gap survey in [`completion-waves-2026-09.md`](completion-waves-2026-09.md). Relates to M-T1.20 (the frontend per-target refusal register).
+
+## M-T1.33 — an `extern` Angular component cannot be given children — `open` · **S** · P3
+
+Minted 2026-09-14 by Wave C2 packet 2h, as the successor named by **D-ANGULAR-EXTERN-CHILDREN** when `loom.component-children-unsupported` was re-classed `gap` → `scope`.
+
+The gap the code was opened for is **built**: a WALKED user component is now invoked by its own kebab tag on Angular, so the extra positional argument (children on every JSX frontend) is projected into the body's `Slot { }`.
+
+```ddd
+component Panel(label: string) { body: Card { Text { label }, Slot { } } }
+page P { route: "/p" body: Panel("a", Text { "child" }) }
+```
+
+```ts
+// src/app/pages/p.component.ts — was `<ng-container [ngComponentOutlet]="Panel" …>` + a dropped child
+imports: [Panel],
+template: `
+    <app-panel [label]='"a"'>
+      <div>child</div>
+    </app-panel>
+`,
+```
+
+What is left is the `extern` flavour, and it is a **language** question rather than an Angular TODO. An `extern` component is a hand-written Angular class:
+
+```ddd
+component Panel(label: string) extern from "./Panel"
+```
+
+Its `@Component({ selector })` belongs to the author, so Loom has no tag to spell and must invoke it through `<ng-container [ngComponentOutlet]="Panel" …>` — which sets INPUTS and has no content-projection channel at all (`ngComponentOutletContent` takes pre-built DOM nodes, TS-side only). The children are dropped, with a degradation comment at the call site and `loom.component-children-unsupported` (a warning) at compile time.
+
+**The fix is a surface, and that is the decision this mission carries.** Loom would have to be TOLD the selector — a second clause on the `extern from` form (say `extern from "./Panel" as "app-panel"`), which is a grammar change, a lowering change, an `ExternComponentIR` field and a matching validator rule that the spelling is a legal custom-element name. Every other frontend ignores it (they address the imported symbol, not a tag), so it is an Angular-only annotation on a cross-frontend declaration — which is exactly why it needs a ruling before it is built, not a quiet emitter patch.
+
+**Verification when it lands.** The `extern` call site renders `<app-panel [label]='…'>…children…</app-panel>`; the degradation comment and the diagnostic both disappear for the annotated form and stay for the unannotated one (which must keep working — the clause is optional); the register row is deleted and `MAX_OPEN_GAPS` lowered in the same PR. The negative probe is `test/generator/angular/component-children-gate.test.ts`, which must flip from "refused" to "emitted" together with the gate arm it names.
+
+Sources: Wave C2 packet 2h hand-off (`docs/new-plan/waves/handoffs/wave-c2-2h-angular.md`), `docs/decisions.md` § D-ANGULAR-EXTERN-CHILDREN. Relates to M-T1.20 (the frontend per-target refusal register) and `docs/extern.md`.
