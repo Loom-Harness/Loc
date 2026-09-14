@@ -82,16 +82,24 @@ reusable across deployables, contexts, and bindings.  `type:` names the
 built-in **sourceType** that realizes it (see [`resources.md`](resources.md)).
 v0 type enum:
 
-| Category | Types |
-|---|---|
-| Transactional | `postgres`, `mysql`, `sqlite`, `inMemory` |
-| Cache | `redis` |
-| Search | `elastic`, `meilisearch` |
-| Events | `kafka` |
-| Analytics | `clickhouse`, `bigquery` |
-| Object store | `s3` |
-| Queue | `rabbitmq` |
-| External API | `restApi` |
+| Category | Types | Bound to a `resource kind:`? |
+|---|---|---|
+| Transactional | `postgres`, `mysql`, `sqlite`, `inMemory` | yes — `state` / `eventLog` / `snapshot` / `replica` / `cache` |
+| Cache | `redis` | yes — `cache` |
+| Search | `elastic`, `meilisearch` | **no** — recognised, but no kind accepts them |
+| Events | `kafka` | yes — `eventLog` |
+| Analytics | `clickhouse`, `bigquery` | **no** — recognised, but no kind accepts them |
+| Object store | `s3`, `localDisk` | yes — `objectStore` |
+| Queue | `rabbitmq` | yes — `queue` |
+| Queue (unbound) | `nats` | **no** — `kind: queue` takes `rabbitmq` only |
+| External API | `restApi` | yes — `api` |
+| Mailer | `smtp`, `ses`, `sendgrid` | yes — `mailer` |
+
+The rows marked **no** parse as a `type:` and bind to nothing: there is no
+search kind and no analytics kind, and `queue` admits `rabbitmq` alone — so
+every `resource … use: <that storage>` is refused by `loom.kind-incompatible`,
+and no sidecar or client is emitted.
+See [`resources.md`](resources.md#recognised-but-bound-to-no-kind-yet).
 
 ```ddd
 storage primarySql   { type: postgres }

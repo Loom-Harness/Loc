@@ -180,6 +180,7 @@ ddd generate dotnet <file.ddd> -o <out>    # single .NET project (legacy)
 ddd generate system <file.ddd> -o <out>    # full multi-deployable tree + docker-compose.yml
 ddd snapshot        <file.ddd> -o <out>    # capture immutable .loom/snapshots/<ts>-<guid>.loomsnap.json (provenance rule snapshot)
 ddd verify          <file.ddd> --results <results.json>  # join existing test-results onto the requirements graph → .loom/verification.{json,md} (gates the exit code; does NOT run the suites)
+ddd verify          <file.ddd> --from-vitest <report.json>  # …reading `vitest run --reporter=json` directly
 ```
 
 Common flags:
@@ -380,14 +381,23 @@ with an Apache 2.0 future license.  Source-available for any
 non-competing use today; converts to a true open-source license
 (Apache 2.0) two years after publication.
 
-The **code Loom generates** (everything `ddd generate` writes into
-`<outdir>/`) is licensed to you under the **MIT License**.  `ddd new`
-scaffolds a `LICENSE` file at the project root saying so explicitly;
-`ddd generate` deliberately writes none, because it emits build output
-into a tree you may already have licensed differently.  Either way,
-production users can ship generated projects without inheriting any
-FSL terms &mdash; the grant is a property of the generator's licence,
-not of a file in your output directory.
+The **code Loom generates** is licensed to you under the **MIT
+License**, with no FSL terms attaching to it.  That grant covers
+everything the generator writes &mdash; every file `ddd generate`
+(including `ddd generate system`) emits into `<outdir>/`, and every
+file `ddd new` scaffolds &mdash; and it holds regardless of which verb
+produced the file.  Production users can ship generated projects
+without inheriting any FSL terms.
+
+The grant lives in the generator's own licence terms (this `LICENSE`
+plus [§2 of the licence FAQ](docs/license-faq.md#2-what-about-the-code-loom-generates)),
+**not** in a file written into your output directory.  `ddd new` does
+scaffold a `LICENSE` file carrying the MIT grant into the starter
+project it creates; `ddd generate` deliberately writes none &mdash; it
+emits build output into a tree whose identity files are yours, and a
+`LICENSE` it re-created on every regenerate would overwrite your own.
+**Nothing about the grant depends on that file**: generated output is
+MIT whether or not a `LICENSE` sits beside it.
 
 For the full posture &mdash; what counts as Competing Use, how runtime
 helpers are licensed when they ship inside generated projects, and
