@@ -1519,9 +1519,18 @@ export function applyDestructivePolicy(
   // waiting for had already been rewritten into a renameColumn — and it is the
   // invariant that keeps any future pass from re-opening the same hole
   // silently.
+  // Only a rename the DIFF declared (an explicit `migration { A.old -> new }`
+  // block) excuses a backfill on the new name — the data arrives with the
+  // column, so the step is a deliberate no-op.  A rename this pass INVENTED
+  // (`renameFor`) must not excuse anything: swallowing the addColumn a backfill
+  // was waiting for is precisely the F-018 bug, so this stays an independent
+  // backstop even if the heuristic's own guards are ever bypassed.
+  const invented = new Set<MigrationStep>(renameFor.values());
   const renamedInto = new Set<string>();
   for (const s of woven) {
-    if (s.op === "renameColumn") renamedInto.add(`${qkey(s.schema, s.table)}.${s.to}`);
+    if (s.op === "renameColumn" && !invented.has(s)) {
+      renamedInto.add(`${qkey(s.schema, s.table)}.${s.to}`);
+    }
   }
   const consumed = new Set<string>();
   for (const s of woven) {
