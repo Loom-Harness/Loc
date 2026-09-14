@@ -317,10 +317,17 @@ const REGISTER_FILE = path.join(srcRoot, "diagnostics", "unsupported-register.ts
  *  a named, owned, drainable one.  Drained by mission M-T6.58 (the emitter),
  *  which deletes the row and lowers this back to 24.
  *
+ *  25 -> 24 (wave C2 packet 2j): `loom.flutter-async-effect-unsupported`
+ *  re-classed `gap` -> `scope` under **D-FLUTTER-COMPONENT-BINDINGS**.  A
+ *  component's `match await` on an INSTANCE op needs the ROUTE `id`, and a
+ *  component has no route by construction — the decision refuses the only
+ *  candidate binding, so the row can never DRAIN and `gap` was the wrong
+ *  kind for it.  M-T1.34 owns the `ref`-backed half of the same family.
+ *
  *  (`loom.entity-part-param-unsupported`, minted in the same packet, does NOT
  *  move this number: it is `scope` — a declared limit pending a language
  *  proposal on replace-vs-merge identity, per decision D-2.) */
-const MAX_OPEN_GAPS = 25;
+const MAX_OPEN_GAPS = 24;
 
 /** Exact count of `seam` rows.  Changes only for a reviewed reason: a gate
  *  deleted (down), a new target registered that turns a seam back into a live

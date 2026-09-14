@@ -280,7 +280,52 @@ Sources: M-T9.27 register rows (`src/diagnostics/unsupported-register.ts`). Rela
 
 **A seventh rejection, added 2026-09-10** by the [independent completeness audit](../audits/2026-09-10-independent-completeness-audit.md) (F2): `loom.user-component-deferred-target` — **Angular and Feliz refuse a user component that declares `slot` / `action` params** (no content-projection channel through `ngComponentOutletInputs`; no F# props-record spelling). Vue, once a gap here, now renders both (template `<slot>`, a callback prop). It sits on exactly this axis and belongs in the list above; it was missed because it carries a `-target` suffix rather than `-unsupported`, so the register — the source this mission reads — has no row for it. That entry hole is [M-T9.59](T9-toolchain-health.md#m-t959). The gap itself is pinned today in `test/conformance/frontend-showcase-render.test.ts` (`GAPS["angular:Console"]`, `GAPS["feliz:Console"]`), and its note there already states the closing condition: the emitter grows the shape, and the `ui-checks` arm is deleted in the same PR.
 
+**The FLUTTER deferred-component shapes — measured, dispositioned, not built (wave C2 packet 2j).** The Angular half of `loom.user-component-deferred-target` got its per-shape recipes in this mission from packet 2h; this is the Flutter half, measured the same way — every filter in `component-emit.ts` bypassed, the project generated, the emitted Dart read. **Ten shapes, ONE root**: a Flutter component is a plain `StatelessWidget` / `StatefulWidget`, so it holds neither a Riverpod `WidgetRef` nor a route, and cannot reach the four bindings a PAGE shell declares.
+
+| # | shape | emitted with the filter bypassed | disposition |
+|---|---|---|---|
+| 1 | `derived` reads the route `id` | `String get label => id;` | refused (D-FLUTTER-COMPONENT-BINDINGS) |
+| 2 | `derived` reads a store | `int get n => count;` | **M-T1.34** |
+| 3 | `derived` reads `currentUser` | `String get who => currentUser.email;` | **M-T1.34** |
+| 4 | body reads a store field / calls a store action | `Text('${count}')`, `onPressed: () { bump(); }` | **M-T1.34** |
+| 5 | body reads the bare route `id` | `Text('${id}')` | refused |
+| 6 | body renders `DestroyForm` | `DeleteOrderForm(id: id)` | refused |
+| 7 | body renders `OperationForm` | `RenameOrderForm(id: id)` | refused |
+| 8 | body reads a `currentUser` claim | `Text('${currentUser.email}')` | **M-T1.34** |
+| 9 | `state {}` **and** a read | a `StatefulWidget` whose `build` names `orderAll`, the provider local only a `ConsumerWidget` hoists | **M-T1.34** |
+| 10 | an action's `match await` | **no Dart at all** — `renderNotifierStmt` throws its internal floor ("cannot render an action statement of kind 'variant-match'"); the page path intercepts the kind one level up, the component path never did | refused (register row re-classed `gap` → `scope`) |
+
+Nine of the ten emit `Undefined name` Dart that `flutter analyze` rejects, and the tenth crashes codegen — so every deferral is honest, and the diagnostic (which names the component, the cause, the emitter function and two ways out) is a better product than either alternative. The split between "build it" and "refuse it" is the ruling in **D-FLUTTER-COMPONENT-BINDINGS**: three of the four bindings have a Riverpod shape sitting right there (`ConsumerWidget` / `ConsumerStatefulWidget`, and the emitter already builds the first for a read-bearing component), while the route `id` has no honest source in a component — the only candidate makes `id` a magic parameter NAME whose meaning depends on where the caller happens to sit. **An eleventh, unrelated to `ref` and to `id`: Flutter is the ONE frontend with no `extern`-component hatch** (`EXTERN_COMPONENT_FRAMEWORKS` in `ui-component-deferral-checks.ts` — the other six honour it); that arm is M-T1.31 F17's and is not re-measured here.
+
 **Progress — the store `persist:` ladder on Feliz is drained.** A sixth code sat on the same axis: `loom.store-lifetime-target-unsupported` refused `persist: local|session|url` on feliz AND flutter. The Feliz half now ships (`src/generator/feliz/store-persist.ts`): a Feliz store folds into the single Elmish `Model`, so persistence rides that fold — `init` seeds each field through a `StorePersist.load<Store><Field> ()` loader, an `updateWithPersist` wrapper mirrors the Model back after every message, and the `url` tier adds a `popstate` Elmish subscription. Keys and query-param shapes match the four JS store builders byte-for-byte. Its arm of `LIFETIME_UNSUPPORTED_PLATFORMS` was deleted with the fix; what survives on feliz is field-scoped (a type with no total F# conversion — datetime / duration / guid / enum / entity / value object) and fires the same code through a `#field` message variant. Flutter followed in the wave-2 quartet above (`generator/flutter/store-persist.ts`), which emptied `LIFETIME_UNSUPPORTED_PLATFORMS` and DELETED the platform arm outright — what is left of this code is field-scoped on both frontends (`#field` on feliz, `#flutter-field` on flutter). The same PR fixed page-level `derived` on Feliz (the page walk was handed an empty `derivedNames`, so a body read rendered a `(* ref: … *)` comment and the value silently vanished) — `generated-feliz-build.yml`'s showcase now carries all four lifetimes plus a page `derived`, so `dotnet fable` and the runtime smoke both cover them.
+
+## M-T1.34 — A Flutter component can hold a Riverpod `ref` — stores, `currentUser` and reads inside a `component` — `open` · **M** · P2
+
+Minted by wave C2 packet 2j, from the measurement in **D-FLUTTER-COMPONENT-BINDINGS**.
+
+A Flutter user component is emitted as a plain `StatelessWidget` / `StatefulWidget`, so it holds no Riverpod `WidgetRef`. Three of the four bindings a PAGE shell declares are therefore unreachable from a component body, and `loom.user-component-deferred-target` refuses six shapes over them (the fourth binding, the route `id`, is REFUSED permanently by the same decision and is not this mission's):
+
+| refused shape | what it emits with the filter bypassed |
+|---|---|
+| `derived` reads a store | `int get n => count;` — `Undefined name 'count'` |
+| `derived` reads `currentUser` | `String get who => currentUser.email;` |
+| body reads a store field / calls a store action | `Text('${count}')`, `onPressed: () { bump(); }` |
+| body reads a `currentUser` claim | `Text('${currentUser.email}')` |
+| `state {}` **and** a read | a `StatefulWidget` whose `build` names `orderAll`, the provider local only a `ConsumerWidget` hoists |
+
+**The shape is already half-built.** `renderConsumerComponent` (`src/generator/flutter/component-emit.ts`) emits exactly the `ConsumerWidget` this needs, for a read-bearing component — `build(BuildContext, WidgetRef ref)` with `renderApiHoisting` over the same seam a read-bearing PAGE uses. The work is:
+
+1. **Widen the trigger.** `isReadConsumer` currently means "issues a read AND is not stateful". It becomes "needs a `ref`" — a read, a store, or `currentUser` — with the two guards it replaces (`usesStores`, `usesCurrentUser` inside `needsPageShell`) deleted from `emittableComponentParams`. `needsPageShell` keeps only its route-`id` leg.
+2. **Bind what the page shell binds.** A component's `build` gains the same locals `index.ts` emits for a page: one `final <local> = ref.watch(<storeProvider>.select(…))` per used store field, the notifier tear-off per used store action (`storeBindings`, which has to be exported from `index.ts` or moved beside the two callers), and `final currentUser = ref.watch(sessionProvider).value!` when the body or a `derived` names the session. The walker already spells the use sites through `storeMemberLocal`, so the binding and the use cannot drift.
+3. **`ConsumerStatefulWidget` for the pairing.** `state {}` + a `ref` need is the union of the two existing shapes: `class X extends ConsumerStatefulWidget` / `class _XState extends ConsumerState<X>`, where `ref` is an inherited property — so `setState`, the `<Comp>Model` data class, the action methods and the read hoisting all carry over unchanged from `renderStatefulComponent` and `renderConsumerComponent` respectively.
+4. **Delete the arms in the same PR.** The three `flutterDeferrals` legs (`ui-component-deferral-checks.ts` — the derived store/`currentUser` causes, the `usesStores` cause, the `currentUser` cause and the `isReadConsumer` cause) go with the fix, per the register's drain rule. What survives is the route-`id` family.
+5. **Re-narrow the async-effect gate's message.** `loom.flutter-async-effect-unsupported` (now `kind: "scope"` under D-FLUTTER-COMPONENT-BINDINGS) says today that an async effect "needs the page shell's notifier and route id". Once a component can hold a `ref`, the notifier half is false and the route `id` is the whole reason — say so.
+
+**Acceptance.** The five shapes above generate, `flutter analyze` clean and `flutter build web --release` green on a fixture carrying all five; the `generated-flutter-build.yml` showcase grows one (it carries no store-reading or `currentUser`-reading component today, which is why the whole family was only ever measured by hand). A gate pins that each shape emits its binding, mutation-proved by forcing the old `StatelessWidget` arm.
+
+**Not in scope, by decision:** anything needing the route `id` — a bare `id`, a `byId(id)` read, `DestroyForm` / `OperationForm` / a `Modal` hosting one, an `id`-reading `derived`, and the instance-op `match await`. See D-FLUTTER-COMPONENT-BINDINGS.
+
+Sources: D-FLUTTER-COMPONENT-BINDINGS; `src/generator/flutter/component-emit.ts`; `src/ir/validate/checks/ui-component-deferral-checks.ts` (`flutterDeferrals`). Relates to M-T1.20 (the measured recipe table) and M-T1.32.
 
 ## M-T1.27 — Finish HEEx component hoisting: forms, queries, uploads and table controls — `open` · **M** · P2
 

@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { OriginRef } from "../../../src/ir/types/origin.js";
-import { generateSystems } from "../../../src/system/index.js";
-import { parseValid } from "../../_helpers/index.js";
+import { generateSystemFiles } from "../../_helpers/generate.js";
 
 // ---------------------------------------------------------------------------
 // Flutter frontend recording bracket — the sibling of
@@ -64,8 +63,7 @@ interface Region {
 }
 
 async function mapOf(): Promise<Record<string, Region[]>> {
-  const model = await parseValid(SOURCE);
-  const files = generateSystems(model, { sourcemap: true }).files;
+  const files = await generateSystemFiles(SOURCE, { sourcemap: true });
   const raw = files.get(".loom/sourcemap.json");
   expect(raw, "no .loom/sourcemap.json emitted").toBeDefined();
   return (JSON.parse(raw!) as { files: Record<string, Region[]> }).files;
@@ -117,8 +115,7 @@ describe("flutter generator — sourcemap recording", () => {
   });
 
   it("the recorded page region really spans the emitted file", async () => {
-    const model = await parseValid(SOURCE);
-    const files = generateSystems(model, { sourcemap: true }).files;
+    const files = await generateSystemFiles(SOURCE, { sourcemap: true });
     const map = (
       JSON.parse(files.get(".loom/sourcemap.json")!) as { files: Record<string, Region[]> }
     ).files;
@@ -129,8 +126,7 @@ describe("flutter generator — sourcemap recording", () => {
   });
 
   it("off by default — no sourcemap artifact, Dart unaffected", async () => {
-    const model = await parseValid(SOURCE);
-    const files = generateSystems(model).files;
+    const files = await generateSystemFiles(SOURCE);
     expect(files.has(".loom/sourcemap.json")).toBe(false);
     expect(files.has("app/lib/pages/board_page.dart")).toBe(true);
   });

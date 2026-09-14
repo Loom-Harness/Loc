@@ -316,10 +316,22 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   },
   {
     code: "loom.flutter-async-effect-unsupported",
-    kind: "gap",
+    kind: "scope",
     site: "src/ir/validate/checks/store-checks.ts:500",
-    what: "`match await` in a COMPONENT action silently drops the whole widget on Flutter",
-    mission: "M-T1.20",
+    what:
+      "`match await` in a COMPONENT action.  RE-CLASSED `gap` -> `scope` under " +
+      "**D-FLUTTER-COMPONENT-BINDINGS**: `match await <api>.<Agg>.<op>()` on an INSTANCE " +
+      "operation posts to `/<coll>/$id/<op>`, so it needs the ROUTE `id` — and a component " +
+      "has no route by construction.  The only candidate binding (a component param spelled " +
+      "`id` inherits its caller's route arg) makes `id` a magic parameter NAME whose meaning " +
+      "depends on where the caller happens to sit, so the decision refuses it.  Measured on " +
+      "this tree by bypassing the filter: the component path has no `variant-match` arm at " +
+      "all and reaches `renderNotifierStmt`'s internal floor THROW (the page path intercepts " +
+      "the kind one level up), so this row guards a codegen crash rather than a degradation.  " +
+      "M-T1.34 closes the `ref`-backed half of the same family (a component holding a " +
+      "Riverpod `WidgetRef` — stores, `currentUser`, reads) and re-narrows this gate's " +
+      "message to name the `id` as the only remaining cause",
+    mission: "M-T1.34",
   },
   {
     code: "loom.flutter-primitive-unsupported",
