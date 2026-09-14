@@ -139,6 +139,12 @@ The model validates `0 error(s), 0 warning(s)`. So the list read is gated and th
 
 **Until then the hole is a diagnostic, not silence:** under `denyByDefault`, an aggregate whose byId route has no gate should raise `loom.default-deny-ungated` the way an ungated operation does. That is the smallest slice and should land first; it turns a silent open read into a refused build.
 
+> **The diagnostic slice has LANDED** (F-009): `loom.default-deny-by-id-ungated`, one per non-abstract aggregate served by an `auth: required` backend under `denyByDefault`, derived from `deriveContextOperations`' `kind: "getById"` entries (`src/ir/validate/checks/default-deny-checks.ts`). Two deviations from the wording above, both deliberate:
+> - **Its own code, not an arm of `loom.default-deny-ungated`.** Every arm of that code names a `requires` the author can write — which is exactly why the arms that have no such surface (the injected `find all`, a macro-emitted projection) are exempted rather than reported.
+> - **A WARNING, not an error.** With no gate surface in the language yet, an error would make every `denyByDefault` model unbuildable with nothing the author could do about it. When the `find byId(id: T id): T? requires <expr>` surface below lands, the check gains its `if (gated) continue;` and promotes to an error under the same code.
+>
+> `docs/auth.md` now lists the by-id read as the second deny-by-default exception, and the `ddd new` starter comment says the build warns. What remains open is the SURFACE + the five route emitters + the 403 legs.
+
 **Verification when it lands.** A negative validator case per the deny-by-default fixture set; a 403 case on the byId route on all five backends; and the generated node project booted, asserting an ungated caller is refused. Mutation-proof by file-copy revert.
 
 Claimed by the #2861 author. Coordinate with #2877 — same ruling, adjacent surface, disjoint files.
