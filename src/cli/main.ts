@@ -43,6 +43,7 @@ import {
 import { fsSnapshotStore, SnapshotReadError } from "../system/snapshot.js";
 import { annotateTrace, type SourceMap, traceCoverage } from "../trace/index.js";
 import { isScaffoldOnce } from "../util/scaffold-once.js";
+import { fromVitestReport, VitestReportError } from "../verify/from-vitest.js";
 import {
   renderVerdictGraph,
   renderVerificationJson,
@@ -196,16 +197,58 @@ function printLoomWarnings(
   console.error(`${warnings.length} warning(s).`);
 }
 
-/** The AST-diagnostic footer.  Structurally typed on the three fields it
- *  reads, so it serves both the single-document `ParseResult` and the
- *  multi-file `ProjectParseResult`. */
-function printDiagnostics(result: {
+/** What one phase found — the unit `printSummary` adds up. */
+interface PhaseTally {
+  errors: number;
+  warnings: number;
+}
+
+/**
+ * THE summary line.  Singular, deliberately.
+ *
+ * `parse` printed two, and they contradicted each other:
+ *
+ *     0 error(s), 0 warning(s).        ← phase ④, the AST validator
+ *     loom.named-lifecycle-dropped …
+ *     1 error(s).                      ← phase ⑦, the IR validator
+ *
+ * A user who reads the first line stops there and concludes the model is
+ * clean — the command's own footer said so — and the second line reads as
+ * belonging to whatever came after it.  Two footers for one question is worse
+ * than either alone: one of them is always wrong about the file (audit #2864
+ * § Papercuts / M-T9.60).
+ *
+ * So each phase now RETURNS its tally instead of footering itself, and the
+ * command that runs them prints one line, once, after the last phase it ran —
+ * counting every phase that ran.  A command that exits early (AST errors abort
+ * before lowering) still prints exactly one summary, covering the phases that
+ * got to run.
+ *
+ * Advisory `loom.index-suggestion` hints stay out of the counts and keep their
+ * own `Suggestions (N):` heading, as they always have — they are not warnings
+ * and never gate anything.
+ */
+function printSummary(...phases: readonly PhaseTally[]): void {
+  let errors = 0;
+  let warnings = 0;
+  for (const p of phases) {
+    errors += p.errors;
+    warnings += p.warnings;
+  }
+  console.error(`${errors} error(s), ${warnings} warning(s).`);
+}
+
+/** The AST-diagnostic (phase ④) lines.  Structurally typed on the three fields
+ *  it reads, so it serves both the single-document `ParseResult` and the
+ *  multi-file `ProjectParseResult`.  Returns its tally for `printSummary`; the
+ *  footer is NOT this function's to print. */
+function printAstDiagnostics(result: {
   diagnostics: readonly string[];
   errorCount: number;
   warningCount: number;
-}) {
+}): PhaseTally {
   for (const d of result.diagnostics) console.error(d);
-  console.error(`${result.errorCount} error(s), ${result.warningCount} warning(s).`);
+  return { errors: result.errorCount, warnings: result.warningCount };
 }
 
 /** The phase-⑦ (IR) diagnostic report, printed IDENTICALLY by `parse` and by
@@ -221,18 +264,19 @@ function printDiagnostics(result: {
  *  command failure `runParse`'s own doc comment exists to prevent.  One
  *  printer, one wording, both callers.
  *
- *  Returns the split so the caller can decide about exit codes (errors gate;
- *  warnings and suggestions never do). */
+ *  It prints LINES, not a footer.  Its `N error(s).` / `N warning(s).` footers
+ *  were the second half of `parse`'s contradictory pair (see `printSummary`);
+ *  the caller now folds this phase's counts into the single summary.
+ *
+ *  Returns the split so the caller can tally it and decide about exit codes
+ *  (errors gate; warnings and suggestions never do). */
 function printIrDiagnostics(diagnostics: readonly LoomDiagnostic[]): {
   errors: LoomDiagnostic[];
   warnings: LoomDiagnostic[];
   hints: LoomDiagnostic[];
 } {
   const errors = diagnostics.filter((d) => d.severity === "error");
-  if (errors.length > 0) {
-    for (const d of errors) console.error(`${d.code} ${d.source}: ${d.message}`);
-    console.error(`${errors.length} error(s).`);
-  }
+  for (const d of errors) console.error(`${d.code} ${d.source}: ${d.message}`);
 
   // Phase ⑦ computes 18 warning codes (datasource-knob-unwired, findall-no-page,
   // cross-tenant-without-tenancy, …).  A warning never affects the exit code;
@@ -241,10 +285,7 @@ function printIrDiagnostics(diagnostics: readonly LoomDiagnostic[]): {
   const warnings = diagnostics.filter(
     (d) => d.severity === "warning" && d.code !== "loom.index-suggestion",
   );
-  if (warnings.length > 0) {
-    for (const d of warnings) console.error(`${d.code} ${d.source} warning: ${d.message}`);
-    console.error(`${warnings.length} warning(s).`);
-  }
+  for (const d of warnings) console.error(`${d.code} ${d.source} warning: ${d.message}`);
 
   // Advisory only — the index-suggestion lint (uniqueness-and-indexes.md §11)
   // keeps its own footer and never fails the command.
@@ -279,8 +320,13 @@ async function runParse(file: string) {
   // resolves its import graph instead of reporting its siblings' declarations
   // as unresolved.
   const result = await parseProject(file);
-  printDiagnostics(result);
-  if (result.errorCount > 0) process.exit(1);
+  const ast = printAstDiagnostics(result);
+  // An AST error aborts before lowering, so phase ⑦ never runs — the summary
+  // covers the one phase that did, and is still the only summary printed.
+  if (result.errorCount > 0) {
+    printSummary(ast);
+    process.exit(1);
+  }
 
   // Phase ⑦ — the cross-aggregate IR checks.  A throw here is still swallowed
   // (lowering can throw on shapes the AST validator doesn't gate, and the AST
@@ -297,7 +343,10 @@ async function runParse(file: string) {
   // filtered down to the single allow-listed `loom.index-suggestion`.  The
   // shared printer is now the only thing that decides what a phase-⑦
   // diagnostic looks like on either command's stderr.
-  const { errors: irErrors } = printIrDiagnostics(irDiagnostics);
+  const { errors: irErrors, warnings: irWarnings } = printIrDiagnostics(irDiagnostics);
+  // Both phases have run — ONE footer, counting both.  It has to come after
+  // the IR phase, or it is a verdict on half the file (M-T9.60).
+  printSummary(ast, { errors: irErrors.length, warnings: irWarnings.length });
   if (irErrors.length > 0) process.exit(1);
 
   console.log(`OK: ${file}`);
@@ -358,13 +407,18 @@ function readSource(file: string): { absolute: string; source: string } {
  * A machine-readable stream is a contract with a consumer that will
  * `JSON.parse` it, and that contract is only as strong as the noisiest thing
  * in the process.  It was broken by a source containing `money(`: Chevrotain's
- * ALL(*) lookahead reports the (known, documented — see `MoneyLit` /
- * `PrimitiveConversion` in `ddd.langium`) prefix ambiguity through
- * `console.log`, LAZILY, on the first input that reaches that alternation —
- * so `generate system --json` printed four lines of grammar advice ahead of
- * the payload and `jq` refused the output.  Nothing in the JSON verbs
- * themselves was wrong, which is the point: the fix has to hold for whatever
- * a dependency decides to print next, not just for this one warning.
+ * ALL(*) lookahead reported a prefix ambiguity between the two `money(` rules
+ * through `console.log`, LAZILY, on the first input that reached that
+ * alternation — so `generate system --json` printed four lines of grammar
+ * advice ahead of the payload and `jq` refused the output.  Nothing in the JSON
+ * verbs themselves was wrong, which is the point: the fix has to hold for
+ * whatever a dependency decides to print next, not just for this one warning.
+ *
+ * That particular warning no longer exists — M-T9.60 removed the ambiguity at
+ * the source (one grammar path for `money(`; see
+ * `src/language/money-literal.ts`), which is also why nothing in-tree exercises
+ * this diversion today.  It stays because the contract it enforces was never
+ * about Chevrotain.
  *
  * The diverted text is not swallowed — it lands on stderr, where a human
  * still sees it and `2>/dev/null` still silences it.
@@ -505,6 +559,10 @@ async function runGenerate(
   // `GenerateSystemOptions.sourceTexts`); harmless to leave undefined on
   // the legacy `ts`/`dotnet` paths, which never call `generateSystemsFromLoom`.
   let sourceTexts: Map<string, string> | undefined;
+  // Phase ④'s tally, folded into the single summary once phase ⑦ has run.  The
+  // legacy `ts`/`dotnet` targets print no AST diagnostics on the success path
+  // (they never did), so their contribution is zero.
+  let ast: PhaseTally = { errors: 0, warnings: 0 };
   if (target === "system") {
     let projectResult: ProjectParseResult;
     try {
@@ -520,8 +578,11 @@ async function runGenerate(
     // example, all of which `ddd parse` prints for the same file.  A user who
     // only runs `generate` never saw them.  Same call `parse` makes, so the
     // wording and the footer match by construction.
-    printDiagnostics(projectResult);
+    ast = printAstDiagnostics(projectResult);
     if (projectResult.errorCount > 0) {
+      // Phase ⑦ never runs after an AST error, so this is the last phase there
+      // is — print the one summary here rather than leaving the run footerless.
+      printSummary(ast);
       if (!options.continueOnError) process.exit(1);
       return { hadError: true };
     }
@@ -530,7 +591,7 @@ async function runGenerate(
   } else {
     const result = await parseFile(file);
     if (result.errorCount > 0) {
-      printDiagnostics(result);
+      printSummary(printAstDiagnostics(result));
       if (!options.continueOnError) process.exit(1);
       return { hadError: true };
     }
@@ -550,7 +611,11 @@ async function runGenerate(
   // never as warnings — so the two commands' footers didn't even add up to the
   // same number for the same file.
   const loomDiags = validateLoomModel(loom);
-  const { errors: loomErrors } = printIrDiagnostics(loomDiags);
+  const { errors: loomErrors, warnings: loomWarnings } = printIrDiagnostics(loomDiags);
+  // ONE footer, after both phases — the same call `parse` makes at the same
+  // point, which is what keeps the two commands' stderr byte-identical
+  // (`generate-diagnostic-parity.test.ts`).
+  printSummary(ast, { errors: loomErrors.length, warnings: loomWarnings.length });
   if (loomErrors.length > 0) {
     if (!options.continueOnError) process.exit(1);
     return { hadError: true };
@@ -861,7 +926,7 @@ async function runSnapshot(
 ): Promise<RunResult> {
   const result = await parseProject(file);
   if (result.errorCount > 0) {
-    printDiagnostics(result);
+    printSummary(printAstDiagnostics(result));
     process.exit(1);
   }
   const loom = result.loom;
@@ -1017,11 +1082,19 @@ function fileContentMatches(absPath: string, content: string): boolean {
 }
 
 interface VerifyOptions {
-  results: string;
+  results?: string;
+  fromVitest?: string;
   out?: string;
   requireAll?: boolean;
   min?: string;
+  allowMissing?: boolean;
   json?: boolean;
+}
+
+/** Structural probe for "this JSON is a vitest/jest report, not a Loom
+ *  results document" — used only to word the parse error. */
+interface Vitestish {
+  testResults?: unknown;
 }
 
 /** `ddd verify` — join a test-results file onto the requirements graph,
@@ -1048,7 +1121,7 @@ async function runVerify(file: string, options: VerifyOptions): Promise<void> {
 
   const result = await parseProject(file);
   if (result.errorCount > 0) {
-    printDiagnostics(result);
+    printSummary(printAstDiagnostics(result));
     process.exit(2);
   }
   const loom = result.loom;
@@ -1069,24 +1142,41 @@ async function runVerify(file: string, options: VerifyOptions): Promise<void> {
     process.exit(2);
   }
 
-  // Read + validate the results file.
-  if (!fs.existsSync(options.results)) {
-    console.error(`Results file not found: ${options.results}`);
+  // Read + validate the results file.  Two accepted inputs: Loom's own
+  // `{ version, results: [...] }` document (`--results`), and a vitest/jest
+  // `--reporter=json` report (`--from-vitest`), which is what the generated
+  // backend's own test suite produces — see `src/verify/from-vitest.ts` for
+  // why shipping that adapter matters.
+  const resultsPath = options.fromVitest ?? options.results!;
+  if (!fs.existsSync(resultsPath)) {
+    console.error(`Results file not found: ${resultsPath}`);
     process.exit(2);
   }
   let outcomes: TestOutcome[];
   try {
-    const parsed = JSON.parse(fs.readFileSync(options.results, "utf8")) as {
-      results?: TestOutcome[];
-    };
-    if (!Array.isArray(parsed.results)) {
-      throw new Error('expected a top-level "results" array');
+    const raw: unknown = JSON.parse(fs.readFileSync(resultsPath, "utf8"));
+    if (options.fromVitest) {
+      outcomes = fromVitestReport(raw);
+    } else {
+      const parsed = raw as { results?: TestOutcome[] };
+      if (!Array.isArray(parsed?.results)) {
+        // The single most common wrong input is a vitest report fed to
+        // `--results`; name the flag that reads it rather than leaving the
+        // reader to write an adapter.
+        const looksVitest =
+          raw != null && typeof raw === "object" && Array.isArray((raw as Vitestish).testResults);
+        throw new Error(
+          'expected a top-level "results" array' +
+            (looksVitest
+              ? ' — this looks like a vitest/jest "--reporter=json" report; pass it with --from-vitest instead'
+              : ""),
+        );
+      }
+      outcomes = parsed.results;
     }
-    outcomes = parsed.results;
   } catch (err) {
-    console.error(
-      `Could not parse results file: ${err instanceof Error ? err.message : String(err)}`,
-    );
+    const what = err instanceof VitestReportError ? "vitest report" : "results file";
+    console.error(`Could not parse ${what}: ${err instanceof Error ? err.message : String(err)}`);
     process.exit(2);
   }
 
@@ -1104,13 +1194,36 @@ async function runVerify(file: string, options: VerifyOptions): Promise<void> {
   fs.writeFileSync(path.join(outDir, "verification.mmd"), renderVerdictGraph(loom, verification));
 
   const s = verification.summary;
+
+  // ── Evidence accounting ────────────────────────────────────────────
+  //
+  // A declared executable test with no matching result lands in the join as
+  // `status: "missing"`.  Nothing used to SAY so: an empty results file, or a
+  // results file whose `suite` convention had drifted, produced
+  // "Verified 0/N requirements (0 failing, N unverified, 0 untested)." and
+  // exit 0 — a gate that cannot fail on the most likely CI breakage.  The two
+  // counts below are the signal, and `unknownTests` (results matching no
+  // declared test) is specifically the fingerprint of a convention mismatch:
+  // the same run reports the test both missing AND unknown.
+  const missing: { testCaseId: string; name: string }[] = [];
+  for (const [tcId, tc] of Object.entries(verification.testCases)) {
+    for (const b of tc.backing) {
+      if (b.status === "missing") missing.push({ testCaseId: tcId, name: b.name });
+    }
+  }
+  const unknown = verification.diagnostics.unknownTests;
+
   // Under `--json` the human summary goes to stderr: stdout then carries the
   // verification document and nothing else, so `ddd verify --json | jq` works
   // the way `parse --json` / `generate system --json` do.  Without `--json`
   // the summary IS the output and stays on stdout.
+  const evidence: string[] = [];
+  if (missing.length > 0) evidence.push(`${missing.length} declared test(s) with no result`);
+  if (unknown.length > 0) evidence.push(`${unknown.length} result(s) matching no declared test`);
   const summaryLine =
     `Verified ${s.verified}/${s.total} requirements ` +
-    `(${s.failing} failing, ${s.unverified} unverified, ${s.untested} untested).`;
+    `(${s.failing} failing, ${s.unverified} unverified, ${s.untested} untested)` +
+    (evidence.length > 0 ? ` — ${evidence.join(", ")}.` : ".");
   if (options.json) {
     console.error(summaryLine);
     console.log(renderVerificationJson(verification));
@@ -1119,8 +1232,35 @@ async function runVerify(file: string, options: VerifyOptions): Promise<void> {
   }
 
   // Gate.
+  //
+  // MISSING EVIDENCE FAILS BY DEFAULT.  "No result for a declared test" is not
+  // "the test passed", and the two used to share an exit code — so a CI job
+  // whose runner wrote the wrong file, wrote nothing, or reported a `suite`
+  // string the join does not recognise went green having verified nothing.
+  // `--allow-missing` is the opt-out for the deliberately-partial run (one
+  // suite of many, a staged rollout); it is named in the failure so the
+  // migration is one flag, and `--require-all` / `--min` are untouched — this
+  // gate is strictly narrower than `--require-all` (which also fails on skips
+  // and on requirements no test covers), so a pipeline already passing
+  // `--require-all` sees no behaviour change.
   let failed = s.failing > 0;
   let reason = failed ? `${s.failing} requirement(s) failing` : "";
+  if (missing.length > 0 && !options.allowMissing) {
+    failed = true;
+    const sample = missing
+      .slice(0, 3)
+      .map((m) => `${m.testCaseId} → "${m.name}"`)
+      .join(", ");
+    reason =
+      `${missing.length} declared test(s) had no matching result (${sample}` +
+      `${missing.length > 3 ? ", …" : ""})` +
+      (unknown.length > 0
+        ? ` while ${unknown.length} result(s) matched no declared test — likely a ` +
+          `\`suite\` mismatch (the join wants the AGGREGATE name for a unit test, ` +
+          `"<System> e2e" for an e2e test; got ${JSON.stringify(unknown[0]!.suite ?? null)})`
+        : "") +
+      `; pass --allow-missing to accept a partial run`;
+  }
   if (options.requireAll && s.verified < s.total) {
     failed = true;
     reason = `${s.total - s.verified} requirement(s) not verified (--require-all)`;
@@ -1463,12 +1603,35 @@ program
   .description(
     "Join a test-results JSON onto the requirements graph, write .loom/verification.* and gate the exit code.",
   )
-  .requiredOption("--results <file>", "JSON file: { version, results: [{ name, status, suite? }] }")
+  .option("--results <file>", "JSON file: { version, results: [{ name, status, suite? }] }")
+  .option(
+    "--from-vitest <file>",
+    "read a vitest/jest `--reporter=json` report instead of --results",
+  )
   .option("--out <dir>", "output directory for .loom/ artifacts (default: the .ddd file's dir)")
   .option("--require-all", "fail unless every requirement is VERIFIED")
   .option("--min <pct>", "fail if the verified percentage is below <pct>")
+  .option(
+    "--allow-missing",
+    "accept declared tests that produced no result (default: they fail the gate)",
+  )
   .option("--json", "also print verification.json to stdout")
   .action(async (file: string, options: VerifyOptions) => {
+    // `--results` was a `requiredOption`; it is now one of TWO inputs, so the
+    // arity check moves here.  Exactly one — silently preferring one over the
+    // other would make a typo'd flag look like it was read.
+    if (!options.results && !options.fromVitest) {
+      console.error(
+        "ddd verify needs test results: pass --results <file> (Loom's " +
+          "{ version, results: [...] } document) or --from-vitest <file> " +
+          "(a vitest/jest --reporter=json report).",
+      );
+      process.exit(2);
+    }
+    if (options.results && options.fromVitest) {
+      console.error("Pass either --results or --from-vitest, not both.");
+      process.exit(2);
+    }
     await runVerify(file, options);
   });
 

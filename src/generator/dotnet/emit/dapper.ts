@@ -44,17 +44,27 @@ import {
 } from "../../../ir/util/inheritance.js";
 import { refCollectionFieldName } from "../../../ir/util/ref-collection.js";
 import { sortableFields } from "../../../ir/util/sortable-fields.js";
-import { isDenyFilter } from "../../../ir/util/tenant-stance.js";
+import {
+  DATA_KEY_PATH_DELIMITER,
+  deepScopeAnchorClaim,
+  deepScopeTenantClaim,
+  guidFromStringSelfScope,
+  isDenyFilter,
+  TENANT_OWNED_DATA_KEY_FIELD,
+  TENANT_OWNED_TENANT_ID_FIELD,
+} from "../../../ir/util/tenant-stance.js";
 import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
+import { walkExprDeep } from "../../../ir/util/walk.js";
 import { lines } from "../../../util/code-builder.js";
 import { intrinsicFor, intrinsicKey } from "../../../util/intrinsics.js";
 import { escapeCsharpIdent, plural, snake, upperFirst } from "../../../util/naming.js";
 import { MAKE_INTERVAL_ARG, temporalInterval } from "../../_expr/pg-interval.js";
 import { PG_INTRINSIC_SQL } from "../../_expr/pg-intrinsics.js";
+import { csSubtreeLikePattern, SQL_LIKE_ESCAPE_CLAUSE } from "../../_expr/subtree-like.js";
 import { refuseOutOfVocabulary } from "../../_expr/target.js";
 import { renderCreateTableIfNotExists } from "../../sql-pg.js";
 import { isReservedIdent } from "../../sql-reserved.js";
-import { unionFindAsOptionalTwin } from "../find-emit.js";
+import { domainFindShape } from "../find-emit.js";
 import {
   AMBIENT_CURRENT_USER,
   csValueTypeForId,
@@ -62,7 +72,8 @@ import {
   renderCsType,
 } from "../render-expr.js";
 import { csClaimStampsFor } from "./entity.js";
-import { renderRetrievalParamsWithCt } from "./repository.js";
+import { inMemoryPagedFindLines, renderRetrievalParamsWithCt } from "./repository.js";
+import { csStateHolderOf } from "./state-holder.js";
 
 // ---------------------------------------------------------------------------
 // Reserved-word identifier quoting (M-T6.42).
@@ -571,7 +582,7 @@ function partRowAndMap(pc: PartChild): string {
     "    }",
     "",
     `    private static ${pc.part.name} Map${pc.part.name}(${pc.part.name}Row r${dictParams.join("")}) =>`,
-    `        ${pc.part.name}._Create(new ${pc.part.name}.State`,
+    `        ${pc.part.name}._Create(new ${csStateHolderOf(pc.part.name)}`,
     "        {",
     `            Id = new ${pc.part.name}Id(r.id),`,
     `            ParentId = new ${pc.parentEntityId}Id(r.${escapeCsharpIdent(pc.parentFk)}),`,
@@ -649,7 +660,7 @@ function containmentMembers(
     `        if (rows.Count == 0) return new List<${agg.name}>();`,
     "        var __ids = rows.Select(r => r.id).ToArray();",
     ...loadBlocks,
-    `        return rows.Select(r => ${agg.name}._Create(new ${agg.name}.State`,
+    `        return rows.Select(r => ${agg.name}._Create(new ${csStateHolderOf(agg.name)}`,
     "            {",
     ...rootStateBody,
     ...slotLines,
@@ -705,6 +716,24 @@ export interface WhereSqlCtx {
  *  site rather than through a `ctx.mode` field (this renderer has exactly one
  *  target sub-language, unlike JPQL's two SpEL-vs-plain-param sub-modes). */
 export function whereToSql(e: ExprIR, sqlCtx?: WhereSqlCtx): string {
+  // The registry SELF-SCOPE comparison whose id is `guid` and whose tenancy
+  // claim is declared `string` (M-T3.7(c) — `guidFromStringSelfScope`).  It is
+  // the ONE comparison whose principal side can fail to parse, and on raw SQL
+  // it is also the one whose two sides have DIFFERENT Postgres types: the
+  // generic `member` arm below renders the claim as a plain `@__cu_<claim>`
+  // text parameter, so `id = @__cu_tenantId` reaches the server as `uuid =
+  // text` and every read of the registry answers 42883 — a 500 that compiles
+  // green (`dotnet build /warnaserror` cannot see inside a SQL string).  Bind a
+  // SEPARATE uuid-typed parameter instead, parsed fail-closed app-side by
+  // `__ClaimGuid` so a malformed claim reads empty rather than throwing — the
+  // raw-SQL twin of EF's `Guid.TryParse(…) ? new <Agg>Id(g) : null` hoist and
+  // of MikroORM's regex-guarded `id:` entry.
+  const selfScope = guidFromStringSelfScope(e);
+  if (selfScope) {
+    const claimParam = `@${guidClaimParam(selfScope.claim)}`;
+    const idCol = sqlIdent("id");
+    return selfScope.idOnLeft ? `(${idCol} = ${claimParam})` : `(${claimParam} = ${idCol})`;
+  }
   switch (e.kind) {
     case "paren":
       return `(${whereToSql(e.inner, sqlCtx)})`;
@@ -827,18 +856,33 @@ function authzFilterToSql(e: Extract<ExprIR, { kind: "authz-filter" }>): string 
     case "deny":
       return "1 = 0";
     // `deep`/`global` read level (hierarchical tenancy) — the materialized-path
-    // descendant-or-self sentinel.  It is SQL-expressible in principle, but its
-    // `currentUser.<claim>` sub-expressions would have to reach
-    // `collectFilterPrincipalRefs` (which does not descend into this node) to
-    // bind the `@__cu_*` params.  Until that lands it is a DOCUMENTED capability
-    // boundary, not a crash: `validateDapperSupport` rejects a hierarchical
-    // scope filter under `persistence: dapper` with `loom.dapper-unsupported`
-    // before codegen runs, so this throw is unreachable defence-in-depth.
-    case "scope":
-      throw new Error(
-        `dapper: hierarchical tenancy scope filter on '${e.aggregate}' is outside the ` +
-          `Dapper SQL subset; use 'persistence: efcore'.`,
+    // descendant-or-self sentinel, rendered as raw Postgres (M-T6.35, wave C2
+    // packet 2b).  Structurally the MikroORM `raw()` twin
+    // (`typescript/emit/mikroorm-filter.ts`), down to the unqualified columns:
+    // every statement this fragment lands in is single-table, so `data_key`
+    // cannot be ambiguous.  The `strpos(col, anchor || '.') = 1` term is the
+    // ANCHORED RECHECK that decides the row; the `LIKE` beside it is the
+    // sargable prefilter (`DEEP_SCOPE_SEMANTICS`, M-T3.17), so a widened
+    // pattern can never admit a foreign subtree.  The NULL-`dataKey` branch
+    // degrades to the flat tenant floor — never wider.
+    //
+    // The three anchor-derived values and the tenant claim bind as ordinary
+    // Dapper params (`collectFilterPrincipalRefs` contributes them for this
+    // node kind — the sentinel carries no child `currentUser.<claim>`
+    // expression a structural walk could find).
+    case "scope": {
+      const col = sqlIdent(snake(TENANT_OWNED_DATA_KEY_FIELD));
+      const tenantCol = sqlIdent(snake(TENANT_OWNED_TENANT_ID_FIELD));
+      const anchor = `@${currentUserParam(deepScopeAnchorClaim(e))}`;
+      const like = `@${subtreeLikeParam(deepScopeAnchorClaim(e))}`;
+      const needle = `@${subtreeNeedleParam(deepScopeAnchorClaim(e))}`;
+      const tenant = `@${currentUserParam(deepScopeTenantClaim(e))}`;
+      return (
+        `((${col} IS NOT NULL AND (${col} = ${anchor} ` +
+        `OR (${col} LIKE ${like} ${SQL_LIKE_ESCAPE_CLAUSE} AND strpos(${col}, ${needle}) = 1))) ` +
+        `OR (${col} IS NULL AND ${tenantCol} = ${tenant}))`
       );
+    }
     default: {
       const _exhaustive: never = e.filter;
       throw new Error(`unhandled authz-filter kind: ${(_exhaustive as { kind: string }).kind}`);
@@ -853,6 +897,43 @@ function currentUserParam(member: string): string {
   return `__cu_${member}`;
 }
 
+/** Dapper param holding the ESCAPED subtree `LIKE` pattern derived from the
+ *  hierarchical-tenancy anchor claim (`orgPath` → `@__cu_orgPath__like`).
+ *  Computed app-side (`csSubtreeLikePattern`) rather than in SQL so all six
+ *  backends spell one escaping chain — see `_expr/subtree-like.ts`. */
+function subtreeLikeParam(member: string): string {
+  return `${currentUserParam(member)}__like`;
+}
+
+/** Dapper param holding the anchored recheck needle (`<anchor>` + the path
+ *  delimiter) — the `strpos(col, @…) = 1` operand. */
+function subtreeNeedleParam(member: string): string {
+  return `${currentUserParam(member)}__needle`;
+}
+
+/** Dapper param holding the tenancy claim PARSED to a uuid, for the registry
+ *  self-scope comparison against the `guid` id column (`guidFromStringSelfScope`).
+ *  A distinct param from the claim's own text one: a system can compare the
+ *  same claim against a `text` column elsewhere, and the two must not share a
+ *  binding. */
+function guidClaimParam(member: string): string {
+  return `${currentUserParam(member)}__uuid`;
+}
+
+/** The fail-closed claim→uuid coercion the self-scope parameter binds through.
+ *  A private static on the emitting class rather than an inline
+ *  `Guid.TryParse(…, out var g)`: the same parameter is bound in SEVERAL
+ *  statements of one method (a paged find binds it in both the COUNT and the
+ *  PAGE object), and a declaration expression repeated in one scope is CS0128. */
+const CLAIM_GUID_HELPER =
+  "    private static Guid? __ClaimGuid(string? __s) => " +
+  "Guid.TryParse(__s, out var __g) ? __g : (Guid?)null;";
+
+/** `CLAIM_GUID_HELPER` when any of `refs` binds through it, else nothing. */
+function claimGuidHelperLines(refs: readonly FilterPrincipalRef[]): string[] {
+  return refs.some((r) => r.needsGuidParse) ? ["", CLAIM_GUID_HELPER] : [];
+}
+
 /** A `currentUser.<claim>` reference found in a filter / find / retrieval
  *  predicate: the Dapper param name it lowers to (`__cu_<claim>`) and the
  *  principal claim property (PascalCased) read to bind it.  The accessor BASE
@@ -864,43 +945,94 @@ function currentUserParam(member: string): string {
 export interface FilterPrincipalRef {
   param: string; // `__cu_tenantId`
   claimProp: string; // `TenantId`
+  /** How to spell the bound VALUE from the principal accessor `base`.  Omitted
+   *  for the ordinary `currentUser.<claim>` reference (`base.ClaimProp`); the
+   *  hierarchical-tenancy sentinel needs two DERIVED bindings off one claim
+   *  (the escaped LIKE pattern and the anchored needle), which are expressions
+   *  rather than property reads. */
+  valueExpr?: (base: string) => string;
+  /** This ref binds through the `__ClaimGuid` helper, so the emitting class
+   *  must carry it (`claimGuidHelperLines`). */
+  needsGuidParse?: true;
 }
 
 /** `${param} = ${base}.${claimProp}` fields for a `new { … }` / DynamicParameters. */
 export function principalFields(refs: readonly FilterPrincipalRef[], base: string): string[] {
-  return refs.map((r) => `${r.param} = ${base}.${r.claimProp}`);
+  return refs.map(
+    (r) => `${r.param} = ${r.valueExpr ? r.valueExpr(base) : `${base}.${r.claimProp}`}`,
+  );
 }
 
 /** Collect the distinct `currentUser.<claim>` references across the given
  *  predicates (deduped by claim), so the repository can bind each
- *  `@__cu_<claim>` param from the principal on every SELECT. */
+ *  `@__cu_<claim>` param from the principal on every SELECT.
+ *
+ *  Rides `walkExprDeep` rather than a hand-rolled recursion: the hand-rolled
+ *  one covered four `ExprIR` kinds, so a principal reference nested anywhere
+ *  else (a `match` arm, a list literal) was invisible — and the `authz-filter`
+ *  sentinel it could not see is precisely why hierarchical tenancy was gated
+ *  off this adapter for a release. */
 export function collectFilterPrincipalRefs(filters: readonly ExprIR[]): FilterPrincipalRef[] {
   const byParam = new Map<string, FilterPrincipalRef>();
-  const walk = (e: ExprIR): void => {
-    switch (e.kind) {
-      case "member":
-        if (e.receiver.kind === "ref" && e.receiver.refKind === "current-user") {
-          const param = currentUserParam(e.member);
-          if (!byParam.has(param)) byParam.set(param, { param, claimProp: upperFirst(e.member) });
-        } else {
-          walk(e.receiver);
-        }
-        return;
-      case "paren":
-        walk(e.inner);
-        return;
-      case "unary":
-        walk(e.operand);
-        return;
-      case "binary":
-        walk(e.left);
-        walk(e.right);
-        return;
-      default:
-        return;
-    }
+  const add = (ref: FilterPrincipalRef): void => {
+    if (!byParam.has(ref.param)) byParam.set(ref.param, ref);
   };
-  for (const f of filters) walk(f);
+  const addClaim = (member: string): void =>
+    add({ param: currentUserParam(member), claimProp: upperFirst(member) });
+  // Claim ACCESSES a parent node has already bound under a different parameter.
+  // `walkExprDeep` visits the parent first and then descends regardless of what
+  // the visitor did, so without this the self-scope comparison's claim operand
+  // is reached a second time by the generic `member` arm and binds its plain
+  // TEXT param too — a parameter the rendered SQL no longer names, which is the
+  // F2-ADP-9 defect shape (SQL and its bindings disagreeing) in the other
+  // direction.
+  const consumed = new Set<ExprIR>();
+  const unparen = (x: ExprIR): ExprIR => (x.kind === "paren" ? unparen(x.inner) : x);
+  for (const f of filters)
+    walkExprDeep(f, (e) => {
+      if (
+        e.kind === "member" &&
+        e.receiver.kind === "ref" &&
+        e.receiver.refKind === "current-user"
+      ) {
+        if (!consumed.has(e)) addClaim(e.member);
+        return;
+      }
+      // The hierarchical-tenancy subtree sentinel reads TWO principal claims
+      // (the anchor path and the tenant floor) without carrying either as a
+      // child expression — they are derived from the `scope` decision by
+      // `authzFilterToSql`, so they must be contributed here by kind.
+      // The registry self-scope comparison binds a uuid-typed parameter parsed
+      // from the claim, NOT the claim's own text param (see `whereToSql`).
+      const selfScope = guidFromStringSelfScope(e);
+      if (selfScope) {
+        const prop = upperFirst(selfScope.claim);
+        if (e.kind === "binary") consumed.add(unparen(selfScope.idOnLeft ? e.right : e.left));
+        add({
+          param: guidClaimParam(selfScope.claim),
+          claimProp: prop,
+          valueExpr: (base) => `__ClaimGuid(${base}.${prop})`,
+          needsGuidParse: true,
+        });
+        return;
+      }
+      if (e.kind === "authz-filter" && e.filter.kind === "scope") {
+        const anchorClaim = deepScopeAnchorClaim(e);
+        const anchorProp = upperFirst(anchorClaim);
+        addClaim(anchorClaim);
+        addClaim(deepScopeTenantClaim(e));
+        add({
+          param: subtreeLikeParam(anchorClaim),
+          claimProp: anchorProp,
+          valueExpr: (base) => csSubtreeLikePattern(`${base}.${anchorProp}`),
+        });
+        add({
+          param: subtreeNeedleParam(anchorClaim),
+          claimProp: anchorProp,
+          valueExpr: (base) => `${base}.${anchorProp} + ${JSON.stringify(DATA_KEY_PATH_DELIMITER)}`,
+        });
+      }
+    });
   return [...byParam.values()];
 }
 
@@ -1246,6 +1378,20 @@ export function renderDapperRepository(
   // from the ambient accessor.
   const filterPrincipalRefs = filterPrincipalRefsFor();
   const princFields = principalFields(filterPrincipalRefs, AMBIENT_CURRENT_USER);
+  /** `__ClaimGuid` when ANY predicate this repository renders binds through it
+   *  — capability filters, the write scope, a declared find's own `where`, or a
+   *  retrieval's.  Taken over the whole superset rather than per-method: the
+   *  helper is one private static on the class, and computing it from a subset
+   *  is how a find whose predicate is the only self-scope one ends up calling a
+   *  method the class never declares (CS0103). */
+  const needsClaimGuid = claimGuidHelperLines(
+    collectFilterPrincipalRefs([
+      ...capabilityFilters,
+      ...(agg.writeScopeFilter ? [agg.writeScopeFilter] : []),
+      ...(repo?.finds ?? []).flatMap((f) => (f.filter ? [f.filter] : [])),
+      ...retrievals.flatMap((r) => (r.where ? [r.where] : [])),
+    ]),
+  );
   // Comma-prefixed suffix appended inside a `new { … }` that already has fields
   // (GetById / FindManyByIds).
   const princSuffix = princFields.length > 0 ? `, ${princFields.join(", ")}` : "";
@@ -1445,10 +1591,10 @@ export function renderDapperRepository(
   // ambient `RequestContext.Current!.CurrentUser!` member access (no type name),
   // so they don't.
   const anyFindUsesUser = (repo?.finds ?? []).some((raw) =>
-    findUsesCurrentUser(unionFindAsOptionalTwin(raw, agg.name)),
+    findUsesCurrentUser(domainFindShape(raw, agg.name)),
   );
   const findMethods = (repo?.finds ?? []).map((raw) => {
-    const f = unionFindAsOptionalTwin(raw, agg.name);
+    const f = domainFindShape(raw, agg.name);
     const name = upperFirst(f.name);
     const ret = renderCsType(f.returnType);
     const isList = f.returnType.kind === "array";
@@ -1779,6 +1925,7 @@ export function renderDapperRepository(
       "        _events = events;",
       auditFlushLines.length > 0 ? "        _audit = audit;" : null,
       "    }",
+      ...needsClaimGuid,
       "",
       "    private sealed class Row",
       "    {",
@@ -1801,7 +1948,7 @@ export function renderDapperRepository(
         ? []
         : [
             `    private static ${agg.name} Map(Row r) =>`,
-            `        ${agg.name}._Create(new ${agg.name}.State`,
+            `        ${agg.name}._Create(new ${csStateHolderOf(agg.name)}`,
             "        {",
             ...mapBody,
             "        });",
@@ -1914,7 +2061,7 @@ export function renderDapperDocumentRepository(
   const snap = `${agg.name}Snapshot`;
   const idCs = idTypes(agg.idValueType).cs;
   const versioned = aggregateIsVersioned(agg);
-  const finds = (repo?.finds ?? []).map((raw) => unionFindAsOptionalTwin(raw, agg.name));
+  const finds = (repo?.finds ?? []).map((raw) => domainFindShape(raw, agg.name));
   const anyFindUsesUser = finds.some(findUsesCurrentUser);
   // Rehydrate from the JSONB snapshot, but the `version` COLUMN is the
   // authoritative concurrency version (INSERT stamps it `1`, ON CONFLICT bumps
@@ -2047,15 +2194,30 @@ export function renderDapperDocumentRepository(
       .replace(".ToListAsync(cancellationToken)", ".ToList()")
       .replace(".FirstOrDefaultAsync(cancellationToken)", ".FirstOrDefault()");
     const usesUser = findUsesCurrentUser(f);
-    return lines(
-      `    public async Task<${renderCsType(f.returnType)}> ${upperFirst(f.name)}(${renderParams(f.params, [], usesUser)})`,
-      "    {",
-      "        await using var conn = await _db.OpenConnectionAsync(cancellationToken);",
-      `        var __rows = await conn.QueryAsync<Row>(new CommandDefinition("SELECT id, data, version FROM ${table}", cancellationToken: cancellationToken));`,
+    const loadAllLines = [
+      "await using var conn = await _db.OpenConnectionAsync(cancellationToken);",
+      `var __rows = await conn.QueryAsync<Row>(new CommandDefinition("SELECT id, data, version FROM ${table}", cancellationToken: cancellationToken));`,
       // The capability filter narrows the visible set BEFORE the find's own
       // predicate runs, so a find never returns a capability-hidden (foreign
       // tenant, soft-deleted) document.
-      `        var __all = __rows.Select(__d => ${deser})${capFilter};`,
+      `var __all = __rows.Select(__d => ${deser})${capFilter};`,
+    ];
+    // `find … paged` over a document carrier (ledger row F2-CB-C1): the SAME
+    // in-memory page the EF document path emits — the interface, controller and
+    // handler declare the 5-argument `Paged<T>` contract, so the Dapper mirror
+    // must offer it too (it did not: CS0535 + CS0029 on the corpus Dapper leg).
+    if (pagedReturn(f.returnType)) {
+      return inMemoryPagedFindLines(agg, f, {
+        loadAll: loadAllLines.join("\n        "),
+        filter,
+        usesUser,
+        log: false,
+      }).join("\n");
+    }
+    return lines(
+      `    public async Task<${renderCsType(f.returnType)}> ${upperFirst(f.name)}(${renderParams(f.params, [], usesUser)})`,
+      "    {",
+      ...loadAllLines.map((l) => `        ${l}`),
       `        return __all${filter}${projection};`,
       "    }",
     );
@@ -2208,7 +2370,7 @@ export function renderDapperEventSourcedRepository(
   // the
   // file also needs `using <ns>.Auth`.
   const anyFindUsesUser = (repo?.finds ?? []).some((raw) =>
-    findUsesCurrentUser(unionFindAsOptionalTwin(raw, agg.name)),
+    findUsesCurrentUser(domainFindShape(raw, agg.name)),
   );
   // Write-scope narrowing (authorization): the EVENT-SOURCED twin
   // of the document `writeScopeMethod` above — a stream has no queryable row to
@@ -2233,7 +2395,7 @@ export function renderDapperEventSourcedRepository(
       ]
     : [];
   const findMethods = (repo?.finds ?? []).flatMap((raw) => {
-    const f = unionFindAsOptionalTwin(raw, agg.name);
+    const f = domainFindShape(raw, agg.name);
     const body = findBodies.find((b) => b.name === f.name);
     const filter = body?.filterClause ?? "";
     // ES finds load every stream in-memory, so strip the async EF terminal
@@ -2241,6 +2403,17 @@ export function renderDapperEventSourcedRepository(
     const projection = (body?.projectionClause ?? ".ToListAsync(cancellationToken)")
       .replace(".ToListAsync(cancellationToken)", ".ToList()")
       .replace(".FirstOrDefaultAsync(cancellationToken)", ".FirstOrDefault()");
+    // `find … paged` over an event-log carrier (ledger row F2-CB-C1) — the
+    // same in-memory page the EF event-store path emits; see the document
+    // repository above for why the Dapper mirror must offer the paged contract.
+    if (pagedReturn(f.returnType)) {
+      return inMemoryPagedFindLines(agg, f, {
+        loadAll: "var __all = await _LoadAllAsync(cancellationToken);",
+        filter,
+        usesUser: findUsesCurrentUser(f),
+        log: false,
+      });
+    }
     return [
       `    public async Task<${renderCsType(f.returnType)}> ${upperFirst(f.name)}(${renderParams(f.params, [], findUsesCurrentUser(f))})`,
       "    {",

@@ -35,9 +35,15 @@ import { snake, upperFirst } from "../../../util/naming.js";
 import { numericEncode } from "../../_numeric/target.js";
 import type { SourceMapRecorder } from "../../_trace/sourcemap.js";
 import { statementSubRegions } from "../../_trace/sourcemap.js";
+import {
+  MONEY_MAX_EXCLUSIVE,
+  MONEY_PRECISION,
+  MONEY_RANGE_MESSAGE,
+  MONEY_WIRE_SCALE,
+} from "../../money-scale.js";
 import { type ElixirChannelsCfg, opEmitsDurableEvent } from "../channels-emit.js";
 import { contextHasDispatcher } from "../dispatch-emit.js";
-import { opUsesCurrentUser, stmtUsesParam } from "../domain/predicates.js";
+import { opBodyStmtsDeep, opUsesCurrentUser, stmtUsesParam } from "../domain/predicates.js";
 import { renderReadingServiceContextFns } from "../domain-service-emit.js";
 import { unguardedName } from "../lifecycle-seam.js";
 import { type RenderCtx, renderExpr } from "../render-expr.js";
@@ -71,6 +77,7 @@ import {
   persistPutBodies,
   renderDurableEmitDispatchParts,
   renderEmitDispatchLines,
+  renderPrivateOpHelpers,
   renderReturningOpFunction,
   renderReturningStmt,
   wrapOpBodyWithGuards,
@@ -306,7 +313,11 @@ function renderNumericParamHelpers(needsDecimal: boolean, needsInt: boolean): st
 
   defp __loom_decimal_param(record, field, value) when is_binary(value) do
     if Regex.match?(~r/^-?\\d+(\\.\\d+)?$/, value) do
-      {:ok, Decimal.new(value)}
+      if __loom_money_in_range?(Decimal.new(value)) do
+        {:ok, Decimal.new(value)}
+      else
+        {:error, __loom_param_error(record, field, value, ${JSON.stringify(MONEY_RANGE_MESSAGE)})}
+      end
     else
       {:error, __loom_param_error(record, field, value, "Invalid decimal")}
     end
@@ -314,6 +325,16 @@ function renderNumericParamHelpers(needsDecimal: boolean, needsInt: boolean): st
 
   defp __loom_decimal_param(record, field, value),
     do: {:error, __loom_param_error(record, field, value, "Invalid decimal")}
+
+  # RANGE, not format: the grammar already passed, and what is left is a
+  # magnitude question the COLUMN answers.  Without this a 40-digit price is a
+  # well-formed decimal string Decimal.new/1 happily accepts, so it reached
+  # NUMERIC(${MONEY_PRECISION},${MONEY_WIRE_SCALE}) and the DATABASE refused it — a 500 for a client
+  # fault (M-T6.60 divergence 3).  The bound is derived from the column's own
+  # precision, so one constant governs the guard and the DDL.
+  defp __loom_money_in_range?(%Decimal{} = value) do
+    Decimal.lt?(Decimal.abs(value), Decimal.new(${JSON.stringify(MONEY_MAX_EXCLUSIVE)}))
+  end
 `;
   const int = `
   defp __loom_int_param(_record, _field, nil), do: {:ok, nil}
@@ -434,6 +455,17 @@ function renderContextModule(
                 extraChannels,
               ),
       );
+    // `defp __op_<name>/n` for every PRIVATE operation those bodies call
+    // (M-T6.55 F24) — a pure struct transform, so the caller's own persist tail
+    // is the single write.  Empty (byte-identical) when nothing calls one.
+    const privateOpHelpers = renderPrivateOpHelpers(
+      (agg.operations ?? []).filter((op) => !CRUD_RESERVED_NAMES.has(op.name)),
+      agg,
+      ctx,
+      facadeMod,
+      agg as EnrichedAggregateIR,
+      isDoc,
+    );
     // Custom-find defdelegates — `<find>_<agg>(args...)` routes to the
     // repository fn emitted by `customFindsOf`.  Workflow `repo-let`
     // lowering (for a non-getById method) calls through this seam.
@@ -670,7 +702,7 @@ ${body}
   }
 ${createDelegate}
   defdelegate update_${aggSnake}(record, attrs${stampActorArg}${versionedArg}), to: ${repoMod}, as: :update${deleteDelegate}${changeFacade}${destroyFacade}${opBangFacade}${canFacade}
-${findBlock}${opBlocks.length > 0 ? `\n${opBlocks.join("\n\n")}\n` : ""}${functionBlock}`;
+${findBlock}${opBlocks.length > 0 ? `\n${opBlocks.join("\n\n")}\n` : ""}${privateOpHelpers.length > 0 ? `${privateOpHelpers.join("\n")}\n` : ""}${functionBlock}`;
   });
 
   // Retrieval defdelegates — `run_<retrieval>_<agg>(args..., opts \\ [])`
@@ -866,7 +898,7 @@ function contextMutatesRefColl(ctx: BoundedContextIR): boolean {
     return (agg.operations ?? []).some(
       (op) =>
         !CRUD_RESERVED_NAMES.has(op.name) &&
-        op.statements.some(
+        opBodyStmtsDeep(op.statements).some(
           (s) =>
             (s.kind === "add" || s.kind === "remove") &&
             s.collection &&
@@ -888,7 +920,8 @@ function contextUsesRefCollOp(ctx: BoundedContextIR): boolean {
     if (refCollFieldNames(agg).size === 0) return false;
     return (agg.operations ?? []).some(
       (op) =>
-        !CRUD_RESERVED_NAMES.has(op.name) && op.statements.some((s) => stmtHasRefCollContains(s)),
+        !CRUD_RESERVED_NAMES.has(op.name) &&
+        opBodyStmtsDeep(op.statements).some((s) => stmtHasRefCollContains(s)),
     );
   });
 }
@@ -912,7 +945,7 @@ function contextMutatesRelationalContainment(ctx: BoundedContextIR, sys?: System
     return (agg.operations ?? []).some(
       (op) =>
         !CRUD_RESERVED_NAMES.has(op.name) &&
-        op.statements.some(
+        opBodyStmtsDeep(op.statements).some(
           (s) =>
             (s.kind === "assign" || s.kind === "add" || s.kind === "remove") &&
             containNames.has(snake(s.target.segments[0] ?? "")),
@@ -1295,7 +1328,7 @@ function renderNamedOpFunction(
   // swap is gated on embedded-containment mutation only (byte-identical
   // otherwise).
   const containNames = new Set(agg.contains.map((c) => snake(c.name)));
-  const mutatesEmbeddedContainment = op.statements.some((s) => {
+  const mutatesEmbeddedContainment = opBodyStmtsDeep(op.statements).some((s) => {
     if (s.kind !== "add" && s.kind !== "remove") return false;
     const f = snake(s.target.segments[0] ?? "");
     return containNames.has(f) && !relationalContainments.has(f);

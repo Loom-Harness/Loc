@@ -74,6 +74,10 @@ on:
       # boots.  Missing from this list, a mikroorm-emitter-only change skipped
       # the whole workflow.
       - 'src/generator/typescript/emit/mikroorm.ts'
+      # Same argument, .NET side: the Dapper adapter splices the subtree
+      # predicate into every SELECT as a raw SQL string with four hand-bound
+      # parameters, which the `dotnet-dapper` cell boots.
+      - 'src/generator/dotnet/emit/dapper.ts'
       - 'test/e2e/tenancy-isolation.test.ts'
       - 'test/e2e/tenancy-isolation-python.test.ts'
       - 'test/e2e/tenancy-isolation-java.test.ts'
@@ -85,6 +89,7 @@ on:
       - 'test/e2e/tenancy-hierarchy-dotnet.test.ts'
       - 'test/e2e/tenancy-hierarchy-elixir.test.ts'
       - 'test/e2e/tenancy-hierarchy-mikroorm.test.ts'
+      - 'test/e2e/tenancy-hierarchy-dapper.test.ts'
       - 'test/e2e/tenancy-subtree-explain.test.ts'
       - 'test/e2e/support/tenancy-isolation-harness.ts'
       - 'test/fixtures/corpus/tenancy-owned.ddd'
@@ -164,6 +169,16 @@ jobs:
           - backend: node-mikroorm
             suite: hierarchy
             script: test:tenancy-hierarchy-mikroorm
+          # The SECOND .NET persistence adapter, by the same argument: EF Core
+          # registers a HasQueryFilter expression tree the provider translates;
+          # Dapper splices a raw SQL string into every SELECT and binds four
+          # parameters by hand.  An unbound parameter, or a filter that reaches
+          # three of four reads, is runtime-only — `dotnet build /warnaserror`
+          # is green on both.  (This shape was validator-REFUSED on dapper until
+          # wave C2 packet 2b, so the cell is new with the emission.)
+          - backend: dotnet-dapper
+            suite: hierarchy
+            script: test:tenancy-hierarchy-dapper
           # M-T3.17 — the subtree read is INDEX-USABLE, not merely correct.
           # Boots nothing: it builds the schema from the emitted migration SQL,
           # lifts the predicate verbatim out of a generated repository, seeds
@@ -217,7 +232,7 @@ jobs:
           gradle-version: '9.6.1'
 
       - name: Set up .NET (dotnet)
-        if: matrix.backend == 'dotnet'
+        if: matrix.backend == 'dotnet' || matrix.backend == 'dotnet-dapper'
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'

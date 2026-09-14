@@ -141,7 +141,7 @@ ThemeProp:
 // implicit aggregate identity) is admissible here.
 UserBlock:
     'user' '{'
-        fields+=UserField*
+        (fields+=UserField (','? fields+=UserField)* ','?)?
     '}';
 
 UserField:
@@ -987,7 +987,7 @@ EnumValue:
 
 ValueObject:
     'valueobject' name=ID '{'
-        members+=ValueObjectMember*
+        (members+=ValueObjectMember (','? members+=ValueObjectMember)* ','?)?
     '}';
 
 ValueObjectMember:
@@ -1063,7 +1063,7 @@ Aggregate:
           | (audited?='audited' ','?)
         )*
         withClause=WithClause? '{'
-        members+=AggregateMember*
+        (members+=AggregateMember (','? members+=AggregateMember)* ','?)?
     '}';
 
 // Inheritance table layout — a header colon modifier on aggregates
@@ -1116,7 +1116,18 @@ MacroCall:
 // names — the same identifier surface the legacy `scaffold` directive
 // uses, which scaffold-replacement macros need to mirror.
 MacroArg:
-    name=LooseName ':' value=MacroArgValue;
+    name=MacroArgName ':' value=MacroArgValue;
+
+// Macro-arg names, and ONLY macro-arg names, additionally admit
+// `requires` — so `with crudish(requires: CatalogManager)` names the
+// authorization gate with the same word the gate itself uses.  It is
+// deliberately NOT folded into `LooseName`: that rule also backs
+// `Parameter.name`, `Property.name`, `CallArg.name` and friends, and
+// `requires` has to stay a hard keyword everywhere a statement or a
+// header gate clause can start.  Inside a macro call's parentheses
+// nothing else can begin with it, so the widening is ambiguity-free.
+MacroArgName returns string:
+    LooseName | 'requires';
 
 // Macro arg ref-list elements are bare IDs, not Langium cross-
 // references.  We don't use the [Target:ID] form because:
@@ -1321,7 +1332,7 @@ ExpectStmt:
 
 EntityPart:
     'entity' name=ID '{'
-        members+=EntityPartMember*
+        (members+=EntityPartMember (','? members+=EntityPartMember)* ','?)?
     '}';
 
 EntityPartMember:
@@ -1787,7 +1798,7 @@ FieldAccess returns string:
 // `money` and the five field-access keywords are admitted as property
 // names so pre-existing files that named a field `money` / `secret` /
 // etc. keep parsing.  Hard-keyword positions for `money` remain
-// `PrimitiveType` and `MoneyLit`; for the access modifiers they remain
+// `PrimitiveType` and `PrimitiveConversion`; for the access modifiers they remain
 // the `FieldAccess` slot below.  See `LooseName` and `NameRefIdent`
 // for the same admission in parameter / expression positions.
 Property:
@@ -1949,13 +1960,13 @@ Parameter:
 // the factoring is byte-identical, and a keyword with a HARD position in one of
 // the three rules stays a per-rule extra, NOT here.
 CommonSoftKeywords returns string:
-      'action' | 'asc' | 'body' | 'by' | 'canonical' | 'channels' | 'command' | 'config' | 'connection'
-      | 'crossTenant' | 'dataSources' | 'desc' | 'description' | 'env' | 'envelope' | 'error' | 'eventLog'
-      | 'every' | 'favicon' | 'filter' | 'group' | 'handle' | 'immutable' | 'implements' | 'instance' | 'internal'
-      | 'isolationLevel' | 'join' | 'key' | 'keyPrefix' | 'kind' | 'literal' | 'loads' | 'mailer' | 'managed' | 'message' | 'migration' | 'money'
-      | 'objectStore' | 'ogImage' | 'option' | 'or' | 'paged' | 'parent' | 'payload' | 'query'
-      | 'queue' | 'readonly' | 'replica' | 'resource' | 'response' | 'retain' | 'retrieval' | 'schema'
-      | 'secret' | 'select' | 'service' | 'snapshot' | 'sort' | 'sql' | 'stamp' | 'state' | 'store' | 'tablePrefix'
+      'action' | 'allow' | 'asc' | 'body' | 'by' | 'canonical' | 'channels' | 'command' | 'config' | 'connection'
+      | 'crossTenant' | 'dataSources' | 'deep' | 'deny' | 'desc' | 'description' | 'env' | 'envelope' | 'error' | 'eventLog'
+      | 'every' | 'favicon' | 'filter' | 'global' | 'group' | 'handle' | 'immutable' | 'implements' | 'instance' | 'internal'
+      | 'isolationLevel' | 'join' | 'key' | 'keyPrefix' | 'kind' | 'literal' | 'loads' | 'local' | 'mailer' | 'managed' | 'message' | 'migration' | 'money'
+      | 'objectStore' | 'of' | 'ogImage' | 'option' | 'or' | 'paged' | 'parent' | 'payload' | 'query'
+      | 'persistence' | 'policy' | 'queue' | 'readonly' | 'replica' | 'resource' | 'response' | 'retain' | 'retrieval' | 'schema'
+      | 'secret' | 'select' | 'service' | 'slot' | 'snapshot' | 'sort' | 'sql' | 'stamp' | 'state' | 'store' | 'tablePrefix'
       | 'tenancy' | 'title' | 'token' | 'ttl' | 'use' | 'write';
 
 // LooseName — admissible identifiers in name positions that need to
@@ -1972,10 +1983,10 @@ CommonSoftKeywords returns string:
 LooseName returns string:
     ID | CommonSoftKeywords
     // LooseName-only (soft here but not in every value position):
-    | 'aggregates' | 'allow' | 'api' | 'await' | 'bind' | 'cache' | 'component' | 'contains'
-    | 'contexts' | 'deep' | 'design' | 'directoryLayout' | 'framework' | 'from' | 'global' | 'id' | 'ignoring'
-    | 'link' | 'local' | 'menu' | 'modules' | 'of' | 'page' | 'permissions' | 'persistence'
-    | 'policy' | 'route' | 'section' | 'static' | 'targets' | 'transactional' | 'ui' | 'urlStyle'
+    | 'aggregates' | 'api' | 'await' | 'bind' | 'cache' | 'component' | 'contains'
+    | 'contexts' | 'design' | 'directoryLayout' | 'framework' | 'from' | 'id' | 'ignoring'
+    | 'link' | 'menu' | 'modules' | 'page' | 'permissions'
+    | 'route' | 'section' | 'static' | 'targets' | 'transactional' | 'ui' | 'urlStyle'
     | 'views' | 'workflows';
 
 // A dotted page reference for `menu { link <Area>.<Page> }` — lets a menu link
@@ -2206,8 +2217,19 @@ AssignOrCallStmt:
 // `ui.workflows.placeOrder({...})` and `ui.views.activeOrders()` parse
 // cleanly when `ui` / `workflows` / `views` are reserved by the page-
 // metamodel grammar.
+// An optional `this.` prefix roots the path in the enclosing aggregate
+// EXPLICITLY.  `docs/language.md` has always described `:=` as "assignment to
+// a property reachable from `this`", and the un-prefixed spelling stays exactly
+// that — but a factory / setter parameter named after the field it fills
+// (`operation rename(name: string) { this.name := name }`) has no other way to
+// say which side is which.  The flag is load-bearing at lowering, not cosmetic:
+// a `thisRef` head resolves straight to a this-prop and must NOT be considered
+// for the action / function / private-operation / store / domain-service /
+// resource call arms, nor be shadowed by a local of the same name when the
+// target's type is computed.  `'this'` is already a token (`ThisRef`) and the
+// same `('this' '.')?` prefix is already spelled on `LoadPath`.
 LValue:
-    head=LValueIdent ('.' tail+=LValueIdent)*
+    (thisRef?='this' '.')? head=LValueIdent ('.' tail+=LValueIdent)*
       (call?='(' (args+=Expression (',' args+=Expression)*)? ')')?;
 
 LValueIdent returns string:
@@ -2411,7 +2433,6 @@ CondPrimaryExpr infers Expression:
     | ListLit
     | TemplateString
     | LiteralExpr
-    | MoneyLit
     | PrimitiveConversion
     | NowExpr
     | ThisRef
@@ -2471,7 +2492,6 @@ PrimaryExpr infers Expression:
     | ListLit
     | TemplateString
     | LiteralExpr
-    | MoneyLit
     | PrimitiveConversion
     | NowExpr
     | ThisRef
@@ -2563,14 +2583,6 @@ LiteralExpr:
     | {infer BoolLit}   value=('true'|'false')
     | {infer NullLit}   value='null';
 
-// `money("10.50")` constructor — the source-level form for a money
-// literal.  The string argument carries the precise decimal value;
-// every backend's host-language precise-decimal type (decimal.js,
-// System.Decimal, Elixir Decimal, rust_decimal) parses from this
-// string without loss.
-MoneyLit:
-    {infer MoneyLit} 'money' '(' value=STRING ')';
-
 // Loom-style explicit conversion vocabulary — `<target>(value)` where
 // `target` is a primitive type and `value` is the expression to
 // convert.  Used for things the strict binary validator requires
@@ -2588,9 +2600,32 @@ MoneyLit:
 // `datetime("...")`, …) need a `T?`-or-throw decision before the
 // vocabulary settles; deferred.
 //
-// MoneyLit comes first in PrimaryExpr's alternative list so
-// `money("10.50")` (string-arg literal) wins the parse; PrimitiveConversion
-// catches the expression-arg form `money(someDecimal)`.
+// THE `money("10.50")` LITERAL PARSES HERE TOO — there is exactly ONE
+// grammar path for `money(`.  There used to be two: a separate
+// `MoneyLit: 'money' '(' value=STRING ')'` rule listed ahead of this one in
+// `PrimaryExpr`, on the theory that "first alternative wins" settled it.  It
+// did settle the parse RESULT — and it was still an ambiguity, because a
+// `STRING` is also an `Expression`, so no finite lookahead can separate the
+// two alternatives.  Chevrotain's ALL(*) analysis says so out loud, lazily, to
+// stderr, on the first input that reaches the alternation:
+//
+//     Ambiguous Alternatives Detected: <7, 8> in <OR1> inside <PrimaryExpr>
+//     Rule, <money, (, STRING, ), function> may appears as a prefix path …
+//
+// — four lines of parser-generator internals plus a chevrotain.io link, on
+// `ddd parse examples/showcase.ddd`.  Deleting `MoneyLit` and folding the
+// string-arg form in here removes the ALTERNATION, so there is nothing left to
+// be ambiguous about (audit #2864 § Papercuts / M-T9.60).
+//
+// The two forms are told apart AFTER the parse, by the shape of `value`:
+//   * `money("10.50")` — a STRING-literal argument — is the compile-time
+//     money LITERAL.  `checkSinglePrimitiveConversion` validates the string as
+//     a decimal (`loom.money-literal-malformed`) instead of applying the
+//     conversion table, and `lowerExprInner` lowers it to `lit("money", …)`.
+//   * `money(someDecimal)` — any other argument — is the conversion, and
+//     lowers to `{ kind: "convert", target: "money" }` as before.
+// The IR both produce is byte-identical to what the two-rule grammar produced,
+// so no backend, emitter or IR consumer sees this change.
 PrimitiveConversion:
     {infer PrimitiveConversion} target=('string' | 'long' | 'decimal' | 'money') '(' value=Expression ')';
 

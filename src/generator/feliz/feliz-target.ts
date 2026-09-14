@@ -30,6 +30,7 @@ import {
   renderFsIntrinsic,
   storeModelField,
 } from "./fs-expr.js";
+import { fsIdent, isFsKeyword } from "./fs-ident.js";
 import { fsZeroValue } from "./type-fs.js";
 import {
   byIdFieldName,
@@ -131,7 +132,7 @@ function fieldTestid(base: string, fld: FelizFormField): string {
  *  `orders-op-addLine` / `workflow-place_order`); the input carries
  *  `<base>-input-<field>` via `prop.custom` so the shared page objects drive it. */
 function renderFormInput(formField: string, fld: FelizFormField, base: string): string {
-  const value = `model.${formField}.${fld.wireName}`;
+  const value = `model.${formField}.${fld.fsName}`;
   const tidP = `prop.custom("data-testid", "${fieldTestid(base, fld)}"); `;
   if (fld.inputKind === "checkbox") {
     // A bool checkbox is always a legitimate value (checked/unchecked) — no
@@ -182,7 +183,7 @@ function renderFormInput(formField: string, fld: FelizFormField, base: string): 
     // writes `Some fileRef` into the cell.  The name of the file already chosen
     // shows below the input, so a re-render after upload is visible.
     const pick = formFileSelectMsg(formField, fld.wireName);
-    const chosen = `Html.span [ prop.className "label-text-alt"; prop.text (match model.${formField}.${fld.wireName} with | Some __f -> __f.key | None -> "") ]`;
+    const chosen = `Html.span [ prop.className "label-text-alt"; prop.text (match model.${formField}.${fld.fsName} with | Some __f -> __f.key | None -> "") ]`;
     const input = `Html.input [ ${tidP}prop.className "file-input file-input-bordered w-full"; prop.type'.file; prop.onChange (fun (file: Browser.Types.File) -> dispatch (${pick} file))${onBlur}${aria} ]`;
     return wrap(`Html.div [ prop.className "w-full"; prop.children [ ${input}; ${chosen} ] ]`);
   }
@@ -210,7 +211,7 @@ function renderFormInput(formField: string, fld: FelizFormField, base: string): 
  *  and dispatching the INDEXED setter `<setMsg> (i, v)`.  One line (offside-safe
  *  inside the row's Feliz children list). */
 function renderRowInput(fld: FelizRowField): string {
-  const value = `row.${fld.wireName}`;
+  const value = `row.${fld.fsName}`;
   const set = (v: string): string => `dispatch (${fld.setMsg} (i, ${v}))`;
   if (fld.inputKind === "checkbox") {
     return `Html.input [ prop.className "checkbox"; prop.type'.checkbox; prop.isChecked (${value} = "true"); prop.onChange (fun (v: bool) -> ${set('if v then "true" else "false"')}) ]`;
@@ -306,7 +307,7 @@ export const felizTarget: WalkerTarget = {
   // what is already in scope, emitted as an F# `let` ahead of the body (see
   // `component-emit.ts`).  So it reads BARE; `model.<Name>` (the pre-seam
   // default) named a record field the emitted `Model` never declares.
-  renderDerivedRead: (ref: StateRef, _pos: RenderPosition) => ref.name,
+  renderDerivedRead: (ref: StateRef, _pos: RenderPosition) => fsIdent(ref.name),
   // `currentUser.<claim>` in a body (D-AUTH-OIDC, the read-side of the gate) →
   // an option-match against the decoded claims on the Model; the None branch
   // (no session yet) yields the claim type's zero value so the expression stays
@@ -407,6 +408,18 @@ export const felizTarget: WalkerTarget = {
   // line so it stays offside-safe inside a Feliz `[ … ]` list.
   renderConditionalChild: (cond, thenS, elseS) =>
     `(if ${oneLine(cond)} then ${oneLine(thenS)} else ${oneLine(elseS)})`,
+  // An optional VALUE splits on `Some`/`None`, not on truthiness (M-T1.33).
+  // `renderConditionalChild` above is useless for one: its `if` wants a `bool`
+  // and a `Location id?` decodes to `string option`, and even past a
+  // `Option.isSome` test the pack's `("/locations/" + <id>)` would still be a
+  // `string` + `string option`.  A `match` answers both halves at once — it
+  // tests and unwraps in the same construct — and the caller has already
+  // rendered `present` over the name this binds.  `None` renders the plain em
+  // dash, the same absent placeholder `renderFileLink` uses.  One line, like
+  // the ternary above: the walker does not re-indent seam output, and this
+  // lands inside a Feliz children list where the offside rule bites.
+  renderOptionalSplit: ({ value, bound, present }) =>
+    `(match ${oneLine(value)} with | Some ${bound} -> ${oneLine(present)} | None -> Html.text "—")`,
   // `For { each: coll, x => <markup> }` → `yield! coll |> List.map (fun x -> …)`
   // spliced into the enclosing Feliz children list (the `yield!` and its
   // bracket-delimited body are offside-safe there).  An `empty:` arm folds into
@@ -435,17 +448,28 @@ export const felizTarget: WalkerTarget = {
   // `DestroyForm(of: <Agg>)` → a delete button that DISPATCHES `Delete<Agg> id`
   // (the route id is bound by the detail page's view fn).  The mutation `Cmd` +
   // navigate-on-success live in `update` (wired by index.ts's `collectPage
-  // Mutations`); the view only dispatches.  Falls through to the shared comment
-  // path when the `of:` arg isn't a plain aggregate ref.
+  // Mutations`); the view only dispatches.
+  //
+  // The `of:` arg is resolved through `ctx.aggregatesByName` — the SAME map
+  // `formOfAggs` (`feliz/wire.ts`) filters by when it collects the `Msg` cases.
+  // Until M-T1.31 this seam only checked that the arg was a `ref` and
+  // interpolated its raw NAME, so a `DestroyForm { of: <not an aggregate> }`
+  // emitted `dispatch (Delete<Name> id)` against a `Msg` union with no such
+  // case — `dotnet fable` FS0039 (audit findings F11 / F62).  Returning `null`
+  // now genuinely falls through to the shared give-up comment path, which is
+  // what the old comment here claimed but a plain ref never did.
+  // `loom.destroy-form-of-unresolved` (phase ⑦) makes this unreachable from
+  // valid source; this is the defence in depth behind it.
   renderDestroyForm: (call, ctx) => {
     if (call.kind !== "call") return null;
     const names = call.argNames ?? [];
     const idx = names.indexOf("of");
     const ofArg = idx >= 0 ? call.args[idx] : undefined;
-    const agg = ofArg?.kind === "ref" ? ofArg.name : undefined;
+    if (ofArg?.kind !== "ref") return null;
+    const agg = ctx.aggregatesByName.get(ofArg.name);
     if (!agg) return null;
     ctx.usesRouteId = true; // the delete dispatches with the route `id`
-    return `Html.button [ prop.className "btn btn-error"; prop.onClick (fun _ -> dispatch (Delete${upperFirst(agg)} id)); prop.text "Delete ${upperFirst(agg)}" ]`;
+    return `Html.button [ prop.className "btn btn-error"; prop.onClick (fun _ -> dispatch (Delete${upperFirst(agg.name)} id)); prop.text "Delete ${upperFirst(agg.name)}" ]`;
   },
 
   // `FileLink(<file-ref>)` → a plain daisyUI download anchor.  Feliz forks the
@@ -480,7 +504,11 @@ export const felizTarget: WalkerTarget = {
     const fieldIdx = argNames.indexOf("field");
     const fieldArg = fieldIdx >= 0 ? call.args[fieldIdx] : undefined;
     if (!ofArg || fieldArg?.kind !== "literal") {
-      return giveUp(felizTarget, "ProvenanceInfo: missing record or field");
+      return giveUp(
+        felizTarget,
+        "loom.page-primitive-arg-missing",
+        "ProvenanceInfo: missing record or field",
+      );
     }
     const lineage = `${emitExpr(ofArg, ctx)}.${String(fieldArg.value)}.${PROVENANCE_LINEAGE_FIELD}`;
     const rule =
@@ -541,7 +569,11 @@ export const felizTarget: WalkerTarget = {
     const argNames = call.argNames ?? [];
     const opRef = (call.args ?? []).find((_, i) => !argNames[i]);
     if (opRef?.kind !== "member" || opRef.receiver.kind !== "ref") {
-      return giveUp(felizTarget, "Action: first argument must be <instance>.<operation>");
+      return giveUp(
+        felizTarget,
+        "loom.page-primitive-arg-invalid",
+        "Action: first argument must be <instance>.<operation>",
+      );
     }
     const aggName = ctx.paramTypes?.get(opRef.receiver.name);
     const agg = aggName ? ctx.aggregatesByName.get(aggName) : undefined;
@@ -551,6 +583,7 @@ export const felizTarget: WalkerTarget = {
     if (!agg || !op) {
       return giveUp(
         felizTarget,
+        "loom.page-ref-unreachable",
         `Action(${opRef.receiver.name}.${opRef.member}): no parameterless public operation in scope (use OperationForm for an op with parameters)`,
       );
     }
@@ -814,7 +847,7 @@ export const felizTarget: WalkerTarget = {
         if (named === undefined && cursor === params.length) cursor -= 1;
         continue;
       }
-      fields.push(`${param.name} = ${emitExpr(arg, ctx)}`);
+      fields.push(`${fsIdent(param.name)} = ${emitExpr(arg, ctx)}`);
     }
     for (const p of params) {
       if (p.type.kind !== "slot") continue;
@@ -828,7 +861,7 @@ export const felizTarget: WalkerTarget = {
           : walked.length === 1
             ? walked[0]!
             : `React.fragment [ ${walked.join("; ")} ]`;
-      fields.push(`${p.name} = ${value}`);
+      fields.push(`${fsIdent(p.name)} = ${value}`);
     }
     // PAREN-WRAPPED.  An F# function application is not self-delimiting, so a
     // bare `Panel model dispatch {| … |}` spliced into a child slot is (a)
@@ -916,12 +949,22 @@ export const felizTarget: WalkerTarget = {
    *
    *  This mirrors the method-call mapping `fs-expr.ts` applies on the update
    *  path — the same members, reached from the view side. */
+  /** F# spelling for a model-derived identifier — a page/component param, a
+   *  shell local, a `let` binding.  ~70 F# keywords are legal Loom field and
+   *  param names (`member`, `end`, `val`, `base`, …) and the bare emit is a
+   *  parse error, so those take the double-backtick spelling; everything else
+   *  falls through `undefined` and is emitted unchanged.  F-022. */
+  escapeIdent: (name: string) => (isFsKeyword(name) ? fsIdent(name) : undefined),
+
   renderMemberRead: ({ receiver, member }) => {
     switch (member) {
       case "length":
         return `(${receiver}.Length)`;
       default:
-        return undefined;
+        // A wire-record field named after an F# keyword (`member`, `end`, `val`,
+        // …) must be read through the double-backtick spelling — `row.member` is
+        // a parse error, `` row.``member`` `` is the same field.  F-022.
+        return isFsKeyword(member) ? `${receiver}.${fsIdent(member)}` : undefined;
     }
   },
 
@@ -983,7 +1026,12 @@ export const felizTarget: WalkerTarget = {
   renderSortedRows({ rowsExpr, sortKey, sortDir, columns }) {
     const k = `model.${upperFirst(sortKey.name)}`;
     const d = `model.${upperFirst(sortDir.name)}`;
-    const arms = columns.map((f) => `| "${f}" -> compare a.${f} b.${f}`).join(" ");
+    // The match LABEL is the wire column name; the two field READS are F#
+    // identifiers, so a column named after an F# keyword needs the
+    // double-backtick spelling (`compare a.``member`` b.``member``).  F-022.
+    const arms = columns
+      .map((f) => `| "${f}" -> compare a.${fsIdent(f)} b.${fsIdent(f)}`)
+      .join(" ");
     // No sortable column resolved a field → nothing to sort by; leave the rows
     // alone rather than emitting a `match` whose only arm is the wildcard.
     if (arms === "") return rowsExpr;
@@ -1103,8 +1151,8 @@ export const felizTarget: WalkerTarget = {
   // dispatches the Msg.  Ignores `bodyStmts` (they belong to `update`).
   renderNamedHandler: (name, param) =>
     param
-      ? `    let ${name} ${param} = dispatch (${msgCase(name)} ${param})`
-      : `    let ${name} () = dispatch ${msgCase(name)}`,
+      ? `    let ${fsIdent(name)} ${fsIdent(param)} = dispatch (${msgCase(name)} ${fsIdent(param)})`
+      : `    let ${fsIdent(name)} () = dispatch ${msgCase(name)}`,
 
   // --- Expression-syntax leaves (F#) — forwarded to the shared table ------
   exprLiteral: (lit, value) => FS_LEAVES.literal(lit, value),

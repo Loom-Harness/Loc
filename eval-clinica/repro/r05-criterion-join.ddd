@@ -1,0 +1,11 @@
+// Probe: can a criterion filter on a field of a REFERENCED aggregate?
+// "a patient-portal user sees only their own appointments" needs
+// Appointment -> Patient.userRef == currentUser.id
+context C {
+  aggregate Patient { userRef: string  derived display: string = userRef }
+  repository Patients for Patient { }
+  aggregate Appointment { patient: Patient id  startAt: datetime }
+  repository Appointments for Appointment { }
+
+  criterion MineViaJoin of Appointment = patient.userRef == currentUser.id
+}

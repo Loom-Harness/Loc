@@ -17,10 +17,16 @@ import {
   type WirePrimitive,
   wireTypeInfo,
 } from "../../ir/types/wire-types.js";
-import { collectReachableTypes } from "../../ir/util/reachable-types.js";
+import {
+  collectReachableTypes,
+  findValueObjectInScope,
+  valueObjectPool,
+} from "../../ir/util/reachable-types.js";
 import { snake, upperFirst } from "../../util/naming.js";
 import { numericEncode } from "../_numeric/target.js";
 import { PROVENANCED_REQUEST_ERROR } from "../_payload/provenanced-wire.js";
+import { recordPayloadOf } from "../_payload/workflow-param-payloads.js";
+import { MONEY_MAX_EXCLUSIVE, MONEY_RANGE_MESSAGE } from "../money-scale.js";
 import { csProvSibling, PROVENANCED_CS_RECORD } from "./emit/provenance.js";
 import { CS_NUMERIC } from "./numeric-codec.js";
 import { renderCsExpr } from "./render-expr.js";
@@ -412,14 +418,26 @@ function wireParseGuard(
   site: WireArgSite,
   label: string,
   tryParse: (outVar: string) => string,
+  /** An additional, POST-PARSE predicate over the out-variable, with its own
+   *  refusal message.  Money's range check (M-T6.60 divergence 3) is the only
+   *  user: a value can parse and still not fit `NUMERIC(19,4)`, and that is a
+   *  magnitude question the COLUMN answers rather than a second format guard —
+   *  so it needs its own message, nested INSIDE the successful parse. */
+  postParse?: { predicate: (outVar: string) => string; message: string },
 ): string {
   const outVar = `__wp_${expr.replace(/[^A-Za-z0-9]/g, "_")}`;
+  const refuse = (message: string): string =>
+    `throw new global::${site.ns}.Domain.Common.WireFormatException(` +
+    `${JSON.stringify(site.pointer)}, ${message})`;
   // Interpolated so the message quotes the value the caller actually sent.
   // `{{` / `}}` are not needed: the only interpolation hole is the raw value.
-  const message = `$"Invalid ${label}: \\"{${expr}}\\""`;
+  const ok = postParse
+    ? `(${postParse.predicate(outVar)}\n                    ? ${outVar}\n                    : ` +
+      `${refuse(`$"${postParse.message}: \\"{${expr}}\\""`)})`
+    : outVar;
   return (
-    `${tryParse(outVar)}\n                ? ${outVar}\n                : throw new global::${site.ns}` +
-    `.Domain.Common.WireFormatException(${JSON.stringify(site.pointer)}, ${message})`
+    `${tryParse(outVar)}\n                ? ${ok}\n                : ` +
+    refuse(`$"Invalid ${label}: \\"{${expr}}\\""`)
   );
 }
 
@@ -473,6 +491,13 @@ export function wireToCommandArgument(
         // Wire string → System.Decimal.  InvariantCulture so a locale's
         // comma-vs-dot doesn't flip the parse — and TryParse so `"12,50"`
         // answers 422 like node's `moneySchema` instead of 500 (M-T6.48).
+        // The second guard is RANGE, not format: a value can parse as a
+        // `decimal` and still not fit NUMERIC(MONEY_PRECISION, MONEY_WIRE_SCALE),
+        // in which case it reached the DATABASE and came back a 500 for a client
+        // fault (M-T6.60 divergence 3).  `decimal.TryParse` already refuses past
+        // ~29 significant digits, so .NET answered 4xx for the 40-digit probe
+        // that motivated the row — but not for a 16-digit one, which is the same
+        // defect a few digits earlier.
         return wireParseGuard(
           expr,
           site,
@@ -480,6 +505,10 @@ export function wireToCommandArgument(
           (out) =>
             `decimal.TryParse(${expr}, NumberStyles.Number, CultureInfo.InvariantCulture, ` +
             `out var ${out})`,
+          {
+            predicate: (out) => `System.Math.Abs(${out}) < ${MONEY_MAX_EXCLUSIVE}m`,
+            message: MONEY_RANGE_MESSAGE,
+          },
         );
       }
       return expr;
@@ -490,7 +519,7 @@ export function wireToCommandArgument(
       // the wire member name by JsonStringEnumConverter) — pass it through.
       return expr;
     case "valueObject": {
-      const vo = ctx.valueObjects.find((v) => v.name === info.base);
+      const vo = findValueObjectInScope(ctx, info.base);
       if (!vo) return expr;
       const args = vo.fields
         .map((f) =>
@@ -502,8 +531,27 @@ export function wireToCommandArgument(
         .join(", ");
       return `new ${info.base}(${args})`;
     }
-    case "entity":
-      return expr;
+    case "entity": {
+      // A declared record PAYLOAD reaching a command argument is the workflow
+      // explicit-command form (`create(c: FileClaim)`).  Its wire record and
+      // its domain record are two distinct types, so the value has to be
+      // materialized field by field exactly as a value object is — passing the
+      // wire record straight through was CS1503 the moment the domain record
+      // existed, and CS0246 before that (#2864 D7/T2).  Every OTHER `entity`
+      // here is a containment part, which no command argument carries, so it
+      // keeps the pass-through.
+      const pl = recordPayloadOf(t, ctx);
+      if (!pl) return expr;
+      const args = pl.fields
+        .map((f) =>
+          wireToCommandArgument(`${expr}.${upperFirst(f.name)}`, f.type, ctx, {
+            ...site,
+            pointer: `${site.pointer}/${f.name}`,
+          }),
+        )
+        .join(", ");
+      return `new ${pl.name}(${args})`;
+    }
     case "provenanced":
       throw new Error(PROVENANCED_REQUEST_ERROR);
   }
@@ -534,8 +582,15 @@ export function collectWireUsings(
     return into;
   }
   if (info.refKind === "valueObject") {
-    const vo = ctx.valueObjects.find((v) => v.name === info.base);
+    const vo = findValueObjectInScope(ctx, info.base);
     if (vo) for (const f of vo.fields) collectWireUsings(f.type, ctx, into);
+  }
+  // A payload param materializes field by field too (see the `entity` arm of
+  // `wireToCommandArgument`), so a `money` / `datetime` field inside one
+  // reaches the same `System.Globalization` parse helpers.
+  if (info.refKind === "entity") {
+    const pl = recordPayloadOf(t, ctx);
+    if (pl) for (const f of pl.fields) collectWireUsings(f.type, ctx, into);
   }
   return into;
 }
@@ -596,7 +651,7 @@ export function projectToResponse(
       // (JsonStringEnumConverter serialises it to the wire member name).
       return domainExpr;
     case "valueObject": {
-      const vo = ctx.valueObjects.find((v) => v.name === info.base);
+      const vo = findValueObjectInScope(ctx, info.base);
       if (!vo) return domainExpr;
       const args = vo.fields
         .map((f) => projectToResponse(`${domainExpr}.${upperFirst(f.name)}`, f.type, ctx, names))
@@ -658,7 +713,7 @@ export function domainToRequestExpr(
       // Request DTO field is the enum type — emit the value directly.
       return domainExpr;
     case "valueObject": {
-      const vo = ctx.valueObjects.find((v) => v.name === info.base);
+      const vo = findValueObjectInScope(ctx, info.base);
       if (!vo) return domainExpr;
       const args = vo.fields
         .map((f) => domainToRequestExpr(`${domainExpr}.${upperFirst(f.name)}`, f.type, ctx))
@@ -999,8 +1054,15 @@ export function valueObjectsUsedBy(
       for (const d of part.derived) yield d.type;
     }
   };
-  const { valueObjects } = collectReachableTypes(seeds(), ctx.valueObjects);
-  return ctx.valueObjects.filter((v) => valueObjects.has(v.name));
+  // POOL, not emission list: a cross-context `valueobject` (declared in a
+  // sibling context, referenced here) has to be resolvable or the emitted
+  // `<Vo>Request` / `<Vo>Response` reference dangles — .NET's per-namespace
+  // DTO records carry no `using` back to another aggregate's Responses
+  // namespace.  The reachability filter below still keeps only what this
+  // aggregate's surface actually names, so an unused sibling VO emits nothing.
+  const pool = valueObjectPool(ctx);
+  const { valueObjects } = collectReachableTypes(seeds(), pool);
+  return pool.filter((v) => valueObjects.has(v.name));
 }
 
 export function csIdValueClrType(idValueType: IdValueType): string {

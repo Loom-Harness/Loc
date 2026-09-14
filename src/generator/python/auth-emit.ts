@@ -2,7 +2,19 @@ import type { AuthIR, AuthValueIR, FieldIR, TypeIR, UserIR } from "../../ir/type
 import { AUTH_BASE_PATH } from "../../util/api-base.js";
 import { lines } from "../../util/code-builder.js";
 import { snake } from "../../util/naming.js";
+import { claimIdTargets } from "../_auth/claim-types.js";
+import { devStubIdExpr } from "../_auth/dev-stub-id.js";
 import { renderPyType } from "./render-expr.js";
+
+/** The branded id NewTypes an auth module must import from `app.domain.ids`
+ *  because the claim shape names them (`customerId: Customer id?` annotates
+ *  as `CustomerId | None`).  Both the `User` dataclass and the OIDC verifier
+ *  name them — and the verifier's annotation sits INSIDE `cast(...)` in a
+ *  function body, so a missing import there is not a lint nit but a
+ *  `NameError` raised on every token verification (D6/P2). */
+function pyIdClaimImports(user: UserIR): string[] {
+  return claimIdTargets(user.fields).map((t) => `${t}Id`);
+}
 
 // ---------------------------------------------------------------------------
 // Python-side auth scaffolding emitted per deployable when
@@ -106,8 +118,11 @@ function stubValueForType(t: TypeIR): string {
         default:
           return '""';
       }
+    // Already constructed through the NewType factory — the only one of the
+    // five stub tables that did.  Routed through the shared arm so it stays
+    // that way (and widens with the id's value type).
     case "id":
-      return `${t.targetName}Id("00000000-0000-0000-0000-000000000000")`;
+      return devStubIdExpr(t, "python");
     case "array":
       return "[]";
     default:
@@ -200,14 +215,7 @@ function renderUserModule(
     "            return None",
   ];
   // Id-typed claims (`Customer id?`) reference the branded NewTypes.
-  const idNames = [
-    ...new Set(
-      user.fields.flatMap((f) => {
-        const t = f.type.kind === "optional" ? f.type.inner : f.type;
-        return t.kind === "id" ? [`${t.targetName}Id`] : [];
-      }),
-    ),
-  ].sort();
+  const idNames = pyIdClaimImports(user);
   return lines(
     '"""User-claim shape decoded from the inbound JWT.  Auto-generated.',
     "",
@@ -552,6 +560,12 @@ function renderOidcModule(user: UserIR, auth: AuthIR): string {
   if (!scopeList.includes("offline_access")) scopeList.push("offline_access");
   const scopes = scopeList.join(" ");
   const buildUser = renderBuildUserKwargs(user, auth);
+  // `_build_user` annotates each id-typed claim inside `cast(...)`, which
+  // Python EVALUATES on every call — so this import is load-bearing at
+  // runtime, not just for the type checker (D6/P2).
+  const oidcIds = pyIdClaimImports(user);
+  const oidcIdImport =
+    oidcIds.length > 0 ? `from app.domain.ids import ${oidcIds.join(", ")}\n` : "";
   return `"""Generated OIDC verifier + redirect handshake.  Auto-generated.
 
 Validates the inbound JWT against the issuer's JWKS and maps the configured
@@ -575,7 +589,7 @@ from fastapi.responses import JSONResponse, RedirectResponse, Response
 
 from app.auth.user import User
 from app.auth.verifier import register_user_verifier
-
+${oidcIdImport}
 _SCOPES = ${JSON.stringify(scopes)}
 _AUDIENCE = ${auth.oidc.audience ? pyEnvOverridable("OIDC_AUDIENCE", auth.oidc.audience) : 'os.environ.get("OIDC_AUDIENCE")'}
 

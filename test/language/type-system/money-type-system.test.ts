@@ -94,7 +94,8 @@ context Billing {
 
 describe("money — soft keyword (backward-compat with pre-#498 .ddd)", () => {
   // `money` is a hard keyword only in `PrimitiveType` (`amount:
-  // money`) and `MoneyLit` (`money("…")`).  Everywhere else —
+  // money`) and `PrimitiveConversion` (`money("…")` / `money(x)`).
+  // Everywhere else —
   // field / parameter / property names, expression NameRefs — it
   // must remain admissible as an identifier so pre-existing files
   // that named a field `money` (like web/src/examples/pokemon-

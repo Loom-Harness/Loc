@@ -1,4 +1,4 @@
-import type { NumericTarget } from "../../_numeric/target.js";
+import { type NumericTarget, numericEncode } from "../../_numeric/target.js";
 import { MONEY_WIRE_SCALE } from "../../money-scale.js";
 
 // ---------------------------------------------------------------------------
@@ -50,3 +50,44 @@ export const ELIXIR_NUMERIC: NumericTarget = {
     "find-param": (e) => `Decimal.new(to_string(${e}))`,
   },
 };
+
+/** The full `defp __money_round/1` clause set every vanilla module emits when
+ *  its wire shape carries `money` (`wire-serialize.ts`, and `controller-serialize`
+ *  through it, `query-projections-emit.ts`, `realtime-emit.ts`).  One definition
+ *  so the copies cannot drift.
+ *
+ *  The BINARY clause is not defensive padding — it is the second reader, the
+ *  exact twin of the one `__decimal_num/1` already carries.  A value object
+ *  persists as a plain `:map` (jsonb), and the changeset `cast` stores the RAW
+ *  WIRE VALUE of every subfield, so a `money` subfield lands in the column as
+ *  the decimal STRING the client sent (`"1200.00"`).  Coming back out it is
+ *  still a bare binary, the `%Decimal{}` clause never matches, and with only
+ *  the two original clauses the read CRASHED:
+ *
+ *      ** (FunctionClauseError) no function clause matching in
+ *         DWeb.PersonController.__money_round/1
+ *           __money_round("1200.00")
+ *           serialize_addr/1 -> serialize/1 -> show/2     => HTTP 500
+ *
+ *  i.e. EVERY read of an aggregate holding a value object with a `money`
+ *  subfield 500s — optionality has nothing to do with it.  Parsing the binary
+ *  reproduces the RS-12 oracle (`"1200.0000"`) from either storage form: the
+ *  `%Decimal{}` an `operation`'s `force_change` writes, and the string `cast`
+ *  writes.  A JSON NUMBER (`1200` — the wire allows it) rides the numeric
+ *  clause to the same place; anything else passes through rather than raising. */
+export function elixirMoneyRoundHelper(): string {
+  const round = (e: string): string => numericEncode(ELIXIR_NUMERIC, "money", "dto-map", e);
+  return [
+    `  defp __money_round(nil), do: nil`,
+    `  defp __money_round(%Decimal{} = dec), do: ${round("dec")}`,
+    `  defp __money_round(bin) when is_binary(bin) do\n` +
+      `    case Decimal.parse(bin) do\n` +
+      `      {dec, ""} -> ${round("dec")}\n` +
+      `      _ -> bin\n` +
+      `    end\n` +
+      `  end`,
+    `  defp __money_round(num) when is_integer(num) or is_float(num),\n` +
+      `    do: ${round("Decimal.new(to_string(num))")}`,
+    `  defp __money_round(other), do: other`,
+  ].join("\n\n");
+}

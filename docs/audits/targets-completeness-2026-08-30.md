@@ -34,9 +34,15 @@ reading the old text would have built the wrong thing:
 - **`static-subpath-405-node-only`** — the title is now exactly backwards. #2764 closed node, python,
   java and dotnet; **elixir** is the only arm left, answering 422 from `:__cast_path_id` where the
   others answer 405 + `Allow`.
-- **`F2-MT640-SORT-DEAD`** — filed as "sortable headers are a no-op refetch". There are no sortable
-  headers: the non-paged page emits no `phx-click` at all, just dead `sort_key`/`sort_dir` assigns
-  beside a zero-arg `list_orders()`.
+- **`F2-MT640-SORT-DEAD`** — filed as "sortable headers are a no-op refetch"; corrected once to "there
+  are no sortable headers, just dead `sort_key`/`sort_dir` assigns beside a zero-arg `list_orders()`";
+  **corrected again 2026-09-11 (wave C1, packet 1e)**, because the dead assigns are the residue, not
+  the defect. The scaffold macro passes `sortKey:`/`sortDir:`/`page:`/`pageSize: 10` to the Table in
+  BOTH modes, and the shared walker honours them CLIENT-side when the read is not server-paged
+  (`_walker/primitives/table.ts` — `serverControls` is true there, `renderSortedRows` sorts, the pager
+  slices). HEEx's parallel engine gates on `serverPaged` instead (`heex-primitives.ts:670`), so the
+  same `.ddd` sorts and pages on react/vue/svelte/angular and renders an unsorted, unpaged table on
+  Phoenix. The row is a cross-frontend capability gap (M), not an S-sized assign cleanup.
 - **`queryview-lambda-int-plus-literal-concat`** — filed against the JS frontends as a wrong string.
   It is also a **hard build break** on feliz (`int + string`) and flutter (`int + String`).
 - **`dapper-no-schema-evolution`** — the "silently unapplied" half is stale; a second generate exits 1.
@@ -135,21 +141,21 @@ gate already encodes the row's claim, run the gate.
 
 | metric | value |
 |---|---|
-| open rows | **140** |
+| open rows | **132** |
 | P0 | 0 |
-| P1 | 6 |
-| P2 | 11 |
+| P1 | 1 |
+| P2 | 10 |
 | P3 | 34 |
-| P4 | 80 |
+| P4 | 78 |
 | P5 | 9 |
-| kind: silent / honest / breadth / mission / stale-prose | 17 / 34 / 22 / 58 / 9 |
-| confidence: proven / likely / suspected | 28 / 111 / 1 |
+| kind: silent / honest / breadth / mission / stale-prose | 12 / 33 / 21 / 57 / 9 |
+| confidence: proven / likely / suspected | 23 / 108 / 1 |
 | class: faulty-fix / regression | 1 / 0 |
-| size S / M / L | 36 / 61 / 43 |
-| provenance: fleet1-only / fleet2-only / corroborated by both | 124 / 14 / 1 |
-| claimed by an open PR | 61 |
-| done / merged | 148 |
-| declined (not a gap: stale / breadth / duplicate / decided) | 6 |
+| size S / M / L | 35 / 56 / 41 |
+| provenance: fleet1-only / fleet2-only / corroborated by both | 119 / 10 / 1 |
+| claimed by an open PR | 60 |
+| done / merged | 157 |
+| declined (not a gap: stale / breadth / duplicate / decided) | 7 |
 | conflicts | 10 |
 | checkedOk entries | 146 |
 | rows scheduled into waves | 134 across 13 packets |
@@ -162,24 +168,15 @@ Sorted P0 (security / data-integrity, silent, proven) → P1 (other silent prove
 
 | P | id | kind/class | conf | targets | size | title |
 |---|---|---|---|---|---|---|
-| P1 | `F2-CB-C7-domainservice-in-requires-guard` | silent | prov | node, java, python | S | A `domainService` call inside a `requires` authorization guard passes validation and emits an unresolvable reference on node, java and python (dotnet fixed in #2708; elixir always fully-qualified) |
-| P1 | `F2-MT640-SORT-DEAD` | silent | prov | elixir | S | The non-paged elixir list page assigns dead `sort_key`/`sort_dir`/`page_num` state no template reads — M-T6.40 shipped option (a) and left the assigns behind |
-| P1 | `F2-CB-C1-paged-nonrelational` | silent | prov | dotnet, python | M | `find … paged` on an eventLog / document aggregate emits a paged route against an unpaged repository on dotnet and python (node, java and elixir fixed; the `embedded` arm fixed everywhere) |
-| P1 | `F2-CFE-1` | silent | prov | flutter | M | `navigate(<Page>)` in a page `action` body is still dropped as a Dart comment on FLUTTER — the other six frontends navigate (the feliz codegen crash this row named is fixed) |
-| P1 | `F2-XB-4` | silent | prov | dotnet, java, python, elixir | M | A `let` in a folded-projection `on(e)` body has its DECLARATION dropped and its USE kept on dotnet, java, python and elixir — the shape the impure-fold gate explicitly blesses (node fixed) |
-| P1 | `flutter-form-field-drops` | silent | prov | flutter | M | Four Flutter form-field drops are still emitted as Dart COMMENTS, not diagnostics — the parity freeze is unchanged since the 08-17 snapshot |
-| P2 ! | `dapper-no-schema-evolution` | silent | like | dotnet | L | `persistence: dapper` has no ALTER path at all — every post-first-boot model change is silently unapplied (migrations-on-adapters slice 2) |
+| P1 | `F2-MT640-SORT-DEAD` | silent | prov | elixir | M | HEEx wires a Table's `sortKey`/`sortDir`/`page` ONLY when `serverPaged`, so a NON-paged scaffolded list silently loses the client-side sort + pagination all four JSX frontends render from the same `.ddd` — the dead `sort_key`/`sort_dir`/`page_num` assigns are the residue, not the defect |
 | P2 | `F2-W-06` | silent | like | elixir | S | elixir persists `datetime` at SECOND precision (`:utc_datetime`) where the other four use TIMESTAMPTZ(µs) |
 | P2 | `G2646-open-heex-layout-inert` | silent | like | elixir | M | #2646 documented, NOT fixed: on HEEx a non-server-paged Table gets no pager and the `i18nFormat` wrapper is dropped (the Grid arm of this row was stale and is retired) |
 | P2 | `M-T1.16-invariant-validation-feliz-flutter` | silent | like | feliz, flutter | M | Invariant-derived client-side form validation is missing on BOTH self-hosting frontends — Feliz and Flutter enforce "Required" only |
-| P2 | `M-T5.14-reading-service-readport-not-threaded` | silent | like | dotnet, java, python, elixir | M | A `reading` domain service called from an explicit `commandHandler`/`queryHandler` emits a port-less call that does not compile on dotnet, java, python and elixir (node threads it; the workflow caller is correct everywhere; the aggregate-body caller is honestly refused) |
 | P2 | `queryview-lambda-int-plus-literal-concat` | silent | like | react, vue, svelte, angular, feliz, flutter | M | An int LITERAL operand of `+` against a read-record member in a page body lowers to string concatenation — silently wrong on the four JS frontends (`o.qty + String(1)`) and a HARD BUILD BREAK on feliz and flutter |
 | P2 | `schemathesis-F11-int32-range` | silent | like | elixir | M | F11 — ELIXIR publishes a bare `%OpenApiSpex.Schema{type: :integer}` for an `int` body field against an int4 column, so a contract-conforming value 500s (node and python now publish the bound; dotnet and java always did) |
 | P2 | `sourcemap-feliz-flutter-not-emitted` | silent | like | feliz, flutter | M | `--sourcemap` records NOTHING for the feliz and flutter frontends — the plan files it as a test-parity skew, but the emission is absent |
-| P2 | `static-subpath-405-node-only` | silent | like | elixir | M | The F8 static-sub-path 405 guard is missing on ELIXIR alone — a wrong verb on a static sub-path matches the sibling `/:id` route and answers its 422 (#2764 closed the other four) |
 | P2 | `M-T1.11-domain-floor-message-code` | silent | like | node, dotnet, java, python | L | M-T1.11 item (c) — `DomainError` carries no `code` on node, dotnet, java and python, so a rule enforced only at the domain floor is unlocalizable (elixir partly fixed: preconditions and invariants, not the value-object floor) |
 | P2 | `feliz-navbar-ignores-page-requires` | silent | prov | feliz | S | Feliz's default navbar advertises routes the backend refuses — `renderNavbar` never reads `page.requires` |
-| P3 ! | `G2646-open-projection-on-event-no-channel` | honest | like | node, dotnet, java, python, elixir | M | `projection … on(Event)` with no `channel` carrying it never folds on ANY backend — now honestly warned by `loom.projection-event-uncarried` rather than silent |
 | P3 | `F2-CFE-11` | honest | prov | angular, flutter | S | `testid:` on `CreateForm` is silently dropped on Angular and Flutter (honoured on react/vue/svelte/feliz) |
 | P3 | `F2-W-09` | honest | prov | node, elixir, dotnet, java, python | S | A `File` field is an inline anonymous object on node/elixir and a named `FileRef` component on dotnet/java/python |
 | P3 | `F2-W-12` | honest | like | java | S | Optional-field nullability: JAVA publishes a non-nullable schema for fields it serializes as `null` (elixir now emits `nullable: true`) |
@@ -190,7 +187,6 @@ Sorted P0 (security / data-integrity, silent, proven) → P1 (other silent prove
 | P3 | `F2-EXPR-7` | honest | like | node, elixir, java, dotnet, python | M | `.first` on an empty collection has no cross-backend contract — 3 backends throw, node and elixir return an undefined/nil typed as non-optional |
 | P3 | `F2-W-08` | honest | prov | dotnet, java, node, python, elixir | M | A `valueobject` aggregate field publishes ONE shared component on node/python/elixir and TWO (`<VO>Request` + `<VO>Response`) on dotnet/java |
 | P3 | `F2-W-14` | honest | susp | dotnet | M | dotnet likely publishes an EMPTY schema for a union-returning operation's 200 body (no `UseOneOfForPolymorphism`) |
-| P3 | `G2646-open-node-mounts-ui-false` | honest | like | node | M | #2646 documented, NOT fixed: node is the only backend with mountsUi: false |
 | P3 | `M-T1.10-handler-vocabulary` | honest | like | react, vue, svelte, angular, feliz, flutter, phoenixLiveView | M | M-T1.10 — `on <channel>.<Event>` handler bodies remain a closed two-verb vocabulary (`toast` + `refetch`) |
 | P3 | `M-T1.20-feliz-match-await` | honest | like | feliz | M | M-T1.20 — `loom.feliz-async-effect-unsupported` residue is narrower than documented: only a route-id-less host and a non-aggregate-instance subject stay gated |
 | P3 | `M-T3.7-e-claim-typed-capability-fields` | honest | like | macros, enrich, validator | M | `tenantOwned` still hardcodes `tenantId: string`, so a `guid` claim is refused |
@@ -205,7 +201,6 @@ Sorted P0 (security / data-integrity, silent, proven) → P1 (other silent prove
 | P3 | `M-T5.8-lifecycle-operations` | honest | prov | dotnet, elixir, java, language, node, python | L | Lifecycle-operations phases 3–5 — named lifecycle actions are now REFUSED rather than silently dropped, but still not emitted as routes |
 | P3 | `M-T6.35` | honest | prov | dotnet, node, elixir | L | Persistence-adapter capability gaps — five honest gates still live |
 | P3 | `columnless-directtable-projection-emitters` | honest | like | node, dotnet, java, python, elixir | L | Direct-table query-time projections still cannot read event-log / document-jsonb / TPC-base storage on ANY backend — the universal gate is the whole answer |
-| P3 | `dapper-tenancy-hierarchy-unsupported` | honest | like | dotnet | L | `tenancy-hierarchy` is the sole surviving `DAPPER_UNSUPPORTED` entry — hierarchical tenancy's capability filter is outside the Dapper SQL subset |
 | P3 | `heex-datagrid-gap` | honest | like | flutter, phoenixLiveView | L | `DataGrid` is still the one TSX-rendered primitive with no HEEx renderer |
 | P3 | `job-construct-unbuilt` | honest | like | node, dotnet, elixir, python, java | L | M-T4.6 — the `job` construct and templated/HTML email (4.6-email-c) are designed but unbuilt |
 | P3 | `m-t4-8-contract-typed-resources` | honest | like | node, dotnet, elixir, python, java | L | M-T4.8 residual — the `contract` typed-resource declaration (inbound `from openapi(...)` clients) is unbuilt; `need ⊆ sourceType` activation is substantially shipped |
@@ -231,7 +226,6 @@ Sorted P0 (security / data-integrity, silent, proven) → P1 (other silent prove
 | P4 | `m-t2-9-datasource-bindings-done` | mission | like | node, dotnet, elixir, python, java | S | M-T2.9 — `dataSources:` bindings and the capability matrix both ship (relocated, not missing); only per-deployable outbox overrides remain |
 | P4 | `style-adapter-dead-emit-methods` | breadth | like | node, dotnet, java, elixir | S | M-T9.2's dead-`emit*` class recurs one adapter over: `StyleAdapter.emitEndpoint/emitHandlerOrService/emitDi` reach the emit path zero times |
 | P4 | `G2644-M-T5.23-long-contract` | mission | like | node, python, java, dotnet | M | #2644 F13 / M-T5.23 — `long` has no contract: JS-number storage and float() aggregates corrupt past 2^53; int-overflow is 3-way divergent |
-| P4 | `G2644-M-T9.38-frontend-runtime-legs` | breadth | prov | feliz | M | #2644 F17 / M-T9.38 — FELIZ still has no runtime leg at all, and neither it nor the landed flutter leg (#2663) is numeric-rich |
 | P4 | `G2667-D5-handler-atomicity-asymmetry` | mission | like | java, dotnet, node | M | Debt: handler atomicity asymmetry — java handlers are class-@Transactional, .NET/node commit per SaveAsync |
 | P4 | `G2667-F4-realtime-plan-contract` | mission | like | node, dotnet, java, python, elixir | M | Architecture: give realtime a plan-level contract (streams inherit deployable auth; durable events tee at write-time) |
 | P4 | `M-T1.10-phoenix-sse-no-rooms` | mission | like | elixir | M | M-T1.10 — the Phoenix SSE relay implements no tenant ROOMS: every tenant-scoped event degrades to a broadcast refetch ticket |
@@ -267,7 +261,6 @@ Sorted P0 (security / data-integrity, silent, proven) → P1 (other silent prove
 | P4 | `override-parity-non-node-routers` | breadth | like | node, dotnet, java, python, elixir | M | M-T9.25 round-2 probe 5: 'one override moves EVERY router' is asserted per-file on node only; the workflow/extern/projection routers are uncensused on all five |
 | P4 | `timers-e2e-leg-missing` | breadth | like | node, dotnet, elixir, python, java | M | No standing runtime gate for timers — every fire / single-fire / catch-up proof to date is a per-PR hand-run (M-T4.1) |
 | P4 | `G2644-M-T5.22-decimal-arithmetic-rule` | mission | prov | node, dotnet, java, python, elixir | L | #2644 F11 / M-T5.22 — decimal arithmetic has no governing rule: 0.1+0.2 diverges on the wire AND in storage across backends |
-| P4 | `G2646-open-python-no-realization-axes` | mission | like | python | L | #2646 documented, NOT fixed: python has no realization axes (no directoryLayout: menu, no second persistence adapter) |
 | P4 | `G2667-C5-outbox-insert-outside-tx` | mission | like | node, dotnet | L | 08-17 register #5: workflow/extern/timer outbox inserts sit outside any transaction (node AND .NET) |
 | P4 | `M-T1.10-realtime-no-runtime-e2e` | breadth | prov | node, dotnet, java, python, elixir | L | M-T1.10 — the realtime SSE wire (incl. the security-relevant tenant-room routing) has NO runtime e2e on any backend; no cross-tenant isolation test exists |
 | P4 | `M-T1.13-menu-reform` | mission | like | react, vue, svelte, angular, feliz, flutter, phoenixLiveView | L | M-T1.13 — implicit sidebar derivation, the per-page `menu {}` bag, and the overloaded `menu` keyword all still ship |
@@ -302,6 +295,11 @@ Sorted P0 (security / data-integrity, silent, proven) → P1 (other silent prove
 | P5 | `register-site-pointers-stale` | stale-prose | like | dotnet, elixir, java, node, python, register | S | Four register rows still cite a stale `file:line` emission site (down from 36 of 46) — the gate only checks the string SHAPE, so nothing catches the drift |
 | P5 | `surface-dangling-emit-hooks` | stale-prose | like | node, dotnet, java, python, elixir | S | `PlatformSurface` doc comments still reference `emitAuditInit` / `emitI18nAdapter`, hooks that do not exist |
 | P5 | `t6-duplicate-heading-M-T6.43` | stale-prose | like | node, dotnet, java, python, elixir | S | T6 carries TWO `## M-T6.60` headings — the sixth dup-ID incident (the M-T6.43 instance this row was filed against was fixed; the class was not) |
+| P2 | `M-T5.14-reading-service-readport-not-threaded` | silent | like | dotnet, java, elixir | M | A `reading` domain service called from an explicit `commandHandler`/`queryHandler` emits a port-less call that does not compile on dotnet, java and elixir (node and python thread it; the workflow caller is correct everywhere; the aggregate-body caller is honestly refused) |
+| P3 ! | `G2646-open-projection-on-event-no-channel` | honest | like | node, dotnet, java, python, elixir | M | `projection … on(Event)` with no `channel` carrying it never folds on ANY backend — now honestly warned by `loom.projection-event-uncarried` rather than silent |
+| P3 | `G2646-open-node-mounts-ui-false` | honest | like | node | M | #2646 documented, NOT fixed: node is the only backend with mountsUi: false |
+| P3 | `drizzle-projection-membership-column-arg-crash` | silent | prov | node | S | A query-time `projection … where <alias>.<refColl>.contains(<column>)` validates clean on a bare `platform: node` deployable and then CRASHES codegen ("internal: where-clause for projection 'X' could not lower to Drizzle, but the validator should have caught this") |
+| P2 ! | `dapper-no-schema-evolution` | silent | like | dotnet | L | `persistence: dapper` has no ALTER path at all — every post-first-boot model change is silently unapplied (migrations-on-adapters slice 2) |
 
 ## Conflicts (10)
 
@@ -313,6 +311,7 @@ Sorted P0 (security / data-integrity, silent, proven) → P1 (other silent prove
 - **fresh-gate-probe** — `flutter-form-field-drops` · open · fresh-gate-probe calls it SILENT — the marker is a Dart COMMENT emitted by forms-emit.ts:184; `ddd parse` is clean and `flutter analyze` is clean, so no `loom.*` code exists
 - **pr-registers** — `G2646-open-flutter-form-field-drops` · open · pr-registers also files it SILENT
 - **resolution**: Merged into ONE open row (canonical `flutter-form-field-drops`) and recorded as kind=silent, because the disagreement is settled by fact: an emitted Dart comment is not a diagnostic. The honest-side reading (a test-level ratchet exists) is preserved in the merged evidence. The fresh-gate-probe fix recipe adds a step the other two lack: raise a real `loom.flutter-form-field-unsupported` first, then build the widgets.
+- **CLOSED** (wave C1, packet 1e): moot either way — all four shapes render real Dart widgets now, the four `KNOWN_FLUTTER_GAPS` pins are deleted and the freeze asserts the EMPTY set, so no marker and no refusal code is needed. The interim `loom.flutter-form-field-unsupported` step the recipe proposed was skipped on purpose: minting a refusal code and deleting it in the same wave buys nothing.
 
 ### HEEx/Flutter `DataGrid`: settled non-goal (done) vs open gap
 

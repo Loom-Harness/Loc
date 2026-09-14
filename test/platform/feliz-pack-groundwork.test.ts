@@ -28,7 +28,9 @@ import { felizPack } from "../../src/generator/feliz/pack.js";
 // dotnet SDK.
 // ---------------------------------------------------------------------------
 
-const MISSING = /^\(\* loom:unrendered feliz pack: no renderer/;
+// The code (`loom.page-primitive-target-gap`) is part of the marker now — a
+// give-up says WHY, not only THAT (M-T9.55), so the pin carries it.
+const MISSING = /^\(\* loom:unrendered \[loom\.page-primitive-target-gap\] feliz pack: no renderer/;
 
 describe("feliz pack format groundwork", () => {
   it("feliz required set is the JSX-family display + input surface minus form-of (forms render inline)", () => {

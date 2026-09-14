@@ -24,6 +24,7 @@ import {
   opWorkflowInstanceById,
   opWorkflowInstances,
 } from "../../ir/util/openapi-ids.js";
+import { valueObjectPool } from "../../ir/util/reachable-types.js";
 import { resolveWorkflowIsolation } from "../../ir/util/resolve-datasource.js";
 import { walkWorkflowStmtChildren, walkWorkflowStmtExprsDeep } from "../../ir/util/walk.js";
 import { commandWorkflowsOf } from "../../ir/util/workflow-command-route.js";
@@ -33,6 +34,7 @@ import { resolveErrorStatus } from "../../util/error-defaults.js";
 import { snake, upperFirst, workflowFnSnake } from "../../util/naming.js";
 import { numericEncode } from "../_numeric/target.js";
 import { LogEvents } from "../_obs/log-events.js";
+import { workflowParamPayloads } from "../_payload/workflow-param-payloads.js";
 import { statementSubRegions } from "../_trace/sourcemap.js";
 import { commandCreateCorrelationParam } from "../_workflow/create-state.js";
 import { renderWorkflowStmtChunks, type WorkflowStmtTarget } from "../_workflow/stmt-target.js";
@@ -127,6 +129,39 @@ export function buildPyWorkflowsFile(
     (wf) => workflowUsesCurrentUser(wf) || callsUserGatedOp(wf.statements, ctx),
   );
 
+  // The declared record payloads this context's command-workflow params name
+  // (`create(c: FileClaim)`).  Nothing else emits a model for one — a payload
+  // has no owning aggregate — so both halves are emitted here, ahead of the
+  // request models that reference them (#2864 D7/T2):
+  //
+  //   * the WIRE model `<P>Response`, the name `requestFieldDecl` already
+  //     produces for a payload param (`requestPyType`'s `entity` arm), and
+  //   * the DOMAIN dataclass `<P>`, which `pyWireToDomain`'s payload arm
+  //     builds and the body's `c.<field>` reads are typed against.
+  const payloads = workflowParamPayloads(ctx);
+  const payloadModels = payloads
+    .map((pl) =>
+      lines(
+        `class ${pl.name}Response(BaseModel):`,
+        pl.fields.length > 0
+          ? pl.fields.map((f) => `    ${f.name}: ${requestFieldDecl(f.type, f.optional, ctx)}`)
+          : ["    pass"],
+        "",
+        "",
+        `@dataclass(frozen=True)`,
+        `class ${pl.name}:`,
+        pl.fields.length > 0
+          ? pl.fields.map(
+              (f) =>
+                `    ${f.name}: ${renderPyType(f.type)}${f.optional && f.type.kind !== "optional" ? " | None" : ""}`,
+            )
+          : ["    pass"],
+        "",
+        "",
+      ),
+    )
+    .join("");
+
   const models = wfs
     .map((wf) =>
       lines(
@@ -163,7 +198,10 @@ export function buildPyWorkflowsFile(
     .map((wf) => stateLoader(wf))
     .join("\n\n");
   const loadersBlock = sagaLoaders ? `${sagaLoaders}\n\n\n` : "";
-  const body = `${models}${instanceModels}${loadersBlock}${helpersBlock}router = APIRouter(prefix="/workflows", tags=["workflows"])\n\n\n${routes}`;
+  // `payloadModels` leads: the `<Wf>Request` models in `models` reference the
+  // `<Payload>Response` classes it declares, and Python resolves an annotation
+  // at class-definition time.
+  const body = `${payloadModels}${models}${instanceModels}${loadersBlock}${helpersBlock}router = APIRouter(prefix="/workflows", tags=["workflows"])\n\n\n${routes}`;
 
   const scan = body.replace(/"(?:\\.|[^"\\])*"/g, '""');
   const refersTo = (n: string): boolean => new RegExp(`\\b${n}\\b`).test(scan);
@@ -182,7 +220,7 @@ export function buildPyWorkflowsFile(
   const voEnumNames = [...ctx.valueObjects.map((v) => v.name), ...ctx.enums.map((e) => e.name)]
     .filter(refersTo)
     .sort();
-  const voModelImports = ctx.valueObjects
+  const voModelImports = valueObjectPool(ctx)
     .map((v) => v.name)
     .filter((n) => refersTo(`${n}Model`))
     .sort();
@@ -191,11 +229,20 @@ export function buildPyWorkflowsFile(
     `"""Workflow routes.  Auto-generated."""`,
     "",
     refersTo("math") ? "import math" : null,
+    // The domain half of a payload param's record pair is a frozen dataclass
+    // (the VOs' own shape) — emitted only when a workflow param names a
+    // payload, so every other workflows file stays byte-identical.
+    refersTo("dataclass") ? "from dataclasses import dataclass" : null,
     // A5 temporal — workflow bodies render domain expressions, so
     // `timedelta` rides in on use (like UTC/datetime).
     refersTo("datetime") || refersTo("timedelta")
       ? `from datetime import ${[
-          ...(refersTo("datetime") ? ["UTC", "datetime"] : []),
+          // `UTC` only on use — a `datetime` PARAM names the type in the
+          // request model without ever stamping `datetime.now(UTC)`, and an
+          // unconditional import is ruff F401 (the aggregate module already
+          // gates it the same way).
+          ...(refersTo("UTC") ? ["UTC"] : []),
+          ...(refersTo("datetime") ? ["datetime"] : []),
           ...(refersTo("timedelta") ? ["timedelta"] : []),
         ].join(", ")}`
       : null,
@@ -396,18 +443,30 @@ function reposFor(wf: WorkflowIR): RepoNeed[] {
 // --- read-port wiring (domain-services.md rev. 4) -----------------
 //
 // A `reading`-tier domain-service operation declares one read-port repository
-// parameter per repo it reads; the orchestrating workflow constructs each
-// repo handle and passes it ahead of the user args.  Both the call-site
-// prepend (`workflowReadPortResolver`) and the repo construction
-// (`mergeReadPortRepos`) consume the SAME shared `readPortsForOperation`
+// parameter per repo it reads; the orchestrating caller constructs each repo
+// handle and passes it ahead of the user args.  Both the call-site prepend
+// (`pyReadPortResolver`) and the repo construction (`mergeReadPortRepos`, over
+// `collectServiceReadPorts`) consume the SAME shared `readPortsForOperation`
 // derivation, so they stay in lockstep.  A PURE service call has zero ports →
 // no handle, no `await` → byte-identical.
+//
+// All three are exported: a `workflow` is not the only orchestrator that can
+// call a reading service — an explicit `commandHandler`/`queryHandler` can too,
+// and `explicit-handlers-emit.ts` reads the same three rather than growing a
+// second derivation (M-T5.14's python arm).
 
-/** Build the read-port resolver for a workflow's `reading`-tier domain-service
- *  calls.  Given a `<service>.<op>` call, returns the repository handle var
- *  names (`snake(repo)` — the var the workflow constructs) to prepend, in
- *  first-read order.  A pure service op has no ports → `[]` → byte-identical. */
-function workflowReadPortResolver(
+/** Build the read-port resolver for a `reading`-tier domain-service call.
+ *  Given a `<service>.<op>` call, returns the repository handle var names
+ *  (`snake(repo)` — the var the caller constructs) to prepend, in first-read
+ *  order.  A pure service op has no ports → `[]` → byte-identical.
+ *
+ *  Exported because the EXPLICIT-HANDLER emitter (`explicit-handlers-emit.ts`)
+ *  is the second orchestrator that can call a reading service and must supply
+ *  the same handles — it was the only caller shape that did not, which is
+ *  M-T5.14's python arm (`free = is_holder_free(holder)` against an
+ *  `is_holder_free(accounts, holder)` declaration: ruff F821 on the missing
+ *  import, and arity-short even with one). */
+export function pyReadPortResolver(
   ctx: EnrichedBoundedContextIR,
 ): (service: string, op: string) => string[] {
   return (service, op) => {
@@ -432,9 +491,12 @@ function workflowReadPortResolver(
  *  a repository local it never constructed: ruff F821 → runtime `NameError`.
  *  Only invisible when the service happens to read a repository the workflow
  *  also reads itself. */
-function collectServiceReadPorts(wf: WorkflowIR, ctx: EnrichedBoundedContextIR): ReadPort[] {
+export function collectServiceReadPorts(
+  stmts: readonly WorkflowStmtIR[],
+  ctx: EnrichedBoundedContextIR,
+): ReadPort[] {
   const byRepo = new Map<string, ReadPort>();
-  for (const st of wf.statements)
+  for (const st of stmts)
     walkWorkflowStmtExprsDeep(st, (n) => {
       if (n.kind !== "call" || n.callKind !== "domain-service" || !n.serviceRef) return;
       const svc = ctx.domainServices.find((s) => s.name === n.serviceRef?.service);
@@ -459,7 +521,7 @@ function mergeReadPortRepos(
 ): RepoNeed[] {
   const seen = new Set(own.map((r) => r.repoName));
   const out = [...own];
-  for (const port of collectServiceReadPorts(wf, ctx)) {
+  for (const port of collectServiceReadPorts(wf.statements, ctx)) {
     if (seen.has(port.repo)) continue;
     seen.add(port.repo);
     out.push({ repoName: port.repo, aggName: port.aggregate });
@@ -624,8 +686,22 @@ function workflowRoute(
       `        await session.connection(execution_options={"isolation_level": "${pyIsolationLevel(isolation)}"})`,
     );
   }
-  // Wire params → domain locals (brand ids, build VOs) once up front.
+  // Wire params → domain locals (brand ids, build VOs) once up front — but
+  // only the params the body (or the F58 correlation row loader) actually
+  // READS.  A param bound and never read is ruff F841 in the generated route
+  // (the corpus python leg runs `ruff check` as a gate), and a create that
+  // takes a param it does not use is valid `.ddd` (`workflow-primitive-params`
+  // exercises exactly that shape to pin the wire types).
+  const readParams = new Set<string>();
+  for (const st of wf.statements) {
+    walkWorkflowStmtExprsDeep(st, (e) => {
+      if (e.kind === "ref" && e.refKind === "param") readParams.add(e.name);
+    });
+  }
+  const readCorrParam = commandCreateCorrelationParam(wf);
+  if (readCorrParam) readParams.add(readCorrParam.name);
   for (const p of wf.params) {
+    if (!readParams.has(p.name)) continue;
     out.push(`        ${snake(p.name)} = ${pyWireToDomain(`body.${p.name}`, p.type, ctx)}`);
   }
   // F58 — a CORRELATED command workflow addresses a real persisted saga row:
@@ -701,7 +777,7 @@ function workflowRoute(
     pyWorkflowStmtTarget(
       {
         thisName: corrParam ? "state" : "self",
-        readPortArgs: workflowReadPortResolver(ctx),
+        readPortArgs: pyReadPortResolver(ctx),
       },
       ctx,
       collectUsedLetNames(wf.statements),

@@ -18,6 +18,7 @@ import { findsOfAggregate, resolveAggregateRead } from "../../ir/util/page-read.
 import { humanize, plural, snake } from "../../util/naming.js";
 import { iconA11yAttr } from "../_walker/a11y-emit.js";
 import { type DetectedApiCall, tryDetectApiHook } from "../_walker/api-hook-detector.js";
+import { giveUpText } from "../_walker/give-up.js";
 import { isEntityHistoryRead } from "../_walker/history-read.js";
 import { lookupBuiltinIcon } from "../_walker/icons.js";
 import { queryShape } from "../_walker/paged-query.js";
@@ -225,7 +226,7 @@ ${heading}${childrenHeex}
     }
   }
   if (!formChild || !ofName || !opName) {
-    return `<!-- malformed Modal: expected trigger: Button + OperationForm(<instance>.<op>) or OperationForm(of:, op:) -->`;
+    return `<!-- ${giveUpText("loom.page-primitive-arg-invalid", "malformed Modal: expected trigger: Button + OperationForm(<instance>.<op>) or OperationForm(of:, op:)")} -->`;
   }
   const aggSnake = snake(ofName);
   const opSnake = snake(opName);
@@ -315,10 +316,11 @@ export function renderForm(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkCon
   const positional0 = expr.args.find((_, i) => !expr.argNames?.[i]);
   if (positional0 && positional0.kind === "member") {
     const opName = positional0.member;
-    return (
-      `<%!-- OperationForm(<instance>.${opName}): the instance-qualified shape is only rendered ` +
-      `inside a Modal on Phoenix LiveView — use OperationForm { of: <Agg>, op: ${opName} } --%>`
-    );
+    return `<%!-- ${giveUpText(
+      "loom.page-primitive-target-gap",
+      `OperationForm(<instance>.${opName}): the instance-qualified shape is only rendered ` +
+        `inside a Modal on Phoenix LiveView — use OperationForm { of: <Agg>, op: ${opName} }`,
+    )} --%>`;
   }
   let ofTarget = "";
   let runsTarget = "";
@@ -346,10 +348,22 @@ export function renderForm(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkCon
   // module-name resolution against contexts + workflows.
   const ofPascal = findPascalArg(expr, "of");
   const runsPascal = findPascalArg(expr, "runs");
+  // A WORKFLOW form's fields are the workflow's command-triggered `create`
+  // params (`WorkflowIR.params`, the same list the TSX `emitFormRuns` reads).
+  // Carried on the binding so `liveview-emit.ts` can both seed `@form` under
+  // the workflow's own `as:` prefix and destructure the submitted params in the
+  // `handle_event("run_<wf>", …)` clause — the clause that did not exist at all
+  // until M-T6.56 F61, so `phx-submit="run_<wf>"` raised `FunctionClauseError`
+  // and killed the LiveView.
+  const runsWorkflow = runsPascal ? ctx.workflowsByName.get(runsPascal) : undefined;
   if (ofPascal) {
     ctx.formBindings.push({ kind: "aggregate", name: ofPascal });
   } else if (runsPascal) {
-    ctx.formBindings.push({ kind: "workflow", name: runsPascal });
+    ctx.formBindings.push({
+      kind: "workflow",
+      name: runsPascal,
+      ...(runsWorkflow ? { params: runsWorkflow.params } : {}),
+    });
   }
   // Field inputs — derive one <.input> per user-input field on the
   // bound aggregate.  Excludes the `id` primary key (auto-generated on
@@ -360,7 +374,26 @@ export function renderForm(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkCon
   // validator catches unknowns upstream, but the fallback keeps the
   // emitter total).
   const inputs: string[] = [];
-  if (ofPascal) {
+  if (runsWorkflow) {
+    // One `<.input>` per workflow param, typed by `renderFieldInputForField`
+    // exactly as an aggregate create form's fields are — the HEEx form used to
+    // emit a single `<.input field={@form[:_placeholder]} label="Field" />`
+    // while React emitted the real set, so the two frontends asked the user for
+    // different data from the same `.ddd`.
+    for (const pparam of runsWorkflow.params) {
+      inputs.push(
+        `  ${renderFieldInputForField(
+          pparam,
+          "form",
+          ctx.enumsByName,
+          ctx.idOptionsBindings,
+          ctx.valueObjectsByName,
+          "@",
+          testidNs ? `${testidNs}-input-${pparam.name}` : undefined,
+        )}`,
+      );
+    }
+  } else if (ofPascal) {
     const agg = ctx.aggregatesByName.get(ofPascal);
     if (agg) {
       // Render the create-input contract (`createInputFields`), not raw
@@ -598,10 +631,10 @@ export function renderFor(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkCont
     else if (name === undefined) coll ??= arg;
   }
   if (!coll) {
-    return `<%!-- For: missing 'each:' collection expression --%>`;
+    return `<%!-- ${giveUpText("loom.page-primitive-arg-missing", "For: missing 'each:' collection expression")} --%>`;
   }
   if (!itemLam?.body) {
-    return `<%!-- For: missing item lambda --%>`;
+    return `<%!-- ${giveUpText("loom.page-primitive-arg-missing", "For: missing item lambda")} --%>`;
   }
   const itemVar = snake(itemLam.param);
   const collHeex = renderExpr(coll, { ...ctx, position: "template" });
@@ -939,6 +972,15 @@ export function renderQueryView(expr: Extract<ExprIR, { kind: "call" }>, ctx: Wa
     return a?.kind === "literal" && a.value === "true";
   };
   const ofNode = expr.args[names.indexOf("of")];
+  // No `of:` at all — the JSX walker gives up here (`emitQueryView` in
+  // `_walker/primitives/controls.ts`), and HEEx used to fall through to the
+  // `cond` below with `ofExpr === ""`, which renders the loading / error /
+  // empty arms plus an EMPTY `true ->` branch: a framed panel that reads as
+  // "loaded, nothing to show" for a read that was never wired.  Same shape as
+  // the standalone-op-form finding two hundred lines up — HEEx said nothing
+  // where every other target at least said what it could not do.
+  if (!ofNode)
+    return `<!-- ${giveUpText("loom.page-primitive-arg-missing", "QueryView: missing 'of:' query expression")} -->`;
   // Entity-history read (`<Agg>.history(id)`, docs/audit.md) — NOT an ordinary
   // aggregate read: it scans `audit_records` for one target, so binding it as
   // one would load `list_<aggs>` (the LIST, not the trail).  Tagged here and
@@ -1048,8 +1090,6 @@ export function renderQueryView(expr: Extract<ExprIR, { kind: "call" }>, ctx: Wa
       assign: assignName,
       aggregate: projectionRead,
       source: "projection",
-      // The `match` arm this read sits in, if any — see `QueryBinding.guard`.
-      guard: ctx.loadGuard,
     });
   }
   if (historyRead) {
@@ -1063,7 +1103,6 @@ export function renderQueryView(expr: Extract<ExprIR, { kind: "call" }>, ctx: Wa
       aggregate: historyRead,
       source: "history",
       listArgs: queryCallArgs(ofArgNode, ctx),
-      guard: ctx.loadGuard,
     });
   }
   const aggName =
@@ -1085,12 +1124,11 @@ export function renderQueryView(expr: Extract<ExprIR, { kind: "call" }>, ctx: Wa
       listArgs: queryCallArgs(ofArgNode, ctx),
       // WHICH context function this read calls.  Resolved from the `of:` call's
       // OPERATION, not assumed from the read's shape — see `contextReadFn`.
+      // (This subsumes the earlier `retrieval` slot, which derived the same
+      // `list_<agg>s` / `<find>_<agg>` choice from the call's SHAPE.)
       readFn: contextReadFn(aggName, isSingle, ctx, detected),
-      // WHETHER this read runs at all.  A `QueryView` inside a `match` arm — the
-      // scaffolded list page's whole filter bar — must load only in the arm that
-      // renders it; unguarded, every arm's read ran and the last write to the
-      // shared assign won.  See `QueryBinding.guard`.
-      guard: ctx.loadGuard,
+      // …and only when the enclosing `match` arm is the one being rendered.
+      gate: isSingle ? undefined : ctx.matchGate,
     });
   }
 
@@ -1287,7 +1325,7 @@ export function renderProvenanceInfo(
   const recordArg = namedArg(expr, "of");
   const fieldArg = namedArg(expr, "field");
   if (!recordArg || fieldArg?.kind !== "literal") {
-    return "<!-- ProvenanceInfo: missing record or field -->";
+    return `<!-- ${giveUpText("loom.page-primitive-arg-missing", "ProvenanceInfo: missing record or field")} -->`;
   }
   const record = renderExpr(recordArg, { ...ctx, position: "template" });
   // `<field>_provenance` — snake_cased to match `provColumn` / the schema field.
@@ -1321,7 +1359,8 @@ export function renderProvenanceInfo(
  *  `e.action`. */
 export function renderTimeline(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkContext): string {
   const entriesArg = namedArg(expr, "of") ?? expr.args.find((_, i) => !expr.argNames?.[i]);
-  if (!entriesArg) return "<!-- Timeline: missing entries -->";
+  if (!entriesArg)
+    return `<!-- ${giveUpText("loom.page-primitive-arg-missing", "Timeline: missing entries")} -->`;
   const entries = renderExpr(entriesArg, { ...ctx, position: "template" });
   const testid = testIdAttr(expr, ctx);
   return [
@@ -1565,14 +1604,30 @@ export function renderDivider(expr: Extract<ExprIR, { kind: "call" }>, ctx: Walk
 /** `Image(src, alt)` → `<img src=… alt=… />`.  Literal attrs render as
  *  quoted strings; refs render as `{@assign}` HEEx expressions. */
 export function renderImage(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkContext): string {
-  let srcAttr = "";
-  let altAttr = "";
+  // M-T6.56 / audit F22 — this read ONLY the named `src:`/`alt:`, so the
+  // POSITIONAL shorthand every other target renders (`Image { "/logo.png" }` /
+  // `Image { row.thumbnailUrl }`, the same first-positional-is-the-value rule
+  // Text / Money / EnumBadge follow) emitted an `<img>` with NO `src` on
+  // LiveView alone.  `decorative: true` is read too, for the same reason: the
+  // JSX walker turns it into an explicit empty `alt`, and dropping it here left
+  // a decorative image announcing itself to assistive tech.
+  let srcArg: ExprIR | undefined;
+  let altArg: ExprIR | undefined;
+  let decorative = false;
+  let positional: ExprIR | undefined;
   for (let i = 0; i < expr.args.length; i++) {
     const name = expr.argNames?.[i];
     const arg = expr.args[i]!;
-    if (name === "src") srcAttr = ` src=${attrValue(arg, ctx)}`;
-    else if (name === "alt") altAttr = ` alt=${attrValue(arg, ctx)}`;
+    if (name === "src") srcArg = arg;
+    else if (name === "alt") altArg = arg;
+    else if (name === "decorative" && arg.kind === "literal")
+      decorative = String(arg.value) === "true";
+    else if (name === undefined && positional === undefined) positional = arg;
   }
+  // A named `src:` wins over the shorthand, matching `emitImage`.
+  const src = srcArg ?? positional;
+  const srcAttr = src ? ` src=${attrValue(src, ctx)}` : "";
+  const altAttr = altArg ? ` alt=${attrValue(altArg, ctx)}` : decorative ? ` alt=""` : "";
   const testidAttr = testIdAttr(expr, ctx);
   return `<img${srcAttr}${altAttr}${testidAttr} />`;
 }
@@ -1672,11 +1727,13 @@ export function renderDestroyForm(
     const arg = expr.args[i]!;
     if (name === "of" && arg.kind === "ref") ofName = arg.name;
   }
-  if (!ofName) return `<!-- DestroyForm: expected (of: <Agg>) -->`;
+  if (!ofName)
+    return `<!-- ${giveUpText("loom.page-primitive-arg-invalid", "DestroyForm: expected (of: <Agg>)")} -->`;
   const agg = ctx.aggregatesByName.get(ofName);
-  if (!agg) return `<!-- DestroyForm(of: ${ofName}): aggregate not found -->`;
+  if (!agg)
+    return `<!-- ${giveUpText("loom.page-ref-unreachable", `DestroyForm(of: ${ofName}): aggregate not found`)} -->`;
   if (!agg.canonicalDestroy) {
-    return `<!-- DestroyForm(of: ${ofName}): no canonical destroy — declare 'destroy { }' (or use 'with crudish') -->`;
+    return `<!-- ${giveUpText("loom.page-ref-unreachable", `DestroyForm(of: ${ofName}): no canonical destroy — declare 'destroy { }' (or use 'with crudish')`)} -->`;
   }
   const eventName = `destroy_${snake(ofName)}`;
   const thenRoute = `/${snake(plural(ofName))}`;
@@ -1755,7 +1812,8 @@ export function renderTabs(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkCon
       tabs.push({ label: `Tab ${idx}`, slug: `tab-${idx}`, body: [arg] });
     }
   }
-  if (tabs.length === 0) return `<!-- Tabs: no tabs -->`;
+  if (tabs.length === 0)
+    return `<!-- ${giveUpText("loom.page-primitive-arg-missing", "Tabs: no tabs")} -->`;
   const id = `tabs-${++ctx.tabSeq.value}`;
   const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   const triggers = tabs
@@ -2256,15 +2314,28 @@ export function renderIcon(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkCon
     } else if (argName === "decorative" && arg.kind === "literal")
       decorative = String(arg.value) === "true";
   }
-  // User-supplied SVG wins; falls back to the builtin registry (same
-  // precedence as the TSX emitter at `walker/primitives/icon.ts:32`).
-  // Walker doesn't import the registry today — pages that pass `name:`
-  // without `svg:` against an unknown builtin surface as an empty
-  // icon.  Acceptable for v0; a future change can import the registry
-  // and emit a `<!-- unknown icon: <name> -->` comment for unresolved
-  // names matching the TSX shape.
-  void name;
-  const svg = customSvg ?? "";
+  // User-supplied SVG wins; falls back to the builtin registry — the SAME
+  // precedence, and now the same lookup, as the TSX emitter
+  // (`_walker/primitives/icon.ts`).
+  //
+  // M-T6.56 / audit F22.  This emitter used to `void name` and render
+  // `<span class="loom-icon">` with an EMPTY body, so `Icon { name: "check" }`
+  // — the ordinary spelling, and the one every other target renders — produced
+  // an empty span on LiveView alone.  The registry was already imported here
+  // (`renderButton`'s `icon:` arm resolves through it), so the divergence was a
+  // missing call, not a missing capability.
+  //
+  // Both refusals now match the JSX walker arm for arm: an author who named
+  // NOTHING (`Icon { }` — no glyph to look up on any target) and a `name:` the
+  // builtin registry does not resolve are separate give-ups with separate
+  // codes, rather than one silently-empty element that reads as a rendered
+  // icon.
+  const svg = customSvg ?? (name !== undefined ? lookupBuiltinIcon(name) : undefined);
+  if (svg === undefined) {
+    return name === undefined
+      ? `<!-- ${giveUpText("loom.page-primitive-arg-missing", "Icon needs name: or svg:")} -->`
+      : `<!-- ${giveUpText("loom.page-primitive-arg-invalid", `unknown icon name '${name}'`)} -->`;
+  }
   const sizeClass = size ? ` loom-icon-${size}` : "";
   const testidAttr = testIdAttr(expr, ctx);
   // Decorative-by-default (icon a11y contract): hidden from assistive tech
@@ -2339,7 +2410,7 @@ export function renderChart(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkCo
   if (!projection) {
     // Unreachable from valid input — `loom.chart-of-not-grouped` (ui-checks)
     // rejects any `of:` that isn't a grouped readable projection.
-    return `<%!-- Chart: unresolved 'of:' projection --%>`;
+    return `<%!-- ${giveUpText("loom.page-ref-unreachable", "Chart: unresolved 'of:' projection")} --%>`;
   }
   const assign = snake(projection);
   ctx.queryBindings.push({
@@ -2347,7 +2418,6 @@ export function renderChart(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkCo
     assign,
     aggregate: projection,
     source: "projection",
-    guard: ctx.loadGuard,
   });
   ctx.chartUsed.value = true;
 

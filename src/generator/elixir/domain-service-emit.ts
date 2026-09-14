@@ -34,6 +34,7 @@
 // plain return is the bare value (Elixir's last-expression-is-the-result).
 // ---------------------------------------------------------------------------
 
+import { diagMessage } from "../../diagnostics/messages.js";
 import type {
   BoundedContextIR,
   DomainServiceIR,
@@ -46,9 +47,11 @@ import {
   aggregateOpResolver,
   classifyDomainServiceTier,
 } from "../../ir/util/domain-service-tier.js";
+import { elixirIfRefusal } from "../../ir/validate/checks/if-stmt-checks.js";
 import { escapeElixirIdent, snake, upperFirst } from "../../util/naming.js";
 import { type RenderCtx, renderExpr, renderTypespec } from "./render-expr.js";
 import { appModuleOf, guardRaiseLine } from "./vanilla/denial.js";
+import { renderElixirIfStmt } from "./vanilla/if-stmt-emit.js";
 import { opCallParamFields } from "./vanilla/workflow-execution-emit.js";
 
 // ---------------------------------------------------------------------------
@@ -70,10 +73,13 @@ import { opCallParamFields } from "./vanilla/workflow-execution-emit.js";
 // emitter SKIPS a reading op from the `Domain.Services` module (and skips the
 // whole module when every op is reading), and `context-emit.ts` ADDS the reading
 // op as a context fn via `renderReadingServiceContextFn`.  A reading op whose
-// read-ports span MORE THAN ONE context is OUT OF SCOPE for — it would
-// need a standalone module taking explicit `Repo`/context args; we keep it in
-// the `Domain.Services` module (so it still emits *something*) and flag it with a
-// `# loom.domain-service-multi-context-reading` note rather than crashing.
+// read-ports span MORE THAN ONE context would need a standalone module taking
+// explicit `Repo`/context args — but that shape is STRUCTURALLY UNREACHABLE
+// (see `readingIsSingleContext`), and the cross-context body that motivated it
+// is refused at phase ⑦ by `loom.domain-service-cross-context-read`.  It used
+// to emit a `def` whose body was a runtime `raise`; Wave C1 packet 1d-ii
+// replaced that with a generate-time internal floor, because shipping a
+// compiling landmine is strictly worse than failing the build.
 // ---------------------------------------------------------------------------
 
 /** True when a reading op's read-ports all resolve to ONE context (this
@@ -91,7 +97,12 @@ import { opCallParamFields } from "./vanilla/workflow-execution-emit.js";
  *  customers"), which is now rejected at phase ⑦ by
  *  `loom.domain-service-cross-context-read` (domain-service-checks.ts).  The
  *  guard below stays as a floor in case lowering ever widens the resolution
- *  scope; it is not the thing that closes the gap. */
+ *  scope; it is not the thing that closes the gap.  The tautology is ASSERTED
+ *  (not merely asserted in prose) by
+ *  `test/generator/elixir/domain-service-cross-context-floor.test.ts`, which
+ *  drives a two-context model that wants to cross and checks every read port —
+ *  so widening lowering's scope fails there rather than silently re-arming the
+ *  floor. */
 export function readingIsSingleContext(
   op: DomainServiceOperationIR,
   ctx: BoundedContextIR,
@@ -439,21 +450,41 @@ function renderOperation(
     .map((n) => `    _ = ${n}`);
 
   if (multiContextReading) {
-    // OUT OF SCOPE: a cross-context reading service.  Emit a guard
-    // raise + a visible flag note rather than a body whose repo reads name
-    // context fns that don't exist in this module.
-    const allDiscards = paramNames.map((n) => `    _ = ${n}`);
-    return `${specLine}
-  # loom.domain-service-multi-context-reading: '${op.name}' reads repositories
-  # across more than one context — only single-context reading is supported
-  # (domain-services.md rev. 4).  A cross-context reading service needs a
-  # standalone module taking explicit Repo/context args; not emitted here.
-  def ${fnName}(${paramNames.join(", ")}) do
-${allDiscards.join("\n")}
-    raise "domain service '${op.name}': cross-context reading not yet supported (domain-services.md rev. 4)"
-  end`;
+    // INTERNAL FLOOR.  This branch used to emit a `def` whose body was a
+    // runtime `raise` — the worst shape a gap can take: it compiles, ships, and
+    // blows up on the first call in production, carrying a message no `loom.*`
+    // code indexes.  It is also STRUCTURALLY UNREACHABLE (see
+    // `readingIsSingleContext` above): a read-port comes from a `repo-read`
+    // Call, and `lowerDomainService` builds `serviceRepos` from
+    // `env.ctx.members` alone, so a port can never name a repository outside
+    // this service's own context.  The body that MOTIVATED the branch — a
+    // service reading another context's repository — lowers to an unresolved
+    // `ref` instead, and is refused at phase ⑦ by
+    // `loom.domain-service-cross-context-read`.
+    //
+    // So: fail at GENERATE time rather than ship a landmine.  Pinned by
+    // `test/generator/elixir/domain-service-cross-context-floor.test.ts`.
+    throw new Error(
+      diagMessage("loom.domain-service-cross-context-read#elixir-emit-invariant", {
+        operation: op.name,
+        ports: readPortsForOperation(op)
+          .map((port) => port.repo)
+          .join(", "),
+      }),
+    );
   }
 
+  // M-T6.59 — the `if` sub-shapes a tail-value body cannot express are refused
+  // at phase ⑦; assert with the SAME predicate so a bypassed validator fails
+  // loudly here instead of emitting a body that drops an early exit.
+  const ifRefusal = elixirIfRefusal(op.body, "value");
+  if (ifRefusal) {
+    throw new Error(
+      `platform: elixir — an 'if' statement with a ${ifRefusal} reached the domain-service ` +
+        `emitter for operation '${op.name}'; it is refused at validation ` +
+        `(loom.elixir-if-stmt-unsupported#${ifRefusal}).`,
+    );
+  }
   const bodyLines = op.body.map((s) => renderStatement(s, ctx, renderCtx, isUnion));
 
   return `${specLine}
@@ -525,16 +556,17 @@ function renderStatement(
     case "variant-match":
       return `    # unreachable: ${s.kind} rejected by the domain-service validator floor`;
     case "if":
-      // The `if` STATEMENT is a node/.NET/java/python form today; on Phoenix
-      // every body renderer threads its result through a rebound `record` (or
-      // a tail expression), and an Elixir `if` block's bindings do not escape
-      // it — so a branch that assigns would compile and then silently do
-      // nothing.  Refused up front by `loom.elixir-if-stmt-unsupported`
-      // (ir/validate/checks/if-stmt-checks.ts); this arm is the defensive
-      // fail-fast, unreachable on validated `.ddd`.
-      throw new Error(
-        "platform: elixir — an `if` statement reached the domain-service emitter; it is " +
-          "refused at validation (loom.elixir-if-stmt-unsupported).",
-      );
+      // M-T6.59 — a domain-service body is a TAIL-VALUE body (nothing is
+      // appended after `bodyLines`), so the `if` renders as a plain
+      // value-producing Elixir `if` and needs no threaded variable: a tail `if`
+      // whose branches `return` IS the function's result.  The sub-shapes that
+      // cannot render (a non-tail `return`, a nested guard) are refused up
+      // front by `loom.elixir-if-stmt-unsupported` — re-asserted once per body
+      // by the caller, with the SAME predicate the gate uses.
+      return renderElixirIfStmt(s, {
+        indent: "    ",
+        cond: renderExpr(s.cond, rc),
+        renderInner: (stmts) => stmts.map((st) => renderStatement(st, ctx, rc, isUnion)),
+      });
   }
 }

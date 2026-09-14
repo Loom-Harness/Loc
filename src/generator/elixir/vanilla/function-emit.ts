@@ -5,10 +5,13 @@ import type {
   FunctionIR,
   StmtIR,
 } from "../../../ir/types/loom-ir.js";
+import { walkStmtExprsDeep } from "../../../ir/util/walk.js";
+import { elixirIfRefusal } from "../../../ir/validate/checks/if-stmt-checks.js";
 import { escapeElixirIdent, snake, upperFirst } from "../../../util/naming.js";
 import { exprUsesParam, exprUsesReceiver } from "../domain/predicates.js";
 import { type RenderCtx, renderExpr, renderTypespec } from "../render-expr.js";
 import { appModuleOf, guardRaiseLine } from "./denial.js";
+import { renderElixirIfStmt } from "./if-stmt-emit.js";
 
 // ---------------------------------------------------------------------------
 // Body-variant helpers (domain-services.md rev. 4 — `function` block body).
@@ -27,22 +30,13 @@ import { appModuleOf, guardRaiseLine } from "./denial.js";
 function bodyExprs(body: FunctionBodyIR): ExprIR[] {
   if ("expr" in body) return [body.expr];
   const out: ExprIR[] = [];
-  for (const s of body.stmts) {
-    switch (s.kind) {
-      case "precondition":
-      case "requires":
-      case "let":
-      case "expression":
-        out.push(s.expr);
-        break;
-      case "return":
-        out.push(s.value);
-        break;
-      case "call":
-        out.push(...s.args);
-        break;
-    }
-  }
+  // Rides `walkStmtExprsDeep` rather than a hand-rolled `switch (s.kind)`: the
+  // hand-rolled version listed five kinds and had no `if` arm, so once
+  // M-T6.59 let an `if` into a `function` body, a parameter read ONLY inside a
+  // branch was invisible to `bodyUsesParam` — the emitter then underscored the
+  // parameter and the branch referenced an undefined variable.  The
+  // `ir-walk-census` rule exists for exactly this drift.
+  for (const s of body.stmts) walkStmtExprsDeep(s, (e) => out.push(e));
   return out;
 }
 
@@ -57,7 +51,19 @@ export function bodyUsesReceiver(body: FunctionBodyIR): boolean {
 /** The body lines for a function — the single trailing-value line for the
  *  expression form, or the rendered pure block for the block form. */
 export function renderFunctionBodyLines(body: FunctionBodyIR, rc: RenderCtx): string[] {
-  return "expr" in body ? [`    ${renderExpr(body.expr, rc)}`] : renderPureBlock(body.stmts, rc);
+  if ("expr" in body) return [`    ${renderExpr(body.expr, rc)}`];
+  // M-T6.59 — assert the `if` sub-shapes a tail-value body cannot express with
+  // the SAME predicate the phase-⑦ gate uses, so a bypassed validator fails
+  // loudly instead of emitting a body that drops an early exit.
+  const ifRefusal = elixirIfRefusal(body.stmts, "value");
+  if (ifRefusal) {
+    throw new Error(
+      `platform: elixir — an 'if' statement with a ${ifRefusal} reached the vanilla ` +
+        "aggregate-function emitter; it is refused at validation " +
+        `(loom.elixir-if-stmt-unsupported#${ifRefusal}).`,
+    );
+  }
+  return renderPureBlock(body.stmts, rc);
 }
 
 /** Render a pure block-body function as Elixir: binding/guard lines followed
@@ -86,6 +92,20 @@ function renderPureBlock(stmts: StmtIR[], rc: RenderCtx): string[] {
         break;
       case "expression":
         lines.push(`    ${renderExpr(s.expr, rc)}`);
+        break;
+      case "if":
+        // M-T6.59 — a pure `function` body is a TAIL-VALUE body: its value is
+        // its last expression, so a tail `if` whose branches `return` renders
+        // exactly as the function's result.  The sub-shapes that cannot render
+        // (a non-tail `return`, a nested guard) are refused at phase ⑦ by
+        // `loom.elixir-if-stmt-unsupported` and re-asserted by the caller.
+        lines.push(
+          renderElixirIfStmt(s, {
+            indent: "    ",
+            cond: renderExpr(s.cond, rc),
+            renderInner: (inner) => renderPureBlock([...inner], rc),
+          }),
+        );
         break;
     }
   }

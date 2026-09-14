@@ -1,3 +1,5 @@
+import { claimsReferenceIds } from "../../../generator/_auth/claim-types.js";
+import { devStubIdExpr } from "../../../generator/_auth/dev-stub-id.js";
 import { renderTsType } from "../../../generator/typescript/render-expr.js";
 import type {
   AuthIR,
@@ -76,6 +78,7 @@ export function emitAuthFiles(sys: SystemIR, out: Map<string, string>): void {
  *  optional base64-JSON `x-loom-dev-claims` override merged over it. */
 function renderDevStubVerifier(user: UserIR): string {
   return `// Auto-generated.
+${idsImport(user).join("\n")}import type { UserClaims } from "./user-types";
 import { registerUserVerifier } from "./verifier";
 
 /** Register the DEV-STUB verifier — accepts every request as a built-in
@@ -91,7 +94,13 @@ import { registerUserVerifier } from "./verifier";
  *  get the generated OIDC verifier instead. */
 export function registerDevStubVerifier(): void {
   registerUserVerifier((req) => {
-    const base = ${indentBy(renderStubUserLiteral(user), "    ")};
+    // ANNOTATED on purpose.  Without \`: UserClaims\` this literal is checked
+    // only through the closure's inferred return type — and the header branch
+    // below spreads \`JSON.parse(...)\`, whose \`any\` widens that union to \`any\`
+    // and swallows the check entirely.  That is how a raw \`"0000…"\` string sat
+    // in a \`customerId: Ids.CustomerId\` slot and still passed \`tsc --noEmit\`.
+    // The annotation puts the declared claim shape back in the checker's way.
+    const base: UserClaims = ${indentBy(renderStubUserLiteral(user), "    ")};
     const injected = req.headers.get("x-loom-dev-claims");
     if (!injected) return base;
     try {
@@ -150,6 +159,16 @@ function claimPathFor(field: string, auth: AuthIR): string {
   return field === "id" ? "sub" : field;
 }
 
+/** The `Ids` namespace import an auth module needs when the claim shape names
+ *  a strong id (`customerId: Customer id?` renders as `Ids.CustomerId`).  The
+ *  id classes live in `domain/ids.ts`, the auth modules in `auth/`, so without
+ *  this the generated project fails `tsc` with
+ *  `TS2503: Cannot find namespace 'Ids'` (D6/P2).  Empty when no claim is
+ *  id-typed, so the common shape keeps its current byte-for-byte output. */
+function idsImport(user: UserIR): string[] {
+  return claimsReferenceIds(user.fields) ? ['import * as Ids from "../domain/ids";', ""] : [];
+}
+
 function renderUserTypes(user: UserIR, orgPathClaim?: string): string {
   // User shape lives in its own module so any per-aggregate file (or
   // workflow route) can `import type { User }` without
@@ -188,6 +207,7 @@ function renderUserTypes(user: UserIR, orgPathClaim?: string): string {
       "// derives the request principal `User` from it (adding `orgPath` under",
       "// tenancy).  Downstream route handlers / workflow handlers",
       "// reference `User` via the magic `currentUser` identifier.",
+      ...idsImport(user),
       "export interface UserClaims {",
       ...fields,
       "}",
@@ -458,7 +478,9 @@ export function requireCurrentUser(): User {
 // ---------------------------------------------------------------------------
 // OIDC verifier (D-AUTH-OIDC) — the batteries-included fill-in for the
 // verifier seam.  Validates the bearer token's signature against the
-// issuer's JWKS (discovered lazily), checks `iss` / `aud` / `exp`, and
+// issuer's JWKS (discovered lazily), checks `iss` / `exp` (and `aud` only
+// when the model declares `auth { oidc { audience: … } }` — see the
+// conditional below), and
 // projects the configured claims onto the typed User shape.  Loom owns no
 // auth runtime beyond "validate a token"; the IdP owns everything else.
 // ---------------------------------------------------------------------------
@@ -475,6 +497,27 @@ function renderOidcVerifier(user: UserIR, auth: AuthIR): string {
   const verifyOptions = auth.oidc.audience
     ? "{ issuer: ISSUER, audience: AUDIENCE }"
     : "{ issuer: ISSUER }";
+  // The doc comment must describe the options actually emitted above.  It used
+  // to claim "validates signature (JWKS), issuer, and audience" unconditionally
+  // — which is false on the no-`audience:` arm, and that arm is the DEFAULT:
+  // `audience` is optional in the grammar, absent from every `oidc { … }`
+  // example in the docs, and omitting it silently disables the check.  Reading
+  // the generated source is how an engineer audits this, so a comment asserting
+  // a control the file does not implement is worse than no comment.  The
+  // "not verified" wording is deliberately the thing a reviewer greps for.
+  const verifierDoc = auth.oidc.audience
+    ? `/** Generated OIDC verifier — validates signature (JWKS), issuer and
+ *  audience, then maps claims onto User.  Returns null to reject (→ 401). */`
+    : `/** Generated OIDC verifier — validates signature (JWKS) and issuer, then
+ *  maps claims onto User.  Returns null to reject (→ 401).
+ *
+ *  The \`aud\` claim is NOT verified: this system's \`auth { oidc { … } }\`
+ *  block declares no \`audience:\`, so any token this issuer minted is
+ *  accepted here — including one issued to a DIFFERENT client of the same
+ *  realm, carrying that client's roles.  Where one IdP realm serves several
+ *  applications (the shape the generated Keycloak realm sets up), add
+ *  \`audience: env("OIDC_AUDIENCE")\` to the \`oidc { … }\` block to turn the
+ *  check on. */`;
   // One `field: claim(payload, "<path>") as <T>` line per user field.
   const toUserLines = user.fields.map((f) => {
     const t = f.optional ? renderTsType({ kind: "optional", inner: f.type }) : renderTsType(f.type);
@@ -482,7 +525,7 @@ function renderOidcVerifier(user: UserIR, auth: AuthIR): string {
   });
   return `// Auto-generated.
 import { createRemoteJWKSet, type JWTPayload, jwtVerify } from "jose";
-import type { UserClaims } from "./user-types";
+${idsImport(user).join("\n")}import type { UserClaims } from "./user-types";
 import { registerUserVerifier } from "./verifier";
 
 // Resolved from the system \`auth { oidc { … } }\` block.  Env-bound values
@@ -557,8 +600,7 @@ ${toUserLines.join("\n")}
   };
 }
 
-/** Generated OIDC verifier — validates signature (JWKS), issuer, and
- *  audience, then maps claims onto User.  Returns null to reject (→ 401). */
+${verifierDoc}
 export const oidcVerifier = async (req: Request): Promise<UserClaims | null> => {
   const token = bearer(req);
   if (!token) return null;
@@ -852,8 +894,11 @@ function stubValueForType(t: TypeIR): string {
         default:
           return `""`;
       }
+    // The id is a BRANDED string (`domain/ids.ts`), so a raw literal is
+    // `TS2322: Type 'string' is not assignable to type 'CustomerId'` — it must
+    // go through the emitted factory.
     case "id":
-      return `"00000000-0000-0000-0000-000000000000"`;
+      return devStubIdExpr(t, "ts");
     case "array":
       return "[]";
     default:

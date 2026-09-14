@@ -15,6 +15,7 @@ import {
   storeModelField,
   storeMsgCase,
 } from "./fs-expr.js";
+import { fsIdent } from "./fs-ident.js";
 import { fsZeroValue, typeToFs } from "./type-fs.js";
 import type {
   FelizAction,
@@ -191,7 +192,7 @@ function formFieldMsgs(f: FormRecord): string[] {
 function formFieldSetterArms(f: FormRecord): string[] {
   return f.fields.flatMap((fld) => {
     const set = (v: string): string =>
-      `{ model with ${f.formField} = { model.${f.formField} with ${fld.wireName} = ${v} } }, Cmd.none`;
+      `{ model with ${f.formField} = { model.${f.formField} with ${fld.fsName} = ${v} } }, Cmd.none`;
     if (fld.inputKind !== "file") return [`  | ${fld.setMsg} v -> ${set("v")}`];
     const pick = formFileSelectMsg(f.formType, fld.wireName);
     const done = formFileUploadedMsg(f.formType, fld.wireName);
@@ -230,7 +231,7 @@ function fieldArrayUpdateArms(f: FormRecord): string[] {
     ...fa.rowFields.map(
       (rf) =>
         `  | ${rf.setMsg} (i, v) -> ${withForm(
-          `${acc}${fa.fieldName} |> List.mapi (fun j row -> if j = i then { row with ${rf.wireName} = v } else row)`,
+          `${acc}${fa.fieldName} |> List.mapi (fun j row -> if j = i then { row with ${rf.fsName} = v } else row)`,
           fa,
         )}`,
     ),
@@ -600,7 +601,7 @@ function renderUpdateStmt(stmt: ActionIR["body"][number], ctx: FsExprCtx): Updat
       return { line: `      let model = ${nestedFsWith(seg, value, ctx)}` };
     }
     case "let":
-      return { line: `      let ${stmt.name} = ${renderFsExpr(stmt.expr, ctx)}` };
+      return { line: `      let ${fsIdent(stmt.name)} = ${renderFsExpr(stmt.expr, ctx)}` };
     case "expression":
       // Bare expression statement (`name(args)` for effect).  A bare value in a
       // pure MVU arm must be discarded — `<expr> |> ignore` keeps the arm
@@ -789,7 +790,7 @@ export function renderUpdate(
       pageRoutes,
       ...armRouteId,
     };
-    const head = p ? `  | ${msgCase(a.name)} ${p.name} ->` : `  | ${msgCase(a.name)} ->`;
+    const head = p ? `  | ${msgCase(a.name)} ${fsIdent(p.name)} ->` : `  | ${msgCase(a.name)} ->`;
     return assembleArm(head, a.body, ctx);
   });
   // Store action arms — one Msg case per `<Store>.<action>`, rendered with a
@@ -807,7 +808,7 @@ export function renderUpdate(
         ...armRouteId,
       };
       const msg = storeMsgCase(store.name, a.name);
-      const head = p ? `  | ${msg} ${p.name} ->` : `  | ${msg} ->`;
+      const head = p ? `  | ${msg} ${fsIdent(p.name)} ->` : `  | ${msg} ->`;
       return assembleArm(head, a.body, ctx);
     });
   });

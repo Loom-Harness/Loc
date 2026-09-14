@@ -54,6 +54,7 @@ import type {
   TypeIR,
   UiIR,
   ValueObjectIR,
+  WorkflowIR,
 } from "../../ir/types/loom-ir.js";
 import { isDescendingSort } from "../../ir/util/collection-op-site.js";
 import {
@@ -67,7 +68,7 @@ import { DURATION_UNIT_MS, type DurationUnit } from "../../util/temporal.js";
 import { USER_VISIBLE_SLOTS } from "../../util/user-visible-slots.js";
 import { tryRenderGate } from "../_frontend/gate-expr.js";
 import { PROVENANCE_VALUE_FIELD, provenancedFieldNames } from "../_payload/provenanced-wire.js";
-import { GIVE_UP_SENTINEL } from "../_walker/give-up.js";
+import { giveUpText } from "../_walker/give-up.js";
 import { icuFromConcat, messageKey } from "../_walker/i18n-extract.js";
 import { WALKER_PRIMITIVES } from "../_walker/registry.js";
 import { heexTarget, renderHeexStoreActionCall, renderHeexStoreFieldRead } from "./heex-target.js";
@@ -237,27 +238,11 @@ export interface QueryBinding {
    *  substituting one (`loom.ui-read-unresolved` rejects that model upstream, so
    *  the refusal is a backstop, not the user-facing message). */
   readFn?: string;
-  /** HANDLER-position Elixir predicate that must hold for this read to run —
-   *  the `match` arm the `QueryView` sits in, if any (`undefined` = an
-   *  unconditional read, the shape every binding had before).
-   *
-   *  It exists because the markup is a `cond` but the LOADS were not: every
-   *  arm's read was pushed into `handle_params/3` unconditionally, in body
-   *  order, all writing the SAME assign — so the last one (the scaffold's `all`
-   *  fallback) overwrote whatever the filtered arm had just fetched.  The
-   *  filtered query ran, hit the database, and had its result discarded one
-   *  line later; the page then rendered the unfiltered table while the markup's
-   *  `cond` was in the filtered arm.  That is also what made the two arms look
-   *  like they disagreed on SHAPE — the filtered arm's markup reads `@items` as
-   *  a plain list and the `all` arm reads the paged envelope (`@items.items`),
-   *  which is right for each arm and wrong only because both loads ran.  Giving
-   *  each load the guard its own markup arm carries makes exactly one of them
-   *  execute, so the assign always holds the shape the rendering arm expects.
-   *
-   *  First-match-wins, like the `cond` it mirrors: arm N's guard excludes every
-   *  earlier arm's predicate, and the `else` arm's guard is the negation of all
-   *  of them. */
-  guard?: string;
+  /** kind:"list" only — the enclosing `match` arm's condition (handler-position
+   *  Elixir), when the `QueryView` sits inside one.  The load runs under
+   *  `if <gate> do … else socket end`, so only the arm the template actually
+   *  renders reaches the repository.  See `WalkContext.matchGate`. */
+  gate?: string;
 }
 
 /** Interactive controls a `Table(...)` in this body asked for — the HEEx leg of
@@ -313,6 +298,15 @@ export interface WalkContext {
    *  flags alone gets them wrong whenever the flags are absent.  Empty
    *  default ⇒ the collection shape. */
   bcByAggregate: ReadonlyMap<string, BoundedContextIR>;
+  /** Workflow PascalCase name → its `WorkflowIR`, so `WorkflowForm { runs: W }`
+   *  can emit one `<.input>` per the workflow's command-triggered `create`
+   *  params instead of a single `_placeholder` (M-T6.56 F61).  Derived at
+   *  walker entry from `bcByAggregate` — the same source
+   *  `projectionsByName` is derived from, so no caller has to thread a second
+   *  registry.  A context that declares a workflow but NO aggregate is absent
+   *  from `bcByAggregate` and therefore invisible here; the form then falls
+   *  back to the placeholder it always emitted rather than guessing. */
+  workflowsByName: ReadonlyMap<string, WorkflowIR>;
   /** Frontend-readable projection names (M-T1.3) — the detector's
    *  Pattern H set, so `QueryView { of: <api>.<Projection> }` resolves to the
    *  projection's own read instead of falling through to the aggregate arms.
@@ -351,12 +345,6 @@ export interface WalkContext {
   ui: UiIR;
   /** Local name set for `state { … }` fields (snake-cased). */
   stateNames: Set<string>;
-  /** HANDLER-position Elixir predicate guarding everything rendered below this
-   *  point — the conjunction of the enclosing `match` arms' conditions, set by
-   *  `renderMatch` while it walks each arm and read by the `QueryView` /
-   *  projection binding pushes (see `QueryBinding.guard`).  Undefined at the
-   *  body root: an unconditional region. */
-  loadGuard?: string;
   /** Per-field StateFieldIR keyed by snake-cased name.  Drives
    *  `heexTarget.renderStateRead` delegation — the contract's
    *  `StateRef` carries the full field, which the bare `stateNames` set
@@ -424,6 +412,19 @@ export interface WalkContext {
   tableControls: TableControlBinding[];
   /** Current rendering position — see RenderPosition. */
   position: RenderPosition;
+  /** The `match` arm currently being rendered, as a HANDLER-position Elixir
+   *  boolean (`socket.assigns.x != ""`), already carrying the negation of every
+   *  earlier arm so first-match-wins holds.  Stamped onto any `QueryBinding`
+   *  pushed inside the arm, so `handle_params` runs THAT arm's read only when
+   *  the arm is the one the template renders.
+   *
+   *  Without it every arm's read ran on every load: a filter-bar list page
+   *  (`match { byOwner != "" => QueryView { of: …byOwner(byOwner) } else =>
+   *  QueryView { of: …all(page, …) } }`) loaded all three unconditionally into
+   *  the SAME assign, so the last one silently won — and the filter read ran
+   *  with the filter's own UNSET value, which is how schemathesis E5 reached
+   *  the repository at all.  Undefined outside a `match`. */
+  matchGate?: string;
   /** Module-qualified bounded-context name keyed by entity-part name
    *  (PascalCase) — e.g. `Line` → `PhoenixApp.Sales`.  Lets a page-body
    *  `new Part { … }` struct literal qualify like the domain emitter does
@@ -543,6 +544,11 @@ export function walkBodyToHeex(
     // exists to prevent.
     projectionsByName: readableProjectionNames(new Set(bcByAggregate.values())),
     listShapedProjections: listShapedProjectionNames(new Set(bcByAggregate.values())),
+    workflowsByName: new Map(
+      [...new Set(bcByAggregate.values())].flatMap((bc) =>
+        (bc.workflows ?? []).map((w) => [w.name, w] as const),
+      ),
+    ),
     enumsByName,
     valueObjectsByName,
     idOptionsBindings: new Set(),
@@ -1012,18 +1018,18 @@ function externModuleFromPath(path: string): string {
 export function renderAction(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkContext): string {
   const opRef = expr.args.find((_, i) => !expr.argNames?.[i]);
   if (opRef?.kind !== "member" || opRef.receiver.kind !== "ref") {
-    return `<!-- Action: expected <instance>.<operation> -->`;
+    return `<!-- ${giveUpText("loom.page-primitive-arg-invalid", "Action: expected <instance>.<operation>")} -->`;
   }
   const instanceName = opRef.receiver.name;
   const opName = opRef.member;
   const aggName = ctx.instanceTypes?.get(instanceName);
   if (!aggName) {
-    return `<!-- Action(${instanceName}.${opName}): '${instanceName}' is not an in-scope aggregate instance -->`;
+    return `<!-- ${giveUpText("loom.page-ref-unreachable", `Action(${instanceName}.${opName}): '${instanceName}' is not an in-scope aggregate instance`)} -->`;
   }
   const agg = ctx.aggregatesByName.get(aggName);
   const op = agg?.operations.find((o) => o.name === opName && o.visibility === "public");
   if (!op) {
-    return `<!-- Action(${instanceName}.${opName}): no public operation '${opName}' on ${aggName} -->`;
+    return `<!-- ${giveUpText("loom.page-ref-unreachable", `Action(${instanceName}.${opName}): no public operation '${opName}' on ${aggName}`)} -->`;
   }
   const eventName = `${snake(opName)}_${snake(aggName)}`;
   const idExpr = `${renderExpr(opRef.receiver, { ...ctx, position: "template" })}.id`;
@@ -1172,7 +1178,7 @@ function renderCall(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkContext): 
   // positions (`isHEExCall` also keeps every registered primitive in markup
   // position, so the wrap does not arise).
   if (def) {
-    return `<%!-- ${GIVE_UP_SENTINEL} ${expr.name}: not supported by Phoenix LiveView target --%>`;
+    return `<%!-- ${giveUpText("loom.page-primitive-target-gap", `${expr.name}: not supported by Phoenix LiveView target`)} --%>`;
   }
   // Helper function call.
   if (expr.callKind === "function" || expr.callKind === "free") {
@@ -1289,20 +1295,25 @@ function armRendersMarkup(value: ExprIR, ctx: WalkContext): boolean {
 
 /** Can this arm predicate be RE-RENDERED in handler position?
  *
- *  A `match` arm's condition is written for the render scope, where a lambda
+ *  A `match` arm's condition is written for the RENDER scope, where a lambda
  *  parameter (`For { each: rows, i => match { … } }`) is in scope.
  *  `handle_params/3` is a function body: that same `i` renders as a bare
- *  variable nothing binds, and `mix compile` rejects the module.  So a guard is
- *  carried down only when every name in the predicate also exists as a socket
- *  assign — a `state` field, a `derived` over such, a route param, the
- *  principal, or a `data:`-lambda binding the walker has already remapped to
- *  one.
+ *  variable nothing binds, so the emitted module is
  *
- *  Anything else falls back to the unguarded load: no improvement for that
- *  shape, and no regression either — it is exactly what every read emitted
- *  before.  Rides `walkExprDeep` rather than a hand-rolled descent, so a new
- *  `ExprIR` kind cannot hide a reference from this check. */
-function guardIsHandlerSafe(cond: ExprIR, ctx: WalkContext): boolean {
+ *      socket =
+ *        if (i.flagged) do          # ** (CompileError) undefined variable "i"
+ *
+ *  and `mix compile` rejects the WHOLE project — not a bad render, an app that
+ *  never boots.  So a gate is carried down only when every name in the
+ *  predicate also exists as a socket assign: a `state` field, a `derived` over
+ *  such, a route param, the principal, or a `data:`-lambda binding the walker
+ *  has already remapped to one.
+ *
+ *  Anything else falls back to the UNGATED load — no improvement for that
+ *  shape, and no regression either: it is exactly what every read emitted
+ *  before gating existed.  Rides `walkExprDeep` rather than a hand-rolled
+ *  descent, so a new `ExprIR` kind cannot hide a reference from this check. */
+function gateIsHandlerSafe(cond: ExprIR, ctx: WalkContext): boolean {
   let safe = true;
   walkExprDeep(cond, (e) => {
     if (e.kind !== "ref") return;
@@ -1318,19 +1329,19 @@ function guardIsHandlerSafe(cond: ExprIR, ctx: WalkContext): boolean {
   return safe;
 }
 
-/** The walk context for arm `index` of a markup `match` — `ctx` plus the
- *  `loadGuard` that arm's reads must run under.  `index === conds.length` is
- *  the `else` arm.
- *
- *  First-match-wins, mirroring the `cond` the arms render into: arm N runs when
- *  its own predicate holds AND no earlier arm's did, and the `else` arm runs
- *  when none held.  A nested `match` conjoins onto the guard it inherited, so a
- *  `QueryView` two arms deep loads only in the region that renders it. */
-function armCtx(ctx: WalkContext, conds: readonly string[], index: number): WalkContext {
-  const earlier = conds.slice(0, index).map((c) => `not (${c})`);
-  const own = index < conds.length ? [conds[index]!] : [];
-  const parts = [...(ctx.loadGuard ? [ctx.loadGuard] : []), ...earlier, ...own];
-  return parts.length > 0 ? { ...ctx, loadGuard: parts.join(" and ") } : ctx;
+/** `!(c)` — Elixir's `!` is the truthy negation, so it holds for whatever a
+ *  rendered arm condition evaluates to, not only a strict boolean. */
+function notGate(cond: string): string {
+  return `!(${cond})`;
+}
+
+/** Join gate fragments with `&&`, dropping the undefined ones.  Returns
+ *  `undefined` when there is nothing to gate on, so an ungated binding stays
+ *  byte-identical to before. */
+function andGate(...parts: readonly (string | undefined)[]): string | undefined {
+  const kept = parts.filter((p): p is string => p !== undefined && p !== "");
+  if (kept.length === 0) return undefined;
+  return kept.map((p) => `(${p})`).join(" && ");
 }
 
 function renderMatch(expr: Extract<ExprIR, { kind: "match" }>, ctx: WalkContext): string {
@@ -1371,24 +1382,29 @@ function renderMatch(expr: Extract<ExprIR, { kind: "match" }>, ctx: WalkContext)
     // `renderChild` gives each arm the right treatment individually: markup
     // passes through, a plain term still gets its own `<%= … %>`. So a match
     // that MIXES markup and term arms stays valid.
-    // The markup below is a `cond`; the LOADS the arms register are not — each
-    // `QueryView` in an arm pushes a QueryBinding that `handle_params/3` runs
-    // as a flat statement sequence.  Carry each arm's predicate down as
-    // `ctx.loadGuard` so the load can be wrapped in the same condition its
-    // markup is (see `QueryBinding.guard`); without it every arm's read ran and
-    // the last write to the shared assign won, so the filter bar's query was
-    // executed and then thrown away.  Handler position: a load block is a
-    // function body, so a state ref must render `socket.assigns.<f>`, not
-    // `@<f>`.
-    // One unsafe arm disables guarding for the WHOLE match: a partly-guarded
-    // `cond` is worse than none, since the unguarded load still clobbers.
-    const handlerConds = expr.arms.every((a) => guardIsHandlerSafe(a.cond, ctx))
-      ? expr.arms.map((a) => renderExpr(a.cond, { ...ctx, position: "handler" }))
-      : [];
     const lines: string[] = ["<%= cond do %>"];
-    for (const [i, a] of expr.arms.entries()) {
+    // The same arm conditions, rendered for HANDLER position, threaded onto the
+    // arm's subtree so a `QueryView` inside it records the gate its load must
+    // run under (`WalkContext.matchGate`).  `cond` is first-match-wins, so an
+    // arm's gate carries the negation of every earlier arm and the fallback's
+    // gate is the negation of them all — otherwise two arms could both load
+    // into the same assign and the later one would win, which is the bug this
+    // gating exists to close.
+    //
+    // …but only when EVERY arm's predicate survives the move to handler scope
+    // (`gateIsHandlerSafe`).  One unsafe arm disables gating for the WHOLE
+    // match: a partly-gated `cond` is worse than none, since the ungated load
+    // still clobbers the gated one, and a gate naming a render-only binding
+    // fails `mix compile` outright.
+    const gatable = expr.arms.every((a) => gateIsHandlerSafe(a.cond, ctx));
+    const handlerConds: string[] = [];
+    for (const a of expr.arms) {
       lines.push(`  <% ${renderExpr(a.cond, ctx)} -> %>`);
-      lines.push(`    ${renderChild(a.value, armCtx(ctx, handlerConds, i))}`);
+      const mine = gatable ? renderExpr(a.cond, { ...ctx, position: "handler" }) : undefined;
+      lines.push(
+        `    ${renderChild(a.value, gatable ? { ...ctx, matchGate: andGate(ctx.matchGate, ...handlerConds.map(notGate), mine) } : ctx)}`,
+      );
+      if (mine !== undefined) handlerConds.push(mine);
     }
     // `cond` raises CondClauseError when no arm matches, so the fallback is
     // not cosmetic. Without an authored `else` the page renders nothing rather
@@ -1396,7 +1412,7 @@ function renderMatch(expr: Extract<ExprIR, { kind: "match" }>, ctx: WalkContext)
     lines.push(`  <% true -> %>`);
     lines.push(
       expr.otherwise !== undefined
-        ? `    ${renderChild(expr.otherwise, armCtx(ctx, handlerConds, expr.arms.length))}`
+        ? `    ${renderChild(expr.otherwise, gatable ? { ...ctx, matchGate: andGate(ctx.matchGate, ...handlerConds.map(notGate)) } : ctx)}`
         : `    <%= nil %>`,
     );
     lines.push(`<% end %>`);
@@ -2464,6 +2480,7 @@ function renderRequiresGuardAt(
     appModule,
     aggregatesByName: new Map(),
     bcByAggregate: new Map(),
+    workflowsByName: new Map(),
     projectionsByName: new Set(),
     listShapedProjections: new Set(),
     enumsByName: new Map(),

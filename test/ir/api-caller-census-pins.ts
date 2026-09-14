@@ -570,6 +570,52 @@ export const UNATTRIBUTED_CALLS: Record<string, readonly string[]> = {
 // classes decide the ORDER of the remaining drain, and re-deriving them costs
 // the next agent an hour (#2517).
 export const E2E_LESS_CORPUS_FIXTURES: readonly string[] = [
+  // COMPILE-TIER WITNESS (dev-experience audit D6/P2) — an id-typed `user { … }`
+  // claim (`customerId: Customer id?`), which broke four of five backends two
+  // ways at once (the optional marker emitted twice; the strong-id class never
+  // imported into the auth tree).  Every one of the four symptoms is STATIC and
+  // is caught by the compile leg that already gates this fixture: `TS2503`
+  // (corpus-tsc), `cannot find symbol` (corpus-java), a `CustomerId??` that does
+  // not parse (corpus-dotnet), and python's missing import — which READS as a
+  // runtime bug (a `NameError` on every token verification, because the
+  // annotation sits inside `cast(...)` in a function body) but is caught
+  // statically by corpus-python's `ruff check` as F821 and `mypy --strict` as
+  // `name-defined`.  So there is no runtime-only half here to witness: a
+  // behavioural block would boot a generic CRUD round-trip wearing an OIDC hat
+  // — which `auth-oidc` already boots and records — and mint a wire golden that
+  // is an oracle for nothing this fixture is about.  The claim VALUE is not
+  // assertable at runtime either: the harness's mock issuer mints no
+  // `customer_id`, so the claim would read null on every booted backend.
+  "auth-id-claim",
+  // COMPILE-TIER WITNESS — the NON-optional twin of the entry above
+  // (`customerId: Customer id`, and no `auth { … }` block, so every backend
+  // emits its DEV-STUB principal).  The sibling cannot reach this arm: an
+  // optional claim short-circuits to null/None/nil before the stub's type table
+  // is consulted, and on node/python/elixir the OIDC verifier REPLACES the dev
+  // stub.  Four of the five stub tables wrote a raw scalar against a nominal id
+  // type, and the two loudest are hard compile errors the leg already gating
+  // this fixture catches: `TS2322` (corpus-tsc, against the `__brand`) and
+  // CS0029 (corpus-dotnet, against `readonly record struct CustomerId(Guid)`).
+  // No runtime-only half to witness: the id claim's VALUE is not settable from
+  // the harness either — `devClaimKind` carries `string` / `string[]` only, so
+  // `x-loom-dev-claims` leaves it at the built-in stub value on all five.
+  "auth-id-claim-stub",
+  // COMPILE-TIER WITNESS (audit F57 / M-T6.57) — the `envelope` carrier, which
+  // NO `.ddd` in the repo instantiated before this fixture, so every compile
+  // gate was blind to it and java/dotnet emitted output that did not build.
+  // The oracle is a COMPILE one (the five corpus compile legs) plus the
+  // byte-identity gate in `test/generator/envelope-carrier.test.ts`: `envelope`
+  // is ratified as a single-row find, so `T envelope` must emit exactly what
+  // `T` emits, and a behavioural block would add no oracle the compile tier and
+  // that gate do not already give.
+  //
+  // It would also mint a wire golden across a divergence this PR did not drain:
+  // the find-miss 404 `detail` is `"not found"` on node and `"not_found"` on the
+  // other four (dotnet's own `projectionClauseFor` comment calls `"not_found"`
+  // "the canonical find-miss detail token on every backend").  A golden captured
+  // on the node leg would therefore redden the other four legs on main.  Author
+  // the block once THAT is ruled.
+  "envelope",
   // COMPILE-TIER WITNESS (generator review A5/A10–A14) — the previously
   // unwitnessed collection-op shapes (arithmetic-lambda `sum`, `distinct` over
   // money, argless `any()`, descending `sortBy`, unary minus on money, `-=` on
@@ -586,11 +632,45 @@ export const E2E_LESS_CORPUS_FIXTURES: readonly string[] = [
   // cross-backend decimal-arithmetic divergence (F11 / M-T5.22) — that golden
   // waits for the owner ruling, not for this fixture.
   "numeric-operands",
+  // COMPILE + UNIT-TIER WITNESS (verification fleet F58 / M-T6.62) — a COMMAND
+  // `create(params)` on a workflow that carries `Property` state.  The defect
+  // it exists for is a TYPE ERROR in four of the five emitted projects (an
+  // unbound `this`/`state` receiver), so the per-backend compile legs are the
+  // oracle; the pure-domain `test` block rides every backend's unit tier.  The
+  // runtime half — POST the command, emit the event, read the saga row back
+  // through `/workflows/fulfillment/instances/{id}` — is expressible, but it
+  // mints a five-way wire golden for a cascade no golden covers yet, and
+  // capturing that needs the behavioural legs rather than this fixture's PR.
+  "workflow-create-state",
   // COMPILE-TIER WITNESS (generator review A1) — a projection aggregation over
   // a `tenantOwned` + `softDeletable` source; pins that the emitted aggregation
   // read carries the capability predicates.  The runtime half needs the
   // two-principal harness (`tenancy-e2e.yml` owns that shape).
   "projection-agg-filters",
+  // COMPILE-TIER WITNESS (M-T6.54 F18), for the SAME reason as
+  // `projection-agg-filters` directly above — same capabilities, same missing
+  // harness.  The assertion this fixture wants is "a SECOND tenant's rows
+  // appear under `ignoring tenantOwned` and are absent without it", which needs
+  // two principals; the behavioural runners authenticate as one
+  // (`DEV_CLAIMS`), so the caller could only ever read its own rows and both
+  // spellings would return the same set — a green e2e over a retained conjunct,
+  // which is exactly the failure mode this fixture exists to catch.  The
+  // structural proof is `test/generator/java/generator-java-find-bypass-principal.test.ts`
+  // (paired presence + ABSENCE per conjunct, per read surface).  Drain: the
+  // two-principal harness `tenancy-e2e.yml` owns — the same one
+  // `projection-agg-filters` waits on.
+  "find-bypass",
+  // UNIT-TIER WITNESS (M-T6.55 F14/F15/F24), the `numeric-operands` shape: it
+  // carries a DOMAIN `test` block and no `test e2e`, so the behavioural runners
+  // do run it (unit tier) and the gate ledger scores its cells `behavioural` —
+  // it is e2e-LESS, not gate-less.  A `test e2e` would add little: two of its
+  // three rules are REJECTION behaviour reachable only through the NESTED create
+  // body, which the runners do not drive today (`lifecycle-guard`'s entry records
+  // what it took to make a DENIAL testable there).  The third — a private
+  // operation's write reaching the caller's result — is exactly what the domain
+  // test asserts, in memory, on all five.  Drain: give the runner a nested create
+  // plus a `toThrow(422)` on it.
+  "part-rules-private-op",
   // COMPILE-TIER WITNESS (generator review A1, document half) — the row count
   // over a `shape: document` source, the one aggregation that shape can express.
   // The gate it exists for is a GENERATION one (four backends emit it, java is
@@ -712,6 +792,57 @@ export const E2E_LESS_CORPUS_FIXTURES: readonly string[] = [
   // blocker as `R.tenantRegistryRow`; drain them together.  Runtime home today:
   // `tenancy-e2e.yml`'s hierarchy legs (label/post-merge).
   "tenancy-hierarchy",
+  // COMPILE-TIER WITNESS (#2864 D4/T3) — a workflow whose persisted STATE field
+  // is an enum.  Both halves of what it pins are STATIC, and both are caught by
+  // legs that already gate this fixture: the node backend named `<Enum>Schema`
+  // with that name bound nowhere in the emitted tree (TS2304, corpus-tsc) and
+  // then, underneath it, seeded a fresh saga row with `""` for an enum column
+  // whose Drizzle type is a literal union (TS2345, same leg); the four frontends
+  // imported the schema from whichever aggregate happened to be declared first
+  // (`vue-tsc` TS2305 / `svelte-check`, the generated-{vue,svelte}-build gates,
+  // which carry their own inline case for this shape).
+  //
+  // A behavioural block would add nothing an oracle can read.  The workflow is
+  // EVENT-TRIGGERED, so it has no command route to POST; its only api surface is
+  // the pair of read-only instance endpoints, and reaching them at runtime needs
+  // a `ClaimFiled` emitter this fixture deliberately does not have — the shape
+  // under test is the enum in the state row, not the dispatch that fills it,
+  // and `saga`/`eventsourced-workflow` already boot that dispatch path.
+  "workflow-enum-state",
+  // COMPILE-TIER WITNESS, and NOT EXPRESSIBLE at the behavioural tier besides.
+  // The bug class this fixture was minted for (#2864 D7/T2) is "the emitted
+  // project names a wire type nothing emits" — `z.unknown()` with no contract
+  // on node, an undefined `<Payload>Response` on the other four, plus an
+  // undefined domain record on dotnet.  That is exactly what the five compile
+  // legs see and the generate tier cannot: the model generated cleanly on all
+  // five backends the whole time it was broken.
+  //
+  // A caller is also not writable here today: the defect lives on the WORKFLOW
+  // command route (`POST /workflows/claim_handling`), and the e2e DSL has no
+  // surface that calls one — no `.ddd` in the repo drives a command workflow
+  // from a `test e2e` block.  So an e2e block added to this fixture would drive
+  // the two `crudish` aggregates and never touch the payload wire contract it
+  // exists for, which is worse than an honest exclusion: a green caller over
+  // the routes that were never broken.
+  //
+  // Drain: when the e2e DSL gains a workflow-invocation form, POST the payload
+  // and read the created `Claim` back — that would prove the wire CONTRACT
+  // (node's `z.unknown()` accepted anything, so the boundary had no oracle at
+  // all), which the compile tier genuinely cannot see.
+  "workflow-command-payload",
+  // WAVE C1 PACKET 1e-i (ledger rows F2-XB-4 / F2-CB-C1) — both fixtures exist
+  // for the COMPILE tier: a dropped fold-body `let` is CS0103 / "cannot find
+  // symbol", and the paged × non-relational carrier is CS0535 + CS0029, so the
+  // gate that mattered is the corpus compile leg plus the two conformance
+  // matrices named in `BEHAVIOURAL_ABSENT`.  A runtime `test e2e` is owed and
+  // is the drain condition recorded there.
+  "projection-fold-statements",
+  "paged-nonrelational",
+  // WAVE C1 PACKET 1h (RS-26 boxing of a java workflow's primitive params) —
+  // the contract under test is the emitted wire type (`Integer`, not `int`)
+  // and the 422 its `@NotNull` answers, pinned by the java generator suite;
+  // the behavioural runner cannot yet address a workflow's create surface.
+  "workflow-primitive-params",
 ];
 
 /**

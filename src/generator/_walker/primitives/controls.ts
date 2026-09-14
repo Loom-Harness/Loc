@@ -55,7 +55,11 @@ export function emitIdLink(
         ? ofArg.value
         : undefined;
   if (!aggName) {
-    return giveUp(ctx.target, `IdLink: missing 'of:' aggregate ref`);
+    return giveUp(
+      ctx.target,
+      "loom.page-primitive-arg-missing",
+      `IdLink: missing 'of:' aggregate ref`,
+    );
   }
   // When aggregate IR is in scope, prefer the official
   // aggregate's plural-snake slug over our local pluralisation
@@ -106,7 +110,7 @@ export function emitButton(
       : local;
   } else if (onClickAction) {
     ctx.usedActions?.add(onClickAction.actionName);
-    const handler = actionHandlerName(onClickAction.actionName);
+    const handler = actionHandlerName(onClickAction.actionName, ctx.target);
     onClickHandler = ctx.target.renderEventHandler
       ? ctx.target.renderEventHandler([`${handler}();`], undefined)
       : handler;
@@ -202,6 +206,7 @@ export function emitAction(
   if (opRef?.kind !== "member" || opRef.receiver.kind !== "ref") {
     return giveUp(
       ctx.target,
+      "loom.page-primitive-arg-invalid",
       `Action: first argument must be <instance>.<operation> (e.g. order.confirm)`,
     );
   }
@@ -211,17 +216,23 @@ export function emitAction(
   if (!aggName) {
     return giveUp(
       ctx.target,
+      "loom.page-ref-unreachable",
       `Action(${instanceName}.${opName}): '${instanceName}' is not an in-scope aggregate instance`,
     );
   }
   const agg = ctx.aggregatesByName.get(aggName);
   if (!agg) {
-    return giveUp(ctx.target, `Action(${instanceName}.${opName}): aggregate ${aggName} not found`);
+    return giveUp(
+      ctx.target,
+      "loom.page-ref-unreachable",
+      `Action(${instanceName}.${opName}): aggregate ${aggName} not found`,
+    );
   }
   const op = agg.operations.find((o) => o.name === opName && o.visibility === "public");
   if (!op) {
     return giveUp(
       ctx.target,
+      "loom.page-ref-unreachable",
       `Action(${instanceName}.${opName}): no public operation '${opName}' on ${agg.name}`,
     );
   }
@@ -234,7 +245,16 @@ export function emitAction(
   // re-runs the hook per render (so it captures the real id once loaded); Vue
   // (setup runs once) and Svelte (getter) tolerate the `undefined`.  Without
   // the `?.`, React/Vue crash on mount dereferencing `.id` of pending data.
-  const idExpr = `${emitExpr(opRef.receiver, ctx)}?.id`;
+  //
+  // …and COALESCE it, because `use<Op><Agg>` is typed `(id: string)` (svelte:
+  // `(id: () => string)`), so the `undefined` the `?.` admits is a TS2345 on
+  // the page — the scaffolded Detail page's leave-the-page op (`softDelete`)
+  // failed `tsc`/`vue-tsc`/`svelte-check` this way while every SIBLING hoist on
+  // the same page compiled.  `?? ""` is the shape those siblings already use
+  // (`routeIdExpr`, `_walker/primitives/forms.ts` → `id ?? ""`); it changes no
+  // loaded-state behaviour, since the coalesce is only reachable while the
+  // receiver is still pending.
+  const idExpr = `${emitExpr(opRef.receiver, ctx)}?.id ?? ""`;
   if (!ctx.actionMutations.some((m) => m.localVar === localVar)) {
     ctx.actionMutations.push({
       localVar,
@@ -418,7 +438,11 @@ export function emitQueryView(
 ): string {
   const ofArg = namedArgValue(call, "of");
   if (!ofArg) {
-    return giveUp(ctx.target, `QueryView: missing 'of:' query expression`);
+    return giveUp(
+      ctx.target,
+      "loom.page-primitive-arg-missing",
+      `QueryView: missing 'of:' query expression`,
+    );
   }
   // Entity-history read on a frontend that can't serve one — skip the WHOLE
   // view (see `_walker/history-read.ts`).  Bail BEFORE `emitExpr` below, which
@@ -433,7 +457,7 @@ export function emitQueryView(
   // joins `HISTORY_CAPABLE_FRAMEWORKS`.
   if (skipsEntityHistoryRead(ctx.target.framework, ofArg, ctx.aggregatesByName)) {
     const text = `History is not yet supported on ${ctx.target.framework}`;
-    return giveUpNotice(ctx.target, text);
+    return giveUpNotice(ctx.target, "loom.page-primitive-target-gap", text);
   }
   // Render the query expression; this triggers `tryDetectApiHook`
   // so the page-shell registers the matching `useAll<X>()` (or

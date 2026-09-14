@@ -75,10 +75,21 @@ describe("flutterTarget — state seam", () => {
     expect(w).toBe("notifier.setStep(3)");
   });
 
-  it("nested writes call the root-field setter and note the path", () => {
+  it("nested writes hand the root-field setter an inside-out copyWith rebuild", () => {
+    // It used to emit `notifier.setOrder(v)` plus a `/* TODO */` note — which is
+    // not a deferred write but a DIFFERENT one: the whole `order` cell clobbered
+    // with the leaf value.  The comment made it read as handled.
     const w = flutterTarget.renderNestedStateWrite(["order", "shipping", "zip"], "v");
-    expect(w).toContain("notifier.setOrder(v)");
-    expect(w).toContain("order.shipping.zip");
+    expect(w).toBe(
+      "notifier.setOrder(state.order.copyWith(shipping: state.order.shipping.copyWith(zip: v)))",
+    );
+    expect(w).not.toContain("TODO");
+  });
+
+  it("a two-segment nested write is a one-level chain", () => {
+    expect(flutterTarget.renderNestedStateWrite(["draft", "method"], "m")).toBe(
+      "notifier.setDraft(state.draft.copyWith(method: m))",
+    );
   });
 
   it("defaultInitFor forwards to dartZeroValue", () => {

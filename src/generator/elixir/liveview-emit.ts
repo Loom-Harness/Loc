@@ -17,6 +17,7 @@
 // orchestrator splices into router.ex.
 // ---------------------------------------------------------------------------
 
+import { diagMessage } from "../../diagnostics/messages.js";
 import type {
   AggregateIR,
   BoundedContextIR,
@@ -43,7 +44,7 @@ import {
 } from "../../ir/util/page-kind.js";
 import { isFrontendReadableProjection } from "../../ir/util/projection-read.js";
 import { listReadGate } from "../../ir/util/read-gates.js";
-import { lowerFirst, plural, snake, upperFirst } from "../../util/naming.js";
+import { elixirString, lowerFirst, plural, snake, upperFirst } from "../../util/naming.js";
 import {
   E2E_FIXTURES_TS,
   E2E_PACKAGE_JSON_PHOENIX,
@@ -221,8 +222,15 @@ export function emitLiveViewPages(args: {
   // Entity-history reads a page body may render (docs/audit.md), keyed by the
   // audited aggregate's name — same in-process story as the projections above.
   const historyReads = new Map<string, HistoryRead>();
+  // Workflow PascalCase name → its runner module, for the `run_<wf>` clause a
+  // `WorkflowForm` needs.  Built from the same `<App>.<Ctx>` prefix the HTTP
+  // `WorkflowsController` resolves against.
+  const workflowModuleByName = new Map<string, string>();
   for (const ctx of contexts) {
     const ctxModule = `${appModule}.${upperFirst(ctx.name)}`;
+    for (const wf of ctx.workflows ?? []) {
+      workflowModuleByName.set(wf.name, `${ctxModule}.Workflows.${upperFirst(wf.name)}`);
+    }
     for (const proj of ctx.projections ?? []) {
       if (!isFrontendReadableProjection(proj)) continue;
       projectionReads.set(proj.name, {
@@ -386,6 +394,7 @@ export function emitLiveViewPages(args: {
       enumsByName,
       valueObjectsByName,
       contextModuleByAggName,
+      workflowModuleByName,
       projectionReads,
       listReadGateByAggName,
       historyReads,
@@ -498,6 +507,12 @@ interface RenderArgs {
    *  keyed by aggregate PascalCase name.  Used to build the
    *  `change_<agg>(%<Ctx>.<Agg>{})` create-form changeset in mount/3. */
   contextModuleByAggName: ReadonlyMap<string, string>;
+  /** Module-qualified workflow runner keyed by workflow PascalCase name
+   *  (`<App>.<Ctx>.Workflows.<Wf>`) — what a `WorkflowForm { runs: W }`'s
+   *  `handle_event("run_<wf>", …)` clause calls `run/1` on (M-T6.56 F61).
+   *  Same source as the HTTP `WorkflowsController` action, so the two seams
+   *  cannot dispatch to different modules. */
+  workflowModuleByName: ReadonlyMap<string, string>;
   /** Frontend-readable query-time projections, keyed by projection name — the
    *  `run/1` module (and any `requires` gate) a `QueryView { of:
    *  <api>.<Projection> }` load resolves to. */
@@ -627,8 +642,19 @@ function gatherComponentHandlers(
       const clash = byName.get(h.name);
       if (clash) {
         if (clash.body.join("\n") !== h.body.join("\n")) {
+          // INTERNAL FLOOR.  `loom.heex-handler-name-collision` (phase ⑦,
+          // `ui-framework-checks.ts`) refuses the cross-surface name collision
+          // on a validated model, so reaching here means the generator was
+          // handed an unvalidated one (the api toolkit and the playground both
+          // can).  Re-derived from the RENDERED clause bodies rather than from
+          // the validator's verdict — the two disagree loudly rather than one
+          // silently trusting the other.
           throw new Error(
-            `platform: elixir — page '${pageName}' hoists two different \`${h.name}\` handlers into one LiveView (component '${name}' collides with another handler of that name). Rename one of the \`action\`s: a LiveView dispatches every \`phx-click\` by name, so only one of them could ever run.`,
+            diagMessage("loom.heex-handler-name-collision#emit-invariant", {
+              page: pageName,
+              handler: h.name,
+              component: name,
+            }),
           );
         }
         continue;
@@ -694,8 +720,15 @@ function assertSingleInstancePerStatefulComponent(
   walk(pageUses, 1, []);
   for (const [name, count] of total) {
     if (count > 1 && (componentInfo.get(name)?.state.length ?? 0) > 0) {
+      // INTERNAL FLOOR — see the sibling note in `gatherComponentHandlers`.
+      // `loom.heex-stateful-component-reused` (phase ⑦) refuses this shape on
+      // a validated model.
       throw new Error(
-        `platform: elixir — page '${pageName}' renders component '${name}' ${count} times, but '${name}' declares \`state\`. A HEEx function component holds no state of its own, so Loom lifts it into the host LiveView's assigns — one cell per component, which ${count} instances would share. Render it once, or move the state into a page \`state { … }\` field passed down as a param.`,
+        diagMessage("loom.heex-stateful-component-reused#emit-invariant", {
+          page: pageName,
+          component: name,
+          count,
+        }),
       );
     }
   }
@@ -869,9 +902,7 @@ function renderLiveView(a: RenderArgs): { source: string; usesChart: boolean } {
         handlers,
         walked.queryBindings,
         contextModuleByAggName,
-        a.projectionReads,
         a.listReadGateByAggName,
-        a.historyReads,
       ),
       ...actionHandlers,
       ...componentHandlers,
@@ -883,6 +914,7 @@ function renderLiveView(a: RenderArgs): { source: string; usesChart: boolean } {
       aggregatesByName,
     ) +
     renderOperationEventClauses(walked.formBindings, detailBaseRoute, contextModuleByAggName) +
+    renderWorkflowEventClauses(walked.formBindings, a.workflowModuleByName) +
     renderTableControlClauses(
       walked.tableControls,
       walked.queryBindings,
@@ -949,6 +981,76 @@ ${h.body.join("\n")}
       )
       .join("\n")
   );
+}
+
+/** Does this read depend on the page-state assign `field`?  True when the field
+ *  appears in the read's `match`-arm gate or in the arguments the `of:` call
+ *  passes — the two places a state assign can reach a query. */
+function readDependsOnState(qb: QueryBinding, field: string): boolean {
+  const re = new RegExp(`\\bsocket\\.assigns\\.${field}\\b`);
+  return re.test(qb.gate ?? "") || (qb.listArgs ?? []).some((a) => re.test(a));
+}
+
+/** Make a state-bound input's write-back clause RE-RUN the list reads that
+ *  depend on the assign it just wrote.
+ *
+ *  `controlledInput` hoists `update_<field>` / `toggle_<field>` clauses that do
+ *  one thing: `assign(socket, :<field>, value)`.  That is enough for a field
+ *  only the MARKUP reads, and not enough for one a QUERY reads — typing in the
+ *  scaffolded list page's filter box flips the render `cond` into the filtered
+ *  arm, but `@items` still holds whatever `handle_params/3` last loaded, because
+ *  a LiveView has no `useQuery` to invalidate and `handle_params/3` does not
+ *  re-run on an assign.  The refetch is a statement the handler must carry,
+ *  exactly as the sort/page control clauses beside it already do.
+ *
+ *  Every list read is re-run, not just the dependent one: the reads share an
+ *  assign and their `match`-arm gates decide which one actually executes, so
+ *  emitting the same block `handle_params/3` does is what keeps the two paths
+ *  from diverging.
+ *
+ *  Only clauses whose field some read actually depends on are rewritten; every
+ *  other handler is returned untouched (byte-identical output). */
+function withQueryReload(
+  handlers: readonly HandleEventClause[],
+  queryBindings: readonly QueryBinding[],
+  contextModuleByAggName: ReadonlyMap<string, string>,
+  listReadGateByAggName: ReadonlyMap<string, ListReadGate>,
+): HandleEventClause[] {
+  // Aggregate list reads only — the same set the sort/page reload re-runs; a
+  // query-time projection takes no arguments and has no state to depend on.
+  const listBindings = queryBindings.filter(
+    (qb) => qb.kind === "list" && qb.source !== "projection",
+  );
+  if (listBindings.length === 0) return [...handlers];
+  return handlers.map((h) => {
+    const field = /^(?:update|toggle)_(.+)$/.exec(h.name)?.[1];
+    if (!field) return h;
+    if (!listBindings.some((qb) => readDependsOnState(qb, field))) return h;
+    // Data reload only — operation forms are left untouched, so a half-typed
+    // form beside the filter box survives the refetch (same call the sort/page
+    // and realtime paths make).
+    const reload = listBindings
+      .map((qb) => {
+        const ctxModule = contextModuleByAggName.get(qb.aggregate);
+        return ctxModule
+          ? renderQueryLoadBlock(qb, ctxModule, [], listReadGateByAggName.get(qb.aggregate))
+          : null;
+      })
+      .filter((b): b is string => b !== null)
+      .join("\n\n");
+    if (reload === "") return h;
+    // The write first, so the reload's gates and arguments read the NEW value.
+    return {
+      ...h,
+      body: [
+        ...h.body.map((l) => l.replace(/^(\s*)\{:noreply, (.+)\}$/, "$1socket = $2")),
+        "",
+        reload,
+        "",
+        "    {:noreply, socket}",
+      ],
+    };
+  });
 }
 
 /** Sort / pagination `handle_event` clauses for a page whose `Table(...)` asked
@@ -1225,10 +1327,13 @@ function renderMount(
       );
       break; // single @form per page
     } else if (fb.kind === "workflow") {
-      // Workflow form — placeholder until workflow-form mounting lands.
-      // Keeps the page mountable (form is empty but the assigns shape
-      // matches what the HEEx body expects).
-      assigns.push(`      |> assign(:form, %{} |> to_form())`);
+      // Workflow form (M-T6.56 F61).  `to_form(%{}, as: "<wf>")` rather than a
+      // bare `to_form(%{})`: the `as:` is what namespaces the rendered input
+      // names (`<wf>[<field>]`), and therefore what makes the submitted params
+      // arrive as `%{"<wf>" => %{…}}` — the shape the `run_<wf>` clause below
+      // matches, and the same shape an aggregate create form gets for free
+      // from `to_form(changeset)` (whose `as:` Ecto derives from the struct).
+      assigns.push(`      |> assign(:form, to_form(%{}, as: "${snake(fb.name)}"))`);
       break;
     }
   }
@@ -1260,32 +1365,6 @@ ${assigns.join("\n")}
 interface ListReadGate {
   expr: string;
   usesUser: boolean;
-}
-
-/** Assemble one load statement — `socket = <value>` — wrapped in the read's
- *  `match`-arm guard when it carries one (`QueryBinding.guard`).
- *
- *  `handle_params/3` runs the page's loads as a FLAT sequence, but the markup
- *  they feed is a `cond`: on the scaffolded list page the filtered arm's read
- *  and the `all` fallback both wrote `:items`, in body order, so the fallback
- *  landed last and threw the filter's rows away — the filter bar queried the
- *  database and changed nothing on screen.  Guarding each load with its own
- *  arm's predicate makes exactly one of them run, which also settles the shape
- *  question: the assign now always holds what the rendering arm reads (a plain
- *  list in the filtered arm, the paged envelope in the `all` arm).
- *
- *  Unguarded reads keep the statement they always emitted, byte for byte.
- *
- *  `prefix` carries any lines that must run BEFORE the assignment (the gated
- *  read's `current_user` bind); `value` is the right-hand side at indent 6. */
-function loadStatement(guard: string | undefined, prefix: string, value: string): string {
-  if (!guard) return `${prefix}    socket =\n${value}`;
-  return `${prefix}    socket =
-      if ${guard} do
-${value.replace(/^ {6}/gm, "        ")}
-      else
-        socket
-      end`;
 }
 
 function renderQueryLoadBlock(
@@ -1336,15 +1415,12 @@ ${opAssigns.map((a) => `  ${a}`).join("\n")}`
       readFn === `get_${aggSnake}`
         ? ""
         : `        {:ok, nil} -> assign(socket, :${qb.assign}, :not_found)\n`;
-    return loadStatement(
-      qb.guard,
-      "",
-      `      case ${ctxModule}.${readFn}(${singleArgs}) do
+    return `    socket =
+      case ${ctxModule}.${readFn}(${singleArgs}) do
 ${nilArm}${okArm}
         {:error, :not_found} -> assign(socket, :${qb.assign}, :not_found)
         _ -> assign(socket, :${qb.assign}, :error)
-      end`,
-    );
+      end`;
   }
   // List read.  A bare `list_<agg>s()` returns `{:ok, list}` (the repo wraps
   // `Repo.all/1`); the paged auto-`findAll` (M-T2.6) takes
@@ -1359,7 +1435,17 @@ ${nilArm}${okArm}
         {:ok, items} -> assign(socket, :${qb.assign}, items)
         _ -> assign(socket, :${qb.assign}, :error)
       end`;
-  if (!listGate) return loadStatement(qb.guard, "", read);
+  // A `match`-arm read runs ONLY when its arm is the one the template renders
+  // (`QueryBinding.gate`): the else branch leaves the socket untouched rather
+  // than taking the `:error` sentinel, because a non-matching arm is not a
+  // failure — the arm that DOES match owns the assign.  Without this every arm
+  // loaded on every `handle_params`, the last write won, and the filter reads
+  // ran with their own UNSET values.
+  const gated = (block: string): string =>
+    qb.gate === undefined
+      ? block
+      : `      if ${qb.gate} do\n${block.replace(/^ {6}/gm, "        ")}\n      else\n        socket\n      end`;
+  if (!listGate) return `    socket =\n${gated(read)}`;
   // Gated list read — denial takes the same `:error` sentinel the projection
   // loader uses, so the page renders its error slot instead of the rows.  The
   // gate is evaluated BEFORE the query, matching the `index` action's contract:
@@ -1369,15 +1455,12 @@ ${nilArm}${okArm}
   const cuBind = listGate.usesUser
     ? "    current_user = Map.get(socket.assigns, :current_user)\n"
     : "";
-  return loadStatement(
-    qb.guard,
-    cuBind,
-    `      if ${listGate.expr} do
+  return `${cuBind}    socket =
+${gated(`      if ${listGate.expr} do
 ${read.replace(/^ {6}/gm, "        ")}
       else
         assign(socket, :${qb.assign}, :error)
-      end`,
-  );
+      end`)}`;
 }
 
 /** The load block for a read whose `of:` operation resolved to NO declaration.
@@ -1389,21 +1472,16 @@ ${read.replace(/^ {6}/gm, "        ")}
  *  contract is that the page shows its ERROR slot, never other rows.  The
  *  comment names the operation so the generated source says why. */
 function renderUnresolvedRead(qb: import("./heex-walker.js").QueryBinding): string {
-  const comment = `    # Loom: '${qb.aggregate}' read refused — the page's 'of:' names no repository
+  return `    # Loom: '${qb.aggregate}' read refused — the page's 'of:' names no repository
     # operation on this aggregate, and substituting the unfiltered list would
-    # render rows the page never asked for.  See loom.ui-read-unresolved.`;
-  // Guarded, the refusal has to be guarded too: an unconditional `:error` assign
-  // would clobber whatever the arm that IS rendering just loaded.
-  if (!qb.guard) return `${comment}\n    socket = assign(socket, :${qb.assign}, :error)`;
-  return `${comment}\n${loadStatement(qb.guard, "", `      assign(socket, :${qb.assign}, :error)`)}`;
+    # render rows the page never asked for.  See loom.ui-read-unresolved.
+    socket = assign(socket, :${qb.assign}, :error)`;
 }
 
 /** The `handle_params` load line for a `QueryView { of: <api>.<Projection> }`
  *  (M-T1.3) — a call into the page-private loader below. */
 function renderProjectionLoadBlock(qb: import("./heex-walker.js").QueryBinding): string {
-  const load = `assign(socket, :${qb.assign}, ${projectionLoaderName(qb.aggregate)}(socket))`;
-  if (!qb.guard) return `    socket = ${load}`;
-  return loadStatement(qb.guard, "", `      ${load}`);
+  return `    socket = assign(socket, :${qb.assign}, ${projectionLoaderName(qb.aggregate)}(socket))`;
 }
 
 /** The page-private loader function name for one projection read. */
@@ -1486,9 +1564,7 @@ function historyLoaderName(aggregate: string): string {
  *  to `socket.assigns.id` anyway. */
 function renderHistoryLoadBlock(qb: import("./heex-walker.js").QueryBinding): string {
   const id = qb.listArgs?.[0] ?? "socket.assigns.id";
-  const load = `assign(socket, :${qb.assign}, ${historyLoaderName(qb.aggregate)}(socket, ${id}))`;
-  if (!qb.guard) return `    socket = ${load}`;
-  return loadStatement(qb.guard, "", `      ${load}`);
+  return `    socket = assign(socket, :${qb.assign}, ${historyLoaderName(qb.aggregate)}(socket, ${id}))`;
 }
 
 /** The page-private loader + mapper for each entity trail a page reads
@@ -1554,22 +1630,28 @@ ${read.mapperSource}`);
   return fns.length > 0 ? `\n${fns.join("\n\n")}\n` : "";
 }
 
-/** The page's record-load statements, in body order — one per QueryBinding.
- *  Shared by `handle_params/3` (initial load) and the state-write reload below,
- *  so a reload can never run a DIFFERENT read from the one that first populated
- *  the assign.
- *
- *  `formBindings` re-seeds operation forms in a single read's `{:ok, record}`
- *  arm; a data-only reload passes `[]` (forms untouched), matching what the
- *  sort/page control clauses already do. */
-function renderLoadBlocks(
-  queryBindings: readonly import("./heex-walker.js").QueryBinding[],
-  formBindings: readonly import("./heex-walker.js").FormBinding[],
+function renderHandleParams(
+  page: PageIR,
+  ui: UiIR,
+  appModule: string,
+  queryBindings: import("./heex-walker.js").QueryBinding[],
+  formBindings: import("./heex-walker.js").FormBinding[],
   contextModuleByAggName: ReadonlyMap<string, string>,
   projectionReads: ReadonlyMap<string, ProjectionRead>,
   listReadGateByAggName: ReadonlyMap<string, ListReadGate>,
   historyReads: ReadonlyMap<string, HistoryRead>,
-): string[] {
+): string {
+  const paramAssigns: string[] = [];
+  for (const p of page.params) {
+    paramAssigns.push(`assign(:${snake(p.name)}, params["${lowerFirst(p.name)}"])`);
+  }
+
+  // QueryView record loading.  The scaffold detail/list page reads
+  // @data / @items in its `cond`, but nothing populates them unless
+  // we load here (handle_params runs after @id is bound from the
+  // route).  `single` → load one record via `get_<agg>(id)`
+  // (`{:ok, record} | {:error, :not_found}`); `list` → the collection
+  // via `list_<agg>s()` (`{:ok, list}`).
   const loadBlocks: string[] = [];
   // A page may read the SAME projection more than once — a `Chart` and a
   // `Table` over one grouped read is the ordinary dashboard shape — and every
@@ -1600,99 +1682,6 @@ function renderLoadBlocks(
       renderQueryLoadBlock(qb, ctxModule, opFbs, listReadGateByAggName.get(qb.aggregate)),
     );
   }
-  return loadBlocks;
-}
-
-/** Does this read depend on the page-state assign `field`?  True when the field
- *  appears in the read's `match`-arm guard or in the arguments the `of:` call
- *  passes — the two places a state assign can reach a query. */
-function readDependsOnState(qb: import("./heex-walker.js").QueryBinding, field: string): boolean {
-  const re = new RegExp(`\\bsocket\\.assigns\\.${field}\\b`);
-  return re.test(qb.guard ?? "") || (qb.listArgs ?? []).some((a) => re.test(a));
-}
-
-/** Make each state-bound input's write-back clause RE-RUN the reads that depend
- *  on the assign it just wrote.
- *
- *  `controlledInput` hoists `update_<field>` / `toggle_<field>` clauses that do
- *  one thing: `assign(socket, :<field>, value)`.  That is enough for a field
- *  only the MARKUP reads, and not enough for one a QUERY reads — typing in the
- *  scaffolded list page's filter box flipped the render `cond` into the filtered
- *  arm while `@items` still held the `all` arm's paged envelope, so the arm that
- *  reads it as a plain list got a map.  Nothing refetched, because a LiveView
- *  has no `useQuery` to invalidate: the reload is a statement the handler must
- *  run, exactly as the sort/page control clauses already do.
- *
- *  Only clauses whose field some read actually depends on are rewritten; every
- *  other handler is returned untouched (byte-identical output). */
-function withQueryReload(
-  handlers: readonly HandleEventClause[],
-  queryBindings: readonly import("./heex-walker.js").QueryBinding[],
-  contextModuleByAggName: ReadonlyMap<string, string>,
-  projectionReads: ReadonlyMap<string, ProjectionRead>,
-  listReadGateByAggName: ReadonlyMap<string, ListReadGate>,
-  historyReads: ReadonlyMap<string, HistoryRead>,
-): HandleEventClause[] {
-  return handlers.map((h) => {
-    const field = /^(?:update|toggle)_(.+)$/.exec(h.name)?.[1];
-    if (!field) return h;
-    // Data reload only — operation forms stay as they are, so a half-typed form
-    // beside the filter box survives the refetch.
-    const dependents = queryBindings.filter((qb) => readDependsOnState(qb, field));
-    if (dependents.length === 0) return h;
-    const reload = renderLoadBlocks(
-      queryBindings,
-      [],
-      contextModuleByAggName,
-      projectionReads,
-      listReadGateByAggName,
-      historyReads,
-    ).join("\n\n");
-    if (reload === "") return h;
-    // The write first, so the reload's guards and arguments read the NEW value.
-    return {
-      ...h,
-      body: [
-        ...h.body.map((l) => l.replace(/^(\s*)\{:noreply, (.+)\}$/, "$1socket = $2")),
-        "",
-        reload,
-        "",
-        "    {:noreply, socket}",
-      ],
-    };
-  });
-}
-
-function renderHandleParams(
-  page: PageIR,
-  ui: UiIR,
-  appModule: string,
-  queryBindings: import("./heex-walker.js").QueryBinding[],
-  formBindings: import("./heex-walker.js").FormBinding[],
-  contextModuleByAggName: ReadonlyMap<string, string>,
-  projectionReads: ReadonlyMap<string, ProjectionRead>,
-  listReadGateByAggName: ReadonlyMap<string, ListReadGate>,
-  historyReads: ReadonlyMap<string, HistoryRead>,
-): string {
-  const paramAssigns: string[] = [];
-  for (const p of page.params) {
-    paramAssigns.push(`assign(:${snake(p.name)}, params["${lowerFirst(p.name)}"])`);
-  }
-
-  // QueryView record loading.  The scaffold detail/list page reads
-  // @data / @items in its `cond`, but nothing populates them unless
-  // we load here (handle_params runs after @id is bound from the
-  // route).  `single` → load one record via `get_<agg>(id)`
-  // (`{:ok, record} | {:error, :not_found}`); `list` → the collection
-  // via `list_<agg>s()` (`{:ok, list}`).
-  const loadBlocks = renderLoadBlocks(
-    queryBindings,
-    formBindings,
-    contextModuleByAggName,
-    projectionReads,
-    listReadGateByAggName,
-    historyReads,
-  );
 
   const hasParams = paramAssigns.length > 0;
   const hasLoad = loadBlocks.length > 0;
@@ -1864,6 +1853,127 @@ ${usesUser ? "    current_user = Map.get(socket.assigns, :current_user)\n" : ""}
     end
   end\n`;
 }
+
+/** The `handle_event("run_<wf>", …)` clause a `WorkflowForm { runs: W }` needs.
+ *
+ *  Without it the emitted page carried `phx-submit="run_<wf>"` and ZERO matching
+ *  clauses, so pressing Submit raised `FunctionClauseError` and killed the
+ *  LiveView — a 500 on a page that looked correct in every static read (audit
+ *  F61, M-T6.56).  `renderCreateEventClauses` filters `kind === "aggregate"`,
+ *  which is exactly why the workflow binding fell through it silently.
+ *
+ *  Two things the aggregate path gets for free have to be done by hand here:
+ *
+ *   - REKEYING.  The form field is `snake(param)` (that is what
+ *     `renderFieldInputForField` emits and what `@form[:…]` addresses), while
+ *     the workflow module destructures its params by the DECLARED name
+ *     (`%{"initialTitle" => …} = params`), so a multi-word param would arrive
+ *     under a key the workflow never reads and bind `nil`.
+ *   - COERCION.  A browser form submits strings; the HTTP route feeds the same
+ *     `run/1` typed JSON.  An aggregate create hides this behind Ecto's `cast`,
+ *     but a workflow body uses its params directly, so `qty: int` would reach
+ *     arithmetic as `"3"`.  `__wf_param/2` narrows at the boundary.
+ *
+ *  Empty (byte-identical) when the page binds no workflow form. */
+function renderWorkflowEventClauses(
+  formBindings: readonly import("./heex-walker.js").FormBinding[],
+  workflowModuleByName: ReadonlyMap<string, string>,
+): string {
+  const runs = formBindings.filter((fb) => fb.kind === "workflow");
+  if (runs.length === 0) return "";
+  const fb = runs[0]!; // single @form per page, like the create path
+  const wfModule = workflowModuleByName.get(fb.name);
+  if (!wfModule) return ""; // unresolved — validator catches; silent skip
+  const wfSnake = snake(fb.name);
+  const params = fb.params ?? [];
+  // A param-less workflow reads nothing off the submitted map, so bind `_raw`
+  // rather than trip `--warnings-as-errors` on an unused variable.
+  const rawVar = params.length > 0 ? "raw" : "_raw";
+  const built =
+    params.length > 0
+      ? `%{\n${params
+          .map(
+            (pp) =>
+              // Through the backend's escape funnel, not `JSON.stringify` — the
+              // census's rule, and these two ARE Elixir string literals (the
+              // wire key the workflow module destructures, and the form field
+              // name the browser submits).
+              `      ${elixirString(pp.name)} => __wf_param(Map.get(raw, ${elixirString(
+                snake(pp.name),
+              )}), :${wfParamKind(pp.type)})`,
+          )
+          .join(",\n")}\n    }`
+      : "%{}";
+  const coercer = params.length > 0 ? WF_PARAM_COERCER : "";
+  return `\n  @impl true
+  def handle_event("run_${wfSnake}", %{"${wfSnake}" => ${rawVar}}, socket) do
+    params = ${built}
+
+    case ${wfModule}.run(params) do
+      {:ok, _result} ->
+        {:noreply, put_flash(socket, :info, "${humanizeOp(wfSnake)} started")}
+
+      {:error, %Ecto.Changeset{} = changeset} ->
+        {:noreply, assign(socket, :form, to_form(changeset))}
+
+      {:error, {_kind, detail}} when is_binary(detail) ->
+        {:noreply, put_flash(socket, :error, detail)}
+
+      {:error, reason} ->
+        {:noreply, put_flash(socket, :error, "${humanizeOp(wfSnake)} failed: #{inspect(reason)}")}
+    end
+  end\n${coercer}`;
+}
+
+/** The `__wf_param/2` kind token for a workflow param's declared type — the
+ *  coarse buckets a browser form's string needs narrowing into. */
+function wfParamKind(t: TypeIR): "int" | "decimal" | "bool" | "string" {
+  const inner = t.kind === "optional" ? t.inner : t;
+  if (inner.kind !== "primitive") return "string";
+  switch (inner.name) {
+    case "int":
+    case "long":
+      return "int";
+    case "decimal":
+    case "money":
+      return "decimal";
+    case "bool":
+      return "bool";
+    default:
+      return "string";
+  }
+}
+
+/** Narrow one submitted form value to its declared kind.  Emitted once beside
+ *  the `run_<wf>` clause when the workflow takes at least one param. */
+const WF_PARAM_COERCER = `
+  # A browser form submits strings; the HTTP route feeds this same \`run/1\`
+  # typed JSON.  An aggregate create hides the difference behind Ecto's
+  # \`cast\`, but a workflow body uses its params directly — so narrow here,
+  # at the one boundary where the declared type is still known.  An
+  # unparseable value becomes \`nil\` rather than a raise: the workflow's own
+  # \`precondition\`s then answer 422-shaped, which is what the HTTP route does
+  # with the same bad input.
+  defp __wf_param(nil, _kind), do: nil
+  defp __wf_param("", _kind), do: nil
+
+  defp __wf_param(v, :int) when is_binary(v) do
+    case Integer.parse(v) do
+      {n, ""} -> n
+      _ -> nil
+    end
+  end
+
+  defp __wf_param(v, :decimal) when is_binary(v) do
+    case Decimal.parse(v) do
+      {d, ""} -> d
+      _ -> nil
+    end
+  end
+
+  defp __wf_param(v, :bool) when is_binary(v), do: v in ["true", "on", "1"]
+  defp __wf_param(v, _kind), do: v
+`;
 
 /** One `handle_<field>_progress/3` per `FileUpload` binding.  Referenced by the
  *  mount `allow_upload(..., progress: &…/3)` seam.  On a completed entry it

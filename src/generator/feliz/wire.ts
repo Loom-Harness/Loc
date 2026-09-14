@@ -60,6 +60,7 @@ import { isOfReadCall } from "../_walker/of-reads.js";
 import { isPagedQuery } from "../_walker/paged-query.js";
 import { boolNamed } from "../_walker/shared/args.js";
 import { fsString } from "./fs-expr.js";
+import { fsIdent } from "./fs-ident.js";
 import { typeToFs } from "./type-fs.js";
 
 /** A read the page view issues, projected to everything the MVU wiring + api
@@ -127,6 +128,19 @@ export interface FelizRead {
    *  `aggregate` carries the PROJECTION name for such a read — it is only ever
    *  used for naming (field / decoder / api fn), never to look an aggregate up. */
   projection?: boolean;
+  /** A read-only WORKFLOW-INSTANCE read (`<Wf>.instances.all` /
+   *  `<Wf>.instances.byId(id)`, workflow-instance-visibility.md) rather than an
+   *  aggregate read.  The scaffold synthesises `<Wf>InstancesList` /
+   *  `<Wf>InstanceDetail` pages for every observable workflow and their bodies
+   *  read exactly these two, so the collector must produce them: without this
+   *  branch the pages still WALKED (the view emits `model.AllWs`) while the
+   *  `Model` record — built from `reads` — declared no such field, and
+   *  `dotnet fable` refused the whole frontend with "The type 'Model' does not
+   *  define the field, constructor or member 'AllWs'".
+   *
+   *  `aggregate` carries the WORKFLOW name for such a read; like `projection`
+   *  it is used for naming only, never to look an aggregate up. */
+  workflowInstance?: boolean;
   /** SERVER-paged list read (M-T2.6) — present when the hosting `QueryView`'s
    *  `of:` threads page/sort controls, which is what a scaffolded list page
    *  emits.  Absent for a plain `.all` (an FK-select's option source, a
@@ -238,9 +252,14 @@ export function findFieldName(aggregate: string, findName: string): string {
  *  the parameter's F# spelling and the expression that turns it into its query
  *  string value. */
 export interface FelizFindParam {
-  /** Declared parameter name — also the query-string key the backends read
-   *  (`GET /<aggs>/<find>?<name>=…`, the contract the JS clients already call). */
+  /** Declared parameter name — also the query-string KEY the backends read
+   *  (`GET /<aggs>/<find>?<name>=…`, the contract the JS clients already call).
+   *  Never escaped: the wire key is the declared name. */
   name: string;
+  /** The same parameter as an F# BINDER — `name`, double-backtick-escaped when
+   *  it collides with an F# keyword (`find byMember(member: string)` binds
+   *  `` ``member`` ``).  `queryValue` is phrased in terms of this. (F-022.) */
+  fsName: string;
   /** F# type of the parameter in the api fn signature (`string` / `int` / …),
    *  spelled off the WIRE type so an enum arrives as its string name. */
   fsType: string;
@@ -290,7 +309,7 @@ export function felizAllRead(aggregate: string, opts: FelizAllReadOpts = {}): Fe
   const paging: FelizReadPaging | undefined = opts.paged
     ? { controls: opts.controls, metaField: pageMetaFieldName(field) }
     : undefined;
-  const items = `(Decode.field "items" (Decode.list Decoders.${lowerFirst(aggregate)}))`;
+  const items = `(Decode.field "items" (Decode.list Decoders.${fsIdent(lowerFirst(aggregate))}))`;
   return {
     field,
     msgCase: `${field}Loaded`,
@@ -326,7 +345,7 @@ export function felizByIdRead(aggregate: string, pageCase: string): FelizRead {
     apiFn: lowerFirst(field),
     aggregate,
     resultType: `${upperFirst(aggregate)} option`,
-    decoderExpr: `(Decode.option Decoders.${lowerFirst(aggregate)})`,
+    decoderExpr: `(Decode.option Decoders.${fsIdent(lowerFirst(aggregate))})`,
     route: `${API_BASE_PATH}/${snake(plural(aggregate))}`,
     binding: lowerFirst(field),
     single: true,
@@ -412,7 +431,7 @@ export function felizFindRead(
 ): FelizRead {
   const agg = upperFirst(aggregate);
   const field = findFieldName(aggregate, find.name);
-  const decoder = `Decoders.${lowerFirst(agg)}`;
+  const decoder = `Decoders.${fsIdent(lowerFirst(agg))}`;
   const paged = pagedReturn(find.returnType);
   const ret = paged ? paged.arg : find.returnType;
   const inner = ret.kind === "optional" ? ret.inner : ret;
@@ -429,8 +448,9 @@ export function felizFindRead(
   }
   const params = find.params.map((p) => ({
     name: p.name,
+    fsName: fsIdent(p.name),
     fsType: wireFieldType(p.type),
-    queryValue: findParamQueryValue(p.type, agg, find.name, p.name),
+    queryValue: findParamQueryValue(p.type, agg, find.name, fsIdent(p.name)),
   }));
   if (argExprs.length !== params.length) {
     throw new Error(
@@ -541,14 +561,72 @@ export function felizProjectionRead(proj: ProjectionIR): FelizRead {
     aggregate: proj.name,
     resultType: many ? `${row} list` : `${row} option`,
     decoderExpr: many
-      ? `(Decode.list Decoders.${lowerFirst(row)})`
-      : `(Decode.map Some Decoders.${lowerFirst(row)})`,
+      ? `(Decode.list Decoders.${fsIdent(lowerFirst(row))})`
+      : `(Decode.map Some Decoders.${fsIdent(lowerFirst(row))})`,
     route: `${API_BASE_PATH}/projections/${snake(proj.name)}`,
     binding: lowerFirst(field),
     // SINGLE-shaped but NOT page-entry-keyed — see `FelizRead.projection`.
     single: false,
     projection: true,
     listShaped: many,
+  };
+}
+
+/** The F# record a workflow-INSTANCE read decodes into (`FulfillmentInstance`)
+ *  — built from the workflow's `instanceWireShape`, the same shape the backends
+ *  serve `GET /api/workflows/<wf>/instances` from and the other frontends'
+ *  `<Wf>InstanceResponse` is built from, so the three cannot drift. */
+export function workflowInstanceType(workflow: string): string {
+  return `${upperFirst(workflow)}Instance`;
+}
+
+/** Collection base route for a workflow's instance reads
+ *  (`/api/workflows/fulfillment/instances`); the byId fetch appends `/%s`. */
+function workflowInstancesRoute(workflow: string): string {
+  return `${API_BASE_PATH}/workflows/${snake(workflow)}/instances`;
+}
+
+/** Build the `FelizRead` for `<Wf>.instances.all` — the list the scaffolded
+ *  `<Wf>InstancesList` page reads (workflow-instance-visibility.md).  Shaped
+ *  like a plain `.all`: init-fired, id-less, `Remote<'T list>`. */
+export function felizWorkflowInstancesRead(workflow: string): FelizRead {
+  const field = readFieldName(workflow);
+  const row = workflowInstanceType(workflow);
+  return {
+    field,
+    msgCase: `${field}Loaded`,
+    apiFn: lowerFirst(field),
+    aggregate: workflow,
+    resultType: `${row} list`,
+    decoderExpr: `(Decode.list Decoders.${fsIdent(lowerFirst(row))})`,
+    route: workflowInstancesRoute(workflow),
+    binding: lowerFirst(field),
+    single: false,
+    listShaped: true,
+    workflowInstance: true,
+  };
+}
+
+/** Build the `FelizRead` for `<Wf>.instances.byId(id)`, hosted by the `Page`
+ *  case `pageCase` — the scaffolded `<Wf>InstanceDetail` page.  Page-entry
+ *  keyed off the route id and `Remote<'T option>`, exactly like an aggregate
+ *  `byId`. */
+export function felizWorkflowInstanceByIdRead(workflow: string, pageCase: string): FelizRead {
+  const field = byIdFieldName(workflow);
+  const row = workflowInstanceType(workflow);
+  return {
+    field,
+    msgCase: `${field}Loaded`,
+    apiFn: lowerFirst(field),
+    aggregate: workflow,
+    resultType: `${row} option`,
+    decoderExpr: `(Decode.option Decoders.${fsIdent(lowerFirst(row))})`,
+    route: workflowInstancesRoute(workflow),
+    binding: lowerFirst(field),
+    single: true,
+    listShaped: false,
+    pageCase,
+    workflowInstance: true,
   };
 }
 
@@ -599,9 +677,17 @@ export type FelizInputKind = "text" | "number" | "checkbox" | "select" | "idsele
  *  expression that lifts the string back to its wire type at submit, and the
  *  input widget kind the type maps to. */
 export interface FelizFormField {
-  /** Exact wire field name — the F# form-record field, input binding, and JSON
-   *  key (`name` / `price`). */
+  /** Exact wire field name — the input binding and JSON key (`name` / `price`).
+   *
+   *  NOT safe as an F# identifier: an operation parameter named `to` (or `type`,
+   *  `member`, `end`, …) is a reserved word, and emitting it as a record field
+   *  produced "Unexpected keyword 'to' in field declaration" from `dotnet
+   *  fable`.  Use {@link fsName} in every F# IDENTIFIER position; `wireName`
+   *  stays the JSON key and the string-literal keys (touched-set, error ids,
+   *  placeholders), which must NOT carry the escape. */
   wireName: string;
+  /** {@link wireName}, escaped for an F# identifier position. */
+  fsName: string;
   /** `Msg` an input's `onChange` dispatches (`SetProductFormName`). */
   setMsg: string;
   /** Thoth encoder for the field, lifting `form.<wireName>` to its wire type
@@ -653,8 +739,12 @@ export interface FelizFormField {
  *  (`Set<Form><Array><Sub> of int * string`, carrying the row index + new value),
  *  and the Thoth encoder lifting `row.<wireName>` back to its wire type. */
 export interface FelizRowField {
-  /** Row-record field name / input binding (`sku`). */
+  /** Row-record field name / input binding (`sku`) — the JSON key and the
+   *  string-literal keys.  See {@link FelizFormField.wireName}: not safe as an
+   *  F# identifier. */
   wireName: string;
+  /** {@link wireName}, escaped for an F# identifier position. */
+  fsName: string;
   /** Indexed setter `Msg` (`SetOrderFormItemsSku`), dispatched `(index, value)`. */
   setMsg: string;
   /** HTML input widget from the sub-field type. */
@@ -932,8 +1022,9 @@ function buildField(
       : "");
   return {
     wireName,
+    fsName: fsIdent(wireName),
     setMsg: `Set${formType}${upperFirst(wireName)}`,
-    encodeExpr: encodeExprFor(type, `form.${wireName}`, optional),
+    encodeExpr: encodeExprFor(type, `form.${fsIdent(wireName)}`, optional),
     inputKind,
     numeric: numericKind(base),
     required: !optional,
@@ -1131,12 +1222,13 @@ function buildFieldArray(
       const rowFile = kind === "file";
       return {
         wireName: vf.name,
+        fsName: fsIdent(vf.name),
         setMsg: `Set${formType}${upperFirst(field.name)}${upperFirst(vf.name)}`,
         // A per-row FK select would need the target list in every row; v1 renders
         // the id as plain text instead.
         inputKind: kind === "idselect" || rowFile ? "text" : kind,
         encodeExpr: rowFile
-          ? `Encode.string row.${vf.name}`
+          ? `Encode.string row.${fsIdent(vf.name)}`
           : encodeExprFor(vf.type, `row.${vf.name}`, optional),
         jsonKey: vf.name,
         enumValues: kind === "select" && eb.kind === "enum" ? enumsByName.get(eb.name) : undefined,
@@ -1147,7 +1239,7 @@ function buildFieldArray(
     });
   const rowType = `${upperFirst(elem.name)}Row`;
   return {
-    fieldName: field.name,
+    fieldName: fsIdent(field.name),
     jsonKey: field.name,
     rowType,
     emptyRowBinding: `empty${rowType}`,
@@ -1424,6 +1516,7 @@ export function collectPageReads(
   bcByAggregate: ReadonlyMap<string, BoundedContextIR> = new Map(),
   projectionsByName: ReadonlySet<string> = new Set(),
   projectionIRs: ReadonlyMap<string, ProjectionIR> = new Map(),
+  workflowIRs: ReadonlyMap<string, WorkflowIR> = new Map(),
 ): FelizRead[] {
   if (!page.body) return [];
   // The byId read is keyed to the hosting page's `Page` case, which is the
@@ -1435,6 +1528,7 @@ export function collectPageReads(
     bcByAggregate,
     projectionsByName,
     projectionIRs,
+    workflowIRs,
   });
 }
 
@@ -1457,6 +1551,7 @@ export function collectComponentReads(
   bcByAggregate: ReadonlyMap<string, BoundedContextIR> = new Map(),
   projectionsByName: ReadonlySet<string> = new Set(),
   projectionIRs: ReadonlyMap<string, ProjectionIR> = new Map(),
+  workflowIRs: ReadonlyMap<string, WorkflowIR> = new Map(),
 ): FelizRead[] {
   if (!component.body) return [];
   return collectBodyReads(component.body, component, undefined, {
@@ -1465,6 +1560,7 @@ export function collectComponentReads(
     bcByAggregate,
     projectionsByName,
     projectionIRs,
+    workflowIRs,
   });
 }
 
@@ -1482,14 +1578,31 @@ function collectBodyReads(
     bcByAggregate: ReadonlyMap<string, BoundedContextIR>;
     projectionsByName: ReadonlySet<string>;
     projectionIRs: ReadonlyMap<string, ProjectionIR>;
+    workflowIRs: ReadonlyMap<string, WorkflowIR>;
   },
 ): FelizRead[] {
-  const { apiParamNames, aggregatesByName, bcByAggregate, projectionsByName, projectionIRs } =
-    lookups;
+  const {
+    apiParamNames,
+    aggregatesByName,
+    bcByAggregate,
+    projectionsByName,
+    projectionIRs,
+    workflowIRs,
+  } = lookups;
   // `projectionsByName` arms the detector's Pattern H (`<apiHandle>.<Proj>`).
   // Defaulted to empty so every existing caller keeps its output byte-identical:
   // absent, Pattern H is inert and only aggregate reads are collected.
-  const detCtx = { apiParamNames, aggregatesByName, projectionsByName };
+  // `workflowsByName` arms the detector's Patterns F/G (`<Wf>.instances.all` /
+  // `.byId(id)`).  Omitting it is what made the scaffolded workflow-instance
+  // pages walk into `model.All<Wf>s` with no Model field behind it — the
+  // detector simply never matched, so the collector produced no read while the
+  // VIEW (whose walk context DOES carry the workflows) rendered one.
+  const detCtx = {
+    apiParamNames,
+    aggregatesByName,
+    projectionsByName,
+    workflowsByName: workflowIRs,
+  };
   const pagedCtx = { ...detCtx, bcByAggregate };
   const out: FelizRead[] = [];
   const seen = new Set<string>();
@@ -1504,6 +1617,29 @@ function collectBodyReads(
       if (!out.some((r) => r.field === projRead.field)) {
         seen.add(projRead.field);
         out.push(projRead);
+      }
+      continue;
+    }
+    // A read-only WORKFLOW-INSTANCE read (Patterns F/G) — the two reads the
+    // scaffold's `<Wf>InstancesList` / `<Wf>InstanceDetail` pages issue.  Its
+    // row type is the workflow's `instanceWireShape`, emitted alongside the
+    // aggregate records by `renderWireTypes`.
+    if (detected?.kind === "workflow-instance") {
+      const wf = workflowIRs.get(detected.aggregateName);
+      // An observable workflow always carries the shape (the macro only
+      // scaffolds instance pages for one that does); without it there is no
+      // record to decode into, so skip rather than emit an undecodable read.
+      if (!wf || (wf.instanceWireShape ?? []).length === 0) continue;
+      const wfRead =
+        detected.operation === "all"
+          ? felizWorkflowInstancesRead(wf.name)
+          : pageCase !== undefined
+            ? felizWorkflowInstanceByIdRead(wf.name, pageCase)
+            : undefined;
+      if (!wfRead) continue;
+      if (!out.some((r) => r.field === wfRead.field)) {
+        seen.add(wfRead.field);
+        out.push(wfRead);
       }
       continue;
     }
@@ -2322,7 +2458,7 @@ function felizAsyncEffect(
       tag,
       isError,
       recordType: upperFirst(tag),
-      decoder: `Decoders.${lowerFirst(tag)}`,
+      decoder: `Decoders.${fsIdent(lowerFirst(tag))}`,
       duCase: `${opCap}${upperFirst(tag)}`,
       uri: isError ? errorTypeUri(tag) : undefined,
       binding: arm.binding,
@@ -2332,7 +2468,7 @@ function felizAsyncEffect(
   const params: FelizAsyncParam[] = op.params.map((p, i) => ({
     // The op param name reads best as the F# binder (`note`), except when it
     // collides with the route `id` param already curried into the api fn.
-    name: p.name === "id" ? "idArg" : p.name,
+    name: p.name === "id" ? "idArg" : fsIdent(p.name),
     fsType: wireFieldType(p.type),
     encoder: paramEncoder(p.type),
     jsonKey: p.name,
@@ -2581,7 +2717,7 @@ export function decoderExprFor(t: TypeIR): string {
       return "Decode.string"; // wire carries the enum's string name
     case "valueobject":
     case "entity":
-      return `Decoders.${lowerFirst(t.name)}`;
+      return `Decoders.${fsIdent(lowerFirst(t.name))}`;
     case "array":
       return `(Decode.list ${decoderExprFor(t.element)})`;
     case "optional":
@@ -2709,7 +2845,11 @@ function collectRecords(
   const emit = (typeName: string, wire: WireRecord["fields"]): void => {
     if (seen.has(typeName)) return;
     seen.add(typeName);
-    out.push({ typeName: upperFirst(typeName), decoderName: lowerFirst(typeName), fields: wire });
+    out.push({
+      typeName: upperFirst(typeName),
+      decoderName: fsIdent(lowerFirst(typeName)),
+      fields: wire,
+    });
     for (const f of wire) {
       const n = namedRecord(f.type);
       if (!n || seen.has(n)) continue;
@@ -2780,7 +2920,7 @@ export function renderWireTypes(
     seenRecord.add(upperFirst(name));
     records.push({
       typeName: upperFirst(name),
-      decoderName: lowerFirst(name),
+      decoderName: fsIdent(lowerFirst(name)),
       fields: p.fields.map((f) => ({ name: f.name, type: f.type, optional: f.optional })),
     });
   }
@@ -2800,8 +2940,33 @@ export function renderWireTypes(
     seenRecord.add(typeName);
     records.push({
       typeName,
-      decoderName: lowerFirst(typeName),
+      decoderName: fsIdent(lowerFirst(typeName)),
       fields: (proj.wireShape ?? []).map((f) => ({
+        name: f.name,
+        type: f.type,
+        optional: f.optional,
+      })),
+    });
+  }
+
+  // Workflow-INSTANCE records (workflow-instance-visibility.md) — the row the
+  // scaffolded `<Wf>InstancesList` / `<Wf>InstanceDetail` pages decode, built
+  // from the workflow's `instanceWireShape` (the same shape the backends serve
+  // `GET /api/workflows/<wf>/instances` from).  Like the projection rows above,
+  // a workflow-instance read's `aggregate` is the WORKFLOW name and resolves to
+  // no aggregate, so its record is added here.
+  const wfByName = new Map<string, WorkflowIR>();
+  for (const c of contexts) for (const w of c.workflows) wfByName.set(w.name, w);
+  for (const r of reads) {
+    if (!r.workflowInstance) continue;
+    const wf = wfByName.get(r.aggregate);
+    const typeName = workflowInstanceType(r.aggregate);
+    if (!wf || seenRecord.has(typeName)) continue;
+    seenRecord.add(typeName);
+    records.push({
+      typeName,
+      decoderName: fsIdent(lowerFirst(typeName)),
+      fields: (wf.instanceWireShape ?? []).map((f) => ({
         name: f.name,
         type: f.type,
         optional: f.optional,
@@ -2838,7 +3003,11 @@ export function renderWireTypes(
       "  {",
       ...r.fields.map((f) => {
         const base = wireFieldType(fieldBase(f));
-        return `    ${f.name}: ${fieldOptional(f) ? `${base} option` : base}`;
+        // The F# FIELD NAME is escaped (`` ``member`` ``) when it collides with
+        // an F# keyword; the JSON key it decodes from (below) is NOT — a
+        // double-backtick identifier is lexically the same name, so the wire is
+        // untouched.  F-022.
+        return `    ${fsIdent(f.name)}: ${fieldOptional(f) ? `${base} option` : base}`;
       }),
       "  }",
     ]),
@@ -2858,7 +3027,7 @@ export function renderWireTypes(
         // module is being defined); `decoderExprFor` qualifies it for external
         // callers, so strip the self-module prefix here.
         const dec = decoderExprFor(fieldBase(f)).replaceAll("Decoders.", "");
-        return `        ${f.name} = ${
+        return `        ${fsIdent(f.name)} = ${
           fieldOptional(f)
             ? `get.Optional.Field "${f.name}" ${dec}`
             : `get.Required.Field "${f.name}" ${dec}`
@@ -2884,7 +3053,7 @@ function renderApiFn(r: FelizRead): (string | undefined)[] {
   // single-RECORD find still folds `404` to `Ok None` like a byId.
   if (r.find) {
     const ps = r.find.params;
-    const sig = ps.length === 0 ? "()" : ps.map((p) => `(${p.name}: ${p.fsType})`).join(" ");
+    const sig = ps.length === 0 ? "()" : ps.map((p) => `(${p.fsName}: ${p.fsType})`).join(" ");
     const url =
       ps.length === 0
         ? `"${r.route}"`
@@ -3211,7 +3380,7 @@ export function renderFormTypes(forms: FormRecord[]): string {
       i > 0 || rowTypeDecls.length > 0 ? "" : undefined,
       `type ${f.formType} =`,
       "  {",
-      ...f.fields.map((fld) => `    ${fld.wireName}: ${formFieldFsType(fld)}`),
+      ...f.fields.map((fld) => `    ${fld.fsName}: ${formFieldFsType(fld)}`),
       ...f.fieldArrays.map((fa) => `    ${fa.fieldName}: ${fa.rowType} list`),
       "  }",
       "",
@@ -3220,7 +3389,7 @@ export function renderFormTypes(forms: FormRecord[]): string {
       // Most fields start empty; a required enum starts at its first value (its
       // `<select>` always has a selection); a File field starts `None` (nothing
       // uploaded); an array field starts empty.
-      ...f.fields.map((fld) => `    ${fld.wireName} = ${formFieldEmpty(fld)}`),
+      ...f.fields.map((fld) => `    ${fld.fsName} = ${formFieldEmpty(fld)}`),
       ...f.fieldArrays.map((fa) => `    ${fa.fieldName} = []`),
       "  }",
     ]),
@@ -3291,8 +3460,8 @@ export function renderEncoders(forms: FormRecord[]): string {
  *  so they can't disagree. */
 function emptyPredicate(fld: FelizFormField): string {
   return fld.inputKind === "file"
-    ? `Option.isNone form.${fld.wireName}`
-    : `System.String.IsNullOrWhiteSpace form.${fld.wireName}`;
+    ? `Option.isNone form.${fld.fsName}`
+    : `System.String.IsNullOrWhiteSpace form.${fld.fsName}`;
 }
 
 /** The F# helper that decides whether a numeric cell's TEXT parses, per
@@ -3373,7 +3542,7 @@ export function renderValidation(forms: FormRecord[]): string {
       // contributes BOTH (in that order).
       const terms = validated.flatMap((fld) => [
         ...(fld.required ? [`not (${emptyPredicate(fld)})`] : []),
-        ...(fld.numeric ? [`${NUMERIC_CHECK_FN[fld.numeric]} form.${fld.wireName}`] : []),
+        ...(fld.numeric ? [`${NUMERIC_CHECK_FN[fld.numeric]} form.${fld.fsName}`] : []),
       ]);
       // Dynamic-row groups: each row's numeric cells feed the SAME encoders,
       // so a `List.forall` parse term guards them too.  (Row required-ness
@@ -3429,7 +3598,7 @@ export function validatedFields(f: FormRecord): FelizFormField[] {
 function fieldErrorBody(fld: FelizFormField): string {
   const empty = emptyPredicate(fld);
   if (!fld.numeric) return `    if ${empty} then Some "Required" else None`;
-  const parses = `${NUMERIC_CHECK_FN[fld.numeric]} form.${fld.wireName}`;
+  const parses = `${NUMERIC_CHECK_FN[fld.numeric]} form.${fld.fsName}`;
   const bad = `Some "${NUMERIC_MESSAGE[fld.numeric]}"`;
   // An OPTIONAL numeric has no "Required" rung — blank is a legitimate
   // omission — but its text still has to parse.

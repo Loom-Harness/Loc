@@ -472,9 +472,23 @@ The mission's own **first step was "re-verify"**, and the re-verify overturned i
 | `audited` operations | `loom.audited-backend-unsupported` | `AUDIT_OP_BACKENDS` = all five | `audit_records` side table on each — pinned per backend by `test/platform/backend-parity-gates.test.ts` (`marker` per backend) |
 | `provenanced` fields | `loom.provenanced-backend-unsupported` | `PROVENANCE_BACKENDS` = all five | `provenance_records` on each — same test, `marker` per backend |
 
-**One residue survives, and it is not on this mission's axis:**
+**Residues (one on this mission's axis, closed in C2; one on the adapter axis, still open):**
 
 1. ~~**elixir + `shape: document` capability filters**~~ — **closed (#2625).** It was the one unwired `(family, shape)` cell in `validateContextFilterSupport`; `renderDocRepository` now AND-s the predicate into `list` / `find_by_id` / `find_by_id_for_write` / every custom find, evaluated over the rehydrated `%<Agg>.Data{}` embed, with the `deep` sentinel rendered by `renderDeepScopeInApp` and a `current_user != nil` guard keeping an actor-less read fail-closed. With the last cell wired, the three deferral tables (`supportsPrincipalFilter` / `supportsNonRelationalFilter` / `supportsPrincipalNonRelationalFilter`) and the `#unsupported-predicate` message they raised were **deleted** — `validateContextFilterSupport` is now only the shape-independent "a principal filter needs `auth: required` + a `user {}` block" rule. The `policy-document` corpus row runs on all five backends, and `backend-parity-gates.test.ts` gained a `shape: document` filter row with a per-backend in-app marker.
+1b. ~~**`audited` / `provenanced` × a RETURNING operation on node**~~ — **closed (Wave C2 packet 2c).** A later
+   review (2026-08-24, A6) found a third residue on this mission's own axis: the Hono operation route dispatched to
+   `emitReturningOperationRoute` only when `!audit && !prov`, so `operation settle(fee: int): int or NotFound` marked
+   `audited` fell into the void-204 handler — the route declared 204 only and the declared result was discarded.  It was
+   gated honestly (`loom.audited-returning-operation-unsupported`) rather than fixed.  It is now fixed: the audit /
+   provenance transaction block is emitted by one shared helper (`auditProvTxLines` in
+   `src/platform/hono/v4/routes-builder.ts:1740`) that both handlers call, and the returning one passes `capture: true`
+   so the transaction RETURNS the tagged result (`db.transaction` / `em.transactional` both resolve to their callback's
+   value) and the ProblemDetails translation runs on the committed value.  Byte-identical on the void path, both
+   persistence adapters, and node now matches what python, .NET, java and elixir always emitted.  The gate, its message,
+   its register row and its firing-census fixture are deleted together; `MAX_OPEN_GAPS` 27 → 26.  Runtime-proven on a
+   booted app against a real Postgres, and pinned by the corpus fixture `audit-history.ddd` (the `settle` operation +
+   its third trail entry) on all five backends' behavioural legs.
+
 2. **`ignoring` under `persistence: dapper`** — an ADAPTER cell, not a platform one. `FILTER_BYPASS_FAMILIES` is keyed by family, so `dotnet` passes the gate whatever its adapter; but `src/generator/dotnet/emit/dapper.ts` applies `agg.contextFilters` and contains **zero** occurrences of bypass handling, so an `ignoring` clause is silently not honoured there. Tracked on the adapter axis by **M-T6.35**; the dapper adapter is also under active work in the in-flight M-T6.42 PR.
 
 The general lesson is the one M-T6.33 already recorded one row over: a register row classified `gap` and never re-verified decays into a claim about the past. Both of this track's "re-verify first" missions were overturned by the re-verify.
@@ -981,3 +995,272 @@ An audit of every argument/parameter-passing call site (triggered by the `match 
 3. **Workflow `create` field TYPES** (names checked, types not — `workflow-checks.ts`, IR-level so no lexical env); **UI component prop passing** `Panel(amount: "x")` (missing/extra/wrong-type, unchecked); **store action calls** `Cart.add(42)` (unchecked); **criterion/policy-fn arg TYPES** — **first slice landed:** `freeCallPredicate` (type-system.ts) + `checkArgTypesPositional` (statements.ts) type-check criterion/policy-fn calls at the env-bearing sites `checkExprCallArgs` already walks (bodies / preconditions / requires / derived / …); arity stays owned by `checkCriteria`/`checkPolicyFns` (type-only, no double report); full suite green.  Remaining: the `from X(args)` / `where:` / `when` criterion sites (own env surfaces), plus the component-prop / store-action / workflow-create-field-type items above.
    HIGH regression risk — the whole example/test corpus constructs records and calls ops, so any resolver bug false-positives broadly; land incrementally (start with #1), run the FULL suite each slice, mirror `checkEmit`'s `unknown`-suppression + numeric-literal-promotion (`canPromoteLiteralTo`) to avoid ergonomic false positives.
 Sources: this session's parameter-passing validation audit (repros under the auditor's `/tmp/audit/`); `src/language/validators/{builder-call,statements,criterion,policy-fn}.ts`, `type-system.ts:742`, `src/ir/validate/checks/{ui-checks,workflow-checks}.ts`.
+## M-T6.51 — node document finds ignore `ignoring` — the A11 fix has no node twin — `done` (fixed by [#2705](https://github.com/lemmit/Loc/pull/2705); verified 2026-09-11) · **S** · P1
+
+**DONE — verified 2026-09-11 by GENERATING the mission's own shape on the Wave C1 base.** The fix is what the mission proposed: `documentFindMethod` recomputes the predicate PER FIND (`src/generator/typescript/repository-document-builder.ts:474-480`) by passing the find's own `{bypassAll, bypassCaps}` into `documentCapabilityBody`, which now routes through the same `allContextFilterEntries` the relational and MikroORM builders use — so all three adapters answer `ignoring` from one rule. The per-aggregate cache (`const cap = documentCapabilityBody(agg, "x")`) is gone; the synthesised query-time-projection reads carry the projection's own bypass on their `FindIR` (`projection-finds.ts`).
+
+From a `shape: document` aggregate `with crudish, softDeletable`:
+
+```
+find visibleRows(): Order[]                        -> const result = all.filter((x) => (!x.isDeleted));
+find allRows(): Order[] ignoring softDeletable     -> const result = all;
+find everything(): Order[] ignoring *              -> const result = all;
+```
+
+Gated by `test/generator/typescript/nonrelational-filter-bypass.test.ts` (absence-asserting, per the mission's own instruction that a presence-only check cannot see a retained conjunct). The `mikroorm-document.ts` and `repository-embedded-builder.ts` siblings carry the same fix with the mission id in their comments. Recorded in `docs/new-plan/waves/handoffs/wave-c1-1f-validator-drops.md`.
+
+Found 2026-08-30 (recorded as §D item 14 of the [08-24 review](../../audits/generator-code-review-2026-08-24.md), re-verified on `main` @ `aa236ae`). Not claimed by #2668.
+
+`documentFindMethod` computes the capability predicate once per aggregate — `const cap = documentCapabilityBody(agg, "x")` (`src/generator/typescript/repository-document-builder.ts:325`) — and reuses it for every find, with no access to that find's `bypassAll` / `bypassCaps`. So on a `shape: document` aggregate a declared `find … ignoring softDeletable` **still filters the soft-deleted rows out**: wrong data, fail-closed, no diagnostic. The synthesized query-time-projection reads assembled in the same file inherit it (`:89-90`), so a `projection … ignoring <Cap>` over a document source is likewise not bypassed on node.
+
+Both siblings already do it right: elixir's `renderDocFindFn` threads `bypass: { bypassAll: f.bypassAll, bypassCaps: f.bypassCaps }` (`elixir/vanilla/document-emit.ts:641` — the §A11 fix landed in #2667), and python's document `findMethod` recomputes with the find's own bypass.
+
+**The fix:** recompute the predicate per find, exactly as `renderDocFindFn` does — pass the find's bypass set into `documentCapabilityBody` (or a bypass-aware sibling) and drop the per-aggregate cache. Check the synthesized projection reads take the projection's own bypass, not the aggregate's default.
+
+**Verification when it lands.** A generator test per shape (declared find with `ignoring <Cap>`, `ignoring *`, and a projection over a document source), asserting the bypassed predicate is *absent* — and mutation-proved, since the failure mode here is a silently-retained conjunct, which a presence-only assertion cannot see.
+
+Sources: [generator-code-review-2026-08-24](../../audits/generator-code-review-2026-08-24.md) §D item 14 + §Follow-up register (2026-08-30) row 18. Sibling of §A11 (elixir, fixed #2667).
+
+## M-T6.54 — Java ignores `ignoring` for principal filters, and renders a guarded invariant on the wire without its guard — `done` (wave-c1 packet 1f; F19 by #2857) · **M** · P1
+
+**DONE — both rows closed 2026-09-11 (wave C1, packet 1f).**
+
+**F18 (both surfaces, fixed here).** `principalJpqlClause` now takes the read's own `FilterBypass` and omits a principal predicate whose `contextFilterOrigins[i]` the read names (a BARE `filter … currentUser …`, origin `undefined`, stays unbypassable) — the rule `emit/query-projection-reads.ts`'s `aggregationScope` already contained, reused. `jpqlWhere` threads the find's / retrieval's bypass; the root `findAll`/`findById` overrides keep the unconditional clause, as they carry no `ignoring` of their own.
+
+```
+find anyTenant(c: string): Order? where this.code == c ignoring tenantOwned
+
+before: @Query("select e from Order e where (e.code = :c) and (e.tenantId = :#{@currentUserAccessor.user()?.tenantId()})")
+after:  @Query("select e from Order e where e.code = :c")
+```
+
+The DOCUMENT half is the one the fleet note called awkward, and it carried a SECOND defect, fail-OPEN. The emitter hoisted every promoted capability out of `findAll()`/`findById()` and re-applied it per find — so a soft-deleted row became readable through `GET /<plural>` and by id the moment any UNRELATED find said `ignoring softDeletable`. The rehydrate is now split out as a private `rehydrateAll()` and every read — `findAll()` included — conjoins the capabilities it does not bypass; the shape is emitted only when some read on the aggregate actually bypasses something, so the no-bypass majority is byte-identical.
+
+A THIRD principal read surface was found and is PARTIALLY closed: a reified retrieval reads through `<Agg>Criteria.tenantScope(...)`, one factory over all principal predicates, so a retrieval whose `ignoring` drops EVERY principal capability now omits it while a PARTIAL drop keeps the whole scope (over-restricts, never widens). Splitting the factory per capability is `emit/criteria.ts` work; the reason is recorded inline at `tenantScopeAndFor` and handed off.
+
+The stale parity comment in `capability-filter.ts:26-32` is corrected in the same commit — it described the intent before it described the code, which is what let the gap sit under a `FILTER_BYPASS_FAMILIES` entry naming `java`.
+
+**F19 — verified, not rebuilt.** `buildChecks` (`java/emit/validator.ts:388-415`) renders `inv.guard ? `!(${guard}) || (${body})` : body`, and collects imports + regex literals from BOTH halves. Generated on this head from `invariant note.length > 0 when taxRate > 0`:
+
+```java
+if (!(!(taxRate > 0) || (((int) note.codePoints().count()) > 0))) errors.rejectValue("note", "loom.invariant", "Invariant violated: note.length > 0");
+```
+
+**Fixture (rule 13).** `test/fixtures/corpus/find-bypass.ddd` — `find … ignoring <Cap>` / `ignoring *` over a principal AND a non-principal capability, on a relational AND a `shape: document` aggregate. Generates on all five and compiles on all five (java `gradle testClasses bootJar` under JDK 25, elixir `mix compile --warnings-as-errors`, tsc, ruff+mypy, `dotnet build /warnaserror`).
+
+**Gate.** `test/generator/java/generator-java-find-bypass-principal.test.ts` — every assertion paired presence + ABSENCE, because the failure mode is a RETAINED conjunct. Mutation-proved three ways by file-copy revert (the pre-fix `jpqlWhere`; `survives()` returning true unconditionally; `capRec`/`capX` computed with `{bypassAll: true}`), each naming the assertion that failed. Full record: `docs/new-plan/waves/handoffs/wave-c1-1f-validator-drops.md`.
+
+**Bycatch, handed off:** the .NET document store ignores `ignoring` entirely (`_CapabilityVisible` is applied to every emitted find regardless of bypass) — the same shape on another backend, outside this packet's fence.
+
+Found 2026-09-03 by the language-docs audit ([F18](../../audits/2026-09-03-language-docs-audit-findings.md), [F19](../../audits/2026-09-03-language-docs-audit-findings.md), both P2). `jpqlWhere` (`src/generator/java/emit/repository.ts:361-392`) ANDs `principalClause` unconditionally with no `bypassAll`/`bypassCaps` check (`bypassAll` appears only at `:637`, the impl-side Hibernate wrapper), so both `find allRows(): Order[] ignoring *` and `ignoring tenantScoped` still emit `where (e.tenantId = :#{@currentUserAccessor.user()?.tenantId()})` — node/python/elixir drop the conjunct and dotnet emits `IgnoreQueryFilters`. It contradicts the comment at `src/generator/java/capability-filter.ts:26-29`, which claims parity with node. The fail-direction is safe (Java over-restricts rather than leaking), which is why this is not a Wave-1 packet — but the same `.ddd` returns a different row set on Java, and an operator reading the docs would conclude the bypass took effect. Separately, `buildChecks` (`src/generator/java/emit/validator.ts:366-395`) calls `renderJavaExpr(inv.expr, …)` with no `!(guard) ||` implication, which node/.NET/python all emit: `invariant note.length > 0 when taxRate > 0` becomes unconditional, so Java 422-rejects a request that is legal when `taxRate == 0`.
+
+**The fix:** `jpqlWhere` honours the find's `bypassAll`/`bypassCaps`; the wire validator emits the implication the other backends emit. Correct the stale parity comment in `capability-filter.ts` in the same PR.
+
+**Verification when it lands.** Generator tests asserting the *absence* of the principal conjunct under each bypass spelling (a presence-only assertion cannot see a retained conjunct) and the presence of the guard implication; both mutation-proved by file-copy revert.
+
+Sources: [language-docs-audit-2026-09-03](../../audits/2026-09-03-language-docs-audit-findings.md) F18/F19, [wave plan](../../audits/2026-09-03-language-docs-audit-findings.waves.md) packet **W5.1** (first in its wave — the one row there with a behavioural consequence). Sibling of M-T6.51 (the node document-find twin of the same "bypass silently retained" shape).
+
+> **Verified 2026-09-09 (fleet). Both rows hold; F18 is TWO surfaces, not one.** The relational
+> `@Query` path AND the document-shape `findAll()` path both keep the principal conjunct under
+> `ignoring`. Java already contains the CORRECT implementation for the aggregation path
+> (`emit/query-projection-reads.ts:161-166`), so this is a missed surface, not an undesigned feature —
+> and `capability-filter.ts:29-32` asserts the behaviour exists. **`FILTER_BYPASS_FAMILIES` includes
+> `java`, so `loom.filter-bypass-unsupported` certifies Java as honouring `ignoring` while two of its
+> four read surfaces do not.** Fail direction is safe (over-restricts). F19 is S: one arm of
+> `buildChecks`, with `dotnet/validator-emit.ts:167-171` as a line-for-line template. The
+> document-store half is the awkward one — the conjunct lives inside the SHARED `findAll()`, so a
+> per-read bypass needs it hoisted into each read's filter chain.
+
+## M-T6.55 — Phoenix drops a part-level `check`, a guarded single-field invariant, and a private-operation call — `done` (wave-c1 packet 1f) · **M** · P1
+
+**DONE 2026-09-11 (wave C1, packet 1f).** All three reproduced on the wave base first; the fork was resolved as the plan directed — EMIT, do not mint a refusal.
+
+**F14 — a part-level `check` / `invariant` is enforced in the part's own changeset.** `Line.changeset/2` only `cast`, and a part has no other enforcement site on Ecto. It now carries the same two-carrier split the aggregate changeset uses: a message-less unguarded single-field rule takes its native `validate_*` line (`partConstraintLines`, the `voConstraintLines` twin), everything else routes to the part's own `validate_invariants/1` (`renderInvariantValidatorFn`, whose parameter is now the structural `Pick<AggregateIR, "invariants" | "fields">` a part satisfies).
+
+```elixir
+|> cast(attrs, [:sku, :qty])
+|> validate_change(:sku, fn _, value -> if length(String.to_charlist(value)) >= 3, do: [], else: [...] end)
+|> validate_number(:qty, greater_than_or_equal_to: 1)
+```
+
+**F15 — a guarded single-field invariant emits its implication.** The root cause was one question asked in the wrong place: `singleFieldConstraints` returns null for ANY guarded rule (correct for the native path, which has nowhere to put an implication), and the residual carrier asked that same classifier — so both doors shut. `structRenderableShape` now asks it with the guard lifted, and `residualInvariants` admits every guarded rule outright. Unguarded rules are untouched (byte-identical), and the two carriers still cannot double-emit: `changeset-emit` renders `singleFieldConstraints(inv) ?? []`, null for a guarded rule.
+
+```elixir
+changeset =
+  if data.tax_rate > 0 do
+    if length(String.to_charlist(data.note)) > 0, do: changeset, else: add_error(changeset, :note, "must satisfy: note.length > 0")
+  else
+    changeset
+  end
+```
+
+The messaged twin keeps its `loom_code` metadata, which is the half the fleet note recorded as also dropped.
+
+**F24 — the private-operation call runs, and its write persists.** `_ = nil  # vanilla: bare call to 'recompute' (no callable target); record unchanged` is gone. A bare call now renders `record = __op_<name>(record, …)` against a `defp __op_<name>/n` the emitting module carries (`renderPrivateOpHelpers`) — a PURE struct transform, not the public `<op>_<agg>/2` context fn, which persists and would commit a partial write inside the caller's optimistic-lock window. Emitted into all three hosts that render op bodies (context facade, pure domain core, document path) and only for private ops actually called, so no unused-`defp` warning. `persistPutBodies` unions the callee's write set transitively (riding `walkStmtsDeep`, per the no-hand-rolled-walks rule), which is the second half: emitting the call alone computes the mutation and drops it at `Repo.update`.
+
+```elixir
+def bump_invoice(%D.Billing.Invoice{} = record, params) when is_map(params) do
+  with {:ok, by} <- __loom_int_param(record, :by, Map.get(params, "by")) do
+    record = %{record | tax_rate: record.tax_rate + by}
+    record = __op_recompute(record)
+    record
+    |> Ecto.Changeset.change(%{})
+    |> Ecto.Changeset.force_change(:tax_rate, record.tax_rate)
+    |> Ecto.Changeset.force_change(:total, record.total)
+    …
+```
+
+**One crossing is refused rather than emitted, and it is new.** A private operation whose body reads `currentUser`: the helper is `defp`-local and takes no actor, and the CALLER binds `current_user` only when its own body reads the principal, so the callee's reference would be unbound and `mix compile` would fail. Threading it means making every actor-arg site in the elixir emitter transitive over the private-op call graph (14 sites across 8 files, each with a caller on the other side). Until then `loom.vanilla-op-call-actor` says so, in `backend-syntax-checks.ts` beside its sibling `loom.vanilla-op-call-position`, with a firing fixture in the diagnostic census. Before this it was part of the same silent drop.
+
+**Fixture (rule 13).** `test/fixtures/corpus/part-rules-private-op.ddd` — all three rules in one aggregate, with `Invoice.total` assigned ONLY by the private operation so a HALF-fix still fails. Generates on all five and compiles on all five; the elixir leg (`mix compile --warnings-as-errors`) is the one a helper call to a nonexistent function would break.
+
+**Gate.** `test/generator/elixir/part-rules-private-op.test.ts` (9 cases). Mutation-proved four ways by file-copy revert — the part validate block emptied, `structRenderableShape` asking the guarded question again, the call arm restored to the `_ = nil` sentinel, and `persistPutBodies` walking only `op.statements` — each naming the assertion that failed. Full record: `docs/new-plan/waves/handoffs/wave-c1-1f-validator-drops.md`.
+
+Found 2026-09-03 by the language-docs audit ([F14](../../audits/2026-09-03-language-docs-audit-findings.md), [F15](../../audits/2026-09-03-language-docs-audit-findings.md), [F24](../../audits/2026-09-03-language-docs-audit-findings.md); P1/P1/P2). Three silent under-enforcements on one backend: `entity Line { qty: int check qty > 0 }` produces a `changeset/2` that only `cast`s `[:sku, :qty]` with no `validate_number` (root-level `check`/`invariant` do emit one, and node/dotnet/java/python all enforce the part-level form); a guarded single-field invariant is excluded by both `residualInvariants` (`src/generator/elixir/vanilla/changeset-invariant-emit.ts`) and the native path in `changeset-emit.ts`, so nothing enforces it; and a private-operation call renders `_ = nil  # vanilla: bare call to 'recompute' (no callable target); record unchanged` — compile-clean, behaviourally absent, signalled only by a comment in generated code.
+
+**The fix:** each either enforces or raises a `loom.*` code. F24's comment-only degrade is not an acceptable resting state — a comment in emitted output is not a diagnostic.
+
+**Verification when it lands.** A changeset test per shape plus a behavioural leg that submits the value the rule should reject; each mutation-proved by file-copy revert.
+
+Sources: [language-docs-audit-2026-09-03](../../audits/2026-09-03-language-docs-audit-findings.md) F14/F15/F24, [wave plan](../../audits/2026-09-03-language-docs-audit-findings.waves.md) packet **W5.2**. Relates to M-T6.2 (the vanilla-Phoenix gap register — the same "silent fallthrough vs honest gate" discipline).
+
+> **Verified 2026-09-09 (fleet). All three hold, two undercount, and F24's stated reason is false.**
+> F14 also drops part-level `invariant`, not just `check`. F15 also drops the MESSAGED guarded
+> invariant, so its `loom_code` wire key vanishes — contradicting `messagedRoutesToResidual`'s own
+> docblock. **F24's emitter comment says "no callable target" while `def recompute/2` is defined SIX
+> LINES ABOVE in the same module.** Fork resolved: **EMIT the call, do not mint a refusal** — a
+> validator gate is platform-independent and would reject a construct the other four backends have
+> shipped for months. The fix has TWO halves: `persistPutBodies` walks only `op.statements`, so
+> emitting the call alone computes the mutation and silently drops it at persist.
+
+## M-T6.36 — Java emitter shape gaps — `done` (2026-09-13, wave C2 packet 2d) · **M** · P1
+**The two codes this mission was written about were PHANTOMS, and are gone.** `loom.java-projection-field-unsupported` and `loom.java-workflow-instance-field-unsupported` refused an ENTITY (containment-part) typed read-model field. Probing the premise before implementing showed there is nothing to implement: a part type resolves only inside its own aggregate (`src/language/ddd-scope.ts`), so `projection P { line: Line }` and `workflow W { line: Line }` both fail at phase ③ with `Could not resolve reference to NamedDecl named 'Line'` — on EVERY platform, before any java check runs. Two backend-named codes for a shape the LANGUAGE refuses: java read as uniquely limited, and the M-T9.27 register carried two rows nothing could ever drain. Both codes, their register rows, their catalogue entries and their census entries were deleted; the emitters keep their `guardInstanceField` / `guardProjectionField` throws as internal invariants, and `test/generator/java/generator-java-readmodel-gates.test.ts` now pins the unreachability AT THE SCOPE LAYER, so a widening of that rule fails a test instead of crashing codegen. `MAX_OPEN_GAPS` came down accordingly. (The VO-typed half of the original gap was already implemented by M-T6.4.)
+
+**The one REAL java shape gap it owned — `loom.java-reserved-identifier-unsupported` — is DRAINED (2026-09-13).** A `.ddd` field / param / operation / derived member / containment-part field / helper function / enum VALUE named after a **Java reserved word** (`case`, `do`, `final`, `native`, …) used to emit `String case;` / `public String case() {` / `record TicketResponse(String case, …)` — uncompilable Java with zero diagnostics — and was then refused. It is now EMITTED.
+
+The fix is one funnel, `src/generator/java/java-ident.ts`, whose two halves are written so they cannot travel apart: `jid(name)` is the mangled host identifier (`case_`, `escapeJavaIdent`'s existing spelling for locals) and `jsonProp(name, imports)` / `requestParam(name)` pin the `.ddd` spelling back onto the wire. Both are the IDENTITY for every non-keyword name, so no existing model's output moves. Wire sites covered: the request / response / event / VO / projection-row / workflow-instance record components (`@JsonProperty`, and springdoc follows Jackson so the published schema key follows too); a find parameter (`@RequestParam("case")`); the RFC-7807 error pointer, which Spring builds from the BINDING path and never routes through Jackson, so `ApiExceptionAdvice.pointerOf` carries the inverse map (`src/generator/java/emit/api.ts`); the `?sort=` whitelist, which stays the wire key with one generated translation line to the JPA property (`src/generator/java/emit/repository.ts:sortPropertyLines`); the JPQL path and bind parameter and the Criteria `root.get(...)` path, which name the JPA ATTRIBUTE; and the enum COLUMN, where `@Enumerated(STRING)` persists `Enum.name()` and would have written `case_` — so a mangled enum carries a generated `<Enum>.Codec` `AttributeConverter` and `jpaFieldAnnotations` selects `@Convert` for exactly those enums.
+
+> **The enum-value arm was a SECOND, previously silent gap** found while draining this one: `enum Kind { case }` parsed with zero diagnostics on java and emitted `public enum Kind { case }`. It is closed here rather than filed, because leaving it would have re-created the same silent crash one declaration kind over.
+
+Proofs: `test/generator/java/java-reserved-identifier.test.ts` (13 assertions incl. a vacuity-guarded sweep of every emitted `.java` file; five mutations each fail exactly the assertion that names them), the corpus fixture `test/fixtures/corpus/java-reserved-words.ddd` compiled on java under `gradle testClasses bootJar`, and a **booted** Spring Boot app on a real Postgres 18 — create/read round-trip with the declared wire keys, `?sort=` by a reserved column, a find by a reserved query parameter, a 422 naming `/case` (not `/case_`), the enum stored in the column as `case`, and the behavioural java leg matching the node-captured wire golden with 0 divergences.
+Sources: M-T9.27 register rows; the 2026-08-30 targets ledger rows `M-T6.36` (premise found stale) and `F2-ADP-7` (java arm).
+
+## M-T6.3 — Phoenix output hygiene: `mix format` + Dialyzer gates — `done` (closed by ruling, wave C2 packet 2a — [D-PHOENIX-FORMAT-GATE](../../decisions.md)) · **L (was M)** · P2
+**Closed 2026-09-13 by DECISION, not by code.** The kickoff for wave C2 packet 2a said "decide, don't defer twice"; `D-PHOENIX-FORMAT-GATE` is that decision. `mix format --check-formatted` is **never** run over generated output, in any tier — the measurement below is the evidence, and a third re-derivation of it was the cost a named decline removes. Dialyzer and Credo over generated output are **unscheduled** (not deferred, not mission-owned): a new mission opens only with its own evidence that either finds a defect class `mix compile --warnings-as-errors` does not. Slice 1 (the emitted `.formatter.exs` scoping the OpenApiSpex subtree out) stays — it is config a human running `mix format` by hand benefits from, not a gate. The scoping record below is kept verbatim so reversing the ruling starts from a recipe rather than from scratch.
+**Slice 1 landed** (`.formatter.exs` scoping): the generated `lib/<app>_web/api/**` OpenApiSpex layer (`<api>_spec.ex` spec module + request/response schema modules) is a machine-emitted nested-struct literal `mix format` reflows by width — **~73% of the whole format diff** on a broad project, never hand-edited — and is now excluded from the format gate via a computed `inputs` (rejects the `_web/api/` subtree, correct for any app name; `renderVanillaFormatterExs`, `shell-emit.ts`).
+
+**Gate activation deferred** after a source-grounded scoping (2026-07-21, real `mix format` in the `hexpm/elixir` image, api_spec excluded):
+- `mix format` is **deliberately non-configurable** — no per-rule toggles, no `# format: off` ignore comments/regions. The only dials are `line_length`, `locals_without_parens`, and which files are checked. So the "un-handy" rules (blank-line insertion, `case`-clause consistency, call-wrapping) **cannot be suppressed by config**.
+- `line_length` is the one lever for the dominant width-driven wrapping, but it **plateaus**: on the `vanilla-workflows` fixture the churn falls 447→253 diff-lines (98→200) then flattens — an **irreducible ~250-line / 20-file structural residual** (blank lines + clause consistency + un-wrapping emitter pre-wraps) no config reaches. Pushing `line_length` past ~150 also just trades wrap-churn for collapse-churn and leaves 150-col lines.
+- Closing the residual means teaching **~10 emitters** (controllers, context, changeset, telemetry, boilerplate, workflows) to replicate the formatter's width + blank-line + clause rules — an **L grind, and brittle**: every future Elixir-emitter edit can silently re-break the all-or-nothing gate, re-checkable only via the slow docker+hex-mirror `mix format` loop. Payoff is cosmetic — generated Elixir already compiles `mix compile --warnings-as-errors` clean.
+- **Decision: defer the gate** (same disposition as M-T6.20 — L/risky for a narrow benefit). Reassess if a cheaper mechanism appears (e.g. a real ignore-comment lands in Elixir, or the emitters gain a shared format-aware line builder). Dialyzer/Credo remain future nightly-only.
+
+Reusable tooling from the scoping: a real-formatter diff loop (`startHexMirror` → `generate system` → `mix format` with `import_deps` resolved → diff) makes the grind a measure-fix-remeasure cycle if picked up.
+Sources: [vanilla-phoenix-gaps](../../old/plans/vanilla-phoenix-gaps.md) §7, [static-analysis-followups](../../old/proposals/static-analysis-followups.md) Slices 1–2.
+
+## M-T6.26 — `= default` / required-input parity across create & update paths — `done` (update-seam presence landed; verified 2026-09-13, wave C2 packet 2a) · **S** · P2
+*(Renumbered from the placeholder "M-T6.x" and re-statused 2026-08-05 — `landed` isn't a legend status. Create-path parity is done (below, #2377); the update-path halves landed via #2392 ("a default never relaxes an update" — Elixir enforced less than promised, Java rejected what it advertised); the remaining residue is fixed and awaiting merge as PR #2440 — Elixir accepts a PUT that omits a required field (presence is a deserialization question there too), with retro §80 (PR #2415, also awaiting merge) as its documentation twin.)*
+
+Surfaced 2026-08-01 by the `audited` corpus fixture in the behavioral tier, not
+by anything audit-specific.
+
+A field declared with a default — `status: int = 0` — is treated as **optional
+create input** on node (`z.coerce.number().int().default(0)`, so `POST` without
+it succeeds) but the Elixir changeset still `validate_required`s it, so the same
+request 422s with `{"pointer":"/status","message":"can't be blank"}`.
+
+Same `.ddd`, same create call, different contract — a wire-level divergence the
+per-PR compile gates cannot see (both backends compile fine) and which the
+wire-golden differential misses because the request never reaches a comparable
+response. It took a behavioral run on the elixir leg to expose it.
+
+**Expected:** `= default` means "the client may omit this; the server supplies
+the value" on every backend. Fix is in the Elixir changeset emission — a
+defaulted field must be dropped from the required set.
+
+Check the other three backends (python/java/dotnet) before closing: only node
+and elixir were observed here, so the split may be wider than 1-vs-1.
+
+**Landed.** The split was **4-vs-1**, not 1-vs-1: python (`status: int = 0`),
+java (`RequiredSet("CreateThingRequest", ["name"])`) and dotnet
+(`int Status = 0`) already agreed with node. Elixir was the sole outlier —
+`changeset-emit.ts` derived its required set from `!f.optional`, ignoring both
+the explicit `= default` and the bare-`bool` implicit default, while the IR had
+already reified the rule as `CreateInputFieldIR.requiredInput`. Fixed by
+consuming it (`isRequiredCreateInput`, now exported alongside a new
+`isRequiredUpdateInput` for the PATCH seam).
+
+> **Correction (2026-08-03).** The CREATE half of this is sound and
+> runtime-proven. The UPDATE half shipped defective and the sentence that used
+> to stand here — "an explicit default stays required and only the bool
+> relaxation applies" — described the intent, not the code: `isRequiredUpdateInput`
+> tested `hasImplicitDefault` (a *create*-input predicate) first, so it returned
+> `false` for **any** `bool`, explicit default or not. `active: bool = true` came
+> back omittable and Elixir's changeset stopped enforcing a field its own
+> OpenApiSpex schema still advertised. #2392 (landed) fixed the predicate to
+> `!isNullable(f)` — only optionality relaxes an update, which is RS-26 (#2329) —
+> and found a sibling Java create-seam defect on the way (`emit/dto.ts` re-derived
+> omittability as `f.optional || f.default != null`, missing the bare `bool`).
+> The docstring, this entry and #2377's PR description all stated the rule
+> correctly while one line of code did not; see `experience_gathered.md` §80.
+>
+> **Residual, still open** (re-verified on `main` after #2392 landed). It makes
+> the emitted artifacts agree, but the
+> cross-backend divergence survives it: `@update_required` is not enforcement on
+> the update seam. Ecto's `validate_required` resolves through `get_field`,
+> which falls back to the loaded row, so an omitted key is invisible — verified
+> against real Ecto (`omit active+flag against a stored row → valid?=true`).
+> Nothing upstream compensates (router is `plug :accepts, ["json"]`, no
+> `OpenApiSpex.Plug.CastAndValidate`; the controller passes raw params through).
+> A `PUT` omitting the field still answers **204 on Elixir, 422 on the other
+> four**. Fixed in PR #2440 (awaiting merge): `update_changeset/2` checks
+> presence against the raw attrs before `cast`, roughly where the create path
+> already coalesces defaults, using `validate_required/2`'s own error shape so
+> `ProblemDetails` still renders 422 `{"pointer":"/<field>"}` unchanged.
+> Coverage measured across the corpus: 55 of 56 changesets take the check; the
+> document aggregate (separate `cast_embed` emitter) is flagged, not claimed.
+
+> **CLOSED 2026-09-13 (wave C2, packet 2a) — #2440 is MERGED, the residual is
+> emitted.** Re-verified on this head by reading the emitter rather than the PR:
+> `src/generator/elixir/vanilla/changeset-emit.ts:570-590` computes
+> `updateRequiredNames` from `isRequiredUpdateInput`, splices
+> `|> __require_keys(attrs, @update_required)` into `update_changeset/2` ahead of
+> `cast`, and emits the `__require_keys/3` helper whose error shape is
+> `validate_required/2`'s own, so `ProblemDetails` still renders 422
+> `{"pointer":"/<field>"}`. The emission is conditional
+> (`emitUpdateChangeset && updateRequiredNames.length > 0`), so an aggregate whose
+> updatable fields are all optional stays byte-identical — which is the reason the
+> check could land without re-baselining the corpus. The ONE carve-out the
+> paragraph above flags is unchanged and still honest: the document aggregate's
+> separate `cast_embed` emitter does not take the check.
+
+Two findings worth keeping:
+
+- **The reported repro under-stated the fix.** `status: int = 0` alone did NOT
+  422: a *literal* default is also emitted as the Ecto schema `default:`, so
+  `%Agg{}` already carried it and `validate_required` passed by accident. The
+  shapes that actually failed were the ones no schema default covers — a bare
+  `bool` and an **enum-valued** default (`renderEctoDefault` returns null for
+  both). Dropping them from `validate_required` is only half the fix; the
+  column is `null: false`, so the changeset now also applies the declared value
+  via a `__default/3` step after `cast` (which additionally covers an explicit
+  `null` in the body). Server-sourced defaults (`now()`/`currentUser.*`) keep
+  their existing controller-side params coalesce.
+- **Why every gate was blind.** Compile tier: both backends build. Wire-golden
+  differential: the request 422s before producing a comparable response. And
+  the OpenAPI parity gate too — Elixir's own *spec* emitter already used the
+  correct rule (`wireCreateDefault`), so the disagreement was between Elixir's
+  published contract and Elixir's runtime enforcement, which no spec-vs-spec
+  diff can see. New gate `test/conformance/create-required-parity.test.ts`
+  therefore asserts each backend's **enforcement** surface (changeset / DTO /
+  validator) against the canonical `requiredInput` set — verified to fail on
+  the pre-fix emitter. `test/fixtures/corpus/audited.ddd` now OMITS the
+  defaulted field from its `test e2e` create call, making the behavioral legs
+  the runtime half of the same gate.
+
+Not addressed (noted, out of scope): the emitted `change_<create>/1` helper
+derives its required set from the create action's *params*, which for a
+`crudish` aggregate do not carry the field-level `default` — so it still
+over-requires. It has no caller in generated code (every write path goes
+through `base_changeset`); threading defaults onto crudish create params would
+ripple through every param-driven surface on all five backends.

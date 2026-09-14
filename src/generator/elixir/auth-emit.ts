@@ -11,6 +11,7 @@ import { hierarchyRegistry } from "../../ir/util/tenant-stance.js";
 import { AUTH_BASE_PATH } from "../../util/api-base.js";
 import { elixirString, snake, upperFirst } from "../../util/naming.js";
 import { devClaimFields } from "../_auth/dev-claims.js";
+import { devStubIdExpr } from "../_auth/dev-stub-id.js";
 
 // ---------------------------------------------------------------------------
 // Phoenix LiveView auth scaffolding — emitted per deployable when
@@ -799,8 +800,11 @@ function elixirStubValueForType(t: TypeIR): string {
         default:
           return `""`;
       }
+    // The LiveView principal is an untyped map — there is no id struct to
+    // construct — but the SEED is decided in the shared arm with the other
+    // four, so the five cannot drift apart again.
     case "id":
-      return `"00000000-0000-0000-0000-000000000000"`;
+      return devStubIdExpr(t, "elixir");
     case "array":
       return "[]";
     default:

@@ -34,6 +34,7 @@ import {
   tphConcretesOf,
 } from "../../ir/util/inheritance.js";
 import { mergeContexts } from "../../ir/util/merge-contexts.js";
+import { valueObjectPool } from "../../ir/util/reachable-types.js";
 import {
   effectiveSavingShape,
   isDocumentShaped,
@@ -1289,7 +1290,7 @@ function emitContext(
   // Same FluentValidation gate as the system path — drives the
   // pipeline behavior emit + csproj + Program.cs registration +
   // the DomainExceptionFilter arm.
-  const usesValidators = ctx.aggregates.some((a) => hasAnyWireValidator(a, ctx.valueObjects));
+  const usesValidators = ctx.aggregates.some((a) => hasAnyWireValidator(a, valueObjectPool(ctx)));
   emitInfrastructure(ctx, ns, out, usesValidators);
   if (usesValidators) {
     out.set("Application/Common/ValidationBehavior.cs", renderValidationBehavior(ns));
@@ -2229,7 +2230,10 @@ function mergeViewsAsFinds(
   const synthesised = [
     ...matchingQp.map((p) => ({
       name: p.name,
-      params: [],
+      // The projection's OWN parameters — its inlined `where` references them,
+      // so a parameterless read emitted a LINQ predicate over a free variable.
+      // See `synthProjectionFinds` (typescript) for the full note.
+      params: p.params ?? [],
       returnType: arrayReturn,
       ...(p.query?.filter ? { filter: p.query.filter } : {}),
       ...(p.query?.bypassAll ? { bypassAll: true } : {}),

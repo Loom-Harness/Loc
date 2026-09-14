@@ -121,8 +121,10 @@ export function enrichLoomModel(loom: RawLoomModel): EnrichedLoomModel {
   const rootPayloads = loom.rootPayloads;
   return {
     systems: loom.systems.map((s) => enrichSystem(s, enrichedRootVOs, rootEnums, rootPayloads)),
-    contexts: loom.contexts.map((c) =>
-      enrichContext(c, enrichedRootVOs, rootEnums, "literal", rootPayloads),
+    contexts: attachSiblingValueObjects(
+      loom.contexts.map((c) =>
+        enrichContext(c, enrichedRootVOs, rootEnums, "literal", rootPayloads),
+      ),
     ),
     rootValueObjects: enrichedRootVOs,
     rootEnums,
@@ -212,9 +214,20 @@ function enrichSystem(
       structuralErrorStatuses,
     })),
   }));
+  // A `valueobject` declared in one context and referenced from another is
+  // legal (README Quick Example shape), but the DECLARATION stays where it
+  // was written — so hand every context the pool of its siblings' VOs.  See
+  // `BoundedContextIR.siblingValueObjects`.
+  const systemValueObjects = dedupeValueObjectsByName(
+    subdomains.flatMap((m) => m.contexts.flatMap((c) => c.valueObjects)),
+  );
+  const subdomainsWithSiblings: EnrichedSubdomainIR[] = subdomains.map((m) => ({
+    ...m,
+    contexts: m.contexts.map((c) => withSiblingValueObjects(c, systemValueObjects)),
+  }));
   // Derive the registry's self-scope filter from the `tenancy by`
   // declaration.  See `applyRegistrySelfScope` below.
-  const subdomainsScoped = subdomains
+  const subdomainsScoped = subdomainsWithSiblings
     .map((m) => applyRegistrySelfScope(m, sys))
     // Bind the `tenantOwned` capability's hardcoded principal claim to the
     // system's declared one.  BEFORE the read-level passes, so they see (and
@@ -740,6 +753,44 @@ function applyPolicyDenies(m: EnrichedSubdomainIR): EnrichedSubdomainIR {
       };
     }),
   };
+}
+
+/** `withSiblingValueObjects` over a flat list of peer contexts (the legacy
+ *  top-level, no-`system` lowering shape). */
+function attachSiblingValueObjects(
+  contexts: EnrichedBoundedContextIR[],
+): EnrichedBoundedContextIR[] {
+  const pool = dedupeValueObjectsByName(contexts.flatMap((c) => c.valueObjects));
+  return contexts.map((c) => withSiblingValueObjects(c, pool));
+}
+
+/** First-declaration-wins de-dup of a VO list by name — the same rule the
+ *  lowering-time ambient decl index uses for a cross-context name collision. */
+function dedupeValueObjectsByName(vos: EnrichedValueObjectIR[]): EnrichedValueObjectIR[] {
+  const seen = new Set<string>();
+  const out: EnrichedValueObjectIR[] = [];
+  for (const v of vos) {
+    if (seen.has(v.name)) continue;
+    seen.add(v.name);
+    out.push(v);
+  }
+  return out;
+}
+
+/** Attach the pool of value objects declared in the OTHER contexts of the same
+ *  system, so an emitter that must MATERIALISE a referenced VO (a .NET DTO
+ *  record, a frontend zod schema) can resolve a cross-context name.  Own names
+ *  shadow.  Set to `undefined` (dropped) when there is nothing to add, so a
+ *  single-context model's IR is unchanged and `enrich(enrich(m))` still
+ *  deep-equals `enrich(m)`. */
+function withSiblingValueObjects(
+  ctx: EnrichedBoundedContextIR,
+  systemValueObjects: EnrichedValueObjectIR[],
+): EnrichedBoundedContextIR {
+  const own = new Set(ctx.valueObjects.map((v) => v.name));
+  const siblings = systemValueObjects.filter((v) => !own.has(v.name));
+  const { siblingValueObjects: _previous, ...rest } = ctx;
+  return siblings.length > 0 ? { ...rest, siblingValueObjects: siblings } : rest;
 }
 
 export function enrichContext(

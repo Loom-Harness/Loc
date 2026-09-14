@@ -60,7 +60,7 @@ runtimes, an end-to-end test:
 
 ```ddd
 system Acme {
-  module Sales {
+  subdomain Sales {
     context Orders {
 
       enum OrderStatus { Draft, Confirmed, Shipped, Cancelled }
@@ -74,14 +74,14 @@ system Acme {
 
       event OrderConfirmed { order: Order id, at: datetime }
 
-      aggregate Order {
+      aggregate Order with crudish {
         customerId: string
         status: OrderStatus
         placedAt: datetime
         contains lines: OrderLine[]
 
         derived total: Money =
-          Money(lines.sum(l => l.subtotal.amount), "USD")
+          Money { amount: lines.sum(l => l.subtotal.amount), currency: "USD" }
 
         invariant lines.count > 0 when status == Confirmed
 
@@ -94,37 +94,52 @@ system Acme {
           emit OrderConfirmed { order: id, at: now() }
         }
 
+        operation addLine(productId: Product id, qty: int, price: Money) {
+          precondition isMutable()
+          lines += OrderLine { productId: productId, quantity: qty, unitPrice: price }
+        }
+
         entity OrderLine {
           productId: Product id
           quantity: int
           unitPrice: Money
           derived subtotal: Money =
-            Money(unitPrice.amount * quantity, unitPrice.currency)
+            Money { amount: unitPrice.amount * quantity, currency: unitPrice.currency }
           invariant quantity > 0
         }
       }
 
-      repository Orders for Order {
-        find byCustomer(customerId: string): Order[]
-      }
+      repository Orders for Order { }
     }
   }
 
-  module Catalog {
+  subdomain Catalog {
     context Products {
-      aggregate Product { sku: string, price: Money }
+      aggregate Product with crudish {
+        sku: string
+        price: Money
+        derived display: string = sku
+      }
+      repository Products for Product { }
     }
   }
+
+  storage primary { type: postgres }
+  resource orderState   { for: Orders,   kind: state, use: primary }
+  resource productState { for: Products, kind: state, use: primary }
 
   // Pick a runtime per deployable.  Switch any time.
-  deployable api    { platform: node,            modules: Sales, Catalog, port: 3000 }
-  deployable apiNet { platform: dotnet,          modules: Sales, Catalog, port: 8080 }
-  deployable apiPhx { platform: elixir, modules: Sales, Catalog, port: 4000 }
+  deployable api    { platform: node,   contexts: [Orders, Products], dataSources: [orderState, productState], port: 3000 }
+  deployable apiNet { platform: dotnet, contexts: [Orders, Products], dataSources: [orderState, productState], port: 8080 }
+  deployable apiPhx { platform: elixir, contexts: [Orders, Products], dataSources: [orderState, productState], port: 4000 }
+
+  ui WebApp with scaffold(subdomains: [Sales, Catalog]) { }
 
   // React frontend targets any backend; design pack swappable.
   deployable webApp {
     platform: react
     targets:  api          // switch to apiNet or apiPhx anytime
+    ui:       WebApp
     design:   shadcn       // or mantine, mui, chakra
     port:     3001
   }
@@ -132,11 +147,11 @@ system Acme {
   test e2e "create and confirm an order" against api {
     let prod = api.products.create({ sku: "W-1", price: { amount: 5.0, currency: "USD" } })
     let ord  = api.orders.create({ customerId: "c-1", status: "Draft", placedAt: "2024-01-01T00:00:00Z" })
-    api.orders.addLine(ord, { productId: prod.id, qty: 3 })
+    api.orders.addLine(ord, { productId: prod.id, qty: 3, price: { amount: 5.0, currency: "USD" } })
     api.orders.confirm(ord)
     let read = api.orders.getById(ord)
-    expect read.status == "Confirmed"
-    expect read.lines.length == 1
+    expect(read.status).toBe("Confirmed")
+    expect(read.lines.length).toBe(1)
   }
 }
 ```
@@ -165,6 +180,7 @@ ddd generate dotnet <file.ddd> -o <out>    # single .NET project (legacy)
 ddd generate system <file.ddd> -o <out>    # full multi-deployable tree + docker-compose.yml
 ddd snapshot        <file.ddd> -o <out>    # capture immutable .loom/snapshots/<ts>-<guid>.loomsnap.json (provenance rule snapshot)
 ddd verify          <file.ddd> --results <results.json>  # join existing test-results onto the requirements graph → .loom/verification.{json,md} (gates the exit code; does NOT run the suites)
+ddd verify          <file.ddd> --from-vitest <report.json>  # …reading `vitest run --reporter=json` directly
 ```
 
 Common flags:
@@ -365,11 +381,23 @@ with an Apache 2.0 future license.  Source-available for any
 non-competing use today; converts to a true open-source license
 (Apache 2.0) two years after publication.
 
-The **code Loom generates** (everything `ddd generate` writes into
-`<outdir>/`) is licensed to you under the **MIT License** &mdash; the
-CLI emits a `LICENSE` file at the output-directory root that says so
-explicitly.  Production users can ship generated projects without
-inheriting any FSL terms.
+The **code Loom generates** is licensed to you under the **MIT
+License**, with no FSL terms attaching to it.  That grant covers
+everything the generator writes &mdash; every file `ddd generate`
+(including `ddd generate system`) emits into `<outdir>/`, and every
+file `ddd new` scaffolds &mdash; and it holds regardless of which verb
+produced the file.  Production users can ship generated projects
+without inheriting any FSL terms.
+
+The grant lives in the generator's own licence terms (this `LICENSE`
+plus [§2 of the licence FAQ](docs/license-faq.md#2-what-about-the-code-loom-generates)),
+**not** in a file written into your output directory.  `ddd new` does
+scaffold a `LICENSE` file carrying the MIT grant into the starter
+project it creates; `ddd generate` deliberately writes none &mdash; it
+emits build output into a tree whose identity files are yours, and a
+`LICENSE` it re-created on every regenerate would overwrite your own.
+**Nothing about the grant depends on that file**: generated output is
+MIT whether or not a `LICENSE` sits beside it.
 
 For the full posture &mdash; what counts as Competing Use, how runtime
 helpers are licensed when they ship inside generated projects, and

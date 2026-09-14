@@ -4,16 +4,16 @@
 // emits three constructs `mix compile --warnings-as-errors` had never seen
 // together:
 //
-//   - a `match`-arm-guarded load — `socket = if <pred> do … else socket end`
+//   - a `match`-arm-gated load — `socket = if (<pred>) do … else socket end`
 //     wrapping the `case <Ctx>.<find>(…) do` block, one per arm, with the `all`
-//     fallback under the negation (`if not (…) do`);
+//     fallback under the negation (`if (!(…)) do`);
 //   - a state-bound `<.input … phx-change="update_<field>">` over a MULTI-WORD
 //     assign (`by_name_n`), which used to render as a disabled `_unbound` stub;
-//   - the write-back clause that re-runs those guarded loads, so the two live
+//   - the write-back clause that re-runs those gated loads, so the two live
 //     side by side in one `handle_event/3` body.
 //
 // All three are emitted Elixir the compile tier can actually judge: an
-// unbalanced `if`/`else`, a rebinding that leaves `socket` unused, or a guard
+// unbalanced `if`/`else`, a rebinding that leaves `socket` unused, or a gate
 // referencing an assign `mount/3` never seeds all fail here rather than at
 // request time.
 system ScaffoldFilterBar {

@@ -57,10 +57,10 @@ import {
   positionalArgs,
   stringNamed,
 } from "../shared/args.js";
-import { isDecimalLikeField } from "../shared/row-field-type.js";
+import { cellRowAggregate, extendRowScope, isDecimalLikeField } from "../shared/row-field-type.js";
 import type { DataGridColumn } from "../target.js";
 import type { WalkContext } from "../walker-core.js";
-import { emitExpr, extendLambdaParams, propagateChildFlags, walk } from "../walker-core.js";
+import { emitExpr, propagateChildFlags, walk } from "../walker-core.js";
 import { columnAccessorKey, columnIsFilterable, gridColumns } from "./data-grid-shape.js";
 
 /** The column header a per-column control names itself after, as every `.hbs`
@@ -147,7 +147,11 @@ export function emitDataGrid(
   // one — the only source of FIELD TYPES for the columns (see
   // `isDecimalLikeField`, shared with `Table`'s client-side sort).
   const rowAgg = rowsArg?.kind === "ref" ? ctx.listRowAggregates?.get(rowsArg.name) : undefined;
-  const columns = gridColumns(call).map((c, i) => resolveColumn(c, ctx, i, depth, rowAgg));
+  // Columns type their CELLS off the wider resolution (it sees through a
+  // server-paged list's `rows.items`); `rowAgg` stays the input to the
+  // decimal-sort decision, whose narrower lookup is unchanged.
+  const cellAgg = cellRowAggregate(rowsArg, ctx) ?? rowAgg;
+  const columns = gridColumns(call).map((c, i) => resolveColumn(c, ctx, i, depth, rowAgg, cellAgg));
   const cellImports = importsAddedSince(ctx, importsBefore);
 
   // Any column asking to be filtered turns the per-column filter row on; the
@@ -328,6 +332,7 @@ function resolveColumn(
   index: number,
   depth: number,
   rowAggregate: string | undefined,
+  cellAggregate: string | undefined,
 ): DataGridColumn {
   const positionals = positionalArgs(call);
   const headerArg = positionals[0];
@@ -354,10 +359,11 @@ function resolveColumn(
     // How the row reaches the cell is target-specific — see
     // `WalkerTarget.dataGridRowVar`.
     const rowVar = ctx.target.dataGridRowVar ?? "row";
-    const childCtx: WalkContext = {
-      ...ctx,
-      lambdaParams: extendLambdaParams(ctx, accessorArg.param, rowVar),
-    };
+    // The scope carries the row AGGREGATE as well as the row variable, so a
+    // primitive inside the cell can still resolve what the field it reads is
+    // declared as — which is how `IdLink` knows an optional reference from a
+    // required one (M-T1.33).
+    const childCtx: WalkContext = extendRowScope(ctx, accessorArg.param, rowVar, cellAggregate);
     const b = accessorArg.body;
     cell = b.kind === "call" ? walk(b, childCtx, depth) : `{${emitExpr(b, childCtx)}}`;
     propagateChildFlags(ctx, childCtx);

@@ -12,7 +12,10 @@ import {
 } from "../../../ir/util/tenant-stance.js";
 import { AUTH_BASE_PATH } from "../../../util/api-base.js";
 import { lines } from "../../../util/code-builder.js";
+import { claimsReferenceIds } from "../../_auth/claim-types.js";
 import { devClaimFields } from "../../_auth/dev-claims.js";
+import { devStubIdExpr } from "../../_auth/dev-stub-id.js";
+import { jid } from "../java-ident.js";
 import { renderJavaType } from "../render-expr.js";
 
 /** The tenant registry (`implements tenantRegistry`) facts the
@@ -68,6 +71,12 @@ export function renderAuthFiles(
   const actorIdField = fields.find((f) => f.name === "id") ?? fields[0];
 
   const imports = new Set<string>();
+  // An `X id?` claim NAMES a strong id (`CustomerId`) as a record component,
+  // and the strong-id classes are emitted into `<basePkg>.domain.ids` while
+  // this record lives in `<basePkg>.auth` — so without the import the whole
+  // project fails with `cannot find symbol` (D6/P2).  The wildcard matches
+  // every other java emitter that names an id (`emit/dto.ts`, `emit/api.ts`, …).
+  if (claimsReferenceIds(fields)) imports.add(`${basePkg}.domain.ids.*`);
   const components = fields
     .map((f) => {
       collectAuthImports(f.type, imports);
@@ -186,6 +195,11 @@ export function renderAuthFiles(
   );
 
   const stubImports = new Set<string>();
+  // An `X id` claim's stub value now CONSTRUCTS the strong id
+  // (`new CustomerId(new java.util.UUID(0L, 0L))`) instead of handing the
+  // principal a null one, so this verifier names the id class and needs the
+  // same `<basePkg>.domain.ids.*` import `User` already carries.
+  if (claimsReferenceIds(fields)) stubImports.add(`${basePkg}.domain.ids.*`);
   for (const f of fields) collectAuthImports(f.type, stubImports);
   const stubArgs = fields.map((f) => stubValue(f.type)).join(", ");
   // Dev-claims override carries the shapes the shared classifier admits —
@@ -952,7 +966,7 @@ import org.springframework.http.ResponseEntity;`,
     // tenancy members (`orgPath()` / `rootOrg()`) are per-request scoping
     // state, not part of the declared principal, so they stay off the wire.
     `        var body = new java.util.LinkedHashMap<String, Object>();`,
-    ...userFields.map((f) => `        body.put("${f.name}", user.${f.name}());`),
+    ...userFields.map((f) => `        body.put("${f.name}", user.${jid(f.name)}());`),
     `        return ResponseEntity.ok(body);`,
     `    }`,
     ...handshake,
@@ -1206,5 +1220,10 @@ function stubValue(t: TypeIR): string {
     }
   }
   if (t.kind === "array") return "List.of()";
+  // A NON-optional `X id` claim: java compiled either way (a record component
+  // takes null), but `null` handed every `currentUser.customerId` read a null
+  // strong id where the other four backends carry the zero id — the same
+  // divergence, one symptom quieter.
+  if (t.kind === "id") return devStubIdExpr(t, "java");
   return "null";
 }

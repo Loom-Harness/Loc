@@ -7,6 +7,7 @@ import type {
   EntityPart,
   EnumDecl,
   EventDecl,
+  Expression,
   FunctionDecl,
   Model,
   Operation,
@@ -41,6 +42,7 @@ import {
   isValueObject,
   isWorkflow,
 } from "../../language/generated/ast.js";
+import { printExpr } from "../../language/print/index.js";
 import { PRINCIPAL_TYPE_NAME } from "../../util/principal.js";
 import { canonicalUnion, OPTION_NONE } from "../stdlib/unions.js";
 import type {
@@ -67,6 +69,18 @@ export interface Env {
   /** The enclosing bounded context.  Undefined for `test e2e` blocks
    * that live at the system level, outside any context. */
   ctx?: BoundedContext;
+  /** True while lowering a `ui` member's body (page / component / store /
+   *  layout / notification / ui function).
+   *
+   *  A page body is written in the WALKER STDLIB's vocabulary, and ~55 of those
+   *  primitive names are ordinary identifiers — `Money`, `Text`, `Badge`,
+   *  `Image`.  A domain `valueobject Money { … }` therefore COLLIDES with the
+   *  `Money` formatter primitive, and `lowerBuilderCall` resolving the name
+   *  against the value-object index first turned `Money { 10 }` in a page into
+   *  a value-object construction: the walker never saw the primitive, and every
+   *  page-primitive validator keyed on the CallIR (arity, children, slots)
+   *  silently stopped applying to it.  Inside a ui body the primitive wins. */
+  ui?: boolean;
   aggregate?: Aggregate;
   part?: EntityPart;
   valueObject?: ValueObject;
@@ -664,8 +678,25 @@ export function ancestorAggregate(node: AstNode): Aggregate | undefined {
   return undefined;
 }
 
+/** The `.ddd` source text behind an AST node — the human-readable label a
+ *  `requires` / `precondition` failure carries into the generated 403 / 422
+ *  detail (`Forbidden: <source>`).
+ *
+ *  A MACRO-emitted node has no `$cstNode` (it was never parsed), so the raw
+ *  CST lookup falls through to the useless placeholder `<expr>`.  That is
+ *  exactly the case `crudish(requires: <Policy>)` produces — every gate on a
+ *  macro-emitted create / update / destroy — so re-print the node from the
+ *  AST instead: the same printer the LSP "unfold macro" action uses, which
+ *  renders the synthesised `requires Manager()` back to `Manager()`.  The
+ *  printer throws on a node type it has no arm for; a label is never worth
+ *  failing a build over, so an unprintable node keeps the placeholder. */
 export function cstText(node: AstNode | undefined): string {
   if (!node) return "";
   const cst = (node as { $cstNode?: { text?: string } }).$cstNode;
-  return cst?.text ?? "<expr>";
+  if (cst?.text != null) return cst.text;
+  try {
+    return printExpr(node as Expression);
+  } catch {
+    return "<expr>";
+  }
 }

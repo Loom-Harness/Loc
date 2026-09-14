@@ -1,0 +1,1 @@
+context C { aggregate A { s: string  derived d: string = s.capitalise() } repository As for A { } }

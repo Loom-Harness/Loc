@@ -2,7 +2,7 @@
 
 How an aggregate changes state: the four action members — `operation` (a mutating method), `create` / `destroy` (lifecycle factory / terminator), and the event-sourcing `apply` fold — plus the statement vocabulary their bodies share (`precondition`, `requires`, `let`, `emit`, `return`, the assignment family `:=` / `+=` / `-=`, and the effect-form `match`). The same statements also fill a page `action` and an application-layer `commandHandler` / `queryHandler`. Reach for it when you need a domain method that validates, mutates, raises an event, or returns a typed outcome.
 
-> **Grammar:** `Operation`, `Create`, `Destroy`, `Apply`, `CommandHandler` / `QueryHandler`, `Statement` (`PreconditionStmt`, `RequiresStmt`, `LetStmt`, `EmitStmt` / `EmitField`, `ReturnStmt`, `AssignOrCallStmt` / `LValue`, `MatchStmt` / `VariantStmtArm`; `ForStmt` / `IfLetStmt` are workflow-body only — see [Workflows](13-workflows.md)) · **Validators:** `loom.this-id-in-create`, `loom.extern-body-not-precondition`, `loom.lifecycle-body-dropped` / `loom.named-lifecycle-dropped` / `loom.lifecycle-guard-unreadable` / `loom.lifecycle-guard-event-sourced`, `loom.applier-*` / `loom.emitted-event-*`, `loom.audited-backend-unsupported` / `loom.audited-returning-operation-unsupported`, `loom.when-unsupported` / `loom.when-references-op-param` / `loom.operation-return-unsupported` / `loom.unmapped-error-status`, `loom.missing-effect-marker` / `loom.effect-in-lambda` / `loom.match-await-*` / `loom.instance-effect-needs-route-id`, `loom.handler-*` / `loom.query-handler-saves` / `loom.command-handler-multi-aggregate` (`src/language/validators/statements.ts`, `handlers.ts`; `src/ir/validate/checks/structural-checks.ts`, `system-checks.ts`, `api-checks.ts`, `ui-checks.ts`) · **Lowering:** [`src/ir/lower/lower-stmt.ts`](../../src/ir/lower/lower-stmt.ts), `lower-members.ts`, `lower-workflow.ts` (handler bodies); shared dispatch in [`_stmt/target.ts`](../../src/generator/_stmt/target.ts) · **Docs:** [`../language.md`](../language.md), [`../actions.md`](../actions.md), [`../workflow.md`](../workflow.md), [`../auth.md`](../auth.md)
+> **Grammar:** `Operation`, `Create`, `Destroy`, `Apply`, `CommandHandler` / `QueryHandler`, `Statement` (`PreconditionStmt`, `RequiresStmt`, `LetStmt`, `EmitStmt` / `EmitField`, `ReturnStmt`, `AssignOrCallStmt` / `LValue`, `MatchStmt` / `VariantStmtArm`; `ForStmt` / `IfLetStmt` are workflow-body only — see [Workflows](13-workflows.md)) · **Validators:** `loom.this-id-in-create`, `loom.extern-body-not-precondition`, `loom.lifecycle-body-dropped` / `loom.create-params-not-wire` / `loom.named-lifecycle-dropped` / `loom.lifecycle-guard-unreadable` / `loom.lifecycle-guard-event-sourced`, `loom.applier-*` / `loom.emitted-event-*`, `loom.audited-backend-unsupported`, `loom.repository-access-outside-workflow`, `loom.when-unsupported` / `loom.when-references-op-param` / `loom.operation-return-unsupported` / `loom.unmapped-error-status`, `loom.missing-effect-marker` / `loom.effect-in-lambda` / `loom.match-await-*` / `loom.instance-effect-needs-route-id`, `loom.handler-*` / `loom.query-handler-saves` / `loom.command-handler-multi-aggregate` (`src/language/validators/statements.ts`, `handlers.ts`; `src/ir/validate/checks/structural-checks.ts`, `system-checks.ts`, `api-checks.ts`, `ui-checks.ts`) · **Lowering:** [`src/ir/lower/lower-stmt.ts`](../../src/ir/lower/lower-stmt.ts), `lower-members.ts`, `lower-workflow.ts` (handler bodies); shared dispatch in [`_stmt/target.ts`](../../src/generator/_stmt/target.ts) · **Docs:** [`../language.md`](../language.md), [`../actions.md`](../actions.md), [`../workflow.md`](../workflow.md), [`../auth.md`](../auth.md)
 
 Every aggregate body lowers through one shared `lowerStatement`, so an `operation`, a `create`, a `destroy`, and an `apply` all draw from the same statement set; the **kind tag** (not the body syntax) carries the lifecycle asymmetry. The lowered `StmtIR` has **11 kinds** — `precondition`, `requires`, `let`, `assign`, `add`, `remove`, `emit`, `call`, `expression`, `return`, `variant-match` — and `src/generator/_stmt/target.ts` owns the dispatch once; each backend's `render-stmt.ts` is a leaf table. Every tab below was generated from one scratch system with one deployable per backend (`node bin/cli.js generate system … -o out`) and excerpted; statements are separated by newlines (there is no `;` statement separator). The C# tabs are excerpted one step further than the rest: the .NET emitter weaves a C#10 `#line (a,b)-(c,d) "…ddd"` directive ahead of each mapped statement of a named operation (`weaveLineDirectives`, `src/generator/dotnet/emit/entity.ts`), so a debugger steps the `.ddd` source; those directives are elided here.
 
@@ -110,7 +110,7 @@ def confirm_order(%ExApi.Orders.Order{} = record, params) when is_map(params) do
   with :ok <- ensure(record.status == :Draft, {:disallowed, "operation 'confirm' is not allowed in the current state of Order."}),
        :ok <- ensure(is_mutable(record), {:precondition_failed, "Precondition failed: isMutable()"}),
        :ok <- ensure(Enum.count(record.lines) > 0, {:precondition_failed, "Precondition failed: lines.count > 0"}) do
-    _ = nil  # vanilla: bare call to 'recompute' (no callable target); record unchanged
+    record = __op_recompute(record)  # the private op as a module-local pure transform
     record = %{record | status: :Placed}
     changeset =
       record
@@ -133,9 +133,23 @@ end
 ```
 ::: end
 
-A `private operation` is invoked from another op as a bare call — `recompute()` lowers to `this.recompute()` (TS/.NET/Java), `self._recompute()` (Python). **Honest gap:** the Elixir context function renders that call as the `_ = nil  # … bare call to 'recompute' (no callable target)` line above — the private body does not run on Phoenix.
+A `private operation` is invoked from another op as a bare call — `recompute()` lowers to `this.recompute()` (TS/.NET/Java), `self._recompute()` (Python) and, on Elixir, to `record = __op_recompute(record)` against a module-local `defp __op_recompute/1` carrying the callee's body as a PURE struct transform (the caller's persist tail writes the columns it assigned). The public twin `recompute_order/2` is not used for this: it persists, and calling it mid-operation would commit a partial write inside the caller's optimistic-lock window. **One narrow refusal on Elixir:** a private operation whose body reads `currentUser` is rejected with `loom.vanilla-op-call-actor` — the helper takes no actor and the caller binds `current_user` only when its own body reads the principal, so the generated project would not compile. Move the `currentUser` read up into the routed operation.
 
-Modifiers: `extern` emits only the gates and hands the business decision to a user-registered handler — its body may contain nothing but `precondition` statements (`loom.extern-body-not-precondition`), and it can't be `private` (`loom.extern-on-private-operation`); see [Externs](21-externs.md). `audited` records an audit row around the call on all five backends (a context hosted elsewhere is `loom.audited-backend-unsupported`); an `audited` operation that also declares a return type is refused on **node** (`loom.audited-returning-operation-unsupported` — the Hono route emits only the void 204 handler for that combination). See [Capabilities](11-capabilities-filters-stamps.md) for `auditable`.
+**No repository is in scope.** An operation is a single-aggregate state transition over state that is already loaded, so a body may not name a repository — `precondition Technicians.getById(assignTo).skills.contains(requiredSkill)` is `loom.repository-access-outside-workflow`. The rule covers every body that renders into domain code (`operation`, `create` / `destroy` and their `when` guards, `invariant`, `derived`, and `function` in both body forms), and it covers a repository of any context, not just this one. Loading another aggregate belongs to a [workflow](13-workflows.md), which owns the transaction and the loads — read there and pass the value in as a parameter:
+
+```ddd
+workflow assignJob {
+  create(jobId: Job id, techId: Technician id) {
+    let tech = Technicians.getById(techId)
+    let job = Jobs.getById(jobId)
+    job.assign(techId, tech.skills.contains(job.requiredSkill))
+  }
+}
+```
+
+A `domainService` may run read-only queries against its OWN context's repositories (see [Domain services](23-domain-services-and-seeds.md)); a `commandHandler` / `queryHandler` body may read them too.
+
+Modifiers: `extern` emits only the gates and hands the business decision to a user-registered handler — its body may contain nothing but `precondition` statements (`loom.extern-body-not-precondition`), and it can't be `private` (`loom.extern-on-private-operation`); see [Externs](21-externs.md). `audited` records an audit row around the call on all five backends (a context hosted elsewhere is `loom.audited-backend-unsupported`), including an operation that also declares a return type: the audit / provenance rows and the aggregate save share one transaction and the tagged result is carried out of it onto the 200. See [Capabilities](11-capabilities-filters-stamps.md) for `auditable`.
 
 ## Guards — `requires` (403) vs `when` (409) vs `precondition` (422)
 
@@ -360,6 +374,10 @@ changeset =
 `create [name](params) [audited] { body }` is the factory marker: an **unnamed** `create(...)` makes the aggregate constructible over HTTP (`POST /<aggs>` + a static factory whose input is **derived from the field set**, not from the parameter list); `destroy [name][(params)] [audited] { body }` is the terminator (`DELETE /{id}`). Neither is ever `private` or `extern`. The `crudish` capability injects the canonical pair plus an `update`. Two gates are distinct: the **domain factory** `Agg.create(...)` is emitted for every *constructible* aggregate — one that declares a create, or whose every invariant is satisfiable from the create input (`isConstructible`, `src/ir/enrich/wire-projection.ts`) — and is parameterized over the create-input field set, while the **REST** `POST /<aggs>` appears only when a canonical `create` is actually declared (by hand or by `crudish`). Field defaults do not decide either: a default only makes that field optional *input*.
 
 On a **state-based** aggregate the braces are a contract, not a body: no backend renders `canonicalCreate.statements` / `canonicalDestroy.statements`, so the validator refuses any statement that would silently vanish (`loom.lifecycle-body-dropped`, an error): a `precondition`, an `emit`, a `+=`/`-=`, a call, or an assignment whose value the emitted factory does not already reproduce. Two assignments *are* reproduced and therefore admitted — `field := <same-named param>` (the field-derived input supplies it) and `field := <literal>` when the field declares that same literal default. A **named** `create open(...)` / `destroy close(...)` on a state-based aggregate reaches no emitter at all and is refused whole (`loom.named-lifecycle-dropped`) — with one exception: on an **event-sourced** aggregate the single `create` is canonical whether or not it is named, so `create open(owner: string) { emit Opened { … } }` is emitted and ungated. Reading the identity as the explicit `this.id` inside a `create` body is `loom.this-id-in-create`; a bare `id` is not gated, and is what the event-sourced `create` above emits.
+
+The **parameter list is not the request contract either.** `POST /<plural>` takes the field-derived create input, so a narrowed list shapes nothing: `create(project: Project id, key: string, title: string)` on an aggregate that also has a required `blockedBy: Issue id[]` still emits a body that demands `blockedBy`, and a client (or a `test` block) written from the declaration gets a 422 naming a field the create does not accept. `loom.create-params-not-wire` (a warning) names each required create-input field the list omits. Listing every create-input field — which is what `with crudish` generates — or omitting the parens keeps it quiet.
+
+This warning is a stand-in for a missing capability, not the end state: **[M-T5.32](../new-plan/T5-language-core.md)** makes the declared parameter list *become* the create input, and deletes `loom.create-params-not-wire` in the same change.
 
 A `requires` **is** rendered for the canonical pair (every backend evaluates it at its own chokepoint and denies with 403). Note the spelling: `Create`/`Destroy` have no header `requires` clause in the grammar — `create(name: string) requires … { }` is a parse error — so a lifecycle guard is written as the first *statement* of the body. What it may read is narrow: a `create` guard may read `currentUser` only; a `destroy` guard may read `currentUser` and `this` — never a parameter (`loom.lifecycle-guard-unreadable`). On an event-sourced aggregate a `create` guard cannot be enforced at all (`loom.lifecycle-guard-event-sourced`) — gate the operation that issues the create instead.
 
@@ -616,7 +634,7 @@ A record variant flattens its fields beside `type` on the wire; a scalar variant
 
 ## `match` — the effect-form variant match
 
-`match SUBJECT { Variant [b] => stmt | { stmts }, …, else => … }` (`MatchStmt` / `VariantStmtArm`) is the **statement** twin of the variant-match expression: its arms run statements rather than yield a value, and each arm may bind the narrowed variant. It lowers to the `variant-match` StmtIR kind, which is **frontend-only** — the shared statement dispatcher throws if one ever reaches a backend body, and in practice it can't: the only admitted call subject is `await <api>.<Agg>.<op>(args)`, the async remote command of a page or component `action`. Every arm of an `or`-union must be covered or an `else` supplied.
+`match SUBJECT { Variant [b] => stmt | { stmts }, …, else => … }` (`MatchStmt` / `VariantStmtArm`) is the **statement** twin of the variant-match expression: its arms run statements rather than yield a value, and each arm may bind the narrowed variant. It lowers to the `variant-match` StmtIR kind, which is **frontend-only**: it renders in a page / component / store `action` body and has no backend form. Written anywhere else — an `operation`, a `create` / `destroy` / `apply` body, a `function`, a domain-service operation, a projection `on` fold, or a workflow / handler body — it is refused at phase ④ by `loom.variant-match-placement`, a **permanent** placement rule. (Until M-T5.28 nothing gated it: a domain-body `match` validated clean and then threw `variant-match statement is frontend-only …` out of the shared statement dispatcher on all five backends. That throw survives as an internal-invariant assertion for a caller that generates without validating.) Every arm of an `or`-union must be covered or an `else` supplied.
 
 ```ddd
 ui Console {
@@ -753,15 +771,20 @@ An `extern` handler keeps the routed dispatch but calls a scaffold-once, user-ow
 
 ## `for` & `if let` — workflow bodies only
 
-`for x in xs { … }` and `if let x = Repo.find(C) { … } else { … }` parse via the same `Statement` rule but are meaningful only inside `workflow` (and handler) bodies — there they lower (`lower-workflow.ts`) to the `for-each` / `if-let` `WorkflowStmtIR` kinds with per-iteration / per-branch repository saves. The iterable is a `ForIterable` (a name plus optional postfix suffixes), so `for n in notes` parses but `for n in [1, 2]` does not.
+`for x in xs { … }` and `if let x = Repo.find(C) { … } else { … }` parse via the same `Statement` rule but are meaningful only inside `workflow` (and `commandHandler` / `queryHandler`) bodies — there they lower (`lower-workflow.ts`) to the `for-each` / `if-let` `WorkflowStmtIR` kinds with per-iteration / per-branch repository saves. The iterable is a `ForIterable` (a name plus optional postfix suffixes), so `for n in notes` parses but `for n in [1, 2]` does not.
 
-The aggregate-body lowerer (`lower-stmt.ts`) has **no arm for either**, and nothing gates them there: an `operation touch() { for n in notes { owner := n } }` validates clean (`0 error(s), 0 warning(s)`) and the node backend then emits
+The aggregate-body lowerer (`lower-stmt.ts`) has **no arm for either**, so anywhere else both are **refused at phase ④** (`src/language/validators/stmt-placement.ts`) rather than lowered into the `<unknown>` call sentinel they used to produce:
 
-```ts
-public touch(): void {
-  this.<unknown>();
-  this._assertInvariants();
+```ddd
+aggregate Order {
+  notes: string[]
+  operation touch() {
+    for n in notes { code := n }   // loom.for-placement
+    if let c = code { code := c }  // loom.if-let-placement
+  }
 }
 ```
 
-— source that does not compile. Don't write one there; they're covered in [Workflows](13-workflows.md).
+The two codes say different things on purpose. `loom.if-let-placement` is a **permanent** placement rule: `if let` exists to bind the optional result of a repository read, and a domain body reaches its own state through `this` (a cross-aggregate read from inside an aggregate is already refused by `loom.infra-call-from-aggregate`). `loom.for-placement` is an **honest gap** — nothing about a loop is workflow-specific, only the per-iteration save the workflow lowering owns is — and its message names the successor mission (M-T5.30) that tracks lowering `for` into domain bodies.
+
+Before the gates landed, `operation touch() { for n in notes { owner := n } }` validated clean (`0 error(s), 0 warning(s)`) and every backend emitted a call to a method that does not exist — `this.<unknown>()` (node/.NET/Java), `self._<unknown>()` (Python), `_ = <unknown>(record)` (Elixir).

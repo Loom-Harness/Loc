@@ -1,0 +1,36 @@
+// Value-collection evolution gate (M-T2.15 / #2864 D1) — the BASE model (v1).
+//
+// Paired with vo-collection-evolved.ddd (v2), which adds ONE field:
+// `lines: LineVO[]`, a value-object COLLECTION, to an aggregate that is
+// already in the migration baseline.
+//
+// The value object exists already in v1 (unused) so that v1 → v2 differs in
+// exactly one thing — the collection field — and the gate cannot pass by
+// accident on some unrelated part of the delta.
+//
+// `__PLATFORM__` is swapped per backend by the harness.  Deployable name `d`
+// matches the other e2e fixtures.
+system OrderEvo {
+  subdomain Ordering {
+    context Ord {
+      valueobject LineVO {
+        sku: string
+        qty: int
+      }
+      aggregate Order {
+        note: string
+      }
+      repository Orders for Order { }
+    }
+  }
+  api OrdApi from Ordering
+  storage primary { type: postgres }
+  resource ordState { for: Ord, kind: state, use: primary }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Ord]
+    dataSources: [ordState]
+    serves: OrdApi
+    port: 4000
+  }
+}

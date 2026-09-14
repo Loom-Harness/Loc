@@ -115,13 +115,15 @@ Notes:
     predicates name `tenant_id` / `is_deleted`, which the triple has not — and
     before that gate existed it was a **silent cross-tenant count** on .NET/EF,
     which registers no `HasQueryFilter` for a document aggregate;
-  - on `platform: java` it is refused by
-    `loom.projection-whole-table-aggregation-unsupported` (its JPQL needs
-    a JPA entity a document aggregate never gets).
+  - (`platform: java` used to refuse it too, under
+    `loom.projection-whole-table-aggregation-unsupported` — its JPQL needed a
+    JPA entity a document aggregate never gets.  Since M-T4.2 java runs that
+    read natively against the `(id, data, version)` table, so this is no longer
+    a per-backend reason.)
 
   A scaffold whose default output fails `ddd parse` is worse than one tile
   short, so the skip lives in the macro. A row count over a document aggregate
-  is still writable **by hand** on the four backends that emit it. Both halves
+  is still writable **by hand**, on every backend. Both halves
   read the same predicate in `_dashboard-shared.ts` (`hasDashboardTable`, which
   folds in `fieldsAreColumns`), so a tile can't survive a projection the macro
   skipped. (Header-visible only — a dataSource binding can override `shape:` at
@@ -258,6 +260,75 @@ canonical `create`/`destroy`.  Use it when another macro owns the
 create/delete lifecycle, e.g. `with crudish(updateOnly: true),
 softDeletable` leaves the soft-delete terminator uncontested.
 
+### `requires:` — gating the emitted members
+
+An aggregate `create` / `destroy` has **no header `requires` clause**:
+its gate is a body STATEMENT, and under `with crudish` the body belongs
+to the macro.  So under `auth { enforcement: denyByDefault }` a bare
+`with crudish` cannot validate — three `loom.default-deny-ungated`
+errors on members you have no surface to edit.
+
+Name the gate once as a function-form [`policy`](auth.md) and hand it to
+the macro:
+
+```ddd
+policy CatalogManager(): bool =
+  currentUser.permissions.contains(permissions.catalogManage)
+
+aggregate Product with crudish(requires: CatalogManager) {
+  sku: string
+
+  // A hand-written member still carries its own gate, as always.
+  operation view() { requires true }
+}
+```
+
+Source-equivalent — the macro splices exactly the statement you would
+have hand-written, first in each body:
+
+```ddd
+create(sku: string) {
+  requires CatalogManager()
+  sku := sku
+}
+
+operation update(sku: string) {
+  requires CatalogManager()
+  sku := sku
+}
+
+destroy {
+  requires CatalogManager()
+}
+```
+
+Generated (Hono; each of the three routes opens with it):
+
+```ts
+if (!((currentUser.permissions).includes("sales.catalogManage")))
+  throw new ForbiddenError("Forbidden: CatalogManager()");
+```
+
+Nothing is **inherited** — there is no aggregate- or context-level
+default gate — so the rule stays visible at the `with` call site, right
+where the members it guards come from.  The policy must be
+parameterless (the macro has no arguments to pass it); a parameterised
+one is refused at the call site.  `softDelete` takes the same
+`requires:` parameter, and `softDeleteByDefault` forwards it to every
+aggregate in the context.
+
+When the gate is missing, `loom.default-deny-ungated` names the macro
+and this parameter rather than a member you cannot edit:
+
+```
+denyByDefault: 'Product.create' is reachable on an 'auth: required'
+deployable but declares no `requires` gate.  Its body comes from
+`with crudish(...)`, so there is no member here to add one to — name the
+gate as a `policy` and hand it to the macro
+(`with crudish(requires: <Policy>)`), or drop `with crudish` and
+hand-write the member with its own `requires`.
+```
+
 ## Audit — now the builtin `capability auditable`
 
 > **Removed as macros.** `audit` / `auditable` / `auditedByDefault`
@@ -355,6 +426,18 @@ context Sales {
 `Public` does not `implements "softDeletable"` and therefore the
 capability-scoped filter doesn't apply — reads of `Public` are
 unfiltered.
+
+Both emitted operations are public commands with macro-owned bodies, so
+they carry the same [`requires:`](#requires--gating-the-emitted-members)
+parameter `crudish` does — without it, `softDelete` cannot validate
+under `enforcement: denyByDefault`:
+
+```ddd
+aggregate Order with softDeletable, softDelete(requires: RecordsManager) { … }
+
+// or once for the whole context:
+context Sales with softDeleteByDefault(requires: RecordsManager) { … }
+```
 
 ## Authoring a macro
 

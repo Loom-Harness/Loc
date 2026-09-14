@@ -9,8 +9,27 @@
 //                             a null dereference at runtime and a svelte-check
 //                             error at build; its op-form renders a nested
 //                             field group off `form.values.budget`
+//   Budget.memo: string?      an optional field INSIDE that value object — one
+//                             level below where the `FormValues` null-strip used
+//                             to stop, so `form.values.budget.memo` came back
+//                             `string | null | undefined` and the input rejected
+//                             it (2026-09-10 e-shop audit, P4)
+//   fee: money                a MONEY field on a form — its input holds a
+//                             `Decimal`, and a pack template that wrote a bare
+//                             string into it did not typecheck
+//   lines: LineItem[]         the same money slot one level down, inside an
+//                             ARRAY OF VALUE OBJECTS: the repeatable row group
+//                             is a second, independent money renderer (a pack's
+//                             `field-input-array`, not `field-input-money`),
+//                             and it went on writing strings after the field
+//                             half was fixed (audit P8)
 //   attachment: File?         an optional FILE — the upload handler assigns the
 //                             returned ref back and clears to `null`
+//
+// `find open()` is the PARAMETERLESS PAGED read (audit P5): the page below calls
+// `useOpenProject()` with no argument, so the emitted hook must default its
+// query accessor — a paged find was the one shape left un-defaulted
+// ("Expected 1 arguments, but got 0").
 //
 // The `fund` operation is what puts the optional value object on a form (an
 // op-modal seeds and binds every parameter), so the shard covers the READ side
@@ -21,6 +40,21 @@ system OptFields {
       valueobject Budget {
         amount: decimal
         currency: string
+        memo: string?
+      }
+
+      // The money-in-a-ROW witness (2026-09-10 e-shop audit, P8).  `fee: money`
+      // below is the money-in-a-FIELD one; this is its array twin, kept in the
+      // same fixture because the two halves share a contract (form state holds
+      // an already-constructed `Decimal`) and diverged once: the repeatable row
+      // group routed its money cell through the pack's generic STRING arm and
+      // seeded a fresh row with the string `"0"`, so `svelte-check` reported
+      // "Type 'string' is not assignable to type 'Decimal'" on both the New
+      // page's CreateForm and the Detail page's update OperationForm.
+      valueobject LineItem {
+        sku: string
+        qty: int
+        price: money
       }
 
       aggregate Project with crudish {
@@ -28,14 +62,21 @@ system OptFields {
         note: string?
         estimate: int?
         dueAt: datetime?
+        fee: money
+        lines: LineItem[]
         budget: Budget?
         attachment: File?
+        open: bool
 
         derived display: string = name
 
         operation fund(amount: decimal, currency: string) {
           budget := Budget { amount: amount, currency: currency }
         }
+      }
+
+      repository Projects for Project {
+        find open(): Project paged where this.open == true
       }
     }
   }
@@ -44,6 +85,21 @@ system OptFields {
 
   ui WebApp with scaffold(subdomains: [Core]) {
     api Tracking: TrackingApi
+
+    // The parameterless paged read — `useOpenProject()`, no argument.
+    page OpenProjects {
+      route: "/open"
+      title: "Open projects"
+      body: Stack {
+        QueryView {
+          of: Tracking.Project.open,
+          data: rows => Table {
+            rows: rows,
+            Column { "Name", p => Text { p.name } }
+          }
+        }
+      }
+    }
   }
 
   storage primary { type: postgres }

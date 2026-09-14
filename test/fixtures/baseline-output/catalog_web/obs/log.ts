@@ -20,7 +20,24 @@ import { requestContextStore } from "./als";
  *                                the audit / provenance rows of the same frame.
  *                                Evaluated per call, so a workflow's child frame
  *                                surfaces its own scope; empty outside a request
- *                                (boot / outbox relay). */
+ *                                (boot / outbox relay).
+ *    - `browser`              — the SAME envelope when this backend is bundled
+ *                                for a browser runtime (the Loom playground runs
+ *                                it in a worker), where pino resolves its
+ *                                `browser` entry instead of the node build.
+ *                                That build reads `browser.formatters` — NOT the
+ *                                top-level `formatters` above — and, without
+ *                                `asObject`, hands `console.*` the raw arguments:
+ *                                a child logger's bindings arrive as their OWN
+ *                                argument (`console.info({ request_id }, { event,
+ *                                … })`) and no `level` is attached at all.  With
+ *                                `asObject` + `formatters` the browser build
+ *                                merges bindings and payload into ONE object and
+ *                                applies the level label; the `log` formatter
+ *                                then renames the browser build's epoch-keyed
+ *                                `time` to the envelope's ISO `ts` (the
+ *                                node-side `timestamp` above is a serialized
+ *                                fragment the browser build cannot use). */
 export const baseLogger: Logger = pino({
   level: process.env.LOG_LEVEL ?? "info",
   base: undefined,
@@ -28,6 +45,17 @@ export const baseLogger: Logger = pino({
     level: (label) => ({ level: label }),
   },
   timestamp: () => `,"ts":"${new Date().toISOString()}"`,
+  browser: {
+    asObject: true,
+    formatters: {
+      level: (label) => ({ level: label }),
+      log: (line) => {
+        const rest = { ...line };
+        delete rest.time;
+        return { ts: new Date().toISOString(), ...rest };
+      },
+    },
+  },
   mixin() {
     const ctx = requestContextStore.getStore();
     if (ctx === undefined) return {};

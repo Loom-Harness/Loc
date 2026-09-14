@@ -19,6 +19,7 @@ import type {
 } from "../../../ir/types/loom-ir.js";
 import { findUsesCurrentUser } from "../../../ir/types/loom-ir.js";
 import { discriminatorValue, tableOwnerName } from "../../../ir/util/inheritance.js";
+import { valueObjectPool } from "../../../ir/util/reachable-types.js";
 import { sortableFields } from "../../../ir/util/sortable-fields.js";
 import { isValueCollectionType } from "../../../ir/util/value-collections.js";
 import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
@@ -655,7 +656,11 @@ export function renderMikroRepository(
       // ride reads that have no such parameter.
       filter = withContextFilters(
         f.filter
-          ? whereToMikroFilter(f.filter, usesUser ? "currentUser" : AMBIENT_PRINCIPAL)
+          ? whereToMikroFilter(
+              f.filter,
+              usesUser ? "currentUser" : AMBIENT_PRINCIPAL,
+              agg.associations,
+            )
           : "{}",
         caps,
       );
@@ -759,7 +764,10 @@ export function renderMikroRepository(
       try {
         // Retrievals read the aggregate table, so the capability filters AND in
         // too (no `ignoring` surface on retrievals — the no-bypass `baseFilters`).
-        filter = withContextFilters(whereToMikroFilter(r.where), baseFilters);
+        filter = withContextFilters(
+          whereToMikroFilter(r.where, AMBIENT_PRINCIPAL, agg.associations),
+          baseFilters,
+        );
       } catch {
         return lines(
           `  async ${methodName}(${params}): Promise<${agg.name}[]> {`,
@@ -887,7 +895,7 @@ export function renderMikroRepository(
     .replace(/"(?:\\.|[^"\\])*"/g, '""')
     .replace(/'(?:\\.|[^'\\])*'/g, "''")
     .replace(/`(?:\\.|[^`\\])*`/g, "``");
-  const candidates = [...ctx.valueObjects.map((v) => v.name), ...ctx.enums.map((e) => e.name)];
+  const candidates = [...valueObjectPool(ctx).map((v) => v.name), ...ctx.enums.map((e) => e.name)];
   const referenced = candidates.filter((n) => new RegExp(`\\b${n}\\b`).test(bodyScan));
   const isValueUsed = (n: string): boolean =>
     new RegExp(`new\\s+${n}\\(|\\b${n}\\.\\w`).test(bodyScan);
