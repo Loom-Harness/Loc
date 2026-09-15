@@ -3330,6 +3330,73 @@ export const DIAGNOSTIC_MESSAGES = {
     `addresses the New-page create flow, the Detail-page read, and a public operation's ` +
     `detail-page action. Addressable: ${p.known}.`,
 
+  // The PAYLOAD half of the same file.  An e2e body speaks WIRE: it sends JSON
+  // and reads JSON back, so every one of these judges the request/response
+  // shape the renderer will emit, never the domain spelling.
+  "loom.e2e-unknown-body-key#create": (p: {
+    slug: unknown;
+    key: unknown;
+    aggregate: unknown;
+    known: unknown;
+  }) =>
+    `e2e: 'api.${p.slug}.create(…)' sends '${p.key}', which is not a create field of ` +
+    `'${p.aggregate}'. The create body is the aggregate's create-input projection and the ` +
+    `backend rejects an unknown key (422), so the call fails for the typo rather than for ` +
+    `whatever the test claims to prove. Accepted keys: ${p.known}.`,
+  "loom.e2e-unknown-body-key#operation": (p: {
+    slug: unknown;
+    verb: unknown;
+    key: unknown;
+    known: unknown;
+  }) =>
+    `e2e: 'api.${p.slug}.${p.verb}(id, {…})' sends '${p.key}', which is not a parameter of ` +
+    `'${p.verb}'. The operation body carries exactly the declared parameters and the backend ` +
+    `rejects an unknown key (422), so the call fails for the typo rather than for whatever the ` +
+    `test claims to prove. Accepted keys: ${p.known}.`,
+  "loom.e2e-missing-required-field": (p: {
+    slug: unknown;
+    aggregate: unknown;
+    missing: unknown;
+    known: unknown;
+  }) =>
+    `e2e: 'api.${p.slug}.create(…)' omits ${p.missing} — required create input on ` +
+    `'${p.aggregate}'. A field is omittable only when it is optional ('f: T?'), carries an ` +
+    `'= default', or is a bare 'bool'; anything else the client must supply, and the backend ` +
+    `answers 422 without it. Required keys: ${p.known}.`,
+  "loom.e2e-body-type-mismatch": (p: {
+    slug: unknown;
+    verb: unknown;
+    key: unknown;
+    declared: unknown;
+    got: unknown;
+  }) =>
+    `e2e: 'api.${p.slug}.${p.verb}(…)' sends ${p.got} for '${p.key}', declared '${p.declared}'. ` +
+    `An e2e body carries WIRE values, so the literal has to be the JSON form of the declared ` +
+    `type — the backend's request schema rejects anything else (422).`,
+  "loom.e2e-body-type-mismatch#enum": (p: {
+    slug: unknown;
+    verb: unknown;
+    key: unknown;
+    declared: unknown;
+    got: unknown;
+    members: unknown;
+  }) =>
+    `e2e: 'api.${p.slug}.${p.verb}(…)' sends ${p.got} for '${p.key}', declared '${p.declared}'. ` +
+    `An enum crosses the wire as the member name spelled EXACTLY, as a string. ` +
+    `Members of '${p.declared}': ${p.members}.`,
+  "loom.e2e-unknown-response-field": (p: {
+    binding: unknown;
+    field: unknown;
+    slug: unknown;
+    verb: unknown;
+    aggregate: unknown;
+    known: unknown;
+  }) =>
+    `e2e: '${p.binding}.${p.field}' reads a field the response does not carry — ` +
+    `'${p.binding}' is 'api.${p.slug}.${p.verb}(…)', whose body is the api-read wire shape of ` +
+    `'${p.aggregate}'. The read is 'undefined' at run time, so an assertion over it passes or ` +
+    `fails for the wrong reason. Readable: ${p.known}.`,
+
   // ----------------------------------------------------------------------
   // src/ir/validate/checks/timer-checks.ts
   // ----------------------------------------------------------------------
