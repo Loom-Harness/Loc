@@ -6363,3 +6363,96 @@ the pre-fix path and shows the only verdict ever published is `in_progress`.
 > The remedy paragraph above is unaffected: the tail watch is the fix for the
 > mechanism #2835 identified, and it happens to close the coverage half too,
 > because a merge-queue head takes the same single-SHA path a PR head does.
+
+## 115. Two agents in one fleet reached for `pkill -f vitest`, and both hit their siblings (2026-09-11)
+
+Eight agents ran concurrently in separate worktrees on one 4-core box. Two of
+them independently ran a broad pattern kill — `pkill -f "vitest run"` and
+`pkill -9 -f vitest` — to clear what each believed was its own stale run. The
+pattern matches every sibling's suite. Between them they killed at least four
+runs, including several of their own, and at least one agent then spent a long
+time investigating timeouts that its sibling had caused.
+
+Both owned it unprompted, which is the only reason the mechanism is legible at
+all: the victim agent recorded `EXIT=143` (SIGTERM) on three of six attempts and
+could not explain it until the killer said so in its PR body.
+
+**The rule: in a shared worktree fleet, kill by PID, never by pattern.** A
+pattern that names the tool (`vitest`, `node`, `tsc`, `vue-tsc`) cannot
+distinguish your process from a sibling's, and worktree paths do not help
+because the binary is the same.
+
+The second-order lesson is about what saturation does to evidence. At load 55-72
+on 4 cores, a local `npm test` produces only timeout-shaped noise — `new.test.ts`
+cases at 41-632 s, `expr-hints-cache` at 659 s — never an assertion failure. Three
+separate agents each spent an hour deciding whether their own diff was at fault.
+None was. Two of them ended up at the same correct policy independently:
+
+- run locally only what is cheap and decisive — `lint`, `tsc -b`, the targeted
+  suites for the changed code, and the mutation proof;
+- treat CI's `tests passed` on a clean runner as the authoritative full-suite
+  verdict;
+- and if you never saw a green rollup, **say so and leave the PR draft** rather
+  than claim a green you did not observe. Three PRs in this fleet did exactly
+  that, and in every case CI later agreed with the targeted runs.
+
+A sharded local rollup also misses set/count ratchets that live on one shard.
+PR #2869 passed locally and went red on CI for three of them —
+`gate-ledger.test.ts`, `api-caller-census.test.ts` (`E2E_LESS_CORPUS_FIXTURES`)
+and `allowlist-ratchet.test.ts`. **If you add a corpus fixture, run those three
+files directly before pushing**; they are seconds each and they are the ones a
+shard boundary hides.
+
+## 116. An audit was right about every defect and wrong about six mechanisms (2026-09-13)
+
+Eleven defects found by building an e-shop end to end, thirteen PRs. Every
+defect was real. But the agents implementing the fixes corrected the audit's
+account of **why** six times, and the pattern in those six is worth more than
+the findings were.
+
+| the audit said | what was true | how it was found |
+|---|---|---|
+| a bare `name := name` assigns the parameter to itself | it emits `this._name = name` — correct | generating the operation and reading it |
+| G1 needs no grammar change | true of the arg *value*, false of the arg *name* (`requires` is a hard keyword) | trying to write the macro param |
+| node's optional-VO symptom is a hydration defect | a compile-time type error only; the emitted JS matches the wire golden | reverting the fix and re-running the behavioural leg |
+| the node dev-stub fails `tsc` | it did **not** — a spread of a `JSON.parse` result widens the closure's return type and swallows the contextual check | running the corpus leg with the fix reverted |
+| the money-in-array fix lands on four frontends | three — Angular builds row controls from its own module and never carried it | generating all four and diffing |
+| Angular is unverifiable on this host | a Node 24 tarball first on `PATH` runs `ng build` unchanged | one download |
+
+Two more arrived after this section was first written, from the agent fixing the
+nested-value-object defect (#2901), and they are the same two shapes again:
+
+| the audit said | what was true |
+|---|---|
+| dotnet emits a shadowing lambda parameter (`CS0136`) for a nested VO | it does not — `/warnaserror` build is clean and a minimal repro shows the shadowing is legal on this language version. Reasoned, never run. |
+| **java is correct** on nested VOs | its JPA mapping is. Its **request → domain** converter was not: a VO's own fields were never walked, so `toAddr` called a `toGeo` that was never emitted (`javac: cannot find symbol`). |
+
+The java one names a second trap beside the reduction: **checking one half of a
+backend and reporting the backend.** The persistence mapping was inspected and
+was genuinely right, so java was cleared — while the converter path that
+inspection never reached was broken enough to redden `main`. The sample was not
+the population, and nothing in the report said which half had been looked at.
+
+**The through-line: a reduction is a hypothesis, not evidence.** Four of the six
+came from reasoning about a rule instead of running the emitter. The worst was
+the dev-stub repro — a two-line `tsc --strict` case that proved the *type rule*
+while the real emitted file did not fail at all, so the corpus gate built on it
+would have been theatre until someone noticed. That is §59/§63 again, committed
+by the person writing the audit rather than by the person writing the gate.
+
+**The Angular one is a different and nastier failure.** It was not a wrong
+inference, it was an inherited one. An environment limitation got written down
+once, and three agents plus the coordinator repeated it across two sessions
+without retesting, because it was in the document. It cost the audit its Angular
+coverage entirely. **A limitation recorded in prose acquires the authority of a
+finding while keeping none of the evidence** — so give any "cannot be done here"
+an expiry date, and re-test it the next time it would change a conclusion.
+
+Corollary that paid off repeatedly: **fixing a defect is the best way to audit
+the report of it.** The implementation agents found five further defects
+(P7–P11) that the audit pass had walked straight past, including the most severe
+one in the whole exercise — a value object containing a value object writes and
+reads a column that exists in neither the schema nor the migration, on python,
+on the required case, so both halves fail at runtime. None of those surfaced
+from reading code. Every one surfaced from generating a project and looking at
+what came out.
