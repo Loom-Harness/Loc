@@ -3262,7 +3262,7 @@ export const DIAGNOSTIC_MESSAGES = {
     `e2e test '${p.name}': '${p.badKind}' is not supported in an e2e test body. ` +
     `Only expect, expect-throws, let, expression, and ${p.magicId}.<...> calls are allowed.`,
   "loom.e2e-unaddressable-call": (p: { magicId: unknown; method: unknown }) =>
-    `\`${p.magicId}.${p.method}(…)\` is not a shape the e2e harness can address. Every call it emits is two-level — \`${p.magicId}.<aggregate>.<method>(…)\`, \`${p.magicId}.<projection>.{byKey,list}(…)\` or \`${p.magicId}.workflows.<name>(…)\`. An explicit \`route … -> <Handler>\` route has no such slug and cannot be called from a test body yet.`,
+    `\`${p.magicId}.${p.method}(…)\` is not a shape the e2e harness can address. Every call it emits is two-level — \`${p.magicId}.<aggregate>.<method>(…)\`, \`${p.magicId}.<projection>.{byKey,list}(…)\`, \`${p.magicId}.workflows.<name>(…)\` or, for an explicit \`route … -> <Context>.<Handler>\` binding, \`${p.magicId}.<context>.<handler>(…)\`.`,
   "loom.e2e-unresolved-ref": (p: { testName: unknown; name: unknown }) =>
     `e2e test '${p.testName}': '${p.name}' is not a 'let' binding or a magic receiver ('api'/'ui'). ` +
     `An e2e body drives the deployable over HTTP, so it resolves no domain names — ` +
@@ -3292,9 +3292,14 @@ export const DIAGNOSTIC_MESSAGES = {
   }) =>
     `e2e: unknown method '${p.magicId}.${p.aggregateSlug}.${p.method}'. ` +
     `Available: ${p.knownVerbs}.`,
-  "loom.e2e-unknown-aggregate": (p: { magicId: unknown; aggregateSlug: unknown; known: unknown }) =>
+  "loom.e2e-unknown-aggregate": (p: {
+    magicId: unknown;
+    aggregateSlug: unknown;
+    known: unknown;
+    routed?: unknown;
+  }) =>
     `e2e: unknown aggregate '${p.magicId}.${p.aggregateSlug}' on this deployable. ` +
-    `Available aggregates: ${p.known}.`,
+    `Available aggregates: ${p.known}.${p.routed ?? ""}`,
 
   // ----------------------------------------------------------------------
   // src/ir/validate/checks/e2e-route-checks.ts
@@ -3325,6 +3330,35 @@ export const DIAGNOSTIC_MESSAGES = {
   }) =>
     `e2e: 'api.${p.slug}.${p.verb}(…)' resolves to no route this model emits for ` +
     `'${p.aggregate}'. Routed verbs: ${p.routed}.`,
+  "loom.e2e-unrouted-verb#workflow": (p: { verb: unknown; workflow: unknown; slug: unknown }) =>
+    `e2e: 'api.workflows.${p.verb}(…)' has no route — '${p.workflow}' is EVENT-triggered ` +
+    `(its facade create takes an event), so no backend mounts ` +
+    `'POST /api/workflows/${p.slug}': it is started by the in-process dispatcher when its ` +
+    `trigger event is emitted. Drive the operation that EMITS that event instead.`,
+  "loom.e2e-routed-handler-arity": (p: {
+    slug: unknown;
+    verb: unknown;
+    expected: unknown;
+    got: unknown;
+    params: unknown;
+    method: unknown;
+    path: unknown;
+  }) =>
+    `e2e: 'api.${p.slug}.${p.verb}(…)' takes ${p.expected} argument(s) (${p.params}), got ` +
+    `${p.got}. A routed handler's arguments are POSITIONAL, in declared param order — ` +
+    `'route ${p.method} "${p.path}"' binds a param by NAME to the matching {token} and sends ` +
+    `the rest as the request body.`,
+  "loom.e2e-routed-handler-bodyless-method": (p: {
+    slug: unknown;
+    verb: unknown;
+    method: unknown;
+    path: unknown;
+    params: unknown;
+  }) =>
+    `e2e: 'api.${p.slug}.${p.verb}(…)' cannot be driven — 'route ${p.method} "${p.path}"' is a ` +
+    `bodyless method, but the param(s) '${p.params}' are bound by no {token} in the path, so ` +
+    `every backend reads them from a request body a ${p.method} cannot carry. Add the missing ` +
+    `{token}(s) to the route path, or declare the route as POST.`,
   "loom.e2e-unrouted-verb#ui-verb": (p: { slug: unknown; verb: unknown; known: unknown }) =>
     `ui e2e: 'ui.${p.slug}.${p.verb}(…)' drives no page object — the Playwright harness ` +
     `addresses the New-page create flow, the Detail-page read, and a public operation's ` +

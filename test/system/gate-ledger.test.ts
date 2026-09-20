@@ -66,7 +66,6 @@ const BEHAVIOURAL_ABSENT: Record<string, string> = {
   extern: "the user handler is scaffold-once; a booted leg needs a supplied implementation",
   "extern-handlers": "same scaffold-once shape as `extern`",
   "handler-resource-ops": "outbound I/O inside a handler body; needs the resource's container",
-  "handler-triad": "three handler-body shapes; #2652 measured them at generate/compile only",
   resources: "objectStore / queue / api / mailer clients need their containers",
   "api-call":
     "in-system api call; needs both deployables booted (the `api-call-e2e` leg does this outside the corpus tier)",

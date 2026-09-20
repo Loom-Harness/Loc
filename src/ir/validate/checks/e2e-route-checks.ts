@@ -39,6 +39,7 @@ import { diagMessage } from "../../../diagnostics/messages.js";
 import { lowerFirst, plural, snake } from "../../../util/naming.js";
 import type {
   AggregateIR,
+  ApiIR,
   BoundedContextIR,
   ExprIR,
   RepositoryIR,
@@ -52,13 +53,23 @@ import {
   apiStatusContext,
   deriveAggregateOperations,
 } from "../../util/api-surface.js";
+import {
+  apisServedBy,
+  type RoutedHandlerTarget,
+  resolveRoutedHandler,
+  routedHandlerNeedsUnsendableBody,
+} from "../../util/routed-handler.js";
 import { walkExprDeep, walkStmtExprsDeep } from "../../util/walk.js";
+import { emitsCommandRoute } from "../../util/workflow-command-route.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
 
 /** One `<magicId>.<slug>.<verb>(…)` call found in an e2e body. */
 interface MagicCall {
   slug: string;
   verb: string;
+  /** How many arguments it passes — the routed-handler arm checks it against
+   *  the handler's declared param list, which binds POSITIONALLY. */
+  argCount: number;
 }
 
 export function validateE2ERouteContract(
@@ -72,13 +83,17 @@ export function validateE2ERouteContract(
   // `test-checks.ts` skips it the same way rather than crashing here.
   if (!target) return;
   const contexts = collectContexts(target, modulesByName);
+  // Explicit `route … -> <Ctx>.<Handler>` bindings live on the apis the target
+  // deployable `serves:`, not on any aggregate — so they are the one route
+  // class whose ground truth is the `ApiIR`, not `deriveAggregateOperations`.
+  const apis = apisServedBy(target, sys.apis);
   const source = `${sys.name}/${test.name}`;
   // A ui-kind test binds BOTH magic receivers — its kind comes from the target
   // deployable's platform, not from what the body spells — so an api-shaped
   // body aimed at a UI-mounting deployable legitimately writes `api.…` and its
   // calls must be routed-checked too.
   for (const call of collectMagicCalls(test.statements, "api")) {
-    checkApiVerb(call, contexts, source, diags);
+    checkApiVerb(call, contexts, apis, source, diags);
   }
   // The `ui.` half is scoped to a ui-kind test, mirroring `test-checks.ts`'s
   // single-`magicId` walk: only there does the body actually lower to page
@@ -97,22 +112,62 @@ export function validateE2ERouteContract(
 function checkApiVerb(
   call: MagicCall,
   contexts: BoundedContextIR[],
+  apis: readonly ApiIR[],
   source: string,
   diags: LoomDiagnostic[],
 ): void {
   // `api.workflows.<name>` and `api.<projection>.{byKey,list}` route outside
   // `deriveAggregateOperations` (both are in its documented `notLifted` set),
-  // so this check has no ground truth for them — `test-checks.ts` resolves
-  // them by name and is the whole story there.
-  if (call.slug === "workflows") return;
+  // so this check has no ground truth for them in the derivation.  The
+  // workflow half DOES have one elsewhere: `emitsCommandRoute`
+  // (`src/ir/util/workflow-command-route.ts`) is the predicate all five
+  // backends gate the POST route on, so an EVENT-triggered workflow — a
+  // reactor the in-process dispatcher starts — mounts nothing and a caller
+  // must be refused here rather than emitting a POST that 404s.
+  // `test-checks.ts` resolves the NAME; this asks the routing question.
+  if (call.slug === "workflows") {
+    const wf = contexts
+      .flatMap((c) => c.workflows)
+      .find((w) => lowerFirst(w.name) === call.verb || snake(w.name) === call.verb);
+    // An unresolved name already raises `loom.e2e-unknown-workflow`.
+    if (!wf || emitsCommandRoute(wf)) return;
+    diags.push({
+      severity: "error",
+      code: "loom.e2e-unrouted-verb",
+      source,
+      message: diagMessage("loom.e2e-unrouted-verb#workflow", {
+        verb: call.verb,
+        workflow: wf.name,
+        slug: snake(wf.name),
+      }),
+    });
+    return;
+  }
   if (findProjectionBySlug(call.slug, contexts)) return;
   const resolved = resolveAggregate(call.slug, contexts);
-  // An unresolved slug already raises `loom.e2e-unknown-aggregate`; a second
-  // diagnostic for the same call would just be noise.
-  if (!resolved) return;
+  if (!resolved) {
+    // An explicit `route … -> <Ctx>.<Handler>` binding, addressed as
+    // `api.<contextSlug>.<handlerName>(…)`.  Its ground truth is the api's own
+    // `routes` list rather than `deriveAggregateOperations` (which covers
+    // aggregate verbs only), so the contract question here is a different one:
+    // does the CALL match the request shape the backends emit for that route?
+    const routed = resolveRoutedHandler(call.slug, call.verb, contexts, apis);
+    if (routed) checkRoutedHandlerCall(routed, call, source, diags);
+    // Otherwise an unresolved slug already raises `loom.e2e-unknown-aggregate`;
+    // a second diagnostic for the same call would just be noise.
+    return;
+  }
   const { agg, repo, ctx } = resolved;
   const ops = deriveAggregateOperations(agg, repo, apiStatusContext(ctx));
   if (apiRouteExists(call.verb, agg, repo, ops)) return;
+  // Same fallback order as the renderer: every aggregate verb wins first, and
+  // only then may a routed handler whose context slugs like the aggregate
+  // answer the call.
+  const routedFallback = resolveRoutedHandler(call.slug, call.verb, contexts, apis);
+  if (routedFallback) {
+    checkRoutedHandlerCall(routedFallback, call, source, diags);
+    return;
+  }
   // One `diags.push` per catalog key rather than one push over a
   // message-picking helper, and each object spelled out in full rather than
   // spread from a shared `common`.  TWO ratchets read these sites TEXTUALLY:
@@ -185,6 +240,63 @@ function checkApiVerb(
       routed: routedVerbs(agg, repo, ops).join(", ") || "(none)",
     }),
   });
+}
+
+/**
+ * The route-contract question for an explicit `route … -> <Ctx>.<Handler>`
+ * binding.  The route EXISTS by construction — the resolver found it in the
+ * api's own list, and `loom.route-handler-unresolved` already gates a route
+ * whose target does not resolve — so what is left to check is whether the CALL
+ * matches the request the backends emit for it:
+ *
+ *   • ARITY — arguments bind POSITIONALLY to the declared params.  A wrong
+ *     count shifts every later argument into the wrong slot, and on a
+ *     path-param route that renders a URL with a literal `undefined` segment.
+ *   • A SENDABLE BODY — a `GET`/`DELETE` route whose handler declares a param
+ *     that is not a `{token}` in the path.  Every backend reads that param
+ *     from a request BODY; `fetch` cannot send one on those methods, so the
+ *     call is not expressible and the argument would silently vanish.
+ */
+function checkRoutedHandlerCall(
+  t: RoutedHandlerTarget,
+  call: MagicCall,
+  source: string,
+  diags: LoomDiagnostic[],
+): void {
+  if (call.argCount !== t.bindings.length) {
+    diags.push({
+      severity: "error",
+      code: "loom.e2e-routed-handler-arity",
+      source,
+      message: diagMessage("loom.e2e-routed-handler-arity", {
+        slug: call.slug,
+        verb: call.verb,
+        expected: t.bindings.length,
+        got: call.argCount,
+        params: t.bindings.map((b) => b.param.name).join(", ") || "(none)",
+        method: t.route.method,
+        path: t.route.path,
+      }),
+    });
+    return;
+  }
+  if (routedHandlerNeedsUnsendableBody(t)) {
+    diags.push({
+      severity: "error",
+      code: "loom.e2e-routed-handler-bodyless-method",
+      source,
+      message: diagMessage("loom.e2e-routed-handler-bodyless-method", {
+        slug: call.slug,
+        verb: call.verb,
+        method: t.route.method,
+        path: t.route.path,
+        params: t.bindings
+          .filter((b) => b.source === "body")
+          .map((b) => b.param.name)
+          .join(", "),
+      }),
+    });
+  }
 }
 
 /** Does the route `renderApiCall` will emit for `verb` exist in the derivation?
@@ -317,7 +429,7 @@ function matchMagicCall(e: ExprIR, magicId: "api" | "ui"): MagicCall | null {
   if (e.receiver.kind !== "member") return null;
   const r = e.receiver;
   if (r.receiver.kind !== "ref" || r.receiver.name !== magicId) return null;
-  return { slug: r.member, verb: e.member };
+  return { slug: r.member, verb: e.member, argCount: e.args.length };
 }
 
 /** The aggregate a slug names, with the repository serving it and the context

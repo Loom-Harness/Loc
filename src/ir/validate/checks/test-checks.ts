@@ -7,6 +7,7 @@ import { diagMessage } from "../../../diagnostics/messages.js";
 import { lowerFirst, plural, snake } from "../../../util/naming.js";
 import type {
   AggregateIR,
+  ApiIR,
   BoundedContextIR,
   DeployableIR,
   ExprIR,
@@ -15,6 +16,11 @@ import type {
   TestE2EIR,
   TestStmtIR,
 } from "../../types/loom-ir.js";
+import {
+  apisServedBy,
+  resolveRoutedHandler,
+  routedHandlerCallHints,
+} from "../../util/routed-handler.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
 import { walkExpr } from "./shared.js";
 
@@ -142,6 +148,9 @@ export function validateE2ETest(
     return;
   }
   const contexts = collectContexts(target, modulesByName);
+  // The apis the target deployable `serves:` — the only place an explicit
+  // `route … -> <Ctx>.<Handler>` binding this body may address can come from.
+  const apis = apisServedBy(target, sys.apis);
   const source = `${sys.name}/${test.name}`;
   const magicId = test.kind === "ui" ? "ui" : "api";
 
@@ -183,7 +192,7 @@ export function validateE2ETest(
       });
       continue;
     }
-    walkStmt(stmt, (e) => checkMagicCall(e, magicId, contexts, source, diags));
+    walkStmt(stmt, (e) => checkMagicCall(e, magicId, contexts, apis, source, diags));
   }
 }
 
@@ -271,6 +280,7 @@ function checkMagicCall(
   e: ExprIR,
   magicId: "api" | "ui",
   contexts: BoundedContextIR[],
+  apis: readonly ApiIR[],
   source: string,
   diags: LoomDiagnostic[],
 ): void {
@@ -358,10 +368,17 @@ function checkMagicCall(
   }
   const agg = findAggregateBySlug(aggregateSlug, contexts);
   if (!agg) {
+    // An explicit `route <METHOD> <PATH> -> <Ctx>.<Handler>` binding, addressed
+    // as `api.<contextSlug>.<handlerName>(…)` — the same two-level shape, with
+    // the context in the slug position.  Tried only after the aggregate lookup
+    // fails, mirroring `renderApiCall`'s own precedence (`e2e-render.ts`), so a
+    // context whose name slugs like an aggregate changes nothing.
+    if (magicId === "api" && resolveRoutedHandler(aggregateSlug, method, contexts, apis)) return;
     const known = contexts
       .flatMap((c) => c.aggregates.map((a) => snake(plural(a.name))))
       .sort()
       .join(", ");
+    const routed = magicId === "api" ? routedHandlerCallHints(contexts, apis) : [];
     diags.push({
       severity: "error",
       code: "loom.e2e-unknown-aggregate",
@@ -369,6 +386,7 @@ function checkMagicCall(
         magicId,
         aggregateSlug,
         known: known || "(none)",
+        routed: routed.length > 0 ? ` Routed handlers: ${routed.join(", ")}.` : "",
       }),
       source,
     });
@@ -397,6 +415,10 @@ function checkMagicCall(
   // so an aggregate that is not `audited` has no history to call and the
   // unknown-method error below is the right answer.
   if (method === "history" && repo?.historyFind) return;
+  // Same fallback as the unresolved-slug arm above, one level along: the slug
+  // named an aggregate but the verb is none of its own, and a routed handler
+  // whose CONTEXT slugs the same way may still answer it.
+  if (magicId === "api" && resolveRoutedHandler(aggregateSlug, method, contexts, apis)) return;
 
   const ops = agg.operations.filter((o) => o.visibility === "public").map((o) => o.name);
   const finds = (repo?.finds ?? []).map((f) => f.name);

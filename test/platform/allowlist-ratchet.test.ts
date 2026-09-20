@@ -504,7 +504,21 @@ const REGISTERED: Ratchet[] = [
     // five COMPILE legs, which this fixture does carry, see each backend's
     // fold/reactor symbols.  Drain (M-T9.13): when the behavioural tier gains
     // a per-backend projection read, move the block in and lower this by one.
-    max: 22,
+    //
+    // 22 -> 21: `handler-triad` DRAINED.  Its entry said the cell stopped at
+    // the compile tier because the fixture is unseedable — `Order` declares no
+    // create, so nothing can mint a row.  That was true and was not the
+    // blocker: every route in its api is an explicit `route … -> Sales.<H>`
+    // binding, and a `test e2e` body could not ADDRESS one at all
+    // (`api.<x>.<y>(…)` resolved to an aggregate or a projection only, so
+    // probing `api.sales.echo("hi")` answered `loom.e2e-unknown-aggregate`).
+    // With the `api.<context>.<handler>(…)` form landed, all five routes are
+    // driven on the EMPTY table — the two find-backed ones return a COUNT, so
+    // 0/false is a real answer rather than a seeded one — and the node leg
+    // records the golden.  The two routes the missing create genuinely does
+    // block are `getOrderById` / `cancelOrder`, now pinned in UNCALLED_PINS
+    // under `R.noCreateRoute` rather than costing the whole cell its tier.
+    max: 21,
   },
 ];
 
