@@ -227,9 +227,23 @@ state = state.copyWith(label: ('hello ' + state.n.toString()));
 | flutter — the SHIPPING CI showcase regenerated: `analyze` (CI flags) + `test` | exit 0; **9 tests passed** |
 | `npx vitest run test/generator/flutter/ test/ir/sentinel-gates.test.ts` | 66 files / 405 tests green |
 | `test/system/{unsupported-register,diagnostic-catalog,diagnostic-docs-anchors,diagnostic-firing-census}` | green |
-| `npm test` (full fast suite) | see below |
+| `npm test` (full fast suite) | **`2 failed \| 2105 passed \| 89 skipped (2196)` files, `4 failed \| 24734 passed \| 7 expected fail \| 1159 skipped (25904)` tests, `NPM_TEST_EXIT=1`** — the 4 are the worktree-structural `packaging-split-*` family; see below |
 
-**`npm test` — read this before folding, including the caveat at the end.** Run **redirected to a file with its exit code appended**, never piped: batch 2's lesson is that a piped `npm test | tail` reports `tail`'s status and can never fail. The log is `<scratchpad>/c2l/npm-test.log` and ends with `NPM_TEST_EXIT=<n>`. Expect the worktree-structural `packaging-split-fs-discovery` reds every packet in this wave has reported (`node_modules/@loom` does not exist in a git worktree, so `discoverBackendsFs` finds nothing); nothing in this packet touches `src/platform/fs-discovery.ts` or the `packages/` manifests.
+**`npm test` — read this before folding, including the caveat at the end.** Run **redirected to a file with its exit code appended**, never piped: batch 2's lesson is that a piped `npm test | tail` reports `tail`'s status and can never fail. The log is `<scratchpad>/c2l/npm-test.log` and ends with `NPM_TEST_EXIT=1`.
+
+**The 4 failures are the worktree-structural `packaging-split-*` family, exactly the set packet 2i reported**, verified rather than assumed:
+
+```
+FAIL test/platform/packaging-split-core-pkg.test.ts    > does not surface `core` as a backend
+FAIL test/platform/packaging-split-fs-discovery.test.ts > discovers both @loom/backend-hono-v4 and -v5 …
+FAIL test/platform/packaging-split-fs-discovery.test.ts > fs-discovered hono surfaces are the SAME INSTANCE …
+FAIL test/platform/packaging-split-fs-discovery.test.ts > only emits backend entries …
+
+$ ls node_modules | grep -c '^@loom'                    → 0
+$ git diff --name-only f90e5d78f..HEAD | grep -E 'fs-discovery|^packages/'  → (nothing)
+```
+
+`discoverBackendsFs` walks `node_modules/@loom/*` for workspace symlinks and a git worktree has none, so it discovers zero backends. This packet touches neither `src/platform/fs-discovery.ts` nor the `packages/` manifests. **Note the FILE NAMES** — 2j's note records burning a cycle on `packaging-split-discovery.test.ts` (which passes) vs its sibling `packaging-split-**fs**-discovery.test.ts` (which does not); they are one character apart and are not interchangeable.
 
 **The caveat, stated rather than papered over:** the run was STARTED on the tree at `8ce669d6c` (the toast commit) and the last three commits landed while it was executing. Two of those three are docs-only; the one that touches the suite is `d679ce20b`, whose files were **run individually green on the final tree** — `test/ir/async-effect-subject.test.ts` 14 passed, `test/system/unsupported-register.test.ts` 9 passed. Vitest reads a file's contents when it reaches it, so the full run may or may not have picked the new cases up; treat its number as covering `8ce669d6c` and the two named suites as covering the rest. This is exactly why **the coordinator should re-run `npm test` on the FOLDED tree rather than take a number from this note** — which is the standing rule in this wave anyway, and doubly so here: three packets shared this 4-core box at load average ~12, which is why one run took as long as it did.
 
