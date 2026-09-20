@@ -224,7 +224,7 @@ export async function generateSystemFilesUnchecked(
  * generations across 54 files** — far less than the 223-file surface implies,
  * because most direct callers already parse through `parseValid` (which does
  * assert phase ④) or simply have valid fixtures.  201 of the 266 are the same
- * `loom.persistence-mode-unsupported` class drained through this helper.
+ * `loom.datasource-binding-missing` class drained through this helper.
  *
  * They are NOT a codemod job, which was tried and reverted: these fixtures pin
  * seed SQL, migration chains and saga dispatch, so binding a `resource` moves

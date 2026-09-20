@@ -21,6 +21,7 @@ import {
   validateRetrievals,
   validateWorkflowInstanceReadGates,
 } from "./checks/query-checks.js";
+import { validateMemberRepositoryAccess } from "./checks/repo-access-checks.js";
 import { validateReservedSurfaces } from "./checks/reserved-surfaces.js";
 import { validateSensitiveWireSupport } from "./checks/sensitivity-checks.js";
 import { validateStores } from "./checks/store-checks.js";
@@ -112,11 +113,7 @@ import {
 } from "./checks/test-checks.js";
 import { validateTimerSources } from "./checks/timer-checks.js";
 import { validateUiBodies, validateUiPageIdentity } from "./checks/ui-checks.js";
-import {
-  validateEventChannelAmbiguous,
-  validateEventConsumersCarried,
-  validateWorkflows,
-} from "./checks/workflow-checks.js";
+import { validateEventChannelAmbiguous, validateWorkflows } from "./checks/workflow-checks.js";
 
 // Public surface kept stable: LoomDiagnostic (now defined in checks/diagnostic)
 // and firstNonQueryableNode (in checks/shared) are re-exported here so existing
@@ -160,7 +157,6 @@ export function validateLoomModel(loom: EnrichedLoomModel): LoomDiagnostic[] {
   // System-wide: warn when a workflow event consumer subscribes to an event no
   // channel carries (it can't be dispatched in-process).  Needs every
   // context's channels, so it runs once over the whole model, not per-context.
-  validateEventConsumersCarried([...allContexts(loom)], diags);
   // System-wide: warn when a consumer's event is carried by more than one
   // channel in its context (ambiguous in-process routing; first-by-declaration
   // wins).  Per-context internally, but gathered here alongside the carried check.
@@ -264,6 +260,10 @@ export function validateLoomModel(loom: EnrichedLoomModel): LoomDiagnostic[] {
     // check takes the model's full context list (like `validateWorkflows`
     // below, which takes every context's events).
     validateDomainServices(c, diags, [...allContexts(loom)]);
+    // A repository named from an aggregate / part / value-object member body —
+    // no backend binds one there.  Takes the model's full context list so a
+    // cross-context repository (equally dangling) is caught as well.
+    validateMemberRepositoryAccess(c, diags, [...allContexts(loom)]);
     validateFunctionBlockBodies(c, diags);
     validateExternOperations(c, diags);
     validateStampReadsBeforeFlush(c, diags);
@@ -273,6 +273,9 @@ export function validateLoomModel(loom: EnrichedLoomModel): LoomDiagnostic[] {
       c,
       diags,
       allContexts(loom).flatMap((x) => x.events),
+      // The cross-context-repository gate needs the sibling contexts, like
+      // `validateDomainServices` above.
+      [...allContexts(loom)],
     );
     // Explicit application-layer handlers (unfoldable-api-derivation.md, Layer 3):
     // queryHandler-read-only + commandHandler-single-aggregate layering contracts.

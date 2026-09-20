@@ -1520,7 +1520,10 @@ describe("Loom IR validation (post-lowering)", async () => {
   it("accepts well-formed api e2e tests with no diagnostics", async () => {
     const loom = await loomFrom(`
       system S {
-        subdomain M { context T { aggregate Order { customerId: string } } }
+        // \`with crudish\` is what makes this well-formed, not decoration: the
+        // body calls \`api.orders.create\`, and without a canonical create no
+        // backend mounts \`POST /api/orders\` (\`loom.e2e-unrouted-verb\`).
+        subdomain M { context T { aggregate Order with crudish { customerId: string } } }
         storage pg { type: postgres }
         resource tState { for: T, kind: state, use: pg }
         deployable api {

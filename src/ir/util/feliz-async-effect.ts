@@ -1,20 +1,30 @@
-// Feliz `match await` async-effect shape classifier (async-actions-and-effects.md
-// Stage 2, M-T6.15).  Shared by the IR validator (`store-checks.ts`, which gates
-// the UNSUPPORTED shapes as `loom.feliz-async-effect-unsupported`) and the Feliz
-// generator (`src/generator/feliz/`, which RENDERS the supported shape).  Keeping
-// the classification in one pure IR-level place means the gate and the renderer
-// can never drift — a shape the generator emits is exactly the shape the gate
-// lets through, and vice versa.
+// `match await` async-effect shape classifier (async-actions-and-effects.md
+// Stage 2, M-T6.15).  Shared by the IR validator (`store-checks.ts`) and the
+// Feliz generator (`src/generator/feliz/`, which RENDERS the supported shape).
+// Keeping the classification in one pure IR-level place means the gate and the
+// renderer can never drift — a shape the generator emits is exactly the shape
+// the gate lets through, and vice versa.
+//
+// TARGET-NEUTRAL since wave C2 packet 2i (audit F66).  The SUBJECT half was
+// always target-neutral and was only ever invoked behind a `platform: feliz`
+// check — so the identical model was refused on Feliz and reported `0 error(s),
+// 0 warning(s)` on React, which then emitted `await Promise.reject(new
+// Error("no remote op for variant-match"))`.  Every frontend resolves the
+// awaited subject the same way (walker-core's `tryDetectApiHook` aggregate
+// arms; `heex-walker-core`'s `detectAwaitedOp`), so the subject gate is now the
+// target-agnostic `loom.async-effect-subject-unsupported` and the reasons below
+// name no target.  `loom.feliz-async-effect-unsupported` keeps only the
+// genuinely Feliz-specific COMPONENT-host limitation.
 //
 // Supported shape (M-T6.15 + the "harder shapes" extension):
 //   `match await <api>.<Agg>.<op>(args?) { <Variant> b => { … } … else? => { … } }`
 //   — an aggregate INSTANCE operation (0-or-more args), one OR MORE named arms
 //   (each binding a success aggregate variant OR an error variant), and an
 //   OPTIONAL `else`.  The trigger id is sourced from the host page's route `:id`,
-//   so the ONLY remaining gated case is a host with no route id (a component or a
-//   non-`:id` page) — checked in `store-checks.ts`, not here.  A subject that
-//   isn't an aggregate instance op (a collection op, a workflow, a non-aggregate
-//   receiver) also stays gated.
+//   so a host with no route id (a component, or a non-`:id` page) is gated —
+//   checked in `store-checks.ts`, not here.  A subject that isn't an aggregate
+//   instance op (a collection op, a workflow, a non-aggregate receiver) is
+//   gated for EVERY frontend, not just Feliz.
 
 import type { ExprIR, StmtIR, TypeIR } from "../types/loom-ir.js";
 
@@ -111,8 +121,8 @@ export function classifyFelizAsyncEffect(
       supported: false,
       reason:
         "the awaited subject is not an aggregate instance operation " +
-        "(`<api>.<Agg>.<op>(…)`) — a non-aggregate subject (a collection op, a " +
-        "workflow, a static call) is not rendered on Feliz yet",
+        "(`<api>.<Agg>.<op>(…)`) — a collection op, a workflow, a plain state " +
+        "field or any other subject has no remote command to await",
     };
   }
   if (stmt.arms.length === 0) {

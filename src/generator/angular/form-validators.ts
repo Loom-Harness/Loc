@@ -1,6 +1,5 @@
 import type { InvariantIR } from "../../ir/types/loom-ir.js";
 import type { SingleFieldPattern } from "../../ir/validate/invariant-classify.js";
-import { humanize } from "../../util/naming.js";
 import { tsCodePointLength } from "../_expr/code-point.js";
 import { asRegexLiteral } from "../_expr/regex-literal.js";
 import type { WalkContext } from "../_walker/walker-core.js";
@@ -110,12 +109,18 @@ export function applyAngularValidators(
       if (v) c.validators = v;
     }
   }
-  return parts.flatNames.map((name, i) => {
-    const base = parts.flatMarkup[i]!;
-    if (!validatorMap.has(name)) return base;
-    const ctrl = `${formVar}.controls.${name}`;
-    return `${base}@if (${ctrl}.invalid && ${ctrl}.touched) {<p class="loom-error" data-testid="${ns}-error-${name}">${humanize(name)} is invalid</p>}`;
-  });
+  // The per-field MESSAGE is rendered with its control, by
+  // `partitionAngularFields` / `withFieldError` — not appended here.  It has to
+  // be: on the material pack the message belongs INSIDE the
+  // `<mat-form-field>`, which is the only placement `MatFormField` associates
+  // with the input (`aria-describedby`), and only the field renderer knows
+  // whether the markup it produced is a form field at all.  This function
+  // therefore owns the CONTROLS (validators + imports) and nothing else; the
+  // two halves agree by sharing `angularValidatorMap`, which the caller passes
+  // to the partition as `errorFields`.
+  void ns;
+  void formVar;
+  return [...parts.flatMarkup];
 }
 
 /** Map one recognised single-field pattern onto its Angular `Validators.*`

@@ -170,6 +170,8 @@ describe("Sales (integration)", () => {
 
 The verb vocabulary per aggregate is `create`, `getById`, `all` (the paged list), every **public** operation, every repository `find`, `update` / `destroy` when declared, plus the reserved `api.workflows.<name>(…)` and `api.<projection>.byKey(…)` / `.list()`.
 
+Resolving the verb's NAME is only half the check. A second, phase-⑦ gate asks whether the route it lowers to is one **this same compilation emits**, resolving each verb against `deriveAggregateOperations` (`src/ir/util/api-surface.ts`) — the derivation all five backend route builders render from — and raising `loom.e2e-unrouted-verb` when it does not. This matters because several routes are conditional: `POST /api/<plural>` appears only for an aggregate with a canonical `create` (hand-written or `with crudish`), `DELETE /api/<plural>/{id}` only for an unnamed `destroy`, `GET /api/<plural>/{id}/history` only when `auditable`, and a find route only for a *declared* find. Until this gate landed, `api.products.create({…})` on a `create`-less aggregate compiled with `0 error(s), 0 warning(s)` and emitted a suite that POSTed to a route the same run had not mounted — `405 Method Not Allowed`, three failures out of three, from a model the compiler had just called clean. On the `ui` side the same code covers the page-object vocabulary: `create` (only where the scaffolded `New` page survives, i.e. the same create-surface gate), `getById`, and a public operation — a `ui.<agg>.<find>(…)` drives no page object.
+
 ### Against a backend — vitest + fetch
 
 ```ddd
@@ -274,7 +276,7 @@ Each `on: "locator"` matcher is **web-first**: against a UI it asserts on the li
 
 ### `toThrow()` — the throw assertion
 
-`expect(<call>).toThrow()` asserts the call rejects. The lowering recognises the matcher and rewrites the `expect` into an `expect-throws` IR node, so every backend renders it as its idiomatic throw assertion. The bare form is valid in both unit and e2e bodies; the single-argument form `toThrow(<status>)` **pins an HTTP status** and is only legal in a `test e2e` body (*"'toThrow(<status>)' pins an HTTP status and is only valid in a 'test e2e' block; use a bare 'toThrow()' in an in-process test."*) — the argument is an integer literal (`toThrow(404)`).
+`expect(<call>).toThrow()` asserts the call rejects. The lowering recognises the matcher and rewrites the `expect` into an `expect-throws` IR node, so every backend renders it as its idiomatic throw assertion. The bare form is valid in both unit and **api** e2e bodies; the single-argument form `toThrow(<status>)` **pins an HTTP status** and is only legal in a `test e2e` body (*"'toThrow(<status>)' pins an HTTP status and is only valid in a 'test e2e' block; use a bare 'toThrow()' in an in-process test."*) — the argument is an integer literal (`toThrow(404)`).
 
 ```ddd
 // unit test — wrap the mutating call
@@ -282,6 +284,18 @@ expect(order.addLine("…", 0)).toThrow()
 // api e2e — the negative path, pinned to a status
 expect(api.orders.getById(ord)).toThrow(404)
 ```
+
+**Neither form is legal in a UI e2e body** — a `test e2e` block whose target is a frontend deployable, which lowers to a Playwright spec driven through the generated page objects. `loom.e2e-ui-throw-invalid` rejects it at parse time. There is no HTTP response there to assert against: the emitted form validates **client-side** against a schema derived from the aggregate's own invariants, so an invalid submit issues no request at all — and the page object's `submit()` awaits the detail page's testid, which an invalid form never renders, so a throw assertion could only ever settle on a timeout.
+
+This is a deliberate permanent refusal, not a gap: an HTTP status and a form-error DOM state are different assertions, and `toThrow` names the first. Assert the UI's negative path as the DOM state it actually is —
+
+```ddd
+// ui e2e — assert the rendered state, not a status
+let read = ui.orders.getById(ord)
+expect(read.status).toHaveText("Draft")
+```
+
+— or move the status assertion to a block written `against <backend-deployable>`, where a real response carries one.
 
 ::: tabs backend
 == node

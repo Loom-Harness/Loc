@@ -158,8 +158,13 @@ export function refineRenderable(e: ExprIR): boolean {
  *  carries that framework's default text.  The message-LESS `.refine(…)`
  *  clause default (`"Invariant violated: <src>"`, in `refineClauseFor` below)
  *  is by contrast a CROSS-BACKEND string all five wire validators emit
- *  verbatim, so it is deliberately left alone here. */
-function singleFieldMessage(field: string, pattern: SingleFieldPattern): string {
+ *  verbatim, so it is deliberately left alone here.
+ *
+ *  EXPORTED so the two frontends with no zod schema — Angular's `Validators.*`
+ *  path and Flutter's Dart `validator:` closures — deny with the SAME sentence
+ *  the JSX frontends do.  Re-deriving the wording per frontend is how "Priority
+ *  must be at least 1" becomes "Invalid input" on one target and nowhere else. */
+export function singleFieldMessage(field: string, pattern: SingleFieldPattern): string {
   const label = humanize(field);
   const chars = (n: number) => `${n} character${n === 1 ? "" : "s"}`;
   switch (pattern.kind) {

@@ -67,6 +67,7 @@ import {
   resolveErrorStatus,
 } from "../../util/error-defaults.js";
 import { plural, snake, upperFirst } from "../../util/naming.js";
+import { UUID_WIRE_PATTERN } from "../../util/uuid-wire.js";
 import { isServerSourcedDefault, isValueObjectDefault } from "../_frontend/server-default.js";
 import { numericEncode } from "../_numeric/target.js";
 import { findUnionSpec } from "../_payload/union-wire.js";
@@ -479,10 +480,16 @@ export const PY_PAGED_CONTROLS: readonly string[] = [
   `pageSize: Annotated[int, Query(ge=1, le=${PAGED_MAX_PAGE_SIZE})] = ${PAGED_DEFAULT_PAGE_SIZE}`,
 ];
 
-/** The canonical dashed-hex uuid form — the same shape `z.string().uuid()`,
- *  `Guid`-binding and `UUID.fromString` accept on the sibling backends. */
-export const UUID_PATTERN =
-  "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$";
+/** The canonical dashed-hex uuid form.
+ *
+ *  Re-exported from `src/util/uuid-wire.ts`, which is now the ONE definition
+ *  every backend and the frontend request schemas share.  This comment used to
+ *  claim the shape was "the same shape `z.string().uuid()`, `Guid`-binding and
+ *  `UUID.fromString` accept" — true of three of the four it named.  Hono's
+ *  `.uuid()` additionally enforced RFC 4122's version/variant nibbles, so a
+ *  placeholder id answered 422 there and 404 here; the constant was extracted
+ *  to make the sentence true rather than aspirational. */
+export const UUID_PATTERN = UUID_WIRE_PATTERN;
 
 /** `{id}` path-param annotation carrying the uuid format every backend
  *  declares (paramTypeDiffs parity).  Shared with the workflow-instance

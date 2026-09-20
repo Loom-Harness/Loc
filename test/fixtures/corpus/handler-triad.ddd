@@ -62,12 +62,60 @@ system HandlerTriad {
         let matches = Orders.byId(orderId)
         return matches.count
       }
+
+      // D (wave C2, M-T5.14): a handler calling a DOMAIN SERVICE.  The handle a
+      // `reading` op needs is per-backend — leading read-port params on
+      // node/python, an injected object on dotnet/java, nothing at all on elixir
+      // (the ambient `Repo`, because the op is a context function there) — and
+      // every WORKFLOW emitter wired its own shape while the explicit-handler
+      // emitters wired NONE.  So this crossing did not compile on three of five:
+      // `Registration.isHolderFree(...)` as a STATIC call into a DI'd class with
+      // no using/import (CS0103 / "cannot find symbol"), and on elixir a call to
+      // `D.Domain.Services.Registration`, a module that is only emitted for PURE
+      // ops (`UndefinedFunctionError` at runtime, out of code that compiles).
+      //
+      // BOTH tiers are here because the PURE half was broken too on java/.NET —
+      // for the import alone — and because a fix that routed every service call
+      // through the injected handle would pass a reading-only fixture.
+      domainService FeeQuote {
+        // NOT named `doubled`: python emits the handler `Doubled` as
+        // `app/application/doubled.py` with `async def doubled(...)` AND imports
+        // the service fn by its own snake name, so a handler whose name matches
+        // an op it calls is `F811 Redefinition of unused 'doubled'` under the
+        // corpus-python leg's `ruff check`.  That collision is a separate row
+        // (the `loom-eval` identifier-collision family, #2923) and this fixture
+        // is not about it — it is about the HANDLE, so it sidesteps the name.
+        operation twice(n: int): int {
+          return n * 2
+        }
+      }
+      domainService Reachability {
+        operation anyReplacing(oid: Order id): bool {
+          // The read is BOUND first: a repository read used as a member
+          // receiver is refused by `loom.domain-service-read-unsupported`
+          // (the read-port derivation only recognises a read that is the whole
+          // expression).  This fixture takes the supported spelling on purpose
+          // — its subject is the handler's handle, not that gate.
+          let hits = Orders.byId(oid)
+          return hits.count > 0
+        }
+      }
+      queryHandler Reachable(orderId: Order id): bool {
+        let hit = Reachability.anyReplacing(orderId)
+        return hit
+      }
+      queryHandler Doubled(n: int): int {
+        let d = FeeQuote.twice(n)
+        return d
+      }
     }
   }
   api A from D {
     route POST "/echo/{text}" -> Sales.Echo
     route GET  "/sum/{a}/{b}" -> Sales.Sum
     route GET  "/orders/{orderId}/replacements" -> Sales.CountReplacing
+    route GET  "/orders/{orderId}/reachable" -> Sales.Reachable
+    route GET  "/doubled/{n}" -> Sales.Doubled
   }
   storage pg { type: postgres }
   resource salesState { for: Sales, kind: state, use: pg }

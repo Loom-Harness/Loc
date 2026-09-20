@@ -1,0 +1,1194 @@
+{
+  "schemaVersion": 1,
+  "tables": [
+    {
+      "name": "appointment_types",
+      "ownerModule": "Scheduling",
+      "columns": [
+        {
+          "name": "id",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        },
+        {
+          "name": "name",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": false
+        },
+        {
+          "name": "default_duration_minutes",
+          "type": {
+            "kind": "int"
+          },
+          "nullable": false
+        },
+        {
+          "name": "required_skill",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": false
+        },
+        {
+          "name": "tenant_id",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": false
+        },
+        {
+          "name": "data_key",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": true
+        },
+        {
+          "name": "version",
+          "type": {
+            "kind": "int"
+          },
+          "nullable": false,
+          "default": "1"
+        }
+      ],
+      "primaryKey": [
+        "id"
+      ],
+      "foreignKeys": [],
+      "indexes": [
+        {
+          "name": "appointment_types_tenant_id_idx",
+          "table": "appointment_types",
+          "columns": [
+            "tenant_id"
+          ],
+          "unique": false
+        },
+        {
+          "name": "appointment_types_data_key_idx",
+          "table": "appointment_types",
+          "columns": [
+            "data_key"
+          ],
+          "unique": false,
+          "opclasses": {
+            "data_key": "text_pattern_ops"
+          }
+        }
+      ],
+      "schema": "clinics",
+      "savingShape": "relational"
+    },
+    {
+      "name": "appointments",
+      "ownerModule": "Scheduling",
+      "columns": [
+        {
+          "name": "id",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        },
+        {
+          "name": "clinic",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        },
+        {
+          "name": "patient",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        },
+        {
+          "name": "practitioner",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        },
+        {
+          "name": "room",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        },
+        {
+          "name": "appt_type",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        },
+        {
+          "name": "start_at",
+          "type": {
+            "kind": "datetime"
+          },
+          "nullable": false
+        },
+        {
+          "name": "duration_minutes",
+          "type": {
+            "kind": "int"
+          },
+          "nullable": false
+        },
+        {
+          "name": "state",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": false
+        },
+        {
+          "name": "cancel_reason",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": true
+        },
+        {
+          "name": "triage_note",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": true
+        },
+        {
+          "name": "patient_user_ref",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": false
+        },
+        {
+          "name": "tenant_id",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": false
+        },
+        {
+          "name": "data_key",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": true
+        },
+        {
+          "name": "version",
+          "type": {
+            "kind": "int"
+          },
+          "nullable": false,
+          "default": "1"
+        }
+      ],
+      "primaryKey": [
+        "id"
+      ],
+      "foreignKeys": [
+        {
+          "column": "clinic",
+          "refTable": "clinics",
+          "onDelete": "restrict"
+        },
+        {
+          "column": "patient",
+          "refTable": "patients",
+          "onDelete": "restrict"
+        },
+        {
+          "column": "practitioner",
+          "refTable": "practitioners",
+          "onDelete": "restrict"
+        },
+        {
+          "column": "room",
+          "refTable": "rooms",
+          "onDelete": "restrict"
+        },
+        {
+          "column": "appt_type",
+          "refTable": "appointment_types",
+          "onDelete": "restrict"
+        }
+      ],
+      "indexes": [
+        {
+          "name": "appointments_clinic_idx",
+          "table": "appointments",
+          "columns": [
+            "clinic"
+          ],
+          "unique": false
+        },
+        {
+          "name": "appointments_patient_idx",
+          "table": "appointments",
+          "columns": [
+            "patient"
+          ],
+          "unique": false
+        },
+        {
+          "name": "appointments_practitioner_idx",
+          "table": "appointments",
+          "columns": [
+            "practitioner"
+          ],
+          "unique": false
+        },
+        {
+          "name": "appointments_room_idx",
+          "table": "appointments",
+          "columns": [
+            "room"
+          ],
+          "unique": false
+        },
+        {
+          "name": "appointments_appt_type_idx",
+          "table": "appointments",
+          "columns": [
+            "appt_type"
+          ],
+          "unique": false
+        },
+        {
+          "name": "appointments_tenant_id_idx",
+          "table": "appointments",
+          "columns": [
+            "tenant_id"
+          ],
+          "unique": false
+        },
+        {
+          "name": "appointments_data_key_idx",
+          "table": "appointments",
+          "columns": [
+            "data_key"
+          ],
+          "unique": false,
+          "opclasses": {
+            "data_key": "text_pattern_ops"
+          }
+        }
+      ],
+      "schema": "clinics",
+      "savingShape": "relational"
+    },
+    {
+      "name": "availability_exceptions",
+      "ownerModule": "Scheduling",
+      "columns": [
+        {
+          "name": "id",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        },
+        {
+          "name": "practitioner_id",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        },
+        {
+          "name": "on_date",
+          "type": {
+            "kind": "datetime"
+          },
+          "nullable": false
+        },
+        {
+          "name": "available",
+          "type": {
+            "kind": "bool"
+          },
+          "nullable": false
+        },
+        {
+          "name": "start_minute",
+          "type": {
+            "kind": "int"
+          },
+          "nullable": false
+        },
+        {
+          "name": "end_minute",
+          "type": {
+            "kind": "int"
+          },
+          "nullable": false
+        }
+      ],
+      "primaryKey": [
+        "id"
+      ],
+      "foreignKeys": [
+        {
+          "column": "practitioner_id",
+          "refTable": "practitioners",
+          "onDelete": "cascade"
+        }
+      ],
+      "indexes": [
+        {
+          "name": "availability_exceptions_practitioner_id_idx",
+          "table": "availability_exceptions",
+          "columns": [
+            "practitioner_id"
+          ],
+          "unique": false
+        }
+      ],
+      "schema": "clinics"
+    },
+    {
+      "name": "availability_windows",
+      "ownerModule": "Scheduling",
+      "columns": [
+        {
+          "name": "id",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        },
+        {
+          "name": "practitioner_id",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        },
+        {
+          "name": "day",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": false
+        },
+        {
+          "name": "start_minute",
+          "type": {
+            "kind": "int"
+          },
+          "nullable": false
+        },
+        {
+          "name": "end_minute",
+          "type": {
+            "kind": "int"
+          },
+          "nullable": false
+        }
+      ],
+      "primaryKey": [
+        "id"
+      ],
+      "foreignKeys": [
+        {
+          "column": "practitioner_id",
+          "refTable": "practitioners",
+          "onDelete": "cascade"
+        }
+      ],
+      "indexes": [
+        {
+          "name": "availability_windows_practitioner_id_idx",
+          "table": "availability_windows",
+          "columns": [
+            "practitioner_id"
+          ],
+          "unique": false
+        }
+      ],
+      "schema": "clinics"
+    },
+    {
+      "name": "clinics",
+      "ownerModule": "Scheduling",
+      "columns": [
+        {
+          "name": "id",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        },
+        {
+          "name": "name",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": false
+        },
+        {
+          "name": "timezone",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": false
+        },
+        {
+          "name": "version",
+          "type": {
+            "kind": "int"
+          },
+          "nullable": false,
+          "default": "1"
+        }
+      ],
+      "primaryKey": [
+        "id"
+      ],
+      "foreignKeys": [],
+      "indexes": [],
+      "schema": "clinics",
+      "savingShape": "relational"
+    },
+    {
+      "name": "encounters",
+      "ownerModule": "Scheduling",
+      "columns": [
+        {
+          "name": "id",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        },
+        {
+          "name": "appointment",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        },
+        {
+          "name": "patient",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        },
+        {
+          "name": "notes",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": false
+        },
+        {
+          "name": "height_cm",
+          "type": {
+            "kind": "decimal"
+          },
+          "nullable": false
+        },
+        {
+          "name": "weight_kg",
+          "type": {
+            "kind": "decimal"
+          },
+          "nullable": false
+        },
+        {
+          "name": "systolic",
+          "type": {
+            "kind": "int"
+          },
+          "nullable": false
+        },
+        {
+          "name": "diastolic",
+          "type": {
+            "kind": "int"
+          },
+          "nullable": false
+        },
+        {
+          "name": "tenant_id",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": false
+        },
+        {
+          "name": "data_key",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": true
+        },
+        {
+          "name": "version",
+          "type": {
+            "kind": "int"
+          },
+          "nullable": false,
+          "default": "1"
+        }
+      ],
+      "primaryKey": [
+        "id"
+      ],
+      "foreignKeys": [
+        {
+          "column": "appointment",
+          "refTable": "appointments",
+          "onDelete": "restrict"
+        },
+        {
+          "column": "patient",
+          "refTable": "patients",
+          "onDelete": "restrict"
+        }
+      ],
+      "indexes": [
+        {
+          "name": "encounters_appointment_idx",
+          "table": "encounters",
+          "columns": [
+            "appointment"
+          ],
+          "unique": false
+        },
+        {
+          "name": "encounters_patient_idx",
+          "table": "encounters",
+          "columns": [
+            "patient"
+          ],
+          "unique": false
+        },
+        {
+          "name": "encounters_tenant_id_idx",
+          "table": "encounters",
+          "columns": [
+            "tenant_id"
+          ],
+          "unique": false
+        },
+        {
+          "name": "encounters_data_key_idx",
+          "table": "encounters",
+          "columns": [
+            "data_key"
+          ],
+          "unique": false,
+          "opclasses": {
+            "data_key": "text_pattern_ops"
+          }
+        }
+      ],
+      "schema": "clinics",
+      "savingShape": "relational"
+    },
+    {
+      "name": "patients",
+      "ownerModule": "Scheduling",
+      "columns": [
+        {
+          "name": "id",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        },
+        {
+          "name": "full_name",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": false
+        },
+        {
+          "name": "email",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": false
+        },
+        {
+          "name": "phone_number",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": false
+        },
+        {
+          "name": "date_of_birth",
+          "type": {
+            "kind": "datetime"
+          },
+          "nullable": false
+        },
+        {
+          "name": "user_ref",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": false
+        },
+        {
+          "name": "preferred_language",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": false
+        },
+        {
+          "name": "tenant_id",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": false
+        },
+        {
+          "name": "data_key",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": true
+        },
+        {
+          "name": "version",
+          "type": {
+            "kind": "int"
+          },
+          "nullable": false,
+          "default": "1"
+        }
+      ],
+      "primaryKey": [
+        "id"
+      ],
+      "foreignKeys": [],
+      "indexes": [
+        {
+          "name": "patients_tenant_id_idx",
+          "table": "patients",
+          "columns": [
+            "tenant_id"
+          ],
+          "unique": false
+        },
+        {
+          "name": "patients_data_key_idx",
+          "table": "patients",
+          "columns": [
+            "data_key"
+          ],
+          "unique": false,
+          "opclasses": {
+            "data_key": "text_pattern_ops"
+          }
+        }
+      ],
+      "schema": "clinics",
+      "savingShape": "relational"
+    },
+    {
+      "name": "practitioners",
+      "ownerModule": "Scheduling",
+      "columns": [
+        {
+          "name": "id",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        },
+        {
+          "name": "clinic",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        },
+        {
+          "name": "full_name",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": false
+        },
+        {
+          "name": "skills",
+          "type": {
+            "kind": "array",
+            "inner": {
+              "kind": "text"
+            }
+          },
+          "nullable": false
+        },
+        {
+          "name": "cost_rate",
+          "type": {
+            "kind": "decimal",
+            "precision": 19,
+            "scale": 4
+          },
+          "nullable": false
+        },
+        {
+          "name": "tenant_id",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": false
+        },
+        {
+          "name": "data_key",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": true
+        },
+        {
+          "name": "version",
+          "type": {
+            "kind": "int"
+          },
+          "nullable": false,
+          "default": "1"
+        }
+      ],
+      "primaryKey": [
+        "id"
+      ],
+      "foreignKeys": [
+        {
+          "column": "clinic",
+          "refTable": "clinics",
+          "onDelete": "restrict"
+        }
+      ],
+      "indexes": [
+        {
+          "name": "practitioners_clinic_idx",
+          "table": "practitioners",
+          "columns": [
+            "clinic"
+          ],
+          "unique": false
+        },
+        {
+          "name": "practitioners_tenant_id_idx",
+          "table": "practitioners",
+          "columns": [
+            "tenant_id"
+          ],
+          "unique": false
+        },
+        {
+          "name": "practitioners_data_key_idx",
+          "table": "practitioners",
+          "columns": [
+            "data_key"
+          ],
+          "unique": false,
+          "opclasses": {
+            "data_key": "text_pattern_ops"
+          }
+        }
+      ],
+      "schema": "clinics",
+      "savingShape": "relational"
+    },
+    {
+      "name": "referrals",
+      "ownerModule": "Scheduling",
+      "columns": [
+        {
+          "name": "id",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        },
+        {
+          "name": "patient",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        },
+        {
+          "name": "specialist_name",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": false
+        },
+        {
+          "name": "specialist_email",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": false
+        },
+        {
+          "name": "reason",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": false
+        },
+        {
+          "name": "sent_at",
+          "type": {
+            "kind": "datetime"
+          },
+          "nullable": true
+        },
+        {
+          "name": "tenant_id",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": false
+        },
+        {
+          "name": "data_key",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": true
+        },
+        {
+          "name": "version",
+          "type": {
+            "kind": "int"
+          },
+          "nullable": false,
+          "default": "1"
+        }
+      ],
+      "primaryKey": [
+        "id"
+      ],
+      "foreignKeys": [
+        {
+          "column": "patient",
+          "refTable": "patients",
+          "onDelete": "restrict"
+        }
+      ],
+      "indexes": [
+        {
+          "name": "referrals_patient_idx",
+          "table": "referrals",
+          "columns": [
+            "patient"
+          ],
+          "unique": false
+        },
+        {
+          "name": "referrals_tenant_id_idx",
+          "table": "referrals",
+          "columns": [
+            "tenant_id"
+          ],
+          "unique": false
+        },
+        {
+          "name": "referrals_data_key_idx",
+          "table": "referrals",
+          "columns": [
+            "data_key"
+          ],
+          "unique": false,
+          "opclasses": {
+            "data_key": "text_pattern_ops"
+          }
+        }
+      ],
+      "schema": "clinics",
+      "savingShape": "relational"
+    },
+    {
+      "name": "rooms",
+      "ownerModule": "Scheduling",
+      "columns": [
+        {
+          "name": "id",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        },
+        {
+          "name": "clinic",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        },
+        {
+          "name": "name",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": false
+        },
+        {
+          "name": "seats",
+          "type": {
+            "kind": "int"
+          },
+          "nullable": false
+        },
+        {
+          "name": "tenant_id",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": false
+        },
+        {
+          "name": "data_key",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": true
+        },
+        {
+          "name": "version",
+          "type": {
+            "kind": "int"
+          },
+          "nullable": false,
+          "default": "1"
+        }
+      ],
+      "primaryKey": [
+        "id"
+      ],
+      "foreignKeys": [
+        {
+          "column": "clinic",
+          "refTable": "clinics",
+          "onDelete": "restrict"
+        }
+      ],
+      "indexes": [
+        {
+          "name": "rooms_clinic_idx",
+          "table": "rooms",
+          "columns": [
+            "clinic"
+          ],
+          "unique": false
+        },
+        {
+          "name": "rooms_tenant_id_idx",
+          "table": "rooms",
+          "columns": [
+            "tenant_id"
+          ],
+          "unique": false
+        },
+        {
+          "name": "rooms_data_key_idx",
+          "table": "rooms",
+          "columns": [
+            "data_key"
+          ],
+          "unique": false,
+          "opclasses": {
+            "data_key": "text_pattern_ops"
+          }
+        }
+      ],
+      "schema": "clinics",
+      "savingShape": "relational"
+    },
+    {
+      "name": "waitlist_entries",
+      "ownerModule": "Scheduling",
+      "columns": [
+        {
+          "name": "id",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        },
+        {
+          "name": "patient",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        },
+        {
+          "name": "appt_type",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        },
+        {
+          "name": "requested_after",
+          "type": {
+            "kind": "datetime"
+          },
+          "nullable": false
+        },
+        {
+          "name": "state",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": false
+        },
+        {
+          "name": "offered_appointment",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": true
+        },
+        {
+          "name": "tenant_id",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": false
+        },
+        {
+          "name": "data_key",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": true
+        },
+        {
+          "name": "version",
+          "type": {
+            "kind": "int"
+          },
+          "nullable": false,
+          "default": "1"
+        }
+      ],
+      "primaryKey": [
+        "id"
+      ],
+      "foreignKeys": [
+        {
+          "column": "patient",
+          "refTable": "patients",
+          "onDelete": "restrict"
+        },
+        {
+          "column": "appt_type",
+          "refTable": "appointment_types",
+          "onDelete": "restrict"
+        },
+        {
+          "column": "offered_appointment",
+          "refTable": "appointments",
+          "onDelete": "restrict"
+        }
+      ],
+      "indexes": [
+        {
+          "name": "waitlist_entries_patient_idx",
+          "table": "waitlist_entries",
+          "columns": [
+            "patient"
+          ],
+          "unique": false
+        },
+        {
+          "name": "waitlist_entries_appt_type_idx",
+          "table": "waitlist_entries",
+          "columns": [
+            "appt_type"
+          ],
+          "unique": false
+        },
+        {
+          "name": "waitlist_entries_offered_appointment_idx",
+          "table": "waitlist_entries",
+          "columns": [
+            "offered_appointment"
+          ],
+          "unique": false
+        },
+        {
+          "name": "waitlist_entries_tenant_id_idx",
+          "table": "waitlist_entries",
+          "columns": [
+            "tenant_id"
+          ],
+          "unique": false
+        },
+        {
+          "name": "waitlist_entries_data_key_idx",
+          "table": "waitlist_entries",
+          "columns": [
+            "data_key"
+          ],
+          "unique": false,
+          "opclasses": {
+            "data_key": "text_pattern_ops"
+          }
+        }
+      ],
+      "schema": "clinics",
+      "savingShape": "relational"
+    }
+  ],
+  "lastVersion": "20260101500006",
+  "migrationHistory": [
+    {
+      "version": "20260101000000",
+      "name": "Initial"
+    },
+    {
+      "version": "20260101500001",
+      "name": "Migrate"
+    },
+    {
+      "version": "20260101500002",
+      "name": "Migrate"
+    },
+    {
+      "version": "20260101500003",
+      "name": "RemoveInsurancePolicyRefFromPatients"
+    },
+    {
+      "version": "20260101500004",
+      "name": "AlterTimezoneOnClinics"
+    },
+    {
+      "version": "20260101500005",
+      "name": "Migrate"
+    },
+    {
+      "version": "20260101500006",
+      "name": "AddTriageNoteToAppointments"
+    }
+  ],
+  "versionBlock": 0
+}

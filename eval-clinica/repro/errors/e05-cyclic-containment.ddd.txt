@@ -1,0 +1,5 @@
+context C {
+  aggregate A { contains kids: Node[]
+    entity Node { label: string  contains kids: Node[] } }
+  repository As for A { }
+}

@@ -603,8 +603,9 @@ export function renderJavaService(
 
   // --- VO request mappers --------------------------------------------------------
   const voNames = new Set<string>();
-  for (const f of createInputs) collectVoNames(f.type, voNames);
-  for (const op of agg.operations) for (const p of op.params) collectVoNames(p.type, voNames);
+  for (const f of createInputs) collectVoNames(f.type, voNames, voLookup);
+  for (const op of agg.operations)
+    for (const p of op.params) collectVoNames(p.type, voNames, voLookup);
   const voMappers = [...voNames].sort().flatMap((vo) => {
     const fields = voLookup.get(vo) ?? [];
     const args = fields
@@ -723,8 +724,24 @@ export function renderJavaService(
   );
 }
 
-function collectVoNames(t: TypeIR, into: Set<string>): void {
-  if (t.kind === "valueobject") into.add(t.name);
-  else if (t.kind === "array") collectVoNames(t.element, into);
-  else if (t.kind === "optional") collectVoNames(t.inner, into);
+/** Every value object reachable from `t`, INCLUDING the ones reached only
+ *  through another value object's own fields (`Addr.geo: Geo`).
+ *
+ *  Each name collected gets a `to<Vo>(<Vo>Request)` mapper emitted below, and
+ *  a mapper's body calls the mapper of any VO-typed subfield — so a collector
+ *  that stopped at the top level emitted `toAddr` calling an undefined
+ *  `toGeo(...)`, and the generated project failed `javac` with "cannot find
+ *  symbol: method toGeo(GeoRequest)".  `into` doubles as the visited set, so a
+ *  VO reachable by two paths is walked once. */
+function collectVoNames(
+  t: TypeIR,
+  into: Set<string>,
+  voLookup: ReadonlyMap<string, readonly FieldIR[]>,
+): void {
+  if (t.kind === "valueobject") {
+    if (into.has(t.name)) return;
+    into.add(t.name);
+    for (const f of voLookup.get(t.name) ?? []) collectVoNames(f.type, into, voLookup);
+  } else if (t.kind === "array") collectVoNames(t.element, into, voLookup);
+  else if (t.kind === "optional") collectVoNames(t.inner, into, voLookup);
 }

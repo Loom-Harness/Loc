@@ -478,7 +478,9 @@ export function requireCurrentUser(): User {
 // ---------------------------------------------------------------------------
 // OIDC verifier (D-AUTH-OIDC) — the batteries-included fill-in for the
 // verifier seam.  Validates the bearer token's signature against the
-// issuer's JWKS (discovered lazily), checks `iss` / `aud` / `exp`, and
+// issuer's JWKS (discovered lazily), checks `iss` / `exp` (and `aud` only
+// when the model declares `auth { oidc { audience: … } }` — see the
+// conditional below), and
 // projects the configured claims onto the typed User shape.  Loom owns no
 // auth runtime beyond "validate a token"; the IdP owns everything else.
 // ---------------------------------------------------------------------------
@@ -498,6 +500,40 @@ function renderOidcVerifier(user: UserIR, auth: AuthIR): string {
   // an explicit `OIDC_AUDIENCE=""`) skips the `aud` check — the same documented
   // opt-out the Phoenix verifier carries.
   const audienceConst = `\nconst AUDIENCE = ${envOverridableExpr("OIDC_AUDIENCE", auth.oidc.audience)};`;
+  // The doc comment must describe the options actually emitted above — a
+  // comment asserting a control the file does not implement is worse than no
+  // comment, and reading the generated source is how an engineer audits this.
+  // The "not verified" wording is deliberately the thing a reviewer greps for.
+  //
+  // COMPOSED with the honesty fix that landed on main while this branch was
+  // open (both sides answered the same finding; neither alone is right now).
+  // That fix split the doc on `auth.oidc.audience` — a COMPILE-time question —
+  // because when it was written an undeclared audience meant the check could
+  // not be turned on at all.  CR1-b made it a RUNTIME one: `AUDIENCE` is now
+  // always emitted, so an undeclared audience is off *by default* rather than
+  // off *by construction*, and the remedy is no longer only "edit the .ddd".
+  // Keeping main's two arms verbatim would now state something false on the
+  // undeclared arm — it would send an operator to the `.ddd` when setting
+  // OIDC_AUDIENCE in the deploy env is enough.
+  const verifierDoc = auth.oidc.audience
+    ? `/** Generated OIDC verifier — validates signature (JWKS), issuer and
+ *  audience, then maps claims onto User.  Returns null to reject (→ 401).
+ *
+ *  \`audience:\` is declared, so the \`aud\` check is ON unless the deploy env
+ *  overrides it — \`OIDC_AUDIENCE\` replaces the declared value, and an
+ *  explicit \`OIDC_AUDIENCE=""\` turns the check off (the documented opt-out). */`
+    : `/** Generated OIDC verifier — validates signature (JWKS) and issuer, then
+ *  maps claims onto User.  Returns null to reject (→ 401).
+ *
+ *  The \`aud\` claim is NOT verified BY DEFAULT: this system's
+ *  \`auth { oidc { … } }\` block declares no \`audience:\`, so unless the deploy
+ *  env sets one, any token this issuer minted is accepted here — including one
+ *  issued to a DIFFERENT client of the same realm, carrying that client's
+ *  roles.  Where one IdP realm serves several applications (the shape the
+ *  generated Keycloak realm sets up), turn the check on EITHER by setting
+ *  \`OIDC_AUDIENCE\` in this service's environment — no regeneration needed,
+ *  \`AUDIENCE\` above already reads it — or by declaring
+ *  \`audience: env("OIDC_AUDIENCE")\` in the \`oidc { … }\` block. */`;
   // One `field: claim(payload, "<path>") as <T>` line per user field.
   const toUserLines = user.fields.map((f) => {
     const t = f.optional ? renderTsType({ kind: "optional", inner: f.type }) : renderTsType(f.type);
@@ -586,8 +622,7 @@ ${toUserLines.join("\n")}
   };
 }
 
-/** Generated OIDC verifier — validates signature (JWKS), issuer, and
- *  audience, then maps claims onto User.  Returns null to reject (→ 401). */
+${verifierDoc}
 export const oidcVerifier = async (req: Request): Promise<UserClaims | null> => {
   const token = bearer(req);
   if (!token) return null;
