@@ -51,7 +51,7 @@ describe("java embedded capability filter (DEBT-02)", () => {
 // path — the OrderJpaRepository gets scoped findAll/findById @Query overrides
 // carrying the SpEL clause (`:#{@currentUserAccessor.user()?.tenantId()}`), and
 // each custom find AND-s it too.  Requires `auth: required`.  Previously gated
-// by `loom.context-filter-unsupported`.
+// by `loom.context-filter-no-principal`.
 // ---------------------------------------------------------------------------
 
 const TENANCY_SRC = readFileSync("test/e2e/fixtures/java-build/embedded-tenancy.ddd", "utf8");

@@ -110,3 +110,59 @@ system P {
     expect(fs).toContain("prop.onClick (fun _ -> clear())");
   });
 });
+// Wave C2 packet 2i.  Three `state {}` cell types emitted F# that could not
+// compile, from a `.ddd` reporting `0 error(s), 0 warning(s)` — nothing to do
+// with `persist:`, so an in-memory store is the fixture:
+//
+//   enum      `typeToFs` spelled the enum's own name (`FiltersMode: Status`,
+//             `| FiltersSetMode of Status`) and NO `type Status` is ever
+//             emitted into App.fs — FS0039, undefined type.  Every other seam
+//             on this frontend spells an enum `string` (`wireFieldType`,
+//             `decoderExprFor`, the query encoder, `claimFsType`).
+//   datetime  `fsZeroValue` fell through to `""` against a
+//   guid      `System.DateTime` / `System.Guid` field — a type error in `init`.
+describe("feliz store — enum / datetime / guid state cells (silent-codegen fix)", () => {
+  const CELLS = `
+system P {
+  subdomain S { context C { enum Status { open closed } } }
+  ui WebApp {
+    store Filters {
+      state { mode: Status  at: datetime  ref: guid }
+      action setMode(m: Status) { mode := m }
+    }
+    page Home {
+      route: "/"
+      body: Stack { Heading { "Home", level: 1 } }
+    }
+  }
+  deployable api { platform: node contexts: [C] port: 3000 }
+  deployable web { platform: feliz targets: api ui: WebApp port: 3005 }
+}`;
+
+  async function cellsApp(): Promise<string> {
+    const model = await buildLoomModel(CELLS);
+    const sys = model.systems[0]!;
+    const web = sys.deployables.find((d) => d.name === "web")!;
+    return generateFelizForContexts([], sys, web).get("src/App.fs")!;
+  }
+
+  it("types an enum cell (and its action payload) as `string`, never the enum name", async () => {
+    const fs = await cellsApp();
+    expect(fs).toContain("FiltersMode: string");
+    expect(fs).toContain("| FiltersSetMode of string");
+    // The proof it matters: no `type Status` is emitted, so the old spelling
+    // referenced a type that does not exist.
+    expect(fs).not.toContain("type Status");
+    expect(fs).not.toContain("FiltersMode: Status");
+  });
+
+  it("seeds a datetime / guid cell with the .NET zero its field type accepts", async () => {
+    const fs = await cellsApp();
+    expect(fs).toContain("FiltersAt: System.DateTime");
+    expect(fs).toContain("FiltersRef: System.Guid");
+    expect(fs).toContain("FiltersAt = System.DateTime.MinValue");
+    expect(fs).toContain("FiltersRef = System.Guid.Empty");
+    expect(fs).not.toContain('FiltersAt = ""');
+    expect(fs).not.toContain('FiltersRef = ""');
+  });
+});

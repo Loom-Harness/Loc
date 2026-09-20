@@ -108,7 +108,7 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
     "10-repositories-and-queries.md#the-source-has-to-have-columns",
   "loom.ignoring-clause-placement":
     "10-repositories-and-queries.md#ignoring--capability-filter-bypass",
-  "loom.context-filter-unsupported":
+  "loom.context-filter-no-principal":
     "11-capabilities-filters-stamps.md#filter-expr--a-predicate-and-ed-into-every-read",
   "loom.self-outside-capability":
     "11-capabilities-filters-stamps.md#self-id--self-reference-inside-a-capability",
@@ -130,7 +130,6 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   // starters-and-continuations section that declares those two members.
   "loom.reactor-without-starter": "13-workflows.md#one-event--the-event-reactor",
   "loom.correlation-uninferrable": "13-workflows.md#one-event--the-event-reactor",
-  "loom.reactor-event-uncarried": "13-workflows.md#one-event--the-event-reactor",
   "loom.resource-op-in-transaction": "13-workflows.md#resource-consumption",
   "loom.resource-verb-invalid": "13-workflows.md#resource-consumption",
   "loom.isolation-requires-transactional": "13-workflows.md#transactional--isolation",
@@ -204,6 +203,10 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.sensitive-wire-unsupported": "17-auth.md#sensitive--field-tagging",
   "loom.duplicate-user-block": "17-auth.md#user--the-principal-claim-shape",
   "loom.user-duplicate-field": "17-auth.md#user--the-principal-claim-shape",
+  // The target-agnostic `match await` subject gate (audit F66) — the reference
+  // section that spells the one supported shape.
+  "loom.async-effect-subject-unsupported":
+    "15-ui-pages-structure.md#effect-markers-and-match-await",
   "loom.aggregate-test-context": "18-testing.md#test---an-in-process-unit-test",
   "loom.test-redundant-for": "18-testing.md#test---an-in-process-unit-test",
   "loom.e2e-unsupported-statement":
@@ -211,6 +214,7 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.e2e-unrouted-verb": "18-testing.md#test-e2e--against-deployable--a-live-end-to-end-test",
   "loom.locator-matcher-receiver":
     "18-testing.md#test-e2e--against-deployable--a-live-end-to-end-test",
+  "loom.e2e-ui-throw-invalid": "18-testing.md#tothrow--the-throw-assertion",
   "loom.extern-component-has-body": "21-externs.md#extern-component",
   "loom.extern-function-shadows-stdlib": "21-externs.md#extern-function",
   "loom.seed-duplicate-field": "23-domain-services-and-seeds.md#seed--declarative-first-boot-data",

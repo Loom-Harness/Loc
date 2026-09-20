@@ -1,0 +1,88 @@
+// A folded projection with NO `channel` — the implicit in-process subscription
+// (**D-PROJECTION-IMPLICIT-SUB**).
+//
+// `projection.ddd` is the same read model WITH a `channel Lifecycle { carries:
+// … }`.  This fixture is that model minus the channel block, and until wave C2
+// the difference was total: `deriveEventSubscriptions` opened with
+// `if (!channels || channels.length === 0) return []` and then kept only events
+// some channel `carries:`, so an uncarried fold produced NO subscription on ANY
+// backend — python emitted no `dispatch.py` at all, java/.NET/elixir emitted no
+// fold, and node's route tee had nothing to tee.  The read-model row was never
+// written anywhere.  The compiler said so (`loom.projection-event-uncarried`
+// warned per handler), which made the defect honest without making it less of a
+// defect: a `channel` is what makes delivery cross-deployable or durable
+// (`docs/channels.md`), not what makes a handler run, and nothing in the
+// projection's own syntax mentions transport.
+//
+// The decision ruled that `on(e: E)` IS the subscription, and wrote the rule
+// once for BOTH consumer kinds — projection folds and workflow reactors — since
+// one derivation feeds both.  So this fixture carries both: `OrderBoard` folds
+// the two events, and the `Fulfilment` workflow reacts to `OrderShipped`.
+// Neither is carried by anything.
+//
+// The audit that found the row had to construct this shape by deleting a block
+// from `projection.ddd`; a compile gate over a corpus that lacks the shape
+// proves nothing, which is why it is a fixture now.
+//
+// No `test e2e` block: this is a compile-tier witness (its CARRIED twin,
+// `projection.ddd`, already runs the fold at runtime on the behavioural tier,
+// and the dispatch path the two share is the same one).
+system ProjectionImplicitSub {
+  subdomain Orders {
+    context Orders {
+      enum BoardStatus { Placed Shipped }
+
+      aggregate Order with crudish {
+        customerId: string
+        status: string
+        operation place() {
+          precondition status == "Draft"
+          status := "Placed"
+          emit OrderPlaced { orderRef: id, at: now() }
+        }
+        operation ship() {
+          precondition status == "Placed"
+          status := "Shipped"
+          emit OrderShipped { orderRef: id, at: now() }
+        }
+      }
+      repository Orders for Order { }
+
+      event OrderPlaced  { orderRef: Order id, at: datetime }
+      event OrderShipped { orderRef: Order id, at: datetime }
+
+      // NO `channel` declaration anywhere in this system — that is the fixture.
+
+      projection OrderBoard keyed by orderRef {
+        orderRef: Order id
+        status: BoardStatus
+        at: datetime
+        on(e: OrderPlaced)  { orderRef := e.orderRef  status := Placed   at := e.at }
+        on(e: OrderShipped) { status := Shipped  at := e.at }
+      }
+
+      // The reactor half of the same rule: a workflow `on(e: E)` with no
+      // carrying channel subscribes in-process too.
+      workflow Fulfilment {
+        orderRef: Order id
+        shippedAt: datetime?
+        create(e: OrderPlaced) by e.orderRef {
+          orderRef := e.orderRef
+        }
+        on(e: OrderShipped) by e.orderRef {
+          shippedAt := e.at
+        }
+      }
+    }
+  }
+  api OrdersApi from Orders
+  storage pg { type: postgres }
+  resource ordersState { for: Orders, kind: state, use: pg }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Orders]
+    dataSources: [ordersState]
+    serves: OrdersApi
+    port: 4000
+  }
+}

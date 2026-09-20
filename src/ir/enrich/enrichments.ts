@@ -1332,12 +1332,21 @@ function isNarrowableType(t: TypeIR): boolean {
 }
 
 /** Join workflow consumers (`on(e: Event)` reactors and event-triggered
- *  `create(e: Event) by` starters) against the channels that `carries:` each
- *  event (channels.md; the in-process dispatch slice).  Only events a channel
- *  carries are routable — the channel-routed rule — so an empty-or-uncarried
- *  set yields `[]` and stays byte-identical (Noop dispatcher).  When several
- *  channels carry one event the first by declaration order wins; diagnosing the
- *  ambiguity is a deferred validation rule.
+ *  `create(e: Event) by` starters) — and projection folds — against the
+ *  channels that `carries:` each event (channels.md; the in-process dispatch
+ *  slice).
+ *
+ *  EVERY consumer yields a subscription, carried or not
+ *  (**D-PROJECTION-IMPLICIT-SUB**): `on(e: E)` IS the subscription, and a
+ *  `channel` is what makes delivery cross-deployable or durable, not what makes
+ *  a handler run.  This function used to open with
+ *  `if (!channels || channels.length === 0) return []` and then keep only
+ *  events some channel `carries:` — so a projection fold (or reactor) on an
+ *  uncarried event produced NO subscription on any backend, and the read-model
+ *  row it folds was never written anywhere.  An uncarried consumer now carries
+ *  `channel: undefined`, and every dispatcher builder treats that as in-process
+ *  delivery.  When several channels carry one event the first by declaration
+ *  order wins; diagnosing the ambiguity is a deferred validation rule.
  *
  *  Takes `channels` + `workflows` rather than a whole context so a backend can
  *  re-derive over its *merged* deployable context (every hosted context's
@@ -1351,47 +1360,43 @@ export function deriveEventSubscriptions(
 ): EventSubscriptionIR[] {
   // Tolerate hand-built IR fixtures that predate the `channels` / `creates`
   // fields (the real lowering pipeline always populates them).
-  if (!channels || channels.length === 0) return [];
   const carrier = (event: string): string | undefined =>
-    channels.find((ch) => ch.carries.includes(event))?.name;
+    (channels ?? []).find((ch) => ch.carries.includes(event))?.name;
   const subs: EventSubscriptionIR[] = [];
   // Projection folds subscribe like reactors, but every handler is an upsert
   // (load-or-allocate) — the dispatcher reads the `projection` discriminant.
   for (const proj of projections ?? []) {
     for (const on of proj.handlers) {
-      const channel = carrier(on.event);
-      if (channel) {
-        subs.push({
-          event: on.event,
-          channel,
-          workflow: proj.name,
-          trigger: "on",
-          param: on.param,
-          projection: proj.name,
-        });
-      }
+      subs.push({
+        event: on.event,
+        channel: carrier(on.event),
+        workflow: proj.name,
+        trigger: "on",
+        param: on.param,
+        projection: proj.name,
+      });
     }
   }
   for (const wf of workflows ?? []) {
     for (const on of wf.subscriptions ?? []) {
-      const channel = carrier(on.event);
-      if (channel) {
-        subs.push({ event: on.event, channel, workflow: wf.name, trigger: "on", param: on.param });
-      }
+      subs.push({
+        event: on.event,
+        channel: carrier(on.event),
+        workflow: wf.name,
+        trigger: "on",
+        param: on.param,
+      });
     }
     for (const create of wf.creates ?? []) {
       if (create.triggerKind !== "event" || !create.eventRef || !create.eventBinding) continue;
-      const channel = carrier(create.eventRef);
-      if (channel) {
-        subs.push({
-          event: create.eventRef,
-          channel,
-          workflow: wf.name,
-          trigger: "create",
-          param: create.eventBinding,
-          createName: create.name,
-        });
-      }
+      subs.push({
+        event: create.eventRef,
+        channel: carrier(create.eventRef),
+        workflow: wf.name,
+        trigger: "create",
+        param: create.eventBinding,
+        createName: create.name,
+      });
     }
   }
   return subs;

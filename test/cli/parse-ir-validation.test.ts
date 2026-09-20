@@ -72,7 +72,7 @@ describe("ddd parse — IR-level validation", () => {
   it("fails on a phase-⑦ error the AST validator cannot see", () => {
     const { out, status } = parse(write("broken.ddd", IR_BROKEN));
     expect(status).toBe(1);
-    expect(out).toContain("loom.persistence-mode-unsupported");
+    expect(out).toContain("loom.datasource-binding-missing");
     // The remedy has to reach the user — this is the whole point of surfacing
     // the diagnostic rather than exiting 1 with a bare count.
     expect(out).toContain("dataSources:");
@@ -83,7 +83,7 @@ describe("ddd parse — IR-level validation", () => {
     const { out, status } = parse(write("clean.ddd", IR_CLEAN));
     expect(status).toBe(0);
     expect(out).toContain("OK:");
-    expect(out).not.toContain("loom.persistence-mode-unsupported");
+    expect(out).not.toContain("loom.datasource-binding-missing");
   });
 
   it("agrees with `generate system` on a multi-file entry", () => {

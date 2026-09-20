@@ -304,7 +304,7 @@ export function composeSource(c: SourceCase): string {
     // `auth: required` whenever ANY principal-referencing machinery is on —
     // an authz surface, or a tenancy filter/stamp.  Not a convenience: a
     // `tenancy by` deployable without auth is refused by name
-    // (`loom.context-filter-unsupported`, `loom.<backend>-stamp-unsupported`),
+    // (`loom.context-filter-no-principal`, `loom.<backend>-stamp-unsupported`),
     // so omitting it would spend 40 crossings re-proving one validator instead
     // of reaching the capability×shape interactions the matrix exists for.
     ...(authz === "none" && !tenancy ? [] : ["    auth: required"]),

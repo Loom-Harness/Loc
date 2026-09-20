@@ -67,8 +67,10 @@ export type FindPredicateCapability = (e: ExprIR) => string | null;
  *  shape `firstNonQueryableNode` admits.  Every relational adapter now lowers
  *  it (EF Core `Any(...)`, Dapper + drizzle an EXISTS / `inArray` join
  *  subquery, MikroORM an uncorrelated `id in (select …)` raw fragment), so
- *  this predicate no longer decides a narrowing BY ITSELF — it only selects
- *  the nodes whose ARGUMENT `isColumnArgMembership` then judges. */
+ *  this predicate decides no narrowing at all any more — it marks the shape as
+ *  ADMITTED in both the predicate and the value position.  Its former job (also
+ *  judging the ARGUMENT) moved to `firstNonQueryableNode`, where the refusal is
+ *  target-neutral. */
 function isContainsMembership(e: ExprIR): boolean {
   return (
     e.kind === "method-call" &&
@@ -133,36 +135,27 @@ const DAPPER_SUBSET: FindPredicateCapability = FULL_SUBSET;
  *  `src/generator/typescript/emit/mikroorm-filter.ts` for why the membership is
  *  spelled UNCORRELATED rather than as an EXISTS).
  *
- *  ONE narrowing is left, and it is SMALLER than the one it replaces: a
- *  membership whose ARGUMENT is a column rather than a bindable value
- *  (`where o.tags.contains(o.id)` — reachable only from a query-time
- *  projection `where`, which has no parameters to bind).  The join-table
- *  subquery binds its target as a parameter on every adapter, so a column there
- *  has nowhere to go.
+ *  NO narrowing is left.  The last one — a membership whose ARGUMENT is a
+ *  column rather than a bindable value (`where o.tags.contains(o.id)`) — was
+ *  never this adapter's: the join-table subquery binds its target as a
+ *  parameter on EVERY adapter, so a column there has nowhere to go on all of
+ *  them.  Keeping it here made the refusal depend on the `persistence:`
+ *  selector, which a deployable on the DEFAULT adapter does not carry — so the
+ *  identical shape CRASHED codegen on drizzle ("internal: where-clause for
+ *  projection 'X' could not lower to Drizzle") while MikroORM refused it
+ *  honestly.  It is now a target-neutral rule in `firstNonQueryableNode`
+ *  (`src/ir/validate/checks/shared.ts`, the `contains` arm), which every site
+ *  and every backend consults, and this descriptor is `FULL_SUBSET` in
+ *  substance — kept as its own constant only because its prose is the record of
+ *  what the adapter DOES lower.
  *
  *  The recorded reason for the OLD, wider narrowing — "needs a correlated join
  *  the adapter emits nowhere" — was a claim about the EXISTS spelling, not
  *  about the adapter: an uncorrelated `id in (select …)` says the same thing,
- *  and is what the drizzle twin emits.
- *
- *  NOTE, and it is not this adapter's: the column-argument shape is equally
- *  unlowerable on DRIZZLE, where it is not refused but CRASHES codegen
- *  ("internal: where-clause for projection 'X' could not lower to Drizzle") —
- *  a bare `platform: node` deployable carries no `persistence:` selector, so
- *  this gate never runs for it.  Recorded as its own ledger row; widening this
- *  descriptor would not reach it. */
+ *  and is what the drizzle twin emits. */
 const MIKROORM_SUBSET: FindPredicateCapability = (e) => {
   const NOT_SUPPORTED =
     "MikroORM v1 lowers comparisons (col <op> value), bare boolean columns, unary '!', &&/||, queryable intrinsics, principal references and refColl membership";
-  const COLUMN_ARG =
-    "'this.<refColl>.contains(<column>)' — the join-table subquery binds its " +
-    "target as a parameter, so a column argument has nowhere to bind";
-  /** The membership arm, shared by both positions.  Membership itself LOWERS
-   *  now; only a column ARGUMENT is out of reach.  Keeping this one function
-   *  is what stops the two positions from drifting apart — the reason the
-   *  value position existed in the first place. */
-  const judgeMembership = (n: ExprIR): string | null =>
-    isColumnArgMembership(n) ? COLUMN_ARG : null;
   // Walk a PREDICATE position.  Comparisons / `&&` / `||` / `!` / bare boolean
   // columns are valid here.
   const walkPredicate = (n: ExprIR): string | null => {
@@ -185,7 +178,7 @@ const MIKROORM_SUBSET: FindPredicateCapability = (e) => {
     // descendant-or-self subtree predicate, rendered through a `raw()`
     // FilterQuery key because the operator vocabulary has no prefix test.
     if (inner.kind === "authz-filter") return null;
-    if (isContainsMembership(inner)) return judgeMembership(inner);
+    if (isContainsMembership(inner)) return null;
     if (isBareBooleanColumn(inner)) return null;
     // A bool-returning queryable intrinsic standing alone in a PREDICATE
     // position (`filter this.path.startsWith(p)`).  The FilterQuery vocabulary
@@ -196,31 +189,9 @@ const MIKROORM_SUBSET: FindPredicateCapability = (e) => {
   };
   // Walk a comparison OPERAND (value) position — only the adapter-wide
   // rejected shapes matter here.
-  const walkValue = (n: ExprIR): string | null => {
-    const inner = n.kind === "paren" ? n.inner : n;
-    if (isContainsMembership(inner)) return judgeMembership(inner);
-    return null;
-  };
+  const walkValue = (_n: ExprIR): string | null => null;
   return walkPredicate(e);
 };
-
-/** `this.<refColl>.contains(x)` where `x` is a COLUMN of the same row rather
- *  than a bindable value.  A parameter, a literal, an enum value or a
- *  `currentUser.<claim>` all bind; a `this.<field>` / alias member does not. */
-function isColumnArgMembership(e: ExprIR): boolean {
-  if (
-    e.kind !== "method-call" ||
-    e.member !== "contains" ||
-    e.receiverType.kind !== "array" ||
-    e.receiverType.element.kind !== "id" ||
-    e.args.length !== 1
-  )
-    return false;
-  const arg = e.args[0]!;
-  const inner = arg.kind === "paren" ? arg.inner : arg;
-  if (inner.kind === "ref") return inner.refKind === "this-prop";
-  return inner.kind === "member" && inner.receiver.kind === "this";
-}
 
 const CAPABILITIES: Record<FindPredicateAdapter, FindPredicateCapability> = {
   // EF Core lowers the full queryable subset (the baseline).

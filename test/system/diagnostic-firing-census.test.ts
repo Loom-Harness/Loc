@@ -1037,21 +1037,57 @@ system S {
   deployable web { platform: static targets: api ui: WebApp { C: api } port: 3001 }
 }`,
 
+  // The TARGET-AGNOSTIC `match await` subject gate (audit F66).  The fixture is
+  // deliberately a REACT deployable: the whole point of the promotion is that
+  // this model used to report `0 error(s), 0 warning(s)` there and emit
+  // `await Promise.reject(new Error("no remote op for variant-match"))`, while
+  // the identical model was refused on Feliz.  A plain `string` state field is
+  // the subject — no frontend can resolve it to an aggregate instance op.
+  "loom.async-effect-subject-unsupported": `
+system S {
+  subdomain Sub { context C {
+    aggregate Order { code: string  operation place() { code := "x" } }
+    repository Orders for Order { }
+  } }
+  api Api from Sub
+  ui WebApp {
+    api C: Api
+    page OrderDetail {
+      route: "/orders/:id"
+      state { message: string = "" }
+      action submit() {
+        match await message {
+          Order o => { message := o.code }
+        }
+      }
+      body: Stack { Button { "Place", onClick: submit } }
+    }
+  }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable api { platform: node contexts: [C] dataSources: [st] serves: Api port: 3000 }
+  deployable web { platform: static targets: api ui: WebApp { C: api } port: 3001 }
+}`,
+
   // The `persist:` ladder now ships on EVERY frontend, so the platform-wide arm
   // of this code is gone; what remains is field-scoped.  Persistence on feliz
   // and flutter crosses an untyped boundary per field, so a cell whose type has
-  // no total conversion in that language's codec (here a `datetime` on feliz)
-  // is refused rather than silently dropped from the stored blob.
+  // no total conversion in that language's codec is refused rather than
+  // silently dropped from the stored blob.  Since wave C2 packet 2i the FELIZ
+  // residue is exactly the types that would need a RECORD codec — a value
+  // object here; `datetime` (the fixture's old subject) now has a total
+  // `System.DateTime.TryParse` codec and rides the ladder.
   "loom.store-lifetime-target-unsupported": `
 system S {
   subdomain Sub { context C {
+    valueobject Money { amount: int  currency: string }
     aggregate Thing with crudish { name: string }
   } }
   api Api from Sub
   ui WebApp {
     framework: feliz
     api C: Api
-    store Cart persist: local { state { seenAt: datetime } }
+    store Cart persist: local { state { price: Money } }
     page Home { route: "/"  body: Stack { Heading { "hi", level: 3 } } }
   }
   storage pg { type: postgres }
@@ -1572,11 +1608,15 @@ system P {
   deployable app { platform: react targets: api ui: WebApp { C: api } port: 3001 }
 }`,
 
-  // A user component invoked with CHILDREN on an Angular-hosted ui.  Angular
-  // has no PascalCase component tag, so the call site is
-  // `<ng-container [ngComponentOutlet]=…>` and `ngComponentOutlet` cannot
-  // project content from a template — the extra positional argument was
-  // dropped and the child markup appeared nowhere in the emitted project.
+  // An EXTERN user component invoked with CHILDREN on an Angular-hosted ui.
+  // An extern component's `@Component({ selector })` is the author's, so Loom
+  // has no tag to spell and the call site is `<ng-container
+  // [ngComponentOutlet]=…>` — which cannot project content from a template, so
+  // the extra positional argument is dropped and the child markup appears
+  // nowhere in the emitted project.  The declaration must be `extern` (wave C2
+  // packet 2h, D-ANGULAR-EXTERN-CHILDREN): a WALKED component is addressed by
+  // the selector Loom stamped on it and projects its children correctly, so it
+  // no longer raises this.
   "loom.component-children-unsupported": `
 system P {
   subdomain D { context C {
@@ -1585,7 +1625,7 @@ system P {
   api Api from D
   ui WebApp {
     api C: Api
-    component Panel(label: string) { body: Card { Text { label }, Slot { } } }
+    component Panel(label: string) extern from "widgets/panel"
     page Home { route: "/" body: Stack { Panel("a", Text { "child" }) } }
   }
   storage pg { type: postgres }
@@ -1805,6 +1845,32 @@ system P {
     test "a locator matcher needs a page read" for Thing {
       expect("x").toHaveText("x")
     }`),
+  // `toThrow` in a block whose target is a FRONTEND deployable — it lowers to
+  // the Playwright renderer, where there is no HTTP response to pin a status
+  // on.  Needs a full system (the diagnostic reads the target deployable's
+  // platform), so it cannot use `repoOnly`.
+  "loom.e2e-ui-throw-invalid": `
+system S {
+  subdomain D { context C {
+    aggregate Technician with crudish {
+      name: string
+      invariant name.length > 0
+      derived display: string = name
+    }
+    repository Technicians for Technician { }
+  } }
+
+  ui WebApp with scaffold(subdomains: [D]) { }
+  storage primary { type: postgres }
+  resource cState { for: C, kind: state, use: primary }
+
+  deployable api { platform: node, contexts: [C], dataSources: [cState], port: 3000 }
+  deployable webApp { platform: react, targets: api, ui: WebApp, port: 3001 }
+
+  test e2e "a ui body cannot pin a status" against webApp {
+    expect(ui.technicians.create({ name: "" })).toThrow(422)
+  }
+}`,
   "loom.seed-abstract-aggregate": repoOnly(`    abstract aggregate Base { name: string }
     aggregate Child extends Base with crudish { extra: int }
     repository Children for Child { }
