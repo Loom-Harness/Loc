@@ -273,13 +273,21 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
     kind: "gap",
     site: "src/ir/validate/checks/store-checks.ts:527",
     what:
-      "`match await <subject>` whose subject is not an aggregate INSTANCE operation — a " +
-      "workflow, a collection read or a plain state field.  Awaiting a WORKFLOW is the real " +
-      "work behind this row (a different route shape, `POST /workflows/<wf>`, and its own " +
-      "result projection on each of the seven frontend emitters); the other subjects are " +
-      "nonsense the statement form could not otherwise refuse, because a " +
-      "`StmtIR.variant-match`'s `subjectType` comes from `inferExprType` (catch-all `string`) " +
-      "and so cannot reach `loom.match-non-union-subject`",
+      "`match await <subject>` whose subject is not an aggregate INSTANCE operation.  The " +
+      "reachable population was CENSUSED in wave C2 packet 2l by spelling every candidate " +
+      "subject and parsing it, and it is exactly THREE shapes: (1) `match await " +
+      "<api>.<Workflow>(args)` — a workflow run, which is the only DRAINABLE one and the real " +
+      "work behind this row (a different route shape, `POST /workflows/<wf>`, with its own " +
+      "result projection on each of the seven frontend emitters); (2) `match await " +
+      "<api>.<Agg>.all` — a collection READ, which has no command to await; (3) `match await " +
+      "<state field>`.  (2) and (3) are nonsense the statement form could not otherwise " +
+      "refuse, because a `StmtIR.variant-match`'s `subjectType` comes from `inferExprType` " +
+      "(catch-all `string`) and so cannot reach `loom.match-non-union-subject` — so the row " +
+      "will NOT reach zero by building; when the workflow subject lands, what is left is a " +
+      "permanent refusal and the row re-classes `scope`.  Two shapes a reader might expect " +
+      "here are NOT this row's: a dotted workflow (`<api>.<Workflow>.run(…)`) and a " +
+      "domain-service call are both refused earlier, by scope resolution (\"Aggregate 'X' not " +
+      'found in api"), so they never reach the classifier',
     mission: "M-T1.20",
   },
   {
