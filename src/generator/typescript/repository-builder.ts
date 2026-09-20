@@ -1,4 +1,3 @@
-import { pagedReturn } from "../../ir/stdlib/generics.js";
 import type {
   EnrichedAggregateIR,
   EnrichedBoundedContextIR,
@@ -24,9 +23,7 @@ import {
   findManyByIdsMethod,
   findQueryMethod,
   kindPredicate,
-  lowerToDrizzle,
   nonPrincipalContextFilterEntries,
-  nonPrincipalContextFilters,
   reifiableCriterion,
   renderCriterionFn,
   repoTableName,

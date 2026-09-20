@@ -29,7 +29,6 @@ import {
 import {
   buildFindWhereClause,
   hydrateRootExpr,
-  lowerToDrizzle,
   readFilterPred,
 } from "./repository-find-builder.js";
 import {
