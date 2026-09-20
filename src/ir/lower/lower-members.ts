@@ -55,7 +55,7 @@ import type {
   WorkflowStmtIR,
 } from "../types/loom-ir.js";
 import { mutatedParamNames, type SaveResolver } from "../util/domain-service-tier.js";
-import { lowerExpr, lowerExprInContext } from "./lower-expr.js";
+import { lowerExpr, lowerExprInContext, retargetEnumValue } from "./lower-expr.js";
 import { lowerStatement } from "./lower-stmt.js";
 import { cstText, type Env, inPart, lowerType, withLocal } from "./lower-types.js";
 import { originFor } from "./origin.js";
@@ -266,9 +266,15 @@ export function lowerFunction(f: FunctionDecl, env: Env): FunctionIR {
   // Body variant — expression form (`= Expression`) stays exactly as it was
   // (inlinable); block form (`{ Statement* }`) lowers via lowerStatement,
   // threading the let-binding env exactly like an operation body.
+  const returnType = lowerType(f.returnType);
   let body: FunctionBodyIR;
   if (f.body !== undefined) {
-    body = { expr: lowerExpr(f.body, inner) };
+    // The declared RETURN type is this body's expected type, so a bare enum
+    // value shared by two enums resolves against it (F-022) — the expression
+    // form's equivalent of a field default.  `retargetEnumValue` rather than
+    // the full `lowerExprInContext`, so this stays an enum-resolution seam and
+    // does not start promoting numeric literals in function bodies.
+    body = { expr: retargetEnumValue(lowerExpr(f.body, inner), returnType) };
   } else {
     const stmts: StmtIR[] = [];
     let bodyEnv = inner;
@@ -282,7 +288,7 @@ export function lowerFunction(f: FunctionDecl, env: Env): FunctionIR {
   return {
     name: f.name,
     params,
-    returnType: lowerType(f.returnType),
+    returnType,
     body,
   };
 }

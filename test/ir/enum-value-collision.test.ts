@@ -118,6 +118,36 @@ describe("F-022 — bare enum value shared by two enums", () => {
     expect(d?.message).toContain("OrderStatus.Draft");
   });
 
+  // The sites below all HAVE an expected type; each one reached phase (7) still
+  // ambiguous before it was wired, so `loom.ambiguous-enum-value` fired on code
+  // the compiler could in fact resolve.  A false ambiguity error is the same
+  // class of defect as the silent wrong pick — it just fails loudly instead.
+
+  it("resolves both branches of a ternary through the assignment target", async () => {
+    const members = `        operation c() { status := label == "x" ? Draft : Issued }`;
+    expect(await errorCodes(members)).not.toContain("loom.ambiguous-enum-value");
+    expect(await enumRefsOf(members)).not.toContain("Draft@OrderStatus");
+    expect(await enumRefsOf(members)).toContain("Draft@InvoiceStatus");
+  });
+
+  it("resolves a function's expression body through its declared return type", async () => {
+    const members = `        function d(): InvoiceStatus = Draft`;
+    expect(await errorCodes(members)).not.toContain("loom.ambiguous-enum-value");
+    expect(await enumRefsOf(members)).toContain("Draft@InvoiceStatus");
+    expect(await enumRefsOf(members)).not.toContain("Draft@OrderStatus");
+  });
+
+  it("resolves a call argument through the callee's parameter type", async () => {
+    // Both spellings: the call STATEMENT (`setTo(Draft)`) and the call in
+    // EXPRESSION position (`bool = eq(Draft)`) lower through different paths.
+    const members = `        operation setTo(s: InvoiceStatus) { status := s }
+        operation b() { setTo(Draft) }
+        function eq(s: InvoiceStatus): bool = s == status
+        derived viaExpr: bool = eq(Draft)`;
+    expect(await errorCodes(members)).not.toContain("loom.ambiguous-enum-value");
+    expect(await enumRefsOf(members)).not.toContain("Draft@OrderStatus");
+  });
+
   it("stays quiet when only one enum declares the name", async () => {
     // `Issued` is unique to InvoiceStatus — an unqualified use must not start
     // erroring just because SOME value name collides elsewhere in the context.

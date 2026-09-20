@@ -614,7 +614,11 @@ function applySuffixToRecv(
         kind: "call",
         callKind,
         name: recv.name,
-        args,
+        // An argument's expected type is the PARAMETER's, so a bare enum value
+        // passed to `setStatus(Draft)` is as contextually typed as a field
+        // default — retarget it here or it reaches phase (7) looking
+        // context-free (F-022).
+        args: retargetCallArgs(recv.name, args, named ? argNames : undefined, env),
         ...(named ? { argNames } : {}),
         ...(styleHoist.style ? { style: styleHoist.style } : {}),
         // A workflow `function` is emitted as a per-workflow-scoped helper (not
@@ -2045,11 +2049,53 @@ export function retargetEnumValue(ir: ExprIR, expected: TypeIR | undefined): Exp
     const elements = ir.elements.map((it) => retargetEnumValue(it, element));
     return elements.some((it, i) => it !== ir.elements[i]) ? { ...ir, elements } : ir;
   }
+  // A ternary and a paren are PASS-THROUGHs for the slot's type: both branches
+  // of `status := cond ? Draft : Issued` land in the same `status` slot, so
+  // they inherit the expectation instead of losing it at the node.
+  if (ir.kind === "ternary") {
+    const then = retargetEnumValue(ir.then, expected);
+    const otherwise = retargetEnumValue(ir.otherwise, expected);
+    return then !== ir.then || otherwise !== ir.otherwise ? { ...ir, then, otherwise } : ir;
+  }
+  if (ir.kind === "paren") {
+    const inner = retargetEnumValue(ir.inner, expected);
+    return inner !== ir.inner ? { ...ir, inner } : ir;
+  }
   if (ir.kind !== "ref" || ir.refKind !== "enum-value") return ir;
   if (!ir.enumCandidates) return ir;
   if (!ir.enumCandidates.includes(want)) return ir;
   const { enumCandidates: _dropped, ...rest } = ir;
   return { ...rest, enumName: want, type: { kind: "enum", name: want } };
+}
+
+/** The callee's declared parameters, as `{ name, type }`, or `undefined` when
+ *  `name` does not resolve to something with a declared parameter list.  Only
+ *  the two by-name callees a bare argument can reach: an aggregate/part/VO
+ *  `function` and an `operation`.  A value-object constructor takes its fields
+ *  in brace form and already lowers through `lowerExprInContext`. */
+function calleeParams(name: string, env: Env): { name: string; type: TypeIR }[] | undefined {
+  const decl = findFunctionInEnv(env, name) ?? findOperationInEnv(env, name);
+  if (!decl) return undefined;
+  return decl.params.map((p) => ({ name: p.name, type: lowerType(p.type, env) }));
+}
+
+/** Repoint each argument of a by-name call at the type its PARAMETER declares
+ *  (F-022).  Positional by index; a named-argument call matches by name, so
+ *  `issue(to: Draft)` resolves the same way as `issue(Draft)`.  A no-op for
+ *  every argument that is not an ambiguous bare enum value. */
+export function retargetCallArgs(
+  name: string,
+  args: ExprIR[],
+  argNames: ReadonlyArray<string | undefined> | undefined,
+  env: Env,
+): ExprIR[] {
+  const params = calleeParams(name, env);
+  if (!params) return args;
+  return args.map((a, i) => {
+    const key = argNames?.[i];
+    const p = key ? params.find((q) => q.name === key) : params[i];
+    return p ? retargetEnumValue(a, p.type) : a;
+  });
 }
 
 function resolveNameRef(name: string, env: Env, node?: AstNode): ExprIR {
