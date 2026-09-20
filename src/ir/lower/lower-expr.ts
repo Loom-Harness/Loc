@@ -1214,7 +1214,11 @@ function lowerExprInner(expr: Expression | undefined, env: Env): ExprIR {
   if (isNullLit(expr)) return lit("null", "null");
   if (isNowExpr(expr)) return lit("now", "now");
   if (isThisRef(expr)) return { kind: "this" };
-  if (isIdRef(expr)) return { kind: "id" };
+  // A binding named `id` shadows the implicit aggregate identity (see
+  // `hasIdBinding`); otherwise `id` keeps its magic meaning.
+  if (isIdRef(expr)) {
+    return hasIdBinding(env) ? resolveNameRef(ID_NAME, env, expr) : { kind: "id" };
+  }
   if (isAwaitExpr(expr)) {
     // `await <call>` (async-actions-and-effects.md Stage 2) — lower the inner
     // remote call and mark it `awaited`, so the frontend walker wraps its
@@ -1912,6 +1916,42 @@ function uiEnumOwnerFor(name: string, node: AstNode | undefined): string | undef
   return local ?? findAmbientEnumForValue(name)?.name;
 }
 
+/** `id` is the ONE magic identifier the grammar resolves instead of the
+ *  lowerer: `IdRef: {infer IdRef} 'id';` sits in `PrimaryExpr` BEFORE `NameRef`
+ *  (`ddd.langium`), so a bare `id` in expression position is never a `NameRef`
+ *  and never reaches `resolveNameRef`.  `Parameter.name` meanwhile admits `id`
+ *  via `LooseName`, so `create(id: WorkOrder id)` — or `let id = …`, or a
+ *  lambda `id => …` — declares a perfectly legal binding whose every USE the
+ *  parser has already decided means the implicit aggregate identity.
+ *
+ *  Left alone that lowers to `{kind:"id"}`, which every backend renders as an
+ *  IMPLICIT-RECEIVER access (`this._id` / `self._id` / `this.Id`).  Inside a
+ *  workflow — a module-level function with no receiver — the emitted code is
+ *  unbound: `await workOrders.getById(this._id)` in Hono, `self._id` (ruff
+ *  F821) in Python.  Nothing diagnoses it, because the collision is invisible
+ *  to both name resolution (which never runs) and the type checker (which types
+ *  a workflow's `id` as `unknown`).  F-025.
+ *
+ *  So: a binding named `id` in scope SHADOWS the implicit identity, exactly as
+ *  a parameter shadows a like-named field everywhere else in the language (the
+ *  same precedence `resolveNameRef` already gives criterion args and locals
+ *  over `this`-props).  The `id` keyword keeps its magic meaning wherever no
+ *  binding claims the name — which is every aggregate/part body that doesn't
+ *  declare one, i.e. essentially all existing source. */
+const ID_NAME = "id";
+
+/** True when some binder in `env` claims the name `id` — a parameter, a `let`,
+ *  a lambda or match binding, an inlined criterion argument, or an absence-match
+ *  alias.  Mirrors the binder sources `resolveNameRef` consults, so the two
+ *  agree on what counts as "bound". */
+function hasIdBinding(env: Env): boolean {
+  return (
+    env.criterionArgs?.has(ID_NAME) === true ||
+    env.refAliases?.has(ID_NAME) === true ||
+    env.locals.has(ID_NAME)
+  );
+}
+
 function resolveNameRef(name: string, env: Env, node?: AstNode): ExprIR {
   // Criterion-parameter substitution — while inlining a criterion body, a
   // bare reference to one of its parameters resolves to the caller's
@@ -2188,6 +2228,14 @@ export function inferExprType(expr: Expression | undefined, env: Env): TypeIR {
   if (isNowExpr(expr)) return { kind: "primitive", name: "datetime" };
   if (isThisRef(expr)) return thisTypeOf(env);
   if (isIdRef(expr)) {
+    // A binding named `id` shadows the implicit identity — type it as the
+    // binding, so a `getById(id)` arg carries the param's own id type rather
+    // than the enclosing aggregate's (or, in a workflow, `string`).
+    if (hasIdBinding(env)) {
+      const bound = resolveNameRef(ID_NAME, env, expr);
+      if ("type" in bound && bound.type) return bound.type;
+      return { kind: "primitive", name: "string" };
+    }
     if (env.part) return { kind: "id", targetName: env.part.name, valueType: "guid" };
     if (env.aggregate) {
       return {
