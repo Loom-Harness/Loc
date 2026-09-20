@@ -91,7 +91,8 @@ function importedBindings(src: string): Array<{ local: string; from: string }> {
 /** Top-level `export const/type/interface/function/class <Name>` declarations. */
 function exportedNames(src: string): Set<string> {
   const out = new Set<string>();
-  const re = /^export\s+(?:declare\s+)?(?:const|type|interface|function|class)\s+([A-Za-z_$][\w$]*)/gm;
+  const re =
+    /^export\s+(?:declare\s+)?(?:const|type|interface|function|class)\s+([A-Za-z_$][\w$]*)/gm;
   for (let m = re.exec(src); m; m = re.exec(src)) out.add(m[1]);
   return out;
 }
@@ -110,7 +111,8 @@ describe("F-023: an operation and a workflow that share a name", () => {
         // Two bindings of one local name is `TS2300: Duplicate identifier`
         // whether or not the modules differ; the module pair is what makes the
         // failure message diagnosable.
-        if (prior !== undefined) offenders.push(`${path}: '${local}' from "${prior}" and "${from}"`);
+        if (prior !== undefined)
+          offenders.push(`${path}: '${local}' from "${prior}" and "${from}"`);
         else seen.set(local, from);
       }
     }

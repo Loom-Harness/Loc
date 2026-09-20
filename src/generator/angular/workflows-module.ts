@@ -145,7 +145,6 @@ export function buildAngularWorkflowsModule(contexts: BoundedContextIR[]): strin
 
   // Request + instance-row interfaces.
   for (const { wf } of workflows) {
-    const T = upperFirst(wf.name);
     const R = names.workflow(wf.name);
     out.push(`export interface ${R}Request {`);
     for (const p of wf.params) out.push(`  ${p.name}: ${wireTsType(p.type)};`);

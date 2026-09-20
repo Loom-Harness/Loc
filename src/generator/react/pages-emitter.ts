@@ -39,8 +39,8 @@ import {
 } from "../../ir/util/page-kind.js";
 import { lowerFirst, snake } from "../../util/naming.js";
 import { pageEmitPath, pageFileBase, pageModuleSpecifier } from "../_frontend/page-identity.js";
-import { buildWorkflowPageObject } from "../_frontend/workflows-module.js";
 import { requestNamesForContexts } from "../_frontend/request-names.js";
+import { buildWorkflowPageObject } from "../_frontend/workflows-module.js";
 import type { LoadedPack } from "../_packs/loader.js";
 import type { SourceMapRecorder } from "../_trace/sourcemap.js";
 import { isWalkableLayoutBody, walkBodyToTsx } from "./body-walker.js";
