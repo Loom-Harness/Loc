@@ -243,7 +243,7 @@ function emitHistoryRoute(
   out.push(`    path: "/{id}/history",`);
   out.push(`    tags: ["${aggSlug}"],`);
   out.push(`    operationId: "${camelId(opFind(agg.name, "history"))}",`);
-  out.push(`    request: { params: z.object({ id: z.string().uuid() }) },`);
+  out.push(`    request: { params: z.object({ id: UuidString }) },`);
   out.push(`    responses: {`);
   out.push(
     `      200: { description: "OK", content: { "application/json": { schema: z.array(AuditEntryResponse) } } },`,
@@ -1125,7 +1125,7 @@ export function buildRoutesFile(
   // Named find queries with STATIC paths (`find byHolder(...)` → GET
   // /by_holder) must register BEFORE the `GET /{id}` param route: Hono
   // matches in registration order, and `@hono/zod-openapi` validates the
-  // `/{id}` param as `z.string().uuid()`, so a static segment registered
+  // `/{id}` param as `UuidString`, so a static segment registered
   // after `/{id}` is shadowed — `GET /by_holder` would match `/{id}` first
   // and 422 on the non-UUID segment.  The auto-`all` find stays at the root
   // (`GET /`, no conflict) and is emitted with the rest below.
@@ -1157,7 +1157,7 @@ export function buildRoutesFile(
   lines.push(`      path: "${honoPath(derivedGetById)}",`);
   lines.push(`      tags: ["${snake(plural(agg.name))}"],`);
   lines.push(`      operationId: "${camelId(opGetById(agg.name))}",`);
-  lines.push(`      request: { params: z.object({ id: z.string().uuid() }) },`);
+  lines.push(`      request: { params: z.object({ id: UuidString }) },`);
   lines.push(`      responses: {`);
   lines.push(
     `        200: { description: "OK", content: { "application/json": { schema: ${agg.name}Response } } },`,
@@ -1235,7 +1235,7 @@ export function buildRoutesFile(
     lines.push(`      path: "${honoPath(derivedDestroy)}",`);
     lines.push(`      tags: ["${snake(plural(agg.name))}"],`);
     lines.push(`      operationId: "${camelId(opDestroy(agg.name))}",`);
-    lines.push(`      request: { params: z.object({ id: z.string().uuid() }) },`);
+    lines.push(`      request: { params: z.object({ id: UuidString }) },`);
     lines.push(`      responses: {`);
     lines.push(`        204: { description: "No Content" },`);
     lines.push(...problemResponseLines(derivedDestroy, "        "));
@@ -1603,6 +1603,9 @@ export function buildRoutesFile(
   // `requireJsonContentType`).
   const problemNamed = ["ProblemDetails", "frameworkProblemBody", "newApp"];
   const assembledSoFar = lines.join("\n");
+  // The shared guid wire schema, only when a route actually declares one.
+  // ASCII order puts it between the two `P`/`f` names above.
+  if (/\bUuidString\b/.test(assembledSoFar)) problemNamed.splice(1, 0, "UuidString");
   if (/\bparseIfMatch\(/.test(assembledSoFar)) problemNamed.push("parseIfMatch");
   if (/\brequireJsonContentType\(/.test(assembledSoFar))
     problemNamed.push("requireJsonContentType");
@@ -1762,7 +1765,7 @@ function emitCanOpRoute(
   out.push(`    tags: ["${aggSlug}"],`);
   out.push(`    operationId: "${camelId(opOperation(agg.name, `can_${op.name}`))}",`);
   out.push(`    request: {`);
-  out.push(`      params: z.object({ id: z.string().uuid() }),`);
+  out.push(`      params: z.object({ id: UuidString }),`);
   out.push(`    },`);
   out.push(`    responses: {`);
   out.push(
@@ -1936,7 +1939,7 @@ function emitOperationRoute(
   out.push(`    tags: ["${aggSlug}"],`);
   out.push(`    operationId: "${camelId(opOperation(agg.name, op.name))}",`);
   out.push(`    request: {`);
-  out.push(`      params: z.object({ id: z.string().uuid() }),`);
+  out.push(`      params: z.object({ id: UuidString }),`);
   out.push(
     `      body: { content: { "application/json": { schema: ${upperFirst(op.name)}${agg.name}Request } } },`,
   );
@@ -2108,7 +2111,7 @@ function emitReturningOperationRoute(
   out.push(`    tags: ["${aggSlug}"],`);
   out.push(`    operationId: "${camelId(opOperation(agg.name, op.name))}",`);
   out.push(`    request: {`);
-  out.push(`      params: z.object({ id: z.string().uuid() }),`);
+  out.push(`      params: z.object({ id: UuidString }),`);
   out.push(
     `      body: { content: { "application/json": { schema: ${upperFirst(op.name)}${agg.name}Request } } },`,
   );
@@ -2678,10 +2681,15 @@ export function zodFor(t: TypeIR, context: "create-body" | "body" | "query" = "b
       // in Postgres, so the wire validator says so: a bare `z.string()` let a
       // non-uuid through to the driver, whose `invalid input syntax for type
       // uuid` escaped as a 500 — while the SAME id in a PATH parameter was
-      // already `z.string().uuid()`, so the backend disagreed with itself
-      // (schemathesis F2/F3).  `.uuid()` answers the standard 422 instead and
-      // publishes `format: uuid` through zod-openapi, matching .NET's `Guid`,
-      // Java's `UUID` and Phoenix's `format: :uuid`.
+      // already uuid-validated, so the backend disagreed with itself
+      // (schemathesis F2/F3).  `UuidString` answers the standard 422 instead
+      // and publishes `format: uuid` through zod-openapi, matching .NET's
+      // `Guid`, Java's `UUID` and Phoenix's `format: :uuid`.
+      //
+      // Both halves of that self-consistency argument move together, which is
+      // why this arm shares `UuidString` with the path param rather than
+      // keeping its own spelling: loosening one and not the other would
+      // recreate the disagreement in the opposite direction.
       //
       // `context` is deliberately ignored: the same rule holds for a body
       // field and for a `?owner=` query parameter (F3 is F2 through the query
@@ -2690,7 +2698,7 @@ export function zodFor(t: TypeIR, context: "create-body" | "body" | "query" = "b
       // Gated on the declared id VALUE type — an `int`/`long`/`string`-keyed
       // aggregate is not a uuid, and the pre-existing wire treatment (every id
       // as a string) stays untouched for those.
-      return info.idValueType === "guid" ? "z.string().uuid()" : "z.string()";
+      return info.idValueType === "guid" ? "UuidString" : "z.string()";
     case "enum":
     case "valueObject":
       return `${info.base}Schema`;

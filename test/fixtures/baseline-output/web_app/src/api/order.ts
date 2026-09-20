@@ -13,7 +13,7 @@ export const CreateOrderRequest = z.object({
 export type CreateOrderRequest = z.infer<typeof CreateOrderRequest>;
 
 export const AddLineOrderRequest = z.object({
-  productId: z.string().uuid(),
+  productId: z.string().regex(/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/),
   qty: z.number().int().min(1, { message: "Qty must be at least 1" }),
 });
 export type AddLineOrderRequest = z.infer<typeof AddLineOrderRequest>;

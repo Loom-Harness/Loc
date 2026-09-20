@@ -21,11 +21,17 @@
 //
 // What SURVIVES on both is narrower and FIELD-scoped: persistence crosses an
 // untyped boundary per field, so a type with no total conversion in that
-// language's codec still cannot ride the ladder — on feliz datetime /
-// duration / guid / enum / entity / value object (and arrays of them), on
-// flutter json / File / entity / value object / optional.  Those fire the SAME
-// code through two message variants (`#field` for feliz, `#flutter-field` for
-// flutter) — one code, two scopes, so the register keeps one row.
+// language's codec still cannot ride the ladder — on feliz `File` / entity /
+// value object (and arrays of them), on flutter json / File / entity / value
+// object / optional.  Those fire the SAME code through two message variants
+// (`#field` for feliz, `#flutter-field` for flutter) — one code, two scopes,
+// so the register keeps one row.
+//
+// The FELIZ half narrowed in wave C2 packet 2i: `datetime` / `guid` / `enum`
+// and list elements over every scalar all grew total F# codecs
+// (`System.DateTime.TryParse` / `System.Guid.TryParse`; an enum is spelled
+// `string` in F# everywhere), so they no longer fire.  What is left on feliz
+// is exactly what needs a RECORD codec the store path does not emit.
 // ---------------------------------------------------------------------------
 
 import { describe, expect, it } from "vitest";
@@ -88,17 +94,26 @@ describe("loom.store-lifetime-target-unsupported — the feliz FIELD-scoped half
     });
   }
 
-  // … but a cell with no total F# conversion is still refused.
-  it("flags a datetime cell in a persisted feliz store", async () => {
-    const d = (await diagnostics("feliz", "feliz", "local", "at: datetime")).find(
+  // … but a cell with no total F# conversion is still refused.  A value object
+  // is the canonical one: restoring it means a RECORD codec, which the store
+  // path does not emit.
+  it("flags a value-object cell in a persisted feliz store", async () => {
+    const d = (await diagnostics("feliz", "feliz", "local", "count: int = 0  price: Money")).find(
       (x) => x.code === CODE,
     );
     expect(d?.severity).toBe("error");
     // The STORE lives in `source` (the CLI prints `${code} ${source}: …`); the
     // message must not repeat it — see F2-FFE-9.
     expect(d?.source).toBe("store 'Cart'");
-    expect(d?.message).toMatch(/field 'at'/);
+    expect(d?.message).toMatch(/field 'price'/);
     expect(d?.message).toMatch(/feliz/);
+  });
+
+  it("flags a File cell and an array of value objects", async () => {
+    expect(await codes("feliz", "feliz", "local", "count: int = 0  doc: File")).toContain(CODE);
+    expect(await codes("feliz", "feliz", "local", "count: int = 0  lines: Money[]")).toContain(
+      CODE,
+    );
   });
 
   it("does NOT flag the covered scalar / array types — they ride the ladder", async () => {
@@ -108,13 +123,21 @@ describe("loom.store-lifetime-target-unsupported — the feliz FIELD-scoped half
       "ok: bool",
       "price: money",
       "tags: string[]",
+      // Drained by wave C2 packet 2i — each now has a TOTAL F# codec.
+      "at: datetime",
+      "ref: guid",
+      "blob: json",
+      "rates: decimal[]",
+      "prices: money[]",
+      "stamps: datetime[]",
+      "keys: guid[]",
     ]) {
-      expect(await codes("feliz", "feliz", "local", cells)).not.toContain(CODE);
+      expect(await codes("feliz", "feliz", "local", cells), cells).not.toContain(CODE);
     }
   });
 
   it("does NOT fire on a feliz `memory` store, whatever the cell type", async () => {
-    expect(await codes("feliz", "feliz", "", "at: datetime")).not.toContain(CODE);
+    expect(await codes("feliz", "feliz", "", "count: int = 0  price: Money")).not.toContain(CODE);
   });
 });
 
@@ -127,17 +150,48 @@ describe("loom.store-lifetime-target-unsupported — the flutter FIELD-scoped ha
   }
 
   // … but a cell whose Dart codec has no total conversion is still refused,
-  // because it would silently vanish from the stored state.
+  // because it would silently vanish from the stored state.  `fromJson` throws
+  // on junk, which is what rules the record shapes out.
   for (const [what, cells] of [
     ["a value-object cell", "count: int = 0  price: Money"],
     ["a File cell", "count: int = 0  doc: File"],
-    ["an optional cell", "count: int = 0  note: string?"],
-    ["a json cell", "count: int = 0  blob: json"],
   ] as const) {
     it(`flags ${what}`, async () => {
       expect(await codes("flutter", "flutter", "local", cells)).toContain(CODE);
     });
   }
+
+  // WIDENED in wave C2: an OPTIONAL scalar and a `json` cell both persist now.
+  // Neither was ever a totality problem — an absent key restores a `T?` cell as
+  // `null` (its RIGHT value, not a lost one), and a `json` cell IS json, so
+  // storing the decoded value back is the identity.  The four JS frontends had
+  // always persisted both (Zustand serialises the whole state), so refusing
+  // them was a per-target gap.  These two rows used to assert the refusal and
+  // now assert the ship, which is the direction a drained gap moves in.
+  for (const [what, cells] of [
+    ["an optional cell", "count: int = 0  note: string?"],
+    ["a json cell", "count: int = 0  blob: json"],
+  ] as const) {
+    it(`does NOT flag ${what} at a blob tier`, async () => {
+      expect(await codes("flutter", "flutter", "local", cells)).not.toContain(CODE);
+      expect(await codes("flutter", "flutter", "session", cells)).not.toContain(CODE);
+    });
+  }
+
+  // …with ONE tier-scoped exception, and it is about the RESTORE side rather
+  // than the encode side: `hydrateFromUrl` re-seeds through `copyWith`, whose
+  // `x ?? this.x` cannot set a cell to null, so an absent query param would
+  // silently KEEP the old value — a wrong value, not a missing feature.
+  it("still flags an optional cell under `persist: url`, where null cannot be restored", async () => {
+    expect(await codes("flutter", "flutter", "url", "count: int = 0  note: string?")).toContain(
+      CODE,
+    );
+    // `json` is unaffected: its absent-value fallback is the cell's own
+    // declared default, which is never null, so `copyWith` restores it.
+    expect(await codes("flutter", "flutter", "url", "count: int = 0  blob: json")).not.toContain(
+      CODE,
+    );
+  });
 
   it("names the offending FIELD, not just the store", async () => {
     const d = (
