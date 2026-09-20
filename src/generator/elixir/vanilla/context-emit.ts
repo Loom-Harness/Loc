@@ -240,7 +240,15 @@ function coerceOpParam(varName: string, type: TypeIR | undefined): string {
       return `(if is_nil(${varName}), do: nil, else: ${numericEncode(ELIXIR_NUMERIC, "decimal", "find-param", varName)})`;
     case "datetime":
       // `:utc_datetime` wants a DateTime struct; the wire is ISO-8601 text.
-      return `(case ${varName} do\n      nil -> nil\n      %DateTime{} = __dt -> __dt\n      __s when is_binary(__s) -> (case DateTime.from_iso8601(__s) do\n        {:ok, __d, _} -> DateTime.truncate(__d, :second)\n        _ -> __s\n      end)\n      __other -> __other\n    end)`;
+      // The clause binders are `loom_`-prefixed, NOT `__`-prefixed.  A leading
+      // underscore in Elixir MEANS "this value is ignored", and every one of
+      // these bindings is read on the very next token — so `mix compile
+      // --warnings-as-errors` (the repo's own phoenix tier) failed with
+      // "the underscored variable \"__s\" is used after being set", five times
+      // per `datetime` operation param, on a model that validated `0 error(s)`.
+      // The prefix still has to make a collision with a user param impossible;
+      // `loom_` does that without claiming the value is unused.
+      return `(case ${varName} do\n      nil -> nil\n      %DateTime{} = loom_dt -> loom_dt\n      loom_s when is_binary(loom_s) -> (case DateTime.from_iso8601(loom_s) do\n        {:ok, loom_d, _} -> DateTime.truncate(loom_d, :second)\n        _ -> loom_s\n      end)\n      loom_other -> loom_other\n    end)`;
     default:
       return varName;
   }
