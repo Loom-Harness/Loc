@@ -1,6 +1,6 @@
 // Auto-generated.  Do not edit by hand.
 import { OpenAPIHono, createRoute, z } from "@hono/zod-openapi";
-import { ProblemDetails, frameworkProblemBody, newApp, parseIfMatch, requireJsonContentType, versionETag } from "./problem-details";
+import { ProblemDetails, UuidString, frameworkProblemBody, newApp, parseIfMatch, requireJsonContentType, versionETag } from "./problem-details";
 import { HTTPException } from "hono/http-exception";
 import { recordDomainFault, recordDomainOperation } from "../obs/metrics";
 import { Product } from "../domain/product";
@@ -131,7 +131,7 @@ export function productRoutes(repo: ProductRepository): OpenAPIHono {
       path: "/{id}",
       tags: ["products"],
       operationId: "getProductById",
-      request: { params: z.object({ id: z.string().uuid() }) },
+      request: { params: z.object({ id: UuidString }) },
       responses: {
         200: { description: "OK", content: { "application/json": { schema: ProductResponse } } },
         404: { description: "Not Found", content: { "application/problem+json": { schema: ProblemDetails } } },
@@ -153,7 +153,7 @@ export function productRoutes(repo: ProductRepository): OpenAPIHono {
       path: "/{id}",
       tags: ["products"],
       operationId: "destroyProduct",
-      request: { params: z.object({ id: z.string().uuid() }) },
+      request: { params: z.object({ id: UuidString }) },
       responses: {
         204: { description: "No Content" },
         404: { description: "Not Found", content: { "application/problem+json": { schema: ProblemDetails } } },
@@ -183,7 +183,7 @@ export function productRoutes(repo: ProductRepository): OpenAPIHono {
       tags: ["products"],
       operationId: "updateProduct",
       request: {
-        params: z.object({ id: z.string().uuid() }),
+        params: z.object({ id: UuidString }),
         body: { content: { "application/json": { schema: UpdateProductRequest } } },
       },
       responses: {
