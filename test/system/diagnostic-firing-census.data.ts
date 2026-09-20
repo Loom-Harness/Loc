@@ -153,7 +153,6 @@ export const COVERED_ELSEWHERE: readonly string[] = [
   "loom.filter-bypass-no-filter",
   "loom.filter-bypass-unknown-capability",
   "loom.find-gate-not-current-user",
-  "loom.find-predicate-unsupported",
   "loom.find-reserved-name",
   "loom.find-where-column-column",
   "loom.find-where-not-queryable",

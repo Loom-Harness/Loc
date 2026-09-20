@@ -2439,16 +2439,6 @@ export const DIAGNOSTIC_MESSAGES = {
   // `#schema-ignored`) — the self-provisioning limits this adapter's
   // `orm.schema.updateSchema()` boot-time schema owner genuinely cannot
   // express.)
-  "loom.find-predicate-unsupported": (p: {
-    name: unknown;
-    adapter: unknown;
-    subject: unknown;
-    label: unknown;
-  }) =>
-    `Deployable '${p.name}' selects 'persistence: ${p.adapter}', but ${p.subject} uses ` +
-    `a predicate the ${p.adapter} adapter cannot lower to SQL: ${p.label}. ` +
-    `The ${p.adapter} find-predicate subset is narrower than EF Core's — ` +
-    `use 'persistence: efcore'/'drizzle', or restructure the predicate.`,
   "loom.resource-missing-capability": (p: {
     name: unknown;
     sourceType: unknown;

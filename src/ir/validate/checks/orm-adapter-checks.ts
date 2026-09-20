@@ -1,23 +1,17 @@
 // -------------------------------------------------------------------------
-// Per-backend ORM/adapter support gates: Dapper, MikroORM, and find-predicate
-// adapters. Split out of system-checks.ts by packet 2.6 (wave-2) —
-// mechanical move, no logic change.
+// Per-backend ORM/adapter support gates: Dapper and MikroORM.  Split out of
+// system-checks.ts by packet 2.6 (wave-2) — mechanical move, no logic change.
+// The third resident, the per-adapter find-predicate gate, was deleted in wave
+// C2 packet 2n; see the note at the foot of this file.
 // -------------------------------------------------------------------------
 
 import { diagMessage } from "../../../diagnostics/messages.js";
 import type {
   BoundedContextIR,
   EnrichedAggregateIR,
-  ExprIR,
   SystemIR,
 } from "../../types/loom-ir.js";
-import { exprUsesCurrentUser, isQueryTimeProjection } from "../../types/loom-ir.js";
-import {
-  firstUnlowerableForAdapter,
-  isFindPredicateAdapter,
-} from "../../util/find-predicate-capability.js";
 import { effectiveSavingShape, resolveDataSourceConfig } from "../../util/resolve-datasource.js";
-import { typeLabel } from "../../util/type-label.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
 
 // ---------------------------------------------------------------------------
@@ -231,83 +225,31 @@ export function validateDapperSupport(sys: SystemIR, diags: LoomDiagnostic[]): v
 // ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
-// Per-persistence-adapter find-predicate capability gate (Bucket V / P0).
+// (The per-persistence-adapter find-predicate capability gate lived here.
 //
-// Every relational adapter lowers a `find` / `filter` / retrieval
-// predicate to SQL, but each lowers a DIFFERENT subset of the queryable
-// expression sublanguage.  A predicate that passes the general queryable
-// check (`firstNonQueryableNode`) can still fall outside the SELECTED
-// adapter's narrower subset, and the generator then throws at codegen
-// (MikroORM `whereToMikroFilter`, Dapper `whereToSql`) or emits a runtime-
-// broken TODO stub (Drizzle's null fallback).  This gate fails fast instead,
-// keyed off the deployable's explicit `persistence:` selector.
+// It existed because each relational adapter was believed to lower a different
+// subset of the queryable sublanguage, so a predicate that passed the general
+// `firstNonQueryableNode` check could still fall outside the SELECTED adapter's
+// narrower one.  Two waves of measurement dissolved that premise: EF Core and
+// Drizzle were always the full-subset baseline, `DAPPER_SUBSET = FULL_SUBSET`
+// (wave C2 packet 2b), and MikroORM's narrowings turned out one by one to be
+// either a defect one layer out (the missing `currentUser: User` parameter) or a
+// TARGET-neutral refusal wearing an adapter's name (the `contains(<column>)`
+// argument, packet 2f).
 //
-// EF Core / Drizzle lower the full queryable subset, so only an explicit
-// `persistence: dapper` / `persistence: mikroorm` narrows anything — the
-// gate is silent for the (full-subset) defaults, matching the Dapper /
-// MikroORM capability gates above.  The per-adapter narrowing lives in the
-// platform-neutral descriptor `src/ir/util/find-predicate-capability.ts`
-// (ir/validate may not import generator/, so the subset table lives here).
+// The last five firings — a bare bool value-object sub-property, its negation, a
+// bool PARAMETER, a `currentUser.<claim>`, and a literal, all standing alone as
+// the whole predicate — were the same mistake once more.  Four of the five ALSO
+// crashed drizzle codegen from source that validated `0 error(s)`
+// (`QueryEmissionRefusal … the IR validator should have rejected this filter`),
+// which is what an adapter-keyed gate can never catch: it keys on
+// `dep.persistence`, which a deployable on the DEFAULT adapter does not carry.
+// The real hole was that `firstNonQueryableNode` is position-BLIND, so
+// `firstNonQueryablePredicate` (`checks/shared.ts`) now owns the PREDICATE
+// position target-neutrally, and the two column-rooted shapes that were
+// genuinely missing were built on both node adapters.
+//
+// `test/ir/find-predicate-position-census.test.ts` is the census that licenced
+// the deletion: every shape gets the same verdict on all four adapters, and
+// every admitted shape emits on all four.)
 // ---------------------------------------------------------------------------
-
-export function validateFindPredicateAdapterSupport(sys: SystemIR, diags: LoomDiagnostic[]): void {
-  const ctxByName = new Map<string, BoundedContextIR>();
-  for (const m of sys.subdomains) for (const c of m.contexts) ctxByName.set(c.name, c);
-
-  for (const dep of sys.deployables) {
-    const adapter = dep.persistence;
-    if (!adapter || !isFindPredicateAdapter(adapter)) continue;
-    const report = (subject: string, label: string): void => {
-      diags.push({
-        severity: "error",
-        message: diagMessage("loom.find-predicate-unsupported", {
-          name: dep.name,
-          adapter,
-          subject,
-          label,
-        }),
-        source: `${sys.name}/${dep.name}`,
-        code: "loom.find-predicate-unsupported",
-      });
-    };
-    const check = (predicate: ExprIR | undefined, subject: string): void => {
-      if (!predicate) return;
-      const label = firstUnlowerableForAdapter(predicate, adapter);
-      if (label) report(subject, label);
-    };
-    for (const ctxName of dep.contextNames) {
-      const ctx = ctxByName.get(ctxName);
-      if (!ctx) continue;
-      for (const repo of ctx.repositories) {
-        for (const find of repo.finds) {
-          check(find.filter, `repository '${repo.name}' find '${find.name}'`);
-        }
-      }
-      for (const r of ctx.retrievals) {
-        check(r.where, `retrieval '${r.name}'`);
-      }
-      // A QUERY-TIME projection's `where` lowers into a relational SELECT too —
-      // through the synthesised `repo.<projName>()` find for the row-sourced
-      // shape, and directly into the aggregation query for the pushed-down ones.
-      // Walked here because on the MikroORM adapter an aggregation whose filter
-      // falls outside the FilterQuery subset would otherwise answer a plausible
-      // WRONG NUMBER (the filter silently dropped) instead of being refused.
-      // Adapter-generic, like every other position here.
-      for (const proj of ctx.projections ?? []) {
-        if (!isQueryTimeProjection(proj)) continue;
-        check(proj.query?.filter, `query-time projection '${proj.name}'`);
-      }
-      // Capability `filter` predicates also lower into every SELECT.  The
-      // Dapper / MikroORM capability gates already handle principal-
-      // referencing ones (and MikroORM rejects ALL capability filters), so
-      // only the non-principal predicates can reach a relational SELECT here.
-      for (const agg of ctx.aggregates) {
-        const filters = (agg as EnrichedAggregateIR).contextFilters ?? [];
-        for (const predicate of filters) {
-          if (exprUsesCurrentUser(predicate)) continue;
-          check(predicate, `a 'filter' capability predicate on aggregate '${agg.name}'`);
-        }
-      }
-    }
-  }
-}

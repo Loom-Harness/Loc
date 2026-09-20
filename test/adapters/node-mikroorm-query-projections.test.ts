@@ -286,7 +286,8 @@ describe("MikroORM query-time projections", () => {
 describe("a projection filter outside the adapter's subset is refused, not dropped", () => {
   // The gate that makes the emitter's `whereToMikroFilter` call safe: an
   // aggregation whose `where` cannot lower would otherwise run UNFILTERED and
-  // answer a plausible wrong number.  `validateFindPredicateAdapterSupport` now
+  // answer a plausible wrong number.  The per-adapter gate (deleted in packet
+  // 2n) used to walk them; the target-neutral projection gate now
   // walks query-time projection filters for every adapter — this pins the
   // mikroorm case.
   //

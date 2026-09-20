@@ -379,7 +379,7 @@ const REGISTER_FILE = path.join(srcRoot, "diagnostics", "unsupported-register.ts
  *  from success in any test that asserts by shape.  `scope` says "declared limit,
  *  named successor"; `gap` said "a sweep can close this", which for a
  *  security-shaped feature is how it ends up half-ported. */
-const MAX_OPEN_GAPS = 20;
+const MAX_OPEN_GAPS = 19;
 
 /** Exact count of `seam` rows.  Changes only for a reviewed reason: a gate
  *  deleted (down), a new target registered that turns a seam back into a live

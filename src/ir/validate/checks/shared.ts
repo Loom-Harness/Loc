@@ -155,6 +155,167 @@ function describeColumnRef(e: ExprIR): string {
   return "<column>";
 }
 
+/** `isColumnRef`, plus the one column-side shape that is a `binary` node: the
+ *  A5 temporal `this.due ± days(n)` form, which every backend renders as SQL
+ *  interval arithmetic over the column (drizzle's `renderColumnRef` opens with
+ *  exactly this arm).  Kept separate from `isColumnRef` because that helper
+ *  feeds the column-vs-column gate, whose subject is a different question. */
+function isColumnRooted(e: ExprIR): boolean {
+  if (e.kind === "paren") return isColumnRooted(e.inner);
+  if (e.kind === "binary" && (e.op === "+" || e.op === "-")) {
+    const rightDur = durationCtorOperand(e.right);
+    const leftDur = e.op === "+" ? durationCtorOperand(e.left) : null;
+    const dur = rightDur ?? leftDur;
+    const other = rightDur ? e.left : leftDur ? e.right : null;
+    return dur !== null && other !== null && isColumnRooted(other);
+  }
+  return isColumnRef(e);
+}
+
+/** A column-rooted expression whose value is the primitive `bool` — the one
+ *  shape that is a whole predicate on its own (`where this.active`,
+ *  `where this.flags.active`).  A NON-column boolean (a `bool` parameter, a
+ *  `currentUser.<claim>`, a literal) is deliberately excluded: see
+ *  {@link firstNonQueryablePredicate}. */
+function isColumnRootedBool(e: ExprIR): boolean {
+  if (e.kind === "paren") return isColumnRootedBool(e.inner);
+  const isBool = (t: { kind: string; name?: string } | undefined): boolean =>
+    t?.kind === "primitive" && t.name === "bool";
+  if (e.kind === "member" && isColumnRef(e)) return isBool(e.memberType);
+  if (e.kind === "ref" && e.refKind === "this-prop") return isBool(e.type);
+  return false;
+}
+
+/** Names the offending leaf in a `firstNonQueryablePredicate` refusal.  Kept
+ *  apart from `describeColumnRef`, whose fall-through is `<column>` — the
+ *  whole point of this message is that the leaf is NOT one. */
+function describePredicateLeaf(e: ExprIR): string {
+  if (e.kind === "paren") return describePredicateLeaf(e.inner);
+  if (e.kind === "literal") return `the literal '${String(e.value)}'`;
+  if (e.kind === "ref") return `'${e.name}' (a ${e.refKind})`;
+  if (e.kind === "member" && e.receiver.kind === "ref" && e.receiver.refKind === "current-user")
+    return `'currentUser.${e.member}'`;
+  if (e.kind === "member") return `'${describeColumnRef(e)}'`;
+  if (e.kind === "method-call") return `'.${e.member}(...)'`;
+  return `a '${e.kind}' expression`;
+}
+
+/** Options for {@link firstNonQueryablePredicate}. */
+export type PredicateGateOptions = {
+  /** Set by a call site whose predicate was lowered WITHOUT an aggregate to
+   *  resolve `this` against, so `memberType` is a placeholder rather than the
+   *  column's type.  Today that is the context-level `filter` capability. */
+  readonly thisTypesUnresolved?: boolean;
+};
+
+const PREDICATE_COMPARE_OPS: ReadonlySet<string> = new Set([
+  "==",
+  "!=",
+  "<",
+  "<=",
+  ">",
+  ">=",
+]);
+
+/** Returns null if `e` is a queryable expression IN PREDICATE POSITION;
+ *  otherwise a short label describing the first offending node.
+ *
+ *  `firstNonQueryableNode` is position-BLIND — it walks a value tree and asks
+ *  only "could this node reach SQL at all".  That is the right question for a
+ *  comparison OPERAND and the wrong one for the predicate itself, because
+ *  every relational lowerer's output vocabulary is `<fn>(<column>, <value>)`:
+ *  there is no left-hand value position and no bare-value position.  So a
+ *  predicate with NO column in it — `where true`, `where f` (a `bool`
+ *  parameter), `where currentUser.isAdmin`, `where 1 == 1` — is admitted by
+ *  the value oracle and then has nowhere to go: drizzle's find builder throws
+ *  `QueryEmissionRefusal … the IR validator should have rejected this filter`
+ *  (measured on all four shapes), MikroORM refuses it per-adapter through
+ *  a per-adapter `loom.*-unsupported` code (now deleted), and EF Core / JPA /
+ *  SQLAlchemy each emit
+ *  a host-language boolean into a `WHERE`, which is a different query from the
+ *  one that was written.  Four outcomes for one source, none of them a
+ *  diagnostic — the same shape as the `contains(<column>)` crash, and closed
+ *  the same way: target-neutrally, here, where every site and every backend
+ *  consults it.
+ *
+ *  A predicate leaf must therefore be one of:
+ *    - a comparison with at least one COLUMN-rooted operand,
+ *    - a column-rooted `bool` standing alone (`where this.active`),
+ *    - `this.<refColl>.contains(<value>)` membership,
+ *    - a bool-returning queryable intrinsic (`where this.path.startsWith(p)`),
+ *    - an authorization / tenancy filter sentinel,
+ *  combined with `&&` / `||` / `!` / parentheses.  Everything inside those
+ *  leaves is still judged by `firstNonQueryableNode`. */
+export function firstNonQueryablePredicate(
+  e: ExprIR,
+  opts: PredicateGateOptions = {},
+): string | null {
+  const inner = e.kind === "paren" ? e.inner : e;
+  if (inner.kind === "binary") {
+    if (inner.op === "&&" || inner.op === "||") {
+      return (
+        firstNonQueryablePredicate(inner.left, opts) ??
+        firstNonQueryablePredicate(inner.right, opts)
+      );
+    }
+    if (PREDICATE_COMPARE_OPS.has(inner.op)) {
+      const bad = firstNonQueryableNode(inner);
+      if (bad) return bad;
+      if (!isColumnRooted(inner.left) && !isColumnRooted(inner.right)) {
+        return (
+          `a comparison with no column on either side ('${inner.op}') — a query predicate is ` +
+          `lowered as '<column> ${inner.op} <value>' on every adapter, so one side must read ` +
+          `'this.<field>'`
+        );
+      }
+      return null;
+    }
+    // Arithmetic standing alone as the whole predicate — not a boolean.
+    return `arithmetic '${inner.op}' in predicate position`;
+  }
+  if (inner.kind === "unary") {
+    if (inner.op === "!") return firstNonQueryablePredicate(inner.operand, opts);
+    return `unary '${inner.op}' in predicate position`;
+  }
+  if (inner.kind === "authz-filter") return null;
+  if (isColumnRootedBool(inner)) return null;
+  // A CONTEXT-LEVEL `filter` is lowered without an aggregate to resolve `this`
+  // against, so its member accesses carry a fall-through `string` type rather
+  // than the column's real one (measured: `filter !this.isDeleted` over a
+  // declared `isDeleted: bool` lowers with `memberType: primitive string`).
+  // Judging the leaf's TYPE there would refuse every context-level boolean
+  // filter, so the caller says so and the gate checks STRUCTURE only — the
+  // column still has to exist, which `firstUnknownColumnRef` has already
+  // established per propagated aggregate before this gate runs.
+  if (opts.thisTypesUnresolved && isColumnRef(inner)) return null;
+  if (inner.kind === "method-call") {
+    // `this.<refColl>.contains(x)` membership and a bool-returning queryable
+    // intrinsic are both whole predicates; `firstNonQueryableNode` owns the
+    // shape rules for each (including the argument / receiver position
+    // checks), so defer to it rather than restating them.
+    const isMembership =
+      inner.member === "contains" &&
+      inner.receiverType.kind === "array" &&
+      inner.receiverType.element.kind === "id";
+    const sig =
+      inner.receiverType.kind === "primitive"
+        ? intrinsicFor(inner.receiverType.name, inner.member)
+        : undefined;
+    const isBoolIntrinsic =
+      sig?.queryable === true &&
+      inner.receiverType.kind === "primitive" &&
+      intrinsicReturnType(sig, inner.receiverType.name) === "bool";
+    if (isMembership || isBoolIntrinsic) return firstNonQueryableNode(inner);
+  }
+  const bad = firstNonQueryableNode(inner);
+  if (bad) return bad;
+  return (
+    `${describePredicateLeaf(inner)} is not a predicate — a query filter must TEST a column ` +
+    `(a comparison, a boolean column, a '.contains(...)' membership, or a combination of them ` +
+    `with '&&' / '||' / '!'), not evaluate to a value the database never sees`
+  );
+}
+
 /** Returns null if the expression is fully queryable; otherwise a
  * short label describing the first non-queryable node encountered.
  * The label is human-readable (`"collection op .where"`,

@@ -312,26 +312,6 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
     mission: "M-T6.32",
   },
   {
-    code: "loom.find-predicate-unsupported",
-    kind: "gap",
-    site: "src/ir/validate/checks/orm-adapter-checks.ts:284",
-    what:
-      "NO NAMED SHAPE is left on any adapter.  EF Core + Drizzle were always the full-subset " +
-      "baseline; `DAPPER_SUBSET = FULL_SUBSET` (wave C2 packet 2b); and mikroorm's last " +
-      "narrowing — a reference-collection membership whose ARGUMENT is a column rather than a " +
-      "bindable value — was never adapter-specific: the join-table subquery binds its target as " +
-      "a parameter on EVERY adapter, so packet 2f moved the refusal to a target-neutral rule in " +
-      "`firstNonQueryableNode` and deleted the descriptor arm (which is also what stopped the " +
-      "identical shape CRASHING drizzle codegen: the adapter gate keys on `dep.persistence`, " +
-      "which a DEFAULT-adapter deployable does not carry).  The row is KEPT rather than drained " +
-      "because the descriptors still carry fall-through arms and nobody has PROVED them " +
-      "unreachable — a spot probe (arithmetic in a predicate position) was preempted by " +
-      "`loom.find-where-not-queryable` upstream, which is suggestive, not a proof over the whole " +
-      "queryable subset.  Drain condition for M-T6.35: show the descriptors cannot fire, or " +
-      "delete them",
-    mission: "M-T6.35",
-  },
-  {
     code: "loom.flutter-async-effect-unsupported",
     kind: "scope",
     site: "src/ir/validate/checks/store-checks.ts:590",
