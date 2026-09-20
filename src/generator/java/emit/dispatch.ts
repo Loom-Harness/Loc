@@ -634,6 +634,17 @@ function renderHandler(
       renderCtx,
       hasEmit ? "__events" : undefined,
       collectUnionFindLets(resolved.statements),
+      // The reactor's state row is ALWAYS keyed before the body runs —
+      // allocated by `_allocate(__key)` on a `create` trigger, loaded by
+      // `findById(__key)` otherwise — and the JPA entity has no setter for its
+      // `@EmbeddedId`.  A body spelling the correlation rule as an assignment
+      // (`orderRef := e.orderRef` inside `create(e) by e.orderRef`) renders
+      // nothing for that field, as the command-workflow facade already does;
+      // without it the arm rendered `state.setOrderRef(e.orderRef())` (javac:
+      // cannot find symbol) — found by the `projection-implicit-sub` corpus
+      // fixture's java compile leg once D-PROJECTION-IMPLICIT-SUB made an
+      // uncarried reactor dispatch at all.
+      corr,
     ),
     "        ",
   );
@@ -728,6 +739,17 @@ function renderEsHandler(
       renderCtx,
       hasEmit ? "__events" : undefined,
       collectUnionFindLets(resolved.statements),
+      // The reactor's state row is ALWAYS keyed before the body runs —
+      // allocated by `_allocate(__key)` on a `create` trigger, loaded by
+      // `findById(__key)` otherwise — and the JPA entity has no setter for its
+      // `@EmbeddedId`.  A body spelling the correlation rule as an assignment
+      // (`orderRef := e.orderRef` inside `create(e) by e.orderRef`) renders
+      // nothing for that field, as the command-workflow facade already does;
+      // without it the arm rendered `state.setOrderRef(e.orderRef())` (javac:
+      // cannot find symbol) — found by the `projection-implicit-sub` corpus
+      // fixture's java compile leg once D-PROJECTION-IMPLICIT-SUB made an
+      // uncarried reactor dispatch at all.
+      corr,
     ),
     "        ",
   );

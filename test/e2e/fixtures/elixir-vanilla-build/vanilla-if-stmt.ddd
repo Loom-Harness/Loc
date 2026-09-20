@@ -19,9 +19,12 @@
 //   * `Pricing.quote` — a TAIL `if` whose branches `return`, in a
 //                   `domainService` (tail-value) body: the `if` expression IS
 //                   the function's result.  The same shape in an aggregate
-//                   `function` block is refused one layer earlier, by
-//                   `loom.function-block-no-return` (phase 4, every backend) —
-//                   see the hand-off in the wave note.
+//                   `function` block used to be refused one layer earlier by
+//                   `loom.function-block-no-return` (phase 4, every backend);
+//                   wave C2 taught that gate to see a `return` inside an `if`,
+//                   so both spellings now render — the aggregate-`function`
+//                   witness lives in the shared corpus
+//                   (`test/fixtures/corpus/domain-services.ddd`, `Account.tier`).
 //   * `collect`   — a containment `+=` inside a branch, so the persist tail's
 //                   `put_embed` arm is reached from a branch too.
 system Grading {

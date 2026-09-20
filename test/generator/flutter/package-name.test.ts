@@ -68,8 +68,10 @@ describe("flutter package name — collisions with the app's own dependencies", 
     expect(fileEndingWith(files, "test/widget_test.dart")).toContain(
       "import 'package:web_app/main.dart';",
     );
+    // The a11y leg imports the PAGE libraries it pumps (one case per page
+    // since wave C2), not `main.dart` — same package name, same derivation.
     expect(fileEndingWith(files, "test/a11y_test.dart")).toContain(
-      "import 'package:web_app/main.dart';",
+      "import 'package:web_app/pages/",
     );
   });
 
