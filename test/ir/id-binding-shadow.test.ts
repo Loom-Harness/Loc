@@ -154,6 +154,41 @@ context Work {
     const op = agg?.operations.find((o) => o.name === "retitle");
     expect(refKindsNamed(everyNode(op?.statements ?? []), "title")).toEqual(["param"]);
   });
+
+  it("a repository `find` whose predicate names its `id` parameter still emits", async () => {
+    // The HARDEST manifestation of the same root cause, and the reason the fix
+    // belongs at the one lowering site rather than in the workflow lowerer: a
+    // `where` clause is validated against the declared query vocabulary, and the
+    // implicit-identity marker is not in it.  Under the seeded defect this is
+    // not a wrong string in the output — Hono's `buildFindWhereClause` throws
+    // `QueryEmissionRefusal` / `loom.query-emission-invalid` and codegen dies,
+    // on a model `ddd parse` reports as `0 error(s), 0 warning(s)`.
+    const files = await generateSystemFiles(`
+system FindShadow {
+  subdomain Ops {
+    context Work {
+      aggregate WorkOrder {
+        title: string
+        done: bool
+      }
+      repository WorkOrders for WorkOrder {
+        find byTrace(id: string): WorkOrder? where this.title == id
+      }
+    }
+  }
+  storage pg { type: postgres }
+  resource workState { for: Work, kind: state, use: pg }
+  api WorkApi from Ops
+  deployable honoApi { platform: node contexts: [Work] dataSources: [workState] serves: WorkApi port: 3000 }
+}
+`);
+    const repo = files.get("hono_api/db/repositories/workOrder-repository.ts");
+    expect(repo).toBeDefined();
+    // The predicate compares the DECLARED column to the parameter…
+    expect(repo).toContain("schema.workOrders.title, id)");
+    // …not the aggregate's own identity.
+    expect(repo).not.toMatch(/async byTrace[\s\S]*?this\._id/);
+  });
 });
 
 // ---------------------------------------------------------------------------
