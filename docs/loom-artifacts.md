@@ -109,6 +109,19 @@ Migration snapshots are derived from the IR and written on every
 regen.  Provenance snapshots are only written by the explicit
 `ddd snapshot` sub-command — never by `generate`.
 
+### The one `.loom/` file that is NOT under `-o`
+
+`generate system` also writes `<source-dir>/.loom/migration-history.json` —
+beside the `.ddd`, not under the output directory.  It is the migration-history
+**ledger**: which versions each module has emitted, plus a fingerprint of that
+module's schema.  It is deliberately not a second baseline (nothing diffs
+against it, and the SQL is not in it); its only job is to let the baseline
+guard refuse a re-baseline into an output tree that carries no history — which
+the output-tree guards structurally cannot see.  A clean `-o` has no snapshot
+**and** no migration files, and that is exactly what a genuine first run looks
+like.  Produced by `src/system/migration-ledger.ts`; commit it with the model.
+See [`migrations.md`](migrations.md) § Baseline safety.
+
 ## Source map (opt-in)
 
 `sourcemap.json` is the one artifact **not** written by default — it lands only
