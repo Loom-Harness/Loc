@@ -31,11 +31,16 @@ import { serializeSnapshot } from "./snapshot.js";
 // into any checkout, and makes "this module already has history" knowable in
 // a tree that carries none of it.
 //
-// This file is deliberately NOT a second baseline: it records versions, not
-// schema, and nothing diffs against it.  Re-emitting an earlier migration's
-// FILE is impossible from it (the SQL is not here), so the ledger's only job
-// is to let `checkMigrationBaseline` REFUSE — with `--allow-rebaseline` as
-// the deliberate override — instead of silently re-baselining.
+// This file is deliberately NOT a second baseline: it records versions and a
+// FINGERPRINT of the schema, never the schema itself, and nothing diffs
+// against it.  Re-emitting an earlier migration's FILE is impossible from it
+// (the SQL is not here), so the ledger's only job is to let
+// `checkMigrationBaseline` REFUSE — with `--allow-rebaseline` as the
+// deliberate override — instead of silently re-baselining.  The fingerprint
+// earns its place by making that refusal CONTENT-aware: regenerating an
+// UNCHANGED model into a fresh directory reproduces the recorded tree exactly
+// and must stay silent, or `-o` becomes a one-directory lock and every
+// reproducible build that does not carry its output tree starts failing.
 //
 // Only `readMigrationLedger` / `writeMigrationLedger` touch `node:fs`, and
 // only the CLI calls them: the browser playground has no source directory and
