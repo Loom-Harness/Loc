@@ -159,6 +159,6 @@ describe("hono request boundary — body validators are strict (F7)", () => {
     const { agg } = await routers();
     expect(schemaBlock(agg, "ByQtyQuery")).toContain("min: z.coerce.number().int()");
     // And a path id stays the uuid-format string it already was.
-    expect(agg).toContain("z.object({ id: z.string().uuid() })");
+    expect(agg).toContain("z.object({ id: UuidString })");
   });
 });

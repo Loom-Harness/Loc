@@ -19,7 +19,7 @@ import { generateSystemFiles } from "../_helpers/index.js";
 //
 // Runtime-proven on the node behavioural leg; this is the unit-tier witness for
 // all three.  Python already emitted `_stamp_on_create` and is the reference.
-// Elixir refuses this crossing by name (`loom.context-filter-unsupported`).
+// Elixir refuses this crossing by name (`loom.context-filter-no-principal`).
 //
 // The gate that could NOT see it: the compile tiers (the emission type-checks
 // either way) and `policy-document-inapp.test.ts`, which runs the predicate

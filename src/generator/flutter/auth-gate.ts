@@ -37,6 +37,7 @@
 
 import type { ExprIR, OperationIR, UserIR } from "../../ir/types/loom-ir.js";
 import { lines } from "../../util/code-builder.js";
+import { flutterHttpImport } from "./api-client.js";
 import { type DartRecord, renderDartModel } from "./dart-model-emit.js";
 
 /** The `CurrentUser` claims record, built through the SAME `renderDartModel`
@@ -57,7 +58,15 @@ function renderCurrentUserClass(user: UserIR): string {
 
 /** `lib/auth.dart` — the claims record, the session probe, the sign-in/out
  *  redirects, the `AuthGate` wrapper and the `ForbiddenView` fallback. */
-export function renderFlutterAuthModule(user: UserIR): string {
+export function renderFlutterAuthModule(
+  user: UserIR,
+  /** True when the deployable authenticates its api calls — `auth: ui` against
+   *  an `auth: required` target with a declared `user { }`.  The generated
+   *  library then imports the credentialed `api_client.dart` drop-in instead of
+   *  `package:http/http.dart`, which credentials EVERY call site at once
+   *  (D-FLUTTER-BEARER).  False keeps the emitted bytes identical. */
+  credentialed = false,
+): string {
   const currentUser = renderCurrentUserClass(user);
   // A claim typed as a value object / entity decodes through a class that lives
   // in `models.dart`.  Detect it the way the rest of this generator decides an
@@ -74,7 +83,7 @@ export function renderFlutterAuthModule(user: UserIR): string {
     "",
     "import 'package:flutter/material.dart';",
     "import 'package:flutter_riverpod/flutter_riverpod.dart';",
-    "import 'package:http/http.dart' as http;",
+    flutterHttpImport(credentialed),
     "import 'package:url_launcher/url_launcher.dart';",
     "",
     "import 'config.dart';",

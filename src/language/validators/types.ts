@@ -13,6 +13,7 @@ import type {
   EntityPart,
   Expression,
   FunctionDecl,
+  IfStmt,
   Invariant,
   MemberSuffix,
   Model,
@@ -20,6 +21,7 @@ import type {
   PostfixChain,
   PrimitiveConversion,
   Property,
+  Statement,
   TernaryExpr,
 } from "../generated/ast.js";
 import {
@@ -28,6 +30,7 @@ import {
   isCriterion,
   isDerivedProp,
   isFunctionDecl,
+  isIfStmt,
   isLambda,
   isLetStmt,
   isMemberSuffix,
@@ -932,15 +935,68 @@ export function checkFunction(
   // statements (`assign`/`+=`/`emit`/op-calls) are caught by the IR-layer
   // purity gate (`loom.function-block-impure`); here we only need the
   // expression/return typing so an ill-typed pure body is rejected early.
+  if (!checkFunctionBlock(fn.block, fn, declared, env, accept, true)) {
+    accept(
+      "error",
+      diagMessage("loom.function-block-no-return", {
+        name: fn.name,
+        declared: typeToString(declared),
+      }),
+      { node: fn, property: "name", code: "loom.function-block-no-return" },
+    );
+  }
+}
+
+/** Type-check one pure `function` block and report whether it DEFINITELY
+ *  yields a value on every path.
+ *
+ *  Descends into `if` / `else if` / `else` branches.  The flat one-level scan
+ *  this replaced counted only top-level `return`s, so the perfectly ordinary
+ *
+ *  ```ddd
+ *  function tierOf(points: int): string {
+ *    if points > 10 { return "gold" } else { return "bronze" }
+ *  }
+ *  ```
+ *
+ *  was refused at phase ④ on **every** backend — and a nested `return`'s value
+ *  was never type-checked against the declared return type either.  `if` is the
+ *  only nesting channel a function block can carry: `checkStatementPlacement`
+ *  refuses `match` (`loom.variant-match-placement`), `if let`
+ *  (`loom.if-let-placement`) and `for` (`loom.for-placement`) in every `domain`
+ *  zone, which is what a `function` body is.
+ *
+ *  "Definitely yields" is path-sensitive on purpose: a bare `if c { return x }`
+ *  leaves the false path with no value at all, so it still fails the gate — an
+ *  `if`/`else` (or an `else if` chain that ends in `else`) passes only when
+ *  every branch does.
+ *
+ *  `top` guards the two argument checks: both stream the WHOLE subtree
+ *  (`AstUtils.streamAst`), so running them again on a nested statement would
+ *  report every construction/call inside an `if` twice. */
+function checkFunctionBlock(
+  stmts: readonly Statement[],
+  fn: FunctionDecl,
+  declared: DddType,
+  env: Env,
+  accept: ValidationAcceptor,
+  top: boolean,
+): boolean {
   let blockEnv: Env = env;
   let sawReturn = false;
-  for (const stmt of fn.block) {
+  for (const stmt of stmts) {
     // Type-check any construction / free function call in this statement under
     // the current block env (a `let`'s own value can't reference the binding it
     // introduces, and the env is extended only after — matching the
     // statement-walk discipline).
-    checkConstructionArgTypes(stmt, blockEnv, accept);
-    checkExprCallArgs(stmt, blockEnv, accept);
+    if (top) {
+      checkConstructionArgTypes(stmt, blockEnv, accept);
+      checkExprCallArgs(stmt, blockEnv, accept);
+    }
+    if (isIfStmt(stmt)) {
+      if (checkIfStmt(stmt, fn, declared, blockEnv, accept)) sawReturn = true;
+      continue;
+    }
     if (isLetStmt(stmt)) {
       const t = typeOf(stmt.expr, blockEnv);
       const next = new Map<string, { type: DddType; origin: AstNode }>();
@@ -977,16 +1033,30 @@ export function checkFunction(
       warnSensitivityDrop(actual, declared, accept, { node: stmt, property: "value" });
     }
   }
-  if (!sawReturn) {
-    accept(
-      "error",
-      diagMessage("loom.function-block-no-return", {
-        name: fn.name,
-        declared: typeToString(declared),
-      }),
-      { node: fn, property: "name", code: "loom.function-block-no-return" },
-    );
+  return sawReturn;
+}
+
+/** One `if` inside a pure `function` block.  True only when the conditional
+ *  yields a value on BOTH paths — every branch returns and an `else` (or a
+ *  terminal `else if … else`) covers the false path. */
+function checkIfStmt(
+  stmt: IfStmt,
+  fn: FunctionDecl,
+  declared: DddType,
+  env: Env,
+  accept: ValidationAcceptor,
+): boolean {
+  const thenReturns = checkFunctionBlock(stmt.thenBody, fn, declared, env, accept, false);
+  if (stmt.elseIf) {
+    // `else if` chains through a nested IfStmt, which carries its own else.
+    return checkIfStmt(stmt.elseIf, fn, declared, env, accept) && thenReturns;
   }
+  // Langium gives `elseBody` as an empty array both for `else { }` and for no
+  // `else` at all, so an empty else is treated as absent — which is correct
+  // either way: neither yields a value on the false path.
+  const elseReturns =
+    stmt.elseBody.length > 0 && checkFunctionBlock(stmt.elseBody, fn, declared, env, accept, false);
+  return thenReturns && elseReturns;
 }
 
 // Re-export DddType so consumers don't have to chase the type-system

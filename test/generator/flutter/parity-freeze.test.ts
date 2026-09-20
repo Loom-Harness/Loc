@@ -84,6 +84,12 @@ system Par {
  *    M-A — the drop is LOUD: the emitter marks it instead of silently omitting.
  *    M-B — closing the gap means emitting a real Dart widget.
  *    M-C — auth-gate parity (not exercised by this fixture; listed for the enum). */
+//  REGISTERED in `test/platform/allowlist-ratchet.test.ts` at `max: 0` (wave
+//  C2 packet 2j).  The 2026-07-13 sweep that built that register missed this
+//  construct, and M-T1.18 recorded the omission in prose rather than fixing it;
+//  the two gates now catch opposite failures — the equality below fails on a
+//  pin with no matching finding, the count-ratchet fails on a new pin quietly
+//  added beside a new degradation.
 const KNOWN_FLUTTER_GAPS: Record<string, { reason: string; mission: "M-A" | "M-B" | "M-C" }> = {};
 
 describe("flutter parity freeze (M-E)", () => {
