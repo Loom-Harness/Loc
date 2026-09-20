@@ -1743,6 +1743,21 @@ system P {
       body: Stack { Heading { "Edit", level: 1 }, Button { "go", onClick: go } }
     }`),
 
+  // A `component` whose NAME is a walker primitive.  The page-body dispatcher
+  // resolves a call by name, primitives first, so the component is emitted to
+  // `src/components/<Name>.tsx` and the PACK's primitive renders at the call
+  // site — the author's body appears nowhere, at `0 error(s), 0 warning(s)`.
+  // The `extern function` twin (`loom.extern-function-shadows-stdlib`) has
+  // always been refused; this arm was missing.  See D-PAGE-PRIMITIVE-SHADOW.
+  "loom.component-shadows-stdlib": uiPages(
+    "",
+    `    component Alert(msg: string) { body: Heading { msg, level: 3 } }
+    page Home {
+      route: "/"
+      body: Stack { Heading { "Home", level: 1 }, Alert("hi") }
+    }`,
+  ),
+
   // A `component` param whose declared type the shared TypeScript prop layer
   // has no spelling for.  This USED to be `amount: money` — wave C2 packet 2k
   // taught the layer `money` (`Decimal`), `File` and a `valueobject` (both

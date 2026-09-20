@@ -1098,6 +1098,10 @@ export const DIAGNOSTIC_MESSAGES = {
     `menu link '${p.name}' does not name a page of ui '${p.uiName}'.  Linkable pages: ${p.linkable}.  Scaffolded pages are named by ROLE inside a per-aggregate area, so link them area-qualified (e.g. 'link Orders.List'); a workflow's form page is '<Workflow>Workflow'.`,
   "loom.extern-function-shadows-stdlib": (p: { name: unknown }) =>
     `extern function '${p.name}' shadows a walker-stdlib primitive.  Pick a different name.`,
+  "loom.component-shadows-stdlib": (p: { name: unknown }) =>
+    `component '${p.name}' shadows a walker-stdlib primitive — the page-body dispatcher ` +
+    `resolves '${p.name}(...)' to the primitive, so this component is emitted and never ` +
+    `rendered.  Pick a different name.`,
   "loom.store-lifetime-invalid": (p: {
     name: unknown;
     lifetime: unknown;
