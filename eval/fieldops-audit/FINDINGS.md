@@ -110,6 +110,33 @@ Workaround: use `getById` — but `getById` is not usable where a criterion is r
 Impact on adoption: combines with F-002 to force an unnatural natural-key lookup.
 Time lost: 10 min.
 
+> **UPDATE (2026-09-20) — fixed, and the finding understated it.**
+>
+> `this.id` in a criterion is not rejected.  Declaring one validates clean:
+>
+> ```
+> criterion ById(i: Part id) of Part = this.id == i     ->  0 error(s), 0 warning(s)
+> ```
+>
+> What is rejected is every way of USING it — from a `find`, from a `retrieval`, and through the
+> retrieval a workflow's `Repo.find(ById(…))` synthesises.  So the language admitted the predicate
+> and refused the call: you could declare it and never invoke it.
+>
+> The strictness was not arbitrary.  `firstUnknownColumnRef` carries an `allowSelfId` option, passed
+> at the criterion site with the reason spelled out (*"the key is a real stored column on every
+> backend"*) and deliberately NOT passed at the find/retrieval sites, whose comment says why: *"a
+> workflow-instance read-model source has no `id` column, so admitting it there would emit SQL
+> against a missing column."*
+>
+> That reason does not reach the case: a workflow-instance source is not an aggregate, so the `agg`
+> lookup (`ctx.aggregates.find(…)`) returns nothing and the branch never runs.  Where `agg` DOES
+> resolve it is an ordinary aggregate, and every aggregate carries an implicit `<Name> id` that is a
+> stored column on every backend.  Both sites now pass the option the criterion site always passed.
+>
+> Acceptance alone would not have been worth much, so the suite checks the emitted query too —
+> `eq(schema.parts.id, i)`, the real column — and pins that a genuinely unknown field is still
+> refused, since the relaxation is `id`-shaped and not a hole.
+
 ### F-004 — `loom.transactional-no-effect` fires on a workflow that *is* transactional
 Severity: S3 (friction)   Class: SILENT (wrong analysis) — but fails safe
 Area: IR validation vs codegen agreement
