@@ -2,13 +2,7 @@ import { NodeFileSystem } from "langium/node";
 import { parseHelper } from "langium/test";
 import { describe, expect, it } from "vitest";
 import { lowerModel } from "../../src/ir/lower/lower.js";
-import type {
-  DomainServiceIR,
-  LetStmtIR,
-  LoomModel,
-  StmtIR,
-  TypeIR,
-} from "../../src/ir/types/loom-ir.js";
+import type { DomainServiceIR, LoomModel, StmtIR, TypeIR } from "../../src/ir/types/loom-ir.js";
 import { createDddServices } from "../../src/language/ddd-module.js";
 import type { Model } from "../../src/language/generated/ast.js";
 
@@ -30,6 +24,10 @@ import type { Model } from "../../src/language/generated/ast.js";
 // Lowering only (`lowerModel`), deliberately: this is a phase-⑤ fact, and
 // reading it off the IR keeps the test blind to which backend renders what.
 // ---------------------------------------------------------------------------
+
+/** The `let` arm of `StmtIR`. The union's arms are inline and unnamed, so
+ *  narrow by `kind` rather than importing a type that does not exist. */
+type LetStmt = Extract<StmtIR, { kind: "let" }>;
 
 const services = createDddServices(NodeFileSystem);
 const parse = parseHelper<Model>(services.Ddd);
@@ -105,7 +103,7 @@ function serviceFrom(ir: LoomModel, name: string): DomainServiceIR {
 function bindingType(svc: DomainServiceIR, opName: string): TypeIR | undefined {
   const op = svc.operations.find((o) => o.name === opName);
   if (!op) throw new Error(`operation '${opName}' not lowered`);
-  const isLet = (s: StmtIR): s is LetStmtIR => s.kind === "let";
+  const isLet = (s: StmtIR): s is LetStmt => s.kind === "let";
   const lets = op.body.filter(isLet);
   expect(lets).toHaveLength(1);
   return lets[0]!.type;
