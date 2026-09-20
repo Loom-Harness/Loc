@@ -149,6 +149,42 @@ system BindBoth {
 }
 `;
 
+/** The same projection `!=`, over a `shape: embedded` aggregate.
+ *
+ *  A THIRD instance of the identical defect, in a third emitter.
+ *  `buildEmbeddedRepositoryFile` kept its own copy of the candidate walk with
+ *  the same hole — narrower, in fact: it saw `repo.finds` and not even the
+ *  context retrievals — while the class it emits renders the synthesised
+ *  projection finds like the other two shapes.  Reverting that builder alone
+ *  emits `.where(ne(...))` under `import { and, eq, inArray }`.
+ *
+ *  It is a separate fixture rather than a variant of `PROJECTION_NE` because
+ *  the two go through different builders entirely; a regression in one would
+ *  not show in the other. */
+const PROJECTION_NE_EMBEDDED = `
+system BindNeEmbedded {
+  context C {
+    enum Status { Open, Closed }
+    aggregate Ticket shape: embedded {
+      status: Status
+      derived display: string = \`t {status}\`
+    }
+    repository Tickets for Ticket { }
+    projection OpenTickets {
+      status: Status
+      n: int
+      from Ticket as t
+      where t.status != Closed
+      group by t.status
+      select status = t.status, n = count()
+    }
+  }
+  storage primary { type: postgres }
+  resource st { for: C, kind: state, use: primary }
+  deployable api { platform: node contexts: [C] dataSources: [st] port: 3000 }
+}
+`;
+
 const FIXTURES: ReadonlyArray<{ label: string; source: string; spells: RegExp; file: RegExp }> = [
   {
     label: "a projection `where … != …` (F-009 — drizzle `ne`)",
@@ -161,6 +197,12 @@ const FIXTURES: ReadonlyArray<{ label: string; source: string; spells: RegExp; f
     source: MONEY_DEFAULT,
     spells: /new Decimal\(/,
     file: /\/http\/.*\.routes\.ts$/,
+  },
+  {
+    label: "a projection `where … != …` over `shape: embedded` (F-009's third emitter)",
+    source: PROJECTION_NE_EMBEDDED,
+    spells: /(?<![.\w$])ne\(/,
+    file: /\/db\/repositories\/.*-repository\.ts$/,
   },
   {
     label: "both, plus a paged find",
