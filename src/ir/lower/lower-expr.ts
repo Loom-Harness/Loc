@@ -969,7 +969,12 @@ function applySuffixToRecv(
       kind: "method-call",
       receiver: recv,
       member: ms.member,
-      args,
+      // `Agg.create({ … })` — the input literal's keys name declared
+      // properties, so they carry the expected type a bare enum value needs.
+      args:
+        ms.member === "create" && recv.kind === "ref"
+          ? retargetCreateInput(recv.name, args, env)
+          : args,
       receiverType: recvType,
       isCollectionOp: collectionOp,
       ...(isIntrinsicMatcher(ms.member) ? { isIntrinsicMatcher: true } : {}),
@@ -2080,6 +2085,7 @@ export function retargetEnumValue(ir: ExprIR, expected: TypeIR | undefined): Exp
 function carriesEnumCandidates(ir: ExprIR): boolean {
   if (ir.kind === "ref") return ir.refKind === "enum-value" && ir.enumCandidates !== undefined;
   if (ir.kind === "list") return ir.elements.some(carriesEnumCandidates);
+  if (ir.kind === "object") return ir.fields.some((f) => carriesEnumCandidates(f.value));
   if (ir.kind === "ternary")
     return carriesEnumCandidates(ir.then) || carriesEnumCandidates(ir.otherwise);
   if (ir.kind === "paren") return carriesEnumCandidates(ir.inner);
@@ -2096,6 +2102,37 @@ function calleeParams(name: string, env: Env): { name: string; type: TypeIR }[] 
  *  (F-022).  Positional by index; a named-argument call matches by name, so
  *  `issue(to: Draft)` resolves the same way as `issue(Draft)`.  A no-op for
  *  every argument that is not an ambiguous bare enum value. */
+/** Repoint the fields of an `Agg.create({ … })` input at the aggregate's
+ *  DECLARED property types (F-022).
+ *
+ *  The create input is a structural object literal, so its fields lower
+ *  context-free — but every key NAMES a property, and that property's type is
+ *  the slot's expected type exactly as for a field default.  Without this,
+ *  `SalesOrder.create({ status: Draft })` in a context that also declares
+ *  `enum QuoteStatus { Draft, … }` reaches phase (7) looking context-free and
+ *  is reported as ambiguous, though the slot says precisely which enum it is.
+ *  (`web/src/examples/erp/sales.ddd` is exactly this shape.) */
+function retargetCreateInput(aggName: string, args: ExprIR[], env: Env): ExprIR[] {
+  if (!args.some(carriesEnumCandidates)) return args;
+  const agg = findEntityByName(env, aggName);
+  if (!agg) return args;
+  const slots = new Map<string, TypeIR>();
+  for (const m of agg.members) {
+    if (isProperty(m)) slots.set(m.name, lowerType(m.type, env));
+  }
+  return args.map((a) =>
+    a.kind === "object"
+      ? {
+          ...a,
+          fields: a.fields.map((f) => ({
+            ...f,
+            value: retargetEnumValue(f.value, slots.get(f.name)),
+          })),
+        }
+      : a,
+  );
+}
+
 export function retargetCallArgs(
   name: string,
   args: ExprIR[],

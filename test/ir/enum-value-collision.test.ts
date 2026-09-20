@@ -151,6 +151,16 @@ describe("F-022 — bare enum value shared by two enums", () => {
     expect(await enumRefsOf(members)).not.toContain("Draft@OrderStatus");
   });
 
+  it("resolves an `Agg.create({ … })` input field through the property's type", async () => {
+    // The create input is a structural object literal, so its fields lower
+    // context-free — but every key names a declared property.  This is the
+    // shape `web/src/examples/erp/sales.ddd` uses.
+    const members = `        test "t" { let i = Invoice.create({ status: Draft, label: "x" }) }`;
+    expect(await errorCodes(members)).not.toContain("loom.ambiguous-enum-value");
+    expect(await enumRefsOf(members)).not.toContain("Draft@OrderStatus");
+    expect(await enumRefsOf(members)).toContain("Draft@InvoiceStatus");
+  });
+
   it("stays quiet when only one enum declares the name", async () => {
     // `Issued` is unique to InvoiceStatus — an unqualified use must not start
     // erroring just because SOME value name collides elsewhere in the context.
