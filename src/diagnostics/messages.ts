@@ -383,6 +383,17 @@ export const DIAGNOSTIC_MESSAGES = {
   // three-part one is not, and it names the shape that does work — the natural
   // domains here (sub-task tree, bill of materials, threaded comment) are ones
   // an author will want to model some other way, not abandon.
+  // The tenant registry's id IS the tenant identity, so the signup loop starts
+  // by creating a registry row.  No create path means the first tenant can
+  // never exist — a bootstrap that cannot start, which is not obvious from the
+  // model and was not reported.
+  "loom.tenant-registry-not-constructible": (p: { name: unknown }) =>
+    `'${p.name}' is the tenant registry ('tenancy by user.<claim> of ${p.name}') but nothing can ` +
+    `create one: it declares no 'create', no workflow saves one, and no seed names it, so the ` +
+    `generated API is read-only. A tenant's claim value IS a ${p.name} row's id, so with no way ` +
+    `to create one the first tenant can never exist. Add 'with crudish' (or declare a 'create') ` +
+    `to open the signup loop, or seed the registry if tenants are provisioned out of band.`,
+
   "loom.containment-cycle": (p: { agg: unknown; chain: unknown; part: unknown }) =>
     `Aggregate '${p.agg}' has a containment cycle: ${p.chain}. An aggregate is loaded as a ` +
     `whole, so a part that contains itself (directly or through a chain) has no finite shape. ` +

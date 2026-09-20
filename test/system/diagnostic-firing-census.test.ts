@@ -221,6 +221,22 @@ const FIRING_FIXTURES: Record<string, string> = {
   // A part that contains itself.  The natural domain is ordinary (a sub-task
   // tree), and before the check this parsed clean and then killed `generate`
   // with a bare `RangeError: Maximum call stack size exceeded`.
+  // A tenancy registry nothing can create — the signup loop's step one is
+  // missing, so the first tenant can never exist.
+  "loom.tenant-registry-not-constructible": `
+system Billder {
+  user { id: guid  email: string  tenantId: string }
+  tenancy by user.tenantId of Organization
+  subdomain Billing {
+    context Accounts {
+      aggregate Organization { name: string }
+      repository Organizations for Organization { }
+    }
+  }
+  storage primary { type: postgres }
+  resource b { for: Accounts, kind: state, use: primary }
+  deployable api { platform: node, contexts: [Accounts], dataSources: [b], auth: required, port: 3000 }
+}`,
   "loom.containment-cycle": `
 system X {
   subdomain S { context C {

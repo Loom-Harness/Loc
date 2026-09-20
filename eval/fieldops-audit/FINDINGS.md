@@ -156,6 +156,33 @@ Impact on adoption: low once learned, but it is the first thing a newcomer hits 
 `crudish`-using starter template, and the doc that *should* tell them says the opposite.
 Time lost: 20 min.
 
+> **UPDATE (2026-09-20) — fixed, and the general check was MEASURED AND REJECTED.**
+>
+> The obvious reading of this finding is a `loom.aggregate-not-constructible` warning on any
+> aggregate with no create path.  I built it and measured it before landing: **233 hits across 496
+> tracked `.ddd`** — a 47% rate.  An aggregate with no `create` is ordinary (a read model, a fixture
+> that only exercises reads), so that warning is noise, and noise trains people to ignore
+> diagnostics — strictly worse than the silence it replaces.  It is not landed.
+>
+> Narrowed to the case the finding actually names, it becomes signal:
+> **`loom.tenant-registry-not-constructible`**, warning, **7 hits across the same 496**, every one a
+> genuine dead-end.  `tenancy by user.<claim> of <Registry>` makes the registry's id the tenant
+> identity, so onboarding is *create a registry row → issue a token whose claim is that id → read it
+> back*.  No create path breaks the loop at step one: the first tenant can never exist.
+>
+> A warning rather than an error, because a registry seeded by migration or provisioned out of band
+> is coherent — and the create paths that satisfy it are deliberately generous (a declared `create`,
+> a workflow that saves one, a seed row), each pinned, including the seed alternative the message
+> itself offers.
+>
+> **The doc half is narrower than filed, and more embarrassing.**  `docs/tenancy.md`'s prose is
+> RIGHT — `POST /organizations` does work for any authenticated principal, and the doc names the
+> end-to-end test that pins it.  That test boots `tenancy-owned.ddd`, which declares
+> `aggregate Organization with crudish`.  The doc's own inline example, twelve lines up, omits the
+> `with crudish`.  So the example could not do what the prose two sections later promises, and the
+> fixture proving the promise was sitting in the repo declaring it correctly.  The example now
+> matches the fixture, and says why the clause is not decoration.
+
 ### F-006 — `create(...)` parameters are silently ignored; the POST body is the field set, not the params
 Severity: S3 (friction)   Class: SILENT gap + CONTRADICTED doc
 Area: codegen / create route · docs/language.md §"Inside a context"

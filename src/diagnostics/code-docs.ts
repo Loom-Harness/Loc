@@ -40,6 +40,8 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.multiple-systems": "02-systems-and-topology.md#system",
   "loom.duplicate-theme-block": "02-systems-and-topology.md#theme",
   "loom.containment-cycle": "03-domain-modeling.md#entity-parts--contains",
+  "loom.tenant-registry-not-constructible":
+    "02-systems-and-topology.md#tenancy-by-userclaim-of-registry",
   "loom.entity-field-modifier": "03-domain-modeling.md#entity-parts--contains",
   "loom.entity-part-param-unsupported": "03-domain-modeling.md#entity-parts--contains",
   "loom.entity-field-optional-collection": "04-type-system.md#collections--t",
