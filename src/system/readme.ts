@@ -394,13 +394,18 @@ function tests(sys: SystemIR, ctx: SystemReadmeContext): string[] {
     );
     lines.push("");
   }
-  for (const u of unit) {
-    lines.push(`### \`${u.slug}/\` — unit tests`);
+  // One heading and one explanation for ALL the unit suites, then a block per
+  // backend. Repeating the same paragraph under a `###` per deployable read
+  // as boilerplate at three backends and buried the commands.
+  if (unit.length > 0) {
+    lines.push(unit.length === 1 ? `### \`${unit[0].slug}/\` — unit tests` : "### Unit tests");
     lines.push("");
     lines.push(
       "Emitted from the model's `test` blocks: the domain rules, exercised in process. No database, no running server.",
     );
     lines.push("");
+  }
+  for (const u of unit) {
     lines.push("```bash");
     lines.push(`cd ${u.slug}`);
     if (u.layout.test === "npm test") lines.push("npm install");
