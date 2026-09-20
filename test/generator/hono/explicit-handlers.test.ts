@@ -299,7 +299,7 @@ describe("hono — explicit handler with a value-object body param", () => {
     const router = fileEndingWith(await generateSystemFiles(VO_SRC), "http/salesApi-routes.ts");
     // The body schema references the VO schema by name (path id split out).
     expect(router).toContain(
-      'params: z.object({ orderId: z.string().uuid() }), body: { content: { "application/json": { schema: z.object({ amount: MoneySchema, reason: z.string() }) } } }',
+      'params: z.object({ orderId: UuidString }), body: { content: { "application/json": { schema: z.object({ amount: MoneySchema, reason: z.string() }) } } }',
     );
     // …and that name is actually in scope — declared in the file (or imported),
     // not a dangling reference that tsc rejects with TS2304.

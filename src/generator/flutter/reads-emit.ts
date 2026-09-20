@@ -30,6 +30,7 @@ import { tryDetectApiHook } from "../_walker/api-hook-detector.js";
 import { isEntityHistoryRead } from "../_walker/history-read.js";
 import { isOfReadCall } from "../_walker/of-reads.js";
 import { bcByAggregateOf, isPagedQuery } from "../_walker/paged-query.js";
+import { flutterHttpImport } from "./api-client.js";
 import { dartType } from "./dart-types.js";
 
 /** One distinct read a ui issues, projected to everything the provider emitter
@@ -551,7 +552,15 @@ const PAGED_PREAMBLE = lines(
 /** Emit `lib/reads.dart` — every read provider a ui's pages issue, over
  *  `package:http` + the Track A `fromJson` models.  Returns "" when the ui has
  *  no reads (the caller then emits neither this file nor `lib/config.dart`). */
-export function renderReadProviders(reads: readonly FlutterRead[]): string {
+export function renderReadProviders(
+  reads: readonly FlutterRead[],
+  /** True when the deployable authenticates its api calls — `auth: ui` against
+   *  an `auth: required` target with a declared `user { }`.  The generated
+   *  library then imports the credentialed `api_client.dart` drop-in instead of
+   *  `package:http/http.dart`, which credentials EVERY call site at once
+   *  (D-FLUTTER-BEARER).  False keeps the emitted bytes identical. */
+  credentialed = false,
+): string {
   if (reads.length === 0) return "";
   const blocks = reads.map(renderReadProvider);
   const pagedPreamble = reads.some((r) => r.paged) ? [PAGED_PREAMBLE, ""] : [];
@@ -563,7 +572,7 @@ export function renderReadProviders(reads: readonly FlutterRead[]): string {
     "import 'dart:convert';",
     "",
     "import 'package:flutter_riverpod/flutter_riverpod.dart';",
-    "import 'package:http/http.dart' as http;",
+    flutterHttpImport(credentialed),
     "",
     "import 'config.dart';",
     "import 'models.dart';",

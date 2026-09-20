@@ -41,6 +41,20 @@ system DomainSvc {
           balance := Money { amount: balance.amount + amount.amount, currency: balance.currency }
         }
 
+        // A BLOCK-BODY `function` (domain-services.md rev. 4) whose only
+        // `return`s sit inside an `if` — the shape no fixture carried, because
+        // until this wave it did not parse anywhere: `checkFunction` counted
+        // TOP-LEVEL `return`s only, so `loom.function-block-no-return` refused
+        // it at phase ④ on all five backends while every one of them renders
+        // it.  Four go through the generic `_stmt/target.ts` `if` arm; elixir
+        // goes through `renderPureBlock`'s, whose own gate
+        // (`elixirIfRefusal(…, "value")`) already admitted exactly this shape —
+        // a TAIL `if` carrying an `else`, every `return` in tail position.
+        // No caller on purpose: what had never been emitted is the DEFINITION.
+        function tier(threshold: decimal): string {
+          if balance.amount > threshold { return "gold" } else { return "bronze" }
+        }
+
         // Pure-domain (unit) test — decimal value-object ARITHMETIC through
         // operations (deposit `+`, withdraw `-`), a surface the existing corpus
         // domain tests (enum/containment/precondition/single-containment) don't

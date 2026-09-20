@@ -4,6 +4,34 @@ import { OpenAPIHono } from "@hono/zod-openapi";
 import type { Context } from "hono";
 import { HTTPException } from "hono/http-exception";
 
+/** The wire schema for a `guid`-valued id — the canonical dashed-hex uuid
+ *  form, and nothing more.
+ *
+ *  This is the SHARED cross-backend shape, not a Hono choice: Python's
+ *  `Path(pattern=…)`, .NET's `Guid` binding, Java's `UUID.fromString` and
+ *  Phoenix's `Ecto.UUID.cast` all accept exactly these 32 hex digits in this
+ *  layout, and so does Postgres's `uuid` type — which is the point, since the
+ *  reason this is validated at the edge at all is to keep a non-uuid from
+ *  reaching the driver as a 500 (schemathesis F2/F3).
+ *
+ *  It replaces `z.string().uuid()`, which additionally enforced RFC 4122's
+ *  VERSION and VARIANT nibbles.  Those nibbles are meaningless to every
+ *  consumer above — Postgres stores and compares the id either way — so the
+ *  only ids the stricter form rejected were ones that would have produced a
+ *  correct 404, turned into a 422 instead.  That made the documented
+ *  `toThrow(404)` contract depend on which placeholder uuid the author happened
+ *  to type: `ffffffff-…` answered 404 while `00000000-0000-0000-0000-0000000000ff`
+ *  and `deadbeef-dead-beef-dead-beefdeadbeef` answered 422 — on Hono only.
+ *
+ *  `format: uuid` is preserved for the spec (the paramTypeDiffs parity
+ *  dimension compares `type` + `format`); the regex additionally publishes
+ *  `pattern`, which is what Python already published, so the two specs now
+ *  agree where they previously differed. */
+export const UuidString = z
+  .string()
+  .regex(/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/)
+  .openapi({ format: "uuid" });
+
 /** RFC 7807 ProblemDetails body — the base 5 spec fields plus the §3.2
  *  `errors[]` extension (per-field `{ pointer, message }` array) that
  *  the runtime emits on 422 validation responses.  Consumed by the

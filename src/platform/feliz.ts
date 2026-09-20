@@ -26,8 +26,8 @@ const felizPlatform: PlatformSurface = {
   // the static-bundle hosts share.  Must equal the metadata descriptor.
   hostableFrameworks: new Set(["feliz"]),
   reservedRepositoryFindNames: new Set(),
-  emitProject({ contexts, sys, deployable }): Map<string, string> {
-    return generateFelizForContexts(contexts, sys, deployable);
+  emitProject({ contexts, sys, deployable, sourcemap }): Map<string, string> {
+    return generateFelizForContexts(contexts, sys, deployable, { sourcemap });
   },
   composeService({ deployable, sys }): ComposeServiceShape {
     const target = sys.deployables.find((t) => t.name === deployable.targetName);
