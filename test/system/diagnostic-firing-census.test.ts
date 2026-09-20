@@ -1053,7 +1053,9 @@ system S {
   // silently dropped from the stored blob.  Since wave C2 packet 2i the FELIZ
   // residue is exactly the types that would need a RECORD codec — a value
   // object here; `datetime` (the fixture's old subject) now has a total
-  // `System.DateTime.TryParse` codec and rides the ladder.
+  // `System.DateTime.TryParse` codec and rides the ladder.  Packet 2l added the
+  // `optional` arm, which does NOT widen this fixture: an optional of a record
+  // is refused for the same reason the bare record is.
   "loom.store-lifetime-target-unsupported": `
 system S {
   subdomain Sub { context C {
@@ -1736,10 +1738,21 @@ system P {
   // `// TODO(flutter full-parity)` comment: the button was wired and did
   // nothing.  (The `match await` on a standard agg op is the same code's other
   // slug; one fixture per code is what the census asks for.)
+  // The `toast(…)` arm this fixture used to drive is DRAINED (wave C2 packet
+  // 2l gave the Notifier the `lib/toast.dart` bridge), so the fixture moved to
+  // the arm that survives: a `match await` on a STANDARD aggregate op, which
+  // the Flutter async-effect emitter resolves through `agg.operations` and so
+  // cannot find.  `create` is deliberately NOT one of `Order`'s declared
+  // operations here.
   "loom.flutter-action-body-unsupported": flutterUi(`    page Edit {
       route: "/edit"
       state { n: int = 0 }
-      action go() { toast("hi") }
+      action go() {
+        match await Shop.Order.create(code: "c") {
+          Order o => n := 1,
+          else => n := 2
+        }
+      }
       body: Stack { Heading { "Edit", level: 1 }, Button { "go", onClick: go } }
     }`),
 

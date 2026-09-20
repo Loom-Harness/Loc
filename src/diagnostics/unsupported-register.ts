@@ -273,13 +273,21 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
     kind: "gap",
     site: "src/ir/validate/checks/store-checks.ts:527",
     what:
-      "`match await <subject>` whose subject is not an aggregate INSTANCE operation — a " +
-      "workflow, a collection read or a plain state field.  Awaiting a WORKFLOW is the real " +
-      "work behind this row (a different route shape, `POST /workflows/<wf>`, and its own " +
-      "result projection on each of the seven frontend emitters); the other subjects are " +
-      "nonsense the statement form could not otherwise refuse, because a " +
-      "`StmtIR.variant-match`'s `subjectType` comes from `inferExprType` (catch-all `string`) " +
-      "and so cannot reach `loom.match-non-union-subject`",
+      "`match await <subject>` whose subject is not an aggregate INSTANCE operation.  The " +
+      "reachable population was CENSUSED in wave C2 packet 2l by spelling every candidate " +
+      "subject and parsing it, and it is exactly THREE shapes: (1) `match await " +
+      "<api>.<Workflow>(args)` — a workflow run, which is the only DRAINABLE one and the real " +
+      "work behind this row (a different route shape, `POST /workflows/<wf>`, with its own " +
+      "result projection on each of the seven frontend emitters); (2) `match await " +
+      "<api>.<Agg>.all` — a collection READ, which has no command to await; (3) `match await " +
+      "<state field>`.  (2) and (3) are nonsense the statement form could not otherwise " +
+      "refuse, because a `StmtIR.variant-match`'s `subjectType` comes from `inferExprType` " +
+      "(catch-all `string`) and so cannot reach `loom.match-non-union-subject` — so the row " +
+      "will NOT reach zero by building; when the workflow subject lands, what is left is a " +
+      "permanent refusal and the row re-classes `scope`.  Two shapes a reader might expect " +
+      "here are NOT this row's: a dotted workflow (`<api>.<Workflow>.run(…)`) and a " +
+      "domain-service call are both refused earlier, by scope resolution (\"Aggregate 'X' not " +
+      'found in api"), so they never reach the classifier',
     mission: "M-T1.20",
   },
   {
@@ -364,14 +372,17 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
     kind: "gap",
     site: "src/ir/validate/checks/ui-framework-checks.ts:822",
     what:
-      "two Flutter action-body shapes every other frontend renders: a `toast(…)` view " +
-      "effect (a Riverpod Notifier holds no BuildContext, so it reaches no ScaffoldMessenger; " +
-      "`navigate(…)` reaches the router through the generated lib/nav.dart bridge since " +
-      "Wave C1 packet 1e-ii) and a `match await` on one of the five " +
+      "ONE Flutter action-body shape left, down from two: a `match await` on one of the five " +
       "STANDARD aggregate ops (the async-effect emitter resolves its op through " +
-      "`agg.operations`, which holds only DECLARED ones). Both emitted a " +
-      "`// TODO(flutter full-parity)` comment into the Dart before Wave C1 1d-ii — the " +
-      "action was wired and silently did nothing",
+      "`agg.operations`, which holds only DECLARED ones).  The `toast(…)` VIEW-EFFECT arm is " +
+      "DRAINED (wave C2 packet 2l): a Riverpod Notifier still holds no BuildContext, so it " +
+      "reaches the live ScaffoldMessenger through a generated `lib/toast.dart` bridge — a " +
+      "`GlobalKey<ScaffoldMessengerState>` installed on MaterialApp, the same shape " +
+      "`navigate(…)` has used since Wave C1 packet 1e-ii, emitted use-driven off one marker so " +
+      "a non-toasting app stays byte-identical.  A realtime handler's toast is IN the widget " +
+      "tree (`LoomRealtime`) and deliberately keeps `ScaffoldMessenger.maybeOf(context)`.  Both " +
+      "shapes emitted a `// TODO(flutter full-parity)` comment into the Dart before Wave C1 " +
+      "1d-ii — the action was wired and silently did nothing",
     mission: "M-T1.32",
   },
   {
@@ -581,13 +592,17 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
     site: "src/ir/validate/checks/store-checks.ts:364",
     what:
       "a persisted store field with no total F# (feliz) or Dart (flutter) codec.  BOTH halves " +
-      "narrowed in wave C2 (feliz in packet 2i, flutter in packet 2j) to exactly the cells that " +
-      "would need a RECORD codec the store path does not emit — `File`, `valueobject`, `entity` " +
-      "and arrays of them.  Feliz: `datetime`/`guid` grew `System.DateTime.TryParse`/`System.Guid.TryParse` " +
-      "arms, an enum rides F# as `string`, list elements cover every scalar.  Flutter: a nullable " +
-      "scalar and a `json` cell now persist; a nullable cell is still refused at the `url` tier for " +
-      "a measured reason (no null-distinguishing `copyWith` sentinel in the shared state class).  " +
-      "The two codec tables' remaining divergences are pinned by test/ir/util/persist-codec-divergence.test.ts",
+      "narrowed across wave C2 (feliz in packets 2i + 2l, flutter in packet 2j) to exactly the " +
+      "cells that would need a RECORD codec the store path does not emit — `File`, `valueobject`, " +
+      "`entity` and arrays of them.  Feliz: `datetime`/`guid` grew " +
+      "`System.DateTime.TryParse`/`System.Guid.TryParse` arms, an enum rides F# as `string`, list " +
+      "elements cover every scalar, and packet 2l added the `optional` arm (a `'T option` cell) at " +
+      "EVERY tier.  Flutter: a nullable scalar and a `json` cell persist, but a nullable cell is " +
+      "still refused at the `url` tier for a measured reason (no null-distinguishing `copyWith` " +
+      "sentinel in the shared state class) — Feliz has no such cause, since its `StoreUrlChanged` " +
+      "arm rebuilds the record field from the loader, so `felizPersistCodec` takes no tier at all.  " +
+      "That tier difference is now the ONLY disagreement between the two tables and is pinned in " +
+      "both directions by test/ir/util/persist-codec-divergence.test.ts; every TYPE agrees",
     mission: "M-T1.20",
   },
   {

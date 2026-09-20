@@ -141,20 +141,20 @@ gate already encodes the row's claim, run the gate.
 
 | metric | value |
 |---|---|
-| open rows | **123** |
+| open rows | **122** |
 | P0 | 0 |
 | P1 | 1 |
 | P2 | 5 |
-| P3 | 32 |
+| P3 | 31 |
 | P4 | 77 |
 | P5 | 8 |
-| kind: silent / honest / breadth / mission / stale-prose | 6 / 32 / 20 / 57 / 8 |
-| confidence: proven / likely / suspected | 22 / 100 / 1 |
+| kind: silent / honest / breadth / mission / stale-prose | 6 / 31 / 20 / 57 / 8 |
+| confidence: proven / likely / suspected | 21 / 100 / 1 |
 | class: faulty-fix / regression | 1 / 0 |
-| size S / M / L | 32 / 50 / 41 |
-| provenance: fleet1-only / fleet2-only / corroborated by both | 112 / 10 / 1 |
+| size S / M / L | 31 / 50 / 41 |
+| provenance: fleet1-only / fleet2-only / corroborated by both | 111 / 10 / 1 |
 | claimed by an open PR | 60 |
-| done / merged | 166 |
+| done / merged | 167 |
 | declined (not a gap: stale / breadth / duplicate / decided) | 7 |
 | conflicts | 10 |
 | checkedOk entries | 146 |
@@ -189,7 +189,6 @@ Sorted P0 (security / data-integrity, silent, proven) → P1 (other silent prove
 | P3 | `M-T5.3-nested-carriers-and-option` | honest | like | language, node, dotnet, java, python, elixir, react | M | Nested carriers stay gated; `option` lowers but the three-state PATCH it unblocks is unbuilt |
 | P3 | `M-T5.7-inheritance-tail` | honest | like | dotnet, node, java, python, elixir | M | Inheritance tail — all three remaining items are honest register rows |
 | P3 | `M-T6.2-s12-vanilla-document-gate` | honest | like | elixir | M | §12 residue: the Elixir document-shape gate still honestly rejects named ops and non-scalar-predicate finds |
-| P3 | `feliz-flutter-persist-codec-asymmetry` | honest | prov | feliz | S | FELIZ ARM ONLY now (feliz drained toward the union in wave C2 packet 2i; flutter gained `json` + nullable cells in packet 2j). The two `persist:` codec tables disagree on exactly ONE shape — an OPTIONAL scalar, which the Dart table persists as a nullable cell and the F# table refuses (no `optional` arm) — so a `persist:` store holding a `T?` cell ships on flutter and is refused on feliz |
 | P3 | `workflow-projection-rename-unexpressible` | honest | prov | node, dotnet, elixir, python, java | M | M-T2.1 slice (d) — renaming a `workflow` or `projection` drop+recreates its state/projection table; `TableRename` cannot name one |
 | P3 | `M-T1.3-keyed-folded-projection-reads` | honest | like | react, vue, svelte, angular, feliz, flutter, phoenixLiveView | L | M-T1.3 — KEYED and FOLDED projection reads are unreadable from any frontend (honest gate, unclaimed) |
 | P3 | `M-T3.15-B1-projection-masking` | honest | like | node, dotnet, java, python, elixir | L | B1 — gated projections and `mask unless` are still mutually exclusive by validator |

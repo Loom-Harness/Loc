@@ -332,14 +332,17 @@ const MATCH_AWAIT = (op: string) => `        match await Shop.Order.${op}() {
 describe("loom.flutter-action-body-unsupported", () => {
   const CODE = "loom.flutter-action-body-unsupported";
 
-  it("admits `navigate(…)` in a Flutter action body — it renders through the nav bridge", async () => {
-    // Wave C1 packet 1e-ii routed it through the generated `lib/nav.dart`
-    // bridge (ledger row F2-CFE-1), so the refusal is `toast`'s alone.
+  it("admits BOTH view effects in a Flutter action body — each has an out-of-tree bridge", async () => {
+    // A Riverpod Notifier still has no `BuildContext`; each effect reaches the
+    // widget layer through its own `GlobalKey` installed on `MaterialApp`.
+    // `navigate` got `lib/nav.dart` in wave C1 packet 1e-ii (ledger row
+    // F2-CFE-1); `toast` got `lib/toast.dart` in wave C2 packet 2l (M-T1.32
+    // half 1), which deleted this code's `#view-effect` arm.  What is left of
+    // the code is the standard-op `match await` below.
     expect(await codes(flutterSys(`        navigate("/other")`))).not.toContain(CODE);
-  });
-
-  it("refuses `toast(…)` in a Flutter action body", async () => {
-    expect(await codes(flutterSys(`        toast("hi")`))).toContain(CODE);
+    expect(await codes(flutterSys(`        toast("hi")`))).not.toContain(CODE);
+    // A non-string argument too: the bridge takes `Object?` and interpolates.
+    expect(await codes(flutterSys(`        message := "x"  toast(message)`))).not.toContain(CODE);
   });
 
   it("refuses `match await` on a STANDARD aggregate op", async () => {
