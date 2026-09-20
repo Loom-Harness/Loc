@@ -90,6 +90,38 @@ decrement stock, atomically" — one of FieldOps' stated requirements. Every per
 cross-aggregate write in our domain hits it.
 Time lost: 35 min (most of it disbelieving the error message).
 
+> **UPDATE (2026-09-20) — fixed, and the CLASS was wrong: this was never a gap.**
+>
+> Filed as *"HONEST gap, but with a misleading diagnostic"*.  It is neither honest nor a gap — it is
+> a **validator false-negative refusing a shape the whole toolchain already handles**.
+>
+> The `for-each` arm of `validateWorkflows` walked the loop body looking only for `op-call`s and
+> never recorded the `repo-let` / `factory-let` bindings it passed on the way.  So
+> `let p = Parts.getById(l.partId)` bound nothing, and the next statement's `p.consume(…)` was
+> reported as an unknown binding — pointing at the USE, one line below a `let` that plainly declares
+> the name, which reads as *"you have a typo"* rather than *"this shape is unsupported"*.
+>
+> **Every one of the five backends already emits the loop correctly.**  Verified by generating, not
+> by reading the emitters:
+>
+> | backend | emitted loop body |
+> |---|---|
+> | node | `const p = await parts.getById(l.partId); p.consume(l.qty); await parts.save(p);` |
+> | java | `var p = partsRepository.getById(l.partId()); p.consume(l.qty()); …save(p);` |
+> | python | `p = await parts.get_by_id(l.part_id); p.consume(l.qty); await parts.save(p)` |
+> | dotnet | `var p = await _parts.GetByIdAsync(…) ?? throw …; p.Consume(l.Qty); await _parts.SaveAsync(p, …)` |
+> | elixir | `with {:ok, p} <- Context.get_part(l.part_id), {:ok, _} <- Context.consume_part(p, …)` |
+>
+> so the validator was the only thing standing between the author and working code.
+>
+> **One thing I got wrong while testing it**, worth recording because it is the same shape as the
+> defects in this register: my first cross-backend assertion grepped every emitted tree for
+> `/save/i` and reported **elixir as broken**.  It is not — Phoenix persists INSIDE the context
+> function (`consume_part` ends in `persist_change()`), so there is no separate save to find.  A
+> generic assertion flattened a real idiomatic difference and accused the one backend that was
+> behaving correctly.  The suite now carries a per-backend load/mutate/persist table, which says
+> what each target actually does instead of assuming they agree.
+
 ### F-003 — `this.id` is rejected as an unknown field in a `criterion`
 Severity: S3 (friction)   Class: HONEST
 Area: language / criterion + retrieval
