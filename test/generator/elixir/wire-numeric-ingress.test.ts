@@ -99,6 +99,25 @@ describe("elixir numeric op-param ingress (M-T6.48)", () => {
     expect(ctx).not.toMatch(/score = Map\.get\(params, "score"\)/);
   });
 
+  // `mix compile --warnings-as-errors` — the repo's own `test:phoenix` tier —
+  // rejects an underscored variable that is READ: a leading underscore in
+  // Elixir MEANS "this value is ignored".  The datetime coercion bound `__dt`
+  // / `__s` / `__d` / `__other` and then read every one of them on the next
+  // token, so it failed five times per `datetime` op param, on a model that
+  // validated `0 error(s)`.  The prefix still has to make a collision with a
+  // user param impossible, so the binders are `loom_`-prefixed instead.
+  it("binds a datetime param's coercion locals without a leading underscore", async () => {
+    const ctx = await ctxOf("due: datetime?\n        operation reschedule(at: datetime) { due := at }");
+    // The coercion is still there, in full…
+    expect(ctx).toContain("DateTime.from_iso8601(loom_s)");
+    expect(ctx).toContain("%DateTime{} = loom_dt -> loom_dt");
+    expect(ctx).toContain("DateTime.truncate(loom_d, :second)");
+    // …and nothing it BINDS claims to be ignored.
+    for (const read of ["__dt", "__s", "__d", "__other"]) {
+      expect(ctx).not.toContain(read);
+    }
+  });
+
   it("a context with no guarded param carries no helper at all", async () => {
     const ctx = await ctxOf("operation rename(label: string) { }");
     expect(ctx).not.toContain("__loom_param_error");
