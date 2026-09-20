@@ -42,6 +42,94 @@ function __authHeaders(): Record<string, string> {
   return headers;
 }
 
+// ── Test isolation ─────────────────────────────────────────────────────────
+// This suite drives a REAL database through a RUNNING backend, so without a
+// reset between blocks it is not idempotent: an exact count assertion is
+// green on a fresh database and red on the second run of the same one, and
+// every `it()` is coupled to the blocks that ran before it.  A per-test
+// TRANSACTION cannot close that — the suite talks HTTP to a separate process,
+// so it has no transaction to share — so each block instead asks the backend
+// to put its own state back.
+//
+// SAFETY.  A suite pointed at staging must never truncate anything, so the
+// reset is gated TWICE and the gate that matters needs no configuration:
+//
+//   • here — the request is only SENT when the target is a loopback address.
+//     Pointing this suite at a deployed environment
+//     (`E2E_<DEPLOYABLE>_BASE=https://staging.example.com`) disables it by
+//     construction.  There is deliberately NO override: a remote-enable flag
+//     is exactly the thing that gets copied into a CI config and then points
+//     at the wrong host one refactor later.
+//
+//   • on the backend — the route is not REGISTERED outside a dev profile, so
+//     in a real deployment the path does not exist at all.
+//
+// `E2E_RESET=off` turns it off entirely, for a suite whose blocks are written
+// to accumulate on purpose.
+const __RESET_PATH = "/__loom/test-reset";
+
+function __isLoopbackBase(base: string): boolean {
+  let host: string;
+  try {
+    host = new URL(base).hostname.toLowerCase();
+  } catch {
+    // Not a URL this can reason about — treat as remote and reset nothing.
+    return false;
+  }
+  if (host === "localhost" || host.endsWith(".localhost")) return true;
+  // `URL.hostname` KEEPS the brackets on an IPv6 literal (and normalizes the
+  // long form, so `[0:0:0:0:0:0:0:1]` already arrives as `[::1]`); strip them
+  // anyway so this does not rest on that normalization.
+  if (host.replace(/^\[|\]$/g, "") === "::1") return true;
+  // The whole 127.0.0.0/8 block, not just 127.0.0.1.
+  return /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(host);
+}
+
+/** Put the target back to its just-migrated-and-seeded state.  Called at the
+ *  top of every test, so each block sees only the rows it creates itself. */
+async function __resetState(base: string): Promise<void> {
+  if (process.env.E2E_RESET === "off") return;
+  if (!__isLoopbackBase(base)) return;
+  const url = `${base}${__RESET_PATH}`;
+  let r: Response;
+  try {
+    r = await fetch(url, { method: "POST", headers: __authHeaders() });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    throw new Error(`E2E state reset could not reach ${url}: ${message}`);
+  }
+  if (r.ok) return;
+  // Everything below is a misconfiguration the author has to see.  Failing
+  // here names the cause; letting the suite run on without isolation would
+  // surface it much later as a bare `expected 6 to be 2` in whichever block
+  // happened to count rows.
+  const detail = await r.text().catch(() => "");
+  throw new Error(
+    [
+      `E2E state reset failed: POST ${url} → ${r.status}${detail ? ": " + detail.slice(0, 200) : ""}`,
+      "",
+      "Without it this suite is NOT idempotent — it passes on a fresh database",
+      "and fails on the second run of the same one, because every test shares",
+      "state with the tests before it.",
+      "",
+      r.status === 404
+        ? [
+            "A 404 means the backend did not register the reset route. It is",
+            "registered only outside a production profile, so check that the",
+            "service is running in a dev/test profile and that LOOM_TEST_RESET",
+            'is not set to "0".',
+          ].join("\n")
+        : "",
+      "",
+      "Otherwise: run against a FRESH database each time (docker compose down -v),",
+      "or set E2E_RESET=off to accept shared state and write assertions that",
+      "tolerate it.",
+    ]
+      .filter(Boolean)
+      .join("\n"),
+  );
+}
+
 async function __post(url: string, body: unknown): Promise<__WireBody> {
   const r = await fetch(url, {
     method: "POST",
@@ -83,6 +171,7 @@ async function __getQuery(url: string, params: Record<string, unknown>): Promise
 describe("Acme e2e", () => {
   it("create a product, look it up by id against api", async () => {
     const base = ENDPOINTS.api;
+    await __resetState(base);
     const p = await __post(`${base}/api/products`, ({ sku: "WIDGET-1", price: ({ amount: 9.99, currency: "USD" }) }));
     const read = await __get(`${base}/api/products/${p.id}`);
     expect(read.sku).toBe("WIDGET-1");
@@ -90,6 +179,7 @@ describe("Acme e2e", () => {
 
   it("create a product, look it up by id against catalog_web", async () => {
     const base = ENDPOINTS.catalog_web;
+    await __resetState(base);
     const p = await __post(`${base}/api/products`, ({ sku: "WIDGET-1", price: ({ amount: 9.99, currency: "USD" }) }));
     const read = await __get(`${base}/api/products/${p.id}`);
     expect(read.sku).toBe("WIDGET-1");
@@ -97,6 +187,7 @@ describe("Acme e2e", () => {
 
   it("create a product, look it up by id against catalog_api", async () => {
     const base = ENDPOINTS.catalog_api;
+    await __resetState(base);
     const p = await __post(`${base}/api/products`, ({ sku: "WIDGET-1", price: ({ amount: 9.99, currency: "USD" }) }));
     const read = await __get(`${base}/api/products/${p.id}`);
     expect(read.sku).toBe("WIDGET-1");
@@ -104,6 +195,7 @@ describe("Acme e2e", () => {
 
   it("create then confirm an order with one line against api", async () => {
     const base = ENDPOINTS.api;
+    await __resetState(base);
     const prod = await __post(`${base}/api/products`, ({ sku: "WIDGET-2", price: ({ amount: 5.00, currency: "USD" }) }));
     const ord = await __post(`${base}/api/orders`, ({ customerId: "cust-001", status: "Draft", placedAt: "2024-01-01T00:00:00Z" }));
     await __post(`${base}/api/orders/${ord.id}/add_line`, ({ productId: prod.id, qty: 3 }));
@@ -115,6 +207,7 @@ describe("Acme e2e", () => {
 
   it("by_customer query returns matching orders against api", async () => {
     const base = ENDPOINTS.api;
+    await __resetState(base);
     await __post(`${base}/api/orders`, ({ customerId: "cust-002", status: "Draft", placedAt: "2024-01-02T00:00:00Z" }));
     const list = await __getQuery(`${base}/api/orders/by_customer`, ({ customerId: "cust-002" }));
     expect(list.length).toBeGreaterThanOrEqual(1);

@@ -189,6 +189,7 @@ describe("the backend only registers the reset route when told to", () => {
   it.each([
     ["node", "d/auth/middleware.ts"],
     ["python", "d/app/auth/middleware.py"],
+    ["dotnet", "d/Auth/UserMiddleware.cs"],
   ])("is reachable without a principal on an auth-bearing %s system", async (platform, path) => {
     // The reset is infra, the same class as `/health` — an auth-bearing
     // system's suite must not have to mint a principal just to empty a table.
@@ -221,8 +222,15 @@ describe("the backend only registers the reset route when told to", () => {
       }
     `);
     const mw = out.get(path)!;
-    const bypass = mw.slice(mw.indexOf("BYPASS_PREFIXES"));
-    expect(bypass.slice(0, bypass.indexOf("\n"))).toContain(TEST_RESET_PATH);
+    // The three spell the list differently (a TS array, a python tuple, a C#
+    // `new[]` initializer over several lines), so the assertion is on the
+    // list REGION rather than one line of it.
+    const start = mw.search(/BYPASS_PREFIXES|BypassPrefixes/);
+    expect(start, `${platform} declares a bypass list`).toBeGreaterThan(-1);
+    // A fixed window, because the three close the list differently (`] as
+    // const;`, `)`, `};`) and there is no one terminator to search for.
+    const region = mw.slice(start, start + 900);
+    expect(region, `${platform} bypasses the reset`).toContain(TEST_RESET_PATH);
   });
 });
 
@@ -272,6 +280,11 @@ describe("the reset preserves every backend's migration ledger", () => {
         platform: "python",
         path: "d/app/main.py",
         gate: /^if _TEST_RESET_ENABLED:$/m,
+      },
+      {
+        platform: "dotnet",
+        path: "d/Program.cs",
+        gate: /if \(loomTestReset == "1" \|\| \(loomTestReset != "0" && !app\.Environment\.IsProduction\(\)\)\)/,
       },
     ];
     for (const { platform, path, gate } of backends) {
