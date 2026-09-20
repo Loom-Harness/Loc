@@ -36,7 +36,7 @@ import { type GroupKey, groupKeyOf, sameGroupKey } from "../../util/projection-a
 import { typeLabel } from "../../util/type-label.js";
 import { walkExprDeep } from "../../util/walk.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
-import { firstNonQueryableNode } from "./shared.js";
+import { firstNonBooleanPredicate, firstNonQueryableNode } from "./shared.js";
 
 /** The whole-table (keyless) aggregation vocabulary a singleton projection's
  *  `select` reaches for (read-path-architecture.md rev. 8).  Spelled bare
@@ -274,6 +274,19 @@ function validateQueryComprehension(
         }),
         source: `${ctx.name}/${proj.name}`,
       });
+    } else {
+      const notBool = firstNonBooleanPredicate(q.filter);
+      if (notBool) {
+        diags.push({
+          severity: "error",
+          code: "loom.where-not-boolean",
+          message: diagMessage("loom.where-not-boolean", {
+            what: `projection '${proj.name}'`,
+            offending: notBool,
+          }),
+          source: `${ctx.name}/${proj.name}`,
+        });
+      }
     }
   }
   // Row-fill discipline for a query-time projection (read-path-architecture.md

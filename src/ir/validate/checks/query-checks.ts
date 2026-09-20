@@ -14,6 +14,7 @@ import type { LoomDiagnostic } from "./diagnostic.js";
 import {
   aggregateHasMember,
   firstColumnVsColumn,
+  firstNonBooleanPredicate,
   firstNonQueryableNode,
   firstUnknownColumnRef,
 } from "./shared.js";
@@ -44,6 +45,25 @@ export function validateQueryableWheres(ctx: BoundedContextIR, diags: LoomDiagno
             name: repo.name,
             findName: find.name,
             offending,
+          }),
+          source: `${ctx.name}/${repo.name}.${find.name}`,
+        });
+        continue;
+      }
+      // Queryable is not the same as BOOLEAN.  `where ownerUserId` — a string
+      // column standing alone — is queryable (it is a column, admitted as a
+      // comparison operand everywhere) and is not a condition, so it parsed and
+      // validated clean and then killed `ddd generate system` with the uncaught
+      // `QueryEmissionRefusal` whose own message blames the validator.  This is
+      // that missing diagnostic.
+      const notBool = firstNonBooleanPredicate(find.filter);
+      if (notBool) {
+        diags.push({
+          severity: "error",
+          code: "loom.where-not-boolean",
+          message: diagMessage("loom.where-not-boolean", {
+            what: `repository '${repo.name}' find '${find.name}'`,
+            offending: notBool,
           }),
           source: `${ctx.name}/${repo.name}.${find.name}`,
         });
@@ -113,6 +133,19 @@ export function validateQueryableWheres(ctx: BoundedContextIR, diags: LoomDiagno
           }),
           source: `${ctx.name}/${agg.name}`,
           code: "loom.criterion-not-selectable",
+        });
+        continue;
+      }
+      const notBool = firstNonBooleanPredicate(predicate);
+      if (notBool) {
+        diags.push({
+          severity: "error",
+          code: "loom.where-not-boolean",
+          message: diagMessage("loom.where-not-boolean", {
+            what: `aggregate '${agg.name}' capability filter`,
+            offending: notBool,
+          }),
+          source: `${ctx.name}/${agg.name}`,
         });
         continue;
       }
@@ -230,7 +263,22 @@ export function validateRetrievals(ctx: BoundedContextIR, diags: LoomDiagnostic[
         message: diagMessage("loom.retrieval-where-not-queryable", { name: r.name, offending }),
         source: src,
       });
-    } else if (agg) {
+      continue;
+    }
+    const notBool = firstNonBooleanPredicate(r.where);
+    if (notBool) {
+      diags.push({
+        severity: "error",
+        code: "loom.where-not-boolean",
+        message: diagMessage("loom.where-not-boolean", {
+          what: `retrieval '${r.name}'`,
+          offending: notBool,
+        }),
+        source: src,
+      });
+      continue;
+    }
+    if (agg) {
       const unknown = firstUnknownColumnRef(r.where, agg, ctx);
       if (unknown) {
         diags.push({

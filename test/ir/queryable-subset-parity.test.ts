@@ -309,6 +309,74 @@ const QUERYABLE: { name: string; e: ExprIR }[] = [
       },
     },
   },
+  // ---- REQUEST CONSTANTS — no column on either side (F-007) --------------
+  // The gate has ALWAYS admitted these (a principal member, a comparison and a
+  // literal are each individually queryable) while the lowerer had no arm for a
+  // comparison with no column, so `lowerToDrizzle` returned null and every
+  // caller turned that into `refuseOutOfVocabulary`: `ddd parse` reported
+  // `0 error(s)` and `ddd generate system` died with an uncaught
+  // `QueryEmissionRefusal`.  This invariant is exactly the one that should have
+  // caught it, and did not, because its only `currentUser` sample below puts
+  // the column on the LEFT.
+  {
+    name: "currentUser.<claim> == literal (request constant — NO column on either side)",
+    e: {
+      kind: "binary",
+      op: "!=",
+      left: {
+        kind: "member",
+        receiver: { kind: "ref", name: "currentUser", refKind: "current-user", type: STR },
+        member: "role",
+        receiverType: STR,
+        memberType: STR,
+      },
+      right: { kind: "literal", lit: "string", value: "technician" },
+    },
+  },
+  {
+    name: "bare `true` (request constant standing alone)",
+    e: { kind: "literal", lit: "bool", value: "true" },
+  },
+  {
+    // The shape row-level authorization is actually written in: one half folds
+    // in the host language, the other half MUST stay real SQL.  A fold that
+    // swallowed the whole predicate would return every row to every caller.
+    name: "currentUser.role == literal || this.col == currentUser.id (mixed — the F-007 repro)",
+    e: {
+      kind: "binary",
+      op: "||",
+      left: {
+        kind: "binary",
+        op: "==",
+        left: {
+          kind: "member",
+          receiver: { kind: "ref", name: "currentUser", refKind: "current-user", type: STR },
+          member: "role",
+          receiverType: STR,
+          memberType: STR,
+        },
+        right: { kind: "literal", lit: "string", value: "admin" },
+      },
+      right: {
+        kind: "binary",
+        op: "==",
+        left: {
+          kind: "member",
+          receiver: thisExpr,
+          member: "owner",
+          receiverType: STR,
+          memberType: STR,
+        },
+        right: {
+          kind: "member",
+          receiver: { kind: "ref", name: "currentUser", refKind: "current-user", type: STR },
+          member: "id",
+          receiverType: STR,
+          memberType: STR,
+        },
+      },
+    },
+  },
   {
     name: "currentUser.field comparison",
     e: {
@@ -397,6 +465,22 @@ describe("queryable-subset parity — validator admits ⊆ Drizzle lowers", () =
       ).not.toBeNull();
     });
   }
+
+  it("folds only the request-constant HALF of a mixed predicate — the column half stays SQL", () => {
+    // The authorization-bypass guard on the F-007 fix.  `lowerToDrizzle` now
+    // has an arm for a column-free boolean term, and the danger in that arm is
+    // that it swallows too much: a whole-predicate fold turns "a technician
+    // sees only their own, an admin sees all" into "everyone sees everything".
+    // Non-null alone (the loop above) cannot see that — the TEXT can.
+    const mixed = QUERYABLE.find((q) => q.name.startsWith("currentUser.role == literal ||"))?.e;
+    expect(mixed).toBeDefined();
+    const sql = lowerToDrizzle(mixed as ExprIR, "things", ctx);
+    expect(sql).not.toBeNull();
+    // The principal-claim half: evaluated in the HOST language.
+    expect(sql?.expr).toContain('.role === "admin"');
+    // The ownership half: still a real column comparison against the table.
+    expect(sql?.expr).toContain("schema.things.owner");
+  });
 
   it("rejects a bool-returning intrinsic on a VALUE receiver in BOTH places (no drift)", () => {
     // `p.startsWith(this.path)` — the ancestor mirror of the subtree read, with

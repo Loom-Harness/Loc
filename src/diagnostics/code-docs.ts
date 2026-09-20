@@ -96,6 +96,7 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
     "10-repositories-and-queries.md#shorthand--the-select-less-form",
   "loom.find-where-column-column": "10-repositories-and-queries.md#the-queryable-subset",
   "loom.find-where-not-queryable": "10-repositories-and-queries.md#the-queryable-subset",
+  "loom.where-not-boolean": "10-repositories-and-queries.md#the-queryable-subset",
   "loom.find-where-unknown-field": "10-repositories-and-queries.md#the-queryable-subset",
   "loom.retrieval-where-not-queryable": "10-repositories-and-queries.md#the-queryable-subset",
   "loom.projection-columnless-source":

@@ -218,6 +218,27 @@ ${uiBody}
 }`;
 
 const FIRING_FIXTURES: Record<string, string> = {
+  // --- phase ⑦ IR validate — a QUERYABLE `where` that is not a CONDITION ----
+  // A bare `string` column standing alone as the whole filter.  Every operand
+  // check passes (a column is queryable, it resolves, there is no
+  // column-vs-column comparison) and the expression still has no truth value.
+  // Before this code it parsed clean, validated clean — `0 error(s), 0
+  // warning(s)` — and killed `ddd generate system` with an uncaught
+  // `QueryEmissionRefusal` whose own message says the validator should have
+  // stopped it.  It is the residue of the F-007 request-constant class: once a
+  // column-free boolean term FOLDS instead of refusing, the shapes left over
+  // are the ones with no truth value at all, and they get a diagnostic.
+  "loom.where-not-boolean": `
+system WhereNotBoolean {
+  subdomain S { context C {
+    aggregate Doc {
+      ownerUserId: string
+    }
+    repository Docs for Doc {
+      find owned(): Doc[] where ownerUserId
+    }
+  } }
+}`,
   // A canonical `create` whose parameter list OMITS a required create-input
   // field.  `POST /things` still demands `secret` (no emitter reads
   // `canonicalCreate.params`), so a client written from the declaration 422s on

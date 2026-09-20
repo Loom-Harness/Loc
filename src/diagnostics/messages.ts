@@ -1516,6 +1516,11 @@ export const DIAGNOSTIC_MESSAGES = {
   }) =>
     `repository '${p.name}' find '${p.findName}': ` +
     `where-clause references unknown field ${p.unknown} on aggregate '${p.aggName}'.`,
+  "loom.where-not-boolean": (p: { what: unknown; offending: unknown }) =>
+    `${p.what}: a read filter must be a CONDITION, not a value — ` +
+    `${p.offending} has no truth value. ` +
+    `Compare it (\`<expr> == <value>\`), or use a bool column / a bool-returning intrinsic ` +
+    `(\`.startsWith(...)\`, \`<refColl>.contains(...)\`).`,
   "loom.find-where-column-column": (p: { name: unknown; findName: unknown; bothCols: unknown }) =>
     `repository '${p.name}' find '${p.findName}': ` +
     `comparison between two columns (${p.bothCols}) is not queryable. ` +

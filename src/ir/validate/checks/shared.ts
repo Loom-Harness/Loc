@@ -4,7 +4,7 @@
 // -------------------------------------------------------------------------
 
 import { intrinsicFor, intrinsicReturnType } from "../../../util/intrinsics.js";
-import type { AggregateIR, BoundedContextIR, ExprIR } from "../../types/loom-ir.js";
+import type { AggregateIR, BoundedContextIR, ExprIR, TypeIR } from "../../types/loom-ir.js";
 import { durationCtorOperand, isDatetimeTypedIR } from "../../util/temporal.js";
 import { walkExprDeep } from "../../util/walk.js";
 
@@ -163,6 +163,95 @@ function describeColumnRef(e: ExprIR): string {
 // Exported for the queryable-subset parity test
 // (`test/ir/queryable-subset-parity.test.ts`), which pins the invariant
 // that everything this gate admits, `lowerToDrizzle` can lower.
+/** Returns null when `e`, standing in PREDICATE position, is (or may be) a
+ *  boolean condition; otherwise a short label naming what it actually is.
+ *
+ *  `firstNonQueryableNode` answers "can this be turned into SQL at all" and is
+ *  deliberately blind to TYPE: a `string` column, a `currentUser.<claim>`, a
+ *  string literal are all perfectly queryable as comparison OPERANDS, so the
+ *  gate admits each of them — including when one stands ALONE as the whole
+ *  `where`.  What it cannot be is a condition.  `find all(): Doc[] where
+ *  ownerUserId` parsed clean, validated clean (`0 error(s), 0 warning(s)`) and
+ *  then killed `ddd generate system` with an uncaught `QueryEmissionRefusal`
+ *  whose own message says the validator should have stopped it — the same crash
+ *  shape as the request-constant class (F-007), and the residue left once that
+ *  class folds instead of refusing.  This is the honest diagnostic in its
+ *  place, so `refuseOutOfVocabulary` is unreachable from valid input rather
+ *  than one spelling away.
+ *
+ *  CONSERVATIVE BY CONSTRUCTION: it reports only what it can prove is NOT
+ *  boolean from the type the IR already carries, and answers null whenever the
+ *  type is absent or unrecognised.  A false negative leaves today's behaviour
+ *  exactly as it is; a false POSITIVE would reject a working model, which is
+ *  the worse failure and the reason for the asymmetry. */
+export function firstNonBooleanPredicate(e: ExprIR): string | null {
+  switch (e.kind) {
+    case "paren":
+      return firstNonBooleanPredicate(e.inner);
+    case "binary":
+      // `&&` / `||` put their OPERANDS in predicate position too — that is what
+      // makes `ownerUserId || this.isActive` reachable at all.
+      if (e.op === "&&" || e.op === "||")
+        return firstNonBooleanPredicate(e.left) ?? firstNonBooleanPredicate(e.right);
+      // A comparison IS the boolean.  Arithmetic in predicate position is not,
+      // but `firstNonQueryableNode` already refuses it by name, so it is left
+      // to that (more specific) diagnostic.
+      return null;
+    case "unary":
+      return e.op === "!" ? firstNonBooleanPredicate(e.operand) : null;
+    case "literal":
+      return e.lit === "bool" ? null : `a ${e.lit} literal`;
+    case "ref":
+      return nonBooleanTypeLabel(e.type, describePredicateOperand(e));
+    case "member":
+      return nonBooleanTypeLabel(e.memberType, describePredicateOperand(e));
+    case "method-call": {
+      // A `queryable` intrinsic's return type comes from the catalogue, so a
+      // future bool-returning row is admitted here the day it is added rather
+      // than needing a name list kept in step.
+      if (e.receiverType.kind !== "primitive") return null;
+      const sig = intrinsicFor(e.receiverType.name, e.member);
+      if (!sig) return null;
+      const returns = intrinsicReturnType(sig, e.receiverType.name);
+      return returns === "bool" ? null : `'.${e.member}()' (returns ${returns})`;
+    }
+    default:
+      // `this`, `id`, `authz-filter`, `duration`, and any kind added later:
+      // no type claim to make, so no claim is made.
+      return null;
+  }
+}
+
+/** The label for a predicate operand whose TYPE says it is not a condition, or
+ *  null when the type is absent (an un-typed ref) or is `bool` after all. */
+function nonBooleanTypeLabel(t: TypeIR | undefined, what: string): string | null {
+  if (!t) return null;
+  if (t.kind === "primitive") return t.name === "bool" ? null : `${what} (${t.name})`;
+  if (t.kind === "optional") return t.inner.kind === "primitive" && t.inner.name === "bool"
+    ? // A `bool?` in predicate position is a three-valued column; SQL's WHERE
+      // drops the NULL rows, which is the reading every backend already emits.
+      null
+    : `${what} (${t.kind})`;
+  return `${what} (${t.kind})`;
+}
+
+/** How the operand is spelled, for the message — the column/claim form when
+ *  recognisable, the bare name otherwise. */
+function describePredicateOperand(e: ExprIR): string {
+  if (e.kind === "ref") {
+    if (e.refKind === "this-prop") return `'this.${e.name}'`;
+    if (e.refKind === "current-user") return "'currentUser'";
+    return `'${e.name}'`;
+  }
+  if (e.kind === "member") {
+    if (e.receiver.kind === "this") return `'this.${e.member}'`;
+    if (e.receiver.kind === "ref" && e.receiver.refKind === "current-user")
+      return `'currentUser.${e.member}'`;
+    return `'.${e.member}'`;
+  }
+  return "the expression";
+}
+
 export function firstNonQueryableNode(e: ExprIR): string | null {
   switch (e.kind) {
     case "literal":
