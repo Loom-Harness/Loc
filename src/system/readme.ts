@@ -53,6 +53,9 @@ export interface SystemReadmeContext {
   /** Output-relative path → content for everything this run emitted.  The
    *  renderer's only source of truth for what exists. */
   emitted: ReadonlyMap<string, string>;
+  /** The Postgres image the emitted compose stack runs, so the host-side
+   *  `docker run` the README hands the reader cannot drift from it. */
+  dbImage: string;
 }
 
 /** The generated system's `README.md`. */
@@ -94,7 +97,11 @@ function whatIsHere(sys: SystemIR, ctx: SystemReadmeContext): string[] {
   const db = sys.deployables.some((d) => platformFor(d.platform).needsDb)
     ? " with a Postgres (`db-init/` creates one database per backend)"
     : "";
-  lines.push(`\`docker-compose.yml\` wires those together${db}.`);
+  lines.push(
+    sys.deployables.length === 1
+      ? `\`docker-compose.yml\` runs it${db}.`
+      : `\`docker-compose.yml\` wires those together${db}.`,
+  );
   lines.push("");
   return lines;
 }
@@ -143,9 +150,21 @@ function runIt(sys: SystemIR, ctx: SystemReadmeContext): string[] {
       lines.push("");
     }
     if (sys.deployables.some((d) => platformFor(d.platform).needsDb)) {
+      // NOT `docker compose up -d db`: the compose `db` service publishes no
+      // port (nothing outside the compose network is meant to reach it), so
+      // that command leaves `localhost:5432` refused and the recipes above
+      // failing. This starts the same image with the port published and the
+      // emitted `db-init/` mounted, so each backend's database exists.
       lines.push(
-        "A backend started this way still needs its Postgres: `docker compose up -d db` starts just the database, created and migrated the same way the full stack would.",
+        "A backend started this way still needs its Postgres, and the compose `db` service does not publish a port. Start one that does — same image, with the emitted `db-init/` mounted so each backend's database is created:",
       );
+      lines.push("");
+      lines.push("```bash");
+      lines.push("docker run --rm -d --name loom-db -p 5432:5432 \\");
+      lines.push("  -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres \\");
+      lines.push('  -v "$PWD/db-init:/docker-entrypoint-initdb.d:ro" \\');
+      lines.push(`  ${ctx.dbImage}`);
+      lines.push("```");
       lines.push("");
     }
   }
@@ -173,7 +192,17 @@ function localEnv(
   });
   // Every compose hostname this system can mention, mapped to its host
   // address: the database, plus each deployable at the port it publishes.
-  const hosts: Array<[string, string]> = [["db:5432", "localhost:5432"]];
+  //
+  // Two spellings, because the backends do not agree on one.  Four of the five
+  // put the database in a URL authority (`…@db:5432/x`, `jdbc:postgresql://db:5432/x`);
+  // .NET uses ADO.NET keywords (`Host=db;Port=5432;…`), where the host and the
+  // port are separate fields and a `db:5432` match never fires.  Missing the
+  // second spelling silently dropped `ConnectionStrings__Default` from every
+  // dotnet recipe — the one variable that deployable cannot boot without.
+  const hosts: Array<[string, string]> = [
+    ["db:5432", "localhost:5432"],
+    ["Host=db;", "Host=localhost;"],
+  ];
   for (const peer of sys.deployables) {
     const peerSlug = ctx.slugOf(peer.name);
     const internal = platformFor(peer.platform).composeService({
@@ -401,11 +430,11 @@ function rootE2E(sys: SystemIR, ctx: SystemReadmeContext): string[] {
   );
   lines.push("");
   lines.push("```bash");
-  lines.push(
-    sys.deployables
-      .map((d) => `E2E_${ctx.slugOf(d.name).toUpperCase()}_BASE=http://localhost:${d.port}`)
-      .join(" \\\n  "),
-  );
+  // Every assignment gets its own continued line, including the last one, so
+  // the block is correct at one deployable as well as at four.
+  for (const d of sys.deployables) {
+    lines.push(`E2E_${ctx.slugOf(d.name).toUpperCase()}_BASE=http://localhost:${d.port} \\`);
+  }
   lines.push("  npm test");
   lines.push("```");
   lines.push("");
@@ -429,11 +458,15 @@ function freshDatabase(): string[] {
     "",
     "The emitted tests create rows and never delete them — there are no reset hooks in this project. They pass against an empty database; a second run against the same one can fail, because a test that creates a uniquely-keyed row now collides with the row its previous run left behind, and a test that lists or counts results sees those leftovers too.",
     "",
-    "So reset the database between runs. This drops the compose volume and starts again from an empty schema:",
+    "So reset the database between runs — and **restart the backends with it**. Each backend applies its migrations once, at boot, so a database recreated under a running process has no tables at all and every test fails on the missing schema rather than on leftovers.",
+    "",
+    "Under compose, one command does both:",
     "",
     "```bash",
     "docker compose down -v && docker compose up --build -d",
     "```",
+    "",
+    "Running natively, recreate the database container and restart each backend against it.",
     "",
   ];
 }

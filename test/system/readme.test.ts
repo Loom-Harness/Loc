@@ -86,6 +86,21 @@ const TWO_BACKENDS = `
   }
 `;
 
+/** One .NET backend — its connection string is ADO.NET-keyword shaped. */
+const DOTNET_BACKEND = `
+  system Ledger {
+    subdomain Core {
+      context Accounting { aggregate Entry with crudish { memo: string } }
+    }
+    storage pg { type: postgres }
+    resource accountingState { for: Accounting, kind: state, use: pg }
+    deployable api {
+      platform: dotnet, contexts: [Accounting],
+      dataSources: [accountingState], port: 8080
+    }
+  }
+`;
+
 async function readme(source: string): Promise<string> {
   const files = await generateSystemFiles(source);
   const md = files.get("README.md");
@@ -168,6 +183,18 @@ describe("README.md — run recipes", () => {
     expect(md).toContain("PORT=3100");
   });
 
+  // .NET spells its connection string in ADO.NET keywords (`Host=db;Port=…`),
+  // where the host and port are separate fields, so the `db:5432` rewrite the
+  // other four backends need never fires. Missing it silently dropped
+  // `ConnectionStrings__Default` from every dotnet recipe — the one variable
+  // that deployable cannot boot without.
+  it("rewrites the .NET connection string's host, not just URL-shaped ones", async () => {
+    const md = await readme(DOTNET_BACKEND);
+    expect(md).toContain("ConnectionStrings__Default=");
+    expect(md).toContain("Host=localhost;Port=5432;Database=api");
+    expect(md).not.toContain("Host=db;");
+  });
+
   it("builds a vite frontend and pins it to the model's port, not the container default", async () => {
     const md = await readme(BACKEND_AND_UI);
     expect(md).toContain("npm run build");
@@ -187,8 +214,17 @@ describe("README.md — run recipes", () => {
     expect(md).not.toContain("VITE_API_PROXY_TARGET");
   });
 
-  it("tells a reader how to start just the database", async () => {
-    expect(await readme(BACKEND_ONLY)).toContain("docker compose up -d db");
+  it("hands the reader a database that is actually reachable from the host", async () => {
+    const md = await readme(BACKEND_ONLY);
+    // NOT `docker compose up -d db`: the compose `db` service publishes no
+    // port, so that leaves `localhost:5432` refused and every native recipe
+    // above broken. Measured — it is why this names a `docker run` instead.
+    expect(md).not.toContain("docker compose up -d db");
+    expect(md).toContain("docker run --rm -d --name loom-db -p 5432:5432");
+    // The emitted db-init is what creates each backend's database.
+    expect(md).toContain('-v "$PWD/db-init:/docker-entrypoint-initdb.d:ro"');
+    // Same image the compose stack runs, threaded through rather than retyped.
+    expect(md).toContain("postgres:18-alpine");
   });
 });
 
@@ -237,6 +273,16 @@ describe("README.md — the test projects", () => {
     expect(md).toContain("It expects a fresh database");
     expect(md).toContain("no reset hooks");
     expect(md).toContain("docker compose down -v");
+  });
+
+  // Measured: recreating the database under a RUNNING backend fails all four
+  // tests, not three — each backend applies its migrations once at boot, so
+  // the fresh database has no tables at all. A reset instruction that omits
+  // the restart sends the reader from a real problem to a worse one.
+  it("says the backends must restart with the database, not just the database", async () => {
+    const md = await readme(BACKEND_AND_UI);
+    expect(md).toContain("restart the backends with it");
+    expect(md).toContain("migrations once, at boot");
   });
 });
 

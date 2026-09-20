@@ -247,7 +247,14 @@ export function generateSystemsFromLoom(
   // overwrites `ddd new`'s README at this same path nor a reader's own edits
   // — see the header of `readme.ts`.
   for (const sys of loom.systems) {
-    out.set("README.md", renderSystemReadme(sys, { slugOf: serviceSlug, emitted: out }));
+    out.set(
+      "README.md",
+      renderSystemReadme(sys, {
+        slugOf: serviceSlug,
+        emitted: out,
+        dbImage: POSTGRES_IMAGE,
+      }),
+    );
   }
   return { files: out };
 }
@@ -672,6 +679,12 @@ function serviceSlug(name: string): string {
 // docker-compose.yml
 // ---------------------------------------------------------------------------
 
+/** The Postgres image the compose stack runs.  Named because the generated
+ *  README hands the reader a `docker run` of the SAME image for a host-side
+ *  run (compose deliberately does not publish the database port), and the two
+ *  must not drift. */
+export const POSTGRES_IMAGE = "postgres:18-alpine";
+
 /** The Prometheus scrape targets — every BACKEND deployable exposes
  *  `GET /metrics` (M-T7.1); pure static frontends do not.  Each target is
  *  the deployable's compose service name + the port it listens on inside
@@ -768,7 +781,7 @@ function renderDockerCompose(sys: SystemIR): string {
   }
   lines.push("services:");
   lines.push("  db:");
-  lines.push("    image: postgres:18-alpine");
+  lines.push(`    image: ${POSTGRES_IMAGE}`);
   lines.push("    environment:");
   lines.push("      POSTGRES_DB: postgres");
   lines.push("      POSTGRES_USER: postgres");
