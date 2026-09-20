@@ -382,6 +382,14 @@ export const CORPUS: readonly CorpusFeature[] = [
     backends: ALL,
   },
   {
+    id: "criterion-current-user",
+    title:
+      "`currentUser` INSIDE a repository read filter — row-level authorization as a criterion / inline `where`, on a find AND a retrieval",
+    doc: "criterion",
+    backends: ALL,
+    note: "Minted by the F-007 fleet.  Three defects met on this one shape and every one of them was invisible to emission assertions and visible to a REAL TOOLCHAIN immediately, which is why the fixture belongs in the corpus rather than beside its generator test.  (1) The principal was emitted UNBOUND by the author-written `where` path while the tenancy path on the SAME line bound it: `mypy` → `Name \"current_user\" is not defined [name-defined]` (a runtime NameError, i.e. HTTP 500 on every read through that retrieval), `mix compile` → `** (Ecto.Query.CompileError) unbound variable current_user in query`, `tsc` → TS2304.  (2) A principal claim other than `.id` has no column on either side, so node's narrow drizzle lowerer returned null and `ddd generate system` died with an uncaught `QueryEmissionRefusal` after `ddd parse` reported `0 error(s)`, while python lowered the same shape to a plain Python `bool` (`mypy` `[arg-type]`).  Such a term is a REQUEST CONSTANT and now folds in the host language.  (3) A find DECLARED as `all` had its `where` DROPPED on python and elixir — a declared read restriction absent from the emitted SQL with no diagnostic.  The criterion is therefore the canonical row-level rule that was not expressible in ANY spelling before: a technician sees only their own documents, an admin sees all.",
+  },
+  {
     id: "prefix-filter",
     title: "`startsWith` prefix-match filter operator — inline find + criterion filter",
     doc: "stdlib",
