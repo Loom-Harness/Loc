@@ -108,7 +108,6 @@ import {
   renderToolbar as renderToolbarHeex,
 } from "../elixir/heex-walker.js";
 import type { A11yContract } from "./a11y.js";
-import type { ChildSlot } from "./target.js";
 // Re-exported emitters from the React/TSX walker.  Each function
 // takes `(call, ctx, depth)` and returns the JSX fragment.
 import { emitChart } from "./primitives/chart.js";
@@ -175,6 +174,7 @@ import {
   emitText,
 } from "./primitives/text.js";
 import { emitTimeline } from "./primitives/timeline.js";
+import type { ChildSlot } from "./target.js";
 import type { WalkContext as TsxWalkContext } from "./walker-core.js";
 
 /** Renderer signature for the React/TSX target.  Returns the

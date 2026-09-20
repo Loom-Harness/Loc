@@ -546,7 +546,8 @@ export const flutterTarget: WalkerTarget = {
     const mapped = usesIndex
       ? `...${coll}.asMap().entries.map((entry) { final ${indexVar} = entry.key; final ${itemVar} = entry.value; return ${body}; })`
       : `...${coll}.map((${itemVar}) => ${body})`;
-    const spliced = emptyBody === undefined ? mapped : `if (${coll}.isEmpty) ${emptyBody} else ${mapped}`;
+    const spliced =
+      emptyBody === undefined ? mapped : `if (${coll}.isEmpty) ${emptyBody} else ${mapped}`;
     // Both shapes above are COLLECTION syntax — a `...` spread and a
     // collection-`if` parse only inside a list literal.  A VALUE slot (a
     // `QueryView` branch, a `match` arm, a table cell, the page body root)
