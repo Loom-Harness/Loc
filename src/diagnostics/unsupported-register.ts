@@ -462,7 +462,20 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
     site: "src/language/validators/inheritance.ts:275",
     what:
       "a `<Base> id` reference to a TPC (`ownTable`) abstract base — no single table to key the " +
-      "FK against; an all-shared TPH base IS allowed (mixed strategy has its own code)",
+      "FK against; an all-shared TPH base IS allowed (mixed strategy has its own code).  The " +
+      "REPRESENTATION is now ruled (**D-POLYMORPHIC-ID-REPRESENTATION**, wave C2 packet 2n): a " +
+      "plain id column, NO foreign key and NO discriminator, read through the delegating " +
+      "polymorphic base reader M-T5.7 already ships.  Measured with the gate bypassed, the " +
+      "SCHEMA needs no change at all — `migrations-builder`'s M-T4.4 filter already drops an FK " +
+      "whose target table does not exist, and a TPC base owns none, so node emits " +
+      "`payment_id UUID NOT NULL` + its index and nothing else.  What is left is TWO IDENTITY " +
+      "TYPES: java (`src/generator/java/index.ts`) and dotnet " +
+      "(`src/generator/dotnet/context-scaffolding-emit.ts`) both skip `<Base>Id` for an abstract " +
+      "TPC base while their entity/configuration emitters REFERENCE it, so both fail to compile; " +
+      "node / python / elixir are already correct.  Drain condition: emit those two, narrow the " +
+      "sibling `loom.polymorphic-id-ref-mixed-strategy` predicate to a `sharedTable` base (it " +
+      "fires on a PURE TPC hierarchy once this arm goes), and settle the id-FOLLOW path " +
+      "(`id-follow.ts` bulk load, a query-time `join <Base>`), which packet 2n did not exercise",
     mission: "M-T5.7",
   },
   {

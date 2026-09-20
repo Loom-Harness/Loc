@@ -287,3 +287,43 @@ Changing `entity Leg` to `valueobject Leg` turns a clean model into `loom.workfl
 **Verification when it lands.** The G4 repro pair (value-object vs entity spelling of one aggregate, both clean); the required-set asserted per backend rather than inferred from node; the wire-golden differential and the 5-way OpenAPI parity diff run, not skipped; mutation-proved by file-copy revert.
 
 Sources: [#2864](https://github.com/Loom-Harness/Loc/pull/2864) G4 (`docs/audits/2026-09-10-freight-dev-experience.md`, landing with that PR); `src/ir/enrich/wire-projection.ts` (`hasImplicitDefault` / `isRequiredCreateInput`). Split from M-T5.34.
+
+## M-T5.37 — the IR's TWO SPELLINGS of a `this` property read, normalised at lowering — `open` · **M** · P2 ⚠ not byte-identical on three backends
+
+`this.<prop>` lowers to a `member` node whose receiver is `this`; the BARE `<prop>` spelling of the same field lowers to a `ref` with `refKind: "this-prop"` / `"this-derived"`. Two IR shapes for one source meaning, and every consumer that special-cases one of them silently misses the other. (Wave C2 packet 2a closed the CALL half — `this.<fn>(…)` now lowers to the bare form's `call` node — and left the READ half; packet 2f censused it on all five and recommended its own mission. This is it.)
+
+**The divergence is cosmetic at the RENDER site and dangerous at the DECISION sites.** Measured on one aggregate carrying `derived bare: int = total + 1` beside `derived dotted: int = this.total + 1`, all five compile:
+
+| backend | bare spelling | dotted spelling |
+|---|---|---|
+| node | `this._total + 1` (backing field) | `this.total + 1` (getter) |
+| python | `self._total + 1` | `self.total + 1` |
+| java | `this.total + 1` (field) | `this.total() + 1` (accessor) |
+| dotnet | `this.Total + 1` | `this.Total + 1` — identical |
+| elixir | `record.total + 1` | `record.total + 1` — identical |
+
+The damage is elsewhere, and packet 2a demonstrated it twice: elixir's `wire-serialize` `derivedRenderable` declined every `member` on a `this` receiver, so a `this.<derived>`-spelled field was **silently off the wire**; and the `loom.vanilla-op-call-position` scan could not see the dotted call. Those were found; the census below is the list of walkers that could still be wrong the same way.
+
+**The census (packet 2f) — every walker that special-cases `this-prop` and would miss `member(this, …)`:**
+
+```
+src/generator/zod-refine.ts:427
+src/generator/elixir/vanilla/changeset-invariant-emit.ts:52
+src/generator/elixir/vanilla/inspect-emit.ts:61,75
+src/generator/elixir/vanilla/provenance-emit.ts:264,366,420
+src/generator/elixir/vanilla/workflow-eventsourced-emit.ts:351
+src/generator/elixir/vanilla/wire-serialize.ts:87,127
+src/generator/elixir/dispatch-emit.ts:463
+src/generator/elixir/domain/predicates.ts:92
+src/generator/java/emit/dispatch.ts:109,582
+src/generator/java/render-jpql.ts:333
+```
+
+**Why it is a mission and not a packet row.** Normalising at LOWERING is the right fix — one spelling reaches every consumer, and the census list stops being a list. But it is **not byte-identical**: the node / python / java rows in the table above move (a getter becomes a backing field, an accessor becomes a field). So it needs the per-backend justified-diff gate the completion plan reserves for exactly this, plus the compile legs on the three that move — which is a coordinated moment, not a sweep.
+
+**Build order.** (1) Decide the normal form — the BARE `ref` is the recommendation: it is what the type system already resolves to, it is the spelling the majority of consumers special-case, and `this` receivers carry no extra information. (2) Normalise in `lower-expr.ts` so `this.<prop>` produces the `ref`. (3) Delete the `member`-on-`this` arms the census names, one per consumer, each one now unreachable. (4) Run the diff gate per backend and JUSTIFY every moved byte in the PR body (the three rows above are expected; anything else is a finding). (5) Compile legs on node / python / java at minimum.
+
+**Until it lands, the packet-2a rule stands:** every walker that special-cases `this-prop` must also accept `member(this, …)`.
+
+Sources: wave C2 hand-offs [`wave-c2-2a-elixir.md`](waves/handoffs/wave-c2-2a-elixir.md) (the two demonstrated defects) and [`wave-c2-2f-ir.md`](waves/handoffs/wave-c2-2f-ir.md) §5.4 (the five-backend measurement and the census above); `src/ir/lower/lower-expr.ts`; `src/ir/types/loom-ir.ts` (`RefKind`).
+
