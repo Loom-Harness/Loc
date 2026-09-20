@@ -95,7 +95,7 @@ export function flutterPersistedStores(ui: UiIR | undefined): FlutterPersistedSt
     if (tier === undefined) continue;
     const fields: FlutterPersistedStore["fields"] = [];
     for (const field of store.state) {
-      const codec = flutterPersistCodec(field.type);
+      const codec = flutterPersistCodec(field.type, tier);
       if (codec) fields.push({ field, codec });
     }
     if (fields.length > 0) out.push({ store, tier, fields });
@@ -215,6 +215,7 @@ function toParamScalar(scalar: FlutterPersistScalar, access: string): string {
  *  `buildStateFields` gives it, re-derived from the codec so this module never
  *  has to be handed the field descriptors). */
 function cellType(codec: FlutterPersistCodec): string {
+  if (codec.kind === "json") return "dynamic";
   const scalar = (s: FlutterPersistScalar): string => {
     switch (s) {
       case "int":
@@ -232,7 +233,8 @@ function cellType(codec: FlutterPersistCodec): string {
         return "String";
     }
   };
-  return codec.kind === "list" ? `List<${scalar(codec.element)}>` : scalar(codec.scalar);
+  if (codec.kind === "list") return `List<${scalar(codec.element)}>`;
+  return codec.nullable ? `${scalar(codec.scalar)}?` : scalar(codec.scalar);
 }
 
 // ---------------------------------------------------------------------------
@@ -248,6 +250,14 @@ export function persistInitOverrides(p: FlutterPersistedStore): Map<string, stri
     out.set(field.name, `_load${upperFirst(field.name)}(${p.tier === "url" ? "" : "blob"})`);
   }
   return out;
+}
+
+/** A scalar conversion written for a `dflt` of `null`, with the now-dead
+ *  `?? null` tail removed.  A nullable cell's fallback IS `null`, so the
+ *  conversions' own `?? <dflt>` becomes `?? null` — legal Dart, but
+ *  `dead_null_aware_expression` and noise in output nobody hand-edits. */
+function stripNullFallback(expr: string): string {
+  return expr.endsWith(" ?? null") ? expr.slice(0, -" ?? null".length) : expr;
 }
 
 /** One persisted cell's `static` loader method. */
@@ -267,11 +277,37 @@ function loaderMethod(
       // `url`.  Defaulting keeps the emitter total anyway.
       return [`  static ${type} ${name}() => ${dflt};`];
     }
+    if (codec.kind === "json") {
+      // A `json` cell in a query param is its own JSON text.  `jsonDecode`
+      // THROWS on junk, so the try/catch is what keeps the loader total — the
+      // same rule every other conversion in this module follows.
+      return [
+        `  static ${type} ${name}() {`,
+        `    final raw = LoomStorePersist.param(${key});`,
+        `    if (raw == null) return ${dflt};`,
+        "    try {",
+        "      return jsonDecode(raw);",
+        "    } catch (_) {",
+        `      return ${dflt};`,
+        "    }",
+        "  }",
+      ];
+    }
     return [
       `  static ${type} ${name}() {`,
       `    final raw = LoomStorePersist.param(${key});`,
       `    if (raw == null) return ${dflt};`,
-      `    return ${fromParamScalar(codec.scalar, "raw", dflt)};`,
+      `    return ${codec.nullable ? stripNullFallback(fromParamScalar(codec.scalar, "raw", "null")) : fromParamScalar(codec.scalar, "raw", dflt)};`,
+      "  }",
+    ];
+  }
+
+  if (codec.kind === "json") {
+    // The IDENTITY conversion: the blob value already IS the decoded json, so
+    // there is nothing to parse and nothing that can fail.
+    return [
+      `  static ${type} ${name}(Map<String, dynamic> blob) {`,
+      `    return blob.containsKey(${key}) ? blob[${key}] : ${dflt};`,
       "  }",
     ];
   }
@@ -291,8 +327,11 @@ function loaderMethod(
   return [
     `  static ${type} ${name}(Map<String, dynamic> blob) {`,
     `    final raw = blob[${key}];`,
-    `    if (raw == null) return ${dflt};`,
-    `    return ${fromBlobScalar(codec.scalar, "raw", dflt)};`,
+    // A NULLABLE cell restores an absent/null value as `null` — which is the
+    // right value for it, not a lost one; a non-nullable one falls back to its
+    // declared default.
+    `    if (raw == null) return ${codec.nullable ? "null" : dflt};`,
+    `    return ${codec.nullable ? stripNullFallback(fromBlobScalar(codec.scalar, "raw", "null")) : fromBlobScalar(codec.scalar, "raw", dflt)};`,
     "  }",
   ];
 }
@@ -328,7 +367,11 @@ function dartElementZero(scalar: FlutterPersistScalar): string {
  *  is the un-storable literal `null`. */
 function cellDefault(codec: FlutterPersistCodec, declared: string | undefined): string {
   if (declared !== undefined && declared !== "null") return declared;
-  return codec.kind === "list" ? "const []" : dartElementZero(codec.scalar);
+  if (codec.kind === "list") return "const []";
+  // `null` is a REAL value for a nullable cell and for a `dynamic` one, so it
+  // is the fallback rather than a type zero the cell could not hold anyway.
+  if (codec.kind === "json" || codec.nullable) return "null";
+  return dartElementZero(codec.scalar);
 }
 
 /** The whole persisted-store member block spliced into a `<Store>Notifier`:
@@ -354,10 +397,20 @@ export function persistNotifierMembers(
   if (p.tier === "url") {
     out.push("    LoomStorePersist.writeParams(<String, String?>{");
     for (const { field, codec } of p.fields) {
+      const access = `s.${field.name}`;
       const value =
         codec.kind === "list"
           ? "null" // unreachable — `loom.store-url-field-invalid`
-          : toParamScalar(codec.scalar, `s.${field.name}`);
+          : codec.kind === "json"
+            ? // The cell's own JSON text, dropped entirely when null so the URL
+              // stays clean (the same rule an empty string follows).
+              `${access} == null ? null : jsonEncode(${access})`
+            : codec.nullable
+              ? // A null cell DROPS its param; a present one encodes normally.
+                // `!` is safe under the guard and keeps the scalar conversions
+                // (which are written for a non-null receiver) unchanged.
+                `${access} == null ? null : (${toParamScalar(codec.scalar, `${access}!`)})`
+              : toParamScalar(codec.scalar, access);
       out.push(`      ${lit(field.name)}: ${value},`);
     }
     out.push("    });");
@@ -367,12 +420,21 @@ export function persistNotifierMembers(
       // A list whose element needs no conversion writes the cell itself — a
       // `.map((e) => e).toList()` identity hop is noise in the emitted Dart.
       const elementJson = codec.kind === "list" ? toBlobScalar(codec.element, "e") : "";
-      const value =
-        codec.kind !== "list"
-          ? toBlobScalar(codec.scalar, `s.${field.name}`)
-          : elementJson === "e"
-            ? `s.${field.name}`
-            : `s.${field.name}.map((e) => ${elementJson}).toList()`;
+      const access = `s.${field.name}`;
+      let value: string;
+      if (codec.kind === "list") {
+        value = elementJson === "e" ? access : `${access}.map((e) => ${elementJson}).toList()`;
+      } else if (codec.kind === "json") {
+        // Identity — the cell already holds decoded JSON.
+        value = access;
+      } else if (codec.nullable) {
+        const converted = toBlobScalar(codec.scalar, `${access}!`);
+        // Only the conversions that DEREFERENCE need the guard; a cell whose
+        // conversion is the identity writes `null` as `null` by itself.
+        value = converted === `${access}!` ? access : `${access} == null ? null : ${converted}`;
+      } else {
+        value = toBlobScalar(codec.scalar, access);
+      }
       out.push(`      ${lit(field.name)}: ${value},`);
     }
     out.push("    });");

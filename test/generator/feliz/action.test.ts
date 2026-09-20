@@ -7,7 +7,7 @@
 // (SDK 8.0) plain and gated.
 
 import { describe, expect, it } from "vitest";
-import { generateSystemFiles } from "../../_helpers/generate.js";
+import { generateSystemFiles, generateSystemFilesUnchecked } from "../../_helpers/generate.js";
 import { parseString } from "../../_helpers/parse.js";
 
 const DETAIL = (opBody: string, auth = "") => `
@@ -84,9 +84,13 @@ describe("feliz Action(x.op)", () => {
     );
   });
 
-  it("emits a comment (not broken F#) for a param-carrying op", async () => {
-    // An op WITH a parameter is an OperationForm, not an Action — the seam
-    // refuses it with a comment rather than emitting a dangling trigger Msg.
+  it("REFUSES a param-carrying op at phase ⑦, and emits a comment (not broken F#)", async () => {
+    // An op WITH a parameter is an OperationForm, not an Action.
+    // `loom.action-op-has-params` now REJECTS the model: the gate reads the
+    // instance ref's declared aggregate type, and a `QueryView` `data:` binding
+    // used to carry the `string` placeholder — so the gate was silent on the one
+    // shape it exists for and this reached the emitter at all.  The seam's own
+    // comment is still what the walker emits for the model that reaches it.
     const src = `
 system S {
   api A from Sub
@@ -105,7 +109,13 @@ system S {
   deployable api { platform: node contexts: [C] dataSources: [st] serves: A port: 3000 }
   deployable web { platform: feliz targets: api ui: W { Shop: api } port: 3005 }
 }`;
-    const app = await appFs(src);
+    await expect(generateSystemFiles(src)).rejects.toThrow(/loom\.action-op-has-params/);
+    const files = await generateSystemFilesUnchecked(
+      src,
+      "the phase-⑦ refusal above IS the subject; this asserts what the seam " +
+        "emits for the model that reaches it",
+    );
+    const app = [...files.entries()].find(([p]) => p.endsWith("src/App.fs"))![1];
     expect(app).not.toContain("mutateAsync");
     expect(app).toContain("Action(p.bump): no parameterless public operation in scope");
   });

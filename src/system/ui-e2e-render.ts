@@ -279,7 +279,26 @@ function renderUIStmt(s: TestStmtIR, ctx: RenderCtx): string {
     return renderExpectStmt(s.expr, (e) => renderUIExpr(e, ctx));
   }
   if (s.kind === "expect-throws") {
-    return `await expect(async () => { ${renderUIExpr(s.expr, ctx)}; }).rejects.toThrow();`;
+    // Unreachable from a validated model: `checkExpectMatcher`
+    // (`src/language/validators/match.ts`) rejects BOTH forms of `toThrow` in a
+    // block that lowers to this renderer, with `loom.e2e-ui-throw-invalid`
+    // at the author's own source span.  This is the backstop for an IR built
+    // some other way, and it follows the same rule as the unsupported-statement
+    // throw below: fail generation loudly rather than emit a weaker assertion.
+    //
+    // The old behaviour was the defect (audit 2026-09-13 F7): `s.status` was
+    // dropped on the floor and a bare `.rejects.toThrow()` emitted, so an author
+    // who wrote `toThrow(422)` got a strictly weaker assertion with no
+    // diagnostic — and one that could not fire anyway, because `submit()`
+    // awaits the detail page's testid that an invalid form never renders.
+    // There is no HTTP status to pin here in the first place: the emitted form
+    // validates client-side, so an invalid submit issues no request at all.
+    throw new Error(
+      `ui e2e: 'toThrow(${s.status ?? ""})' is not runnable in a ui test body — ` +
+        "there is no HTTP response to assert against. Assert the DOM state with a " +
+        "locator matcher (toHaveText / toHaveCount / toBeVisible), or move the " +
+        "negative case to a block targeting a backend deployable.",
+    );
   }
   if (s.kind === "let") {
     ctx.locals.add(s.name);

@@ -104,12 +104,26 @@ export const REALTIME_SOURCE_WEB_DART = `${lines(
   "",
   "export 'realtime_event.dart';",
   "",
-  "Stream<LoomServerEvent> loomEventSource(Uri uri, List<String> types) {",
+  "Stream<LoomServerEvent> loomEventSource(",
+  "  Uri uri,",
+  "  List<String> types, {",
+  "  // The WEB credential (D-FLUTTER-BEARER): the HttpOnly `session` cookie the",
+  "  // `/auth/callback` handshake issued, exactly what the other five frontends",
+  "  // send.  `EventSource` cannot set an `Authorization` header by",
+  "  // construction, which is why the web surface uses the cookie and the native",
+  "  // one uses `bearer` below.",
+  "  bool withCredentials = false,",
+  "  // Unused on the web — the cookie is the credential here.  Declared so both",
+  "  // transports satisfy ONE signature behind the conditional-import facade.",
+  "  String? bearer,",
+  "}) {",
   "  web.EventSource? source;",
   "  late StreamController<LoomServerEvent> controller;",
   "  controller = StreamController<LoomServerEvent>(",
   "    onListen: () {",
-  "      final es = web.EventSource(uri.toString());",
+  "      final es = withCredentials",
+  "          ? web.EventSource(uri.toString(), web.EventSourceInit(withCredentials: true))",
+  "          : web.EventSource(uri.toString());",
   "      source = es;",
   "      for (final type in types) {",
   "        es.addEventListener(",
@@ -148,11 +162,25 @@ export const REALTIME_SOURCE_IO_DART = `${lines(
   "",
   "export 'realtime_event.dart';",
   "",
-  "Stream<LoomServerEvent> loomEventSource(Uri uri, List<String> types) async* {",
+  "Stream<LoomServerEvent> loomEventSource(",
+  "  Uri uri,",
+  "  List<String> types, {",
+  "  // Unused natively — an HttpOnly cookie cannot exist on Android/iOS, which",
+  "  // is exactly why this surface takes `bearer` instead (D-FLUTTER-BEARER).",
+  "  // Declared so both transports satisfy ONE signature behind the facade.",
+  "  bool withCredentials = false,",
+  "  // The NATIVE credential: an access token from the app's own OIDC client,",
+  "  // passed in by the caller rather than read from a store here, so this",
+  "  // transport imports nothing conditional.",
+  "  String? bearer,",
+  "}) async* {",
   "  final client = http.Client();",
   "  try {",
   "    final request = http.Request('GET', uri)",
   "      ..headers['Accept'] = 'text/event-stream';",
+  "    if (bearer != null && bearer.isNotEmpty) {",
+  "      request.headers['Authorization'] = 'Bearer $bearer';",
+  "    }",
   "    final response = await client.send(request);",
   "    var type = 'message';",
   "    final data = StringBuffer();",
@@ -237,7 +265,19 @@ function renderDartToastMessage(e: ExprIR, bind: string): string {
 }
 
 /** `lib/realtime.dart` — the subscription widget + the per-event dispatch. */
-export function renderFlutterRealtime(ui: UiIR, reads: readonly FlutterRead[]): string {
+export function renderFlutterRealtime(
+  ui: UiIR,
+  reads: readonly FlutterRead[],
+  /** The stream credential from the SHARED plan predicate
+   *  (`realtimeStreamCredential`) — RULE 2, as amended by **D-FLUTTER-BEARER**.
+   *  `"cookie-web-bearer-native"` is the only non-`"none"` answer a
+   *  `platform: flutter` deployable can get, and it means BOTH surfaces at
+   *  once: the web transport sends `withCredentials` (the HttpOnly `session`
+   *  cookie) and the native one an `Authorization: Bearer` from the app's own
+   *  OIDC client, because an HttpOnly cookie cannot exist on Android/iOS.
+   *  `"none"` emits the v1 bare call, byte-identical. */
+  credential: "cookie-web-bearer-native" | "none" = "none",
+): string {
   const notifications = ui.notifications ?? [];
   const byEvent = new Map<string, UiNotificationIR[]>();
   for (const n of notifications) {
@@ -293,6 +333,7 @@ export function renderFlutterRealtime(ui: UiIR, reads: readonly FlutterRead[]): 
     "import 'package:flutter_riverpod/flutter_riverpod.dart';",
     "",
     "import 'config.dart';",
+    credential === "none" ? undefined : "import 'loom_bearer.dart';",
     needsReads ? "import 'reads.dart';" : undefined,
     "import 'realtime_source.dart';",
     "",
@@ -319,7 +360,10 @@ export function renderFlutterRealtime(ui: UiIR, reads: readonly FlutterRead[]): 
     "  @override",
     "  void initState() {",
     "    super.initState();",
-    "    _subscription = loomEventSource(apiUri('/realtime/events'), loomRealtimeEvents)",
+    credential === "none"
+      ? "    _subscription = loomEventSource(apiUri('/realtime/events'), loomRealtimeEvents)"
+      : "    _subscription = loomEventSource(apiUri('/realtime/events'), loomRealtimeEvents,\n" +
+          "            withCredentials: true, bearer: loomBearerToken)",
     "        .listen(_onEvent, onError: (Object _) {});",
     "  }",
     "",

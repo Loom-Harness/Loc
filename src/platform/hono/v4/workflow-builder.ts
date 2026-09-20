@@ -503,6 +503,7 @@ export function buildWorkflowsFile(
   const problemNamed = [
     /\bframeworkProblemBody\b/.test(bodyStr) ? "frameworkProblemBody" : null,
     /(?<!\.)\bProblemDetails\b/.test(bodyStr) ? "ProblemDetails" : null,
+    /\bUuidString\b/.test(bodyStr) ? "UuidString" : null,
     "newApp",
     /\brequireJsonContentType\(/.test(bodyStr) ? "requireJsonContentType" : null,
   ].filter((n): n is string => n !== null);
@@ -1142,7 +1143,7 @@ function emitInstanceRoutes(
   const corrVt = workflowCorrIdValueType(wf);
   const idParamZod =
     corrVt === "guid"
-      ? "z.string().uuid()"
+      ? "UuidString"
       : corrVt === "string"
         ? "z.string()"
         : "z.coerce.number().int()";

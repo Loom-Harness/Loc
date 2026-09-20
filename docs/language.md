@@ -440,7 +440,7 @@ Inside an aggregate or an `entity` part:
 | `[private] invariant Expression [when Expression] [message "…"]` | `bool` predicate; checked after every mutation. Optional `when` is a guard; `message` is the user-facing text (also the i18n key). `private` keeps the rule off the wire-layer schemas (Zod / FluentValidation / OpenAPI) — it runs only in the domain floor. |
 | `unique (a, b)` | Set-level natural-key invariant — derived into a DB unique index (partial under `softDeletable`) plus a per-backend 23505 → 409 mapping (`loom.unique-*`). |
 | `function name(params): TypeRef = Expression` | Pure helper (expression form); callable from any expression in the same aggregate. Stays SQL-inlinable like a `criterion`. |
-| `function name(params): TypeRef { … }` | Pure helper (block form); `let` + branch (ternary/`match`) + bug-regime `precondition`/`requires`, ending in `return` (`loom.function-block-no-return`). Still **pure** — no mutation, no `emit`, no repository / operation / domain-service / extern call (the IR validator rejects each). **Not queryable** (a block-form call is rejected in a `where` / `criterion` filter). |
+| `function name(params): TypeRef { … }` | Pure helper (block form); `let` + branch (ternary/`match`, or a statement `if`/`else`) + bug-regime `precondition`/`requires`, returning a value on **every path** (`loom.function-block-no-return` — a `return` inside an `if` counts, but an `if` with no `else` leaves one path valueless). Still **pure** — no mutation, no `emit`, no repository / operation / domain-service / extern call (the IR validator rejects each). **Not queryable** (a block-form call is rejected in a `where` / `criterion` filter). |
 | `[private] operation name(params) [extern] [audited] [: ReturnType] [requires Expr] [when Expr] { … }` | Mutating method (root only). `private` = callable only from within the same aggregate root (no route). `audited` records an `audit_records` row per call. `: A or B` declares an exception-less outcome returned via `return` (an `error` variant maps to a ProblemDetails status — [`payloads.md`](payloads.md)). `requires` is the authorization gate (403; [`auth.md`](auth.md)). |
 | `operation name(params) extern { precondition … }` | Public op whose business decision lives in user code; body must contain only `precondition` statements. See [`extern.md`](extern.md). |
 | `operation name(params) when <pred> { … }` | **canCommand state gate** ([`criterion.md`](criterion.md), use site 2): `<pred>` is a pure bool predicate over the aggregate's own state — referencing an operation parameter is an error (move argument-aware checks into a `precondition`); evaluated against the loaded instance before the body. False → 409 "Disallowed" ProblemDetails; a side-effect-free `GET /{id}/can_<op>` companion returns `{ allowed }` for UI enablement (so `when` on a `private` operation is rejected — nothing could read it). Named criteria / aggregate functions inline like any bool position. Supported on all five backends. Distinct from `requires` (auth, 403) and `precondition` (domain validity, 422). |
@@ -1172,7 +1172,10 @@ compiler-known catalogue (`toBe` / `toBeGreaterThan(OrEqual)` /
 `toBeVisible` / `toThrow`); they are not methods on a domain type but intrinsic
 assertions the compiler type-checks and lowers per backend.  Two are context-
 restricted (validator-enforced): `toThrow(<status>)` and `toBeSameInstant` are
-only valid in a `test e2e` body — the first pins an HTTP status, the second
+only valid in a `test e2e` body — and `toThrow` in *either* form is rejected in
+a `test e2e` body targeting a FRONTEND deployable, where no HTTP response
+exists (`loom.e2e-ui-throw-invalid`; see the negative-path section below).  The
+first pins an HTTP status, the second
 compares two ISO-8601 timestamps as *instants* (so a backend that serializes a
 datetime as `…00.0000000Z` still equals the canonical `…00Z` on the wire, while
 a real difference in time still fails).  Inside a test body the standard
@@ -1182,7 +1185,7 @@ operation statements are allowed plus:
 | --- | --- |
 | `expect(<actual>).<matcher>(…)` | vitest `expect(<actual>).<matcher>(…)` / xUnit `Assert.*` / Playwright matcher. |
 | `expect(<call>).toThrow()` | vitest `expect(() => <call>).toThrow()` / xUnit `Assert.Throws<DomainException>(() => <call>)`. |
-| `expect(<api-call>).toThrow(<status>)` | e2e only — `.rejects.toThrow(/→ <status>\b/)` (pins the rejected HTTP status). |
+| `expect(<api-call>).toThrow(<status>)` | api e2e only — `.rejects.toThrow(/→ <status>\b/)` (pins the rejected HTTP status).  Rejected in a ui e2e body. |
 
 Test blocks emit one file per subject on every backend:
 - TS: `domain/<aggregate>.test.ts` (vitest).
@@ -1305,6 +1308,18 @@ rejects with **422** (DomainError — RS-15; 400 stays for a malformed body), a 
 every `test e2e` block replays against each backend serving the referenced
 module, `toThrow(N)` asserts they all reject with the same status — the
 behavioral complement to the static OpenAPI `errorResponseDiffs` parity gate.
+
+**`toThrow` is rejected outright in a UI e2e body** — a `test e2e` block whose
+target is a frontend deployable, which lowers to a Playwright spec rather than a
+fetch suite (`loom.e2e-ui-throw-invalid`).  There is no response to read a
+status from: the emitted form validates *client-side* against a schema derived
+from the aggregate's own invariants, so an invalid submit issues no request at
+all, and the page object's `submit()` awaits a detail-page testid an invalid
+form never renders.  A permanent refusal rather than a gap — an HTTP status and
+a form-error DOM state are different assertions, and `toThrow` names the first.
+Assert the UI's negative path with the locator matchers (`toHaveText` /
+`toHaveCount` / `toBeVisible`) on a row the test has on screen, or put the
+status assertion in a block written `against <backend-deployable>`.
 
 The generated vitest file lives at `<system>/e2e/<SystemName>.e2e.test.ts`
 in the output directory.  Endpoints default to the docker-compose ports;
@@ -1507,14 +1522,6 @@ Warnings (non-fatal):
 
 - Self-recursive operation calls (often unintentional).
 - `emit` payloads missing optional fields.
-- A workflow `on(e: Event)` reactor or event-triggered `create(e: Event) by`
-  starter whose event no `channel` carries (`loom.reactor-event-uncarried`):
-  in-process dispatch is channel-routed, so the consumer would never fire —
-  declare a `channel { carries: … }` for the event.
-- A `projection` `on(e: Event)` fold whose event no `channel` carries
-  (`loom.projection-event-uncarried`): the projection twin of the reactor rule —
-  the fold never runs and the read-model row is never written, so declare a
-  `channel { carries: … }` for the folded event.
 - A reactor / event-create whose event is carried by **more than one** channel
   in its context (`loom.reactor-channel-ambiguous`): in-process dispatch records
   the first channel by declaration order, so the binding is ambiguous — carry

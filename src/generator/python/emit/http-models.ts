@@ -1,5 +1,6 @@
 import type { BoundedContextIR, TypeIR } from "../../../ir/types/loom-ir.js";
 import { lines } from "../../../util/code-builder.js";
+import { UUID_WIRE_PATTERN } from "../../../util/uuid-wire.js";
 import { provenancedTypeMembers } from "../../_payload/provenanced-wire.js";
 import {
   MONEY_INTEGER_DIGITS,
@@ -38,7 +39,7 @@ export const PY_UUID_STR = "UuidStr";
 const PY_UUID_STR_DEF = [
   `${PY_UUID_STR} = Annotated[`,
   "    str,",
-  '    StringConstraints(pattern=r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"),',
+  `    StringConstraints(pattern=r"${UUID_WIRE_PATTERN}"),`,
   '    WithJsonSchema({"type": "string", "format": "uuid"}),',
   "]",
 ];

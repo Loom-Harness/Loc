@@ -550,6 +550,33 @@ export const DIAGNOSTIC_MESSAGES = {
     `\`expect(<row>.<field>).${p.matcher}(...)\`. Got \`${p.actual}\`, which resolves to no ` +
     "locator (a plain value, an `id`, or a nested path the page object does not expose); " +
     "compare a plain value with `toBe` instead.",
+  // `toThrow` in a UI e2e body.  Two messages, one code: the status form and
+  // the bare form fail for overlapping but distinct reasons, and a refusal that
+  // does not name the author's own argument reads as a parser quirk.
+  //
+  // The api body keeps `toThrow(<status>)` — there it is a real response status
+  // off a real `fetch`, pinned by `e2e-render.ts`'s `/→ N\b/` matcher.  The ui
+  // body has a DOM state instead, which is NOT the same assertion; conflating
+  // the two is what produced the dropped argument in the first place.
+  "loom.e2e-ui-throw-invalid#status": (p: { status: unknown }) =>
+    `'toThrow(${p.status})' pins an HTTP status, but this 'test e2e' block targets a ` +
+    "frontend, so it lowers to a Playwright spec driven through the generated page " +
+    `objects — there is no HTTP response to read ${p.status} from. The emitted form ` +
+    "validates CLIENT-side (a schema derived from the aggregate's own invariants), so an " +
+    "invalid submit issues no request at all. Assert the DOM state instead — " +
+    "`expect(<row>.<field>).toHaveText(...)` / `.toHaveCount(...)` / `.toBeVisible()` on a " +
+    "row the test has on screen — or move the negative case to a block written " +
+    `\`against <backend-deployable>\` with \`api.<aggregate>....\`, where \`toThrow(${p.status})\` ` +
+    "pins a real response status.",
+  "loom.e2e-ui-throw-invalid#bare":
+    "'toThrow()' cannot run in a 'test e2e' block that targets a frontend: the generated " +
+    "page object's `submit()` awaits the detail page's testid, which an invalid form never " +
+    "renders, so the assertion settles only when a Playwright timeout fires — it can never " +
+    "pass for the reason it was written. Assert the DOM state instead — " +
+    "`expect(<row>.<field>).toHaveText(...)` / `.toHaveCount(...)` / `.toBeVisible()` on a " +
+    "row the test has on screen — or move the negative case to a block written " +
+    "`against <backend-deployable>` with `api.<aggregate>....`, where `toThrow()` runs " +
+    "against a real response.",
   "loom.seed-abstract-aggregate": (p: { name: unknown }) =>
     `Seed row on abstract aggregate '${p.name}': an inheritance base has no create ` +
     "factory and no repository, so every backend drops the row — and elixir still commits " +
@@ -1060,7 +1087,9 @@ export const DIAGNOSTIC_MESSAGES = {
     `else-branch is '${p.elseT}'.  One branch's type must be assignable to ` +
     `the other (both numeric, an optional and its inner, or a null literal against an optional).`,
   "loom.function-block-no-return": (p: { name: unknown; declared: unknown }) =>
-    `Block-body function '${p.name}' must 'return' a value of type '${p.declared}'.`,
+    `Block-body function '${p.name}' must 'return' a value of type '${p.declared}' on every path.  ` +
+    `A 'return' inside an 'if' counts, but only when the conditional covers both paths — ` +
+    `an 'if' (or an 'else if' chain) with no final 'else' leaves one path with no value.`,
 
   // ----------------------------------------------------------------------
   // src/language/validators/ui.ts
@@ -1608,9 +1637,13 @@ export const DIAGNOSTIC_MESSAGES = {
     `field '${p.name}' cannot be persisted on the flutter frontend — ` +
     `\`persist: ${p.lifetime}\` crosses an untyped boundary per field, and the Dart codec ` +
     `covers string / guid / id / enum / int / long / decimal / money / bool / datetime ` +
-    `fields plus arrays of those.  A json, File, entity, value-object or optional field ` +
-    `would be silently dropped from the stored state.  Give the field one of the covered ` +
-    `types, or use \`persist: memory\` for this store.`,
+    `fields, arrays of those, a \`json\` cell, and an OPTIONAL of any scalar (except under ` +
+    `\`persist: url\`, where a null cell cannot be restored: the back/forward re-seed goes ` +
+    `through \`copyWith\`, whose \`x ?? this.x\` cannot set a cell to null, so an absent ` +
+    `param would silently KEEP the old value).  A File, entity or value-object field has no ` +
+    `total Dart conversion at all (\`fromJson\` throws on junk) and would be silently ` +
+    `dropped from the stored state.  Give the field one of the covered types, or use ` +
+    `\`persist: memory\` for this store.`,
   "loom.store-cross-store-on-liveview-invalid": (p: {
     where: unknown;
     store: unknown;
@@ -1729,6 +1762,17 @@ export const DIAGNOSTIC_MESSAGES = {
   // Dart, where they compiled fine and left the action doing nothing.
   "loom.flutter-action-body-unsupported#emit-invariant": (p: { what: unknown }) =>
     `internal: the Flutter Riverpod Notifier emitter cannot render ${p.what}. The IR validator's flutter action-body gates (plus the ui statement-kind and unresolved-action-ref gates) should have rejected this model before codegen reached it.`,
+  // The TARGET-AGNOSTIC subject gate (audit F66).  Every frontend renderer
+  // resolves a `match await` subject to an aggregate instance operation and
+  // renders nothing else — the JS walkers emitted a guaranteed unhandled
+  // rejection, LiveView threw at codegen, and only Feliz / Flutter said so.
+  "loom.async-effect-subject-unsupported": (p: { uiName: unknown; reason: unknown }) =>
+    `\`match await …\` (an async effect) on ui '${p.uiName}' cannot be rendered by ANY ` +
+    `frontend — ${p.reason}.  Every frontend resolves the awaited subject the same way, so ` +
+    `this is not a per-target limit: write \`match await <api>.<Agg>.<op>(args?) { <Variant> ` +
+    `b => … … else? => … }\` — an aggregate instance operation (with or without params), one ` +
+    `or more named success/error arms, and an optional \`else\`.  To await a workflow or a ` +
+    `collection read, drive it through a form primitive (WorkflowForm / QueryView) instead.`,
   "loom.feliz-async-effect-unsupported": (p: {
     where: unknown;
     uiName: unknown;
@@ -1740,8 +1784,8 @@ export const DIAGNOSTIC_MESSAGES = {
     `Feliz frontend yet — ${p.reason}.  Supported in a PAGE action: \`match await ` +
     `<api>.<Agg>.<op>(args?) { <Variant> b => … … else? => … }\` — an aggregate instance op ` +
     `(with or without params), one or more named success/error arms, and an optional ` +
-    `\`else\`.  Otherwise host this ui on an SPA frontend (React/Vue/Svelte/Angular), or ` +
-    `drive the op through a form primitive (CreateForm/OperationForm).`,
+    `\`else\`.  (The awaited SUBJECT is no longer checked here: it is the same on every ` +
+    `frontend, so it is the target-agnostic \`loom.async-effect-subject-unsupported\`.)`,
   "loom.flutter-async-effect-unsupported": (p: {
     where: unknown;
     uiName: unknown;
@@ -1931,16 +1975,16 @@ export const DIAGNOSTIC_MESSAGES = {
     component: unknown;
     dName: unknown;
   }) =>
-    `${p.what} invokes component '${p.component}' with CHILDREN, which deployable '${p.dName}' ` +
-    `(frontend 'angular') drops. Angular has no PascalCase component tag, so a user component is ` +
-    `invoked through '<ng-container [ngComponentOutlet]=…>', and 'ngComponentOutlet' cannot ` +
-    `project content from a template — the extra positional argument has nowhere to go, so the ` +
-    `children vanish from the emitted project with no other symptom. Every other frontend ` +
-    `renders them into the component's 'Slot { }'. Pass the content as a declared parameter, or ` +
-    `host this page on another frontend. (The fix is Angular-local: a WALKED component already ` +
-    `has a kebab selector and its 'Slot { }' already emits '<ng-content>', so the call site can ` +
-    `switch from the outlet to '<app-x …>children</app-x>'; an extern component has no ` +
-    `Loom-known selector and keeps the outlet.)`,
+    `${p.what} invokes EXTERN component '${p.component}' with CHILDREN, which deployable ` +
+    `'${p.dName}' (frontend 'angular') drops. An extern component's class is hand-written, so ` +
+    `Loom does not know its element selector and has to invoke it through '<ng-container ` +
+    `[ngComponentOutlet]=…>' — and 'ngComponentOutlet' cannot project content from a template, ` +
+    `so the extra positional argument has nowhere to go and the children vanish from the ` +
+    `emitted project (an '<!-- … projected child dropped -->' comment marks the spot). Every ` +
+    `other frontend renders them into the component's 'Slot { }'. Drop the 'extern from' clause ` +
+    `so Loom emits the component itself — a WALKED component is invoked by its own tag ` +
+    `('<app-x …>children</app-x>') and projects children into '<ng-content>' — or pass the ` +
+    `content as a declared parameter, or host this page on another frontend.`,
   "loom.chart-unsupported-target": (p: { what: unknown; name: unknown; uiFramework: unknown }) =>
     `${p.what} uses 'Chart', which deployable '${p.name}' can't render ` +
     `(frontend '${p.uiFramework}'). Chart ships on every shipping frontend — react, vue, ` +
@@ -1966,19 +2010,7 @@ export const DIAGNOSTIC_MESSAGES = {
     frameworks: unknown;
   }) =>
     `Deployable '${p.name}': 'auth: ui' is currently only supported on ${p.frameworks} frontends; framework '${p.uiFramework}' isn't supported yet.`,
-  "loom.ui-realtime-unsupported#backend-serves-no-sse": (p: {
-    name: unknown;
-    uiName: unknown;
-    target: unknown;
-  }) =>
-    `Deployable '${p.name}': ui '${p.uiName}' declares 'on <channel>.<Event>' live-event handler(s), but its ${
-      p.target
-    } does not serve the realtime SSE wire, so the handlers are silently dropped. Target a realtime-serving backend (node, dotnet, java, python, elixir) or remove the handlers.`,
-  "loom.ui-realtime-unsupported#frontend-has-no-consumer": (p: {
-    name: unknown;
-    uiName: unknown;
-    framework: unknown;
-  }) =>
+  "loom.ui-realtime-unsupported": (p: { name: unknown; uiName: unknown; framework: unknown }) =>
     `Deployable '${p.name}': ui '${p.uiName}' declares 'on <channel>.<Event>' live-event handler(s), but its frontend framework '${p.framework}' has no realtime consumption, so the handlers are silently dropped.`,
   "loom.ui-duplicate-area": (p: { name: unknown; scope: unknown }) =>
     `Duplicate area '${p.name}' in ${p.scope}. Areas within a scope must have unique names — the area path is what places every page inside it on disk, so two same-named blocks compute the same directory and one block's pages silently overwrite the other's. Merge them into a single 'area ${p.name} { … }'.`,
@@ -2136,7 +2168,7 @@ export const DIAGNOSTIC_MESSAGES = {
     `declaration gets a 422 naming a field the create never mentions.${p.also}  ` +
     `List every create-input field, or drop the parameter list: a narrowed one ` +
     `shapes nothing.`,
-  "loom.persistence-mode-unsupported": (p: {
+  "loom.datasource-binding-missing": (p: {
     name: unknown;
     ctxName: unknown;
     aggName: unknown;
@@ -2179,7 +2211,7 @@ export const DIAGNOSTIC_MESSAGES = {
     `dataSource.  A \`File\` stores its bytes in an object store — declare a ` +
     `\`storage <s> { type: localDisk }\` (or \`s3\`), a ` +
     // `resource`, not `dataSource` — the same slip this file's
-    // `loom.persistence-mode-unsupported` carried.  `dataSource` names the
+    // `loom.datasource-binding-missing` carried.  `dataSource` names the
     // deployable's `dataSources:` CLAUSE, never the declaration, so pasting the
     // suggested line was a parse error.
     `\`resource <ds> { for: ${p.ctxName}, kind: objectStore, use: <s> }\`, and ` +
@@ -2246,7 +2278,7 @@ export const DIAGNOSTIC_MESSAGES = {
     `(CS0119 for a method, CS1061 for a property). Rename the declaration to something other ` +
     `than '${p.member}' (an operation reads well as 'add${p.member}'), or host this context on ` +
     `a node / python / elixir / java deployable.`,
-  "loom.context-filter-unsupported#no-auth-user": (p: {
+  "loom.context-filter-no-principal": (p: {
     name: unknown;
     platform: unknown;
     ctxName: unknown;
@@ -2257,8 +2289,8 @@ export const DIAGNOSTIC_MESSAGES = {
     `currentUser (e.g. a tenancy filter), but the deployable has no auth — there is no ` +
     `request-scoped principal to scope reads by. Add 'auth: required' (and a system ` +
     `'user {}' block), or remove the principal-referencing filter.`,
-  // (`loom.context-filter-unsupported#unsupported-predicate` lived here — the
-  //  "this backend cannot emit that filter" refusal.  There is no such message:
+  // (the old `loom.context-filter-unsupported`'s `#unsupported-predicate` slug
+  //  lived here — the "this backend cannot emit that filter" refusal.  There is no such message:
   //  every backend family wires capability filters on every saving shape, and a
   //  message with no reachable call site is an orphan the catalogue gate
   //  rejects — one that documents a limitation the code does not have.  A
@@ -3327,16 +3359,6 @@ export const DIAGNOSTIC_MESSAGES = {
   // ----------------------------------------------------------------------
   // src/ir/validate/checks/workflow-checks.ts
   // ----------------------------------------------------------------------
-  "loom.reactor-event-uncarried": (p: { name: unknown; label: unknown; event: unknown }) =>
-    `workflow '${p.name}': ${p.label} subscribes to event '${p.event}', but no ` +
-    `'channel' carries it. In-process dispatch is channel-routed, so this consumer never ` +
-    `fires — declare a channel (e.g. 'channel C { carries: ${p.event} }') in the ` +
-    `event's context.`,
-  "loom.projection-event-uncarried": (p: { name: unknown; param: unknown; event: unknown }) =>
-    `projection '${p.name}': on(${p.param}: ${p.event}) folds event '${p.event}', but ` +
-    `no 'channel' carries it. In-process dispatch is channel-routed, so this fold never ` +
-    `runs and the read-model row is never written — declare a channel (e.g. ` +
-    `'channel C { carries: ${p.event} }') in the event's context.`,
   "loom.reactor-channel-ambiguous": (p: {
     name: unknown;
     label: unknown;
