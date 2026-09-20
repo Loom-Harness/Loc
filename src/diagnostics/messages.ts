@@ -923,7 +923,7 @@ export const DIAGNOSTIC_MESSAGES = {
   "loom.ambiguous-enum-value": (p: { value: unknown; enums: unknown; qualified: unknown }) =>
     `bare enum value '${p.value}' is declared by more than one enum in scope ('${p.enums}'), ` +
     `and this use has no expected type to choose between them. ` +
-    `Write it qualified — '${p.qualified}' — or rename one of the values. ` +
+    `Write it qualified — ${p.qualified} — or rename one of the values. ` +
     `Loom resolves a bare value from the SITE's type (a field or parameter default, a ':=' target, ` +
     `either side of a comparison); nothing here supplies one, and guessing would compile to a ` +
     `comparison between two different enums.`,

@@ -108,14 +108,17 @@ describe("F-022 — bare enum value shared by two enums", () => {
     expect(await errorCodes(members)).toContain("loom.ambiguous-enum-value");
   });
 
-  it("names BOTH candidate enums and the qualified fix in the message", async () => {
+  it("names BOTH candidate enums and BOTH qualified fixes in the message", async () => {
     const diags = validateLoomModel(
       await buildLoomModel(SOURCE(`        operation touch() { let x = Draft label := "x" }`)),
     );
     const d = diags.find((x) => x.code === "loom.ambiguous-enum-value");
     expect(d?.message).toContain("OrderStatus");
     expect(d?.message).toContain("InvoiceStatus");
-    expect(d?.message).toContain("OrderStatus.Draft");
+    // Both spellings, not just the first candidate's — recommending one would
+    // be the first-wins pick this fix removed, only phrased as advice.
+    expect(d?.message).toContain("'OrderStatus.Draft'");
+    expect(d?.message).toContain("'InvoiceStatus.Draft'");
   });
 
   // The sites below all HAVE an expected type; each one reached phase (7) still

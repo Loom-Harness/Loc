@@ -1024,7 +1024,10 @@ export function validateExprIntegrity(loom: EnrichedLoomModel, diags: LoomDiagno
           message: diagMessage("loom.ambiguous-enum-value", {
             value: e.name,
             enums: e.enumCandidates.join("', '"),
-            qualified: `${e.enumCandidates[0]}.${e.name}`,
+            // EVERY qualified spelling, not just the first candidate's: the
+            // compiler cannot know which enum was meant, so recommending one
+            // of them would be the silent first-wins pick wearing a hat.
+            qualified: e.enumCandidates.map((n) => `'${n}.${e.name}'`).join(" or "),
           }),
           source,
         });
