@@ -74,6 +74,7 @@ import {
   auditEntryWireShape,
   auditFieldChangeWireShape,
 } from "../../../src/ir/util/audit-history.js";
+import { UUID_WIRE_REGEX_LITERAL } from "../../../src/util/uuid-wire.js";
 
 // --- fixture builders ------------------------------------------------------
 
@@ -161,10 +162,13 @@ describe("zodForRequest / zodForResponse — where the two wire sides diverge", 
     expect(zodForRequest(prim("json"))).toBe("z.unknown()");
   });
 
-  it("id: the request side narrows a GUID-keyed reference to `.uuid()`, the response side never does", () => {
+  it("id: the request side narrows a GUID-keyed reference to the uuid shape, the response side never does", () => {
     const guidId: TypeIR = { kind: "id", targetName: "Order", valueType: "guid" };
     const intId: TypeIR = { kind: "id", targetName: "Order", valueType: "int" };
-    expect(zodForRequest(guidId)).toBe("z.string().uuid()");
+    // The dashed-hex shape every backend validates against (UUID_WIRE_PATTERN),
+    // NOT `.uuid()` — that also enforced RFC 4122's version/variant nibbles, so
+    // the form would have refused ids the server accepts.
+    expect(zodForRequest(guidId)).toBe(`z.string().regex(${UUID_WIRE_REGEX_LITERAL})`);
     // Schemathesis F2: an int/long/string-keyed aggregate is NOT a uuid.
     expect(zodForRequest(intId)).toBe("z.string()");
     expect(zodForResponse(guidId, false)).toBe("z.string()");
