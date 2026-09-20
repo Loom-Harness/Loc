@@ -49,6 +49,7 @@ import type { NavEntryVM, NavSectionVM } from "../_frontend/menu-emitter.js";
 import { pageFileBase } from "../_frontend/page-identity.js";
 import { buildPageObjectModule } from "../_frontend/page-objects-builder.js";
 import { buildWalkerPageObject } from "../_frontend/walker-page-objects.js";
+import { requestNamesForContexts } from "../_frontend/request-names.js";
 import { buildWorkflowPageObject } from "../_frontend/workflow-page-object.js";
 import type { LoadedPack } from "../_packs/loader.js";
 import type { SourceMapRecorder } from "../_trace/sourcemap.js";
@@ -474,7 +475,13 @@ export function emitSveltePageObjectsForUi(
         if (!ctxIR || !wf) break;
         out.set(
           `e2e/pages/workflows/${snake(wf.name)}.ts`,
-          buildWorkflowPageObject(wf, ctxIR, "../../../src/lib/api", "native"),
+          buildWorkflowPageObject(
+            wf,
+            ctxIR,
+            requestNamesForContexts(ctx.contextsByName.values()),
+            "../../../src/lib/api",
+            "native",
+          ),
         );
         break;
       }

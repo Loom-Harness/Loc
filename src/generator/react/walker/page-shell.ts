@@ -884,7 +884,11 @@ function renderFormRunsWiring(
   srcImportPrefix: string,
 ): FormWiring {
   const { workflow, idTargets, useController, defaultValuesTs, onSubmitJs, fieldArrays } = state;
-  const wfPascal = upperFirst(workflow.name);
+  // The walker already resolved this workflow's identifier base against the
+  // deployable's universe (`_frontend/request-names.ts`); reading it back is
+  // what keeps `<base>Request` / `use<base>Workflow` here identical to what
+  // `api/workflows.ts` exported.
+  const wfPascal = state.requestBase;
   const tplCtx = {
     formGenerics: formGenericsFor(`${wfPascal}Request`, state.formStateType, pack),
     workflowName: workflow.name,

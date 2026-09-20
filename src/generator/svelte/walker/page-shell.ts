@@ -207,7 +207,11 @@ function renderFormRunsWiring(
 ): FormWiring {
   const { workflow, useController, defaultValuesTs, onSubmitJs } = state;
   const idTargets = undeclaredIdTargets(state.idTargets, declaredPickers);
-  const wfPascal = upperFirst(workflow.name);
+  // Universe-resolved identifier base (see `_frontend/request-names.ts`) — the
+  // `form-runs-decls` template spells `{{workflowPascal}}Request` /
+  // `use{{workflowPascal}}Workflow`, so this must be what the api module
+  // exported, not a re-derivation from the workflow's name.
+  const wfPascal = state.requestBase;
   const tplCtx = {
     workflowName: workflow.name,
     workflowPascal: wfPascal,

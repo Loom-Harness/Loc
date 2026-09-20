@@ -40,6 +40,7 @@ import {
 import { lowerFirst, snake } from "../../util/naming.js";
 import { pageEmitPath, pageFileBase, pageModuleSpecifier } from "../_frontend/page-identity.js";
 import { buildWorkflowPageObject } from "../_frontend/workflows-module.js";
+import { requestNamesForContexts } from "../_frontend/request-names.js";
 import type { LoadedPack } from "../_packs/loader.js";
 import type { SourceMapRecorder } from "../_trace/sourcemap.js";
 import { isWalkableLayoutBody, walkBodyToTsx } from "./body-walker.js";
@@ -560,7 +561,13 @@ export function emitPageObjectsForUi(
         if (!ctxIR || !wf) break;
         out.set(
           `e2e/pages/workflows/${snake(wf.name)}.ts`,
-          buildWorkflowPageObject(wf, ctxIR, undefined, selectStyle),
+          buildWorkflowPageObject(
+            wf,
+            ctxIR,
+            requestNamesForContexts(ctx.contextsByName.values()),
+            undefined,
+            selectStyle,
+          ),
         );
         break;
       }

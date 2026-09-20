@@ -1,5 +1,6 @@
 import type { ExprIR } from "../../ir/types/loom-ir.js";
 import { lowerFirst, snake, upperFirst } from "../../util/naming.js";
+import { frontendRequestNames } from "../_frontend/request-names.js";
 import { giveUp } from "../_walker/give-up.js";
 import { namedArgValue, stringNamed } from "../_walker/shared/args.js";
 import type { WalkContext } from "../_walker/walker-core.js";
@@ -80,10 +81,17 @@ export function renderAngularWorkflowForm(
   }
 
   const T = upperFirst(workflow.name);
+  // Universe-resolved identifier base for the command surface — must be what
+  // `api/workflows.ts` exported, not a re-derivation from the workflow's name
+  // (`_frontend/request-names.ts`).
+  const R = frontendRequestNames(
+    ctx.aggregatesByName.values(),
+    ctx.workflowsByName.values(),
+  ).workflow(workflow.name);
   const ns = stringNamed(call, "testid") ?? `workflow-${snake(workflow.name)}`;
   const importFrom = "../../api/workflows";
-  const requestType = `${T}Request`;
-  const mutationFn = `use${T}Workflow`;
+  const requestType = `${R}Request`;
+  const mutationFn = `use${R}Workflow`;
   const mutationVar = `${lowerFirst(workflow.name)}Run`;
   const formVar = `${lowerFirst(workflow.name)}Form`;
   const submitMethod = `onRun${T}`;
