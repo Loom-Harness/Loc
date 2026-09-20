@@ -27,7 +27,6 @@ import * as path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { EnrichedLoomModel } from "../../src/ir/types/loom-ir.js";
 import type { MigrationsIR, SchemaSnapshot } from "../../src/ir/types/migrations-ir.js";
-import { generateSystemsFromLoom } from "../../src/system/index.js";
 import {
   checkMigrationBaseline,
   fsMigrationArtifactIndex,
@@ -47,7 +46,7 @@ import {
   writeMigrationLedger,
 } from "../../src/system/migration-ledger.js";
 import { fsSnapshotStore } from "../../src/system/snapshot.js";
-import { buildLoomModel } from "../_helpers/index.js";
+import { buildLoomModel, generateSystemResult } from "../_helpers/index.js";
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -558,12 +557,15 @@ describe("generate system into a CLEAN output directory (F-029)", () => {
   };
 
   it("refuses, and would otherwise rewrite the applied migration under its own tag", async () => {
+    // The models are built only to key `fsMigrationArtifactIndex` (which reads
+    // the deployable layout off the IR); the EMISSIONS go through the gated
+    // helper, so every one of them is phase-checked.
     const v1 = (await buildLoomModel(shopSource())) as EnrichedLoomModel;
     const v2 = (await buildLoomModel(shopSource("note: string?"))) as EnrichedLoomModel;
 
     // Run 1 — a real first generate into dirA.
     const dirA = mkTmp();
-    const first = generateSystemsFromLoom(v1, {
+    const first = await generateSystemResult(shopSource(), {
       snapshots: fsSnapshotStore(dirA),
       existingMigrations: fsMigrationArtifactIndex(dirA, v1),
     });
@@ -578,7 +580,7 @@ describe("generate system into a CLEAN output directory (F-029)", () => {
     // Nothing in dirB could tell anyone; this is the characterization of the
     // defect, and the reason the evidence has to come from the source side.
     const dirB = mkTmp();
-    const blind = generateSystemsFromLoom(v2, {
+    const blind = await generateSystemResult(shopSource("note: string?"), {
       snapshots: fsSnapshotStore(dirB),
       existingMigrations: fsMigrationArtifactIndex(dirB, v2),
     });
@@ -588,26 +590,26 @@ describe("generate system into a CLEAN output directory (F-029)", () => {
     expect(blindAfter).toContain('"note"');
 
     // With the recorded history, the same run refuses.
-    expect(() =>
-      generateSystemsFromLoom(v2, {
+    await expect(
+      generateSystemResult(shopSource("note: string?"), {
         snapshots: fsSnapshotStore(dirB),
         existingMigrations: fsMigrationArtifactIndex(dirB, v2),
         recordedHistory,
       }),
-    ).toThrow(MigrationBaselineError);
+    ).rejects.toThrow(MigrationBaselineError);
   });
 
   it("still emits the correct incremental delta in place", async () => {
     const v1 = (await buildLoomModel(shopSource())) as EnrichedLoomModel;
     const v2 = (await buildLoomModel(shopSource("note: string?"))) as EnrichedLoomModel;
     const dir = mkTmp();
-    const first = generateSystemsFromLoom(v1, {
+    const first = await generateSystemResult(shopSource(), {
       snapshots: fsSnapshotStore(dir),
       existingMigrations: fsMigrationArtifactIndex(dir, v1),
     });
     writeFiles(dir, first.files);
 
-    const second = generateSystemsFromLoom(v2, {
+    const second = await generateSystemResult(shopSource("note: string?"), {
       snapshots: fsSnapshotStore(dir),
       existingMigrations: fsMigrationArtifactIndex(dir, v2),
       recordedHistory: first.migrationLedger,
@@ -625,7 +627,7 @@ describe("generate system into a CLEAN output directory (F-029)", () => {
   it("a genuine first run is silent and records the history it just created", async () => {
     const v1 = (await buildLoomModel(shopSource())) as EnrichedLoomModel;
     const dir = mkTmp();
-    const emission = generateSystemsFromLoom(v1, {
+    const emission = await generateSystemResult(shopSource(), {
       snapshots: fsSnapshotStore(dir),
       existingMigrations: fsMigrationArtifactIndex(dir, v1),
       recordedHistory: null,
