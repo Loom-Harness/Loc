@@ -89,7 +89,9 @@ context Work {
   }
 }
 `);
-    const wf = model.contexts.flatMap((c) => c.workflows ?? []).find((w) => w.name === "closeOrder");
+    const wf = model.contexts
+      .flatMap((c) => c.workflows ?? [])
+      .find((w) => w.name === "closeOrder");
     const nodes = everyNode(wf?.statements ?? []);
 
     // The defect: the argument lowered to the implicit-identity marker, which
