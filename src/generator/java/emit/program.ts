@@ -16,6 +16,12 @@
 // ---------------------------------------------------------------------------
 
 import { lines } from "../../../util/code-builder.js";
+import { lowerFirst } from "../../../util/naming.js";
+import {
+  resetTableDiscoverySql,
+  TEST_RESET_ENV,
+  TEST_RESET_PATH,
+} from "../../../util/test-reset.js";
 import {
   DEBIAN_CERTS_LINES,
   NODE_CERTS_LINES,
@@ -398,6 +404,119 @@ export function renderHealthController(basePkg: string): string {
     `            // fall through to 503`,
     `        }`,
     `        return ResponseEntity.status(503).body(Map.of("status", "unavailable"));`,
+    `    }`,
+    `}`,
+    ``,
+  );
+}
+
+/**
+ * The dev-only state reset (`src/util/test-reset.ts`), Spring flavour.
+ *
+ * Gated in the HANDLER rather than at registration, like the Phoenix backend
+ * and unlike node / python / .NET.  Spring builds its request mappings from
+ * the beans present at context refresh, so making the MAPPING conditional
+ * means a `@ConditionalOnExpression` carrying this rule as a SpEL string — a
+ * second, unreadable spelling of the same predicate, evaluated somewhere a
+ * reader of this file would not think to look.  A plain `if` at the top of the
+ * method answers the same 404 having touched nothing, and can be read.
+ *
+ * Java has no production-profile marker the generated app reliably sets (no
+ * `spring.profiles.active` is emitted), so — exactly like the python backend,
+ * and for the same reason — there is nothing to derive a default from, and the
+ * switch is REQUIRED: `LOOM_TEST_RESET=1`, which the generated compose file
+ * sets.  That makes this gate strictly tighter than node's or .NET's, never
+ * looser.
+ */
+export function renderTestResetController(
+  basePkg: string,
+  seedRunners: readonly { fqn: string; cls: string }[],
+): string {
+  const field = (r: { cls: string }) => lowerFirst(r.cls);
+  return lines(
+    `package ${basePkg}.api;`,
+    ``,
+    `import java.util.ArrayList;`,
+    `import java.util.Map;`,
+    `import javax.sql.DataSource;`,
+    `import org.springframework.http.ResponseEntity;`,
+    `import org.springframework.web.bind.annotation.PostMapping;`,
+    `import org.springframework.web.bind.annotation.RestController;`,
+    ...seedRunners.map((r) => `import ${r.fqn};`),
+    ``,
+    `/** Dev-only state reset for the generated e2e suite.`,
+    ` *`,
+    ` *  The suite calls this before every test so each block sees only the rows`,
+    ` *  it creates; without it an exact count assertion is green on a fresh`,
+    ` *  database and red on the second run of the same one.`,
+    ` *`,
+    ` *  Answers 404 unless ${TEST_RESET_ENV}=1, so it does nothing in a`,
+    ` *  deployment.  The suite for its part only SENDS the request when its`,
+    ` *  target is a loopback address. */`,
+    `@RestController`,
+    `public class TestResetController {`,
+    `    private final DataSource dataSource;`,
+    ...seedRunners.map((r) => `    private final ${r.cls} ${field(r)};`),
+    ``,
+    `    public TestResetController(DataSource dataSource${seedRunners
+      .map((r) => `, ${r.cls} ${field(r)}`)
+      .join("")}) {`,
+    `        this.dataSource = dataSource;`,
+    ...seedRunners.map((r) => `        this.${field(r)} = ${field(r)};`),
+    `    }`,
+    ``,
+    `    @PostMapping("${TEST_RESET_PATH}")`,
+    `    public ResponseEntity<Map<String, Object>> reset() throws Exception {`,
+    `        if (!"1".equals(System.getenv("${TEST_RESET_ENV}"))) {`,
+    `            return ResponseEntity.status(404).body(Map.of(`,
+    `                "status", "not_found",`,
+    `                "detail", "state reset is disabled; set ${TEST_RESET_ENV}=1 to enable it"));`,
+    `        }`,
+    `        var targets = new ArrayList<String>();`,
+    `        try (var connection = dataSource.getConnection()) {`,
+    `            // Discovered at runtime, so this also reaches what the model does`,
+    `            // not describe but the backend creates (the outbox, materialized`,
+    `            // projections, the seed marker).  Every backend's migration ledger`,
+    `            // is excluded — losing one replays the whole chain on the next boot.`,
+    `            try (var find = connection.createStatement();`,
+    `                 var rows = find.executeQuery(`,
+    `                     ${JSON.stringify(resetTableDiscoverySql())})) {`,
+    `                while (rows.next()) {`,
+    `                    targets.add(quoteIdent(rows.getString(1))`,
+    `                        + "." + quoteIdent(rows.getString(2)));`,
+    `                }`,
+    `            }`,
+    `            if (!targets.isEmpty()) {`,
+    `                // One statement for the whole set: CASCADE must see every table`,
+    `                // at once or a foreign key makes the order significant, and`,
+    `                // RESTART IDENTITY puts sequences back so a generated id is`,
+    `                // stable across runs.`,
+    `                try (var truncate = connection.createStatement()) {`,
+    `                    truncate.execute("truncate table " + String.join(", ", targets)`,
+    `                        + " restart identity cascade");`,
+    `                }`,
+    `            }`,
+    `        }`,
+    ...(seedRunners.length > 0
+      ? [
+          `        // The truncate took the seed marker with it, so this re-applies`,
+          `        // the declared seed data: a reset restores the`,
+          `        // just-migrated-AND-seeded state, not an empty database.`,
+          `        // The emitted seed runners are ApplicationRunners whose bodies`,
+          `        // ignore their arguments (they read the dataset marker, not the`,
+          `        // command line), so the boot-time entry point is reusable here.`,
+          ...seedRunners.map((r) => `        this.${field(r)}.run(null);`),
+        ]
+      : []),
+    `        return ResponseEntity.ok(Map.of("status", "reset", "tables", targets.size()));`,
+    `    }`,
+    ``,
+    `    /** Double-quote a Postgres identifier.  A char literal keeps this free`,
+    `     *  of the nested string escaping the same expression would otherwise`,
+    `     *  need — which is exactly where the first version of this emitter`,
+    `     *  dropped its backslashes and emitted Java that did not compile. */`,
+    `    private static String quoteIdent(String ident) {`,
+    `        return '"' + ident + '"';`,
     `    }`,
     `}`,
     ``,

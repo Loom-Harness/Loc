@@ -190,6 +190,7 @@ describe("the backend only registers the reset route when told to", () => {
     ["node", "d/auth/middleware.ts"],
     ["python", "d/app/auth/middleware.py"],
     ["dotnet", "d/Auth/UserMiddleware.cs"],
+    ["java", "d/src/main/java/com/loom/d/auth/UserFilter.java"],
   ])("is reachable without a principal on an auth-bearing %s system", async (platform, path) => {
     // The reset is infra, the same class as `/health` — an auth-bearing
     // system's suite must not have to mint a principal just to empty a table.
@@ -298,6 +299,16 @@ describe("the reset preserves every backend's migration ledger", () => {
         path: "d/lib/d_web/controllers/test_reset_controller.ex",
         gate: /defp enabled\? do/,
       },
+      {
+        // Java gates in the handler for the same reason as Phoenix — Spring
+        // builds its mappings from the beans present at context refresh, so a
+        // conditional MAPPING means carrying this rule as a SpEL string.  And
+        // like python it has no profile marker the generated app sets, so the
+        // switch is required outright: strictly tighter, never looser.
+        platform: "java",
+        path: "d/src/main/java/com/loom/d/api/TestResetController.java",
+        gate: /if \(!"1"\.equals\(System\.getenv\("LOOM_TEST_RESET"\)\)\) \{/,
+      },
     ];
     for (const { platform, path, gate } of backends) {
       const out = await files(WITH_E2E.replace("platform: node", `platform: ${platform}`));
@@ -309,6 +320,71 @@ describe("the reset preserves every backend's migration ledger", () => {
       // rather than five spellings that drift apart.
       expect(src, `${platform} reads ${TEST_RESET_ENV}`).toContain(TEST_RESET_ENV);
     }
+  });
+});
+
+describe("the reset re-applies seed data", () => {
+  // A reset restores the just-migrated-AND-seeded state, not an empty
+  // database: the truncate takes the seed marker with it, so a suite whose
+  // fixtures assume seeded rows must still find them.
+  //
+  // The java arm of this is pinned by comparing two EMITTED artifacts rather
+  // than a hardcoded string, because that is precisely where it broke: the
+  // controller's import was rebuilt as `<basePkg>.infra.persistence`, while
+  // the runner is actually emitted into `pkgFor("infra-persistence")` —
+  // `infrastructure.persistence` under byLayer, and per-context under
+  // byFeature. A system with NO seeds compiled fine (there was no import to
+  // be wrong); one with seeds failed to compile. Only `gradle compileJava`
+  // caught it, so the property gets a test that cannot drift.
+  const SEEDED = (platform: string) => `
+    system Shop {
+      subdomain Sales {
+        context Orders {
+          aggregate Order with crudish { code: string }
+          repository Orders for Order {}
+          seed default {
+            Order { code: "SEEDED-1" }
+          }
+        }
+      }
+      api OrdersApi from Sales
+      storage pg { type: postgres }
+      resource s { for: Orders, kind: state, use: pg }
+      deployable d {
+        platform: ${platform}
+        contexts: [Orders]
+        dataSources: [s]
+        serves: OrdersApi
+        port: 4000
+      }
+      test e2e "counts only its own rows" against d {
+        api.orders.create({ code: "A" })
+        expect(api.orders.all().total).toBe(2)
+      }
+    }
+  `;
+
+  it.each([
+    ["java"],
+    ["java { directoryLayout: byFeature }"],
+  ])("imports the seed runner from the package it was actually emitted into (%s)", async (platform) => {
+    const out = await files(SEEDED(platform));
+    const runnerPath = [...out.keys()].find((k) => k.endsWith("OrdersSeedRunner.java"));
+    expect(runnerPath, "a seeded java context emits a seed runner").toBeDefined();
+    const declared = /^package (.+);$/m.exec(out.get(runnerPath!)!)?.[1];
+    expect(declared, "the runner declares a package").toBeDefined();
+
+    const ctrl = out.get("d/src/main/java/com/loom/d/api/TestResetController.java")!;
+    expect(ctrl).toContain(`import ${declared}.OrdersSeedRunner;`);
+    expect(ctrl).toContain("this.ordersSeedRunner.run(null);");
+  });
+
+  it.each([
+    ["node", "d/http/index.ts", "await runSeeds(db);"],
+    ["python", "d/app/main.py", "await run_seeds()"],
+  ])("re-applies seeds after truncating on %s", async (platform, path, call) => {
+    const out = await files(SEEDED(platform));
+    expect(out.get(path)!).toContain(call);
   });
 });
 

@@ -753,10 +753,15 @@ and the one that matters needs no configuration:
 | | Gate |
 |---|---|
 | In the suite | The reset is only **sent** when the resolved base URL is a loopback address (`localhost`, `*.localhost`, `127.0.0.0/8`, `[::1]`). Pointing the suite at a deployed environment — `E2E_API_BASE=https://staging.example.com` — disables it by construction. There is deliberately no remote override. |
-| In the backend | The route is only **registered** when `LOOM_TEST_RESET=1`, or when it is unset and the process is not in a production profile. Where it is not registered the path does not exist, and a request 404s through the ordinary not-found handler having touched nothing. |
+| In the backend | The reset answers **404 unless it is switched on**, having touched nothing. `LOOM_TEST_RESET=1` switches it on and `0` off; when unset, the backends that have a production-profile marker of their own (node `NODE_ENV`, .NET `ASPNETCORE_ENVIRONMENT`, elixir the build's `MIX_ENV`) allow it outside production, and the two that do not (python, java) stay closed — strictly tighter, never looser. |
 
-The generated container image pins a production profile, so the
-generated `docker-compose.yml` opts the backend service in by name:
+Node, python and .NET do not REGISTER the route when it is off, so the
+path does not exist at all. Phoenix and Spring build their routes at
+compile time / context refresh, so there the route is always defined and
+the handler refuses instead — the same 404, the same nothing touched.
+
+The generated container images pin a production profile, so the
+generated `docker-compose.yml` opts each backend service in by name:
 
 ```yaml
     environment:
