@@ -1260,7 +1260,7 @@ export function filterStateFields(filters: readonly FilterFind[]): Array<string 
       p.kind === "number"
         ? { name: stateNameFor(f.name, p.name), type: "string", typeRef: cloneTypeRef(p.type) }
         : // `string`, `X id`, `guid`/`datetime` and `bool` all bind a `string`
-          // state: an id's wire form IS a string (`z.string().uuid()`), guid and
+          // state: an id's wire form IS a string (a uuid-shaped one), guid and
           // datetime are `z.string()`, and the bool select's three states are
           // `""`/`"true"`/`"false"`.  A bare-name spec keeps the string arm's
           // emission byte-identical.

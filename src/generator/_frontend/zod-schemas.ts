@@ -36,6 +36,7 @@ import {
 } from "../../ir/util/audit-history.js";
 import { collectReachableTypes, valueObjectPool } from "../../ir/util/reachable-types.js";
 import type { ClassifyContext, SingleFieldPattern } from "../../ir/validate/invariant-classify.js";
+import { UUID_WIRE_REGEX_LITERAL } from "../../util/uuid-wire.js";
 import { PROVENANCED_REQUEST_ERROR, provenancedEntries } from "../_payload/provenanced-wire.js";
 import {
   discriminatedUnionZod,
@@ -284,7 +285,15 @@ export function zodForRequest(t: TypeIR): string {
       // validator says so too and the caller is told at the field instead of
       // by a server error.  Gated on the declared id value type — an
       // `int`/`long`/`string`-keyed aggregate is not a uuid (schemathesis F2).
-      return info.idValueType === "guid" ? "z.string().uuid()" : "z.string()";
+      //
+      // The mirror is the POINT, so it tracks the same shared shape the
+      // backends validate (`UUID_WIRE_PATTERN`) rather than restating one.  A
+      // form that refused an id the server accepts would report a field error
+      // for a value that is in fact valid — the client-side twin of the
+      // node/python 422-vs-404 split this constant was extracted to end.
+      return info.idValueType === "guid"
+        ? `z.string().regex(${UUID_WIRE_REGEX_LITERAL})`
+        : "z.string()";
     case "enum":
     case "valueObject":
       return `${info.base}Schema`;
