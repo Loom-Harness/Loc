@@ -297,8 +297,8 @@ describe("loom.frontend-prop-type-unsupported", () => {
 
   it("admits the types the prop layer CAN spell", async () => {
     const src = propSys(
-      `    component Badge(level: int, tag: string?, tags: string[]) { body: Text { tag } }`,
-      `Badge(level: 2, tag: label, tags: [ ])`,
+      `    component TierBadge(level: int, tag: string?, tags: string[]) { body: Text { tag } }`,
+      `TierBadge(level: 2, tag: label, tags: [ ])`,
       "react",
     );
     expect(await codes(src)).not.toContain(CODE);
