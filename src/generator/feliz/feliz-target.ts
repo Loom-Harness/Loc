@@ -30,6 +30,7 @@ import {
   renderFsIntrinsic,
   storeModelField,
 } from "./fs-expr.js";
+import { felizFormNames } from "./form-names.js";
 import { fsIdent, isFsKeyword } from "./fs-ident.js";
 import { fsZeroValue } from "./type-fs.js";
 import {
@@ -617,6 +618,9 @@ export const felizTarget: WalkerTarget = {
     if (!agg || !aggName) return null;
     const form = felizCreateForm(
       agg,
+      // The SAME universe index.ts's MVU assembly mints against — the view seam
+      // and the Model/update/Api halves must spell the record identically.
+      felizFormNames(ctx.aggregatesByName.values(), ctx.workflowsByName.values()),
       enumsFromBc(ctx.bcByAggregate.get(aggName)),
       idLabelsFrom(ctx.aggregatesByName.values()),
       vosFromBc(ctx.bcByAggregate.get(aggName)),
@@ -669,6 +673,7 @@ export const felizTarget: WalkerTarget = {
     const form = felizOperationForm(
       agg,
       op,
+      felizFormNames(ctx.aggregatesByName.values(), ctx.workflowsByName.values()),
       enumsFromBc(ctx.bcByAggregate.get(aggName)),
       idLabelsFrom(ctx.aggregatesByName.values()),
       vosFromBc(ctx.bcByAggregate.get(aggName)),
@@ -709,6 +714,7 @@ export const felizTarget: WalkerTarget = {
     if (!wf || !wfName) return null;
     const form = felizWorkflowForm(
       wf,
+      felizFormNames(ctx.aggregatesByName.values(), ctx.workflowsByName.values()),
       enumsFromBc(ctx.bcByWorkflow.get(wfName)),
       idLabelsFrom(ctx.aggregatesByName.values()),
       vosFromBc(ctx.bcByWorkflow.get(wfName)),

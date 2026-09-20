@@ -64,6 +64,7 @@ import {
   renderFelizComponentModule,
 } from "./component-emit.js";
 import { FELIZ_GRID_PRELUDE } from "./data-grid-child.js";
+import { type FelizFormNames, felizFormNames } from "./form-names.js";
 import { felizTarget } from "./feliz-target.js";
 import {
   type FsExprCtx,
@@ -946,6 +947,18 @@ function vosFromContexts(contexts: EnrichedBoundedContextIR[]): Map<string, read
   return out;
 }
 
+/** The form-name universe for a ui's contexts.  Built from the contexts, NOT
+ *  from the pages, so the three form families resolve against the same set
+ *  `feliz-target.ts` sees through `ctx.aggregatesByName`/`ctx.workflowsByName`
+ *  — the Model/update/Api half and the view half must spell every record,
+ *  `Msg` case and encoder identically (`form-names.ts`). */
+function felizFormNamesForContexts(contexts: EnrichedBoundedContextIR[]): FelizFormNames {
+  return felizFormNames(
+    contexts.flatMap((c) => c.aggregates),
+    contexts.flatMap((c) => c.workflows),
+  );
+}
+
 /** The create forms a ui hosts, across ALL its pages (deduped by aggregate) —
  *  `CreateForm(of: X)`. */
 function formsForUi(ui: UiIR, contexts: EnrichedBoundedContextIR[]): FelizForm[] {
@@ -956,8 +969,16 @@ function formsForUi(ui: UiIR, contexts: EnrichedBoundedContextIR[]): FelizForm[]
   const vosByName = vosFromContexts(contexts);
   const seen = new Set<string>();
   const out: FelizForm[] = [];
+  const formNames = felizFormNamesForContexts(contexts);
   for (const page of ui.pages) {
-    for (const f of collectPageForms(page, aggregatesByName, enumsByName, idLabels, vosByName)) {
+    for (const f of collectPageForms(
+      page,
+      aggregatesByName,
+      formNames,
+      enumsByName,
+      idLabels,
+      vosByName,
+    )) {
       if (seen.has(f.aggregate)) continue;
       seen.add(f.aggregate);
       out.push(f);
@@ -974,12 +995,14 @@ function operationFormsForUi(ui: UiIR, contexts: EnrichedBoundedContextIR[]): Fe
   const enumsByName = enumsFromContexts(contexts);
   const idLabels = idLabelsFromContexts(contexts);
   const vosByName = vosFromContexts(contexts);
+  const formNames = felizFormNamesForContexts(contexts);
   const seen = new Set<string>();
   const out: FelizOperationForm[] = [];
   for (const page of ui.pages) {
     for (const f of collectPageOperationForms(
       page,
       aggregatesByName,
+      formNames,
       enumsByName,
       idLabels,
       vosByName,
@@ -1051,12 +1074,14 @@ function workflowFormsForUi(ui: UiIR, contexts: EnrichedBoundedContextIR[]): Fel
   const enumsByName = enumsFromContexts(contexts);
   const idLabels = idLabelsFromContexts(contexts);
   const vosByName = vosFromContexts(contexts);
+  const formNames = felizFormNamesForContexts(contexts);
   const seen = new Set<string>();
   const out: FelizWorkflowForm[] = [];
   for (const page of ui.pages) {
     for (const f of collectPageWorkflowForms(
       page,
       workflowsByName,
+      formNames,
       enumsByName,
       idLabels,
       vosByName,

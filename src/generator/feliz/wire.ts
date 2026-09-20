@@ -63,6 +63,7 @@ import { isPagedQuery } from "../_walker/paged-query.js";
 import { boolNamed } from "../_walker/shared/args.js";
 import { CODE_POINT_LEN_HELPER, type FelizFieldRule, felizFieldRules } from "./form-validators.js";
 import { fsString } from "./fs-expr.js";
+import type { FelizFormNames } from "./form-names.js";
 import { fsIdent } from "./fs-ident.js";
 import { typeToFs } from "./type-fs.js";
 
@@ -1309,12 +1310,17 @@ function buildFieldArrays(
  *  follow-up. */
 export function felizCreateForm(
   agg: AggregateIR,
+  formNames: FelizFormNames,
   enumsByName: ReadonlyMap<string, string[]> = new Map(),
   idLabels: ReadonlyMap<string, string> = new Map(),
   vosByName: ReadonlyMap<string, readonly FieldIR[]> = new Map(),
 ): FelizForm {
   const name = agg.name;
-  const formType = `${upperFirst(name)}Form`;
+  // Every identifier this form contributes hangs off ONE base name, minted
+  // against the ui's whole universe so it cannot alias an operation or
+  // workflow form in the flat F# module (`form-names.ts`).
+  const base = formNames.create(name);
+  const formType = `${base}Form`;
   const fields = attachFieldRules(
     formFieldsFrom(
       formType,
@@ -1337,9 +1343,9 @@ export function felizCreateForm(
     emptyBinding: `empty${formType}`,
     encoderFn: lowerFirst(formType),
     validFn: `${lowerFirst(formType)}Valid`,
-    apiFn: `create${upperFirst(name)}`,
+    apiFn: `create${base}`,
     submitMsg: `Submit${formType}`,
-    resultMsg: `${upperFirst(name)}Created`,
+    resultMsg: `${base}Created`,
     route: `${API_BASE_PATH}/${snake(plural(name))}`,
     navigateSegs: snake(plural(name)).split("/"),
     // The create endpoint returns the new record's identity envelope (`{ id }`),
@@ -1366,12 +1372,16 @@ export function felizCreateForm(
 export function felizOperationForm(
   agg: AggregateIR,
   op: OperationIR,
+  formNames: FelizFormNames,
   enumsByName: ReadonlyMap<string, string[]> = new Map(),
   idLabels: ReadonlyMap<string, string> = new Map(),
   vosByName: ReadonlyMap<string, readonly FieldIR[]> = new Map(),
 ): FelizOperationForm {
   const name = agg.name;
-  const opCap = `${upperFirst(op.name)}${upperFirst(name)}`;
+  // See `felizCreateForm` — `<Op><Agg>` is the PREFERRED spelling; the universe
+  // resolves it against the create and workflow families it shares a flat
+  // module with.
+  const opCap = formNames.op(name, op.name);
   const formType = `${opCap}Form`;
   const fields = attachFieldRules(
     formFieldsFrom(
@@ -1429,11 +1439,16 @@ export interface FelizWorkflowForm extends FormRecord {
  *  workflow's scalar params; the endpoint is `/api/workflows/<snake wf>`. */
 export function felizWorkflowForm(
   wf: WorkflowIR,
+  formNames: FelizFormNames,
   enumsByName: ReadonlyMap<string, string[]> = new Map(),
   idLabels: ReadonlyMap<string, string> = new Map(),
   vosByName: ReadonlyMap<string, readonly FieldIR[]> = new Map(),
 ): FelizWorkflowForm {
-  const wfCap = upperFirst(wf.name);
+  // The family that YIELDS on a collision (`form-names.ts`): an aggregate's
+  // `<Op><Agg>Form` claims first, so `workflow scheduleWorkOrder` beside
+  // `WorkOrder.schedule` becomes `WorkflowScheduleWorkOrderForm` rather than a
+  // second, differently-shaped `ScheduleWorkOrderForm`.
+  const wfCap = formNames.workflow(wf.name);
   const formType = `${wfCap}Form`;
   const fields = formFieldsFrom(
     formType,
@@ -1880,6 +1895,7 @@ export function collectPageMutations(
 export function collectPageForms(
   page: PageIR,
   aggregatesByName: ReadonlyMap<string, EnrichedAggregateIR>,
+  formNames: FelizFormNames,
   enumsByName: ReadonlyMap<string, string[]> = new Map(),
   idLabels: ReadonlyMap<string, string> = new Map(),
   vosByName: ReadonlyMap<string, readonly FieldIR[]> = new Map(),
@@ -1892,7 +1908,7 @@ export function collectPageForms(
     const agg = aggregatesByName.get(aggName);
     if (!agg || seen.has(aggName)) continue;
     seen.add(aggName);
-    out.push(felizCreateForm(agg, enumsByName, idLabels, vosByName));
+    out.push(felizCreateForm(agg, formNames, enumsByName, idLabels, vosByName));
   }
   return out;
 }
@@ -1953,6 +1969,7 @@ function operationFormSpecs(
 export function collectPageOperationForms(
   page: PageIR,
   aggregatesByName: ReadonlyMap<string, EnrichedAggregateIR>,
+  formNames: FelizFormNames,
   enumsByName: ReadonlyMap<string, string[]> = new Map(),
   idLabels: ReadonlyMap<string, string> = new Map(),
   vosByName: ReadonlyMap<string, readonly FieldIR[]> = new Map(),
@@ -1966,7 +1983,7 @@ export function collectPageOperationForms(
     if (!agg) continue;
     const op = agg.operations.find((o) => o.name === opName && o.visibility === "public");
     if (!op) continue;
-    const form = felizOperationForm(agg, op, enumsByName, idLabels, vosByName);
+    const form = felizOperationForm(agg, op, formNames, enumsByName, idLabels, vosByName);
     const key = form.formType;
     // Param-less ops (`confirm()`) ARE collected now — they wire a trigger +
     // submit + empty-`{}` POST (no form record); `opHasForm` gates the record.
@@ -2341,6 +2358,7 @@ function workflowFormRuns(body: ExprIR, workflowNames: ReadonlySet<string>): str
 export function collectPageWorkflowForms(
   page: PageIR,
   workflowsByName: ReadonlyMap<string, WorkflowIR>,
+  formNames: FelizFormNames,
   enumsByName: ReadonlyMap<string, string[]> = new Map(),
   idLabels: ReadonlyMap<string, string> = new Map(),
   vosByName: ReadonlyMap<string, readonly FieldIR[]> = new Map(),
@@ -2352,7 +2370,7 @@ export function collectPageWorkflowForms(
   for (const wfName of workflowFormRuns(page.body, nameSet)) {
     const wf = workflowsByName.get(wfName);
     if (!wf) continue;
-    const form = felizWorkflowForm(wf, enumsByName, idLabels, vosByName);
+    const form = felizWorkflowForm(wf, formNames, enumsByName, idLabels, vosByName);
     if (seen.has(form.formType)) continue;
     seen.add(form.formType);
     out.push(form);
