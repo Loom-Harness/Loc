@@ -19,7 +19,7 @@ import {
   formStyle,
   partitionAngularFields,
 } from "./form-fields.js";
-import { applyAngularValidators } from "./form-validators.js";
+import { angularValidatorMap, applyAngularValidators } from "./form-validators.js";
 import { angularSink } from "./walker/sink.js";
 
 // ---------------------------------------------------------------------------
@@ -169,8 +169,18 @@ export function renderAngularModal(
   else if (style === "primeng") addNg(ctx, "primeng/button", "ButtonModule");
   addNg(ctx, importFrom, mutationFn);
 
+  // Same constraint source as the standalone operation form (and the zod
+  // `<Op>Request`): the aggregate's invariants + this op's `precondition`s,
+  // gated to the op's params.  Resolved BEFORE the markup is built so each
+  // constrained control can carry the `aria-invalid` / `aria-describedby`
+  // matching its inline error.
+  const agg = ctx.aggregatesByName.get(aggName);
+  const opInvariants = [...(agg?.invariants ?? []), ...preconditionsAsInvariants(op)];
+  const available = new Set(op.params.map((p) => p.name));
+  const errorFields = new Set(angularValidatorMap(opInvariants, available).keys());
+
   const parts = bc
-    ? partitionAngularFields(op.params, bc, ns, ctx, formVar)
+    ? partitionAngularFields(op.params, bc, ns, ctx, formVar, errorFields)
     : {
         flatControls: [],
         flatMarkup: [],
@@ -182,12 +192,6 @@ export function renderAngularModal(
         groupMarkup: [],
         hasFileField: false,
       };
-  // Same constraint source as the standalone operation form (and the zod
-  // `<Op>Request`): the aggregate's invariants + this op's `precondition`s,
-  // gated to the op's params.
-  const agg = ctx.aggregatesByName.get(aggName);
-  const opInvariants = [...(agg?.invariants ?? []), ...preconditionsAsInvariants(op)];
-  const available = new Set(op.params.map((p) => p.name));
   const fieldMarkup = applyAngularValidators(parts, opInvariants, available, formVar, ns, ctx);
 
   ctx.collectedTestids.add(ns);

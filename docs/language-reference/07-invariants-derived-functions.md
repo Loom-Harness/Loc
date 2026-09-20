@@ -446,7 +446,7 @@ end
 
 ## `function` — a pure helper
 
-`function name(params): Type = Expr` (expression form) or `function name(params): Type { let … return … }` (block form — `let` bindings, `precondition` / `requires` bug-regime statements, and a mandatory `return` of the declared type, `loom.function-block-no-return`) is a pure, side-effect-free helper callable from any expression in the same aggregate / entity part / value object / workflow — invariant predicates, derived expressions, operation bodies. The expression form is SQL-inlinable like a `criterion`; the block form is not queryable (a call is already rejected in `where` / `criterion` positions). It compiles to a private method on the aggregate on node/.NET/java (`_`-prefixed on python; a public context-facade function on Phoenix) — never part of the public command surface.
+`function name(params): Type = Expr` (expression form) or `function name(params): Type { let … return … }` (block form — `let` bindings, `precondition` / `requires` bug-regime statements, and a mandatory `return` of the declared type on every path, `loom.function-block-no-return`) is a pure, side-effect-free helper callable from any expression in the same aggregate / entity part / value object / workflow — invariant predicates, derived expressions, operation bodies. The expression form is SQL-inlinable like a `criterion`; the block form is not queryable (a call is already rejected in `where` / `criterion` positions). It compiles to a private method on the aggregate on node/.NET/java (`_`-prefixed on python; a public context-facade function on Phoenix) — never part of the public command surface.
 
 The same purity contract binds the four RULE positions — `invariant Expr`, its `when Guard`, a field's `check Expr`, and `derived name: T = Expr`. All four are spliced into the per-instance floor, which runs with nothing in scope but `this`, so a rule expression may not reach a repository, an aggregate, a workflow or any other declaration it cannot address, and may not call one of the aggregate's own actions (`operation` / `create` / `destroy`). Both are refused by `loom.rule-expr-impure` (`src/language/validators/types.ts`, slugs `#unaddressable` and `#operation`) at the offending head / call. A cross-aggregate rule such as `invariant Technicians.getById(technicianId).skills.contains(…)` used to validate clean and then emit an unresolvable identifier into every backend (`TS2304: Cannot find name 'Technicians'`) — or, on Phoenix, silently emit nothing at all. Denormalize the value onto the aggregate and assert over that, or move the rule into the operation / workflow that already loads it. A pure `domainService` call stays legal in a rule: it is a calculator, and every backend threads its import.
 
@@ -548,8 +548,11 @@ aggregate A {
   n: int
   function f(q: int): int { n := q  return q }   // loom.function-block-impure: 'n' is mutated
   function g(q: int): int { let x = q * 2 }      // loom.function-block-no-return
+  function h(q: int): int { if q > 0 { return 1 } }  // loom.function-block-no-return: the false path has no value
 }
 ```
+
+A `return` may sit inside a statement `if` — `function tier(t: decimal): string { if n > t { return "gold" } else { return "bronze" } }` is legal and renders on all five backends — provided the conditional covers **both** paths (an `else`, or an `else if` chain ending in one). `match`, `if let` and `for` cannot appear in a function block at all; `checkStatementPlacement` confines those to the frontend / workflow zones (`loom.variant-match-placement`, `loom.if-let-placement`, `loom.for-placement`).
 
 ### Top-level functions and the prelude
 

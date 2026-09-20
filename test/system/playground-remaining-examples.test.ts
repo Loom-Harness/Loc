@@ -91,7 +91,7 @@ describe("playground picker examples (remaining)", () => {
   // That is not theoretical.  `acme.ddd` — shipped in the picker as "Acme
   // (multi-deployable system)" — declared three backend deployables with no
   // `storage`/`resource` at all, so it raised four
-  // `loom.persistence-mode-unsupported` errors: a user opening the example in
+  // `loom.datasource-binding-missing` errors: a user opening the example in
   // the playground saw them immediately, and this file said the example was
   // fine.  It had drifted at the D-STORAGE-SPLIT rename and nothing looked
   // again.

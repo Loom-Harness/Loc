@@ -55,19 +55,21 @@ import { foreignRepositoryOwners } from "./shared.js";
 // bindings all surface as errors here.
 // ---------------------------------------------------------------------------
 
-// System-wide: a workflow event consumer (`on(e: Event)` reactor /
-// event-triggered `create(e: Event) by` starter) whose event no `channel`
-// anywhere carries can never be dispatched — in-process delivery is
-// channel-routed (channels.md).  Almost always a mistake (a reactor written
-// before its channel was declared), so warn.  Cross-context-safe: a channel
-// only carries events of its own context, but the reactor may live elsewhere,
-// so the carried-event set is gathered across the whole model rather than per
-// context.  A warning (not an error) so a model mid-construction — or one that
-// reaches the consumer by a transport other than the in-process dispatcher —
-// still builds.
+// RETIRED HERE (**D-PROJECTION-IMPLICIT-SUB**): `loom.reactor-event-uncarried`
+// and `loom.projection-event-uncarried` warned that an `on(e: E)` whose event no
+// `channel` carries "never fires".  That was true only because
+// `deriveEventSubscriptions` dropped the consumer on the floor; the decision
+// ruled that `on(e: E)` IS the subscription and a `channel` decides
+// cross-deployable delivery and durability, not whether a handler runs.  The
+// derivation now yields an implicit in-process subscription for every consumer
+// and all five backends dispatch it (corpus fixture
+// `projection-implicit-sub.ddd`), so both warnings became false statements about
+// the emitted code and are deleted rather than reworded.  The channel-AMBIGUITY
+// check below is untouched: two channels carrying one event is still ambiguous.
+//
 // A workflow's event consumers — `on(e: Event)` reactors and event-triggered
 // `create(e: Event) by` starters — as `{ event, label }` pairs.  Shared by the
-// channel-routing checks (`reactor-event-uncarried`, `reactor-channel-ambiguous`).
+// channel-AMBIGUITY check below (`reactor-channel-ambiguous`).
 function eventConsumersOf(wf: WorkflowIR): { event: string; label: string }[] {
   return [
     ...(wf.subscriptions ?? []).map((s) => ({ event: s.event, label: `on(${s.event})` })),
@@ -78,57 +80,6 @@ function eventConsumersOf(wf: WorkflowIR): { event: string; label: string }[] {
         label: `create(${cr.eventBinding ?? "_"}: ${cr.eventRef})`,
       })),
   ];
-}
-
-export function validateEventConsumersCarried(
-  contexts: BoundedContextIR[],
-  diags: LoomDiagnostic[],
-): void {
-  const carried = new Set<string>();
-  for (const c of contexts)
-    for (const ch of c.channels) for (const ev of ch.carries) carried.add(ev);
-  for (const c of contexts) {
-    for (const wf of c.workflows) {
-      for (const cons of eventConsumersOf(wf)) {
-        if (!carried.has(cons.event)) {
-          diags.push({
-            severity: "warning",
-            code: "loom.reactor-event-uncarried",
-            message: diagMessage("loom.reactor-event-uncarried", {
-              name: wf.name,
-              label: cons.label,
-              event: cons.event,
-            }),
-            source: `${c.name}/${wf.name}`,
-          });
-        }
-      }
-    }
-    // A projection folds FOREIGN events, delivered through the same
-    // channel-routed in-process dispatch as a workflow reactor (projection.md
-    // `loom.projection-event-uncarried`, "reuses `loom.reactor-event-uncarried`").
-    // A fold whose event no channel carries never receives an event — its
-    // read-model row is never written.  Warn (not error), like the reactor twin:
-    // a model mid-construction, or one whose event arrives by a non-in-process
-    // transport, still builds.  Query-time projections have no folds, so this
-    // never fires for them.
-    for (const proj of c.projections) {
-      for (const h of proj.handlers) {
-        if (!carried.has(h.event)) {
-          diags.push({
-            severity: "warning",
-            code: "loom.projection-event-uncarried",
-            message: diagMessage("loom.projection-event-uncarried", {
-              name: proj.name,
-              param: h.param,
-              event: h.event,
-            }),
-            source: `${c.name}/${proj.name}`,
-          });
-        }
-      }
-    }
-  }
 }
 
 // A workflow event consumer whose event is carried by MORE THAN ONE channel in

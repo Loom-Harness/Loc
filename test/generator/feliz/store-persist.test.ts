@@ -22,7 +22,7 @@ import { buildLoomModel } from "../../_helpers/ir.js";
 
 const sys = (uiBody: string) => `
 system P {
-  subdomain S { context C { } }
+  subdomain S { context C { enum Status { open closed } } }
   ui WebApp {
 ${uiBody}
     page Home {
@@ -151,6 +151,83 @@ describe("feliz `persist: url` — the query string is the source of truth", () 
     expect(fs).toContain("window.addEventListener('popstate', $0)");
     expect(fs).toContain("window.removeEventListener('popstate', $0)");
     expect(fs).toContain("|> Program.withSubscription storeUrlSub");
+  });
+});
+
+// Wave C2 packet 2i — the four cell types the F# codec table used to refuse
+// (`store-lifetime-target-unsupported#field`).  Each now has a TOTAL F#
+// conversion, and each writes back the SAME string/number the JS store
+// builders hold, so the shared `loom.store.<Name>` blob still round-trips.
+describe("feliz `persist:` — datetime / guid / enum / decimal arrays", () => {
+  const WIDE_STORE = `
+    store Wide persist: local {
+      state {
+        at:     datetime
+        ref:    guid
+        mode:   Status
+        rates:  decimal[]
+        prices: money[]
+        stamps: datetime[]
+      }
+      action setMode(m: Status) { mode := m }
+    }`;
+
+  it("loads a datetime through a TOTAL TryParse, defaulting to the type zero", async () => {
+    const fs = await app(WIDE_STORE);
+    expect(fs).toContain(
+      "if isNull raw then System.DateTime.MinValue else (match System.DateTime.TryParse raw",
+    );
+  });
+
+  // A guid does NOT get a TryParse: on this frontend a Loom `guid` IS an F#
+  // `string` (`type-fs.ts` has no `guid` arm, `decoderExprFor` decodes one with
+  // `Decode.string`, the query encoder passes it verbatim).  `System.Guid.TryParse`
+  // bound a `System.Guid` into a `string`-typed cell — `FS0001`, the mirror image
+  // of the mismatch the missing `fsPrimitive` arm exists to prevent.  The written
+  // form is already the canonical guid string, so the identity load round-trips it.
+  it("loads a guid as the string it is, with no Guid parse", async () => {
+    const fs = await app(WIDE_STORE);
+    expect(fs).not.toContain("System.Guid");
+  });
+
+  it("writes datetime back as ISO-8601 and a guid as its canonical string", async () => {
+    const fs = await app(WIDE_STORE);
+    expect(fs).toContain('"\\"at\\":" + jsonString (model.WideAt.ToString("o"))');
+    expect(fs).toContain('"\\"ref\\":" + jsonString (string model.WideRef)');
+  });
+
+  it("carries an enum cell as a plain `string`, the F# spelling of every enum", async () => {
+    const fs = await app(WIDE_STORE);
+    expect(fs).toContain("WideMode: string");
+    expect(fs).toContain('"\\"mode\\":" + jsonString model.WideMode');
+    expect(fs).toContain('if isNull raw then "" else raw');
+  });
+
+  it("lists decimal / money / datetime elements with the JS side's value shapes", async () => {
+    const fs = await app(WIDE_STORE);
+    // decimal[] → JSON numbers (the JS side holds `number[]`); money[] → JSON
+    // strings (a `Decimal`'s `toJSON`); datetime[] → ISO strings.
+    expect(fs).toContain("model.WideRates |> List.map (fun x -> string x)");
+    expect(fs).toContain("model.WidePrices |> List.map (fun x -> jsonString (string x))");
+    expect(fs).toContain('model.WideStamps |> List.map (fun x -> jsonString (x.ToString("o")))');
+    expect(fs).toContain(
+      "cells |> Array.map (fun raw -> match System.Decimal.TryParse raw with | true, v -> v | _ -> 0m)",
+    );
+  });
+
+  it("stringifies datetime / guid in F# BEFORE the url writer's JS boundary", async () => {
+    // A Fable `System.DateTime` reaches JS as a `Date`, whose `String(…)` is
+    // the locale form — so `String($0)` inside the `[<Emit>]` would write a
+    // param neither side can decode.  The conversion belongs in F#.
+    const fs = await app(`
+    store Range persist: url {
+      state { since: datetime  who: guid }
+    }`);
+    expect(fs).toContain(
+      'let private saveRange (model: Model) : unit = saveRangeRaw (model.RangeSince.ToString("o")) (string model.RangeWho)',
+    );
+    expect(fs).toContain("(sinceArg: string) (whoArg: string)");
+    expect(fs).toContain("p.set('since',$0);p.set('who',$1);");
   });
 });
 

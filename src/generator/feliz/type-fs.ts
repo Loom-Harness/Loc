@@ -75,7 +75,16 @@ export function typeToFs(t: TypeIR): string {
       return fsPrimitive(t.name);
     case "id":
       return "string";
+    // An enum is a STRING everywhere else in the Feliz frontend — the wire
+    // spelling (`wire.ts` `wireFieldType`), the decoder (`Decode.string`), the
+    // query-param encoder and the claims record (`auth-gate.ts` `claimFsType`)
+    // all say `string`, and NO `type <Enum>` is ever emitted into `App.fs`.
+    // Spelling it `t.name` here made a `state { mode: Status }` field declare
+    // `FiltersMode: Status` (FS0039, undefined type) and its action's Msg case
+    // `of Status`, from a `.ddd` reporting `0 error(s), 0 warning(s)` — the
+    // app could not Fable-compile at all.
     case "enum":
+      return "string";
     case "valueobject":
     case "entity":
       return t.name;
@@ -108,6 +117,20 @@ export function fsZeroValue(t: TypeIR): string {
           // Pairs with `typeToFs`'s `System.TimeSpan` — the fallthrough `""`
           // would not typecheck against it.
           return "System.TimeSpan.Zero";
+        // Same reason as `duration`: `typeToFs` spells a datetime
+        // `System.DateTime`, so the `""` fallthrough declared a string zero
+        // against a .NET-typed field (`FiltersAt = ""`) and the app did not
+        // compile.  `MinValue` is the type's own zero, and Fable supports it.
+        //
+        // NO `guid` arm, for the mirror-image reason: `fsPrimitive` above
+        // deliberately has none either, so a Loom `guid` IS an F# `string` on
+        // this frontend (`Decode.string` decodes it, the query encoder passes
+        // it verbatim).  `System.Guid.Empty` here would seed a `string`-typed
+        // cell with a `System.Guid` — the same FS0001 the missing arm exists
+        // to prevent, just pointing the other way.  The `""` fallthrough is
+        // the right zero for a guid-as-string.
+        case "datetime":
+          return "System.DateTime.MinValue";
         default:
           return '""';
       }
