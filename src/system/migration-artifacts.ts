@@ -289,10 +289,22 @@ export function checkMigrationBaseline(
   const allowRebaseline = options.allowRebaseline ?? false;
   const ledgerPath = options.ledgerPath ?? LEDGER_REL_PATH;
   for (const m of migrations) {
-    // Attribute the deployable's files to THIS module by version block —
-    // see `versionsInBlockOf`.  Everything below reads the narrowed list.
-    const onDisk = versionsInBlockOf(index.versions(m.module), m.version);
-    const onDiskSet = new Set(onDisk);
+    // Two views of the same directory, and the difference matters.
+    //
+    // `onDiskSet` is EVERY migration file the deployable holds.  Guards (b)
+    // and (c) ask about a specific version number — "does the file the
+    // history claims exist?", "is the number I am about to emit taken?" — and
+    // those questions are about the DIRECTORY, not about attribution: a file
+    // is present wherever it came from, and a collision is a collision.
+    //
+    // `ownBlock` is the subset inside THIS module's version block (see
+    // `versionsInBlockOf`), which is the only per-module attribution a flat
+    // directory supports.  Guard (a) asks "does this module already have
+    // history here?", and that one needs attribution — a sibling module's
+    // files, and the block-less far-future audit/provenance migrations, are
+    // not this module's history.
+    const onDiskSet = new Set(index.versions(m.module));
+    const ownBlock = versionsInBlockOf(index.versions(m.module), m.version);
     const record = options.recordedHistory?.modules[m.module];
     const recorded = record?.versions ?? [];
 
@@ -335,11 +347,11 @@ export function checkMigrationBaseline(
       //     the version/history chain against a database that already has
       //     migrations.  Refuse.  (The block narrowing is what keeps a
       //     brand-new module from being refused for a sibling's files.)
-      if (onDisk.length > 0) {
+      if (ownBlock.length > 0) {
         throw new MigrationBaselineError(
           m.module,
           `refusing to re-baseline module '${m.module}': its migration snapshot ` +
-            `(.loom/snapshots/${m.module}.snapshot.json) is missing, but ${onDisk.length} ` +
+            `(.loom/snapshots/${m.module}.snapshot.json) is missing, but ${ownBlock.length} ` +
             `migration file(s) already exist in the output tree. Emitting a fresh "Initial" ` +
             `migration here would reset the version history and re-CREATE tables against a ` +
             `database that already has these migrations applied. Restore the snapshot from ` +
