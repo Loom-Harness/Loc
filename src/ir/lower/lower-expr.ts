@@ -2073,6 +2073,19 @@ export function retargetEnumValue(ir: ExprIR, expected: TypeIR | undefined): Exp
  *  the two by-name callees a bare argument can reach: an aggregate/part/VO
  *  `function` and an `operation`.  A value-object constructor takes its fields
  *  in brace form and already lowers through `lowerExprInContext`. */
+/** Whether `ir` reaches an ambiguous bare enum value through the same
+ *  pass-throughs `retargetEnumValue` descends.  A cheap precondition: without
+ *  it, every by-name call would pay two env walks plus a `lowerType` per
+ *  parameter to discover it had nothing to retarget. */
+function carriesEnumCandidates(ir: ExprIR): boolean {
+  if (ir.kind === "ref") return ir.refKind === "enum-value" && ir.enumCandidates !== undefined;
+  if (ir.kind === "list") return ir.elements.some(carriesEnumCandidates);
+  if (ir.kind === "ternary")
+    return carriesEnumCandidates(ir.then) || carriesEnumCandidates(ir.otherwise);
+  if (ir.kind === "paren") return carriesEnumCandidates(ir.inner);
+  return false;
+}
+
 function calleeParams(name: string, env: Env): { name: string; type: TypeIR }[] | undefined {
   const decl = findFunctionInEnv(env, name) ?? findOperationInEnv(env, name);
   if (!decl) return undefined;
@@ -2089,6 +2102,7 @@ export function retargetCallArgs(
   argNames: ReadonlyArray<string | undefined> | undefined,
   env: Env,
 ): ExprIR[] {
+  if (!args.some(carriesEnumCandidates)) return args;
   const params = calleeParams(name, env);
   if (!params) return args;
   return args.map((a, i) => {
