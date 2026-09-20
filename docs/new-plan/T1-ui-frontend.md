@@ -422,7 +422,7 @@ Found 2026-09-03 by the language-docs audit ([F11](../audits/2026-09-03-language
 
 Sources: [language-docs-audit-2026-09-03](../audits/2026-09-03-language-docs-audit-findings.md) F11/F17 + "Cross-cutting reading" §1, [wave plan](../audits/2026-09-03-language-docs-audit-findings.waves.md) packet **W2.3**. Relates to M-T1.20 (the frontend per-target refusal register — a new code lands a row there).
 
-## M-T1.32 — Flutter action bodies drop a `toast` view effect and a standard-op `match await` — `open` · **M** · P1
+## M-T1.32 — a Flutter action body cannot `match await` a STANDARD aggregate op — `open` · **S** · P1
 
 Minted 2026-09-11 by Wave C1 packet 1d-ii (the [§18 emitter-sentinel drain](waves/handoffs/wave-c1-1d-sentinels.md)), which **refused** both shapes rather than leaving them silent. Each was measured on a `.ddd` that `ddd parse` reported `0 error(s), 0 warning(s)` for:
 
@@ -436,12 +436,40 @@ Minted 2026-09-11 by Wave C1 packet 1d-ii (the [§18 emitter-sentinel drain](wav
 
 All three compiled: valid Dart, a clean `flutter analyze`, and a button wired to an action that does nothing. They now raise `loom.flutter-action-body-unsupported` at phase ⑦ (`validateFlutterActionBodies`, `src/ir/validate/checks/ui-framework-checks.ts`), with a row in `src/diagnostics/unsupported-register.ts` naming this mission as the drain.
 
-**The fix, in two independent halves:**
+**Half 1 — the `toast` view effect — is DONE (wave C2 packet 2l).** The `#view-effect` gate arm, its catalog entry and its firing fixture are deleted; the register row is narrowed to half 2.
 
-1. **View effects out of the Notifier.** A Riverpod `Notifier` has no `BuildContext`, so it can reach neither the router nor a `ScaffoldMessenger` — that is the real constraint, not an oversight. The shape that works is a side-channel the widget layer drains: the Notifier records the intent on its state (a `pendingRoute` / `pendingToast` cell, or a small effect queue), and the page's `ConsumerWidget` uses `ref.listen` to consume it with the `BuildContext` it does have. `flutter-target.ts`'s `renderNavigate` already navigates fine from widget position, so only the action-body path needs this.
-2. **A standard-op `match await`.** `renderVariantMatchNotifier` (`riverpod-emit.ts`) resolves its op through `agg.operations`, which holds only DECLARED operations, so the five standard ops (`all` / `byId` / `create` / `update` / `delete`) never resolve. Their routes and payload shapes are already derivable the same way the form widgets derive them (`forms-emit.ts` posts `/(<coll>)` for `create` and `/(<coll>)/$id` for `update`/`delete`), so this is a resolution arm, not new transport.
+The fix is NOT the `ref.listen` effect-queue this mission originally sketched. That design re-derives, per page, a mechanism Flutter already ships and that this very tree already uses for the twin problem: `navigate` reaches the router from a Notifier through a `GlobalKey<NavigatorState>` installed on `MaterialApp` (`lib/nav.dart`, wave C1 packet 1e-ii). `toast` gets the exact same shape one field over — `MaterialApp.scaffoldMessengerKey`:
 
-**Verification when it lands.** Per half: a generated-Dart assertion on the emitted page (the `ref.listen` consumer; the `http.delete` + switch), plus the register row deleted and `MAX_OPEN_GAPS` lowered in the same PR — the gate ratchets, so a stale row fails it. The negative probes live in `test/generator/flutter/action-body-gaps.test.ts` and must flip from "refused" to "emitted" together with the gate arm they name.
+```
+action ping() { n := n + 1  toast("saved") }
+```
+```dart
+// lib/pages/home_page.dart
+void ping() {
+  state = state.copyWith(n: (state.n + 1));
+  showToast('saved');
+}
+
+// lib/toast.dart
+final GlobalKey<ScaffoldMessengerState> appScaffoldMessengerKey =
+    GlobalKey<ScaffoldMessengerState>();
+
+void showToast(Object? message) {
+  final messenger = appScaffoldMessengerKey.currentState;
+  if (messenger == null) return;
+  messenger
+    ..hideCurrentSnackBar()
+    ..showSnackBar(SnackBar(content: Text('$message')));
+}
+```
+
+Three details are load-bearing. The parameter is `Object?`, not `String`, so `toast(n)` on an `int` cell coerces instead of failing to compile — the coercion the JS frontends get for free from template literals. The message expression goes through the SAME `emitExpr` every other Notifier statement uses, so a state read in the argument resolves to `state.<cell>` exactly as it would on the right-hand side of a write. And the emission is use-driven off one marker (`showToast(`), scanned in last position over pages + `stores.dart` + `components.dart`, so an app that never toasts from an action emits no file, no import and no `MaterialApp` argument — byte-identical to before.
+
+A REALTIME handler's toast deliberately does NOT move: `LoomRealtime` is a real `ConsumerStatefulWidget` on `MaterialApp.builder`, so it has a context and keeps `ScaffoldMessenger.maybeOf(context)`. Both paths reach the same messenger; the difference is only how they find it.
+
+**Half 2 — a standard-op `match await` — is what remains.** `renderVariantMatchNotifier` (`riverpod-emit.ts`) resolves its op through `agg.operations`, which holds only DECLARED operations, so the five standard ops (`all` / `byId` / `create` / `update` / `delete`) never resolve. Their routes and payload shapes are already derivable the same way the form widgets derive them (`forms-emit.ts` posts `/(<coll>)` for `create` and `/(<coll>)/$id` for `update`/`delete`), so this is a resolution arm, not new transport.
+
+**Verification when half 2 lands.** A generated-Dart assertion on the emitted page (the `http.delete` + switch), plus the register row deleted and `MAX_OPEN_GAPS` lowered in the same PR — the gate ratchets, so a stale row fails it. The negative probes live in `test/generator/flutter/action-body-gaps.test.ts` and must flip from "refused" to "emitted" together with the gate arm they name. Half 1's proof is the template: `test/generator/flutter/action-toast.test.ts` (six cases incl. the byte-identity negative control), `flutter analyze` clean on the generated app, and three hand-written `flutter test` widget cases that actually tap the button and assert the `SnackBar` appears — which `analyze` cannot see.
 
 Sources: Wave C1 packet 1d-ii hand-off (`docs/new-plan/waves/handoffs/wave-c1-1d-sentinels.md`), §18 of the gap survey in [`completion-waves-2026-09.md`](completion-waves-2026-09.md). Relates to M-T1.20 (the frontend per-target refusal register).
 

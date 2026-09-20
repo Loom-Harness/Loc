@@ -364,14 +364,17 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
     kind: "gap",
     site: "src/ir/validate/checks/ui-framework-checks.ts:822",
     what:
-      "two Flutter action-body shapes every other frontend renders: a `toast(…)` view " +
-      "effect (a Riverpod Notifier holds no BuildContext, so it reaches no ScaffoldMessenger; " +
-      "`navigate(…)` reaches the router through the generated lib/nav.dart bridge since " +
-      "Wave C1 packet 1e-ii) and a `match await` on one of the five " +
+      "ONE Flutter action-body shape left, down from two: a `match await` on one of the five " +
       "STANDARD aggregate ops (the async-effect emitter resolves its op through " +
-      "`agg.operations`, which holds only DECLARED ones). Both emitted a " +
-      "`// TODO(flutter full-parity)` comment into the Dart before Wave C1 1d-ii — the " +
-      "action was wired and silently did nothing",
+      "`agg.operations`, which holds only DECLARED ones).  The `toast(…)` VIEW-EFFECT arm is " +
+      "DRAINED (wave C2 packet 2l): a Riverpod Notifier still holds no BuildContext, so it " +
+      "reaches the live ScaffoldMessenger through a generated `lib/toast.dart` bridge — a " +
+      "`GlobalKey<ScaffoldMessengerState>` installed on MaterialApp, the same shape " +
+      "`navigate(…)` has used since Wave C1 packet 1e-ii, emitted use-driven off one marker so " +
+      "a non-toasting app stays byte-identical.  A realtime handler's toast is IN the widget " +
+      "tree (`LoomRealtime`) and deliberately keeps `ScaffoldMessenger.maybeOf(context)`.  Both " +
+      "shapes emitted a `// TODO(flutter full-parity)` comment into the Dart before Wave C1 " +
+      "1d-ii — the action was wired and silently did nothing",
     mission: "M-T1.32",
   },
   {

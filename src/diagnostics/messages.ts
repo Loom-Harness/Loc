@@ -1718,25 +1718,18 @@ export const DIAGNOSTIC_MESSAGES = {
     `backend operation own the \`precondition\` / \`requires\` / \`return\` — or host this ` +
     `ui on Phoenix LiveView, whose handler renderer is the one that has arms for all three.`,
   // ----------------------------------------------------------------------
-  // src/ir/validate/checks/ui-framework-checks.ts — the two Flutter
-  // action-body gaps (§18 sentinels: the `TODO(flutter full-parity)` arms in
-  // `riverpod-emit.ts`).  Both leave the effect out of the built app with no
-  // diagnostic anywhere; both name their successor mission.
+  // src/ir/validate/checks/ui-framework-checks.ts — the Flutter action-body
+  // gap (§18 sentinels: the `TODO(flutter full-parity)` arms in
+  // `riverpod-emit.ts`).  It leaves the effect out of the built app with no
+  // diagnostic anywhere, and names its successor mission.
+  //
+  // There were TWO.  The `#view-effect` arm (a `toast(…)` from a Notifier) is
+  // gone with its cause: wave C2 packet 2l gave `toast` the same out-of-tree
+  // bridge `navigate` already had (`lib/toast.dart`, a
+  // `GlobalKey<ScaffoldMessengerState>` on `MaterialApp`), so the effect ships
+  // rather than being refused.  What is left is the `match await` on a
+  // STANDARD aggregate op.
   // ----------------------------------------------------------------------
-  "loom.flutter-action-body-unsupported#view-effect": (p: {
-    where: unknown;
-    uiName: unknown;
-    dName: unknown;
-    detail: unknown;
-  }) =>
-    `${p.where} on ui '${p.uiName}' calls \`${p.detail}(…)\`, which the Flutter frontend ` +
-    `cannot run from an action body (deployable '${p.dName}'). A ui \`action\` projects to a ` +
-    `Riverpod \`Notifier\` method, and a Notifier holds no \`BuildContext\` — so it can reach ` +
-    `a \`ScaffoldMessenger\` (\`navigate\` reaches the router through the generated \`lib/nav.dart\` ` +
-    `bridge; \`toast\` has no such bridge yet), and the call would be emitted as a comment that ` +
-    `silently does nothing. Every other frontend renders it. Move the effect to the widget ` +
-    `layer, or host this ui on another frontend. Tracked as M-T1.32 in ` +
-    `docs/new-plan/T1-ui-frontend.md.`,
   "loom.flutter-action-body-unsupported#match-await-standard-op": (p: {
     where: unknown;
     uiName: unknown;
@@ -1750,7 +1743,7 @@ export const DIAGNOSTIC_MESSAGES = {
     `among them, so the whole effect — the request, the error reification and every arm body — ` +
     `would be replaced by a comment. Await a declared \`operation\` that returns a union, or ` +
     `host this ui on another frontend. Tracked as M-T1.32 in docs/new-plan/T1-ui-frontend.md.`,
-  // The Riverpod emitter's internal floor for both — it replaces the three
+  // The Riverpod emitter's internal floor — it replaces the three
   // `// TODO(flutter full-parity)` comments that used to be emitted INTO the
   // Dart, where they compiled fine and left the action doing nothing.
   "loom.flutter-action-body-unsupported#emit-invariant": (p: { what: unknown }) =>
