@@ -90,7 +90,7 @@ import { emitUserComponent } from "./primitives/controls.js";
 import { WALKER_PRIMITIVES } from "./registry.js";
 import { wirePackChromeImport } from "./render-primitive.js";
 import { describeReceiver, positionalArgs } from "./shared/args.js";
-import type { RenderPosition, WalkerTarget } from "./target.js";
+import type { ChildSlot, RenderPosition, WalkerTarget } from "./target.js";
 
 /** A MODEL-DERIVED identifier (a page/component param, a shell local, a `let`
  *  binding), spelled the way the active target's embedded language needs it.
@@ -580,7 +580,7 @@ export function walkBody(
     usedActions: new Set(),
     usedStores: new Map(),
   };
-  const tsx = walk(body, ctx, 0);
+  const tsx = walk(body, ctx, 0, "value");
   // PACK-DECLARED chrome (`pack.json`'s `chrome` map) reaches the page through
   // a `.hbs` this walk rendered, so no emitter here registered the `t` those
   // bindings resolve against — the string lives in the template, behind the
@@ -1108,7 +1108,18 @@ export const STANDARD_AGG_OPS: ReadonlySet<string> = new Set([
   "delete",
 ]);
 
-export function walk(expr: ExprIR, ctx: WalkContext, depth: number): string {
+export function walk(
+  expr: ExprIR,
+  ctx: WalkContext,
+  depth: number,
+  /** The KIND of slot this child lands in — a container's children SEQUENCE
+   *  (the default) or a single-expression VALUE slot (a `QueryView` branch, a
+   *  `match` arm, a ternary branch, a table cell, the page body root).  Passed
+   *  as an ARGUMENT rather than carried on `ctx` deliberately: it describes
+   *  THIS position only and must not leak into the walked node's own children
+   *  (a `Stack` inside a value slot still opens a children sequence). */
+  slot: ChildSlot = "children",
+): string {
   // Api hook injection (JSX-child position).  Detect
   // `<param>.<aggregate>.<op>` rooted at a UiApiParam; register
   // the hook for hoisting (renderApiHoisting consumes
@@ -1141,7 +1152,7 @@ export function walk(expr: ExprIR, ctx: WalkContext, depth: number): string {
   }
   switch (expr.kind) {
     case "call":
-      return emitComponent(expr, ctx, depth);
+      return emitComponent(expr, ctx, depth, slot);
     case "literal":
       // String literal in a child position becomes a markup text node.
       // Other literal kinds (int / decimal / bool) stay as
@@ -1212,9 +1223,9 @@ export function walk(expr: ExprIR, ctx: WalkContext, depth: number): string {
       // exactly as the ternary arm below.
       const arms = expr.arms.map((arm) => ({
         predicate: emitExpr(arm.cond, ctx),
-        value: walk(arm.value, ctx, depth + 1),
+        value: walk(arm.value, ctx, depth + 1, "value"),
       }));
-      const elseArm = expr.otherwise ? walk(expr.otherwise, ctx, depth + 1) : undefined;
+      const elseArm = expr.otherwise ? walk(expr.otherwise, ctx, depth + 1, "value") : undefined;
       return ctx.target.renderMatchChild(arms, elseArm, depth);
     }
     case "ternary": {
@@ -1223,8 +1234,8 @@ export function walk(expr: ExprIR, ctx: WalkContext, depth: number): string {
       // function's `return ( … )` parens).  In nested child
       // position, JSX requires brace-wrapping `{ cond ? … : … }`.
       const cond = emitExpr(expr.cond, ctx);
-      const thenS = walk(expr.then, ctx, depth + 1);
-      const elseS = walk(expr.otherwise, ctx, depth + 1);
+      const thenS = walk(expr.then, ctx, depth + 1, "value");
+      const elseS = walk(expr.otherwise, ctx, depth + 1, "value");
       return ctx.target.renderConditionalChild(cond, thenS, elseS, depth);
     }
     case "member":
@@ -1252,14 +1263,19 @@ export function walk(expr: ExprIR, ctx: WalkContext, depth: number): string {
   }
 }
 
-function emitComponent(call: ExprIR & { kind: "call" }, ctx: WalkContext, depth: number): string {
+function emitComponent(
+  call: ExprIR & { kind: "call" },
+  ctx: WalkContext,
+  depth: number,
+  slot: ChildSlot = "children",
+): string {
   // Typed walker-primitive dispatch — the registry at
   // src/generator/_walker/registry.ts owns the per-target renderer
   // table.  Adding a primitive is one edit there (plus the renderer
   // function); the language-side admissibility sets are pinned to
   // the same registry by the completeness test.
   const def = WALKER_PRIMITIVES[call.name];
-  if (def?.tsx) return def.tsx(call, ctx, depth);
+  if (def?.tsx) return def.tsx(call, ctx, depth, slot);
   // Names not in the stdlib dispatch table fall through to user-
   // component invocation when they match a registered ComponentIR.
   if (ctx.userComponents.has(call.name)) {

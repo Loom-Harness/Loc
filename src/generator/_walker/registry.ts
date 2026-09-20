@@ -108,6 +108,7 @@ import {
   renderToolbar as renderToolbarHeex,
 } from "../elixir/heex-walker.js";
 import type { A11yContract } from "./a11y.js";
+import type { ChildSlot } from "./target.js";
 // Re-exported emitters from the React/TSX walker.  Each function
 // takes `(call, ctx, depth)` and returns the JSX fragment.
 import { emitChart } from "./primitives/chart.js";
@@ -183,6 +184,11 @@ export type TsxRenderer = (
   call: ExprIR & { kind: "call" },
   ctx: TsxWalkContext,
   depth: number,
+  /** The KIND of slot this call lands in — a children SEQUENCE or a
+   *  single-expression VALUE slot (see `ChildSlot`).  Only the primitives
+   *  that SPLICE a list (`For`) read it; every other renderer takes three
+   *  parameters and is assignable unchanged. */
+  slot?: ChildSlot,
 ) => string;
 
 /** Renderer signature for the Phoenix/HEEx target.  Returns the

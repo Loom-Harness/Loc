@@ -398,7 +398,10 @@ function walkBranch(
   depth: number,
   nothing: string,
 ): string {
-  return slot ? walk(slot, ctx, depth + 2) : nothing;
+  // Every `QueryView` branch is a single-expression slot (the pack template
+  // splices ONE value into its `{ … && ( <branch> ) }`), never a children
+  // sequence — so a `For` here may not splice.
+  return slot ? walk(slot, ctx, depth + 2, "value") : nothing;
 }
 
 /** Lift a walked branch from CHILD position into EXPRESSION position.
@@ -626,10 +629,10 @@ export function emitQueryView(
           // the two paged maps above follow).
           shadow(ctx.rowSetBindings, data.param),
     };
-    dataJsx = data.body ? walk(data.body, childCtx, depth + 2) : nothing;
+    dataJsx = data.body ? walk(data.body, childCtx, depth + 2, "value") : nothing;
     propagateChildFlags(ctx, childCtx);
   } else if (data) {
-    dataJsx = walk(data, ctx, depth + 2);
+    dataJsx = walk(data, ctx, depth + 2, "value");
   } else {
     dataJsx = nothing;
   }

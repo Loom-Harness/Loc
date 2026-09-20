@@ -425,8 +425,21 @@ export const felizTarget: WalkerTarget = {
   // bracket-delimited body are offside-safe there).  An `empty:` arm folds into
   // a single-line element guard — `React.fragment` re-wraps the mapped list so
   // the whole thing is ONE child expression, offside-safe like the ternary.
-  renderForEach: (coll, itemVar, _indexVar, _keyExpr, body, _depth, emptyBody) => {
+  //
+  // The splice is only legal where the slot IS a list expression.  F# admits
+  // `yield!` only inside a list/array/sequence expression — FS0747 anywhere
+  // else — so in a VALUE slot (a `QueryView` branch, a `match` arm, a ternary
+  // branch, a table cell, the page body root) the splice emitted an `App.fs`
+  // that could not build: `data: rows => For { … }`, the canonical
+  // hand-written list body, was a page nothing compiled (ledger F2-CFE-3,
+  // feliz half; the React half rides `wrapMultiRoot`).  `React.fragment` over
+  // the mapped list is the same ONE-element answer the `empty:` arm already
+  // reaches for.
+  renderForEach: (coll, itemVar, _indexVar, _keyExpr, body, _depth, emptyBody, slot) => {
     if (emptyBody === undefined) {
+      if (slot === "value") {
+        return `React.fragment (${coll} |> List.map (fun ${itemVar} -> ${oneLine(body)}))`;
+      }
       return `yield! ${coll} |> List.map (fun ${itemVar} ->\n  ${body})`;
     }
     const frag = `React.fragment (${coll} |> List.map (fun ${itemVar} -> ${oneLine(body)}))`;
