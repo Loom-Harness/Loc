@@ -1920,9 +1920,14 @@ function uiEnumOwnerFor(name: string, node: AstNode | undefined): string | undef
  *  lowerer: `IdRef: {infer IdRef} 'id';` sits in `PrimaryExpr` BEFORE `NameRef`
  *  (`ddd.langium`), so a bare `id` in expression position is never a `NameRef`
  *  and never reaches `resolveNameRef`.  `Parameter.name` meanwhile admits `id`
- *  via `LooseName`, so `create(id: WorkOrder id)` — or `let id = …`, or a
- *  lambda `id => …` — declares a perfectly legal binding whose every USE the
- *  parser has already decided means the implicit aggregate identity.
+ *  via `LooseName`, so `create(id: WorkOrder id)` declares a perfectly legal
+ *  binding whose every USE the parser has already decided means the implicit
+ *  aggregate identity.  (A PARAMETER is the only binder that can claim the
+ *  name: `LetStmt` / `IfLetStmt` / `Lambda.param` are plain `ID`.  But EVERY
+ *  param-bearing declaration goes through `Parameter` — `find`, `criterion`,
+ *  `retrieval`, `projection`, `operation`, `create`, `destroy`, `handle`, the
+ *  handlers, `function`, `page`, `component`, `action`, a `domainService`
+ *  operation — so this was never workflow-specific.)
  *
  *  Left alone that lowers to `{kind:"id"}`, which every backend renders as an
  *  IMPLICIT-RECEIVER access (`this._id` / `self._id` / `this.Id`).  Inside a
@@ -1930,7 +1935,10 @@ function uiEnumOwnerFor(name: string, node: AstNode | undefined): string | undef
  *  unbound: `await workOrders.getById(this._id)` in Hono, `self._id` (ruff
  *  F821) in Python.  Nothing diagnoses it, because the collision is invisible
  *  to both name resolution (which never runs) and the type checker (which types
- *  a workflow's `id` as `unknown`).  F-025.
+ *  a workflow's `id` as `unknown`).  F-025.  In a repository `find` it is worse
+ *  than wrong output: the marker is outside the declared query-emission
+ *  vocabulary, so `buildFindWhereClause` REFUSES and codegen dies on a model
+ *  `ddd parse` reports as clean.
  *
  *  So: a binding named `id` in scope SHADOWS the implicit identity, exactly as
  *  a parameter shadows a like-named field everywhere else in the language (the
@@ -1940,10 +1948,11 @@ function uiEnumOwnerFor(name: string, node: AstNode | undefined): string | undef
  *  declare one, i.e. essentially all existing source. */
 const ID_NAME = "id";
 
-/** True when some binder in `env` claims the name `id` — a parameter, a `let`,
- *  a lambda or match binding, an inlined criterion argument, or an absence-match
- *  alias.  Mirrors the binder sources `resolveNameRef` consults, so the two
- *  agree on what counts as "bound". */
+/** True when some binder in `env` claims the name `id` — in practice a
+ *  parameter, since no other binder's grammar rule admits the keyword, but
+ *  written against every binder source `resolveNameRef` consults (inlined
+ *  criterion arguments and absence-match aliases included) so the two agree on
+ *  what counts as "bound" even if `LooseName` later reaches another rule. */
 function hasIdBinding(env: Env): boolean {
   return (
     env.criterionArgs?.has(ID_NAME) === true ||
