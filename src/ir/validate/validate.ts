@@ -26,6 +26,7 @@ import { validateReservedSurfaces } from "./checks/reserved-surfaces.js";
 import { validateSensitiveWireSupport } from "./checks/sensitivity-checks.js";
 import { validateStores } from "./checks/store-checks.js";
 import {
+  validateContainmentCycles,
   validateCurrentUserScope,
   validateDuplicateTables,
   validateEventSourcedDiscipline,
@@ -288,6 +289,7 @@ export function validateLoomModel(loom: EnrichedLoomModel): LoomDiagnostic[] {
     validateApplicationHandlers(c, diags);
     validateCurrentUserScope(c, diags);
     validateFieldDefaults(c, diags);
+    validateContainmentCycles(c, diags);
     validatePermissionRefs(c, diags);
     validateResourceOpPlacement(c, diags);
     validateGenericInstancesUnimplemented(

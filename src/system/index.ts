@@ -39,6 +39,7 @@ import { resourceEnvUrlVar } from "../util/resource-env.js";
 import { renderAsyncApi } from "./asyncapi.js";
 import { renderDataSourcesMd } from "./datasources.js";
 import { renderE2EFile } from "./e2e-render.js";
+import { collectGiveUps, type GiveUpReport } from "./give-up-report.js";
 import { renderHelmChart } from "./helm.js";
 import { renderMessageCatalog } from "./i18n-catalog.js";
 import { renderKubernetesManifests } from "./kubernetes.js";
@@ -88,6 +89,11 @@ import { renderWireSpec } from "./wire-spec.js";
 export interface SystemEmission {
   /** path → file content, relative to the system output directory. */
   files: Map<string, string>;
+  /** Every construct a frontend walker declined to render, lifted out of the
+   *  emitted text (see `give-up-report.ts`).  The walkers already name a
+   *  `loom.*` code in a comment beside each one; this is where that becomes a
+   *  reportable diagnostic instead of a note in a file nobody reads. */
+  giveUps: GiveUpReport[];
 }
 
 export interface GenerateSystemOptions {
@@ -238,7 +244,7 @@ export function generateSystemsFromLoom(
       out.set(`${path}.smap`, rendered);
     }
   }
-  return { files: out };
+  return { files: out, giveUps: collectGiveUps(out) };
 }
 
 function emitSystem(

@@ -22,6 +22,7 @@ import { generateTypeScript } from "../platform/hono/v4/emit.js";
 // backend; the CLI (an entrypoint) supplies that package's pins to
 // the version-agnostic shared emitter.
 import { BACKEND_PINS as HONO_V4_PINS } from "../platform/hono/v4/pins.js";
+import { type GiveUpReport, partitionGiveUps } from "../system/give-up-report.js";
 import { generateSystemsFromLoom } from "../system/index.js";
 import { captureSnapshots } from "../system/loomsnap.js";
 import {
@@ -630,6 +631,11 @@ async function runGenerate(
   // `mkdir`-ing the output dir.
 
   let files: Map<string, string>;
+  /** Frontend constructs the walkers declined to render.  The walkers name a
+   *  `loom.*` code beside each one in the emitted source; nothing lifted them
+   *  until now, so a page whose body is `undefined.data.items.map(…)` shipped
+   *  under `0 error(s), 0 warning(s)` (F-019). */
+  let giveUps: GiveUpReport[] = [];
   if (target === "system") {
     // Diff each subdomain's current schema against the snapshot the
     // LAST regen wrote into `.loom/snapshots/` (under `outDir`).
@@ -638,7 +644,7 @@ async function runGenerate(
     // moves.  See `src/system/migrations-builder.ts` for the diff
     // builder + `docs/generators.md` § Migrations for the pipeline.
     try {
-      files = generateSystemsFromLoom(loom, {
+      const emission = generateSystemsFromLoom(loom, {
         emitTrace: options.emitTrace,
         emitKubernetes: options.emitKubernetes,
         snapshots: fsSnapshotStore(outDir),
@@ -654,7 +660,9 @@ async function runGenerate(
         // Harmless to pass unconditionally — v3 sidecar emission is still
         // gated on `sourcemap` inside `generateSystemsFromLoom`.
         sourceTexts,
-      }).files;
+      });
+      files = emission.files;
+      giveUps = emission.giveUps;
     } catch (err) {
       // A corrupted/truncated migration snapshot, a destructive delta
       // without --allow-destructive, or a baseline-safety violation (missing
@@ -680,6 +688,25 @@ async function runGenerate(
       console.error(
         `No \`system\` block declared in ${file}.  Use \`generate ts\` or \`generate dotnet\` for legacy single-deployable sources.`,
       );
+      if (!options.continueOnError) process.exit(1);
+      return { hadError: true };
+    }
+    // Lift the walkers' give-ups.  They were already in the output, named by
+    // code, three characters from the defect — this is the only place with both
+    // the emitted text and a console to report against.
+    const gu = partitionGiveUps(giveUps);
+    for (const g of gu.errors) {
+      console.error(`${g.code} ${g.path}:${g.line}: ${g.text}`);
+    }
+    for (const g of gu.warnings) {
+      console.error(`${g.code} ${g.path}:${g.line} warning: ${g.text}`);
+    }
+    if (gu.errors.length > 0 || gu.warnings.length > 0) {
+      console.error(
+        `${gu.errors.length} error(s), ${gu.warnings.length} warning(s) in generated pages.`,
+      );
+    }
+    if (gu.errors.length > 0) {
       if (!options.continueOnError) process.exit(1);
       return { hadError: true };
     }

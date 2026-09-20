@@ -218,6 +218,25 @@ ${uiBody}
 }`;
 
 const FIRING_FIXTURES: Record<string, string> = {
+  // A part that contains itself.  The natural domain is ordinary (a sub-task
+  // tree), and before the check this parsed clean and then killed `generate`
+  // with a bare `RangeError: Maximum call stack size exceeded`.
+  "loom.containment-cycle": `
+system X {
+  subdomain S { context C {
+    aggregate Node1 with crudish {
+      label: string
+      derived display: string = label
+      contains kids: Child[]
+      entity Child { label: string  contains kids: Child[] }
+    }
+    repository Node1s for Node1 { }
+  } }
+  storage p { type: postgres }
+  resource r { for: C, kind: state, use: p }
+  deployable api { platform: node, contexts: [C], dataSources: [r], port: 3000 }
+}`,
+
   // A canonical `create` whose parameter list OMITS a required create-input
   // field.  `POST /things` still demands `secret` (no emitter reads
   // `canonicalCreate.params`), so a client written from the declaration 422s on

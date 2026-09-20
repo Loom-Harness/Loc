@@ -2209,3 +2209,63 @@ export function validateUiPermissionRefs(ui: UiIR, diags: LoomDiagnostic[]): voi
   }
   for (const c of ui.components) flag(`component[${c.name}]`, c.body);
 }
+
+/** A containment graph must be a TREE — no part may contain itself, directly or
+ *  through a chain.
+ *
+ *  A cyclic containment is not merely unsupported, it is unrepresentable: an
+ *  aggregate is loaded whole, so `entity Child { contains kids: Child[] }` names
+ *  a value with no finite serialisation.  Nothing said so.  `ddd parse` reported
+ *  `0 error(s), 0 warning(s)` and `ddd generate system` then died with a bare
+ *  `RangeError: Maximum call stack size exceeded` out of
+ *  `nestedContainLoads` — a stack trace, on a model the tool had just called
+ *  valid (F-040).
+ *
+ *  It is an easy shape to reach by accident, because the DOMAIN is ordinary: a
+ *  sub-task tree, a bill of materials, a threaded comment.  So the message names
+ *  the shape that does work — a self-referencing `X id?` on an aggregate, which
+ *  is a FK to the same table and loads a level at a time.
+ *
+ *  Reported once per cycle, at the part where the walk closes it, with the whole
+ *  chain spelled out: a "Child contains Child" error that does not show the path
+ *  is unhelpful the moment the cycle is three parts long. */
+export function validateContainmentCycles(ctx: BoundedContextIR, diags: LoomDiagnostic[]): void {
+  for (const agg of ctx.aggregates) {
+    const byName = new Map(agg.parts.map((p) => [p.name, p]));
+    // Colour-marking DFS: `visiting` is the current path (a hit here is a back
+    // edge = a cycle), `done` is fully-explored (a hit here is a diamond, which
+    // is legal — two parts may both contain a third).
+    const done = new Set<string>();
+    const reported = new Set<string>();
+    const walk = (partName: string, path: string[]): void => {
+      if (done.has(partName)) return;
+      const at = path.indexOf(partName);
+      if (at >= 0) {
+        // Key the report on the cycle's MEMBER SET so the same cycle reached
+        // from two entry points is reported once, not once per entry.
+        const cycle = path.slice(at);
+        const key = [...cycle].sort().join(">");
+        if (reported.has(key)) return;
+        reported.add(key);
+        diags.push({
+          severity: "error",
+          code: "loom.containment-cycle",
+          message: diagMessage("loom.containment-cycle", {
+            agg: agg.name,
+            chain: [...cycle, partName].join(" contains "),
+            part: partName,
+          }),
+          source: `${ctx.name}/${agg.name}`,
+        });
+        return;
+      }
+      const part = byName.get(partName);
+      if (!part) return;
+      for (const c of part.contains) walk(c.partName, [...path, partName]);
+      done.add(partName);
+    };
+    // Start from the aggregate's own containments — a part unreachable from the
+    // root is already a different diagnostic's business.
+    for (const c of agg.contains) walk(c.partName, []);
+  }
+}

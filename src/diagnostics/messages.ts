@@ -377,6 +377,19 @@ export const DIAGNOSTIC_MESSAGES = {
     `Abstract aggregate '${p.name}' cannot declare a '${p.kw}' action — abstract ` +
     `bases are never instantiated and have no polymorphic dispatch in v1. ` +
     `Declare it on each concrete subtype.`,
+  // A containment graph must be a tree: an aggregate is loaded whole, so a part
+  // that contains itself names a value with no finite serialisation.  The
+  // message carries the CHAIN because a two-part cycle is obvious and a
+  // three-part one is not, and it names the shape that does work — the natural
+  // domains here (sub-task tree, bill of materials, threaded comment) are ones
+  // an author will want to model some other way, not abandon.
+  "loom.containment-cycle": (p: { agg: unknown; chain: unknown; part: unknown }) =>
+    `Aggregate '${p.agg}' has a containment cycle: ${p.chain}. An aggregate is loaded as a ` +
+    `whole, so a part that contains itself (directly or through a chain) has no finite shape. ` +
+    `Model the recursion as a separate aggregate with a self-reference instead — ` +
+    `'aggregate ${p.part} { parentId: ${p.part} id? … }' is a foreign key to the same table and ` +
+    `loads one level at a time.`,
+
   "loom.abstract-aggregate-contains": (p: { name: unknown; member: unknown }) =>
     `Abstract aggregate '${p.name}' cannot declare 'contains ${p.member}' — an abstract ` +
     `base owns no repository and its concretes do not inherit its parts, so the part's ` +

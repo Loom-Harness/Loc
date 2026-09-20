@@ -760,6 +760,40 @@ Impact on adoption: high for any multi-deployable system, which is the systems l
 I hit it the moment I split a notifier out of the main API.
 Time lost: 20 min.
 
+> **UPDATE (2026-09-20) — fixed, and the fix is more general than the finding.**
+>
+> Reading the emitted page changed what this is.  The generator was not silent about the condition —
+> it wrote the diagnostic INTO THE OUTPUT, three characters from the defect:
+>
+> ```tsx
+> { /* loom:unrendered [loom.method-call-unresolved-receiver] method-call Bar.all(…): receiver did not resolve */ undefined.data.items.map((row) => (
+> ```
+>
+> So the fix is not a bespoke ui-topology check.  `src/generator/_walker/give-up.ts` already makes
+> every unrenderable construct carry a sentinel and a `loom.*` code, and its own header names the
+> half it could not do from inside an emitter: *"SURFACING those codes as `ddd generate` warnings
+> lives outside this tree (`src/system/`), and is the follow-on this drain unblocks."*  This is that
+> follow-on — `src/system/give-up-report.ts` scans the emitted text and `generate system` reports
+> every give-up, which covers all 36 give-up conditions on every frontend rather than this one
+> topology mistake.
+>
+> **Two severities, measured rather than assumed.**  Across all **467** tracked `.ddd`:
+>
+> * `loom.method-call-unresolved-receiver` renders the receiver as the literal `undefined`, so the
+>   page emits `undefined.isLoading` and `undefined.data.items.map(…)` — a `TypeError` on first
+>   render.  That is a broken page, not a degraded one: **error**.
+> * `loom.page-ref-unreachable` renders a COMMENT where a form would be.  The page mounts and is
+>   merely missing that form: **warning**.
+>
+> Promoting the first costs nothing shipped — of those 467 sources, every give-up of any kind came
+> from exactly two files (a fixture that exists to produce them, and one audit repro).
+> `examples/`, `web/src/examples/`, `journey/` and the whole fixture corpus emit **none**.
+>
+> One detail worth its line: the scan trims the captured text at the comment terminator.  The
+> walkers inline these comments MID-EXPRESSION, so a capture running to end of line drags the
+> emitted code into the diagnostic and the reader cannot tell the compiler's sentence from the
+> output.  Pinned.
+
 ### F-020 — Generated `docker-compose.yml` references `minio/minio:latest`, which no longer exists on Docker Hub
 Severity: **S2** (the whole generated stack fails to start)   Class: **SILENT** (generate exits 0; compose fails)
 Area: system / docker-compose emission · object-store sidecar
@@ -1541,6 +1575,24 @@ Expected: `loom.*` rejecting recursive containment ("an entity part may not cont
 tree as a separate aggregate with a self `X id` reference").
 Impact on adoption: moderate frequency, and the failure is a raw stack trace with no source location —
 a developer's first guess will be that their machine is broken, not their model.
+
+> **UPDATE (2026-09-20) — fixed.**  Reproduced unchanged on fresh `main`.  New `loom.containment-cycle`
+> (phase ⑦, `validateContainmentCycles`) refuses the shape with a diagnostic instead of a stack trace.
+>
+> Three things the check had to get right, each pinned:
+>
+> * **A diamond is not a cycle.**  Two parts may both contain a third; the graph is acyclic even
+>   though it is not a strict tree by reference.  Written with a flat `seen` set — the obvious way —
+>   the check rejects that legal shape, so the walk tracks the CURRENT PATH instead.
+> * **The message carries the whole chain.**  `Child contains Child` is self-evident; a three-part
+>   `PartA contains PartB contains PartC contains PartA` is not, and a diagnostic naming only one
+>   member leaves the author to find the other two edges by hand.
+> * **One report per cycle, not per entry point.**  Keyed on the cycle's member set.
+>
+> The message names the modelling that DOES work — `aggregate Child { parentId: Child id? … }`, a FK
+> to the same table that loads a level at a time — and the suite generates that shape to prove the
+> recommendation is real rather than plausible.  The domains here are ordinary (sub-task tree, bill
+> of materials, threaded comment), so sending the author somewhere is the point.
 
 ### F-041 — A typo'd field in a PAGE body is not validated (the same typo in an invariant is)
 Severity: S3 (friction)   Class: **SILENT** at the model layer, caught downstream by `tsc`
