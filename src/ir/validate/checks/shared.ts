@@ -278,7 +278,34 @@ export function firstNonQueryableNode(e: ExprIR): string | null {
         isColumnRef(e.receiver) &&
         e.args.length === 1
       ) {
-        return firstNonQueryableNode(e.args[0]!);
+        // The ARGUMENT is BOUND, on every adapter: the subquery is
+        // `<targetFk> = ?` (drizzle `inArray`, Dapper / MikroORM a raw
+        // fragment, EF Core `Any(...)` over a closed-over value), so a COLUMN
+        // there has nowhere to go.  `firstNonQueryableNode` alone admits it —
+        // a column is perfectly queryable in a general predicate — which is why
+        // this is a POSITION check, the same shape as the `startsWith` receiver
+        // check below.
+        //
+        // Reachable only from a query-time `projection … where`, which has no
+        // parameters to bind: `where o.tags.contains(o.id)` validated clean on a
+        // bare `platform: node` deployable and then CRASHED codegen ("internal:
+        // where-clause for projection 'X' could not lower to Drizzle, but the
+        // validator should have caught this") — the adapter gate that refuses it
+        // under `persistence: mikroorm` keys on `dep.persistence`, which a
+        // deployable using the DEFAULT adapter does not carry, so it never ran
+        // (ledger `drizzle-projection-membership-column-arg-crash`).  The shape
+        // is unlowerable on all five, so the refusal is target-neutral and lands
+        // here rather than in a per-adapter descriptor.
+        const arg = e.args[0]!;
+        const argInner = arg.kind === "paren" ? arg.inner : arg;
+        if (isColumnRef(argInner)) {
+          return (
+            `'.contains(<column>)' — a reference-collection membership binds its ` +
+            `argument as a query parameter on every adapter, so it must be a value ` +
+            `(a parameter, a literal, or a 'currentUser' claim), not another column`
+          );
+        }
+        return firstNonQueryableNode(arg);
       }
       // Queryable scalar intrinsics (src/util/intrinsics.ts) — an op the
       // catalogue marks `queryable` is admitted when its receiver and every

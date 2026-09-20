@@ -154,8 +154,14 @@ const KNOWN_UNREACHABLE: ReadonlyArray<{
     format: "angular",
     template: "primitive-modal",
     reason:
-      "angularTarget.renderModal always returns a string, so the shared " +
-      "operation-modal trigger emitter is never reached.",
+      "The ONE exemption here that does NOT rest on an override always returning a string: " +
+      "`angularTarget.renderModal` returns NULL for a state-controlled `Modal { …, open: <state> }` " +
+      "(`modal.ts`'s `if (!formChild) return null`), deliberately, so the shared `emitModal` can " +
+      "reach `emitControlledModal` — and all three Angular packs DO ship " +
+      "`primitive-modal-controlled`.  `primitive-modal` is the OP-DIALOG trigger template, on the " +
+      "other branch, which the fork does claim with a string.  So the name stays unreachable, but " +
+      "for a reason the fall-through itself supplies rather than for the absence of one: half B's " +
+      "fixture carries a controlled Modal so the null-returning path is actually exercised.",
   },
   {
     format: "angular",
@@ -402,7 +408,14 @@ describe("pack-render reachability — static", () => {
  *  scaffolded CRUD gives the New page (`CreateForm`), the Details page
  *  (`OperationForm` + its `Modal` trigger, `DestroyForm`) and the workflow
  *  form (`WorkflowForm`); the field list spans the `field-input-*` family
- *  (scalars, money, bool, datetime, enum, `X id`, value object, `[]`, File). */
+ *  (scalars, money, bool, datetime, enum, `X id`, value object, `[]`, File).
+ *
+ *  The hand-written `Board` page carries the one shape where an Angular
+ *  override genuinely RETURNS NULL — a state-controlled `Modal { …, open: }`,
+ *  which `angularTarget.renderModal` declines so the shared `emitModal` can
+ *  render `primitive-modal-controlled`.  Without it this half asserted the
+ *  exemptions only along paths the fork always claims, i.e. it could not have
+ *  observed the fall-through it exists to bound. */
 const FORM_HEAVY = (platform: string, design: string) => `
 system Shop {
   api ShopApi from Sales
@@ -447,7 +460,18 @@ system Shop {
   storage blobs { type: localDisk }
   resource ordState { for: Ordering, kind: state, use: db }
   resource ordFiles { for: Ordering, kind: objectStore, use: blobs }
-  ui WebApp with scaffold(subdomains: [Sales]) { api Shop: ShopApi }
+  ui WebApp with scaffold(subdomains: [Sales]) {
+    api Shop: ShopApi
+    page Board {
+      route: "/board"
+      state { boxOpen: bool = false }
+      action open() { boxOpen := true }
+      body: Stack {
+        Button { "Open", onClick: open },
+        Modal { Text { "controlled" }, open: boxOpen, title: "Controlled" }
+      }
+    }
+  }
   deployable api { platform: node contexts: [Ordering] dataSources: [ordState, ordFiles] serves: ShopApi port: 3000 }
   deployable web { platform: ${platform} targets: api ui: WebApp { Shop: api } port: 3005 design: ${design} }
 }
@@ -488,6 +512,20 @@ describe("pack-render reachability — runtime (the angular fork's precondition)
         `tsx reference run should render "${name}" — fixture no longer covers it`,
       ).toContain(name);
     }
+  });
+
+  it("the angular run really reaches the one override that returns null", async () => {
+    // `angularTarget.renderModal` declines a state-controlled `Modal`, so that
+    // ONE path falls through to the shared `emitModal` in production.  Asserting
+    // the controlled template was requested proves the fixture exercises it —
+    // otherwise the assertion below would be bounding only the paths the fork
+    // always claims, and the exemption for `primitive-modal` would rest on an
+    // untested reading of `modal.ts`.
+    const angular = await requestedTemplates("angular", "angularMaterial");
+    expect(
+      angular,
+      "the fixture's `Board` page no longer drives the controlled-Modal fall-through",
+    ).toContain("primitive-modal-controlled");
   });
 
   it("the angular run requests none of the exempted templates", async () => {

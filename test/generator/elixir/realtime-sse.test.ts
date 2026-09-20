@@ -6,6 +6,11 @@
 // endpoint at all, so an SPA frontend (react/vue/svelte/angular/feliz) pointed
 // at `platform: elixir` had its `on <channel>.<Event>` handler silently dropped
 // behind a WARNING (`loom.ui-realtime-unsupported#backend-serves-no-sse`).
+// That arm no longer exists: with elixir serving the wire, EVERY backend does,
+// so the arm became unreachable and was deleted in wave C2 packet 2f (the two
+// ways to point a ui at a non-serving target are phase-④ errors in
+// `validators/deployable.ts`).  The emission this file gates is what made that
+// deletion possible.
 //
 // The wire matches the four other backends and the frontends' EventSource
 // client (`src/generator/_frontend/realtime.ts`): `event: <Type>` frames +

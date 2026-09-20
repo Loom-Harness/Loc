@@ -3,7 +3,7 @@
 // Twice in one session a `loom.*` message told the reader to write something the
 // grammar cannot accept:
 //
-//   loom.persistence-mode-unsupported  "Declare `dataSource workState { … }`"
+//   loom.datasource-binding-missing  "Declare `dataSource workState { … }`"
 //   loom.file-field-needs-object-storage  "declare a `dataSource <ds> { … }`"
 //
 // The declaration keyword is `resource`.  `dataSource` names the DEPLOYABLE's

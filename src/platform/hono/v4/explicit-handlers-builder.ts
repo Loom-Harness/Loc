@@ -132,7 +132,7 @@ const externImplModule = (name: string): string =>
 function pathParamZod(t: TypeIR): string {
   if (t.kind === "id") {
     return t.valueType === "guid"
-      ? "z.string().uuid()"
+      ? "UuidString"
       : t.valueType === "int" || t.valueType === "long"
         ? "z.coerce.number().int()"
         : "z.string()";
@@ -804,6 +804,7 @@ export function buildExplicitRoutesFile(
   const problemNamed = [
     /\bframeworkProblemBody\b/.test(bodyStr) ? "frameworkProblemBody" : null,
     /\bProblemDetails\b/.test(bodyStr) ? "ProblemDetails" : null,
+    /\bUuidString\b/.test(bodyStr) ? "UuidString" : null,
     "newApp",
     /\brequireJsonContentType\(/.test(bodyStr) ? "requireJsonContentType" : null,
   ].filter((n): n is string => n !== null);
