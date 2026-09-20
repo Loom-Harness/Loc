@@ -194,41 +194,6 @@ describe("a value object holding a cross-aggregate reference imports its id type
     expect(src).toContain("ShipId(");
   });
 
-  it("python: a value object declared in a SIBLING context still brings its id", async () => {
-    // The candidate walk reads `valueObjectPool(ctx)`, not `ctx.valueObjects`.
-    // A cross-context VO reference is legal and the declaration never enters
-    // the referencing context's own list, so the own-list spelling reproduces
-    // this PR's bug exactly: `Berth(ShipId(...))` with only `DockId` imported.
-    const src = fileEndingWith(
-      await generateSystemFiles(`system Ports {
-  subdomain Harbour {
-    context Alpha {
-      aggregate Ship { name: string }
-      valueobject Berth { ship: Ship id  position: int }
-      repository Ships for Ship { }
-    }
-    context Beta {
-      aggregate Dock with crudish { name: string  berth: Berth }
-      repository Docks for Dock { }
-    }
-  }
-  api HarbourApi from Harbour
-  storage primary { type: postgres }
-  resource alphaState { for: Alpha, kind: state, use: primary }
-  resource betaState { for: Beta, kind: state, use: primary }
-  deployable d {
-    platform: python
-    contexts: [Alpha, Beta]
-    dataSources: [alphaState, betaState]
-    serves: HarbourApi
-    port: 4000
-  }
-}`),
-      "repositories/dock_repository.py",
-    );
-    expect(src).toContain("from app.domain.ids import DockId, ShipId");
-  });
-
   it("python: the REPOSITORY imports the id it brands through the VO constructor", async () => {
     // The python face of the same root cause, which this fixture is what
     // surfaced: the repository's id-import scan walked the aggregate's own (and

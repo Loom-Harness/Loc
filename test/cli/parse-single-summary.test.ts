@@ -87,7 +87,7 @@ system WarnSystem {
 `;
 
 /** The same model with the state binding removed — one phase-⑦ ERROR
- *  (`loom.persistence-mode-unsupported`) that phase ④ cannot see.  This is the
+ *  (`loom.datasource-binding-missing`) that phase ④ cannot see.  This is the
  *  audit's exact shape: a clean AST footer above a failing run. */
 const IR_BROKEN = `
 system Shop {
@@ -128,7 +128,7 @@ describe("ddd parse — one summary, counting every phase", () => {
   it("counts a phase-⑦ error in the single summary — no clean footer above it", () => {
     const { stderr, status } = parse(write(IR_BROKEN));
     expect(status).toBe(1);
-    expect(stderr).toContain("loom.persistence-mode-unsupported");
+    expect(stderr).toContain("loom.datasource-binding-missing");
 
     const lines = summaryLines(stderr);
     expect(lines, `expected exactly one summary, got: ${JSON.stringify(lines)}`).toHaveLength(1);
@@ -141,7 +141,7 @@ describe("ddd parse — one summary, counting every phase", () => {
   it("prints the summary AFTER the IR diagnostics it counts", () => {
     const { stderr } = parse(write(IR_BROKEN));
     const summary = stderr.indexOf("1 error(s), 0 warning(s).");
-    const diagnostic = stderr.indexOf("loom.persistence-mode-unsupported");
+    const diagnostic = stderr.indexOf("loom.datasource-binding-missing");
     expect(summary).toBeGreaterThan(-1);
     expect(diagnostic).toBeGreaterThan(-1);
     expect(summary, "the verdict must not precede the diagnostic").toBeGreaterThan(diagnostic);

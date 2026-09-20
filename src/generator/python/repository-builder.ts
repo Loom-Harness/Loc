@@ -367,6 +367,15 @@ export function buildPyRepositoryFile(
         // Undefined name`, and mypy the same) — freight audit D3 / M-T6.64.
         // Over-generating candidates is free: every name here is dropped again
         // by the `refersTo` body scan unless the module actually spells it.
+        // Sourced from `valueObjectPool`, not `ctx.valueObjects`, to match the
+        // `voEnumNames` line below: a VO declared in a SIBLING context is a legal
+        // reference whose declaration never enters this context's own list.  That
+        // branch is currently unobservable — the cross-context hydrate emits
+        // `berth=row.berth` against flattened `berth_ship`/`berth_position`
+        // columns, so it never reaches the brand at all (a separate, upstream
+        // defect; reported on #2864, not fixed here) — but the pool is the right
+        // source the moment it is, and costs nothing meanwhile since `refersTo`
+        // filters every candidate.
         ...valueObjectIdTargets(valueObjectPool(ctx)).map((n) => `${n}Id`),
       ].filter(refersTo),
     ),

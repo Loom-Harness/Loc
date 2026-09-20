@@ -884,6 +884,7 @@ function emitProjectFromContexts(
       (a) => pkgFor("entity", a),
       (a) => pkgFor("repository-interface", a),
       { classes: resourceEmission.classes, pkg: pkgFor("resource-client") },
+      pkgFor("domain-service"),
     )) {
       place(f.name, "workflow-service", f.content);
     }

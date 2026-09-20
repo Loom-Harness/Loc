@@ -119,38 +119,49 @@ function fromRaw(scalar: FelizPersistScalar, dflt: string): string {
     case "decimal":
     case "money":
       return `(match System.Decimal.TryParse raw with | true, v -> v | _ -> ${dflt})`;
+    // `TryParse` on both is TOTAL — junk yields the declared default rather
+    // than throwing, exactly like the numeric arms above.  The written form is
+    // the ISO-8601 / canonical-guid string the JS frontends hold verbatim.
+    case "datetime":
+      return `(match System.DateTime.TryParse raw with | true, v -> v | _ -> ${dflt})`;
+    case "guid":
+      return `(match System.Guid.TryParse raw with | true, v -> v | _ -> ${dflt})`;
     default:
       return "raw";
   }
 }
 
 /** The `string array` → `'T list` conversion in a list loader.  A string list
- *  is the identity (`List.ofArray`); the other two convert per cell. */
-function listFromCells(element: "string" | "int" | "long" | "bool"): string {
+ *  is the identity (`List.ofArray`); every other element converts per cell,
+ *  with the same TOTAL `TryParse`-or-zero shape the scalar arms use. */
+function listFromCells(element: FelizPersistScalar): string {
+  const per = (body: string) => `cells |> Array.map (fun raw -> ${body}) |> List.ofArray`;
   switch (element) {
     case "int":
-      return "cells |> Array.map (fun raw -> match System.Int32.TryParse raw with | true, v -> v | _ -> 0) |> List.ofArray";
+      return per("match System.Int32.TryParse raw with | true, v -> v | _ -> 0");
     case "long":
-      return "cells |> Array.map (fun raw -> match System.Int64.TryParse raw with | true, v -> v | _ -> 0L) |> List.ofArray";
+      return per("match System.Int64.TryParse raw with | true, v -> v | _ -> 0L");
     case "bool":
-      return 'cells |> Array.map (fun raw -> raw = "true") |> List.ofArray';
+      return per('raw = "true"');
+    case "decimal":
+    case "money":
+      return per("match System.Decimal.TryParse raw with | true, v -> v | _ -> 0m");
+    case "datetime":
+      return per(
+        "match System.DateTime.TryParse raw with | true, v -> v | _ -> System.DateTime.MinValue",
+      );
+    case "guid":
+      return per("match System.Guid.TryParse raw with | true, v -> v | _ -> System.Guid.Empty");
     default:
       return "List.ofArray cells";
   }
 }
 
-/** The F# expression rendering a Model field back to its JSON fragment. */
-function toJson(codec: FelizPersistCodec, access: string): string {
-  if (codec.kind === "list") {
-    const cell =
-      codec.element === "string"
-        ? "jsonString x"
-        : codec.element === "bool"
-          ? '(if x then "true" else "false")'
-          : "string x";
-    return `"[" + (${access} |> List.map (fun x -> ${cell}) |> String.concat ",") + "]"`;
-  }
-  switch (codec.scalar) {
+/** The F# expression rendering ONE cell of the given codec to its JSON
+ *  fragment — shared by the scalar and list arms of `toJson` so an element and
+ *  a bare field of the same type can never serialise differently. */
+function cellToJson(scalar: FelizPersistScalar, access: string): string {
+  switch (scalar) {
     case "int":
     case "long":
     case "decimal":
@@ -161,9 +172,23 @@ function toJson(codec: FelizPersistCodec, access: string): string {
     case "money":
       // A JSON STRING — the JS side holds a `Decimal`, whose `toJSON` is a string.
       return `jsonString (string ${access})`;
+    case "datetime":
+      // The ISO-8601 spelling the Feliz query encoder already emits
+      // (`wire.ts`), which is what the JS side holds in its `string` cell.
+      return `jsonString (${access}.ToString("o"))`;
+    case "guid":
+      return `jsonString (string ${access})`;
     default:
       return `jsonString ${access}`;
   }
+}
+
+/** The F# expression rendering a Model field back to its JSON fragment. */
+function toJson(codec: FelizPersistCodec, access: string): string {
+  if (codec.kind === "list") {
+    return `"[" + (${access} |> List.map (fun x -> ${cellToJson(codec.element, "x")}) |> String.concat ",") + "]"`;
+  }
+  return cellToJson(codec.scalar, access);
 }
 
 /** The query-param write for one field — the F# twin of `encodeFieldToParam`.
@@ -188,6 +213,13 @@ function urlParamJs(codec: FelizPersistCodec, key: string, arg: string): string 
     case "decimal":
       // A number always serialises — `0` is a real value, not "empty".
       return `p.set(${k},String(${arg}));`;
+    case "datetime":
+    case "guid":
+      // `urlArg` hands these over ALREADY stringified in F# (a Fable
+      // `System.DateTime` reaches JS as a `Date`, whose `String(…)` is the
+      // locale form, not ISO), so the param is written verbatim.  Always
+      // written: a `DateTime.MinValue` / `Guid.Empty` cell is a real value.
+      return `p.set(${k},${arg});`;
     default:
       // `(${arg})` is PARENTHESISED, not bare: Fable's `Emit` placeholder
       // scanner swallows a `!` immediately following `$n`, so a bare
@@ -310,9 +342,7 @@ function writer(p: FelizPersistedStore): string[] {
     // parameter.  The `[<Emit>]` body addresses arguments positionally (`$n`),
     // so the name is for the reader only.
     const sig = p.fields.map(({ field }) => `(${field.name}Arg: ${felizArgType(field)})`).join(" ");
-    const args = p.fields
-      .map(({ field }) => `model.${storeModelField(p.store.name, field.name)}`)
-      .join(" ");
+    const args = p.fields.map(({ field }) => urlArg(field, p.store.name)).join(" ");
     return [
       `    [<Fable.Core.Emit("${js}")>]`,
       `    let private ${fn}Raw ${sig} : unit = jsNative`,
@@ -345,7 +375,8 @@ function writer(p: FelizPersistedStore): string[] {
   ];
 }
 
-/** The F# argument type of a url-writer parameter (the Model field's type). */
+/** The F# argument type of a url-writer parameter — the Model field's type,
+ *  EXCEPT for the two cells `urlArg` stringifies before the boundary. */
 function felizArgType(field: StateFieldIR): string {
   const codec = felizPersistCodec(field.type);
   if (!codec) return "string";
@@ -363,6 +394,20 @@ function felizArgType(field: StateFieldIR): string {
     default:
       return "string";
   }
+}
+
+/** The F# expression handed to the url writer for one field.  Normally the
+ *  Model field itself; a `datetime` / `guid` cell is stringified HERE, in F#,
+ *  because Fable represents them as a JS `Date` / `string` and only the F# side
+ *  can spell the ISO-8601 / canonical form the JS frontends store. */
+function urlArg(field: StateFieldIR, storeName: string): string {
+  const access = `model.${storeModelField(storeName, field.name)}`;
+  const codec = felizPersistCodec(field.type);
+  if (codec?.kind === "scalar" && codec.scalar === "datetime") {
+    return `(${access}.ToString("o"))`;
+  }
+  if (codec?.kind === "scalar" && codec.scalar === "guid") return `(string ${access})`;
+  return access;
 }
 
 /** The whole `StorePersist` module — spliced into `App.fs` between `Model`

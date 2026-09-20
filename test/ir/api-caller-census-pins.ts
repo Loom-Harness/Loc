@@ -849,6 +849,19 @@ export const E2E_LESS_CORPUS_FIXTURES: readonly string[] = [
   // is the drain condition recorded there.
   "projection-fold-statements",
   "paged-nonrelational",
+  // WAVE C2 PACKET 2f (D-PROJECTION-IMPLICIT-SUB) — a folded projection AND a
+  // workflow reactor on events NO `channel` carries.  The fixture exists for
+  // the per-backend COMPILE tier and the generation gate: what had to be proven
+  // is that the DISPATCH WIRING is emitted at all (before, `deriveEventSubscriptions`
+  // returned `[]` and four backends emitted no handler while python emitted no
+  // dispatcher module), and the symbols that carry it are static —
+  // `test/generator/projection-implicit-sub.test.ts` names one per backend.
+  // Its CARRIED twin `projection.ddd` already runs the fold end to end on the
+  // behavioural tier, over the same dispatch path, so a second runtime block
+  // here would re-boot the identical fold to observe the identical rows and
+  // mint a wire golden that is an oracle for nothing this fixture is about.
+  // Drain: only if carriage ever stops being a pure delivery/durability knob.
+  "projection-implicit-sub",
   // WAVE C1 PACKET 1h (RS-26 boxing of a java workflow's primitive params) —
   // the contract under test is the emitted wire type (`Integer`, not `int`)
   // and the 422 its `@NotNull` answers, pinned by the java generator suite;
