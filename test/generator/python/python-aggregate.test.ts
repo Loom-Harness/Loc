@@ -62,17 +62,21 @@ describe("python aggregate emission", () => {
     const files = await build();
     const order = files.get("api/app/domain/order.py")!;
     expect(order).toContain("    def add_line(self, qty: int, price: Money) -> None:");
-    expect(order).toContain("        if not (self._is_mutable()):");
+    expect(order).toContain("        if not (self.is_mutable()):");
     expect(order).toContain('            raise DomainError("Precondition failed: isMutable()")');
     // Trailing re-assert.
     expect(order).toMatch(/add_line[\s\S]*?self\._assert_invariants\(\)/);
   });
 
-  it("private operations and functions are _-prefixed", async () => {
+  it("a private OPERATION is _-prefixed; a `function` is public", async () => {
     const files = await build();
     const order = files.get("api/app/domain/order.py")!;
     expect(order).toContain("    def _require_mutable(self) -> None:");
-    expect(order).toContain("    def _is_mutable(self) -> bool:");
+    // `isMutable` is a `function`, and the route / workflow call sites spell
+    // it unprefixed — so the def must too
+    // (`aggregate-function-visibility.test.ts`).
+    expect(order).toContain("    def is_mutable(self) -> bool:");
+    expect(order).not.toContain("def _is_mutable(self)");
   });
 
   it("emit lowers to event dataclass appends; new parts route through _create", async () => {
