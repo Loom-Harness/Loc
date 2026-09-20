@@ -223,8 +223,13 @@ function versionBlockFloor(version: string): bigint | null {
  *  SIBLING module hosted by the same deployable has migration files: the new
  *  module is allocated a fresh block above every block in use, so nothing on
  *  disk falls inside it.  Files outside every real block (the far-future
- *  `2999…` provenance/audit migrations) are attributed to no module, which
- *  matches guard (b)'s deliberate one-directionality. */
+ *  `2999…` provenance/audit migrations, which every backend emits for every
+ *  module) are attributed to no module at all — reading those as "this module
+ *  has history" is the same false positive one block further out.
+ *
+ *  ONLY guard (a) reads this.  Guards (b)/(c) ask whether a particular version
+ *  NUMBER is on disk, which is a question about the directory rather than
+ *  about ownership, so they read the unnarrowed list. */
 function versionsInBlockOf(onDisk: readonly string[], version: string): string[] {
   const floor = versionBlockFloor(version);
   if (floor === null) return [...onDisk];
