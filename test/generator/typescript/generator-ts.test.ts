@@ -942,7 +942,7 @@ describe("typescript generator", () => {
     expect(wf).toMatch(
       /import \{ CustomerRepository \} from "..\/db\/repositories\/customer-repository"/,
     );
-    expect(wf).toMatch(/PlaceOrderRequest = z\.object\(\{[\s\S]+?customerId: z\.string\(\)/);
+    expect(wf).toMatch(/PlaceOrderRequest = z\.object\(\{[\s\S]+?customerId: UuidString/);
 
     // Body wires repos on `db`, runs precondition, calls op, factory,
     // emit, then saves both, then dispatches events.

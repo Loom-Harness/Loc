@@ -550,6 +550,33 @@ export const DIAGNOSTIC_MESSAGES = {
     `\`expect(<row>.<field>).${p.matcher}(...)\`. Got \`${p.actual}\`, which resolves to no ` +
     "locator (a plain value, an `id`, or a nested path the page object does not expose); " +
     "compare a plain value with `toBe` instead.",
+  // `toThrow` in a UI e2e body.  Two messages, one code: the status form and
+  // the bare form fail for overlapping but distinct reasons, and a refusal that
+  // does not name the author's own argument reads as a parser quirk.
+  //
+  // The api body keeps `toThrow(<status>)` — there it is a real response status
+  // off a real `fetch`, pinned by `e2e-render.ts`'s `/→ N\b/` matcher.  The ui
+  // body has a DOM state instead, which is NOT the same assertion; conflating
+  // the two is what produced the dropped argument in the first place.
+  "loom.e2e-ui-throw-invalid#status": (p: { status: unknown }) =>
+    `'toThrow(${p.status})' pins an HTTP status, but this 'test e2e' block targets a ` +
+    "frontend, so it lowers to a Playwright spec driven through the generated page " +
+    `objects — there is no HTTP response to read ${p.status} from. The emitted form ` +
+    "validates CLIENT-side (a schema derived from the aggregate's own invariants), so an " +
+    "invalid submit issues no request at all. Assert the DOM state instead — " +
+    "`expect(<row>.<field>).toHaveText(...)` / `.toHaveCount(...)` / `.toBeVisible()` on a " +
+    "row the test has on screen — or move the negative case to a block written " +
+    `\`against <backend-deployable>\` with \`api.<aggregate>....\`, where \`toThrow(${p.status})\` ` +
+    "pins a real response status.",
+  "loom.e2e-ui-throw-invalid#bare":
+    "'toThrow()' cannot run in a 'test e2e' block that targets a frontend: the generated " +
+    "page object's `submit()` awaits the detail page's testid, which an invalid form never " +
+    "renders, so the assertion settles only when a Playwright timeout fires — it can never " +
+    "pass for the reason it was written. Assert the DOM state instead — " +
+    "`expect(<row>.<field>).toHaveText(...)` / `.toHaveCount(...)` / `.toBeVisible()` on a " +
+    "row the test has on screen — or move the negative case to a block written " +
+    "`against <backend-deployable>` with `api.<aggregate>....`, where `toThrow()` runs " +
+    "against a real response.",
   "loom.seed-abstract-aggregate": (p: { name: unknown }) =>
     `Seed row on abstract aggregate '${p.name}': an inheritance base has no create ` +
     "factory and no repository, so every backend drops the row — and elixir still commits " +

@@ -1822,6 +1822,32 @@ system P {
     test "a locator matcher needs a page read" for Thing {
       expect("x").toHaveText("x")
     }`),
+  // `toThrow` in a block whose target is a FRONTEND deployable — it lowers to
+  // the Playwright renderer, where there is no HTTP response to pin a status
+  // on.  Needs a full system (the diagnostic reads the target deployable's
+  // platform), so it cannot use `repoOnly`.
+  "loom.e2e-ui-throw-invalid": `
+system S {
+  subdomain D { context C {
+    aggregate Technician with crudish {
+      name: string
+      invariant name.length > 0
+      derived display: string = name
+    }
+    repository Technicians for Technician { }
+  } }
+
+  ui WebApp with scaffold(subdomains: [D]) { }
+  storage primary { type: postgres }
+  resource cState { for: C, kind: state, use: primary }
+
+  deployable api { platform: node, contexts: [C], dataSources: [cState], port: 3000 }
+  deployable webApp { platform: react, targets: api, ui: WebApp, port: 3001 }
+
+  test e2e "a ui body cannot pin a status" against webApp {
+    expect(ui.technicians.create({ name: "" })).toThrow(422)
+  }
+}`,
   "loom.seed-abstract-aggregate": repoOnly(`    abstract aggregate Base { name: string }
     aggregate Child extends Base with crudish { extra: int }
     repository Children for Child { }
