@@ -22,7 +22,12 @@
 
 import ts from "typescript";
 import { describe, expect, it } from "vitest";
-import { TEST_RESET_ENV, TEST_RESET_PATH } from "../../src/util/test-reset.js";
+import {
+  RESET_PRESERVED_TABLES,
+  resetTableDiscoverySql,
+  TEST_RESET_ENV,
+  TEST_RESET_PATH,
+} from "../../src/util/test-reset.js";
 import { generateSystemFiles } from "../_helpers/index.js";
 
 const SYS = (extra = "") => `
@@ -181,11 +186,14 @@ describe("the backend only registers the reset route when told to", () => {
     expect(http).toContain("'loom_timer_runs'");
   });
 
-  it("is reachable without a principal on an auth-bearing system", async () => {
+  it.each([
+    ["node", "d/auth/middleware.ts"],
+    ["python", "d/app/auth/middleware.py"],
+  ])("is reachable without a principal on an auth-bearing %s system", async (platform, path) => {
     // The reset is infra, the same class as `/health` — an auth-bearing
     // system's suite must not have to mint a principal just to empty a table.
-    // Bypassing costs nothing: outside a dev profile there is no handler
-    // behind the bypassed path.
+    // Bypassing costs nothing: where the route is not registered there is no
+    // handler behind the bypassed path.
     const out = await files(`
       system Shop {
         user { id: string  role: string }
@@ -199,7 +207,7 @@ describe("the backend only registers the reset route when told to", () => {
         storage pg { type: postgres }
         resource s { for: Orders, kind: state, use: pg }
         deployable d {
-          platform: node
+          platform: ${platform}
           contexts: [Orders]
           dataSources: [s]
           serves: OrdersApi
@@ -212,9 +220,70 @@ describe("the backend only registers the reset route when told to", () => {
         }
       }
     `);
-    const mw = out.get("d/auth/middleware.ts")!;
-    const bypass = mw.slice(mw.indexOf("const BYPASS_PREFIXES"));
+    const mw = out.get(path)!;
+    const bypass = mw.slice(mw.indexOf("BYPASS_PREFIXES"));
     expect(bypass.slice(0, bypass.indexOf("\n"))).toContain(TEST_RESET_PATH);
+  });
+});
+
+describe("the reset preserves every backend's migration ledger", () => {
+  // Found by running the seam on a SECOND backend, not by reading it.  The
+  // node backend keeps its ledger in a schema of its own
+  // (`drizzle.__drizzle_migrations`), so a schema-level exclusion covered it
+  // and the node runs were all green.  The python backend keeps its in
+  // `public.__loom_migrations`, beside the domain tables — the first python
+  // reset reported `tables: 2` and took the ledger with it.
+  //
+  // Truncating a ledger does not break the RUNNING process, which is what
+  // makes it dangerous: the damage lands on the NEXT boot, as the whole
+  // migration chain replaying against a database that already has it.  So the
+  // exclusion list is shared across backends, and this pins it — naming a
+  // table a given backend does not have costs nothing, forgetting one costs a
+  // corrupted database one restart later.
+  it("excludes the ledger table of all five backends", () => {
+    const sql = resetTableDiscoverySql();
+    for (const ledger of [
+      "__loom_migrations", // python
+      "__EFMigrationsHistory", // .NET / EF Core
+      "schema_migrations", // elixir / Ecto
+      "flyway_schema_history", // java / Flyway
+    ]) {
+      expect(RESET_PRESERVED_TABLES).toContain(ledger);
+      expect(sql).toContain(`'${ledger}'`);
+    }
+    // node / drizzle is the one that IS covered by a schema exclusion.
+    expect(sql).toContain("'drizzle'");
+  });
+
+  it("emits those exclusions into every backend that carries the route", async () => {
+    // `gate` is the line that must WRAP the route, asserted separately from
+    // the route itself: the emitters build the handler unconditionally and
+    // decide only how it is guarded, so a mutation that neuters the guard
+    // leaves the path string in place and an assertion on the path alone
+    // stays green. (Measured — that is exactly what the first version of this
+    // test did.)
+    const backends: Array<{ platform: string; path: string; gate: RegExp }> = [
+      {
+        platform: "node",
+        path: "d/http/index.ts",
+        gate: /if \(testResetEnabled\) \{/,
+      },
+      {
+        platform: "python",
+        path: "d/app/main.py",
+        gate: /^if _TEST_RESET_ENABLED:$/m,
+      },
+    ];
+    for (const { platform, path, gate } of backends) {
+      const out = await files(WITH_E2E.replace("platform: node", `platform: ${platform}`));
+      const src = out.get(path)!;
+      expect(src, `${platform} emits the reset`).toContain(TEST_RESET_PATH);
+      expect(src, `${platform} preserves the ledgers`).toContain(resetTableDiscoverySql());
+      expect(src, `${platform} guards the route`).toMatch(gate);
+      // …and the guard reads the shared switch, so the contract is one rule
+      // rather than five spellings that drift apart.
+      expect(src, `${platform} reads ${TEST_RESET_ENV}`).toContain(TEST_RESET_ENV);
+    }
   });
 });
 

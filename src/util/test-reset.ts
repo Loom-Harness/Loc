@@ -58,17 +58,28 @@
 //
 //     LOOM_TEST_RESET=1   → registered
 //     LOOM_TEST_RESET=0   → not registered
-//     unset               → registered iff the host platform's own profile is
-//                           not production
+//     unset               → registered IFF the host platform has a production
+//                           profile marker of its own AND it says this is not
+//                           production
 //
-// The default means the audit's recipe (run the backend straight out of the
-// tree) keeps working with nothing new to set, while a real deployment is
+// The default lets the audit's recipe — run the backend straight out of the
+// tree — keep working with nothing new to set, while a real deployment is
 // closed BY DEFAULT rather than by remembering to close it.  The explicit `1`
-// exists because the generated container image pins a production profile —
+// exists because each generated container image pins a production profile —
 // correctly, it is a production image — so the generated `docker-compose.yml`,
-// which is a LOCAL dev stack built from that same image, opts in by name.
+// which is the LOCAL dev stack built from that same image, opts in by name.
 // That is a line a reader can see in the compose file and delete, which is
 // worth more here than an invisible inference from the profile alone.
+//
+// The "iff the platform HAS a marker" half is load-bearing, not a hedge.  Node
+// (`NODE_ENV`), .NET (`ASPNETCORE_ENVIRONMENT`), Java (the active Spring
+// profile) and Elixir (the release's `MIX_ENV`) each ship a profile an
+// operator already sets, so the default can read it.  The Python backend ships
+// none, so there is nothing to read — and a default of "on" there would leave
+// a truncate endpoint in every deployment.  It therefore requires the explicit
+// `1`, which makes its gate strictly TIGHTER than the others', never looser.
+// Inventing an `APP_ENV` for that one backend would have made the rule uniform
+// by adding a config surface nothing else uses, which is the worse trade.
 // ---------------------------------------------------------------------------
 
 /** Where the reset endpoint mounts.  Under `/__loom/`, NOT under
@@ -105,6 +116,26 @@ export const RESET_PRESERVED_SCHEMAS = [
 /**
  * Individual tables a reset must not touch, wherever they live.
  *
+ * EVERY BACKEND'S MIGRATION LEDGER IS HERE, not just the one whose backend you
+ * happen to be testing.  Only the node backend keeps its ledger in a schema of
+ * its own (`drizzle.__drizzle_migrations`, covered by
+ * {@link RESET_PRESERVED_SCHEMAS}); the other four keep theirs in an ordinary
+ * table beside the domain tables, so a schema-level exclusion misses them:
+ *
+ *   • `__loom_migrations`     — python (`generator/python/emit/migrations.ts`)
+ *   • `__EFMigrationsHistory` — .NET / EF Core
+ *   • `schema_migrations`     — elixir / Ecto
+ *   • `flyway_schema_history` — java / Flyway
+ *
+ * Truncating one does not break the RUNNING process — the schema it describes
+ * is still there — which is exactly what makes it dangerous: the damage shows
+ * up on the NEXT boot, as the whole migration chain replaying against a
+ * database that already has it.  The list is shared rather than per-backend
+ * because naming a table a given backend does not have costs nothing, while
+ * forgetting one costs a corrupted database one restart later.  (Measured:
+ * the first python run reported `tables: 2`, and the second was
+ * `public.__loom_migrations`.)
+ *
  * `loom_timer_runs` is the timer scheduler's watermark (`scheduling.md`).
  * Truncating it does not lose test data — it makes the next tick write a
  * fresh baseline instead of replaying the boundary it missed, silently
@@ -116,7 +147,13 @@ export const RESET_PRESERVED_SCHEMAS = [
  * empty database — a suite whose fixtures assume seeded rows must still find
  * them.  See the per-backend reset handlers.
  */
-export const RESET_PRESERVED_TABLES = ["loom_timer_runs"] as const;
+export const RESET_PRESERVED_TABLES = [
+  "loom_timer_runs",
+  "__loom_migrations",
+  "__EFMigrationsHistory",
+  "schema_migrations",
+  "flyway_schema_history",
+] as const;
 
 /**
  * The table-discovery query every backend's reset handler runs.
