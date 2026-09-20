@@ -2519,7 +2519,7 @@ it.
 | 9 | `D-LONG-AVG-DEFAULTS` | declared 2^53 ceiling for `long`; projection `avg` over money retypes to `money` |
 | 10 | `D-DAPPER-ALTER` | build the ALTER path in phase ⑨; the widened refusal lands first |
 | 11 | `D-PROJECTION-IMPLICIT-SUB` | an `on(Event)` subscribes in-process with or without a channel |
-| 12 | `D-FIRST-ON-EMPTY` | `first` is partial and fails on empty; `firstOrNull` is total; mint **RS-36** |
+| 12 | `D-FIRST-ON-EMPTY` | `first` is partial and fails on empty; `firstOrNull` is total; **RS-36** minted — APPLIED (packet 2n) |
 | 13 | `D-ABSENT-JOIN-DATETIME-WIRE` | absent join value = wire `null` everywhere (RS-34 ratified); datetimes ship milliseconds; mint **RS-37** |
 | 14 | `D-FLUTTER-BEARER` | Flutter native = bearer, Flutter web = cookie (a RULE 2 amendment) |
 | 15 | `D-MISC-C0` | four small rulings: the .NET entry-point boundary, `connection:` semantics, per-op OpenAPI tags, `scopeId` |
@@ -3210,7 +3210,9 @@ B20; [`language-gaps-2026-08.md`](audits/language-gaps-2026-08.md) (the
 
 ## D-FIRST-ON-EMPTY — `first` is partial and fails on an empty collection; `firstOrNull` is the total form
 
-**Status:** proposed (default applies 48 h after merge unless overridden).
+**Status:** PINNED — APPLIED (wave C2 packet 2n).  RS-36 is minted in
+[`conformance-semantics.md`](conformance-semantics.md); ledger row `F2-EXPR-7`
+is `done`.
 
 **Question.** `.first` on an empty collection throws on three backends and yields
 an `undefined`/`nil` typed as non-optional on two — which is the contract?
@@ -3262,6 +3264,20 @@ row `F2-EXPR-7` (its `fix` field poses exactly this fork);
 [`conformance-semantics.md`](conformance-semantics.md) RS-28, RS-34;
 `src/util/collection-ops.ts`, `src/util/intrinsics.ts`, the five
 `render-expr.ts` leaf tables and `src/generator/_expr/js-collection-ops.ts`.
+
+**As built (wave C2 packet 2n).** Two things the ruling did not anticipate.
+(1) The node guard could not be a ternary: `recv.length > 0 ? recv[0] : …`
+emits the whole receiver CHAIN twice, and that table is shared with the four JS
+frontend walkers, where the receiver can contain hook calls — so it is an arrow
+IIFE taking the receiver as a parameter, and the "evaluated exactly once"
+property is itself pinned. (2) The assertion that actually catches the elixir
+shape is not "`first` raises" but "`first` and `firstOrNull` render
+DIFFERENTLY": `List.first/1` reads as a plausible implementation of either op,
+so a raise-only gate would have passed on the defect. The FRONTEND half named
+in Consequences is vacuous today — `loom.frontend-collection-op-unsupported`
+refuses every stdlib collection op in a page body — so the shared table's guard
+is backend-reachable only; that is recorded in RS-36 rather than left as a
+claim the frontends were changed.
 
 ---
 
