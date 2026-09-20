@@ -14,7 +14,6 @@ import type {
   ExprIR,
   SystemIR,
 } from "../../types/loom-ir.js";
-import { exprUsesCurrentUser } from "../../types/loom-ir.js";
 import { walkExprDeep } from "../../util/walk.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
 
@@ -56,43 +55,6 @@ const PRINCIPAL_NOUN: Readonly<Record<string, string>> = {
 
 const STAMP_FAMILIES: readonly string[] = ["java", "dotnet", "node", "python", "elixir"];
 
-/** The magic identifier a principal stamp reads. */
-const CURRENT_USER = "currentUser";
-
-/** Does this stamp RHS read the request principal?
- *
- *  `exprUsesCurrentUser` matches the RESOLVED reference
- *  (`refKind: "current-user"`), which lowering only produces when the system
- *  declares a `user { ... }` block — `lowerRefEnv` registers the magic
- *  identifier under `if (env.user)`.  So on the model this rule most
- *  obviously targets — a principal stamp with NO principal declared at all —
- *  the stamp lowers to `{ kind: "ref", name: "currentUser", refKind:
- *  "unknown" }` and the resolved matcher silently returns false.
- *
- *  The effect was an INVERTED guard: `auditable` + `user {}` + no
- *  `auth: required` was rejected, while the strictly worse `auditable` with
- *  no `user {}` at all passed validation and emitted a backend referencing
- *  an undefined `currentUser` (19 `tsc` errors on Hono — TS2304 plus a
- *  phantom `Ids.UserId` that `domain/ids.ts` never exports).  Adding auth
- *  configuration turned a clean parse into an error.
- *
- *  So match the unresolved spelling too.  `refKind: "unknown"` + the exact
- *  magic name can only be the principal: `currentUser` is a reserved
- *  identifier, not bindable as a field, parameter or let-binding, so a ref
- *  carrying that name and nothing to resolve to IS a principal read whose
- *  principal is missing.  A model that DOES declare `user {}` resolves the
- *  ref and matches on the first arm, so this adds no new rejection there. */
-function stampReadsPrincipal(e: ExprIR | undefined): boolean {
-  if (exprUsesCurrentUser(e)) return true;
-  let found = false;
-  walkExprDeep(e, (node) => {
-    if (node.kind === "ref" && node.refKind === "unknown" && node.name === CURRENT_USER) {
-      found = true;
-    }
-  });
-  return found;
-}
-
 export function validateStampSupport(sys: SystemIR, diags: LoomDiagnostic[]): void {
   const ctxByName = new Map<string, BoundedContextIR>();
   for (const m of sys.subdomains) for (const c of m.contexts) ctxByName.set(c.name, c);
@@ -109,7 +71,7 @@ export function validateStampSupport(sys: SystemIR, diags: LoomDiagnostic[]): vo
         const stamps = enriched.contextStamps ?? [];
         if (stamps.length === 0) continue;
         const usesPrincipal = stamps.some((r) =>
-          r.assignments.some((a) => stampReadsPrincipal(a.value)),
+          r.assignments.some((a) => readsPrincipal(a.value)),
         );
         if (usesPrincipal && !authed) {
           diags.push({
@@ -189,11 +151,21 @@ export function validateStampSupport(sys: SystemIR, diags: LoomDiagnostic[]): vo
 
 const GUARD_FAMILIES: readonly string[] = ["java", "dotnet", "node", "python", "elixir"];
 
-/** True when this gate reads the request principal — under EITHER lowering.
- *  See the note above: with no auth the ref never resolves, so the
- *  `refKind`-only test is blind to precisely the failing case. */
+/** True when this expression reads the request principal — under EITHER
+ *  lowering.  See the note above: with no auth the ref never resolves, so the
+ *  `refKind`-only test is blind to precisely the failing case.
+ *
+ *  Shared by BOTH rules in this file.  The stamp arm used
+ *  `exprUsesCurrentUser` (the resolved spelling only) and so had the same
+ *  blind spot, in its worst case: `auditable` with no `user {}` block at all
+ *  passed validation and emitted a Hono backend with 19 `tsc` errors (TS2304
+ *  on an undefined `currentUser`, plus a phantom `Ids.UserId` that
+ *  `domain/ids.ts` never exports), while the strictly BETTER model —
+ *  `auditable` + `user {}` + no `auth: required` — was correctly rejected.
+ *  Adding auth configuration turned a clean parse into an error.  One
+ *  predicate for both arms is what keeps that from drifting apart again. */
 
-function guardReadsPrincipal(e: ExprIR | undefined): boolean {
+function readsPrincipal(e: ExprIR | undefined): boolean {
   let found = false;
   walkExprDeep(e, (node) => {
     if (node.kind === "ref" && (node.refKind === "current-user" || node.name === "currentUser")) {
@@ -241,7 +213,7 @@ export function validateGuardPrincipalWithoutAuth(sys: SystemIR, diags: LoomDiag
         ] as const) {
           for (const op of actions) {
             const guarded = (op.statements ?? []).some(
-              (s) => s.kind === "requires" && guardReadsPrincipal(s.expr),
+              (s) => s.kind === "requires" && readsPrincipal(s.expr),
             );
             // A canonical lifecycle action's synthesised `name` IS its keyword,
             // so this reads `create Doc.create` / `destroy Doc.archive` /
@@ -252,13 +224,13 @@ export function validateGuardPrincipalWithoutAuth(sys: SystemIR, diags: LoomDiag
       }
       for (const repo of ctx.repositories) {
         for (const f of repo.finds) {
-          if (guardReadsPrincipal(f.requires)) report(ctxName, `find ${repo.name}.${f.name}`);
+          if (readsPrincipal(f.requires)) report(ctxName, `find ${repo.name}.${f.name}`);
         }
       }
       // A query-time projection's gate is the twin of `FindIR.requires`, and
       // lives on its comprehension rather than on the projection itself.
       for (const p of ctx.projections ?? []) {
-        if (guardReadsPrincipal(p.query?.requires)) report(ctxName, `projection ${p.name}`);
+        if (readsPrincipal(p.query?.requires)) report(ctxName, `projection ${p.name}`);
       }
     }
   }
