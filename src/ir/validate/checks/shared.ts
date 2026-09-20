@@ -227,11 +227,12 @@ export function firstNonBooleanPredicate(e: ExprIR): string | null {
 function nonBooleanTypeLabel(t: TypeIR | undefined, what: string): string | null {
   if (!t) return null;
   if (t.kind === "primitive") return t.name === "bool" ? null : `${what} (${t.name})`;
-  if (t.kind === "optional") return t.inner.kind === "primitive" && t.inner.name === "bool"
-    ? // A `bool?` in predicate position is a three-valued column; SQL's WHERE
-      // drops the NULL rows, which is the reading every backend already emits.
-      null
-    : `${what} (${t.kind})`;
+  if (t.kind === "optional")
+    return t.inner.kind === "primitive" && t.inner.name === "bool"
+      ? // A `bool?` in predicate position is a three-valued column; SQL's WHERE
+        // drops the NULL rows, which is the reading every backend already emits.
+        null
+      : `${what} (${t.kind})`;
   return `${what} (${t.kind})`;
 }
 
