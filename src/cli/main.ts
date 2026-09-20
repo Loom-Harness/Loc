@@ -549,6 +549,17 @@ interface RunResult {
 
 type GenerateTarget = "ts" | "dotnet" | "system";
 
+/** The ledger path to NAME in a guard refusal.  Relative to the cwd when that
+ *  is actually shorter and readable, absolute otherwise: a source tree beside
+ *  (or above) the cwd otherwise yields a `../../../..` chain the operator has
+ *  to decode before they can go look at the file the message blames. */
+function displayLedgerPath(sourceDir: string): string {
+  const abs = migrationLedgerPath(sourceDir);
+  const rel = path.relative(process.cwd(), abs);
+  if (!rel) return LEDGER_REL_PATH;
+  return rel.startsWith("..") || path.isAbsolute(rel) ? abs : rel;
+}
+
 async function runGenerate(
   target: GenerateTarget,
   file: string,
@@ -667,7 +678,7 @@ async function runGenerate(
         // directory (no snapshot AND no files reads as a first run). The
         // ledger beside the source is the fact they are missing.
         recordedHistory: readMigrationLedger(sourceDir),
-        ledgerPath: path.relative(process.cwd(), migrationLedgerPath(sourceDir)) || LEDGER_REL_PATH,
+        ledgerPath: displayLedgerPath(sourceDir),
         sourcemap: options.sourcemap,
         inlineSources: options.inlineSources,
         // Harmless to pass unconditionally — v3 sidecar emission is still

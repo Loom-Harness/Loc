@@ -42,6 +42,7 @@ import {
   migrationLedgerPath,
   parseMigrationLedger,
   readMigrationLedger,
+  schemaFingerprint,
   serializeMigrationLedger,
   writeMigrationLedger,
 } from "../../src/system/migration-ledger.js";
@@ -98,6 +99,38 @@ function ledger(modules: Record<string, string[]>): MigrationHistoryLedger {
   };
 }
 
+/** A ledger whose record carries the schema fingerprint of `next` — what a
+ *  ledger written by this toolchain actually looks like.  The bare `ledger()`
+ *  above omits it on purpose: a record with no fingerprint cannot prove
+ *  reproduction, and the guard reads that conservatively. */
+function ledgerFor(
+  module: string,
+  versions: string[],
+  next: SchemaSnapshot,
+): MigrationHistoryLedger {
+  return {
+    schemaVersion: 1,
+    modules: { [module]: { versions, schemaHash: schemaFingerprint(next) } },
+  };
+}
+
+/** A one-table schema whose column list is the only thing that varies. */
+function ordersSchema(columns: string[]): SchemaSnapshot {
+  return {
+    schemaVersion: 1,
+    tables: [
+      {
+        name: "orders",
+        ownerModule: "Sales",
+        columns: columns.map((c) => ({ name: c, type: { kind: "text" } as const, nullable: true })),
+        primaryKey: ["id"],
+        foreignKeys: [],
+        indexes: [],
+      },
+    ],
+  };
+}
+
 // ---------------------------------------------------------------------------
 // The ledger itself
 // ---------------------------------------------------------------------------
@@ -148,7 +181,9 @@ describe("buildMigrationLedger", () => {
 describe("ledger serialization", () => {
   it("round-trips, sorted and deterministic", () => {
     const text = serializeMigrationLedger(ledger({ Sales: ["20260102000000", "20260101000000"] }));
-    expect(text).toBe(serializeMigrationLedger(ledger({ Sales: ["20260101000000"].concat(["20260102000000"]) })));
+    expect(text).toBe(
+      serializeMigrationLedger(ledger({ Sales: ["20260101000000"].concat(["20260102000000"]) })),
+    );
     const parsed = parseMigrationLedger(text);
     expect("ledger" in parsed && parsed.ledger.modules.Sales?.versions).toEqual([
       "20260101000000",
@@ -164,7 +199,9 @@ describe("ledger serialization", () => {
   it("rejects a malformed ledger", () => {
     expect(() => parseMigrationLedger("{}")).toThrow(/schemaVersion/);
     expect(() => parseMigrationLedger('{"schemaVersion":1}')).toThrow(/modules/);
-    expect(() => parseMigrationLedger('{"schemaVersion":1,"modules":{"S":{}}}')).toThrow(/versions/);
+    expect(() => parseMigrationLedger('{"schemaVersion":1,"modules":{"S":{}}}')).toThrow(
+      /versions/,
+    );
   });
 });
 
@@ -271,6 +308,104 @@ describe("checkMigrationBaseline — guard (d) recorded history over a tree with
         recordedHistory: ledger({}),
       }),
     ).not.toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Guard (d) compares CONTENT, not presence
+// ---------------------------------------------------------------------------
+
+describe("checkMigrationBaseline — guard (d) is content-aware", () => {
+  // The two runs guard (d) sees are IDENTICAL from inside the output tree —
+  // clean dir, no snapshot, no files, a fresh "Initial".  Only the schema the
+  // Initial carries tells them apart, so a presence-only guard would have to
+  // refuse both, and refusing the first one breaks every reproducible build
+  // that does not carry its output tree (CI, a second environment, a clone).
+  const unchanged = ordersSchema(["id", "total"]);
+  const changed = ordersSchema(["id", "total", "phone"]);
+
+  it("stays SILENT when the Initial reproduces the recorded one byte for byte", () => {
+    // Same model, same version, same schema → the tree this run writes IS the
+    // tree the ledger describes.  Nothing anywhere can be made wrong by it.
+    const migrations = [migrationsIR({ module: "Sales", baseline: null, next: unchanged })];
+    expect(() =>
+      checkMigrationBaseline(migrations, memoryMigrationArtifactIndex(), {
+        recordedHistory: ledgerFor("Sales", ["20260101000000"], unchanged),
+      }),
+    ).not.toThrow();
+  });
+
+  it("REFUSES when the schema moved — the F-029 shape", () => {
+    // Same version tag, different SQL under it. This is the outage.
+    const migrations = [migrationsIR({ module: "Sales", baseline: null, next: changed })];
+    expect(() =>
+      checkMigrationBaseline(migrations, memoryMigrationArtifactIndex(), {
+        recordedHistory: ledgerFor("Sales", ["20260101000000"], unchanged),
+      }),
+    ).toThrow(/refusing to re-baseline module 'Sales'/);
+  });
+
+  it("REFUSES a multi-migration history even when the schema matches", () => {
+    // The end state agrees, but one "Initial" cannot reproduce `Initial +
+    // delta`: a database that applied only the Initial would never receive
+    // the delta, and the file that would have delivered it is gone from the
+    // tree.  Collapsing history is a re-baseline, not a reproduction.
+    const migrations = [migrationsIR({ module: "Sales", baseline: null, next: changed })];
+    expect(() =>
+      checkMigrationBaseline(migrations, memoryMigrationArtifactIndex(), {
+        recordedHistory: ledgerFor("Sales", ["20260101000000", "20260101500001"], changed),
+      }),
+    ).toThrow(/refusing to re-baseline module 'Sales'/);
+  });
+
+  it("REFUSES when the module's version BLOCK has shifted under it", () => {
+    // Schema identical, but this run would write the Initial at a different
+    // version than the recorded one — it is not reproducing that tree.
+    const migrations = [
+      migrationsIR({ module: "Sales", baseline: null, next: unchanged, version: "20260102000000" }),
+    ];
+    expect(() =>
+      checkMigrationBaseline(migrations, memoryMigrationArtifactIndex(), {
+        recordedHistory: ledgerFor("Sales", ["20260101000000"], unchanged),
+      }),
+    ).toThrow(/refusing to re-baseline module 'Sales'/);
+  });
+
+  it("REFUSES a record with no fingerprint — an unproven reproduction is not one", () => {
+    const migrations = [migrationsIR({ module: "Sales", baseline: null, next: unchanged })];
+    expect(() =>
+      checkMigrationBaseline(migrations, memoryMigrationArtifactIndex(), {
+        recordedHistory: ledger({ Sales: ["20260101000000"] }),
+      }),
+    ).toThrow(/refusing to re-baseline module 'Sales'/);
+  });
+});
+
+describe("schemaFingerprint", () => {
+  it("ignores the fields that move on every regen", () => {
+    // The whole point: a fresh tree and an incremental one describe the same
+    // schema with completely different `lastVersion` / `migrationHistory` /
+    // `versionBlock`.  If those fed the digest it could never match.
+    const base = ordersSchema(["id", "total"]);
+    const stamped: SchemaSnapshot = {
+      ...base,
+      lastVersion: "20260101500001",
+      migrationHistory: [{ version: "20260101000000", name: "Initial" }],
+      versionBlock: 3,
+      appliedDataMigrations: ["0#0"],
+    };
+    expect(schemaFingerprint(stamped)).toBe(schemaFingerprint(base));
+  });
+
+  it("ignores table ORDER but not table content", () => {
+    const a = ordersSchema(["id", "total"]);
+    const b = ordersSchema(["id", "total"]);
+    const two = { ...a, tables: [...a.tables, { ...b.tables[0]!, name: "lines" }] };
+    const twoReversed = { ...two, tables: [...two.tables].reverse() };
+    expect(schemaFingerprint(twoReversed)).toBe(schemaFingerprint(two));
+    expect(schemaFingerprint(ordersSchema(["id", "total", "phone"]))).not.toBe(
+      schemaFingerprint(a),
+    );
   });
 });
 
@@ -477,7 +612,9 @@ describe("generate system into a CLEAN output directory (F-029)", () => {
       existingMigrations: fsMigrationArtifactIndex(dir, v2),
       recordedHistory: first.migrationLedger,
     });
-    const delta = [...second.files].filter(([p]) => /db\/migrations\/\d+_sales_(?!initial)/.test(p));
+    const delta = [...second.files].filter(([p]) =>
+      /db\/migrations\/\d+_sales_(?!initial)/.test(p),
+    );
     expect(delta).toHaveLength(1);
     expect(delta[0]![1]).toMatch(/ALTER TABLE .* ADD COLUMN "note"/);
     // The initial is untouched (not re-emitted at all) and the ledger grows.

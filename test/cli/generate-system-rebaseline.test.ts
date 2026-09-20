@@ -51,7 +51,12 @@ function generate(
 
 const migrationFiles = (outDir: string): string[] => {
   const dir = path.join(outDir, "api", "db", "migrations");
-  return fs.existsSync(dir) ? fs.readdirSync(dir).filter((f) => f.endsWith(".sql")).sort() : [];
+  return fs.existsSync(dir)
+    ? fs
+        .readdirSync(dir)
+        .filter((f) => f.endsWith(".sql"))
+        .sort()
+    : [];
 };
 
 describe("ddd generate system — migration baseline across output directories", () => {
@@ -128,9 +133,9 @@ describe("ddd generate system — migration baseline across output directories",
     // A fresh single Initial for a fresh database, carrying the new column.
     const files = migrationFiles(outB);
     expect(files).toHaveLength(1);
-    expect(fs.readFileSync(path.join(outB, "api", "db", "migrations", files[0]!), "utf8")).toContain(
-      '"note"',
-    );
+    expect(
+      fs.readFileSync(path.join(outB, "api", "db", "migrations", files[0]!), "utf8"),
+    ).toContain('"note"');
     // …and the ledger now describes THAT tree, so the next delta in it is not
     // refused for re-using a version the discarded history had spent.
     expect(JSON.parse(fs.readFileSync(ledgerFile, "utf8")).modules.Sales.versions).toHaveLength(1);
@@ -138,5 +143,70 @@ describe("ddd generate system — migration baseline across output directories",
     const next = generate(sourceFile, outB);
     expect(next.status, next.stderr).toBe(0);
     expect(migrationFiles(outB)).toHaveLength(2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The other half of the guard: an UNCHANGED model into a fresh directory is a
+// reproducible build, not a re-baseline.
+// ---------------------------------------------------------------------------
+
+describe("ddd generate system — regenerating an unchanged model into a clean directory", () => {
+  let root: string;
+  let sourceFile: string;
+  let outA: string;
+  let outB: string;
+
+  beforeAll(() => {
+    root = fs.mkdtempSync(path.join(os.tmpdir(), "loom-cli-f029-det-"));
+    const srcDir = path.join(root, "app");
+    fs.mkdirSync(srcDir);
+    sourceFile = path.join(srcDir, "main.ddd");
+    outA = path.join(root, "out-a");
+    outB = path.join(root, "out-b");
+    fs.writeFileSync(sourceFile, model());
+    const first = generate(sourceFile, outA);
+    expect(first.status, first.stderr).toBe(0);
+  });
+
+  it("is SILENT, and reproduces the first tree byte for byte", () => {
+    // CI, a second environment, or a clone that never committed the output
+    // tree all take this path. A presence-only guard would refuse it — and
+    // then `-o` would be a one-directory lock. The Initial this run writes IS
+    // the Initial the ledger records, so there is nothing to refuse.
+    const { status, stderr } = generate(sourceFile, outB);
+    expect(status, stderr).toBe(0);
+    expect(stderr).not.toMatch(/re-baseline|refus/i);
+    expect(migrationFiles(outB)).toEqual(migrationFiles(outA));
+    const read = (dir: string, f: string): string =>
+      fs.readFileSync(path.join(dir, "api", "db", "migrations", f), "utf8");
+    for (const f of migrationFiles(outA)) expect(read(outB, f)).toBe(read(outA, f));
+    expect(read(outB, "meta/_journal.json")).toBe(read(outA, "meta/_journal.json"));
+  });
+
+  it("but refuses once the model has MOVED — same tree, one field later", () => {
+    // The only difference from the case above is the schema the re-issued
+    // Initial would carry. That is the whole of F-029.
+    fs.writeFileSync(sourceFile, model("phone: string?"));
+    const outC = path.join(root, "out-c");
+    const { status, stderr } = generate(sourceFile, outC);
+    expect(status, "a changed model into a clean dir must fail the command").toBe(1);
+    expect(stderr).toMatch(/refusing to re-baseline module 'Sales'/);
+    expect(fs.existsSync(outC)).toBe(false);
+  });
+
+  it("and refuses to COLLAPSE a multi-migration history, unchanged model or not", () => {
+    // In-place first, so the recorded history is Initial + delta…
+    const inPlace = generate(sourceFile, outA);
+    expect(inPlace.status, inPlace.stderr).toBe(0);
+    expect(migrationFiles(outA)).toHaveLength(2);
+    // …then the SAME model into a clean dir. The end schema matches, but one
+    // Initial cannot reproduce two migrations: a database that applied only
+    // the first would never receive the second, and the file that delivers it
+    // is not in the tree this run would write.
+    const outD = path.join(root, "out-d");
+    const { status, stderr } = generate(sourceFile, outD);
+    expect(status, "collapsing a two-migration history is a re-baseline").toBe(1);
+    expect(stderr).toMatch(/refusing to re-baseline module 'Sales'/);
   });
 });

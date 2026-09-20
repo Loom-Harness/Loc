@@ -315,11 +315,15 @@ function emitSystem(
   // supplied a ledger.  `checkMigrationBaseline` with an empty index simply
   // skips (a)-(c).
   if (options.existingMigrations || options.recordedHistory) {
-    checkMigrationBaseline(migrations, options.existingMigrations ?? memoryMigrationArtifactIndex(), {
-      allowRebaseline: options.allowRebaseline,
-      recordedHistory: options.recordedHistory,
-      ledgerPath: options.ledgerPath,
-    });
+    checkMigrationBaseline(
+      migrations,
+      options.existingMigrations ?? memoryMigrationArtifactIndex(),
+      {
+        allowRebaseline: options.allowRebaseline,
+        recordedHistory: options.recordedHistory,
+        ledgerPath: options.ledgerPath,
+      },
+    );
   }
   options.collectMigrations?.push(...migrations);
   for (const m of migrations) {

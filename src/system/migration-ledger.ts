@@ -1,7 +1,8 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 
-import type { MigrationsIR } from "../ir/types/migrations-ir.js";
+import type { MigrationsIR, SchemaSnapshot } from "../ir/types/migrations-ir.js";
+import { serializeSnapshot } from "./snapshot.js";
 
 // ---------------------------------------------------------------------------
 // Source-side migration-history ledger (F-029).
@@ -56,18 +57,23 @@ export interface ModuleHistoryRecord {
   schemaHash?: string;
 }
 
-/** Stable fingerprint of a module's schema — the `tables` of its snapshot,
- *  which is what an "Initial" migration is rendered from.  Deliberately NOT
- *  a crypto hash: this file is imported by the browser playground through
- *  `system/index.ts`, so it stays dependency-free.  A 53-bit cyrb-style
- *  digest over the canonical snapshot JSON; it only ever compares a schema
- *  against a previous form of ITSELF, so the collision budget is ample.
+/** Stable fingerprint of a module's SCHEMA — and only the schema.
  *
- *  `lastVersion` / `migrationHistory` / `versionBlock` are excluded by
- *  construction (only `tables` is read): those move on every regen and would
- *  make the fingerprint useless for the comparison it exists for. */
-export function schemaFingerprint(snapshot: { tables?: unknown }): string {
-  const json = JSON.stringify(snapshot.tables ?? []);
+ *  Canonicalised through {@link serializeSnapshot} over a snapshot carrying
+ *  nothing but `tables`, so the digest is exactly the persisted schema: the
+ *  table order is normalised, the derivation-only column stamps are stripped,
+ *  and `lastVersion` / `migrationHistory` / `versionBlock` /
+ *  `appliedDataMigrations` are excluded BY CONSTRUCTION.  Those four move on
+ *  every regen and differ between a fresh tree and an incremental one for the
+ *  same model — including them would make the fingerprint useless for the one
+ *  comparison it exists for.
+ *
+ *  Deliberately NOT a crypto hash: this module is reachable from the browser
+ *  playground through `system/index.ts`, so it stays dependency-free.  A
+ *  53-bit cyrb-style digest; it only ever compares a schema against a previous
+ *  form of ITSELF, so the collision budget is ample. */
+export function schemaFingerprint(snapshot: Pick<SchemaSnapshot, "tables">): string {
+  const json = serializeSnapshot({ schemaVersion: 1, tables: snapshot.tables });
   let h1 = 0xdeadbeef;
   let h2 = 0x41c6ce57;
   for (let i = 0; i < json.length; i++) {

@@ -3,8 +3,8 @@ import * as path from "node:path";
 
 import type { EnrichedLoomModel } from "../ir/types/loom-ir.js";
 import type { MigrationsIR } from "../ir/types/migrations-ir.js";
-import type { MigrationHistoryLedger } from "./migration-ledger.js";
-import { LEDGER_REL_PATH } from "./migration-ledger.js";
+import type { MigrationHistoryLedger, ModuleHistoryRecord } from "./migration-ledger.js";
+import { LEDGER_REL_PATH, schemaFingerprint } from "./migration-ledger.js";
 import { BASE_TIMESTAMP, MODULE_VERSION_STRIDE } from "./migrations-builder.js";
 
 // ---------------------------------------------------------------------------
@@ -33,8 +33,10 @@ import { BASE_TIMESTAMP, MODULE_VERSION_STRIDE } from "./migrations-builder.js";
 //   (c) reject a version number that already exists on disk (the tell of a
 //       stale baseline reissuing a used version);
 //   (d) refuse "Initial" when the SOURCE-SIDE LEDGER records history for the
-//       module, whatever the output tree holds — the F-029 case, where a
-//       CLEAN `-o` has no snapshot and no files and so reads as a first run;
+//       module that this run would NOT reproduce, whatever the output tree
+//       holds — the F-029 case, where a CLEAN `-o` has no snapshot and no
+//       files and so reads as a first run.  (d) is deliberately CONTENT-aware
+//       rather than presence-aware: see `reproducesRecordedHistory`;
 //   (e) refuse a version the ledger records but this output tree lacks — an
 //       older copy of the tree, internally consistent but behind the model.
 //
@@ -234,6 +236,45 @@ function versionsInBlockOf(onDisk: readonly string[], version: string): string[]
   });
 }
 
+/** Does the "Initial" this run is about to emit REPRODUCE the history the
+ *  ledger records — byte for byte — rather than replace it?
+ *
+ *  This is the difference between the two things that reach guard (d) looking
+ *  identical from inside the output tree, and it is why the guard compares
+ *  CONTENT, not presence:
+ *
+ *   - **Legitimate determinism.**  Generating an UNCHANGED model into a fresh
+ *     directory is a reproducible build (CI, a second environment, a clone
+ *     that never committed the output tree).  The tree it produces is the tree
+ *     that already exists, so nothing anywhere can be made wrong by it, and it
+ *     must stay silent — refusing here would make `-o` a one-directory lock
+ *     and break every build that does not carry its output.
+ *   - **A silent re-baseline (F-029).**  The model MOVED, so the re-issued
+ *     "Initial" carries different SQL under a version a database has already
+ *     applied.  The migrator matches the version, considers it applied, skips
+ *     the changed contents, and every query naming the new column 500s.
+ *
+ *  The emitted "Initial" is a pure function of (schema, version), so it
+ *  reproduces the record exactly when all three hold:
+ *
+ *   1. the record is a SINGLE version — a longer history cannot be reproduced
+ *      by one migration at all.  A fresh generate COLLAPSES `Initial + delta`
+ *      into one file: the end state matches, but a database that applied only
+ *      the Initial would never receive the delta, and the delta's file is gone
+ *      from the tree that would have delivered it;
+ *   2. that version is the one this run would emit — a module whose version
+ *      BLOCK has shifted is not reproducing anything;
+ *   3. the recorded schema fingerprint is this run's schema.  A record with no
+ *      fingerprint (written by an older toolchain) cannot PROVE reproduction,
+ *      and an unproven reproduction is read conservatively: refuse, and let
+ *      `--allow-rebaseline` be the deliberate way through. */
+function reproducesRecordedHistory(m: MigrationsIR, record: ModuleHistoryRecord): boolean {
+  if (record.versions.length !== 1) return false;
+  if (record.versions[0] !== m.version) return false;
+  if (record.schemaHash === undefined) return false;
+  return record.schemaHash === schemaFingerprint(m.next);
+}
+
 /**
  * Run the baseline-safety checks over freshly-built migrations.  Pure (no
  * fs) — the on-disk state arrives through `index` and the recorded history
@@ -252,7 +293,8 @@ export function checkMigrationBaseline(
     // see `versionsInBlockOf`.  Everything below reads the narrowed list.
     const onDisk = versionsInBlockOf(index.versions(m.module), m.version);
     const onDiskSet = new Set(onDisk);
-    const recorded = options.recordedHistory?.modules[m.module]?.versions ?? [];
+    const record = options.recordedHistory?.modules[m.module];
+    const recorded = record?.versions ?? [];
 
     if (m.baseline === null) {
       // An explicit re-baseline overrides every "this module has history"
@@ -268,7 +310,7 @@ export function checkMigrationBaseline(
       //     applied.  The migrator matches the tag, considers it applied, and
       //     skips the changed content — the new column never lands, the
       //     container reports healthy, and every query naming it fails.
-      if (recorded.length > 0) {
+      if (record !== undefined && recorded.length > 0 && !reproducesRecordedHistory(m, record)) {
         const latest = [...recorded].sort().at(-1);
         throw new MigrationBaselineError(
           m.module,
