@@ -45,6 +45,39 @@ import type { MigrationsIR } from "../ir/types/migrations-ir.js";
 export interface ModuleHistoryRecord {
   /** Every migration version ever emitted for the module, ascending. */
   versions: string[];
+  /** Fingerprint of the module's SCHEMA as of the recorded run — see
+   *  {@link schemaFingerprint}.  It is what lets the guard tell a harmless
+   *  clean-directory generate (same model, reproducing the same tree, which
+   *  is what CI and a determinism check do) from the dangerous one (the model
+   *  moved, so the re-issued "Initial" carries different SQL under a version
+   *  a database has already applied).  Optional only for forward/backward
+   *  tolerance: a record without one cannot prove reproduction, so the guard
+   *  reads its absence conservatively and refuses. */
+  schemaHash?: string;
+}
+
+/** Stable fingerprint of a module's schema — the `tables` of its snapshot,
+ *  which is what an "Initial" migration is rendered from.  Deliberately NOT
+ *  a crypto hash: this file is imported by the browser playground through
+ *  `system/index.ts`, so it stays dependency-free.  A 53-bit cyrb-style
+ *  digest over the canonical snapshot JSON; it only ever compares a schema
+ *  against a previous form of ITSELF, so the collision budget is ample.
+ *
+ *  `lastVersion` / `migrationHistory` / `versionBlock` are excluded by
+ *  construction (only `tables` is read): those move on every regen and would
+ *  make the fingerprint useless for the comparison it exists for. */
+export function schemaFingerprint(snapshot: { tables?: unknown }): string {
+  const json = JSON.stringify(snapshot.tables ?? []);
+  let h1 = 0xdeadbeef;
+  let h2 = 0x41c6ce57;
+  for (let i = 0; i < json.length; i++) {
+    const ch = json.charCodeAt(i);
+    h1 = Math.imul(h1 ^ ch, 2654435761);
+    h2 = Math.imul(h2 ^ ch, 1597334677);
+  }
+  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+  return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(16).padStart(14, "0");
 }
 
 export interface MigrationHistoryLedger {
@@ -113,7 +146,7 @@ export function buildMigrationLedger(
 ): MigrationHistoryLedger {
   const modules: Record<string, ModuleHistoryRecord> = {};
   for (const [name, record] of Object.entries(previous?.modules ?? {})) {
-    modules[name] = { versions: [...record.versions] };
+    modules[name] = { versions: [...record.versions], schemaHash: record.schemaHash };
   }
   for (const m of migrations) {
     // `next.migrationHistory` is the merged list (prior history + any entry
@@ -125,7 +158,7 @@ export function buildMigrationLedger(
     // history the ledger remembers has gone away.  (Guard (d) refuses that
     // combination long before we get here, unless it was overridden.)
     if (versions.length === 0) continue;
-    modules[m.module] = { versions };
+    modules[m.module] = { versions, schemaHash: schemaFingerprint(m.next) };
   }
   return { schemaVersion: 1, modules };
 }
@@ -136,7 +169,8 @@ export function buildMigrationLedger(
 export function serializeMigrationLedger(ledger: MigrationHistoryLedger): string {
   const modules: Record<string, ModuleHistoryRecord> = {};
   for (const name of Object.keys(ledger.modules).sort()) {
-    modules[name] = { versions: [...ledger.modules[name]!.versions].sort() };
+    const record = ledger.modules[name]!;
+    modules[name] = { versions: [...record.versions].sort(), schemaHash: record.schemaHash };
   }
   return `${JSON.stringify({ schemaVersion: 1, _note: LEDGER_NOTE, modules }, null, 2)}\n`;
 }
@@ -160,7 +194,11 @@ export function parseMigrationLedger(
     if (!Array.isArray(versions) || versions.some((v) => typeof v !== "string")) {
       throw new Error(`module '${name}' has no string \`versions\` array`);
     }
-    modules[name] = { versions: versions as string[] };
+    const schemaHash = (value as { schemaHash?: unknown })?.schemaHash;
+    if (schemaHash !== undefined && typeof schemaHash !== "string") {
+      throw new Error(`module '${name}' has a non-string \`schemaHash\``);
+    }
+    modules[name] = { versions: versions as string[], schemaHash };
   }
   return { ledger: { schemaVersion: 1, modules } };
 }
