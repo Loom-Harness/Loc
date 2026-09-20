@@ -169,7 +169,7 @@ fails the fast suite.
 | `pairwise.yml` | `npm run test:pairwise-corpus` (per-PR leg) · `test:pairwise-corpus-tsc` · `test:pairwise-corpus-schema-load` (or `LOOM_MIGRATION_PG_URL`); shard the compile leg with `LOOM_PAIRWISE_COMPILE_CASE=<case-id>`, dump the composed sources with `LOOM_PAIRWISE_DUMP=<dir>`, get the verdict census with `LOOM_PAIRWISE_REPORT=<file>` | docker (schema-load leg) |
 | `schemathesis.yml` | `npm run test:schemathesis{,-python,-java,-dotnet,-elixir}` (needs `uv tool install schemathesis` + `cd test/behavioral && npm ci`; the four booted legs need a pg and must run ONE AT A TIME against it — each resets the schemas per case) | docker (all but node) |
 | `migration-evolution-e2e.yml` | `npm run test:migration-evolution{,-python,-java,-dotnet,-elixir}` | docker |
-| `tenancy-e2e.yml` | `npm run test:tenancy{,-python,-java,-dotnet,-elixir}` + `test:tenancy-hierarchy{,-python,-java,-dotnet,-elixir,-mikroorm}` + `test:tenancy-subtree-explain` (or `LOOM_TENANCY_PG_URL`) | docker |
+| `tenancy-e2e.yml` | `npm run test:tenancy{,-python,-java,-dotnet,-elixir}` + `test:tenancy-hierarchy{,-python,-java,-dotnet,-elixir,-mikroorm,-dapper}` + `test:tenancy-subtree-explain` (or `LOOM_TENANCY_PG_URL`) | docker |
 | `hono-obs-e2e.yml` | `npm run test:obs` | — |
 | `dotnet-obs-e2e.yml` | `npm run test:obs-dotnet` | docker |
 | `java-obs-e2e.yml` | `npm run test:obs-java` (or `LOOM_OBS_PG_URL`) | docker |
@@ -190,7 +190,7 @@ fails the fast suite.
 | `k8s-build.yml` | `npm run test:k8s` (helm + kubeconform on PATH) | — |
 | `k8s-e2e.yml` | `kind create cluster` then `npm run test:k8s-e2e` (kind + kubectl + helm) | docker |
 | `generated-a11y.yml` | `LOOM_A11Y_E2E=1 LOOM_A11Y_PACK=<pack> npx vitest run test/e2e/generated-a11y-e2e.test.ts` (Playwright chromium) | — |
-| `frontend-fullstack-e2e.yml` | `cd test/behavioral && node run-ui.mjs <case>` (non-React cases); the **flutter** cell is `npm run test:ui-flutter` (= `node test/behavioral/run-ui-flutter.mjs`) and needs the Flutter SDK on `PATH` (or `FLUTTER=/path/to/flutter`) plus `npx playwright install chromium` | — |
+| `frontend-fullstack-e2e.yml` | `cd test/behavioral && node run-ui.mjs <case>` (non-React cases); the **flutter** cell is `npm run test:ui-flutter` (= `node test/behavioral/run-ui-flutter.mjs`) and needs the Flutter SDK on `PATH` (or `FLUTTER=/path/to/flutter`) plus `npx playwright install chromium`. **Both SDK cells run on the sandbox host** — `docs/tools.md` § "Compiling generated FRONTENDS locally" has the two recipes (a scratchpad `dotnet-install.sh --channel 8.0` for the **feliz** cell, a `FLUTTER=` shim forwarding to `ghcr.io/cirruslabs/flutter:stable` for the flutter one), both measured green 2026-09-13; neither is CI-only | — |
 | `playground-e2e.yml` | `cd web && npm ci && npm run e2e` (network-gated: esm.sh/jsdelivr/npm) | network |
 | `playground-e2e-no-network.yml` | `cd web && npx playwright test --project=chromium <workspace/history/builder/requirements/editor specs>` + `node scripts/check-eager-chunks.mjs` | — |
 | `playground-realm-check.yml` | `cd web && npm run e2e:realm` | — |

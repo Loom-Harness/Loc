@@ -10,6 +10,7 @@ import { platformOwnsBackend } from "../../../language/validators/data/platform-
 import { snake } from "../../../util/naming.js";
 import type { BoundedContextIR, DeployableIR, SubdomainIR, SystemIR } from "../../types/loom-ir.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
+import { validateE2ERouteContract } from "./e2e-route-checks.js";
 import { validateE2ETest } from "./test-checks.js";
 
 export function validateSystem(sys: SystemIR, diags: LoomDiagnostic[]): void {
@@ -17,6 +18,12 @@ export function validateSystem(sys: SystemIR, diags: LoomDiagnostic[]): void {
   for (const m of sys.subdomains) modulesByName.set(m.name, m);
   for (const t of sys.e2eTests) {
     validateE2ETest(t, sys, modulesByName, diags);
+    // …and then the ROUTE-CONTRACT half: `validateE2ETest` resolves each verb
+    // NAME against the model, this resolves it against the routes the same
+    // compilation emits (`deriveAggregateOperations`).  Two questions, two
+    // checks — `api.products.create(…)` passed the first and shipped a POST to
+    // a route no backend mounts.
+    validateE2ERouteContract(t, sys, modulesByName, diags);
   }
 }
 

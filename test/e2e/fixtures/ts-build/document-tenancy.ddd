@@ -7,7 +7,7 @@
 // repository binds `const currentUser = requireCurrentUser();` (fail-closed —
 // throws when unauthenticated) and AND-s the principal predicate into each
 // in-app document read.  Previously this combination was GATED by
-// `loom.context-filter-unsupported`; Slice B lifts the gate.
+// `loom.context-filter-no-principal`; Slice B lifts the gate.
 //
 // Generated via `generate system` (the user block + auth/middleware.ts are
 // system-level); this gate compiles the emitted document repository + the

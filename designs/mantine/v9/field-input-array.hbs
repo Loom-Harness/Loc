@@ -2,8 +2,11 @@
           <Text fw={500} size="sm">{{label}}</Text>
           { {{path}}Fields.map((field, index) => (
             <Group key={field.id} align="flex-end" wrap="nowrap">
-{{#each rowFields}}              <TextInput label="{{label}}" {...register(`{{../path}}.${index}.{{path}}`{{#if valueAsNumber}}, { valueAsNumber: true }{{/if}})} data-testid={`{{../testId}}-${index}-{{path}}`} />
-{{/each}}              <Button variant="subtle" color="red" size="xs" onClick={() => remove{{arrayPascal}}(index)}>{{{chrome "removeItem"}}}</Button>
+{{#each rowFields}}{{#if (eq template "field-input-id-select")}}              <Controller control={control} name={`{{../path}}.${index}.{{path}}`} render={({ field, fieldState }) => (
+                <Select label="{{label}}" data-testid={`{{../testId}}-${index}-{{path}}`} searchable data={({{{hookVar}}}.data?.items ?? []).map((__o) => ({ value: __o.id, label: __o.{{displayField}} }))} allowDeselect={false} value={field.value as string} onChange={(v) => field.onChange(v ?? "")} error={fieldState.error?.message} />
+              )} />
+{{else}}              <TextInput label="{{label}}"{{#if (eq template "field-input-money")}} inputMode="decimal"{{/if}} {{#if (eq template "field-input-datetime")}}type="datetime-local" {{/if}}{...register(`{{../path}}.${index}.{{path}}`{{#if valueAsNumber}}, { valueAsNumber: true }{{/if}}{{#if (eq template "field-input-money")}}, { setValueAs: (v: string) => { try { return new Decimal(v || "0"); } catch { return new Decimal("0"); } } }{{/if}})} data-testid={`{{../testId}}-${index}-{{path}}`} error={{expr rowErrorExpr}} />
+{{/if}}{{/each}}              <Button variant="subtle" color="red" size="xs" onClick={() => remove{{arrayPascal}}(index)}>{{{chrome "removeItem"}}}</Button>
             </Group>
           )) }
           <Button variant="light" size="xs" onClick={() => append{{arrayPascal}}({{{defaultRowJson}}})}>{{{chrome "addItem" item=elementLabel}}}</Button>

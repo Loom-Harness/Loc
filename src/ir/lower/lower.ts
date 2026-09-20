@@ -316,9 +316,47 @@ export function lowerProject(models: ReadonlyArray<Model>): RawLoomModel {
       if ("members" in m && Array.isArray((m as { members?: unknown }).members)) {
         indexMembers((m as { members: AstNode[] }).members);
       }
+      // A `subdomain` holds its bounded contexts in `contexts`, NOT in
+      // `members` — so the `members` recursion above walks straight past
+      // every declaration nested in `subdomain > context` and the index is
+      // blind to it.  That made the backstop fire only for a context declared
+      // DIRECTLY under `system`: the same model wrapped in a `subdomain` (the
+      // README's own shape) collapsed a macro-emitted cross-context VO/enum
+      // param type to `string` — `crudish`'s `update(total: Money)` became
+      // `update(total: string)`, which every backend then emitted as a
+      // string-to-value-object assignment.
+      if ("contexts" in m && Array.isArray((m as { contexts?: unknown }).contexts)) {
+        indexMembers((m as { contexts: AstNode[] }).contexts);
+      }
     }
   };
   indexMembers(allMembers);
+  // A `subdomain`'s children hang off `contexts`, not `members`, so the walk
+  // above never reaches a declaration under one — the overwhelmingly common
+  // layout, for which the index was therefore EMPTY.  Aggregates are widened
+  // here because a PAGE BODY needs them: a page-body read (`Sales.Order.all`)
+  // is headed by a ui-local api alias that links to nothing and has no context
+  // in scope, so the aggregate it NAMES is the only handle on the read's type
+  // (`ofReadResultType`, lower-expr.ts).
+  //
+  // ONLY aggregates.  Widening the value-object / enum / domainService halves
+  // the same way makes a user declaration project-globally SHADOW a same-named
+  // page primitive — `valueobject Money` in any context would capture the
+  // `Money` walker primitive in every page body, silently, on a model that
+  // validated clean before.  That is a name-precedence ruling (which wins in a
+  // ui body?), not a lookup fix, and it does not belong to this recursion.
+  const indexAggregatesDeep = (nodes: readonly AstNode[]): void => {
+    for (const m of nodes) {
+      if (isAggregate(m)) {
+        if (!ambientEntities.has(m.name)) ambientEntities.set(m.name, m);
+      }
+      for (const key of ["members", "contexts"] as const) {
+        const kids = (m as unknown as Record<string, unknown>)[key];
+        if (Array.isArray(kids)) indexAggregatesDeep(kids as AstNode[]);
+      }
+    }
+  };
+  indexAggregatesDeep(allMembers);
   setAmbientDeclIndex({
     valueObjects: ambientVOs,
     enums: ambientEnums,

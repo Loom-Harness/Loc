@@ -27,6 +27,7 @@ import {
   isAwaitExpr,
   isBinaryChain,
   isBoolLit,
+  isBoundedContext,
   isBuilderCall,
   isCallSuffix,
   isContainment,
@@ -54,6 +55,7 @@ import {
   isPostfixChain,
   isPrimitiveConversion,
   isProperty,
+  isRepository,
   isStringLit,
   isTemplateStr,
   isTernaryExpr,
@@ -69,6 +71,7 @@ import { isIntrinsicMatcher } from "../../util/intrinsic-matchers.js";
 import { intrinsicFor, intrinsicReturnType } from "../../util/intrinsics.js";
 import { PRINCIPAL_ORG_PATH, PRINCIPAL_ROOT_ORG } from "../../util/principal.js";
 import { durationUnitOf } from "../../util/temporal.js";
+import { isWalkerPrimitive } from "../../util/walker-primitive-names.js";
 import { findVerb, type ResourceVerbDef } from "../resource-verbs.js";
 import { variantTag } from "../stdlib/unions.js";
 import type {
@@ -901,6 +904,42 @@ function applySuffixToRecv(
         return { recv: orExpr, recvType: bool };
       }
     }
+    // `this.<fn>(args)` / `this.<op>(args)` — an EXPLICIT self-call on an
+    // aggregate-local `function` or `operation`.  The bare spelling
+    // (`strictfp(x)`) lowers above to a `call` with `callKind: "function"` /
+    // `"private-operation"`, which every backend renders against the helper's
+    // DEF-SITE name (python `self._strictfp`, java `this.strictfp_`, elixir
+    // `strictfp(record, …)`).  The dotted spelling used to fall through to a
+    // generic `method-call` on a `this` receiver, so the backends whose def-site
+    // name differs from the declared one rendered a member that does not exist
+    // (python `AttributeError: 'Ticket' object has no attribute 'strictfp'`,
+    // elixir `record.strictfp(x)` on a struct) — the two spellings of one call
+    // must produce one IR shape.  A `this.<collectionOp>(…)` (e.g. a VO with a
+    // `contains` member) is left to the collection-op path, and an unresolved
+    // name stays a `method-call` so the validator can report it.
+    if (recv.kind === "this" && !collectionOp) {
+      const selfKind = resolveCallKind(ms.member, env);
+      if (selfKind === "function" || selfKind === "private-operation") {
+        const callIR: ExprIR = {
+          kind: "call",
+          callKind: selfKind,
+          name: ms.member,
+          args,
+          ...(argNames.some((n) => n !== undefined) ? { argNames } : {}),
+          ...(selfKind === "private-operation"
+            ? { targetPrivate: findOperationInEnv(env, ms.member)?.private ?? false }
+            : {}),
+        };
+        const fn = findFunctionInEnv(env, ms.member);
+        const op = fn ? undefined : findOperationInEnv(env, ms.member);
+        const resultType: TypeIR = fn
+          ? lowerType(fn.returnType)
+          : op?.returnType
+            ? lowerType(op.returnType, env)
+            : { kind: "primitive", name: "string" };
+        return { recv: callIR, recvType: resultType };
+      }
+    }
     const mcIR: ExprIR = {
       kind: "method-call",
       receiver: recv,
@@ -1221,7 +1260,11 @@ function lowerExprInner(expr: Expression | undefined, env: Env): ExprIR {
     // type — the string placeholder matches the legacy behaviour.  The
     // collection-op path lowers its lambda arg through `lowerLambda`
     // directly with the receiver's element type (see `applySuffixToRecv`).
-    return lowerLambda(expr, env, { kind: "primitive", name: "string" });
+    // Inside a row-shaped walker primitive (`For`/`Table`/`DataGrid`) the ROW
+    // element type is known and threaded on the env, so the item lambda —
+    // and a nested `Column { field: r => … }` — binds at the real type
+    // instead (Env.rowElem).
+    return lowerLambda(expr, env, env.rowElem ?? { kind: "primitive", name: "string" });
   }
   if (isMatchExpr(expr)) {
     // Variant form (`match SUBJECT { VariantType binding => value }`,
@@ -1334,7 +1377,9 @@ function lowerExprInner(expr: Expression | undefined, env: Env): ExprIR {
  *      dispatches by name on the resulting CallIR. */
 function lowerBuilderCall(expr: BuilderCall, env: Env): ExprIR {
   const name = expr.type;
-  const vo = findValueObjectByName(env, name);
+  // Inside a `ui` body the walker stdlib owns the name (see `Env.ui`): a
+  // domain `valueobject Money` must not capture the `Money` page primitive.
+  const vo = env.ui && isWalkerPrimitive(name) ? undefined : findValueObjectByName(env, name);
   if (vo) {
     // Carry the value object's declared field order so backends that need
     // named construction (Phoenix `%Mod.VO{field: …}` structs) always have
@@ -1394,7 +1439,7 @@ function lowerBuilderCall(expr: BuilderCall, env: Env): ExprIR {
 
 function inferBuilderCallType(expr: BuilderCall, env: Env): TypeIR {
   const name = expr.type;
-  const vo = findValueObjectByName(env, name);
+  const vo = env.ui && isWalkerPrimitive(name) ? undefined : findValueObjectByName(env, name);
   if (vo) return { kind: "valueobject", name };
   const ent = findEntityByName(env, name);
   if (ent) return { kind: "entity", name };
@@ -1434,6 +1479,155 @@ function lowerInSlot(value: Expression, slot: TypeIR | undefined, env: Env): Exp
   return lowerExprInContext(value, slot, env);
 }
 
+/** Walker primitives that bind a ROW over a collection-shaped named argument.
+ *  Every lambda in such a primitive's subtree — the item lambda, `Table {
+ *  onRowClick: r => … }` / `rowTestid:`, a nested `Column { field: r => … }` —
+ *  takes one element, so the element type is threaded on the child env rather
+ *  than matched slot-by-slot (the nested `Column` is a builder call of its
+ *  own, which a per-slot table could not reach).  `QueryView` is deliberately
+ *  absent: its `data:` lambda binds the whole query RESULT, handled in
+ *  `lowerBuilderCallAsCall` via `queryDataType`. */
+const PRIMITIVE_ROW_SOURCE_ARG: Readonly<Record<string, string>> = {
+  For: "each",
+  Table: "rows",
+  DataGrid: "rows",
+};
+
+/** The child env for a builder call, carrying `rowElem` when `expr` is a
+ *  row-shaped walker primitive whose collection argument types to an array.
+ *  Returns `env` unchanged otherwise — including when the source argument
+ *  types to the `string` placeholder, where binding it would be a lie. */
+function rowBindingEnv(
+  expr: BuilderCall,
+  entries: ReadonlyArray<{ name?: string; value: Expression }>,
+  env: Env,
+  callKind: "value-object-ctor" | "free",
+): Env {
+  if (callKind !== "free") return env;
+  const sourceArg = PRIMITIVE_ROW_SOURCE_ARG[expr.type];
+  if (!sourceArg) return env;
+  // `For { each: xs, o => … }` may also spell the collection positionally —
+  // the first non-lambda entry, exactly as `emitFor` reads it.
+  const source =
+    entries.find((e) => e.name === sourceArg) ??
+    entries.find((e) => e.name === undefined && !isLambda(e.value));
+  if (!source) return env;
+  const element = collectionElementType(inferExprType(source.value, env));
+  if (!element) return env;
+  return { ...env, rowElem: element };
+}
+
+/** Verbs a page-body `of:` read may name that are NOT a declared repository
+ *  find — the standard aggregate operations every repository gets for free.
+ *  Mirrors `STANDARD_AGG_OPS` in `_walker/walker-core.ts`; kept here because
+ *  the generator layer is downstream of `ir/` and cannot be imported from it. */
+const STANDARD_READ_VERBS: ReadonlySet<string> = new Set(["byId", "all", "findAll"]);
+
+/** Per-document aggregate index, built on first use and keyed by the `Model`
+ *  root so a page with many reads pays for one stream, not one per read. */
+const aggregatesByDocument = new WeakMap<AstNode, ReadonlyMap<string, Aggregate>>();
+
+/** The aggregate named `name` declared anywhere in `node`'s own document.
+ *
+ *  Deliberately NOT `findEntityByName`, and the reason is a narrowing, not a
+ *  capability: this lookup must answer for the AGGREGATE NAME ALONE, in a ui
+ *  body that has no context in scope, and it must not be able to answer for
+ *  anything else.  `findEntityByName` consults the project-global ambient
+ *  index, whose value-object / enum / domainService halves are deliberately
+ *  NOT widened to subdomain-nested declarations (see `indexAggregatesDeep`,
+ *  lower.ts — widening them lets a `valueobject Money` shadow the `Money`
+ *  walker primitive in every page body); routing the read through a lookup
+ *  that CAN see those halves would couple this to that open ruling.
+ *
+ *  Document-scoped is the honest bound for what it needs: a page body and the
+ *  contexts its ui binds are in the same document in every shipped example.
+ *  When they are not, this returns undefined and the binding stays exactly as
+ *  it was — never a wrong answer, only a missing one.  Once the shadowing
+ *  ruling lands, this collapses into `findEntityByName` and the WeakMap goes
+ *  with it. */
+function aggregateInDocument(node: AstNode, name: string): Aggregate | undefined {
+  const root = AstUtils.getContainerOfType(node, isModel);
+  if (!root) return undefined;
+  let index = aggregatesByDocument.get(root);
+  if (!index) {
+    const built = new Map<string, Aggregate>();
+    for (const n of AstUtils.streamAllContents(root)) {
+      if (isAggregate(n) && !built.has(n.name)) built.set(n.name, n);
+    }
+    index = built;
+    aggregatesByDocument.set(root, index);
+  }
+  return index.get(name);
+}
+
+/** The declared result type of a page-body `of:` READ — `<apiHandle>.<Agg>.all`,
+ *  `<apiHandle>.<Agg>.byId(id)`, `<apiHandle>.<Agg>.<declaredFind>(…)`.
+ *
+ *  A page-body read is NOT resolved by the ordinary expression path: its head
+ *  is a ui-local `api <handle>: <Api>` alias, which links to nothing, so the
+ *  whole chain lowers to an untyped `method-call` and every member read off
+ *  the `data:` lambda binding falls back to the `string` placeholder.  The
+ *  aggregate is nevertheless nameable — it is the suffix before the verb —
+ *  and it resolves by name in the document (`aggregateInDocument`), so the
+ *  read's result type is recoverable here without linking the alias.
+ *
+ *  Returns `undefined` whenever the shape isn't recognised, which leaves the
+ *  binding exactly as it was. */
+function ofReadResultType(of: Expression, env: Env): TypeIR | undefined {
+  if (!isPostfixChain(of)) return undefined;
+  const members = of.suffixes.filter(isMemberSuffix);
+  // `<handle>.<Agg>.<verb>` — the aggregate is the LAST suffix that names a
+  // declared aggregate, and the verb is whatever follows it.  Scanning for the
+  // aggregate (rather than assuming a fixed depth) keeps `Sales.Order.byId(id)`
+  // and a deeper handle path on the same path, and an aggregate legitimately
+  // named after a verb still resolves because the aggregate lookup wins.
+  let agg: Aggregate | undefined;
+  let aggIdx = -1;
+  for (let i = members.length - 1; i >= 0; i--) {
+    const decl = aggregateInDocument(of, String(members[i]!.member));
+    if (decl) {
+      agg = decl;
+      aggIdx = i;
+      break;
+    }
+  }
+  if (!agg) return undefined;
+  const element: TypeIR = { kind: "entity", name: agg.name };
+  const verb = members[aggIdx + 1] ? String(members[aggIdx + 1]!.member) : undefined;
+  // `<Agg>.all` / no verb at all is the whole collection; `byId` the record.
+  if (verb === undefined || verb === "all" || verb === "findAll") {
+    return { kind: "array", element };
+  }
+  if (verb === "byId") return element;
+  if (STANDARD_READ_VERBS.has(verb)) return { kind: "array", element };
+  // A declared `find` on the aggregate's repository: its return type is the
+  // answer, and it is the only shape that can be a single record, a list or a
+  // paged envelope depending on how the author declared it.
+  const bc = AstUtils.getContainerOfType(agg, isBoundedContext);
+  for (const m of bc?.members ?? []) {
+    if (!isRepository(m) || m.aggregate?.ref?.name !== agg.name) continue;
+    const find = m.finds.find((f) => f.name === verb);
+    if (find) return lowerType(find.returnType, env);
+  }
+  return undefined;
+}
+
+/** The type a `QueryView`'s `data:` lambda parameter binds: the query result
+ *  with any optionality unwrapped — the record for a single read (`Order?`
+ *  → `Order`), the array otherwise (`Order[]`), which is what the emitters
+ *  bind (`_walker/primitives/controls.ts`).  `undefined` when the `of:`
+ *  argument is absent or its read shape isn't recognised. */
+function queryDataType(
+  entries: ReadonlyArray<{ name?: string; value: Expression }>,
+  env: Env,
+): TypeIR | undefined {
+  const of = entries.find((e) => e.name === "of");
+  if (!of) return undefined;
+  const t = ofReadResultType(of.value, env);
+  if (!t) return undefined;
+  return t.kind === "optional" ? t.inner : t;
+}
+
 function lowerBuilderCallAsCall(
   expr: BuilderCall,
   env: Env,
@@ -1446,6 +1640,11 @@ function lowerBuilderCallAsCall(
   // Filtering happens by index so `args` and `argNames` stay parallel.
   const styleHoist = hoistStyleArg(expr.entries, env);
   const entries = styleHoist.remainingEntries;
+  // Page-body lambdas carry no declared parameter type.  A row-shaped walker
+  // primitive knows one — the element of its collection argument — so bind it
+  // on the child env before lowering (see `Env.rowElem`); `QueryView`'s
+  // `data:` lambda binds the whole query RESULT instead and is typed below.
+  const bodyEnv = rowBindingEnv(expr, entries, env, callKind);
   // Explicit entry name wins; otherwise fall back to the declared field
   // name at this position (value-object ctors — see lowerBuilderCall).
   const argNames = entries.map((e, i) => e.name || fieldNames?.[i]);
@@ -1456,11 +1655,19 @@ function lowerBuilderCallAsCall(
   // mis-ordered construction into a hard compile failure, which is a worse
   // trade than leaving it exactly as it was.
   const unambiguous = new Set(argNames.filter((n) => n !== undefined)).size === argNames.length;
-  const args = entries.map((e, i) =>
-    slotTypes && unambiguous
-      ? lowerInSlot(e.value, slotTypes.get(argNames[i] ?? ""), env)
-      : lowerExpr(e.value, env),
-  );
+  const queryResult =
+    callKind === "free" && name === "QueryView" ? queryDataType(entries, env) : undefined;
+  const args = entries.map((e, i) => {
+    // `QueryView { of: q, data: rows => … }` — the `data:` lambda binds the
+    // query result (the record under `single:`, the array otherwise), which
+    // only the `of:` argument's type can supply.
+    if (queryResult && argNames[i] === "data" && isLambda(e.value)) {
+      return lowerLambda(e.value, bodyEnv, queryResult);
+    }
+    return slotTypes && unambiguous
+      ? lowerInSlot(e.value, slotTypes.get(argNames[i] ?? ""), bodyEnv)
+      : lowerExpr(e.value, bodyEnv);
+  });
   const named = argNames.some((n) => n !== undefined);
   return {
     kind: "call",
@@ -1979,14 +2186,7 @@ export function inferExprType(expr: Expression | undefined, env: Env): TypeIR {
     return { kind: "array", element: elementType };
   }
   if (isNowExpr(expr)) return { kind: "primitive", name: "datetime" };
-  if (isThisRef(expr)) {
-    if (env.part) return { kind: "entity", name: env.part.name };
-    if (env.aggregate) return { kind: "entity", name: env.aggregate.name };
-    if (env.valueObject) return { kind: "valueobject", name: env.valueObject.name };
-    if (env.workflow) return { kind: "entity", name: env.workflow.name };
-    if (env.projection) return { kind: "entity", name: env.projection.name };
-    return { kind: "primitive", name: "string" };
-  }
+  if (isThisRef(expr)) return thisTypeOf(env);
   if (isIdRef(expr)) {
     if (env.part) return { kind: "id", targetName: env.part.name, valueType: "guid" };
     if (env.aggregate) {
@@ -2061,6 +2261,39 @@ export function inferExprType(expr: Expression | undefined, env: Env): TypeIR {
     return inferBuilderCallType(expr, env);
   }
   if (isPostfixChain(expr)) {
+    // Probe: a repository READ in a `reading` domain-service body — the SECOND
+    // inference pass over the arm `lowerPostfixChain` opens with.  Without it a
+    // `let hits = Orders.byCode(c)` in a service body binds as `string` (the
+    // fall-through placeholder), so the next line's `hits.count` gets
+    // `receiverType: string` and every backend renders a RECORD-ACCESSOR read
+    // instead of a collection size — java emitted `hits.count()` on a
+    // `List<Order>` ("cannot find symbol", measured on `gradle testClasses`).
+    // The workflow/handler path does not have the bug because it lowers the same
+    // read to a `repo-let` statement, which carries the find's declared type.
+    //
+    // `env.serviceRepos` is set only while lowering a domain-service operation,
+    // so nothing else changes shape.
+    if (env.serviceRepos) {
+      const read = matchRepoRead(expr, env.serviceRepos, runCriterionMatcher(env.ctx));
+      if (read) {
+        const aggName = read.repo.aggregate?.ref?.name;
+        // A declared `find` states its own return type (`Order[]`, `Order?`, a
+        // union…).  The criterion / retrieval shapes (`find`/`findAll`/`run`)
+        // have no declaration to read, and all three yield a collection of the
+        // repository's aggregate — matching `readKind` in the emitted call.
+        const declared = read.repo.finds?.find((f) => f.name === read.method)?.returnType;
+        let readType: TypeIR = declared
+          ? lowerType(declared, env)
+          : aggName
+            ? { kind: "array", element: { kind: "entity", name: aggName } }
+            : { kind: "primitive", name: "string" };
+        // `Repo.find(<Criterion>)` is the SINGLE-row shape of the same read.
+        if (!declared && read.kind === "find" && aggName) {
+          readType = { kind: "optional", inner: { kind: "entity", name: aggName } };
+        }
+        return readType;
+      }
+    }
     // Probe: `permissions.<name>` always types as string.
     const first = expr.suffixes[0];
     if (
@@ -2587,8 +2820,11 @@ function memberType(t: TypeIR, name: string, env: Env): TypeIR {
   // `currentUser.<field>` — synthetic entity backed by the system's
   // user block.  Walked via env.user.fields rather than the
   // bounded-context registry.  Unknown members fall through to the
-  // string fallback; the validator will surface the broken reference
-  // with a friendlier message.
+  // string fallback — the AST validator has already rejected a
+  // source-written one (`loom.unknown-user-claim`,
+  // `validators/types.ts` → `absentUserClaim`), so what still reaches
+  // here is a macro/capability splice whose principal side phase ⑥
+  // rebinds (`tenantOwned`'s `currentUser.tenantId` placeholder).
   if (t.kind === "entity" && t.name === USER_SHAPE_NAME && env.user) {
     // `currentUser.orgPath` — the derived tenant materialized-path member
     // (tenancy.md).  Not a `user {}` claim; computed per
@@ -2897,12 +3133,40 @@ export function provSiteFor(
   };
 }
 
-export function pathType(path: PathIR, env: Env): TypeIR {
+/**
+ * Type of the `this` receiver in the current env — the enclosing entity part,
+ * aggregate, value object, workflow or projection, in that shadowing order.
+ * Shared by `inferExprType`'s `ThisRef` arm and the statement lowerer's
+ * `this.<prop>.<verb>(…)` path so the two cannot disagree about what `this` is.
+ */
+export function thisTypeOf(env: Env): TypeIR {
+  if (env.part) return { kind: "entity", name: env.part.name };
+  if (env.aggregate) return { kind: "entity", name: env.aggregate.name };
+  if (env.valueObject) return { kind: "valueobject", name: env.valueObject.name };
+  if (env.workflow) return { kind: "entity", name: env.workflow.name };
+  if (env.projection) return { kind: "entity", name: env.projection.name };
+  return { kind: "primitive", name: "string" };
+}
+
+/**
+ * Type of an assignment target path.
+ *
+ * `thisRooted` says the SOURCE spelled the path `this.x` rather than `x`.  A
+ * `PathIR` is always rooted in `this` either way (see its doc comment), but the
+ * two spellings resolve their HEAD differently: the implicit form has always
+ * consulted locals first — which is what lets `count := count + 1` read a
+ * `let count` — while the explicit form must not, because naming the field is
+ * the entire reason to write it.  Without the distinction,
+ * `this.total := 0.50` inside `operation adjust(total: decimal)` would take the
+ * PARAMETER's `decimal` as its target type and drop the money elaboration the
+ * `total: money` field calls for.
+ */
+export function pathType(path: PathIR, env: Env, thisRooted = false): TypeIR {
   if (path.segments.length === 0) return { kind: "primitive", name: "string" };
   const head = path.segments[0]!;
   let cur: TypeIR;
-  // Try locals
-  const local = env.locals.get(head);
+  // Try locals — unless the source rooted the path in `this.` explicitly.
+  const local = thisRooted ? undefined : env.locals.get(head);
   if (local) cur = local.type;
   else if (env.aggregate) cur = memberOnEntity(env.aggregate, head);
   else if (env.workflow) cur = memberOnWorkflow(env.workflow, head);

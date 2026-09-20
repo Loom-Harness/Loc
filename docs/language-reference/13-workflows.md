@@ -93,9 +93,13 @@ end
 | `create(c: SomeCommand)` | explicit command (single payload param) | `POST /api/workflows/<snake>` |
 | `create(e: SomeEvent) by e.field` | event-triggered starter (single event param + `by`) | in-process dispatch only |
 
-`handle name(params) { body }` is a continuation command on the same workflow — a second entry that loads/creates aggregates and calls operations; multiple `handle`s make a multi-command saga. A workflow may declare at most one **unnamed** `create` (`loom.canonical-create-duplicate-workflow`); extra entry points must be named, and no two share a name (`loom.create-name-conflict-workflow`). A `handle` name must also not collide with a `commandHandler` / `queryHandler` in the same context (`loom.duplicate-handler`), because an `api` `route` addresses all three through the same `<Context>.<Name>` reference ([APIs](14-apis-storage-resources-channels.md#route--the-explicit-transport-binding)).
+`handle name(params) { body }` was the spelling for a continuation command on the same workflow. **It is now refused** (`loom.workflow-handle-unsupported`) — see the gap note below. A workflow may declare at most one **unnamed** `create` (`loom.canonical-create-duplicate-workflow`); extra entry points must be named, and no two share a name (`loom.create-name-conflict-workflow`). A `handle` name must also not collide with a `commandHandler` / `queryHandler` in the same context (`loom.duplicate-handler`), because an `api` `route` addresses all three through the same `<Context>.<Name>` reference ([APIs](14-apis-storage-resources-channels.md#route--the-explicit-transport-binding)).
 
-> **Honest gap — only the canonical `create` gets an entry point today.** The unnamed `create` becomes the `POST /api/workflows/<snake>` route on every backend. A **named** `create expedite(…)` and a `handle retry(…)` lower to IR (`WorkflowIR.creates` / `.handlers`, `test/ir/workflow-handle.test.ts`) and their repository needs are collected, but no backend emits a route, a command, or any other callable for them — and an `api { route POST "/fulfil/retry" -> C.retry }` naming a handle validates clean while emitting nothing (checked on node, dotnet and python). Until that lands, model a second command as its own `workflow` (or a `commandHandler` bound by an explicit `route`).
+> **Honest gap — only the canonical `create` gets an entry point today.** The unnamed `create` becomes the `POST /api/workflows/<snake>` route on every backend. A **named** `create expedite(…)` and a `handle retry(…)` lower to IR (`WorkflowIR.creates` / `.handlers`, `test/ir/workflow-handle.test.ts`) and their repository needs are collected, but no backend emits a route, a command, or any other callable for them.
+>
+> **`handle` is no longer merely undocumented-as-missing — it is rejected.** Emitting nothing while the docs sold it as the multi-command saga surface meant a saga could be started and read and never advanced, silently (audit #2864 D5). M-T5.34 ruled that the silence is the bug and minted `loom.workflow-handle-unsupported`; whether Loom grows real multi-command sagas is a deferred feature decision (mission **M-T6.58**). Model a continuation as an aggregate `operation`, or as a second `workflow` started by the event the first one emits.
+>
+> A **named `create`** is NOT rejected — that half of this gap is untouched by M-T5.34 and still emits nothing for a named *command*-triggered create (a named *event*-triggered one is dispatcher-routed and does work). An `api { route POST "/fulfil/retry" -> C.retry }` naming a handle validates clean while emitting nothing (checked on node, dotnet and python).
 
 ```ddd
 workflow placeOrder {
@@ -215,6 +219,19 @@ The workflow body draws from a narrowed statement set — distinct from an aggre
 
 A loaded aggregate is saved **only if** an operation was invoked on it inside the body; fresh `Agg.create` results always save. See [`../workflow.md`](../workflow.md) §"Save + event drain semantics".
 
+Every `Repo` above is a repository of the workflow's **own context**. Naming another context's repository is `loom.workflow-cross-context-repository` — lowering resolves reads against the enclosing context alone, so the name never becomes a load and every backend renders a dangling receiver. Cross at the other context's public surface instead (a `resource { kind: api }` call, or a local projection folded over its published events); see [`../workflow.md`](../workflow.md#repositories-are-context-local--loomworkflow-cross-context-repository).
+
+**A repository read is a STATEMENT, never a sub-expression.** Every repository form above is spelled `let x = Repo.…` — that binding is what makes the backend instantiate the repository. The same call written inline inside another expression is rejected with `loom.workflow-inline-repository-call`:
+
+```ddd
+// rejected — `Assets` is reached inline, so no repository is ever instantiated
+precondition tech.skills.contains(Assets.getById(job.assetId).requiredSkill)
+
+// correct — bind the read first, then reference the binding
+let asset = Assets.getById(job.assetId)
+precondition tech.skills.contains(asset.requiredSkill)
+```
+
 ## `function` — the private pure helper
 
 `function name(params): T = expr` (or a `{ … }` block) is the aggregate-parity helper member: a private, pure calculation over its **parameters**. Reading the workflow's own state from one is `loom.workflow-function-uses-state` — pass the value in as an argument. Each backend emits it as a workflow-scoped helper (not an inlined expression), and a call to it lowers to `callKind: "workflow-fn"`.
@@ -272,7 +289,7 @@ Both body forms ship: `= expr` and `{ return … }` emit the same helper on all 
 
 ## `on(e: Event)` — the event reactor
 
-`on(param: Event) [by <expr>] { body }` reacts to a fact dispatched from outside the workflow. Routing keys off the correlation field: the `by` expression must yield the correlation field's id type (`loom.correlation-type-mismatch`), or — if `by` is omitted — the event must carry a field named like the correlation field (`loom.correlation-uninferrable`). In-process delivery is **channel-routed**: a reactor whose event no `channel` carries is `loom.reactor-event-uncarried` (a warning — it never fires).
+`on(param: Event) [by <expr>] { body }` reacts to a fact dispatched from outside the workflow. Routing keys off the correlation field: the `by` expression must yield the correlation field's id type (`loom.correlation-type-mismatch`), or — if `by` is omitted — the event must carry a field named like the correlation field (`loom.correlation-uninferrable`). A `channel` is **not** required: an `on(e: E)` is itself the subscription, and an in-process handler in the same deployable as the emitter is dispatched whether or not a channel carries the event (**D-PROJECTION-IMPLICIT-SUB**). A `channel` is what makes delivery cross-deployable or durable.
 
 ```ddd
 channel sagaBus { carries: OrderPlaced, PaymentReceived, Settled }
@@ -648,4 +665,4 @@ The dev `docker-compose` gains a sidecar per object-store / queue / smtp-mailer 
 
 - **From a page.** A page drives a workflow through `WorkflowForm` / an `action` body ([UI primitives](16-ui-walker-primitives.md)); a `match await` on an *aggregate instance* operation needs the page's route `:id` to identify the record — a paramless page is `loom.instance-effect-needs-route-id`.
 - **From a projection.** A `projection` is the passive read-half — state fields plus pure `on(e: Event)` folds over foreign events, `keyed by` an explicit column, with no command side. It can fold the events a workflow emits; see [Repositories, queries & projections](10-repositories-and-queries.md#projection--the-read-model).
-- **From another deployable.** Events leave the process over a `channel` (and its `channelSource` binding); a workflow reactor whose event no channel carries never fires (`loom.reactor-event-uncarried`, a warning) — [APIs, storage, resources & channels](14-apis-storage-resources-channels.md#channel--channelsource).
+- **From another deployable.** Events leave the process over a `channel` (and its `channelSource` binding). Within ONE deployable no channel is needed — the `on(e: E)` subscribes in-process on its own (**D-PROJECTION-IMPLICIT-SUB**) — [APIs, storage, resources & channels](14-apis-storage-resources-channels.md#channel--channelsource).

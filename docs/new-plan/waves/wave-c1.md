@@ -2,7 +2,7 @@
 
 *Plan: [`../completion-waves-2026-09.md`](../completion-waves-2026-09.md) §4 Wave C1. Base: `main` @ `d619291` (Wave C0, #2863, merged 2026-09-11 ~09:0xZ). The nine packets ran as Opus agents in isolated worktrees on local `claude/c1-<packet>` branches; the harness cut every worktree from `origin/main` @ `bcc1c4c` (main *without* C0), so each packet's track-file and ledger edits met C0's at fold and were composed by hand. One PR for the wave, on `claude/loom-review-planning-adz0n4` restarted from `main` per the merged-PR rule.*
 
-## Status: **all nine packets folded** (2026-09-11) — wave PR #2891
+## Status: **merged** — wave PR #2891, merged to `main` 2026-09-13 11:13Z as `6d6c1a1` (all nine packets + the post-flip fixes for six compile legs and one registry-order flake; `origin/main` merged in twice, #2887 and #2869/#2876/#2889)
 
 ## Reconciliation before launch (2026-09-11)
 

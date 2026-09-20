@@ -506,6 +506,23 @@ system S {
         create(code: string) { code := code }
         create draft(code: string) { code := code }
       }`),
+  // --- undeclared principal claim (audit D2) ------------------------------
+  // The `user { }` block declares `id` and `role`; the gate reads a third,
+  // undeclared claim.  Both member-typing sites fail OPEN on the principal
+  // (unknown ⇒ `string`), so before this check the model parsed, validated and
+  // GENERATED clean — and the emitted backend then failed its own compile
+  // against a `UserClaims` shape built from exactly these two fields.
+  "loom.unknown-user-claim": `
+system S {
+  user { id: string  role: string }
+  subdomain Sub { context C {
+    aggregate Widget with crudish {
+      name: string
+      operation touch() { requires currentUser.totallyBogusField == "x" }
+    }
+    repository Widgets for Widget { }
+  } }
+}`,
   // --- workflow instance-read gate (M-T3.15 §A2) --------------------------
   // The header gate runs BEFORE any instance is loaded, so only `currentUser`
   // is in scope; `stage` is a workflow STATE field and has no value to read.
@@ -534,6 +551,48 @@ system S {
     port: 3000
     auth: required
   }
+}`,
+
+  // An integer literal the `INT` terminal cannot hold: `9007199254740993`
+  // reaches the AST as `…92`, so the value the author wrote is already gone
+  // before any emitter runs (M-T5.23).  The fixture writes it in a `derived`
+  // body — the position where it survived all the way into emitted source.
+  "loom.integer-literal-imprecise": `
+system S {
+  subdomain D { context C {
+    aggregate Thing with crudish {
+      name: string
+      derived big: long = 9007199254740993
+    }
+    repository Things for Thing { }
+  } }
+  api Api from D
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable d { platform: node contexts: [C] dataSources: [st] serves: Api port: 3000 }
+}`,
+
+  // A declared row field whose type disagrees with the aggregation filling it
+  // (M-T5.24): `avg` over a MONEY column is money, and the declaration says
+  // `decimal` — which is what every backend's coercion reads, so the exact
+  // money mean would have shipped as a lossy float64 JSON number.  The fixture
+  // uses `avg` specifically because that is the operator the retype moved; a
+  // `sum` mismatch fires the same arm.
+  "loom.projection-aggregate-type-mismatch": `
+system S {
+  subdomain Sales { context Orders {
+    aggregate Order with crudish { code: string  total: money }
+    repository Orders for Order { }
+    projection SalesTotals {
+      avgTotal: decimal
+      from Order as o
+      select avgTotal = avg(o.total)
+    }
+  } }
+  api Api from Sales
+  storage pg { type: postgres }
+  resource st { for: Orders, kind: state, use: pg }
+  deployable d { platform: node contexts: [Orders] dataSources: [st] serves: Api port: 3000 }
 }`,
 
   // A query-time projection whose direct-table arm aggregates a field that has
@@ -770,17 +829,6 @@ system S {
       code: string
       operation dispatch() audited { code := "x" }
     }`),
-  // Needs the DEPLOYMENT side: the refusal is per-backend (node emits only the
-  // void-204 handler for an audited RETURNING operation; python emits both),
-  // so a declaration-only system raises nothing.
-  "loom.audited-returning-operation-unsupported": deployed(`      error NotFound { message: string }
-      aggregate Order with crudish {
-        qty: int
-        operation take(n: int) audited : Order or NotFound {
-          qty := qty - n
-          return this
-        }
-      }`),
   // A FOURTH of the same shape, found by reading `validateFieldMask` for the
   // `anyBackend` arm rather than trusting `FIELD_MASK_BACKENDS` (which does
   // list all five families).  `mask unless` on a context nothing hosts is the
@@ -819,17 +867,6 @@ system P {
   resource st { for: Orders, kind: state, use: pg }
   deployable d { platform: dotnet, contexts: [Orders], dataSources: [st], serves: A, port: 4000 }
 }`,
-  "loom.java-reserved-identifier-unsupported": `
-system P {
-  subdomain D { context Orders {
-    aggregate Order with crudish { case: string }
-    repository Orders for Order { }
-  } }
-  api A from D
-  storage pg { type: postgres }
-  resource st { for: Orders, kind: state, use: pg }
-  deployable d { platform: java, contexts: [Orders], dataSources: [st], serves: A, port: 4000 }
-}`,
   // --- workflow-checks.ts --------------------------------------------------
   // M-T9.19 recorded FOUR of this file's codes as unemittable from source.
   // Driving each one instead of re-reading the note found that claim wrong for
@@ -857,6 +894,22 @@ system P {
       orderId: Order id
       status: string
       create(oid: Order id) { status := "Pending" }
+    }`),
+  // A repository reached INLINE, inside a `precondition` expression, instead of
+  // bound to its own `let`.  The let-bound sibling read (`Things.getById`) in
+  // the same body is the control: only the inline `Others` is flagged, which is
+  // what makes the fixture's diagnostic meaningful rather than a blanket
+  // "a repository name appears in this workflow".
+  "loom.workflow-inline-repository-call":
+    repoOnly(`    aggregate Thing with crudish { name: string  otherId: Other id }
+    repository Things for Thing { }
+    aggregate Other with crudish { label: string }
+    repository Others for Other { }
+    workflow W {
+      create(tid: Thing id) {
+        let t = Things.getById(tid)
+        precondition t.name == Others.getById(t.otherId).label
+      }
     }`),
   // The code whose "covered by message in validation.test.ts" claim outlived
   // the file it cited (M-T9.33's own opening finding).  It fires: an `emit`
@@ -961,21 +1014,57 @@ system S {
   deployable web { platform: static targets: api ui: WebApp { C: api } port: 3001 }
 }`,
 
+  // The TARGET-AGNOSTIC `match await` subject gate (audit F66).  The fixture is
+  // deliberately a REACT deployable: the whole point of the promotion is that
+  // this model used to report `0 error(s), 0 warning(s)` there and emit
+  // `await Promise.reject(new Error("no remote op for variant-match"))`, while
+  // the identical model was refused on Feliz.  A plain `string` state field is
+  // the subject — no frontend can resolve it to an aggregate instance op.
+  "loom.async-effect-subject-unsupported": `
+system S {
+  subdomain Sub { context C {
+    aggregate Order { code: string  operation place() { code := "x" } }
+    repository Orders for Order { }
+  } }
+  api Api from Sub
+  ui WebApp {
+    api C: Api
+    page OrderDetail {
+      route: "/orders/:id"
+      state { message: string = "" }
+      action submit() {
+        match await message {
+          Order o => { message := o.code }
+        }
+      }
+      body: Stack { Button { "Place", onClick: submit } }
+    }
+  }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable api { platform: node contexts: [C] dataSources: [st] serves: Api port: 3000 }
+  deployable web { platform: static targets: api ui: WebApp { C: api } port: 3001 }
+}`,
+
   // The `persist:` ladder now ships on EVERY frontend, so the platform-wide arm
   // of this code is gone; what remains is field-scoped.  Persistence on feliz
   // and flutter crosses an untyped boundary per field, so a cell whose type has
-  // no total conversion in that language's codec (here a `datetime` on feliz)
-  // is refused rather than silently dropped from the stored blob.
+  // no total conversion in that language's codec is refused rather than
+  // silently dropped from the stored blob.  Since wave C2 packet 2i the FELIZ
+  // residue is exactly the types that would need a RECORD codec — a value
+  // object here; `datetime` (the fixture's old subject) now has a total
+  // `System.DateTime.TryParse` codec and rides the ladder.
   "loom.store-lifetime-target-unsupported": `
 system S {
   subdomain Sub { context C {
+    valueobject Money { amount: int  currency: string }
     aggregate Thing with crudish { name: string }
   } }
   api Api from Sub
   ui WebApp {
     framework: feliz
     api C: Api
-    store Cart persist: local { state { seenAt: datetime } }
+    store Cart persist: local { state { price: Money } }
     page Home { route: "/"  body: Stack { Heading { "hi", level: 3 } } }
   }
   storage pg { type: postgres }
@@ -1029,6 +1118,54 @@ system S {
       }
     }
   }
+}`,
+  // The workflow-body twin of the gate above, and the same mechanism: the
+  // workflow lowerer indexes `reposByName` from its own context alone, so a
+  // foreign repository name never becomes a `repo-let` — it survives as a `ref`
+  // with `refKind: "unknown"` and every backend renders it verbatim.
+  "loom.workflow-cross-context-repository": `
+system S {
+  subdomain Sub {
+    context Directory {
+      aggregate Technician with crudish { skills: string[] }
+      repository Technicians for Technician { }
+    }
+    context Dispatch {
+      aggregate WorkOrder with crudish {
+        status: string
+        operation assign() { status := "Assigned" }
+      }
+      repository WorkOrders for WorkOrder { }
+      workflow scheduleWorkOrder transactional {
+        create(workOrderId: WorkOrder id, assignTo: Technician id) {
+          let tech = Technicians.getById(assignTo)
+          let wo = WorkOrders.getById(workOrderId)
+          precondition tech.skills.count > 0
+          wo.assign()
+        }
+      }
+    }
+  }
+}`,
+  // The aggregate-side twin: a plain `operation` naming a repository — the
+  // spelling that is legal in a `workflow`, where a repository IS in scope.
+  // In a domain member body it lowers to an unresolved ref that all five
+  // backends render verbatim into a class that binds no repository.
+  "loom.repository-access-outside-workflow": `
+system S {
+  subdomain Sub { context Ops {
+    aggregate Technician { name: string }
+    repository Technicians for Technician { }
+    aggregate Job {
+      technicianId: Technician id
+      assignedName: string
+      operation assign(assignTo: Technician id) {
+        technicianId := assignTo
+        assignedName := Technicians.getById(assignTo).name
+      }
+    }
+    repository Jobs for Job { }
+  } }
 }`,
 
   // An unresolved bare ref in a rendered slot: the walker emits a comment and
@@ -1189,6 +1326,30 @@ system S {
   deployable api { platform: node contexts: [C] dataSources: [st] serves: Api port: 3000 }
   deployable web { platform: static targets: api ui: WebApp { C: api } port: 3001 }
 }`,
+  // A `QueryView` `of:` naming an operation the repository never declares.
+  // `findAllBySellable` is the shape a criterion gets only where `scaffoldPaged`
+  // synthesizes it; without that macro the criterion exists and the find does
+  // not, and the read used to become the unfiltered list on Phoenix.
+  "loom.ui-read-unresolved": `
+system S {
+  subdomain Sub { context C {
+    aggregate Product with crudish { name: string }
+    repository Products for Product { }
+  } }
+  api Api from Sub
+  ui WebApp {
+    framework: react
+    api C: Api
+    page Shop {
+      route: "/shop"
+      body: QueryView { of: Product.findAllBySellable(), data: rows => Text { rows.count } }
+    }
+  }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable api { platform: node contexts: [C] dataSources: [st] serves: Api port: 3000 }
+  deployable web { platform: static targets: api ui: WebApp { C: api } port: 3001 }
+}`,
   // `OperationForm { of:, op: }` names no record, so every frontend targets the
   // page's route `:id` — on a route that declares none it submits an empty id.
   "loom.op-form-needs-route-id": `
@@ -1258,6 +1419,23 @@ system P {
   // `api` identifier the emitted file never binds.  `sum` on purpose: it
   // collides with the collection intrinsic, which is the arm that MIS-COMPILED
   // (to a `.reduce(…)` fold) rather than merely failing at run time.
+  // An e2e body calling a verb whose ROUTE this same compilation does not emit:
+  // `Product` declares no `create` (no `crudish`), so no backend mounts
+  // `POST /api/products` — and the emitted suite would POST there anyway.
+  "loom.e2e-unrouted-verb": `
+system S {
+  subdomain D { context C {
+    aggregate Product { sku: string }
+  } }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable d { platform: node, contexts: [C], dataSources: [st], port: 4100 }
+  test e2e "t" against d {
+    let p = api.products.create({ sku: "W-1" })
+    expect(p.sku).toBe("W-1")
+  }
+}`,
+
   "loom.e2e-unaddressable-call": `
 system S {
   subdomain D { context C {
@@ -1273,10 +1451,12 @@ system S {
   }
 }`,
 
-  // An `if` STATEMENT in an operation body, on a context an elixir deployable
-  // emits.  The four spine backends render it; Phoenix would silently drop an
-  // assigning branch (its bodies thread a REBOUND `record`, and an Elixir `if`
-  // block's bindings do not escape the block).
+  // M-T6.59 narrowed this code: the `if` STATEMENT itself RENDERS on elixir now
+  // (a value-producing `record = if … do … record else record end`), so the
+  // firing shape is one of the three sub-shapes that still cannot render.  This
+  // is `#guard-in-branch` — a `precondition` nested in a branch, which the op
+  // path cannot hoist into its `with :ok <- ensure(…)` chain, so it would raise
+  // (500) where the other four backends answer a typed 403/422.
   "loom.elixir-if-stmt-unsupported": `
 system P {
   subdomain D { context C {
@@ -1285,6 +1465,7 @@ system P {
       count: int
       operation bump(n: int) {
         if n > 0 {
+          precondition count > 0
           count := 1
         } else {
           count := 2
@@ -1404,11 +1585,15 @@ system P {
   deployable app { platform: react targets: api ui: WebApp { C: api } port: 3001 }
 }`,
 
-  // A user component invoked with CHILDREN on an Angular-hosted ui.  Angular
-  // has no PascalCase component tag, so the call site is
-  // `<ng-container [ngComponentOutlet]=…>` and `ngComponentOutlet` cannot
-  // project content from a template — the extra positional argument was
-  // dropped and the child markup appeared nowhere in the emitted project.
+  // An EXTERN user component invoked with CHILDREN on an Angular-hosted ui.
+  // An extern component's `@Component({ selector })` is the author's, so Loom
+  // has no tag to spell and the call site is `<ng-container
+  // [ngComponentOutlet]=…>` — which cannot project content from a template, so
+  // the extra positional argument is dropped and the child markup appears
+  // nowhere in the emitted project.  The declaration must be `extern` (wave C2
+  // packet 2h, D-ANGULAR-EXTERN-CHILDREN): a WALKED component is addressed by
+  // the selector Loom stamped on it and projects its children correctly, so it
+  // no longer raises this.
   "loom.component-children-unsupported": `
 system P {
   subdomain D { context C {
@@ -1417,7 +1602,7 @@ system P {
   api Api from D
   ui WebApp {
     api C: Api
-    component Panel(label: string) { body: Card { Text { label }, Slot { } } }
+    component Panel(label: string) extern from "widgets/panel"
     page Home { route: "/" body: Stack { Panel("a", Text { "child" }) } }
   }
   storage pg { type: postgres }
@@ -1637,6 +1822,32 @@ system P {
     test "a locator matcher needs a page read" for Thing {
       expect("x").toHaveText("x")
     }`),
+  // `toThrow` in a block whose target is a FRONTEND deployable — it lowers to
+  // the Playwright renderer, where there is no HTTP response to pin a status
+  // on.  Needs a full system (the diagnostic reads the target deployable's
+  // platform), so it cannot use `repoOnly`.
+  "loom.e2e-ui-throw-invalid": `
+system S {
+  subdomain D { context C {
+    aggregate Technician with crudish {
+      name: string
+      invariant name.length > 0
+      derived display: string = name
+    }
+    repository Technicians for Technician { }
+  } }
+
+  ui WebApp with scaffold(subdomains: [D]) { }
+  storage primary { type: postgres }
+  resource cState { for: C, kind: state, use: primary }
+
+  deployable api { platform: node, contexts: [C], dataSources: [cState], port: 3000 }
+  deployable webApp { platform: react, targets: api, ui: WebApp, port: 3001 }
+
+  test e2e "a ui body cannot pin a status" against webApp {
+    expect(ui.technicians.create({ name: "" })).toThrow(422)
+  }
+}`,
   "loom.seed-abstract-aggregate": repoOnly(`    abstract aggregate Base { name: string }
     aggregate Child extends Base with crudish { extra: int }
     repository Children for Child { }
@@ -1650,6 +1861,59 @@ system S {
     aggregate Org with crudish { name: string }
     repository Invoices for Invoice { }
     seed default { Invoice { label: "Seeded" } }
+  } }
+}`,
+  // --- M-T5.34: the four rulings (#2864 D5/D6/G2, #2850 case B) ------------
+  // Each fixture is minimal and ISOLATING — it raises its own code and no
+  // sibling from the packet, so a future regression names one gate.
+  //
+  // `handle` on a workflow whose command create DOES supply the correlation
+  // key ('doc'), so `loom.workflow-create-correlation-unsupplied` stays quiet
+  // and this fixture is about the handler alone.
+  "loom.workflow-handle-unsupported": `
+system S {
+  subdomain D { context Ops {
+    aggregate Doc { title: string }
+    repository Docs for Doc { }
+    workflow Review {
+      doc: Doc id
+      st: string
+      create(doc: Doc id) { st := "Filed" }
+      handle approve() { st := "Approved" }
+    }
+  } }
+}`,
+  // An entity-part-typed parameter on a PUBLIC operation.  The value-object
+  // spelling of the very same model is the passing sibling (it emits
+  // `z.array(LineSchema)` + `new Line(e.sku, e.qty)`), pinned in
+  // test/ir/entity-part-param.test.ts.
+  "loom.entity-part-param-unsupported": `
+system S {
+  subdomain D { context Ops {
+    aggregate Order {
+      ref: string
+      lines: Line[]
+      entity Line { sku: string  qty: int }
+      operation replaceLines(newLines: Line[]) { lines := newLines }
+    }
+    repository Orders for Order { }
+  } }
+}`,
+  // Reactors, no starter.  The event IS carried by a channel, so
+  // `loom.reactor-event-uncarried` (the sibling gate for the other cause)
+  // stays quiet and this fixture isolates the missing-starter cause.
+  "loom.reactor-without-starter": `
+system S {
+  subdomain D { context Ops {
+    aggregate Order { ref: string }
+    repository Orders for Order { }
+    event OrderPaid { order: Order id }
+    channel bus { carries: OrderPaid  delivery: broadcast  retention: ephemeral }
+    workflow Settle {
+      order: Order id
+      st: string
+      on(e: OrderPaid) { st := "paid" }
+    }
   } }
 }`,
 };

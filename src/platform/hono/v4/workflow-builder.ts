@@ -54,7 +54,7 @@ import {
   opWorkflowInstances,
 } from "../../../ir/util/openapi-ids.js";
 import { opHasProvSite } from "../../../ir/util/prov-id.js";
-import { collectReachableTypes } from "../../../ir/util/reachable-types.js";
+import { collectReachableTypes, valueObjectPool } from "../../../ir/util/reachable-types.js";
 import { walkWorkflowStmtExprsDeep } from "../../../ir/util/walk.js";
 import { emitsCommandRoute } from "../../../ir/util/workflow-command-route.js";
 import { workflowCorrIdValueType } from "../../../ir/util/workflow-instances.js";
@@ -133,7 +133,7 @@ export function buildWorkflowsFile(
   // import list is still the intersection with the emitted text below, so a
   // candidate that isn't actually referenced is dropped — keeping a
   // subscription-free project byte-identical.
-  const usedVOs = ctx.valueObjects.map((v) => v.name);
+  const usedVOs = valueObjectPool(ctx).map((v) => v.name);
   const usedEnums = ctx.enums.map((e) => e.name);
   const valueObjectImport = [...usedVOs, ...usedEnums];
 
@@ -503,6 +503,7 @@ export function buildWorkflowsFile(
   const problemNamed = [
     /\bframeworkProblemBody\b/.test(bodyStr) ? "frameworkProblemBody" : null,
     /(?<!\.)\bProblemDetails\b/.test(bodyStr) ? "ProblemDetails" : null,
+    /\bUuidString\b/.test(bodyStr) ? "UuidString" : null,
     "newApp",
     /\brequireJsonContentType\(/.test(bodyStr) ? "requireJsonContentType" : null,
   ].filter((n): n is string => n !== null);
@@ -956,6 +957,7 @@ function emitWorkflowRoute(
       ? [
           `${ind}const state = (await load${upperFirst(wf.name)}(${handle}, ${corrParam.name})) ?? ${allocateLiteral(
             wf,
+            ctx,
             {
               keyExpr: corrParam.name,
               mikroDurable: usingMikro && durableEventTypes(ctx).size > 0,
@@ -1141,7 +1143,7 @@ function emitInstanceRoutes(
   const corrVt = workflowCorrIdValueType(wf);
   const idParamZod =
     corrVt === "guid"
-      ? "z.string().uuid()"
+      ? "UuidString"
       : corrVt === "string"
         ? "z.string()"
         : "z.coerce.number().int()";
@@ -1587,6 +1589,7 @@ function emitWorkflowStateHelpers(wf: WorkflowIR, usingMikro = false): string[] 
  *  omitted (nullable columns). */
 function allocateLiteral(
   wf: WorkflowIR,
+  ctx: BoundedContextIR,
   opts: { mikroDurable?: boolean; keyExpr?: string } = {},
 ): string {
   const corr = wf.correlationField as string;
@@ -1595,7 +1598,7 @@ function allocateLiteral(
   const parts = [`${corr}: ${opts.keyExpr ?? "__key"}`];
   for (const f of wf.stateFields ?? []) {
     if (f.name === corr || f.optional) continue;
-    parts.push(`${f.name}: ${defaultLiteralFor(f.type)}`);
+    parts.push(`${f.name}: ${defaultLiteralFor(f.type, ctx)}`);
   }
   // The idempotent-consumer marker is a NULLABLE column, which drizzle's
   // `$inferInsert` makes optional — so the drizzle literal omits it.  The mikro
@@ -1610,8 +1613,18 @@ function allocateLiteral(
 /** A backend-zero literal for a required saga-state column, matching the
  *  Drizzle insert type: numeric integers → `0`, precise-decimals (numeric
  *  columns) → the string `"0"`, bool → `false`, datetime → `new Date()`, json →
- *  `{}`, everything textual (string / guid / enum / id) → `""`, arrays → `[]`. */
-function defaultLiteralFor(t: TypeIR): string {
+ *  `{}`, everything textual (string / guid / id) → `""`, arrays → `[]`.
+ *
+ *  An ENUM column is the one case `""` gets wrong.  Drizzle types a pg enum as
+ *  the literal union of its members, so `""` is not assignable to it and the
+ *  allocate literal fails to type-check (TS2345) the moment a saga's state
+ *  carries an enum — the same `.ddd` shape that used to fail earlier, at
+ *  TS2304, for the unbound `<Enum>Schema` (#2864 D4).  The FIRST declared
+ *  member is the zero: an enum's declaration order is its author-stated
+ *  ordering, and the allocate literal is immediately overwritten by the
+ *  `create` body's own assignment (`claimState := Filed`) before the row is
+ *  ever saved, so this is a type-level placeholder, not a persisted default. */
+function defaultLiteralFor(t: TypeIR, ctx: BoundedContextIR): string {
   if (t.kind === "primitive") {
     switch (t.name) {
       case "int":
@@ -1631,6 +1644,10 @@ function defaultLiteralFor(t: TypeIR): string {
     }
   }
   if (t.kind === "array") return "[]";
+  if (t.kind === "enum") {
+    const first = ctx.enums.find((e) => e.name === t.name)?.values[0];
+    if (first !== undefined) return JSON.stringify(first);
+  }
   return `""`;
 }
 
@@ -1693,7 +1710,7 @@ function emitHandlerFn(
     if (trigger === "create") {
       // Load-or-allocate: a starter creates the instance if its key is new.
       out.push(
-        `  const state = (await load${T}(db, __key)) ?? ${allocateLiteral(wf, {
+        `  const state = (await load${T}(db, __key)) ?? ${allocateLiteral(wf, ctx, {
           mikroDurable: usingMikro && durable,
         })};`,
       );
@@ -2440,13 +2457,31 @@ function zodForWorkflowParam(t: TypeIR, ctx: BoundedContextIR): string {
  *  workflow params instead of aggregate-level surfaces.  Used to
  *  decide which `<Vo>Schema` declarations the workflows file needs
  *  to emit so its request schemas don't reference undefined names. */
-/** Type seeds named on the context's workflow surface — every workflow
- *  parameter.  The schema collectors take the transitive closure of these
- *  through value objects' own fields (see `collectReachableTypes`) so a
- *  `<Vo>Schema` body never references an undeclared `<Enum>Schema`. */
+/** Type seeds named on the context's workflow surface.  Two emission sites
+ *  reference `<Vo>Schema` / `<Enum>Schema` names in this file, so both have to
+ *  seed the collector or the reference resolves to nothing:
+ *
+ *    1. the per-workflow REQUEST schema  — `zodFor(p.type)` over `wf.params`;
+ *    2. the per-workflow INSTANCE RESPONSE schema (`emitInstanceResponseSchemas`)
+ *       — `zodForResponse(f.type)` over `wf.instanceWireShape`, the persisted
+ *       correlation-state row.
+ *
+ *  (2) was missing, so a workflow whose STATE carries an enum (`claimState:
+ *  ClaimState`) emitted `claimState: ClaimStateSchema` with `ClaimStateSchema`
+ *  declared nowhere in the tree — TS2304 (#2864 D4).  The id-source row is the
+ *  correlation token, emitted as a bare `z.string()`, so it names no schema and
+ *  is not seeded: over-seeding would emit an unused `const` and trip the
+ *  generated-code Biome gate.
+ *
+ *  The schema collectors take the transitive closure of these through value
+ *  objects' own fields (see `collectReachableTypes`) so a `<Vo>Schema` body
+ *  never references an undeclared `<Enum>Schema`. */
 function* workflowSchemaSeeds(ctx: BoundedContextIR): Generator<TypeIR> {
   for (const wf of ctx.workflows) {
     for (const p of wf.params) yield p.type;
+    for (const f of wf.instanceWireShape ?? []) {
+      if (f.source !== "id") yield f.type;
+    }
   }
   // A payload param's own `<Payload>Response` schema body references the
   // schema of each of ITS fields, and a payload is not a value object, so
@@ -2459,11 +2494,12 @@ function* workflowSchemaSeeds(ctx: BoundedContextIR): Generator<TypeIR> {
 }
 
 function collectUsedValueObjects(ctx: BoundedContextIR) {
-  const { valueObjects } = collectReachableTypes(workflowSchemaSeeds(ctx), ctx.valueObjects);
-  return ctx.valueObjects.filter((v) => valueObjects.has(v.name));
+  const pool = valueObjectPool(ctx);
+  const { valueObjects } = collectReachableTypes(workflowSchemaSeeds(ctx), pool);
+  return pool.filter((v) => valueObjects.has(v.name));
 }
 
 function collectUsedEnums(ctx: BoundedContextIR) {
-  const { enums } = collectReachableTypes(workflowSchemaSeeds(ctx), ctx.valueObjects);
+  const { enums } = collectReachableTypes(workflowSchemaSeeds(ctx), valueObjectPool(ctx));
   return ctx.enums.filter((e) => enums.has(e.name));
 }

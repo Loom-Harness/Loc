@@ -47,19 +47,6 @@
       "intermittent": true,
       "intermittentReason": "The finding needs the fuzzer to generate a MALFORMED query chunk (a parameter with an empty name, `?=%C3%A0`) against a read route. It did so ×4 on run 33382822525 and ×0 on the two runs before it — the same low rate that made W31 look permanently stale and got it wrongly retired (see F24). Declared intermittent so the staleness half cannot ask that question again on two samples.",
       "reason": "F28 — java answers 400 for an UNPARSEABLE query string and no read route declares a 400. RECLASSIFIED bug -> by-design on 2026-09-08, on evidence rather than on the earlier reasoning. What is left after F25's fix is narrow and java-only: Tomcat refuses to parse a chunk with an empty parameter name (`?=%C3%A0`) and throws `InvalidParameterException` out of the first `getParameter()`, so the request never reaches the wire-validation tier that would make it a 422. Three things were measured this time. (1) All four backends, same request, booted against a real Postgres: node 200, python 200, dotnet 200, java 400 — and with a merely UNRECOGNISED parameter (`?junk`) java answers 200 like the rest, so its strictness is specific to a syntactically invalid chunk, not to unknown parameters. (2) The 400 is not configurable away: `org.apache.tomcat.util.http.Parameters` as shipped in tomcat-embed-core 11.0.22 exposes only `setLimit`, the two charsets and the URL decoder — no strict/lenient flag, no parse-failure action, nothing the Spring Boot `server.tomcat.*` namespace could reach. Joining the other four would mean wrapping every request and RE-IMPLEMENTING query parsing inside each emitted Spring app, which buys parity by making java silently accept malformed input. (3) 400 is the correct HTTP answer for a syntactically invalid query string, and it is the same class of refusal as an over-long URI or bad headers — transport-level, which is why no route on any backend declares it. The alternative was considered and DECLINED: adding 400 to the read arms of `errorStatuses` would make java conformant, but it publishes a status four backends never produce on every read route of every generated API, for a refusal that is about HTTP syntax rather than about the operation. So this is the shape W8 records for F9 — a divergence between CONTAINERS, deliberately not papered over — and not a defect in any emitter."
-    },
-    {
-      "id": "W34",
-      "findings": [
-        "F21"
-      ],
-      "check": "negative_data_rejection",
-      "operations": "^POST /api/customers$",
-      "backends": [
-        "java"
-      ],
-      "kind": "bug",
-      "reason": "F21 on java, RE-DIAGNOSED (2026-09-03) — the original reason said `name` publishes `minLength: 1` and the create accepts `\"\"` with 201, \"exactly as on .NET\". Measured on a booted Spring app: java publishes NO `minLength` anywhere — not on `CreateCustomerRequest`, not on `CustomerResponse` — so there is no published bound to go unenforced, and the bound the model does declare is enforced (`email: \"\"` answers 422 from the domain invariant). `name: \"\"` answering 201 is correct. Java under-publishes where .NET used to over-publish; neither is what this rule's text claimed. Kept, un-retired, for the same reason as W27: the leg is what has to say what it catches."
     }
   ]
 }

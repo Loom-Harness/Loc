@@ -26,6 +26,7 @@ ddd generate ts <file.ddd> -o <outdir>            # emit a single TypeScript pro
 ddd generate dotnet <file.ddd> -o <outdir>        # emit a single .NET project (legacy)
 ddd generate system <file.ddd> -o <outdir>        # emit every deployable + docker-compose.yml
 ddd verify <file.ddd> --results <results.json>    # join test results onto the requirements graph
+ddd verify <file.ddd> --from-vitest <report.json> # …the same, straight from `vitest run --reporter=json`
 ddd snapshot <file.ddd> -o <outdir>               # capture provenance rule snapshots
 ddd patch <file.ddd> --patches <patches.json>     # apply node-addressed model patches
 ddd trace <logfile>                               # translate a runtime stack-trace back to .ddd source
@@ -182,11 +183,17 @@ See the pipeline phases in [`technical.md`](technical.md).
 `ddd verify` joins a JSON of test results onto the requirements graph
 built from `requirement` / `solution` / `testCase` declarations, writes
 `.loom/verification.json` + `.loom/verification.md` under `--out`, and
-sets a non-zero exit code if `--require-all` is set and any requirement
-remains unverified, or if `--min <pct>` is set and the verified
-percentage is below it.  `--json` also prints the verification JSON to
-stdout.  See [`traceability.md`](traceability.md) for the artefact
-format.
+sets a non-zero exit code if any requirement is `FAILING`, if a declared
+test produced **no result at all** (unless `--allow-missing` — "we have
+no result" is not "it passed"), if `--require-all` is set and any
+requirement remains unverified, or if `--min <pct>` is set and the
+verified percentage is below it.  `--json` also prints the verification
+JSON to stdout.  The results document is either Loom's own
+`{ version, results: [...] }` (`--results`) or a vitest / jest
+`--reporter=json` report (`--from-vitest`, which applies the
+`(suite, name)` join convention for you).  See [`verify.md`](verify.md)
+for the full contract and [`traceability.md`](traceability.md) for the
+artefact format.
 
 `ddd snapshot` captures one immutable `<ts>-<guid>.loomsnap.json` per
 system under `<out>/.loom/snapshots/`, recording the current provenance
@@ -936,8 +943,27 @@ tar xf node.tar.xz && export PATH="$PWD/node-v24.15.0-linux-x64/bin:$PATH"
 npx ng build          # in the emitted out/web
 ```
 
-Feliz needs the .NET SDK (`dotnet fable`), which is not on the sandbox host, so
-that one stays CI's to answer. Everything else, including all three Angular
+**Feliz builds here too — it does not "stay CI's to answer"** (this paragraph
+said so until 2026-09-13; re-measured that day and corrected). Fable is a dotnet
+tool and the image ships no .NET SDK, but Microsoft's own install script puts one
+in the scratchpad in under a minute, and `dotnet fable` + `vite build` then run
+green on a generated Feliz app:
+
+```bash
+curl -fsSL https://dot.net/v1/dotnet-install.sh -o dotnet-install.sh
+bash dotnet-install.sh --channel 8.0 --install-dir "$PWD/dotnet" --no-path   # 8.0 = the TFM the emitted App.fsproj targets
+export PATH="$PWD/dotnet:$PATH" DOTNET_ROOT="$PWD/dotnet"
+cd out/web && npm install && npm run build        # = dotnet tool restore && dotnet fable + vite build
+```
+
+Measured 2026-09-13 on `sales-system-feliz`: Fable parsed 47 source files and
+compiled in ~15 s, vite bundled in ~3 s, and the **full behavioural UI leg**
+(`cd test/behavioral && node run-ui.mjs sales-system-feliz` — real Hono backend on
+PGlite, real headless Chromium) came back **11 passed, 0 failed**. So the Feliz
+cell of `frontend-fullstack-e2e` is reproducible locally like every other
+frontend; do that before pushing rather than reading CI.
+
+Everything else, including all three Angular
 design packs, builds locally in a couple of minutes and is far cheaper than a CI
 round-trip.
 
@@ -957,6 +983,34 @@ docker run --rm --network host -v <deployable>:/src -w /src \
 
 So `generated-flutter-build` is no longer the only thing that can answer for
 Flutter — analyze locally before pushing, as with every other backend.
+
+**The full runtime leg runs here too, with a one-file `flutter` shim.**
+`test/behavioral/run-ui-flutter.mjs` shells out to whatever `FLUTTER` names, with
+the generated deployable as its cwd — so a wrapper that forwards to the container
+gives the leg an SDK without touching the harness:
+
+```bash
+cat > /tmp/flutter-docker <<'SH'
+#!/bin/bash
+set -euo pipefail
+exec docker run --rm --network host -v "$PWD":/src -w /src \
+  -v /root/.ccr:/root/.ccr:ro -v "$HOME/.pub-cache":/root/.pub-cache \
+  -e CURL_CA_BUNDLE=/root/.ccr/ca-bundle.crt \
+  -e HTTPS_PROXY="${HTTPS_PROXY:-}" -e HTTP_PROXY="${HTTP_PROXY:-}" \
+  ghcr.io/cirruslabs/flutter:stable flutter "$@"
+SH
+chmod +x /tmp/flutter-docker
+cd test/behavioral && FLUTTER=/tmp/flutter-docker node run-ui-flutter.mjs
+```
+
+Measured 2026-09-13 (Flutter 3.44.0 in that image): **4 passed, 0 failed**,
+including the numeric round-trip probe, and **red on a re-seeded F1 money decode**.
+The `-v "$HOME/.pub-cache"` mount is what keeps a re-run from re-resolving pub
+deps. One wrinkle worth knowing: on this sandbox the browser's cross-origin
+fetches are reset by the proxy, which used to surface as an opaque
+`Failed to load resource: net::ERR_CONNECTION_RESET` console line and failed all
+four probes for an environment reason; the leg now attributes a failed request to
+an origin and only fails on its OWN.
 
 #### Fallback: the pub.dev TLS wrinkle
 

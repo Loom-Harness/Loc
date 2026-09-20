@@ -30,10 +30,24 @@
 //                                     via `DateTime.tryParse`
 //   arrays of any of the above      → `List<T>`
 //
-// Everything else is gated.  `json` spells `dynamic` (no typed cell to restore
-// into), `File` spells the `FileRef?` object, `valueobject`/`entity` would need
-// a per-record codec the store path does not emit, and an `optional` cell has no
-// "absent vs. null" distinction in a flat blob / query param.
+//   an OPTIONAL of any of the above  -> the same cell, nullable
+//   json                             -> Dart `dynamic` -- the value verbatim
+//
+// The last two were gated until wave C2 and should not have been.  An `optional`
+// cell's "no absent-vs-null distinction" is not a LOSS here: the Dart cell is
+// `T?`, so absent and null are the same value, which makes the round trip total
+// rather than lossy.  And a `json` cell IS json -- storing the decoded value
+// back verbatim is the identity conversion, the one case that cannot fail.  The
+// JS frontends persist both (Zustand's `createJSONStorage` serialises the whole
+// state), so refusing them here was a per-target gap, not a shared limit.
+//
+// What is STILL gated: `File` (the fixed `FileRef` wire object) and
+// `valueobject` / `entity`, which would need a per-record codec the store path
+// does not emit -- and `fromJson` on junk throws, so admitting one without a
+// try/catch wrapper would break the totality rule this whole module rests on.
+// An optional ARRAY and an optional `json` stay gated for the same reason the
+// non-optional forms of each are shaped the way they are: one nullable layer
+// over a scalar is a cell type, one over a collection is a second emptiness.
 // ---------------------------------------------------------------------------
 
 import type { TypeIR } from "../types/loom-ir.js";
@@ -56,10 +70,20 @@ export type FlutterPersistScalar =
   /** Dart `DateTime` — an ISO-8601 string both ways. */
   | "datetime";
 
+/** Where a persisted store keeps its state — the two blob tiers behave
+ *  identically here; `url` is the one that constrains the supported set. */
+export type FlutterPersistTier = "local" | "session" | "url";
+
 /** How one persisted store field crosses the untyped boundary. */
 export type FlutterPersistCodec =
-  | { kind: "scalar"; scalar: FlutterPersistScalar }
-  | { kind: "list"; element: FlutterPersistScalar };
+  /** A single cell.  `nullable` makes the Dart cell `T?` and every conversion
+   *  null-guarded — an absent key / absent query param restores as `null`,
+   *  which for a nullable cell is the RIGHT value rather than a lost one. */
+  | { kind: "scalar"; scalar: FlutterPersistScalar; nullable?: true }
+  | { kind: "list"; element: FlutterPersistScalar }
+  /** A `json` cell — Dart `dynamic`.  Stored and restored VERBATIM in the blob
+   *  (the identity conversion), `jsonEncode`/`jsonDecode` in the query string. */
+  | { kind: "json" };
 
 function scalarCodec(t: TypeIR): FlutterPersistScalar | undefined {
   // Ids and enums ride the wire (and Dart) as plain strings — `dart-types.ts`.
@@ -79,8 +103,10 @@ function scalarCodec(t: TypeIR): FlutterPersistScalar | undefined {
       return "datetime";
     case "json":
     case "File":
-      // `dynamic` / the `FileRef?` object — neither has a typed cell to restore
-      // into from a flat blob.
+      // Reached only for a json/File ELEMENT of an array, or a nested layer —
+      // a top-level `json` is intercepted by `flutterPersistCodec` above and
+      // rides its own codec kind.  `File` has no scalar form at all (the fixed
+      // `FileRef` wire object).
       return undefined;
     default:
       // string / guid — both spell Dart `String`.  (`duration` is
@@ -91,7 +117,36 @@ function scalarCodec(t: TypeIR): FlutterPersistScalar | undefined {
 
 /** The codec for a persisted Flutter store field, or `undefined` when the type
  *  has none (→ `loom.store-lifetime-target-unsupported#flutter-field`). */
-export function flutterPersistCodec(t: TypeIR): FlutterPersistCodec | undefined {
+export function flutterPersistCodec(
+  t: TypeIR,
+  /** Which tier the store persists to.  Only the NULLABLE cell depends on it —
+   *  see the `optional` arm below.  Defaults to the blob tier, the permissive
+   *  one, so a caller that does not care reads the full supported set. */
+  tier: FlutterPersistTier = "local",
+): FlutterPersistCodec | undefined {
+  if (t.kind === "optional") {
+    // One nullable layer over a SCALAR is just a nullable cell.  Over a
+    // collection or a `json` it is a second kind of emptiness (an absent list
+    // vs an empty one), which the flat blob cannot distinguish — gated.
+    //
+    // REFUSED at the `url` tier, and the reason is the RESTORE side, not the
+    // encode side: `hydrateFromUrl` (the browser back/forward half) re-seeds
+    // through `copyWith`, whose `x ?? this.x` parameter shape cannot express
+    // "set this cell to null".  So removing the param from the URL and pressing
+    // Back would silently KEEP the old value instead of clearing it — a
+    // wrong-value bug rather than a missing feature, which is exactly what this
+    // classifier exists to prevent.  Widening it means giving `copyWith` a
+    // null-distinguishing sentinel, which is a change to the shared state data
+    // class every page and component also uses.
+    if (tier === "url") return undefined;
+    const inner = flutterPersistCodec(t.inner, tier);
+    return inner?.kind === "scalar"
+      ? { kind: "scalar", scalar: inner.scalar, nullable: true }
+      : undefined;
+  }
+  // `json` is unaffected by the tier: its absent-value fallback is the cell's
+  // own declared default, which is never null, so `copyWith` restores it.
+  if (t.kind === "primitive" && t.name === "json") return { kind: "json" };
   if (t.kind === "array") {
     const el = scalarCodec(t.element);
     return el === undefined ? undefined : { kind: "list", element: el };

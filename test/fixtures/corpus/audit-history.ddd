@@ -46,7 +46,25 @@ system AuditHistorySystem {
           precondition reason >= 0
           status := reason
         }
+        // An audited RETURNING operation — the crossing node used to REFUSE
+        // (`loom.audited-returning-operation-unsupported`, M-T6.32): its route
+        // fell into the void-204 handler, so the declared result was discarded
+        // and the audit row was the only half that happened.  The other four
+        // backends already emitted both halves, so the fixture drives the two
+        // together: the tagged 200 body AND the third trail entry.
+        operation settle(fee: int): int or NotFound {
+          precondition fee >= 0
+          quantity := quantity + fee
+          return quantity
+        }
       }
+      // The error arm of `settle`'s union.  DECLARED but deliberately not
+      // driven at runtime here: whether the transaction of an operation that
+      // returns its error variant commits is an open language question
+      // (`operation-returns.ddd` records it), and the audit trail would answer
+      // it differently per backend.  The success arm is the crossing this
+      // fixture exists to pin.
+      error NotFound { resource: string }
       repository Orders for Order {
         find byReference(reference: string): Order? where this.reference == reference
       }
@@ -96,6 +114,25 @@ system AuditHistorySystem {
     expect(read.status).toBe(7)
     let byRef = api.orders.byReference({ reference: "R1" })
     expect(byRef.status).toBe(7)
+
+    // The audited RETURNING operation, driven AFTER the assertions above so the
+    // trail order stays create -> cancel -> settle.  Two things must hold at
+    // once, and node used to manage NEITHER: the declared result comes back on
+    // a 200 (not a bodiless 204), and the audit row is written in the same
+    // transaction — so the trail grows a third entry carrying the one field the
+    // operation moved.
+    let settled = api.orders.settle(o, { fee: 3 })
+    expect(settled.value).toBe(8)
+    let settledRead = api.orders.getById(o)
+    expect(settledRead.quantity).toBe(8)
+    let trail2 = api.orders.history(o)
+    expect(trail2.count).toBe(3)
+    let settledEntry = trail2.skip(2).first()
+    expect(settledEntry.action).toBe("settle")
+    expect(settledEntry.changes.count).toBe(1)
+    expect(settledEntry.changes.first().field).toBe("quantity")
+    expect(settledEntry.changes.first().before).toBe(5)
+    expect(settledEntry.changes.first().after).toBe(8)
     let listed = api.orders.all()
     expect(listed.items.length).toBe(1)
     expect(listed.total).toBe(1)

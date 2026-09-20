@@ -43,7 +43,7 @@ import {
 } from "../../money-scale.js";
 import { type ElixirChannelsCfg, opEmitsDurableEvent } from "../channels-emit.js";
 import { contextHasDispatcher } from "../dispatch-emit.js";
-import { opUsesCurrentUser, stmtUsesParam } from "../domain/predicates.js";
+import { opBodyStmtsDeep, opUsesCurrentUser, stmtUsesParam } from "../domain/predicates.js";
 import { renderReadingServiceContextFns } from "../domain-service-emit.js";
 import { unguardedName } from "../lifecycle-seam.js";
 import { type RenderCtx, renderExpr } from "../render-expr.js";
@@ -898,7 +898,7 @@ function contextMutatesRefColl(ctx: BoundedContextIR): boolean {
     return (agg.operations ?? []).some(
       (op) =>
         !CRUD_RESERVED_NAMES.has(op.name) &&
-        op.statements.some(
+        opBodyStmtsDeep(op.statements).some(
           (s) =>
             (s.kind === "add" || s.kind === "remove") &&
             s.collection &&
@@ -920,7 +920,8 @@ function contextUsesRefCollOp(ctx: BoundedContextIR): boolean {
     if (refCollFieldNames(agg).size === 0) return false;
     return (agg.operations ?? []).some(
       (op) =>
-        !CRUD_RESERVED_NAMES.has(op.name) && op.statements.some((s) => stmtHasRefCollContains(s)),
+        !CRUD_RESERVED_NAMES.has(op.name) &&
+        opBodyStmtsDeep(op.statements).some((s) => stmtHasRefCollContains(s)),
     );
   });
 }
@@ -944,7 +945,7 @@ function contextMutatesRelationalContainment(ctx: BoundedContextIR, sys?: System
     return (agg.operations ?? []).some(
       (op) =>
         !CRUD_RESERVED_NAMES.has(op.name) &&
-        op.statements.some(
+        opBodyStmtsDeep(op.statements).some(
           (s) =>
             (s.kind === "assign" || s.kind === "add" || s.kind === "remove") &&
             containNames.has(snake(s.target.segments[0] ?? "")),
@@ -1327,7 +1328,7 @@ function renderNamedOpFunction(
   // swap is gated on embedded-containment mutation only (byte-identical
   // otherwise).
   const containNames = new Set(agg.contains.map((c) => snake(c.name)));
-  const mutatesEmbeddedContainment = op.statements.some((s) => {
+  const mutatesEmbeddedContainment = opBodyStmtsDeep(op.statements).some((s) => {
     if (s.kind !== "add" && s.kind !== "remove") return false;
     const f = snake(s.target.segments[0] ?? "");
     return containNames.has(f) && !relationalContainments.has(f);
