@@ -40,6 +40,7 @@ import {
 } from "../../ir/util/reachable-types.js";
 import type { ClassifyContext, SingleFieldPattern } from "../../ir/validate/invariant-classify.js";
 import { plural, snake, upperFirst } from "../../util/naming.js";
+import { UUID_WIRE_REGEX_LITERAL } from "../../util/uuid-wire.js";
 import { PROVENANCED_REQUEST_ERROR } from "../_payload/provenanced-wire.js";
 import { hookFnName } from "../_walker/js-target-helpers.js";
 import {
@@ -835,7 +836,11 @@ function zodForRequest(t: TypeIR): string {
       // validator says so too and the caller is told at the field instead of
       // by a server error.  Gated on the declared id value type — an
       // `int`/`long`/`string`-keyed aggregate is not a uuid (schemathesis F2).
-      return info.idValueType === "guid" ? "z.string().uuid()" : "z.string()";
+      // Tracks the shared `UUID_WIRE_PATTERN` so the form cannot refuse an id
+      // the server accepts — see `zodForRequest` in ./zod-schemas.ts.
+      return info.idValueType === "guid"
+        ? `z.string().regex(${UUID_WIRE_REGEX_LITERAL})`
+        : "z.string()";
     case "enum":
     case "valueObject":
       return `${info.base}Schema`;

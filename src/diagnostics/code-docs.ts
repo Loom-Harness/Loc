@@ -209,6 +209,7 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.e2e-unrouted-verb": "18-testing.md#test-e2e--against-deployable--a-live-end-to-end-test",
   "loom.locator-matcher-receiver":
     "18-testing.md#test-e2e--against-deployable--a-live-end-to-end-test",
+  "loom.e2e-ui-throw-invalid": "18-testing.md#tothrow--the-throw-assertion",
   "loom.extern-component-has-body": "21-externs.md#extern-component",
   "loom.extern-function-shadows-stdlib": "21-externs.md#extern-function",
   "loom.seed-duplicate-field": "23-domain-services-and-seeds.md#seed--declarative-first-boot-data",
