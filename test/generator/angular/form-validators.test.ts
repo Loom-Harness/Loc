@@ -102,8 +102,12 @@ describe("angular generator — invariant-derived form Validators", () => {
 
   it("renders an inline error per validated field, gated on touched", async () => {
     const page = await formPage();
+    // On the MATERIAL pack the message is a `<mat-error>` INSIDE the form
+    // field — the only placement `MatFormField` associates with its input
+    // (M-T1.12 slice 6; the raw-pack `<p>` shape is pinned in
+    // `field-aria.test.ts`).
     expect(page).toContain(
-      '@if (productForm.controls.sku.invalid && productForm.controls.sku.touched) {<p class="loom-error" data-testid="products-new-error-sku">Sku is invalid</p>}',
+      '@if (productForm.controls.sku.invalid && productForm.controls.sku.touched) {<mat-error id="products-new-error-sku" data-testid="products-new-error-sku">Sku is invalid</mat-error>}</mat-form-field>',
     );
     expect(page).toContain('data-testid="products-new-error-quantity"');
   });

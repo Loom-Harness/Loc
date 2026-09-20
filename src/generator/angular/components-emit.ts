@@ -29,13 +29,18 @@
 //
 // HOW A CALL SITE RESOLVES
 // ------------------------
-// Unchanged from the extern path: `angularTarget.renderUserComponent` renders
-// `<ng-container [ngComponentOutlet]="TierBadge" [ngComponentOutletInputs]="…">`
-// and the shell imports the class + re-exposes it as a member + registers
-// `NgComponentOutlet`.  Angular has no PascalCase element tag, and the outlet is
-// selector-free, so one call form covers both flavours; only the IMPORT PATH
-// differs (a walked component is a sibling under `src/app/`, an extern shim sits
-// at `src/components/`), which the shell resolves from `walkedComponents`.
+// A WALKED component is addressed BY ITS OWN TAG —
+// `<app-tier-badge [label]='tier()'>…</app-tier-badge>` — because Loom stamped
+// the selector (`angularComponentSelector`) and therefore knows it; the shell
+// imports the class and registers it in the standalone `imports: []`.  That is
+// also the only Angular call form with a content-projection channel, so a call
+// site passing CHILDREN projects them into the body's `Slot { }`
+// (`<ng-content>`).  An EXTERN component's class is hand-written and its
+// selector is the author's, so it keeps `<ng-container [ngComponentOutlet]=…>`
+// (and keeps dropping children — `loom.component-children-unsupported`).
+// `angularTargetFor(<walked names>)` is what tells the call-site renderer which
+// flavour it is looking at; the shell resolves the IMPORT PATH from the same
+// set (`walkedComponents`).
 //
 // DEFERRED SHAPES (excluded from the emitted set, so a call site keeps the
 // existing comment rather than emitting a dangling reference):
@@ -60,7 +65,8 @@ import type {
 } from "../../ir/types/loom-ir.js";
 import type { LoadedPack } from "../_packs/loader.js";
 import { walkBody } from "../_walker/walker-core.js";
-import { angularTarget } from "./walker/angular-target.js";
+import { angularComponentSelector } from "./component-selector.js";
+import { angularTargetFor } from "./walker/angular-target.js";
 import {
   type AngularComponentMode,
   pageNeedsDeferredFeatures,
@@ -103,16 +109,6 @@ export function angularComponentPath(name: string): string {
   return `src/app/components/${name}.ts`;
 }
 
-/** kebab selector for a walked component (`TierBadge` → `app-tier-badge`).
- *  The outlet never uses it, but a `@Component` without one is harder to spot
- *  in devtools. */
-function componentSelector(name: string): string {
-  return `app-${name
-    .replace(/([a-z0-9])([A-Z])/g, "$1-$2")
-    .replace(/[_\s]+/g, "-")
-    .toLowerCase()}`;
-}
-
 /** Walk one component body + assemble its standalone component class, or
  *  `undefined` when the walked body needs a feature the shell defers (see the
  *  header) — the caller then leaves the name out of `userComponents`. */
@@ -123,7 +119,10 @@ function renderOne(
 ): string | undefined {
   const result = walkBody(
     c.body!,
-    angularTarget,
+    // Every component in scope for this round is one LOOM emits, so all of
+    // them are tag-addressable from a sibling component's body — children
+    // included.  (An `extern` component is never a `candidates` member.)
+    angularTargetFor(new Set(componentParams.keys())),
     ctx.pack,
     new Set(c.params.map((p) => p.name)),
     new Set(c.state.map((s) => s.name)),
@@ -165,7 +164,7 @@ function renderOne(
   if (readsAnInput) return undefined;
   const mode: AngularComponentMode = {
     className: c.name,
-    selector: componentSelector(c.name),
+    selector: angularComponentSelector(c.name),
     inputs: c.params,
   };
   // A component is a page-shaped subject with no route / title / `requires`

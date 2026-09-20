@@ -84,12 +84,24 @@ system SvelteStoreShowcase {
     page CartPage {
       route: "/cart"
       state { confirming: bool = false }
+      // A `derived` whose initialiser reads a STORE field.  Nothing in the
+      // body mentions `Cart.count`, so the `$derived(count)` binding exists
+      // ONLY because the derived asked for it — the shape that used to emit
+      // `const itemCount = $derived(count);` against an undeclared `count`
+      // (2026-09-03 audit F50, the Svelte twin of react's F9).
+      derived itemCount: int = Cart.count
       action discard() { Cart.clear() }
+      // The `toast(<msg>)` page effect in a named action body — F50's other
+      // half.  It renders as a bare `toast(...)` call, so the project has to
+      // declare the symbol.
+      action save() { toast("Draft saved") }
       body: Stack {
         Heading { "Your cart", level: 1 },
         CartSummary(),
+        Heading { itemCount, level: 3 },
         For { each: Cart.lines, line => Card { line } },
-        Button { "Discard", onClick: discard }
+        Button { "Discard", onClick: discard },
+        Button { "Save", onClick: save }
       }
     }
 

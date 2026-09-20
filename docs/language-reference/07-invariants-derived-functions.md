@@ -446,7 +446,7 @@ end
 
 ## `function` — a pure helper
 
-`function name(params): Type = Expr` (expression form) or `function name(params): Type { let … return … }` (block form — `let` bindings, `precondition` / `requires` bug-regime statements, and a mandatory `return` of the declared type, `loom.function-block-no-return`) is a pure, side-effect-free helper callable from any expression in the same aggregate / entity part / value object / workflow — invariant predicates, derived expressions, operation bodies. The expression form is SQL-inlinable like a `criterion`; the block form is not queryable (a call is already rejected in `where` / `criterion` positions). It compiles to a private method on the aggregate on node/.NET/java (`_`-prefixed on python; a public context-facade function on Phoenix) — never part of the public command surface.
+`function name(params): Type = Expr` (expression form) or `function name(params): Type { let … return … }` (block form — `let` bindings, `precondition` / `requires` bug-regime statements, and a mandatory `return` of the declared type on every path, `loom.function-block-no-return`) is a pure, side-effect-free helper callable from any expression in the same aggregate / entity part / value object / workflow — invariant predicates, derived expressions, operation bodies. The expression form is SQL-inlinable like a `criterion`; the block form is not queryable (a call is already rejected in `where` / `criterion` positions). It compiles to a private method on the aggregate on node/.NET/java (`_`-prefixed on python; a public context-facade function on Phoenix) — never part of the public command surface.
 
 The block form is held to the same purity contract by the IR check `loom.function-block-impure` (`src/ir/validate/checks/structural-checks.ts`; its wording lives in `src/diagnostics/messages.ts` under five `#`-slug variants — `#mutation`, `#emit`, `#call-stmt`, `#call-expr`, `#method-call`): no `:=` / `+=` / `-=` on aggregate state, no `emit`, and no call other than another pure `function` or a value-object constructor (operations, repository reads, domain services, externs, workflows, page actions and method calls on a receiver are all rejected).
 
@@ -546,8 +546,11 @@ aggregate A {
   n: int
   function f(q: int): int { n := q  return q }   // loom.function-block-impure: 'n' is mutated
   function g(q: int): int { let x = q * 2 }      // loom.function-block-no-return
+  function h(q: int): int { if q > 0 { return 1 } }  // loom.function-block-no-return: the false path has no value
 }
 ```
+
+A `return` may sit inside a statement `if` — `function tier(t: decimal): string { if n > t { return "gold" } else { return "bronze" } }` is legal and renders on all five backends — provided the conditional covers **both** paths (an `else`, or an `else if` chain ending in one). `match`, `if let` and `for` cannot appear in a function block at all; `checkStatementPlacement` confines those to the frontend / workflow zones (`loom.variant-match-placement`, `loom.if-let-placement`, `loom.for-placement`).
 
 ### Top-level functions and the prelude
 

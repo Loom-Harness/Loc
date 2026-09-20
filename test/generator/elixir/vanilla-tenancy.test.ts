@@ -131,7 +131,7 @@ describe("vanilla tenancy — principal filter threaded + pinned", () => {
 // real columns, so the principal predicate reuses the relational-principal
 // path: `record.tenant_id == ^(current_user && current_user.tenant_id)` threaded
 // through every read, with `current_user` from `conn.assigns` (the Auth plug).
-// Previously gated by `loom.context-filter-unsupported`.
+// Previously gated by `loom.context-filter-no-principal`.
 // ---------------------------------------------------------------------------
 
 const EMBEDDED_SOURCE = `
