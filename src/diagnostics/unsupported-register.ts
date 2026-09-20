@@ -581,13 +581,17 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
     site: "src/ir/validate/checks/store-checks.ts:364",
     what:
       "a persisted store field with no total F# (feliz) or Dart (flutter) codec.  BOTH halves " +
-      "narrowed in wave C2 (feliz in packet 2i, flutter in packet 2j) to exactly the cells that " +
-      "would need a RECORD codec the store path does not emit — `File`, `valueobject`, `entity` " +
-      "and arrays of them.  Feliz: `datetime`/`guid` grew `System.DateTime.TryParse`/`System.Guid.TryParse` " +
-      "arms, an enum rides F# as `string`, list elements cover every scalar.  Flutter: a nullable " +
-      "scalar and a `json` cell now persist; a nullable cell is still refused at the `url` tier for " +
-      "a measured reason (no null-distinguishing `copyWith` sentinel in the shared state class).  " +
-      "The two codec tables' remaining divergences are pinned by test/ir/util/persist-codec-divergence.test.ts",
+      "narrowed across wave C2 (feliz in packets 2i + 2l, flutter in packet 2j) to exactly the " +
+      "cells that would need a RECORD codec the store path does not emit — `File`, `valueobject`, " +
+      "`entity` and arrays of them.  Feliz: `datetime`/`guid` grew " +
+      "`System.DateTime.TryParse`/`System.Guid.TryParse` arms, an enum rides F# as `string`, list " +
+      "elements cover every scalar, and packet 2l added the `optional` arm (a `'T option` cell) at " +
+      "EVERY tier.  Flutter: a nullable scalar and a `json` cell persist, but a nullable cell is " +
+      "still refused at the `url` tier for a measured reason (no null-distinguishing `copyWith` " +
+      "sentinel in the shared state class) — Feliz has no such cause, since its `StoreUrlChanged` " +
+      "arm rebuilds the record field from the loader, so `felizPersistCodec` takes no tier at all.  " +
+      "That tier difference is now the ONLY disagreement between the two tables and is pinned in " +
+      "both directions by test/ir/util/persist-codec-divergence.test.ts; every TYPE agrees",
     mission: "M-T1.20",
   },
   {

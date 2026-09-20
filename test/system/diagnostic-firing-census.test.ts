@@ -1053,7 +1053,9 @@ system S {
   // silently dropped from the stored blob.  Since wave C2 packet 2i the FELIZ
   // residue is exactly the types that would need a RECORD codec — a value
   // object here; `datetime` (the fixture's old subject) now has a total
-  // `System.DateTime.TryParse` codec and rides the ladder.
+  // `System.DateTime.TryParse` codec and rides the ladder.  Packet 2l added the
+  // `optional` arm, which does NOT widen this fixture: an optional of a record
+  // is refused for the same reason the bare record is.
   "loom.store-lifetime-target-unsupported": `
 system S {
   subdomain Sub { context C {

@@ -1590,10 +1590,11 @@ export const DIAGNOSTIC_MESSAGES = {
   }) =>
     `field '${p.name}' cannot be persisted on the feliz frontend — ` +
     `\`persist: ${p.lifetime}\` crosses the JS boundary per field, and the F# codec covers ` +
-    `string / int / long / bool / decimal / money / id fields plus arrays of ` +
-    `string / int / long / bool.  A datetime, duration, guid, enum, entity or value-object ` +
-    `field would be silently dropped from the stored blob.  Give the field one of the ` +
-    `covered types, or use \`persist: memory\` for this store.`,
+    `string / id / enum / int / long / bool / decimal / money / datetime / guid fields, ` +
+    `arrays of those, and an OPTIONAL of any of them (at every tier, \`persist: url\` ` +
+    `included).  A File, entity or value-object field would need a RECORD codec the store ` +
+    `path does not emit, and would be silently dropped from the stored blob.  Give the ` +
+    `field one of the covered types, or use \`persist: memory\` for this store.`,
   "loom.store-lifetime-target-unsupported#flutter-field": (p: {
     where: unknown;
     name: unknown;
