@@ -286,6 +286,18 @@ describe("the reset preserves every backend's migration ledger", () => {
         path: "d/Program.cs",
         gate: /if \(loomTestReset == "1" \|\| \(loomTestReset != "0" && !app\.Environment\.IsProduction\(\)\)\)/,
       },
+      {
+        // Phoenix is the one backend whose route is registered
+        // unconditionally — a router is COMPILED, so a `scope` cannot be added
+        // or dropped by an environment variable read at boot.  The refusal
+        // lives in the action instead, and the fallback default is compiled in
+        // (config/prod.exs bakes `false`).  Verified: a `MIX_ENV=prod` build
+        // reports `Application.get_env(:api, :loom_test_reset_default) =>
+        // false`, a dev build `true`.
+        platform: "elixir",
+        path: "d/lib/d_web/controllers/test_reset_controller.ex",
+        gate: /defp enabled\? do/,
+      },
     ];
     for (const { platform, path, gate } of backends) {
       const out = await files(WITH_E2E.replace("platform: node", `platform: ${platform}`));
@@ -297,6 +309,27 @@ describe("the reset preserves every backend's migration ledger", () => {
       // rather than five spellings that drift apart.
       expect(src, `${platform} reads ${TEST_RESET_ENV}`).toContain(TEST_RESET_ENV);
     }
+  });
+});
+
+describe("the elixir release bakes its default closed", () => {
+  // Phoenix cannot gate the ROUTE (a router is compiled), so everything rests
+  // on the fallback the build bakes in: `config/prod.exs` must say `false`, or
+  // a `MIX_ENV=prod` release ships a reachable truncate to anyone who can
+  // reach the port. This is the one exclusion no runtime probe of a DEV build
+  // would ever catch, which is why it is pinned here.
+  //
+  // Verified against the real toolchain: `Application.get_env(:api,
+  // :loom_test_reset_default)` reads `false` in a MIX_ENV=prod build and
+  // `true` in a dev build.
+  it.each([
+    ["prod", false],
+    ["dev", true],
+    ["test", true],
+  ])("config/%s.exs bakes loom_test_reset_default: %s", async (env, expected) => {
+    const out = await files(WITH_E2E.replace("platform: node", "platform: elixir"));
+    const cfg = out.get(`d/config/${env}.exs`)!;
+    expect(cfg).toContain(`config :d, loom_test_reset_default: ${expected}`);
   });
 });
 
