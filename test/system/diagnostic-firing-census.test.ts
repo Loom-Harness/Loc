@@ -1744,16 +1744,19 @@ system P {
     }`),
 
   // A `component` param whose declared type the shared TypeScript prop layer
-  // has no spelling for.  `money` rides the wire as a decimal string re-parsed
-  // to a `Decimal`, so this is portable work — until it lands it was a raw
-  // `Error: component prop: unsupported primitive 'money'.` mid-generate.
+  // has no spelling for.  This USED to be `amount: money` — wave C2 packet 2k
+  // taught the layer `money` (`Decimal`), `File` and a `valueobject` (both
+  // structural) on all four TS-prop frontends, so those three no longer fire
+  // and the fixture moves to what still does: a CARRIER kind.  `A or B` is the
+  // only one a param position can even spell, and it is also refused by
+  // `loom.union-position` — which is exactly why the register row is now a
+  // latent `seam` rather than a drained gap.
   "loom.frontend-prop-type-unsupported": uiPages(
     "",
-    `    component Price(amount: money) { body: Text { "price" } }
+    `    component Picker(x: Order or Order) { body: Text { "pick" } }
     page Home {
       route: "/"
-      state { total: money = 0.00 }
-      body: Stack { Heading { "Home", level: 1 }, Price(amount: total) }
+      body: Stack { Heading { "Home", level: 1 } }
     }`,
   ),
 

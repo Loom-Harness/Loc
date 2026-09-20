@@ -378,8 +378,15 @@ const REGISTER_FILE = path.join(srcRoot, "diagnostics", "unsupported-register.ts
  *  sink census with no chokepoint, and four fifths of that is indistinguishable
  *  from success in any test that asserts by shape.  `scope` says "declared limit,
  *  named successor"; `gap` said "a sweep can close this", which for a
- *  security-shaped feature is how it ends up half-ported. */
-const MAX_OPEN_GAPS = 20;
+ *  security-shaped feature is how it ends up half-ported.
+ *
+ *  20 -> 19 (wave C2 packet 2k): `loom.frontend-prop-type-unsupported` is now a
+ *  `seam`.  The three shapes it was opened for — a `money` / `File` /
+ *  `valueobject` component parameter or extern signature type — are spelled on
+ *  all four TS-prop frontends, so nothing a `.ddd` can currently declare
+ *  reaches the gate: what remains is the carrier kinds, whose emission is
+ *  blocked a layer up by their own gates. */
+const MAX_OPEN_GAPS = 19;
 
 /** Exact count of `seam` rows.  Changes only for a reviewed reason: a gate
  *  deleted (down), a new target registered that turns a seam back into a live
@@ -391,8 +398,12 @@ const MAX_OPEN_GAPS = 20;
  *  framework has no realtime consumption, and
  *  `SSE_REALTIME_FRONTENDS ∪ NATIVE_REALTIME_FRONTENDS` already names every
  *  shipping one — the seam the next frontend gates on, which is what this kind
- *  is for. */
-const LATENT_SEAMS = 25;
+ *  is for.
+ *
+ *  25 -> 26 (wave C2 packet 2k): `loom.frontend-prop-type-unsupported`, moved
+ *  down from `gap` — see the MAX_OPEN_GAPS note above for what landed and what
+ *  the remaining membership set is. */
+const LATENT_SEAMS = 26;
 
 function walk(dir: string, out: string[] = []): string[] {
   for (const e of fs.readdirSync(dir, { withFileTypes: true })) {

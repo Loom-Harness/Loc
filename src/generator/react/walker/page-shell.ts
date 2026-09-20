@@ -15,13 +15,18 @@ import type {
   StateFieldIR,
   TypeIR,
   UiApiParamIR,
+  ValueObjectIR,
   WorkflowIR,
 } from "../../../ir/types/loom-ir.js";
 import { typeUsesMoney } from "../../../ir/types/loom-ir.js";
 import { walkExprDeep } from "../../../ir/util/walk.js";
 import { humanize, lowerFirst, plural, snake, upperFirst } from "../../../util/naming.js";
 import { coerceMoneyStateInit, usesDecimalBinding } from "../../_expr/js-intrinsics.js";
-import { componentPropTsType } from "../../_frontend/component-prop-type.js";
+import {
+  componentPropTsType,
+  takeMoneyPropImport,
+  valueObjectIndex,
+} from "../../_frontend/component-prop-type.js";
 import { renderGateExpr } from "../../_frontend/gate-expr.js";
 import type { LoadedPack } from "../../_packs/loader.js";
 import {
@@ -610,8 +615,15 @@ ${gate.import}${reactImport}${decimalImportFor(belowImports, decimalImport)}${re
  *  state field that is declared but never READ still imports exactly as
  *  before, keeping pre-existing pages byte-identical. */
 function decimalImportFor(source: string, fallback: string): string {
-  return usesDecimalBinding(source) ? `import Decimal from "decimal.js";\n` : fallback;
+  return usesDecimalBinding(source) ? DECIMAL_DEFAULT_IMPORT : fallback;
 }
+
+/** The one spelling of the decimal.js binding a generated React file may carry.
+ *
+ *  A default import, and only ever ONE per file: a money `state {}` field, a
+ *  money-typed prop and a `Decimal` intrinsic in the body all want the same
+ *  name, and two import statements binding `Decimal` is TS2300. */
+const DECIMAL_DEFAULT_IMPORT = `import Decimal from "decimal.js";\n`;
 
 /** Render the page's currentUser binding + optional `requires` guard.
  *
@@ -1224,6 +1236,10 @@ export function renderUserComponentFile(
   // `ReactNode` so the caller can drop any walker expression into the
   // prop; other params fall back to the route-param `string` shape.
   const dtoImports = new Map<string, string>(); // DTO type → api module
+  // Declared value objects, for a `valueobject`-typed prop — the shared prop
+  // layer spells one structurally from its fields (there is no importable
+  // `<VO>Schema`; see `component-prop-type.ts`).
+  const valueObjects = valueObjectIndex(bcByAggregate);
   const propType = (p: ParamIR): string => {
     if (p.type.kind === "entity" && aggregatesByName.has(p.type.name)) {
       dtoImports.set(`${p.type.name}Response`, `../api/${lowerFirst(p.type.name)}`);
@@ -1248,7 +1264,7 @@ export function renderUserComponentFile(
     // `component Badge(level: int)` as `level: string`, making `level > 2` a
     // TS2365 and `<Badge level={count} />` a TS2322.  Shared with Vue and
     // Svelte — all three emit the same language.
-    return componentPropTsType(p.type, aggregatesByName, dtoImports);
+    return componentPropTsType(p.type, aggregatesByName, dtoImports, valueObjects);
   };
   const propLines = params.map((p) => {
     // `slot?` / `action?` → optional prop (`name?: ReactNode`) so the
@@ -1260,6 +1276,11 @@ export function renderUserComponentFile(
     return `  ${p.name}${sep} ${propType(p)};`;
   });
   if (usesChildren) propLines.push(`  children?: ReactNode;`);
+  // A `money` prop types as `Decimal`, and asks for decimal.js through a
+  // sentinel rather than an import line — the file binds that name ONCE, with
+  // the default import below, so a second `import type { Decimal }` would be
+  // TS2300.  Drain it here or it serializes as a garbage import.
+  const moneyProp = takeMoneyPropImport(dtoImports);
   const dtoImportLines = [...dtoImports.entries()]
     .map(([type, mod]) => `import type { ${type} } from "${mod}";\n`)
     .join("");
@@ -1307,7 +1328,7 @@ ${navigateLine}${store.decls}${actionWiring.decls}${form.decls}${stateLines}${ap
 }
 `;
   return `// Auto-generated.  Do not edit by hand.
-${gate.import}${reactImport}${decimalImportFor(belowImports, decimalFallback)}${reactTypesImport}${reactRouterImport}${mantineImport}${apiHookImports}${dtoImportLines}${actionWiring.imports}${store.imports}${toastImport}${userComponentImports}${externFunctionImports}${belowImports}`;
+${gate.import}${reactImport}${decimalImportFor(belowImports, moneyProp ? DECIMAL_DEFAULT_IMPORT : decimalFallback)}${reactTypesImport}${reactRouterImport}${mantineImport}${apiHookImports}${dtoImportLines}${actionWiring.imports}${store.imports}${toastImport}${userComponentImports}${externFunctionImports}${belowImports}`;
 }
 
 /** True when a param type is `slot` or `slot?` — both render as
@@ -1338,6 +1359,11 @@ export function renderExternComponentProps(
   name: string,
   params: ParamIR[],
   aggregatesByName: ReadonlyMap<string, AggregateIR> = new Map(),
+  /** Declared value objects by name — `valueObjectIndex(bcByAggregate)`.  A
+   *  `valueobject`-typed prop is spelled structurally from its fields; with no
+   *  index in reach the shared layer's floor fires, which is the intended
+   *  behaviour for an unvalidated model. */
+  valueObjects: ReadonlyMap<string, ValueObjectIR> = new Map(),
 ): string {
   const dtoImports = new Map<string, string>(); // DTO type → api module
   const wireType = (t: ParamIR["type"]): string => {
@@ -1365,7 +1391,7 @@ export function renderExternComponentProps(
     }
     // Same declared-type rule as the generated-component props above — the
     // hand-written widget must see `level: number`, not `level: string`.
-    return componentPropTsType(p.type, aggregatesByName, dtoImports);
+    return componentPropTsType(p.type, aggregatesByName, dtoImports, valueObjects);
   };
   const propLines = params.map((p) => {
     // `slot?` / `action?` → optional prop so the caller can omit it.
@@ -1376,9 +1402,16 @@ export function renderExternComponentProps(
   });
   const needsReactNode = params.some((p) => isSlotShape(p.type));
   const reactTypesImport = needsReactNode ? `import type { ReactNode } from "react";\n` : "";
-  const dtoImportLines = [...dtoImports.entries()]
-    .map(([type, mod]) => `import type { ${type} } from "${mod}";\n`)
-    .join("");
+  // A `money` prop types as `Decimal`, and asks for decimal.js through a
+  // sentinel rather than an import line — the file binds that name ONCE, with
+  // the default import below, so a second `import type { Decimal }` would be
+  // TS2300.  Drain it here or it serializes as a garbage import.
+  const moneyProp = takeMoneyPropImport(dtoImports);
+  const dtoImportLines =
+    (moneyProp ? DECIMAL_DEFAULT_IMPORT : "") +
+    [...dtoImports.entries()]
+      .map(([type, mod]) => `import type { ${type} } from "${mod}";\n`)
+      .join("");
   const body =
     propLines.length > 0
       ? `export interface ${name}Props {\n${propLines.join("\n")}\n}\n`

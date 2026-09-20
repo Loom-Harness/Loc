@@ -21,6 +21,7 @@ import { API_BASE_PATH } from "../../util/api-base.js";
 import { humanize, plural, snake, upperFirst } from "../../util/naming.js";
 import { buildApiModule } from "../_frontend/api-module.js";
 import { AUTH_GATE_VUE, AUTH_SESSION_TS, AUTH_USE_SESSION_VUE } from "../_frontend/auth-ui.js";
+import { valueObjectIndex } from "../_frontend/component-prop-type.js";
 import {
   buildExternFunctionShim,
   buildExternFunctionSignature,
@@ -230,7 +231,10 @@ export function generateVueForContexts(
   const externFunctionNames = new Set<string>();
   for (const fn of ui.functions ?? []) {
     externFunctionNames.add(fn.name);
-    out.set(`src/lib/extern/${fn.name}.signature.ts`, buildExternFunctionSignature(fn));
+    out.set(
+      `src/lib/extern/${fn.name}.signature.ts`,
+      buildExternFunctionSignature(fn, undefined, valueObjectIndex(bcByAggregate)),
+    );
     out.set(`src/lib/${fn.name}.ts`, buildExternFunctionShim(fn));
   }
 
@@ -264,7 +268,12 @@ export function generateVueForContexts(
     if (c.extern) {
       externComponentNames.add(c.name);
       const propsPath = `src/components/${c.name}.props.ts`;
-      const propsContent = renderVueExternComponentProps(c.name, c.params, aggregatesIRByName);
+      const propsContent = renderVueExternComponentProps(
+        c.name,
+        c.params,
+        aggregatesIRByName,
+        valueObjectIndex(bcByAggregate),
+      );
       out.set(propsPath, propsContent);
       options.sourcemap?.file(propsPath, propsContent, c.origin, componentConstruct);
       const shimPath = `src/components/${c.name}.ts`;

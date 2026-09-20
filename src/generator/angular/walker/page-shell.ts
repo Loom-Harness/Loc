@@ -14,6 +14,7 @@ import type {
 import { type PageNameCtx, pageEmitName } from "../../../ir/util/page-kind.js";
 import { upperFirst } from "../../../util/naming.js";
 import { coerceMoneyStateInit, usesDecimalBinding } from "../../_expr/js-intrinsics.js";
+import { takeMoneyPropImport, valueObjectIndex } from "../../_frontend/component-prop-type.js";
 import { unwrapOpt } from "../../_frontend/form-helpers.js";
 import { FORMAT_CALL_HELPERS } from "../../_frontend/format-helpers.js";
 import { renderGateExpr } from "../../_frontend/gate-expr.js";
@@ -336,9 +337,13 @@ export function renderAngularPage(input: AngularPageShellInput): string {
   const inputImportLines: string[] = [];
   if (cm) {
     const dtoImports = new Map<string, string>();
+    // Declared value objects, for a `valueobject`-typed `@Input()` — spelled
+    // structurally from its fields (there is no importable `<VO>Schema`; see
+    // `_frontend/component-prop-type.ts`).
+    const inputValueObjects = valueObjectIndex(input.bcByAggregate ?? new Map());
     for (const p of cm.inputs) {
       coreSymbols.add("Input");
-      const ts = angularWireType(p.type, dtoImports);
+      const ts = angularWireType(p.type, dtoImports, inputValueObjects);
       // Deliberately NOT `@Input({ required: true })`: a call site may legally
       // omit an argument (no validator gates component-call arity), and every
       // other frontend renders that as `undefined`.  A required input would turn
@@ -350,6 +355,12 @@ export function renderAngularPage(input: AngularPageShellInput): string {
           ? `  @Input() ${p.name}?: ${ts};`
           : `  @Input() ${p.name}!: ${ts};`,
       );
+    }
+    // A money-typed `@Input()` asks for decimal.js by sentinel (it is a default
+    // import, and the class file binds `Decimal` at most once) — drain it here
+    // or it serializes as `import type { <NUL>decimal }`.
+    if (takeMoneyPropImport(dtoImports)) {
+      inputImportLines.push(`import type Decimal from "decimal.js";`);
     }
     for (const [type, mod] of [...dtoImports.entries()].sort(([a], [b]) => a.localeCompare(b))) {
       // `angularWireType` spells the api root as `../api/<agg>` (the depth the

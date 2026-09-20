@@ -18,6 +18,7 @@ import { realtimeStreamCredential } from "../../ir/util/realtime-rooms.js";
 import { API_BASE_PATH } from "../../util/api-base.js";
 import { humanize, lowerFirst } from "../../util/naming.js";
 import { AUTH_GATE_ANGULAR, AUTH_SESSION_SERVICE_ANGULAR } from "../_frontend/auth-ui.js";
+import { valueObjectIndex } from "../_frontend/component-prop-type.js";
 import {
   E2E_FIXTURES_TS,
   E2E_PACKAGE_JSON_ANGULAR,
@@ -203,9 +204,19 @@ export function generateAngularForContexts(
   // against the instance (Angular evaluates template expressions against the
   // component, never a free import — the same lift `FORMAT_HELPERS` uses).
   const externFunctionNames = new Set<string>();
+  // Declared value objects, for a `valueobject`-typed signature / prop — the
+  // shared prop layer spells one structurally from its fields.  Built here from
+  // `contexts` rather than from `bcByAggregate`, which the walk context assembles
+  // further down: the extern files are emitted before it exists.
+  const externValueObjects = valueObjectIndex(
+    new Map(contexts.flatMap((c) => c.aggregates.map((a) => [a.name, c] as const))),
+  );
   for (const fn of ui?.functions ?? []) {
     externFunctionNames.add(fn.name);
-    out.set(`src/lib/extern/${fn.name}.signature.ts`, buildExternFunctionSignature(fn));
+    out.set(
+      `src/lib/extern/${fn.name}.signature.ts`,
+      buildExternFunctionSignature(fn, undefined, externValueObjects),
+    );
     out.set(`src/lib/${fn.name}.ts`, buildExternFunctionShim(fn));
   }
 
@@ -226,7 +237,7 @@ export function generateAngularForContexts(
     externComponentParams.set(c.name, c.params);
     out.set(
       `src/components/${c.name}.props.ts`,
-      renderAngularExternComponentProps(c.name, c.params),
+      renderAngularExternComponentProps(c.name, c.params, undefined, externValueObjects),
     );
     out.set(
       `src/components/${c.name}.ts`,
