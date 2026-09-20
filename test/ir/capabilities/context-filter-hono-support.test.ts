@@ -2,7 +2,7 @@
 // `currentUser.*`) on a RELATIONAL aggregate are wired on the Hono/Drizzle
 // backend (DEBT-01 — rendered against the ambient `requireCurrentUser()`
 // accessor, the analogue of EF Core `HasQueryFilter`).  Still gated with
-// loom.context-filter-unsupported:
+// loom.context-filter-no-principal:
 //   1. non-relational shapes (shape: document / shape: embedded) carrying a
 //      principal filter on the elixir backend (handled below per case);
 //   2. any capability filter (principal or not) on a non-relational shape on
@@ -24,7 +24,7 @@ import { parseString } from "../../_helpers/parse.js";
 async function honoFilterErrors(source: string): Promise<string[]> {
   const { model } = await parseString(source, { validate: false });
   return validateLoomModel(enrichLoomModel(lowerModel(model)))
-    .filter((d) => d.severity === "error" && d.code === "loom.context-filter-unsupported")
+    .filter((d) => d.severity === "error" && d.code === "loom.context-filter-no-principal")
     .map((d) => d.message);
 }
 

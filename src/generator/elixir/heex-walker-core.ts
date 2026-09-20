@@ -61,6 +61,7 @@ import {
   listShapedProjectionNames,
   readableProjectionNames,
 } from "../../ir/util/projection-read.js";
+import { walkExprDeep } from "../../ir/util/walk.js";
 import { intrinsicFor, intrinsicKey } from "../../util/intrinsics.js";
 import { elixirString, humanize, snake, upperFirst } from "../../util/naming.js";
 import { DURATION_UNIT_MS, type DurationUnit } from "../../util/temporal.js";
@@ -1292,6 +1293,42 @@ function armRendersMarkup(value: ExprIR, ctx: WalkContext): boolean {
   return value.kind === "match";
 }
 
+/** Can this arm predicate be RE-RENDERED in handler position?
+ *
+ *  A `match` arm's condition is written for the RENDER scope, where a lambda
+ *  parameter (`For { each: rows, i => match { … } }`) is in scope.
+ *  `handle_params/3` is a function body: that same `i` renders as a bare
+ *  variable nothing binds, so the emitted module is
+ *
+ *      socket =
+ *        if (i.flagged) do          # ** (CompileError) undefined variable "i"
+ *
+ *  and `mix compile` rejects the WHOLE project — not a bad render, an app that
+ *  never boots.  So a gate is carried down only when every name in the
+ *  predicate also exists as a socket assign: a `state` field, a `derived` over
+ *  such, a route param, the principal, or a `data:`-lambda binding the walker
+ *  has already remapped to one.
+ *
+ *  Anything else falls back to the UNGATED load — no improvement for that
+ *  shape, and no regression either: it is exactly what every read emitted
+ *  before gating existed.  Rides `walkExprDeep` rather than a hand-rolled
+ *  descent, so a new `ExprIR` kind cannot hide a reference from this check. */
+function gateIsHandlerSafe(cond: ExprIR, ctx: WalkContext): boolean {
+  let safe = true;
+  walkExprDeep(cond, (e) => {
+    if (e.kind !== "ref") return;
+    if (ctx.varRemapping?.has(snake(e.name))) return;
+    if (ctx.stateNames.has(snake(e.name))) return;
+    if (ctx.page.derived?.some((d) => snake(d.name) === snake(e.name))) return;
+    if (ctx.page.params.some((p) => p.name === e.name)) return;
+    // Not a page-scope name at all — an enum value or the principal renders the
+    // same in both positions.
+    if (e.refKind === "enum-value" || e.refKind === "current-user") return;
+    safe = false;
+  });
+  return safe;
+}
+
 /** `!(c)` — Elixir's `!` is the truthy negation, so it holds for whatever a
  *  rendered arm condition evaluates to, not only a strict boolean. */
 function notGate(cond: string): string {
@@ -1353,14 +1390,21 @@ function renderMatch(expr: Extract<ExprIR, { kind: "match" }>, ctx: WalkContext)
     // gate is the negation of them all — otherwise two arms could both load
     // into the same assign and the later one would win, which is the bug this
     // gating exists to close.
+    //
+    // …but only when EVERY arm's predicate survives the move to handler scope
+    // (`gateIsHandlerSafe`).  One unsafe arm disables gating for the WHOLE
+    // match: a partly-gated `cond` is worse than none, since the ungated load
+    // still clobbers the gated one, and a gate naming a render-only binding
+    // fails `mix compile` outright.
+    const gatable = expr.arms.every((a) => gateIsHandlerSafe(a.cond, ctx));
     const handlerConds: string[] = [];
     for (const a of expr.arms) {
       lines.push(`  <% ${renderExpr(a.cond, ctx)} -> %>`);
-      const mine = renderExpr(a.cond, { ...ctx, position: "handler" });
+      const mine = gatable ? renderExpr(a.cond, { ...ctx, position: "handler" }) : undefined;
       lines.push(
-        `    ${renderChild(a.value, { ...ctx, matchGate: andGate(ctx.matchGate, ...handlerConds.map(notGate), mine) })}`,
+        `    ${renderChild(a.value, gatable ? { ...ctx, matchGate: andGate(ctx.matchGate, ...handlerConds.map(notGate), mine) } : ctx)}`,
       );
-      handlerConds.push(mine);
+      if (mine !== undefined) handlerConds.push(mine);
     }
     // `cond` raises CondClauseError when no arm matches, so the fallback is
     // not cosmetic. Without an authored `else` the page renders nothing rather
@@ -1368,7 +1412,7 @@ function renderMatch(expr: Extract<ExprIR, { kind: "match" }>, ctx: WalkContext)
     lines.push(`  <% true -> %>`);
     lines.push(
       expr.otherwise !== undefined
-        ? `    ${renderChild(expr.otherwise, { ...ctx, matchGate: andGate(ctx.matchGate, ...handlerConds.map(notGate)) })}`
+        ? `    ${renderChild(expr.otherwise, gatable ? { ...ctx, matchGate: andGate(ctx.matchGate, ...handlerConds.map(notGate)) } : ctx)}`
         : `    <%= nil %>`,
     );
     lines.push(`<% end %>`);

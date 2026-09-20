@@ -39,7 +39,16 @@ import { diagMessage } from "../../../diagnostics/messages.js";
 import type { EnrichedLoomModel, StmtIR, StoreIR } from "../../types/loom-ir.js";
 import { classifyFelizAsyncEffect } from "../../util/feliz-async-effect.js";
 import { felizPersistCodec } from "../../util/feliz-persist-codec.js";
-import { flutterPersistCodec } from "../../util/flutter-persist-codec.js";
+import { type FlutterPersistTier, flutterPersistCodec } from "../../util/flutter-persist-codec.js";
+import { walkStmtsDeep } from "../../util/walk.js";
+
+/** A store's `lifetime` as the persist classifier's tier.  `memory` never
+ *  reaches the classifier (the loop skips it), so the fallback is inert. */
+function flutterTierOf(lifetime: string): FlutterPersistTier {
+  if (lifetime === "url") return "url";
+  return lifetime === "persistSession" ? "session" : "local";
+}
+
 import type { LoomDiagnostic } from "./diagnostic.js";
 
 // View-scoped effect builtins — illegal inside a store action (§3.2).  Mirrors
@@ -60,15 +69,16 @@ function lifetimeKeyword(lifetime: StoreIR["lifetime"]): string {
 }
 
 /** Walk a statement block, invoking `visit` on every nested statement
- *  (descending into block-body lambdas inside call/assign args). */
+ *  (descending into block-body lambdas inside call/assign args).
+ *
+ *  Rides `walk.ts`'s exhaustively `never`-checked `walkStmtsDeep` rather than
+ *  the flat loop this used to be.  The old shallow walk said the action-body
+ *  set was "flat in v1" — but the whole point of the census rule (CLAUDE.md,
+ *  "No hand-rolled IR walks") is that such a walk drifts SILENTLY the moment
+ *  the IR grows a nesting site: a `match await` inside a `match` arm was
+ *  invisible to every gate below, so it reached the emitters ungated. */
 function forEachStmt(stmts: readonly StmtIR[], visit: (s: StmtIR) => void): void {
-  for (const s of stmts) {
-    visit(s);
-    // Block-body lambdas can appear as call/assign argument expressions; the
-    // store-action body set in v1 is flat (no nested handler lambdas), so a
-    // shallow walk over the top-level statements suffices.  Kept as a helper
-    // so a future nesting addition has one place to deepen.
-  }
+  for (const s of stmts) walkStmtsDeep(s, visit);
 }
 
 export function validateStores(loom: EnrichedLoomModel, diags: LoomDiagnostic[]): void {
@@ -344,7 +354,12 @@ export function validateStores(loom: EnrichedLoomModel, diags: LoomDiagnostic[])
         for (const store of storesByUi.get(uiName) ?? []) {
           if (store.lifetime === "memory") continue;
           for (const f of store.state) {
-            if (flutterPersistCodec(f.type)) continue;
+            // The TIER matters for one shape: a nullable cell round-trips
+            // through the blob but not through the query string, because
+            // `hydrateFromUrl` re-seeds via `copyWith`, which cannot set a cell
+            // to null.  Passing it keeps the gate and the emitter reading the
+            // same classifier rather than two.
+            if (flutterPersistCodec(f.type, flutterTierOf(store.lifetime))) continue;
             const where = `store '${store.name}'`;
             diags.push({
               severity: "error",
@@ -396,12 +411,18 @@ export function validateStores(loom: EnrichedLoomModel, diags: LoomDiagnostic[])
         // RFC-7807 `type` URI), and an OPTIONAL `else` — projected to a
         // trigger→result MVU pair with a tagged-union decoder.
         //
-        // Two FELIZ-SPECIFIC cases stay gated here: (1) a COMPONENT host — the
+        // ONE FELIZ-SPECIFIC case stays gated here: a COMPONENT host — the
         // Feliz generator projects async effects only on pages (a component isn't
-        // walked for them, so gating avoids a silent drop), and (2) a subject that
-        // isn't an aggregate instance op (a collection op / workflow) — the Feliz
-        // renderer only projects instance ops.  `classifyFelizAsyncEffect` is the
-        // shared arbiter for (2) so the gate and generator can't drift.
+        // walked for them, so gating avoids a silent drop).
+        //
+        // The SUBJECT shape used to be gated here too, as the second Feliz case.
+        // It was never Feliz-specific (audit F66): the identical model reports
+        // `0 error(s), 0 warning(s)` on React and emits `await
+        // Promise.reject(new Error("no remote op for variant-match"))`, and
+        // crashes the LiveView emitter outright.  It is now the target-agnostic
+        // `loom.async-effect-subject-unsupported` above, so this arm reports the
+        // component-host limitation only — and only when the subject is
+        // otherwise fine, so one statement never draws two diagnostics.
         //
         // The route-id requirement is NOT here: a paramless-page instance-op
         // `match await` is invalid on EVERY frontend (no record in scope), so it is
@@ -431,19 +452,15 @@ export function validateStores(loom: EnrichedLoomModel, diags: LoomDiagnostic[])
             forEachStmt(action.body, (s) => {
               if (s.kind !== "variant-match") return;
               const cls = classifyFelizAsyncEffect(s, apiParamNames, aggregateNames);
-              // A page projects the effect — only an unsupported SUBJECT gates it.
-              // A component is not projected by the Feliz generator, so it always
-              // gates (avoids a silent drop).
-              const gated = host.kind === "component" || !cls.supported;
-              if (!gated) return;
+              // A page projects the effect.  A component is not projected by the
+              // Feliz generator, so it gates — but an unsupported SUBJECT is the
+              // target-agnostic gate's business, and reporting both would name
+              // two blockers for one statement.
+              if (host.kind !== "component" || !cls.supported) return;
               const where = `${host.where} action '${action.name}'`;
               const reason =
-                host.kind === "component"
-                  ? "it is hosted by a component — the Feliz generator projects async effects only on " +
-                    "pages; move it to a page action"
-                  : cls.supported
-                    ? "" // unreachable: a page gates only when the subject is unsupported
-                    : cls.reason;
+                "it is hosted by a component — the Feliz generator projects async effects only on " +
+                "pages; move it to a page action";
               diags.push({
                 severity: "error",
                 code: "loom.feliz-async-effect-unsupported",
@@ -457,6 +474,79 @@ export function validateStores(loom: EnrichedLoomModel, diags: LoomDiagnostic[])
               });
             });
           }
+        }
+      }
+    }
+
+    // loom.async-effect-subject-unsupported — the TARGET-AGNOSTIC gate on the
+    // awaited SUBJECT (audit F66).
+    //
+    // `match await <subject> { … }` lowers to a `variant-match` statement, and
+    // EVERY frontend renderer resolves the subject the same way: an aggregate
+    // instance operation, optionally api-qualified.  None of them renders
+    // anything else — and each failed differently, none of them honestly:
+    //
+    //   react / vue / svelte / angular — `walker-core`'s `tryDetectApiHook`
+    //     returns nothing, so the target emits `await Promise.reject(new
+    //     Error("no remote op for variant-match"))`: a guaranteed unhandled
+    //     rejection on every invocation, from a `.ddd` reporting `0 error(s),
+    //     0 warning(s)`.  The fallback is commented as "a typed placeholder …
+    //     so the statement is never dropped" — the intent was to avoid a silent
+    //     drop and the result was a runtime bomb.
+    //   phoenixLiveView — `heex-walker-core`'s `renderVariantMatchStmt` THROWS
+    //     at codegen ("a subject the LiveView emitter cannot resolve to an
+    //     aggregate operation"), i.e. a generator crash on a validated model.
+    //   feliz / flutter — honestly refused, but behind a PLATFORM check, which
+    //     is what made the same model legal on React and illegal on Feliz.
+    //
+    // `classifyFelizAsyncEffect` (`ir/util/feliz-async-effect.ts`) was already
+    // an IR-pure, target-neutral classifier of exactly this predicate; this is
+    // the promotion the audit asked for, not a new analysis.  The statement
+    // form cannot instead reuse `loom.match-non-union-subject`
+    // (`variant-match-shape.ts`): a `StmtIR.variant-match`'s `subjectType`
+    // comes from `inferExprType`, whose catch-all is `string`, so an awaited
+    // api-handle call is indistinguishable from a genuine string there — the
+    // defect `test/ir/variant-match-subject-type.test.ts` pins.  This gate is
+    // SHAPE-based and needs no type resolution.
+    //
+    // Scoped by the SET of mounted ui names, not by deployable × ui: two
+    // deployables can serve the same bundle (a react host embedding the ui its
+    // backend also mounts), and the answer is a property of the ui, so a
+    // deployable loop would report one statement twice.
+    const mountedUiNames = new Set<string>();
+    for (const dep of sys.deployables) {
+      for (const n of [dep.uiName, ...(dep.hostedUiNames ?? [])]) if (n) mountedUiNames.add(n);
+    }
+    for (const uiName of mountedUiNames) {
+      const ui = sys.uis.find((u) => u.name === uiName);
+      if (!ui) continue;
+      // `?? []` — this loop reaches EVERY mounted ui, incl. the LiveView /
+      // embedded hosts whose uis need no api handle at all.
+      const apiParamNames = new Set((ui.apiParams ?? []).map((p) => p.name));
+      const hosts: {
+        where: string;
+        actions: readonly { name: string; body: readonly StmtIR[] }[];
+      }[] = [
+        ...ui.pages.map((p) => ({ where: `page '${p.name}'`, actions: p.actions })),
+        ...ui.components.map((c) => ({ where: `component '${c.name}'`, actions: c.actions })),
+      ];
+      for (const host of hosts) {
+        for (const action of host.actions) {
+          forEachStmt(action.body, (st) => {
+            if (st.kind !== "variant-match") return;
+            const cls = classifyFelizAsyncEffect(st, apiParamNames, aggregateNames);
+            if (cls.supported) return;
+            const where = `${host.where} action '${action.name}'`;
+            diags.push({
+              severity: "error",
+              code: "loom.async-effect-subject-unsupported",
+              message: diagMessage("loom.async-effect-subject-unsupported", {
+                uiName,
+                reason: cls.reason,
+              }),
+              source: where,
+            });
+          });
         }
       }
     }

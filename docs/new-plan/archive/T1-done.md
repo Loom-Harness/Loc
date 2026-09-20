@@ -124,3 +124,17 @@ Found 2026-08-30 re-verifying the [08-24 generator review](../../audits/generato
 **Verification when it lands.** A per-target walker test with a computed `src:` and a param-ref `alt:` on both primitives (seven targets — HEEx included, which already renders the dynamic form correctly and is the semantics oracle here, exactly as it was for A12); mutation-proved by file-copy revert. Assert the *absence* of `` `${ `` in the F#/Dart output, not just the presence of the attribute.
 
 Sources: [generator-code-review-2026-08-24](../../audits/generator-code-review-2026-08-24.md) §A12 (the fixed twin) + §Follow-up register (2026-08-30) row 17.
+
+## M-T1.14 — Angular tails — `done` (wave C2 packet 2h, 2026-09-14: the last named remainder — page-`requires` / nav-link auth gating parity — re-verified SHIPPED by generation) · **S** · P2
+`X id` select/combobox is DONE (verified 2026-07-13: `angular/form-fields.ts:226-247` renders mat-select/p-select/native select via hoisted `useAll<X>()`). **Client-side form validation DONE** (verified 2026-07-16 via `ng build`): the aggregate's wire-translatable `invariant`s fold into per-field `Validators.*` on each create-form `FormControl` (`angular/form-validators.ts`, via the shared `takeSingleFieldChain` gate — same classification as the zod `Create<Agg>Request`), with an inline per-field error revealed on `markAllAsTouched()` at a blocked submit. Covers **create + operation + modal** forms (the create-form uses `agg.invariants`; the op/modal forms use `[...agg.invariants, ...preconditionsAsInvariants(op)]` over the op params — the exact zod `<Op>Request` source). Workflow forms stay validator-free, matching the zod `<Wf>Request` (plain `z.object`, no refines — workflow guards are server-side). Closes the Angular leg of the frontend-validation parity gap (React/Vue/Svelte already emit the zod chain). **Closed 2026-09-14 (wave C2 packet 2h).** The named remainder was already shipped and the line was stale; re-measured by generating ONE system — a page carrying `requires currentUser.role == "admin"` plus an ungated sibling, on an `auth: ui` deployable — through all four static-bundle frontends, and reading the emitted files rather than the tests:
+
+| frontend | page body gate | nav link |
+|---|---|---|
+| react | `src/pages/secret.tsx` early-returns a Forbidden block | `App.tsx`: `{(currentUser.role === "admin") ? <NavLink … /> : null}` |
+| vue | `src/pages/secret.vue` | `App.vue`: `<template v-if='(currentUser.role === "admin")'>` |
+| svelte | `routes/(app)/secret/+page.svelte` | `+layout.svelte`: `{#if (currentUser.role === "admin")}` |
+| **angular** | `app/pages/secret.component.ts`: `@if (currentUser.role === "admin") { … } @else { <section …><h2>Forbidden</h2>… }`, over an injected `SessionService` + a `currentUser` accessor | `app.component.ts`: `@if (currentUser.role === "admin") { <a mat-list-item routerLink="/secret" …> }` |
+
+Both halves are pinned per frontend (`test/generator/{react,vue,svelte,angular}/page-requires-gate.test.ts` and `…/menu-link-gate.test.ts`, plus Angular's `stub-requires-gate.test.ts`). **One gap the closure does NOT cover**, recorded rather than absorbed: there is no single CROSS-frontend parity gate for this pair — losing it on one frontend fails only that frontend's own file, so the parity claim rests on four independent tests agreeing. Feliz is separately known to ignore page `requires` in its navbar (`feliz-navbar-ignores-page-requires`, wave C2 packet 2i).
+
+Sources: [angular-frontend](../../old/proposals/angular-frontend.md) tail.

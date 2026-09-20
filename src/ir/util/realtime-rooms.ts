@@ -198,6 +198,15 @@ export type RealtimeStreamCredential =
   /** The HttpOnly `session` cookie — `withCredentials: true` on the client,
    *  a cookie read on the backend's auth plug. */
   | "session-cookie"
+  /** Flutter: the HttpOnly `session` cookie on the WEB build, an
+   *  `Authorization: Bearer` from the app's own OIDC client on NATIVE — one
+   *  credential per surface, selected by conditional import
+   *  (**D-FLUTTER-BEARER**, a RULE 2 amendment).  An HttpOnly cookie cannot
+   *  exist on Android/iOS, and RULE 2's own reasoning ("the SPA never sees the
+   *  raw token") does not hold for a native app whose OIDC client necessarily
+   *  holds one.  Still ONE predicate: a caller asks this function and gets the
+   *  right answer for its platform rather than re-deriving a second gate. */
+  | "cookie-web-bearer-native"
   /** No credential — an `auth: none` deployable (v1 bare `EventSource`). */
   | "none";
 
@@ -209,12 +218,16 @@ export type RealtimeStreamCredential =
  *  predicate, so a sixth frontend cannot quietly ship an uncredentialed
  *  stream. */
 export function realtimeStreamCredential(
-  /** The frontend deployable emitting the subscription. */
-  deployable: { readonly auth?: { readonly ui: boolean } } | undefined,
+  /** The frontend deployable emitting the subscription.  `platform` selects the
+   *  CREDENTIAL SHAPE once the gate says there is one: `flutter` builds a
+   *  native surface where an HttpOnly cookie cannot exist (D-FLUTTER-BEARER);
+   *  every other frontend is browser-only and sends the cookie. */
+  deployable: { readonly auth?: { readonly ui: boolean }; readonly platform?: string } | undefined,
   /** Its `targets:` backend deployable, when it resolves. */
   target: { readonly auth?: { readonly required: boolean } } | undefined,
   /** The system's declared principal shape, when it has one. */
   user: unknown,
 ): RealtimeStreamCredential {
-  return deployable?.auth?.ui && target?.auth?.required && user ? "session-cookie" : "none";
+  if (!(deployable?.auth?.ui && target?.auth?.required && user)) return "none";
+  return deployable.platform === "flutter" ? "cookie-web-bearer-native" : "session-cookie";
 }

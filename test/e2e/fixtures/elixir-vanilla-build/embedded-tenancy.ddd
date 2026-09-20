@@ -3,7 +3,7 @@
 // aggregate, on the VANILLA (plain Ecto) foundation.  An embedded aggregate's
 // root scalars (`tenant_id`, `code`) are real columns; only the `contains
 // items` parts ride an embedded schema.  Previously this combination was GATED
-// by `loom.context-filter-unsupported`; Slice A lifts the gate and reuses the
+// by `loom.context-filter-no-principal`; Slice A lifts the gate and reuses the
 // relational-principal path — `record.tenant_id == ^(current_user &&
 // current_user.tenant_id)` is threaded through every root read, with
 // `current_user` threaded from `conn.assigns` (the Auth plug the validator

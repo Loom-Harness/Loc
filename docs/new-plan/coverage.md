@@ -18,7 +18,7 @@
 | ai-authoring-loop.md | partial | M-T8.3 |
 | ai-diagnostics-contract.md | partial | M-T8.5 |
 | ai-generation-platform.md | strategy | wedge demo → M-T8.3 (D-AI-EMPHASIS pinned) |
-| angular-frontend.md | shipped | tails → M-T1.14 |
+| angular-frontend.md | shipped | tails → M-T1.14 (closed 2026-09-14, [`archive/T1-done.md`](archive/T1-done.md)) |
 | api-openapi-tag-grouping.md | proposed | M-T6.13 |
 | async-actions-and-effects.md | partial | M-T1.7 |
 | audit-and-logging.md | partial | M-T3.9 |

@@ -5,7 +5,7 @@ import { api } from "./client";
 
 export const PlaceOrderRequest = z.object({
   customerId: z.string(),
-  productId: z.string().uuid(),
+  productId: z.string().regex(/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/),
   quantity: z.number().int(),
 });
 export type PlaceOrderRequest = z.infer<typeof PlaceOrderRequest>;
