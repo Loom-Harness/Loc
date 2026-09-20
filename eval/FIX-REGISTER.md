@@ -100,3 +100,53 @@ did not compile**. So:
    to a compiler (F-019's dropped event, F-029's skipped migration, F-016's empty
    token), **boot the stack and check the value**. PR #2911 put it well:
    *"a gate's reach is bounded by its oracle as well as its inputs."*
+
+---
+
+## Run log — two infrastructure failures, and what they cost
+
+**1. Shared working tree (my error).** I launched twelve agents into one checkout.
+They `git switch`-ed over each other and five claim commits landed on the wrong
+branch. Caught within minutes; the strays were empty markers plus two scratch
+files. Fixed by giving each agent its own `git worktree`. **Cost: ~0 work, one
+reset.**
+
+**2. Container restart, mid-flight.** Killed all twelve. Because every agent had
+opened its draft PR *before* implementing — CLAUDE.md's claim protocol — each
+successor resumed from its own PR body with nothing re-planned, and two agents'
+completed work survived on their pushed branches. **Cost: ~0 planning, some
+re-verification.**
+
+**3. Weekly API rate limit.** Killed the eleven remaining agents mid-verification.
+This time the instruction added after failure 2 — *commit and push after EVERY
+meaningful step* — did its job: **every branch had real pushed work, 3–14 files
+and 2–9 commits each. Nothing was lost.**
+
+The pattern is worth stating because it is the same lesson the evaluation itself
+kept finding: **the recovery mechanism has to be cheaper than the work it
+protects.** A draft PR costs one API call and saved twelve re-plans. A push after
+each step costs seconds and saved eleven half-finished fixes.
+
+### State at the 2026-09-20 resume
+
+| PR | Cluster | Pushed before the limit | Left to do |
+|---|---|---|---|
+| #2939 | B emitted imports | structural fix + a real TypeScript **binder** gate + corpus sweep | mutation-proof, mark ready |
+| #2949 | C primitive members | fix + mutation-proved test + docs | blast-radius sweep, python/elixir behaviour |
+| #2943 | I enum collision | contextual resolution + `loom.ambiguous-enum-value` + pin test | java + mypy proof, blast radius |
+| #2945 | D currentUser | **6 fix commits** across node/python/elixir; chose to WIDEN the vocabulary | python/elixir toolchain proof, F-007 bisection re-run |
+| #2946 | H migration | a **source-side migration ledger** — moves the baseline out of the output tree | finish or split; good-path regressions |
+| — | J java/elixir/feliz | java + dotnet principal, resource-verb JSON, elixir enum array | **Feliz (31 errors) untouched**; toolchain proofs |
+| #2940 | A projection | refuses a column-less field select | F-011 (VO sub-field), F-041 (TPH) |
+| #2942 | E page emitter | `loom.ui-read-unresolved`, bare `<Projection>` read binds | F-015, the `unresolved:` grep gate |
+| #2947 | G four defects | F-039 (`isNull`), F-010 (optional part field) | F-017, F-021 |
+| #2948 | K auth bootstrap | Keycloak mappers per declared claim, overwrite naming | F-018, runtime token proof |
+| — | L i18n | locale catalogs emitted into the frontends | Part-2 scoping, F-004 diagnostic |
+
+Two agents found defects **beyond** my brief while working, which is the point of
+sending them to re-verify rather than just patch:
+
+- **D** — a DECLARED `find all(...) where <pred>` was being dropped entirely on
+  python and elixir. I never tested that shape.
+- **J** — the unbound-principal-in-a-workflow bug affects **.NET** too, not just
+  Java as I filed it.
