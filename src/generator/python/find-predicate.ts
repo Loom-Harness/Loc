@@ -7,6 +7,7 @@ import {
   type WorkflowIR,
 } from "../../ir/types/loom-ir.js";
 import { baseOf, isTphConcrete, ownFieldsOf, tableOwnerName } from "../../ir/util/inheritance.js";
+import { asRequestConstant, type RequestConstant } from "../../ir/util/request-constant.js";
 import { durationCtorOperand } from "../../ir/util/temporal.js";
 import {
   DATA_KEY_LIKE_ESCAPE,
@@ -250,6 +251,47 @@ const MAKE_INTERVAL_ZEROS: Record<DurationUnit, number> = {
   minutes: 5,
 };
 
+/** A folded request constant as a SQLAlchemy term.  `host` is a PYTHON boolean
+ *  expression evaluated when the query is BUILT (once per request), and the
+ *  conditional picks the self-contained always-true / always-false column
+ *  expression — the same `id`-column trick the DENY carve-out uses, so it needs
+ *  no extra import and works on any table.  `id.isnot(None)` is true for every
+ *  row (`id` is the primary key); `and_(id.is_(None), id.isnot(None))` is true
+ *  for none.  Both branches are `ColumnElement[bool]`, which a bare Python
+ *  `bool` is not. */
+function alwaysTerm(host: string, row: string, ops: Set<string>): string {
+  ops.add("and_");
+  const id = `${row}.id`;
+  return `(${id}.isnot(None) if ${host} else and_(${id}.is_(None), ${id}.isnot(None)))`;
+}
+
+/** The HOST-language (Python) boolean for a request constant, or null when an
+ *  operand has no rendering — in which case the caller falls through to the
+ *  ordinary arms and, failing those, to the coded refusal.
+ *
+ *  The operands are lowered through `lower` itself: a request constant is
+ *  row-free by construction, so every arm `lower` can take on one renders the
+ *  HOST value (a principal claim, a param, a literal) and no column can appear. */
+function requestConstantHost(
+  rc: RequestConstant,
+  row: string,
+  associations: AssociationIR[],
+  ops: Set<string>,
+  principalAccessor: string,
+  nullBools: ReadonlySet<string>,
+): string | null {
+  const val = (e: ExprIR): string | null =>
+    lower(e, row, associations, ops, principalAccessor, nullBools);
+  if (rc.kind === "literal") return rc.value ? "True" : "False";
+  if (rc.kind === "value") return val(rc.expr);
+  const l = val(rc.left);
+  const r = val(rc.right);
+  if (l === null || r === null) return null;
+  // Python's `==`/`!=` are already the value comparison wanted here; the other
+  // relational operators spell identically.
+  return `${l} ${rc.op} ${r}`;
+}
+
 function lower(
   e: ExprIR,
   row: string,
@@ -258,6 +300,31 @@ function lower(
   principalAccessor: string,
   nullBools: ReadonlySet<string>,
 ): string | null {
+  // A REQUEST CONSTANT standing in boolean position (`currentUser.role ==
+  // "admin"`, a bare `true`) — every operand is fixed for the whole request, so
+  // nothing here decides anything row by row.  Fold it in the HOST language and
+  // splice the always-true / always-false SQL term.
+  //
+  // Checked BEFORE the ordinary arms because the `binary` arm below lowers a
+  // comparison operand-wise and, with no column on either side, hands back a
+  // PLAIN PYTHON BOOL (`(require_current_user().role != "technician")`).  That
+  // is not a `ColumnElement[bool]`: `mypy` reports `[arg-type]` at the
+  // `.where(...)` call, and what reaches the database is whatever SQLAlchemy
+  // coerces a bare bool into rather than the predicate the author wrote.  The
+  // always-term below is a real column expression on any table.
+  //
+  // Only the request-constant SUB-EXPRESSION folds, never the whole predicate:
+  // the `&&`/`||` arms recurse into each operand separately, so `currentUser.role
+  // == "admin" || ownerUserId == currentUser.id` keeps its column half as real
+  // SQL.  That is what makes "a technician sees only their own, an admin sees
+  // all" expressible.
+  {
+    const rc = asRequestConstant(e);
+    if (rc !== null) {
+      const host = requestConstantHost(rc, row, associations, ops, principalAccessor, nullBools);
+      if (host !== null) return alwaysTerm(host, row, ops);
+    }
+  }
   switch (e.kind) {
     case "authz-filter": {
       // Authorization/tenancy filter sentinels (M-T9.9) — a discriminated node
