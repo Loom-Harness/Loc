@@ -34,8 +34,9 @@ import {
   auditEntryWireShape,
   auditFieldChangeWireShape,
 } from "../../ir/util/audit-history.js";
-import { collectReachableTypes } from "../../ir/util/reachable-types.js";
+import { collectReachableTypes, valueObjectPool } from "../../ir/util/reachable-types.js";
 import type { ClassifyContext, SingleFieldPattern } from "../../ir/validate/invariant-classify.js";
+import { UUID_WIRE_REGEX_LITERAL } from "../../util/uuid-wire.js";
 import { PROVENANCED_REQUEST_ERROR, provenancedEntries } from "../_payload/provenanced-wire.js";
 import {
   discriminatedUnionZod,
@@ -284,7 +285,15 @@ export function zodForRequest(t: TypeIR): string {
       // validator says so too and the caller is told at the field instead of
       // by a server error.  Gated on the declared id value type — an
       // `int`/`long`/`string`-keyed aggregate is not a uuid (schemathesis F2).
-      return info.idValueType === "guid" ? "z.string().uuid()" : "z.string()";
+      //
+      // The mirror is the POINT, so it tracks the same shared shape the
+      // backends validate (`UUID_WIRE_PATTERN`) rather than restating one.  A
+      // form that refused an id the server accepts would report a field error
+      // for a value that is in fact valid — the client-side twin of the
+      // node/python 422-vs-404 split this constant was extracted to end.
+      return info.idValueType === "guid"
+        ? `z.string().regex(${UUID_WIRE_REGEX_LITERAL})`
+        : "z.string()";
     case "enum":
     case "valueObject":
       return `${info.base}Schema`;
@@ -377,9 +386,16 @@ export function collectUsedTypes(
       for (const d of part.derived) yield d.type;
     }
   };
-  const { valueObjects, enums } = collectReachableTypes(seeds(), ctx.valueObjects);
+  // POOL, not emission list: a `valueobject` declared in a SIBLING context and
+  // referenced from this one is legal, and the per-aggregate module that
+  // references it imports nothing from the declaring context's module — so the
+  // schema has to be declared HERE or the bundle carries an undefined
+  // `<Vo>Schema`.  The reachability filter below still keeps only what the
+  // aggregate's own surface names.
+  const pool = valueObjectPool(ctx);
+  const { valueObjects, enums } = collectReachableTypes(seeds(), pool);
   return {
-    valueObjects: ctx.valueObjects.filter((v) => valueObjects.has(v.name)),
+    valueObjects: pool.filter((v) => valueObjects.has(v.name)),
     enums: ctx.enums.filter((e) => enums.has(e.name)),
   };
 }

@@ -4,6 +4,7 @@ import { validateApplicationHandlers, validateRoutes } from "./checks/api-checks
 import { validateStampReadsBeforeFlush } from "./checks/capability-checks.js";
 import type { LoomDiagnostic } from "./checks/diagnostic.js";
 import { validateDomainServices } from "./checks/domain-service-checks.js";
+import { validateEntityPartParams } from "./checks/entity-part-param-checks.js";
 import { validateIfStatementPlacement } from "./checks/if-stmt-checks.js";
 import { validateIndexSuggestions } from "./checks/index-suggestion-checks.js";
 import {
@@ -20,6 +21,7 @@ import {
   validateRetrievals,
   validateWorkflowInstanceReadGates,
 } from "./checks/query-checks.js";
+import { validateMemberRepositoryAccess } from "./checks/repo-access-checks.js";
 import { validateReservedSurfaces } from "./checks/reserved-surfaces.js";
 import { validateSensitiveWireSupport } from "./checks/sensitivity-checks.js";
 import { validateStores } from "./checks/store-checks.js";
@@ -51,7 +53,6 @@ import {
   backendPlatformsHostingEachContext,
   validateApiResourceBindings,
   validateAuditedOperationSupport,
-  validateAuditedReturningOperationSupport,
   validateAuth,
   validateAuthUiFramework,
   validateChannelWiring,
@@ -66,7 +67,6 @@ import {
   validateDataSourceCoverage,
   validateDataSourceUnwiredKnobs,
   validateDefaultDeny,
-  validateDocumentAggregationBackend,
   validateDocumentAggregationFilters,
   validateDotnetNameCollisions,
   validateElixirOpSelfCallPosition,
@@ -84,7 +84,6 @@ import {
   validateGuardPrincipalWithoutAuth,
   validateHeexComponentHostState,
   validateInheritanceStorage,
-  validateJavaReservedIdentifiers,
   validateLiveViewHoisting,
   validateNeedCapabilities,
   validatePagedQueryHandlerBackend,
@@ -114,11 +113,7 @@ import {
 } from "./checks/test-checks.js";
 import { validateTimerSources } from "./checks/timer-checks.js";
 import { validateUiBodies, validateUiPageIdentity } from "./checks/ui-checks.js";
-import {
-  validateEventChannelAmbiguous,
-  validateEventConsumersCarried,
-  validateWorkflows,
-} from "./checks/workflow-checks.js";
+import { validateEventChannelAmbiguous, validateWorkflows } from "./checks/workflow-checks.js";
 
 // Public surface kept stable: LoomDiagnostic (now defined in checks/diagnostic)
 // and firstNonQueryableNode (in checks/shared) are re-exported here so existing
@@ -162,7 +157,6 @@ export function validateLoomModel(loom: EnrichedLoomModel): LoomDiagnostic[] {
   // System-wide: warn when a workflow event consumer subscribes to an event no
   // channel carries (it can't be dispatched in-process).  Needs every
   // context's channels, so it runs once over the whole model, not per-context.
-  validateEventConsumersCarried([...allContexts(loom)], diags);
   // System-wide: warn when a consumer's event is carried by more than one
   // channel in its context (ambiguous in-process routing; first-by-declaration
   // wins).  Per-context internally, but gathered here alongside the carried check.
@@ -179,7 +173,6 @@ export function validateLoomModel(loom: EnrichedLoomModel): LoomDiagnostic[] {
     validateElixirOpSelfCallPosition(sys, diags);
     validateContextFilterSupport(sys, diags);
     validateFilterBypassSupport(sys, diags);
-    validateJavaReservedIdentifiers(sys, diags);
     validateDotnetNameCollisions(sys, diags);
     validateStampSupport(sys, diags);
     validateGuardPrincipalWithoutAuth(sys, diags);
@@ -217,7 +210,6 @@ export function validateLoomModel(loom: EnrichedLoomModel): LoomDiagnostic[] {
     validateGroupedProjectionBackend(sys, diags);
     validateColumnlessProjectionSources(sys, diags);
     validateDocumentAggregationFilters(sys, diags);
-    validateDocumentAggregationBackend(sys, diags);
     validateWorkflowSourceProjectionBackend(sys, diags);
     validateProjectionSourceProjectionBackend(sys, diags);
     validateDefaultDeny(sys, diags);
@@ -261,12 +253,17 @@ export function validateLoomModel(loom: EnrichedLoomModel): LoomDiagnostic[] {
     validateRetrievals(c, diags);
     validateRawSeedColumns(c, diags);
     validateFindNameCollisions(c, diags);
+    validateEntityPartParams(c, diags);
     validateAggregateTestBodies(c, diags);
     validateContextIntegrationTests(c, diags);
     // The cross-context-repository gate needs the sibling contexts, so this
     // check takes the model's full context list (like `validateWorkflows`
     // below, which takes every context's events).
     validateDomainServices(c, diags, [...allContexts(loom)]);
+    // A repository named from an aggregate / part / value-object member body —
+    // no backend binds one there.  Takes the model's full context list so a
+    // cross-context repository (equally dangling) is caught as well.
+    validateMemberRepositoryAccess(c, diags, [...allContexts(loom)]);
     validateFunctionBlockBodies(c, diags);
     validateExternOperations(c, diags);
     validateStampReadsBeforeFlush(c, diags);
@@ -276,6 +273,9 @@ export function validateLoomModel(loom: EnrichedLoomModel): LoomDiagnostic[] {
       c,
       diags,
       allContexts(loom).flatMap((x) => x.events),
+      // The cross-context-repository gate needs the sibling contexts, like
+      // `validateDomainServices` above.
+      [...allContexts(loom)],
     );
     // Explicit application-layer handlers (unfoldable-api-derivation.md, Layer 3):
     // queryHandler-read-only + commandHandler-single-aggregate layering contracts.
@@ -311,11 +311,6 @@ export function validateLoomModel(loom: EnrichedLoomModel): LoomDiagnostic[] {
     validateProvenancedStorage(c, diags, backendPlatformsByContext.get(c.name) ?? new Set());
     validateFieldMask(c, diags, backendPlatformsByContext.get(c.name) ?? new Set());
     validateAuditedOperationSupport(c, diags, backendPlatformsByContext.get(c.name) ?? new Set());
-    validateAuditedReturningOperationSupport(
-      c,
-      diags,
-      backendPlatformsByContext.get(c.name) ?? new Set(),
-    );
   }
   validateExprIntegrity(loom, diags);
   // Migration-block data steps (M-T2.3): expression renderability / target /

@@ -207,6 +207,64 @@ describe("aggregate inheritance — validator (I1)", () => {
     expect(codes(errors)).toContain("loom.es-tph-forced-own-table");
   });
 
+  it("forces ownTable for an EMBEDDED concrete of a sharedTable base (D-EMBEDDED-TPH)", async () => {
+    // `shape: embedded` joined `document` / `eventLog` in wave C2.  It is the
+    // crossing compile waivers F11 (node) and F13 (python) recorded: the shape's
+    // jsonb containment columns are per-concrete and no backend puts them on the
+    // TPH owner's table — node's embedded repository targeted `schema.things`
+    // while the row lives in `schema.thingBases` (19 x TS2339 per case), and the
+    // schema emitter created a relational `lines` child table instead of the
+    // jsonb column the repository writes.
+    const { errors } = await parse(`
+      context T {
+        abstract aggregate Party inheritanceUsing: sharedTable { name: string }
+        aggregate Customer extends Party shape: embedded {
+          creditLimit: decimal
+          contains addresses: Address[]
+          entity Address { street: string }
+        }
+      }
+    `);
+    expect(codes(errors)).toContain("loom.es-tph-forced-own-table");
+    // The message must name the SHAPE, not the event-sourced arm it shares a
+    // code with — the remedy is the same but the reason a reader needs is not.
+    // `String(...)` because a Langium diagnostic's `message` is typed
+    // `string | MarkupContent`; the two older sibling assertions in this file
+    // predate the test-typecheck ratchet and are its remaining baseline here.
+    expect(errors.some((e) => /shape: embedded/.test(String(e.message ?? "")))).toBe(true);
+  });
+
+  it("accepts the embedded concrete once it declares inheritanceUsing: ownTable", async () => {
+    const { errors } = await parse(`
+      context T {
+        abstract aggregate Party inheritanceUsing: sharedTable { name: string }
+        aggregate Customer extends Party shape: embedded, inheritanceUsing: ownTable {
+          creditLimit: decimal
+          contains addresses: Address[]
+          entity Address { street: string }
+        }
+      }
+    `);
+    expect(codes(errors)).not.toContain("loom.es-tph-forced-own-table");
+    // …and the sanctioned opt-out must not trip the voluntary-override gate,
+    // exactly as it does not for the eventLog / document arms.
+    expect(codes(errors)).not.toContain("loom.tph-own-override-unsupported");
+  });
+
+  it("leaves an embedded concrete of a TPC (ownTable) base alone — it has its own table", async () => {
+    const { errors } = await parse(`
+      context T {
+        abstract aggregate Party inheritanceUsing: ownTable { name: string }
+        aggregate Customer extends Party shape: embedded, inheritanceUsing: ownTable {
+          creditLimit: decimal
+          contains addresses: Address[]
+          entity Address { street: string }
+        }
+      }
+    `);
+    expect(codes(errors)).not.toContain("loom.es-tph-forced-own-table");
+  });
+
   it("accepts the eventLog concrete once it declares inheritanceUsing: ownTable", async () => {
     const { errors } = await parse(`
       context T {

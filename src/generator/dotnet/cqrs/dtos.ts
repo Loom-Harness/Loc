@@ -12,6 +12,7 @@ import type {
   TypeIR,
 } from "../../../ir/types/loom-ir.js";
 import { aggregateHasFileField } from "../../../ir/util/file-field.js";
+import { valueObjectPool } from "../../../ir/util/reachable-types.js";
 import { lines } from "../../../util/code-builder.js";
 import { plural, upperFirst } from "../../../util/naming.js";
 import { type UnionMemberField, unionMembers } from "../../_payload/union-wire.js";
@@ -402,7 +403,7 @@ export function emitRequestDtos(
   // each VO-typed request field), run in the controller before the domain VO
   // is constructed.  Emitted only when some request field bears a VO with
   // rules (null → no file, byte-identical for VO-invariant-free aggregates).
-  const requestValidators = renderRequestValidators(agg, ctx.valueObjects, ns);
+  const requestValidators = renderRequestValidators(agg, valueObjectPool(ctx), ns);
   if (requestValidators) {
     out.set(`Application/${aggFolder}/Requests/${agg.name}RequestValidators.cs`, requestValidators);
   }

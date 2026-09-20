@@ -618,6 +618,19 @@ export const E2E_LESS_CORPUS_FIXTURES: readonly string[] = [
   // assertable at runtime either: the harness's mock issuer mints no
   // `customer_id`, so the claim would read null on every booted backend.
   "auth-id-claim",
+  // COMPILE-TIER WITNESS — the NON-optional twin of the entry above
+  // (`customerId: Customer id`, and no `auth { … }` block, so every backend
+  // emits its DEV-STUB principal).  The sibling cannot reach this arm: an
+  // optional claim short-circuits to null/None/nil before the stub's type table
+  // is consulted, and on node/python/elixir the OIDC verifier REPLACES the dev
+  // stub.  Four of the five stub tables wrote a raw scalar against a nominal id
+  // type, and the two loudest are hard compile errors the leg already gating
+  // this fixture catches: `TS2322` (corpus-tsc, against the `__brand`) and
+  // CS0029 (corpus-dotnet, against `readonly record struct CustomerId(Guid)`).
+  // No runtime-only half to witness: the id claim's VALUE is not settable from
+  // the harness either — `devClaimKind` carries `string` / `string[]` only, so
+  // `x-loom-dev-claims` leaves it at the built-in stub value on all five.
+  "auth-id-claim-stub",
   // COMPILE-TIER WITNESS (audit F57 / M-T6.57) — the `envelope` carrier, which
   // NO `.ddd` in the repo instantiated before this fixture, so every compile
   // gate was blind to it and java/dotnet emitted output that did not build.
@@ -689,8 +702,21 @@ export const E2E_LESS_CORPUS_FIXTURES: readonly string[] = [
   // exactly one `platform: node` deployable per case so dispatch is unambiguous.
   // Its own runtime leg is `api-call-e2e.yml` (label/post-merge).
   "api-call",
-  // BROKER SIDECAR — redis/rabbitmq/kafka; the node leg boots in-process on
-  // PGlite with no broker. Runtime home: `channels-e2e.yml` (label/post-merge).
+  // BROKER SIDECAR — true of the FIXTURE's declared transport (redis/rabbitmq/
+  // kafka) and NOT true of the three routes, which is the distinction this
+  // reason was missing (wave-3 row 3.3 fleet re-derived it).  The behavioural
+  // harness boots `createApp(db)` from `http/index.ts`, which defaults `events`
+  // to `createOutboxDispatcher(db, NoopDomainEventDispatcher)`: durable events
+  // land in the `__loom_outbox` Postgres table.  The broker driver (amqplib,
+  // `createChannelTransports`, `channelPublishTee`) is wired only in the full
+  // `d/index.ts`, which this tier never imports — so NO broker is touched by
+  // `GET /{id}`, `POST /{id}/place` or `GET /` on the node leg.
+  //
+  // The real blocker is the unseedable one: `Order` carries no `crudish` and no
+  // author-declared create, so nothing can mint a row.  Give it a create and
+  // all three routes — including the 422 precondition-denial control — are
+  // drivable here with no docker.  The broker's own delivery half remains
+  // `channels-e2e.yml`'s (label/post-merge).
   "channels-broker",
   // FIXTURE CHANGE FIRST — `Order` carries no `crudish` and no author-declared
   // create, so the emitted route set is getById/all/confirm/flag/cancel with NO
@@ -725,6 +751,16 @@ export const E2E_LESS_CORPUS_FIXTURES: readonly string[] = [
   // `test/generator/handler-resource-clients.test.ts` (per backend, per verb,
   // mutation-proven).  The runtime drain belongs with the `resources` fixture's
   // own sidecar leg, not here.
+  //
+  // TWO independent blockers, both necessary, and only the I/O one was written
+  // down (wave-3 row 3.3 fleet).  The second: `POST /archive/{name}` and
+  // `GET /archive/{name}` are ROUTED HANDLERS, and a `test e2e` block cannot
+  // address one — `checkMagicCall` (`src/ir/validate/checks/test-checks.ts`)
+  // resolves `api.<slug>.<method>()` to a projection or an aggregate only and
+  // refuses anything else with `loom.e2e-unaddressable-call`.  So mocking the
+  // sidecars would NOT drain these two routes; the addressability lift has to
+  // land first.  Recorded because a reader who solved only the named blocker
+  // would find the cell still undrainable.
   "handler-resource-ops",
   // COMPILE-TIER WITNESS, and UNSEEDABLE besides.  Two of its three defects were
   // "the emitted project does not exist / does not compile" on .NET and java
@@ -778,8 +814,24 @@ export const E2E_LESS_CORPUS_FIXTURES: readonly string[] = [
   // the `AUTHZ_LADDERS` entry drives the denial. Mutation-proved that neither
   // half suffices — a NO-OP gate passes the e2e and fails the ladder, an
   // ALWAYS-DENY gate passes the ladder's 403 and fails the e2e.
-  // BROKER SIDECAR (the outbox relay's delivery half). Same home as
-  // `channels-broker`.
+  // NOT A BROKER SIDECAR — this reason was WRONG, and re-deriving it is how it
+  // was caught (wave-3 row 3.3 fleet).  It read "BROKER SIDECAR (the outbox
+  // relay's delivery half). Same home as `channels-broker`", which appears to
+  // have been copied from that entry without checking this fixture's resource
+  // graph: `outbox.ddd` declares `storage pg { type: postgres }` and NOTHING
+  // else — no `storage bus`, no `channelSource`, no `channels:` on the
+  // deployable — and the emitted tree carries no channel/amqp/rabbit/kafka file
+  // at all.  `delivery: queue` + `retention: log` here mean a same-process,
+  // Postgres-backed outbox + replay (`startOutboxRelay` →
+  // `createInProcessDispatcher`), never a broker.  All seven routes are
+  // Postgres-only.
+  //
+  // The REAL blockers are two, both same-process: (a) neither `Order` nor
+  // `Shipment` has a create route, so nothing can mint a row — the
+  // "FIXTURE CHANGE FIRST" shape `extern` already carries; and (b) the
+  // behavioural harness boots through `createApp(db)` and never calls
+  // `startOutboxRelay`, so even a seeded row would leave the outbox table
+  // undrained.  (b) is a harness gap, not an infrastructure one.
   "outbox",
   // `policy-deny` DRAINED in #2517 — the fixture now drives all four deny
   // stances over HTTP (read-denied with and without a tenant floor, write-denied,
@@ -818,6 +870,15 @@ export const E2E_LESS_CORPUS_FIXTURES: readonly string[] = [
   // SIDECARS — `objectStore` (S3/minio), `queue`, an http `api` peer and a
   // `mailer` (mailpit).  A put→get round-trip needs them standing up, which is
   // `email-e2e.yml`'s and `channels-e2e.yml`'s shape, not this leg's.
+  //
+  // ACCURATE FOR ONE ROUTE OF SIX, which the reason above did not say (wave-3
+  // row 3.3 fleet).  `POST /archive` really is wholly sidecar I/O — S3 get/put,
+  // queue enqueue, http peer, smtp send.  The other five are ordinary `Order`
+  // CRUD on Postgres and reachable here today.  Kept waived deliberately rather
+  // than drained: those five assert nothing the crudish fixtures do not already
+  // assert, so authoring them would buy coverage the ledger already has.  That
+  // is a judgement about VALUE, and it is written down so the next reader is not
+  // told they are unreachable.
   "resources",
   // NEEDS THE REGISTRY-PRINCIPAL HARNESS FIX — subtree scoping is a statement
   // about two principals in different parts of the tree, and the behavioural
@@ -825,6 +886,23 @@ export const E2E_LESS_CORPUS_FIXTURES: readonly string[] = [
   // blocker as `R.tenantRegistryRow`; drain them together.  Runtime home today:
   // `tenancy-e2e.yml`'s hierarchy legs (label/post-merge).
   "tenancy-hierarchy",
+  // COMPILE-TIER WITNESS (#2864 D4/T3) — a workflow whose persisted STATE field
+  // is an enum.  Both halves of what it pins are STATIC, and both are caught by
+  // legs that already gate this fixture: the node backend named `<Enum>Schema`
+  // with that name bound nowhere in the emitted tree (TS2304, corpus-tsc) and
+  // then, underneath it, seeded a fresh saga row with `""` for an enum column
+  // whose Drizzle type is a literal union (TS2345, same leg); the four frontends
+  // imported the schema from whichever aggregate happened to be declared first
+  // (`vue-tsc` TS2305 / `svelte-check`, the generated-{vue,svelte}-build gates,
+  // which carry their own inline case for this shape).
+  //
+  // A behavioural block would add nothing an oracle can read.  The workflow is
+  // EVENT-TRIGGERED, so it has no command route to POST; its only api surface is
+  // the pair of read-only instance endpoints, and reaching them at runtime needs
+  // a `ClaimFiled` emitter this fixture deliberately does not have — the shape
+  // under test is the enum in the state row, not the dispatch that fills it,
+  // and `saga`/`eventsourced-workflow` already boot that dispatch path.
+  "workflow-enum-state",
   // COMPILE-TIER WITNESS, and NOT EXPRESSIBLE at the behavioural tier besides.
   // The bug class this fixture was minted for (#2864 D7/T2) is "the emitted
   // project names a wire type nothing emits" — `z.unknown()` with no contract
@@ -854,6 +932,19 @@ export const E2E_LESS_CORPUS_FIXTURES: readonly string[] = [
   // is the drain condition recorded there.
   "projection-fold-statements",
   "paged-nonrelational",
+  // WAVE C2 PACKET 2f (D-PROJECTION-IMPLICIT-SUB) — a folded projection AND a
+  // workflow reactor on events NO `channel` carries.  The fixture exists for
+  // the per-backend COMPILE tier and the generation gate: what had to be proven
+  // is that the DISPATCH WIRING is emitted at all (before, `deriveEventSubscriptions`
+  // returned `[]` and four backends emitted no handler while python emitted no
+  // dispatcher module), and the symbols that carry it are static —
+  // `test/generator/projection-implicit-sub.test.ts` names one per backend.
+  // Its CARRIED twin `projection.ddd` already runs the fold end to end on the
+  // behavioural tier, over the same dispatch path, so a second runtime block
+  // here would re-boot the identical fold to observe the identical rows and
+  // mint a wire golden that is an oracle for nothing this fixture is about.
+  // Drain: only if carriage ever stops being a pure delivery/durability knob.
+  "projection-implicit-sub",
   // WAVE C1 PACKET 1h (RS-26 boxing of a java workflow's primitive params) —
   // the contract under test is the emitted wire type (`Integer`, not `int`)
   // and the 422 its `@NotNull` answers, pinned by the java generator suite;

@@ -12,15 +12,14 @@
 // schema, EF `_db.Articles.GroupBy(_ => 1).Count()` over
 // `DbSet<ArticleDocument>`, Dapper `SELECT count(*)::int FROM articles`.
 //
-// NO `java`.  Java's aggregation runs JPQL through the `EntityManager`
-// (`select count(e) from Article e`) and a document aggregate has NO JPA
-// `@Entity` at all — it round-trips one jsonb column through a `JdbcTemplate`
-// repository — so Hibernate fails the query with "could not resolve root
-// entity" at request time.  That cell is refused honestly by
-// `loom.projection-whole-table-aggregation-unsupported` (its `#document`
-// message variant); the manifest row
-// records the exclusion, and `test/ir/projection-document-aggregation.test.ts`
-// carries the negative proof.
+// JAVA TOO, since M-T4.2 (2026-09-13).  It was the one exclusion here: its
+// aggregation runs JPQL through the `EntityManager` (`select count(e) from
+// Article e`) and a document aggregate has NO JPA `@Entity` at all, so
+// Hibernate failed the query with "could not resolve root entity" at request
+// time.  It now runs the same query NATIVE — `createNativeQuery("select
+// count(*) from cms.articles e")` — against the `(id, data, version)` table the
+// document repository already owns, with the same binding and
+// capability-bypass machinery.  The per-backend gate is deleted.
 //
 // NOTHING FILTERED HERE, deliberately.  The moment the source carries a
 // read-filtering capability the aggregation becomes unemittable on every

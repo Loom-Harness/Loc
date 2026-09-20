@@ -19,13 +19,21 @@
 // -------------------------------------------------------------------------
 
 import { diagMessage } from "../../../diagnostics/messages.js";
-import type { BoundedContextIR, ExprIR, ProjectionIR, StmtIR } from "../../types/loom-ir.js";
+import type {
+  BoundedContextIR,
+  ExprIR,
+  ProjectionAggregateIR,
+  ProjectionIR,
+  StmtIR,
+  TypeIR,
+} from "../../types/loom-ir.js";
 import {
   isMaterializedProjection,
   isQueryTimeProjection,
   isShorthandProjection,
 } from "../../types/loom-ir.js";
 import { type GroupKey, groupKeyOf, sameGroupKey } from "../../util/projection-aggregate.js";
+import { typeLabel } from "../../util/type-label.js";
 import { walkExprDeep } from "../../util/walk.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
 import { firstNonQueryableNode } from "./shared.js";
@@ -376,7 +384,9 @@ function validateQueryComprehension(
           }),
           source: `${ctx.name}/${proj.name}`,
         });
+        continue;
       }
+      checkAggregateDeclaredType(ctx, proj, s, diags);
       continue;
     }
     const unresolved = firstUnresolvedRefName(s.expr);
@@ -404,6 +414,74 @@ function validateQueryComprehension(
   // platform — node emits it (PR-C), the other backends still error — mirroring
   // `validatePagedQueryHandlerBackend`.  It can't live here because a
   // context-level check has no deployable/platform in scope.
+}
+
+/** The declared row field an aggregate `select` fills must have the
+ *  aggregation's OWN result type (M-T5.24 / `D-LONG-AVG-DEFAULTS`).
+ *
+ *  Load-bearing, not tidiness: the DECLARED type is what every backend's
+ *  coercion dispatches on (`aggregateCoercion` reads `wireShape`, and
+ *  `AggregateSelect.type` documents why — the response schema is built from the
+ *  declared row).  So a declaration that disagrees with the aggregation SILENTLY
+ *  re-codes the value, and each disagreement had its own failure:
+ *
+ *    `revenue: decimal = sum(o.total)`   money summed exactly in SQL, then
+ *                                       shipped as a lossy float64 JSON number
+ *                                       (measured: `Number(row.revenue ?? 0)`)
+ *    `biggest: string  = max(o.total)`   the published schema says `z.string()`,
+ *                                       the route ships a NUMBER — a response
+ *                                       contradicting its own OpenAPI, hidden
+ *                                       behind the row mapper's `as` cast
+ *    `lines: money     = sum(o.qty)`     an int count dressed as a 4dp money
+ *                                       string
+ *
+ *  ONE widening is admitted: `int` → `long`.  SQL's own `sum(int)` is a bigint
+ *  and `count(*)` a bigint, so declaring `long` is the honest spelling for a
+ *  total that can outgrow int32 — and it is how an author OPTS OUT of the
+ *  range refusal an integral aggregate now carries (M-T5.23).  Nothing else
+ *  widens: `money`→`decimal` loses exactness, `int`→`decimal` loses exactness
+ *  past 2^53, and both are the defects above. */
+function checkAggregateDeclaredType(
+  ctx: BoundedContextIR,
+  proj: ProjectionIR,
+  s: { field: string; type: TypeIR; aggregate?: ProjectionAggregateIR },
+  diags: LoomDiagnostic[],
+): void {
+  const declared = proj.stateFields.find((f) => f.name === s.field)?.type;
+  // No declared field at all is `loom.projection-shorthand-*` / the row-shape
+  // gates' business, not this one.
+  if (!declared || !s.aggregate) return;
+  // OPTIONALITY is not part of this check, on either side, and for a different
+  // reason each way.  A declared `money?` is how the author says "SQL's NULL
+  // over an empty table stays null instead of collapsing to 0"
+  // (`AggregateCoercion.optional`) — their call, not a mismatch.  And the
+  // RESULT inherits the aggregated COLUMN's nullability (`max(o.rate)` over a
+  // `decimal?` column is `decimal?`), which says nothing about how the row
+  // field should be declared.  Only the underlying type is the contract.
+  const declaredInner = declared.kind === "optional" ? declared.inner : declared;
+  const resultInner = s.type.kind === "optional" ? s.type.inner : s.type;
+  const want = typeLabel(resultInner);
+  const got = typeLabel(declaredInner);
+  if (got === want) return;
+  if (want === "int" && got === "long") return;
+  diags.push({
+    severity: "error",
+    code: "loom.projection-aggregate-type-mismatch",
+    message: diagMessage("loom.projection-aggregate-type-mismatch", {
+      name: proj.name,
+      field: s.field,
+      op: s.aggregate.op,
+      declared: got,
+      result: want,
+      hint:
+        want === "money"
+          ? " — the mean/total of a money column is money, and money crosses the wire as a fixed-scale string, not a float"
+          : want === "int"
+            ? " — or declare it 'long', which SQL's own sum/count already is"
+            : "",
+    }),
+    source: `${ctx.name}/${proj.name}`,
+  });
 }
 
 /** The GROUPED read model's shape gates (M-T4.2).  A `group by` projection

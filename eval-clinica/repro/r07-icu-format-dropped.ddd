@@ -1,0 +1,23 @@
+// Probe: ICU format specs in interpolated strings.
+// docs/language.md: "a hole may carry an ICU format suffix ... {at, date} / {at, time} ...
+//  ... A datetime ... hole is rejected (loom.interp-hole-type) - format it first."
+system R07 {
+  subdomain S { context C {
+    aggregate Appt {
+      startAt: datetime
+      total: money
+      pct: decimal
+      n: int
+      derived d1: string = `on {startAt, date}`
+      derived d2: string = `at {startAt, time}`
+      derived d3: string = `total {total, number, ::currency/EUR}`
+      derived d4: string = `rate {pct, number, ::percent}`
+      derived d5: string = `{n, plural, one {# item} other {# items}}`
+      derived display: string = d1
+    }
+    repository Appts for Appt { }
+  } }
+  storage primary { type: postgres }
+  resource st { for: C, kind: state, use: primary }
+  deployable api { platform: node, contexts: [C], dataSources: [st], port: 3000 }
+}

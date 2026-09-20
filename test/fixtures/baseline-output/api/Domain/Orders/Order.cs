@@ -38,7 +38,7 @@ public sealed class Order
     {
         if (!(this.IsMutable())) throw new DomainException("Precondition failed: isMutable()");
         if (!(qty > 0)) throw new DomainException("Precondition failed: qty > 0");
-        _lines.Add(OrderLine._Create(new OrderLine.State { Id = OrderLineId.New(), ParentId = this.Id, ProductId = productId, Quantity = qty }));
+        _lines.Add(OrderLine._Create(new OrderLine.__State { Id = OrderLineId.New(), ParentId = this.Id, ProductId = productId, Quantity = qty }));
         AssertInvariants();
     }
 
@@ -72,7 +72,7 @@ public sealed class Order
         if ((this.Status == OrderStatus.Confirmed) && !(this.Lines.Count > 0)) throw new DomainException("Invariant violated: lines.count > 0");
     }
 
-    public sealed class State
+    public sealed class __State
     {
         public OrderId Id { get; init; } = default!;
         public string CustomerId { get; init; } = default!;
@@ -82,7 +82,7 @@ public sealed class Order
         public IReadOnlyList<OrderLine>? Lines { get; init; }
     }
 
-    public static Order _Create(State s)
+    public static Order _Create(__State s)
     {
         var e = new Order();
         e.Id = s.Id;

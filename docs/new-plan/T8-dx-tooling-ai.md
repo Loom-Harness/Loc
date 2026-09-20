@@ -131,5 +131,8 @@ save, and routing `ddd patch` and the builder through the same printer.
 whether `fmt` preserves comment placement or normalizes it, and say so in the docs; a formatter
 that silently moves comments is worse than none.
 
-**Gate:** `ddd fmt --check` over the repo's own `.ddd` corpus, which also gives
-[M-T9.51](T9-toolchain-health.md#m-t951)'s widened example glob a second job.
+**Gate:** `ddd fmt --check` over the repo's own `.ddd` corpus — the population
+`test/system/ddd-source-census.test.ts` already sweeps (`git ls-files '*.ddd'`),
+which gives that census's file list a second job. Nothing here waits on
+[M-T9.51](T9-toolchain-health.md#m-t951): the gate it was going to widen landed
+as that census.

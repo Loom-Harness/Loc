@@ -25,6 +25,7 @@ import type {
   SeedRowIR,
   TypeIR,
 } from "../../../ir/types/loom-ir.js";
+import { valueObjectPool } from "../../../ir/util/reachable-types.js";
 import { lines } from "../../../util/code-builder.js";
 import { lowerFirst, upperFirst } from "../../../util/naming.js";
 import {
@@ -134,7 +135,7 @@ function emitSeeds(
   if (callLines.length === 0) return;
 
   const body = lines(...fnBlocks);
-  const voEnumNames = [...ctx.valueObjects.map((v) => v.name), ...ctx.enums.map((e) => e.name)];
+  const voEnumNames = [...valueObjectPool(ctx).map((v) => v.name), ...ctx.enums.map((e) => e.name)];
   out.set(
     "db/seed.ts",
     backend.renderFile(body, callLines, usedAggregates(datasets, seedable), voEnumNames),

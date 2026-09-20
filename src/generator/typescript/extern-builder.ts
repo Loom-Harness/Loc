@@ -1,5 +1,6 @@
 import type { AggregateIR, BoundedContextIR } from "../../ir/types/loom-ir.js";
 import { operationBodyUsesCurrentUser } from "../../ir/util/op-gates.js";
+import { valueObjectPool } from "../../ir/util/reachable-types.js";
 import { lowerFirst } from "../../util/naming.js";
 import { SCAFFOLD_ONCE_MARKER } from "../../util/scaffold-once.js";
 import { renderOperationReturnType } from "./emit/aggregate.js";
@@ -85,7 +86,7 @@ export function buildExternSubclassFile(agg: AggregateIR, ctx: BoundedContextIR)
   if (/\bIds\.\w/.test(scan)) imports.push(`import * as Ids from "./ids";`);
   if (/\bUser\b/.test(scan)) imports.push(`import type { User } from "../auth/user-types";`);
   const voEnum = [
-    ...new Set([...ctx.valueObjects.map((v) => v.name), ...ctx.enums.map((e) => e.name)]),
+    ...new Set([...valueObjectPool(ctx).map((v) => v.name), ...ctx.enums.map((e) => e.name)]),
   ]
     .filter(refersTo)
     .sort();

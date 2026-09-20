@@ -486,6 +486,10 @@ D-DOCUMENT-AXIS: a `shape: document` (document) concrete of a
 raises an error (not a silent coercion) so the author writes the
 forced modifier explicitly.
 
+**Extended by D-EMBEDDED-TPH** (wave C2): `shape: embedded` joins the
+forced set — the third non-relational shape, missed when this rule was
+generalised, and the one compile waivers F11 / F13 were recording.
+
 **Affects.** `aggregate-inheritance.md`; the persistence adapter's
 table-layout resolution.
 
@@ -2519,6 +2523,8 @@ it.
 | 13 | `D-ABSENT-JOIN-DATETIME-WIRE` | absent join value = wire `null` everywhere (RS-34 ratified); datetimes ship milliseconds; mint **RS-37** |
 | 14 | `D-FLUTTER-BEARER` | Flutter native = bearer, Flutter web = cookie (a RULE 2 amendment) |
 | 15 | `D-MISC-C0` | four small rulings: the .NET entry-point boundary, `connection:` semantics, per-op OpenAPI tags, `scopeId` |
+| 16 | `D-PAGE-BODY-EXPRESSION` | a page body is an expression tree; the statement `if` stays refused, owner **M-T1.20** |
+| 17 | `D-SENSITIVE-INSPECT-ONLY` | `sensitive(...)` is inspect-only today; wire masking is `mask unless`; phases 2–4 stay **M-T3.8** |
 
 ---
 
@@ -3047,6 +3053,21 @@ Each arm is mutation-proved by file-copy revert.
 
 **Unblocks.** M-T5.23 and M-T5.24 → wave **C2 packet 2f**.
 
+**LANDED 2026-09-13** (PR [#2903](https://github.com/Loom-Harness/Loc/pull/2903)).
+Both options (a) are implemented, and one thing the decision's text did not
+anticipate is worth recording: the `avg` retype alone would have been **inert**.
+The DECLARED projection row type is what every backend's coercion dispatches on
+and nothing checked it, so an author could keep declaring `decimal` for a money
+mean and keep the lossy float — the retype ships with
+`loom.projection-aggregate-type-mismatch`, which also admits the one widening
+(`int` → `long`) an author needs to opt out of the integral range refusal. The
+`long` ceiling is enforced at the literal (`loom.integer-literal-imprecise`) and
+at the node wire boundary; the residual — the four non-node backends still accept
+past the ceiling and store exactly — is pinned in
+`test/conformance/numeric-ingress-parity.test.ts` and belongs to
+`D-NUMERIC-INGRESS-STRICT`, since closing it is either a representation upgrade
+or a uniform ingress narrowing.
+
 **Sources.** [`T5-language-core.md`](new-plan/T5-language-core.md) M-T5.23,
 M-T5.24; [`numeric-types-audit-2026-08-23.md`](audits/numeric-types-audit-2026-08-23.md)
 F13, F14; RS-12; `src/ir/lower/lower-projection.ts`,
@@ -3119,7 +3140,7 @@ row `dapper-no-schema-evolution` (fix field: both options, sized);
 
 ## D-PROJECTION-IMPLICIT-SUB — an `on(Event)` handler subscribes in-process whether or not a channel carries the event
 
-**Status:** proposed (default applies 48 h after merge unless overridden).
+**Status:** PINNED — **APPLIED** (2026-09-14, wave C2 packet 2f).
 
 **Question.** Does a `projection … { on(e: E) { … } }` whose `E` is carried by no
 declared `channel` fold, or not? (Today node folds it; python, java, .NET and
@@ -3162,8 +3183,23 @@ the audit had to construct by deleting a block from `projection.ddd` — enters 
 fixture set in the same wave (rule 13), because a compile gate over a corpus that
 lacks the shape proves nothing.
 
-**Unblocks.** `G2646-open-projection-on-event-no-channel` (B20) → wave **C2
-packets 2b / 2c / 2d / 2e**.
+**Unblocks.** `G2646-open-projection-on-event-no-channel` (B20) → closed in wave
+**C2 packet 2f** (2b measured the dotnet arm as a no-op and 2c measured the node
+arm as "not a node arm"; both were right — it was one change on the shared IR,
+plus the two emitter-side copies of the same carriage filter, in elixir's
+`resolveProjectionSubs` and node's `buildProjectionsFile`).
+
+**As built.** `deriveEventSubscriptions` (`src/ir/enrich/enrichments.ts`) drops
+both filters and yields a subscription per consumer, with `channel: undefined`
+when nothing carries the event (`EventSubscriptionIR.channel` is now optional; no
+emitter read the field). BOTH warnings go, not just the projection one — this
+decision's own scope paragraph writes the rule once for both consumer kinds, so
+`loom.reactor-event-uncarried` had become exactly as false as
+`loom.projection-event-uncarried`. Corpus fixture
+`test/fixtures/corpus/projection-implicit-sub.ddd` (backends: ALL) carries an
+uncarried projection fold AND an uncarried workflow reactor;
+`test/generator/projection-implicit-sub.test.ts` names the emitted fold and
+reactor symbol per backend.
 
 **Sources.** [`behavioral-parity-bugs-2026-07.md`](audits/behavioral-parity-bugs-2026-07.md)
 B20; [`language-gaps-2026-08.md`](audits/language-gaps-2026-08.md) (the
@@ -3353,7 +3389,7 @@ the web transport plus the bearer header in the IO transport (so
 native value, so the gate stays ONE predicate rather than two. `auth: none`
 deployables stay byte-identical.
 
-**Unblocks.** M-T4.12 item (1) → wave **C2 packet 2j**.
+**Unblocks.** M-T4.12 item (1) → wave **C2 packet 2j**, where it **shipped** (`src/generator/flutter/api-client.ts` + the two conditional-import halves + `lib/loom_bearer.dart`; `loomEventSource` takes `{withCredentials, bearer}`; `realtimeStreamCredential` gained `"cookie-web-bearer-native"` and keys it on `deployable.platform`, so the gate stayed ONE predicate as this decision required). `flutter analyze` 0 errors / 0 warnings, `flutter test` green and `flutter build web --release` green on the generated credentialed app; `auth: none` is unchanged.
 
 **Sources.** [`T4-eventing-temporal.md`](new-plan/T4-eventing-temporal.md)
 M-T4.12 (Wave 1 packet 1g note, RULE 1 / RULE 2 and "Still open under this ID"
@@ -3439,3 +3475,620 @@ wave **C6**.
 [`T3-security-governance.md`](new-plan/T3-security-governance.md) M-T3.11 and
 [`execution-context.md`](old/proposals/execution-context.md) §Open questions;
 D-CTX-SHAPE.
+
+---
+
+## D-TPH-BEATS-SHAPE — a TPH concrete's `shape:` never reaches storage
+
+**Status:** PINNED (2026-09-13, wave C2 packet 2e).
+
+**Question.** What does `aggregate Container extends Shipment shape: embedded`
+mean when `Shipment` is `inheritanceUsing: sharedTable`? Two header modifiers
+each claim to decide where the concrete's row lives, and nothing said which wins
+— so each emitter answered on its own, and three of them answered differently.
+
+**What the code already ruled, before anyone wrote it down.** Phase ⑨ decides
+what tables EXIST, and `tablesForOneAggregate`
+(`src/system/migrations-builder.ts`) tests `isTphConcrete`/`isTphBase` **before**
+the shape arms: a TPH concrete gets the shared base table plus RELATIONAL child
+tables for its containments, and **no jsonb column anywhere**. The drizzle
+schema emitter agrees. So the DDL a `shape: embedded` TPH concrete runs against
+has never had a place to put an embedded document, on any backend.
+
+**Decision.** **TPH wins.** A concrete that shares its base's table owns no table
+of its own, therefore has nowhere to put a jsonb containment column, therefore
+its `shape:` modifier does not apply: containments persist relationally, FK'd to
+the shared row. Every backend's schema emitter and repository builder must agree
+with the phase-⑨ DDL, which is the single authority on what exists.
+
+This is the same rule `loom.es-tph-forced-own-table` already enforces for the two
+shapes that CANNOT degrade — `persistedAs: eventLog` and `shape: document` have
+no queryable root row to share, so the validator makes the author write
+`inheritanceUsing: ownTable` explicitly. `embedded` is the one shape that *can*
+degrade (its root already is a queryable row), which is why it is allowed through
+rather than refused.
+
+**Follow-up, deliberately NOT taken here.** A silent degrade is still a silent
+degrade: the author wrote `shape: embedded` and got relational children. The
+honest alternative is to extend rule 4 of `src/language/validators/inheritance.ts`
+so `shape: embedded` under a `sharedTable` base is refused the same way, with the
+same "declare `inheritanceUsing: ownTable`" remedy. That is a **language-layer**
+change touching every backend's expectations at once (it would also close
+pairwise F11 on node by deleting the crossing), so it belongs to the packet that
+owns `src/ir/**` + `src/language/**` — wave **C2 packet 2f** — not to a
+per-backend packet. Until it is taken, the degrade is at least *coherent*: every
+target does the same thing, and the same thing is what the DDL creates.
+
+**Consequences.** Pairwise **F13** closes as a python conformance fix (the schema
+emitter's TPH arms move ahead of the shape arms; a TPH concrete takes the
+relational repository builder). Pairwise **F11** on node is re-read the same way:
+the drizzle repository must target the owner table, not the concrete's own. The
+crossing enters the curated corpus with `tph-crossings.ddd`, whose header names
+the embedded half as the widening step once F11 closes.
+
+**Superseded in part at the wave fold (2026-09-13).** The follow-up this entry declined to take was taken in the same wave by packet 2c as [`D-EMBEDDED-TPH`](#d-embedded-tph--a-shape-embedded-concrete-of-a-sharedtable-base-is-forced-to-owntable-like-the-other-two-non-relational-shapes): `shape: embedded` under a `sharedTable` base is now REFUSED at phase ④ (`loom.es-tph-forced-own-table`), so the crossing this entry ruled on is unreachable from `.ddd` and there is no degrade left to be coherent about. What survives of this entry is its floor: the python schema emitter and repository builder test the TPH arms before the shape arms, mirroring `migrations-builder.ts`, so a TPH concrete can never again be handed a table phase ⑨ does not create. The python gate that drove the crossing (`tph-embedded-storage.test.ts`) was deleted at the fold because its fixture no longer validates; the ordering is pinned by the phase-④ refusal plus the migrations builder's own arm order, and the coordinator recorded the trade in `docs/new-plan/waves/wave-c2.md`.
+
+**Sources.** `src/system/migrations-builder.ts` `tablesForOneAggregate`;
+`src/ir/util/inheritance.ts` `tableOwnerName`;
+`src/language/validators/inheritance.ts` rule 4;
+[`inheritance.md`](inheritance.md);
+`docs/audits/pairwise-corpus-findings-2026-08.md` §F11/§F13.
+
+---
+
+## D-PYTHON-SINGLE-REALIZATION — python ships one realization, and that is not a gap
+
+**Status:** PINNED (2026-09-13, wave C2 packet 2e).
+
+**Question.** Ledger row `G2646-open-python-no-realization-axes` reads python's
+absence from `src/platform/adapter-metadata.ts` as debt: `persistence:` and
+`directoryLayout:` "offer no choice on that backend while node (drizzle/mikroorm)
+and dotnet (EF/dapper) do". Sized **L**, unowned, and re-opened by every parity
+sweep.
+
+**Measured, on fresh `main`.** The asymmetry the row describes is not
+python-vs-the-rest — it is *two adapters vs one*. `BACKEND_ADAPTER_METADATA`
+lists `elixir` with exactly one persistence adapter (`ecto`) and `java` with
+exactly one (`jpa`); neither offers a choice either. Three of five backends ship
+a single realization. Python's only real difference is that it is ABSENT from the
+mirror rather than present with a single-valued menu — and the file says that
+absence is deliberate and matches the live surface (its `PlatformSurface` omits
+`adapters()`).
+
+**Decision.** **Python ships one realization — SQLAlchemy 2 async over asyncpg,
+one directory layout — and that is a product statement, not an incomplete
+implementation.** The row is re-classed `scope`. A second python persistence
+adapter (Tortoise, Piccolo, raw asyncpg) is a T6-track *mission* to be minted
+when a user need names the adapter, with the same bar every adapter carries: its
+own pairwise cover cell, its own corpus compile leg, its own behavioural leg.
+Nothing about the current state is silent — there is no gate to add, because
+there is no `persistence:` value a user can write that python drops.
+
+**Owner.** The T6 backend track, on demand. Not a completeness row, and not wave
+C2's: no packet closes it by building, and leaving it `open` guarantees it is
+re-derived by the next sweep.
+
+**Consequences.** `G2646-open-python-no-realization-axes` moves out of the
+ledger's `open` bucket. If python ever does grow a second adapter, the honest
+first step is the `adapter-metadata.ts` entry (a single-valued menu, like java's
+and elixir's), so the mirror stops being read as a completeness signal —
+recorded here as the shape of that change, not scheduled.
+
+**Sources.** `src/platform/adapter-metadata.ts` (`BACKEND_ADAPTER_METADATA`, and
+its own note on python's absence); [`platforms.md`](platforms.md);
+`docs/audits/targets-completeness-2026-08-30.ledger.json`.
+## D-EMBEDDED-TPH — a `shape: embedded` concrete of a `sharedTable` base is forced to `ownTable`, like the other two non-relational shapes
+
+**Status:** proposed (default applies 48 h after merge unless overridden).
+
+**Question.** `shape: embedded` × TPH (`inheritanceUsing: sharedTable`) does not
+work on any backend that implements `embedded`. Is that a cross-emitter mission,
+or does the language refuse the crossing the way it already refuses the other two
+non-relational shapes under a shared table?
+
+**Options.** (a) build it — the TPH owner table grows one nullable jsonb column
+per embedded concrete's containment, on node (drizzle + mikroorm), python and
+.NET, plus the matching phase-⑨ DDL; (b) extend Rule 4's `forcesOwn` set with
+`embedded`, so the author declares `inheritanceUsing: ownTable` exactly as an
+event-sourced or document concrete must; (c) leave it — a recorded compile
+waiver per backend.
+
+**Decision.** (b).
+
+**Rationale.**
+
+- **The rule already exists and already covers the neighbours.** `persistedAs:
+  eventLog` and `shape: document` are forced to `ownTable` by
+  `loom.es-tph-forced-own-table` (`src/language/validators/inheritance.ts`
+  Rule 4, D-ES-TPH) for the same underlying reason: their truth is not a row in
+  a shared table. `embedded` is the third non-relational shape and was simply
+  missed — (b) adds one disjunct to a set, one word to a message and nothing to
+  the surface. (a) adds a per-backend feature nobody has asked for.
+- **What (c) was actually recording, measured.** On node, the drizzle embedded
+  repository named `schema.things` while a TPH concrete's row lives in
+  `schema.thingBases` (19 × TS2339 per case, compile waiver **F11**; MikroORM
+  had the same defect one name over, `ThingRow` vs `ThingBaseRow`) — and the
+  schema emitter did not put the jsonb containment column on the owner table
+  either: it emitted a relational `lines` CHILD TABLE, so re-pointing the
+  repository would have moved the error rather than removed it. Python emits
+  BOTH tables (**F13**); .NET maps no containment at all. Three backends, three
+  different wrong answers, and the phase-⑨ migration DDL mirrors the schema
+  emitter's mistake on all of them.
+- **(a) is a four-file change per backend for a shape with no demand.** Two
+  emitters and the phase-⑨ DDL on each of node/python/.NET, held together by a
+  drizzle-schema-vs-migration agreement nothing currently gates. The crossing
+  came from the pairwise MATRIX, not from a user: it is a cell the generator
+  enumerates, not a shape anyone wrote.
+- **The forced form is not a downgrade.** `embedded × ownTable` compiles and runs
+  on both node adapters today (verified: `tsc --noEmit` clean on the generated
+  project for drizzle and mikroorm), and it is what the author wanted anyway —
+  an aggregate whose containments fold into ITS row needs a row of its own.
+
+**Consequences.** `loom.es-tph-forced-own-table` gains `shape: embedded`; its
+message names the shape rather than only the event-sourced arm. `COMPILE_WAIVERS`
+entry **F11** is deleted (the crossing can no longer be written), and the pairwise
+composer writes the forced override for `embedded` as it already does for
+`document` / `eventLog`, so the cover reaches `embedded × ownTable` instead of
+spending its TPH cells on a validator floor. The python twin **F13** loses its
+source the same way — 2e deletes its own entry. M-T2.10's "`embedded` on Drizzle
+still emits relationally" clause is resolved by the same measurement: it emits
+jsonb correctly, and emitted relationally ONLY under TPH.
+
+**Reversible.** If a real model ever needs the crossing, (a) is unblocked by
+deleting one disjunct — nothing here bakes the refusal into an emitter.
+
+**Sources.** `test/pairwise/waivers-compile.ts` F11 (and F13);
+[`targets-completeness-2026-08-30.ledger.json`](audits/targets-completeness-2026-08-30.ledger.json);
+[`T2-data-evolution.md`](new-plan/T2-data-evolution.md) M-T2.10;
+[`inheritance.md`](inheritance.md); D-ES-TPH (the rule this extends).
+## D-TPH-SUBTYPE-FILTER — a TPH subtype's capability filter is a declared v1 limit on the EF adapter, not a gap
+
+**Status:** proposed (default applies 48 h after merge unless overridden).
+Raised by wave C2 packet 2b, which was asked to "build or decide" this row.
+
+**Question.** `loom.tph-filter-unsupported` refuses a `sharedTable` (TPH)
+SUBTYPE whose capability `filter` reads a column the hierarchy ROOT does not
+declare, on `platform: dotnet` + `persistence: efcore`. Is that a gap to drain
+or a declared limit?
+
+**Options.** (a) leave it a `gap` and drain it by moving the .NET read path's
+capability filters off `HasQueryFilter` onto a per-read LINQ `.Where(...)`,
+which is per-`DbSet` and therefore subtype-typed; (b) re-class it a `scope` row
+with a named successor, keeping the honest refusal until someone commissions
+(a); (c) refuse it permanently and rename the code out of the `-unsupported`
+suffix.
+
+**Decision.** (b) — **`scope`, with M-T6.72 as the named successor.** NOT (c):
+the shape is expressible, on this very adapter, by a different read strategy;
+and NOT (a) inside a per-target drain packet, for the reason below.
+
+**Rationale.**
+
+- **The refusal is TRUE, and narrow.** It is scoped to the EF adapter, not to
+  `platform: dotnet` — Dapper splices the same predicate into raw SQL against
+  the shared table, where a subtype column is just a column, so the identical
+  model generates there. Filters reading ROOT columns (the common
+  `tenantOwned`-on-the-base case) are emitted, discriminator-guarded, and are
+  not gated. The diagnostic names all three ways out (move the field to the
+  base, `inheritanceUsing: ownTable`, or host the context elsewhere).
+- **EF's restriction is real and was measured, not assumed.** EF Core registers
+  every query filter in an inheritance hierarchy on the ROOT entity type, and
+  both workarounds fail once the query source is a SIBLING subtype (verified
+  against EF Core 10.0.10: a CLR downcast gives "No coercion operator is defined
+  between types 'Truck' and 'Car'"; `EF.Property` gives "the specified property
+  does not exist on the entity type"). The gate replaced a SILENT drop (`tph ?
+  [] :` — every declared read restriction on a subtype discarded with no error,
+  F2-CB-C2), so the honest refusal is already a large improvement over what it
+  replaced.
+- **(a) is an L-sized read-path rewrite whose failure mode is a security-shaped
+  silent leak, which is exactly what a drain packet must not risk.** Measured on
+  the emitter rather than estimated: `_db.${setName}` appears **19** times in
+  `src/generator/dotnet/emit/repository.ts` and the sibling read emitters
+  (`find-emit.ts`, `criteria-emit.ts`, `query-projection-emit.ts`,
+  `spec-emit.ts`) hold **11** more `_db.` reads. Every one must route through
+  the new per-read predicate — the paged find's COUNT query as well as its PAGE
+  query, the by-id read, the bulk by-ids load, the write-scope existence guard,
+  each retrieval, each criterion Specification, each direct-table aggregation,
+  and the polymorphic `find all <Base>` reader, which must apply each concrete's
+  own filter per concrete. A site missed is not a compile error and not a wrong
+  answer a test would notice by shape: it is one read path that returns rows a
+  declared restriction excludes. That asymmetry — 30 sites, no compiler help,
+  the failure indistinguishable from success without a purpose-built runtime
+  probe — is what makes it a commissioned mission with a booted-app acceptance
+  rather than a row in a per-target sweep.
+- **And the move has a second cost worth pricing before it is paid.** A model
+  filter is enforced by EF for EVERY query against the entity, including ones no
+  Loom emitter wrote (a raw `_db.Set<Car>()` in hand-written code the
+  customization gradient invites). A per-read `.Where` is enforced only where
+  the emitter put it. Moving the whole adapter's filters off the model to reach
+  one subtype shape would trade a framework-enforced guarantee for an
+  emitter-enforced one across the board; the successor should therefore move
+  only the filters that CANNOT be model-hosted, and say so.
+
+**Consequences.** The register row's `kind` becomes `scope` and `MAX_OPEN_GAPS`
+drops by one — the row is no longer counted as an undone gap on a shipping
+target, which is the honest reading: nothing here is half-built. The code, its
+message and its `code-docs.ts` anchor are unchanged, so nothing a user sees
+moves. `M-T6.72` owns the build; its acceptance is a booted .NET app on a real
+Postgres showing the subtype filter applied on every read path AND absent from
+none — the compile tier cannot see a missing `.Where`.
+
+**Unblocks.** `loom.tph-filter-unsupported` → wave **C2 packet 2b** (this
+re-class); the build → **M-T6.72**.
+
+**Sources.** `src/ir/validate/checks/storage-inheritance-checks.ts`
+(`validateTphFilterExpressibility`), `src/ir/util/inheritance.ts`
+(`nonRootFilterFields`), `src/generator/dotnet/emit/efcore.ts` (the
+`isTphConcreteCfg` filter host), `src/diagnostics/unsupported-register.ts`;
+[`T5-language-core.md`](new-plan/T5-language-core.md) M-T5.7 (the inheritance
+tail this sits beside); the F2-CB-C2 silent-drop row it replaced.
+## D-PHOENIX-FORMAT-GATE — the generated-Elixir `mix format` gate is declined permanently; Dialyzer is unscheduled
+
+**Status:** proposed (default applies 48 h after merge unless overridden).
+
+**Question.** M-T6.3 has deferred the `mix format` / Dialyzer CI gates over
+generated Phoenix output twice, each time with the same reasoning and no ruling.
+Wave C2 packet 2a was told to decide rather than defer a third time. Does Loom
+ever run `mix format --check-formatted` (or Dialyzer) over the projects it
+emits?
+
+**Options.** (a) activate `mix format --check-formatted` as a per-PR gate and
+teach the emitters to satisfy it; (b) activate it nightly-only, accepting a red
+nightly until (a) is done; (c) decline the format gate permanently and close the
+mission; (d) decline the format gate and schedule Dialyzer instead.
+
+**Decision.** **(c).** `mix format --check-formatted` is **never** run over
+generated output, in any tier. Dialyzer and Credo over generated output are
+**unscheduled** — not deferred, not owned by a mission; anyone who wants either
+opens a new mission carrying its own evidence that it finds a class of defect
+the compile gate does not. M-T6.3 closes on this ruling; its slice-1 work (the
+`.formatter.exs` that scopes the OpenApiSpex subtree out) stays, because it is
+emitted config a human running `mix format` by hand benefits from — it is not a
+gate.
+
+**Rationale.**
+
+- **The measurement is already done and it is not close.** M-T6.3's own
+  source-grounded scoping (2026-07-21, real `mix format` in the `hexpm/elixir`
+  image, the api_spec subtree excluded) found an **irreducible ~250-diff-line /
+  20-file structural residual** — blank-line insertion, `case`-clause
+  consistency, un-wrapping the emitter's own pre-wraps — that `line_length`
+  plateaus against (447 → 253 diff-lines between 98 and 200, then flat) and that
+  no other configuration reaches, because `mix format` is deliberately
+  non-configurable: no per-rule toggles, no `# format: off` regions.
+- **So the only close is teaching ~10 emitters the formatter's rules**, which is
+  an L grind whose result is *brittle in the worst direction*: an all-or-nothing
+  gate that any future Elixir-emitter edit can break, re-checkable only through
+  the slow docker + hex-mirror loop. That is a gate whose expected cost is
+  dominated by false alarms on unrelated changes.
+- **The payoff is cosmetic, and the non-cosmetic property is already gated.**
+  Generated Elixir compiles `mix compile --warnings-as-errors` clean in
+  `elixir-vanilla-build.yml`; that catches unused bindings, undefined
+  references, and unreachable clauses — everything about the output a reader
+  depends on. Nobody hand-edits a generated `.ex`, which is the only situation
+  where a formatting standard earns its keep.
+- **Deferring again is worse than declining.** A mission parked with "reassess
+  if a cheaper mechanism appears" is a standing invitation to re-derive the same
+  measurement; two agents have now paid for it. A named decline stops that, and
+  is trivially reversible — if Elixir ever ships an ignore-region directive, the
+  new mission opens with a one-line premise instead of a re-scoping.
+- **Dialyzer is a different question and gets a different answer.** It finds
+  real type errors rather than cosmetics, so "declined" would be wrong — but on
+  GENERATED code its candidate findings are emitter bugs, and the compile gate
+  plus the per-backend boot legs already reach most of them. A PLT build per run
+  is not free. It has no evidence behind it today, so it gets no mission; it
+  gets the same treatment as any unproposed gate.
+
+**Consequences.** M-T6.3 moves to `archive/T6-done.md` with this tag as its
+evidence. No workflow gains a `mix format` step, and a future agent finding
+unformatted generated Elixir should cite this tag rather than open a row. The
+reusable measurement tooling the scoping produced (the real-formatter diff loop:
+`startHexMirror` → `generate system` → `mix format` with `import_deps` resolved
+→ diff) stays described in the archived mission, so reversing the ruling starts
+from a recipe rather than from scratch.
+
+**Unblocks.** M-T6.3 → wave **C2 packet 2a** (closed by this ruling, no code).
+
+**Sources.** [`T6-backend-parity.md`](new-plan/T6-backend-parity.md) M-T6.3 and
+its two deferrals; [`vanilla-phoenix-gaps.md`](old/plans/vanilla-phoenix-gaps.md)
+§7; [`static-analysis-followups.md`](old/proposals/static-analysis-followups.md)
+Slices 1–2; `src/generator/elixir/vanilla/shell-emit.ts`
+(`renderVanillaFormatterExs`).
+
+## D-ANGULAR-EXTERN-CHILDREN — children into an Angular component: built for the walked flavour, a language question for `extern`
+
+**Status:** proposed (default applies 48 h after merge unless overridden).
+Raised by wave C2 packet 2h, which was asked to close
+`loom.component-children-unsupported`.
+
+**Question.** A user component invoked with CHILDREN — the extra positional
+argument every JSX-family frontend renders between the open and close tags —
+was dropped on Angular, because Angular has no PascalCase component tag and the
+call site went through `<ng-container [ngComponentOutlet]="X" …>`, which sets
+INPUTS and has no content-projection channel. Is the whole row a gap to drain?
+
+**Options.** (a) drain it for both component flavours; (b) drain the walked
+flavour and re-class the remainder; (c) refuse permanently and rename the code
+out of the `-unsupported` suffix.
+
+**Decision.** **(b), and the split is not a compromise — the two halves are
+different KINDS of problem.**
+
+A **walked** component is one Loom emits: `components-emit.ts` writes the class
+and stamps `@Component({ selector: "app-panel" })`, and its body's `Slot { }`
+already rendered `<ng-content></ng-content>`. Loom therefore knows a tag for
+it, and the call site can be one — `<app-panel [label]='"a"'>…children…
+</app-panel>`, with the class in the page's standalone `imports: []` instead of
+`NgComponentOutlet`. That is now what is emitted (`renderAngularUserComponent`,
+`src/generator/angular/walker/angular-target.ts`), so the drop is GONE for this
+flavour rather than merely named. It was a gap; it drained.
+
+An **extern** component is a hand-written Angular class reached through a
+re-export shim, and its `@Component({ selector })` is the author's. Loom has no
+tag to spell, so it must keep the outlet, and the outlet cannot project content
+from a template at all (`ngComponentOutletContent` takes pre-built DOM nodes —
+TS-side only). No amount of Angular emitter work closes that: the missing thing
+is INFORMATION, and the only place it can come from is the `.ddd`. Addressing
+an extern component by tag needs a surface — a selector clause on `extern from`
+— which is a grammar change plus a lowering field plus a validator rule, on a
+declaration every OTHER frontend addresses by imported symbol rather than by
+tag. That is a language ruling, not a per-target TODO, which is what makes the
+remainder a `scope` row rather than a gap left half-drained.
+
+NOT (c): the shape is expressible the moment the surface exists, and the
+diagnostic keeps naming a real loss in the meantime.
+
+**Successor.** **M-T1.33** (`docs/new-plan/T1-ui-frontend.md`) — the extern
+selector clause, its validator rule, and the gate's deletion.
+
+**Consequences.** `loom.component-children-unsupported` is `kind: "scope"`,
+owner M-T1.33 (`MAX_OPEN_GAPS` 24 → 23). The gate narrowed to `c.extern` in
+`src/ir/util/component-children.ts`, so a walked component with children no
+longer warns; its message now names the extern flavour and points at dropping
+`extern from` as the in-language remedy. The degradation comment at the call
+site (#2734) survives on the outlet arm only.
+
+**Sources.** `src/generator/angular/walker/angular-target.ts`
+(`renderAngularUserComponent`, `angularTargetFor`),
+`src/generator/angular/walker/page-shell.ts` (the two registrations),
+`src/ir/util/component-children.ts`, `docs/extern.md`,
+`docs/new-plan/waves/handoffs/wave-c2-2h-angular.md`.
+
+---
+
+## D-FLUTTER-COMPONENT-BINDINGS — a Flutter component reaches the `ref`-backed page bindings, but never the route `id`
+
+**Status:** proposed (default applies 48 h after merge unless overridden).
+
+**Question.** `loom.user-component-deferred-target` refuses **nine** Flutter
+component shapes and `loom.flutter-async-effect-unsupported` a tenth. All ten
+have ONE root: a Flutter user component is emitted as a plain `StatelessWidget`
+/ `StatefulWidget`, so it holds neither a Riverpod `WidgetRef` nor a route. It
+therefore cannot reach the four bindings a PAGE shell declares — a read
+provider, a store provider, the session `currentUser`, and the route `id`. Are
+all four one problem, and is the answer the same for each?
+
+**Measured on this tree** (wave C2 packet 2j — every filter bypassed, the
+project generated, the emitted Dart read; the fixture is in the packet's
+hand-off note). Nine shapes emit Dart that names an undeclared local and one
+crashes codegen:
+
+| shape | emitted with the filter bypassed |
+|---|---|
+| `derived` reads the route `id` | `String get label => id;` |
+| `derived` reads a store | `int get n => count;` |
+| `derived` reads `currentUser` | `String get who => currentUser.email;` |
+| body reads a store field / calls a store action | `Text('${count}')`, `onPressed: () { bump(); }` |
+| body reads the bare route `id` | `Text('${id}')` |
+| body renders `DestroyForm` | `DeleteOrderForm(id: id)` |
+| body renders `OperationForm` | `RenameOrderForm(id: id)` |
+| body reads a `currentUser` claim | `Text('${currentUser.email}')` |
+| `state {}` **and** a read | a `StatefulWidget` whose `build` names `orderAll`, the provider local only a `ConsumerWidget` hoists |
+| an action's `match await` | **no Dart at all** — `renderNotifierStmt` throws its internal floor: "the Flutter Riverpod Notifier emitter cannot render an action statement of kind 'variant-match'" |
+
+So every deferral is honest: emitting instead of deferring produces `Undefined
+name` Dart that `flutter analyze` rejects, which is strictly worse than the
+drop it replaced.
+
+**Decision — the four bindings split two ways, not one.**
+
+1. **The three `ref`-backed bindings (a read provider, a store provider,
+   `currentUser`) are ORDINARY WORK and get a mission.** Riverpod already
+   supplies the shape: a stateless component that needs `ref` is a
+   `ConsumerWidget` — which the Flutter emitter ALREADY builds for a
+   read-bearing component (`renderConsumerComponent`) — and a stateful one is a
+   `ConsumerStatefulWidget` + `ConsumerState`, where `ref` is an inherited
+   property so both `setState` and the existing read hoisting work unchanged.
+   Nothing about this needs a ruling; it needs an emitter. Successor:
+   **M-T1.34**.
+
+2. **The route `id` is REFUSED, permanently, in the form the shapes above ask
+   for it.** A component has no route by construction, and there is no honest
+   place to get one from: the only candidate is "a component that declares a
+   param named `id` gets the page's route arg", which would make `id` a magic
+   parameter name in a component's signature — a second, invisible meaning for
+   an ordinary identifier, decided by spelling. Loom already blesses `id` inside
+   a PAGE body, where it is unambiguous because a page has exactly one route;
+   extending that to components would mean a component's behaviour depends on
+   whether its caller happens to sit on a `:id` route, which is exactly the kind
+   of action-at-a-distance the walker's other bindings avoid. The shapes stay
+   refused, and the diagnostic already tells the author the two ways out (host
+   the shape on a page, or pass the record itself as a typed param).
+
+3. **The async effect follows the `id` ruling, not the `ref` one.** `match
+   await <api>.<Agg>.<op>()` on an INSTANCE operation posts to
+   `/<coll>/$id/<op>`, so it needs the route `id` and is refused for the reason
+   in (2) — even once (1) lands and the component holds a `ref`. Its register
+   row therefore moves from `gap` to **`scope`** (a declared v1 limit with a
+   named successor), owned by **M-T1.34**, which closes the `ref` half and
+   re-narrows the gate's message to name the `id` as the only remaining cause.
+
+**Rationale.**
+
+- **The split is what the measurement shows.** Three of the four bindings have a
+  Riverpod shape sitting right there and one does not; calling all four "the
+  Flutter component gap" would have produced one oversized mission whose easy
+  three quarters never shipped because its last quarter needed a ruling.
+- **`gap` means "drains to zero".** The register's own header says so. The
+  async-effect row cannot drain while its cause is a deliberate refusal, so
+  leaving it a `gap` makes `MAX_OPEN_GAPS` a number that can never reach its
+  target — the exact failure the `scope` kind exists to prevent.
+- **The refusal is already the kinder behaviour.** Both alternatives to
+  deferring were measured: `Undefined name` Dart (nine shapes) and a codegen
+  crash (the tenth). The diagnostic a user gets today names the component, the
+  cause, the emitter function and two ways out; that is a better product than
+  either.
+- **Reversing (2) is cheap if the owner disagrees.** It is one binding in one
+  seam (`flutterTarget.renderRouteId`, already a per-target seam, and packet 2h
+  established the per-walk `…TargetFor(…)` factory shape on Angular). What this
+  tag buys is that the next agent does not re-derive the question.
+
+**Consequences.** `loom.flutter-async-effect-unsupported` becomes
+`kind: "scope"`, `mission: "M-T1.34"`; `MAX_OPEN_GAPS` drops 25 → 24.
+`loom.user-component-deferred-target` keeps its nine Flutter arms until M-T1.34
+deletes the three `ref`-backed ones. The measured recipe per shape lives in
+M-T1.20 so the next agent starts from emitted Dart rather than from a bypass
+run.
+
+**Unblocks.** `flutter-async-effect-unsupported` and the deferred-component
+shapes → wave **C2 packet 2j** (dispositioned there); the build → **M-T1.34**.
+
+**Sources.** [`T1-ui-frontend.md`](new-plan/T1-ui-frontend.md) M-T1.20, M-T1.32;
+`src/generator/flutter/component-emit.ts` (`candidates`,
+`emittableComponentParams`, `derivedNeedsShell`, `needsPageShell`,
+`isReadConsumer`, `hasAsyncEffectAction`);
+`src/ir/validate/checks/ui-component-deferral-checks.ts` (`flutterDeferrals`);
+`src/ir/validate/checks/store-checks.ts` (the async-effect arm);
+`src/generator/flutter/riverpod-emit.ts` (`renderVariantMatchNotifier`, and the
+internal floor the bypass reached).
+
+---
+
+## D-PAGE-BODY-EXPRESSION — a page body is an expression tree; the statement `if` stays refused on every frontend
+
+**Status:** proposed (default applies 48 h after merge unless overridden).
+Raised by wave C2 packet 2f, which was asked to give
+`loom.if-stmt-page-body-unsupported` a mission id or a D-tag.
+
+**Question.** `loom.if-stmt-page-body-unsupported` refuses an `if` STATEMENT in a
+`ui` page / component / store body on **every** frontend. It sits in the
+`*-unsupported` register as a `scope` row with no owner — so is it a v1 limit
+someone should drain, or the shape of the surface?
+
+**Options.** (a) keep it a `scope` row and commission a mission that gives page
+bodies statement-form control flow on all six frontends; (b) rule the limit
+permanent and rename the code out of the `-unsupported` suffix; (c) leave it
+unowned.
+
+**Decision.** (a) is declined and (c) is not an option, but the code KEEPS its
+name and its row: **the limit is ruled permanent in substance, and the row is
+re-pointed at M-T1.20** — the mission that already IS the register of frontend
+refusals accepted in `.ddd`, and therefore the place a reader looks for "what
+does the page surface refuse, and why". The `scope` kind is correct — a declared
+v1 limit with a named owner — and renaming the code would cost a rename across
+six emitters and the docs for no behavioural change.
+
+**Rationale.**
+
+- **It is not a per-target gap, and never was.** All six frontends refuse it, for
+  the same reason: a page body is an EXPRESSION tree. Each emitter builds a
+  value — JSX, an Elmish view, a Flutter widget, a HEEx template — so a
+  condition there is a value too. The three spellings already exist and are
+  rendered on every target: the ternary (`cond ? a : b`), the value-form
+  `match { cond => …, else => … }`, and `match await <op>() { … }` for a union
+  result. Nothing an author needs is missing; one spelling is.
+- **The refusal replaced a crash, not a working path.** Before the gate the JS
+  walker hit a bare `throw` on the unknown statement kind — a raw stack trace
+  with no code — and the other engines dropped it silently. There is no shipping
+  behaviour to preserve on any target.
+- **Giving page bodies statements is a surface decision, not a drain.** It would
+  mean a statement position in the page metamodel, a rendering strategy per
+  engine (JSX has no statement position inside an element tree; HEEx has no
+  `handle_event` to hoist from a render), and a printer arm — i.e. a change to
+  what a page IS. That belongs to the frontend-surface mission, not to a packet
+  sweeping honest gates.
+- **So the row's problem was ownership, not classification.** An unowned `scope`
+  row reads as "somebody should do this and nobody has"; pointing it at M-T1.20
+  — the mission that already collects the frontend refusals accepted in `.ddd`
+  — says what it actually is: the thing that would have to change first.
+
+**Consequences.** `loom.if-stmt-page-body-unsupported` gains
+`mission: "M-T1.20"` in `src/diagnostics/unsupported-register.ts`. Its three
+siblings gated by the same reasoning (`loom.ui-handler-statement-unknown`'s
+statement vocabulary) are unaffected. No emitter changes.
+
+**Unblocks.** `loom.if-stmt-page-body-unsupported` → owned (wave **C2 packet 2f**).
+
+**Sources.** `src/ir/validate/checks/if-stmt-checks.ts` (`validateIfStatementPlacement`,
+the UI arm); `src/diagnostics/messages.ts` (`loom.if-stmt-page-body-unsupported`);
+[`page-metamodel.md`](page-metamodel.md).
+
+---
+
+## D-SENSITIVE-INSPECT-ONLY — `sensitive(...)` is a DECLARATION with one shipped consequence; wire masking is `mask unless`, and phases 2–4 are a commissioned mission
+
+**Status:** proposed (default applies 48 h after merge unless overridden).
+Raised by wave C2 packet 2f, which was asked to "build M-T3.8 phases 2–4, or
+record the S alternative as a `scope` decision".
+
+**Question.** `loom.sensitive-wire-unsupported` warns on every `sensitive(...)`
+field a caller can actually receive: the tag reaches exactly one consequence
+today (the synthesized `inspect` prints `<redacted>`), while the response DTO
+carries the value in cleartext on all five backends and nothing classifies it at
+a log / event / resource sink. It is a `gap` row in the register — the sprint
+backlog. Is it one?
+
+**Options.** (a) build phases 2–4 here: `authorized(<category>)` declassification,
+wire `mask:` strategies in five DTO emitters, sink classification; (b) re-class
+it `scope` with **M-T3.8** as the named successor, keeping the honest warning;
+(c) rename the code out of the suffix — rule `sensitive` permanently a
+documentation-and-`inspect` tag.
+
+**Decision.** (b) — **`scope`, successor M-T3.8.** Not (c): the tag's name states
+a wire promise a reader will assume, and the proposal it comes from specifies the
+masking. Not (a) inside a per-target drain packet, for the reason below.
+
+**Rationale.**
+
+- **The row is HONEST already, and specific.** The warning names the one
+  consequence that ships, states plainly that the field is serialized in
+  cleartext to any caller allowed to read the aggregate, and gives two things
+  that work TODAY: `mask unless <predicate>` (the per-caller read redaction,
+  wired at the response boundary on all five) and `internal` / `secret` access
+  (never served). So the author is not surprised, and the surface that redacts
+  is not missing — it is a different surface, with a different meaning
+  (`mask unless` is per-caller authorization; `sensitive` is a data-category
+  classification).
+- **Phases 2–4 are three features, not one drain.** Phase 2 is a type-system
+  change (`authorized(<category>)` declassification, with the 2-lite warnings
+  becoming errors); phase 3 is a per-strategy masking arm in five DTO emitters
+  plus the OpenAPI schema that describes them; phase 4 is sink classification —
+  every log event, every emitted domain event's payload, every outbound resource
+  call. Phase 4 in particular has no chokepoint today: the `_obs/` catalog, the
+  channel envelope and the resource clients each build their own payload.
+- **Its failure mode is the one a sweep must not risk.** A masking arm applied
+  at four of five response sites, or to the read DTO but not the audit snapshot
+  (the exact asymmetry `mask unless` × `audited` hit on .NET, M-T3.9), is
+  indistinguishable from success in every test that asserts by shape. It needs a
+  booted acceptance per backend and a sink census — a mission's acceptance
+  criteria, not a packet's.
+- **`scope` is what the register means by this.** "A declared v1 limit with a
+  named successor" — the limit is declared in the diagnostic, the successor
+  exists and is sized L. Leaving it `gap` said the opposite: that a drain sprint
+  could close it, which is how a security-shaped feature ends up half-ported by
+  someone counting rows.
+
+**Consequences.** The register row's `kind` becomes `scope` (it already names
+`mission: "M-T3.8"`), and `MAX_OPEN_GAPS` drops by one. No emitter changes and no
+message change — the warning keeps firing on every reachable `sensitive(...)`
+field, which is the point. M-T3.8 keeps its `partial` status and its L size; this
+tag is the reason its phases must land together rather than one emitter at a
+time.
+
+**Unblocks.** `loom.sensitive-wire-unsupported` → `scope` (wave **C2 packet 2f**);
+M-T3.8 stays open and commissioned.
+
+**Sources.** `src/ir/validate/checks/sensitivity-checks.ts`;
+[`T3-security-governance.md`](new-plan/T3-security-governance.md) M-T3.8;
+[`sensitivity-and-compliance.md`](old/proposals/sensitivity-and-compliance.md);
+[`auth.md`](auth.md) (`mask unless`).

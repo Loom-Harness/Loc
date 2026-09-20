@@ -100,7 +100,13 @@ describe("elixir grouped projection — coercions follow the DECLARED row type",
     // Ecto.Enum loads the key as an atom — Jason encodes it as the declared
     // string, exactly like the per-row arm's struct read.
     expect(mod).toContain("status: row.status,");
-    expect(mod).toContain("orders: row.orders || 0,");
+    // The integral arm range-checks instead of passing through (M-T5.23) —
+    // elixir carries any integer exactly, but `count` is a bigint in SQL and
+    // the field publishes `format: int32` like every other backend's.
+    expect(mod).toContain(
+      'orders: __int_wire(row.orders || 0, -2147483648, 2147483647, "orders"),',
+    );
+    expect(mod).toContain("defp __int_wire(value, min, max, _field)");
     // Jason encodes a bare %Decimal{} as a JSON string — what money wants and
     // what a plain decimal must NOT be (the other four backends ship a number).
     // money pins the fixed wire scale (RS-12 / #2549) through the emitted

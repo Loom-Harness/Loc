@@ -3,6 +3,7 @@ import { realtimeEventTypes } from "../../../ir/util/channels.js";
 import { type RealtimeRoomPlan, realtimeRoomPlan } from "../../../ir/util/realtime-rooms.js";
 import { lines } from "../../../util/code-builder.js";
 import { numericEncode } from "../../_numeric/target.js";
+import { jid } from "../java-ident.js";
 import { JAVA_NUMERIC } from "../numeric-codec.js";
 
 // ---------------------------------------------------------------------------
@@ -63,7 +64,7 @@ function wireMapArm(ev: EventIR): string[] {
     `            m.put("type", "${ev.name}");`,
   ];
   for (const f of ev.fields) {
-    out.push(`            m.put("${f.name}", ${javaRealtimeValue(`e.${f.name}()`, f.type)});`);
+    out.push(`            m.put("${f.name}", ${javaRealtimeValue(`e.${jid(f.name)}()`, f.type)});`);
   }
   out.push(`            return m;`, `        }`);
   return out;

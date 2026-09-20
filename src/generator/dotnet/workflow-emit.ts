@@ -706,6 +706,10 @@ function renderEventReactorHandler(
   // Statement rendering.  The bound event param resolves to `notification`;
   // `this.<stateField>` resolves to the loaded `state` row (persisted only).
   const stmtLines: string[] = [];
+  // The event reactor is never `transactional` (it has no try/catch wrapper —
+  // see the tab-in note below), so declaration and drain sit at the same
+  // method level and the buffer may lead the statements.  `renderHandler`'s
+  // twin must NOT do this; see the note there.
   if (usage.hasEmit) stmtLines.push("        var _workflowEvents = new List<IDomainEvent>();");
   const resourceClasses = buildResourceClasses(sys);
   const usesResourceOp = statements.some((st) => {
@@ -1479,9 +1483,15 @@ function renderHandler(
 
   // Statement rendering.
   const stmtLines: string[] = [];
-  if (usage.hasEmit) {
-    stmtLines.push("        var _workflowEvents = new List<IDomainEvent>();");
-  }
+  // `_workflowEvents` is declared by the BODY ASSEMBLY below, not here.  A
+  // `transactional` workflow wraps `stmtLines` in `try { … }`, while the drain
+  // (`foreach (var ev in _workflowEvents)`) runs AFTER the try/catch so it
+  // dispatches only on commit.  Declaring the buffer among the statements
+  // therefore scoped it to the `try`, and the drain could not see it — CS0103
+  // ("The name '_workflowEvents' does not exist in the current context") on
+  // every `transactional` workflow whose body emits an event.  The
+  // non-transactional path could not reach it: there `stmtLines` and the drain
+  // are already at the same method level.
   if (usesUser) {
     // Materialise `currentUser` so the rendered `renderCsExpr` output
     // (which emits the literal token `currentUser`) resolves against
@@ -1583,6 +1593,11 @@ function renderHandler(
   ])}\n`;
 
   let body: string = startedLog;
+  // Declared at METHOD level so both the writer (inside the transaction) and
+  // the drain (after the try/catch, so it dispatches only on commit) can see
+  // it.  Emitted for both paths, keeping the non-transactional output
+  // byte-identical to where the declaration used to lead `stmtLines`.
+  if (usage.hasEmit) body += "        var _workflowEvents = new List<IDomainEvent>();\n";
   if (wf.transactional) {
     const beginCall = effectiveIsolation
       ? `_uow.BeginTransactionAsync(IsolationLevel.${csIsolationLevel(effectiveIsolation)}, cancellationToken)`
@@ -2120,7 +2135,7 @@ export function renderExprWithCmdParams(
  *  A service is `reading` when a called operation consumes at least one
  *  read-port; a PURE-only service is excluded (its calls stay the static shape,
  *  needing no injection).  De-duplicated by service name. */
-function collectReadingServices(wf: WorkflowIR, ctx: EnrichedBoundedContextIR): Set<string> {
+export function collectReadingServices(wf: WorkflowIR, ctx: EnrichedBoundedContextIR): Set<string> {
   const out = new Set<string>();
   for (const s of wf.statements) {
     walkWorkflowStmtExprsDeep(s, (e) => {
@@ -2139,7 +2154,7 @@ function collectReadingServices(wf: WorkflowIR, ctx: EnrichedBoundedContextIR): 
  *  `<service>.<op>` call to its injected receiver (`_<service>`) + async method
  *  (`<Op>Async`).  Returns undefined for a PURE op, so the `domain-service`
  *  render arm keeps the static `Service.Op(...)` shape (byte-identical). */
-function workflowReadingServiceCallResolver(
+export function workflowReadingServiceCallResolver(
   ctx: EnrichedBoundedContextIR,
 ): NonNullable<CsRenderContext["domainServiceReadingCall"]> {
   return (service, op) => {

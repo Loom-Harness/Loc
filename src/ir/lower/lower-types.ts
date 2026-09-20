@@ -69,6 +69,18 @@ export interface Env {
   /** The enclosing bounded context.  Undefined for `test e2e` blocks
    * that live at the system level, outside any context. */
   ctx?: BoundedContext;
+  /** True while lowering a `ui` member's body (page / component / store /
+   *  layout / notification / ui function).
+   *
+   *  A page body is written in the WALKER STDLIB's vocabulary, and ~55 of those
+   *  primitive names are ordinary identifiers — `Money`, `Text`, `Badge`,
+   *  `Image`.  A domain `valueobject Money { … }` therefore COLLIDES with the
+   *  `Money` formatter primitive, and `lowerBuilderCall` resolving the name
+   *  against the value-object index first turned `Money { 10 }` in a page into
+   *  a value-object construction: the walker never saw the primitive, and every
+   *  page-primitive validator keyed on the CallIR (arity, children, slots)
+   *  silently stopped applying to it.  Inside a ui body the primitive wins. */
+  ui?: boolean;
   aggregate?: Aggregate;
   part?: EntityPart;
   valueObject?: ValueObject;
@@ -159,6 +171,17 @@ export interface Env {
    *  Proposal A Stage 1) so a bare handler-arg reference (`onSubmit: next`)
    *  resolves to a fully-typed `action-ref` ExprIR.  Undefined elsewhere. */
   actions?: Map<string, { paramType?: TypeIR }>;
+  /** The ROW element type bound by the enclosing row-shaped walker primitive
+   *  (`For { each: … }`, `Table { rows: … }`, `DataGrid { rows: … }`).  A
+   *  page-body lambda has no declared parameter type, so without this the
+   *  bare-lambda path types its parameter at the `string` placeholder and a
+   *  member read off it (`o.qty`) types as `string` too — which makes
+   *  `o.qty + 1` select implicit STRING CONCATENATION in `binaryResultType`
+   *  and emit `o.qty + String(1)` (`"51"` for qty=5).  Set on the child env of
+   *  those primitives so every lambda in the subtree — the item lambda, a
+   *  `Table { onRowClick: r => … }`, a nested `Column { field: r => … }` —
+   *  binds its parameter at the real element type.  Undefined outside one. */
+  rowElem?: TypeIR;
   /** Stores in scope while lowering any page/component/store body — keyed by
    *  store name to its field types + action param types (named-actions-and-
    *  stores.md §3, Stage 5).  Drives dotted-name resolution so `Cart.lines`
