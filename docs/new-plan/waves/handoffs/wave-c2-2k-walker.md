@@ -1,6 +1,6 @@
 # Wave C2 packet 2k — shared walker + JSX/Vue/Svelte/Angular frontends (batch 3) — `claude/c2-walker-3`
 
-*Base `f90e5d78f` (the batch-3 coordinator head). Commit range **`f90e5d78f..HEAD`** — 4 commits, one of them the merge of `origin/main` the coordinator asked for mid-packet, plus this note.*
+*Base `f90e5d78f` (the batch-3 coordinator head). Commit range **`f90e5d78f..HEAD`** — 5 commits, one of them the merge of `origin/main` the coordinator asked for mid-packet, plus this note.*
 
 Tree fence: `src/generator/_walker/**`, `src/generator/_frontend/**`,
 `src/generator/{react,vue,svelte,angular}/**`, `designs/**`, plus the gates,
@@ -16,6 +16,7 @@ why the change had nowhere else to live.
 | `98c2523bb` | merge `origin/main` (#2906, #2962, #2959, #2914) — the coordinator's mid-packet instruction |
 | `15cb772ae` | `money` / `File` / `valueobject` are component-prop types on all four TS-prop frontends; register row `gap` → `seam` |
 | `131e4ebe6` | `loom.component-shadows-stdlib` + **D-PAGE-PRIMITIVE-SHADOW** + **D-MODAL-CONTROLLED-OP-FORM** |
+| `d248376cd` | the seven suites the two behaviour changes moved (§10) |
 | *(this note)* | the hand-off |
 
 **`MAX_OPEN_GAPS` 20 → 19; `LATENT_SEAMS` 25 → 26.**
@@ -35,7 +36,7 @@ why the change had nowhere else to live.
 
 ---
 
-**Every file this packet's own commits touch** (27 — the three commits above,
+**Every file this packet's own commits touch** (35 — the four commits above,
 `--stat --name-only`), so the fold can see the surface at a glance:
 
 ```
@@ -54,6 +55,10 @@ test/generator/_walker/{component-prop-money-file-vo,modal-op-form-row-binding}.
 test/language/validation/component-shadows-primitive.test.ts                              (new)
 test/ir/{frontend-prop-type-support,sentinel-gates}.test.ts
 test/system/{diagnostic-firing-census,unsupported-register}.test.ts
+test/generator/_frontend/{component-prop-type,extern-functions}.test.ts        (the moved floor)
+test/generator/svelte/svelte-extern-functions.test.ts                          (fixture rename)
+test/generator/elixir/page-derived.test.ts                                     (fixture rename)
+test/language/{outline.test.ts,validation/extern-component.test.ts}            (fixture rename)
 ```
 
 **No `designs/` template and no `src/ir/validate/` check was touched**, so the pack
@@ -408,9 +413,80 @@ No row was skipped as already-covered by an open PR.
 | `node docs/build.mjs` (the `pages` gate) | exit 0 |
 | `npx vitest run test/generator/{_walker,react,vue,svelte,angular}` | 251 files / 2010 tests green (after §1) |
 | `npx vitest run test/generator/{_walker,react,vue,svelte,angular} test/ir test/system/diagnostic-firing-census` | 531 files / 5570 tests, **5 failed** on the first pass — all five the ratchets §2 describes (`sentinel-gates` ×4 + the firing-census fixture), each then updated to the new behaviour and re-run green individually. The whole-suite run below is what confirms it. |
-| `npm test` (full fast suite, redirected to a file with its exit code appended) | see the line below |
+| `npm test` (full fast suite, redirected to a file with its exit code appended) | **2198 files / 25 919 tests — 4 failed, all environmental**; see below |
 
-<!-- NPM-TEST-RESULT -->
+**On `npm test`.** The FIRST whole-suite run was **12 failed / 24 739 passed**
+in 8 files, and the split is worth reading rather than the count:
+
+* **4 environmental** — `test/platform/packaging-split-fs-discovery` ×3 +
+  `packaging-split-core-pkg` ×1, the worktree-only reds every batch of this wave
+  has recorded. A git worktree has no `node_modules/@loom` workspace symlinks, so
+  `discoverBackendsFs` finds nothing; neither file is in this packet's diff.
+* **3 assert the prop-layer FLOOR that §2 moved** —
+  `_frontend/component-prop-type.test.ts` ("THROWS on a value-object param",
+  "THROWS on a `money` / `File` primitive") and
+  `_frontend/extern-functions.test.ts` ("THROWS on a type with no wire
+  spelling"). Each is **re-pointed, not deleted**: what is still below the floor
+  is `duration` (expression-only, the one primitive with no wire form at all),
+  `slot` (a param marker in a data position), and an UNDECLARED value object —
+  the case where answering `unknown` rather than throwing would silently void
+  the contract. Each arm also gained the positive assertion that replaces it.
+  The stale `it.fails` placeholder proposing
+  `number | string | { toString(): string }` for the money arm became a real
+  assertion, with the reason that union is NOT what landed: it admits a bare
+  `string`, i.e. an unparsed wire value, which is the bug `moneySchema` exists
+  to prevent.
+* **5 declared a component named after a walker primitive** — `component Badge`
+  in `language/outline`, `generator/svelte/svelte-extern-functions`,
+  `generator/elixir/page-derived` and `ir/sentinel-gates`; `component Chart` in
+  `language/validation/extern-component`. Renamed (`TierBadge` / `SalesChart`)
+  rather than narrowing §3's gate: on each of them the dispatcher was resolving
+  the call to the PACK's primitive while the component was emitted and never
+  rendered, so the fixtures were expressing the defect incidentally. The rename
+  keeps every one testing what it means to test.
+
+**That five is the hole in §3's corpus scan, and it is worth naming.** The scan
+covered `.ddd` FILES under `examples/`, `web/src/examples/`, `journey/` and
+`test/`; these five fixtures are `.ddd` inlined in `.ts` template literals, which
+a filename-based scan cannot see. No shipped `.ddd` file collides — five test
+fixtures did. **Whoever adds a declaration-name gate next: scan the inline
+fixtures too.**
+
+All eight were fixed in `d248376cd` and re-run green individually
+(`vitest run test/generator/_frontend test/language/validation
+test/language/outline test/ir/sentinel-gates` — 105 files / 1215 tests). The
+whole-suite run below is what confirms the packet leaves the suite as it found
+it.
+
+**Final `npm test` — `d248376cd`, 2026-09-21.**
+
+```
+Test Files  2 failed | 2107 passed | 89 skipped (2198)
+     Tests  4 failed | 24750 passed | 6 expected fail | 1159 skipped (25919)
+EXIT=1
+```
+
+All four failures are `test/platform/packaging-split-fs-discovery` (×3) and
+`packaging-split-core-pkg` (×1) — the worktree-only reds batches 1 and 2 both
+recorded. Verified here rather than cited: `ls node_modules/@loom` in this
+worktree is **No such file or directory**, while the main checkout at
+`/home/user/Loc/node_modules/@loom` holds `backend-hono-v4`, `backend-hono-v5`,
+`core` and `ui-test-driver`. `discoverBackendsFs` walks those workspace symlinks,
+finds none, and every assertion in both files reads "expected undefined to be
+defined" / "expected false to be true". Neither file is in this packet's diff,
+and neither reads anything this packet touched.
+
+**So the failure count went 12 → 4, and the remaining 4 are the pre-existing
+worktree residue: this packet leaves the suite exactly as it found it.**
+
+*(Run-count note for the fold: the FIRST run was the 12 described above; the
+SECOND was killed mid-run by a rate limit and a container restart; this is the
+third, on the same `d248376cd` tree, after `npx tsc -b` was re-run clean in the
+restarted container. The box carried a load average of 15–25 throughout — three
+sibling packets plus the coordinator — so the wall clock is not a useful signal
+here.)*
+
+
 
 **Disk.** The box hit `/` 100 % (191 MB free) mid-packet and a suite died with
 `ENOSPC: no space left on device` reported as an *import* failure inside
