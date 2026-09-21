@@ -605,7 +605,13 @@ projection SalesByStatus {
 }
 ```
 
-The read happens **in SQL** and returns the list shape, **ordered by the grouping columns** so it is deterministic across backends:
+The read happens **in SQL** and returns the list shape, **ordered by the grouping
+columns, ascending, by their stored column value** — so it is deterministic across
+backends.  For an ENUM key that means the **lexicographic order of the member name**,
+not the order the members are declared in: an enum column is stored as `TEXT` on every
+backend, so `enum OrderStatus { Draft Confirmed Cancelled }` grouped on comes back
+`Cancelled`, `Confirmed`, `Draft`.  (A projection has no `order by` clause yet; a read
+that wants declaration order selects an explicit rank column.)
 
 ::: tabs backend
 == node

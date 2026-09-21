@@ -1575,8 +1575,11 @@ export interface ProjectionQueryIR {
    *  `select` (so `o.status` arrives as a `this`-rooted member access), and
    *  validation pins it COLUMNAR — a single-hop member on the source row
    *  (`loom.projection-groupby-key-not-columnar`) — so every backend can render
-   *  it as a bare SQL column.  Emitters ORDER BY these columns too, so the
-   *  grouped read is deterministic across backends.  Absent ⇒ not grouped. */
+   *  it as a bare SQL column.  Emitters ORDER BY these columns too, ASCENDING
+   *  and by the STORED COLUMN VALUE, so the grouped read is deterministic
+   *  across backends — an enum key therefore orders by the lexicographic order
+   *  of its member NAME (the column is TEXT everywhere, per `mapTypeToColumn`),
+   *  not by declaration position.  Absent ⇒ not grouped. */
   groupBy?: ExprIR[];
   /** Bulk-load plan derived from the `join` clauses — the `auxiliaries` shape
    *  built for by-id follows, populated by reading the
