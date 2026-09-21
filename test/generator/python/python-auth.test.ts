@@ -38,8 +38,13 @@ describe("python auth gate", () => {
     expect(verifier).toContain("async def verify_user_or_throw(request: Request) -> User:");
     expect(verifier).toContain("def assert_user_verifier_registered() -> None:");
     const mw = files.get("api/app/auth/middleware.py")!;
-    // Bypass list matches Hono/.NET exactly.
-    expect(mw).toContain('BYPASS_PREFIXES = ("/health", "/ready", "/openapi.json", "/swagger")');
+    // Bypass list matches Hono/.NET exactly — the infra endpoints, plus the
+    // dev-only state reset (`src/util/test-reset.ts`), which is the same class
+    // of surface and must be reachable without a principal so an auth-bearing
+    // system's e2e suite need not mint one just to empty a table.
+    expect(mw).toContain(
+      'BYPASS_PREFIXES = ("/health", "/ready", "/openapi.json", "/swagger", "/__loom/test-reset")',
+    );
     expect(mw).toContain("request.state.current_user = user");
     // The 401 is RFC 7807 like every other error on this API, and carries the
     // `WWW-Authenticate` challenge RFC 9110 §15.5.2 makes a MUST — this used to

@@ -270,7 +270,7 @@ A bare `expect <bool>` is rejected: every `expect` **must** end in an intrinsic 
 | `toHaveCount(n)` | 1 | locator | auto-retrying row/element count (ui) |
 | `toBeVisible()` | 0 | locator | element is visible (ui) |
 | `toBeSameInstant(iso)` | 1 | value | two ISO-8601 timestamps compared as instants (forgives `…00.0000000Z` vs `…00Z`); **`test e2e` only** — in a unit test it is rejected (*"'toBeSameInstant' compares wire timestamps and is only valid in a 'test e2e' block"*) |
-| `toThrow()` / `toThrow(<status>)` | 0–1 | value | the throw assertion (below) |
+| `toThrow()` / `toThrow(<status>)` / `toThrow(<kind>)` | 0–1 | value | the throw assertion (below) |
 
 Each `on: "locator"` matcher is **web-first**: against a UI it asserts on the live, auto-retrying Playwright locator rather than a snapshotted value — `expect(read.status).toHaveText("Confirmed")` lowers to `await expect(read.field("status")).toHaveText("Confirmed")`, and `expect(read.lines).toHaveCount(1)` to `await expect(read.linesRows()).toHaveCount(1)`. A `not.` prefix negates any `negatable` matcher (every matcher except `toThrow`). Arity is enforced by `checkMatcherArity`; `toThrow` is exempt (variable arity) and validated separately.
 
@@ -296,6 +296,60 @@ expect(read.status).toHaveText("Draft")
 ```
 
 — or move the status assertion to a block written `against <backend-deployable>`, where a real response carries one.
+
+#### `toThrow(precondition)` / `toThrow(invariant)` — which rule rejected
+
+A bare `toThrow()` asserts only that *something* threw, and the domain floor has more than one rung. The 2026-09-13 testability audit found out the hard way: it deleted a `precondition` from a generated aggregate as a mutation probe and **the test stayed green**, because a guarded collection `invariant` threw in its place. A test named *"a fresh work order cannot be completed"* went on claiming something it no longer proved (F11).
+
+The single-argument **kind** form pins the rung. It is legal only in a unit `test`.
+
+```ddd
+test "a fresh work order cannot be completed" {
+  let wo = WorkOrder.create({ reference: "WO-1", customerName: "Ada", status: Draft })
+  expect(wo.complete()).toThrow(precondition)
+}
+```
+
+`precondition` and `invariant` are **keywords, not values** — they parse through a dedicated grammar slot and are legal only in this one argument position. Anywhere else (`expect(x).toBe(invariant)`, `wo.complete(precondition)`) the word would be silently dropped in lowering, so `loom.throw-kind-outside-tothrow` rejects it at the source span. `requires` is deliberately **not** a rung here: it is an authorization gate (403) needing a principal the unit tier has no vocabulary for.
+
+**Three refusals bound the form**, each for a different reason:
+
+| Code | When | Why |
+|---|---|---|
+| `loom.e2e-throw-kind-invalid` | in a `test e2e` body | Over HTTP both rungs answer **422**, and their only discriminator is the RFC 7807 `detail` sentence — which an authored `message "…"` on the rule overwrites. One matcher meaning two strengths of claim is the defect [#2959](https://github.com/Loom-Harness/Loc/pull/2959) fixed on the ui side. The e2e body keeps `toThrow(<status>)`. |
+| `loom.throw-kind-integration-unsupported` | in a context-integration `test` | That rung renders through each backend's separate `integration-tests.ts`, which carries no rung — the argument would be dropped and the test would quietly assert only that something threw. |
+| `loom.throw-kind-custom-message` | the rule under test carries `message "…"` | The node / python / java / .NET domain layers discriminate on the derived `"Precondition failed: "` / `"Invariant violated: "` prefix, and an authored message **replaces** that string. Elixir alone is structural — but one unit `test` is emitted for all five backends. Drop the `message`, or assert the bare `toThrow()` and pin the wording in a `test e2e` block, where the message is the RFC 7807 `detail`. |
+
+::: tabs backend
+== node
+```ts
+expect(() => { wo.complete(); }).toThrow(/^Precondition failed: /);
+```
+== python
+```python
+with pytest.raises(Exception, match=r"^Precondition failed: "):
+    wo.complete()
+```
+== java
+```java
+DomainException __thrown1 = assertThrows(DomainException.class, () -> wo.complete());
+assertTrue(__thrown1.getMessage().startsWith("Precondition failed: "),
+    "expected a precondition to reject this call, but it threw: " + __thrown1.getMessage());
+```
+== dotnet
+```csharp
+var __thrown1 = Assert.Throws<DomainException>(() => { wo.Complete(); });
+Assert.StartsWith("Precondition failed: ", __thrown1.Message);
+```
+== elixir
+```elixir
+# structural, not textual: GuardError is `defexception [:message, :kind]`
+__thrown1 = assert_raise D.GuardError, fn -> D.Work.WorkOrder.complete(wo, %{}) end
+assert __thrown1.kind == :precondition
+```
+::: end
+
+**One backend asymmetry**, worth knowing before you reach for it. On **elixir**, `toThrow(invariant)` over an *aggregate operation* emits a `@tag :skip` carrying its reason. The vanilla pure op core runs preconditions and an in-memory struct update; aggregate invariants live in the Ecto changeset (`validate_invariants/1`), which no in-memory op call reaches. `toThrow(invariant)` over a `create` or a value-object construction runs normally there — both go through the changeset.
 
 ::: tabs backend
 == node

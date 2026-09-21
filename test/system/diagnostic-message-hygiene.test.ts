@@ -179,6 +179,12 @@ const PROSE_SAYS_UNDEFINED = [
   "loom.current-user-needs-auth-ui",
   "loom.e2e-unresolved-call",
   "loom.e2e-unresolved-ref",
+  // Same reason as its two siblings above: an e2e body is emitted as
+  // JavaScript, and a read of a field the JSON response does not carry
+  // evaluates to `undefined` there.  That IS the defect being described — an
+  // assertion over it passes or fails for the wrong reason — so the word is
+  // the message's content, not an interpolation reaching one hop too far.
+  "loom.e2e-unknown-response-field",
   // Explains why `first`/`firstOrNull` are refused across the frontends: the
   // JS four answer `undefined` on an empty collection where F#/Dart raise.
   // That divergence IS the refusal's reason, so the word is the message's

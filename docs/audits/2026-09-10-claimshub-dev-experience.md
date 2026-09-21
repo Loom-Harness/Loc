@@ -12,9 +12,11 @@ had its emitted **backend and frontend actually `npm install` + `tsc
 
 Re-verified on fresh `main` @ `93bc82d` (2026-09-10) right before filing this.
 
-**Status re-check 2026-09-13.** Three of the four defects now have a fix in
-flight; **all three PRs are still open, so every claim below is still true of
-`main`.** Each defect carries its own status line. Per-defect status lives
+**Status re-check 2026-09-13**, amended **2026-09-20**. Three of the four
+defects had a fix in flight on 2026-09-13; **those PRs were still open, so every
+claim below was still true of `main`.** D3 now has one too (#2965), which also
+**corrects D3's own framing** — the defect is real, the remedy the section
+proposed was not. Each defect carries its own status line. Per-defect status lives
 here; the disposition row is
 [`docs/new-plan/coverage.md`](../new-plan/coverage.md) § Audits.
 
@@ -31,8 +33,10 @@ their claimed slices.
 `denyByDefault`"). D3 here is a narrower, `denyByDefault`-independent
 angle: crudish's generic `update` mass-assigns fields that a **hand-written,
 already-gated** operation on the *same aggregate* also writes, so the guard
-is bypassable today even without `denyByDefault` turned on. Whoever picks up
-#2862 slice 1 should look at both angles together — commented there.
+is bypassable today even without `denyByDefault` turned on. *(Update
+2026-09-20: D3 turned out NOT to need #2862 slice 1 — it is a discoverability
+gap closed on its own in #2965, and the section's proposed remedy was wrong.
+See the correction inside D3.)*
 
 ## Defects
 
@@ -137,9 +141,9 @@ type-check as `bool` at all; that fix made *valid* member access type
 correctly, it never added a check that the member exists. This is a live gap
 next to, not covered by, that work.
 
-### D3 (design gap, no diagnostic — adjacent to #2862 slice 1) — `crudish`'s generic `update` bypasses hand-written `requires` gates on the same aggregate
+### D3 (discoverability gap — **this section's original framing was wrong; corrected 2026-09-20**) — `crudish`'s generic `update` bypasses hand-written `requires` gates on the same aggregate
 
-**Status 2026-09-13:** **no fix in flight, no mission** — the one row here still unowned. It stays folded onto #2862 slice 1's crudish-gate axis (commented there) rather than forked into a mission of its own; whoever takes that slice should take both angles together.
+**Status 2026-09-20:** fix in flight — **[#2965](https://github.com/Loom-Harness/Loc/pull/2965)**, which both closes the gap and rewrites this section. The **bypass below is real and still reproduces on `main`**; what was wrong was the *diagnosis and the proposed remedy* in the last paragraph, which is corrected in place below.
 
 ```ddd
 aggregate Claim with crudish, auditable {
@@ -161,14 +165,77 @@ whether `denyByDefault` is on. This is the first thing you'd hit once a
 scaffolded aggregate grows a guarded state-machine operation on top of
 `crudish`, which is a very common progression.
 
-Loom already solved the adjacent problem: `docs/capabilities.md` documents
-that `crudish`'s `update` deliberately excludes *stamp* targets
-(`createdBy`, etc.) from its writable fields so a row-security stamp can't
-be mass-assigned around (`writableUpdateFields` /
-`stamp-request-no-leak-parity.test.ts`). The same mechanism was never
-generalized to "a field also mutated by a `requires`-gated operation
-shouldn't be blanket-writable via the generic update" — this would be the
-natural sequel to that existing, working test.
+**Note (2026-09-13 addendum, still true):** #2877 landed
+`with crudish(requires: <Policy>)`, which gives every crudish-emitted member a
+member-level gate. It does **not** close this: the gate is per-member and
+identical across create/update/destroy, and the update still writes every
+field.
+
+#### Correction (2026-09-20) — the mechanism exists; nothing pointed at it
+
+This section originally proposed generalizing `writableUpdateFields`'s
+*stamp-target* exclusion (`docs/capabilities.md`;
+`stamp-request-no-leak-parity.test.ts`) to auto-exclude "any field also mutated
+by a `requires`-gated operation", calling it the natural sequel to that working
+test. **That was reviewed and rejected, and the premise behind it was false.**
+
+Two things were wrong:
+
+1. **Auto-exclusion would break the access matrix.**
+   `docs/language.md` § "Field access modifiers" defines a *complete,
+   authoritative* six-state matrix (`editable` default, `immutable`, `managed`,
+   `token`, `internal`, `secret`) and says outright that it "is not prose that
+   can drift from behaviour" — each column is a real projection function in
+   `src/ir/enrich/wire-projection.ts`. A field with no modifier is **declared**
+   `editable`: the author has said it participates in the update input.
+   Silently overriding that adds an invisible seventh state — a field's wire
+   participation would no longer be readable off the field; you would have to
+   scan every operation body in the aggregate. The stamp exclusion is not a
+   precedent for it: a stamp target is server-owned *by declaration*, which is
+   why enrichment promotes it to `managed` outright.
+
+2. **The state this section thought was missing already exists.** `immutable`
+   is read ✓ / create ✓ / update ✗, and its enforcement is **purely wire-side**
+   — no validator forbids `status := Approved` inside an operation body on an
+   `immutable` field. Verified empirically rather than by grep: a `.ddd` with an
+   `immutable` field assigned inside a `requires`-gated operation was generated
+   and compiled on **all five backends**, each of which emits code that writes
+   the field and compiles clean (node `tsc --noEmit`; .NET `dotnet build
+   /warnaserror`; Java `gradle testClasses bootJar`; Python `mypy --strict`;
+   Elixir `mix compile --warnings-as-errors`). Elixir was the one to check
+   twice — `changeset-emit.ts` has `UPDATE_EXCLUDED_ACCESS = {token, internal,
+   immutable}` — and its domain-operation path does **not** route through that
+   update changeset: `approve_claim/3` does `Ecto.Changeset.change(%{}) |>
+   force_change(:status, …)`, while `@update_fields` legitimately loses the
+   column.
+
+So `status: ClaimStatus immutable` is the whole fix: the client still reads the
+field, `create` still seeds it, the generic `update` can no longer touch it,
+and `approve()` still assigns it server-side. Both holes — the `requires` gate
+and the `precondition` — close at once.
+
+**D3 is therefore a diagnostics and discoverability gap, not a codegen bug.**
+`immutable` is a discoverability trap here: an author who wants "only
+`approve()` can change this" will never reach for a word that says the field
+never changes, because it demonstrably *does* change. #2965 closes it with
+
+- an **advisory** `loom.update-gate-suggestion` — a `ddd parse` `Suggestions:`
+  hint (the `loom.index-suggestion` channel), naming the field, the guarded
+  operation, and `immutable` as the remedy. Advisory, not an error: there are
+  legitimate models where the author really does want the field editable.
+  It fires twice on `docs/audits/models/claimshub-v3.ddd` (`Claim.status`,
+  `Claim.assignedAdjuster`) and falls silent once those fields are marked.
+- **docs** — `language.md`, `language-reference/03-domain-modeling.md`,
+  `auth.md` and `scaffold-macros.md` now say plainly that `immutable`
+  constrains the *client update input*, not domain assignment, and is the right
+  modifier for a field owned by a guarded operation.
+
+**Deliberately deferred second axis.** The advisory fires only on operations
+carrying a `requires` gate. A field assigned by an operation carrying only a
+`precondition` has the same state-machine bypass, but triggering on that would
+fire on a large fraction of real models — every scaffolded aggregate that grows
+any state transition. Recorded here as a deferred decision rather than silently
+included or silently dropped.
 
 ### D4 (papercut — `policy` intentional-but-undiagnosed, `deny` likely an oversight)
 
