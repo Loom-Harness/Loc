@@ -99,7 +99,9 @@ describe("tenancy by — AST validation", () => {
         }
       }
     `);
-    expect(errors.some((e) => /Could not resolve reference/.test(e))).toBe(true);
+    // A type position that does not resolve — `tenantId` is a user CLAIM, not
+    // a field type — reports as "Unknown type" (`ddd-linker.ts`).
+    expect(errors.some((e) => /Unknown type 'tenantId'/.test(e))).toBe(true);
   });
 
   it("accepts a single tenancy declaration whose claim is a declared user field", async () => {
