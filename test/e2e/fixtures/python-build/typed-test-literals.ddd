@@ -1,0 +1,73 @@
+// Compile-gate fixture for F2 — an id / datetime LITERAL passed to an
+// operation parameter from inside a `test` block.  Python half; the TS twin is
+// `test/e2e/fixtures/ts-build/typed-test-literals.ddd`.
+//
+// The DSL lets an author write a bare string wherever the model declares
+// `<Agg> id` or `datetime`, but the generated domain method takes the STRONG
+// type there (`OwnerId` NewType / `datetime`).  pytest does not typecheck, so
+// emitting the literal raw ran green in every behavioral tier and failed only
+// under the project's own `mypy --strict`.
+//
+// For `datetime` it is worse than cosmetic: the value STORED on the aggregate
+// is a `str` where the field is a `datetime`, so `pytest` is green while
+// `w.scheduled_at.year` raises `AttributeError`.  This gate's
+// `uv run mypy --strict app tests` covers the emitted `tests/` dir, and
+// `uv run pytest -q` runs the emitted module.
+system TypedLiterals {
+  subdomain D {
+    context Fulfilment {
+      aggregate Owner {
+        name: string
+      }
+      repository Owners for Owner { }
+
+      aggregate Widget {
+        code: string
+        ownerId: Owner id?
+        scheduledAt: datetime?
+
+        operation assign(owner: Owner id) { ownerId := owner }
+        operation schedule(at: datetime) { scheduledAt := at }
+        operation reassign(owner: Owner id, at: datetime) {
+          ownerId := owner
+          scheduledAt := at
+        }
+
+        test "an id literal reaches an operation parameter" {
+          let w = Widget.create({ code: "W1" })
+          w.assign("00000000-0000-0000-0000-000000000001")
+          expect(w.code).toBe("W1")
+        }
+
+        test "a datetime literal reaches an operation parameter" {
+          let w = Widget.create({ code: "W2" })
+          w.schedule("2026-01-01T00:00:00Z")
+          expect(w.code).toBe("W2")
+        }
+
+        test "both literal kinds reach one operation" {
+          let w = Widget.create({ code: "W3" })
+          w.reassign("00000000-0000-0000-0000-000000000002", "2026-02-02T12:30:00Z")
+          expect(w.code).toBe("W3")
+        }
+
+        // The create-input half of the same rule — an OPTIONAL `X id` /
+        // `datetime` create-input field, the variant the rule missed before it
+        // unwrapped `optional`.
+        test "both literal kinds reach a create input" {
+          let w = Widget.create({
+            code: "W4",
+            ownerId: "00000000-0000-0000-0000-000000000003",
+            scheduledAt: "2026-03-03T08:00:00Z"
+          })
+          expect(w.code).toBe("W4")
+        }
+      }
+      repository Widgets for Widget { }
+    }
+  }
+  api A from D
+  storage primary { type: postgres }
+  resource st { for: Fulfilment, kind: state, use: primary }
+  deployable api { platform: python, contexts: [Fulfilment], dataSources: [st], serves: A, port: 8081 }
+}

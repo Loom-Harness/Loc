@@ -518,13 +518,51 @@ Every field carries an access modifier governing its role across three shapes: t
 | Modifier | Read (response) | Create input | Update wire | Stored |
 |---|---|---|---|---|
 | `editable` *(default)* | ✓ | ✓ | ✓ | ✓ |
-| `immutable` | ✓ | ✓ | ✗ (set once) | ✓ |
+| `immutable` | ✓ | ✓ | ✗ (off the update input) | ✓ |
 | `managed` | ✓ | ✗ (server seeds) | ✗ | ✓ |
 | `token` | ✓ | ✗ | ✓ (echoed, like `id`) | ✓ |
 | `internal` | ✗ (never via API) | ✗ | ✗ | ✓ (projections may read) |
 | `secret` | ✗ (never disclosed) | ✓ | ✓ (write-only) | ✓ |
 
 The synthetic `id` and the implicit `version` are `token`; a `token` field must be non-nullable (`loom.token-nullable`). `managed` fields are server-seeded in the `create` factory (`datetime` → now, `int` → `0`); `secret` and `internal` are dropped from the read projection.
+
+**Every ✗ above is a WIRE fact.** `immutable` reads "absent from the update
+input", *not* "never changes" — nothing stops a domain operation from assigning
+an `immutable` field, on any backend. That makes it the modifier for a field
+whose only legitimate writer is a guarded operation, which is otherwise easy to
+miss: an author who wants "only `approve()` may move this" will not reach for a
+word that says the field never changes.
+
+```ddd
+aggregate Claim with crudish {
+  status: ClaimStatus immutable          // off the generic update's input …
+  description: string
+  operation approve() {
+    requires currentUser.permissions.contains(permissions.claimsApprove)
+    precondition status == UnderReview
+    status := Approved                   // … but this still assigns it
+  }
+}
+```
+
+```ts
+// generated: api/domain/claim.ts (node; the other four backends are the same shape)
+public approve(): void {
+  if (!(this._status === ClaimStatus.UnderReview)) throw new DomainError("Precondition failed: status == UnderReview");
+  this._status = ClaimStatus.Approved;       // immutable ≠ unassignable
+}
+public update(description: string): void {   // `status` is GONE from the update surface
+  this._description = description;
+}
+```
+
+Drop the modifier and `status` is a writable update field like any other, so
+`POST /claims/{id}/update {"status":"Approved"}` sets it at whatever gate the
+*update* carries — skipping both the `requires` on `approve()` and its
+`precondition`. The compiler does not decide this for you (a field with no
+modifier is *declared* `editable`), but it points the case out: the advisory
+`loom.update-gate-suggestion` names the field, the guarded operation, and this
+remedy.
 
 ```ddd
 context Orders {

@@ -28,6 +28,7 @@
 // exhaustive child-walker (`src/ir/util/walk.ts`).  This is a value import from
 // `ir/types` → `ir/util`; the reverse edge (walk.ts → loom-ir.ts) is `import
 // type` only (erased at emit), so no runtime cycle forms.
+import type { ThrowKindName } from "../../util/intrinsic-matchers.js";
 import type { DurationUnit } from "../../util/temporal.js";
 import {
   walkExprDeep,
@@ -785,7 +786,21 @@ export interface TestIR {
 export type TestStmtIR =
   | StmtIR
   | { kind: "expect"; expr: ExprIR; source: string }
-  | { kind: "expect-throws"; expr: ExprIR; source: string; status?: number };
+  | {
+      kind: "expect-throws";
+      expr: ExprIR;
+      source: string;
+      /** `toThrow(<status>)` — the HTTP status of a live rejection, e2e only. */
+      status?: number;
+      /** `toThrow(<kind>)` — WHICH rung of the domain floor rejected the call,
+       *  unit tier only (`loom.e2e-throw-kind-invalid` refuses it in an
+       *  e2e body).  Absent for the bare form, which asserts only "it threw"
+       *  and therefore cannot tell a deleted `precondition` from the
+       *  `invariant` that threw in its place (audit 2026-09-13 F11).
+       *  Mutually exclusive with `status` by grammar: the `ThrowKind` slot and
+       *  the `CallArg` list are alternatives on the same suffix. */
+      throwKind?: ThrowKindName;
+    };
 
 export interface EnumIR {
   name: string;
@@ -3598,6 +3613,12 @@ export type ExprIR =
        *  library (Playwright/vitest/xUnit/ExUnit).  Resolved here so
        *  backends switch on the flag rather than re-recognising names. */
       isIntrinsicMatcher?: boolean;
+      /** `toThrow(precondition)` / `toThrow(invariant)` — the failure RUNG the
+       *  matcher pins, carried from the grammar's `ThrowKind` slot.  It is not
+       *  an `args[0]`: both words are hard keywords and never lower to an
+       *  expression.  `expectStmtIR` reads it off here and moves it onto the
+       *  `expect-throws` node, so no other consumer sees it on a method-call. */
+      throwKind?: ThrowKindName;
       /** Optional parallel array: `argNames[i]` is the
        *  source-side `name:` prefix for `args[i]`, or `undefined` for
        *  positional arguments.  Present iff at least one arg was

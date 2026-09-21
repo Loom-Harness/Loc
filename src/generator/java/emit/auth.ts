@@ -12,6 +12,7 @@ import {
 } from "../../../ir/util/tenant-stance.js";
 import { AUTH_BASE_PATH } from "../../../util/api-base.js";
 import { lines } from "../../../util/code-builder.js";
+import { TEST_RESET_PATH } from "../../../util/test-reset.js";
 import { claimsReferenceIds } from "../../_auth/claim-types.js";
 import { devClaimFields } from "../../_auth/dev-claims.js";
 import { devStubIdExpr } from "../../_auth/dev-stub-id.js";
@@ -357,6 +358,11 @@ export function renderAuthFiles(
       `        "/ready",`,
       `        "/openapi.json",`,
       `        "/swagger",`,
+      // The dev-only state reset (`src/util/test-reset.ts`) — infra, not domain
+      // surface, so an auth-bearing system's e2e suite need not mint a
+      // principal just to empty a table.  The handler itself answers 404
+      // unless the switch is on, so bypassing the filter exposes nothing.
+      `        "${TEST_RESET_PATH}",`,
       // OIDC redirect handshake — login/callback/logout must be reachable
       // without a verified principal; /auth/me stays protected (it is the
       // session probe the frontend guard reads).

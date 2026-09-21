@@ -20,15 +20,24 @@ system Shop {
         currency: string
         invariant amount >= 0.0
       }
+      aggregate Clerk {
+        name: string
+      }
       aggregate Order {
         customer: string
         status: string = "open"
         total: int = 0
         price: Money?
+        clerkId: Clerk id?
+        dispatchedAt: datetime?
         invariant customer.length > 0
         operation confirm() {
           precondition status == "open"
           status := "confirmed"
+        }
+        operation dispatch(clerk: Clerk id, at: datetime) {
+          clerkId := clerk
+          dispatchedAt := at
         }
 
         // Create relying on the field default (F6) + an invariant rejection.
@@ -62,12 +71,27 @@ system Shop {
         test "an order with a negative price is rejected" {
           expect(Order.create({ customer: "acme", price: Money { amount: -5.0, currency: "USD" } })).toThrow()
         }
+        // F2 — an `<Agg> id` / `datetime` LITERAL passed to an operation
+        // parameter.  The op's PURE CORE (the Repo-free entry point this suite
+        // calls) reads the attrs map and assigns the value STRAIGHT onto the
+        // struct, unlike its context-wrapper sibling `Core.dispatch_order/2`,
+        // which coerces the same wire text first — so a bare ISO-8601 string
+        // landed a BINARY in a `:utc_datetime` field.  An id stays raw: an
+        // Ecto `:binary_id` IS the uuid string at runtime.  `mix test` here
+        // asserts on the STORED value, so a binary fails the DateTime compare.
+        test "an id and a datetime literal reach an operation parameter" {
+          let o = Order.create({ customer: "acme" })
+          o.dispatch("00000000-0000-0000-0000-000000000002", "2026-02-02T12:30:00Z")
+          expect(o.clerkId).toBe("00000000-0000-0000-0000-000000000002")
+          expect(o.dispatchedAt.year).toBe(2026)
+        }
         test "an order with a valid price is created" {
           let o = Order.create({ customer: "acme", price: Money { amount: 5.0, currency: "USD" } })
           expect(o.customer).toBe("acme")
         }
       }
       repository Orders for Order { }
+      repository Clerks for Clerk { }
     }
   }
   api SalesApi from Sales
