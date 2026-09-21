@@ -185,6 +185,11 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
     "16-ui-walker-primitives.md#arity-argument-and-placement-gates",
   "loom.page-ref-unreachable": "16-ui-walker-primitives.md#arity-argument-and-placement-gates",
   "loom.page-expr-unrenderable": "16-ui-walker-primitives.md#the-dispatch-model",
+  // The VALUE twin of `loom.page-primitive-unknown-arg`, which anchors on the
+  // gate section above.  This one gets its own subsection, because the
+  // vocabulary it enforces is the part a reader needs.
+  "loom.page-primitive-unknown-arg-value":
+    "16-ui-walker-primitives.md#closed-vocabulary-argument-values",
   "loom.page-primitive-target-gap": "16-ui-walker-primitives.md#per-target-honest-gates",
   "loom.auth-missing-issuer": "17-auth.md#auth-----oidc-config",
   "loom.auth-unknown-claim-field": "17-auth.md#auth-----oidc-config",

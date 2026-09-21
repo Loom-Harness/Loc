@@ -39,6 +39,7 @@ import { angularChromeAttr, angularChromeText } from "../_frontend/shell-chrome.
 import { smokeSpec } from "../_frontend/smoke-spec.js";
 import { buildTableSortHelper } from "../_frontend/table-sort-helper.js";
 import { prepareThemeVM } from "../_frontend/theme-preparer.js";
+import { DOM_TOAST_SOURCE, uiUsesToastEffect } from "../_frontend/toast-effect.js";
 import { hasAnyWorkflow } from "../_frontend/workflows-module.js";
 import { loadPack, resolvePackDir } from "../_packs/loader-fs.js";
 import { packChromeCatalog } from "../_packs/pack-chrome.js";
@@ -161,6 +162,17 @@ export function generateAngularForContexts(
   // Interactive-table sort helper (M-T1.1) — re-exposed as a component member
   // by any page rendering a sortable Table; emitted unconditionally.
   out.set("src/lib/table-sort.ts", buildTableSortHelper());
+  // The `toast(<msg>)` PAGE EFFECT (docs/page-metamodel.md §15).  The walker
+  // renders the call verbatim, exactly like `navigate(…)`, so without an
+  // emitted module and a matching import the component references a symbol the
+  // project never declares (TS2304).  This is the same framework-neutral,
+  // DI-free module React and Svelte emit; Angular's `LoomToastService` is NOT
+  // it — that one is injectable, so a bare call in a method body cannot reach
+  // it, and it serves only the realtime `on <chan>.<Event>` path.  Two
+  // self-mounting implementations is one more than wanted; folding the service
+  // onto this module would change the realtime path's emitted testid, so it is
+  // left for its own change.
+
   // Code-point length validators (F2-XB-2) — Angular is the only frontend
   // deriving NATIVE validators from a `SingleFieldPattern`, and its built-in
   // `Validators.minLength`/`maxLength` count UTF-16 code units where Loom (and
@@ -175,6 +187,17 @@ export function generateAngularForContexts(
   // Angular Reactive-Form + signal walker seams; only a route/title-only
   // page (no body) renders a title stub.
   const ui = deployable.uiName ? sys.uis.find((u) => u.name === deployable.uiName) : undefined;
+  // The `toast(<msg>)` PAGE EFFECT (docs/page-metamodel.md §15).  The walker
+  // renders the call verbatim, exactly like `navigate(…)`, so without an
+  // emitted module and a matching import the component references a symbol the
+  // project never declares (TS2304).  This is the same framework-neutral,
+  // DI-free module React and Svelte emit; Angular's `LoomToastService` is NOT
+  // it — that one is injectable, so a bare call in a method body cannot reach
+  // it, and it serves only the realtime `on <chan>.<Event>` path.  Two
+  // self-mounting implementations is one more than wanted, but folding the
+  // service onto this module would change the realtime path's emitted testid,
+  // so that is left for its own change.
+  if (ui && uiUsesToastEffect(ui)) out.set("src/lib/toast.ts", DOM_TOAST_SOURCE);
   const pages = (ui?.pages ?? []).filter((p) => p.route);
 
   // i18n translation runtime (M-T1.11 — the React runtime ported to Angular).
@@ -745,7 +768,9 @@ export class NotFoundComponent {}
 function renderAngularErrorBanner(errorTitleText: string): string {
   return [
     "    @if (errors.lastError(); as err) {",
-    '      <div role="alert" data-testid="root-error" style="padding:16px;font-family:system-ui,sans-serif">',
+    // `app-error`, not `root-error`: the same concept had two names, so any
+    // gate keyed on the React/Vue spelling passed Angular by default.
+    '      <div role="alert" data-testid="app-error" style="padding:16px;font-family:system-ui,sans-serif">',
     `        <h2 style="white-space:pre-wrap;color:#b91c1c">${errorTitleText}</h2>`,
     '        <pre style="white-space:pre-wrap;color:#b91c1c">{{ err.message }}</pre>',
     '        <button type="button" (click)="errors.reset()">Dismiss</button>',

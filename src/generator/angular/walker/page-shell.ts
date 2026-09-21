@@ -18,6 +18,7 @@ import { takeMoneyPropImport, valueObjectIndex } from "../../_frontend/component
 import { unwrapOpt } from "../../_frontend/form-helpers.js";
 import { FORMAT_CALL_HELPERS } from "../../_frontend/format-helpers.js";
 import { renderGateExpr } from "../../_frontend/gate-expr.js";
+import { usesToastEffect } from "../../_frontend/toast-effect.js";
 import type { LoadedPack } from "../../_packs/loader.js";
 import {
   closeUsedActions,
@@ -697,6 +698,12 @@ export function renderAngularPage(input: AngularPageShellInput): string {
   // from `src/app/pages/`) and re-expose it as a component member so the
   // template interpolation (`{{ initials(name()) }}`) resolves it against the
   // instance.  Same lift as `FORMAT_HELPERS`; sorted for stable output.
+  // `toast(<msg>)` — a BARE call in a method body, so a module-scope import is
+  // exactly what resolves it; unlike the format helpers above it needs no
+  // `protected readonly` lift, which is only for template interpolation.
+  if (usesToastEffect(page.body, actions, input.externFunctions)) {
+    imports.push('import { toast } from "../../lib/toast";');
+  }
   const usedExternFns = [...(result.usedExternFunctions ?? new Set<string>())].sort();
   for (const fn of usedExternFns) {
     imports.push(`import { ${fn} } from "../../lib/${fn}";`);

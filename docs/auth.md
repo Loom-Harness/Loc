@@ -1088,7 +1088,12 @@ Every backend mounts its auth routes under the shared API base, i.e.
   behavioural wire goldens).
 - `/api/auth/login`, `/api/auth/callback`, `/api/auth/logout` — the OIDC
   authorization-code redirect handshake, emitted only under an
-  `auth { oidc { … } }` block.
+  `auth { oidc { … } }` block.  The block's fields are documented in
+  [`language-reference/17-auth.md`](language-reference/17-auth.md#auth-----oidc-config);
+  the one worth reading before you ship is **`audience:`, which is optional and
+  whose absence turns the `aud` check off** — the verifier then accepts any
+  token from the configured issuer, including one minted for a different client
+  in the same realm.
 - `POST /api/auth/refresh` — silent renewal: exchanges the stored refresh
   token for a fresh access token (no IdP round-trip) and **rotates** it, so a
   SPA can extend a session on a 401 without bouncing the user back to login.

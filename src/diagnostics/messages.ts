@@ -2221,8 +2221,8 @@ export const DIAGNOSTIC_MESSAGES = {
     `so ${p.missing} is REQUIRED on the wire even though the declared \`create\` ` +
     `does not accept it — a client (or a \`test\` block) written from the ` +
     `declaration gets a 422 naming a field the create never mentions.${p.also}  ` +
-    `List every create-input field, or drop the parameter list: a narrowed one ` +
-    `shapes nothing.`,
+    `List every create-input field, or empty the parameter list (\`create() { … }\` ` +
+    `— the parens stay, unlike \`destroy\`): a narrowed one shapes nothing.`,
   "loom.datasource-binding-missing": (p: {
     name: unknown;
     ctxName: unknown;
@@ -2847,6 +2847,20 @@ export const DIAGNOSTIC_MESSAGES = {
     `catalog either, so translators cannot even see it went missing).  On a fixed-slot ` +
     `primitive it also DISPLACES the positional the content was meant to fill ` +
     `(\`Tab { title: "One", … }\` renders as "Tab 1").  ${p.known}`,
+  "loom.page-primitive-unknown-arg-value": (p: {
+    name: unknown;
+    arg: unknown;
+    value: unknown;
+    known: unknown;
+    fallback: unknown;
+  }) =>
+    `\`${p.name}\`'s \`${p.arg}: ${JSON.stringify(p.value)}\` is not one of the values that ` +
+    `argument accepts (${p.known}).  This is a CLOSED vocabulary, and an unrecognised value is ` +
+    `not dropped — every design pack renders its \`${p.fallback}\` default instead, on every ` +
+    `frontend, with nothing to say so.  A primary action written this way ships looking like ` +
+    `plain text.  On Phoenix the same value is a COMPILE error, because the pack's function ` +
+    `component declares the identical list as an \`attr … values:\` constraint — so the value ` +
+    `is wrong on every target; only the JSX packs kept quiet about it.`,
   "loom.page-primitive-unknown-arg#style-not-object": (p: { where: unknown; name: unknown }) =>
     `\`${p.name}\`'s \`style:\` takes an OBJECT LITERAL of CSS declarations ` +
     `(\`style: { padding: "1rem" }\`).  Any other expression is dropped during lowering, so ` +

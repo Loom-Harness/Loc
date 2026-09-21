@@ -18,7 +18,7 @@ commit), then `origin/main` merged mid-packet at the coordinator's instruction (
 |---|---|
 | `e6486a043` | **`loom.find-predicate-unsupported` drained** — the predicate POSITION, not four adapter subsets |
 | `c88ef286f` | **D-FIRST-ON-EMPTY applied** — `.first` is PARTIAL on all five, `firstOrNull` total; **RS-36** minted |
-| `46e5bfa69` | **D-POLYMORPHIC-ID-REPRESENTATION** (proposed), **M-T5.37** minted, the **M-T2.17** measurement |
+| `46e5bfa69` | **D-POLYMORPHIC-ID-REPRESENTATION** (proposed), **M-T5.38** minted, the **M-T2.17** measurement |
 | `NOTE` | the two reference docs that still described the deleted gate, and this note |
 
 `MAX_OPEN_GAPS` **20 → 19**; `LATENT_SEAMS` **25** (unchanged); `UNDOCUMENTED_BASELINE` **366 → 365**.
@@ -40,7 +40,7 @@ Ledger: `F2-EXPR-7` `open → done` (open 123 → 122, done 166 → 167), counts
 | ledger `M-T5.19-a-workflow-test-anchor` (P3, S) | **verified accurate, not built — §5.6** | Grammar line unchanged on this head; the "S" is a grammar edit plus five test emitters. |
 | ledger `M-T5.5-stdlib-tail` (P3, S) | **verified accurate, not built** | Three independent unbuilt things behind one row; nothing to drain, see §5.6. |
 | ledger `workflow-projection-rename-unexpressible` (P3, M) | **not built** — §5.6 | |
-| the IR two-spellings class | **MISSION MINTED — M-T5.37** | `46e5bfa69`. 2f's five-backend measurement and 13-site census are its body. Numbered `.37` because `.36` was already taken by 2f's own dispositions — **check before minting**. |
+| the IR two-spellings class | **MISSION MINTED — M-T5.38** | `46e5bfa69`. 2f's five-backend measurement and 13-site census are its body. Numbered `.37` because `.36` was already taken by 2f's own dispositions — **check before minting**. |
 
 ## 3. The built rows, stated properly
 
@@ -317,7 +317,7 @@ a context-filter's member TYPE is therefore reading a lie. Nothing downstream ha
 it (the SQL renderers key on the column name), which is why it has survived, and the new predicate
 gate routes around it explicitly (`thisTypesUnresolved`) rather than silently.
 
-**Recommendation:** fold into **M-T5.37** — it is the same family (an IR shape that carries less
+**Recommendation:** fold into **M-T5.38** — it is the same family (an IR shape that carries less
 than it claims), and the fix is in the same file. No ledger row minted; that register belongs to the
 loom-eval wave.
 

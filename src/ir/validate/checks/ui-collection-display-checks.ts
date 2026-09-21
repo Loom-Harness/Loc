@@ -6,6 +6,7 @@
 // -------------------------------------------------------------------------
 
 import { diagMessage } from "../../../diagnostics/messages.js";
+import { walkerPrimitiveArgValues } from "../../../util/walker-primitive-arg-values.js";
 import {
   WALKER_PRIMITIVE_NAMED_ARGS,
   walkerPrimitiveNamedArgs,
@@ -546,6 +547,85 @@ export function checkPrimitiveNamedArgs(
     });
   }
 }
+
+// -------------------------------------------------------------------------
+// `loom.page-primitive-unknown-arg-value` — the VALUE twin of the gate above.
+//
+// The name gate catches an argument nobody reads.  This one catches an
+// argument everybody reads and nobody recognises, which is worse: nothing is
+// dropped, so there is no missing element to notice.  Every pack template is
+// an `{{#if (eq variant "primary")}}…{{else if (eq variant "secondary")}}…
+// {{else}}ghost{{/if}}` chain, so an unrecognised value falls off the end into
+// the LAST arm and renders as a deliberate-looking ghost button:
+//
+//     Button { "Save", variant: "filled" }   →   <Button variant="ghost">
+//
+// `"filled"` was the value this repo's own primitive reference used, with the
+// degraded output printed underneath it as expected — which is how a silent
+// fallback survives: the wrong answer looks like an answer.
+//
+// The vocabulary is `WALKER_PRIMITIVE_ARG_VALUES` (src/util/walker-primitive-
+// arg-values.ts), pinned against BOTH the HEEx packs' `attr … values:`
+// declarations and every JSX pack's `(eq <arg> "…")` branches, so this gate
+// cannot reject a value any target honours.  It is opt-in per argument: an
+// argument absent from that table keeps an open vocabulary.
+// -------------------------------------------------------------------------
+
+/** Reject a closed-vocabulary named argument's unrecognised string value.  One
+ *  diagnostic per (primitive, argument, value), on the same "said once" rule
+ *  as the name twin. */
+export function checkPrimitiveNamedArgValues(
+  host: PageIR | ComponentIR,
+  where: string,
+  diags: LoomDiagnostic[],
+): void {
+  const flagged = new Set<string>();
+  for (const root of walkerRenderedExprs(host)) {
+    walkExprDeep(root, (e) => {
+      if (e.kind !== "call" || e.callKind !== "free") return;
+      const argNames = e.argNames ?? [];
+      for (let i = 0; i < e.args.length; i++) {
+        const argName = argNames[i];
+        if (argName === undefined) continue;
+        const accepted = walkerPrimitiveArgValues(e.name, argName);
+        if (accepted === undefined) continue;
+        const arg = e.args[i];
+        // Only a STRING LITERAL is checkable.  A dynamic value (a state read,
+        // a ternary) is the caller's to get right, and refusing it here would
+        // reject a legal page over an expression this layer cannot evaluate.
+        if (arg === undefined || arg.kind !== "literal" || arg.lit !== "string") continue;
+        if (accepted.includes(arg.value)) continue;
+        const key = `${e.name}.${argName}.${arg.value}`;
+        if (flagged.has(key)) continue;
+        flagged.add(key);
+        diags.push({
+          severity: "error",
+          code: "loom.page-primitive-unknown-arg-value",
+          message: diagMessage("loom.page-primitive-unknown-arg-value", {
+            name: e.name,
+            arg: argName,
+            value: arg.value,
+            known: accepted.map((v) => `\`"${v}"\``).join(", "),
+            // The `{{else}}` arm every pack falls to — last in the declared
+            // list is not it, so it is named explicitly per argument.
+            fallback: FALLBACK_VALUE[`${e.name}.${argName}`] ?? accepted[accepted.length - 1],
+          }),
+          source: where,
+        });
+      }
+    });
+  }
+}
+
+/** The value each pack's `{{else}}` arm actually renders — what the user GOT
+ *  instead of what they wrote.  Naming it is most of the diagnostic's worth:
+ *  "it rendered as a ghost button" is the observation that sends someone
+ *  looking, and it is not derivable from the accepted list. */
+const FALLBACK_VALUE: Record<string, string> = {
+  "Button.variant": "ghost",
+  "Button.iconPosition": "right",
+  "Card.variant": "flat",
+};
 
 /** The "what IS accepted here" tail of the diagnostic — the primitive's own
  *  vocabulary, or a plain statement that it takes children only. */

@@ -22,8 +22,11 @@
 // The envelope `id` is the outbox row id when the event rides the relay,
 // so consumer-side idempotency markers dedup broker redeliveries.
 
+import type { EventIR, TypeIR } from "../../../ir/types/loom-ir.js";
 import { lines } from "../../../util/code-builder.js";
 import type { BrokerBinding } from "../../_channels/bindings.js";
+import { decodeField } from "../../_channels/wire-codec.js";
+import { TS_WIRE_DECODE } from "../wire-codec.js";
 
 /** The per-binding driver pick in `createChannelTransports` — a direct
  *  call when one driver is wired, a transport-discriminated ternary chain
@@ -55,7 +58,15 @@ function uniqueBindings(bindings: BrokerBinding[]): BrokerBinding[] {
   });
 }
 
-export function renderChannelsModule(bindings: BrokerBinding[]): string {
+export function renderChannelsModule(
+  bindings: BrokerBinding[],
+  /** The carried events' IRs (foreign ones already resolved system-wide by
+   *  the orchestrator) — drives the per-event wire decoders the consumer
+   *  loop reconstructs typed `DomainEvent`s with.  Same input the .NET /
+   *  Python / Elixir channel emitters have always taken; node was the one
+   *  backend emitting a consumer loop with no codec behind it (F-019). */
+  carriedEvents: EventIR[],
+): string {
   const unique = uniqueBindings(bindings);
   const hasRedis = unique.some((b) => b.transport === "redis");
   const hasRabbit = unique.some((b) => b.transport === "rabbitmq");
@@ -72,6 +83,34 @@ export function renderChannelsModule(bindings: BrokerBinding[]): string {
       if (!target.has(ev)) target.set(ev, b.address);
     }
   }
+  // The events this deployable can actually receive off the wire — the
+  // routed set, resolved to their IRs.  Each gets a decoder; an envelope
+  // naming anything else is REFUSED rather than half-built (below).
+  const routed = new Set([...ephemeralRouting.keys(), ...durableRouting.keys()]);
+  const carried = carriedEvents.filter((e) => routed.has(e.name));
+  // Which domain-type imports the decoders reach for.  Same walk
+  // `emit/events.ts` does for the event interfaces themselves — the decoder
+  // names the very types those interfaces declare, so the two agree by
+  // construction.
+  const voImports = new Set<string>();
+  const enumImports = new Set<string>();
+  let decoderUsesIds = false;
+  let decoderUsesDecimal = false;
+  const visitType = (t: TypeIR): void => {
+    if (t.kind === "valueobject" || t.kind === "entity") voImports.add(t.name);
+    if (t.kind === "enum") enumImports.add(t.name);
+    if (t.kind === "id") decoderUsesIds = true;
+    if (t.kind === "primitive" && t.name === "money") decoderUsesDecimal = true;
+    if (t.kind === "array") visitType(t.element);
+    if (t.kind === "optional") visitType(t.inner);
+  };
+  for (const ev of carried) for (const f of ev.fields) visitType(f.type);
+  const domainTypeImports = [...voImports, ...enumImports].sort();
+  const eventImports = [
+    ...carried.map((e) => e.name),
+    "DomainEvent",
+    "DomainEventDispatcher",
+  ].sort();
   return (
     lines(
       "// Auto-generated.",
@@ -80,9 +119,14 @@ export function renderChannelsModule(bindings: BrokerBinding[]): string {
       "// the consumer loop feeds received events into the same in-process",
       "// dispatcher local reactors use.",
       hasRabbit ? 'import amqp from "amqplib";' : null,
+      decoderUsesDecimal ? 'import Decimal from "decimal.js";' : null,
       hasRedis ? 'import { Redis } from "ioredis";' : null,
       hasKafka ? 'import { type Consumer, Kafka, logLevel, type Producer } from "kafkajs";' : null,
-      'import type { DomainEvent, DomainEventDispatcher } from "../domain/events";',
+      `import type { ${eventImports.join(", ")} } from "../domain/events";`,
+      decoderUsesIds ? 'import type * as Ids from "../domain/ids";' : null,
+      domainTypeImports.length > 0
+        ? `import type { ${domainTypeImports.join(", ")} } from "../domain/value-objects";`
+        : null,
       'import { baseLogger } from "../obs/log";',
       "",
       "/** CloudEvents 1.0 JSON envelope — the cross-backend wire contract",
@@ -568,6 +612,53 @@ export function renderChannelsModule(bindings: BrokerBinding[]): string {
       "  };",
       "}",
       "",
+      "/** The envelope id, carried alongside the decoded event as the",
+      " * consumer-side idempotency marker.  It is NOT a declared field of any",
+      " * event, so it is typed on the way in rather than cast past the type",
+      " * system — the reactor reads it back off this exact shape. */",
+      "type LoomConsumed<E extends DomainEvent> = E & { readonly __loomEventId: string };",
+      "",
+      "/** Per-event-type wire decoders — the typed inverse of the envelope",
+      " * `data` the producer publishes.",
+      " *",
+      " * `envelope.data` came off `JSON.parse`, so every field whose JSON form",
+      " * differs from its host form arrives in the WRONG one: a `datetime` is an",
+      " * ISO-8601 string where the domain field is a `Date`, a `money` a decimal",
+      " * string where the field is a `Decimal`.  Spreading that into a",
+      " * `DomainEvent` behind a cast type-checks and then fails at the first",
+      " * `.toISOString()` — inside the CONSUMER, at warn level, with an",
+      " * ephemeral envelope that has no outbox, no retry and no DLQ behind it.",
+      " *",
+      " * Each decoder is therefore written against the event's DECLARED type:",
+      " * the `unknown` is narrowed to the wire form and then converted, and the",
+      " * annotated return type makes the compiler check that it landed on the",
+      " * host form.  A decoder that stopped at the wire form does not build. */",
+      "const CHANNEL_EVENT_DECODERS: Record<",
+      "  string,",
+      "  ((data: Record<string, unknown>, eventId: string) => LoomConsumed<DomainEvent>) | undefined",
+      "> = {",
+      ...carried.flatMap((ev) => [
+        `  ${ev.name}: (data, eventId): LoomConsumed<${ev.name}> => ({`,
+        `    type: ${JSON.stringify(ev.name)},`,
+        ...ev.fields.map((f) => `    ${f.name}: ${decodeField("data", f, TS_WIRE_DECODE)},`),
+        "    __loomEventId: eventId,",
+        "  }),",
+      ]),
+      "};",
+      "",
+      "/** Decode one received envelope into a typed event, or `null` when this",
+      " * deployable has no decoder for that type (an envelope on an address it",
+      " * subscribes but a type it does not carry).  Never a partial event: the",
+      " * caller refuses the message rather than dispatching a half-built one. */",
+      "export function decodeChannelEvent(",
+      "  type: string,",
+      "  data: Record<string, unknown>,",
+      "  eventId: string,",
+      "): LoomConsumed<DomainEvent> | null {",
+      "  const decode = CHANNEL_EVENT_DECODERS[type];",
+      "  return decode ? decode(data, eventId) : null;",
+      "}",
+      "",
       "/** Consumer loop — subscribes every wired address (competing-consumer",
       " * group on `queue` channels, broadcast otherwise) and dispatches received",
       " * envelopes into the given (in-process) dispatcher, so reactors and",
@@ -592,11 +683,23 @@ export function renderChannelsModule(bindings: BrokerBinding[]): string {
           '      await t.subscribe(b.address, b.queue || b.transport === "kafka" ? b.group : null, async (envelope) => {'
         : "      await t.subscribe(b.address, b.queue ? b.group : null, async (envelope) => {",
       '        const bare = envelope.type.includes(".") ? envelope.type.slice(envelope.type.indexOf(".") + 1) : envelope.type;',
-      "        const event = {",
-      "          type: bare,",
-      "          ...envelope.data,",
-      "          __loomEventId: envelope.id,",
-      "        } as unknown as DomainEvent;",
+      "        // Typed decode, not a cast: `envelope.data` is JSON and the",
+      "        // event's fields are not.  `decodeChannelEvent` is the only",
+      "        // thing standing between the wire and the domain here, so an",
+      "        // envelope it cannot decode is REFUSED loudly rather than",
+      "        // dispatched half-built (an ephemeral channel has no redelivery,",
+      "        // so a quiet drop here is a permanent one).",
+      "        const event = decodeChannelEvent(bare, envelope.data, envelope.id);",
+      "        if (event === null) {",
+      "          baseLogger.error({",
+      '            event: "channel_consume_failed",',
+      "            address: b.address,",
+      "            type: envelope.type,",
+      "            id: envelope.id,",
+      '            error: "no decoder for this event type; envelope discarded",',
+      "          });",
+      "          return;",
+      "        }",
       "        await dispatcher.dispatch(event);",
       "        baseLogger.info({",
       '          event: "channel_consumed",',

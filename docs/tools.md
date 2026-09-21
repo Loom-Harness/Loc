@@ -449,7 +449,7 @@ pipelines (image build/push remains a project-init concern).
 
 ## End-to-end test
 
-Loom ships an opt-in vitest e2e (`test/e2e.test.ts`) that exercises
+Loom ships an opt-in vitest e2e (`test/e2e/e2e.test.ts`) that exercises
 the whole pipeline against a real Docker daemon:
 
 1. Generates the `examples/acme.ddd` system to a temp directory.
@@ -724,6 +724,93 @@ Endpoints default to `http://localhost:<port>` for each deployable.
 Override per environment via `E2E_<DEPLOYABLE>_BASE` (e.g.
 `E2E_API_BASE=https://staging.example.com`).
 
+#### The e2e reset seam
+
+The suite drives a REAL database through a running backend, so without
+a reset it would not be idempotent: a block asserting an exact count
+(`expect(listed.total).toBe(2)`) would be green on a fresh database and
+red on the second run of the same one.  Since `docker compose up` keeps
+a named `pgdata` volume, that second `npm test` is the common case, not
+the exotic one.
+
+(Blocks within ONE run still see each other's rows by default, which is
+often deliberate — see `per-test` below for the stronger contract.)
+
+So the emitted suite calls a **dev-only reset endpoint**
+(`POST /__loom/test-reset`) — by default **once per target, before the
+first test**.  It truncates every application table and re-applies any
+declared `seed` data, restoring the just-migrated-and-seeded state, not
+an empty database, so fixtures that assume seeded rows still find them.
+The migration ledger, the timer watermark and the pg-boss job store are
+preserved.  Cost is one loopback round trip (median 6 ms against a
+local Postgres).
+
+`E2E_RESET` chooses when it fires:
+
+| Value | Behaviour |
+| --- | --- |
+| `per-file` *(default)* | Once per target, before the first test that uses it. The suite starts from the same state every run, so a second `npm test` behaves exactly like the first. |
+| `per-test` | Before **every** test, so a block sees only the rows it creates and a count assertion no longer depends on block order. One extra round trip per block. |
+| `off` | Never. |
+
+**Why per-file is the default.**  A `test e2e` block may deliberately
+build on rows an earlier block created — several of this repo's own
+fixtures do, one of them named *"the second … beside the first"* — so
+resetting between blocks changes what those models mean.  Per-file
+fixes the idempotence problem without changing any block's meaning.
+Choose `per-test` when the suite is written for it: every block
+creating its own fixtures and asserting only its own counts.
+
+A per-test *transaction* would be cheaper still, but it is structurally
+unavailable: the suite talks HTTP to a separate process, so it has no
+transaction to share with the request handler.
+
+**It cannot fire against a non-local target.**  Two independent gates,
+and the one that matters needs no configuration:
+
+| | Gate |
+|---|---|
+| In the suite | The reset is only **sent** when the resolved base URL is a loopback address (`localhost`, `*.localhost`, `127.0.0.0/8`, `[::1]`). Pointing the suite at a deployed environment — `E2E_API_BASE=https://staging.example.com` — disables it by construction. There is deliberately no remote override. |
+| In the backend | The reset answers **404 unless it is switched on**, having touched nothing. `LOOM_TEST_RESET=1` switches it on and `0` off; when unset, the backends that have a production-profile marker of their own (node `NODE_ENV`, .NET `ASPNETCORE_ENVIRONMENT`, elixir the build's `MIX_ENV`) allow it outside production, and the two that do not (python, java) stay closed — strictly tighter, never looser. |
+
+Node, python and .NET do not REGISTER the route when it is off, so the
+path does not exist at all. Phoenix and Spring build their routes at
+compile time / context refresh, so there the route is always defined and
+the handler refuses instead — the same 404, the same nothing touched.
+
+The generated container images pin a production profile, so the
+generated `docker-compose.yml` opts each backend service in by name:
+
+```yaml
+    environment:
+      LOOM_TEST_RESET: "1"
+```
+
+Delete that line and the local stack has no reset endpoint.  The suite
+then **warns once and carries on with shared state** — it does not fail:
+a 404 is the normal answer from a backend that was simply never told the
+reset is allowed, and python and java require `LOOM_TEST_RESET=1`
+outright, so failing there would stop the suite running at all against a
+backend started any other way.
+
+```
+[e2e] No state reset at http://localhost:4000 (404) — these tests SHARE a database.
+      They are green on a fresh one and can fail on a re-run.
+      Enable it by starting the backend with LOOM_TEST_RESET=1; …
+```
+
+Any other failure — a 500 from the truncate, a proxy in the way — does
+fail the suite, because that is a fault rather than a choice.
+
+Set `E2E_RESET=off` in the suite's environment to skip the reset
+entirely.
+
+**When the reset is unavailable** — a target that is not loopback, or a
+backend that does not register the route — the suite assumes a **fresh
+database per run**.  Start one with `docker compose down -v && docker
+compose up -d`, or write assertions that tolerate shared state
+(`toBeGreaterThanOrEqual`, namespaced fixture data).
+
 ### React frontend deployable
 
 A `platform: react` deployable produces a Vite-built SPA with React,
@@ -857,7 +944,7 @@ by `test/system/generation-defaults.test.ts`, which walks each emitted
 Dockerfile stage by stage.
 
 The opt-in `LOOM_E2E_CA_DIR` environment variable (used by
-`test/e2e.test.ts`) just copies the host's CAs into each deployable's
+`test/e2e/e2e.test.ts`) just copies the host's CAs into each deployable's
 `certs/` for you; no Dockerfile rewriting.
 
 ### Cross-platform OpenAPI parity check

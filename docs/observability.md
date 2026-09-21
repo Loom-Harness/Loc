@@ -150,7 +150,7 @@ This list is an excerpt of what the catalog ships; the file
 |---|---|---|---|
 | **Hono** | [pino](https://github.com/pinojs/pino) | Native — pino emits JSON by default | `req.log` child logger; envelope auto-bound |
 | **.NET** | `ILogger<T>` | `AddJsonConsole` — structured fields land under `State.<Pascal>` | `IHttpContextAccessor` + `BeginScope`; `Activity.Current.TraceId` carries `request_id` |
-| **Phoenix** | Elixir `Logger` | Custom `<App>.LogFormatter` — see [`lib/<app>/log_formatter.ex`](https://github.com/lemmit/Loc/blob/main/src/generator/phoenix-live-view/index.ts) | `:telemetry` handlers attach `[:phoenix, :endpoint, :start/:stop]` and translate to catalog identity; the `<App>.RequestContext` Plug stamps `correlation_id`/`scope_id` (and `actor_id` post-auth) into `Logger.metadata`, which the LogFormatter dumps onto every line — see [`request-context.md`](architecture/request-context.md) |
+| **Phoenix** | Elixir `Logger` | Custom `<App>.LogFormatter` — see [`lib/<app>/log_formatter.ex`](https://github.com/Loom-Harness/Loc/blob/main/src/generator/elixir/index.ts) | `:telemetry` handlers attach `[:phoenix, :endpoint, :start/:stop]` and translate to catalog identity; the `<App>.RequestContext` Plug stamps `correlation_id`/`scope_id` (and `actor_id` post-auth) into `Logger.metadata`, which the LogFormatter dumps onto every line — see [`request-context.md`](architecture/request-context.md) |
 | **Java** | slf4j + Logback | JSON layout; structured fields land on each line | `MDC` carries `request_id`/`scope_id`/`actor_id`, read at log time |
 | **Python** | stdlib `logging` | JSON formatter | a `contextvar` carries the per-frame ids, read by the formatter at log time |
 
@@ -466,7 +466,7 @@ Phoenix where `:telemetry` carries it).
 
 ## Further reading
 
-- [`docs/old/proposals/observability.md`](https://github.com/lemmit/Loc/blob/main/docs/old/proposals/observability.md)
+- [`docs/old/proposals/observability.md`](https://github.com/Loom-Harness/Loc/blob/main/docs/old/proposals/observability.md)
   — design rationale, level-as-concept analysis.  (`proposals/`
   isn't deployed to the docs site; link points at GitHub.)
 - [`docs/traceability.md`](./traceability.md) — separate concern;

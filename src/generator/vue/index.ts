@@ -51,6 +51,7 @@ import {
 import { smokeSpec } from "../_frontend/smoke-spec.js";
 import { buildTableSortHelper } from "../_frontend/table-sort-helper.js";
 import { prepareThemeVM } from "../_frontend/theme-preparer.js";
+import { uiUsesToastEffect } from "../_frontend/toast-effect.js";
 import { buildWorkflowsApiModule, hasAnyWorkflow } from "../_frontend/workflows-module.js";
 import type { LoadedPack } from "../_packs/loader.js";
 import { loadPack, resolvePackDir } from "../_packs/loader-fs.js";
@@ -545,7 +546,10 @@ export function generateVueForContexts(
   }
   // The toast queue + app-shell host serve realtime `on` handlers AND
   // form-submit success toasts; emit `lib/toast.ts` when either needs it.
-  const hasToastHost = hasRealtimeHandlers || hasFormToast;
+  // …and the `toast(<msg>)` PAGE EFFECT, which reads the same queue through
+  // `pushToast`.  Without this a page could import `../lib/toast` from a file
+  // that was never emitted.
+  const hasToastHost = hasRealtimeHandlers || hasFormToast || uiUsesToastEffect(ui);
   if (hasToastHost) {
     out.set("src/lib/toast.ts", renderShell(pack, "toast", {}));
   }
