@@ -1166,22 +1166,79 @@ Assertions are **method-based**: every `expect` carries a matcher — a bare
 compiler-known catalogue (`toBe` / `toBeGreaterThan(OrEqual)` /
 `toBeLessThan(OrEqual)` / `toBeSameInstant` / `toHaveText` / `toHaveCount` /
 `toBeVisible` / `toThrow`); they are not methods on a domain type but intrinsic
-assertions the compiler type-checks and lowers per backend.  Two are context-
+assertions the compiler type-checks and lowers per backend.  Some are context-
 restricted (validator-enforced): `toThrow(<status>)` and `toBeSameInstant` are
-only valid in a `test e2e` body — and `toThrow` in *either* form is rejected in
+only valid in a `test e2e` body, and `toThrow(<kind>)` only in a unit `test` —
+and `toThrow` in *any* form is rejected in
 a `test e2e` body targeting a FRONTEND deployable, where no HTTP response
 exists (`loom.e2e-ui-throw-invalid`; see the negative-path section below).  The
-first pins an HTTP status, the second
+status form pins an HTTP status, `toBeSameInstant`
 compares two ISO-8601 timestamps as *instants* (so a backend that serializes a
 datetime as `…00.0000000Z` still equals the canonical `…00Z` on the wire, while
-a real difference in time still fails).  Inside a test body the standard
+a real difference in time still fails), and the kind form is described just
+below.  Inside a test body the standard
 operation statements are allowed plus:
 
 | Form | Lowers to |
 | --- | --- |
 | `expect(<actual>).<matcher>(…)` | vitest `expect(<actual>).<matcher>(…)` / xUnit `Assert.*` / Playwright matcher. |
 | `expect(<call>).toThrow()` | vitest `expect(() => <call>).toThrow()` / xUnit `Assert.Throws<DomainException>(() => <call>)`. |
+| `expect(<call>).toThrow(<kind>)` | unit `test` only — additionally pins WHICH rung rejected (`precondition` / `invariant`).  See below. |
 | `expect(<api-call>).toThrow(<status>)` | api e2e only — `.rejects.toThrow(/→ <status>\b/)` (pins the rejected HTTP status).  Rejected in a ui e2e body. |
+
+##### `toThrow(precondition)` / `toThrow(invariant)` — which rule rejected
+
+A bare `toThrow()` asserts only that *something* threw, and the domain floor has
+more than one rung.  A test that means "a fresh work order cannot be
+**completed**" and settles for "it threw" keeps passing when the rule it names
+is deleted and a different rule throws in its place — measured, not
+hypothetical: that is the 2026-09-13 testability audit's F11.  Name the rung:
+
+```ddd
+test "a fresh work order cannot be completed" {
+    let wo = WorkOrder.create({ reference: "WO-1", customerName: "Ada", status: Draft })
+    expect(wo.complete()).toThrow(precondition)
+}
+```
+
+```ts
+// generated (node)
+expect(() => { wo.complete(); }).toThrow(/^Precondition failed: /);
+```
+
+```elixir
+# generated (elixir) — structural, because GuardError is `defexception [:message, :kind]`
+__thrown1 = assert_raise Api.GuardError, fn -> Api.Ops.WorkOrder.complete(wo, %{}) end
+assert __thrown1.kind == :precondition
+```
+
+`precondition` and `invariant` are keywords, not values — they are legal only in
+this one argument position (`loom.throw-kind-outside-tothrow`).  Three rules
+bound the form, each for its own reason:
+
+- **Unit tier only.** In a `test e2e` body it is refused
+  (`loom.e2e-throw-kind-invalid`): over HTTP both rungs answer 422, and
+  their only discriminator is the RFC 7807 `detail` sentence — which an authored
+  `message` overwrites.  The e2e body keeps `toThrow(<status>)`.  It is likewise
+  refused in a context-integration `test`
+  (`loom.throw-kind-integration-unsupported`), which renders through a separate
+  emitter carrying no rung.
+- **Not against a rule with a custom `message`**
+  (`loom.throw-kind-custom-message`).  The node / python / java / .NET domain
+  layers discriminate on the derived `"Precondition failed: "` /
+  `"Invariant violated: "` prefix, and an authored `message "…"` *replaces* that
+  string rather than extending it.  Elixir alone is structural, but a unit test
+  is emitted for all five backends from one `.ddd`.  Drop the `message`, or
+  assert the bare `toThrow()` here and pin the wording in a `test e2e` block.
+- **`requires` is not a rung here.**  It is an authorization gate (403) needing a
+  principal the unit tier has no vocabulary for.
+
+One backend asymmetry is worth knowing before you reach for it: on **elixir**,
+`toThrow(invariant)` over an *aggregate operation* emits a `@tag :skip` carrying
+its reason.  The vanilla pure op core runs preconditions and an in-memory struct
+update; aggregate invariants live in the Ecto changeset
+(`validate_invariants/1`), which no in-memory call reaches.  `toThrow(invariant)`
+over a `create` or a value-object construction runs normally there.
 
 Test blocks emit one file per subject on every backend:
 - TS: `domain/<aggregate>.test.ts` (vitest).

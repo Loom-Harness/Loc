@@ -354,7 +354,8 @@ function renderTestStmt(
           THROW_KIND_PREFIX[s.throwKind],
         )}),`,
         `            ${JSON.stringify(
-          `expected a ${s.throwKind} to reject this call, but it threw: `,
+          `expected ${s.throwKind === "invariant" ? "an" : "a"} ${s.throwKind} to reject ` +
+            "this call, but it threw: ",
         )} + ${local}.getMessage());`,
       ];
     }

@@ -582,7 +582,7 @@ export const DIAGNOSTIC_MESSAGES = {
   // rungs are structurally distinct in-process and indistinguishable on the
   // wire, so the same word would be a strong claim in one tier and a weak one
   // in the other.  That is the shape #2959 fixed on the ui side.
-  "loom.e2e-throw-kind-unsupported": (p: { kind: unknown }) =>
+  "loom.e2e-throw-kind-invalid": (p: { kind: unknown }) =>
     `'toThrow(${p.kind})' pins WHICH domain rung rejected the call, and that is only ` +
     "observable IN-PROCESS: the generated domain layer raises a typed error carrying the " +
     "rung (elixir a structural `kind:` on `GuardError`, the other four a stable " +

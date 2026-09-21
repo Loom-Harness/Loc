@@ -793,7 +793,7 @@ export type TestStmtIR =
       /** `toThrow(<status>)` — the HTTP status of a live rejection, e2e only. */
       status?: number;
       /** `toThrow(<kind>)` — WHICH rung of the domain floor rejected the call,
-       *  unit tier only (`loom.e2e-throw-kind-unsupported` refuses it in an
+       *  unit tier only (`loom.e2e-throw-kind-invalid` refuses it in an
        *  e2e body).  Absent for the bare form, which asserts only "it threw"
        *  and therefore cannot tell a deleted `precondition` from the
        *  `invariant` that threw in its place (audit 2026-09-13 F11).

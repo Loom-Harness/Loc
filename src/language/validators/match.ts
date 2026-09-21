@@ -191,11 +191,11 @@ export function checkExpectMatcher(model: Model, accept: ValidationAcceptor): vo
     // body keeps the wire-level form, `toThrow(<status>)`.
     if (matcher.throwKind) {
       if (isTestE2E(stmt.$container)) {
-        accept(
-          "error",
-          diagMessage("loom.e2e-throw-kind-unsupported", { kind: matcher.throwKind }),
-          { node: matcher, property: "member", code: "loom.e2e-throw-kind-unsupported" },
-        );
+        accept("error", diagMessage("loom.e2e-throw-kind-invalid", { kind: matcher.throwKind }), {
+          node: matcher,
+          property: "member",
+          code: "loom.e2e-throw-kind-invalid",
+        });
       }
       continue;
     }

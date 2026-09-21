@@ -62,7 +62,7 @@ const INTRINSIC_MATCHER_SIGNATURES: ReadonlyArray<MatcherSig> = [
   // one matcher mean both would make it two strengths of claim under one name
   // — the defect #2959 fixed on the ui side, where `toThrow(422)` silently
   // meant something weaker.  So a `test e2e` body keeps `toThrow(<status>)`
-  // and refuses the kind form (`loom.e2e-throw-kind-unsupported`).
+  // and refuses the kind form (`loom.e2e-throw-kind-invalid`).
   { name: "toThrow", arity: 0, on: "value", negatable: false },
 ];
 
