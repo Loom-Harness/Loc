@@ -5,7 +5,9 @@ import { describe, expect, it } from "vitest";
 import {
   intrinsicMatcherSig,
   isIntrinsicMatcher,
+  isThrowKind,
   type MatcherSig,
+  THROW_KINDS,
 } from "../../src/util/intrinsic-matchers.js";
 
 // `src/util/intrinsic-matchers.ts` is a pure table plus two lookups over it.
@@ -138,5 +140,42 @@ describe("intrinsic matchers — the documented special cases", () => {
       if (name === "toBeVisible" || name === "toThrow") continue;
       expect(sig.arity).toBe(1);
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The throw-KIND vocabulary (`toThrow(precondition)` / `toThrow(invariant)`).
+//
+// It lives beside the matcher table because it is the same kind of thing: a
+// closed, compiler-known set the grammar, the validator, the lowering and five
+// emitters all have to agree about.  The grammar spells it as a `ThrowKind`
+// rule; if the two ever disagree, a word parses and then resolves to nothing.
+// ---------------------------------------------------------------------------
+
+describe("throw kinds — the closed rung vocabulary", () => {
+  it("is exactly {precondition, invariant}", () => {
+    expect([...THROW_KINDS].sort()).toEqual(["invariant", "precondition"]);
+  });
+
+  it("matches the grammar's ThrowKind rule, so no word parses and then resolves to nothing", () => {
+    const grammar = fs.readFileSync(path.join(repoRoot, "src/language/ddd.langium"), "utf8");
+    const rule = grammar.slice(grammar.indexOf("ThrowKind returns string:"));
+    const words = [...rule.slice(0, rule.indexOf(";")).matchAll(/'([a-z]+)'/g)].map((m) => m[1]!);
+    expect(words.sort()).toEqual([...THROW_KINDS].sort());
+  });
+
+  it("recognises its own members and nothing else", () => {
+    for (const k of THROW_KINDS) expect(isThrowKind(k)).toBe(true);
+    // `requires` is the near miss worth pinning: it is a real guard keyword and
+    // a real rung of the domain floor, deliberately LEFT OUT — it is an
+    // authorization gate (403) needing a principal the unit tier has no
+    // vocabulary for, and the fleet deferred the principal clause (F6).
+    for (const n of ["requires", "toThrow", "constructor", "", "Precondition"]) {
+      expect(isThrowKind(n)).toBe(false);
+    }
+  });
+
+  it("is not itself a matcher name — the rung is an ARGUMENT, not a matcher", () => {
+    for (const k of THROW_KINDS) expect(isIntrinsicMatcher(k)).toBe(false);
   });
 });

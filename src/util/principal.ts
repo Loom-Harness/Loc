@@ -49,3 +49,35 @@ export function principalIdField(
   const field = user.fields.find((f) => f.name === "id") ?? user.fields[0];
   return field ? field.name : null;
 }
+
+/** Does `targetName` — the target of an `X id` reference — name the
+ *  authentication PRINCIPAL rather than a domain aggregate?
+ *
+ *  `auditable`'s `createdBy`/`updatedBy: User id` reference the principal,
+ *  which has NO `aggregate User` declaration.  Lowering normally collapses
+ *  such a reference to the principal's declared id scalar
+ *  (`lowerBase`'s `PRINCIPAL_TYPE_NAME` arm), but only when the system
+ *  declares a `user { ... }` block — without one the reference survives into
+ *  the IR as a dangling `{ kind: "id", targetName: "User" }`, and every
+ *  consumer that assumes an `id` target is an aggregate then misreads it:
+ *  the UI picker checks demand an aggregate that cannot exist, and the
+ *  scaffold emits a detail/table link to a `/users/<id>` route nothing
+ *  serves.
+ *
+ *  The disambiguation is the one {@link PRINCIPAL_TYPE_NAME} was introduced
+ *  for: the name means the principal UNLESS the model really declares a
+ *  domain aggregate of that name, in which case the reference resolves to
+ *  that aggregate and is an ordinary one.  `hasAggregate` answers the
+ *  latter — pass the caller's own aggregate registry so this stays a pure
+ *  predicate over names.
+ *
+ *  NOTE this is a READ-SIDE guard over IR that already exists.  It does not
+ *  make a principal-stamped aggregate valid without a principal: a
+ *  `user {}`-less model is rejected by `loom.stamp-principal-without-auth`,
+ *  which is where that belongs. */
+export function isPrincipalIdTarget(
+  targetName: string,
+  hasAggregate: (name: string) => boolean,
+): boolean {
+  return targetName === PRINCIPAL_TYPE_NAME && !hasAggregate(PRINCIPAL_TYPE_NAME);
+}

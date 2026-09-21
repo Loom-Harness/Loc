@@ -161,11 +161,17 @@ describe("e2e `destroy` — the canonical DELETE route", () => {
     expect([...(await derivedRoutes(named))].filter((r) => r.startsWith("delete "))).toEqual([]);
     const { model } = await parseString(named, { validate: false });
     const diags = validateLoomModel(enrichLoomModel(lowerModel(model)));
+    // The ROUTING diagnostic, which for this exact shape says what to do:
+    // *add `with crudish`, or an unnamed `destroy { }` — a NAMED destroy is a
+    // domain command and gets no DELETE route*.  `test-checks.ts` used to add
+    // `loom.e2e-unknown-method` alongside it, which could only list what else
+    // exists; it now defers.
     expect(
       diags.some(
-        (d) => d.code === "loom.e2e-unknown-method" && d.message.includes("api.orders.destroy"),
+        (d) => d.code === "loom.e2e-unrouted-verb" && d.message.includes("api.orders.destroy"),
       ),
     ).toBe(true);
+    expect(diags.filter((d) => d.code === "loom.e2e-unknown-method")).toEqual([]);
   });
 
   it("validation accepts `destroy` on an aggregate that HAS a canonical destroy", async () => {

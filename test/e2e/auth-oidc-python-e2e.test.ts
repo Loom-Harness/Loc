@@ -6,6 +6,7 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { hasDocker } from "./support/docker-probe.js";
+import { declareRunPrecondition } from "./support/run-precondition.js";
 
 // ---------------------------------------------------------------------------
 // OIDC runtime e2e on the Python/FastAPI backend (D-AUTH-OIDC).  The Python
@@ -42,7 +43,15 @@ function hasUv(): boolean {
   }
 }
 
-const RUN = ENABLED && hasDocker() && hasUv();
+const RUN = declareRunPrecondition({
+  suite: "auth OIDC e2e (Python)",
+  gate: "LOOM_AUTH_E2E_PYTHON=1",
+  enabled: ENABLED,
+  requirements: [
+    { name: "a reachable docker daemon", ok: hasDocker() },
+    { name: "uv on PATH", ok: hasUv() },
+  ],
+});
 
 async function freePort(): Promise<number> {
   return await new Promise<number>((resolve, reject) => {

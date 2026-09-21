@@ -26,6 +26,28 @@ softDelete`. `tenantOwned` (tenant column + claim stamp + tenant read filter)
 additionally requires a system-level `tenancy by` declaration — see
 [`tenancy.md`](tenancy.md).
 
+`auditable` **requires a principal**, for the same reason: it stamps
+`createdBy`/`updatedBy` from `currentUser`, so the system needs a `user { ... }`
+block and the hosting deployable needs `auth: required`. Without them there is
+nothing to stamp from and the model is rejected
+(`loom.stamp-principal-without-auth`):
+
+```ddd
+system Shop {
+  user { id: string  email: string }                       // the principal …
+  subdomain S { context S {
+    aggregate Widget with crudish, auditable { code: string }
+    repository Widgets for Widget { }
+  } }
+  deployable api { platform: node  contexts: [S]  …  auth: required }   // … and auth
+}
+```
+
+`createdBy: User id` names that **principal**, not a domain aggregate — there is
+no `aggregate User` and none is needed. The two fields are `managed`, so they
+never appear as form inputs, and a scaffolded list/detail page renders them as
+read-only stamped values rather than as links to an aggregate detail route.
+
 `versioned` (optimistic concurrency) adds a single `version: int token = 1`
 field. Every backend's save path emits a guarded write
 (`UPDATE … WHERE id = $1 AND version = $2`, bumping `version`) and returns HTTP

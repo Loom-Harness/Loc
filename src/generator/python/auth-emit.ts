@@ -2,6 +2,7 @@ import type { AuthIR, AuthValueIR, FieldIR, TypeIR, UserIR } from "../../ir/type
 import { AUTH_BASE_PATH } from "../../util/api-base.js";
 import { lines } from "../../util/code-builder.js";
 import { snake } from "../../util/naming.js";
+import { TEST_RESET_PATH } from "../../util/test-reset.js";
 import { claimIdTargets } from "../_auth/claim-types.js";
 import { devStubIdExpr } from "../_auth/dev-stub-id.js";
 import { renderPyType } from "./render-expr.js";
@@ -349,9 +350,14 @@ function renderAuthMiddleware(
   // Under OIDC the /auth/login|callback|logout redirect handlers must be
   // reachable without a verified principal — bypass them.  /auth/me is NOT
   // bypassed (the guard reads the verified user).
+  // The dev-only state reset (`src/util/test-reset.ts`) is bypassed for the
+  // same reason as the probes: it is infra, not domain surface, and an
+  // auth-bearing system's e2e suite would otherwise have to mint a principal
+  // just to empty a table.  It costs nothing — the route is not DEFINED unless
+  // the switch is on, so there is no handler behind the bypassed path.
   const bypass = oidc
-    ? `("/health", "/ready", "/openapi.json", "/swagger", "${AUTH_BASE_PATH}/login", "${AUTH_BASE_PATH}/callback", "${AUTH_BASE_PATH}/logout", "${AUTH_BASE_PATH}/refresh")`
-    : '("/health", "/ready", "/openapi.json", "/swagger")';
+    ? `("/health", "/ready", "/openapi.json", "/swagger", "${TEST_RESET_PATH}", "${AUTH_BASE_PATH}/login", "${AUTH_BASE_PATH}/callback", "${AUTH_BASE_PATH}/logout", "${AUTH_BASE_PATH}/refresh")`
+    : `("/health", "/ready", "/openapi.json", "/swagger", "${TEST_RESET_PATH}")`;
   // The per-request registry `data_key` resolver (hierarchy only).  A fresh
   // session per lookup; `SELECT data_key … WHERE id = :claim LIMIT 1`; a
   // missing row / NULL `data_key` / any error (e.g. a non-matching dev-stub

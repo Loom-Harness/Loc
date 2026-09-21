@@ -27,6 +27,7 @@ services:
     environment:
       ConnectionStrings__Default: "Host=db;Port=5432;Database=api;Username=postgres;Password=postgres"
       LOG_LEVEL: "info"
+      LOOM_TEST_RESET: "1"
       CORS_ORIGIN: "http://localhost:3001"
     ports:
       - "8080:8080"
@@ -44,6 +45,7 @@ services:
     environment:
       DATABASE_URL: "postgres://postgres:postgres@db:5432/catalog_web"
       LOG_LEVEL: "info"
+      LOOM_TEST_RESET: "1"
       CORS_ORIGIN: "http://localhost:3001"
     ports:
       - "3000:3000"
@@ -61,6 +63,7 @@ services:
     environment:
       ConnectionStrings__Default: "Host=db;Port=5432;Database=catalog_api;Username=postgres;Password=postgres"
       LOG_LEVEL: "info"
+      LOOM_TEST_RESET: "1"
       CORS_ORIGIN: "http://localhost:3001"
     ports:
       - "8081:8080"

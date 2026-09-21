@@ -5,6 +5,11 @@ import { isTphBase } from "../../../ir/util/inheritance.js";
 import { AUTH_BASE_PATH } from "../../../util/api-base.js";
 import { plural, upperFirst } from "../../../util/naming.js";
 import {
+  resetTableDiscoverySql,
+  TEST_RESET_ENV,
+  TEST_RESET_PATH,
+} from "../../../util/test-reset.js";
+import {
   DEBIAN_CERTS_BLOCK,
   NODE_CERTS_BLOCK,
   NPM_INSTALL_BLOCK,
@@ -404,6 +409,90 @@ using (var seedScope = app.Services.CreateScope())
 }
 `
     : "";
+  // Dev-only state reset for the emitted e2e suite (`src/util/test-reset.ts`).
+  //
+  // The endpoint is mapped inside a runtime `if`, so outside a dev profile the
+  // route does not exist at all and a request falls through to ASP.NET's own
+  // not-found handling having touched nothing.  `IsProduction()` reads
+  // ASPNETCORE_ENVIRONMENT, which an operator already sets and the generated
+  // Dockerfile leaves at its Production default; the generated compose file,
+  // which is the LOCAL dev stack, opts in with LOOM_TEST_RESET=1.
+  //
+  // Both persistence adapters reach the same ADO.NET connection: EF Core hands
+  // one over through `Database.GetDbConnection()`, the Dapper path opens one
+  // off the NpgsqlDataSource.  Only those two lines diverge, so the handler
+  // body below is shared.
+  const testResetBlock = `// Dev-only state reset for the emitted e2e suite.  Mapped ONLY outside a
+// production profile (or with ${TEST_RESET_ENV}=1), so this surface does not
+// exist in a real deployment.  See docs/tools.md.
+var loomTestReset = System.Environment.GetEnvironmentVariable("${TEST_RESET_ENV}");
+if (loomTestReset == "1" || (loomTestReset != "0" && !app.Environment.IsProduction()))
+{
+    app.MapPost("${TEST_RESET_PATH}", async (${
+      usingDapper ? "NpgsqlDataSource db" : "AppDbContext db"
+    }, IServiceProvider sp, CancellationToken cancellationToken) =>
+    {
+${
+  usingDapper
+    ? "        await using var conn = await db.OpenConnectionAsync(cancellationToken);"
+    : `        var conn = db.Database.GetDbConnection();
+        if (conn.State != System.Data.ConnectionState.Open)
+        {
+            await conn.OpenAsync(cancellationToken);
+        }`
+}
+        // Tables are discovered at runtime, so the reset also reaches what the
+        // model does not describe but the backend creates (the outbox,
+        // materialized projections, the seed marker) and cannot drift from a
+        // migration chain that has moved on.  Every backend's migration ledger
+        // is excluded — losing one replays the whole chain on the next boot.
+        var targets = new System.Collections.Generic.List<string>();
+        await using (var find = conn.CreateCommand())
+        {
+            find.CommandText = ${JSON.stringify(resetTableDiscoverySql())};
+            await using var reader = await find.ExecuteReaderAsync(cancellationToken);
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                targets.Add($"\\"{reader.GetString(0)}\\".\\"{reader.GetString(1)}\\"");
+            }
+        }
+        if (targets.Count > 0)
+        {
+            // One statement for the whole set: CASCADE must see every table at
+            // once or a foreign key makes the order significant, and RESTART
+            // IDENTITY puts sequences back so a generated id is stable across
+            // runs.
+            await using var truncate = conn.CreateCommand();
+            truncate.CommandText =
+                $"truncate table {string.Join(", ", targets)} restart identity cascade";
+            await truncate.ExecuteNonQueryAsync(cancellationToken);
+        }
+${
+  hasSeeds
+    ? `        // The truncate took __loom_seed with it, so this re-applies the
+        // declared seed data: a reset restores the just-migrated-AND-seeded
+        // state, not an empty database.
+        using (var seedScope = sp.CreateScope())
+        {
+            var seedDb = seedScope.ServiceProvider.GetRequiredService<${
+              usingDapper ? "NpgsqlDataSource" : "AppDbContext"
+            }>();
+            await ${ns}.Infrastructure.Persistence.Seed.RunSeeds(
+                seedDb, seedScope.ServiceProvider, cancellationToken);
+        }`
+    : "        _ = sp;"
+}
+        return Results.Ok(new { status = "reset", tables = targets.Count });
+    // ExcludeFromDescription() keeps this out of the OpenAPI contract.  ASP.NET
+    // documents a MapPost by default, and that document is what the 5-way
+    // parity cross-check compares — so without this the reset shows up as an
+    // operation only .NET has, which is exactly how it was caught.  The other
+    // backends spell the same exclusion their own way (FastAPI
+    // include_in_schema=False, springdoc @Hidden); node and elixir derive their
+    // documents from the model, so neither ever sees this route.
+    }).ExcludeFromDescription();
+}
+`;
   const emitTrace = !!options?.emitTrace;
   const repoRegistrations = ctx.aggregates
     // A TPH (`sharedTable`) base owns the shared table but emits no repository
@@ -1040,7 +1129,7 @@ ${asLifecycleStmt(
         ${asLifecycleExpr(renderDotnetLogCall("serverDrained"))});
 }
 
-// Liveness probe — cheap, no I/O.  K8s livenessProbe / docker-compose
+${testResetBlock}// Liveness probe — cheap, no I/O.  K8s livenessProbe / docker-compose
 // healthcheck use this to decide "is the process alive?".  A DB blip
 // must NOT mark the pod not-alive (that restarts the container and
 // amplifies the outage), which is why DB-touching checks live on

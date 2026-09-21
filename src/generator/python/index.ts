@@ -34,6 +34,7 @@ import { API_BASE_PATH } from "../../util/api-base.js";
 import { lines } from "../../util/code-builder.js";
 import { resolveErrorStatus } from "../../util/error-defaults.js";
 import { plural, snake } from "../../util/naming.js";
+import { resetTableDiscoverySql, TEST_RESET_ENV, TEST_RESET_PATH } from "../../util/test-reset.js";
 import { devClaimFields } from "../_auth/dev-claims.js";
 import { brokerChannelBindings } from "../_channels/bindings.js";
 import { DEBIAN_CERTS_BLOCK, NODE_CERTS_BLOCK, NPM_INSTALL_BLOCK } from "../_docker/node-stage.js";
@@ -1383,6 +1384,53 @@ function renderMain(
     // include_in_schema=False: /metrics is an infra scrape target, not part of
     // the API surface — keeping it out of the OpenAPI doc preserves the
     // cross-backend parity contract (no other backend lists it).
+    // Dev-only state reset for the emitted e2e suite (`src/util/test-reset.ts`).
+    //
+    // The route is only DEFINED when the switch is on, so where it is off the
+    // path does not exist and a request 404s through FastAPI's own not-found
+    // handler having touched nothing.  Unlike the other four backends this one
+    // has no default: the Python image ships no production-profile marker to
+    // read, so a default of "on" would leave a truncate endpoint in every
+    // deployment.  The generated compose file sets `LOOM_TEST_RESET=1`, so the
+    // documented recipe works; running uvicorn by hand needs it too.
+    //
+    // `include_in_schema=False` for the same reason `/metrics` has it: this is
+    // infra, and the cross-backend OpenAPI parity check compares documented
+    // surfaces.
+    `_TEST_RESET_ENABLED = os.environ.get(${JSON.stringify(TEST_RESET_ENV)}) == "1"`,
+    "",
+    "",
+    "if _TEST_RESET_ENABLED:",
+    "",
+    `    @app.post(${JSON.stringify(TEST_RESET_PATH)}, include_in_schema=False)`,
+    "    async def test_reset() -> dict[str, object]:",
+    '        """Truncate every application table and re-apply seed data.',
+    "",
+    "        Tables are discovered at runtime, so this also reaches what the",
+    "        model does not describe but the backend creates (the outbox,",
+    "        materialized projections, the seed marker) and cannot drift from a",
+    "        migration chain that has moved on.  The migration ledger, the timer",
+    '        watermark and the pg-boss job store are preserved."""',
+    "        async with engine.begin() as conn:",
+    `            found = (await conn.execute(text(${JSON.stringify(resetTableDiscoverySql())}))).all()`,
+    '            targets = [f\'"{r[0]}"."{r[1]}"\' for r in found]',
+    "            if targets:",
+    "                # One statement for the whole set: CASCADE must see every",
+    "                # table at once or a foreign key makes the order",
+    "                # significant, and RESTART IDENTITY puts sequences back so a",
+    "                # generated id is stable across runs.",
+    "                await conn.execute(text(f\"truncate table {', '.join(targets)} restart identity cascade\"))",
+    ...(hasSeeds
+      ? [
+          "        # The truncate took `__loom_seed` with it, so this re-applies",
+          "        # the declared seed data: a reset restores the",
+          "        # just-migrated-AND-seeded state, not an empty database.",
+          "        await run_seeds()",
+        ]
+      : []),
+    '        return {"status": "reset", "tables": len(targets)}',
+    "",
+    "",
     `@app.get("/metrics", include_in_schema=False)`,
     "async def metrics() -> Response:",
     `    """Prometheus scrape target — the text exposition of the default`,

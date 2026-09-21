@@ -50,7 +50,14 @@ system DomainSvc {
         // goes through `renderPureBlock`'s, whose own gate
         // (`elixirIfRefusal(…, "value")`) already admitted exactly this shape —
         // a TAIL `if` carrying an `else`, every `return` in tail position.
-        // No caller on purpose: what had never been emitted is the DEFINITION.
+        // Called from the `MoveMoney` workflow below — a `function` declared on
+        // ONE aggregate and used by an orchestrator holding an INSTANCE of it,
+        // which is the ordinary "reuse a named domain rule" path and the second
+        // caller shape that reaches a `function` from outside the class.  Every
+        // backend broke on it differently: three emitted a call to a `private`
+        // member, python's `def _tier` disagreed with the `t.tier(…)` the
+        // workflow renders (AttributeError at request time), and elixir
+        // rendered `s.tier(…)` — a remote call on a struct, which raises.
         function tier(threshold: decimal): string {
           if balance.amount > threshold { return "gold" } else { return "bronze" }
         }
@@ -111,6 +118,11 @@ system DomainSvc {
         create(source: Account id, dest: Account id, amount: Money) {
           let s = Accounts.getById(source)
           let d = Accounts.getById(dest)
+          // The cross-aggregate `function` call (see `tier` above).  Always
+          // true — `tier` returns "gold" or "bronze" — so the precondition
+          // never changes what this workflow does; the point is that the call
+          // is EMITTED, and compiles.
+          precondition s.tier(0.00) != ""
           Transfer.run(s, d, amount)
         }
       }
