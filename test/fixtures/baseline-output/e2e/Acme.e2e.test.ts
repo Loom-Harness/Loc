@@ -61,8 +61,9 @@ function __authHeaders(): Record<string, string> {
 //     is exactly the thing that gets copied into a CI config and then points
 //     at the wrong host one refactor later.
 //
-//   • on the backend — the route is not REGISTERED outside a dev profile, so
-//     in a real deployment the path does not exist at all.
+//   • on the backend — the reset answers 404 unless it is switched on, so in
+//     a real deployment it does nothing.  (Three of the five backends go
+//     further and do not register the route at all.)
 //
 // `E2E_RESET=off` turns it off entirely, for a suite whose blocks are written
 // to accumulate on purpose.
@@ -114,10 +115,10 @@ async function __resetState(base: string): Promise<void> {
       "",
       r.status === 404
         ? [
-            "A 404 means the backend did not register the reset route. It is",
-            "registered only outside a production profile, so check that the",
-            "service is running in a dev/test profile and that LOOM_TEST_RESET",
-            'is not set to "0".',
+            "A 404 means the backend is not allowing the reset. Start it with",
+            "LOOM_TEST_RESET=1 — the generated docker-compose.yml already sets",
+            "that on every backend service, so this usually means the service",
+            "was started some other way, or is running a production profile.",
           ].join("\n")
         : "",
       "",

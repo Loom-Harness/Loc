@@ -46,19 +46,23 @@
 //      deliberately no remote override to copy into CI.  See
 //      `__isLoopbackBase` in the emitted preamble.
 //
-//   2. SERVER — the backend does not REGISTER the route unless it is told to.
-//      Where it is not, the surface does not exist; the request 404s through
-//      the ordinary not-found path, having touched nothing.
+//   2. SERVER — the backend answers 404 unless it is told the reset is
+//      allowed, having touched nothing.  Node, python and .NET go further and
+//      do not REGISTER the route at all, so there the surface does not even
+//      exist; Phoenix and Spring build their routes at compile time and at
+//      context refresh respectively, so an environment variable read at boot
+//      cannot add or drop one — there the route is always defined and the
+//      HANDLER refuses.  Same answer, same nothing touched.
 //
 // Gate 1 alone would miss a loopback port-forward into a remote database;
 // gate 2 alone would miss a dev-profile backend on a shared host.  Together
 // both readings are covered, which is why neither is dropped.
 //
-// Registration is one explicit switch with a profile-derived default:
+// The switch is one rule with a profile-derived default:
 //
-//     LOOM_TEST_RESET=1   → registered
-//     LOOM_TEST_RESET=0   → not registered
-//     unset               → registered IFF the host platform has a production
+//     LOOM_TEST_RESET=1   → allowed
+//     LOOM_TEST_RESET=0   → refused
+//     unset               → allowed IFF the host platform has a production
 //                           profile marker of its own AND it says this is not
 //                           production
 //
@@ -71,15 +75,21 @@
 // That is a line a reader can see in the compose file and delete, which is
 // worth more here than an invisible inference from the profile alone.
 //
-// The "iff the platform HAS a marker" half is load-bearing, not a hedge.  Node
-// (`NODE_ENV`), .NET (`ASPNETCORE_ENVIRONMENT`), Java (the active Spring
-// profile) and Elixir (the release's `MIX_ENV`) each ship a profile an
-// operator already sets, so the default can read it.  The Python backend ships
-// none, so there is nothing to read — and a default of "on" there would leave
-// a truncate endpoint in every deployment.  It therefore requires the explicit
-// `1`, which makes its gate strictly TIGHTER than the others', never looser.
-// Inventing an `APP_ENV` for that one backend would have made the rule uniform
-// by adding a config surface nothing else uses, which is the worse trade.
+// The "iff the platform HAS a marker" half is load-bearing, not a hedge.
+// THREE of the five ship one the generated app actually sets: node reads
+// `NODE_ENV`, .NET reads `ASPNETCORE_ENVIRONMENT` through
+// `app.Environment.IsProduction()`, and the elixir project bakes the answer in
+// at BUILD time (`config/prod.exs` sets `loom_test_reset_default: false`, so a
+// `MIX_ENV=prod` release is closed without anyone setting anything).
+//
+// The generated PYTHON and JAVA projects ship none — no `APP_ENV`, no
+// `spring.profiles.active` — so there is nothing to read, and a default of
+// "on" would leave a truncate endpoint in every deployment of those two.  They
+// therefore require the explicit `1`, which makes their gate strictly TIGHTER
+// than the other three's, never looser.  Inventing a profile variable for the
+// two backends that lack one would have made the rule uniform by adding a
+// config surface nothing else in those projects uses — the worse trade, and a
+// new thing to get wrong.
 // ---------------------------------------------------------------------------
 
 /** Where the reset endpoint mounts.  Under `/__loom/`, NOT under
@@ -88,8 +98,9 @@
  *  OpenAPI document or behind the auth middleware. */
 export const TEST_RESET_PATH = "/__loom/test-reset";
 
-/** The switch every backend honours: `1` registers the route, `0` keeps it
- *  unregistered, unset falls back to "not a production profile". */
+/** The switch every backend honours: `1` allows the reset, `0` refuses it, and
+ *  unset falls back to the platform's own production profile where it has one
+ *  (node, .NET, elixir) or to "refused" where it does not (python, java). */
 export const TEST_RESET_ENV = "LOOM_TEST_RESET";
 
 /**
