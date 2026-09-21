@@ -110,6 +110,14 @@ export const CORPUS: readonly CorpusFeature[] = [
     backends: ALL,
     note: "Minted by audit F-014 (S1).  The corpus carried scalar enums and scalar/VO arrays, but never the two CROSSED, so every compile gate was blind to it by construction — and elixir's Ecto mapper folded the enum's `values:` (an option of `field/3`) into the array TYPE tuple: `field :skills, {:array, Ecto.Enum, values: [...]}` → `** (ArgumentError) invalid type … for field :skills`, i.e. `mix compile` fails on the emitted project.  A SCALAR enum sits on the same aggregate so a fix that simply stopped emitting `values:` for arrays cannot pass.",
   },
+  {
+    id: "vo-id-reference",
+    title:
+      "a value object holding a CROSS-AGGREGATE REFERENCE (`ship: Ship id`) — in a field, a `derived` type and a `function` parameter",
+    doc: "language",
+    backends: ALL,
+    note: "compile-tier by necessity: the defect it pins is a MISSING IMPORT, which emits cleanly and only fails the type-checker. The corpus had no value object holding an id at all — every one was scalar-only — which is how node shipped `domain/value-objects.ts` with zero import statements (TS2503). The other four backends already imported the id type, so this row is what keeps all five honest.",
+  },
   { id: "document", title: "`shape: document` — whole aggregate in one jsonb column", doc: "language", backends: ALL },
   {
     id: "document-collection-read",

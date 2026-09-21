@@ -16,6 +16,7 @@ import type {
   TestStmtIR,
 } from "../../types/loom-ir.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
+import { routeContractWillReport } from "./e2e-route-checks.js";
 import { walkExpr } from "./shared.js";
 
 // ---------------------------------------------------------------------------
@@ -397,6 +398,26 @@ function checkMagicCall(
   // so an aggregate that is not `audited` has no history to call and the
   // unknown-method error below is the right answer.
   if (method === "history" && repo?.historyFind) return;
+
+  // ONE MISTAKE, ONE DIAGNOSTIC.  This arm and `e2e-route-checks.ts` ask two
+  // different questions of the same call — does the verb NAME resolve, and does
+  // it resolve to a ROUTE — and for a verb that is neither, both answered:
+  // `api.widgets.noSuchOperation(w)` raised `loom.e2e-unknown-method` AND
+  // `loom.e2e-unrouted-verb`, one typo described twice with two near-identical
+  // "available" lists to read.
+  //
+  // The ROUTING answer is the one that survives, because it is the one that
+  // names the fix — for `destroy` on an aggregate with no canonical destroy it
+  // says *add `with crudish`, or an unnamed `destroy { }`; a NAMED destroy is a
+  // domain command and gets no DELETE route*, where this arm can only list what
+  // else exists.  So this arm defers whenever that check will speak, and speaks
+  // itself for everything it does not reach (a projection verb, a workflow, a
+  // slug it has no ground truth for).
+  //
+  // The predicate is a call INTO that check's own decision, never a second copy
+  // of the routing rule: a copy would drift and leave a call with two
+  // diagnostics again — or, worse, with none.
+  if (routeContractWillReport(magicId, { slug: aggregateSlug, verb: method }, contexts)) return;
 
   const ops = agg.operations.filter((o) => o.visibility === "public").map((o) => o.name);
   const finds = (repo?.finds ?? []).map((f) => f.name);
