@@ -1582,8 +1582,18 @@ ProjectionMember:
 // per group in SQL, per-row `select`s restricted to the grouping columns
 // (`loom.projection-groupby-*` gates).  `group` stays a SOFT keyword
 // (CommonSoftKeywords) so a field / value named `group` keeps parsing; rows
-// come back ordered by the grouping columns so the read is deterministic
-// across backends.
+// come back ordered by the grouping columns, ASCENDING, by their STORED
+// COLUMN VALUE — so the read is deterministic across backends.
+//
+// "By their stored column value" is the load-bearing half, and it is what the
+// clause used to leave unsaid.  It matters for an ENUM key, where two readings
+// are available and they disagree: an enum column is stored as TEXT on every
+// backend (`mapTypeToColumn` in `src/system/migrations-builder.ts`), so the
+// order is the LEXICOGRAPHIC order of the member NAME — not the order the
+// members are declared in.  `enum OrderStatus { Draft Confirmed Cancelled }`
+// grouped on therefore comes back `Cancelled`, `Confirmed`, `Draft`.  (A read
+// that wants declaration order has to select an explicit rank column; there is
+// no `order by` clause on a projection yet — see the NOTE above.)
 // A query-time projection's `from` source — an AGGREGATE (read through its
 // repository), a WORKFLOW (read through its persisted instance / saga-state
 // rows, `instanceWireShape`), or another materialized PROJECTION (read through
