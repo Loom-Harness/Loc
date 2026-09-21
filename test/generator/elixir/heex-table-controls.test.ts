@@ -57,6 +57,11 @@ system Shop {
   }
   api ShopApi from M
   ui ShopUi {
+    // The of: read binds through this handle. Without it the read names
+    // nothing and loom.ui-read-unresolved refuses the model — which is the
+    // point of that gate: before it, this fixture emitted undefined into the
+    // page and ddd generate system still reported success.
+    api ShopApi: ShopApi
     page Listing {
       route: "/listing"
       body: QueryView(
@@ -69,7 +74,7 @@ system Shop {
   resource cState { for: C, kind: state, use: loomDb }
   deployable phoenixApp {
     platform: elixir, contexts: [C], dataSources: [cState], serves: ShopApi,
-    ui: ShopUi, port: 4000
+    ui: ShopUi { ShopApi: phoenixApp }, port: 4000
   }
 }
 `;

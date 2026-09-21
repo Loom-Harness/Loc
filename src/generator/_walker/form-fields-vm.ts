@@ -240,8 +240,8 @@ function idSelectOptionsExpr(
   bcByAggregate: ReadonlyMap<string, BoundedContextIR> | undefined,
 ): string {
   return isPagedAllRead(targetAggregate, bcByAggregate)
-    ? `(${hookVar}.data?.items ?? [])`
-    : `(${hookVar}.data ?? [])`;
+    ? `${hookVar}.data?.items ?? []`
+    : `${hookVar}.data ?? []`;
 }
 
 function errorAccess(path: string): string {
