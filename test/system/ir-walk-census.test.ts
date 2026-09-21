@@ -411,18 +411,28 @@ const THROWING_DISPATCHER = {
  *  arm for `match` / `list` / `convert` / `duration` / `i18nFormat` /
  *  `authz-filter` / a block-bodied lambda's statements, so a domain-service
  *  call in any of those slots was invisible to the scan.  Treat the remaining
- *  four as suspects, not as safe. */
+ *  four as suspects, not as safe.
+ *
+ *  CR1-e strengthened that: draining the 52 shape-classified waivers turned up
+ *  SIX more of the same shape — five VALIDATOR gates that never entered an `if`
+ *  branch, and one emitter that produced Elixir which does not compile.  The
+ *  suspicion is now evidence. */
 const SHALLOW_CHILD_BUILDER = {
   deferred:
-    "one-level child-list builder (walkExprChildren-shaped) feeding the caller's own recursion — a walk.ts migration candidate. The hono twin of this exact shape was drained in CR1-d and WAS carrying a live defect (no `match`/`list`/lambda-block arm), so these are suspects",
+    "one-level child-list builder (walkExprChildren-shaped) feeding the caller's own recursion — a walk.ts migration candidate. The hono twin of this exact shape was drained in CR1-d and WAS carrying a live defect (no `match`/`list`/lambda-block arm), and CR1-e found six more instances of the shape; these are suspects",
   reviewUntil: "2026-12-31",
 } as const;
 
 /** A hand-rolled recursive traversal (`walk`/`visit`/collector-shaped)
- *  identified as a genuine migration candidate but not reached. */
+ *  identified as a genuine migration candidate but not reached.
+ *
+ *  With `CLOSED_PREDICATE` gone (CR1-e), this is the last bucket whose members
+ *  are traversals BY THEIR OWN ADMISSION — and CR1-e's finding is that a
+ *  traversal misfiled as a predicate is exactly where the defects were.  Drain
+ *  this one next. */
 const TRAVERSAL_TIME_BOXED = {
   deferred:
-    "hand-rolled traversal identified as a walk.ts migration candidate, not yet migrated — the highest-risk category in this register (it is the #2720/#2705/M-T6.50 shape itself). Drain before the two above it",
+    "hand-rolled traversal identified as a walk.ts migration candidate, not yet migrated — the highest-risk category left in this register (it is the #2720/#2705/M-T6.50 shape itself, and CR1-e found six live instances of that shape hiding among the shape-classified predicates). Drain this bucket before SHALLOW_CHILD_BUILDER",
   reviewUntil: "2026-12-31",
 } as const;
 
