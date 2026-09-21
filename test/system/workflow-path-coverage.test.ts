@@ -63,11 +63,23 @@
 // `elixir-vanilla-obs-e2e.yml` names `src/generator/elixir/vanilla/**` — never
 // by being vaguer.
 //
+// THE THIRD INVARIANT — per trigger, not unioned
+// ----------------------------------------------
+// Both invariants above were once read off the UNION of a workflow's `paths:`
+// blocks, and twenty workflows leaned on that union: they carried the four
+// dirs `src/language/**`, `src/macros/**`, `src/system/**` and `src/util/**`
+// on `push:` only, so a change to `src/util/naming.ts` fired none of them ON A
+// PULL REQUEST.  Each trigger's block now stands on its own.  Only a
+// `pull_request:` block may decline, via `PR_TIER_DECLARED` below, because it
+// is the one tier with a fallback underneath it.  Full rationale and the cost
+// measurements are at that register.
+//
 // "Runs a test that generates a project" is DERIVED, not declared: the entry
 // points named by the workflow are walked transitively, and the workflow counts
-// as a generation gate when that closure reaches `src/system/index.ts` (or
-// spawns `bin/cli.js`, which is the same pipeline behind a process boundary).
-// So a workflow cannot fall out of scope by having its imports rearranged.
+// as a generation gate when that closure reaches `src/system/index.ts`, spawns
+// `bin/cli.js`, or runs a `.mjs` case driver that does (the `behavioral-e2e-*`
+// family — see `mjsDrivers`).  So a workflow cannot fall out of scope by having
+// its imports rearranged, nor by putting a process boundary in the way.
 
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import * as path from "node:path";
@@ -180,13 +192,28 @@ function closureOf(entries: readonly string[]): Closure {
 /** Positive `paths:` globs across all triggers (`!`-negations are ignored:
  *  they only ever SHRINK coverage, and a shrink is not what this gate is
  *  looking for). */
-function pathGlobs(source: string): string[] {
-  const globs = new Set<string>();
+function globsByTrigger(source: string): Map<string, string[]> {
+  const out = new Map<string, string[]>();
+  let trigger: string | undefined;
+  let inOn = false;
   let inPaths = false;
   let keyIndent = 0;
   for (const raw of source.split("\n")) {
     const line = raw.replace(/\r$/, "");
     if (/^\s*#/.test(line)) continue;
+    if (/^on:\s*$/.test(line)) {
+      inOn = true;
+      continue;
+    }
+    if (inOn && /^\S/.test(line)) inOn = false;
+    if (inOn) {
+      const t = line.match(/^ {2}([a-z_]+):/);
+      if (t) {
+        trigger = t[1];
+        if (!out.has(trigger)) out.set(trigger, []);
+        inPaths = false;
+      }
+    }
     const header = line.match(/^(\s*)paths(-ignore)?:\s*$/);
     if (header) {
       inPaths = header[2] === undefined;
@@ -196,14 +223,22 @@ function pathGlobs(source: string): string[] {
     if (!inPaths) continue;
     const item = line.match(/^(\s*)-\s*'([^']+)'\s*$/);
     if (item && item[1].length > keyIndent) {
-      if (!item[2].startsWith("!")) globs.add(item[2]);
+      if (!item[2].startsWith("!") && trigger) out.get(trigger)?.push(item[2]);
       continue;
     }
     // Any non-list line at or above the `paths:` indent ends the block.
     if (line.trim() !== "") inPaths = false;
   }
-  return [...globs];
+  return out;
 }
+
+/** Positive `paths:` globs across all triggers — the UNION.  Used only to ask
+ *  "does this workflow filter on paths at all"; every coverage assertion below
+ *  reads the per-trigger buckets instead, because the union is what hid the
+ *  hole this file's third invariant closes. */
+const pathGlobs = (source: string): string[] => [
+  ...new Set([...globsByTrigger(source).values()].flat()),
+];
 
 const pkg = JSON.parse(readFileSync(path.join(repoRoot, "package.json"), "utf8")) as {
   scripts?: Record<string, string>;
@@ -349,9 +384,113 @@ function sharedSeams(globs: readonly string[]): string[] {
   return [...seams].sort();
 }
 
+// ---------------------------------------------------------------------------
+// THE THIRD INVARIANT — per TRIGGER, not unioned.
+// ---------------------------------------------------------------------------
+// The two invariants above were read off the UNION of a workflow's `paths:`
+// blocks, and several workflows lean on that union deliberately
+// (`elixir-vanilla-obs-e2e.yml` says so in a comment: "the coverage test unions
+// globs across triggers, so this block only needs the per-PR blast radius").
+// Measured per trigger instead, TWENTY workflows carried the four dirs
+// `src/language/**`, `src/macros/**`, `src/system/**` and `src/util/**` on
+// `push:` only — so a change confined to `src/util/naming.ts`, which every
+// emitter on every backend imports, fired NONE of them on a PR.  That is P0-3
+// one level down: the gate's name is on the pull request, and for that change
+// it never ran.
+//
+// So each trigger's own block must stand on its own.  A `pull_request:` block —
+// and ONLY a `pull_request:` block — may decline, because it is the one tier
+// with something underneath it: the workflow's own `push: main` run.  Declining
+// is a REGISTER ENTRY (`PR_TIER_DECLARED`), not silence, and the register can
+// only be used by a workflow that really has that fallback and whose fallback
+// block really is compliant.  Every other trigger has nothing below it, so
+// there is no waiver to grant.
+
+interface TierDeclaration {
+  /** Why this leg accepts a post-merge-only tier for the generation path. */
+  readonly reason: string;
+  /** Measured runner-minutes for ONE firing (median job wall-clock over the
+   *  last 5+ successful runs).  A cheap gate has no cost argument to make, so
+   *  the register refuses one. */
+  readonly costMin: number;
+  /** ISO date `costMin` was measured.  A cost claim rots — the register fails
+   *  once it is older than 180 days, so the BUDGET gets re-measured even though
+   *  the decision itself is standing.  (CR1-d's lesson, applied to the input
+   *  rather than the verdict: 23 census waivers became permanent invisibly
+   *  because nothing ever re-evaluated what they rested on.) */
+  readonly measured: string;
+}
+
+/**
+ * Workflows whose `pull_request:` block is knowingly narrower than the
+ * generation path.
+ *
+ * THE SPLIT, and the numbers behind it (measured 2026-09-21 via the Actions
+ * API, median job wall-clock over the last 5–11 successful runs).  Twenty
+ * workflows were asymmetric.  Fifteen cost 1.0–4.7 runner-minutes a firing —
+ * the ten `*-obs-e2e`/`*-oidc-e2e`/`*-vo-e2e` legs, the four
+ * `generated-*-e2e` SPA smokes, `behavioral-heex-ui-e2e` — plus the ~1-minute
+ * `playground-realm-check`.  Together they add ~32 runner-minutes on the ~14 %
+ * of `src/**` PRs that touch these four dirs and NOT `src/ir/**` (17 of 123
+ * first-parent commits, 2026-09-01..21), so their blocks were simply fixed.
+ *
+ * The six `behavioral-e2e-*` legs are the other tier: 5.0–13.1 runner-minutes
+ * EACH, ~58 together, and they fire as one family because they share their
+ * path claims — six simultaneous slots out of a shared ~20, on a leg family
+ * that is already this repo's timeout problem child (see the COST MODEL and
+ * `timeout-minutes` notes in `behavioral-e2e-java.yml`).  Reversing that
+ * unilaterally is a runner-budget decision, not a bug fix.  It is declared here
+ * instead, so it is reviewable and so a NEW workflow cannot drift into the same
+ * shape in silence.
+ */
+const PR_TIER_DECLARED: Record<string, TierDeclaration> = {
+  "behavioral-e2e-dapper.yml": {
+    reason:
+      "behavioural family: boots the generated .NET backend on the Dapper adapter against a postgres sidecar, one project build per corpus case; the six legs share path claims and fire together (~58 runner-min, 6 of ~20 slots). Post-merge `push: main` block carries the full generation path.",
+    costMin: 7.8,
+    measured: "2026-09-21",
+  },
+  "behavioral-e2e-dotnet.yml": {
+    reason:
+      "behavioural family: boots the generated .NET backend against a postgres sidecar, one project build per corpus case; fires with its five siblings. Post-merge `push: main` block carries the full generation path.",
+    costMin: 8.9,
+    measured: "2026-09-21",
+  },
+  "behavioral-e2e-elixir.yml": {
+    reason:
+      "behavioural family: boots the generated Phoenix release against a postgres sidecar and needs hex egress, one mix compile per corpus case. Post-merge `push: main` block carries the full generation path.",
+    costMin: 12.6,
+    measured: "2026-09-21",
+  },
+  "behavioral-e2e-java.yml": {
+    reason:
+      "behavioural family and the most expensive leg in it — a Gradle build plus a Spring Boot start per corpus case; its own file documents a 20->30 min cap raise after the cap censored 13 of 74 runs. Post-merge `push: main` block carries the full generation path.",
+    costMin: 13.1,
+    measured: "2026-09-21",
+  },
+  "behavioral-e2e-mikroorm.yml": {
+    reason:
+      "behavioural family: the node backend on the MikroORM adapter, booted against a real postgres because @mikro-orm/postgresql cannot use PGlite. Post-merge `push: main` block carries the full generation path.",
+    costMin: 10.9,
+    measured: "2026-09-21",
+  },
+  "behavioral-e2e-python.yml": {
+    reason:
+      "behavioural family: boots the generated FastAPI backend against a postgres sidecar. Cheapest of the six at ~5 min, but it fires as part of the same family burst and there is no per-leg path claim that would separate it. Post-merge `push: main` block carries the full generation path.",
+    costMin: 5.0,
+    measured: "2026-09-21",
+  },
+};
+
+/** A cost claim below this has no budget argument to make — fix the block. */
+const DECLARABLE_MIN_MINUTES = 4;
+/** A cost claim older than this must be re-measured. */
+const COST_CLAIM_MAX_AGE_DAYS = 180;
+
 interface Gate {
   readonly file: string;
   readonly globs: readonly string[];
+  readonly byTrigger: ReadonlyMap<string, readonly string[]>;
   readonly entries: readonly string[];
   readonly closure: Closure;
   /** True when the workflow drives generation itself — a `run:` step calling
@@ -373,6 +512,7 @@ const gates: Gate[] = readdirSync(workflowsDir)
     return {
       file,
       globs: pathGlobs(source),
+      byTrigger: globsByTrigger(source),
       entries,
       closure: closureOf(entries),
       generatesInline: /bin\/cli\.js\s+generate/.test(source),
@@ -392,42 +532,137 @@ describe("workflow path filters cover the generation path", () => {
   });
 
   for (const gate of generationGates) {
-    it(`${gate.file} watches every pipeline phase it depends on`, () => {
-      const unwatched = GENERATION_PATH.filter((tree) => !watchesTree(gate.globs, tree));
+    /** The triggers whose own `paths:` block has to stand on its own — every
+     *  one that filters, minus a `pull_request:` block this workflow has
+     *  declared in `PR_TIER_DECLARED`. */
+    const checkedTriggers = (): [string, readonly string[]][] =>
+      [...gate.byTrigger]
+        .filter(([, g]) => g.length > 0)
+        .filter(([t]) => !(t === "pull_request" && gate.file in PR_TIER_DECLARED));
+
+    it(`${gate.file} watches every pipeline phase it depends on, per trigger`, () => {
+      const holes = checkedTriggers()
+        .map(([t, g]) => [t, GENERATION_PATH.filter((tree) => !watchesTree(g, tree))] as const)
+        .filter(([, missing]) => missing.length > 0)
+        .map(([t, missing]) => `${t}: ${missing.join(", ")}`);
       expect(
-        unwatched,
-        `${gate.file} filters on \`paths:\` but does not watch ${unwatched.join(", ")}.\n` +
+        holes,
+        `${gate.file} filters on \`paths:\` but a trigger's OWN block does not watch:\n` +
+          `  ${holes.join("\n  ")}\n` +
           `It drives \`generate system\` (${
             gate.generatesInline
               ? "a `run:` step invokes bin/cli.js directly"
               : `via ${gate.entries.join(", ")}`
           }) — so a change confined to an unwatched phase cannot trigger this ` +
-          "gate, and it will not run for that change at all.\n" +
-          "Add the missing globs to EVERY trigger's `paths:` block, or add a reasoned " +
-          "entry to EXEMPT in this file.",
+          "gate on that event, and it will not run for that change at all.\n" +
+          "Globs are NOT unioned across triggers here: a `push: main` block does not " +
+          "cover the pull request, which is where the gate's name is shown.\n" +
+          "Add the missing globs to THAT trigger's block; or, for a `pull_request:` " +
+          "block on an expensive leg, add a measured entry to PR_TIER_DECLARED in this " +
+          "file; or add a reasoned entry to EXEMPT.",
       ).toEqual([]);
     });
 
-    it(`${gate.file} watches every shared generator seam its platforms delegate into`, () => {
-      const required = sharedSeams(gate.globs);
-      const unwatched = required.filter(
-        (seam) => !watchesTree(gate.globs, `src/generator/${seam}/**`),
-      );
+    it(`${gate.file} watches every shared generator seam its platforms delegate into, per trigger`, () => {
+      const holes = checkedTriggers()
+        .map(
+          ([t, g]) =>
+            [
+              t,
+              sharedSeams(g).filter((seam) => !watchesTree(g, `src/generator/${seam}/**`)),
+            ] as const,
+        )
+        .filter(([, missing]) => missing.length > 0)
+        .map(([t, missing]) => `${t}: ${missing.map((s) => `src/generator/${s}/**`).join(", ")}`);
       expect(
-        unwatched,
-        `${gate.file} claims a whole platform generator tree but does not watch ` +
-          `${unwatched.map((s) => `src/generator/${s}/**`).join(", ")}.\n` +
+        holes,
+        `${gate.file} claims a whole platform generator tree in a trigger's block but ` +
+          `that same block does not watch:\n  ${holes.join("\n  ")}\n` +
           "Those are SHARED emission seams that tree imports — `_stmt` is the StmtIR " +
           "dispatcher each backend's leaf table plugs into, `_payload/union-wire.ts` the " +
           "one tagged-union wire shape all five backends emit, `_i18n` the collector that " +
           "decides validation-catalog membership.  A change confined to one of them " +
-          "changes what this gate compiles and cannot trigger it.\n" +
-          "Add the missing globs next to the platform claim in EVERY trigger's `paths:` " +
+          "changes what this gate compiles and cannot trigger it on that event.\n" +
+          "Add the missing globs next to the platform claim in THAT trigger's `paths:` " +
           "block, or narrow the platform claim to the subdirs this gate really depends " +
           "on (the way elixir-vanilla-obs-e2e.yml names src/generator/elixir/vanilla/**).",
       ).toEqual([]);
     });
   }
+
+  // -------------------------------------------------------------------------
+  // PR_TIER_DECLARED hygiene.  The register is the pressure valve for the
+  // third invariant, so it gets the same treatment EXEMPT does — and one thing
+  // EXEMPT cannot have: a structural check on the claim itself.
+  // -------------------------------------------------------------------------
+  it("every PR_TIER_DECLARED entry names a real generation gate and carries a measured cost", () => {
+    for (const [file, d] of Object.entries(PR_TIER_DECLARED)) {
+      const gate = generationGates.find((g) => g.file === file);
+      expect(gate, `${file} is not a path-filtered generation gate`).toBeDefined();
+      expect(d.reason.trim().length, `${file} needs a reason`).toBeGreaterThan(40);
+      expect(
+        d.costMin,
+        `${file} declares ${d.costMin} runner-min — below ${DECLARABLE_MIN_MINUTES}, so it ` +
+          "has no budget argument to make.  Fix the pull_request block instead.",
+      ).toBeGreaterThanOrEqual(DECLARABLE_MIN_MINUTES);
+      expect(d.measured, `${file}: measured must be an ISO date`).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+      const ageDays = (Date.now() - Date.parse(d.measured)) / 86_400_000;
+      expect(
+        ageDays,
+        `${file}'s cost claim was measured on ${d.measured}, over ${COST_CLAIM_MAX_AGE_DAYS} ` +
+          "days ago.  Re-measure it (median job wall-clock over the last 5+ successful " +
+          "runs) and update the entry — a budget argument resting on a stale number is " +
+          "the shape this wave exists to drain.",
+      ).toBeLessThan(COST_CLAIM_MAX_AGE_DAYS);
+    }
+  });
+
+  it("every PR_TIER_DECLARED entry really has the post-merge tier it falls back on", () => {
+    // The whole claim is "this runs on `push: main` instead".  If that block
+    // does not exist, or does not itself cover the generation path and the
+    // seams, the declaration is not a tiering decision — it is a hole.
+    for (const file of Object.keys(PR_TIER_DECLARED)) {
+      const gate = generationGates.find((g) => g.file === file);
+      if (!gate) continue;
+      const push = gate.byTrigger.get("push") ?? [];
+      expect(
+        push.length,
+        `${file} declares a post-merge fallback but has no push paths`,
+      ).toBeGreaterThan(0);
+      const missing = [
+        ...GENERATION_PATH.filter((tree) => !watchesTree(push, tree)),
+        ...sharedSeams(push)
+          .filter((s) => !watchesTree(push, `src/generator/${s}/**`))
+          .map((s) => `src/generator/${s}/**`),
+      ];
+      expect(
+        missing,
+        `${file}'s pull_request block is declared post-merge-only, but its push block ` +
+          `does not cover ${missing.join(", ")} either — so nothing covers it at all.`,
+      ).toEqual([]);
+    }
+  });
+
+  it("no PR_TIER_DECLARED entry is stale — a compliant block must drop its entry", () => {
+    // The register RATCHETS: once a leg's pull_request block satisfies the
+    // invariant on its own, the declaration is dead weight that would hide the
+    // next regression.  Deleting it is a one-line change.
+    const stale = Object.keys(PR_TIER_DECLARED).filter((file) => {
+      const gate = generationGates.find((g) => g.file === file);
+      if (!gate) return false;
+      const pr = gate.byTrigger.get("pull_request") ?? [];
+      if (pr.length === 0) return true; // no PR paths filter at all: nothing to decline
+      const missing = [
+        ...GENERATION_PATH.filter((tree) => !watchesTree(pr, tree)),
+        ...sharedSeams(pr).filter((s) => !watchesTree(pr, `src/generator/${s}/**`)),
+      ];
+      return missing.length === 0;
+    });
+    expect(
+      stale,
+      `These PR_TIER_DECLARED entries no longer decline anything — delete them: ${stale}`,
+    ).toEqual([]);
+  });
 
   it("every EXEMPT entry names a real workflow and carries a reason", () => {
     for (const [file, reason] of Object.entries(EXEMPT)) {
@@ -527,6 +762,36 @@ describe("the closure walker resolves what it claims to", () => {
     // Precision is the escape hatch: name subdirs, not the whole tree.
     expect(sharedSeams(["src/generator/elixir/vanilla/**", "src/generator/_obs/**"])).toEqual([]);
     expect(sharedSeams(["src/ir/**", "src/system/**"])).toEqual([]);
+  });
+
+  it("globsByTrigger really separates the triggers (the union is not what is read)", () => {
+    // The third invariant is entirely this function.  If it collapsed every
+    // block into one bucket, every per-trigger assertion would silently fall
+    // back to the union — the exact behaviour those assertions replace — and
+    // the suite would stay green while checking nothing.
+    const src = readFileSync(path.join(workflowsDir, "behavioral-e2e-java.yml"), "utf8");
+    const byTrigger = globsByTrigger(src);
+    expect([...byTrigger.keys()]).toEqual(
+      expect.arrayContaining(["push", "pull_request", "workflow_dispatch"]),
+    );
+    const push = byTrigger.get("push") ?? [];
+    const pr = byTrigger.get("pull_request") ?? [];
+    // The measured asymmetry itself: the union says "covered", the PR block
+    // says otherwise.  If these two ever agree, this pin has stopped proving
+    // anything and needs a different fixture.
+    expect(watchesTree(pathGlobs(src), "src/util/**")).toBe(true);
+    expect(watchesTree(push, "src/util/**")).toBe(true);
+    expect(watchesTree(pr, "src/util/**")).toBe(false);
+    // …and a trigger with no `paths:` (workflow_dispatch) contributes nothing.
+    expect(byTrigger.get("workflow_dispatch")).toEqual([]);
+  });
+
+  it("the per-trigger check is not degenerate — most gates really have two filtered blocks", () => {
+    const multi = generationGates.filter(
+      (g) => [...g.byTrigger.values()].filter((v) => v.length > 0).length > 1,
+    );
+    expect(multi.length).toBeGreaterThan(20);
+    expect(Object.keys(PR_TIER_DECLARED).length).toBeGreaterThan(0);
   });
 
   it("watchesTree accepts a tree glob and rejects a single-file pin", () => {
