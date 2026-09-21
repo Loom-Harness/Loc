@@ -786,9 +786,21 @@ generated `docker-compose.yml` opts each backend service in by name:
       LOOM_TEST_RESET: "1"
 ```
 
-Delete that line and the local stack has no reset endpoint (and the
-suite then fails loudly, naming the cause, rather than reporting a
-bare `expected 6 to be 2` from whichever block counts rows).
+Delete that line and the local stack has no reset endpoint.  The suite
+then **warns once and carries on with shared state** — it does not fail:
+a 404 is the normal answer from a backend that was simply never told the
+reset is allowed, and python and java require `LOOM_TEST_RESET=1`
+outright, so failing there would stop the suite running at all against a
+backend started any other way.
+
+```
+[e2e] No state reset at http://localhost:4000 (404) — these tests SHARE a database.
+      They are green on a fresh one and can fail on a re-run.
+      Enable it by starting the backend with LOOM_TEST_RESET=1; …
+```
+
+Any other failure — a 500 from the truncate, a proxy in the way — does
+fail the suite, because that is a fault rather than a choice.
 
 Set `E2E_RESET=off` in the suite's environment to skip the reset
 entirely.

@@ -88,6 +88,39 @@ function __isLoopbackBase(base: string): boolean {
 
 // Bases already reset in this process, for the default per-file mode.
 const __resetOnce = new Set<string>();
+// Bases that answered 404 — warned about once, then left alone.
+const __resetUnavailable = new Set<string>();
+
+/** Print a warning without ever being the reason a suite fails.
+ *
+ *  Two hosts, two different gaps, both measured:
+ *
+ *    • under vitest, `console` output from a PASSING test is swallowed by the
+ *      default reporter — and this warning prints exactly when the suite goes
+ *      on to pass — so `process.stderr` is tried first;
+ *    • under a harness that evaluates this file with a partial `process` shim,
+ *      `process.stderr` is UNDEFINED, and reaching for `.write` on it threw
+ *      "Cannot read properties of undefined" out of the reset and took 59 cases
+ *      down with it.
+ *
+ *  So: try stderr, fall back to console, and swallow anything either throws.
+ *  A diagnostic must never become the fault it was describing. */
+function __warnOnce(message: string): void {
+  try {
+    const err = typeof process !== "undefined" ? process.stderr : undefined;
+    if (err && typeof err.write === "function") {
+      err.write(message);
+      return;
+    }
+  } catch {
+    // fall through to console
+  }
+  try {
+    console.warn(message);
+  } catch {
+    // nowhere left to print — still not a reason to fail the suite
+  }
+}
 
 /** Put the target back to its just-migrated-and-seeded state.
  *
@@ -124,11 +157,38 @@ async function __resetState(base: string): Promise<void> {
     throw new Error(`E2E state reset could not reach ${url}: ${message}`);
   }
   if (r.ok) return;
-  // Everything below is a misconfiguration the author has to see.  Failing
-  // here names the cause; letting the suite run on without isolation would
-  // surface it much later as a bare `expected 6 to be 2` in whichever block
-  // happened to count rows.
   const detail = await r.text().catch(() => "");
+  if (r.status === 404) {
+    // NOT fatal, and the reason matters.  404 is the NORMAL answer from a
+    // backend that has not been told the reset is allowed — and two of the
+    // five (python, java) ship no production-profile marker, so they require
+    // `LOOM_TEST_RESET=1` and answer 404 until someone sets it.  Failing here
+    // would turn "you did not opt in" into a suite that cannot run at all,
+    // against a backend started any way other than through the generated
+    // compose file.
+    //
+    // So this degrades to what the suite did before the reset existed —
+    // shared state — and SAYS SO once, rather than surfacing it later as a
+    // bare `expected 6 to be 2` in whichever block happened to count rows.
+    if (!__resetUnavailable.has(base)) {
+      __resetUnavailable.add(base);
+      __warnOnce(
+        [
+          "",
+          `[e2e] No state reset at ${base} (404) — these tests SHARE a database.`,
+          "      They are green on a fresh one and can fail on a re-run.",
+          "      Enable it by starting the backend with LOOM_TEST_RESET=1; the",
+          "      generated docker-compose.yml already sets that on every backend",
+          "      service. Otherwise use a fresh database per run:",
+          "        docker compose down -v && docker compose up --build -d",
+          "",
+        ].join("\n"),
+      );
+    }
+    return;
+  }
+  // Anything else IS a fault the author has to see — a 500 from the truncate,
+  // a proxy in the way — and silently carrying on would hide it.
   throw new Error(
     [
       `E2E state reset failed: POST ${url} → ${r.status}${detail ? ": " + detail.slice(0, 200) : ""}`,
@@ -136,15 +196,6 @@ async function __resetState(base: string): Promise<void> {
       "Without it this suite is NOT idempotent — it passes on a fresh database",
       "and fails on the second run of the same one, because every test shares",
       "state with the tests before it.",
-      "",
-      r.status === 404
-        ? [
-            "A 404 means the backend is not allowing the reset. Start it with",
-            "LOOM_TEST_RESET=1 — the generated docker-compose.yml already sets",
-            "that on every backend service, so this usually means the service",
-            "was started some other way, or is running a production profile.",
-          ].join("\n")
-        : "",
       "",
       "Otherwise: run against a FRESH database each time (docker compose down -v),",
       "or set E2E_RESET=off to accept shared state and write assertions that",

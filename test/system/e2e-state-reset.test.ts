@@ -92,11 +92,21 @@ function loopbackGate(e2e: string): (base: string) => boolean {
  *  a stub `fetch`, so the per-file / per-test contract is tested by what it
  *  DOES — how many times it actually hits the backend — rather than by the
  *  shape of the source.  Returns the URLs it requested. */
+interface ResetRun {
+  /** URLs the stub `fetch` was asked for. */
+  readonly hits: string[];
+  /** Whatever the helper wrote to stderr, one entry per write. */
+  readonly stderr: string[];
+  /** The error it threw, if it threw. */
+  readonly thrown?: unknown;
+}
+
 async function driveReset(
   e2e: string,
   mode: string | undefined,
   bases: string[],
-): Promise<string[]> {
+  status = 200,
+): Promise<ResetRun> {
   // From `__authHeaders` (which the reset forwards) down to the first wire
   // helper — i.e. the whole isolation section, evaluated as one unit.
   const start = e2e.indexOf("function __authHeaders");
@@ -108,12 +118,30 @@ async function driveReset(
   }).outputText;
 
   const hits: string[] = [];
+  const stderr: string[] = [];
+  let thrown: unknown;
   const g = globalThis as unknown as { fetch: unknown };
   const realFetch = g.fetch;
   const realEnv = process.env.E2E_RESET;
+  // Guarded: one of these cases deliberately removes `process.stderr` to model
+  // a host that has none, so the harness must not assume it either.
+  const realStderr = Object.getOwnPropertyDescriptor(process, "stderr");
+  const realWarn = console.warn;
   g.fetch = async (url: string) => {
     hits.push(String(url));
-    return { ok: true, status: 200, text: async () => "" };
+    return { ok: status < 400, status, text: async () => "stub body" };
+  };
+  // The helper writes to `process.stderr` rather than `console.warn` because
+  // vitest's reporter swallows console output from a PASSING test — which is
+  // exactly when this warning prints. Captured here the same way.
+  if (process.stderr) {
+    (process.stderr as unknown as { write: unknown }).write = (chunk: string) => {
+      stderr.push(String(chunk));
+      return true;
+    };
+  }
+  console.warn = (chunk: string) => {
+    stderr.push(String(chunk));
   };
   if (mode === undefined) delete process.env.E2E_RESET;
   else process.env.E2E_RESET = mode;
@@ -126,12 +154,16 @@ async function driveReset(
     // ran while the promise was still pending is exactly how the first version
     // of this helper measured the real fetch instead of the stub.
     await run(bases);
+  } catch (err) {
+    thrown = err;
   } finally {
     g.fetch = realFetch;
+    if (realStderr) Object.defineProperty(process, "stderr", realStderr);
+    console.warn = realWarn;
     if (realEnv === undefined) delete process.env.E2E_RESET;
     else process.env.E2E_RESET = realEnv;
   }
-  return hits;
+  return { hits, stderr, thrown };
 }
 
 describe("when the reset fires", () => {
@@ -148,7 +180,7 @@ describe("when the reset fires", () => {
   // available for a suite written to it.
   const drive = async (mode: string | undefined, bases: string[]) => {
     const e2e = (await files(WITH_E2E)).get("e2e/Shop.e2e.test.ts")!;
-    return await driveReset(e2e, mode, bases);
+    return (await driveReset(e2e, mode, bases)).hits;
   };
   const LOCAL = "http://localhost:4000";
 
@@ -177,6 +209,45 @@ describe("when the reset fires", () => {
     expect(hits).toHaveLength(2);
     expect(hits.some((u) => u.includes(":4000"))).toBe(true);
     expect(hits.some((u) => u.includes(":4001"))).toBe(true);
+  });
+
+  it("degrades to shared state on a 404 instead of failing the suite", async () => {
+    // 404 is the NORMAL answer from a backend that has not been told the reset
+    // is allowed — and python and java REQUIRE `LOOM_TEST_RESET=1`, so they
+    // answer 404 until someone sets it.  Hard-failing here turned "you did not
+    // opt in" into a suite that could not run at all: it took `behavioral-python`
+    // from green to nearly every case red, each with
+    // `E2E state reset failed: POST … → 404`.
+    //
+    // So a 404 warns once and carries on with what the suite did before the
+    // reset existed.  A 500 is still a fault and still throws.
+    const e2e = (await files(WITH_E2E)).get("e2e/Shop.e2e.test.ts")!;
+    const warned = await driveReset(e2e, "per-test", [LOCAL, LOCAL], 404);
+    expect(warned.thrown, "a 404 must not fail the suite").toBeUndefined();
+    expect(warned.stderr, "…and must say so, once").toHaveLength(1);
+    expect(warned.stderr[0]).toContain("LOOM_TEST_RESET=1");
+
+    const failed = await driveReset(e2e, "per-test", [LOCAL], 500);
+    expect(failed.thrown, "a 500 IS a fault and must surface").toBeDefined();
+  });
+
+  it("cannot itself break the suite when the host has no process.stderr", async () => {
+    // A harness that evaluates the emitted suite with a partial `process` shim
+    // leaves `process.stderr` UNDEFINED. Reaching for `.write` on it threw
+    // "Cannot read properties of undefined" out of the reset and took 59 of
+    // the python behavioral cases down — a diagnostic becoming the fault it
+    // was describing.
+    const e2e = (await files(WITH_E2E)).get("e2e/Shop.e2e.test.ts")!;
+    const real = Object.getOwnPropertyDescriptor(process, "stderr");
+    Object.defineProperty(process, "stderr", { value: undefined, configurable: true });
+    try {
+      const run = await driveReset(e2e, "per-test", [LOCAL], 404);
+      expect(run.thrown, "a missing stderr must not fail the suite").toBeUndefined();
+      // …and the message still lands, via console.
+      expect(run.stderr.join("")).toContain("LOOM_TEST_RESET=1");
+    } finally {
+      if (real) Object.defineProperty(process, "stderr", real);
+    }
   });
 
   it("sends nothing to a remote target in any mode", async () => {
