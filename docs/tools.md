@@ -729,10 +729,12 @@ Override per environment via `E2E_<DEPLOYABLE>_BASE` (e.g.
 The suite drives a REAL database through a running backend, so without
 a reset it would not be idempotent: a block asserting an exact count
 (`expect(listed.total).toBe(2)`) would be green on a fresh database and
-red on the second run of the same one, and would be coupled to every
-block that ran before it.  Since `docker compose up` keeps a named
-`pgdata` volume, the second `npm test` is the common case, not the
-exotic one.
+red on the second run of the same one.  Since `docker compose up` keeps
+a named `pgdata` volume, that second `npm test` is the common case, not
+the exotic one.
+
+(Blocks within ONE run still see each other's rows by default, which is
+often deliberate — see `per-test` below for the stronger contract.)
 
 So the emitted suite calls a **dev-only reset endpoint**
 (`POST /__loom/test-reset`) — by default **once per target, before the
