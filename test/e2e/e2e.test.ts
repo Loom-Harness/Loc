@@ -20,6 +20,7 @@ import {
 import { hasDocker } from "./support/docker-probe.js";
 import { writeExternUserModules } from "./support/extern-user-modules.js";
 import { installGeneratedProject } from "./support/npm-install.js";
+import { declareRunPrecondition } from "./support/run-precondition.js";
 
 // ---------------------------------------------------------------------------
 // E2E smoke: generate the acme system, `docker compose build && up`, poll
@@ -66,7 +67,12 @@ const PARITY_ONLY = process.env.LOOM_E2E_PARITY_ONLY === "1";
 // so the per-PR gate includes phoenix by default.
 const SKIP_PHOENIX = process.env.LOOM_E2E_SKIP_PHOENIX === "1";
 
-const RUN = ENABLED && hasDocker();
+const RUN = declareRunPrecondition({
+  suite: "e2e",
+  gate: "LOOM_E2E=1",
+  enabled: ENABLED,
+  requirements: [{ name: "a reachable docker daemon", ok: hasDocker() }],
+});
 
 // A lane that ASKED for this tier and then skipped it is the worst outcome:
 // it reports green having proven nothing.  That is not hypothetical here —
@@ -80,24 +86,11 @@ const RUN = ENABLED && hasDocker();
 //
 // So when `LOOM_E2E=1` is set, absence of docker is a FAILURE, not a skip.
 // `LOOM_E2E_ALLOW_NO_DOCKER=1` opts out for a deliberate local run.
-describe.runIf(ENABLED && !RUN && process.env.LOOM_E2E_ALLOW_NO_DOCKER !== "1")(
-  "e2e: precondition",
-  () => {
-    it("LOOM_E2E=1 requires a reachable docker daemon", () => {
-      // An assertion, not a bare `throw`, so the assertion-free ratchet
-      // (test/platform/assertion-free-tests.test.ts) sees a real check: inside
-      // this describe RUN is false by construction, so this always fails —
-      // with the reason in the message.
-      expect(
-        RUN,
-        "LOOM_E2E=1 asked for the full conformance tier, but no docker daemon is " +
-          "reachable, so every assertion below would have been skipped and this job " +
-          "would have reported green having proven nothing. Start docker, or set " +
-          "LOOM_E2E_ALLOW_NO_DOCKER=1 to accept the skip deliberately.",
-      ).toBe(true);
-    });
-  },
-);
+//
+// The guard itself now lives in `support/run-precondition.ts` and is declared
+// by the `declareRunPrecondition` call above: this suite hand-rolled it for
+// months while its four `*-oidc-e2e` siblings went without one, which is the
+// drift a shared helper that also COMPUTES `RUN` makes impossible.
 
 describe.skipIf(!RUN)("e2e: docker compose smoke", () => {
   let outDir: string;

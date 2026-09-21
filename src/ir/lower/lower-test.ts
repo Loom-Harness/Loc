@@ -95,18 +95,28 @@ export function lowerTest(block: TestBlock, env: Env): TestIR {
 }
 
 /** Build the `TestStmtIR` for an `expect(...)` test statement.  The
- *  method-based throw assertion `expect(call).toThrow(N?)` is recognised here
+ *  method-based throw assertion `expect(call).toThrow(…)` is recognised here
  *  and rewritten into the platform-neutral `expect-throws` IR node — so every
- *  backend renders it as a throw exactly as before — with the optional integer
- *  pinning the rejected HTTP status in an e2e api body.  Every other
- *  `expect(...)` carries a value/locator matcher (`toBe`, `toHaveText`, …); a
- *  bare-boolean `expect` is rejected by the validator (`checkExpectMatcher`). */
+ *  backend renders it as a throw exactly as before — carrying whichever of the
+ *  two mutually-exclusive refinements the author wrote:
+ *
+ *    * `status`    — `toThrow(404)`, an integer pinning the rejected HTTP
+ *                    status in an e2e api body;
+ *    * `throwKind` — `toThrow(precondition)` / `toThrow(invariant)`, the
+ *                    failure RUNG, unit tier only.
+ *
+ *  They cannot both be present: the grammar makes the `ThrowKind` slot and the
+ *  `CallArg` list alternatives on the same suffix, and each is refused in the
+ *  other's tier (`checkExpectMatcher`).  Every other `expect(...)` carries a
+ *  value/locator matcher (`toBe`, `toHaveText`, …); a bare-boolean `expect` is
+ *  rejected by the validator (`checkExpectMatcher`). */
 export function expectStmtIR(e: ExprIR, source: string): TestStmtIR {
   if (e.kind === "method-call" && e.isIntrinsicMatcher && e.member === "toThrow") {
     const inner = e.receiver.kind === "paren" ? e.receiver.inner : e.receiver;
     const arg = e.args[0];
     const status =
       arg && arg.kind === "literal" && arg.lit === "int" ? Number(arg.value) : undefined;
+    if (e.throwKind) return { kind: "expect-throws", expr: inner, source, throwKind: e.throwKind };
     return status != null
       ? { kind: "expect-throws", expr: inner, source, status }
       : { kind: "expect-throws", expr: inner, source };
