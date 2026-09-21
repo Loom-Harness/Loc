@@ -3962,6 +3962,18 @@ export const DIAGNOSTIC_MESSAGES = {
   "loom.parse-error#reserved-name": (p: { found: unknown; expected: unknown }) =>
     `'${p.found}' is a Loom keyword, so it cannot be used as a ${p.expected} here. ` +
     `Rename it — '${p.found}Ref' or a domain-specific synonym.`,
+  // The ASYMMETRIC half of the reserved-word case: a keyword the grammar
+  // admits where a name is DECLARED (`LooseName`) but not where one is READ
+  // (`NameRefIdent`).  The declaration is accepted, so the author has no
+  // reason to suspect the name — and the failure lands on the USE, in an
+  // alternation whose candidate dump describes expression syntax.  Naming the
+  // asymmetry is the only thing that makes the refusal learnable; `from` works
+  // as a parameter and `to` works everywhere, so there is otherwise no rule to
+  // infer.  The set is derived from the grammar (`src/language/soft-keywords.ts`).
+  "loom.parse-error#reserved-in-expression": (p: { found: unknown }) =>
+    `'${p.found}' is a Loom keyword and cannot be READ as a name, even though it ` +
+    `is accepted where a name is DECLARED — so a parameter, field or binding ` +
+    `called '${p.found}' parses and can then never be mentioned. Rename it.`,
 } satisfies Record<string, MessageEntry>;
 
 type Catalog = typeof DIAGNOSTIC_MESSAGES;
