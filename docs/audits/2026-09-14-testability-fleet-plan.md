@@ -173,3 +173,26 @@ The audit and this plan are [#2964](https://github.com/Loom-Harness/Loc/pull/296
 | P8 — F12 | `session_01MmL7Sj8F1uAQHRhadbGVmF` | Derived from the model, and every command in it actually run — a README whose recipe was never executed is the same defect class this fleet is draining |
 
 **Wave 3 (P9–P11) stays held on D-4** — a workflow accessor and a principal clause for `test e2e` are new surface syntax, and they are the difference between a test tier that covers CRUD and one that covers what Loom markets.
+
+## Wave 3 dispatched (2026-09-21), and the wave-1/2 PRs refreshed
+
+**D-4 answered, in two parts.** The owner took the design pass first, then ruled on each
+piece: the workflow accessor and the matcher additions are in; **the principal clause (F6)
+is DEFERRED — "a gap, not a bug."** The consequence is recorded rather than dropped: the
+`requires` / `policy` / `mask unless` / tenancy denial paths stay untestable from a user's
+model, and the repo's own coverage of them stays in `AUTHZ_LADDERS`, harness-side.
+
+Design: [`../new-plan/missions/M-T5.36-test-surface-v2-design.md`](../new-plan/missions/M-T5.36-test-surface-v2-design.md),
+six owner decisions recorded against who made them.
+
+| Packet | Session | Scope |
+|---|---|---|
+| P9 — F5 | `session_01NzRqmAcSe9vzD8sxbhB5Xi` | `api.<wf>.run()` / `.instances()` / `.instance(key)`. ONE emitter — the e2e suite is backend-agnostic HTTP — and no backend needs a new route |
+| P11a — F11 | `session_01Ut7cdAQiVz32j4k5ALDUJD` | `toThrow(precondition\|invariant)`, unit tier only, plus the e2e refusal gate. FIVE emitters, because unit tests run in-process |
+| P11b — F11 | `session_01VXgThypSkQkRcd4vBn2WKS` | `toBeNull` / `toBeAbsent` / `toContain` + verify-and-document the absence conformance contract. **Stacked on P11a** — shared `intrinsic-matchers.ts` |
+
+**Wave 1/2 PRs refreshed the same day.** All five open ones (#2956, #2957, #2958, #2960,
+#2964) sat behind CI fixes that had landed on `main`. #2958 and #2960 were stale and took a
+base update; #2956, #2957 and #2964 were already current. **Nothing was red** — 67, 100 and
+16 check runs respectively, all `queued` or `skipped` — so the delay was staleness and queue
+depth, not failure. Auto-merge is armed on all five.
