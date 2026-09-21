@@ -1101,6 +1101,73 @@ table's java row first pointed at `IfMatch.java` — and under mutation it kept 
 controller bound an `Integer` and never called the helper at all. A row aimed at a file that is
 merely *present* is not aimed at the seam. It now reads the controller.
 
+### F-041 — a typo'd field in a page body: what it actually does (wave 5 re-verification)
+
+Re-verified on fresh `main` before planning the fix, and the reproduction **reclassifies the
+finding**. `Column { "Title", p => p.titel }` — a typo for `title` — validates clean:
+
+```
+$ ddd parse typo.ddd
+0 error(s), 0 warning(s)
+```
+
+on every target. What happens next is NOT uniform, and the plan's "unvalidated" framing hides
+the difference:
+
+| target | emitted | caught by | when |
+|---|---|---|---|
+| react / vue / svelte / angular | `<Table.Td>{row.titel}</Table.Td>`, `row` inferred `DocResponse` | `tsc --noEmit` (and the `generated-*-build` CI gates) | build |
+| **phoenix / HEEx** | `<%= p.titel %>`, `p` a `%Doc{}` struct | **nothing** — `mix compile` passes | **`KeyError` on first page view** |
+
+So on the JS frontends this is an **HONEST gap with a badly-placed diagnostic**: the author learns
+about a `.ddd` typo from a TypeScript error pointing at generated code they did not write. On
+Phoenix it is a **genuine SILENT break** — clean model, clean compile, runtime 500.
+
+One thing checked and clear: the same typo also lands in the sort key (`sort_field="titel"`), but
+the emitted Ecto repository allowlists the column (`"title" -> :title; "body" -> :body; _ -> :id`),
+so the bad key degrades to sorting by id rather than reaching SQL. The render is the only failure.
+
+**The seam is one function.** `lambdaParamElementType` (`src/language/type-system.ts`) binds a
+lambda param to its collection's element type and returns `undefined` for any lambda that is not a
+COLLECTION-OP argument. A walker-primitive lambda sits in a primitive's argument list, not on a
+`MemberSuffix`, so it falls through and the param types as `string` — which
+`_walker/shared/row-field-type.ts` already documents in prose. `checkUnknownMemberAccess` then has
+nothing to check against.
+
+**Not landed here, deliberately.** The plan calls this a one-way door and it is right: every
+`o.<x>` in every shipped page becomes checkable in the same commit, so a wire-shape read the env
+types differently turns into a false error on source that ships today. The deliverable that decides
+error-vs-warning is the sweep across all 507 tracked `.ddd`, not the patch — and a sweep run after
+the fact is not a measurement, it is a rationalisation. What this re-verification adds is the
+argument for doing it: the value is not mainly "add a missing check", it is (a) moving every
+frontend's diagnostic from generated code back to the `.ddd` line, and (b) closing a real runtime
+break on the one shipping target with no compile-time field check.
+
+### F-038 — "no lockfile" is not what the measurement says (wave 5 re-verification)
+
+Re-verified by generating `examples/acme.ddd` and reading every emitted dependency manifest. The
+filed shape — "no lockfile, all deps caret-ranged" — is true of the node half and misses that the
+five backends take **five different determinism stances**:
+
+| backend | direct deps | lockfile emitted |
+|---|---|---|
+| .NET | **exact** — `PackageReference … Version="10.0.10"` | no (`packages.lock.json` absent) |
+| java | **BOM-pinned** — `spring-boot-starter-web` carries no version; the Spring Boot plugin's BOM fixes it | no (`gradle.lockfile` absent) |
+| python | **range** — `fastapi>=0.115,<1`, a whole minor float | no (`uv.lock` absent) |
+| elixir | **range** — `{:phoenix, "~> 1.8"}` | no (`mix.lock` absent) |
+| node | **caret on 50 of 50** dependencies across all 4 emitted `package.json` | no (`package-lock.json` absent) |
+
+So the direct-dependency half already diverges per backend, and the transitive half floats
+**everywhere** because no backend emits a lock. The carets are authored literally in
+`stacks/*/stack-package-deps.hbs`, so "pin exact versions" is a cheap edit — and it buys nothing
+transitively, which is the arm that would most look like a fix while being one.
+
+**Not landed, and this one should not be landed by an evaluator.** Vendoring a lockfile per stack
+means owning its refresh cadence, its size in every fixture diff, and a new failure mode where the
+generator ships a lock that disagrees with the manifest it also ships. That is a maintainer's call
+about how the project wants generated projects to age, not a defect with a correct answer. Filed
+with the numbers so the decision starts from measurement.
+
 ### F-024 — The generated OIDC login flow fails against the generated Keycloak realm (`offline_access` not granted), and then redirects to a 404
 Severity: **S1** (the advertised auth flow does not work out of the box)   Class: **SILENT** — nothing warns; the browser just shows `{"error":"token_exchange_failed"}`
 Area: system / OIDC handshake × generated realm import
