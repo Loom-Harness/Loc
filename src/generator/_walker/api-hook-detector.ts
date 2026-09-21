@@ -186,11 +186,7 @@ export function tryDetectApiHook(
   // that makes the ui-body enum-member arm safe.  Matching on the NAME alone
   // would have inverted that shadowing, because this detector runs at the top
   // of `emitExpr`, ahead of the ref arm's own scope lookups.
-  if (
-    expr.kind === "ref" &&
-    expr.refKind === "unknown" &&
-    ctx.projectionsByName?.has(expr.name)
-  ) {
+  if (expr.kind === "ref" && expr.refKind === "unknown" && ctx.projectionsByName?.has(expr.name)) {
     return { aggregateName: expr.name, operation: "read", args: [], kind: "projection" };
   }
   // Pattern D: member(ref:<Aggregate>, op) without api-param prefix.

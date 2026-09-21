@@ -105,7 +105,7 @@ system DashGap {
 function phoenixDashboardSystem(variant: "scaffolded" | "handwritten"): string {
   return dashboardSystem("node", variant, null)
     .replace("platform: node contexts:", "platform: elixir ui: Web contexts:")
-    .replace(/\n  deployable web \{[\s\S]*?\n  \}/, "");
+    .replace(/\n {2}deployable web \{[\s\S]*?\n {2}\}/, "");
 }
 
 /** Every emitted file carrying the marker, with a snippet of the offending
@@ -114,7 +114,11 @@ function markerHits(files: Map<string, string>): string[] {
   const hits: string[] = [];
   for (const [path, content] of files) {
     if (!content.includes(MARKER)) continue;
-    const line = content.split("\n").find((l) => l.includes(MARKER))?.trim() ?? "";
+    const line =
+      content
+        .split("\n")
+        .find((l) => l.includes(MARKER))
+        ?.trim() ?? "";
     hits.push(`${path}: ${line.slice(0, 160)}`);
   }
   return hits.sort();
@@ -152,19 +156,13 @@ describe("no emitted file carries the `unresolved:` marker", () => {
       // silently dropped the tile would pass the grep above while showing the
       // user nothing, which is the same failure wearing a quieter coat.
       const bound = [...files.values()].some((c) => /jobTotals|job_totals|JobTotals/.test(c));
-      expect(bound, `${frontend}: no emitted file references the JobTotals read at all`).toBe(
-        true,
-      );
+      expect(bound, `${frontend}: no emitted file references the JobTotals read at all`).toBe(true);
     },
     180_000,
   );
 
-  it.each(["scaffolded", "handwritten"] as const)(
-    "phoenix/heex: %s dashboard",
-    async (variant) => {
-      const files = await generateSystemFiles(phoenixDashboardSystem(variant));
-      expect(markerHits(files), `phoenix: ${variant} dashboard`).toEqual([]);
-    },
-    180_000,
-  );
+  it.each(["scaffolded", "handwritten"] as const)("phoenix/heex: %s dashboard", async (variant) => {
+    const files = await generateSystemFiles(phoenixDashboardSystem(variant));
+    expect(markerHits(files), `phoenix: ${variant} dashboard`).toEqual([]);
+  }, 180_000);
 });
