@@ -672,7 +672,8 @@ function typeOfExpr(expr: Expression | undefined, env: Env): DddType {
   if (isIdRef(expr)) {
     // `id` is a grammar rule, not a name (`IdRef` precedes `NameRef` in
     // `PrimaryExpr`), but `Parameter.name` admits `id` through `LooseName` — so
-    // a parameter / `let` / lambda binding CAN claim the name.  When one does it
+    // a PARAMETER can claim the name (a `let` / `if let` / lambda binding
+    // cannot: those name slots are plain `ID`).  When one does it
     // shadows the implicit aggregate identity, matching the lowerer
     // (`hasIdBinding` in `src/ir/lower/lower-expr.ts`).  Without this the
     // checker types a shadowed `id` as the enclosing aggregate's identity — or,

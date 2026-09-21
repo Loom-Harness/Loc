@@ -1922,12 +1922,15 @@ function uiEnumOwnerFor(name: string, node: AstNode | undefined): string | undef
  *  and never reaches `resolveNameRef`.  `Parameter.name` meanwhile admits `id`
  *  via `LooseName`, so `create(id: WorkOrder id)` declares a perfectly legal
  *  binding whose every USE the parser has already decided means the implicit
- *  aggregate identity.  (A PARAMETER is the only binder that can claim the
- *  name: `LetStmt` / `IfLetStmt` / `Lambda.param` are plain `ID`.  But EVERY
- *  param-bearing declaration goes through `Parameter` — `find`, `criterion`,
- *  `retrieval`, `projection`, `operation`, `create`, `destroy`, `handle`, the
- *  handlers, `function`, `page`, `component`, `action`, a `domainService`
- *  operation — so this was never workflow-specific.)
+ *  aggregate identity.  (The binders that can claim the name are exactly the
+ *  ones whose name slot is `LooseName`: `Parameter.name`, shared by all 18
+ *  `params+=Parameter` declarations — `find`, `criterion`, `retrieval`,
+ *  `projection`, `operation`, `create`, `destroy`, `handle`, the handlers,
+ *  `function`, `page`, `component`, `action`, a `domainService` operation — so
+ *  this was never workflow-specific; plus the three inline event-handler params
+ *  `Apply.param` / `OnDecl.param` / `ProjectionOn.param`, which bind through
+ *  the same `withLocal(…, "param", …)` and so are covered here too.  A `let`
+ *  CANNOT claim it: `LetStmt` / `IfLetStmt` / `Lambda.param` are plain `ID`.)
  *
  *  Left alone that lowers to `{kind:"id"}`, which every backend renders as an
  *  IMPLICIT-RECEIVER access (`this._id` / `self._id` / `this.Id`).  Inside a
@@ -1949,7 +1952,8 @@ function uiEnumOwnerFor(name: string, node: AstNode | undefined): string | undef
 const ID_NAME = "id";
 
 /** True when some binder in `env` claims the name `id` — in practice a
- *  parameter, since no other binder's grammar rule admits the keyword, but
+ *  parameter (`Parameter.name` or an `apply` / `on` handler's event param),
+ *  since no other binder's grammar rule admits the keyword, but
  *  written against every binder source `resolveNameRef` consults (inlined
  *  criterion arguments and absence-match aliases included) so the two agree on
  *  what counts as "bound" even if `LooseName` later reaches another rule. */

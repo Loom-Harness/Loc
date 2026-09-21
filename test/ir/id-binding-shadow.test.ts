@@ -155,6 +155,37 @@ context Work {
     expect(refKindsNamed(everyNode(op?.statements ?? []), "title")).toEqual(["param"]);
   });
 
+  it("an `apply` handler's event parameter named `id` shadows it in the TYPE CHECKER too", async () => {
+    // `Parameter.name` is not the only `LooseName` binder: the three inline
+    // event-handler params — `Apply.param`, `OnDecl.param`, `ProjectionOn.param`
+    // — admit the keyword as well, and all three bind through the same
+    // `withLocal(…, "param", …)` the fix reads.
+    //
+    // This is also the one leg that reaches the PHASE-④ half of the fix
+    // (`typeOfExpr`'s `isIdRef` arm in `src/language/type-system.ts`) on its
+    // own: `id.label` is a member access on the binding, so what the checker
+    // types `id` as decides whether the model validates at all.  Without it the
+    // checker types `id` as the enclosing aggregate's identity and
+    // `buildLoomModel` throws `'label' is not a member of 'WorkOrder'` — the
+    // parse never gets far enough to assert on the IR.
+    const model = await buildLoomModel(`
+context Work {
+  event Closed { label: string }
+  aggregate WorkOrder persistedAs: eventLog {
+    title: string
+    trace: string
+    operation close() { emit Closed { label: "x" } }
+    apply(id: Closed) { trace := id.label }
+  }
+  repository WorkOrders for WorkOrder { }
+}
+`);
+    const agg = model.contexts.flatMap((c) => c.aggregates).find((a) => a.name === "WorkOrder");
+    const nodes = everyNode(agg?.appliers ?? []);
+    expect(nodes.length).toBeGreaterThan(0);
+    expect(identityMarkers(nodes)).toEqual([]);
+  });
+
   it("a repository `find` whose predicate names its `id` parameter still emits", async () => {
     // The HARDEST manifestation of the same root cause, and the reason the fix
     // belongs at the one lowering site rather than in the workflow lowerer: a
