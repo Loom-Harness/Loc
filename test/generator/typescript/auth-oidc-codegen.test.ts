@@ -103,6 +103,26 @@ describe("hono OIDC turnkey auth — codegen", () => {
     expect(oidc).toContain('const AUDIENCE = process.env.OIDC_AUDIENCE ?? "my-api";');
   });
 
+  // CR1-b / P0-4.  node used to emit `{ issuer: ISSUER }` with NO audience term
+  // and NO env path whenever the `.ddd` declared no `audience:` — python, java
+  // and dotnet all read OIDC_AUDIENCE regardless, so one model deployed with
+  // enforceable audience isolation on those and an unenforceable one here, with
+  // no error and no log line.  The const is now always emitted; an empty value
+  // (unset, or an explicit OIDC_AUDIENCE="") is still the no-check default.
+  it("reads OIDC_AUDIENCE even when the .ddd declares no audience:", async () => {
+    const files = await generateSystemFiles(OIDC);
+    const oidc = findFile(files, /auth\/oidc\.ts$/);
+    expect(oidc).toContain('const AUDIENCE = process.env.OIDC_AUDIENCE ?? "";');
+    expect(oidc).toContain(
+      "const VERIFY_OPTIONS = AUDIENCE ? { issuer: ISSUER, audience: AUDIENCE } : " +
+        "{ issuer: ISSUER };",
+    );
+    // …and the verifier must actually USE it — a const nothing reads is the
+    // same silent non-enforcement in a new costume.
+    expect(oidc).toContain("await jwtVerify(token, await getJwks(), VERIFY_OPTIONS)");
+    expect(oidc).not.toContain("jwtVerify(token, await getJwks(), { issuer: ISSUER })");
+  });
+
   it("never caches a failed JWKS discovery (IdP-not-up-yet must not brick auth)", async () => {
     const files = await generateSystemFiles(OIDC);
     const oidc = findFile(files, /auth\/oidc\.ts$/);

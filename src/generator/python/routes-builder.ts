@@ -74,7 +74,6 @@ import { findUnionSpec } from "../_payload/union-wire.js";
 import { pyHistoryMapperName, renderPyHistoryMapper } from "./emit/audit-history.js";
 import { domainServiceImportLinesForExprs } from "./emit/domain-service.js";
 import { paramPyType, requestPyType, responsePyType, wireModelImport } from "./emit/http-models.js";
-import { provColumn } from "./emit/provenance.js";
 import {
   createFieldConstraints,
   createModelValidator,

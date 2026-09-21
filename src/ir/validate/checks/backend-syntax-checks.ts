@@ -120,7 +120,7 @@ export function validateElixirOpSelfCallPosition(sys: SystemIR, diags: LoomDiagn
             walkStmtsDeep(s, (inner) => {
               if (inner.kind !== "call" || inner.target !== "private-operation") return;
               const callee = (agg.operations as OperationIR[]).find((o) => o.name === inner.name);
-              if (!callee || !callee.statements.some(stmtReadsCurrentUser)) return;
+              if (!callee?.statements.some(stmtReadsCurrentUser)) return;
               diags.push({
                 severity: "error",
                 code: "loom.vanilla-op-call-actor",

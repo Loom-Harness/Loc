@@ -35,6 +35,25 @@ on:
       - 'src/platform/feliz.ts'
       - 'src/platform/metadata.ts'
       - 'src/platform/registry.ts'
+      # Shared emission seams the platform tree above delegates into: `_stmt` is
+      # the StmtIR dispatcher this backend's leaf table plugs into, `_payload`
+      # the one tagged-union wire shape, `_i18n` the validation-catalog
+      # collector.  The leading underscore means SHARED, not per-target -- a
+      # change confined to one of them changes what this gate compiles.  Derived
+      # from this block's platform claim and pinned by
+      # test/system/workflow-path-coverage.test.ts.
+      - 'src/generator/_adapters/**'
+      - 'src/generator/_auth/**'
+      - 'src/generator/_channels/**'
+      - 'src/generator/_expr/**'
+      - 'src/generator/_i18n/**'
+      - 'src/generator/_numeric/**'
+      - 'src/generator/_obs/**'
+      - 'src/generator/_packs/**'
+      - 'src/generator/_payload/**'
+      - 'src/generator/_persistence/**'
+      - 'src/generator/_trace/**'
+      - 'src/generator/_workflow/**'
       - 'test/e2e/fixtures/java-build/hosts-feliz.ddd'
       - 'test/e2e/fixtures/elixir-vanilla-build/vanilla-embed-feliz.ddd'
       - 'scripts/feliz-smoke.mjs'
@@ -65,6 +84,25 @@ on:
       - 'src/platform/feliz.ts'
       - 'src/platform/metadata.ts'
       - 'src/platform/registry.ts'
+      # Shared emission seams the platform tree above delegates into: `_stmt` is
+      # the StmtIR dispatcher this backend's leaf table plugs into, `_payload`
+      # the one tagged-union wire shape, `_i18n` the validation-catalog
+      # collector.  The leading underscore means SHARED, not per-target -- a
+      # change confined to one of them changes what this gate compiles.  Derived
+      # from this block's platform claim and pinned by
+      # test/system/workflow-path-coverage.test.ts.
+      - 'src/generator/_adapters/**'
+      - 'src/generator/_auth/**'
+      - 'src/generator/_channels/**'
+      - 'src/generator/_expr/**'
+      - 'src/generator/_i18n/**'
+      - 'src/generator/_numeric/**'
+      - 'src/generator/_obs/**'
+      - 'src/generator/_packs/**'
+      - 'src/generator/_payload/**'
+      - 'src/generator/_persistence/**'
+      - 'src/generator/_trace/**'
+      - 'src/generator/_workflow/**'
       - 'test/e2e/fixtures/java-build/hosts-feliz.ddd'
       - 'test/e2e/fixtures/elixir-vanilla-build/vanilla-embed-feliz.ddd'
       - 'scripts/feliz-smoke.mjs'
