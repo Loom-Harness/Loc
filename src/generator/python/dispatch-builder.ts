@@ -16,6 +16,7 @@ import { durableEventTypes } from "../../ir/util/channels.js";
 import { valueObjectPool } from "../../ir/util/reachable-types.js";
 import { lines } from "../../util/code-builder.js";
 import { escapePythonIdent, snake } from "../../util/naming.js";
+import { decodeField, type WireDecodeTarget } from "../_channels/wire-codec.js";
 import { numericEncode } from "../_numeric/target.js";
 import { statementSubRegions } from "../_trace/sourcemap.js";
 import { renderWorkflowStmtChunks } from "../_workflow/stmt-target.js";
@@ -1225,33 +1226,39 @@ export function toPayload(expr: string, t: TypeIR): string {
   return expr;
 }
 
+/** Python's `WireDecodeTarget` — the leaf half of the shared channel wire
+ *  codec (`src/generator/_channels/wire-codec.ts`).
+ *
+ *  Behaviour is unchanged from the private `fromPayload` this replaces (the
+ *  port is byte-identical); what moved out is the `TypeIR.kind` DISPATCH,
+ *  which now lives once, is exhaustive, and `never`-checks — so a new IR type
+ *  kind can no longer land silently in the `cast(str, ...)` arm. */
+const PY_WIRE_DECODE: WireDecodeTarget = {
+  lang: "python",
+  read: (payload, field) => `${payload}["${field}"]`,
+  primitive: {
+    int: (e) => numericEncode(PY_NUMERIC, "int", "repo-read", e),
+    long: (e) => numericEncode(PY_NUMERIC, "long", "repo-read", e),
+    decimal: (e) => pyEventSourcedDecimalDecode(e),
+    money: (e) => numericEncode(PY_NUMERIC, "money", "repo-read", e),
+    bool: (e) => `cast(bool, ${e})`,
+    datetime: (e) => `datetime.fromisoformat(cast(str, ${e}))`,
+    string: (e) => `cast(str, ${e})`,
+    guid: (e) => `cast(str, ${e})`,
+    json: (e) => `cast(str, ${e})`,
+    File: (e) => `cast(str, ${e})`,
+    duration: (e) => `cast(str, ${e})`,
+  },
+  id: (e, targetName) => `${targetName}Id(cast(str, ${e}))`,
+  enumValue: (e, name) => `${name}(cast(str, ${e}))`,
+  // No `optional` leaf and no `array` leaf: neither existed before the port.
+  // They are absent rather than invented here so the refactor changes no
+  // bytes — the gaps are now named in ONE dispatcher instead of hidden in
+  // four `default:` arms.
+  passthrough: (e) => `cast(str, ${e})`,
+};
+
 /** Payload value → typed domain-event field (mirror of `toPayload`). */
 export function fromPayload(name: string, t: TypeIR): string {
-  const access = `payload["${name}"]`;
-  const inner = t.kind === "optional" ? t.inner : t;
-  switch (inner.kind) {
-    case "primitive":
-      switch (inner.name) {
-        case "int":
-          return numericEncode(PY_NUMERIC, "int", "repo-read", access);
-        case "long":
-          return numericEncode(PY_NUMERIC, "long", "repo-read", access);
-        case "decimal":
-          return pyEventSourcedDecimalDecode(access);
-        case "money":
-          return numericEncode(PY_NUMERIC, "money", "repo-read", access);
-        case "bool":
-          return `cast(bool, ${access})`;
-        case "datetime":
-          return `datetime.fromisoformat(cast(str, ${access}))`;
-        default:
-          return `cast(str, ${access})`;
-      }
-    case "id":
-      return `${inner.targetName}Id(cast(str, ${access}))`;
-    case "enum":
-      return `${inner.name}(cast(str, ${access}))`;
-    default:
-      return `cast(str, ${access})`;
-  }
+  return decodeField("payload", { name, type: t, optional: t.kind === "optional" }, PY_WIRE_DECODE);
 }
