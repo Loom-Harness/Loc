@@ -971,7 +971,30 @@ function renderKeycloakRealm(sys: SystemIR): string {
   // the verifiers must name the same claim or this fix would only move the
   // silence (see `auth-claim-path-parity.test.ts`).
   const IDP_PROVIDED = new Set(["id", "email"]);
-  const claimFields = (sys.user?.fields ?? []).filter((f) => !IDP_PROVIDED.has(f.name));
+  // A field the author gave an EXPLICIT `claims:` mapping is IdP-provided BY
+  // DEFINITION — the mapping exists to say "the IdP already mints this, here is
+  // where it puts it".  Emitting a user-attribute mapper for it does not add the
+  // claim, it OVERWRITES the real one with a seeded value.
+  //
+  // `auth-oidc-e2e.ddd` is the case that proved it:
+  //
+  //     claims: { roles: "realm_access.roles", email: "email" }
+  //
+  // `realm_access.roles` is Keycloak's own realm-role claim, and the demo user's
+  // roles (`user`, `agent`) are what the gated finds split on.  A mapper on that
+  // path replaced them — the four native `*-oidc-e2e` legs failed with
+  // `expected [ 'demo-roles' ] to include 'agent'`, i.e. my synthetic seed
+  // standing where the IdP's real roles belong.
+  //
+  // The dotted-path test is the same rule's safety net: a nested path addresses
+  // a structure the IdP owns, whether or not it was reached through `claims:`.
+  const explicitlyMapped = new Set((sys.auth?.claims ?? []).map((c) => c.field));
+  const claimFields = (sys.user?.fields ?? []).filter(
+    (f) =>
+      !IDP_PROVIDED.has(f.name) &&
+      !explicitlyMapped.has(f.name) &&
+      !claimPathFor(f.name, sys.auth ?? { claims: [] }).includes("."),
+  );
   const claimMappers = claimFields.map((f) => {
     const multivalued = f.type.kind === "array";
     return {

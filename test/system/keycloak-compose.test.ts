@@ -156,6 +156,63 @@ system Helpdesk {
   // stack authenticated and then denied everything, silently.
   // ---------------------------------------------------------------------------
 
+  it("emits NO mapper for a claim the IdP already provides", async () => {
+    // The defect this pins cost four CI legs.  `auth-oidc-e2e.ddd` declares
+    //
+    //     user { id: string  roles: string[]  email: string }
+    //     claims: { roles: "realm_access.roles", email: "email" }
+    //
+    // and `realm_access.roles` is KEYCLOAK'S OWN realm-role claim — the demo
+    // user's `user` / `agent` roles, which the gated finds split on.  Emitting a
+    // user-attribute mapper onto that path does not ADD the claim, it OVERWRITES
+    // the real one with whatever attribute is seeded: the four native
+    // `*-oidc-e2e` legs failed with `expected [ 'demo-roles' ] to include
+    // 'agent'` — a synthetic seed standing where the IdP's own roles belong.
+    //
+    // An explicit `claims:` mapping means "the IdP already mints this, here is
+    // where"; a mapper for it is by construction wrong.
+    const files = await filesFor(`
+system Helpdesk {
+  user { id: string  roles: string[]  tenantId: string  email: string }
+  auth {
+    provider: keycloak
+    oidc { issuer: env("I")  clientId: env("C") }
+    claims: { roles: "realm_access.roles", email: "email" }
+  }
+  subdomain Support {
+    context Tickets {
+      aggregate Ticket with crudish { subject: string  derived display: string = subject }
+      repository Tickets for Ticket { }
+    }
+  }
+  storage p { type: postgres }
+  resource r { for: Tickets, kind: state, use: p }
+  api SApi from Support
+  deployable api { platform: node contexts: [Tickets] dataSources: [r] serves: SApi auth: required port: 3000 }
+}`);
+    const realm = JSON.parse(files.get("keycloak/realm.json")!) as {
+      clients: { protocolMappers?: { name: string; config: Record<string, string> }[] }[];
+      users: { attributes?: Record<string, string[]> }[];
+    };
+    const mappers = realm.clients[0]!.protocolMappers ?? [];
+    const claimNames = mappers.map((m) => m.config["claim.name"]);
+
+    // The explicitly-mapped claim gets NO mapper and NO seeded attribute.
+    expect(claimNames, "a mapper was emitted onto the IdP's own claim path").not.toContain(
+      "realm_access.roles",
+    );
+    expect(mappers.map((m) => m.name)).not.toContain("loom-claim-roles");
+    expect(realm.users[0]!.attributes ?? {}).not.toHaveProperty("roles");
+
+    // …and no mapper writes into a NESTED path at all — a dotted claim
+    // addresses a structure the IdP owns, however it was reached.
+    expect(claimNames.filter((c) => c?.includes("."))).toEqual([]);
+
+    // The unmapped claim still gets one: this must not become "emit nothing",
+    // which is the original F-022 defect.
+    expect(claimNames).toContain("tenantId");
+  });
+
   it("emits a mapper + a seeded attribute for every declared claim", async () => {
     const files = await filesFor(`
 system FieldOps {
