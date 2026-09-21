@@ -975,55 +975,6 @@ export const SEMANTICS_RULES: readonly SemanticsRule[] = [
     // gates it per-PR.
     tier: "behavioral",
   },
-  {
-    id: "RS-35",
-    title: "An absent optional is `null` on the wire, never an omitted key",
-    trigger:
-      "an aggregate with an optional scalar (`estimate: int?`) created by a body that OMITS the field, then read back",
-    observable:
-      'the read body CARRIES the key with an explicit null \u2014 {"estimate": null} \u2014 on every backend and every persistence adapter. The key is never dropped from the payload, so a client can tell "declared but unset" from "not a field of this resource" without consulting the schema.',
-    // Loom has ONE absence value; JSON has TWO spellings of it, and picking
-    // per-backend is exactly the kind of divergence a structural spec-diff
-    // cannot see (both spellings satisfy an `estimate?: number` schema).
-    //
-    // This rule DOCUMENTS an already-enforced contract rather than establishing
-    // a new one \u2014 which is why its provenance is the gate, not a fix.  Three
-    // things have to hold for it to be enforced, and all three were verified at
-    // the code face for M-T5.36/P11b:
-    //
-    //   1. `normalizeBody` (test/_helpers/response-diff.ts) collapses volatile
-    //      VALUES but never drops KEYS, and returns `null` unchanged \u2014 so an
-    //      absent key and a null key stay distinguishable through normalization.
-    //   2. `diffBodies` unions both sides' key sets and raises a `key-set`
-    //      divergence when a key is on one side only (`null-vs-empty` is a
-    //      separate kind, for []/{} against null).
-    //   3. The subject exists and is compared: `absent-optional.ddd` creates a
-    //      Ticket with no `estimate` in the body, and
-    //      `wire-golden/absent-optional.json` records `"estimate": null` on both
-    //      read bodies \u2014 so the golden CARRIES the optional key rather than
-    //      only the fields a non-conforming backend would also send.
-    //
-    // Reach was confirmed by DERIVATION, not assumed: `requiredGoldenCases()`
-    // lists all seven wire-gated legs as recorders of `absent-optional`, and
-    // none of the three escape hatches covers it \u2014 `WIRE_WAIVERS` is empty,
-    // `GOLDEN_OPT_OUT` is empty, and `BEHAVIOURAL_SKIP` is drained for every
-    // platform clause.
-    //
-    // KNOWN SHAPE OF THE GUARANTEE: each leg is diffed against the committed
-    // NODE-ORACLE golden, so what is enforced is "all five agree with the
-    // reviewed recording".  Moving the contract therefore means rebaselining a
-    // checked-in file (`LOOM_WIRE_UPDATE=1`), which lands as a visible diff a
-    // human approves \u2014 deliberate, not silent.
-    //
-    // The DSL surface for this rule is the absence PAIR: `toBeNull()` asserts
-    // the spelling above, and `toBeAbsent()` asserts the other one, which today
-    // has no passing subject on any backend.  That is intentional \u2014 it is not
-    // special-cased into passing, so a backend that starts omitting a key turns
-    // a test red instead of drifting.
-    conforms: ["node", "dotnet", "java", "python", "elixir"],
-    provenance: ["#2577", "M-T9.11", "M-T5.36/P11b"],
-    tier: "behavioral",
-  },
 ];
 
 // ---------------------------------------------------------------------------

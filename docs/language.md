@@ -1222,7 +1222,8 @@ compiler-known catalogue (`toBe` / `toBeGreaterThan(OrEqual)` /
 assertions the compiler type-checks and lowers per backend.  Some are context-
 restricted (validator-enforced): `toThrow(<status>)`, `toBeSameInstant` and
 `toBeAbsent` are
-only valid in a `test e2e` body, and `toThrow(<kind>)` only in a unit `test` —
+only valid in a `test e2e` body, `toThrow(<kind>)` only in a unit `test`, and
+neither `toBeNull` nor `toBeAbsent` is legal in a **ui** e2e body —
 and `toThrow` in *any* form is rejected in
 a `test e2e` body targeting a FRONTEND deployable, where no HTTP response
 exists (`loom.e2e-ui-throw-invalid`; see the negative-path section below).  The
@@ -1265,6 +1266,15 @@ five backends** — [RS-35](conformance-semantics.md) — so `toBeNull()` assert
 the gated reality and `toBeAbsent()` currently has **no passing subject**.  That
 is deliberate: it is not special-cased into passing, so a backend that starts
 omitting a key turns a test red instead of drifting silently.
+
+Neither absence matcher is legal in a **ui** `test e2e` body
+(`loom.e2e-ui-absence-invalid`): a ui assertion reads rendered text off a
+Playwright locator, which is always a string — so `toBeNull()` can never hold
+and `toBeAbsent()` is not a runtime matcher at all. Assert what the page shows
+(`toHaveText("")` / `toBeVisible()`), or move the absence claim to a block
+targeting a backend deployable. This is the same ruling
+`loom.e2e-ui-throw-invalid` makes for `toThrow`. `toContain` **is** legal
+there — a substring of the rendered text is a real claim.
 
 `toBeAbsent()` is **e2e-only** (`loom.unit-absent-invalid`).  "The key is not in
 the payload" needs a payload to be about; a unit `test` asserts against an

@@ -319,6 +319,20 @@ absence.
 Its subject must be a **field read** (`loom.absent-receiver-invalid`): the
 generated form needs an object and a key to look for.
 
+**Neither absence matcher is legal in a ui `test e2e` body**
+(`loom.e2e-ui-absence-invalid`) — the same ruling `loom.e2e-ui-throw-invalid`
+makes for `toThrow`, for the same reason. A ui assertion lowers onto
+`(await <row>.field("…").innerText())`, which is always a string: `toBeNull()`
+can never hold there, and `toBeAbsent()` is not a matcher the test runtime
+defines at all, so the emitted spec would fail to run before asserting
+anything. Assert what the page actually shows — `toHaveText("")` for an empty
+cell, `toBeVisible()` for a field that should or should not be there — or move
+the absence claim to a block targeting a backend deployable.
+
+`toContain` is deliberately NOT swept up by that refusal: a substring of the
+text the page rendered is a real, useful claim, so it stays legal in all three
+tiers.
+
 ### `toContain()` — membership or substring
 
 One matcher, two lowerings, chosen by the **subject's type**:

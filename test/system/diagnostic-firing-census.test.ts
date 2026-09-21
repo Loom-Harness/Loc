@@ -2047,6 +2047,33 @@ system S {
   "loom.absent-receiver-invalid": throwKindProbe({
     e2eTest: `    expect(wo).toBeAbsent()`,
   }),
+  // Third tier, third reason (cf. `loom.e2e-ui-throw-invalid` just above): a ui
+  // body asserts against RENDERED TEXT, which is always a string \u2014 so neither
+  // absence spelling is observable there.  Needs a full react-targeting system,
+  // because the diagnostic reads the target deployable's platform.
+  "loom.e2e-ui-absence-invalid": `
+system S {
+  subdomain D { context C {
+    aggregate Technician with crudish {
+      name: string
+      derived display: string = name
+    }
+    repository Technicians for Technician { }
+  } }
+
+  ui WebApp with scaffold(subdomains: [D]) { }
+  storage primary { type: postgres }
+  resource cState { for: C, kind: state, use: primary }
+
+  deployable api { platform: node, contexts: [C], dataSources: [cState], port: 3000 }
+  deployable webApp { platform: react, targets: api, ui: WebApp, port: 3001 }
+
+  test e2e "a ui body cannot assert an absence" against webApp {
+    let t = ui.technicians.create({ name: "Grace" })
+    let read = ui.technicians.getById(t)
+    expect(read.name).toBeNull()
+  }
+}`,
   "loom.seed-abstract-aggregate": repoOnly(`    abstract aggregate Base { name: string }
     aggregate Child extends Base with crudish { extra: int }
     repository Children for Child { }

@@ -610,25 +610,6 @@
         "elixir closed 2026-08-30 (the last hold-out): `elixirCodePointLength` in the same shared module feeds render-expr.ts, the ExUnit value renderer, and a hand-rolled `validate_change/3` length arm in changeset-validators.ts — both carriers in one change, since moving one alone made elixir disagree with itself"
       ],
       "tier": "behavioral"
-    },
-    {
-      "id": "RS-35",
-      "title": "An absent optional is `null` on the wire, never an omitted key",
-      "trigger": "an aggregate with an optional scalar (`estimate: int?`) created by a body that OMITS the field, then read back",
-      "observable": "the read body CARRIES the key with an explicit null — {\"estimate\": null} — on every backend and every persistence adapter. The key is never dropped from the payload, so a client can tell \"declared but unset\" from \"not a field of this resource\" without consulting the schema.",
-      "conforms": [
-        "node",
-        "dotnet",
-        "java",
-        "python",
-        "elixir"
-      ],
-      "provenance": [
-        "#2577",
-        "M-T9.11",
-        "M-T5.36/P11b"
-      ],
-      "tier": "behavioral"
     }
   ]
 }

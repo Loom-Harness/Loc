@@ -644,6 +644,24 @@ export const DIAGNOSTIC_MESSAGES = {
   // would either degrade to a null check — a silent synonym for `toBeNull`,
   // one name meaning two strengths of claim, the #2959 defect — or emit an
   // assertion that can never pass.  Name the tier and the alternative.
+  // `toBeNull()` / `toBeAbsent()` in a `test e2e` body that lowers to the
+  // PLAYWRIGHT renderer.  Third tier, third reason, and the same shape F7 found
+  // for `toThrow`: a ui body asserts against RENDERED TEXT, and
+  // `ui-e2e-render.ts` lowers a value matcher onto
+  // `(await <handle>.field("x").innerText())` \u2014 always a string.  So
+  // `toBeNull()` there is an assertion that can never pass, and `toBeAbsent()`
+  // is not a runtime matcher at all: the emitted spec would TypeError.  Neither
+  // absence spelling is observable through rendered text \u2014 a field the page
+  // did not render has no locator to read, which is a `toBeVisible` question.
+  "loom.e2e-ui-absence-invalid": (p: { matcher: unknown }) =>
+    `'${p.matcher}()' asserts an ABSENCE in a payload, and a ui \`test e2e\` body has no ` +
+    "payload: its assertions read RENDERED TEXT off a Playwright locator, which is always " +
+    'a string. Here the matcher would lower onto `(await <row>.field("...").innerText())` ' +
+    `\u2014 ${p.matcher === "toBeNull" ? "a comparison that can never hold" : "a matcher the test runtime does not define, so the generated spec would fail to run"}. ` +
+    'Assert what the page actually shows instead: `toHaveText("")` for an empty cell, or ' +
+    "`toBeVisible()` on the field that should or should not be there. To pin the WIRE " +
+    "spelling, move the assertion to a block targeting a BACKEND deployable, where a real " +
+    "response body carries one.",
   "loom.unit-absent-invalid": () =>
     "'toBeAbsent()' asserts that a key is MISSING FROM THE PAYLOAD, which only means " +
     "something once a value has been serialized \u2014 so it is valid in a `test e2e` block " +

@@ -1564,3 +1564,28 @@ nothing and the test passes vacuously.
 - **Conforms.** node, dotnet, java, python, elixir (all adapters).
 - **Provenance.** Contract enforced since #2577 / M-T9.11 (the per-PR wire
   differential); named and written down by M-T5.36/P11b. Tier: **behavioral**.
+- **⚠ Registry entry pending — and why (a finding, not an oversight).** Step 1
+  of *Adding a rule* above says the `RS-N` entry goes in
+  `test/conformance/semantics-rules.ts`, and `semantics-rules.test.ts` is meant
+  to make a prose-only rule impossible. **It currently cannot be followed.**
+  That registry holds `RS-1 … RS-31` and its `ids are unique and gap-free`
+  assertion requires the numbers to be *contiguous* — but **RS-32, RS-33 and
+  RS-34 were merged into this document with no registry entries** (RS-32/RS-33
+  in #2704, RS-34 in the wave-2 packet 2.7). So the registry is three rules
+  behind the prose, and **any** new rule is now unlandable there: taking `RS-35`
+  fails the contiguity assertion, and taking `RS-32` would collide with a number
+  this document already uses, which the `id` contract ("never renumbered")
+  forbids.
+
+  The gate that was supposed to prevent prose-only rules only checks the
+  registry's *internal* consistency, never prose-vs-registry parity — which is
+  exactly how three rules slipped past it.
+
+  **Remedy, for whoever picks this up:** backfill registry entries for RS-32,
+  RS-33 and RS-34 from their prose above, then add RS-35, then regenerate the
+  mirror (`UPDATE_SEMANTICS_SPEC=1 npx vitest run
+  test/conformance/semantics-spec-sync.test.ts`). Authoring three other
+  packets' entries is a mission of its own — misstating another rule's
+  `conforms`/`targets` is worse than the gap — so P11b records the blocker here
+  rather than guessing at them. A prose-vs-registry parity assertion belongs in
+  the same change, or this recurs.

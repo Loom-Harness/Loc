@@ -192,12 +192,30 @@ export function checkExpectMatcher(model: Model, accept: ValidationAcceptor): vo
     //
     // `toBeNull()` and `toContain()` are legal in BOTH tiers; only the
     // wire-spelling half of the absence pair is split.
-    if (matcher.member === "toBeAbsent") {
-      if (!isTestE2E(stmt.$container)) {
+    if (matcher.member === "toBeAbsent" || matcher.member === "toBeNull") {
+      const absenceContainer = stmt.$container;
+      if (matcher.member === "toBeAbsent" && !isTestE2E(absenceContainer)) {
         accept("error", diagMessage("loom.unit-absent-invalid", {}), {
           node: matcher,
           property: "member",
           code: "loom.unit-absent-invalid",
+        });
+        continue;
+      }
+      // A `test e2e` block that lowers to the UI renderer asserts against
+      // RENDERED TEXT, not a payload — `ui-e2e-render.ts` puts a value matcher
+      // on `(await <handle>.field("x").innerText())`, which is always a string.
+      // `toBeNull()` there can never hold and `toBeAbsent()` is not a runtime
+      // matcher at all, so the emitted spec would fail to run.  Refuse both at
+      // the source span rather than shipping an assertion that cannot pass —
+      // the same ruling `loom.e2e-ui-throw-invalid` makes for `toThrow`
+      // (audit 2026-09-13 F7).  `toContain` is NOT refused here: a substring of
+      // the rendered text is a real, useful claim.
+      if (isTestE2E(absenceContainer) && lowersToUiSpec(absenceContainer)) {
+        accept("error", diagMessage("loom.e2e-ui-absence-invalid", { matcher: matcher.member }), {
+          node: matcher,
+          property: "member",
+          code: "loom.e2e-ui-absence-invalid",
         });
       }
       continue;
