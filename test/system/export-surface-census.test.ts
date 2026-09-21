@@ -159,8 +159,9 @@ describe("export-surface census (P1-4)", () => {
   const decls = srcFiles.flatMap(exportedDecls);
   const wanted = new Set(decls.map((d) => d.name));
 
-  // name -> files (other than the definer) that spell it, split by whether the
-  // mention is code or documentation.
+  // Every file that may REFERENCE an export.  `.md` is absent from
+  // CONSUMER_EXT on purpose: documenting a symbol is not using it, and four of
+  // the 52 this gate drained were named only by the audit that found them.
   const consumers = CONSUMER_ROOTS.flatMap((r) =>
     walk(path.join(repoRoot, r), (p) => CONSUMER_EXT.test(p)),
   ).filter((p) => !p.includes(`${path.sep}generated${path.sep}`));

@@ -181,17 +181,6 @@ export function sameGroupKey(a: GroupKey, b: GroupKey): boolean {
   return a.column === b.column && a.transform === b.transform;
 }
 
-/** LEGACY narrow reading: the bare source column, `null` for anything else —
- *  INCLUDING a computed key, which has no bare-column emission.  The backends
- *  that have not yet grown a transform arm still call this, and each throws on
- *  `null`; that loud failure is deliberate (a silent fallback to the untrimmed
- *  column would group every timestamp into its own bucket).  Prefer
- *  `groupKeyOf`. */
-export function groupKeyColumn(e: ExprIR): string | null {
-  const key = groupKeyOf(e);
-  return key && key.transform === undefined ? key.column : null;
-}
-
 function declaredType(p: ProjectionIR, field: string): TypeIR | undefined {
   return p.wireShape?.find((f) => f.name === field)?.type;
 }

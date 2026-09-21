@@ -4028,25 +4028,6 @@ export function exprUsesCurrentUser(e: ExprIR | undefined): boolean {
   return found;
 }
 
-/** True when a `currentUser`-valued stamp RHS is the bare principal or its
- *  `id` member — the "who" identity that a backend may collapse onto the
- *  ambient actor id (Hono `ctx.actorId`, Java `@CreatedBy`/AuditorAware).  A
- *  member access on any OTHER claim (`currentUser.role`, `currentUser.tenantId`)
- *  returns false: those must persist the DECLARED attribute so a read filter
- *  comparing the same claim (`this.createdByRole == currentUser.role`) matches
- *  the stamped row. */
-export function currentUserRefIsActorId(e: ExprIR): boolean {
-  if (e.kind === "ref" && e.refKind === "current-user") return true;
-  if (
-    e.kind === "member" &&
-    e.member === "id" &&
-    e.receiver.kind === "ref" &&
-    e.receiver.refKind === "current-user"
-  )
-    return true;
-  return false;
-}
-
 /** True when the operation's body — preconditions, assignments,
  *  emits, calls — references `currentUser` anywhere. */
 export function operationUsesCurrentUser(op: OperationIR): boolean {
@@ -4215,18 +4196,6 @@ export function queryProjectionUsesCurrentUser(proj: ProjectionIR): boolean {
  *  closure-captured `HasQueryFilter`.) */
 export function aggregateUsesPrincipalContextFilter(agg: { contextFilters?: ExprIR[] }): boolean {
   return (agg.contextFilters ?? []).some(exprUsesCurrentUser);
-}
-
-/** True when any of the aggregate's lifecycle stamps (`contextStamps`, from
- *  `with audit`/`auditable` or `stamp onCreate`/`onUpdate`) assigns a value
- *  that reads `currentUser` (e.g. `createdBy := currentUser`).  Such a stamp
- *  needs the request principal threaded onto the create /
- *  update call so the stamp can read the current actor — the
- *  stamp-side analogue of `aggregateUsesPrincipalContextFilter`. */
-export function aggregateStampUsesPrincipal(agg: { contextStamps?: ContextStampIR[] }): boolean {
-  return (agg.contextStamps ?? []).some((r) =>
-    r.assignments.some((a) => exprUsesCurrentUser(a.value)),
-  );
 }
 
 export function stmtUsesCurrentUser(s: StmtIR): boolean {

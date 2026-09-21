@@ -1570,23 +1570,6 @@ function lookupValueObjectByName(name: string, env: Env): ValueObject | undefine
 // and src/util/collection-ops.ts — pure data catalogues that all layers
 // can import without back-edges into language/.
 
-export function lambdaTakesElementOf(t: DddType): DddType {
-  if (t.kind === "array") return t.element;
-  return T.unknown;
-}
-
-// ---------------------------------------------------------------------------
-// Pure-expression check for `function` bodies
-// ---------------------------------------------------------------------------
-
-export function isPureExpression(_expr: Expression): boolean {
-  // Expressions are inherently pure in this DSL — they cannot mutate or
-  // emit.  Purity violations live in statements (`:=`, `+=`, `-=`, `emit`),
-  // which can never appear inside a `function` body because the grammar
-  // only accepts an Expression there.
-  return true;
-}
-
 // ---------------------------------------------------------------------------
 // Helpers for collecting parameters / let-bindings into an Env
 // ---------------------------------------------------------------------------
@@ -1603,17 +1586,6 @@ function typeRefAggregate(t: TypeRef | undefined): Aggregate | undefined {
   const dt = resolveTypeRef(t);
   return dt.kind === "aggregate" ? dt.ref : undefined;
 }
-
-export type SymbolOrigin =
-  | Parameter
-  | { letBinding: import("./generated/ast.js").LetStmt }
-  | FunctionDecl
-  | Operation
-  | ValueObject
-  | EntityPart
-  | Aggregate
-  | EnumDecl
-  | { lambdaParam: Lambda };
 
 export function makeEnv(
   outer: Env | undefined,
