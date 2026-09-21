@@ -112,6 +112,14 @@ export const CORPUS: readonly CorpusFeature[] = [
     backends: ALL,
     note: "Split from `document` because the ELIXIR half was validate-gated long after the emission became correct: Route A had already made the containment a real `embeds_many` and the scalar array an `{:array, _}` field, so the shared collection-op renderers worked verbatim, but `loom.vanilla-document-unsupported` still refused EVERY collection method.  A REFERENCE collection (`X id[]`) is deliberately absent — that one still needs the join table a jsonb blob has no equivalent for, and stays an honest error.",
   },
+  {
+    id: "vo-decimal-derived",
+    title:
+      "`derived` decimal/money arithmetic over a VALUE OBJECT's sub-fields — the embedded-jsonb read vs. the plain column",
+    doc: "language",
+    backends: ALL,
+    note: "Minted by sweep F-029.  No fixture crossed `valueobject` with decimal arithmetic, so nothing emitted the expression whose operands come out of a jsonb map.  On Phoenix those load as FLOATS where a plain `decimal` column loads as `%Decimal{}`, and `Decimal.mult/2` refuses an implicit float — the project compiled green, booted green, took the POST, and 500-ed on every read.  The `topLevel` control field pins the other half: a column-backed decimal must NOT be coerced, or a genuine type error hides behind the coercion.",
+  },
   { id: "embedded", title: "`shape: embedded` — containments fold into jsonb columns", doc: "language", backends: ALL },
   { id: "embedded-optional", title: "shape: embedded — optional single containment (nullable jsonb)", doc: "language", backends: ALL },
   { id: "inheritance", title: "aggregate inheritance — TPH (sharedTable) + TPC (ownTable)", doc: "inheritance", backends: ALL },
