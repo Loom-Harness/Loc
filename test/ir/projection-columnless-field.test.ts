@@ -34,6 +34,7 @@ import { describe, expect, it } from "vitest";
 import { enrichLoomModel } from "../../src/ir/enrich/enrichments.js";
 import { lowerModel } from "../../src/ir/lower/lower.js";
 import { validateLoomModel } from "../../src/ir/validate/validate.js";
+import { generateSystemFiles } from "../_helpers/generate.js";
 import { parseString } from "../_helpers/parse.js";
 
 const CODE = "loom.projection-columnless-source";
@@ -245,4 +246,58 @@ describe("a direct-table projection's select names real columns", () => {
       expect(errs).toEqual([]);
     });
   });
+});
+
+// ---------------------------------------------------------------------------
+// The other half of the same resolver: where the name IS a column, the emitted
+// SQL must name the column the SCHEMA EMITTER actually wrote.
+//
+// The refusal above proves we no longer emit SQL for a name that has no column.
+// It says nothing about the names that DO have one, and that is the half with
+// no compile error waiting behind it on three of the four backends: a wrong
+// column is `TS2339` on drizzle, but a string on dapper and a bare identifier
+// on SQLAlchemy — a 500 at runtime, or the wrong number in a dashboard tile.
+//
+// `sum(o.price.amount)` is the case: the VO is FLATTENED into `price_amount` /
+// `price_currency` by node/drizzle, node/mikroorm, python and dapper, while EF
+// and JPA keep an object path (`OwnsOne` / `@AttributeOverride`).  Both answers
+// are right for their backend and neither is `price`, which is what reading the
+// outermost member name off the domain model produced.
+// ---------------------------------------------------------------------------
+
+describe("a value-object leaf is emitted as the column the schema wrote", () => {
+  const VO_PROJECTION = `${AGG}
+      projection PriceSum {
+        n: int
+        total: money
+        from Order as o
+        select n = count(), total = sum(o.price.amount)
+      }`;
+
+  it.each([
+    ["node", /price_amount/],
+    ["node { persistence: mikroorm }", /price_amount/],
+    ["python", /price_amount/],
+    ["dotnet { persistence: dapper }", /price_amount/],
+    // EF and JPA address the owned type by PATH rather than by flattened
+    // column, so `price.Amount` / `price.amount` is the correct spelling there
+    // — the assertion is "not the bare outermost name", per backend.
+    ["dotnet", /[Pp]rice\.[Aa]mount/],
+    ["java", /price\.amount/],
+  ] as const)(
+    "%s",
+    async (platform, expected) => {
+      const files = await generateSystemFiles(SYS(platform, VO_PROJECTION));
+      const projectionSrc = [...files.entries()]
+        .filter(([p]) => /projection|Projection/.test(p))
+        .map(([, c]) => c)
+        .join("\n");
+      expect(projectionSrc, `${platform}: no projection source emitted at all`).not.toBe("");
+      expect(
+        projectionSrc,
+        `${platform}: the emitted aggregation does not name the value-object leaf's own column`,
+      ).toMatch(expected);
+    },
+    120_000,
+  );
 });
