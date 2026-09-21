@@ -56,14 +56,18 @@ describe("operation self-call naming", () => {
     // def-site
     expect(out).toContain("def reserve(self)");
     expect(out).toContain("def _helper(self)");
-    expect(out).toContain("def _is_draft(self)");
+    // A `function` is PUBLIC like an operation: the routes file and a workflow
+    // body call it from outside the instance, and those call sites spell it
+    // without the prefix (see `aggregate-function-visibility.test.ts`).
+    expect(out).toContain("def is_draft(self)");
     // call-site — the bug was `self._reserve()`
     expect(out).toContain("return self.reserve()");
     expect(out).not.toContain("self._reserve()");
     // a private operation self-call keeps the underscore (matches `def _helper`)
     expect(out).toContain("return self._helper()");
-    // a function self-call keeps the underscore (functions are always private)
-    expect(out).toContain("self._is_draft()");
+    // …so the self-call spells the same public name.
+    expect(out).toContain("self.is_draft()");
+    expect(out).not.toContain("self._is_draft()");
   });
 
   it("elixir: op self-call → <op>_<agg> passthrough; function stays bare", async () => {
