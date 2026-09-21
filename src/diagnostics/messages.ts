@@ -81,6 +81,8 @@ export const DIAGNOSTIC_MESSAGES = {
     'oidc requires a `clientId` (env-bound).  Add `clientId: env("OIDC_CLIENT_ID")` to the `oidc { … }` block.',
   "loom.auth-unknown-claim-field": (p: { field: unknown }) =>
     `claim mapping targets unknown user field '${p.field}'.`,
+  "loom.auth-oidc-no-audience":
+    'oidc declares no `audience:`, so the generated verifier skips the `aud` check — ANY token the issuer minted, for ANY client of that issuer, is accepted. Declare `audience: env("OIDC_AUDIENCE")` (or a literal) in the `oidc { … }` block, or leave it undeclared and set OIDC_AUDIENCE in the deploy environment — all five backends read that variable. Silence this by declaring one either way.',
 
   // ----------------------------------------------------------------------
   // src/language/validators/builder-call.ts

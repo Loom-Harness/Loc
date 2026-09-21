@@ -20,7 +20,7 @@ import type {
 } from "../../../ir/types/loom-ir.js";
 import { valueObjectFieldLookup } from "../../../ir/util/reachable-types.js";
 import { lines } from "../../../util/code-builder.js";
-import { snake, upperFirst } from "../../../util/naming.js";
+import { upperFirst } from "../../../util/naming.js";
 import { jid, jsonProp } from "../java-ident.js";
 import { collectJavaExprImports, javaValueTypeForId, renderJavaExpr } from "../render-expr.js";
 import { JAVA_PROVENANCED_RECORD, javaProvSibling } from "./provenance.js";

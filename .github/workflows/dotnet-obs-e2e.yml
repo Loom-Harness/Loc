@@ -45,6 +45,28 @@ on:
       - 'src/generator/dotnet/**'
       - 'src/generator/_obs/**'
       - 'src/platform/dotnet.ts'
+      # Shared emission seams the platform tree above delegates into: `_stmt` is
+      # the StmtIR dispatcher this backend's leaf table plugs into, `_payload`
+      # the one tagged-union wire shape, `_i18n` the validation-catalog
+      # collector.  The leading underscore means SHARED, not per-target -- a
+      # change confined to one of them changes what this gate compiles.  Derived
+      # from this block's platform claim and pinned by
+      # test/system/workflow-path-coverage.test.ts.
+      - 'src/generator/_adapters/**'
+      - 'src/generator/_auth/**'
+      - 'src/generator/_channels/**'
+      - 'src/generator/_docker/**'
+      - 'src/generator/_expr/**'
+      - 'src/generator/_frontend/**'
+      - 'src/generator/_i18n/**'
+      - 'src/generator/_numeric/**'
+      - 'src/generator/_payload/**'
+      - 'src/generator/_persistence/**'
+      - 'src/generator/_stmt/**'
+      - 'src/generator/_test/**'
+      - 'src/generator/_trace/**'
+      - 'src/generator/_type/**'
+      - 'src/generator/_workflow/**'
       - 'test/e2e/observability-events-dotnet.test.ts'
       - 'package.json'
       - '.github/workflows/dotnet-obs-e2e.yml'
@@ -69,6 +91,28 @@ on:
       - 'src/generator/dotnet/**'
       - 'src/generator/_obs/**'
       - 'src/platform/dotnet.ts'
+      # Shared emission seams the platform tree above delegates into: `_stmt` is
+      # the StmtIR dispatcher this backend's leaf table plugs into, `_payload`
+      # the one tagged-union wire shape, `_i18n` the validation-catalog
+      # collector.  The leading underscore means SHARED, not per-target -- a
+      # change confined to one of them changes what this gate compiles.  Derived
+      # from this block's platform claim and pinned by
+      # test/system/workflow-path-coverage.test.ts.
+      - 'src/generator/_adapters/**'
+      - 'src/generator/_auth/**'
+      - 'src/generator/_channels/**'
+      - 'src/generator/_docker/**'
+      - 'src/generator/_expr/**'
+      - 'src/generator/_frontend/**'
+      - 'src/generator/_i18n/**'
+      - 'src/generator/_numeric/**'
+      - 'src/generator/_payload/**'
+      - 'src/generator/_persistence/**'
+      - 'src/generator/_stmt/**'
+      - 'src/generator/_test/**'
+      - 'src/generator/_trace/**'
+      - 'src/generator/_type/**'
+      - 'src/generator/_workflow/**'
       - 'test/e2e/observability-events-dotnet.test.ts'
       - '.github/workflows/dotnet-obs-e2e.yml'
 permissions:

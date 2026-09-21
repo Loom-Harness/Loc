@@ -54,6 +54,28 @@ on:
       # Shared expression-renderer seam every domain-logic backend consumes.
       - 'src/generator/_expr/**'
       - 'src/platform/elixir.ts'
+      # Shared emission seams the platform tree above delegates into: `_stmt` is
+      # the StmtIR dispatcher this backend's leaf table plugs into, `_payload`
+      # the one tagged-union wire shape, `_i18n` the validation-catalog
+      # collector.  The leading underscore means SHARED, not per-target -- a
+      # change confined to one of them changes what this gate compiles.  Derived
+      # from this block's platform claim and pinned by
+      # test/system/workflow-path-coverage.test.ts.
+      - 'src/generator/_adapters/**'
+      - 'src/generator/_auth/**'
+      - 'src/generator/_channels/**'
+      - 'src/generator/_docker/**'
+      - 'src/generator/_i18n/**'
+      - 'src/generator/_numeric/**'
+      - 'src/generator/_obs/**'
+      - 'src/generator/_packs/**'
+      - 'src/generator/_payload/**'
+      - 'src/generator/_persistence/**'
+      - 'src/generator/_stmt/**'
+      - 'src/generator/_test/**'
+      - 'src/generator/_trace/**'
+      - 'src/generator/_walker/**'
+      - 'src/generator/_workflow/**'
       - 'test/e2e/fixtures/elixir-vanilla-build/**'
       - 'test/e2e/generated-elixir-vanilla-build.test.ts'
       - 'package.json'
@@ -76,6 +98,28 @@ on:
       - 'src/generator/_frontend/**'
       - 'src/generator/_expr/**'
       - 'src/platform/elixir.ts'
+      # Shared emission seams the platform tree above delegates into: `_stmt` is
+      # the StmtIR dispatcher this backend's leaf table plugs into, `_payload`
+      # the one tagged-union wire shape, `_i18n` the validation-catalog
+      # collector.  The leading underscore means SHARED, not per-target -- a
+      # change confined to one of them changes what this gate compiles.  Derived
+      # from this block's platform claim and pinned by
+      # test/system/workflow-path-coverage.test.ts.
+      - 'src/generator/_adapters/**'
+      - 'src/generator/_auth/**'
+      - 'src/generator/_channels/**'
+      - 'src/generator/_docker/**'
+      - 'src/generator/_i18n/**'
+      - 'src/generator/_numeric/**'
+      - 'src/generator/_obs/**'
+      - 'src/generator/_packs/**'
+      - 'src/generator/_payload/**'
+      - 'src/generator/_persistence/**'
+      - 'src/generator/_stmt/**'
+      - 'src/generator/_test/**'
+      - 'src/generator/_trace/**'
+      - 'src/generator/_walker/**'
+      - 'src/generator/_workflow/**'
       - 'test/e2e/fixtures/elixir-vanilla-build/**'
       - 'test/e2e/generated-elixir-vanilla-build.test.ts'
       - 'package.json'

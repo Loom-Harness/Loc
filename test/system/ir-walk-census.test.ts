@@ -50,9 +50,11 @@ import { describe, expect, it } from "vitest";
 // `walk.ts`'s `walk*Deep` helpers when its intent is "visit every reachable
 // sub-node", or given a `never`-checked default when its intent is a closed,
 // kind-specific dispatch) or WAIVED below with a specific, honest reason.
-// Waivers RATCHET (CLAUDE.md Conventions): a waiver whose site no longer
-// exists, or whose site has since become exhaustive, fails the second test
-// below — so a stale entry cannot silently outlive the code it excuses.
+// Waivers RATCHET (CLAUDE.md Conventions), on THREE axes: a waiver whose site
+// no longer exists, whose site has since become exhaustive, or whose REASON has
+// expired fails one of the tests below — so neither a stale entry nor a
+// permanent "we'll get to it" can silently outlive the code it excuses.  The
+// third axis is wave CR1 packet CR1-d's; see the note above `MAX_DEFERRAL_DAYS`.
 // ---------------------------------------------------------------------------
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -291,58 +293,125 @@ function computeSites(): Site[] {
   return sites;
 }
 
+/** A waiver's claim about the site it excuses.
+ *
+ *  `standing`  — a rationale with no shelf life.
+ *  `deferred`  — parked work: an IOU, and therefore dated.  `blockedBy` names a
+ *                row in {@link LIVE_FENCES} when the parking is somebody else's
+ *                tree claim rather than time pressure.
+ *
+ *  See the long note below for why both the date and the fence are evaluated
+ *  from this file alone. */
+type Waiver = { standing: string } | { deferred: string; reviewUntil: string; blockedBy?: string };
+
 // ---------------------------------------------------------------------------
-// Waivers — every entry names the exact site (file + enclosing function) and
-// a reason. Ratcheted by the second test below: a waiver whose site is gone,
-// or whose site has since become exhaustive, fails and must be deleted.
+// THE WAIVER SHAPE — and why a waiver can now EXPIRE.
 //
-// This packet fixed or certified the sites whose intent was clearly "visit
-// every reachable sub-node" (a collector/predicate silently dropping a kind
-// — the M-T6.50 class) or that were already exhaustive by case count and
-// only needed the `never`-check ceremony (verified by an exact case-set
-// diff against `walk.ts`'s own kind enumeration — see the prior commits on
-// this branch). The remaining sites below fall into four honestly-different
-// buckets; the reason each one carries says which.
+// Wave CR1 packet CR1-d (docs/audits/code-review-2026-09-13.md row P0-1).  The
+// register below carried 23 entries whose stated reason was a PROCESS FENCE
+// that had already lifted: twelve said "in-flight fence — PR #2736/#2729/#2742
+// owns this file this wave", and eleven deferred to "the 2.6 hotspot-split".
+// All four had merged.  The ratchet could not see it: its two assertions are
+// that a waived site still EXISTS and is still NON-EXHAUSTIVE, and both stayed
+// true — so a deferral whose reason had a shelf life became permanent, silently.
+//
+// The fix is to give the ratchet the input it lacked.  A waiver is no longer a
+// bare string; it declares WHICH KIND of claim it is making:
+//
+//   { standing: "<reason>" }
+//       A rationale that does not expire — the site is correct as it stands and
+//       no scheduled event is expected to change that.  A throwing dispatcher,
+//       a coded give-up, a narrow guard already riding a sanctioned walker.
+//
+//   { deferred: "<reason>", reviewUntil: "YYYY-MM-DD", blockedBy?: "#NNNN" }
+//       PARKED WORK.  The site is a known migration candidate that this or an
+//       earlier packet did not reach.  It must name the date by which someone
+//       re-reads it, and may name the fence it is waiting on.
+//
+// Three expiry rules, all evaluated OFFLINE and DETERMINISTICALLY from this
+// file plus the clock — no network, no `git log`, no doc parsing:
+//
+//   E1  `reviewUntil` in the past          → FAIL.  The deferral outlived its
+//                                            own stated horizon.
+//   E2  `reviewUntil` more than MAX_DEFERRAL_DAYS out → FAIL, immediately and
+//                                            forever.  This closes the obvious
+//                                            escape ("reviewUntil: 2099-01-01"):
+//                                            a date that far out never becomes
+//                                            valid, so it cannot be used to
+//                                            silence the rule.
+//   E3  `blockedBy: "#NNNN"` not listed in LIVE_FENCES → FAIL.  Lifting a fence
+//                                            is a ONE-LINE deletion from that
+//                                            map, and every waiver leaning on it
+//                                            then fails at once.
+//
+// Why not resolve `blockedBy` against the real merge state of the PR?  Because
+// a test cannot call GitHub, and it cannot read git history either: CI checks
+// out at `actions/checkout`'s default `fetch-depth: 1`, so `git log --grep
+// "Merge pull request #2736"` finds nothing on a runner even when the PR merged
+// months ago.  That mechanism would fail OPEN in exactly the place it has to
+// hold — which is the failure mode this whole entry exists to remove.  A fence
+// register the test OWNS is the offline, deterministic substitute: it is data,
+// not history, it is identical on a runner and on a laptop, and it makes
+// lifting the fence a deliberate act with an automatic cascade.
+//
+// E1 is the backstop for the fence nobody remembers to lift.
 // ---------------------------------------------------------------------------
 
-const HOTSPOT_SPLIT_REASON =
-  "packet 2.3 identified this hand-rolled switch/if-chain as a genuine walk.ts migration candidate but left it for the 2.6 hotspot-split (docs/new-plan/waves/wave-2.md) to relocate first; 2.6's split is a purely mechanical move (no logic change), so the site itself is unchanged — the migration itself remains a follow-up drain, tracked at its new post-split location below";
+/** A deferral may not be parked further out than this.  Six months: long
+ *  enough that a wave's follow-up drain is not artificially rushed, short
+ *  enough that "we'll get to it" cannot quietly mean "never". */
+const MAX_DEFERRAL_DAYS = 180;
 
-const INFLIGHT_2736 =
-  "in-flight fence (docs/new-plan/waves/wave-2.md): PR #2736 (M-FT.1, wire `== null`) owns zod-refine.ts this wave — do not edit its hunks";
+/**
+ * The fences a `blockedBy` waiver may name — PRs/packets that own a tree this
+ * census flags and must not be edited around.
+ *
+ * ADD a row when you fence a file; DELETE the row the moment the fence lifts
+ * (the PR merges, the packet folds).  Deleting it fails every waiver that
+ * leaned on it, which is the point: the drain those waivers deferred becomes
+ * due the same day the reason for deferring it stops being true.
+ *
+ * Empty is the healthy state.  It is empty right now because CR1-d drained the
+ * twelve `#2736`/`#2729`/`#2742` entries that were fenced when they were
+ * written and are not fenced any more.
+ */
+const LIVE_FENCES: Record<string, string> = {};
 
-const INFLIGHT_2729 =
-  "in-flight fence (docs/new-plan/waves/wave-2.md): PR #2729 (W4 frontend collection ops) owns this file's walker engine this wave — do not edit its hunks";
+// ---------------------------------------------------------------------------
+// Shared reasons.  A `standing` reason is a rationale; a `deferred` one is an
+// IOU, and carries a date.
+// ---------------------------------------------------------------------------
 
-const INFLIGHT_2742 =
-  "in-flight fence (docs/new-plan/waves/wave-2.md): PR #2742 (Hono runtime hardening) is named as owning the hono workflow builders this wave in the packet brief — do not edit their hunks, even though this file's own diff had not yet reached them as of the fence read";
-
-/** A closed, kind-specific PREDICATE or CLASSIFIER: every kind the switch
- *  does not explicitly list falls through to a deliberate, safe, generic
- *  value (`false` / `undefined` / `null` / `[]` / the neutral branch already
+/** A closed, kind-specific PREDICATE or CLASSIFIER: every kind the switch does
+ *  not explicitly list falls through to a deliberate, safe, generic value
+ *  (`false` / `undefined` / `null` / `[]` / the neutral branch already
  *  documented at the call site) — not a traversal, and nothing is silently
- *  dropped from emitted OUTPUT the way the M-T6.50 class drops it (a
- *  narrower classification is the worst case, never a missing emission).
- *  Classified by each site's `default` shape (verified with the census's
- *  own detector, not re-read line-by-line against every current
- *  `ExprIR`/`StmtIR`/`WorkflowStmtIR` kind in this packet) — a genuine
- *  follow-up drain re-reads each one and either migrates it onto
- *  `walk.ts` or upgrades it to an explicit `never`-checked closed form. */
-const CLOSED_PREDICATE =
-  "closed, kind-specific predicate/classifier — every unhandled kind falls through to a safe, generic default; not a traversal, nothing silently drops from emitted output. Classified by default-arm shape, not individually re-verified per kind this packet; follow-up drain";
+ *  dropped from emitted OUTPUT the way the M-T6.50 class drops it (a narrower
+ *  classification is the worst case, never a missing emission).
+ *
+ *  DEFERRED, not standing: these were classified by their `default`-arm SHAPE,
+ *  not re-read per kind against the current `ExprIR`/`StmtIR`/`WorkflowStmtIR`
+ *  vocabulary.  The shape argument bounds the blast radius; it does not prove
+ *  any individual site still classifies correctly.  The drain re-reads each and
+ *  either migrates it onto `walk.ts` or gives it an explicit `never`-check. */
+const CLOSED_PREDICATE = {
+  deferred:
+    "closed, kind-specific predicate/classifier — every unhandled kind falls through to a safe, generic default; not a traversal, nothing silently drops from emitted output. Classified by default-arm shape, NOT re-verified per kind; the drain re-reads each site",
+  reviewUntil: "2026-12-31",
+} as const;
 
 /** ===========================================================================
  *  CR1-f (wave CR1, audit row P0-2b) — the `THROWING_DISPATCHER` bucket, drained.
  *
- *  The bucket carried 32 entries behind one blanket reason: "closed emission
- *  dispatcher whose default arm THROWS for an unhandled kind (loud failure,
- *  not the silent-drop class this census targets)".  The audit's objection,
- *  acted on here: for a GENERATOR, "loud" means `ddd generate system` dies on
- *  a valid `.ddd` — this repo's own definition of a SILENT gap, as opposed to
- *  an HONEST gap (a `loom.*` diagnostic that refuses it at parse time with an
- *  explanation).  So each of the 32 was re-read against the CURRENT kind list
- *  from `walk.ts` (scripted, not eyeballed) and, where the vocabulary was
- *  short, probed with a real `.ddd` through the CLI.
+ *  The bucket carried 32 entries behind one blanket `standing` reason: "closed
+ *  emission dispatcher whose default arm THROWS for an unhandled kind (loud
+ *  failure, not the silent-drop class this census targets)".  The audit's
+ *  objection, acted on here: for a GENERATOR, "loud" means `ddd generate
+ *  system` dies on a valid `.ddd` — this repo's own definition of a SILENT
+ *  gap, as opposed to an HONEST gap (a `loom.*` diagnostic that refuses it at
+ *  parse time with an explanation).  So each of the 32 was re-read against the
+ *  CURRENT kind list from `walk.ts` (scripted, not eyeballed) and, where the
+ *  vocabulary was short, probed with a real `.ddd` through the CLI.
  *
  *  What the drain found, and why the blanket reason had to go:
  *
@@ -366,28 +435,38 @@ const CLOSED_PREDICATE =
  *      that keeps a valid `.ddd` off its path, because "a validator probably
  *      catches it" is exactly the unverified reasoning this wave corrects.
  *
- *  The per-site strings below replace the blanket constant.  Entries reading
- *  `standing:` are unreachable-by-construction with a cited gate; `parity:`
- *  and `deferred:` name work that is owed, with its owner.  (CR1-d's typed
- *  `{ standing } | { deferred, reviewUntil, blockedBy }` waiver shape is not
- *  on this branch — the coordinator wraps these at the fold; the prefixes are
- *  written so the wrapping is mechanical.)
+ *  The per-site entries below replace the blanket constant, which is GONE: no
+ *  waiver in this register uses `THROWING_DISPATCHER` any more.  Note which
+ *  ones are `standing` and which are `deferred`: a site is only `standing`
+ *  when a named `loom.*` gate makes it unreachable, per CR1-d's rule.
  *  ======================================================================== */
 
 /** The `toast(<expr>)` message subset.  `checkToastMessages`
  *  (`ui-action-body-checks.ts`) mirrors these four `switch`es ARM FOR ARM —
  *  literal / the event binding / a member chain off it / paren / binary — and
- *  refuses everything else at phase ⑦ before any renderer runs. */
-const STANDING_TOAST_SUBSET =
-  "standing: unreachable — `loom.toast-message-unsupported` (src/ir/validate/checks/ui-action-body-checks.ts#toastMessageProblem) bounds the `toast(…)` message to exactly this switch's vocabulary, arm for arm, at phase ⑦";
+ *  refuses everything else at phase ⑦ before any renderer runs.
+ *
+ *  STANDING: the gate and the switches are the same vocabulary by
+ *  construction, and the gate's own comment says so; there is no scheduled
+ *  event that makes this stop holding. */
+const STANDING_TOAST_SUBSET = {
+  standing:
+    "unreachable — `loom.toast-message-unsupported` (src/ir/validate/checks/ui-action-body-checks.ts#toastMessageProblem) bounds the `toast(…)` message to exactly this switch's vocabulary, arm for arm, at phase ⑦",
+} as const;
 
 /** The page `requires` gate subset.  Minted in THIS packet after the crash was
  *  measured: `page Welcome { requires string(currentUser.role) == "admin" }`
  *  on an `auth: ui` svelte deployable printed `0 error(s), 0 warning(s)` and
  *  then died with `Error: UI gate: expression kind 'convert' is not supported
- *  in a UI gate`. */
-const STANDING_UI_GATE_SUBSET =
-  "standing: unreachable — `loom.ui-gate-expr-unsupported` (src/ir/validate/checks/ui-framework-checks.ts#pageGateProblem, CR1-f) bounds a page `requires` gate to exactly this switch's vocabulary at phase ⑦; before it, this arm was a measured codegen crash (test/ir/ui-page-gate-expr.test.ts)";
+ *  in a UI gate`.
+ *
+ *  STANDING: the gate mirrors the three renderers arm for arm and is pinned by
+ *  `test/ir/ui-page-gate-expr.test.ts`, whose controls also assert the
+ *  in-subset shapes stay accepted on all six frontends. */
+const STANDING_UI_GATE_SUBSET = {
+  standing:
+    "unreachable — `loom.ui-gate-expr-unsupported` (src/ir/validate/checks/ui-framework-checks.ts#pageGateProblem, CR1-f) bounds a page `requires` gate to exactly this switch's vocabulary at phase ⑦; before it, this arm was a measured codegen crash (test/ir/ui-page-gate-expr.test.ts)",
+} as const;
 
 /** The queryable sublanguage.  `firstNonQueryableNode`
  *  (`ir/validate/checks/shared.ts`) is exhaustive + `never`-checked and admits
@@ -397,77 +476,119 @@ const STANDING_UI_GATE_SUBSET =
  *  and `authz-filter`.  CR1-f closed the three leaves it used to admit that no
  *  query renderer emits — bare `this`, bare `id` and a standalone `duration`
  *  — each measured as a `QueryEmissionRefusal` crash on a `0 error(s)` model
- *  (test/ir/queryable-non-column-leaves.test.ts). */
-const STANDING_QUERYABLE_SUBSET =
-  "standing: unreachable — every predicate reaching here passes `firstNonQueryableNode` (src/ir/validate/checks/shared.ts), whose admitted set is exactly this switch's vocabulary; the three leaves it used to over-admit (`this`, `id`, a standalone `duration`) are refused by `loom.find-where-not-queryable` as of CR1-f, and the residue routes through `loom.query-emission-invalid` rather than a bare Error";
+ *  (test/ir/queryable-non-column-leaves.test.ts).
+ *
+ *  STANDING: the oracle is itself `never`-checked, so a new `ExprIR` kind
+ *  cannot silently join the admitted set — it fails to compile there first. */
+const STANDING_QUERYABLE_SUBSET = {
+  standing:
+    "unreachable — every predicate reaching here passes `firstNonQueryableNode` (src/ir/validate/checks/shared.ts), whose admitted set is exactly this switch's vocabulary; the three leaves it used to over-admit (`this`, `id`, a standalone `duration`) are refused by `loom.find-where-not-queryable` as of CR1-f, and the residue routes through `loom.query-emission-invalid` rather than a bare Error",
+} as const;
 
 /** A ui `action` / MVU-update body.  Three phase-⑦ gates between them refuse
- *  every statement kind these switches omit. */
-const STANDING_UI_BODY_VOCAB =
-  "standing: unreachable — `loom.ui-body-statement-kind` (return/precondition/requires on every non-LiveView frontend), `loom.if-stmt-page-body-unsupported` (`if` anywhere in a ui body, every frontend) and phase-③ scope resolution (`emit` has no aggregate to emit from in ui scope) refuse every kind this switch omits";
+ *  every statement kind these switches omit.
+ *
+ *  STANDING: each gate names its frameworks as a membership set, so a new
+ *  frontend joins the list rather than slipping past. */
+const STANDING_UI_BODY_VOCAB = {
+  standing:
+    "unreachable — `loom.ui-body-statement-kind` (return/precondition/requires on every non-LiveView frontend), `loom.if-stmt-page-body-unsupported` (`if` anywhere in a ui body, every frontend) and phase-③ scope resolution (`emit` has no aggregate to emit from in ui scope) refuse every kind this switch omits",
+} as const;
 
 /** Handed to the `parity-auditor` skill: a shape a DIFFERENT backend emits
  *  today, so the refusal is not a language limit — it is one target behind.
- *  Detail per site; the full rows are in
+ *
+ *  DEFERRED, not standing: there IS scheduled work here, and its absence is
+ *  the thing the date exists to surface.  Full rows in
  *  `docs/new-plan/waves/handoffs/wave-cr1-f.md`. */
-const PARITY_ELIXIR_REACTOR_STMTS =
-  "parity (CR1-f hand-off, `parity-auditor`): MEASURED reachable on four kinds — `repo-delete` / `resource-call` / `domain-service-call` / `if-let` in a workflow reactor body each print `0 error(s), 0 warning(s)` and then abort `ddd generate system` with `dispatch-emit: unsupported reactor statement kind '<k>'`, while `platform: node` emits all four. Not a language limit and not a diagnostic — one backend behind. Do NOT re-waive as `standing`";
+const PARITY_ELIXIR_REACTOR_STMTS = {
+  deferred:
+    "parity (CR1-f hand-off, `parity-auditor`): MEASURED reachable on four kinds — `repo-delete` / `resource-call` / `domain-service-call` / `if-let` in a workflow reactor body each print `0 error(s), 0 warning(s)` and then abort `ddd generate system` with `dispatch-emit: unsupported reactor statement kind '<k>'`, while `platform: node` emits all four. Not a language limit and not a diagnostic — one backend behind. Do NOT re-waive as `standing`",
+  reviewUntil: "2026-12-31",
+} as const;
 
-/** A shallow, ONE-LEVEL child-list builder (an `exprChildren`-shaped
- *  function) feeding a caller's own recursion — structurally the same
- *  concept as `walk.ts`'s `walkExprChildren`, and a genuine migration
- *  candidate, but not completed in this packet's time-box. */
-const SHALLOW_CHILD_BUILDER =
-  "one-level child-list builder (walkExprChildren-shaped) feeding the caller's own recursion — a genuine walk.ts migration candidate not completed in this packet's time-box; follow-up drain";
+/** A shallow, ONE-LEVEL child-list builder (an `exprChildren`-shaped function)
+ *  feeding a caller's own recursion — structurally the same concept as
+ *  `walk.ts`'s `walkExprChildren`, and a genuine migration candidate.
+ *
+ *  DEFERRED.  CR1-d drained the hono twin of exactly this shape and it was
+ *  carrying a real defect (see the note on `serviceReadPorts` in
+ *  `platform/hono/v4/workflow-builder.ts`): the hand-rolled child list had no
+ *  arm for `match` / `list` / `convert` / `duration` / `i18nFormat` /
+ *  `authz-filter` / a block-bodied lambda's statements, so a domain-service
+ *  call in any of those slots was invisible to the scan.  Treat the remaining
+ *  four as suspects, not as safe. */
+const SHALLOW_CHILD_BUILDER = {
+  deferred:
+    "one-level child-list builder (walkExprChildren-shaped) feeding the caller's own recursion — a walk.ts migration candidate. The hono twin of this exact shape was drained in CR1-d and WAS carrying a live defect (no `match`/`list`/lambda-block arm), so these are suspects",
+  reviewUntil: "2026-12-31",
+} as const;
 
-/** A hand-rolled recursive traversal (`walk`/`visit`/collector-shaped) this
- *  packet identified as a genuine migration candidate but did not reach —
- *  either because it composes with an already-migrated sibling in the same
- *  cluster (so the isolated risk is lower) or purely on time-box grounds. */
-const TRAVERSAL_TIME_BOXED =
-  "hand-rolled traversal identified as a walk.ts migration candidate; not completed in this packet's time-box — follow-up drain (see the hand-off note for the per-file priority order)";
+/** A hand-rolled recursive traversal (`walk`/`visit`/collector-shaped)
+ *  identified as a genuine migration candidate but not reached. */
+const TRAVERSAL_TIME_BOXED = {
+  deferred:
+    "hand-rolled traversal identified as a walk.ts migration candidate, not yet migrated — the highest-risk category in this register (it is the #2720/#2705/M-T6.50 shape itself). Drain before the two above it",
+  reviewUntil: "2026-12-31",
+} as const;
 
 /** Already rides a sanctioned walker (`walkWorkflowStmtChildren` /
- *  `walkExprDeep`) for the RECURSION step, with its own narrow, local
- *  per-kind logic layered on top (order-preserving, migrated this packet) —
- *  the census's if-chain detector still flags the local `if`/`||` guard
- *  itself (a narrow membership test, not a full dispatch), which a
- *  terminal `never`-checked `else` does not fit. */
-const DELEGATES_TO_SANCTIONED_WALKER =
-  "already rides walkWorkflowStmtChildren/walkExprDeep for recursion (migrated this packet); the flagged if/`||` guard is a narrow kind-membership test layered on top, not a dispatch needing full-kind coverage";
+ *  `walkExprDeep`) for the RECURSION step, with its own narrow, local per-kind
+ *  logic layered on top — the census's if-chain detector still flags the local
+ *  `if`/`||` guard itself (a narrow membership test, not a full dispatch),
+ *  which a terminal `never`-checked `else` does not fit.  STANDING: the site is
+ *  already in the shape this convention asks for. */
+const DELEGATES_TO_SANCTIONED_WALKER = {
+  standing:
+    "already rides walkWorkflowStmtChildren/walkExprDeep for recursion; the flagged if/`||` guard is a narrow kind-membership test layered on top, not a dispatch needing full-kind coverage",
+} as const;
 
-const WAIVERS: Record<string, string> = {
-  // --- 2.6 hotspot-split fence: system-checks.ts / ui-checks.ts / mikroorm.ts
-  // were mechanically split into per-theme leaves by packet 2.6
-  // (docs/new-plan/waves/handoffs/wave-2-hotspot-splits.md).  These eleven
-  // sites are pure relocations of the same 2.3-flagged offenders — same
-  // code, same reason, new home; the walk.ts migration itself is still a
-  // follow-up drain, not done here.
-  "src/ir/validate/checks/datasource-checks.ts#docExprUnsupported": HOTSPOT_SPLIT_REASON,
-  "src/ir/validate/checks/datasource-checks.ts#docFunctionUnsupported": HOTSPOT_SPLIT_REASON,
-  "src/ir/validate/checks/datasource-checks.ts#docStmtUnsupported": HOTSPOT_SPLIT_REASON,
-  "src/ir/validate/checks/backend-syntax-checks.ts#eachStmtExpr": HOTSPOT_SPLIT_REASON,
-  "src/ir/validate/checks/ui-action-body-checks.ts#checkBody": HOTSPOT_SPLIT_REASON,
-  "src/ir/validate/checks/ui-page-structure-checks.ts#directlyRenderedRefs": HOTSPOT_SPLIT_REASON,
-  "src/ir/validate/checks/ui-page-structure-checks.ts#namesReadByBody": HOTSPOT_SPLIT_REASON,
-  "src/ir/validate/checks/ui-action-body-checks.ts#toastMessageProblem": HOTSPOT_SPLIT_REASON,
-  "src/ir/validate/checks/ui-action-body-checks.ts#visitExpr": HOTSPOT_SPLIT_REASON,
-  "src/ir/validate/checks/ui-action-body-checks.ts#visitStmt": HOTSPOT_SPLIT_REASON,
-  "src/generator/typescript/emit/mikroorm-filter.ts#filterValue": HOTSPOT_SPLIT_REASON,
+/** The eleven sites packet 2.3 deferred to "the 2.6 hotspot-split", which
+ *  landed as #2778 on 2026-09-03.  The fence is GONE — the split was a purely
+ *  mechanical relocation and these are the same offenders at new addresses —
+ *  so the reason is restated as what it actually is: an unfinished `walk.ts`
+ *  migration, with a date.
+ *
+ *  CR1-d could not drain them: every remaining one lives under `src/ir/**`,
+ *  which is packet 2f's tree fence on the live #2933 (Wave C2 batch 2).  They
+ *  are handed to CR1-e.  This is NOT a `blockedBy` entry — #2933 fences the
+ *  FILES, and CR1-e will drain them from inside that fence rather than waiting
+ *  for it to lift. */
+const HOTSPOT_SPLIT_RESIDUE = {
+  deferred:
+    "flagged by packet 2.3 as a genuine walk.ts migration candidate and deferred to the 2.6 hotspot-split (#2778, merged 2026-09-03) purely so the mechanical file move could land first. The split HAS landed; the migration is the outstanding work. Handed to wave CR1 packet CR1-e — CR1-d could not touch these (src/ir/** is packet 2f's fence on #2933)",
+  reviewUntil: "2026-12-31",
+} as const;
 
-  // --- in-flight PR fence (docs/new-plan/waves/wave-2.md §In-flight fence) --
-  "src/generator/zod-refine.ts#refineRenderable": INFLIGHT_2736,
-  "src/generator/zod-refine.ts#renderRefineExpr": INFLIGHT_2736,
-  "src/generator/_walker/walker-core.ts#emitStmt": INFLIGHT_2729,
-  "src/generator/_walker/walker-core.ts#walk": INFLIGHT_2729,
-  "src/generator/elixir/heex-walker-core.ts#renderExpr": INFLIGHT_2729,
-  "src/generator/elixir/heex-walker-core.ts#renderStmt": INFLIGHT_2729,
-  "src/platform/hono/v4/workflow-builder.ts#exprChildren": INFLIGHT_2742,
-  "src/platform/hono/v4/workflow-builder.ts#walk": INFLIGHT_2742,
-  "src/platform/hono/v4/workflow-builder.ts#walk$2": INFLIGHT_2742,
-  "src/platform/hono/v4/workflow-builder.ts#workflowStmtExprs": INFLIGHT_2742,
-  "src/platform/hono/v4/workflow-eventsourced-builder.ts#renderApplierStmt": INFLIGHT_2742,
-  "src/platform/hono/v4/projection-builder.ts#renderFoldStatement": INFLIGHT_2742,
+// ---------------------------------------------------------------------------
+// Waivers — every entry names the exact site (file + enclosing function) and a
+// reason.  Ratcheted by the tests below: a waiver whose site is gone, whose
+// site has since become exhaustive, or whose DEFERRAL HAS EXPIRED fails, and
+// must be drained or honestly re-dated.
+// ---------------------------------------------------------------------------
+
+const WAIVERS: Record<string, Waiver> = {
+  // --- 2.6 hotspot-split residue (see HOTSPOT_SPLIT_RESIDUE) --------------
+  "src/ir/validate/checks/datasource-checks.ts#docExprUnsupported": HOTSPOT_SPLIT_RESIDUE,
+  "src/ir/validate/checks/datasource-checks.ts#docFunctionUnsupported": HOTSPOT_SPLIT_RESIDUE,
+  "src/ir/validate/checks/datasource-checks.ts#docStmtUnsupported": HOTSPOT_SPLIT_RESIDUE,
+  "src/ir/validate/checks/backend-syntax-checks.ts#eachStmtExpr": HOTSPOT_SPLIT_RESIDUE,
+  "src/ir/validate/checks/ui-action-body-checks.ts#checkBody": HOTSPOT_SPLIT_RESIDUE,
+  "src/ir/validate/checks/ui-page-structure-checks.ts#directlyRenderedRefs": HOTSPOT_SPLIT_RESIDUE,
+  "src/ir/validate/checks/ui-page-structure-checks.ts#namesReadByBody": HOTSPOT_SPLIT_RESIDUE,
+  "src/ir/validate/checks/ui-action-body-checks.ts#toastMessageProblem": HOTSPOT_SPLIT_RESIDUE,
+  "src/ir/validate/checks/ui-action-body-checks.ts#visitExpr": HOTSPOT_SPLIT_RESIDUE,
+  "src/ir/validate/checks/ui-action-body-checks.ts#visitStmt": HOTSPOT_SPLIT_RESIDUE,
+
+  // NOTE — the twelve `in-flight fence` waivers that stood here (#2736 on
+  // `zod-refine.ts`, #2729 on the two walker cores, #2742 on the three hono
+  // v4 builders) are GONE, together with `mikroorm-filter.ts#filterValue`'s
+  // hotspot-split entry.  All four fences had lifted; CR1-d drained the
+  // thirteen sites they covered — four migrated onto `walk.ts`, nine given an
+  // explicit `never`-check.  One of them (`workflow-builder.ts#exprChildren`
+  // feeding `serviceReadPorts`) was carrying a live defect: a `reading`-tier
+  // domain-service call inside a `match` arm derived no read port, and the
+  // emitted Hono workflow handler named an undeclared repository binding.
 
   // --- already delegates to a sanctioned walker for recursion --------------
   "src/generator/java/explicit-handlers-emit.ts#reposUsed": DELEGATES_TO_SANCTIONED_WALKER,
@@ -524,7 +645,7 @@ const WAIVERS: Record<string, string> = {
   "src/util/expr-body-type.ts#provableStringType": CLOSED_PREDICATE,
 
   // --- CR1-f: the former `THROWING_DISPATCHER` bucket, per-site ------------
-  // 32 in, 27 out.  FIVE waivers DELETED, not rewritten — `mermaid.ts`'s two,
+  // 32 in, 27 out (+1 new, for this packet's own gate).  FIVE waivers DELETED, not rewritten — `mermaid.ts`'s two,
   // `domain-service-emit.ts#renderStatement`,
   // `operation-returns-emit.ts#renderReturningStmt` and
   // `workflow-execution-emit.ts#lowerStatement` were already total by case
@@ -561,8 +682,10 @@ const WAIVERS: Record<string, string> = {
   // `loom.migration-expr-unsupported` (migration-checks.ts) BEFORE phase ⑨
   // renders them, and the residue routes through `refuseOutOfVocabulary`, so
   // the throw carries `loom.query-emission-invalid` rather than a bare Error.
-  "src/generator/sql-pg-expr.ts#renderSqlScalarExpr":
-    "standing: unreachable — `loom.migration-expr-unsupported` (src/ir/validate/checks/migration-checks.ts) bounds a backfill expression to the SQL-renderable subset at phase ⑦, and the default arm routes through `refuseOutOfVocabulary` so even a validator bypass surfaces `loom.query-emission-invalid`, not a bare Error",
+  "src/generator/sql-pg-expr.ts#renderSqlScalarExpr": {
+    standing:
+      "unreachable — `loom.migration-expr-unsupported` (src/ir/validate/checks/migration-checks.ts) bounds a backfill expression to the SQL-renderable subset at phase ⑦, and the default arm routes through `refuseOutOfVocabulary` so even a validator bypass surfaces `loom.query-emission-invalid`, not a bare Error",
+  },
 
   // -- unreachable: the ui action / MVU-update statement vocabulary ----------
   "src/generator/feliz/update-emit.ts#renderUpdateStmt": STANDING_UI_BODY_VOCAB,
@@ -576,50 +699,80 @@ const WAIVERS: Record<string, string> = {
   // `precondition` / `requires`; the `if` sub-shapes are refused by
   // `loom.elixir-if-stmt-unsupported`, re-asserted by this file's caller with
   // the SAME predicate (`elixirIfRefusal`).
-  "src/generator/elixir/vanilla/fold-stmt-emit.ts#renderFoldStatement":
-    "standing: unreachable — `loom.applier-emits` / `loom.applier-impure-call` / `loom.applier-guard` (src/ir/validate/checks/structural-checks.ts, applier rule 4) refuse emit/call/precondition/requires in an applier body, and `loom.elixir-if-stmt-unsupported` refuses the `if` shapes this fold cannot thread",
+  "src/generator/elixir/vanilla/fold-stmt-emit.ts#renderFoldStatement": {
+    standing:
+      "unreachable — `loom.applier-emits` / `loom.applier-impure-call` / `loom.applier-guard` (src/ir/validate/checks/structural-checks.ts, applier rule 4) refuse emit/call/precondition/requires in an applier body, and `loom.elixir-if-stmt-unsupported` refuses the `if` shapes this fold cannot thread",
+  },
   // The throw is CAUGHT: `renderTest` rescues `UnsupportedTestShapeError` and
   // degrades the case to `@tag :skip`, so this is not a codegen abort at all.
   // (That the skip is invisible in a green `mix test` run is a real
   // verification gap — recorded in the hand-off, owned by CR1-h, not here.)
-  "src/generator/elixir/vanilla/tests-emit.ts#vtExpr":
-    "standing: not a codegen abort — the typed `UnsupportedTestShapeError` this arm raises is caught by `renderTest` (same file, ~line 219) and degrades the case to `@tag :skip`; only a NON-`UnsupportedTestShapeError` propagates, which is the deliberate emitter-bug signal",
+  "src/generator/elixir/vanilla/tests-emit.ts#vtExpr": {
+    standing:
+      "not a codegen abort at all — the typed `UnsupportedTestShapeError` this arm raises is CAUGHT by `renderTest` (same file, ~line 219) and degrades the case to `@tag :skip`; only a NON-`UnsupportedTestShapeError` propagates, which is the deliberate emitter-bug signal",
+  },
 
   // -- PARITY DEBT: reachable, and another backend emits it -----------------
   "src/generator/elixir/dispatch-emit.ts#renderStmt": PARITY_ELIXIR_REACTOR_STMTS,
-  "src/generator/python/workflow-eventsourced-emit.ts#renderApplierStmt":
-    "parity (CR1-f hand-off, `parity-auditor`): MEASURED reachable — a `let` binding in an event-sourced workflow's `apply(...)` fold prints `0 error(s), 0 warning(s)` and then aborts with `python es-workflow applier: unexpected statement kind 'let'`, while elixir / java / .NET all emit it (node crashes identically at src/platform/hono/v4/workflow-eventsourced-builder.ts, whose waiver is INFLIGHT_2742's, not this bucket's). Two backends behind, not a language limit",
+  "src/generator/python/workflow-eventsourced-emit.ts#renderApplierStmt": {
+    deferred:
+      "parity (CR1-f hand-off, `parity-auditor`): MEASURED reachable — a `let` binding in an event-sourced workflow's `apply(...)` fold prints `0 error(s), 0 warning(s)` and then aborts with `python es-workflow applier: unexpected statement kind 'let'`, while elixir / java / .NET all emit it (node crashes identically at src/platform/hono/v4/workflow-eventsourced-builder.ts, whose waiver is the in-flight bucket's, not this one's). Two backends behind, not a language limit",
+    reviewUntil: "2026-12-31",
+  },
 
   // -- MISFILED: the default arm does not throw ----------------------------
   // Best-effort by design and documented as such (`renderDefaultSeed` returns
   // null so the caller keeps its type-zero seed) — the ONE member of this
   // group whose silent default is correct.  It is still misfiled.
-  "src/generator/_frontend/default-seed.ts#renderDefaultSeed":
-    "MISFILED by the 2.3 bucket: `default: return null` — a documented BEST-EFFORT fallback (the caller keeps its type-zero seed), never a throw. Correct behaviour, wrong bucket; it is a CLOSED_PREDICATE (packet CR1-e's class)",
+  "src/generator/_frontend/default-seed.ts#renderDefaultSeed": {
+    standing:
+      "MISFILED by the old bucket, but correct as it stands: `default: return null` is a documented BEST-EFFORT fallback (the caller keeps its type-zero seed), never a throw. Wrong bucket, right behaviour — shape-wise it is a CLOSED_PREDICATE (packet CR1-e's class)",
+  },
   // An IR→IR substitution map, not an emitter: `default: return e` leaves a
   // `param` ref UNSUBSTITUTED inside a `list` / `match` / `convert` /
   // `i18nFormat` / `duration` / `lambda`, which emits Elixir naming an
   // undefined variable — the #2720/M-T6.50 shape exactly.
-  "src/generator/elixir/domain-service-emit.ts#substituteRefs":
-    "MISFILED by the 2.3 bucket: `default: return e` — a silent no-op, not a throw. It is an IR→IR MAP (workflow call-arg inlining) whose unhandled kinds (list / match / convert / i18nFormat / duration / lambda) leave a `param` ref unsubstituted, i.e. the M-T6.50 silent-drop shape. Migration candidate, CR1-e's class",
-  "src/generator/elixir/store-emit.ts#renderStoreStmt":
-    'MISFILED by the 2.3 bucket: `default: return { value: "state" }` — the statement is silently dropped and the struct passed through. Note the gate it leans on does NOT cover it: `loom.ui-body-statement-kind` exempts `phoenixLiveView`, which is the only framework this emitter serves',
-  "src/generator/elixir/store-emit.ts#renderStoreExpr":
-    'MISFILED by the 2.3 bucket: `default: return "nil"` — a store-action RHS outside the subset (a method call, a `match`, a conversion) silently becomes `nil` in the emitted Elixir, not a throw',
-  "src/generator/elixir/vanilla/eventsourced-emit.ts#renderCommandRunner":
-    "MISFILED by the 2.3 bucket: `default: break` — the statement is silently dropped. The ES command discipline it cites does refuse assign/add/remove/call, but `expression` / `return` / `variant-match` were NOT re-verified against a gate this packet",
+  "src/generator/elixir/domain-service-emit.ts#substituteRefs": {
+    deferred:
+      "MISFILED by the old bucket: `default: return e` — a silent no-op, not a throw. It is an IR→IR MAP (workflow call-arg inlining) whose unhandled kinds (list / match / convert / i18nFormat / duration / lambda) leave a `param` ref unsubstituted, i.e. the M-T6.50 silent-drop shape. A walk.ts migration candidate, CR1-e's class",
+    reviewUntil: "2026-12-31",
+  },
+  "src/generator/elixir/store-emit.ts#renderStoreStmt": {
+    deferred:
+      'MISFILED by the old bucket: `default: return { value: "state" }` — the statement is silently dropped and the struct passed through. Note the gate it would lean on does NOT cover it: `loom.ui-body-statement-kind` exempts `phoenixLiveView`, which is the only framework this emitter serves',
+    reviewUntil: "2026-12-31",
+  },
+  "src/generator/elixir/store-emit.ts#renderStoreExpr": {
+    deferred:
+      'MISFILED by the old bucket: `default: return "nil"` — a store-action RHS outside the subset (a method call, a `match`, a conversion) silently becomes `nil` in the emitted Elixir, not a throw',
+    reviewUntil: "2026-12-31",
+  },
+  "src/generator/elixir/vanilla/eventsourced-emit.ts#renderCommandRunner": {
+    deferred:
+      "MISFILED by the old bucket: `default: break` — the statement is silently dropped. The ES command discipline it cites does refuse assign/add/remove/call, but `expression` / `return` / `variant-match` were NOT re-verified against a gate in CR1-f",
+    reviewUntil: "2026-12-31",
+  },
   // PROVEN silent: `on(pr: PaymentRegistered) { let o = Orders.getById(pr.order) … }`
   // on an eventSourced workflow emits NOTHING for the `repo-let` on elixir
   // (measured), while node emits `const o = await orders.getById(pr.order)`.
-  "src/generator/elixir/vanilla/workflow-eventsourced-emit.ts#renderEsWorkflowHandler":
-    "MISFILED by the 2.3 bucket, and PROVEN silent: `default: break` drops the statement. Measured — a `repo-let` in an eventSourced workflow's `on(...)` handler is ABSENT from the emitted Elixir on a `0 error(s), 0 warning(s)` model, while node emits it. Both a silent drop AND parity debt; hand-off row in docs/new-plan/waves/handoffs/wave-cr1-f.md",
-  "src/generator/elixir/vanilla/workflow-execution-emit.ts#renderBranch":
-    "MISFILED by the 2.3 bucket: the terminal `else` does not throw — it routes every unlisted kind into the emit/resource-call branch renderer, so an `if-let` / `for-each` / `repo-delete` nested in an `if let` branch is mis-rendered rather than refused",
+  "src/generator/elixir/vanilla/workflow-eventsourced-emit.ts#renderEsWorkflowHandler": {
+    deferred:
+      "MISFILED by the old bucket, and PROVEN silent: `default: break` drops the statement. Measured — a `repo-let` in an eventSourced workflow's `on(...)` handler is ABSENT from the emitted Elixir on a `0 error(s), 0 warning(s)` model, while node emits it. Both a silent drop AND parity debt; hand-off row in docs/new-plan/waves/handoffs/wave-cr1-f.md",
+    reviewUntil: "2026-12-31",
+  },
+  "src/generator/elixir/vanilla/workflow-execution-emit.ts#renderBranch": {
+    deferred:
+      "MISFILED by the old bucket: the terminal `else` does not throw — it routes every unlisted kind into the emit/resource-call branch renderer, so an `if-let` / `for-each` / `repo-delete` nested in an `if let` branch is mis-rendered rather than refused",
+    reviewUntil: "2026-12-31",
+  },
   // `default`-less and NOT total: assign/add/remove/emit/call/variant-match
   // fall out of the loop, pushing no line.  Unreachable, but by a gate the
   // bucket never named.
-  "src/generator/elixir/vanilla/function-emit.ts#renderPureBlock":
-    "MISFILED by the 2.3 bucket: there is no `default` and no throw — six kinds simply push no line. Unreachable in practice: `loom.function-block-impure` (structural-checks.ts) refuses mutation / `emit` / any impure call in a `function` body, and the caller re-asserts `loom.elixir-if-stmt-unsupported`; `variant-match` was not separately verified",
+  "src/generator/elixir/vanilla/function-emit.ts#renderPureBlock": {
+    deferred:
+      "MISFILED by the old bucket: there is no `default` and no throw — six kinds simply push no line. `loom.function-block-impure` (structural-checks.ts) refuses mutation / `emit` / any impure call in a `function` body and the caller re-asserts `loom.elixir-if-stmt-unsupported`, which covers five of the six; `variant-match` was NOT separately verified, so this is deferred rather than standing",
+    reviewUntil: "2026-12-31",
+  },
 
   // -- the CR1-f gate itself ------------------------------------------------
   // Deliberately NOT `never`-checked, and the reason is the point of the gate:
@@ -629,16 +782,21 @@ const WAIVERS: Record<string, string> = {
   // remove.  An exhaustive arm would have to spell the identical refusal 21
   // times and would still be the same behaviour.  Same shape, same reason, as
   // its twin `ui-action-body-checks.ts#toastMessageProblem`.
-  "src/ir/validate/checks/ui-framework-checks.ts#pageGateProblem":
-    "standing: a REFUSING default — a new ExprIR kind fails closed into `loom.ui-gate-expr-unsupported` (a readable refusal) instead of the gate renderers' bare `throw`, which is the direction this check exists to enforce; an exhaustive arm would repeat the same refusal 21 times",
+  "src/ir/validate/checks/ui-framework-checks.ts#pageGateProblem": {
+    standing:
+      "a REFUSING default — a new ExprIR kind fails closed into `loom.ui-gate-expr-unsupported` (a readable refusal) instead of the gate renderers' bare `throw`, which is the direction this check exists to enforce; an exhaustive arm would repeat the same refusal 21 times",
+  },
 
   // -- not re-verified this packet ------------------------------------------
   // The only genuine deferral left.  Its own comment argues all three missing
   // kinds (`this`, `action-ref`, `authz-filter`) are shapes the frontend
   // pipeline does not produce; that argument was READ, not probed, and a
   // probe is what this wave is about.
-  "src/generator/feliz/fs-expr.ts#renderFsExpr":
-    "deferred (CR1-f): a real throw, and the site's own comment argues its three missing kinds (`this`, `action-ref`, `authz-filter`) are never produced by the frontend pipeline — an argument this packet READ but did not probe. Re-verify with a `.ddd` that puts an `action-ref` in an update-arm value position before promoting to `standing`",
+  "src/generator/feliz/fs-expr.ts#renderFsExpr": {
+    deferred:
+      "a real throw, and the site's own comment argues its three missing kinds (`this`, `action-ref`, `authz-filter`) are never produced by the frontend pipeline — an argument CR1-f READ but did not probe. Re-verify with a `.ddd` that puts an `action-ref` in an update-arm value position before promoting to `standing`",
+    reviewUntil: "2026-12-31",
+  },
 
   // --- shallow one-level child-list builders (walkExprChildren-shaped) -----
   "src/generator/feliz/wire.ts#exprChildren": SHALLOW_CHILD_BUILDER,
@@ -646,7 +804,7 @@ const WAIVERS: Record<string, string> = {
   "src/generator/flutter/inputs-emit.ts#exprChildren": SHALLOW_CHILD_BUILDER,
   "src/generator/flutter/reads-emit.ts#exprChildren": SHALLOW_CHILD_BUILDER,
 
-  // --- hand-rolled traversals identified but not migrated this session -----
+  // --- hand-rolled traversals identified but not migrated ------------------
   "src/generator/elixir/vanilla/explicit-handlers-emit.ts#collectRecordFieldsInStmt":
     TRAVERSAL_TIME_BOXED,
   "src/generator/elixir/vanilla/provenance-emit.ts#collectVanillaLeaves": TRAVERSAL_TIME_BOXED,
@@ -707,6 +865,75 @@ describe("IR walk census — no hand-rolled switch/if-chain over ExprIR/StmtIR/W
       }
     }
     expect(stale, stale.join("\n")).toEqual([]);
+  });
+
+  // -------------------------------------------------------------------------
+  // The THIRD failure mode (wave CR1 packet CR1-d).  The two assertions above
+  // ratchet the SITE — gone, or fixed.  Neither can see a waiver whose REASON
+  // has expired, which is how 23 entries fenced on four already-merged PRs sat
+  // here untouched.  These two close that.
+  // -------------------------------------------------------------------------
+
+  it("deferred waivers expire — a parked drain cannot outlive its own review date", () => {
+    const now = Date.now();
+    const expired: string[] = [];
+    for (const [id, w] of Object.entries(WAIVERS)) {
+      if (!("deferred" in w)) continue;
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(w.reviewUntil)) {
+        expired.push(`${id} — reviewUntil "${w.reviewUntil}" is not a YYYY-MM-DD date`);
+        continue;
+      }
+      const due = Date.parse(`${w.reviewUntil}T23:59:59Z`);
+      if (Number.isNaN(due)) {
+        expired.push(`${id} — reviewUntil "${w.reviewUntil}" is not a real date`);
+        continue;
+      }
+      const daysOut = (due - now) / 86_400_000;
+      if (daysOut < 0) {
+        expired.push(
+          `${id} — DEFERRAL EXPIRED on ${w.reviewUntil}. Its reason was an IOU, not a ` +
+            `rationale: "${w.deferred}". Drain the site now (migrate it onto ` +
+            `src/ir/util/walk.ts, or give it a never-checked default), or — if the ` +
+            `deferral is still genuinely the right call — re-date it with a reason that ` +
+            `says why it is still parked. Do not simply push the date.`,
+        );
+        continue;
+      }
+      if (daysOut > MAX_DEFERRAL_DAYS) {
+        expired.push(
+          `${id} — reviewUntil ${w.reviewUntil} is ${Math.round(daysOut)} days out, past the ` +
+            `${MAX_DEFERRAL_DAYS}-day cap. A date this far ahead never becomes valid, so it ` +
+            `cannot be used to silence the expiry rule. Pick a horizon someone will honour.`,
+        );
+      }
+    }
+    expect(expired, expired.join("\n\n")).toEqual([]);
+  });
+
+  it("a `blockedBy` waiver dies with its fence", () => {
+    const orphaned: string[] = [];
+    for (const [id, w] of Object.entries(WAIVERS)) {
+      if (!("deferred" in w) || !w.blockedBy) continue;
+      if (!Object.hasOwn(LIVE_FENCES, w.blockedBy)) {
+        orphaned.push(
+          `${id} — waived as blocked by ${w.blockedBy}, which is not in LIVE_FENCES. ` +
+            `Either the fence lifted (then this waiver's reason is spent: drain the site) ` +
+            `or the fence was never registered (then add it to LIVE_FENCES with what it owns).`,
+        );
+      }
+    }
+    expect(orphaned, orphaned.join("\n")).toEqual([]);
+  });
+
+  it("the fence register itself ratchets — no fence with nothing behind it", () => {
+    // The mirror of the rule above.  A LIVE_FENCES row that no waiver cites is
+    // a fence nobody is standing behind: it can only mislead the next agent
+    // into thinking a tree is claimed when it is not.
+    const cited = new Set(
+      Object.values(WAIVERS).flatMap((w) => ("deferred" in w && w.blockedBy ? [w.blockedBy] : [])),
+    );
+    const unused = Object.keys(LIVE_FENCES).filter((pr) => !cited.has(pr));
+    expect(unused, `LIVE_FENCES rows no waiver cites: ${unused.join(", ")}`).toEqual([]);
   });
 
   it("never counts a switch on an unrelated `.kind` field sharing a receiver name", () => {
