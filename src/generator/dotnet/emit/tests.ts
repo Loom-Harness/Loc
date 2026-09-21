@@ -6,13 +6,27 @@ import type {
   ExprIR,
   TestIR,
   TestStmtIR,
+  TypeIR,
   ValueObjectIR,
 } from "../../../ir/types/loom-ir.js";
 import { operationBodyUsesCurrentUser } from "../../../ir/util/op-gates.js";
 import { intrinsicMatcherSig } from "../../../util/intrinsic-matchers.js";
 import { escapeCsharpIdent, upperFirst } from "../../../util/naming.js";
+import { coerceTestLiteral, type TestLiteralTarget } from "../../_test/arg-coercion.js";
 import { THROW_KIND_PREFIX } from "../../_test/throw-kind.js";
 import { renderCsExpr } from "../render-expr.js";
+
+/** C# leaves for the shared test-literal coercion rule
+ *  (`_test/arg-coercion.ts`).  An id is a `record struct <X>Id(Guid Value)`;
+ *  `datetime` parses round-trip so the `Z` offset is honoured. */
+const CS_TEST_LITERAL: TestLiteralTarget = {
+  id: (rendered, targetName, valueType) =>
+    valueType === "guid"
+      ? `new ${targetName}Id(Guid.Parse(${rendered}))`
+      : `new ${targetName}Id(${rendered})`,
+  datetime: (rendered) =>
+    `DateTime.Parse(${rendered}, null, System.Globalization.DateTimeStyles.RoundtripKind)`,
+};
 
 // A currentUser-gated operation's method signature picks up a trailing
 // `User currentUser` parameter; a domain `test` block has no auth context, so
@@ -167,24 +181,8 @@ function renderTest(t: TestIR, ctx: BoundedContextIR): string[] {
  *  string-literal types need a cast: ids (wrap in the Id struct; a `guid`
  *  value type wraps the string in `Guid.Parse` first) and `datetime`
  *  (`DateTime.Parse`, round-trip kind so the `Z` offset is honoured). */
-function coerceLiteralToCsType(
-  type: { kind: string; name?: string; targetName?: string; valueType?: string },
-  v: ExprIR,
-  rendered: string,
-): string {
-  // Only a raw STRING literal needs coercion — `now` renders as `DateTime.UtcNow`
-  // (already the target type), a ref is already typed, etc.  Wrapping those in
-  // `DateTime.Parse(...)` / an Id ctor would break them.
-  if (v.kind !== "literal" || v.lit !== "string") return rendered;
-  if (type.kind === "id" && type.targetName) {
-    return type.valueType === "guid"
-      ? `new ${type.targetName}Id(Guid.Parse(${rendered}))`
-      : `new ${type.targetName}Id(${rendered})`;
-  }
-  if (type.kind === "primitive" && type.name === "datetime") {
-    return `DateTime.Parse(${rendered}, null, System.Globalization.DateTimeStyles.RoundtripKind)`;
-  }
-  return rendered;
+function coerceLiteralToCsType(type: TypeIR | undefined, v: ExprIR, rendered: string): string {
+  return coerceTestLiteral(type, v, rendered, CS_TEST_LITERAL);
 }
 
 export function renderCreateCall(e: ExprIR, ctx: BoundedContextIR): string | null {

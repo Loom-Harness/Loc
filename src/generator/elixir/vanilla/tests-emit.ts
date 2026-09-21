@@ -11,9 +11,25 @@ import type {
 import type { ThrowKindName } from "../../../util/intrinsic-matchers.js";
 import { elixirString, escapeElixirIdent, snake, upperFirst } from "../../../util/naming.js";
 import { elixirCodePointLength } from "../../_expr/code-point.js";
+import { coerceTestLiteral, type TestLiteralTarget } from "../../_test/arg-coercion.js";
 import { opUsesCurrentUser } from "../domain/predicates.js";
 import { appModuleOf, guardErrorModule } from "./denial.js";
 import { pureDerivedAccessorNames } from "./domain-core-emit.js";
+
+/** Elixir leaves for the shared test-literal coercion rule
+ *  (`_test/arg-coercion.ts`).
+ *
+ *  `id` is IDENTITY on this backend: an aggregate id is an Ecto `:binary_id`,
+ *  whose runtime representation IS the uuid string — there is no brand or
+ *  wrapper type to construct, so the raw literal is already correct.
+ *
+ *  `datetime` is not: the column is `:utc_datetime`, which wants a
+ *  `%DateTime{}`.  `elem(DateTime.from_iso8601(…), 1)` is the same conversion
+ *  `channels-emit.ts` already uses for ISO-8601 wire text. */
+const EX_TEST_LITERAL: TestLiteralTarget = {
+  id: (rendered) => rendered,
+  datetime: (rendered) => `elem(DateTime.from_iso8601(${rendered}), 1)`,
+};
 
 // ---------------------------------------------------------------------------
 // Vanilla (Ecto/Phoenix) domain `test "..."` → runnable ExUnit, ported 1:1 from
@@ -490,8 +506,24 @@ function renderOp(e: ExprIR, env: Env): string {
   const op = findOp(e.member, env);
   if (!op) throw new Error(`operation '${e.member}' not found on ${env.agg.name}`);
   const recv = vtExpr(e.receiver, env);
+  // Coerce each argument to the operation's declared PARAM type via the shared
+  // rule (`_test/arg-coercion.ts`).  An op's PURE CORE (the persistence-free
+  // entry point this test calls) reads the attrs map and assigns the value
+  // STRAIGHT onto the struct — unlike the context wrapper `Core.<op>_<agg>/2`,
+  // which coerces the same wire text first.  So a bare ISO-8601 string lands a
+  // BINARY in a `:utc_datetime` field.  Nothing but the emitted test calls the
+  // pure core, so coercing here closes it; see the PR body for the deeper
+  // pure-core/context-wrapper divergence this sits on top of.
   const params = e.args
-    .map((a, i) => `${JSON.stringify(op.params[i]?.name ?? `arg${i}`)} => ${vtExpr(a, env)}`)
+    .map(
+      (a, i) =>
+        `${JSON.stringify(op.params[i]?.name ?? `arg${i}`)} => ${coerceTestLiteral(
+          op.params[i]?.type,
+          a,
+          vtExpr(a, env),
+          EX_TEST_LITERAL,
+        )}`,
+    )
     .join(", ");
   // A currentUser-gated op's pure-core fn carries a trailing `current_user`
   // (§11d); thread a synthetic privileged actor so the guard runs (parity with
