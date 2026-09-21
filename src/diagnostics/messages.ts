@@ -3464,6 +3464,28 @@ export const DIAGNOSTIC_MESSAGES = {
     `'${p.verb}'. The operation body carries exactly the declared parameters and the backend ` +
     `rejects an unknown key (422), so the call fails for the typo rather than for whatever the ` +
     `test claims to prove. Accepted keys: ${p.known}.`,
+  "loom.e2e-unknown-body-key#workflow-run": (p: {
+    slug: unknown;
+    key: unknown;
+    workflow: unknown;
+    known: unknown;
+  }) =>
+    `e2e: 'api.${p.slug}.run({…})' sends '${p.key}', which is not a parameter of workflow ` +
+    `'${p.workflow}'. Unlike an aggregate body this one is NOT rejected: the emitted ` +
+    `'${p.workflow}Request' is a plain object schema on every backend, so an unknown key is ` +
+    `DROPPED and the POST still answers 204 — the workflow never receives it, and an assertion ` +
+    `resting on it passes while proving nothing. Accepted keys: ${p.known}.`,
+  "loom.e2e-missing-required-field#workflow-run": (p: {
+    slug: unknown;
+    workflow: unknown;
+    missing: unknown;
+    known: unknown;
+  }) =>
+    `e2e: 'api.${p.slug}.run({…})' omits ${p.missing} — a required parameter of workflow ` +
+    `'${p.workflow}'. The command body carries exactly the starter's declared parameters, and ` +
+    `only an optional one ('p: T?') may be left out: a parameter with an '= default' is still ` +
+    `required on the wire, because the default is applied in the BODY, not by the request ` +
+    `schema. The backend answers 422 without it. Required keys: ${p.known}.`,
   "loom.e2e-missing-required-field": (p: {
     slug: unknown;
     aggregate: unknown;
@@ -3474,6 +3496,18 @@ export const DIAGNOSTIC_MESSAGES = {
     `'${p.aggregate}'. A field is omittable only when it is optional ('f: T?'), carries an ` +
     `'= default', or is a bare 'bool'; anything else the client must supply, and the backend ` +
     `answers 422 without it. Required keys: ${p.known}.`,
+  "loom.e2e-unknown-response-field#workflow-instance": (p: {
+    binding: unknown;
+    field: unknown;
+    slug: unknown;
+    workflow: unknown;
+    known: unknown;
+  }) =>
+    `e2e: '${p.binding}.${p.field}' reads a field the response does not carry — ` +
+    `'${p.binding}' is 'api.${p.slug}.instance(…)', whose body is the persisted instance shape ` +
+    `of workflow '${p.workflow}': its correlation field, then its state fields. The read is ` +
+    `'undefined' at run time, so an assertion over it passes or fails for the wrong reason. ` +
+    `Readable: ${p.known}.`,
   "loom.e2e-body-type-mismatch": (p: {
     slug: unknown;
     verb: unknown;
