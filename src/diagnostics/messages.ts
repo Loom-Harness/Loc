@@ -577,6 +577,65 @@ export const DIAGNOSTIC_MESSAGES = {
     "row the test has on screen — or move the negative case to a block written " +
     "`against <backend-deployable>` with `api.<aggregate>....`, where `toThrow()` runs " +
     "against a real response.",
+  // `toThrow(<kind>)` in a `test e2e` body.  The matcher is TIER-SPLIT and the
+  // refusal has to say why, or it reads as an arbitrary restriction: the two
+  // rungs are structurally distinct in-process and indistinguishable on the
+  // wire, so the same word would be a strong claim in one tier and a weak one
+  // in the other.  That is the shape #2959 fixed on the ui side.
+  "loom.e2e-throw-kind-invalid": (p: { kind: unknown }) =>
+    `'toThrow(${p.kind})' pins WHICH domain rung rejected the call, and that is only ` +
+    "observable IN-PROCESS: the generated domain layer raises a typed error carrying the " +
+    "rung (elixir a structural `kind:` on `GuardError`, the other four a stable " +
+    '"Precondition failed: " / "Invariant violated: " message prefix). Over HTTP both ' +
+    "rungs answer 422, and their only discriminator is the RFC 7807 `detail` sentence — " +
+    'which an authored `message "..."` on the rule overwrites. Pin the wire fact here ' +
+    "instead — `toThrow(<status>)`, e.g. `toThrow(422)` — and move the rung assertion to " +
+    `a unit \`test\` block on the aggregate, where \`toThrow(${p.kind})\` reads the real ` +
+    "domain error.",
+  // The `ThrowKind` grammar slot is reachable on any member call — it had to be,
+  // because `precondition` / `invariant` are hard keywords no `CallArg` can
+  // carry.  The word would otherwise be silently dropped in lowering (it is a
+  // sibling of `args`, not a member of it): validates clean, means something
+  // else.
+  "loom.throw-kind-outside-tothrow": (p: { kind: unknown; member: unknown }) =>
+    `'${p.kind}' is a throw-KIND word, not a value — it is only meaningful as the argument ` +
+    `of the throw assertion, \`expect(<call>).toThrow(${p.kind})\`. Here it sits in ` +
+    `\`.${p.member}(...)\`, which would drop it. If you meant the domain rule, a ` +
+    "`precondition` is a statement in an operation body and an `invariant` is an aggregate " +
+    "member — neither is an expression.",
+  // `toThrow(<kind>)` against a rule carrying an authored `message "..."`.  The
+  // clause that makes a rule legible to a human is the clause that makes it
+  // illegible to this matcher on four of the five backends — say exactly that,
+  // and name the rule, or the refusal reads as arbitrary.
+  "loom.throw-kind-custom-message": (p: {
+    kind: unknown;
+    rule: unknown;
+    message: unknown;
+    subject: unknown;
+  }) =>
+    `'toThrow(${p.kind})' cannot read the rung off '${p.subject}': its ${p.kind} ` +
+    `\`${p.rule}\` carries \`message "${p.message}"\`, and an authored message REPLACES the ` +
+    `"${p.kind === "invariant" ? "Invariant violated" : "Precondition failed"}: " prefix ` +
+    "that the node / python / java / .NET domain layers discriminate on — so on four of the " +
+    "five backends there is nothing left to match. (Elixir alone is structural: `GuardError` " +
+    "carries a `kind:` field.) Either drop the `message` clause from that rule and let the " +
+    "derived text stand, or assert the bare `toThrow()` here and pin the wording with a " +
+    "`test e2e` block, where the message is the RFC 7807 `detail`.",
+  // `toThrow(<kind>)` in a CONTEXT-INTEGRATION test.  Third tier, third reason:
+  // not the wire flattening the rung (that is the e2e message above) and not a
+  // messaged rule erasing the prefix — simply that this tier renders through a
+  // different emitter which does not carry the rung, and would drop the word.
+  "loom.throw-kind-integration-unsupported": (p: {
+    kind: unknown;
+    name: unknown;
+    testName: unknown;
+  }) =>
+    `context '${p.name}' integration test '${p.testName}': 'toThrow(${p.kind})' pins WHICH ` +
+    "domain rung rejected the call, and that is a UNIT-tier assertion. The context-integration " +
+    "rung renders through a separate emitter that carries no rung, so the argument would be " +
+    "dropped and the test would quietly assert only that something threw. Use a bare " +
+    `\`toThrow()\` here, and assert the rung in a unit \`test\` nested in the aggregate, ` +
+    `where \`toThrow(${p.kind})\` reads the real domain error.`,
   "loom.seed-abstract-aggregate": (p: { name: unknown }) =>
     `Seed row on abstract aggregate '${p.name}': an inheritance base has no create ` +
     "factory and no repository, so every backend drops the row — and elixir still commits " +
@@ -1265,6 +1324,12 @@ export const DIAGNOSTIC_MESSAGES = {
   // ----------------------------------------------------------------------
   "loom.index-suggestion": (p: { name: unknown; fName: unknown; where: unknown }) =>
     `'${p.name}.${p.fName}' is read on a query filter but has no index. ` + `Consider ${p.where}.`,
+
+  // ----------------------------------------------------------------------
+  // src/ir/validate/checks/update-gate-suggestion-checks.ts
+  // ----------------------------------------------------------------------
+  "loom.update-gate-suggestion": (p: { name: unknown; fName: unknown; opName: unknown }) =>
+    `'${p.name}.${p.fName}' is assigned by the guarded operation '${p.opName}', but it is also writable through the generic 'update' that 'crudish' emits — a caller can set it on 'update' and skip that gate (and any 'precondition' the operation carries). Consider marking the field 'immutable': that removes it from the update input only — it stays readable, stays settable on 'create', and '${p.opName}' can still assign it.`,
 
   // ----------------------------------------------------------------------
   // src/ir/validate/checks/migration-checks.ts
@@ -3317,6 +3382,73 @@ export const DIAGNOSTIC_MESSAGES = {
     `ui e2e: 'ui.${p.slug}.${p.verb}(…)' drives no page object — the Playwright harness ` +
     `addresses the New-page create flow, the Detail-page read, and a public operation's ` +
     `detail-page action. Addressable: ${p.known}.`,
+
+  // The PAYLOAD half of the same file.  An e2e body speaks WIRE: it sends JSON
+  // and reads JSON back, so every one of these judges the request/response
+  // shape the renderer will emit, never the domain spelling.
+  "loom.e2e-unknown-body-key#create": (p: {
+    slug: unknown;
+    key: unknown;
+    aggregate: unknown;
+    known: unknown;
+  }) =>
+    `e2e: 'api.${p.slug}.create(…)' sends '${p.key}', which is not a create field of ` +
+    `'${p.aggregate}'. The create body is the aggregate's create-input projection and the ` +
+    `backend rejects an unknown key (422), so the call fails for the typo rather than for ` +
+    `whatever the test claims to prove. Accepted keys: ${p.known}.`,
+  "loom.e2e-unknown-body-key#operation": (p: {
+    slug: unknown;
+    verb: unknown;
+    key: unknown;
+    known: unknown;
+  }) =>
+    `e2e: 'api.${p.slug}.${p.verb}(id, {…})' sends '${p.key}', which is not a parameter of ` +
+    `'${p.verb}'. The operation body carries exactly the declared parameters and the backend ` +
+    `rejects an unknown key (422), so the call fails for the typo rather than for whatever the ` +
+    `test claims to prove. Accepted keys: ${p.known}.`,
+  "loom.e2e-missing-required-field": (p: {
+    slug: unknown;
+    aggregate: unknown;
+    missing: unknown;
+    known: unknown;
+  }) =>
+    `e2e: 'api.${p.slug}.create(…)' omits ${p.missing} — required create input on ` +
+    `'${p.aggregate}'. A field is omittable only when it is optional ('f: T?'), carries an ` +
+    `'= default', or is a bare 'bool'; anything else the client must supply, and the backend ` +
+    `answers 422 without it. Required keys: ${p.known}.`,
+  "loom.e2e-body-type-mismatch": (p: {
+    slug: unknown;
+    verb: unknown;
+    key: unknown;
+    declared: unknown;
+    got: unknown;
+  }) =>
+    `e2e: 'api.${p.slug}.${p.verb}(…)' sends ${p.got} for '${p.key}', declared '${p.declared}'. ` +
+    `An e2e body carries WIRE values, so the literal has to be the JSON form of the declared ` +
+    `type — the backend's request schema rejects anything else (422).`,
+  "loom.e2e-body-type-mismatch#enum": (p: {
+    slug: unknown;
+    verb: unknown;
+    key: unknown;
+    declared: unknown;
+    got: unknown;
+    members: unknown;
+  }) =>
+    `e2e: 'api.${p.slug}.${p.verb}(…)' sends ${p.got} for '${p.key}', declared '${p.declared}'. ` +
+    `An enum crosses the wire as the member name spelled EXACTLY, as a string. ` +
+    `Members of '${p.declared}': ${p.members}.`,
+  "loom.e2e-unknown-response-field": (p: {
+    binding: unknown;
+    field: unknown;
+    slug: unknown;
+    verb: unknown;
+    aggregate: unknown;
+    known: unknown;
+  }) =>
+    `e2e: '${p.binding}.${p.field}' reads a field the response does not carry — ` +
+    `'${p.binding}' is 'api.${p.slug}.${p.verb}(…)', whose body is the api-read wire shape of ` +
+    `'${p.aggregate}'. The read is 'undefined' at run time, so an assertion over it passes or ` +
+    `fails for the wrong reason. Readable: ${p.known}.`,
 
   // ----------------------------------------------------------------------
   // src/ir/validate/checks/timer-checks.ts

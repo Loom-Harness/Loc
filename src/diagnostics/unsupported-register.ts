@@ -780,9 +780,31 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
     verified: true,
   },
   {
+    // NOTE ON THE SIBLING CODE.  The OTHER half of this refusal —
+    // `toThrow(<kind>)` in a `test e2e` body — is `loom.e2e-throw-kind-INVALID`
+    // and deliberately has no row.  Over HTTP both rungs are a 422 whose only
+    // discriminator is the RFC 7807 `detail` sentence, which an authored
+    // `message` overwrites; that is a permanent semantic refusal, not work, so
+    // per this file's header it carries `-invalid` (like its sibling
+    // `loom.e2e-ui-throw-invalid` on the same matcher) and stays out of the
+    // drain backlog.  THIS row is the half that IS work.
+    code: "loom.throw-kind-integration-unsupported",
+    kind: "scope",
+    site: "src/ir/validate/checks/test-checks.ts:206",
+    what:
+      "`toThrow(precondition|invariant)` is refused in a CONTEXT-INTEGRATION test.  Unlike the " +
+      "e2e half this is not a semantic limit — that rung runs in-process against a real DB and " +
+      "throws the same domain error the unit tier reads.  It is refused because the rung ships " +
+      "on the five UNIT emitters only, and each backend's separate `integration-tests.ts` would " +
+      "silently DROP the argument (measured: the node leg emitted a bare `.rejects.toThrow()`). " +
+      "Drains when the rung is carried through the five integration emitters too",
+    mission: "M-T5.36",
+    verified: true,
+  },
+  {
     code: "loom.e2e-unsupported-statement",
     kind: "scope",
-    site: "src/ir/validate/checks/test-checks.ts:176",
+    site: "src/ir/validate/checks/test-checks.ts:302",
     what: "e2e bodies accept a closed statement set (expect/let/expression/…)",
     mission: "M-T5.19",
     verified: true,

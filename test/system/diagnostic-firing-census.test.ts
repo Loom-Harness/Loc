@@ -218,6 +218,82 @@ ${uiBody}
   deployable app { platform: flutter, targets: api, ui: App { Shop: api }, port: 3006 }
 }`;
 
+/** The `toThrow(<kind>)` probe (audit F11 / design M-T5.36 § 2a): one operation
+ *  carrying BOTH a `precondition` and a guarded collection `invariant`, with
+ *  the assertion spliced into whichever tier the fixture is about. */
+function throwKindProbe(opts: {
+  unitBody?: string;
+  contextTest?: string;
+  e2eTest?: string;
+  precondMessage?: string;
+}): string {
+  return `
+system Probe {
+  subdomain Ops {
+    context Work {
+      enum WorkStatus { Draft, InProgress, Completed }
+
+      aggregate WorkOrder {
+        reference: string
+        status: WorkStatus = Draft
+        contains tasks: Task[]
+        entity Task { label: string }
+
+        invariant tasks.count > 0 when status == Completed
+
+        create(reference: string, status: WorkStatus) { }
+
+        operation complete() {
+          precondition status == InProgress${opts.precondMessage ?? ""}
+          status := Completed
+        }
+${
+  opts.unitBody
+    ? `
+        test "probe" {
+          let wo = WorkOrder.create({ reference: "WO-1", status: Draft })
+${opts.unitBody}
+        }`
+    : ""
+}
+      }
+
+      repository WorkOrders for WorkOrder { }
+${
+  opts.contextTest
+    ? `
+      test "integration" {
+        let wo = WorkOrder.create({ reference: "WO-1", status: Draft })
+${opts.contextTest}
+      }`
+    : ""
+}
+    }
+  }
+${
+  opts.e2eTest
+    ? `
+  test e2e "wire" against d {
+    let wo = api.workOrders.create({ reference: "WO-1", status: Draft })
+${opts.e2eTest}
+  }`
+    : ""
+}
+
+  api WorkApi from Ops
+  storage primary { type: postgres }
+  resource workState { for: Work, kind: state, use: primary }
+
+  deployable d {
+    platform: node
+    contexts: [Work]
+    dataSources: [workState]
+    serves: WorkApi
+    port: 4000
+  }
+}`;
+}
+
 const FIRING_FIXTURES: Record<string, string> = {
   // A canonical `create` whose parameter list OMITS a required create-input
   // field.  `POST /things` still demands `secret` (no emitter reads
@@ -264,6 +340,31 @@ system VanillaActor {
   storage pg { type: postgres }
   resource st { for: Billing, kind: state, use: pg }
   deployable d { platform: elixir, contexts: [Billing], dataSources: [st], serves: BillingApi, port: 4000, auth: required }
+}`,
+  // A `crudish` aggregate whose `status` field is BOTH mass-assigned by the
+  // macro's generic `update` and written by a `requires`-gated `approve()` —
+  // audit D3.  `POST /invoices/{id}/update {"status":…}` skips the gate.  The
+  // advisory points at `immutable`, which removes the field from the update
+  // input while leaving the operation free to assign it.
+  "loom.update-gate-suggestion": `
+system UpdateGate {
+  user { id: guid  role: string }
+  subdomain Core { context Billing {
+    enum InvoiceStatus { Draft, Approved }
+    aggregate Invoice with crudish {
+      total: int
+      status: InvoiceStatus
+      operation approve() {
+        requires currentUser.role == "admin"
+        status := Approved
+      }
+    }
+    repository Invoices for Invoice { }
+  } }
+  api BillingApi from Core
+  storage pg { type: postgres }
+  resource st { for: Billing, kind: state, use: pg }
+  deployable d { platform: node, contexts: [Billing], dataSources: [st], serves: BillingApi, port: 3000, auth: required }
 }`,
   // --- phase ④ AST validate -----------------------------------------------
   // Two complete `system { }` blocks and NO top-level members — the shape that
@@ -1413,6 +1514,63 @@ system S {
   }
 }`,
 
+  // The PAYLOAD half of the same file (F4).  Each body drives a verb that DOES
+  // route — `Widget with crudish` — so the only defect left is the one under
+  // test, and the diagnostic cannot be the routing one wearing a new code.
+  "loom.e2e-unknown-body-key": `
+system S {
+  subdomain D { context C {
+    aggregate Widget with crudish { code: string }
+  } }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable d { platform: node, contexts: [C], dataSources: [st], port: 4101 }
+  test e2e "t" against d {
+    let w = api.widgets.create({ kode: "W-1" })
+  }
+}`,
+
+  "loom.e2e-missing-required-field": `
+system S {
+  subdomain D { context C {
+    aggregate Widget with crudish { code: string  qty: int }
+  } }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable d { platform: node, contexts: [C], dataSources: [st], port: 4102 }
+  test e2e "t" against d {
+    let w = api.widgets.create({ code: "W-1" })
+  }
+}`,
+
+  "loom.e2e-body-type-mismatch": `
+system S {
+  subdomain D { context C {
+    aggregate Widget with crudish { code: string  qty: int }
+  } }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable d { platform: node, contexts: [C], dataSources: [st], port: 4103 }
+  test e2e "t" against d {
+    let w = api.widgets.create({ code: "W-1", qty: "not-a-number" })
+  }
+}`,
+
+  "loom.e2e-unknown-response-field": `
+system S {
+  subdomain D { context C {
+    aggregate Widget with crudish { code: string }
+  } }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable d { platform: node, contexts: [C], dataSources: [st], port: 4104 }
+  test e2e "t" against d {
+    let w = api.widgets.create({ code: "W-1" })
+    let g = api.widgets.getById(w)
+    expect(g.nonesuch).toBe("x")
+  }
+}`,
+
   "loom.e2e-unaddressable-call": `
 system S {
   subdomain D { context C {
@@ -1854,6 +2012,27 @@ system S {
     expect(ui.technicians.create({ name: "" })).toThrow(422)
   }
 }`,
+  // --- P11a / audit F11: `toThrow(<kind>)`, the discriminating throw ---------
+  //
+  // Each fixture is minimal and ISOLATING — it raises its own code and no
+  // sibling from the packet, so a future regression names one gate.  All four
+  // share the audit's probe shape: ONE operation carrying BOTH rungs, a
+  // `precondition` and a guarded collection `invariant`, so that deleting the
+  // precondition leaves the invariant to throw in its place.  That substitution
+  // is what `toThrow()` could not see and what the kind form exists to name.
+  "loom.e2e-throw-kind-invalid": throwKindProbe({
+    e2eTest: `    expect(api.workOrders.complete(wo, { })).toThrow(precondition)`,
+  }),
+  "loom.throw-kind-integration-unsupported": throwKindProbe({
+    contextTest: `        expect(wo.complete()).toThrow(precondition)`,
+  }),
+  "loom.throw-kind-custom-message": throwKindProbe({
+    unitBody: `          expect(wo.complete()).toThrow(precondition)`,
+    precondMessage: ` message "finish the work first"`,
+  }),
+  "loom.throw-kind-outside-tothrow": throwKindProbe({
+    unitBody: `          expect(wo.reference).toBe(invariant)`,
+  }),
   "loom.seed-abstract-aggregate": repoOnly(`    abstract aggregate Base { name: string }
     aggregate Child extends Base with crudish { extra: int }
     repository Children for Child { }
