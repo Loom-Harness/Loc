@@ -2259,8 +2259,8 @@ export const DIAGNOSTIC_MESSAGES = {
     `so ${p.missing} is REQUIRED on the wire even though the declared \`create\` ` +
     `does not accept it — a client (or a \`test\` block) written from the ` +
     `declaration gets a 422 naming a field the create never mentions.${p.also}  ` +
-    `List every create-input field, or drop the parameter list: a narrowed one ` +
-    `shapes nothing.`,
+    `List every create-input field, or empty the parameter list (\`create() { … }\` ` +
+    `— the parens stay, unlike \`destroy\`): a narrowed one shapes nothing.`,
   "loom.datasource-binding-missing": (p: {
     name: unknown;
     ctxName: unknown;
