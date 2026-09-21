@@ -415,6 +415,32 @@ OpenApiSpex.schema(%{title: "Currency", type: :string, enum: ["USD", "EUR", "GBP
 
 Member names are kept verbatim on every backend (`USD` on the wire everywhere; the shared DDL stores the column as `TEXT`).
 
+### Bare values across two enums
+
+A bare value is resolved from the **site's** expected type — a field or parameter default, a `:=` target, or either side of a comparison. Two enums may therefore share a member name, and each use picks the enum its site asks for. Where no site supplies a type, Loom refuses rather than guessing: `loom.ambiguous-enum-value`. Write the value qualified, or rename one member.
+
+```ddd
+context Billing {
+  enum OrderStatus   { Draft, Confirmed }
+  enum InvoiceStatus { Draft, Issued, Paid }
+  aggregate Invoice with crudish {
+    status: InvoiceStatus = Draft                       // OK — the field's type picks InvoiceStatus
+    derived isDraft: bool = status == Draft             // OK — the comparison's left side picks it
+    operation touch() { let x = Draft  label := "x" }   // refused — an untyped `let` supplies nothing
+  }
+}
+```
+
+```
+error  loom.ambiguous-enum-value
+bare enum value 'Draft' is declared by more than one enum in scope
+('OrderStatus', 'InvoiceStatus'), and this use has no expected type to choose
+between them. Write it qualified — 'OrderStatus.Draft' or 'InvoiceStatus.Draft'
+— or rename one of the values.
+```
+
+Guessing here is not a cosmetic difference: a first-wins pick lowers to a comparison between two *different* enums, which `tsc` accepts (string-literal unions), `mypy` flags as a non-overlapping equality check, and `javac`/`csc` refuse to build — four answers from one mis-resolved IR node.
+
 ## Fields (`Property`)
 
 A field is `name: Type [provenanced | sensitive(...) | access]* [= default] [check Expr [message "…"]] [mask unless Expr]` — the three flag-like modifiers parse in any order; the default, the check, and the mask stay after them, in that order. A `= default` value seeds the field when the client omits it; `check Expr` is a per-field validation predicate lowered to an invariant. (`provenanced` is covered in [`../provenance.md`](../provenance.md); `mask unless` — the read-side redaction gate — in [Auth](17-auth.md).)
