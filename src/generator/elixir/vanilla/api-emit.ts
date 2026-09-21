@@ -412,8 +412,15 @@ ${cuBind}${indexCuBind}    if not (${renderElixirExpr(indexGate, { thisName: "re
 ${indexBody}
     end
   end`
-    : `  def index(conn, ${indexParamArg}) do
-${cuBind}${indexBody}
+    : // `indexCuBind` belongs on BOTH arms.  It used to appear only on the gated
+      // one, so a list read that needs the actor for its QUERY (a find declared
+      // as `all` whose `where` reads the principal) but carries no `requires`
+      // emitted `C.list_docs(current_user)` against nothing that bound it:
+      // `** (CompileError) undefined variable "current_user"`.  Found by
+      // `mix compile`, not by an emission assertion — the gated arm happened to
+      // be the one the F-007 repro took (`requires true`).
+      `  def index(conn, ${indexParamArg}) do
+${cuBind}${indexCuBind}${indexBody}
   end`;
   // Command-load context fn a MUTATION action loads through (authorization.md):
   // `get_<agg>_for_write` when the aggregate's write scope is

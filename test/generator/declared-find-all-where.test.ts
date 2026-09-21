@@ -78,6 +78,58 @@ describe("a DECLARED `find all(...) where <pred>` reaches the emitted query", ()
     expect(body).toContain('record.owner_user_id != ""');
   });
 
+  // ---------------------------------------------------------------------
+  // The declared `all` whose predicate reads the PRINCIPAL.  Both backends
+  // answer it through a seam that has no `current_user` parameter, so the
+  // actor has to arrive some other way — and on both, the first fix bound it
+  // in ONE place and left the other emitting a name nothing defines.  Each of
+  // these was found by a REAL TOOLCHAIN on the generated project, not by an
+  // emission assertion, which is the whole argument for the corpus compile
+  // tier.
+  // ---------------------------------------------------------------------
+  const PRINCIPAL_SRC = (platform: string) => `
+system DeclaredAllActor {
+  user { id: string  role: string }
+  subdomain S {
+    context C {
+      aggregate Doc with crudish {
+        ownerUserId: string
+        title: string
+      }
+      repository Docs for Doc {
+        find all(): Doc[] where ownerUserId == currentUser.id
+      }
+    }
+  }
+  storage primary { type: postgres }
+  resource st { for: C, kind: state, use: primary }
+  api A from S
+  deployable api { platform: ${platform} contexts: [C] serves: A dataSources: [st] auth: required port: 3000 }
+}`;
+
+  it("elixir: the UNGATED index action binds the actor it passes", async () => {
+    const files = await generateSystemFiles(PRINCIPAL_SRC("elixir"));
+    const controller = file(files, "controllers/doc_controller.ex");
+    const index = controller.slice(controller.indexOf("def index("));
+    const body = index.slice(0, index.indexOf("\n  end") + 1);
+    // The regression: `C.list_docs(current_user)` with nothing binding it —
+    // `** (CompileError) undefined variable "current_user"`.  It hid because
+    // the binding WAS emitted on the `requires`-gated arm of `index`, and the
+    // F-007 repro carried `requires true`, so it took that arm.
+    expect(body).toContain("current_user = Map.get(conn.assigns, :current_user)");
+    expect(body).toMatch(/list_docs\(current_user\)/);
+  });
+
+  it("python: the ambient accessor the list seam calls is IMPORTED", async () => {
+    const files = await generateSystemFiles(PRINCIPAL_SRC("python"));
+    const repo = file(files, "app/db/repositories/doc_repository.py");
+    expect(repo).toContain("require_current_user()");
+    // The regression: the call emitted, the import not — `mypy` → `Name
+    // "require_current_user" is not defined [name-defined]`, which is the same
+    // runtime NameError one line higher up.
+    expect(repo).toMatch(/^from app\.auth\.user import .*\brequire_current_user\b/m);
+  });
+
   it("node keeps its already-correct predicate", async () => {
     const files = await generateSystemFiles(SRC("node"));
     expect(file(files, "db/repositories/doc-repository.ts")).toContain(

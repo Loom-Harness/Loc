@@ -461,7 +461,14 @@ export function buildPyRepositoryFile(
         // has no `current_user` parameter to thread it through (unlike a find),
         // so it resolves the ambient accessor — which has to be imported, or
         // the `NameError` simply moves one line up.
-        aggregateRetrievals(agg, ctx).some((r) => exprUsesCurrentUser(r.where)),
+        aggregateRetrievals(agg, ctx).some((r) => exprUsesCurrentUser(r.where)) ||
+        // …and when a find DECLARED as `all` reads the principal.  Its
+        // predicate lands on the CRUD `all` seam, which — like a retrieval's
+        // `run_<name>` and unlike a named find — has no `current_user`
+        // parameter, so it too resolves the ambient accessor.  Missing this
+        // moved the `NameError` one line up rather than fixing it: `mypy` →
+        // `Name "require_current_user" is not defined [name-defined]`.
+        !!repo?.finds.some((f) => f.name === "all" && !!f.filter && exprUsesCurrentUser(f.filter)),
       // `current_user` (the non-raising getter) rides in for the read-mask
       // projection's fail-closed principal read (`to_wire_masked`).
       aggHasFieldMask(agg),
