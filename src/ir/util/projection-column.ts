@@ -251,3 +251,37 @@ function refuseUnknown(owner: string, name: string): string {
     `direct-table read has no such name to select`
   );
 }
+
+/** The physical column a direct-table AGGREGATION ARGUMENT names
+ *  (`sum(b.amount.amount)`), for the five backend projection emitters.
+ *
+ *  Throws rather than degrading: `loom.projection-columnless-source` has
+ *  already refused every chain with no column behind it, so a refusal reaching
+ *  an emitter is an internal invariant break — and the failure this whole file
+ *  exists to stop is precisely the one that emits something plausible anyway.
+ *
+ *  `agg` is optional because the GROUPED arm also accepts a folded-projection
+ *  or workflow source, which has no `AggregateIR` to resolve against; those
+ *  rows carry the select's own field names as columns, so the chain IS the
+ *  path. */
+export function aggregateArgColumn(
+  arg: ExprIR,
+  agg: AggregateIR | undefined,
+  ctx: BoundedContextIR,
+): ProjectionColumn {
+  const chain = sourceMemberChain(arg);
+  if (chain === null) {
+    throw new Error(
+      "internal: a whole-table aggregation argument must be a source column reference",
+    );
+  }
+  if (!agg) return { path: chain, fields: [] };
+  const resolved = resolveColumnChain(chain, agg, ctx);
+  if (!resolved.ok) {
+    throw new Error(
+      `internal: aggregation argument '${chain.join(".")}' on '${agg.name}' is not a column — ` +
+        `loom.projection-columnless-source should have refused it (${resolved.reason})`,
+    );
+  }
+  return resolved;
+}

@@ -39,6 +39,12 @@ import {
 } from "../../../ir/util/projection-aggregate.js";
 import { valueObjectPool } from "../../../ir/util/reachable-types.js";
 import { resolveErrorStatus } from "../../../util/error-defaults.js";
+import type { ProjectionColumn } from "../../../ir/util/projection-column.js";
+import {
+  aggregateArgColumn,
+  flatColumnKey,
+  sqlColumnName,
+} from "../../../ir/util/projection-column.js";
 import { lowerFirst, plural, snake, upperFirst } from "../../../util/naming.js";
 import { wireToDomainExpr, zodFor } from "./routes-builder.js";
 
@@ -102,6 +108,9 @@ import { wireToDomainExpr, zodFor } from "./routes-builder.js";
  *  find/retrieval gates), so this is unreachable from valid input — and it is a
  *  THROW rather than a silent `where: undefined` because dropping the filter
  *  would serve every row of the table from a route the author scoped. */
+/** Resolves one aggregation argument to the physical column it names. */
+type ColumnOf = (arg: ExprIR) => ProjectionColumn;
+
 function unloweredWhere(projName: string): string {
   return (
     `internal: where-clause for projection '${projName}' could not lower to Drizzle, ` +
@@ -441,6 +450,10 @@ function emitQueryProjectionRoute(
   const T = upperFirst(p.name);
   const source = p.query!.source!;
   const aggSlug = snake(plural(source));
+  // The PHYSICAL column each aggregation argument names — a value-object leaf
+  // is a flattened `amount_amount`, not the outermost member.  One resolver per
+  // route, shared by the drizzle and mikro arms so they cannot disagree.
+  const colOf: ColumnOf = (arg) => aggregateArgColumn(arg, projectionSourceAggregate(p, ctx), ctx);
   const usesUser = queryProjectionUsesCurrentUser(p);
   const out: string[] = [];
   out.push(`app.openapi(`);
@@ -503,7 +516,7 @@ function emitQueryProjectionRoute(
       ),
       ...grouped.aggregates.map(
         (sel) =>
-          `raw(${JSON.stringify(`${mikroAggregateSql(sel.aggregate, alias)} as "${snake(sel.field)}"`)})`,
+          `raw(${JSON.stringify(`${mikroAggregateSql(sel.aggregate, alias, colOf)} as "${snake(sel.field)}"`)})`,
       ),
     ];
     // GROUP BY / ORDER BY repeat the key expressions — each as its OWN `raw()`
@@ -550,7 +563,7 @@ function emitQueryProjectionRoute(
     const alias = "src";
     const selects = aggregates.map(
       (sel) =>
-        `raw(${JSON.stringify(`${mikroAggregateSql(sel.aggregate, alias)} as "${snake(sel.field)}"`)})`,
+        `raw(${JSON.stringify(`${mikroAggregateSql(sel.aggregate, alias, colOf)} as "${snake(sel.field)}"`)})`,
     );
     out.push(`    const qb = db.createQueryBuilder(${rowClass}, ${JSON.stringify(alias)});`);
     out.push(`    qb.select([${selects.join(", ")}]);`);
@@ -573,7 +586,7 @@ function emitQueryProjectionRoute(
     const groupCols = grouped.groupBy.map((e) => groupKeyExpr(e, sourceTable)).join(", ");
     const cols = [
       ...grouped.keys.map((k) => `${k.field}: ${groupKeyExpr(k.expr, sourceTable, true)}`),
-      ...grouped.aggregates.map((s) => `${s.field}: ${drizzleAggregate(s.aggregate, sourceTable)}`),
+      ...grouped.aggregates.map((s) => `${s.field}: ${drizzleAggregate(s.aggregate, sourceTable, colOf)}`),
     ].join(", ");
     out.push(
       `    const rows = await db.select({ ${cols} }).from(${sourceTable})${
@@ -602,7 +615,7 @@ function emitQueryProjectionRoute(
   if (aggregates) {
     const sourceTable = `schema.${lowerFirst(plural(source))}`;
     const cols = aggregates
-      .map((s) => `${s.field}: ${drizzleAggregate(s.aggregate, sourceTable)}`)
+      .map((s) => `${s.field}: ${drizzleAggregate(s.aggregate, sourceTable, colOf)}`)
       .join(", ");
     out.push(
       `    const [row] = await db.select({ ${cols} }).from(${sourceTable})${
@@ -877,18 +890,21 @@ function mikroCapabilityFilters(p: ProjectionIR, ctx: EnrichedBoundedContextIR):
 
 /** The SQL aggregate expression for one `select`, aliased column-qualified so it
  *  is unambiguous inside the QueryBuilder's own FROM alias. */
-function mikroAggregateSql(agg: ProjectionAggregateIR, alias: string): string {
+function mikroAggregateSql(agg: ProjectionAggregateIR, alias: string, col: ColumnOf): string {
   if (agg.op === "count" || !agg.arg) return "count(*)";
-  return `${agg.op}(${mikroAggregateColumn(agg.arg, alias)})`;
+  return `${agg.op}(${mikroAggregateColumn(agg.arg, alias, col)})`;
 }
 
 /** The column an aggregation reads, as `<alias>."<snake_column>"`.  Mirrors
  *  `aggregateColumn`: the argument is a source-row member access, and the mikro
  *  Row's DB column is the snake_cased property (MikroORM's underscored naming
- *  strategy, which is what every raw statement this adapter emits assumes). */
-function mikroAggregateColumn(arg: ExprIR, alias: string): string {
-  if (arg.kind === "member") return `${alias}."${snake(arg.member)}"`;
-  throw new Error("internal: a whole-table aggregation argument must be a source column reference");
+ *  strategy, which is what every raw statement this adapter emits assumes).
+ *
+ *  A VALUE-OBJECT LEAF (`sum(b.amount.amount)`) is one flattened column —
+ *  `amount_amount`, not `amount` — which is why the name comes from the shared
+ *  resolver rather than from `arg.member`. */
+function mikroAggregateColumn(arg: ExprIR, alias: string, col: ColumnOf): string {
+  return `${alias}."${sqlColumnName(col(arg))}"`;
 }
 
 /** The SQL for one grouping key — the mikro twin of `groupKeyExpr`.  A BARE key
@@ -923,20 +939,25 @@ const MIKRO_GROUP_KEY_TRANSFORM_SQL: Record<
  *  column); the rest take the aggregated column, which is source-row-rooted so
  *  it renders as the plain `schema.<table>.<field>` ref every other predicate
  *  in this file uses. */
-function drizzleAggregate(agg: ProjectionAggregateIR, sourceTable: string): string {
+function drizzleAggregate(
+  agg: ProjectionAggregateIR,
+  sourceTable: string,
+  col: ColumnOf,
+): string {
   if (agg.op === "count" || !agg.arg) return "count()";
-  return `${agg.op}(${aggregateColumn(agg.arg, sourceTable)})`;
+  return `${agg.op}(${aggregateColumn(agg.arg, sourceTable, col)})`;
 }
 
 /** The column an aggregation reads, as a Drizzle ref.  The argument arrives
- *  lowered against the source candidate, so `sum(o.total)` is `this.total` —
- *  a member access whose name IS the schema column key. */
-function aggregateColumn(arg: ExprIR, sourceTable: string): string {
-  if (arg.kind === "member") return `${sourceTable}.${arg.member}`;
-  // Anything else is a computed expression over the row, which SQL would have
-  // to evaluate per row before aggregating.  Not reachable: the validator only
-  // normalises a plain column reference into `select.aggregate`.
-  throw new Error("internal: a whole-table aggregation argument must be a source column reference");
+ *  lowered against the source candidate, so `sum(o.qty)` is `this.qty`.
+ *
+ *  The member name is NOT the schema key in general: drizzle FLATTENS a value
+ *  object to one key per leaf (`${f.name}_${voField.name}`, emit/schema.ts), so
+ *  `sum(b.amount.amount)` is `schema.bills.amount_amount`.  Emitting the
+ *  outermost member here was `TS2339: Property 'amount' does not exist` —
+ *  generate-clean, `tsc`-red. */
+function aggregateColumn(arg: ExprIR, sourceTable: string, col: ColumnOf): string {
+  return `${sourceTable}.${flatColumnKey(col(arg))}`;
 }
 
 /** Coerce one Drizzle aggregate result to the projection row's declared wire
