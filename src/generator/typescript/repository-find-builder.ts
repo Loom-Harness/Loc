@@ -552,7 +552,21 @@ export function findQueryMethod(
       : // Throws → no `find_executed` log on this branch.  The thrown
         // AggregateNotFoundError is logged at the route's onError seam
         // (`not_found` warn) so we don't double-log the same fact.
-        `    if (rootRows.length === 0) throw new AggregateNotFoundError("not found");`,
+        //
+        // The `detail` is the canonical `"not_found"` TOKEN — the spelling
+        // RS-27 scopes a DECLARED-FIND miss to (as against the by-id
+        // sentence `"<Agg> <id> not found"`, which this arm is not).  It
+        // used to read `"not found"` with a SPACE, which was wrong twice
+        // over: dotnet/python/java/elixir all answer the token on this arm,
+        // and node itself already answered the token on its OWN sibling
+        // arms — a `T?` / `T option` find misses in the ROUTE
+        // (`routes-builder.ts`, `AggregateNotFoundError("not_found")`),
+        // leaving one service spelling one 404 class two ways depending on
+        // which carrier the `find` was declared with.  That intra-backend
+        // split is the exact defect shape `not-found-by-id-detail-parity`
+        // and `absent-read-envelope-parity` exist to catch; the sibling
+        // gate for THIS class is `find-miss-detail-parity.test.ts`.
+        `    if (rootRows.length === 0) throw new AggregateNotFoundError("not_found");`,
     needsIdsLocal && `    const rootIds = rootRows.map((r) => r.id);`,
     ...bulkLoadContainmentLines(eagerContains, agg, ctx),
     associationMapLines(agg, "this.db", "    "),
