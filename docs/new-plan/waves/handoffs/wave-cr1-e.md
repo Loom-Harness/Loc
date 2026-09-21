@@ -359,6 +359,9 @@ Restored by copy, `RESTORED IDENTICAL`, rebuilt, re-run: **5 passed**.
 | **emission byte-identical** | **44,995 emitted files, 0 differences** |
 | **diagnostic set identical** | **270 IR diagnostics, 0 differences** |
 
+Both differentials were captured twice: once mid-drain, and again against the **final committed
+tree** after the follow-up commits in §10 — same 44,995 / 270, `diff` empty both times.
+
 The differential hashes every file of every generated project across the **77-fixture shared corpus ×
 its declared backends** (node, dotnet, java, python, vanilla) **× the non-default persistence
 adapters** (node: drizzle, mikroorm; dotnet: dapper), **plus** every `.ddd` under `examples/`,
@@ -522,11 +525,15 @@ returns **empty** — every input to that test is byte-identical to the batch-1 
 independently: the emission differential in §6 covers `auth-oidc.ddd` on node and came back with
 zero differences, so nothing this packet did could have changed that output.)
 
-### (c) `packaging-split-*` ×3 — environmental
+### (c) `packaging-split-*` ×4 — environmental, PROVEN not asserted
 
 `fs-discovery` finds 0 backends because this worktree has no `node_modules/@loom` workspace
 symlinks (`npm install` was never run inside it; the parent checkout has them). This packet touches
-no file under `src/platform/**` or `packages/**`. Passes wherever the branch is folded.
+no file under `src/platform/**` or `packages/**`.
+
+Not left as an inference: I recreated the four symlinks (`node_modules/` is gitignored, so the
+branch is unaffected) and re-ran the two files — **10/10 passed**. They pass wherever the branch is
+folded.
 
 ### (d) `walker-declines-with-a-code` ×1 — a CONTENTION artifact, not a failure
 
