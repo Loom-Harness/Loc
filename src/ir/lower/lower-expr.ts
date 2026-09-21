@@ -67,7 +67,7 @@ import {
 import { moneyLiteralText } from "../../language/money-literal.js";
 import { isCollectionOp } from "../../util/collection-ops.js";
 import { bodyTypeOf } from "../../util/expr-body-type.js";
-import { isIntrinsicMatcher } from "../../util/intrinsic-matchers.js";
+import { isIntrinsicMatcher, isThrowKind } from "../../util/intrinsic-matchers.js";
 import { intrinsicFor, intrinsicReturnType } from "../../util/intrinsics.js";
 import { PRINCIPAL_ORG_PATH, PRINCIPAL_ROOT_ORG } from "../../util/principal.js";
 import { durationUnitOf } from "../../util/temporal.js";
@@ -948,6 +948,11 @@ function applySuffixToRecv(
       receiverType: recvType,
       isCollectionOp: collectionOp,
       ...(isIntrinsicMatcher(ms.member) ? { isIntrinsicMatcher: true } : {}),
+      // The `ThrowKind` grammar slot (`toThrow(precondition)`), which is a
+      // sibling of `args` on the suffix, not a member of it.  Carried through
+      // verbatim; `expectStmtIR` lifts it onto the `expect-throws` node and the
+      // validator refuses it anywhere but a unit-tier `toThrow`.
+      ...(ms.throwKind && isThrowKind(ms.throwKind) ? { throwKind: ms.throwKind } : {}),
       ...(argNames.some((n) => n !== undefined) ? { argNames } : {}),
     };
     // Result type after a method call — `memberType` handles collection
