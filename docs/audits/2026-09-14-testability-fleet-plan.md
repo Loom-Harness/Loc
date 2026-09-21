@@ -182,7 +182,7 @@ is DEFERRED — "a gap, not a bug."** The consequence is recorded rather than dr
 `requires` / `policy` / `mask unless` / tenancy denial paths stay untestable from a user's
 model, and the repo's own coverage of them stays in `AUTHZ_LADDERS`, harness-side.
 
-Design: [`../new-plan/missions/M-T5.36-test-surface-v2-design.md`](../new-plan/missions/M-T5.36-test-surface-v2-design.md),
+Design: [`../new-plan/missions/M-T5.37-test-surface-v2-design.md`](../new-plan/missions/M-T5.37-test-surface-v2-design.md),
 six owner decisions recorded against who made them.
 
 | Packet | Session | Scope |
