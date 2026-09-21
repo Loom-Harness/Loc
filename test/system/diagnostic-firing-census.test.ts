@@ -1436,6 +1436,63 @@ system S {
   }
 }`,
 
+  // The PAYLOAD half of the same file (F4).  Each body drives a verb that DOES
+  // route — `Widget with crudish` — so the only defect left is the one under
+  // test, and the diagnostic cannot be the routing one wearing a new code.
+  "loom.e2e-unknown-body-key": `
+system S {
+  subdomain D { context C {
+    aggregate Widget with crudish { code: string }
+  } }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable d { platform: node, contexts: [C], dataSources: [st], port: 4101 }
+  test e2e "t" against d {
+    let w = api.widgets.create({ kode: "W-1" })
+  }
+}`,
+
+  "loom.e2e-missing-required-field": `
+system S {
+  subdomain D { context C {
+    aggregate Widget with crudish { code: string  qty: int }
+  } }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable d { platform: node, contexts: [C], dataSources: [st], port: 4102 }
+  test e2e "t" against d {
+    let w = api.widgets.create({ code: "W-1" })
+  }
+}`,
+
+  "loom.e2e-body-type-mismatch": `
+system S {
+  subdomain D { context C {
+    aggregate Widget with crudish { code: string  qty: int }
+  } }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable d { platform: node, contexts: [C], dataSources: [st], port: 4103 }
+  test e2e "t" against d {
+    let w = api.widgets.create({ code: "W-1", qty: "not-a-number" })
+  }
+}`,
+
+  "loom.e2e-unknown-response-field": `
+system S {
+  subdomain D { context C {
+    aggregate Widget with crudish { code: string }
+  } }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable d { platform: node, contexts: [C], dataSources: [st], port: 4104 }
+  test e2e "t" against d {
+    let w = api.widgets.create({ code: "W-1" })
+    let g = api.widgets.getById(w)
+    expect(g.nonesuch).toBe("x")
+  }
+}`,
+
   "loom.e2e-unaddressable-call": `
 system S {
   subdomain D { context C {
