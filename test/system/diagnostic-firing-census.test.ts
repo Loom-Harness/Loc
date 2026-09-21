@@ -264,6 +264,31 @@ system VanillaActor {
   resource st { for: Billing, kind: state, use: pg }
   deployable d { platform: elixir, contexts: [Billing], dataSources: [st], serves: BillingApi, port: 4000, auth: required }
 }`,
+  // A `crudish` aggregate whose `status` field is BOTH mass-assigned by the
+  // macro's generic `update` and written by a `requires`-gated `approve()` —
+  // audit D3.  `POST /invoices/{id}/update {"status":…}` skips the gate.  The
+  // advisory points at `immutable`, which removes the field from the update
+  // input while leaving the operation free to assign it.
+  "loom.update-gate-suggestion": `
+system UpdateGate {
+  user { id: guid  role: string }
+  subdomain Core { context Billing {
+    enum InvoiceStatus { Draft, Approved }
+    aggregate Invoice with crudish {
+      total: int
+      status: InvoiceStatus
+      operation approve() {
+        requires currentUser.role == "admin"
+        status := Approved
+      }
+    }
+    repository Invoices for Invoice { }
+  } }
+  api BillingApi from Core
+  storage pg { type: postgres }
+  resource st { for: Billing, kind: state, use: pg }
+  deployable d { platform: node, contexts: [Billing], dataSources: [st], serves: BillingApi, port: 3000, auth: required }
+}`,
   // --- phase ④ AST validate -----------------------------------------------
   // Two complete `system { }` blocks and NO top-level members — the shape that
   // slipped past the fold-triggered composition check, because with nothing to
