@@ -11,6 +11,7 @@
 // ---------------------------------------------------------------------------
 
 import type { AggregateIR, BoundedContextIR, TypeIR } from "../../ir/types/loom-ir.js";
+import { isPagedAllRead } from "../../ir/util/paged-all.js";
 import { findValueObjectInScope } from "../../ir/util/reachable-types.js";
 import { humanize } from "../../util/naming.js";
 import { idTargetHookVar, unwrapOpt } from "../_frontend/form-helpers.js";
@@ -22,6 +23,11 @@ export function prepareFormFieldVM(
   ctx: BoundedContextIR,
   testId: string,
   aggregatesByName: Map<string, AggregateIR>,
+  /** Aggregate → owning context, for `isPagedAllRead`.  Absent means "assume
+   *  the bare array": the conservative answer, per `isPagedAllRead`'s own
+   *  contract — a bare-array read of an envelope renders an empty list, while
+   *  an `.items` read of a bare array is a type error AND an empty list. */
+  bcByAggregate?: ReadonlyMap<string, BoundedContextIR>,
 ): FormFieldVM {
   const inner = unwrapOpt(t);
   // Label = humanised leaf segment so nested VO fields render as
@@ -81,14 +87,16 @@ export function prepareFormFieldVM(
         placeholderJson: JSON.stringify(`<id> — ${reason}`),
       };
     }
+    const hookVar = idTargetHookVar(target);
     return {
       template: "field-input-id-select",
       path,
       label,
       testId,
       errorExpr,
-      hookVar: idTargetHookVar(target),
+      hookVar,
       displayField: "display",
+      optionsExpr: idSelectOptionsExpr(hookVar, target.name, bcByAggregate),
     };
   }
 
@@ -117,6 +125,7 @@ export function prepareFormFieldVM(
           ctx,
           `${testId}-${vf.name}`,
           aggregatesByName,
+          bcByAggregate,
         ),
       );
       return {
@@ -161,6 +170,7 @@ export function prepareFormFieldVM(
             ctx,
             `${testId}-${vf.name}`,
             aggregatesByName,
+            bcByAggregate,
           );
           // The row's own error access: the sub-field VM's `errorExpr` was built
           // from its BARE path (`errors.voyage?.message`) and points at nothing,
@@ -217,6 +227,23 @@ function defaultRowValue(f: FormFieldVM): string {
 
 /** RHF errors live at `errors.foo.bar.baz?.message` — translate a dot-
  *  path into the matching access expression. */
+/** The id-select picker's option source, resolved against the shape the
+ *  target's list route actually serves.
+ *
+ *  Every JSX/markup pack splices this verbatim, so the twelve
+ *  `field-input-id-select.hbs` templates carry no opinion about the wire at
+ *  all — pinned by `test/generator/_frontend/id-select-list-shape.test.ts`,
+ *  which fails a thirteenth pack that copy-pastes `.items` back in. */
+function idSelectOptionsExpr(
+  hookVar: string,
+  targetAggregate: string,
+  bcByAggregate: ReadonlyMap<string, BoundedContextIR> | undefined,
+): string {
+  return isPagedAllRead(targetAggregate, bcByAggregate)
+    ? `(${hookVar}.data?.items ?? [])`
+    : `(${hookVar}.data ?? [])`;
+}
+
 function errorAccess(path: string): string {
   const parts = path.split(".");
   return `errors.${parts.join("?.")}?.message`;

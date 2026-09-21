@@ -217,6 +217,17 @@ export interface FormFieldVM {
   hookVar?: string;
   /** Target aggregate's display field name (becomes the option label). */
   displayField?: string;
+  /** The id-select picker's OPTION SOURCE, already resolved against the shape
+   *  the target's list route actually serves — `(<hookVar>.data?.items ?? [])`
+   *  for the paged auto-`findAll`, `(<hookVar>.data ?? [])` for a declared
+   *  `find all(): T[]`, whose signature makes the route return a bare array.
+   *
+   *  Resolved HERE, not in the pack template: the shape is a model fact
+   *  (`isPagedAllRead`), and twelve packs each spelling it themselves is twelve
+   *  chances to get it wrong — as all twelve did, hard-coding `.items`.  On a
+   *  typed client that is a compile error; elsewhere `(x.data?.items ?? [])`
+   *  quietly evaluates to `[]` and the dropdown is simply empty. */
+  optionsExpr?: string;
   /** Pre-quoted JSON literal for the `placeholder` attribute on the
    *  fallback id-text field (when target / display is missing). */
   placeholderJson?: string;

@@ -5,6 +5,7 @@ import type {
   FieldIR,
   TypeIR,
 } from "../../ir/types/loom-ir.js";
+import { isPagedAllRead } from "../../ir/util/paged-all.js";
 import { humanize, lowerFirst, plural, upperFirst } from "../../util/naming.js";
 import { renderDefaultSeed } from "../_frontend/default-seed.js";
 import { unwrapOpt } from "../_frontend/form-helpers.js";
@@ -54,6 +55,13 @@ export interface AngularIdTargetSpec {
   hookFn: string;
   /** `src/api/<x>` module path the `hookFn` is imported from (page-relative). */
   importFrom: string;
+  /** The Select's OPTION SOURCE, resolved against the shape the target's list
+   *  route actually serves — `<hookVar>.data()?.items ?? []` for the paged
+   *  auto-`findAll`, `<hookVar>.data() ?? []` for a declared
+   *  `find all(): T[]`, whose signature makes the route return a bare array.
+   *  The JSX packs' `optionsExpr` (`_walker/form-fields-vm.ts`), in Angular's
+   *  signal spelling; same `isPagedAllRead` fact behind both. */
+  optionsExpr: string;
 }
 
 /** Resolve the `useAll<X>()` query an `X id` field needs to render a Select,
@@ -72,10 +80,14 @@ export function idTargetForField(
   if (inner.kind !== "id") return undefined;
   const target = resolveIdTarget(inner.targetName, bc, ctx);
   if (!target?.displayDerived) return undefined;
+  const hookVar = `${lowerFirst(target.name)}All`;
   return {
-    hookVar: `${lowerFirst(target.name)}All`,
+    hookVar,
     hookFn: `useAll${plural(target.name)}`,
     importFrom: `../../api/${lowerFirst(target.name)}`,
+    optionsExpr: isPagedAllRead(target.name, ctx.bcByAggregate)
+      ? `${hookVar}.data()?.items ?? []`
+      : `${hookVar}.data() ?? []`,
   };
 }
 
@@ -513,18 +525,18 @@ export function fieldInput(
   // combobox page-object locator (`page-objects-builder.ts`).
   const idTarget = idTargetForField(t, bc, ctx);
   if (idTarget) {
-    const { hookVar } = idTarget;
+    const { hookVar, optionsExpr } = idTarget;
     const optionTestid = `${testidBase}-option`;
     if (style === "material") {
       addNg(ctx, "@angular/material/form-field", "MatFormFieldModule");
       addNg(ctx, "@angular/material/select", "MatSelectModule");
-      return `<mat-form-field class="loom-field"><mat-label>${label}</mat-label><mat-select formControlName=${cn}${testid}>@for (__o of ${hookVar}.data()?.items ?? []; track __o.id) {<mat-option [value]="__o.id" [attr.data-testid]="'${optionTestid}-' + __o.id">{{ __o.display }}</mat-option>}</mat-select></mat-form-field>`;
+      return `<mat-form-field class="loom-field"><mat-label>${label}</mat-label><mat-select formControlName=${cn}${testid}>@for (__o of ${optionsExpr}; track __o.id) {<mat-option [value]="__o.id" [attr.data-testid]="'${optionTestid}-' + __o.id">{{ __o.display }}</mat-option>}</mat-select></mat-form-field>`;
     }
     if (style === "primeng") {
       addNg(ctx, "primeng/select", "SelectModule");
-      return `<label class="loom-field"><span class="loom-label">${label}</span><p-select [options]="${hookVar}.data()?.items ?? []" optionLabel="display" optionValue="id" styleClass="loom-input" formControlName=${cn}${testid}><ng-template let-__o pTemplate="item"><span [attr.data-testid]="'${optionTestid}-' + __o.id">{{ __o.display }}</span></ng-template></p-select></label>`;
+      return `<label class="loom-field"><span class="loom-label">${label}</span><p-select [options]="${optionsExpr}" optionLabel="display" optionValue="id" styleClass="loom-input" formControlName=${cn}${testid}><ng-template let-__o pTemplate="item"><span [attr.data-testid]="'${optionTestid}-' + __o.id">{{ __o.display }}</span></ng-template></p-select></label>`;
     }
-    return `<label class="loom-field"><span class="loom-label">${label}</span><select class="loom-input" formControlName=${cn}${testid}>@for (__o of ${hookVar}.data()?.items ?? []; track __o.id) {<option [value]="__o.id" [attr.data-testid]="'${optionTestid}-' + __o.id">{{ __o.display }}</option>}</select></label>`;
+    return `<label class="loom-field"><span class="loom-label">${label}</span><select class="loom-input" formControlName=${cn}${testid}>@for (__o of ${optionsExpr}; track __o.id) {<option [value]="__o.id" [attr.data-testid]="'${optionTestid}-' + __o.id">{{ __o.display }}</option>}</select></label>`;
   }
   // `money` is deliberately NOT numeric input: its control holds a decimal
   // STRING (see `controlInit`), and a numeric widget — `type="number"` or
