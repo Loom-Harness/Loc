@@ -59,6 +59,7 @@ import {
   opWorkflowInstances,
 } from "../../../ir/util/openapi-ids.js";
 import { plural, snake, upperFirst } from "../../../util/naming.js";
+import { INT32_MAX, INT32_MIN } from "../../../util/numeric-range.js";
 import { PROVENANCE_VALUE_FIELD, provenancedEntries } from "../../_payload/provenanced-wire.js";
 import { unionMembers } from "../../_payload/union-wire.js";
 import { workflowParamPayloads } from "../../_payload/workflow-param-payloads.js";
@@ -860,6 +861,25 @@ end
 // Schema module renderers
 // ---------------------------------------------------------------------------
 
+/** The published schema of a declared `int` — the DECLARED int32 range, not a
+ *  bare `{type: :integer}` (Schemathesis F11).
+ *
+ *  An `int` persists as Postgres `integer`, so a value outside int32 cannot be
+ *  stored; publishing no bound told every generated client, and every contract
+ *  fuzzer, that `9543751572142` was a legal request — which reached the column
+ *  and 500ed.  node publishes `format: int32` plus the zod `.min()/.max()`,
+ *  python `Field(ge=, le=)` + `format: int32`, and .NET/java have always bound
+ *  it through `int`/`Integer`; elixir was the last bare one.  The numbers come
+ *  from `src/util/numeric-range.ts`, the single statement of the contract, so
+ *  the schema, the changeset guard and the column cannot drift apart.
+ *
+ *  `long` is deliberately NOT given the same treatment here: its declared
+ *  ceiling is the `D-LONG-AVG-DEFAULTS` 2^53 one rather than int64, and moving
+ *  it is a cross-backend ruling, not this row. */
+const INT32_SCHEMA =
+  `%OpenApiSpex.Schema{type: :integer, format: :int32, ` +
+  `minimum: ${INT32_MIN}, maximum: ${INT32_MAX}}`;
+
 /** Wire-primitive → OpenApiSpex %Schema{} literal.  Money crosses as
  *  `{type: string, format: decimal}` for cross-backend wire parity
  *  (see `.loom/wire-spec.json`).  Datetime is `:'date-time'`, guid is
@@ -867,7 +887,7 @@ end
  *  `System.Decimal` (double is the least-lossy JSON-number hint; `:float`
  *  diverged from .NET and threw away precision). */
 const OPENAPI_PRIMITIVE: Record<WirePrimitive, string> = {
-  int: "%OpenApiSpex.Schema{type: :integer}",
+  int: INT32_SCHEMA,
   long: "%OpenApiSpex.Schema{type: :integer}",
   decimal: "%OpenApiSpex.Schema{type: :number, format: :double}",
   money: "%OpenApiSpex.Schema{type: :string, format: :decimal}",

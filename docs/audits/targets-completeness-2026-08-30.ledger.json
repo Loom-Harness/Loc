@@ -1,54 +1,6 @@
 {
   "open": [
     {
-      "id": "F2-MT640-SORT-DEAD",
-      "title": "HEEx wires a Table's `sortKey`/`sortDir`/`page` ONLY when `serverPaged`, so a NON-paged scaffolded list silently loses the client-side sort + pagination all four JSX frontends render from the same `.ddd` — the dead `sort_key`/`sort_dir`/`page_num` assigns are the residue, not the defect",
-      "kind": "silent",
-      "class": null,
-      "confidence": "proven",
-      "targets": [
-        "elixir"
-      ],
-      "fileTrees": [
-        "src/generator/elixir/heex-primitives.ts",
-        "src/generator/elixir/liveview-emit.ts",
-        "src/generator/_walker/primitives/table.ts"
-      ],
-      "evidence": [
-        {
-          "fleet": 2,
-          "id": "F2-MT640-SORT-DEAD",
-          "bucket": "fix-elixir",
-          "text": "The arity bug the mission names IS fixed — out-nonpaged/phoenix_app/lib/phoenix_app_web/live/order_list_live.ex:23,51,75 all call `PhoenixApp.Sales.list_orders()` and phoenix_app/lib/phoenix_app/sales.ex:12 defines `defdelegate list_orders(), to: …OrderRepository, as: :list`; the paged twin (out-paged, same fixture unmodified) threads state: live:23 `list_orders(socket.assigns.page_num, 10, socket.assigns.sort_key, socket.assigns.sort_dir)` against sales.ex:12 `defdelegate list_orders(page \\\\ 1, page_size \\\\ 20, sort \\\\ \"id\", dir \\\\ \"asc\")`. What ships instead is silently-unsorted UI: order_list_live.ex:36-58 `handle_event(\"loom-sort\", %{\"key\" => key}, socket)` reassigns `:sort_key`/`:sort_dir` and then refetches with the same argument-free `list_orders()`, while the template still renders `<.table … sort_key={@sort_key} sort_dir={@sort_dir}>` with `sort_field=\"id\"/\"code\"/\"total\"/\"version\"` on every `<:col>` — clickable headers that flip an arrow and change nothing. docs/new-plan/T6-backend-parity.md:917 still carries this row as `open` and still quotes the `list_orders/4` vs `list_orders/0` transcript as current."
-        },
-        {
-          "fleet": 2,
-          "id": "F2-MT640-SORT-DEAD",
-          "bucket": "wave-c1:1e-ledger-backend",
-          "text": "RE-DIAGNOSED 2026-09-11 on the wave-C1 tree.  Repro re-run (`vanilla-list-read-gate.ddd` with `find all(): Order paged` -> `Order[]`): `out-nonpaged/phoenix_app/lib/phoenix_app_web/live/order_list_live.ex` mounts `assign(:sort_key, \"\") |> assign(:sort_dir, \"\") |> assign(:page_num, 1)` and the template reads NONE of them — no `phx-click`, no `handle_event(\"loom-sort\")`, no pager.  But the assigns are not the bug: the scaffold macro passes `sortKey:`/`sortDir:`/`page:`/`pageSize: 10` to the Table in BOTH modes (`_body-builders.ts` `makeTable`), and the SHARED walker honours them client-side when not server-paged (`_walker/primitives/table.ts`: `serverControls = !serverPaged || …` is true, so `renderSortedRows` sorts and the pager `.slice`s).  HEEx's parallel engine gates on `serverPaged` instead (`heex-primitives.ts:670` `const sortKey = serverPaged ? stateRefArg(…) : undefined`), so Phoenix renders an unsorted, unpaged table for a `.ddd` that sorts and pages on react/vue/svelte/angular.  The row is therefore a CROSS-FRONTEND CAPABILITY GAP (size M: port client-side sort + page into the HEEx walker), not the S-sized assign cleanup it was filed as."
-        }
-      ],
-      "repro": "scratchpad/elixir-audit/nonpaged.ddd = test/e2e/fixtures/elixir-vanilla-build/vanilla-list-read-gate.ddd with `find all(): Order paged requires …` changed to `find all(): Order[] requires …`; `node bin/cli.js generate system … -o out-nonpaged`.",
-      "impact": "The compile break is genuinely closed, so this is not a regression — but option (a) (\"silently un-pages the UI\") was taken without the parity decision the mission row says it needs, and the residue is a control surface that lies to the user. Anyone reading the register plans work that is already done, against a transcript that no longer reproduces.",
-      "fix": "Port the client-side arm into the HEEx walker: drop the `serverPaged` gate on `sortKey`/`sortDir` in `heex-primitives.ts`, sort the assign list in the `handle_event(\"loom-sort\")` clause `liveview-emit.ts` already emits (it currently refetches, which is right for server mode and wrong for client mode), and slice `pageSize`.  THEN the three mount assigns stop being dead.  The alternative — dropping the affordances from the scaffolded page when the read is non-paged — is cheaper but makes Phoenix a lesser frontend for the same model, which is the parity decision M-T6.40 deferred.",
-      "size": "M",
-      "sources": [
-        "fleet2:fix-elixir"
-      ],
-      "related_to": [],
-      "securityClass": false,
-      "P": 1,
-      "verified": {
-        "date": "2026-09-11",
-        "against": "wave-c1 branch head",
-        "method": "row's own repro re-run; emitted LiveView read; both walker engines compared",
-        "verdict": "reproduces, re-diagnosed",
-        "remainingTargets": [
-          "elixir"
-        ]
-      }
-    },
-    {
       "id": "F2-W-06",
       "title": "elixir persists `datetime` at SECOND precision (`:utc_datetime`) where the other four use TIMESTAMPTZ(µs)",
       "kind": "silent",
@@ -95,113 +47,6 @@
         "method": "reconciliation 3 (packet C0.5) — repro re-run on this head, emitted output read",
         "verdict": "reproduces",
         "note": "RE-DERIVED: `src/generator/elixir/vanilla/schema-emit.ts:194` still emits `timestamps(type: :utc_datetime)` and `:299-306` the `:utc_datetime` audit columns — SECOND precision where the other four use TIMESTAMPTZ(µs).  The #2734 deferral rationale (the `__truncate_dt/1` / `stampFieldIsDatetime` / `force_change` truncations must move in the same change) is unchanged.",
-        "remainingTargets": [
-          "elixir"
-        ]
-      }
-    },
-    {
-      "id": "G2646-open-heex-layout-inert",
-      "title": "#2646 documented, NOT fixed: on HEEx a non-server-paged Table gets no pager and the `i18nFormat` wrapper is dropped (the Grid arm of this row was stale and is retired)",
-      "kind": "silent",
-      "class": null,
-      "confidence": "likely",
-      "targets": [
-        "elixir"
-      ],
-      "fileTrees": [
-        "src/generator/elixir/heex-primitives.ts"
-      ],
-      "evidence": [
-        {
-          "fleet": 1,
-          "id": "G2646-open-heex-layout-inert",
-          "text": "Documented by #2646's audit HEEx row as 'layout primitives semantically inert (Grid≡Stack, bare divs) — PARTIAL, open (heex-primitives.ts:1240)'; plus 'non-server-paged Table gets no pager; i18nFormat wrapper dropped (documented degrade)'. On main heex-primitives.ts:1320 defines `Grid: \"grid gap-4\"` and :1409 `Grid: { tag: \"div\", staticAttrs: [\"class\"], takesChildren: true, childWrapper: \"div\" }` with renderGrid at :1975 — the cols: classes exist, but the audit's claim is that the semantic difference from Stack does not survive. #2646's heex-primitives.ts hunk is only 7 lines and does not address it."
-        }
-      ],
-      "repro": null,
-      "impact": null,
-      "fix": "Three separable slices: give HEEx Grid real per-breakpoint column semantics distinct from Stack (heex-primitives.ts:1963-1985); emit a client pager for a non-server-paged Table; honour the i18nFormat wrapper or pin it in the heex-parity freeze list with a reason.",
-      "size": "M",
-      "sources": [
-        "fleet1:pr-registers"
-      ],
-      "related_to": [],
-      "securityClass": false,
-      "P": 2,
-      "w1bElixir": "PARTIALLY STALE — verified on a current build (W1b elixir, PR #2704). The \"Grid ≡ Stack\" arm is STALE: `renderGrid` emits real `grid-cols-N` (heex-primitives.ts) and did at the ledger's own base. The two arms that remain OPEN and untouched are the i18nFormat wrapper drop and the missing pager on a non-server-paged Table.",
-      "verified": {
-        "date": "2026-09-03",
-        "against": "bd7aaeedc",
-        "method": "each row's own repro re-run; emitted output read",
-        "verdict": "partial",
-        "note": "the Grid arm is STALE — `renderGrid` reads the shared `gridCols` and emits real `grid-cols-N md:… lg:…`. The non-server-paged Table pager arm and the i18nFormat arm remain open",
-        "remainingTargets": [
-          "elixir"
-        ]
-      },
-      "reverified": {
-        "date": "2026-09-10",
-        "against": "bc7ed8f8",
-        "method": "reconciliation 3 (packet C0.5) — repro re-run on this head, emitted output read",
-        "verdict": "reproduces",
-        "note": "RE-DERIVED, two arms of three.  (1) TABLE PAGER: generated `vanilla-list-nonpaged.ddd` on elixir — the page renders `<.table id=\"data-table\" rows={@items}>` with no pager markup, while `core_components.ex:345,355` carries a `phx-click=\"loom-page\"` pager the page never mounts.  (2) i18nFormat: `heex-walker-core.ts:695-699` drops the wrapper by design — its own comment says 'the format is dropped: render the wrapped operand'.  (3) GRID arm confirmed STALE and removed from the title — `renderGrid` emits real `grid-cols-N`.",
-        "remainingTargets": [
-          "elixir"
-        ]
-      }
-    },
-    {
-      "id": "schemathesis-F11-int32-range",
-      "title": "F11 — ELIXIR publishes a bare `%OpenApiSpex.Schema{type: :integer}` for an `int` body field against an int4 column, so a contract-conforming value 500s (node and python now publish the bound; dotnet and java always did)",
-      "kind": "silent",
-      "class": null,
-      "confidence": "likely",
-      "targets": [
-        "elixir"
-      ],
-      "fileTrees": [
-        "src/generator/_frontend/zod-schemas.ts",
-        "src/generator/zod-refine.ts",
-        "src/ir/util/openapi-errors.ts",
-        "src/generator/dotnet/validator-emit.ts",
-        "src/generator/java/emit/validator.ts",
-        "src/generator/python/",
-        "src/generator/elixir/vanilla/openapi-emit.ts"
-      ],
-      "evidence": [
-        {
-          "fleet": 1,
-          "id": "schemathesis-F11-int32-range",
-          "text": "test/behavioral/schemathesis-waivers.json holds W11 (`not_a_server_error`, `^POST /api/orders/\\{id\\}/add_line$`, kind `bug`, intermittent) and W12 (`status_code_conformance`, same operation, 'The consequence half of W11 … Clears with W11 when `int` gets its declared int32 range on all five backends'). W11's reason: 'an `int` body field publishes `{\"type\":\"integer\"}` with NO bound and validates as `z.number().int()` with no bound, while the column behind it is Postgres `int4`: a value the published contract permits (9543751572142) overflows and 500s. Same declared-vs-enforced family as F7, one level down.' Both survive at origin/main (268b257) — the in-window diff of that file removed only W4, W6 and W9. Register: docs/audits/schemathesis-findings-2026-08.md. Not claimed: PR #2648's own 'Left out, deliberately' section says 'F11 / W11+W12 stay open — … Highest-severity item left in the register; same shape as this fix, its own PR'; PR #2664 adds legs + leg-scoped waivers, no emitter fix."
-        }
-      ],
-      "repro": null,
-      "impact": null,
-      "fix": "Give `int` its declared int32 range at the one shared place each layer already has: publish `minimum: -2147483648 / maximum: 2147483647` on an `int` schema in every backend's OpenAPI emitter, and enforce it in each wire validator (`z.number().int().min().max()` on node/frontends via src/generator/_frontend/zod-schemas.ts, `[Range]` on .NET, `@Min/@Max` on java, `Field(ge=, le=)` on python, an Ecto changeset `validate_number` on elixir). `long` keeps int64 as it does today. Delete W11 + W12 and strike the register entry in the same PR (the ratchet fails a rule that matches nothing).",
-      "size": "M",
-      "sources": [
-        "fleet1:fresh-gate-probe"
-      ],
-      "related_to": [],
-      "securityClass": false,
-      "P": 2,
-      "verified": {
-        "date": "2026-09-03",
-        "against": "bd7aaeedc",
-        "method": "each row's own repro re-run; emitted output read",
-        "verdict": "open",
-        "note": "W11/W12 still present in `test/behavioral/schemathesis-waivers.json`",
-        "remainingTargets": [
-          "elixir"
-        ]
-      },
-      "reverified": {
-        "date": "2026-09-10",
-        "against": "bc7ed8f8",
-        "method": "reconciliation 3 (packet C0.5) — repro re-run on this head, emitted output read",
-        "verdict": "reproduces",
-        "note": "NARROWED TO ELIXIR by re-derivation.  Generated an `int` body field on all five and read the published schema: node `z.number().int().min(-2147483648).max(2147483647).openapi({ format: \"int32\" })`, python `Int32 = Annotated[int, …, Field(ge=-2147483648, le=2147483647), WithJsonSchema({\"type\": \"integer\", \"format\": \"int32\"})]` (wire_models.py:21) — both FIXED; dotnet and java bind through `int`/`Integer` and W11's own measurement records they 'have always published `format: int32`'.  ELIXIR still publishes a bare `%OpenApiSpex.Schema{type: :integer}` (`schemas/create_order_request.ex`) — no bound, no format, against an int4 column.  The W11/W12 waivers in `test/behavioral/schemathesis-waivers.json` are retained for a DIFFERENT, still-unknown java cause their own text describes; they are not evidence for this row.",
         "remainingTargets": [
           "elixir"
         ]
@@ -6388,6 +6233,21 @@
         "note": "The F# table gained a nullable-scalar arm (a `'T option` cell; an absent key restores the field's declared default, and junk falls back to it too, so the round trip stays total). Feliz supports it at EVERY tier INCLUDING `url`, where Flutter refuses: Flutter's back/forward re-seed goes through `copyWith` (`x ?? this.x`, which cannot set a cell to null) while Feliz's `StoreUrlChanged` arm rebuilds the record field from the loader, so an absent param restores `None` rather than keeping the stale value. That tier-only difference is pinned in both directions in `persist-codec-divergence.test.ts`; it is not a table row, and `felizPersistCodec` deliberately takes no tier argument. A PRE-EXISTING silent-codegen defect was found on the way and fixed in the same branch: a store action assigning a bare value to an optional cell emitted `{ model with X = v }` against a `'T option` field (FS0001) from a `.ddd` reporting `0 error(s), 0 warning(s)` — reproduced on a `memory` store, so independent of `persist:`.",
         "remainingTargets": []
       }
+    },
+    {
+      "id": "F2-MT640-SORT-DEAD",
+      "title": "HEEx renders the client-side sort + pager a non-paged list gets on the four JSX frontends (wave C2 packet 2m): the template threads the bound rows through the emitted LoomTable helper module, and the loom-sort / loom-page clauses write the assigns WITHOUT the refetch that made the headers decorative",
+      "source": "fleet2:fix-elixir"
+    },
+    {
+      "id": "G2646-open-heex-layout-inert",
+      "title": "Both live arms closed (wave C2 packet 2m): the non-server-paged Table now emits a client pager (LoomTable.total_pages/2 + the loom-page clause), and the i18nFormat drop is ratified as a permanent documented LiveView divergence under D-HEEX-I18N-FORMAT.  The Grid arm was already retired as stale",
+      "source": "fleet1:pr-registers"
+    },
+    {
+      "id": "schemathesis-F11-int32-range",
+      "title": "Elixir publishes the declared int32 bound and enforces it on BOTH ingress paths (wave C2 packet 2m): the OpenApiSpex schema for an int is now {type: :integer, format: :int32, minimum: -2147483648, maximum: 2147483647}, the op-param guard is __loom_int32_param (a long keeps the type-only one, whose ceiling is the D-LONG-AVG-DEFAULTS ruling), and a create/update casts through validate_number on every int column — so a contract-conforming value can no longer reach the int4 column and 500.  W11/W12 were already gone from the waiver file",
+      "source": "fleet1:fresh-gate-probe"
     }
   ],
   "declined": [
