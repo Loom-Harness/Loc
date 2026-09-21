@@ -175,7 +175,11 @@ export function generateSvelteForContexts(
     // here, so what the translator wrote is what the app can resolve — with no
     // translator tree the list is empty and the shim is byte-identical.
     out.set("src/lib/locales/en.json", renderLocaleCatalog(ui, packChromeCatalog(pack.manifest)));
-    const translated = renderTranslatedCatalogs(ui, options.translations, packChromeCatalog(pack.manifest));
+    const translated = renderTranslatedCatalogs(
+      ui,
+      options.translations,
+      packChromeCatalog(pack.manifest),
+    );
     for (const [locale, content] of translated) {
       out.set(`src/lib/locales/${locale}.json`, content);
     }

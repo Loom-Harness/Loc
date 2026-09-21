@@ -1044,7 +1044,10 @@ function validateWorkflowStatements(
       } else if (inner.kind === "emit" || inner.kind === "factory-let") {
         markMutated();
       }
-      if ((inner.kind === "repo-let" || inner.kind === "factory-let") && !bindingAgg.has(inner.name)) {
+      if (
+        (inner.kind === "repo-let" || inner.kind === "factory-let") &&
+        !bindingAgg.has(inner.name)
+      ) {
         bindingAgg.set(inner.name, inner.aggName);
         bodyLocal.push(inner.name);
       }

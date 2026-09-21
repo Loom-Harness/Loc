@@ -195,7 +195,11 @@ export function generateVueForContexts(
     // here, so what the translator wrote is what the app can resolve — with no
     // translator tree the list is empty and the shim is byte-identical.
     out.set("src/locales/en.json", renderLocaleCatalog(ui, packChromeCatalog(pack.manifest)));
-    const translated = renderTranslatedCatalogs(ui, options.translations, packChromeCatalog(pack.manifest));
+    const translated = renderTranslatedCatalogs(
+      ui,
+      options.translations,
+      packChromeCatalog(pack.manifest),
+    );
     for (const [locale, content] of translated) {
       out.set(`src/locales/${locale}.json`, content);
     }
