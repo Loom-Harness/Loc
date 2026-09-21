@@ -121,9 +121,13 @@ const EXEMPT: Record<string, string> = {
 // ---------------------------------------------------------------------------
 function resolveSpec(fromFile: string, spec: string): string | undefined {
   if (!spec.startsWith(".")) return undefined;
-  const base = path.resolve(path.dirname(fromFile), spec).replace(/\.js$/, ".ts");
-  const candidates = [base, `${base}.ts`, path.join(base.replace(/\.ts$/, ""), "index.ts")];
-  return candidates.find((c) => existsSync(c) && c.endsWith(".ts"));
+  const raw = path.resolve(path.dirname(fromFile), spec);
+  const base = raw.replace(/\.js$/, ".ts");
+  // `raw` last, and only for `.mjs`: the behavioural case drivers are authored
+  // as ESM `.mjs` and import each other by their real extension, so the
+  // `.js -> .ts` rewrite above never applies to them.
+  const candidates = [base, `${base}.ts`, path.join(base.replace(/\.ts$/, ""), "index.ts"), raw];
+  return candidates.find((c) => existsSync(c) && /\.(ts|mjs)$/.test(c));
 }
 
 const IMPORT_RE = /(?:from|import)\s*\(?\s*["']([^"']+)["']/g;
@@ -226,7 +230,44 @@ function entryPoints(yaml: string): string[] {
     const script = pkg.scripts?.[m[1]];
     if (script) add(script);
   }
+  for (const d of mjsDrivers(source)) found.add(d);
   return [...found].filter((f) => existsSync(path.join(repoRoot, f)));
+}
+
+/**
+ * `.mjs` case drivers a workflow runs from a `run:` step.
+ *
+ * THE BUG THIS CLOSES.  Everything in this file keys on "does this workflow
+ * drive generation", and that was derived from two signals only: a resolved
+ * `test/**.test.ts` entry point, or an inline `bin/cli.js generate` in the
+ * workflow source.  The seven `behavioral-e2e-*.yml` legs are neither — each
+ * runs `node run-<backend>.mjs`, and THAT file spawns the CLI.  So six of the
+ * seven scored as non-generation gates and EVERY assertion here skipped them in
+ * silence, the shared-seam requirement (P0-3) included.  A skipped assertion is
+ * indistinguishable from a passing one in the report, which is the purest form
+ * of the failure this file exists to catch: the gate never reached the thing it
+ * names.
+ *
+ * A step's `working-directory:` is tracked, because the behavioural legs run
+ * `node run-java.mjs` from `test/behavioral`; a `$GITHUB_WORKSPACE/` prefix is
+ * stripped.  Only a path that really exists is kept.
+ */
+function mjsDrivers(source: string): string[] {
+  const found = new Set<string>();
+  let workdir = "";
+  for (const raw of source.split("\n")) {
+    const line = raw.replace(/\r$/, "");
+    // A new list item starts a new step, so its predecessor's
+    // `working-directory:` stops applying.
+    if (/^\s+-\s/.test(line)) workdir = "";
+    const wd = line.match(/^\s*-?\s*working-directory:\s*['"]?([^'"\s]+)/);
+    if (wd) workdir = wd[1];
+    for (const m of line.matchAll(/node\s+(?:["']|\$\{?GITHUB_WORKSPACE\}?\/)*([\w./-]+\.mjs)/g)) {
+      const rel = [path.join(workdir, m[1]), m[1]].find((c) => existsSync(path.join(repoRoot, c)));
+      if (rel) found.add(rel.split(path.sep).join("/"));
+    }
+  }
+  return [...found];
 }
 
 /** Does `glob` cover EVERY file under `dir/`?  Only a `dir/**` (or a wider
@@ -431,9 +472,33 @@ describe("the closure walker resolves what it claims to", () => {
     // directly. They resolve NO test entry point, so a closure-only reader
     // scores them as non-generation gates and skips them silently — which is
     // exactly what the first cut of this file did.
-    const inline = gates.filter((g) => g.generatesInline && g.entries.length === 0);
+    const inline = gates.filter(
+      (g) => g.generatesInline && !g.entries.some((e) => e.endsWith(".test.ts")),
+    );
     expect(inline.map((g) => g.file)).toContain("generated-feliz-build.yml");
     expect(inline.map((g) => g.file)).toContain("generated-flutter-build.yml");
+  });
+
+  it("recognises a workflow that generates through a `.mjs` case driver", () => {
+    // The `behavioral-e2e-*` legs run `node run-<backend>.mjs`; the CLI spawn
+    // is inside THAT file, not the workflow.  Before `mjsDrivers`, six of the
+    // seven resolved no entry point at all and every assertion above skipped
+    // them without a word.  Pin BOTH halves — that they are seen at all, and
+    // that the driver is what makes them generation gates (not a `.test.ts`
+    // and not an inline `bin/cli.js`).
+    const family = gates.filter((g) => g.file.startsWith("behavioral-e2e-"));
+    expect(family.length).toBeGreaterThanOrEqual(6);
+    for (const g of family) {
+      expect(generates(g), `${g.file} is not recognised as a generation gate`).toBe(true);
+      expect(g.generatesInline, `${g.file} names bin/cli.js inline after all`).toBe(false);
+      expect(
+        g.entries.filter((e) => e.endsWith(".mjs")),
+        `${g.file} resolves no .mjs driver`,
+      ).not.toEqual([]);
+    }
+    // The driver itself must reach the CLI — otherwise `generates` is riding
+    // on some other signal and this pin proves nothing.
+    expect(closureOf(["test/behavioral/run-java.mjs"]).generates).toBe(true);
   });
 
   it("sharedSeams finds the seams a backend claim really reaches", () => {

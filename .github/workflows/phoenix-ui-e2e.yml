@@ -55,6 +55,7 @@ on:
       - 'src/generator/_payload/**'
       - 'src/generator/_persistence/**'
       - 'src/generator/_stmt/**'
+      - 'src/generator/_test/**'
       - 'src/generator/_trace/**'
       - 'src/generator/_walker/**'
       - 'src/generator/_workflow/**'
