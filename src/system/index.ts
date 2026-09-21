@@ -150,6 +150,18 @@ export interface GenerateSystemOptions {
    *  migration files already exist and the snapshot is missing — the CLI
    *  `--allow-rebaseline` flag. */
   allowRebaseline?: boolean;
+  /** Translated locale catalogs from the `ddd i18n` translator tree, keyed by
+   *  locale tag (`de`, `pt-BR`).  Each frontend with a translation runtime
+   *  emits one `src/locales/<locale>.json` per entry (scoped to that ui's own
+   *  keys) and registers it in the generated `src/i18n.ts`, which is what
+   *  makes a translated locale reachable at runtime.
+   *
+   *  `src/system/` stays browser-safe (no `fs`) — the same arrangement
+   *  `sourceTexts` uses — so the CLI reads the tree (`loadTranslations` in
+   *  `src/cli/i18n/index.ts`, through the SAME `localesDir` resolution every
+   *  `ddd i18n` subcommand uses) and the playground supplies its own.  Absent
+   *  / empty is the normal case and emits byte-identically to before. */
+  translations?: ReadonlyMap<string, Record<string, string>>;
 }
 
 export function generateSystems(model: Model, options: GenerateSystemOptions = {}): SystemEmission {
@@ -186,6 +198,7 @@ export function generateSystemsFromLoom(
       allowRebaseline: options.allowRebaseline,
       sourcemap: recorder,
       sourceTexts: options.sourceTexts,
+      translations: options.translations,
     });
   }
   // Traceability artifacts — model-global (requirements may
@@ -252,6 +265,7 @@ function emitSystem(
     allowRebaseline?: boolean;
     sourcemap?: SourceMapRecorder;
     sourceTexts?: ReadonlyMap<string, string>;
+    translations?: ReadonlyMap<string, Record<string, string>>;
   },
 ): void {
   // Pre-compute a module-name → contexts lookup so a deployable can
@@ -298,6 +312,7 @@ function emitSystem(
       topLevelComponents: loom.components,
       sourcemap: options.sourcemap,
       sourceTexts: options.sourceTexts,
+      translations: options.translations,
     });
   }
 
@@ -571,6 +586,7 @@ function emitDeployable(
     topLevelComponents?: import("../ir/types/loom-ir.js").ComponentIR[];
     sourcemap?: SourceMapRecorder;
     sourceTexts?: ReadonlyMap<string, string>;
+    translations?: ReadonlyMap<string, Record<string, string>>;
   } = {},
 ): void {
   const emitTrace = !!options.emitTrace;
@@ -615,6 +631,9 @@ function emitDeployable(
     // Passed verbatim (no scoping — it's keyed by `.ddd` source path, not
     // generated output path).
     sourceTexts: options.sourceTexts,
+    // Locale catalogs from the translator tree; each frontend scopes them to
+    // its own ui's keys.  Absent for every backend platform, which ignore it.
+    translations: options.translations,
   });
   for (const [relPath, content] of files) {
     out.set(`${sub}/${relPath}`, content);

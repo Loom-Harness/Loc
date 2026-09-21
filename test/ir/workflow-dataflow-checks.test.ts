@@ -146,4 +146,34 @@ describe("workflow-body data-flow checks (IR, phase ⑦)", () => {
     const c = await codes("let xs = Orders.run(OrderQ(High))\n        for o in xs { o.bump() }");
     expect(c).not.toContain("loom.workflow-foreach-unknown-binding");
   });
+
+  // F-004: the `for-each` twin of the if-let case above.  The if-let arm learnt
+  // to register a branch-local `let` (M-T9.34); the `for-each` arm did not, so
+  // "load a second aggregate per loop iteration" — order fulfilment, inventory
+  // decrement, ledger posting — was refused, and refused with a message that
+  // blamed the USE ("references unknown binding 'w'") for a name bound on the
+  // line above.  Every backend already emits this shape correctly (the node
+  // `const w = await widgets.getById(...)` + per-iteration `widgets.save(w)`,
+  // and its .NET / Java / Python / Phoenix equivalents), so the validator was
+  // the side that was wrong — exactly as in the if-let case.
+  it("accepts an op-call on a binding declared INSIDE the for-each body", async () => {
+    const c = await codes(
+      "let xs = Orders.run(OrderQ(High))\n        for o in xs { let w = Widgets.getById(orderId)  w.grow() }",
+    );
+    expect(c).not.toContain("loom.workflow-foreach-unknown-binding");
+  });
+
+  it("still flags an op-call on a name the for-each body never bound", async () => {
+    const c = await codes(
+      "let xs = Orders.run(OrderQ(High))\n        for o in xs { let w = Widgets.getById(orderId)  ghost.grow() }",
+    );
+    expect(c).toContain("loom.workflow-foreach-unknown-binding");
+  });
+
+  it("does not leak a for-each-body binding past the loop that declared it", async () => {
+    const c = await codes(
+      "let xs = Orders.run(OrderQ(High))\n        for o in xs { let w = Widgets.getById(orderId) }\n        w.grow()",
+    );
+    expect(c).toContain("loom.workflow-unknown-binding");
+  });
 });

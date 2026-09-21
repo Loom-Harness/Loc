@@ -34,7 +34,14 @@ const angularPlatform: PlatformSurface = {
   // Angular generator only emits API call services — no per-aggregate
   // repository class.  No find-name collisions are possible.
   reservedRepositoryFindNames: new Set(),
-  emitProject({ contexts, sys, deployable, topLevelComponents, sourcemap }): Map<string, string> {
+  emitProject({
+    contexts,
+    sys,
+    deployable,
+    topLevelComponents,
+    sourcemap,
+    translations,
+  }): Map<string, string> {
     // Frontend hosts dispatch by the UI's framework, not the platform keyword —
     // an angular host can serve a `framework: react|svelte|vue` ui (any static
     // bundle runs on a static host).  `angular` is the native fallback.
@@ -44,6 +51,7 @@ const angularPlatform: PlatformSurface = {
       deployable,
       topLevelComponents,
       sourcemap,
+      translations,
     });
   },
   composeService({ deployable, sys }): ComposeServiceShape {

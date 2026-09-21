@@ -51,6 +51,7 @@ import {
 } from "../verify/render.js";
 import { computeVerification } from "../verify/verification.js";
 import {
+  loadTranslations,
   runI18nCheck,
   runI18nExtract,
   runI18nInit,
@@ -519,6 +520,14 @@ interface RunOptions {
    * nothing on a local tree.  Turn it on to make the emitted tree
    * self-contained.  Only meaningful with `--sourcemap`. */
   inlineSources?: boolean;
+  /** `--locales <dir>` — the `ddd i18n` translator tree root, resolved by the
+   * SAME `localesDir` every `ddd i18n` subcommand uses (an explicit dir wins;
+   * otherwise `locales/` NEXT TO THE `.ddd`, not next to the cwd).  Every
+   * translated locale under it is emitted into each frontend that has a
+   * translation runtime and registered in its generated i18n shim — without
+   * this the translator's `de.json` never reaches the app.  System target
+   * only; no tree on disk is the normal case and changes nothing. */
+  localesDir?: string;
 }
 
 interface RunResult {
@@ -651,6 +660,10 @@ async function runGenerate(
         allowRebaseline: options.allowRebaseline,
         sourcemap: options.sourcemap,
         inlineSources: options.inlineSources,
+        // Locale catalogs from the translator tree (`ddd i18n init/sync`).
+        // Read HERE, not in `src/system/`, which stays fs-free — the same
+        // split `sourceTexts` uses.  Empty map ⇒ nothing changes.
+        translations: loadTranslations(file, { dir: options.localesDir }),
         // Harmless to pass unconditionally — v3 sidecar emission is still
         // gated on `sourcemap` inside `generateSystemsFromLoom`.
         sourceTexts,
@@ -1558,6 +1571,10 @@ generate
     "--inline-sources",
     "with --sourcemap, inline each .ddd's full text into every Source Map v3 sidecar. Off by default — the sidecars name the .ddd by absolute path and a debugger reads it from there, so inlining it once per generated file costs ~4x the map bytes for nothing. Turn it on when the maps will be read where the .ddd files are not.",
   )
+  .option(
+    "--locales <dir>",
+    "translator tree root to read locale catalogs from (default: <.ddd file's dir>/locales — the same resolution as `ddd i18n --dir`). Each locale found is emitted into every frontend with a translation runtime and registered in its i18n shim.",
+  )
   .action(
     async (
       file: string,
@@ -1572,6 +1589,7 @@ generate
         allowRebaseline?: boolean;
         sourcemap?: boolean;
         inlineSources?: boolean;
+        locales?: string;
       },
     ) => {
       if (options.json) {
@@ -1590,6 +1608,7 @@ generate
         allowRebaseline: !!options.allowRebaseline,
         sourcemap: !!options.sourcemap,
         inlineSources: !!options.inlineSources,
+        localesDir: options.locales,
       };
       await runGenerate("system", file, options.out, runOpts);
       if (options.watch) {

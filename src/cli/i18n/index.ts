@@ -51,7 +51,7 @@ interface LocaleFilter {
  *  write `./out/.loom/messages.en.json` for a project generated in place
  *  while its siblings read `./locales` — the same command line meaning two
  *  different projects depending on where it was typed. */
-function localesDir(file: string, options: DirOption): string {
+export function localesDir(file: string, options: DirOption): string {
   if (options.dir !== undefined) return path.resolve(options.dir);
   return path.join(path.dirname(path.resolve(file)), "locales");
 }
@@ -78,6 +78,54 @@ function discoverLocales(dir: string, filter?: string): { locale: string; file: 
     out.push({ locale, file: path.join(dir, entry.name) });
   }
   return out.sort((a, b) => a.locale.localeCompare(b.locale));
+}
+
+/** Every translated locale catalog the translator tree holds, for `generate
+ *  system` to emit into the frontends (`<app>/src/locales/<locale>.json`).
+ *
+ *  Resolved through the SAME {@link localesDir} every `ddd i18n` subcommand
+ *  uses, so `--locales <dir>` and the default (`locales/` next to the `.ddd`)
+ *  behave identically on both sides.  A missing tree is the normal case and
+ *  returns an empty map — codegen then emits exactly what it emitted before.
+ *
+ *  Values the translator has NOT finished are dropped rather than shipped:
+ *  the generated runtime is `messages[key] ?? defaultMessage`, so a key whose
+ *  value is still `TODO: Approve` — or carries unresolved conflict markers —
+ *  would RENDER that text to the end user, while an ABSENT key falls back per
+ *  key to the source-language default `t(key, default)` already carries.  The
+ *  `_stale.<key>` shadows `--keep-stale` writes are dropped for the same
+ *  reason: they name keys the source no longer emits.
+ *
+ *  A locale whose every value is still `TODO:` therefore ships an EMPTY
+ *  catalog, and is still registered — the app must advertise exactly the
+ *  locales the translator created, or "I ran `ddd i18n init de` and the app
+ *  still has no German" is the same disconnect this fixes, moved one step. */
+export function loadTranslations(
+  file: string,
+  options: DirOption = {},
+): Map<string, Record<string, string>> {
+  const out = new Map<string, Record<string, string>>();
+  for (const { locale, file: localeFile } of discoverLocales(localesDir(file, options))) {
+    let raw: Catalog;
+    try {
+      raw = readCatalog(localeFile);
+    } catch {
+      // A hand-edited locale file that is not valid JSON must not take down a
+      // `generate system` run that is otherwise about the domain model.  `ddd
+      // i18n check` is the command that reports on the translator tree.
+      continue;
+    }
+    const catalog: Record<string, string> = {};
+    for (const key of Object.keys(raw).sort()) {
+      if (key.startsWith("_stale.")) continue;
+      const value = raw[key];
+      if (typeof value !== "string") continue;
+      if (isTodo(value) || hasConflictMarkers(value)) continue;
+      catalog[key] = value;
+    }
+    out.set(locale, catalog);
+  }
+  return out;
 }
 
 /** `ddd i18n extract <file> [-o out]` — write the fresh source catalog.
