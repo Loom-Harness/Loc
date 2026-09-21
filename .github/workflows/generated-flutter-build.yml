@@ -606,16 +606,34 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+      # `packages:` is spelled out to OVERRIDE the action's default, which is
+      # `tools platform-tools` — and `tools` is the retired legacy SDK package
+      # Google has since removed from the repository, so the default now fails
+      # ALWAYS: `Warning: Failed to find package 'tools'` → `sdkmanager` exits 1
+      # (run 35564071705).  Nothing in this repo changed; the SDK repository did.
+      # `platform-tools` is what the apk build actually needs — `cmdline-tools`
+      # ships on the runner and Gradle/AGP fetch their own build-tools + platform.
+      #
+      # This one is worth stating loudly because of WHERE it lands: this workflow
+      # carries `merge_group:`, so a permanent failure here ejects every queue
+      # entry, on every PR, for a reason no PR can fix.  It froze the queue on
+      # 2026-09-21 (#2957 ejected twice).
+      #
       # One bounded retry on the SDK install: a transient CDN corruption
       # ("Error on ZipFile unknown archive", run 32761021024) killed the whole
       # apk gate before any project code ran — the same transient-infra class
       # the elixir gates retry (docker pull, mix deps.get).  A second failure
-      # is real and still fails the job.
+      # is real and still fails the job.  (It cannot rescue a DETERMINISTIC
+      # failure like the one above: both attempts ran, both failed identically.)
       - uses: android-actions/setup-android@v3
         id: setup-android
         continue-on-error: true
+        with:
+          packages: platform-tools
       - uses: android-actions/setup-android@v3
         if: steps.setup-android.outcome == 'failure'
+        with:
+          packages: platform-tools
       - name: Generate a minimal (FileUpload-free) app for the native apk gate
         run: |
           mkdir -p ci-flutter-apk
