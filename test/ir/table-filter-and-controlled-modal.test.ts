@@ -173,10 +173,12 @@ describe("loom.table-filter-unsupported", () => {
       "svelte",
       "vue",
     ]);
-    const shrunk = new Set([...TABLE_FILTER_FRAMEWORKS].filter((f) => f !== "phoenixLiveView"));
-    expect(shrunk.has("phoenixLiveView")).toBe(false);
     // …and the check reads the Set, not a hard-coded framework name: the HEEx
-    // system above is the exact input that fired before the member was added.
+    // system below is the exact input that fired before the member was added,
+    // so removing `phoenixLiveView` from the Set brings the diagnostic back.
+    // The RATCHET for that lives in `diagnostic-firing-census.test.ts`, which
+    // re-derives the "covers every frontend" claim from the GRAMMAR rather
+    // than from this list.
     expect(await codes(heexSystem(FILTERED_TABLE))).not.toContain(FILTER_UNSUPPORTED);
   });
 });

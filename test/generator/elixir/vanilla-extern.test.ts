@@ -89,7 +89,7 @@ describe("vanilla extern seam", () => {
     // is a 422 instead of reaching `force_change` and raising `Ecto.ChangeError`
     // (500). Binding it raw as well would shadow the validated value.
     expect(ctx).toContain(
-      'with {:ok, score} <- __loom_int_param(record, :score, Map.get(params, "score"))',
+      'with {:ok, score} <- __loom_int32_param(record, :score, Map.get(params, "score"))',
     );
   });
 
