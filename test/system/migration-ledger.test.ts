@@ -35,7 +35,7 @@ import {
 } from "../../src/system/migration-artifacts.js";
 import {
   buildMigrationLedger,
-  LEDGER_REL_PATH,
+  ledgerRelPath,
   type MigrationHistoryLedger,
   MigrationLedgerReadError,
   migrationLedgerPath,
@@ -217,29 +217,35 @@ describe("readMigrationLedger / writeMigrationLedger", () => {
   };
 
   it("is null when there is none (a project that has never generated)", () => {
-    expect(readMigrationLedger(mkTmp())).toBeNull();
+    expect(readMigrationLedger(mkTmp(), "main.ddd")).toBeNull();
   });
 
   it("writes beside the source, then reads back what it wrote", () => {
     const dir = mkTmp();
-    expect(writeMigrationLedger(dir, ledger({ Sales: ["20260101000000"] })).written).toBe(true);
-    expect(fs.existsSync(path.join(dir, LEDGER_REL_PATH))).toBe(true);
-    expect(readMigrationLedger(dir)?.modules.Sales?.versions).toEqual(["20260101000000"]);
+    expect(
+      writeMigrationLedger(dir, "main.ddd", ledger({ Sales: ["20260101000000"] })).written,
+    ).toBe(true);
+    expect(fs.existsSync(path.join(dir, ledgerRelPath("main.ddd")))).toBe(true);
+    expect(readMigrationLedger(dir, "main.ddd")?.modules.Sales?.versions).toEqual([
+      "20260101000000",
+    ]);
   });
 
   it("does not rewrite an unchanged ledger", () => {
     const dir = mkTmp();
-    writeMigrationLedger(dir, ledger({ Sales: ["20260101000000"] }));
-    expect(writeMigrationLedger(dir, ledger({ Sales: ["20260101000000"] })).written).toBe(false);
+    writeMigrationLedger(dir, "main.ddd", ledger({ Sales: ["20260101000000"] }));
+    expect(
+      writeMigrationLedger(dir, "main.ddd", ledger({ Sales: ["20260101000000"] })).written,
+    ).toBe(false);
   });
 
   it("fails loudly on a corrupt ledger rather than reading it as 'no history'", () => {
     // Same reasoning as SnapshotReadError: silently reading a truncated file
     // as "no history" would disable the guard it exists to feed.
     const dir = mkTmp();
-    fs.mkdirSync(path.dirname(migrationLedgerPath(dir)), { recursive: true });
-    fs.writeFileSync(migrationLedgerPath(dir), '{"schemaVersion": 1, "modu');
-    expect(() => readMigrationLedger(dir)).toThrow(MigrationLedgerReadError);
+    fs.mkdirSync(path.dirname(migrationLedgerPath(dir, "main.ddd")), { recursive: true });
+    fs.writeFileSync(migrationLedgerPath(dir, "main.ddd"), '{"schemaVersion": 1, "modu');
+    expect(() => readMigrationLedger(dir, "main.ddd")).toThrow(MigrationLedgerReadError);
   });
 
   it("reports a write it could not make instead of throwing", () => {
@@ -247,7 +253,7 @@ describe("readMigrationLedger / writeMigrationLedger", () => {
     // `.loom` is a FILE — the directory create fails, and generation (which
     // already succeeded) must not be failed by it.
     fs.writeFileSync(path.join(dir, ".loom"), "not a directory");
-    const result = writeMigrationLedger(dir, ledger({ Sales: ["20260101000000"] }));
+    const result = writeMigrationLedger(dir, "main.ddd", ledger({ Sales: ["20260101000000"] }));
     expect(result.written).toBe(false);
     expect(result.error).toBeInstanceOf(Error);
   });
@@ -266,12 +272,12 @@ describe("checkMigrationBaseline — guard (d) recorded history over a tree with
     const run = (): void =>
       checkMigrationBaseline(migrations, index, {
         recordedHistory: ledger({ Sales: ["20260101000000"] }),
-        ledgerPath: "app/.loom/migration-history.json",
+        ledgerPath: "app/.loom/main.migration-history.json",
       });
     expect(run).toThrow(MigrationBaselineError);
     expect(run).toThrow(/refusing to re-baseline module 'Sales'/);
     // The message must name the file that made the claim and what it claims…
-    expect(run).toThrow(/app\/\.loom\/migration-history\.json/);
+    expect(run).toThrow(/app\/\.loom\/main\.migration-history\.json/);
     expect(run).toThrow(/1 migration\(s\).*up to version 20260101000000/s);
     // …and both recoveries, since the operator has to pick one.
     expect(run).toThrow(/point -o at the output tree/s);

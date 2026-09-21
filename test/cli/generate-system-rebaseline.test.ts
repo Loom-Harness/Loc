@@ -71,7 +71,10 @@ describe("ddd generate system — migration baseline across output directories",
     const srcDir = path.join(root, "app");
     fs.mkdirSync(srcDir);
     sourceFile = path.join(srcDir, "main.ddd");
-    ledgerFile = path.join(srcDir, ".loom", "migration-history.json");
+    // Per SOURCE FILE, not per directory — sibling `.ddd` files in one folder
+    // routinely declare modules of the same name (the shipped fixture corpora
+    // do), and a directory-wide ledger makes them collide.
+    ledgerFile = path.join(srcDir, ".loom", "main.migration-history.json");
     outA = path.join(root, "out-a");
     outB = path.join(root, "out-b");
     fs.writeFileSync(sourceFile, model());
@@ -208,5 +211,37 @@ describe("ddd generate system — regenerating an unchanged model into a clean d
     const { status, stderr } = generate(sourceFile, outD);
     expect(status, "collapsing a two-migration history is a re-baseline").toBe(1);
     expect(stderr).toMatch(/refusing to re-baseline module 'Sales'/);
+  });
+
+  // ---------------------------------------------------------------------
+  // Two DIFFERENT `.ddd` files in ONE directory, each with a module named
+  // `Sales`, each generated into its own fresh output tree.
+  //
+  // This is the ordinary layout, not a corner case: `examples/` and every
+  // `test/e2e/fixtures/*-build/` corpus put many unrelated models side by
+  // side, and a module called `Sales` / `Orders` / `Billing` in two of them
+  // means nothing — they are different systems. A ledger keyed by module
+  // name and scoped to the DIRECTORY made them share a history, so the first
+  // model generated armed guard (d) against every sibling. It took out five
+  // corpus build gates (build-generated-{ts,dotnet,java,python}, feliz-build)
+  // the first time this branch reached CI, each refusing a model that had
+  // never emitted a migration in its life.
+  // ---------------------------------------------------------------------
+  it("a sibling `.ddd` in the same folder keeps its own history", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "loom-cli-f029-siblings-"));
+    const first = path.join(dir, "first.ddd");
+    const second = path.join(dir, "second.ddd");
+    fs.writeFileSync(first, model());
+    fs.writeFileSync(second, model("note: string?"));
+
+    const a = generate(first, path.join(dir, "out-first"));
+    expect(a.status, a.stderr).toBe(0);
+    const b = generate(second, path.join(dir, "out-second"));
+    expect(b.status, `the sibling was refused a baseline it never emitted:\n${b.stderr}`).toBe(0);
+    expect(b.stderr).not.toMatch(/re-baseline|refus/i);
+
+    // One ledger each, beside the source, named after the `.ddd` that made it.
+    expect(fs.existsSync(path.join(dir, ".loom", "first.migration-history.json"))).toBe(true);
+    expect(fs.existsSync(path.join(dir, ".loom", "second.migration-history.json"))).toBe(true);
   });
 });

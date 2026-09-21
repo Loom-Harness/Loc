@@ -111,7 +111,7 @@ regen.  Provenance snapshots are only written by the explicit
 
 ### The one `.loom/` file that is NOT under `-o`
 
-`generate system` also writes `<source-dir>/.loom/migration-history.json` —
+`generate system` also writes `<source-dir>/.loom/<source>.migration-history.json` —
 beside the `.ddd`, not under the output directory.  It is the migration-history
 **ledger**: which versions each module has emitted, plus a fingerprint of that
 module's schema.  It is deliberately not a second baseline (nothing diffs

@@ -122,9 +122,33 @@ export class MigrationLedgerReadError extends Error {
   }
 }
 
-/** Path of the ledger relative to the directory holding the `.ddd` source.
- *  Stable so the guard messages and the docs can both name it. */
-export const LEDGER_REL_PATH = ".loom/migration-history.json";
+/** Directory of the ledgers, relative to the directory holding the `.ddd`
+ *  source.  Stable so the guard messages and the docs can both name it. */
+export const LEDGER_REL_DIR = ".loom";
+
+/** The ledger's file name for the entry `.ddd` that produced it.
+ *
+ *  PER SOURCE FILE, not per directory.  Several `.ddd` files commonly sit in
+ *  one folder — the shipped `test/e2e/fixtures/*` corpora and `examples/` both
+ *  do — and they routinely declare modules of the SAME NAME while describing
+ *  entirely different systems.  A single directory-wide ledger keyed by module
+ *  name makes those collide: the first `.ddd` generated records `Sales`, and
+ *  every sibling that also has a `Sales` is then refused as a re-baseline of a
+ *  history it never emitted.  That is not a corner case — it took out five
+ *  corpus build gates the first time this ran in CI.
+ *
+ *  Keyed by the entry file's BASE NAME, so the ledger sits beside its `.ddd`
+ *  and moves with the folder; renaming the `.ddd` starts a new history, which
+ *  is the honest reading (the old name's migrations are still recorded under
+ *  the old ledger until someone deletes it). */
+export function ledgerFileName(sourceFile: string): string {
+  return `${path.basename(sourceFile, path.extname(sourceFile))}.migration-history.json`;
+}
+
+/** Path of a source file's ledger relative to the directory holding it. */
+export function ledgerRelPath(sourceFile: string): string {
+  return `${LEDGER_REL_DIR}/${ledgerFileName(sourceFile)}`;
+}
 
 /** Short prose carried INSIDE the file — it is a committed artifact whose
  *  first reader is usually someone who just hit the refusal that names it. */
@@ -218,8 +242,11 @@ export function parseMigrationLedger(
  *  that has never generated with this toolchain — the guard then falls back
  *  to the output-tree heuristic).  Throws {@link MigrationLedgerReadError}
  *  when a file IS present but unreadable. */
-export function readMigrationLedger(sourceDir: string): MigrationHistoryLedger | null {
-  const filePath = migrationLedgerPath(sourceDir);
+export function readMigrationLedger(
+  sourceDir: string,
+  sourceFile: string,
+): MigrationHistoryLedger | null {
+  const filePath = migrationLedgerPath(sourceDir, sourceFile);
   if (!fs.existsSync(filePath)) return null;
   let raw: string;
   try {
@@ -256,9 +283,10 @@ export function readMigrationLedger(sourceDir: string): MigrationHistoryLedger |
  *  prints a warning. */
 export function writeMigrationLedger(
   sourceDir: string,
+  sourceFile: string,
   ledger: MigrationHistoryLedger,
 ): { written: boolean; error?: Error } {
-  const filePath = migrationLedgerPath(sourceDir);
+  const filePath = migrationLedgerPath(sourceDir, sourceFile);
   const content = serializeMigrationLedger(ledger);
   try {
     if (fs.existsSync(filePath) && fs.readFileSync(filePath, "utf8") === content) {
@@ -272,7 +300,7 @@ export function writeMigrationLedger(
   }
 }
 
-/** Absolute path of the ledger for a source directory. */
-export function migrationLedgerPath(sourceDir: string): string {
-  return path.join(sourceDir, LEDGER_REL_PATH);
+/** Absolute path of the ledger for one entry `.ddd` file. */
+export function migrationLedgerPath(sourceDir: string, sourceFile: string): string {
+  return path.join(sourceDir, LEDGER_REL_DIR, ledgerFileName(sourceFile));
 }

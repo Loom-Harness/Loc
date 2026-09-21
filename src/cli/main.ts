@@ -37,7 +37,7 @@ import {
 } from "../system/manifest.js";
 import { fsMigrationArtifactIndex, MigrationBaselineError } from "../system/migration-artifacts.js";
 import {
-  LEDGER_REL_PATH,
+  ledgerRelPath,
   type MigrationHistoryLedger,
   MigrationLedgerReadError,
   migrationLedgerPath,
@@ -556,10 +556,10 @@ type GenerateTarget = "ts" | "dotnet" | "system";
  *  is actually shorter and readable, absolute otherwise: a source tree beside
  *  (or above) the cwd otherwise yields a `../../../..` chain the operator has
  *  to decode before they can go look at the file the message blames. */
-function displayLedgerPath(sourceDir: string): string {
-  const abs = migrationLedgerPath(sourceDir);
+function displayLedgerPath(sourceDir: string, sourceFile: string): string {
+  const abs = migrationLedgerPath(sourceDir, sourceFile);
   const rel = path.relative(process.cwd(), abs);
-  if (!rel) return LEDGER_REL_PATH;
+  if (!rel) return ledgerRelPath(sourceFile);
   return rel.startsWith("..") || path.isAbsolute(rel) ? abs : rel;
 }
 
@@ -680,8 +680,8 @@ async function runGenerate(
         // F-029: the output-tree guards are blind to a generate into a CLEAN
         // directory (no snapshot AND no files reads as a first run). The
         // ledger beside the source is the fact they are missing.
-        recordedHistory: readMigrationLedger(sourceDir),
-        ledgerPath: displayLedgerPath(sourceDir),
+        recordedHistory: readMigrationLedger(sourceDir, file),
+        ledgerPath: displayLedgerPath(sourceDir, file),
         sourcemap: options.sourcemap,
         inlineSources: options.inlineSources,
         // Harmless to pass unconditionally — v3 sidecar emission is still
@@ -894,7 +894,7 @@ async function runGenerate(
   // run that recorded the delta it only previewed would arm guard (e) against
   // the very next real generate).
   if (ledgerToWrite && !options.dryRun) {
-    const { error } = writeMigrationLedger(sourceDir, ledgerToWrite);
+    const { error } = writeMigrationLedger(sourceDir, file, ledgerToWrite);
     if (error) {
       // Non-fatal: a read-only source checkout is a real setup, and losing
       // the detector must not fail a generate that otherwise succeeded. But
@@ -902,7 +902,7 @@ async function runGenerate(
       // clean directory is unguarded again.
       console.error(
         `Warning: could not record the migration history at ` +
-          `${migrationLedgerPath(sourceDir)} (${error.message}). The next ` +
+          `${migrationLedgerPath(sourceDir, file)} (${error.message}). The next ` +
           `\`generate system\` into a clean output directory will not be able to tell a ` +
           `re-baseline from a first run.`,
       );

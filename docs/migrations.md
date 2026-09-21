@@ -378,7 +378,7 @@ lands, the container reports healthy, and every request naming it 500s.
 the output tree, and a second environment all take this path.
 
 The missing fact is not in the output tree, so it is recorded next to the
-**source**: [`<source-dir>/.loom/migration-history.json`](../src/system/migration-ledger.ts),
+**source**: [`<source-dir>/.loom/<source>.migration-history.json`](../src/system/migration-ledger.ts),
 written after every successful non-dry run and **meant to be committed with the
 `.ddd`**. It records *which versions* each module has emitted plus a fingerprint
 of that module's schema — never the schema itself (that is still the snapshot's
@@ -433,7 +433,7 @@ to: it describes the schema the migration files build up, and a delta is only
 meaningful beside the files it follows. The ledger is the smaller, separate
 fact — "this module has history" — which must survive being read in a tree that
 carries none of it, so it lives with the model. Committing
-`.loom/migration-history.json` alongside the `.ddd` is what makes the guard
+`.loom/<source>.migration-history.json` alongside the `.ddd` is what makes the guard
 work in a fresh clone.
 
 ## `migrationsOwner` — one backend per module owns schema
@@ -714,7 +714,7 @@ Two `.loom/` artifacts come out of phase ⑨ and are easy to conflate:
 - **`.loom/snapshots/<module>.snapshot.json`** *is* the migration baseline — the
   serialized `SchemaSnapshot` (`next`) written on every `generate system` run and
   diffed on the next regen. Tracked in git so the diff is stable across machines.
-- **`<source-dir>/.loom/migration-history.json`** is the *ledger* — versions +
+- **`<source-dir>/.loom/<source>.migration-history.json`** is the *ledger* — versions +
   a schema fingerprint per module, kept beside the `.ddd` **source** rather than
   under `-o`. It is not a baseline: nothing diffs against it, and the SQL is not
   in it. Its only job is to let the guard refuse a re-baseline into an output

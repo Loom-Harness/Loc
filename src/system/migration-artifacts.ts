@@ -4,7 +4,7 @@ import * as path from "node:path";
 import type { EnrichedLoomModel } from "../ir/types/loom-ir.js";
 import type { MigrationsIR } from "../ir/types/migrations-ir.js";
 import type { MigrationHistoryLedger, ModuleHistoryRecord } from "./migration-ledger.js";
-import { LEDGER_REL_PATH, schemaFingerprint } from "./migration-ledger.js";
+import { LEDGER_REL_DIR, schemaFingerprint } from "./migration-ledger.js";
 import { BASE_TIMESTAMP, MODULE_VERSION_STRIDE } from "./migrations-builder.js";
 
 // ---------------------------------------------------------------------------
@@ -190,7 +190,8 @@ export interface CheckMigrationBaselineOptions {
    *  the output tree alone.  See {@link MigrationHistoryLedger}. */
   recordedHistory?: MigrationHistoryLedger | null;
   /** Path to name in the refusal messages, so the operator can go look at
-   *  the file that made the claim.  Defaults to {@link LEDGER_REL_PATH}. */
+   *  the file that made the claim.  Defaults to a generic name under
+   *  {@link LEDGER_REL_DIR} — the CLI always passes the real one. */
   ledgerPath?: string;
 }
 
@@ -292,7 +293,7 @@ export function checkMigrationBaseline(
   options: CheckMigrationBaselineOptions = {},
 ): void {
   const allowRebaseline = options.allowRebaseline ?? false;
-  const ledgerPath = options.ledgerPath ?? LEDGER_REL_PATH;
+  const ledgerPath = options.ledgerPath ?? `${LEDGER_REL_DIR}/<source>.migration-history.json`;
   for (const m of migrations) {
     // Two views of the same directory, and the difference matters.
     //
