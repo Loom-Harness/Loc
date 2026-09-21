@@ -22,6 +22,17 @@ import type { Waiver } from "./waivers.js";
 // composer writes the forced `inheritanceUsing: ownTable` and the case the cover
 // generates is `embedded × ownTable`, which compiles on both node adapters.
 // That also removes the python twin's source (F13), whose own entry is 2e's.
+//
+// CORRECTION (#2975) — it removed only HALF of F13's source, and the half it
+// left ran `main` red on the python leg for a week.  F13 was recorded as TWO
+// missing imports: `ThingBaseRow` (TPH-shaped, and genuinely unwritable after
+// 2c) and `PagedResult` (`shape: embedded` × `paged`, which the register itself
+// called "independent of inheritance").  Forcing the concrete to `ownTable`
+// routes it to the plain embedded builder — where the `PagedResult` import gate
+// was still missing — so the crossing kept failing with no entry here to say so.
+// The rule this cost us: a waiver covering two findings is NARROWED to the
+// surviving one when half is fixed, never deleted whole.  The ratchet cannot
+// help — a deleted entry has nothing left to go stale.
 export const COMPILE_WAIVERS: readonly Waiver[] = [
   // ---- F12 (W3) — DELETED at the wave C2 fold --------------------------
   // `paged` × document/eventLog on dotnet + python (the caller expects the
