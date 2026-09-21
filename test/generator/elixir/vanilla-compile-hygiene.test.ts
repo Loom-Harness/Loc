@@ -89,12 +89,19 @@ describe("elixir vanilla — compiles under --warnings-as-errors", () => {
     expect(offenders, `underscored-but-read bindings:\n${offenders.join("\n")}`).toEqual([]);
   });
 
-  it("emits the datetime coercion with plain (non-underscored) clause bindings", async () => {
+  it("emits the datetime coercion with non-underscored clause bindings", async () => {
+    // The SPELLING is `loom_`-prefixed, not bare: `main` landed the same fix
+    // independently and chose the prefix every other emitted variable already
+    // carries (`loom_code` / `loom_state` / `loom_current_user`) over merely
+    // dropping the underscore, which is the better of the two.  What this gate
+    // is actually about is the underscore, so it asserts the PROPERTY (a read
+    // binding is not underscored) and pins the current spelling beside it.
     const files = await generateSystemFiles(SOURCE);
     const ctx = [...files].find(([p]) => p.endsWith("lib/api/tickets.ex"))?.[1];
     expect(ctx, "context module not emitted").toBeDefined();
     expect(ctx!).toContain("DateTime.from_iso8601");
-    expect(ctx!).toMatch(/%DateTime\{\} = dt -> dt/);
+    expect(ctx!).toMatch(/%DateTime\{\} = (?!_)\w+ -> /);
+    expect(ctx!).toMatch(/%DateTime\{\} = loom_dt -> loom_dt/);
     expect(ctx!).not.toContain("__dt");
     expect(ctx!).not.toContain("__other");
   });
