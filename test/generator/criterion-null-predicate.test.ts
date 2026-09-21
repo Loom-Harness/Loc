@@ -86,9 +86,7 @@ describe("F-039 — a null test in a criterion", () => {
 
   it("java: JPA `cb.isNull` / `cb.isNotNull`", async () => {
     const files = await generateSystemFiles(SOURCE("java"));
-    const criteria = files.get(
-      "api/src/main/java/com/loom/api/domain/criteria/StepCriteria.java",
-    )!;
+    const criteria = files.get("api/src/main/java/com/loom/api/domain/criteria/StepCriteria.java")!;
     expect(criteria).toContain('cb.isNull(root.<Instant>get("answeredAt"))');
     expect(criteria).toContain('cb.isNotNull(root.<Instant>get("answeredAt"))');
   });

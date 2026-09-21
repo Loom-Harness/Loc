@@ -72,17 +72,13 @@ describe("F-010 — an omitted optional field on a contained part", () => {
     // …so the factory's state slot for `tag` must be OPTIONAL.  The required
     // spelling (`tag: Ids.TagId | null` in the `_create` signature) is the
     // TS2345.
-    expect(domain).toMatch(
-      /static _create\(state: \{[^}]*\btag\?: Ids\.TagId \| null\b[^}]*\}\)/,
-    );
+    expect(domain).toMatch(/static _create\(state: \{[^}]*\btag\?: Ids\.TagId \| null\b[^}]*\}\)/);
     // …and the omission is materialised as `null`, not left `undefined`.
     expect(domain).toContain("new NoteLine({ ...state, tag: state.tag ?? null })");
 
     // `_rehydrate` keeps the FULL contract — the store always has the column,
     // and relaxing it there would hide a hydration bug.
-    expect(domain).toMatch(
-      /static _rehydrate\(state: \{[^}]*\btag: Ids\.TagId \| null\b[^}]*\}\)/,
-    );
+    expect(domain).toMatch(/static _rehydrate\(state: \{[^}]*\btag: Ids\.TagId \| null\b[^}]*\}\)/);
   });
 
   it("node: a REQUIRED field stays required in `_create`", async () => {

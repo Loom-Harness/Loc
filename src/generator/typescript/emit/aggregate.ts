@@ -391,8 +391,7 @@ function renderEntity(
           `id: Ids.${e.name}Id`,
           parentIdField(isNested),
           ...e.fields.map(
-            (f) =>
-              `${f.name}${f.type.kind === "optional" ? "?" : ""}: ${renderTsType(f.type)}`,
+            (f) => `${f.name}${f.type.kind === "optional" ? "?" : ""}: ${renderTsType(f.type)}`,
           ),
           ...provFields.map((f) => `${f.name}_provenance: ProvLineage | null`),
           ...e.contains.map((c) => `${c.name}?: ${containsType(c)}`),

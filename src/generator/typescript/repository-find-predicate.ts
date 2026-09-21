@@ -277,10 +277,11 @@ export function lowerToDrizzle(
       // python `col == None` overloaded by SQLAlchemy).  Either operand order
       // (`null == answeredAt`) reads the same, so both are handled here.
       if (e.op === "==" || e.op === "!=") {
-        const nullCol =
-          isNullLiteral(e.right) ? renderColumnRef(e.left)
-          : isNullLiteral(e.left) ? renderColumnRef(e.right)
-          : null;
+        const nullCol = isNullLiteral(e.right)
+          ? renderColumnRef(e.left)
+          : isNullLiteral(e.left)
+            ? renderColumnRef(e.right)
+            : null;
         if (nullCol !== null) {
           const fn = e.op === "==" ? "isNull" : "isNotNull";
           ops.add(fn);

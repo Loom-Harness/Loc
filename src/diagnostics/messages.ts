@@ -1181,11 +1181,7 @@ export const DIAGNOSTIC_MESSAGES = {
   // F-017 — a server-owned field that nothing ever writes.  Named for the
   // MODEL property (the aggregate cannot be constructed), not for the
   // per-backend symptom, which differs on all five.
-  "loom.unconstructible-server-field": (p: {
-    agg: unknown;
-    field: unknown;
-    access: unknown;
-  }) =>
+  "loom.unconstructible-server-field": (p: { agg: unknown; field: unknown; access: unknown }) =>
     `aggregate '${p.agg}' cannot be created: field '${p.field}' is '${p.access}', so it is not on ` +
     `the create input, but nothing writes it — it has no '= <default>' and no lifecycle stamp. ` +
     `Every create would leave it unset (a null into a NOT NULL column). ` +
