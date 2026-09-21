@@ -35,18 +35,29 @@ async function codes(source: string): Promise<string[]> {
     .sort();
 }
 
-/** Assert a gate fires for BOTH spellings of the same violation — at the top of
- *  a body and inside an `if` branch.  The top-level leg is the control: it
- *  proves the case is not vacuously red, and it is the leg that already passed
- *  before the reach was widened. */
-async function firesAtBothDepths(code: string, topLevel: string, inBranch: string): Promise<void> {
-  expect(await codes(topLevel), `${code} did not fire for the TOP-LEVEL spelling`).toContain(code);
-  expect(
-    await codes(inBranch),
-    `${code} fires at the top of a body but NOT inside an \`if\` branch — the gate ` +
-      `does not reach the branch bodies, so the same violation one level down is ` +
-      `accepted in silence`,
-  ).toContain(code);
+/** Check a gate fires for BOTH spellings of the same violation — at the top of a
+ *  body and inside an `if` branch — and return what went wrong, so the CASE
+ *  holds the assertion (a helper that `expect`s internally leaves an
+ *  assertion-free case body; `test/platform/assertion-free-tests.test.ts`).
+ *
+ *  The top-level leg is the control: it proves the case is not vacuously red,
+ *  and it is the leg that already passed before the reach was widened. */
+async function reachProblems(code: string, topLevel: string, inBranch: string): Promise<string[]> {
+  const out: string[] = [];
+  if (!(await codes(topLevel)).includes(code)) {
+    out.push(
+      `${code} did not fire for the TOP-LEVEL spelling — the FIXTURE is broken, ` +
+        `not the gate; fix the case before reading the branch leg below`,
+    );
+  }
+  if (!(await codes(inBranch)).includes(code)) {
+    out.push(
+      `${code} fires at the top of a body but NOT inside an \`if\` branch — the gate ` +
+        `does not reach the branch bodies, so the same violation one level down is ` +
+        `accepted in silence`,
+    );
+  }
+  return out;
 }
 
 // ---------------------------------------------------------------------------
@@ -180,11 +191,13 @@ function page(slot: string): string {
 
 describe("IR gates reach into branch bodies (CR1-e)", () => {
   it("loom.emitted-event-unhandled — an unfolded `emit` inside an `if`", async () => {
-    await firesAtBothDepths(
-      "loom.emitted-event-unhandled",
-      eventSourced("          emit Flagged { account: id }"),
-      eventSourced("          if amount > 1000 { emit Flagged { account: id } }"),
-    );
+    expect(
+      await reachProblems(
+        "loom.emitted-event-unhandled",
+        eventSourced("          emit Flagged { account: id }"),
+        eventSourced("          if amount > 1000 { emit Flagged { account: id } }"),
+      ),
+    ).toEqual([]);
   });
 
   it("loom.event-sourced-direct-mutation — a state write inside an `if`", async () => {
@@ -201,11 +214,13 @@ describe("IR gates reach into branch bodies (CR1-e)", () => {
   });
 
   it("loom.vanilla-op-call-position — a non-tail self-call inside an `if`", async () => {
-    await firesAtBothDepths(
-      "loom.vanilla-op-call-position",
-      elixirOps("          let n = bump()  total := n"),
-      elixirOps("          if flag { let n = bump()  total := n } else { total := 0 }"),
-    );
+    expect(
+      await reachProblems(
+        "loom.vanilla-op-call-position",
+        elixirOps("          let n = bump()  total := n"),
+        elixirOps("          if flag { let n = bump()  total := n } else { total := 0 }"),
+      ),
+    ).toEqual([]);
     // Platform-scoped, unchanged: node models an operation as a plain
     // value-returning method, so neither spelling is refused there.
     expect(
@@ -216,24 +231,28 @@ describe("IR gates reach into branch bodies (CR1-e)", () => {
   });
 
   it("loom.domain-service-no-mutation — a write inside an `if`", async () => {
-    await firesAtBothDepths(
-      "loom.domain-service-no-mutation",
-      domainService("          out := base * 2"),
-      domainService("          if base > 10 { out := base * 2 }"),
-    );
+    expect(
+      await reachProblems(
+        "loom.domain-service-no-mutation",
+        domainService("          out := base * 2"),
+        domainService("          if base > 10 { out := base * 2 }"),
+      ),
+    ).toEqual([]);
   });
 
   it("loom.vanilla-document-unsupported — a non-doc-safe `return` inside an `if`", async () => {
     // `match` needs the tuple/list machinery the document scalar path omits, so
     // a function returning one makes every caller of it unsupported.  At the top
     // of the body that was refused; inside an `if` branch it was not.
-    await firesAtBothDepths(
-      "loom.vanilla-document-unsupported",
-      vanillaDocument('          return match { title == "x" => "hot", else => "warm" }'),
-      vanillaDocument(
-        '          if viewCount > t { return match { title == "x" => "hot", else => "warm" } } else { return "cold" }',
+    expect(
+      await reachProblems(
+        "loom.vanilla-document-unsupported",
+        vanillaDocument('          return match { title == "x" => "hot", else => "warm" }'),
+        vanillaDocument(
+          '          if viewCount > t { return match { title == "x" => "hot", else => "warm" } } else { return "cold" }',
+        ),
       ),
-    );
+    ).toEqual([]);
   });
 
   it("loom.method-call-unresolved-receiver — a call inside an i18n template hole", async () => {
@@ -241,10 +260,12 @@ describe("IR gates reach into branch bodies (CR1-e)", () => {
     // wrapper (`docs/new-plan/T1-ui-frontend.md` § M-T1.11) that every backend
     // renders through, and the hand-rolled descent had no arm for it — so every
     // gate this module raises was blind to whatever a `, format` hole contained.
-    await firesAtBothDepths(
-      "loom.method-call-unresolved-receiver",
-      page("ghostBinding.total()"),
-      page("`total {ghostBinding.total(), number}`"),
-    );
+    expect(
+      await reachProblems(
+        "loom.method-call-unresolved-receiver",
+        page("ghostBinding.total()"),
+        page("`total {ghostBinding.total(), number}`"),
+      ),
+    ).toEqual([]);
   });
 });
