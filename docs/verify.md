@@ -69,10 +69,17 @@ named as what they are:
 ```console
 $ ddd verify shop.ddd --results drifted.json
 Verified 0/2 requirements (0 failing, 2 unverified, 0 untested) — 1 declared test(s) with no result, 1 result(s) matching no declared test.
-Verification gate failed: 1 declared test(s) had no matching result (TC-001 → "go works") while 1 result(s) matched no declared test — likely a `suite` mismatch (the join wants the AGGREGATE name for a unit test, "<System> e2e" for an e2e test; got "A.test.ts"); pass --allow-missing to accept a partial run.
+Verification gate failed: 1 declared test(s) had no matching result (TC-001 → "go works") while 1 result(s) matched no declared test — the NAME does not match: reported {name: "go works!", suite: "A"}; suite "A" is correct, but no declared test in it is called that (declared there: "go works"); pass --allow-missing to accept a partial run.
 $ echo $?
 1
 ```
+
+The message names **which field actually differs** (`name`, `suite`, both, or
+an unresolvable ` against <deployable>` replay suffix) rather than asserting
+one. It used to say "likely a `suite` mismatch … got `"<System> e2e"`" for
+every such failure — including the one case it was most likely to be read on,
+an api-e2e result whose suite was *correct* and whose name carried the replay
+suffix below, where it named the right suite as the wrong thing.
 
 `--allow-missing` is the opt-out for a deliberately partial run (one suite of
 many, a staged rollout). It is *narrower* than `--require-all`: the missing
@@ -100,10 +107,29 @@ A top-level `results` array of normalized outcomes. One row per executed test:
 
 | Field | |
 |---|---|
-| `name` | **required** — the DSL `test` / `test e2e` string, verbatim as the runner reports it (`it("…")` / `[Fact(DisplayName="…")]` / `test("…")`). |
+| `name` | **required** — the title as the runner reports it (`it("…")` / `[Fact(DisplayName="…")]` / `test("…")`). Usually the DSL `test` / `test e2e` string verbatim; for an **api e2e** test it is that string plus ` against <deployable>` (see *Reported titles* below), which the join undoes for you. |
 | `status` | **required** — `"pass"` \| `"fail"` \| `"skip"`. |
-| `suite` | optional disambiguator. Unit-test names are unique only *within* an aggregate, so the join is by `(suite, name)`. `suite` must match the runner's reported suite exactly: the **aggregate name** for a unit test, `"<System> e2e"` for an api/ui e2e test. |
+| `suite` | optional disambiguator. Unit-test names are unique only *within* an aggregate, so the join is by `(suite, name)`. Pass the runner's reported suite: the **aggregate name** for a unit test, `"<System> e2e"` for an api e2e test, and for a **ui** test either that or the `<System>.ui.spec.ts` spec-file title Playwright reports. |
 | `kind` | optional, informational. |
+
+#### Reported titles — what the join normalizes
+
+Two emitters deliberately report something other than the declared
+`(suite, name)`, and the join undoes both, so you feed it what your runner
+actually printed:
+
+| Tier | Reported | Why |
+|---|---|---|
+| unit | `describe("<Aggregate>")` / `it("<name>")` — verbatim | — |
+| api e2e | `describe("<System> e2e")` / `it("<name> against <deployable>")` | one `test e2e` block is **replayed against every compatible backend** (`src/system/e2e-render.ts`), and the suffix is what names the diverging backend in a multi-backend failure |
+| ui e2e | no `describe` — Playwright reports the **spec file** (`<System>.ui.spec.ts`) as the suite; `test("<name>")` verbatim | the generated `.ui.spec.ts` has no wrapping `describe` (`src/system/ui-e2e-render.ts`) |
+
+The ` against <deployable>` suffix is stripped only when the remainder is a
+real deployable slug of *this* model and resolves to exactly **one** declared
+api-e2e test — a title that could be a replay of two declared tests is
+reported as unmatched rather than guessed. Before this normalization existed
+every `verifies` on a `test e2e` block was inert: the test passed, its
+requirement stayed `UNVERIFIED`, and the gate exited 1 claiming no result.
 
 ### From your runner
 
@@ -114,11 +140,11 @@ npx vitest run --reporter=json --outputFile=results.json   # in the generated pr
 ddd verify shop.ddd --from-vitest results.json
 ```
 
-`--from-vitest` reads the jest-compatible document (`testResults[].assertionResults[]`) and applies the join convention for you: an assertion's `title` is the `name`, its **innermost** `describe` is the `suite`, and `passed`/`failed`/`pending`/`skipped`/`todo` map to `pass`/`fail`/`skip`. That lines up exactly with what Loom emits — `describe("<Aggregate>") { it("<test name>") }` for a unit test, `describe("<System> e2e")` for an e2e one. (Pure and dependency-free: `src/verify/from-vitest.ts`. A vitest report handed to `--results` is detected and points you at this flag rather than failing with a shape error.)
+`--from-vitest` reads the jest-compatible document (`testResults[].assertionResults[]`) and applies the join convention for you: an assertion's `title` is the `name`, its **innermost** `describe` is the `suite`, and `passed`/`failed`/`pending`/`skipped`/`todo` map to `pass`/`fail`/`skip`. That lines up exactly with what Loom emits — `describe("<Aggregate>") { it("<test name>") }` for a unit test, `describe("<System> e2e") { it("<test name> against <deployable>") }` for an api e2e one, whose replay suffix the join then undoes. (Pure and dependency-free: `src/verify/from-vitest.ts`. A vitest report handed to `--results` is detected and points you at this flag rather than failing with a shape error.)
 
 For every other runner (`dotnet test` trx, `mix test`, JUnit XML, Playwright JSON, the playground harness's own `TestResult`) you still map it yourself; the only top-level shape `verify` requires is `{ results: [...] }`, and the `suite` column above is the part to get right.
 
-**Join rules** (`outcomeFor` / `worst`): a result is matched to an executable test by exact `(suite, name)`; a `suite`-less result is attributed only when its bare `name` is unambiguous. Of several runs of one test, the **most pessimistic** wins (`fail > skip > pass`). Results that match no declared executable test are surfaced under `diagnostics.unknownTests` and **counted in the summary line** — they are never *scored*, but they are the clearest symptom of a drifted `suite` convention, so they are no longer JSON-only.
+**Join rules** (`resolveResults` / `outcomeFor` / `worst`): each result's reported title is first normalized back onto the declared `(suite, name)` per *Reported titles* above, then matched by exact `(suite, name)`; a `suite`-less result is attributed only when its bare `name` is unambiguous. Of several runs of one test, the **most pessimistic** wins (`fail > skip > pass`) — which is how an api-e2e block that passes on one backend and fails on another lands `FAILING`. Results that match no declared executable test are surfaced under `diagnostics.unknownTests` and **counted in the summary line** — they are never *scored*, but they are the clearest symptom of a drifted `suite` convention, so they are no longer JSON-only.
 
 ## The verdict model
 

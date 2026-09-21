@@ -13,7 +13,21 @@ import type {
 import { operationBodyUsesCurrentUser } from "../../../ir/util/op-gates.js";
 import { findValueObjectInScope, valueObjectPool } from "../../../ir/util/reachable-types.js";
 import { escapePythonIdent, snake } from "../../../util/naming.js";
+import {
+  coerceTestArgs,
+  coerceTestLiteral,
+  type TestLiteralTarget,
+} from "../../_test/arg-coercion.js";
+import { throwKindPatternSource } from "../../_test/throw-kind.js";
 import { renderPyExpr, renderPyType } from "../render-expr.js";
+
+/** Python leaves for the shared test-literal coercion rule
+ *  (`_test/arg-coercion.ts`).  `<X>Id(…)` is the id class the generator emits
+ *  into `app/domain/ids.py`; `datetime` parses via `fromisoformat`. */
+const PY_TEST_LITERAL: TestLiteralTarget = {
+  id: (rendered, targetName) => `${targetName}Id(${rendered})`,
+  datetime: (rendered) => `datetime.fromisoformat(${rendered})`,
+};
 
 // A currentUser-gated operation's method signature picks up a trailing
 // `current_user: User` parameter; a domain `test` block has no auth
@@ -237,9 +251,24 @@ export function renderTestExpr(
           : undefined;
     const agg = aggName ? ctx.aggregates.find((a) => a.name === aggName) : undefined;
     const op = agg?.operations.find((o) => o.name === e.member);
-    if (op && operationBodyUsesCurrentUser(op)) {
+    if (op) {
+      // Coerce each argument to the operation's declared PARAM type — the same
+      // rule `create(...)` applies to its create-input fields below.  A bare
+      // string in an `X id` position becomes `<X>Id(…)`, an ISO-8601 string in
+      // a `datetime` position `datetime.fromisoformat(…)`.  pytest does not
+      // typecheck, so passing the literal raw is invisible until the generated
+      // project's own `mypy --strict` rejects it — and for `datetime` the value
+      // STORED on the aggregate is a `str` where the field is a `datetime`.
       const recv = renderTestExpr(e.receiver, ctx, lets);
-      const args = [...e.args.map((a) => renderTestExpr(a, ctx, lets)), TEST_ACTOR_PY];
+      const args = coerceTestArgs(
+        op.params,
+        e.args,
+        (a) => renderTestExpr(a, ctx, lets),
+        PY_TEST_LITERAL,
+      );
+      // A currentUser-gated op's method signature carries a trailing
+      // `current_user` parameter; thread the synthetic actor.
+      if (operationBodyUsesCurrentUser(op)) args.push(TEST_ACTOR_PY);
       return `${recv}.${snake(e.member)}(${args.join(", ")})`;
     }
   }
@@ -287,9 +316,6 @@ export function renderCreateInput(
  *  in declared field order (omitted optionals → None), datetime literal
  *  → `datetime.fromisoformat("…")`. */
 function coerceCreateValue(value: ExprIR, type: TypeIR | undefined, ctx: BoundedContextIR): string {
-  if (type?.kind === "id") {
-    return `${type.targetName}Id(${renderTestExpr(value, ctx)})`;
-  }
   if (type?.kind === "valueobject" && value.kind === "object") {
     const vo = findValueObjectInScope(ctx, type.name);
     if (vo) {
@@ -301,15 +327,9 @@ function coerceCreateValue(value: ExprIR, type: TypeIR | undefined, ctx: Bounded
       return `${vo.name}(${args.join(", ")})`;
     }
   }
-  if (
-    type?.kind === "primitive" &&
-    type.name === "datetime" &&
-    value.kind === "literal" &&
-    value.lit === "string"
-  ) {
-    return `datetime.fromisoformat(${renderTestExpr(value, ctx)})`;
-  }
-  return renderTestExpr(value, ctx);
+  // The id / datetime arms are the SHARED rule (`_test/arg-coercion.ts`) — the
+  // same one the operation-call path above applies to a declared param type.
+  return coerceTestLiteral(type, value, renderTestExpr(value, ctx), PY_TEST_LITERAL);
 }
 
 /** Comparison matchers map 1:1 onto Python operators. */
@@ -364,7 +384,17 @@ export function renderTestStmt(
     return [`    assert ${renderTestExpr(s.expr, ctx, lets)}`];
   }
   if (s.kind === "expect-throws") {
-    return ["    with pytest.raises(Exception):", `        ${renderTestExpr(s.expr, ctx, lets)}`];
+    const call = `        ${renderTestExpr(s.expr, ctx, lets)}`;
+    // `toThrow(<kind>)` — `pytest.raises(match=...)` runs `re.search` over
+    // `str(exc)`, so the rung's derived prefix is passed anchored (`^…`).  The
+    // pattern is a raw string: the prefix is escaped for regex, and `r"…"`
+    // keeps any backslash that escaping introduces out of Python's own string
+    // grammar.
+    if (s.throwKind) {
+      const pattern = throwKindPatternSource(s.throwKind);
+      return [`    with pytest.raises(Exception, match=r"${pattern}"):`, call];
+    }
+    return ["    with pytest.raises(Exception):", call];
   }
   if (s.kind === "let") {
     return [`    ${escapePythonIdent(snake(s.name))} = ${renderTestExpr(s.expr, ctx, lets)}`];

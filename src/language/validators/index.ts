@@ -37,6 +37,7 @@ export {
   checkMatchExpressions,
   checkMatcherArity,
   checkMatchesCalls,
+  checkThrowKindPlacement,
 } from "./match.js";
 export { checkMigrations } from "./migration.js";
 export { checkUnknownNameRefs } from "./names.js";

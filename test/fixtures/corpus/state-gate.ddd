@@ -7,7 +7,20 @@ system WhenShop {
       aggregate Order with crudish {
         code: string
         status: OrderStatus
-        operation cancel() when this.status != OrderStatus.Shipped && this.status != OrderStatus.Cancelled {
+        // The gate is a named `function`, not an inline predicate, and that is
+        // the point: a `when` predicate is HOISTED to the caller (the route /
+        // command handler re-checks it post-load, and the auto-exposed
+        // `GET /{id}/can_cancel` companion exists for no other purpose than
+        // evaluating it from outside).  Spelt inline, those call sites embed
+        // the expression and never touch the aggregate's own members; spelt as
+        // a `function`, they CALL it — which three backends emitted as a call
+        // to a `private` member (TS2341 / CS0122 / "has private access") on a
+        // model that validated `0 error(s)`.  No corpus fixture carried
+        // `when <function>()` before this, so every compile tier was blind to
+        // it by construction.  The predicate is unchanged, so every assertion
+        // in the e2e below still reads the same gate.
+        function cancellable(): bool = this.status != OrderStatus.Shipped && this.status != OrderStatus.Cancelled
+        operation cancel() when cancellable() {
           status := OrderStatus.Cancelled
         }
       }

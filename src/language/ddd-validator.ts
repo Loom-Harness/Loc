@@ -84,6 +84,7 @@ import {
   checkTestPlacement,
   checkTheme,
   checkThemeContrast,
+  checkThrowKindPlacement,
   checkTimers,
   checkTopLevelDomainComposition,
   checkTopLevelFunctions,
@@ -181,8 +182,14 @@ export class DddValidator {
     // surface — enforce their fixed argument arity.
     guard("matcher-arity", model, () => checkMatcherArity(model, accept));
     // Assertions are method-based: every `expect(...)` must end in a matcher
-    // (no bare boolean), and `toThrow`'s optional status arg is e2e-only.
+    // (no bare boolean); `toThrow`'s status arg is e2e-only and its KIND arg
+    // (`precondition` / `invariant`) is unit-tier-only.
     guard("expect-matcher", model, () => checkExpectMatcher(model, accept));
+    // The grammar's `ThrowKind` slot is reachable on any member call, because
+    // both words are hard keywords no ordinary argument rule can carry.  Keep
+    // the closed matcher catalogue closed: they mean a `toThrow` rung, nothing
+    // else.
+    guard("throw-kind-placement", model, () => checkThrowKindPlacement(model, accept));
     // Unit-test placement: a hoisted `test` (context/root) must name its home
     // aggregate with `for`; a nested one must not restate it (test-placement.md).
     guard("test-placement", model, () => checkTestPlacement(model, accept));

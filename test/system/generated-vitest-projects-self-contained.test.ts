@@ -59,7 +59,7 @@ const SYS = `
       port: 4000
     }
     test e2e "round trip" against api {
-      let o = api.orders.create({ code: "c" })
+      let o = api.orders.create({ code: "c", qty: 1 })
       let r = api.orders.getById(o)
       expect(r.code).toBe("c")
     }

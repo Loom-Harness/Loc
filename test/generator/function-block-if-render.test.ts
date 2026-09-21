@@ -27,16 +27,16 @@ import { corpusSource, generateCorpusCase } from "../fixtures/corpus/harness.js"
  *  head of the rendered `tier` function.  Five independent observations, not
  *  one shared matcher that could be wrong the same way five times. */
 const EXPECTED: Record<Backend, { file: string; head: RegExp }> = {
-  node: { file: "d/domain/account.ts", head: /private tier\(threshold: number\): string \{/ },
+  node: { file: "d/domain/account.ts", head: /public tier\(threshold: number\): string \{/ },
   dotnet: {
     file: "d/Domain/Accounts/Account.cs",
-    head: /private string Tier\(decimal threshold\)/,
+    head: /public string Tier\(decimal threshold\)/,
   },
   java: {
     file: "d/src/main/java/com/loom/d/features/accounts/Account.java",
-    head: /private String tier\(BigDecimal threshold\) \{/,
+    head: /public String tier\(BigDecimal threshold\) \{/,
   },
-  python: { file: "d/app/domain/account.py", head: /def _tier\(self, threshold: [^)]+\) -> str:/ },
+  python: { file: "d/app/domain/account.py", head: /def tier\(self, threshold: [^)]+\) -> str:/ },
   vanilla: {
     file: "d/lib/d/accounts/account.ex",
     head: /def tier\(%__MODULE__\{\} = record, threshold\) do/,

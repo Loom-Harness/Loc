@@ -51,8 +51,10 @@ describe("python when gate + can-query", () => {
     );
     expect(routes).toContain("async def can_submit_order(");
     expect(routes).toContain('return {"allowed": found.status == "Draft"}');
-    // A predicate that calls an aggregate function renders the method.
-    expect(routes).toContain('return {"allowed": found._can_cancel()}');
+    // A predicate that calls an aggregate function renders the method — by its
+    // PUBLIC name, the same one the `def` site now emits
+    // (`aggregate-function-visibility.test.ts`).
+    expect(routes).toContain('return {"allowed": found.can_cancel()}');
     // The can-query loads but does not mutate / save.
     const canBlock = routes.slice(routes.indexOf("async def can_submit_order"));
     expect(canBlock.slice(0, canBlock.indexOf("@router")).includes("repo.save")).toBe(false);

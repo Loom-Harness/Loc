@@ -11,6 +11,11 @@ import { API_BASE_PATH, AUTH_BASE_PATH } from "../../../util/api-base.js";
 import { lines } from "../../../util/code-builder.js";
 import { resolveErrorStatus } from "../../../util/error-defaults.js";
 import { lowerFirst, plural, snake } from "../../../util/naming.js";
+import {
+  resetTableDiscoverySql,
+  TEST_RESET_ENV,
+  TEST_RESET_PATH,
+} from "../../../util/test-reset.js";
 import { renderHonoBaseLogCall, renderHonoLogCall } from "../../_obs/render-hono.js";
 
 // The per-aggregate routes file is built procedurally in
@@ -25,6 +30,99 @@ export interface ExplicitRouterMount {
   fn: string;
   module: string;
   mountPath: string;
+}
+
+/**
+ * The dev-only state-reset route (`src/util/test-reset.ts`).
+ *
+ * The emitted `e2e/` suite calls this before every test so each block sees
+ * only the rows it creates.  Without it the suite is green on a fresh
+ * database and red on the second run of the same one — and since the
+ * generated compose stack keeps a named `pgdata` volume, the second run is
+ * the documented one (F3).
+ *
+ * REGISTRATION IS THE SERVER-SIDE HALF OF THE SAFETY CONTRACT.  The route is
+ * wrapped in a runtime `if`, not merely guarded inside the handler: outside a
+ * dev profile the path is never registered, so a production deploy answers it
+ * through the ordinary not-found floor, having touched nothing.  Keying it on
+ * `NODE_ENV` — which an operator already sets, and which the Dockerfile pins
+ * to `production` — means the documented recipe needs no new environment
+ * variable while a real deployment is closed by DEFAULT rather than by
+ * remembering to close it.  `LOOM_TEST_RESET=0` forces it off even in a dev
+ * profile, for a shared dev host that wants the surface gone.
+ *
+ * The other half is client-side and lives in the emitted suite, which only
+ * SENDS the request when its base URL is loopback (`__isLoopbackBase`).
+ * Neither gate is redundant: this one alone would miss a dev-profile backend
+ * on a shared host, that one alone would miss a loopback port-forward into a
+ * remote database.
+ *
+ * Tables are discovered at RUNTIME rather than baked in at generation time,
+ * so the reset also reaches what the model does not describe but the backend
+ * creates — the outbox, materialized projections, the seed marker — and
+ * cannot drift from a migration chain that has moved on.  One `TRUNCATE` for
+ * the whole set: `CASCADE` must see every table at once or a foreign key
+ * makes the order significant, and `RESTART IDENTITY` puts sequences back so
+ * a generated id is stable from run to run.
+ *
+ * Seeds are re-applied afterwards when the deployable has any, because the
+ * truncate takes the `__loom_seed` marker with it.  A reset restores the
+ * just-migrated-AND-seeded state, not an empty database: a test whose
+ * fixtures assume seeded rows must still find them.
+ */
+function renderTestResetRoute(usingMikro: boolean, hasSeeds: boolean): string[] {
+  // MikroORM spells raw SQL `em.getConnection().execute(sql)` and hands back
+  // the rows directly; drizzle spells it `db.execute(sql\`…\`)` and wraps them
+  // in `{ rows }`.  The same two-line seam the timer scheduler's store uses
+  // (`scheduler-builder.ts`), and the only place these handlers diverge.
+  const discoverySql = JSON.stringify(resetTableDiscoverySql());
+  const discover = usingMikro
+    ? [
+        `      const found = (await db.getConnection().execute(`,
+        `        ${discoverySql},`,
+        `      )) as Array<{ schemaname: string; tablename: string }>;`,
+      ]
+    : [
+        `      const found = (`,
+        `        await db.execute(sql.raw(${discoverySql}))`,
+        `      ).rows as Array<{ schemaname: string; tablename: string }>;`,
+      ];
+  const truncate = usingMikro
+    ? "        await db.getConnection().execute(statement);"
+    : "        await db.execute(sql.raw(statement));";
+  return [
+    "  // Dev-only state reset for the emitted e2e suite — see the note on",
+    "  // `renderTestResetRoute`.  Registered only when asked for, so this",
+    "  // surface does not exist in a real deployment.",
+    `  const testResetEnabled =`,
+    `    process.env.${TEST_RESET_ENV} === "1" ||`,
+    `    (process.env.${TEST_RESET_ENV} !== "0" && process.env.NODE_ENV !== "production");`,
+    "  if (testResetEnabled) {",
+    `    app.post(${JSON.stringify(TEST_RESET_PATH)}, async (c) => {`,
+    ...discover,
+    "      const targets = found.map(",
+    '        (t) => `"${t.schemaname}"."${t.tablename}"`,',
+    "      );",
+    "      if (targets.length > 0) {",
+    // One statement for the whole set: `CASCADE` must see every table at
+    // once or a foreign key makes the order significant, and `RESTART
+    // IDENTITY` puts sequences back so a generated id is stable across runs.
+    "        const statement =",
+    '          `truncate table ${targets.join(", ")} restart identity cascade`;',
+    truncate,
+    "      }",
+    ...(hasSeeds
+      ? [
+          "      // The truncate took `__loom_seed` with it, so this re-applies the",
+          "      // declared seed data: a reset restores the just-migrated-AND-seeded",
+          "      // state, not an empty database.",
+          "      await runSeeds(db);",
+        ]
+      : []),
+    '      return c.json({ status: "reset", tables: targets.length });',
+    "    });",
+    "  }",
+  ];
 }
 
 export function renderHttpIndex(
@@ -207,6 +305,14 @@ export function renderHttpIndex(
     ? `  assertUserVerifierRegistered();\n  ${renderHonoBaseLogCall("authEnabled", "required: true")}`
     : null;
   const authMount = authRequired ? '  app.use("*", authMiddleware);' : null;
+  // The dev-only reset re-applies seed data after truncating (it takes the
+  // `__loom_seed` marker with it), so it needs `runSeeds` when — and only
+  // when — this deployable has any.  Read off the SAME `ctx.seeds` gate the
+  // seed emitter uses, so the import can never name a module that was not
+  // emitted.
+  const hasSeeds = ctx.seeds.length > 0;
+  const resetSeedImport = hasSeeds ? 'import { runSeeds } from "../db/seed";' : null;
+  const testResetRoute = renderTestResetRoute(usingMikro, hasSeeds);
   // Auth session routes mount under the API base (`/api/auth`): `/api/auth/me`
   // (the frontend guard's session probe) always, plus the OIDC login redirect
   // + callback (which the middleware bypasses) when an `auth { oidc }` block is
@@ -387,6 +493,7 @@ export function renderHttpIndex(
         ? 'import { EntityManager } from "@mikro-orm/postgresql";'
         : 'import type { NodePgDatabase } from "drizzle-orm/node-postgres";',
       usingMikro ? null : 'import type * as schema from "../db/schema";',
+      resetSeedImport,
       wireDispatcher
         ? 'import { type DomainEventDispatcher } from "../domain/events";'
         : 'import { type DomainEventDispatcher, NoopDomainEventDispatcher } from "../domain/events";',
@@ -480,6 +587,7 @@ export function renderHttpIndex(
       "    const body = await registry.metrics();",
       '    return c.text(body, 200, { "Content-Type": registry.contentType });',
       "  });",
+      ...testResetRoute,
       ...aggregateRoutes,
       workflowMount,
       realtimeMount,

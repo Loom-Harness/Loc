@@ -186,8 +186,18 @@ test("the generated tree marks files changed since the last generate", async ({ 
 
   // Add a field to Product, regenerate: its emitted files must now read as
   // changed on every deployable that hosts it.
+  //
+  // OPTIONAL (`brand: string?`) on purpose.  A REQUIRED field would be new
+  // create input, and Acme's two `test e2e` bodies already call
+  // `api.products.create({ sku, price })` — so the edit would leave them
+  // under-supplying the create and raise `loom.e2e-missing-required-field`,
+  // and the "0 errors" wait below would time out.  That diagnostic is correct
+  // (the body would answer 422), but required-ness is not what this test is
+  // about: it wants ANY edit that changes Product's emitted files, and an
+  // optional field changes the DTO, the wire schema and the migration just as
+  // well.  Do not drop the `?`.
   const source = await readEditorSource(page);
-  const edited = source.replace("sku: string", "sku: string\n                brand: string");
+  const edited = source.replace("sku: string", "sku: string\n                brand: string?");
   expect(edited).not.toBe(source);
   await page.evaluate(
     (text) => (window as unknown as { __loomSetSource: (t: string) => void }).__loomSetSource(text),
