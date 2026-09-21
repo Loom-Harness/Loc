@@ -76,10 +76,15 @@
 //
 // "Runs a test that generates a project" is DERIVED, not declared: the entry
 // points named by the workflow are walked transitively, and the workflow counts
-// as a generation gate when that closure reaches `src/system/index.ts`, spawns
-// `bin/cli.js`, or runs a `.mjs` case driver that does (the `behavioral-e2e-*`
-// family — see `mjsDrivers`).  So a workflow cannot fall out of scope by having
-// its imports rearranged, nor by putting a process boundary in the way.
+// as a generation gate when that closure reaches `src/system/index.ts` or the
+// built `out/system/index.js`, or spawns `bin/cli.js`.  Entry points are found
+// through THREE indirections, each of which was once a blind spot that silently
+// skipped a whole family (see `entryPoints`): a `test/**.test.ts` path, a `.mjs`
+// driver run from a `run:` step (the `behavioral-e2e-*` legs), and an
+// `npm run <script>` resolved in the step's own `working-directory`'s
+// package.json (`playground-realm-check`).  So a workflow cannot fall out of
+// scope by having its imports rearranged, nor by putting a process boundary, a
+// build step or a nested workspace in the way.
 
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import * as path from "node:path";
@@ -143,8 +148,12 @@ function resolveSpec(fromFile: string, spec: string): string | undefined {
 }
 
 const IMPORT_RE = /(?:from|import)\s*\(?\s*["']([^"']+)["']/g;
-/** A test that shells out to the CLI drives the whole pipeline out-of-process. */
-const SPAWNS_CLI_RE = /cli\.js|out\/cli\/main\.js/;
+/** A file that shells out to the CLI, or reaches the composer through the BUILT
+ *  output rather than the sources, drives the whole pipeline all the same.
+ *  `out/system/index.js` is `src/system/index.ts` with a `tsc` in between —
+ *  `web/scripts/smoke-runtime.mjs` imports exactly that, and the source-only
+ *  closure could never see it. */
+const DRIVES_GENERATION_RE = /cli\.js|out\/cli\/main\.js|out\/system\/index\.js/;
 
 interface Closure {
   /** Every repo-relative `src/**` file reachable from the entry points. */
@@ -166,7 +175,7 @@ function closureOf(entries: readonly string[]): Closure {
     } catch {
       return;
     }
-    if (SPAWNS_CLI_RE.test(source)) spawnsCli = true;
+    if (DRIVES_GENERATION_RE.test(source)) spawnsCli = true;
     IMPORT_RE.lastIndex = 0;
     let m = IMPORT_RE.exec(source);
     while (m) {
@@ -240,66 +249,81 @@ const pathGlobs = (source: string): string[] => [
   ...new Set([...globsByTrigger(source).values()].flat()),
 ];
 
-const pkg = JSON.parse(readFileSync(path.join(repoRoot, "package.json"), "utf8")) as {
-  scripts?: Record<string, string>;
-};
-
-/** Test files a workflow RUNS: paths named inline, plus those reachable through
- *  the `npm run <script>` invocations in its steps.
- *
- *  Comment lines are stripped first — a workflow that merely *mentions* a test
- *  path in a comment does not run it.  (This bit immediately: the rationale
- *  comment this change adds to each `paths:` block names this very file, and an
- *  unfiltered scan read that as an entry point.) */
-function entryPoints(yaml: string): string[] {
-  const source = yaml
-    .split("\n")
-    .filter((l) => !/^\s*#/.test(l))
-    .join("\n");
-  const found = new Set<string>();
-  const add = (text: string): void => {
-    for (const m of text.matchAll(/(test\/[\w./-]+\.test\.ts)/g)) found.add(m[1]);
+/** `scripts` of the `package.json` at a repo-relative dir ("" = the root).
+ *  A step with `working-directory: web` resolves `npm run e2e:realm` in
+ *  `web/package.json`, which the root-only lookup could never see. */
+const pkgScripts = (() => {
+  const cache = new Map<string, Record<string, string>>();
+  return (wd: string): Record<string, string> => {
+    const cached = cache.get(wd);
+    if (cached) return cached;
+    const p = path.join(repoRoot, wd, "package.json");
+    const scripts = existsSync(p)
+      ? ((JSON.parse(readFileSync(p, "utf8")) as { scripts?: Record<string, string> }).scripts ??
+        {})
+      : {};
+    cache.set(wd, scripts);
+    return scripts;
   };
-  add(source);
-  for (const m of source.matchAll(/npm run ([\w:-]+)/g)) {
-    const script = pkg.scripts?.[m[1]];
-    if (script) add(script);
-  }
-  for (const d of mjsDrivers(source)) found.add(d);
-  return [...found].filter((f) => existsSync(path.join(repoRoot, f)));
-}
+})();
 
 /**
- * `.mjs` case drivers a workflow runs from a `run:` step.
+ * Everything a workflow RUNS that could drive generation: `test/**.test.ts`
+ * paths named inline, `.mjs` drivers invoked from a `run:` step, and both of
+ * those reached through an `npm run <script>` indirection.
  *
  * THE BUG THIS CLOSES.  Everything in this file keys on "does this workflow
  * drive generation", and that was derived from two signals only: a resolved
  * `test/**.test.ts` entry point, or an inline `bin/cli.js generate` in the
- * workflow source.  The seven `behavioral-e2e-*.yml` legs are neither — each
- * runs `node run-<backend>.mjs`, and THAT file spawns the CLI.  So six of the
- * seven scored as non-generation gates and EVERY assertion here skipped them in
+ * workflow source.  The `behavioral-e2e-*.yml` legs are neither — each runs
+ * `node run-<backend>.mjs`, and THAT file spawns the CLI.  So six of the seven
+ * scored as non-generation gates and EVERY assertion here skipped them in
  * silence, the shared-seam requirement (P0-3) included.  A skipped assertion is
  * indistinguishable from a passing one in the report, which is the purest form
  * of the failure this file exists to catch: the gate never reached the thing it
- * names.
+ * names.  `playground-realm-check.yml` was a third variant of the same
+ * blindness — `npm run e2e:realm` resolved in `web/package.json`, driving
+ * generation through the BUILT `out/system/index.js`.
  *
- * A step's `working-directory:` is tracked, because the behavioural legs run
- * `node run-java.mjs` from `test/behavioral`; a `$GITHUB_WORKSPACE/` prefix is
- * stripped.  Only a path that really exists is kept.
+ * Comment lines are stripped — a workflow that merely *mentions* a test path in
+ * a comment does not run it.  (This bit immediately: the rationale comments
+ * these `paths:` blocks carry name this very file.)  A step's
+ * `working-directory:` is tracked, a `$GITHUB_WORKSPACE/` prefix is stripped,
+ * and only a path that really exists is kept.
  */
-function mjsDrivers(source: string): string[] {
+function entryPoints(yaml: string): string[] {
   const found = new Set<string>();
+  const addFrom = (text: string, workdir: string): void => {
+    for (const m of text.matchAll(/(test\/[\w./-]+\.test\.ts)/g)) {
+      const rel = [path.join(workdir, m[1]), m[1]].find((c) => existsSync(path.join(repoRoot, c)));
+      if (rel) found.add(rel.split(path.sep).join("/"));
+    }
+    // `.mjs` only when something on the line actually runs node — otherwise a
+    // `paths:` entry naming a script would read as an entry point.
+    for (const raw of text.split("\n")) {
+      if (!/\bnode\b/.test(raw)) continue;
+      for (const m of raw.matchAll(/([\w./-]+\.mjs)\b/g)) {
+        const rel = [path.join(workdir, m[1]), m[1]].find((c) =>
+          existsSync(path.join(repoRoot, c)),
+        );
+        if (rel) found.add(rel.split(path.sep).join("/"));
+      }
+    }
+  };
+
   let workdir = "";
-  for (const raw of source.split("\n")) {
+  for (const raw of yaml.split("\n")) {
     const line = raw.replace(/\r$/, "");
+    if (/^\s*#/.test(line)) continue;
     // A new list item starts a new step, so its predecessor's
     // `working-directory:` stops applying.
     if (/^\s+-\s/.test(line)) workdir = "";
     const wd = line.match(/^\s*-?\s*working-directory:\s*['"]?([^'"\s]+)/);
     if (wd) workdir = wd[1];
-    for (const m of line.matchAll(/node\s+(?:["']|\$\{?GITHUB_WORKSPACE\}?\/)*([\w./-]+\.mjs)/g)) {
-      const rel = [path.join(workdir, m[1]), m[1]].find((c) => existsSync(path.join(repoRoot, c)));
-      if (rel) found.add(rel.split(path.sep).join("/"));
+    addFrom(line, workdir);
+    for (const m of line.matchAll(/npm run ([\w:-]+)/g)) {
+      const script = pkgScripts(workdir)[m[1]] ?? pkgScripts("")[m[1]];
+      if (script) addFrom(script, workdir);
     }
   }
   return [...found];
@@ -762,6 +786,32 @@ describe("the closure walker resolves what it claims to", () => {
     // Precision is the escape hatch: name subdirs, not the whole tree.
     expect(sharedSeams(["src/generator/elixir/vanilla/**", "src/generator/_obs/**"])).toEqual([]);
     expect(sharedSeams(["src/ir/**", "src/system/**"])).toEqual([]);
+  });
+
+  it("follows `npm run` into a nested package.json, and the BUILT composer", () => {
+    // The third variant of the same blindness: `playground-realm-check.yml`
+    // runs `npm run e2e:realm` with `working-directory: web`, so the script
+    // lives in `web/package.json` — invisible to a root-only lookup — and the
+    // driver it names reaches the composer through `out/system/index.js`, not
+    // `src/`.  Both halves are needed; pin both.
+    const src = readFileSync(path.join(workflowsDir, "playground-realm-check.yml"), "utf8");
+    expect(
+      entryPoints(src),
+      "the `npm run e2e:realm` indirection through web/package.json is not being followed",
+    ).toContain("web/scripts/smoke-runtime.mjs");
+    const c = closureOf(["web/scripts/smoke-runtime.mjs"]);
+    expect(
+      c.generates,
+      "smoke-runtime.mjs reaches the composer only through the BUILT out/system/index.js — " +
+        "DRIVES_GENERATION_RE must keep its `out/` arm",
+    ).toBe(true);
+    // …and it must NOT be reached through `src/system/index.ts` — otherwise
+    // this pin would pass with that `out/` arm removed.
+    expect(
+      c.files.has(GENERATION_ENTRY),
+      "if this is now reachable through src/, the pin above proves nothing — repoint it",
+    ).toBe(false);
+    expect(generationGates.map((g) => g.file)).toContain("playground-realm-check.yml");
   });
 
   it("globsByTrigger really separates the triggers (the union is not what is read)", () => {
