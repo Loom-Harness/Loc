@@ -247,11 +247,12 @@ function walkRenderedPrimitives(
 // `Table { filter: <state> }` binds a search box above the table that narrows
 // the rows client-side.  It renders on the six frameworks that ride the shared
 // `walkBody` core — all six declare the `renderFilteredRows` +
-// `renderFilterInput` seams — and on NOBODY else:
+// `renderFilterInput` seams — and, since wave C2 packet 2m, on HEEx too: the
+// parallel engine (`elixir/heex-primitives.ts` `renderTable`) emits the bound
+// `<.input type="search">` plus `LoomTable.filter_rows/2` around the bound
+// rows.  So the per-framework arm below is now a LATENT seam for a new
+// frontend, and what still bites is the second clause:
 //
-//   * HEEx runs a parallel engine (`elixir/heex-primitives.ts` `renderTable`),
-//     whose `else if` chain handles `rows` / `testid` / sort / page and lets
-//     `filter:` fall through into nothing.  No seam, no marker, no diagnostic.
 //   * A SERVER-PAGED table's rows are one server window, so a client filter
 //     would narrow that page rather than the result set — `table.ts` gates it
 //     off (`!serverPaged`) and drops the arg.  This is the common case, not the
@@ -267,13 +268,16 @@ function walkRenderedPrimitives(
 // -------------------------------------------------------------------------
 
 /** Frontends whose walker renders `Table { filter: … }` — the six that declare
- *  `renderFilteredRows` + `renderFilterInput` on their `WalkerTarget`.
+ *  `renderFilteredRows` + `renderFilterInput` on their `WalkerTarget`, plus
+ *  phoenixLiveView, whose parallel engine grew the pair's equivalent in wave
+ *  C2 packet 2m.  That is EVERY shipping frontend, so this arm is now a latent
+ *  seam: it fires for a frontend that has not been written yet.
  *
- *  EXPORTED so its own test can prove the gate still bites: with the six
- *  shipping frameworks listed, "the check works" and "the check is
- *  unreachable" look identical from outside, and the only honest way to tell
- *  them apart is to remove one and watch the diagnostic come back — the same
- *  discipline `CHART_FRAMEWORKS` uses. */
+ *  EXPORTED so its own test can prove the gate still bites: with every
+ *  shipping framework listed, "the check works" and "the check is unreachable"
+ *  look identical from outside, and the only honest way to tell them apart is
+ *  to remove one and watch the diagnostic come back — the same discipline
+ *  `CHART_FRAMEWORKS` uses. */
 
 export const TABLE_FILTER_FRAMEWORKS: ReadonlySet<string> = new Set([
   "react",
@@ -282,6 +286,7 @@ export const TABLE_FILTER_FRAMEWORKS: ReadonlySet<string> = new Set([
   "angular",
   "feliz",
   "flutter",
+  "phoenixLiveView",
 ]);
 
 /** True when a `Table` call carries a `filter:` bound to a page-state ref —

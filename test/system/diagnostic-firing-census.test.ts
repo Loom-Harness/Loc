@@ -19,6 +19,7 @@ import {
   PROJECTION_WF_SOURCE_SUPPORTED,
   REMOTE_API_OP_UNSUPPORTED,
 } from "../../src/ir/validate/checks/system-checks.js";
+import { TABLE_FILTER_FRAMEWORKS } from "../../src/ir/validate/checks/ui-collection-display-checks.js";
 import {
   allAdapterNames,
   hasAdapters,
@@ -1235,32 +1236,6 @@ system S {
   deployable web { platform: static targets: api ui: WebApp { C: api } port: 3001 }
 }`,
 
-  // HEEx's parallel engine never reads `filter:` at all (M-T1.1).
-  "loom.table-filter-unsupported": `
-system S {
-  subdomain Sub { context C {
-    aggregate Thing with crudish { name: string }
-  } }
-  api Api from Sub
-  ui WebApp {
-    framework: phoenixLiveView
-    api C: Api
-    page Home {
-      route: "/"
-      state { q: string = "" }
-      body: QueryView {
-        of: C.Thing.all,
-        data: rows => Table { rows: rows, filter: q, Column { "Name", o => Text { o.name } } }
-      }
-    }
-  }
-  storage pg { type: postgres }
-  resource st { for: C, kind: state, use: pg }
-  deployable api {
-    platform: elixir contexts: [C] dataSources: [st] serves: Api
-    ui: WebApp { C: api } port: 4000
-  }
-}`,
   // The state-controlled shell and the operation-form dialog do not combine on
   // react / vue / svelte / flutter — the WHOLE modal becomes a comment
   // (F2-CFE-12).  Angular, Feliz and HEEx render it, so the gate is per-target.
@@ -2037,6 +2012,13 @@ const UNREACHABLE_PINS: Record<string, string> = {
     "`REMOTE_API_OP_UNSUPPORTED` is the EMPTY set and the gate fires only for its members " +
     "(`if (!REMOTE_API_OP_UNSUPPORTED.has(dep.platform)) continue`), so every platform skips.  " +
     "Checked by `LATENT_GATES`.",
+  "loom.table-filter-unsupported":
+    "`TABLE_FILTER_FRAMEWORKS` (ui-collection-display-checks.ts) now covers every `framework:` " +
+    "the grammar admits: the six `walkBody` targets declare `renderFilteredRows` + " +
+    "`renderFilterInput`, and phoenixLiveView's parallel engine grew the equivalent in wave C2 " +
+    'packet 2m (`renderTable` emits the bound `<.input type="search">` plus ' +
+    "`LoomTable.filter_rows/2`).  The gate's SIBLING, `loom.table-filter-server-paged`, is the " +
+    "one that still bites and is driven by a fixture.  Checked by `LATENT_GATES`.",
   "loom.flutter-primitive-unsupported":
     "`FLUTTER_UNRENDERED_PRIMITIVES` is the EMPTY set — every page primitive has a Flutter " +
     "renderer today — and the gate only rejects a primitive that is a member.  Its own source " +
@@ -2181,11 +2163,24 @@ const BACKEND_OWNING = [
   "static",
 ].filter((p) => parseBuiltinPlatformRef(p) !== null);
 
+/** Every `framework:` an author can write, read off the GRAMMAR rather than
+ *  listed here — the grammar is what decides which frontends exist, so a
+ *  seventh one lands in this roster the moment its alternative is added and
+ *  any "covers every frontend" pin below turns red until it is ported. */
+const FRONTEND_FRAMEWORKS: readonly string[] = (() => {
+  const grammar = readFileSync(
+    join(dirname(fileURLToPath(import.meta.url)), "../../src/language/ddd.langium"),
+    "utf8",
+  );
+  const rule = /Framework returns string:\s*([^;]+);/.exec(grammar)?.[1] ?? "";
+  return [...rule.matchAll(/'([A-Za-z]+)'/g)].map((m) => m[1]!);
+})();
+
 const LATENT_GATES: ReadonlyArray<{
   code: string;
   setName: string;
   set: ReadonlySet<string>;
-  kind: "covers-every-backend" | "empty";
+  kind: "covers-every-backend" | "covers-every-frontend" | "empty";
 }> = [
   // system-checks.ts — the `!platformOwnsBackend(d.platform) || SET.has(...)`
   // skip shape.  No second arm: a context nothing hosts iterates zero
@@ -2272,6 +2267,15 @@ const LATENT_GATES: ReadonlyArray<{
     setName: "FLUTTER_UNRENDERED_PRIMITIVES",
     set: FLUTTER_UNRENDERED_PRIMITIVES,
     kind: "empty",
+  },
+  // The frontend twin of the shape above: the set covers every `framework:`
+  // the grammar admits, so no ui can reach the push.  HEEx was the last
+  // member, added in wave C2 packet 2m when its engine grew the filter.
+  {
+    code: "loom.table-filter-unsupported",
+    setName: "TABLE_FILTER_FRAMEWORKS",
+    set: TABLE_FILTER_FRAMEWORKS,
+    kind: "covers-every-frontend",
   },
 ];
 
@@ -2386,12 +2390,31 @@ describe("diagnostic firing census", () => {
       expect(BACKEND_OWNING).toContain("node");
     });
 
+    // Same guard for the frontend roster: it is scraped out of the grammar, so
+    // a rule rename would empty it and make every `covers-every-frontend` pin
+    // pass without checking anything.
+    it("the frontend roster is scraped from the grammar and complete", () => {
+      expect(FRONTEND_FRAMEWORKS.length).toBeGreaterThanOrEqual(7);
+      expect(FRONTEND_FRAMEWORKS).toContain("react");
+      expect(FRONTEND_FRAMEWORKS).toContain("phoenixLiveView");
+    });
+
     it.each(LATENT_GATES.map((g) => [g.code, g] as const))("%s", (_code, gate) => {
       if (gate.kind === "empty") {
         expect(
           [...gate.set],
           `${gate.setName} is no longer empty, so ${gate.code} can fire again — it needs a real ` +
             `FIRING_FIXTURES entry, and its UNREACHABLE_PINS entry must go`,
+        ).toEqual([]);
+        return;
+      }
+      if (gate.kind === "covers-every-frontend") {
+        const missing = FRONTEND_FRAMEWORKS.filter((f) => !gate.set.has(f));
+        expect(
+          missing,
+          `${gate.setName} no longer covers every \`framework:\` the grammar admits (missing ` +
+            `${missing.join(", ")}), so ${gate.code} is reachable again — either port the ` +
+            `feature on those frontends or replace its pin with a FIRING_FIXTURES entry`,
         ).toEqual([]);
         return;
       }

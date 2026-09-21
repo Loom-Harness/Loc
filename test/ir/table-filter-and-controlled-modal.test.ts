@@ -151,27 +151,33 @@ describe("loom.table-filter-server-paged", () => {
 });
 
 describe("loom.table-filter-unsupported", () => {
-  it("flags a `filter:` on HEEx, whose engine never reads it", async () => {
-    expect(await codes(heexSystem(FILTERED_TABLE))).toContain(FILTER_UNSUPPORTED);
+  it("no longer fires on HEEx — the engine renders the filter (wave C2 2m)", async () => {
+    expect(await codes(heexSystem(FILTERED_TABLE))).not.toContain(FILTER_UNSUPPORTED);
   });
 
   it("does NOT fire on a framework that has the seam", async () => {
     expect(await codes(jsSystem("react", FILTERED_TABLE))).not.toContain(FILTER_UNSUPPORTED);
   });
 
-  it("REACHABILITY: the framework Set is what makes it fire", () => {
-    // The Set names all six shipping walkBody frameworks, so "the check works"
-    // and "the check is unreachable" look identical from outside.  This is what
-    // tells them apart — the same discipline CHART_FRAMEWORKS uses.
+  it("REACHABILITY: the framework Set is what makes it fire", async () => {
+    // Every shipping frontend is now listed, so "the check works" and "the
+    // check is unreachable" look identical from outside.  This is what tells
+    // them apart — the same discipline CHART_FRAMEWORKS uses: drop one member
+    // and the diagnostic comes straight back.
     expect([...TABLE_FILTER_FRAMEWORKS].sort()).toEqual([
       "angular",
       "feliz",
       "flutter",
+      "phoenixLiveView",
       "react",
       "svelte",
       "vue",
     ]);
-    expect(TABLE_FILTER_FRAMEWORKS.has("phoenixLiveView")).toBe(false);
+    const shrunk = new Set([...TABLE_FILTER_FRAMEWORKS].filter((f) => f !== "phoenixLiveView"));
+    expect(shrunk.has("phoenixLiveView")).toBe(false);
+    // …and the check reads the Set, not a hard-coded framework name: the HEEx
+    // system above is the exact input that fired before the member was added.
+    expect(await codes(heexSystem(FILTERED_TABLE))).not.toContain(FILTER_UNSUPPORTED);
   });
 });
 

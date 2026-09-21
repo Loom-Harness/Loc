@@ -378,8 +378,25 @@ const REGISTER_FILE = path.join(srcRoot, "diagnostics", "unsupported-register.ts
  *  sink census with no chokepoint, and four fifths of that is indistinguishable
  *  from success in any test that asserts by shape.  `scope` says "declared limit,
  *  named successor"; `gap` said "a sweep can close this", which for a
- *  security-shaped feature is how it ends up half-ported. */
-const MAX_OPEN_GAPS = 20;
+ *  security-shaped feature is how it ends up half-ported.
+ *
+ *  20 -> 19 (wave C2 packet 2m): `loom.table-filter-unsupported` became a
+ *  `seam`.  The HEEx engine now renders `Table { filter: … }` — the bound
+ *  search box plus `LoomTable.filter_rows/2` — so `TABLE_FILTER_FRAMEWORKS`
+ *  names every `framework:` the grammar admits and the arm is latent for a
+ *  frontend nobody has written yet.  `diagnostic-firing-census.test.ts`
+ *  re-derives that claim from the GRAMMAR on every run (`LATENT_GATES`,
+ *  `covers-every-frontend`), so a seventh frontend turns the pin red rather
+ *  than letting the seam quietly become a gap again.
+ *
+ *  19 -> 18 (wave C2 packet 2m): `loom.elixir-if-stmt-unsupported` re-classed
+ *  `scope` under **D-ELIXIR-IF-BRANCH**.  Not narrowed and not renamed — all
+ *  four `#slug` arms keep firing with the advice they carry.  What changes is
+ *  the claim about who closes them: each needs a change to how a Phoenix body
+ *  is BUILT, and two members of the closed branch vocabulary are cross-backend
+ *  (`opHasProvSite` is target-neutral; a conditional `emit` is an ordering
+ *  question, not a detection one).  `gap` said "a sweep can close this". */
+const MAX_OPEN_GAPS = 19;
 
 /** Exact count of `seam` rows.  Changes only for a reviewed reason: a gate
  *  deleted (down), a new target registered that turns a seam back into a live
@@ -391,8 +408,13 @@ const MAX_OPEN_GAPS = 20;
  *  framework has no realtime consumption, and
  *  `SSE_REALTIME_FRONTENDS ∪ NATIVE_REALTIME_FRONTENDS` already names every
  *  shipping one — the seam the next frontend gates on, which is what this kind
- *  is for. */
-const LATENT_SEAMS = 25;
+ *  is for.
+ *
+ *  25 -> 26 (wave C2 packet 2m): `loom.table-filter-unsupported`, whose last
+ *  non-member (phoenixLiveView) joined `TABLE_FILTER_FRAMEWORKS` when the HEEx
+ *  engine grew the filter.  Its membership set is named in the row's `what`
+ *  and re-derived from the grammar by the firing census. */
+const LATENT_SEAMS = 26;
 
 function walk(dir: string, out: string[] = []): string[] {
   for (const e of fs.readdirSync(dir, { withFileTypes: true })) {

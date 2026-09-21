@@ -607,15 +607,21 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   },
   {
     code: "loom.table-filter-unsupported",
-    kind: "gap",
+    kind: "seam",
     site: "src/ir/validate/checks/ui-collection-display-checks.ts:326",
     what:
-      "`Table { filter: <state> }` on a framework with no filter seam.  The six `walkBody` " +
-      "targets all declare `renderFilteredRows` + `renderFilterInput`; phoenixLiveView runs the " +
-      "parallel HEEx engine, whose `renderTable` `else if` chain handles rows/testid/sort/page " +
-      "and lets `filter:` fall through into nothing.  Drains when the generated `list/4` takes a " +
-      "filter param and the LiveView grows the matching `handle_event` + `<.input>`",
+      "`Table { filter: <state> }` on a framework with no filter seam.  LATENT seam for a NEW " +
+      "frontend: `TABLE_FILTER_FRAMEWORKS` now names every `framework:` the grammar admits.  " +
+      "The six `walkBody` targets declare `renderFilteredRows` + `renderFilterInput`, and wave " +
+      "C2 packet 2m gave the parallel HEEx engine the same pair — `renderTable` emits the bound " +
+      '`<.input type="search">` (same `data-testid="table-filter"` the React seam uses) plus ' +
+      "`LoomTable.filter_rows/2` around the bound rows, which walks every row value " +
+      "case-insensitively exactly as React's `Object.values(row)` filter does.  No server-side " +
+      "`list/4` filter param was needed: the client leg filters the bound list, and a " +
+      "SERVER-paged table's filter is refused by the sibling code " +
+      "`loom.table-filter-server-paged`, which is where that slice is tracked",
     mission: "M-T1.1",
+    verified: true,
   },
   {
     code: "loom.modal-controlled-op-form-unsupported",
