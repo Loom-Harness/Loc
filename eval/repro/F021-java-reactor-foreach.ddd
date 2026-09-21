@@ -1,0 +1,38 @@
+// F-021 minimal repro: the SAME construct as F-013 (`for x in Repo.run(C(...))`
+// in a reactor) emits non-compiling Java. One model, three different failures:
+//   node/python -> compiles   elixir -> generator crash (F-013)
+//   java -> non-compiling     feliz -> non-compiling F#
+//   node bin/cli.js generate system eval/repro/F021-java-reactor-foreach.ddd -o /tmp/f21
+//   docker run --rm --network host -v /tmp/f21/api_java:/src -w /src \
+//     -v /root/.ccr:/root/.ccr:ro -e JAVA_TOOL_OPTIONS="$JAVA_TOOL_OPTIONS" \
+//     gradle:9-jdk25 gradle --no-daemon testClasses
+//   -> cannot find symbol: variable Follows / method followee() / variable notesRepository
+system Repro {
+  subdomain S { context C {
+    aggregate Member { name: string  derived display: string = name }
+    aggregate Post { author: Member id  title: string  derived display: string = title
+      operation publish() { emit PostPublished { post: id, author: author } } }
+    aggregate Note { member: Member id  post: Post id  derived display: string = "n" }
+    aggregate Follow { follower: Member id  followee: Member id  derived display: string = "f" }
+    event PostPublished { post: Post id, author: Member id }
+    channel Feed { carries: PostPublished }
+    criterion FollowersOf(who: Member id) of Follow = followee == who
+    workflow FanOut {
+      postId: Post id
+      on(e: PostPublished) by e.post {
+        for f in Follows.run(FollowersOf(e.author)) {
+          let n = Note.create({ member: f.follower, post: e.post })
+        }
+      }
+    }
+    repository Members for Member { }
+    repository Posts for Post { }
+    repository Notes for Note { }
+    repository Follows for Follow { }
+  } }
+  storage primary { type: postgres }
+  storage bus { type: redis }
+  resource cState { for: C, kind: state, use: primary }
+  channelSource feedBus { for: Feed, use: bus }
+  deployable apiJava { platform: java, contexts: [C], dataSources: [cState], channels: [feedBus], port: 8081 }
+}

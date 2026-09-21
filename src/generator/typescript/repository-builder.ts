@@ -11,6 +11,7 @@ import {
   findUsesCurrentUser,
 } from "../../ir/types/loom-ir.js";
 import { tableOwnerName } from "../../ir/util/inheritance.js";
+import { valueObjectPool } from "../../ir/util/reachable-types.js";
 import { aggregateIsVersioned } from "../../ir/util/versioned-capability.js";
 import { lines } from "../../util/code-builder.js";
 import { lowerFirst, plural } from "../../util/naming.js";
@@ -260,7 +261,7 @@ export function buildRepositoryFile(
     }
   }
 
-  const repoUsesMoney = aggregateUsesMoneyDeep(agg, ctx.valueObjects);
+  const repoUsesMoney = aggregateUsesMoneyDeep(agg, valueObjectPool(ctx));
 
   const file = lines(
     "// Auto-generated.  Do not edit by hand.",

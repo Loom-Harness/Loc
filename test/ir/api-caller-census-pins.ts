@@ -587,6 +587,19 @@ export const E2E_LESS_CORPUS_FIXTURES: readonly string[] = [
   // assertable at runtime either: the harness's mock issuer mints no
   // `customer_id`, so the claim would read null on every booted backend.
   "auth-id-claim",
+  // COMPILE-TIER WITNESS — the NON-optional twin of the entry above
+  // (`customerId: Customer id`, and no `auth { … }` block, so every backend
+  // emits its DEV-STUB principal).  The sibling cannot reach this arm: an
+  // optional claim short-circuits to null/None/nil before the stub's type table
+  // is consulted, and on node/python/elixir the OIDC verifier REPLACES the dev
+  // stub.  Four of the five stub tables wrote a raw scalar against a nominal id
+  // type, and the two loudest are hard compile errors the leg already gating
+  // this fixture catches: `TS2322` (corpus-tsc, against the `__brand`) and
+  // CS0029 (corpus-dotnet, against `readonly record struct CustomerId(Guid)`).
+  // No runtime-only half to witness: the id claim's VALUE is not settable from
+  // the harness either — `devClaimKind` carries `string` / `string[]` only, so
+  // `x-loom-dev-claims` leaves it at the built-in stub value on all five.
+  "auth-id-claim-stub",
   // COMPILE-TIER WITNESS (audit F57 / M-T6.57) — the `envelope` carrier, which
   // NO `.ddd` in the repo instantiated before this fixture, so every compile
   // gate was blind to it and java/dotnet emitted output that did not build.
@@ -825,6 +838,19 @@ export const E2E_LESS_CORPUS_FIXTURES: readonly string[] = [
   // is the drain condition recorded there.
   "projection-fold-statements",
   "paged-nonrelational",
+  // WAVE C2 PACKET 2f (D-PROJECTION-IMPLICIT-SUB) — a folded projection AND a
+  // workflow reactor on events NO `channel` carries.  The fixture exists for
+  // the per-backend COMPILE tier and the generation gate: what had to be proven
+  // is that the DISPATCH WIRING is emitted at all (before, `deriveEventSubscriptions`
+  // returned `[]` and four backends emitted no handler while python emitted no
+  // dispatcher module), and the symbols that carry it are static —
+  // `test/generator/projection-implicit-sub.test.ts` names one per backend.
+  // Its CARRIED twin `projection.ddd` already runs the fold end to end on the
+  // behavioural tier, over the same dispatch path, so a second runtime block
+  // here would re-boot the identical fold to observe the identical rows and
+  // mint a wire golden that is an oracle for nothing this fixture is about.
+  // Drain: only if carriage ever stops being a pure delivery/durability knob.
+  "projection-implicit-sub",
   // WAVE C1 PACKET 1h (RS-26 boxing of a java workflow's primitive params) —
   // the contract under test is the emitted wire type (`Integer`, not `int`)
   // and the 422 its `@NotNull` answers, pinned by the java generator suite;

@@ -540,7 +540,7 @@ system BypassShop {
 const FEATURES: readonly Feature[] = [
   {
     name: "capability filter (soft-delete `filter !this.archived`)",
-    code: "loom.context-filter-unsupported",
+    code: "loom.context-filter-no-principal",
     ddd: filterDdd,
     // Non-principal relational filter: every domain backend emits it
     // (LIMITED_FAMILIES node/elixir/java/python AND it into each read;
@@ -557,7 +557,7 @@ const FEATURES: readonly Feature[] = [
   },
   {
     name: "capability filter on a `shape: document` aggregate (in-app, no column to narrow)",
-    code: "loom.context-filter-unsupported",
+    code: "loom.context-filter-no-principal",
     ddd: documentFilterDdd,
     // All five evaluate the predicate over the REHYDRATED instance: node/python
     // filter the mapped list, java appends inside the loop, .NET hoists it into
@@ -574,7 +574,7 @@ const FEATURES: readonly Feature[] = [
   },
   {
     name: "capability filter on a `shape: embedded` aggregate (column root, jsonb containment)",
-    code: "loom.context-filter-unsupported",
+    code: "loom.context-filter-no-principal",
     ddd: embeddedFilterDdd,
     // The embedded persistence adapter keeps the ROOT's fields as columns, so
     // the predicate must STILL be a column narrowing — the same marker as the

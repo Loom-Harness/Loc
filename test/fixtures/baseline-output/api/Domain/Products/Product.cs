@@ -50,7 +50,7 @@ public sealed class Product
         if (!(this.Sku.EnumerateRunes().Count() > 0)) throw new DomainException("Invariant violated: sku.length > 0");
     }
 
-    public sealed class State
+    public sealed class __State
     {
         public ProductId Id { get; init; } = default!;
         public string Sku { get; init; } = default!;
@@ -58,7 +58,7 @@ public sealed class Product
         public int Version { get; init; } = default!;
     }
 
-    public static Product _Create(State s)
+    public static Product _Create(__State s)
     {
         var e = new Product();
         e.Id = s.Id;

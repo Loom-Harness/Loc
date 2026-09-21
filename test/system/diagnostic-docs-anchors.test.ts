@@ -134,7 +134,14 @@ describe("the undocumented-codes ratchet", () => {
 // ---------------------------------------------------------------------------
 
 /** Measured 2026-09-11.  Shrink-only: documenting a code lowers it. */
-const UNDOCUMENTED_BASELINE = 369;
+// 368 -> 367 at the wave C2 fold: packets 2c and 2d each retired one code
+// (`loom.audited-returning-operation-unsupported`, `loom.java-reserved-identifier-unsupported`)
+// and each wrote 369 -> 368 on its own branch.
+// 367 -> 366: packet 2f retired `loom.projection-event-uncarried` with
+// D-PROJECTION-IMPLICIT-SUB (its reactor twin `loom.reactor-event-uncarried`
+// went with it, but that one carried a docs anchor, so only one leaves this
+// list).
+const UNDOCUMENTED_BASELINE = 366;
 
 describe("the undocumented-codes LENGTH ratchet", () => {
   it("only shrinks", () => {

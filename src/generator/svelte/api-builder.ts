@@ -13,6 +13,7 @@ import {
   type EnrichedAggregateIR,
   type RepositoryIR,
 } from "../../ir/types/loom-ir.js";
+import { valueObjectPool } from "../../ir/util/reachable-types.js";
 import { plural, snake, upperFirst } from "../../util/naming.js";
 import {
   aggregateHasProvenanced,
@@ -62,7 +63,7 @@ export function buildSvelteApiModule(
     `import { createMutation, createQuery, useQueryClient } from "@tanstack/svelte-query";`,
   );
   lines.push(`import { api, seg } from "./client";`);
-  if (aggregateUsesMoneyDeep(agg, ctx.valueObjects)) {
+  if (aggregateUsesMoneyDeep(agg, valueObjectPool(ctx))) {
     lines.push(`import { moneySchema } from "../schemas";`);
   }
   // Provenance lineage rides the response schema when this aggregate has a

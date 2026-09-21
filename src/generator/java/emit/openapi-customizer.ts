@@ -493,7 +493,7 @@ export function buildJavaOpenApiContract(
     //   - `<Wf>InstanceResponse` required set (springdoc marks nothing).
     // The `{id}` path param binds `UUID` on the controller for guid
     // correlation ids, so springdoc emits `{type: string, format: uuid}`
-    // matching Hono's `z.string().uuid()` (non-guid ids stay `String`).
+    // matching Hono's `UuidString` (non-guid ids stay `String`).
     for (const wf of ctx.workflows) {
       if (!wf.instanceWireShape) continue;
       const slug = snake(wf.name);

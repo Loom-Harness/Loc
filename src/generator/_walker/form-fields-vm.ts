@@ -11,6 +11,7 @@
 // ---------------------------------------------------------------------------
 
 import type { AggregateIR, BoundedContextIR, TypeIR } from "../../ir/types/loom-ir.js";
+import { findValueObjectInScope } from "../../ir/util/reachable-types.js";
 import { humanize } from "../../util/naming.js";
 import { idTargetHookVar, unwrapOpt } from "../_frontend/form-helpers.js";
 import type { FormFieldVM } from "../_frontend/view-models.js";
@@ -107,7 +108,7 @@ export function prepareFormFieldVM(
   }
 
   if (inner.kind === "valueobject") {
-    const vo = ctx.valueObjects.find((v) => v.name === inner.name);
+    const vo = findValueObjectInScope(ctx, inner.name);
     if (vo) {
       const children = vo.fields.map((vf) =>
         prepareFormFieldVM(
@@ -139,7 +140,7 @@ export function prepareFormFieldVM(
     // disabled stub, byte-identical to before.
     const el = inner.element;
     if (el.kind === "valueobject") {
-      const vo = ctx.valueObjects.find((v) => v.name === el.name);
+      const vo = findValueObjectInScope(ctx, el.name);
       if (vo) {
         // Row sub-fields carry a BARE sub-path (`sku`, not `items.sku`) so a
         // dynamic-row template splices the runtime index; numeric sub-fields
@@ -161,11 +162,21 @@ export function prepareFormFieldVM(
             `${testId}-${vf.name}`,
             aggregatesByName,
           );
-          return NUMERIC.has(vm.template) ? { ...vm, valueAsNumber: true } : vm;
+          // The row's own error access: the sub-field VM's `errorExpr` was built
+          // from its BARE path (`errors.voyage?.message`) and points at nothing,
+          // because the errors object mirrors the form VALUES — where the
+          // sub-field sits under the array element.  `index` is the row
+          // template's loop variable.
+          const withRowError = { ...vm, rowErrorExpr: rowErrorAccess(path, vf.name) };
+          return NUMERIC.has(vm.template) ? { ...withRowError, valueAsNumber: true } : withRowError;
         });
         // A fresh-row default for `append(...)` — zero value per sub-field kind.
-        // Money seeds the STRING "0", not `""`: `moneySchema`'s string arm is
-        // `/^-?\d+(\.\d+)?$/`, so an empty seed can never parse.
+        // Money seeds a real `new Decimal("0")`, not the string `"0"`: form
+        // state holds an already-constructed Decimal (the money input control
+        // converts on change — `moneySchema`'s own doc comment), and Vue's and
+        // Svelte's `FormValues<T>` are the schema's OUTPUT type, where that slot
+        // is `Decimal` and a string seed is `TS2322: Type 'string' is not
+        // assignable to type 'Decimal'` (2026-09-10 e-shop audit, P8).
         const defaultRowJson = `{ ${rowFields
           .map((f) => `${f.path}: ${defaultRowValue(f)}`)
           .join(", ")} }`;
@@ -191,9 +202,15 @@ export function prepareFormFieldVM(
 /** The zero value a freshly-appended dynamic row seeds one sub-field with.
  *  Keyed off the field's TEMPLATE (not `valueAsNumber`), so `money` — which is
  *  no longer numeric — still gets a parseable seed rather than falling into the
- *  `""` bucket that `moneySchema` rejects. */
+ *  `""` bucket that `moneySchema` rejects.
+ *
+ *  The money seed is a CONSTRUCTED `Decimal`, matching what the single-field
+ *  money input writes on change.  `new Decimal(…)` in the emitted page is also
+ *  what pulls the import in: every JS frontend's page shell decides the
+ *  `decimal.js` import by scanning the assembled file for the binding
+ *  (`usesDecimalBinding`), so the seed needs no import wiring of its own. */
 function defaultRowValue(f: FormFieldVM): string {
-  if (f.template === "field-input-money") return '"0"';
+  if (f.template === "field-input-money") return 'new Decimal("0")';
   if (f.template === "field-input-bool") return "false";
   return f.valueAsNumber ? "0" : '""';
 }
@@ -203,4 +220,14 @@ function defaultRowValue(f: FormFieldVM): string {
 function errorAccess(path: string): string {
   const parts = path.split(".");
   return `errors.${parts.join("?.")}?.message`;
+}
+
+/** Error access for one sub-field of one dynamic row —
+ *  `errors.legs?.[index]?.voyage?.message`.  `arrayPath` is the array field's
+ *  dotted path (so a nested array still optional-chains through its parents);
+ *  `sub` is the row sub-field's bare name.  `index` is emitted verbatim: it is
+ *  the row template's own loop variable, not a value this layer knows. */
+function rowErrorAccess(arrayPath: string, sub: string): string {
+  const parts = arrayPath.split(".");
+  return `errors.${parts.join("?.")}?.[index]?.${sub}?.message`;
 }

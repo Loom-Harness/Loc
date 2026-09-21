@@ -190,7 +190,9 @@ describe("MikroORM query-time projections", () => {
     // is additionally pinned to the FIXED wire scale (RS-12 / #2549) — the
     // mikro arm shares `coerceAggregate` with the drizzle one, so it gets the
     // same formatting rather than shipping the scale SQL happened to return.
-    expect(src).toContain("orders: Number(row?.orders ?? 0),");
+    expect(src).toContain(
+      'orders: __intWire(row?.orders ?? 0, -2147483648, 2147483647, "orders"),',
+    );
     expect(src).toContain("revenue: new Decimal(row?.revenue ?? 0).toFixed(4),");
     expect(src).toContain("avgLines: Number(row?.avg_lines ?? 0),");
   });
@@ -288,17 +290,37 @@ describe("a projection filter outside the adapter's subset is refused, not dropp
   // walks query-time projection filters for every adapter — this pins the
   // mikroorm case.
   //
-  // The WITNESS moved.  It used to be a `currentUser` principal reference,
-  // "which that adapter's find path cannot bind".  That was never true —
-  // `filterValue` has always rendered `requireCurrentUser().<claim>`, and the
-  // narrowing that claimed otherwise was really describing a missing
-  // `currentUser: User` parameter on three repository variants (a GENERATED-
-  // project TS2554, not a lowering limit).  With that fixed and queryable
-  // intrinsics lowering through `raw()` fragments, ONE narrowing is left:
-  // `this.<refColl>.contains(x)`, which needs a correlated join subquery the
-  // adapter emits nowhere.  So the gate is pinned with that instead — the
-  // property under test (a projection `where` outside the subset is REFUSED,
-  // not silently dropped into an unfiltered aggregation) is unchanged.
+  // The WITNESS moved TWICE.  It was first a `currentUser` principal reference
+  // ("which that adapter's find path cannot bind" — never true: `filterValue`
+  // has always rendered `requireCurrentUser().<claim>`; the real defect was a
+  // missing `currentUser: User` parameter on three repository variants, a
+  // GENERATED-project TS2554 rather than a lowering limit).  Then it was
+  // `this.<refColl>.contains(x)` membership in general ("needs a correlated
+  // join the adapter emits nowhere" — a claim about the EXISTS spelling, not
+  // the adapter: an uncorrelated `id in (select …)` raw fragment says the same
+  // thing, which is what the drizzle twin emits, and C2 packet 2c drained it).
+  //
+  // What is left, and what this fixture now witnesses, is SMALLER: the
+  // membership's ARGUMENT is `o.id`, a COLUMN.  The join-table subquery binds
+  // its target as a parameter on every adapter, so a column there has nowhere
+  // to bind — and a query-time projection `where` is the only site that can
+  // produce one, since it has no parameters.  The property under test (a
+  // projection `where` outside the subset is REFUSED, not silently dropped into
+  // an unfiltered aggregation) is unchanged.
+  //
+  // …and the refusal is no longer THIS gate's.  The finding recorded here while
+  // re-pointing the fixture (ledger
+  // `drizzle-projection-membership-column-arg-crash`) was that the SAME shape on
+  // the DEFAULT node adapter was not refused at all — it CRASHED codegen with
+  // "internal: where-clause for projection 'MyTotals' could not lower to
+  // Drizzle, but the validator should have caught this", because a bare
+  // `platform: node` deployable carries no `persistence:` selector and this gate
+  // keys on one.  Wave C2 packet 2f moved the rule to `firstNonQueryableNode`
+  // (`ir/validate/checks/shared.ts`), which every site and every backend
+  // consults: the column argument is refused as `loom.projection-where-not-
+  // queryable` on EVERY adapter, and `loom.find-predicate-unsupported` no longer
+  // fires for it.  The two cases below hold exactly that — the neutral code on
+  // both adapters, and the adapter code on neither.
   const unlowerableFilter = (persistence: string) => `
 system M {
   api A from Sales
@@ -331,26 +353,72 @@ system M {
   }
 }`;
 
-  it("reports loom.find-predicate-unsupported naming the projection", async () => {
+  async function projectionDiags(
+    persistence: string,
+  ): Promise<{ code?: string; message: string }[]> {
     const services = createDddServices(NodeFileSystem);
-    const doc = await parseHelper(services.Ddd)(unlowerableFilter("mikroorm"), {
+    const doc = await parseHelper(services.Ddd)(unlowerableFilter(persistence), {
       validation: true,
     });
-    const diags = validateLoomModel(enrichLoomModel(lowerModel(doc.parseResult.value as Model)))
-      .filter((d) => d.code === "loom.find-predicate-unsupported")
-      .map((d) => d.message);
-    expect(diags.length).toBeGreaterThan(0);
-    expect(diags.some((m) => m.includes("query-time projection 'MyTotals'"))).toBe(true);
-  });
+    return validateLoomModel(enrichLoomModel(lowerModel(doc.parseResult.value as Model))).map(
+      (d) => ({ code: d.code, message: d.message }),
+    );
+  }
 
-  it("stays clean on the drizzle adapter (the gate keys on the adapter)", async () => {
-    const services = createDddServices(NodeFileSystem);
-    const doc = await parseHelper(services.Ddd)(unlowerableFilter("drizzle"), {
-      validation: true,
+  for (const persistence of ["mikroorm", "drizzle"]) {
+    it(`${persistence}: the column-argument membership is refused by the NEUTRAL gate, naming the projection`, async () => {
+      const diags = await projectionDiags(persistence);
+      const neutral = diags
+        .filter((d) => d.code === "loom.projection-where-not-queryable")
+        .map((d) => d.message);
+      expect(neutral.length).toBeGreaterThan(0);
+      expect(neutral.some((m) => m.includes("MyTotals"))).toBe(true);
+      // It must name the COLUMN ARGUMENT, not membership in general — otherwise
+      // this case would keep passing on a rule that had silently widened to
+      // refuse every `contains`, which is what the adapter descriptor used to do.
+      expect(neutral.some((m) => m.includes("contains(<column>)"))).toBe(true);
+      // …and the ADAPTER gate is silent, on both: a refusal that still keyed on
+      // `persistence:` is the defect this moved away from, and drizzle — which
+      // never carried a selector — is the half that used to crash instead.
+      expect(diags.map((d) => d.code)).not.toContain("loom.find-predicate-unsupported");
     });
-    const codes = validateLoomModel(
-      enrichLoomModel(lowerModel(doc.parseResult.value as Model)),
-    ).map((d) => d.code);
-    expect(codes).not.toContain("loom.find-predicate-unsupported");
+  }
+
+  it("a PARAMETER-argument membership lowers on mikroorm — the drained half", async () => {
+    // The repository find is the site that can bind, and it is the half that
+    // used to be refused with the projection half.  Emitted, not just accepted:
+    // a validator that stops refusing while the emitter still stubs would be a
+    // silent 500 instead of an honest error.
+    const files = await emit(`
+system M2 {
+  api A from Sales
+  subdomain Sales {
+    context Orders {
+      aggregate Tag with crudish { label: string }
+      aggregate Order with crudish { owner: string  tags: Tag id[] }
+      repository Tags for Tag { }
+      repository Orders for Order {
+        find tagged(t: Tag id): Order[] where this.tags.contains(t)
+      }
+    }
+  }
+  storage pg { type: postgres }
+  resource s { for: Orders, kind: state, use: pg }
+  deployable d {
+    platform: node { persistence: mikroorm }
+    contexts: [Orders]
+    dataSources: [s]
+    serves: A
+    port: 8080
+  }
+}`);
+    const repo = [...files.entries()].find(([k]) =>
+      k.endsWith("db/repositories/order-repository.ts"),
+    )?.[1];
+    expect(repo, "no order-repository.ts emitted").toBeDefined();
+    expect(repo).toContain(
+      'raw("id in (select __j.order_id from order_tags __j where __j.tag_id = ?)", [t])',
+    );
+    expect(repo).not.toContain("this find's predicate is not yet supported");
   });
 });

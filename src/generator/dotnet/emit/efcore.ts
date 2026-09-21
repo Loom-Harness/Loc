@@ -18,6 +18,7 @@ import {
   ownFieldsOf,
   tableOwnerName,
 } from "../../../ir/util/inheritance.js";
+import { valueObjectPool } from "../../../ir/util/reachable-types.js";
 import { isDenyFilter } from "../../../ir/util/tenant-stance.js";
 import { isValueCollectionType, valueCollectionsFor } from "../../../ir/util/value-collections.js";
 import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
@@ -404,7 +405,7 @@ export function renderConfiguration(
 ): string {
   const tph = options.tph;
   const isTphConcreteCfg = tph?.role === "concrete";
-  const voLookup: VoLookup = new Map(ctx.valueObjects.map((v) => [v.name, v.fields] as const));
+  const voLookup: VoLookup = new Map(valueObjectPool(ctx).map((v) => [v.name, v.fields] as const));
   // A TPH concrete configures only its OWN columns (the base columns belong to
   // the base config); a base / standalone aggregate configures all its fields.
   const cfgFields = tph?.role === "concrete" ? ownFieldsOf(agg, tph.base) : agg.fields;
@@ -454,10 +455,22 @@ export function renderConfiguration(
   // The TPH base maps the hierarchy: a `kind` discriminator column whose value
   // for each concrete is that concrete's name (the cross-backend contract —
   // see Hono's `emitTphTable` / `discriminatorValue`).
+  //
+  // The `;` terminates the CHAIN, so it belongs to whichever line ends it —
+  // the last `.HasValue<…>` when the base has concretes, and the
+  // `HasDiscriminator` opener itself when it has NONE.  A childless
+  // `sharedTable` base is reachable and legitimate: `loom.es-tph-forced-own-table`
+  // forces a `shape: document` / `shape: embedded` / `persistedAs: eventLog`
+  // concrete to `inheritanceUsing: ownTable`, so a hierarchy whose only concrete
+  // takes that path leaves the base still owning the shared table with nothing
+  // sharing it.  Hanging the `;` off the `.HasValue` map alone emitted the
+  // opener unterminated → CS1002, and the project did not build at all.  The
+  // discriminator COLUMN still maps (the migration stamps `kind NOT NULL` on the
+  // base table), matching Java's `@DiscriminatorColumn` with no `@DiscriminatorValue`.
   const discriminatorLines =
     tph?.role === "base"
       ? [
-          `        builder.HasDiscriminator<string>("kind")`,
+          `        builder.HasDiscriminator<string>("kind")${tph.concretes.length === 0 ? ";" : ""}`,
           ...tph.concretes.map(
             (c, i) =>
               `            .HasValue<${c.name}>(${JSON.stringify(c.name)})${i === tph.concretes.length - 1 ? ";" : ""}`,
@@ -941,23 +954,27 @@ function fieldConfigLines(
       `${indent}${builder}.Property(x => x.${upperFirst(f.name)}).HasConversion<string>()${colName};`,
     ];
   }
-  if (f.type.kind === "valueobject") {
+  if (leaf.kind === "valueobject") {
     // Relational root: the value object flattens into the owner table's
     // columns (the migration emits `price_amount`, `price_currency`), so the
     // owned type's columns must be named to match — EF's default
     // (`Price_Amount`) would not line up with the migration.  In the
     // embedded shape the VO rides inside a JSONB blob, so no column names.
+    //
+    // An OPTIONAL VO field (`office: Addr?`) takes the SAME owned path: it
+    // flattens to the same leaf columns, merely nullable ones.  This arm used
+    // to test `f.type.kind`, so an optional VO fell through to the scalar
+    // `Property(x => x.Office).HasColumnName("office")` below — a column the
+    // migration never creates, and a complex type EF cannot map as a scalar
+    // without a converter, so the model failed to build and every read and
+    // write of the aggregate died.  EF reads the optionality off the CLR
+    // navigation's nullability (`Addr? Office` under `<Nullable>enable</Nullable>`)
+    // and makes exactly those leaf columns nullable — the same inference the
+    // required side already relies on for its NOT NULL columns.
     if (voLookup && !embedded) {
-      return ownedVoLines(
-        f.type.name,
-        upperFirst(f.name),
-        snake(f.name),
-        voLookup,
-        indent,
-        builder,
-      );
+      return ownedVoLines(leaf.name, upperFirst(f.name), snake(f.name), voLookup, indent, builder);
     }
-    return [`${indent}${builder}.OwnsOne<${f.type.name}>(x => x.${upperFirst(f.name)});`];
+    return [`${indent}${builder}.OwnsOne<${leaf.name}>(x => x.${upperFirst(f.name)});`];
   }
   // Plain scalar (string / int / bool / datetime / decimal / primitive
   // collection): EF needs an explicit column-name mapping to the migration's

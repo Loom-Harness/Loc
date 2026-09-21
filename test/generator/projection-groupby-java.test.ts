@@ -95,7 +95,7 @@ describe("java grouped projection (group by)", () => {
     // Aggregates: provider-chosen result types, so Number/toString discipline
     // exactly like the singleton arm (count → int, money sum → wire string).
     expect(svc).toContain(
-      "new SalesByStatusRow((OrderStatus) r[0], ((Number) r[1]).intValue(), " +
+      "new SalesByStatusRow((OrderStatus) r[0], Math.toIntExact(((Number) r[1]).longValue()), " +
         // money pins the fixed wire scale (RS-12 / #2549); its empty zero is
         // "0.0000", where a count or plain decimal is unchanged.
         'r[2] == null ? "0.0000" : new java.math.BigDecimal(r[2].toString()).setScale(4, java.math.RoundingMode.HALF_UP).toPlainString())',
@@ -143,7 +143,9 @@ describe("java grouped projection (group by)", () => {
       'List<Object> rows = entityManager.createQuery("select count(e) from Order e group by e.status order by e.status")',
     );
     expect(method.slice(0, method.indexOf("    }"))).not.toContain("Object[]");
-    expect(method).toContain(".map(r -> new CountByStatusRow(((Number) r).intValue()))");
+    expect(method).toContain(
+      ".map(r -> new CountByStatusRow(Math.toIntExact(((Number) r).longValue())))",
+    );
     // The multi-column grouped read is untouched.
     expect(svc).toContain("List<Object[]> rows = entityManager.createQuery(");
   });

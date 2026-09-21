@@ -32,11 +32,23 @@ system Carting {
         // map too (DEBT-07) — reads `data["status"]`, callable from op guards.
         function isOpen(): bool = status == open
 
+        // M-T6.35 / M-T6.2 §12 (wave C2 packet 2a) — a `derived` read inside a
+        // document op body.  It has no stored `data` key, which is why the
+        // residue gate refused it; but `render-expr.ts` INLINES a `this-derived`
+        // read (an Elixir struct carries no computed field either — #1765), so
+        // the read is emittable exactly when the referenced derived's own
+        // expression is.  The chain is two deep, so the recursion is exercised,
+        // and `guardTotal` is read from an op guard below — the shape the gate
+        // used to reject.
+        derived lineTotal: int = itemCount * subtotal.amount
+        derived guardTotal: int = lineTotal + lineTotal
+
         // Scalar named operations (DEBT-07) — run over the jsonb `data` map,
         // including a function call and a value-object-subfield read.
         operation addItem() {
           precondition isOpen()
           precondition subtotal.amount >= 0
+          precondition guardTotal >= 0
           itemCount := itemCount + 1
         }
         operation checkOut() {

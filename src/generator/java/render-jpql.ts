@@ -12,6 +12,7 @@ import { intrinsicFor, intrinsicKey } from "../../util/intrinsics.js";
 import type { DurationUnit } from "../../util/temporal.js";
 import { javaSubtreeLikePattern, spelSubtreeLikePattern } from "../_expr/subtree-like.js";
 import { refuseOutOfVocabulary } from "../_expr/target.js";
+import { jid } from "./java-ident.js";
 
 // ---------------------------------------------------------------------------
 // Find-filter → JPQL renderer.  Spring Data derived method names can't
@@ -211,7 +212,7 @@ function render(e: ExprIR, ctx: JpqlCtx): string {
       }
       // Property navigation: `this.shipTo.city` → `e.shipTo.city`
       // (embedded path).  JPQL navigates record components by name.
-      return `${render(e.receiver, ctx)}.${e.member}`;
+      return `${render(e.receiver, ctx)}.${jid(e.member)}`;
     case "paren":
       return `(${render(e.inner, ctx)})`;
     case "unary":
@@ -325,13 +326,19 @@ function renderLiteral(lit: string, value: string): string {
 function renderRef(e: Extract<ExprIR, { kind: "ref" }>, ctx: JpqlCtx): string {
   switch (e.refKind) {
     case "param":
-      return `:${e.name}`;
+      // The bind-parameter name is a JPQL identifier too — `:case` is the CASE
+      // keyword to the HQL parser — and it has to match the name the repository
+      // binds with, which is the mangled java parameter (M-T6.36).
+      return `:${jid(e.name)}`;
     case "this-prop":
     case "this-vo-prop":
-      return `${ctx.alias}.${e.name}`;
+      // A JPQL path names the JPA ATTRIBUTE, which is the (possibly mangled)
+      // java field the entity emitter declared — not the `.ddd` name and not
+      // the column.
+      return `${ctx.alias}.${jid(e.name)}`;
     case "enum-value":
       // JPQL enum literals must be fully qualified.
-      return `${ctx.enumsPkg}.${e.enumName}.${e.name}`;
+      return `${ctx.enumsPkg}.${e.enumName}.${jid(e.name)}`;
     default:
       throw unsupported(ctx, `ref kind '${e.refKind}' ('${e.name}')`);
   }

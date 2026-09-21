@@ -1,6 +1,7 @@
 import type { EnrichedBoundedContextIR, WorkflowIR } from "../../../ir/types/loom-ir.js";
 import { lines } from "../../../util/code-builder.js";
 import { snake, upperFirst } from "../../../util/naming.js";
+import { jid } from "../java-ident.js";
 import { collectJavaTypeImports, renderJavaType } from "../render-expr.js";
 import { collectJavaStmtImports, renderJavaStatements } from "../render-stmt.js";
 import { javaStateDefault } from "./workflow-state.js";
@@ -87,7 +88,7 @@ export function renderEsWorkflowFoldClass(
   // them as `state.<field>` (no accessors needed; the fold target is internal).
   const fieldLines = [
     `    ${corrId} ${corr};`,
-    ...stateOnly.map((f) => `    ${renderJavaType(f.type)} ${f.name};`),
+    ...stateOnly.map((f) => `    ${renderJavaType(f.type)} ${jid(f.name)};`),
   ];
 
   // Record-style public accessors (`<field>()`) so the cross-package
@@ -97,7 +98,8 @@ export function renderEsWorkflowFoldClass(
   const accessorMethods = [
     `    public ${corrId} ${corr}() { return this.${corr}; }`,
     ...stateOnly.map(
-      (f) => `    public ${renderJavaType(f.type)} ${f.name}() { return this.${f.name}; }`,
+      (f) =>
+        `    public ${renderJavaType(f.type)} ${jid(f.name)}() { return this.${jid(f.name)}; }`,
     ),
   ];
 
@@ -122,7 +124,7 @@ export function renderEsWorkflowFoldClass(
   // (non-optional, non-correlation) state field.
   const seeds = stateOnly
     .filter((f) => !(f.optional || f.type.kind === "optional"))
-    .map((f) => `        s.${f.name} = ${javaStateDefault(f, ctx)};`);
+    .map((f) => `        s.${jid(f.name)} = ${javaStateDefault(f, ctx)};`);
 
   return lines(
     `package ${pkg};`,

@@ -310,7 +310,13 @@ system Shop {
     expect(errs[0]).toContain("weigh");
   });
 
-  it("still rejects a DERIVED read in a document operation body", async () => {
+  it("ACCEPTS a derived read in a document operation body (M-T6.35, wave C2 2a)", async () => {
+    // This used to assert the opposite.  A `derived` has no stored `data` key,
+    // which is what the refusal was reasoning from — but the emitter never
+    // needed one: `render-expr.ts`'s `this-derived` arm INLINES the derived's
+    // defining expression, because an Elixir struct carries no computed field
+    // either (#1765).  So the read is emittable exactly when the referenced
+    // derived's OWN expression is, which is what the gate now asks.
     const src = `
 system Shop {
   subdomain Sales {
@@ -328,9 +334,7 @@ system Shop {
   deployable api { platform: elixir, contexts: [Shop], dataSources: [shopState], port: 4000 }
 }
 `;
-    const errs = await docScopeErrors(src);
-    expect(errs.length).toBe(1);
-    expect(errs[0]).toContain("named operation(s) sync");
+    expect(await docScopeErrors(src)).toEqual([]);
   });
 
   it("accepts a PAGED custom find on a vanilla document aggregate (Route A slice 4c)", async () => {
@@ -392,5 +396,79 @@ system Shop {
 }
 `;
     expect(await docScopeErrors(src)).toEqual([]);
+  });
+
+  // M-T6.35 / M-T6.2 §12 (wave C2 packet 2a) — the residue's "derived read"
+  // clause.  A `derived` has no stored `data` key, which is why the gate
+  // refused it; but `render-expr.ts` INLINES a `this-derived` read (an Elixir
+  // struct carries no computed field either — #1765), so the read is emittable
+  // exactly when the referenced derived's OWN expression is.  Both directions
+  // are pinned, because "accept everything" would be the same silent hole with
+  // the opposite sign.
+  const docDerived = (body: string): string => `
+system Shop {
+  subdomain Sales {
+    context Shop {
+      aggregate Cart shape: document with crudish {
+        qty: int
+        unitPrice: int
+${body}
+      }
+      repository Carts for Cart { }
+    }
+  }
+  storage pg { type: postgres }
+  resource shopState { for: Shop, kind: state, use: pg }
+  deployable api { platform: elixir, contexts: [Shop], dataSources: [shopState], port: 4000 }
+}
+`;
+
+  it("accepts a document op guard reading a derived CHAIN — the read inlines", async () => {
+    const src = docDerived(`        derived subtotal: int = qty * unitPrice
+        derived doubled: int = subtotal + subtotal
+        operation bump() {
+          precondition doubled >= 0
+          qty := qty + 1
+        }`);
+    expect(await docScopeErrors(src)).toEqual([]);
+  });
+
+  it("still refuses a document op reading a derived whose OWN body is unsupported", async () => {
+    // A value-object METHOD call needs the loaded VO struct the jsonb blob
+    // stores as a bare map, so `docExprUnsupported` refuses it — and therefore
+    // the derived that calls it, and the op that reads THAT derived, stay
+    // refused rather than inlining an expression the emitter cannot render.
+    // Without the recursion this is exactly where "accept every derived" would
+    // become the same silent hole with the opposite sign.
+    const src = `
+system Shop {
+  subdomain Sales {
+    context Shop {
+      valueobject Money {
+        amount: int
+        currency: string
+        function label(): string = currency
+      }
+      aggregate Cart shape: document with crudish {
+        qty: int
+        price: Money
+        derived tag: string = price.label()
+        derived shout: string = tag + "!"
+        operation bump() {
+          precondition shout != ""
+          qty := qty + 1
+        }
+      }
+      repository Carts for Cart { }
+    }
+  }
+  storage pg { type: postgres }
+  resource shopState { for: Shop, kind: state, use: pg }
+  deployable api { platform: elixir, contexts: [Shop], dataSources: [shopState], port: 4000 }
+}
+`;
+    const errs = await docScopeErrors(src);
+    expect(errs).toHaveLength(1);
+    expect(errs[0]).toContain("bump");
   });
 });

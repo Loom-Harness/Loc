@@ -121,8 +121,10 @@ export function enrichLoomModel(loom: RawLoomModel): EnrichedLoomModel {
   const rootPayloads = loom.rootPayloads;
   return {
     systems: loom.systems.map((s) => enrichSystem(s, enrichedRootVOs, rootEnums, rootPayloads)),
-    contexts: loom.contexts.map((c) =>
-      enrichContext(c, enrichedRootVOs, rootEnums, "literal", rootPayloads),
+    contexts: attachSiblingValueObjects(
+      loom.contexts.map((c) =>
+        enrichContext(c, enrichedRootVOs, rootEnums, "literal", rootPayloads),
+      ),
     ),
     rootValueObjects: enrichedRootVOs,
     rootEnums,
@@ -212,9 +214,20 @@ function enrichSystem(
       structuralErrorStatuses,
     })),
   }));
+  // A `valueobject` declared in one context and referenced from another is
+  // legal (README Quick Example shape), but the DECLARATION stays where it
+  // was written — so hand every context the pool of its siblings' VOs.  See
+  // `BoundedContextIR.siblingValueObjects`.
+  const systemValueObjects = dedupeValueObjectsByName(
+    subdomains.flatMap((m) => m.contexts.flatMap((c) => c.valueObjects)),
+  );
+  const subdomainsWithSiblings: EnrichedSubdomainIR[] = subdomains.map((m) => ({
+    ...m,
+    contexts: m.contexts.map((c) => withSiblingValueObjects(c, systemValueObjects)),
+  }));
   // Derive the registry's self-scope filter from the `tenancy by`
   // declaration.  See `applyRegistrySelfScope` below.
-  const subdomainsScoped = subdomains
+  const subdomainsScoped = subdomainsWithSiblings
     .map((m) => applyRegistrySelfScope(m, sys))
     // Bind the `tenantOwned` capability's hardcoded principal claim to the
     // system's declared one.  BEFORE the read-level passes, so they see (and
@@ -740,6 +753,44 @@ function applyPolicyDenies(m: EnrichedSubdomainIR): EnrichedSubdomainIR {
       };
     }),
   };
+}
+
+/** `withSiblingValueObjects` over a flat list of peer contexts (the legacy
+ *  top-level, no-`system` lowering shape). */
+function attachSiblingValueObjects(
+  contexts: EnrichedBoundedContextIR[],
+): EnrichedBoundedContextIR[] {
+  const pool = dedupeValueObjectsByName(contexts.flatMap((c) => c.valueObjects));
+  return contexts.map((c) => withSiblingValueObjects(c, pool));
+}
+
+/** First-declaration-wins de-dup of a VO list by name — the same rule the
+ *  lowering-time ambient decl index uses for a cross-context name collision. */
+function dedupeValueObjectsByName(vos: EnrichedValueObjectIR[]): EnrichedValueObjectIR[] {
+  const seen = new Set<string>();
+  const out: EnrichedValueObjectIR[] = [];
+  for (const v of vos) {
+    if (seen.has(v.name)) continue;
+    seen.add(v.name);
+    out.push(v);
+  }
+  return out;
+}
+
+/** Attach the pool of value objects declared in the OTHER contexts of the same
+ *  system, so an emitter that must MATERIALISE a referenced VO (a .NET DTO
+ *  record, a frontend zod schema) can resolve a cross-context name.  Own names
+ *  shadow.  Set to `undefined` (dropped) when there is nothing to add, so a
+ *  single-context model's IR is unchanged and `enrich(enrich(m))` still
+ *  deep-equals `enrich(m)`. */
+function withSiblingValueObjects(
+  ctx: EnrichedBoundedContextIR,
+  systemValueObjects: EnrichedValueObjectIR[],
+): EnrichedBoundedContextIR {
+  const own = new Set(ctx.valueObjects.map((v) => v.name));
+  const siblings = systemValueObjects.filter((v) => !own.has(v.name));
+  const { siblingValueObjects: _previous, ...rest } = ctx;
+  return siblings.length > 0 ? { ...rest, siblingValueObjects: siblings } : rest;
 }
 
 export function enrichContext(
@@ -1281,12 +1332,21 @@ function isNarrowableType(t: TypeIR): boolean {
 }
 
 /** Join workflow consumers (`on(e: Event)` reactors and event-triggered
- *  `create(e: Event) by` starters) against the channels that `carries:` each
- *  event (channels.md; the in-process dispatch slice).  Only events a channel
- *  carries are routable — the channel-routed rule — so an empty-or-uncarried
- *  set yields `[]` and stays byte-identical (Noop dispatcher).  When several
- *  channels carry one event the first by declaration order wins; diagnosing the
- *  ambiguity is a deferred validation rule.
+ *  `create(e: Event) by` starters) — and projection folds — against the
+ *  channels that `carries:` each event (channels.md; the in-process dispatch
+ *  slice).
+ *
+ *  EVERY consumer yields a subscription, carried or not
+ *  (**D-PROJECTION-IMPLICIT-SUB**): `on(e: E)` IS the subscription, and a
+ *  `channel` is what makes delivery cross-deployable or durable, not what makes
+ *  a handler run.  This function used to open with
+ *  `if (!channels || channels.length === 0) return []` and then keep only
+ *  events some channel `carries:` — so a projection fold (or reactor) on an
+ *  uncarried event produced NO subscription on any backend, and the read-model
+ *  row it folds was never written anywhere.  An uncarried consumer now carries
+ *  `channel: undefined`, and every dispatcher builder treats that as in-process
+ *  delivery.  When several channels carry one event the first by declaration
+ *  order wins; diagnosing the ambiguity is a deferred validation rule.
  *
  *  Takes `channels` + `workflows` rather than a whole context so a backend can
  *  re-derive over its *merged* deployable context (every hosted context's
@@ -1300,47 +1360,43 @@ export function deriveEventSubscriptions(
 ): EventSubscriptionIR[] {
   // Tolerate hand-built IR fixtures that predate the `channels` / `creates`
   // fields (the real lowering pipeline always populates them).
-  if (!channels || channels.length === 0) return [];
   const carrier = (event: string): string | undefined =>
-    channels.find((ch) => ch.carries.includes(event))?.name;
+    (channels ?? []).find((ch) => ch.carries.includes(event))?.name;
   const subs: EventSubscriptionIR[] = [];
   // Projection folds subscribe like reactors, but every handler is an upsert
   // (load-or-allocate) — the dispatcher reads the `projection` discriminant.
   for (const proj of projections ?? []) {
     for (const on of proj.handlers) {
-      const channel = carrier(on.event);
-      if (channel) {
-        subs.push({
-          event: on.event,
-          channel,
-          workflow: proj.name,
-          trigger: "on",
-          param: on.param,
-          projection: proj.name,
-        });
-      }
+      subs.push({
+        event: on.event,
+        channel: carrier(on.event),
+        workflow: proj.name,
+        trigger: "on",
+        param: on.param,
+        projection: proj.name,
+      });
     }
   }
   for (const wf of workflows ?? []) {
     for (const on of wf.subscriptions ?? []) {
-      const channel = carrier(on.event);
-      if (channel) {
-        subs.push({ event: on.event, channel, workflow: wf.name, trigger: "on", param: on.param });
-      }
+      subs.push({
+        event: on.event,
+        channel: carrier(on.event),
+        workflow: wf.name,
+        trigger: "on",
+        param: on.param,
+      });
     }
     for (const create of wf.creates ?? []) {
       if (create.triggerKind !== "event" || !create.eventRef || !create.eventBinding) continue;
-      const channel = carrier(create.eventRef);
-      if (channel) {
-        subs.push({
-          event: create.eventRef,
-          channel,
-          workflow: wf.name,
-          trigger: "create",
-          param: create.eventBinding,
-          createName: create.name,
-        });
-      }
+      subs.push({
+        event: create.eventRef,
+        channel: carrier(create.eventRef),
+        workflow: wf.name,
+        trigger: "create",
+        param: create.eventBinding,
+        createName: create.name,
+      });
     }
   }
   return subs;

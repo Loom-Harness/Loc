@@ -1,0 +1,27 @@
+// F-022 minimal repro: a field named `member` (a reserved F# keyword) is emitted
+// verbatim into an F# record, producing syntactically invalid F#.
+//   node bin/cli.js parse    eval/repro/F022-feliz-fsharp-keyword-field.ddd -> 0 errors
+//   node bin/cli.js generate system ... -o /tmp/f22                         -> 0 errors
+//   grep -n 'member: string' /tmp/f22/web_feliz/src/App.fs
+//   docker run --rm --network host -v /tmp/f22/web_feliz:/app -w /app \
+//     -v /root/.ccr:/root/.ccr:ro mcr.microsoft.com/dotnet/sdk:8.0 bash -c \
+//     '<install node> && dotnet tool restore && npm install && npm run build'
+//   -> error FSHARP: Unexpected keyword 'member' in field declaration (code 10)
+//      error FSHARP: This field requires a name (code 882)
+system Repro {
+  subdomain S { context C {
+    aggregate Person { name: string  derived display: string = name }
+    aggregate Note with crudish {
+      member: Person id          // `member` is legal in Loom, reserved in F#
+      body: string
+      derived display: string = body
+    }
+    repository People for Person { }
+    repository Notes for Note { }
+  } }
+  storage primary { type: postgres }
+  resource cState { for: C, kind: state, use: primary }
+  deployable api { platform: node, contexts: [C], dataSources: [cState], port: 3000 }
+  ui W with scaffold(subdomains: [S]) { framework: feliz }
+  deployable web { platform: feliz, targets: api, ui: W, port: 3005 }
+}

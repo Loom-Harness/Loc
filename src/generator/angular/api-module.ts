@@ -24,6 +24,7 @@ import {
   auditFieldChangeWireShape,
 } from "../../ir/util/audit-history.js";
 import { partsChildrenFirst } from "../../ir/util/containment-parent.js";
+import { valueObjectPool } from "../../ir/util/reachable-types.js";
 import { lines } from "../../util/code-builder.js";
 import { lowerFirst, plural, snake, upperFirst } from "../../util/naming.js";
 import { aggregateHasProvenanced, historyHookName } from "../_frontend/api-module.js";
@@ -147,7 +148,13 @@ function collectResponseTypes(
   types: readonly TypeIR[],
   bc: BoundedContextIR | undefined,
 ): { vos: ValueObjectIR[]; enums: EnumIR[] } {
-  const voByName = new Map((bc?.valueObjects ?? []).map((v) => [v.name, v]));
+  // POOL, not emission list: a `valueobject` declared in a SIBLING context and
+  // referenced from this one is legal, but the declaration never enters this
+  // context's `valueObjects` — resolving against that alone made `visit` bail
+  // (`if (!vo) return`) and the emitted response interface then named an
+  // undeclared `MoneyResponse`.  `visit` still only walks what the wire shape
+  // reaches, so an unreferenced sibling VO emits nothing.
+  const voByName = new Map((bc ? valueObjectPool(bc) : []).map((v) => [v.name, v] as const));
   const enumByName = new Map((bc?.enums ?? []).map((e) => [e.name, e]));
   const vos = new Map<string, ValueObjectIR>();
   const enums = new Map<string, EnumIR>();

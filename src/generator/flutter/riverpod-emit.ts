@@ -443,7 +443,10 @@ export interface DartStateField {
 export function buildStateFields(state: readonly StateFieldIR[]): DartStateField[] {
   return state.map((f) => {
     const dt = dartType(f.type);
-    const nullable = dt.endsWith("?");
+    // `dynamic` (a `json` cell) is ALREADY nullable, and Dart calls `dynamic?`
+    // an `unnecessary_question_mark` warning — so it counts as nullable here
+    // rather than growing a `?` the analyzer then objects to.
+    const nullable = dt.endsWith("?") || dt === "dynamic";
     return {
       name: f.name,
       dt,

@@ -1,0 +1,63 @@
+// The NON-optional id-typed user claim — `customerId: Customer id` in the
+// system's `user { … }` block, with NO `auth { … }` block, so every backend
+// emits its DEV-STUB verifier and has to produce a value for it.
+//
+// The sibling `auth-id-claim.ddd` covers the OPTIONAL spelling and carries an
+// `auth { oidc }` block, which is why it cannot cover this: an optional claim
+// short-circuits to null/None/nil in every stub table before the type is ever
+// consulted, and on node, python and elixir the OIDC verifier REPLACES the dev
+// stub rather than joining it (only dotnet and java emit both).  So the `id`
+// arm of the five stub value tables was reachable by nothing in the corpus —
+// and four of the five wrote a RAW SCALAR where the emitted id is a distinct
+// nominal type:
+//
+//   • node   — `customerId: "00000000-…"` against the branded
+//              `type CustomerId = string & { readonly __brand: "CustomerId" }`
+//              ⇒ `TS2322: Type 'string' is not assignable to type 'CustomerId'`.
+//   • dotnet — `CustomerId: System.Guid.Empty` against
+//              `readonly record struct CustomerId(Guid Value)`, which declares
+//              no implicit conversion ⇒ CS0029.
+//   • java   — `null`: it compiled, but handed every `currentUser.customerId`
+//              read a null strong id where the other four carry the zero id.
+//   • python — the one arm that already built through the id factory.
+//   • elixir — a bare string, right by construction (the LiveView principal is
+//              an untyped map) but decided independently of the other four.
+//
+// Two of those are hard compile errors, so the compile tier is this fixture's
+// point: `corpus-tsc-build` and `corpus-dotnet-build` each catch their own
+// outright, and the fix is one shared table (`src/generator/_auth/dev-stub-id.ts`).
+//
+// The OPTIONAL claim rides alongside deliberately — same file, same principal —
+// so the contrast is visible in the emitted stub: `referrerId` is the null the
+// declaration allows, `customerId` is the constructed zero id.
+system StubShop {
+  user {
+    id: string
+    role: string
+    permissions: string[]
+    // The claim under test: an aggregate id, NOT optional.
+    customerId: Customer id
+    // The #2869 shape beside it — still null in every stub.
+    referrerId: Customer id?
+  }
+  subdomain Sales {
+    context Shopping {
+      aggregate Customer with crudish {
+        name: string
+        active: bool
+      }
+      repository Customers for Customer { }
+    }
+  }
+  storage primary { type: postgres }
+  resource shopState { for: Shopping, kind: state, use: primary }
+  api ShopApi from Sales
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Shopping]
+    serves: ShopApi
+    dataSources: [shopState]
+    port: 4000
+    auth: required
+  }
+}
