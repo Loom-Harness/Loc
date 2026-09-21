@@ -4,6 +4,7 @@ import {
   decimalEqual,
   diffRecording,
   generalizePath,
+  isInfraRequest,
   isVolatileSegment,
   offContractNumber,
   pathMatches,
@@ -620,5 +621,40 @@ describe("WIRE_NORMALIZE — a uuid embedded in prose (RS-27)", () => {
       ),
     );
     expect(detailOf(e.body)).toBe("Line {id} of Order {id} not found");
+  });
+});
+
+describe("infra requests stay out of the wire recording", () => {
+  // The emitted e2e suite calls the dev-only state reset before every test.
+  // Recording it would put an extra entry in front of every block and shift
+  // every `seq` after it — which is exactly what happened: all 40-odd goldens
+  // went `golden 16 ≠ node 17` the moment the reset landed.  The golden is the
+  // DOMAIN wire contract, and this endpoint is neither domain nor a contract:
+  // its `{status, tables}` body legitimately differs per backend, because the
+  // table count is a fact about where that backend keeps its migration ledger.
+  it("excludes the state-reset path, whatever the origin", () => {
+    for (const url of [
+      "http://localhost:4000/__loom/test-reset",
+      "http://127.0.0.1:8080/__loom/test-reset",
+      "https://api.example.com/__loom/test-reset",
+    ]) {
+      expect(isInfraRequest(url), url).toBe(true);
+    }
+  });
+
+  it("records everything else, including near-misses and unparseable urls", () => {
+    for (const url of [
+      "http://localhost:4000/api/orders",
+      "http://localhost:4000/health",
+      "http://localhost:4000/__loom_no_such_path",
+      // A prefix match would swallow these; the comparison is on the exact path.
+      "http://localhost:4000/__loom/test-reset/extra",
+      "http://localhost:4000/api/__loom/test-reset",
+      // Unparseable → recorded, never dropped: the recorder is best-effort and
+      // must not silently lose an entry it cannot classify.
+      "not a url",
+    ]) {
+      expect(isInfraRequest(url), url).toBe(false);
+    }
   });
 });

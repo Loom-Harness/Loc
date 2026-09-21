@@ -18,6 +18,7 @@ import {
   coerceTestLiteral,
   type TestLiteralTarget,
 } from "../../_test/arg-coercion.js";
+import { throwKindPatternSource } from "../../_test/throw-kind.js";
 import { renderPyExpr, renderPyType } from "../render-expr.js";
 
 /** Python leaves for the shared test-literal coercion rule
@@ -383,7 +384,17 @@ export function renderTestStmt(
     return [`    assert ${renderTestExpr(s.expr, ctx, lets)}`];
   }
   if (s.kind === "expect-throws") {
-    return ["    with pytest.raises(Exception):", `        ${renderTestExpr(s.expr, ctx, lets)}`];
+    const call = `        ${renderTestExpr(s.expr, ctx, lets)}`;
+    // `toThrow(<kind>)` — `pytest.raises(match=...)` runs `re.search` over
+    // `str(exc)`, so the rung's derived prefix is passed anchored (`^…`).  The
+    // pattern is a raw string: the prefix is escaped for regex, and `r"…"`
+    // keeps any backslash that escaping introduces out of Python's own string
+    // grammar.
+    if (s.throwKind) {
+      const pattern = throwKindPatternSource(s.throwKind);
+      return [`    with pytest.raises(Exception, match=r"${pattern}"):`, call];
+    }
+    return ["    with pytest.raises(Exception):", call];
   }
   if (s.kind === "let") {
     return [`    ${escapePythonIdent(snake(s.name))} = ${renderTestExpr(s.expr, ctx, lets)}`];

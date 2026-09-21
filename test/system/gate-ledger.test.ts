@@ -94,6 +94,8 @@ const BEHAVIOURAL_ABSENT: Record<string, string> = {
     "`find … ignoring tenantOwned` is only observable across TWO principals (does the other tenant's row appear?); the behavioural runners authenticate as one, so a caller would read the same set either way — the same two-principal harness `projection-agg-filters` waits on",
   envelope:
     'the `envelope` carrier is a COMPILE defect (java named an undeclared `Envelope<Order>`, dotnet returned a bare `Order` from `Task<Envelope<Order>>`); the five compile legs plus the byte-identity gate in `test/generator/envelope-carrier.test.ts` are its oracle, and a booted leg would mint a wire golden across the un-drained find-miss 404 `detail` split (`"not found"` on node, `"not_found"` on the other four)',
+  "vo-id-reference":
+    "a value object holding an `X id` — the whole defect class is MISSING IMPORTS (node named `Ids.ShipId` with no import; python branded `ShipId(...)` with none), which only a type-checker sees; the runtime halves it would boot, an embedded VO and a `<VO>[]` collection, are already booted by `embedded` and `value-collections`",
 };
 
 describe("gate ledger", () => {

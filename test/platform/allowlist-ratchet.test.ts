@@ -504,9 +504,35 @@ const REGISTERED: Ratchet[] = [
     // five COMPILE legs, which this fixture does carry, see each backend's
     // fold/reactor symbols.  Drain (M-T9.13): when the behavioural tier gains
     // a per-backend projection read, move the block in and lower this by one.
+    // 22 -> 23 (M-T6.64, freight audit D3 — `vo-id-reference`).  Another NEW
+    // fixture, and the same shape of reason as `auth-id-claim`: its subject is
+    // a STATIC contract (node named `Ids.ShipId` in a file with zero imports;
+    // python branded `ShipId(...)` with none, on all three persistence shapes),
+    // so a type-checker is the only oracle and the compile legs already are it.
+    // Both wire shapes a `test e2e` block would boot — a required embedded
+    // value object and a `<VO>[]` collection — are already booted by
+    // `embedded` and `value-collections`.
     //
-    // 22 -> 21: wave-3 row 3.3 DRAINED `projection-agg-filters` — the first
-    // lowering on this list since the direction reversed.  Its signed reason
+    // Unlike `auth-id-claim` this one DOES have a cheaper drain in principle —
+    // a pure-domain `test` block, which rides every backend's unit tier and
+    // mints no golden, the way `numeric-operands` does — and it is BLOCKED by a
+    // further instance of the same defect class: a unit-test body that names a
+    // SECOND aggregate emits `Ship.create(...)` with no import of `Ship`,
+    // because every backend's test emitter scopes its subject import to the
+    // aggregate the test lives in, and a value object holding a CROSS-aggregate
+    // reference cannot be exercised from one aggregate alone.  Reproduced on
+    // node (TS2304), python (F821), dotnet (no `using …Domain.Ships`) and java
+    // (no import for `Ship`); elixir skips test lowering outright.  That is a
+    // five-emitter slice of its own, reported on #2864 rather than smuggled in
+    // here.  When it lands, this fixture gains its unit block and this entry
+    // drains one.
+    //
+    // 23 -> 22: wave-3 row 3.3 DRAINED `projection-agg-filters` — the first
+    // lowering on this list since the direction reversed.  The arithmetic is
+    // against `main`'s CURRENT value, not this branch's: `main` raised 22 -> 23
+    // for `vo-id-reference` while this branch was open, so the drain subtracts
+    // one from 23.  Restoring a remembered literal is how a ratchet silently
+    // loses somebody else's raise.  Its signed reason
     // argued the leak "is a RUNTIME value; the compile tier cannot see a wrong
     // number", which was an argument FOR a behavioural block rather than
     // against one.  The real blocker was undocumented and narrower: with the
@@ -514,9 +540,7 @@ const REGISTERED: Ratchet[] = [
     // the api (a capability is a pure mixin and supplies no operation), so the
     // conjunct was unobservable at ANY tier; composing the `softDelete` MACRO
     // made it assertable with one principal.
-
-    //
-    // 18 -> 17: wave-3 row 3.3 drained `projection-document-aggregation` too.
+    // 22 -> 21: wave-3 row 3.3 drained `projection-document-aggregation` too.
     // Its reason said asserting the number "needs seeded rows the behavioural
     // runners set up per-fixture" — it does not: `Article` carries `crudish`,
     // so the api mints its own rows and the block counts what it just created.
@@ -524,7 +548,9 @@ const REGISTERED: Ratchet[] = [
     // RIGHT, which is the gap a `count(*)` over a jsonb triple is most likely
     // to have, since every backend reaches it differently and a wrong one
     // still compiles.
-    max: 20,
+    // (Arithmetic against `main`'s CURRENT value: `main` raised 22 -> 23 for
+    // `vo-id-reference` while this stack was open, and slice 2 takes it to 22.)
+    max: 21,
   },
 ];
 
