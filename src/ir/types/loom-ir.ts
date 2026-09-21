@@ -3556,6 +3556,21 @@ export type ExprIR =
       name: string;
       refKind: RefKind;
       enumName?: string;
+      /** Populated when `refKind === "enum-value"` and MORE THAN ONE enum in
+       *  scope declares this value name (`enum OrderStatus { Draft, ... }` +
+       *  `enum InvoiceStatus { Draft, ... }`).  Holds every candidate enum
+       *  name in resolution order; `enumName` carries the provisional
+       *  first-wins pick so nothing downstream sees an unqualified value.
+       *
+       *  Lowering resolves the ambiguity CONTEXTUALLY -- `lowerExprInContext`
+       *  (field / param default, `:=` RHS, `emit` field) and the binary-chain
+       *  cross-typing in `lower-expr.ts` retarget the ref to the enum the SITE
+       *  expects and clear this field.  A ref that still carries candidates
+       *  when it reaches phase (7) had no contextual type at all, and
+       *  `loom.ambiguous-enum-value` reports it rather than letting the
+       *  first-declared enum win silently (F-022).  Backends never see it: the
+       *  IR is resolved, or the build failed. */
+      enumCandidates?: readonly string[];
       type?: TypeIR;
       /** Populated when `refKind === "resource"` — the resource's
        *  declared name and infra kind, so a `.verb(...)` call on it can

@@ -20,6 +20,7 @@ import {
   lowerExprInContext,
   pathType,
   provSiteFor,
+  retargetCallArgs,
   thisTypeOf,
 } from "./lower-expr.js";
 import {
@@ -206,7 +207,11 @@ function lowerStatementInner(stmt: Statement, env: Env): { stmt: StmtIR; envAfte
             kind: "call",
             target,
             name: lv.head,
-            args,
+            // A bare enum value in ARGUMENT position is typed by the callee's
+            // parameter, exactly as in the expression-position call path
+            // (F-022) — without this a call STATEMENT loses the contextual
+            // type the same call inside an expression keeps.
+            args: retargetCallArgs(lv.head, args, undefined, env),
             ...(targetPrivate ? { targetPrivate } : {}),
           },
           envAfter: env,
@@ -282,7 +287,11 @@ function lowerStatementInner(stmt: Statement, env: Env): { stmt: StmtIR; envAfte
             kind: "call",
             target,
             name: lv.head,
-            args,
+            // A bare enum value in ARGUMENT position is typed by the callee's
+            // parameter, exactly as in the expression-position call path
+            // (F-022) — without this a call STATEMENT loses the contextual
+            // type the same call inside an expression keeps.
+            args: retargetCallArgs(lv.head, args, undefined, env),
             ...(targetPrivate ? { targetPrivate } : {}),
           },
           envAfter: env,

@@ -1010,6 +1010,28 @@ export function validateExprIntegrity(loom: EnrichedLoomModel, diags: LoomDiagno
   const visitor =
     (source: string, inUi = false) =>
     (e: ExprIR) => {
+      // An enum value that TWO enums in scope declare, at a site with no
+      // contextual type to pick between them (F-022).  Lowering resolves the
+      // contextual cases — a field / param default, a `:=` RHS, an `emit`
+      // field, either side of a comparison — and clears `enumCandidates`; what
+      // survives to here genuinely could not be decided, and the honest answer
+      // is to say so rather than let the first-declared enum win silently and
+      // emit a comparison between two different enum types.
+      if (e.kind === "ref" && e.refKind === "enum-value" && e.enumCandidates) {
+        diags.push({
+          severity: "error",
+          code: "loom.ambiguous-enum-value",
+          message: diagMessage("loom.ambiguous-enum-value", {
+            value: e.name,
+            enums: e.enumCandidates.join("', '"),
+            // EVERY qualified spelling, not just the first candidate's: the
+            // compiler cannot know which enum was meant, so recommending one
+            // of them would be the silent first-wins pick wearing a hat.
+            qualified: e.enumCandidates.map((n) => `'${n}.${e.name}'`).join(" or "),
+          }),
+          source,
+        });
+      }
       if (e.kind === "call" && SCAFFOLD_PRIMITIVE_NAMES.has(e.name)) {
         diags.push({
           severity: "error",

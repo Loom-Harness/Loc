@@ -294,6 +294,23 @@ ${opts.e2eTest}
 }
 
 const FIRING_FIXTURES: Record<string, string> = {
+  // Two enums in one context declaring the same member, and a bare use with no
+  // expected type to resolve it — an untyped `let`.  First-wins would silently
+  // pick `OrderStatus` and lower a comparison between two different enums
+  // (F-022); the refusal is the honest answer.  The typed sites in the same
+  // aggregate stay silent, which is what makes this the ambiguous one.
+  "loom.ambiguous-enum-value": `
+system EnumAmbiguity {
+  subdomain S { context Billing {
+    enum OrderStatus   { Draft, Confirmed }
+    enum InvoiceStatus { Draft, Issued, Paid }
+    aggregate Invoice with crudish {
+      status: InvoiceStatus = Draft
+      label: string
+      operation touch() { let x = Draft  label := "x" }
+    }
+  } }
+}`,
   // A canonical `create` whose parameter list OMITS a required create-input
   // field.  `POST /things` still demands `secret` (no emitter reads
   // `canonicalCreate.params`), so a client written from the declaration 422s on

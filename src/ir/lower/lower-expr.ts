@@ -142,12 +142,20 @@ const RESOURCE_HANDLE_SHAPE = "__ResourceHandle";
 // `lowerProject` collects the project-global value→enum index once (across
 // every document) and installs it here before lowering any body.  It's a
 // fallback only — context-local enums still win — and lowering is a
-// synchronous single pass, so the scoped index is safe.  First declaration
-// wins on a value-name collision across root enums (the validator owns the
-// ambiguity diagnostic).
-let ambientEnumIndex: ReadonlyMap<string, string> = new Map();
+// synchronous single pass, so the scoped index is safe.
+//
+// The value maps to EVERY root enum declaring the name, in declaration order,
+// not just the first (F-022).  First-wins collapsed two enums that share a
+// member name (`OrderStatus { Draft, … }` + `InvoiceStatus { Draft, … }`)
+// onto the first declaration, so `status: InvoiceStatus = Draft` lowered to
+// `OrderStatus.Draft` — and the qualified escape hatch `InvoiceStatus.Draft`
+// did not work either, because it checked this index for equality.  Keeping
+// every candidate lets the SITE's expected type pick (see
+// `retargetEnumValue`), and lets `loom.ambiguous-enum-value` report the
+// genuinely context-free case instead of silently picking.
+let ambientEnumIndex: ReadonlyMap<string, readonly string[]> = new Map();
 
-export function setAmbientEnumIndex(index: ReadonlyMap<string, string>): void {
+export function setAmbientEnumIndex(index: ReadonlyMap<string, readonly string[]>): void {
   ambientEnumIndex = index;
 }
 
@@ -278,6 +286,19 @@ function lowerBinaryChain(chain: BinaryChain, env: Env): ExprIR {
     accType = promoted.leftType;
     rhsIR = promoted.rightIR;
     rhsType = promoted.rightType;
+    // Cross-type the operands: a comparison is the one contextual site with no
+    // declared slot to read, so each side supplies the other's expected type.
+    // `status == Draft` / `when status == Draft` resolve the bare value against
+    // the FIELD's enum instead of whichever enum declared `Draft` first
+    // (F-022).  Both directions, so `Draft == status` reads the same.
+    const leftRetargeted = retargetEnumValue(acc, rhsType);
+    rhsIR = retargetEnumValue(rhsIR, accType);
+    acc = leftRetargeted;
+    // `inferExprType` resolves the operand independently of `lowerExpr`, so it
+    // carries the same provisional pick — re-read the type off the resolved IR
+    // rather than leaving `leftType` / `rightType` naming the losing enum.
+    accType = enumTypeOfRef(acc) ?? accType;
+    rhsType = enumTypeOfRef(rhsIR) ?? rhsType;
     const resultType = binaryResultType(op, accType, rhsType);
     acc = {
       kind: "binary",
@@ -593,7 +614,11 @@ function applySuffixToRecv(
         kind: "call",
         callKind,
         name: recv.name,
-        args,
+        // An argument's expected type is the PARAMETER's, so a bare enum value
+        // passed to `setStatus(Draft)` is as contextually typed as a field
+        // default — retarget it here or it reaches phase (7) looking
+        // context-free (F-022).
+        args: retargetCallArgs(recv.name, args, named ? argNames : undefined, env),
         ...(named ? { argNames } : {}),
         ...(styleHoist.style ? { style: styleHoist.style } : {}),
         // A workflow `function` is emitted as a per-workflow-scoped helper (not
@@ -944,7 +969,12 @@ function applySuffixToRecv(
       kind: "method-call",
       receiver: recv,
       member: ms.member,
-      args,
+      // `Agg.create({ … })` — the input literal's keys name declared
+      // properties, so they carry the expected type a bare enum value needs.
+      args:
+        ms.member === "create" && recv.kind === "ref"
+          ? retargetCreateInput(recv.name, args, env)
+          : args,
       receiverType: recvType,
       isCollectionOp: collectionOp,
       ...(isIntrinsicMatcher(ms.member) ? { isIntrinsicMatcher: true } : {}),
@@ -979,7 +1009,10 @@ function applySuffixToRecv(
       env.ctx?.members.some(
         (m) => isEnumDecl(m) && m.name === enumName && m.values.some((v) => v.name === ms.member),
       ) ?? false;
-    const rootEnum = ambientEnumIndex.get(ms.member) === enumName;
+    // Membership, not equality: the index carries every root enum declaring
+    // the value, so `InvoiceStatus.Draft` resolves even when `OrderStatus`
+    // declared `Draft` first (F-022).
+    const rootEnum = ambientEnumIndex.get(ms.member)?.includes(enumName) ?? false;
     // Same shape from a `ui` body (`Visibility.Public` in a page): there is no
     // `ctx` to scan and the root-level index is blind to a context-nested enum,
     // so resolve through the document-wide index the BARE form uses below —
@@ -989,7 +1022,7 @@ function applySuffixToRecv(
     const uiEnum =
       !env.ctx &&
       (env.actions !== undefined || env.stores !== undefined) &&
-      uiEnumOwnerFor(ms.member, suffix) === enumName;
+      uiEnumOwnersFor(ms.member, suffix).includes(enumName);
     if (localEnum || rootEnum || uiEnum) {
       return {
         recv: {
@@ -1890,31 +1923,235 @@ function inlineTopLevelFn(fn: FunctionDecl, args: ExprIR[], env: Env): ExprIR {
   return { kind: "paren", inner: inlined };
 }
 
-/** Per-document `enum` VALUE → owning enum name index, memoised on the
- *  document root.  Built by streaming the whole AST, so it sees an enum at any
- *  nesting depth (`subdomain { context { enum … } }` included) — unlike the two
- *  `members`-walking ambient indices `lowerProject` installs.  First
- *  declaration wins on a value-name collision, matching those indices. */
-const uiEnumIndexByRoot = new WeakMap<AstNode, ReadonlyMap<string, string>>();
+/** Per-document `enum` VALUE → owning enum names, memoised on the document
+ *  root.  Built by streaming the whole AST, so it sees an enum at any nesting
+ *  depth (`subdomain { context { enum … } }` included) — unlike the two
+ *  `members`-walking ambient indices `lowerProject` installs.  Carries EVERY
+ *  declaring enum in declaration order, matching `ambientEnumIndex`: a bare
+ *  value shared by two enums is disambiguated by the use SITE, not by which
+ *  enum the file happens to declare first (F-022). */
+const uiEnumIndexByRoot = new WeakMap<AstNode, ReadonlyMap<string, readonly string[]>>();
 
-function uiEnumIndexFor(root: AstNode): ReadonlyMap<string, string> {
+function uiEnumIndexFor(root: AstNode): ReadonlyMap<string, readonly string[]> {
   const cached = uiEnumIndexByRoot.get(root);
   if (cached) return cached;
-  const index = new Map<string, string>();
+  const index = new Map<string, string[]>();
   for (const n of AstUtils.streamAllContents(root)) {
     if (!isEnumDecl(n)) continue;
-    for (const v of n.values) if (!index.has(v.name)) index.set(v.name, n.name);
+    for (const v of n.values) pushCandidate(index, v.name, n.name);
   }
   uiEnumIndexByRoot.set(root, index);
   return index;
 }
 
-/** The enum owning value `name` as seen from a `ui` body: the ui's own document
- *  first (any depth), then the cross-document ambient kernel index. */
-function uiEnumOwnerFor(name: string, node: AstNode | undefined): string | undefined {
+/** Append `enumName` to the candidate list for `valueName`, skipping a
+ *  duplicate (the same enum reached twice through two index levels). */
+function pushCandidate(index: Map<string, string[]>, valueName: string, enumName: string): void {
+  const list = index.get(valueName);
+  if (!list) index.set(valueName, [enumName]);
+  else if (!list.includes(enumName)) list.push(enumName);
+}
+
+/** Every enum owning value `name` as seen from a `ui` body, in precedence
+ *  order: the ui's own document first (any depth), then the cross-document
+ *  ambient kernel index. */
+function uiEnumOwnersFor(name: string, node: AstNode | undefined): readonly string[] {
   const root = node ? AstUtils.getContainerOfType(node, isModel) : undefined;
-  const local = root ? uiEnumIndexFor(root).get(name) : undefined;
-  return local ?? findAmbientEnumForValue(name)?.name;
+  const local = (root ? uiEnumIndexFor(root).get(name) : undefined) ?? [];
+  if (local.length > 0) return local;
+  const ambient = findAmbientEnumForValue(name)?.name;
+  return ambient ? [ambient] : [];
+}
+
+// ── Contextual resolution of a bare enum value (F-022) ────────────────────
+// A bare `Draft` names a VALUE, not a value-of-an-enum, and two enums in one
+// context sharing a member name is ordinary modelling.  Resolution therefore
+// runs in two steps:
+//
+//   1. `enumCandidatesFor` collects every enum in scope that declares the
+//      name, at the FIRST scope level that has a match (context-local enums
+//      shadow ambient root enums, as they always have).  One candidate ⇒
+//      resolved.  More than one ⇒ the ref carries `enumCandidates` and a
+//      provisional `enumName` (the first, preserving the old pick for any
+//      path that never gets a contextual type).
+//   2. `retargetEnumValue` runs at every site that KNOWS the expected type —
+//      a field/param default and a `:=` RHS through `lowerExprInContext`, a
+//      comparison through `lowerBinaryChain`'s operand cross-typing — and
+//      repoints the ref at the enum the site expects.
+//
+// Whatever is still ambiguous after lowering had no contextual type anywhere,
+// and phase ⑦ reports `loom.ambiguous-enum-value` on it.  The fix lives here
+// rather than in any backend because the IR contract is that a name arrives
+// resolved (`docs/technical.md`); two of the five backends reject the
+// mis-resolved output at compile time and two accept it and are silently
+// wrong the moment the two same-named members carry different wire values.
+
+/** Every enum in scope declaring a value named `name`, in precedence order.
+ *  Context-local enums win as a LEVEL: when the enclosing context declares the
+ *  name at all, ambient root enums are not consulted (unchanged shadowing). */
+function enumCandidatesFor(name: string, env: Env, node?: AstNode): readonly string[] {
+  if (env.ctx) {
+    const local: string[] = [];
+    for (const m of env.ctx.members) {
+      if (isEnumDecl(m) && m.values.some((v) => v.name === name)) local.push(m.name);
+    }
+    if (local.length > 0) return local;
+    return ambientEnumIndex.get(name) ?? [];
+  }
+  // A `ui` body has no enclosing context — see the ui arm of `resolveNameRef`
+  // for why this is gated to ui bodies rather than every ctx-less body.
+  if (env.actions !== undefined || env.stores !== undefined) return uiEnumOwnersFor(name, node);
+  return [];
+}
+
+/** Build the `enum-value` ref for `name` from its candidate list, or
+ *  `undefined` when no enum in scope declares it. */
+function enumValueRef(name: string, candidates: readonly string[]): ExprIR | undefined {
+  const first = candidates[0];
+  if (!first) return undefined;
+  return {
+    kind: "ref",
+    name,
+    refKind: "enum-value",
+    enumName: first,
+    type: { kind: "enum", name: first },
+    ...(candidates.length > 1 ? { enumCandidates: candidates } : {}),
+  };
+}
+
+/** The resolved enum type of an `enum-value` ref, or `undefined` for anything
+ *  else — used to keep a binary node's `leftType` / `rightType` in step with a
+ *  contextually retargeted operand. */
+function enumTypeOfRef(ir: ExprIR): TypeIR | undefined {
+  if (ir.kind !== "ref" || ir.refKind !== "enum-value" || !ir.enumName) return undefined;
+  return { kind: "enum", name: ir.enumName };
+}
+
+/** Unwrap a contextual type to the enum it ultimately expects: `Status`,
+ *  `Status?`, `Status[]` and `Status[]?` all expect `Status` values. */
+function expectedEnumName(t: TypeIR | undefined): string | undefined {
+  if (!t) return undefined;
+  if (t.kind === "enum") return t.name;
+  if (t.kind === "optional") return expectedEnumName(t.inner);
+  if (t.kind === "array") return expectedEnumName(t.element);
+  return undefined;
+}
+
+/**
+ * Repoint an ambiguous bare enum value at the enum the SITE expects.
+ *
+ * A no-op unless `expected` bottoms out in an enum type AND `ir` is an
+ * `enum-value` ref that the lowerer could not pin down on its own.  When the
+ * expected enum is one of the candidates the ref is rewritten and its
+ * ambiguity cleared; when it is NOT (the author wrote a value the target enum
+ * does not declare) the ref is left alone, so the mismatch surfaces as a
+ * mismatch rather than being papered over with a wrong enum.
+ *
+ * Also descends into a `list` literal, so `[Draft, Issued]` in a `Status[]`
+ * slot disambiguates element-wise.
+ */
+export function retargetEnumValue(ir: ExprIR, expected: TypeIR | undefined): ExprIR {
+  const want = expectedEnumName(expected);
+  if (!want) return ir;
+  if (ir.kind === "list") {
+    const element: TypeIR | undefined =
+      expected && expected.kind === "array" ? expected.element : expected;
+    const elements = ir.elements.map((it) => retargetEnumValue(it, element));
+    return elements.some((it, i) => it !== ir.elements[i]) ? { ...ir, elements } : ir;
+  }
+  // A ternary and a paren are PASS-THROUGHs for the slot's type: both branches
+  // of `status := cond ? Draft : Issued` land in the same `status` slot, so
+  // they inherit the expectation instead of losing it at the node.
+  if (ir.kind === "ternary") {
+    const then = retargetEnumValue(ir.then, expected);
+    const otherwise = retargetEnumValue(ir.otherwise, expected);
+    return then !== ir.then || otherwise !== ir.otherwise ? { ...ir, then, otherwise } : ir;
+  }
+  if (ir.kind === "paren") {
+    const inner = retargetEnumValue(ir.inner, expected);
+    return inner !== ir.inner ? { ...ir, inner } : ir;
+  }
+  if (ir.kind !== "ref" || ir.refKind !== "enum-value") return ir;
+  if (!ir.enumCandidates) return ir;
+  if (!ir.enumCandidates.includes(want)) return ir;
+  const { enumCandidates: _dropped, ...rest } = ir;
+  return { ...rest, enumName: want, type: { kind: "enum", name: want } };
+}
+
+/** The callee's declared parameters, as `{ name, type }`, or `undefined` when
+ *  `name` does not resolve to something with a declared parameter list.  Only
+ *  the two by-name callees a bare argument can reach: an aggregate/part/VO
+ *  `function` and an `operation`.  A value-object constructor takes its fields
+ *  in brace form and already lowers through `lowerExprInContext`. */
+/** Whether `ir` reaches an ambiguous bare enum value through the same
+ *  pass-throughs `retargetEnumValue` descends.  A cheap precondition: without
+ *  it, every by-name call would pay two env walks plus a `lowerType` per
+ *  parameter to discover it had nothing to retarget. */
+function carriesEnumCandidates(ir: ExprIR): boolean {
+  if (ir.kind === "ref") return ir.refKind === "enum-value" && ir.enumCandidates !== undefined;
+  if (ir.kind === "list") return ir.elements.some(carriesEnumCandidates);
+  if (ir.kind === "object") return ir.fields.some((f) => carriesEnumCandidates(f.value));
+  if (ir.kind === "ternary")
+    return carriesEnumCandidates(ir.then) || carriesEnumCandidates(ir.otherwise);
+  if (ir.kind === "paren") return carriesEnumCandidates(ir.inner);
+  return false;
+}
+
+function calleeParams(name: string, env: Env): { name: string; type: TypeIR }[] | undefined {
+  const decl = findFunctionInEnv(env, name) ?? findOperationInEnv(env, name);
+  if (!decl) return undefined;
+  return decl.params.map((p) => ({ name: p.name, type: lowerType(p.type, env) }));
+}
+
+/** Repoint each argument of a by-name call at the type its PARAMETER declares
+ *  (F-022).  Positional by index; a named-argument call matches by name, so
+ *  `issue(to: Draft)` resolves the same way as `issue(Draft)`.  A no-op for
+ *  every argument that is not an ambiguous bare enum value. */
+/** Repoint the fields of an `Agg.create({ … })` input at the aggregate's
+ *  DECLARED property types (F-022).
+ *
+ *  The create input is a structural object literal, so its fields lower
+ *  context-free — but every key NAMES a property, and that property's type is
+ *  the slot's expected type exactly as for a field default.  Without this,
+ *  `SalesOrder.create({ status: Draft })` in a context that also declares
+ *  `enum QuoteStatus { Draft, … }` reaches phase (7) looking context-free and
+ *  is reported as ambiguous, though the slot says precisely which enum it is.
+ *  (`web/src/examples/erp/sales.ddd` is exactly this shape.) */
+function retargetCreateInput(aggName: string, args: ExprIR[], env: Env): ExprIR[] {
+  if (!args.some(carriesEnumCandidates)) return args;
+  const agg = findEntityByName(env, aggName);
+  if (!agg) return args;
+  const slots = new Map<string, TypeIR>();
+  for (const m of agg.members) {
+    if (isProperty(m)) slots.set(m.name, lowerType(m.type, env));
+  }
+  return args.map((a) =>
+    a.kind === "object"
+      ? {
+          ...a,
+          fields: a.fields.map((f) => ({
+            ...f,
+            value: retargetEnumValue(f.value, slots.get(f.name)),
+          })),
+        }
+      : a,
+  );
+}
+
+export function retargetCallArgs(
+  name: string,
+  args: ExprIR[],
+  argNames: ReadonlyArray<string | undefined> | undefined,
+  env: Env,
+): ExprIR[] {
+  if (!args.some(carriesEnumCandidates)) return args;
+  const params = calleeParams(name, env);
+  if (!params) return args;
+  return args.map((a, i) => {
+    const key = argNames?.[i];
+    const p = key ? params.find((q) => q.name === key) : params[i];
+    return p ? retargetEnumValue(a, p.type) : a;
+  });
 }
 
 function resolveNameRef(name: string, env: Env, node?: AstNode): ExprIR {
@@ -2053,37 +2290,16 @@ function resolveNameRef(name: string, env: Env, node?: AstNode): ExprIR {
   // Enum value lookup — only when an enclosing context exists.  E2E
   // test bodies have no `ctx`; bare names there are treated as
   // unresolved refs and rendered verbatim by the e2e renderer.
+  //
+  // Context-local enums are consulted first and shadow the ambient root-level
+  // kernel enums (`Priority.Normal` from a sibling file) as a LEVEL.  Within
+  // the winning level the lookup keeps EVERY enum declaring the name rather
+  // than stopping at the first: `enumValueRef` marks the ref ambiguous and the
+  // use site's expected type resolves it (`retargetEnumValue`).  See the
+  // F-022 note above `enumCandidatesFor`.
   if (env.ctx) {
-    for (const m of env.ctx.members) {
-      if (isEnumDecl(m)) {
-        for (const v of m.values) {
-          if (v.name === name) {
-            return {
-              kind: "ref",
-              name,
-              refKind: "enum-value",
-              enumName: m.name,
-              type: { kind: "enum", name: m.name },
-            };
-          }
-        }
-      }
-    }
-  }
-  // Ambient root-level enum value (`Priority.Normal` from a kernel file).
-  // Checked after context-local enums so a same-named local value wins.
-  // Gated on `env.ctx` like the context-local enum scan above: an e2e
-  // test body (no ctx) renders bare names verbatim, so it must not start
-  // resolving names that happen to match a kernel enum value.
-  const ambientEnum = env.ctx ? ambientEnumIndex.get(name) : undefined;
-  if (ambientEnum) {
-    return {
-      kind: "ref",
-      name,
-      refKind: "enum-value",
-      enumName: ambientEnum,
-      type: { kind: "enum", name: ambientEnum },
-    };
+    const ref = enumValueRef(name, enumCandidatesFor(name, env, node));
+    if (ref) return ref;
   }
   // UI body enum value (`o.vis == Public` in a page / component / store).
   //
@@ -2110,16 +2326,8 @@ function resolveNameRef(name: string, env: Env, node?: AstNode): ExprIR {
   // page/component/store body env, `stores` on every body of a ui that
   // declares one (a store's own state inits lower before `actions` binds).
   if (!env.ctx && (env.actions !== undefined || env.stores !== undefined)) {
-    const owner = uiEnumOwnerFor(name, node);
-    if (owner) {
-      return {
-        kind: "ref",
-        name,
-        refKind: "enum-value",
-        enumName: owner,
-        type: { kind: "enum", name: owner },
-      };
-    }
+    const ref = enumValueRef(name, enumCandidatesFor(name, env, node));
+    if (ref) return ref;
   }
   return { kind: "ref", name, refKind: "unknown" };
 }
@@ -2514,7 +2722,11 @@ export function lowerExprInContext(
     const promoted = tryPromoteNumericLit(expr, expected.name);
     if (promoted) return promoted;
   }
-  return lowerExpr(expr, env);
+  // The same seam carries the OTHER contextual resolution: a bare enum value
+  // whose name is declared by more than one enum in scope is repointed at the
+  // enum this slot expects (F-022).  Field / param defaults, `:=` RHSs and
+  // `emit` fields all reach the lowerer through here, so they all get it.
+  return retargetEnumValue(lowerExpr(expr, env), expected);
 }
 
 /** Lower an `emit E { f: <expr>, … }` field list, promoting a bare numeric

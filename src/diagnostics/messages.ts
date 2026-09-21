@@ -979,6 +979,13 @@ export const DIAGNOSTIC_MESSAGES = {
   "loom.applier-guard": (p: { name: unknown; event: unknown; kind: unknown }) =>
     `aggregate '${p.name}' apply(${p.event}) contains a '${p.kind}' statement. ` +
     `Guards belong in the command that decides the event; by the time it is applied the decision is already made.`,
+  "loom.ambiguous-enum-value": (p: { value: unknown; enums: unknown; qualified: unknown }) =>
+    `bare enum value '${p.value}' is declared by more than one enum in scope ('${p.enums}'), ` +
+    `and this use has no expected type to choose between them. ` +
+    `Write it qualified — ${p.qualified} — or rename one of the values. ` +
+    `Loom resolves a bare value from the SITE's type (a field or parameter default, a ':=' target, ` +
+    `either side of a comparison); nothing here supplies one, and guessing would compile to a ` +
+    `comparison between two different enums.`,
   "loom.scaffold-unexpanded": (p: { name: unknown }) =>
     `un-expanded scaffold primitive '${p.name}' — the scaffold macro could not resolve its ` +
     `target aggregate or workflow; check that the referenced symbol exists in the ` +
