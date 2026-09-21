@@ -100,7 +100,7 @@ context Orders {
 == node
 ```ts
 // db/schema.ts — bare members re-quoted into a string array
-export const currencyEnum = pgEnum("currency", ["USD", "EUR", "GBP"]);
+export const currencyValues = ["USD", "EUR", "GBP"] as const;
 ```
 == dotnet
 ```csharp
