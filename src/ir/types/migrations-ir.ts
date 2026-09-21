@@ -130,34 +130,55 @@ export interface IndexShape {
   opclasses?: Record<string, string>;
 }
 
-/** A table-level `CHECK` constraint.
+/** What a {@link CheckShape} enforces.  The kind decides which backends carry
+ *  it, so it is a field rather than a naming convention.
  *
- *  Emitted for one thing today: the all-null-or-all-present invariant of a
- *  flattened OPTIONAL value object (`shipTo: Address?` → `ship_to_line1`,
- *  `ship_to_city`, … all nullable and all mutually independent).  Every
- *  backend that flattens reads the group atomically — java's record compact
- *  constructor runs the VO's invariant, node asserts each leaf non-null,
- *  python passes each leaf straight into the VO — so a PARTIALLY null row is
- *  a load-time crash on java and a silently malformed VO elsewhere.  Nothing
- *  else in the schema forbids one: N independent nullable columns is exactly
- *  what a hand-written UPDATE, a bad backfill or a future partial-update path
- *  can leave half-written.  See `valueObjectChecks` in
- *  `migrations-builder.ts` for which columns join a group and which are
- *  deliberately excluded.
+ *  `voNullConsistent` — the all-null-or-all-present invariant of a flattened
+ *  OPTIONAL value object (`shipTo: Address?` → `ship_to_line1`, `ship_to_city`,
+ *  … all nullable and all mutually independent).  Every backend that flattens
+ *  reads the group atomically — java's record compact constructor runs the VO's
+ *  invariant, node asserts each leaf non-null, python passes each leaf straight
+ *  into the VO — so a PARTIALLY null row is a load-time crash on java and a
+ *  silently malformed VO elsewhere.  Nothing else in the schema forbids one: N
+ *  independent nullable columns is exactly what a hand-written UPDATE, a bad
+ *  backfill or a future partial-update path can leave half-written.  See
+ *  `valueObjectChecks` in `migrations-builder.ts` for which columns join a
+ *  group and which are deliberately excluded.  **Phoenix/Ecto skips this
+ *  kind**: it stores a value object as ONE `:map` column (see `voGroup`), so
+ *  the leaf columns the constraint names do not exist there and the invariant
+ *  cannot be violated.
  *
- *  Phoenix/Ecto stores a value object as ONE `:map` column (see `voGroup`), so
- *  the group cannot be half-written there — the Ecto emitter skips checks
- *  entirely, exactly as it skips a value-array child table. */
+ *  `enumValues` — the legal value set of an `enum`-typed column.  An enum
+ *  persists as `TEXT` on every backend, so its value set was invisible to the
+ *  schema and therefore to the DIFF: narrowing one (`skill: string` →
+ *  `skill: Skill`, or deleting a member from `enum Skill`) changed no column
+ *  and produced NO migration, no constraint and no warning, while the
+ *  generated OpenAPI and the generated zod client both started refusing the
+ *  values still sitting in the table.  The check makes the value set part of
+ *  the schema, so the ordinary check diff turns any change to it into a real
+ *  migration step.  **Every backend carries this kind, Phoenix included** —
+ *  it names one real column that exists on all five. */
+export type CheckKind = "voNullConsistent" | "enumValues";
+
+/** A table-level `CHECK` constraint.  See {@link CheckKind} for what is
+ *  emitted and which backends carry each kind. */
 export interface CheckShape {
   /** Constraint name — deterministic, derived from the table + the value-object
-   *  group (`orders_ship_to_null_consistent`), so the diff can match a check
-   *  across generations by name the way it matches an index. */
+   *  group (`orders_ship_to_null_consistent`) or the table + column
+   *  (`appts_skill_enum`), so the diff can match a check across generations by
+   *  name the way it matches an index. */
   name: string;
   table: string;
   /** Raw Postgres boolean expression that follows `CHECK` — the same "SQL text
    *  in the platform-neutral IR" convention `IndexShape.predicate` and
    *  `backfillColumn.valueSql` already use. */
   expression: string;
+  /** Optional ⇒ a baseline snapshot written before this field existed reads
+   *  back as `voNullConsistent`, which is what every check in such a snapshot
+   *  actually is.  Consumers must treat an absent `kind` as that value rather
+   *  than as "unknown", or Phoenix would start emitting the VO checks it has
+   *  always (correctly) skipped. */
+  kind?: CheckKind;
 }
 
 export interface TableShape {
@@ -368,8 +389,12 @@ export type MigrationStep =
   // inline instead, where there is nothing to validate.
   | { op: "addCheck"; check: CheckShape; schema?: string }
   // Drop a table-level CHECK constraint.  Non-destructive (it only loosens),
-  // so it is never gated.
-  | { op: "dropCheck"; table: string; schema?: string; name: string }
+  // so it is never gated.  `kind` is the dropped constraint's {@link CheckKind},
+  // copied off the BASELINE shape — the emitters skip exactly the kinds they
+  // skip on the add side, and a drop has no `CheckShape` to read it from.
+  // Optional ⇒ a step replayed from a pre-`kind` baseline reads as
+  // `voNullConsistent`, which is what every check in such a baseline is.
+  | { op: "dropCheck"; table: string; schema?: string; name: string; kind?: CheckKind }
   // Raw one-shot DML (M-T2.3): a `sql "…"` step from a `migration` block,
   // emitted verbatim.  NOT naturally inert — the builder records the step's
   // `<block>#<index>` key in the snapshot's `appliedDataMigrations` so it is

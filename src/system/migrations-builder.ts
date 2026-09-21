@@ -26,6 +26,7 @@ import type {
 } from "../ir/types/loom-ir.js";
 import { isMaterializedProjection } from "../ir/types/loom-ir.js";
 import type {
+  CheckKind,
   CheckShape,
   ColumnShape,
   ColumnType,
@@ -167,6 +168,13 @@ export function schemaFromModule(
   const voLookup: VoLookup = new Map(
     module.contexts.flatMap((c) => c.valueObjects.map((v) => [v.name, v.fields] as const)),
   );
+  // Enum member lists, for the `enumValues` CHECKs (see `enumChecksForFields`).
+  // Keyed by name across the whole module, exactly like `voLookup` — a
+  // same-named enum in sibling contexts would collide, and so would the VO
+  // lookup beside it; that pre-existing shape is not widened here.
+  const enumLookup: EnumLookup = new Map(
+    module.contexts.flatMap((c) => c.enums.map((e) => [e.name, e.values] as const)),
+  );
   // Produce the table(s) for one aggregate.  Returns an array so the
   // caller can stamp the schema uniformly — every table an aggregate
   // contributes lives in the same (context) schema.
@@ -187,10 +195,12 @@ export function schemaFromModule(
       // mirroring emit/schema.ts.  `tableOwnerName` resolves the concrete to
       // its base; the part's `parentId` holds the shared-table row id.
       const owner = tableOwnerName(agg, pool);
-      return agg.parts.map((part) => tableForPart(part, agg, module.name, voLookup, owner));
+      return agg.parts.map((part) =>
+        tableForPart(part, agg, module.name, voLookup, enumLookup, owner),
+      );
     }
     if (isTphBase(agg, pool)) {
-      return [tphTableForAggregate(agg, pool, module.name, voLookup)];
+      return [tphTableForAggregate(agg, pool, module.name, voLookup, enumLookup)];
     }
     // Event-sourced (`persistedAs: eventLog`): no per-aggregate table — its
     // stream lives in the single per-context `<ctx>_events` log, emitted once in
@@ -206,9 +216,9 @@ export function schemaFromModule(
     if (shape === "embedded") {
       return [embeddedTableForAggregate(agg, module.name)];
     }
-    const out: TableShape[] = [tableForAggregate(agg, module.name, voLookup)];
+    const out: TableShape[] = [tableForAggregate(agg, module.name, voLookup, enumLookup)];
     for (const part of agg.parts) {
-      out.push(tableForPart(part, agg, module.name, voLookup));
+      out.push(tableForPart(part, agg, module.name, voLookup, enumLookup));
     }
     // Reference-collection fields (`Target id[]`) persist via a join
     // table rather than a column on the owner row — enrichment derives
@@ -223,11 +233,11 @@ export function schemaFromModule(
     // backends create it; Phoenix skips it (it stores the array inline as a
     // `{:array, :map}` column on the parent).
     for (const vc of valueCollectionsFor(agg)) {
-      out.push(valueCollectionTableShape(vc, agg, module.name, voLookup));
+      out.push(valueCollectionTableShape(vc, agg, module.name, voLookup, enumLookup));
     }
     for (const part of agg.parts) {
       for (const vc of valueCollectionsFor(part)) {
-        out.push(valueCollectionTableShape(vc, agg, module.name, voLookup, part.name));
+        out.push(valueCollectionTableShape(vc, agg, module.name, voLookup, enumLookup, part.name));
       }
     }
     return out;
@@ -1080,7 +1090,13 @@ function diffTable(
   for (const c of prevChecks.values()) {
     const n = nextChecks.get(c.name);
     if (!n || n.expression !== c.expression) {
-      buckets.dropCheck.push({ op: "dropCheck", table: next.name, schema, name: c.name });
+      buckets.dropCheck.push({
+        op: "dropCheck",
+        table: next.name,
+        schema,
+        name: c.name,
+        kind: c.kind ?? "voNullConsistent",
+      });
     }
   }
   for (const c of nextChecks.values()) {
@@ -2522,6 +2538,9 @@ function tableForAggregate(
   // the optional-context-parameter sweep; pinned by
   // `optional-context-param-sweep.test.ts`.
   voLookup: VoLookup,
+  // REQUIRED, same reason: a defaulted-empty enum lookup would silently emit
+  // NO `enumValues` CHECK, which is exactly the silent gap this closes.
+  enumLookup: EnumLookup,
 ): TableShape {
   const tableName = plural(snake(agg.name));
   const columns: ColumnShape[] = [
@@ -2571,7 +2590,13 @@ function tableForAggregate(
     primaryKey: ["id"],
     foreignKeys,
     indexes,
-    checks: finalizeChecks(checksForFields(tableName, agg.fields, voLookup), columns),
+    checks: finalizeChecks(
+      [
+        ...checksForFields(tableName, agg.fields, voLookup),
+        ...enumChecksForFields(tableName, agg.fields, voLookup, enumLookup),
+      ],
+      columns,
+    ),
   };
 }
 
@@ -2588,6 +2613,9 @@ function tphTableForAggregate(
   // REQUIRED — see `tableForAggregate` for why a defaulted-empty `voLookup`
   // silently misshapes value-object columns.
   voLookup: VoLookup,
+  // REQUIRED, same reason: a defaulted-empty enum lookup would silently emit
+  // NO `enumValues` CHECK, which is exactly the silent gap this closes.
+  enumLookup: EnumLookup,
 ): TableShape {
   const tableName = plural(snake(base.name));
   const kindField: FieldIR = {
@@ -2624,6 +2652,7 @@ function tphTableForAggregate(
   const derivedChecks: DerivedCheck[] = [];
   for (const f of base.fields) pushField(f, false);
   derivedChecks.push(...checksForFields(tableName, base.fields, voLookup));
+  derivedChecks.push(...enumChecksForFields(tableName, base.fields, voLookup, enumLookup));
   for (const concrete of tphConcretesOf(base, pool)) {
     const own = ownFieldsOf(concrete, base);
     for (const f of own) pushField(f, true);
@@ -2636,6 +2665,10 @@ function tphTableForAggregate(
     // to condition on).  `finalizeChecks` drops any check whose columns lost the
     // by-name de-duplication above.
     derivedChecks.push(...checksForFields(tableName, own, voLookup));
+    // A TPH concrete's enum column is forced nullable for the shared table's
+    // sake, so the check gains its `IS NULL OR …` arm in `finalizeChecks` —
+    // which is right: a row of another `kind` leaves the column null.
+    derivedChecks.push(...enumChecksForFields(tableName, own, voLookup, enumLookup));
   }
 
   return {
@@ -2656,6 +2689,9 @@ function tableForPart(
   // REQUIRED — see `tableForAggregate` for why a defaulted-empty `voLookup`
   // silently misshapes value-object columns.
   voLookup: VoLookup,
+  // REQUIRED, same reason: a defaulted-empty enum lookup would silently emit
+  // NO `enumValues` CHECK, which is exactly the silent gap this closes.
+  enumLookup: EnumLookup,
   // The aggregate that physically owns the parent table.  For a plain
   // aggregate this is `parent.name`; for a TPH concrete it's the shared base
   // table (the concrete has no table of its own), so the part's FK targets the
@@ -2713,7 +2749,13 @@ function tableForPart(
     primaryKey: ["id"],
     foreignKeys,
     indexes,
-    checks: finalizeChecks(checksForFields(tableName, part.fields, voLookup), columns),
+    checks: finalizeChecks(
+      [
+        ...checksForFields(tableName, part.fields, voLookup),
+        ...enumChecksForFields(tableName, part.fields, voLookup, enumLookup),
+      ],
+      columns,
+    ),
   };
 }
 
@@ -2778,6 +2820,9 @@ function valueCollectionTableShape(
   parentAgg: AggregateIR,
   ownerModule: string,
   voLookup: VoLookup,
+  // REQUIRED, same reason: a defaulted-empty enum lookup would silently emit
+  // NO `enumValues` CHECK, which is exactly the silent gap this closes.
+  enumLookup: EnumLookup,
   partName?: string,
 ): TableShape {
   const ownerTable = partName ? plural(snake(partName)) : plural(snake(parentAgg.name));
@@ -2794,6 +2839,7 @@ function valueCollectionTableShape(
   // else and does.
   const derivedChecks: DerivedCheck[] = [];
   valueObjectChecks(vc.childTable, "", elementFields, voLookup, false, derivedChecks);
+  derivedChecks.push(...enumChecksForFields(vc.childTable, elementFields, voLookup, enumLookup));
   return {
     name: vc.childTable,
     ownerModule,
@@ -2826,6 +2872,13 @@ interface MappedColumn {
 /** VO name → its field list, so a value-object field can be flattened into
  *  the parent table's columns rather than collapsed to one `json` column. */
 type VoLookup = ReadonlyMap<string, readonly FieldIR[]>;
+
+/** Enum name → its declared member list.  An enum persists as `TEXT`, so
+ *  `mapTypeToColumn` erases which enum a column came from and the value set
+ *  never reached the schema — which is why narrowing one produced no migration
+ *  (see {@link CheckKind} `enumValues`).  This lookup is what lets the table
+ *  builders turn the set back into a `CHECK`. */
+type EnumLookup = ReadonlyMap<string, readonly string[]>;
 
 /** The migration column(s) a field contributes.  A value-object field
  *  destructures into one column per (recursively-flattened) VO field — the
@@ -2957,18 +3010,29 @@ function valueObjectChecks(
     if (!vfOptional) required.push(name);
   }
   if (nodeOptional && required.length >= 2) {
-    out.push({ name: `${table}_${prefix}_null_consistent`, table, columns: [...required] });
+    out.push({
+      name: `${table}_${prefix}_null_consistent`,
+      table,
+      columns: [...required],
+      kind: "voNullConsistent",
+    });
   }
   return required;
 }
 
 /** A check before it is rendered — the column list is kept alongside so
  *  {@link finalizeChecks} can verify every one of them actually landed in the
- *  table without re-parsing SQL out of the expression. */
+ *  table without re-parsing SQL out of the expression.
+ *
+ *  `expression` is set only by the `enumValues` kind, whose SQL depends on the
+ *  member list rather than on the column list alone; a `voNullConsistent`
+ *  check leaves it unset and `finalizeChecks` renders `nullConsistentSql`. */
 interface DerivedCheck {
   name: string;
   table: string;
   columns: string[];
+  kind: CheckKind;
+  expression?: string;
 }
 
 /** Every all-null-or-all-present CHECK a field list contributes, for the
@@ -3008,6 +3072,68 @@ function checksForFields(
   return out;
 }
 
+/** A Postgres string literal — the enum member list is author-controlled
+ *  identifier text, but the quote doubling is what makes this SQL rather than
+ *  interpolation. */
+function sqlStringLiteral(v: string): string {
+  return `'${v.replaceAll("'", "''")}'`;
+}
+
+/** Every `enumValues` CHECK a field list contributes.
+ *
+ *  One per ENUM-typed column: `CHECK ("skill" IN ('physio', 'gp'))`, widened
+ *  with `"skill" IS NULL OR …` when the column is nullable (SQL `IN` against
+ *  NULL is UNKNOWN, which a CHECK treats as satisfied — but spelling the null
+ *  arm keeps the constraint readable and its intent explicit).  Recurses into
+ *  FLATTENED value objects through `voLookup`, so an enum inside an embedded
+ *  VO (`shipTo: Address?` with `Address { country: Country }` →
+ *  `ship_to_country`) is covered on the same terms as a top-level one.
+ *
+ *  Deliberately NOT covered, and neither is silent — each is a column shape
+ *  whose check is a different expression, not a missing case:
+ *
+ *   * an enum ARRAY (`skills: Skill[]` → `TEXT[]`), which needs `<@ ARRAY[…]`
+ *     rather than `IN`;
+ *   * an enum stored inside a `json` column — a VO the lookup cannot resolve
+ *     collapses to one `json` cell, and there is no column to constrain;
+ *   * the projection and workflow-state tables, for the same reason
+ *     `checksForFields` excludes them (their rows are written by partial
+ *     upserts, so a constraint could fail a fold on legitimate data).
+ *
+ *  An enum the lookup does not know contributes nothing — the same
+ *  fail-quiet the VO lookup takes, and the only shape that reaches it is a
+ *  cross-module reference the schema could not constrain anyway. */
+function enumChecksForFields(
+  table: string,
+  fields: readonly FieldIR[],
+  voLookup: VoLookup,
+  enumLookup: EnumLookup,
+  prefix = "",
+): DerivedCheck[] {
+  const out: DerivedCheck[] = [];
+  for (const f of fields) {
+    if (isReferenceCollection(f.type) || isValueCollectionType(f.type)) continue;
+    const base = f.type.kind === "optional" ? f.type.inner : f.type;
+    const column = joinColumnPath(prefix, snake(f.name));
+    if (base.kind === "valueobject") {
+      const voFields = voLookup.get(base.name);
+      if (voFields) out.push(...enumChecksForFields(table, voFields, voLookup, enumLookup, column));
+      continue;
+    }
+    if (base.kind !== "enum") continue;
+    const values = enumLookup.get(base.name);
+    if (!values || values.length === 0) continue;
+    out.push({
+      name: `${table}_${column}_enum`,
+      table,
+      columns: [column],
+      kind: "enumValues",
+      expression: `"${column}" IN (${values.map(sqlStringLiteral).join(", ")})`,
+    });
+  }
+  return out;
+}
+
 /** Render the derived checks, dropping any whose columns did not all land in
  *  the table.  The TPH builder de-duplicates columns by NAME across concrete
  *  subtypes (first field wins), so two same-named fields of DIFFERENT value
@@ -3034,9 +3160,34 @@ function finalizeChecks(
     // Name collision mirrors the column collision it comes from (two TPH
     // subtypes declaring the same field name): first wins, same as `pushField`.
     if (seen.has(d.name)) continue;
-    if (!d.columns.every((n) => present.get(n)?.nullable === true)) continue;
+    const cols = d.columns.map((n) => present.get(n));
+    // Both kinds require every named column to have actually landed.
+    if (cols.some((c) => c === undefined)) continue;
+    // The NULLABLE-only rule is the `voNullConsistent` safety net (a check over
+    // NOT NULL columns is the tautology `NOT NULL AND NOT NULL`).  An
+    // `enumValues` check is the opposite case: it is most load-bearing exactly
+    // on a NOT NULL column, so it is admitted at either nullability — and its
+    // expression gains the null arm when the column allows one.
+    if (d.kind === "voNullConsistent") {
+      if (!cols.every((c) => c?.nullable === true)) continue;
+      seen.add(d.name);
+      checks.push({
+        name: d.name,
+        table: d.table,
+        expression: nullConsistentSql(d.columns),
+        kind: "voNullConsistent",
+      });
+      continue;
+    }
     seen.add(d.name);
-    checks.push({ name: d.name, table: d.table, expression: nullConsistentSql(d.columns) });
+    const nullable = cols.some((c) => c?.nullable === true);
+    const column = d.columns[0] as string;
+    checks.push({
+      name: d.name,
+      table: d.table,
+      expression: nullable ? `"${column}" IS NULL OR ${d.expression}` : (d.expression as string),
+      kind: "enumValues",
+    });
   }
   return checks.length > 0 ? checks : undefined;
 }

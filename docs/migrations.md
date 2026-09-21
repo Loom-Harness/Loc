@@ -525,8 +525,9 @@ comment names the `ALTER TABLE … VALIDATE CONSTRAINT …` an operator runs to
 back-check the old rows deliberately. A `createTable` carries its checks inline,
 where there is nothing to validate.
 
-Phoenix emits none — Ecto stores a value object as one `:map` cell, so the group
-cannot be half-written and the leaf columns the constraint names do not exist.
+Phoenix emits none of *this kind* — Ecto stores a value object as one `:map`
+cell, so the group cannot be half-written and the leaf columns the constraint
+names do not exist. It does emit the enum kind below.
 
 Checks are derived for the **domain** tables only: the aggregate root, its TPH
 shared table, its contained-part tables, and its value-collection child table —
@@ -535,6 +536,51 @@ read-model and workflow-state tables also flatten, but both make their non-key
 columns nullable *on purpose* (a fold or a workflow step upserts only the fields
 the event it is handling carries), so a half-filled row there is the designed
 state and a constraint could fail on legitimate data.
+
+**An `enum` column carries its VALUE SET as a `CHECK`.** An enum persists as
+`TEXT` on every backend, so without this the set of legal values is not part of
+the schema at all — and two ordinary evolutions were therefore complete
+no-ops, emitting **no migration, no constraint and no warning**:
+
+| change | before | now |
+|---|---|---|
+| `skill: string` → `skill: Skill` | column type unchanged (`TEXT` → `TEXT`) ⇒ empty diff | `addCheck` |
+| `enum Skill { physio, gp, dentist }` → `{ physio, gp }` | the enum is not in the schema ⇒ empty diff | `dropCheck` + `addCheck` |
+
+In both cases the database went on accepting a value the model had just
+outlawed, while the *same generation's* OpenAPI `$ref`-ed the field to the enum
+and the *same generation's* zod / pydantic client refused it — the server
+serving data its own published contract forbids.
+
+```ddd
+enum Skill { physio, gp, dentist }
+aggregate Appt { skill: Skill  backup: Skill? }
+```
+
+```sql
+CONSTRAINT "appts_skill_enum"  CHECK ("skill" IN ('physio', 'gp', 'dentist')),
+CONSTRAINT "appts_backup_enum" CHECK ("backup" IS NULL OR "backup" IN ('physio', 'gp', 'dentist'))
+```
+
+The same `NOT VALID` rule as above is what makes this safe to land on a
+populated database: the `ALTER` leaves already-stored rows alone (so narrowing
+an enum can never fail a deploy) while refusing every future write of a removed
+value; the emitted comment names the `VALIDATE CONSTRAINT` an operator runs to
+audit the old rows deliberately.
+
+Covered: a scalar enum column, at either nullability, on the aggregate root, a
+TPH shared table (where a concrete's column is forced nullable, so it gains the
+null arm), a part table, and an enum nested inside a **flattened** value object
+(`shipTo: Address?` with `Address { country: Country }` → `ship_to_country`).
+Not covered, each because the constraint is a different expression rather than a
+missing case: an enum **array** (`skills: Skill[]` → `TEXT[]`, which needs
+`<@ ARRAY[…]`), an enum inside a VO the lookup cannot resolve (it collapses to
+one `json` cell — no column to constrain), and the projection / workflow-state
+tables, excluded for the same partial-upsert reason as above.
+
+**All five backends carry this kind, Phoenix included** — it names one real
+column that exists everywhere, and an elixir app that skipped it would be the
+single backend whose database still accepted a deleted value.
 
 **Reference collections → join tables.** A `X id[]` field never produces a column.
 Enrichment derives one `AssociationIR` per such field, and the builder lays down a
