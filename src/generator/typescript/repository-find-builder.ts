@@ -600,8 +600,24 @@ export function runMethod(
 
   // `where` → Drizzle predicate, AND-ed with the TPH `kind` scope.
   const kindPred = kindPredicate(agg, ctx, tableName);
+  // A `currentUser`-referencing `where` binds through the AMBIENT accessor, not
+  // a parameter.  `run<Name>` takes only the retrieval's declared params plus
+  // `page` — there is no `currentUser` in scope — so the default bare-name
+  // rendering emitted an unbound reference that fails `tsc` with TS2304.  This
+  // is the same resolution `renderCriterionFn` already applies for the reified
+  // module-level criterion fn (which is exactly why the NAMED-criterion
+  // spelling looked correct while the INLINE one did not), and the same one the
+  // always-on capability-filter path uses — so the backend keeps one principal
+  // source rather than two.
   const lowered =
-    lowerToDrizzle(retrieval.where, tableName, ctx) ??
+    lowerToDrizzle(
+      retrieval.where,
+      tableName,
+      ctx,
+      exprUsesCurrentUser(retrieval.where)
+        ? { principalAccessor: "requireCurrentUser()" }
+        : undefined,
+    ) ??
     refuseOutOfVocabulary(
       "drizzle-predicate",
       `where-clause for retrieval '${retrieval.name}' on '${agg.name}'`,

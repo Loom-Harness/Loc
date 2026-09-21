@@ -255,7 +255,29 @@ export function buildPyRepositoryFile(
     (f) => f.name === "all" && f.params.length === 0 && !f.filter,
   );
   const pagedAll = autoAllFind ? !!pagedReturn(autoAllFind.returnType) : false;
-  const allWhere = rootWhere(null, root, kind, filterPred);
+  // A find DECLARED as `all` (`find all(): Doc[] where <pred>`) is dropped from
+  // `emittableFinds` — the name test there cannot tell it from the
+  // enrichment-synthesized auto-`findAll`, and emitting both would collide on
+  // the method name.  Its `where` therefore has to land HERE, on the CRUD list
+  // seam that answers in its place.  It did not: the declared restriction
+  // vanished from the emitted SQL with no compile error and no diagnostic —
+  // node, dotnet and java all honoured it, so the same model read differently
+  // per backend, which for a read restriction is an authorization bypass.
+  const declaredAllFind = repo?.finds.find((f) => f.name === "all" && !!f.filter);
+  const declaredAllPred = declaredAllFind?.filter
+    ? requireLowered(
+        `find 'all' on '${agg.name}'`,
+        lowerToSqlAlchemy(
+          declaredAllFind.filter,
+          agg,
+          ctx,
+          exprUsesCurrentUser(declaredAllFind.filter)
+            ? { principalAccessor: "require_current_user()" }
+            : undefined,
+        ),
+      )
+    : null;
+  const allWhere = rootWhere(declaredAllPred, root, kind, filterPred);
   const allSortMap = sortableFields(agg)
     .map((wf) => `${JSON.stringify(wf)}: ${JSON.stringify(snake(wf))}`)
     .join(", ");
@@ -449,7 +471,20 @@ export function buildPyRepositoryFile(
       // not mere `writeScopeFilter` presence: a `deny write` carve-out
       // sets an always-false write scope that references NO principal, so an
       // unconditional import would be unused → ruff F401 on the generated project.
-      aggUsesPrincipalContextFilter(agg) || exprUsesCurrentUser(agg.writeScopeFilter),
+      aggUsesPrincipalContextFilter(agg) ||
+        exprUsesCurrentUser(agg.writeScopeFilter) ||
+        // …and when a RETRIEVAL's `where` reads the principal.  `run_<name>`
+        // has no `current_user` parameter to thread it through (unlike a find),
+        // so it resolves the ambient accessor — which has to be imported, or
+        // the `NameError` simply moves one line up.
+        aggregateRetrievals(agg, ctx).some((r) => exprUsesCurrentUser(r.where)) ||
+        // …and when a find DECLARED as `all` reads the principal.  Its
+        // predicate lands on the CRUD `all` seam, which — like a retrieval's
+        // `run_<name>` and unlike a named find — has no `current_user`
+        // parameter, so it too resolves the ambient accessor.  Missing this
+        // moved the `NameError` one line up rather than fixing it: `mypy` →
+        // `Name "require_current_user" is not defined [name-defined]`.
+        !!repo?.finds.some((f) => f.name === "all" && !!f.filter && exprUsesCurrentUser(f.filter)),
       // `current_user` (the non-raising getter) rides in for the read-mask
       // projection's fail-closed principal read (`to_wire_masked`).
       aggHasFieldMask(agg),
@@ -802,9 +837,24 @@ function runMethod(
   // When an inline `ignoring` call-site reaches this retrieval, OMIT the
   // bypassed capability predicate(s) (the union across sites — baked in).
   const methodFilterPred = bypass ? contextFilterPredicate(agg, ctx, bypass) : filterPred;
+  // A `currentUser`-referencing `where` binds through the AMBIENT accessor.
+  // Unlike a FIND — which gains a trailing `current_user: User` parameter
+  // (`relationalFindMethod`) — `run_<name>` takes only the retrieval's declared
+  // params plus offset/limit, so the bare-name default emitted a
+  // `current_user` nothing binds: `mypy` reports `Name "current_user" is not
+  // defined [name-defined]`, and at runtime it is a `NameError` — HTTP 500 on
+  // every read through the retrieval. `require_current_user()` is the same
+  // ambient ContextVar accessor the always-on principal capability filter uses.
   const pred = requireLowered(
     `retrieval '${retrieval.name}' on '${agg.name}'`,
-    lowerToSqlAlchemy(retrieval.where, agg, ctx),
+    lowerToSqlAlchemy(
+      retrieval.where,
+      agg,
+      ctx,
+      exprUsesCurrentUser(retrieval.where)
+        ? { principalAccessor: "require_current_user()" }
+        : undefined,
+    ),
   );
   const orderBy =
     retrieval.sort.length > 0

@@ -51,7 +51,7 @@ import {
   renderVanillaHistoryMapper,
   vanillaHistoryFind,
 } from "./audit-history-emit.js";
-import { aggregateUsesPrincipalContextFilter } from "./capability-filter.js";
+import { aggregateUsesPrincipalContextFilter, listNeedsActor } from "./capability-filter.js";
 import { CRUD_RESERVED_NAMES } from "./context-emit.js";
 import {
   denialOverrides,
@@ -350,7 +350,16 @@ function renderController(
   // it into the context reads.  Non-principal aggregates stay byte-identical.
   const principal = aggregateUsesPrincipalContextFilter(agg);
   const cuBind = principal ? "    current_user = Map.get(conn.assigns, :current_user)\n" : "";
-  const listArg = principal ? "current_user" : "";
+  // The `list` read may need the actor even when the aggregate carries no
+  // tenancy filter — a find DECLARED as `all` whose `where` reads the principal
+  // is answered BY the list seam, so its predicate is spliced into that query.
+  // `listNeedsActor` is the same predicate the repository head and the context
+  // defdelegate use, so the three arities cannot drift.
+  const listPrincipal = listNeedsActor(
+    agg,
+    (ctx.repositories ?? []).find((r) => r.aggregateName === agg.name),
+  );
+  const listArg = listPrincipal ? "current_user" : "";
   const getActor = principal ? ", current_user" : "";
   // The auto-`findAll` is paged-by-default (M-T2.6): the `index` action parses
   // `page`/`pageSize`/`sort`/`dir` query controls (via the shared `page_param`
@@ -364,7 +373,7 @@ function renderController(
   // The paging controls are bound by the `with` clauses `PAGE_WITH_CLAUSES`
   // prepends (page-param.ts), so an out-of-range window 422s before the read
   // instead of being clamped into a page the caller never asked for.
-  const pagedListArgs = `${PAGE_CALL_ARGS.join(", ")}, Map.get(params, "sort", "id"), Map.get(params, "dir", "asc")${principal ? ", current_user" : ""}`;
+  const pagedListArgs = `${PAGE_CALL_ARGS.join(", ")}, Map.get(params, "sort", "id"), Map.get(params, "dir", "asc")${listPrincipal ? ", current_user" : ""}`;
   // The LIST read's authorization gate — 403 before the query, the same
   // contract `renderFindActions` gives every NAMED find.  `index` is emitted
   // here, outside that loop (the list endpoint has its own paged shape), which
@@ -375,7 +384,7 @@ function renderController(
   // `current_user` may already be bound by `cuBind` (principal-scoped reads);
   // bind it here only when the gate is the sole reason it's needed.
   const indexCuBind =
-    indexGateUsesUser && !principal
+    (indexGateUsesUser || listPrincipal) && !principal
       ? "    current_user = Map.get(conn.assigns, :current_user)\n"
       : "";
   const indexBody = indexPaged
@@ -403,8 +412,15 @@ ${cuBind}${indexCuBind}    if not (${renderElixirExpr(indexGate, { thisName: "re
 ${indexBody}
     end
   end`
-    : `  def index(conn, ${indexParamArg}) do
-${cuBind}${indexBody}
+    : // `indexCuBind` belongs on BOTH arms.  It used to appear only on the gated
+      // one, so a list read that needs the actor for its QUERY (a find declared
+      // as `all` whose `where` reads the principal) but carries no `requires`
+      // emitted `C.list_docs(current_user)` against nothing that bound it:
+      // `** (CompileError) undefined variable "current_user"`.  Found by
+      // `mix compile`, not by an emission assertion — the gated arm happened to
+      // be the one the F-007 repro took (`requires true`).
+      `  def index(conn, ${indexParamArg}) do
+${cuBind}${indexCuBind}${indexBody}
   end`;
   // Command-load context fn a MUTATION action loads through (authorization.md):
   // `get_<agg>_for_write` when the aggregate's write scope is

@@ -1326,7 +1326,7 @@ function lowerContext(
   // aggregate's lowering re-uses the lowered IR directly.  The `this`
   // references inside a context-level filter resolve later when the
   // expression is rendered with a per-aggregate lambda binder.
-  const ctxCaps = collectContextLevelCapabilities(ctx, env);
+  const ctxCaps = collectContextLevelCapabilities(ctx);
   for (const m of ctx.members) {
     if (isEnumDecl(m)) enums.push(lowerEnum(m));
     else if (isValueObject(m)) valueObjects.push(lowerValueObject(m, env));

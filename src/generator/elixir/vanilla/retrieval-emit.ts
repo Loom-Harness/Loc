@@ -28,10 +28,12 @@
 // ---------------------------------------------------------------------------
 
 import type { BoundedContextIR, RetrievalIR, SortTermIR } from "../../../ir/types/loom-ir.js";
+import { exprUsesCurrentUser } from "../../../ir/types/loom-ir.js";
 import { snake, upperFirst } from "../../../util/naming.js";
-import { type RenderCtx, renderExpr } from "../render-expr.js";
+import type { RenderCtx } from "../render-expr.js";
 import {
   aggregateUsesPrincipalContextFilter,
+  renderPrincipalFilter,
   vanillaCapabilityFilterParts,
 } from "./capability-filter.js";
 
@@ -56,13 +58,22 @@ export function emitVanillaRetrievals(
     // `opts[:current_user]`.  Retrievals are workflow-internal (no HTTP
     // controller), so a caller that omits it scopes to no rows (fail-closed) —
     // never a cross-tenant leak.
-    const principal = target ? aggregateUsesPrincipalContextFilter(target) : false;
+    const capActor = target ? aggregateUsesPrincipalContextFilter(target) : false;
+    // …OR the retrieval's OWN `where` reads the principal (`retrieval MyDocs()
+    // of Doc { where: ownerUserId == currentUser.id }` — the row-level
+    // authorization rule).  Only the capability test was ever consulted, so an
+    // author-written principal predicate rendered `current_user` into the Ecto
+    // `where:` while nothing bound it and `mix compile` refused the module.
+    // The capability stages keep their own aggregate-wide gate (`capActor`):
+    // whether a TENANCY filter applies must not change because the author's
+    // predicate happens to mention the principal.
+    const principal = capActor || exprUsesCurrentUser(r.where);
     // Each capability filter is applied as a SEPARATELY-gated `where` pipe stage
     // (rather than baked into the base `where:`) so an inline `Repo.run(...)
     // ignoring <Cap>` / `ignoring *` at a call site can skip individual origins
     // at runtime via `opts[:ignore_filters]` / `opts[:ignore_all_filters]`.
     const capParts = target
-      ? vanillaCapabilityFilterParts(target, contextModule, { actor: principal })
+      ? vanillaCapabilityFilterParts(target, contextModule, { actor: capActor })
       : [];
     out.set(
       `lib/${appName}/${ctxSnake}/retrievals/${snake(r.name)}.ex`,
@@ -92,7 +103,11 @@ function renderRetrievalModule(
   const argList = args.length > 0 ? `${args.join(", ")}, opts \\\\ []` : "opts \\\\ []";
   // The retrieval's own `where` predicate (the capability filters apply below,
   // as separately-gated pipe stages so a call-site `ignoring` can skip them).
-  const whereExpr = renderExpr(r.where, renderCtx);
+  // Pinned on the principal side — `^(current_user && current_user.id)`.  An
+  // unpinned `current_user.<claim>` is not an Ecto query expression, and the
+  // `&&` guard makes a nil actor fail CLOSED (Ecto binds the pinned nil, which
+  // matches no row) rather than raising on a nil map access.
+  const whereExpr = renderPrincipalFilter(r.where, renderCtx);
   const sortClause = renderSortClause(r.sort);
 
   // Build the Ecto pipeline in stages.  `from(...)` opens, conditional
