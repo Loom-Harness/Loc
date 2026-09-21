@@ -21,7 +21,6 @@ import {
   PG_REFERENCED_IN_USE_SQLSTATES,
   PG_UNIQUE_VIOLATION,
 } from "../../../generator/_persistence/pg-sqlstate.js";
-import { MONEY_WIRE_SCALE } from "../../../generator/money-scale.js";
 import {
   historyMapperArgs,
   historyMapperName,

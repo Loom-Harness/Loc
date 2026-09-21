@@ -7,10 +7,7 @@
 // -------------------------------------------------------------------------
 
 import { diagMessage } from "../../../diagnostics/messages.js";
-import {
-  platformFamily,
-  platformOwnsBackend,
-} from "../../../language/validators/data/platform-rules.js";
+import { platformOwnsBackend } from "../../../language/validators/data/platform-rules.js";
 import { pagedReturn } from "../../stdlib/generics.js";
 import type { SystemIR } from "../../types/loom-ir.js";
 import { isGroupedProjection, isQueryTimeProjection } from "../../types/loom-ir.js";
