@@ -456,12 +456,15 @@ function renderApiSpec(
             }
           },
           responses: %{
-            200 => %OpenApiSpex.Response{
-              description: "Success",
-              content: %{"application/json" => %OpenApiSpex.MediaType{schema: %OpenApiSpex.Schema{type: :object}}}
-            }${errorResponseEntries("workflow", schemasModule, workflowIsGuarded(wf), undefined, {
-              readsAggregate: workflowCanAnswerNotFound(wf, ctx.repositories),
-            })}
+            204 => %OpenApiSpex.Response{description: "No Content"}${errorResponseEntries(
+              "workflow",
+              schemasModule,
+              workflowIsGuarded(wf),
+              undefined,
+              {
+                readsAggregate: workflowCanAnswerNotFound(wf, ctx.repositories),
+              },
+            )}
           }
         }
       }`);
