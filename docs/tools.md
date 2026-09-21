@@ -735,15 +735,31 @@ block that ran before it.  Since `docker compose up` keeps a named
 exotic one.
 
 So the emitted suite calls a **dev-only reset endpoint**
-(`POST /__loom/test-reset`) at the top of every test.  It truncates
-every application table and re-applies any declared `seed` data, which
-restores the just-migrated-and-seeded state — not an empty database, so
-fixtures that assume seeded rows still find them.  The migration
-ledger, the timer watermark and the pg-boss job store are preserved.
-Cost is one loopback round trip per block (median 6 ms against a local
-Postgres).
+(`POST /__loom/test-reset`) — by default **once per target, before the
+first test**.  It truncates every application table and re-applies any
+declared `seed` data, restoring the just-migrated-and-seeded state, not
+an empty database, so fixtures that assume seeded rows still find them.
+The migration ledger, the timer watermark and the pg-boss job store are
+preserved.  Cost is one loopback round trip (median 6 ms against a
+local Postgres).
 
-A per-test *transaction* would be cheaper, but it is structurally
+`E2E_RESET` chooses when it fires:
+
+| Value | Behaviour |
+| --- | --- |
+| `per-file` *(default)* | Once per target, before the first test that uses it. The suite starts from the same state every run, so a second `npm test` behaves exactly like the first. |
+| `per-test` | Before **every** test, so a block sees only the rows it creates and a count assertion no longer depends on block order. One extra round trip per block. |
+| `off` | Never. |
+
+**Why per-file is the default.**  A `test e2e` block may deliberately
+build on rows an earlier block created — several of this repo's own
+fixtures do, one of them named *"the second … beside the first"* — so
+resetting between blocks changes what those models mean.  Per-file
+fixes the idempotence problem without changing any block's meaning.
+Choose `per-test` when the suite is written for it: every block
+creating its own fixtures and asserting only its own counts.
+
+A per-test *transaction* would be cheaper still, but it is structurally
 unavailable: the suite talks HTTP to a separate process, so it has no
 transaction to share with the request handler.
 
@@ -773,8 +789,7 @@ suite then fails loudly, naming the cause, rather than reporting a
 bare `expected 6 to be 2` from whichever block counts rows).
 
 Set `E2E_RESET=off` in the suite's environment to skip the reset
-entirely — for a suite whose blocks are written to accumulate on
-purpose.
+entirely.
 
 **When the reset is unavailable** — a target that is not loopback, or a
 backend that does not register the route — the suite assumes a **fresh

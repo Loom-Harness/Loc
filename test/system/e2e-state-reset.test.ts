@@ -88,12 +88,111 @@ function loopbackGate(e2e: string): (base: string) => boolean {
   return eval(`(() => { ${src}; return __isLoopbackBase; })()`) as (base: string) => boolean;
 }
 
+/** Lift the emitted reset helper out of the generated suite and run it against
+ *  a stub `fetch`, so the per-file / per-test contract is tested by what it
+ *  DOES — how many times it actually hits the backend — rather than by the
+ *  shape of the source.  Returns the URLs it requested. */
+async function driveReset(
+  e2e: string,
+  mode: string | undefined,
+  bases: string[],
+): Promise<string[]> {
+  // From `__authHeaders` (which the reset forwards) down to the first wire
+  // helper — i.e. the whole isolation section, evaluated as one unit.
+  const start = e2e.indexOf("function __authHeaders");
+  const end = e2e.indexOf("\nasync function __post");
+  expect(start, "the preamble must define the reset helpers").toBeGreaterThan(-1);
+  expect(end).toBeGreaterThan(start);
+  const src = ts.transpileModule(e2e.slice(start, end), {
+    compilerOptions: { target: ts.ScriptTarget.ES2022 },
+  }).outputText;
+
+  const hits: string[] = [];
+  const g = globalThis as unknown as { fetch: unknown };
+  const realFetch = g.fetch;
+  const realEnv = process.env.E2E_RESET;
+  g.fetch = async (url: string) => {
+    hits.push(String(url));
+    return { ok: true, status: 200, text: async () => "" };
+  };
+  if (mode === undefined) delete process.env.E2E_RESET;
+  else process.env.E2E_RESET = mode;
+  try {
+    // biome-ignore lint/security/noGlobalEval: this repo's own emitted source, produced in-process.
+    const run = eval(
+      `(async (bases) => { ${src}; for (const b of bases) await __resetState(b); })`,
+    ) as (b: string[]) => Promise<void>;
+    // AWAITED inside the try: restoring `fetch` and the env in a `finally` that
+    // ran while the promise was still pending is exactly how the first version
+    // of this helper measured the real fetch instead of the stub.
+    await run(bases);
+  } finally {
+    g.fetch = realFetch;
+    if (realEnv === undefined) delete process.env.E2E_RESET;
+    else process.env.E2E_RESET = realEnv;
+  }
+  return hits;
+}
+
+describe("when the reset fires", () => {
+  // This is the contract that changed after measuring it against the repo's own
+  // behavioral corpus: per-TEST isolation turned four checked-in cases red —
+  // among them one named "the second TPH concrete round-trips BESIDE THE
+  // FIRST" — because a `test e2e` block is free to build on rows an earlier
+  // block created, and several do deliberately.  Resetting between blocks
+  // changes what those models MEAN.
+  //
+  // So the default is per-FILE, which is what F3 actually asks for (the suite
+  // starts from the same state every run, so a second `npm test` behaves like
+  // the first) and breaks nothing that passed before.  Per-test stays
+  // available for a suite written to it.
+  const drive = async (mode: string | undefined, bases: string[]) => {
+    const e2e = (await files(WITH_E2E)).get("e2e/Shop.e2e.test.ts")!;
+    return await driveReset(e2e, mode, bases);
+  };
+  const LOCAL = "http://localhost:4000";
+
+  it("resets once per target by default, however many blocks run", async () => {
+    expect(await drive(undefined, [LOCAL, LOCAL, LOCAL, LOCAL])).toHaveLength(1);
+    expect(await drive("per-file", [LOCAL, LOCAL, LOCAL])).toHaveLength(1);
+  });
+
+  it("resets before every block when asked", async () => {
+    expect(await drive("per-test", [LOCAL, LOCAL, LOCAL, LOCAL])).toHaveLength(4);
+  });
+
+  it("never resets when switched off", async () => {
+    expect(await drive("off", [LOCAL, LOCAL])).toHaveLength(0);
+  });
+
+  it("counts targets separately — a multi-backend replay resets each once", async () => {
+    // One `test e2e` block replays against every compatible deployable, each
+    // with its own database, so 'once per file' means once per TARGET.
+    const hits = await drive(undefined, [
+      LOCAL,
+      "http://localhost:4001",
+      LOCAL,
+      "http://localhost:4001",
+    ]);
+    expect(hits).toHaveLength(2);
+    expect(hits.some((u) => u.includes(":4000"))).toBe(true);
+    expect(hits.some((u) => u.includes(":4001"))).toBe(true);
+  });
+
+  it("sends nothing to a remote target in any mode", async () => {
+    const remote = "https://staging.example.com";
+    for (const mode of [undefined, "per-file", "per-test"]) {
+      expect(await drive(mode, [remote, remote]), String(mode)).toHaveLength(0);
+    }
+  });
+});
+
 describe("the emitted e2e suite resets state between tests", () => {
   it("calls the reset at the top of EVERY test body", async () => {
     const e2e = (await files(WITH_E2E)).get("e2e/Shop.e2e.test.ts")!;
-    // One `it(` per declared block, and one reset per `it(` — per-TEST, not
-    // per-file.  Per-file would make a RUN idempotent while leaving every
-    // block coupled to its predecessors, which is half the finding.
+    // The CALL is emitted in every block; `__resetState` decides whether it
+    // fires (per-file by default, per-test on request).  One runtime switch
+    // beats two emission shapes.
     const its = [...e2e.matchAll(/^ {2}it\(/gm)];
     const resets = [...e2e.matchAll(/^ {4}await __resetState\(base\);$/gm)];
     expect(its).toHaveLength(2);

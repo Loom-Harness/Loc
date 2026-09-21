@@ -374,7 +374,14 @@ if (loomTestReset == "1" || (loomTestReset != "0" && !app.Environment.IsProducti
         }
         _ = sp;
         return Results.Ok(new { status = "reset", tables = targets.Count });
-    });
+    // ExcludeFromDescription() keeps this out of the OpenAPI contract.  ASP.NET
+    // documents a MapPost by default, and that document is what the 5-way
+    // parity cross-check compares — so without this the reset shows up as an
+    // operation only .NET has, which is exactly how it was caught.  The other
+    // backends spell the same exclusion their own way (FastAPI
+    // include_in_schema=False, springdoc @Hidden); node and elixir derive their
+    // documents from the model, so neither ever sees this route.
+    }).ExcludeFromDescription();
 }
 // Liveness probe — cheap, no I/O.  K8s livenessProbe / docker-compose
 // healthcheck use this to decide "is the process alive?".  A DB blip

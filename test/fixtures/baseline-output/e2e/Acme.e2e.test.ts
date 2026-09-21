@@ -86,11 +86,35 @@ function __isLoopbackBase(base: string): boolean {
   return /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(host);
 }
 
-/** Put the target back to its just-migrated-and-seeded state.  Called at the
- *  top of every test, so each block sees only the rows it creates itself. */
+// Bases already reset in this process, for the default per-file mode.
+const __resetOnce = new Set<string>();
+
+/** Put the target back to its just-migrated-and-seeded state.
+ *
+ *  `E2E_RESET` picks WHEN:
+ *
+ *    per-file  (default)  once per target, before the first test that uses it
+ *    per-test             before every test
+ *    off                  never
+ *
+ *  The default is per-FILE because per-test changes what a `test e2e` block
+ *  MEANS.  A block is free to build on rows an earlier block created — several
+ *  do on purpose, one of them named "the second … beside the first" — and
+ *  resetting between them turns those into failures.  Per-file is what the
+ *  finding actually asks for: the suite starts from the same state every run,
+ *  so a second `npm test` against the same stack behaves exactly like the
+ *  first, and nothing that passed before stops passing.
+ *
+ *  `per-test` is the stronger contract — each block sees only the rows it
+ *  creates, so a count assertion no longer depends on block ORDER — and is
+ *  worth opting into for a suite written that way.  It costs one extra round
+ *  trip per block (measured: median 6.0 ms against a local Postgres). */
 async function __resetState(base: string): Promise<void> {
-  if (process.env.E2E_RESET === "off") return;
+  const mode = process.env.E2E_RESET ?? "per-file";
+  if (mode === "off") return;
+  if (mode !== "per-test" && __resetOnce.has(base)) return;
   if (!__isLoopbackBase(base)) return;
+  __resetOnce.add(base);
   const url = `${base}${__RESET_PATH}`;
   let r: Response;
   try {

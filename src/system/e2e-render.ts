@@ -182,16 +182,18 @@ function renderTest(t: TestE2EIR, ctx: RenderCtx, nameSuffix = ""): string[] {
   const out: string[] = [];
   out.push(`it(${JSON.stringify(t.name + nameSuffix)}, async () => {`);
   out.push(`  const base = ENDPOINTS.${serviceSlug(ctx.deployable.name)};`);
-  // Isolation, PER TEST rather than per file.  Per-file would make a RUN
-  // idempotent but would leave every `it()` coupled to its predecessors, so a
-  // count assertion would still depend on the block order — half the finding.
+  // Emitted in EVERY test body, though by default it only fires for the first
+  // one: `__resetState` owns the per-file / per-test choice (see its note), so
+  // the mode is one runtime switch rather than two emission shapes.
   //
-  // The cost is one loopback round trip and one `TRUNCATE ... CASCADE` per
-  // block: measured over 200 sequential calls against a local Postgres,
-  // median 6.0 ms (min 4.7, p95 7.2).  A four-block suite spends ~24 ms on
-  // reset against ~110 ms of its own HTTP calls; even a 100-block suite pays
-  // well under a second.  Per-file would save about 18 ms of that, which is
-  // not worth giving up half the fix.
+  // Inside the `it()` rather than as a `beforeEach` because each test knows its
+  // own `base` — one block replays against every compatible backend, each with
+  // its own database — and because this leaves the describe/it structure, and
+  // therefore the test NAMES that `verifies` joins on, completely untouched.
+  //
+  // Cost when it does fire: one loopback round trip and one
+  // `TRUNCATE ... CASCADE`, measured over 200 sequential calls against a local
+  // Postgres at median 6.0 ms (min 4.7, p95 7.2).
   //
   // Emitted INSIDE the `it()` body rather than as a `beforeEach`: each test
   // knows its own `base` (one block replays against every compatible backend,
@@ -1090,11 +1092,35 @@ function __isLoopbackBase(base: string): boolean {
   return /^127\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}$/.test(host);
 }
 
-/** Put the target back to its just-migrated-and-seeded state.  Called at the
- *  top of every test, so each block sees only the rows it creates itself. */
+// Bases already reset in this process, for the default per-file mode.
+const __resetOnce = new Set<string>();
+
+/** Put the target back to its just-migrated-and-seeded state.
+ *
+ *  \`E2E_RESET\` picks WHEN:
+ *
+ *    per-file  (default)  once per target, before the first test that uses it
+ *    per-test             before every test
+ *    off                  never
+ *
+ *  The default is per-FILE because per-test changes what a \`test e2e\` block
+ *  MEANS.  A block is free to build on rows an earlier block created — several
+ *  do on purpose, one of them named "the second … beside the first" — and
+ *  resetting between them turns those into failures.  Per-file is what the
+ *  finding actually asks for: the suite starts from the same state every run,
+ *  so a second \`npm test\` against the same stack behaves exactly like the
+ *  first, and nothing that passed before stops passing.
+ *
+ *  \`per-test\` is the stronger contract — each block sees only the rows it
+ *  creates, so a count assertion no longer depends on block ORDER — and is
+ *  worth opting into for a suite written that way.  It costs one extra round
+ *  trip per block (measured: median 6.0 ms against a local Postgres). */
 async function __resetState(base: string): Promise<void> {
-  if (process.env.E2E_RESET === "off") return;
+  const mode = process.env.E2E_RESET ?? "per-file";
+  if (mode === "off") return;
+  if (mode !== "per-test" && __resetOnce.has(base)) return;
   if (!__isLoopbackBase(base)) return;
+  __resetOnce.add(base);
   const url = \`\${base}\${__RESET_PATH}\`;
   let r: Response;
   try {
