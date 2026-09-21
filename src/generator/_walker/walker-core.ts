@@ -1790,7 +1790,7 @@ export function emitExpr(expr: ExprIR, ctx: WalkContext): string {
       // Last, after the name-scoped lookups above, so a state / param / shell
       // local of the same name still wins (lowering already shadows it too).
       if (expr.refKind === "enum-value") return ctx.target.exprLiteral("string", expr.name);
-      return `/* unresolved: ${expr.name} */ undefined`;
+      throw new Error(`PROBE unresolved ref ${expr.name} on ${ctx.target.framework}`);
     case "binary": {
       const left = emitExpr(expr.left, ctx);
       const right = emitExpr(expr.right, ctx);
