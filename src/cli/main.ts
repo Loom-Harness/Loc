@@ -1534,7 +1534,7 @@ program
   .description("Parse and validate a .ddd file")
   .option(
     "--json",
-    "emit structured diagnostics + outline as JSON (also runs IR validation); see docs/old/proposals/ai-diagnostics-contract.md",
+    "emit structured diagnostics + outline as JSON (also runs IR validation); see docs/api-toolkit.md",
   )
   .action(async (file: string, options: { json?: boolean }) => {
     if (options.json) await runParseJson(file);
@@ -1544,7 +1544,7 @@ program
 program
   .command("patch <file>")
   .description(
-    "Apply node-addressed model patches (JSON) to a .ddd file; prints the patched source, or --json for the structured PatchResult. See docs/old/proposals/ai-authoring-loop.md.",
+    "Apply node-addressed model patches (JSON) to a .ddd file; prints the patched source, or --json for the structured PatchResult. See docs/api-toolkit.md.",
   )
   .requiredOption(
     "--patches <file>",
@@ -1564,7 +1564,7 @@ generate
   .option("--dry-run", "list paths that would be written / skipped, write nothing")
   .option(
     "--trace",
-    "emit trace-level domain instrumentation (value_computed, precondition_evaluated, …) — off by default; see docs/old/proposals/observability.md",
+    "emit trace-level domain instrumentation (value_computed, precondition_evaluated, …) — off by default; see docs/observability.md",
   )
   .action(
     async (
@@ -1587,7 +1587,7 @@ generate
   .option("--dry-run", "list paths that would be written / skipped, write nothing")
   .option(
     "--trace",
-    "emit trace-level seam instrumentation (tx_begin/commit/rollback around SaveChangesAsync) — off by default; see docs/old/proposals/observability.md",
+    "emit trace-level seam instrumentation (tx_begin/commit/rollback around SaveChangesAsync) — off by default; see docs/observability.md",
   )
   .action(
     async (
@@ -1612,11 +1612,11 @@ generate
   .option("--dry-run", "list paths that would be written / skipped, write nothing")
   .option(
     "--json",
-    "validate and print the deployable manifest as JSON (GenerateReport); writes no files. See docs/old/proposals/ai-diagnostics-contract.md.",
+    "validate and print the deployable manifest as JSON (GenerateReport); writes no files. See docs/api-toolkit.md.",
   )
   .option(
     "--trace",
-    "emit trace-level domain instrumentation (value_computed, precondition_evaluated, …) — off by default; see docs/old/proposals/observability.md",
+    "emit trace-level domain instrumentation (value_computed, precondition_evaluated, …) — off by default; see docs/observability.md",
   )
   .option(
     "--k8s",
@@ -1632,7 +1632,7 @@ generate
   )
   .option(
     "--sourcemap",
-    "emit .loom/sourcemap.json mapping generated code back to .ddd spans; off by default. See docs/old/plans/source-map-debug-kickoff.md.",
+    "emit .loom/sourcemap.json mapping generated code back to .ddd spans; off by default. See docs/debugging.md.",
   )
   .option(
     "--inline-sources",
@@ -1719,7 +1719,7 @@ program
   .command("trace <logfile>")
   .description(
     "Annotate a crash log / stack trace with the .ddd construct + source location each " +
-      "frame maps to, via .loom/sourcemap.json. See docs/old/proposals/source-map-and-debugging.md §6B.",
+      "frame maps to, via .loom/sourcemap.json. See docs/debugging.md.",
   )
   .option(
     "--map <path>",
@@ -1737,7 +1737,7 @@ program
   .command("breakpoints <file>")
   .description(
     "Resolve a .ddd source line to the generated file:line(s) it produced, via " +
-      ".loom/sourcemap.json — the reverse of `ddd trace`. See docs/old/proposals/source-map-and-debugging.md §6E.",
+      ".loom/sourcemap.json — the reverse of `ddd trace`. See docs/debugging.md.",
   )
   .requiredOption("--line <n>", "1-based .ddd source line to resolve")
   .option(

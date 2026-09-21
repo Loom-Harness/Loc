@@ -155,7 +155,11 @@ system HandWritten {
 }
 `);
     expect(errors.length).toBeGreaterThan(0);
-    expect(errors.some((e) => /Could not resolve reference.*User/.test(e.message))).toBe(true);
+    // `owner: User id` is a TYPE position, so the refusal reads as
+    // "Unknown type 'User'" — `ddd-linker.ts` replaced Langium's internal
+    // `NamedDecl` wording there with one that names the catalogue.  Still the
+    // LINKER rejecting it before any guard runs, which is what this pins.
+    expect(errors.some((e) => /Unknown type 'User'/.test(e.message))).toBe(true);
   });
 
   it("a real `aggregate User` still gets the ordinary picker treatment", async () => {
