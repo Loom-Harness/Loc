@@ -1,5 +1,5 @@
 import type { ExprIR } from "../../ir/types/loom-ir.js";
-import { lowerFirst, snake, upperFirst } from "../../util/naming.js";
+import { lowerFirst, snake } from "../../util/naming.js";
 import { frontendRequestNames } from "../_frontend/request-names.js";
 import { giveUp } from "../_walker/give-up.js";
 import { namedArgValue, stringNamed } from "../_walker/shared/args.js";
@@ -80,7 +80,6 @@ export function renderAngularWorkflowForm(
     );
   }
 
-  const T = upperFirst(workflow.name);
   // Universe-resolved identifier base for the command surface — must be what
   // `api/workflows.ts` exported, not a re-derivation from the workflow's name
   // (`_frontend/request-names.ts`).
@@ -92,9 +91,19 @@ export function renderAngularWorkflowForm(
   const importFrom = "../../api/workflows";
   const requestType = `${R}Request`;
   const mutationFn = `use${R}Workflow`;
-  const mutationVar = `${lowerFirst(workflow.name)}Run`;
-  const formVar = `${lowerFirst(workflow.name)}Form`;
-  const submitMethod = `onRun${T}`;
+  // EVERY identifier this form contributes hangs off `R`, not off the raw
+  // workflow name — the imported ones AND the three the page-shell declares as
+  // class members of the component.  `<op><Agg>` and `<wf>` concatenate to the
+  // same spelling (F-023), so an op form on the same page declared
+  // `scheduleWorkOrderForm` too and the class body carried the name twice
+  // (`TS2300`/`TS2393`) even though its imports were already disjoint.
+  // `submitMethod` cannot collide with the op form's `submit<Op><Agg>` under
+  // today's `onRun` prefix, but it is resolved here all the same: the prefixes
+  // are two emitters' private choices, not a rule either one is holding, and a
+  // half-disambiguated base is the state this defect was born in.
+  const mutationVar = `${lowerFirst(R)}Run`;
+  const formVar = `${lowerFirst(R)}Form`;
+  const submitMethod = `onRun${R}`;
 
   addNg(ctx, "@angular/forms", "FormControl", "FormGroup", "ReactiveFormsModule");
   addNg(ctx, importFrom, mutationFn, requestType);
