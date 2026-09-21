@@ -7,6 +7,7 @@ import { URI } from "langium";
 import { NodeFileSystem } from "langium/node";
 import { generate as generateModel, LOOM_VERSION, validate } from "../api/index.js";
 import { translateBreakpoint } from "../dap/index.js";
+import { isAdvisoryCode } from "../diagnostics/advisory.js";
 import { generateDotnet } from "../generator/dotnet/index.js";
 import { enrichLoomModel } from "../ir/enrich/enrichments.js";
 import { lowerModel, lowerProject } from "../ir/lower/lower.js";
@@ -282,16 +283,18 @@ function printIrDiagnostics(diagnostics: readonly LoomDiagnostic[]): {
 
   // Phase ⑦ computes 18 warning codes (datasource-knob-unwired, findall-no-page,
   // cross-tenant-without-tenancy, …).  A warning never affects the exit code;
-  // it just has to be VISIBLE.  (`loom.index-suggestion` is excluded here — it
-  // keeps its own `Suggestions:` footer below, and would otherwise print twice.)
-  const warnings = diagnostics.filter(
-    (d) => d.severity === "warning" && d.code !== "loom.index-suggestion",
-  );
+  // it just has to be VISIBLE.  (The ADVISORY codes are excluded here — they
+  // keep their own `Suggestions:` footer below, and would otherwise print
+  // twice.  The set lives in `src/diagnostics/advisory.ts`, not as a literal
+  // here: with a literal, the second advisory code to arrive silently came out
+  // labelled `warning` and inflated the count.)
+  const warnings = diagnostics.filter((d) => d.severity === "warning" && !isAdvisoryCode(d.code));
   for (const d of warnings) console.error(`${d.code} ${d.source} warning: ${d.message}`);
 
   // Advisory only — the index-suggestion lint (uniqueness-and-indexes.md §11)
-  // keeps its own footer and never fails the command.
-  const hints = diagnostics.filter((d) => d.code === "loom.index-suggestion");
+  // and the update-gate lint (audit D3) keep their own footer and never fail
+  // the command.
+  const hints = diagnostics.filter((d) => isAdvisoryCode(d.code));
   if (hints.length > 0) {
     console.error(`\nSuggestions (${hints.length}):`);
     for (const d of hints) console.error(`  ${d.source}: ${d.message}`);

@@ -765,6 +765,26 @@ function renderMethodCall(recv: string, args: string[], e: MethodCallExpr, ctx: 
       : ELIXIR_INTRINSIC_RENDERERS[key];
     if (snippet) return snippet(recv, args);
   }
+  // A call on an ENTITY receiver that is not the aggregate's own `this` — a
+  // workflow reusing a named domain rule across aggregates
+  // (`precondition t.hasSkill("physio")`).  The self-call spelling arrives as
+  // `callKind: "function"` and is already handled there; THIS shape lowers as
+  // a plain `method-call`, and the generic `recv.member(args)` fallback below
+  // emitted `t.has_skill("physio")` — which is not a call at all in Elixir but
+  // a remote call on a STRUCT, so the generated workflow raised at run time on
+  // a model that validated `0 error(s)`.
+  //
+  // `renderAggregateFunctions` emits every aggregate `function` as a
+  // struct-guarded module function on the context facade
+  // (`def has_skill(%<Ctx>.Tech{} = record, s)`), so the call that reaches it
+  // from another module is `<Ctx>.has_skill(t, "physio")` — the receiver moves
+  // into first-argument position, exactly as the self-call spelling does.
+  // Every other reading of an entity-receiver method-call (a collection op, a
+  // `refColl.contains`, a scalar intrinsic) has already returned above, so
+  // this arm is reached only by a function call.
+  if (e.receiverType.kind === "entity") {
+    return `${ctx.contextModule}.${snake(e.member)}(${[recv, ...args].join(", ")})`;
+  }
   return `${recv}.${snake(e.member)}(${args.join(", ")})`;
 }
 

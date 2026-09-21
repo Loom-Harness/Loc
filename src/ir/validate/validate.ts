@@ -115,6 +115,7 @@ import {
 } from "./checks/test-checks.js";
 import { validateTimerSources } from "./checks/timer-checks.js";
 import { validateUiBodies, validateUiPageIdentity } from "./checks/ui-checks.js";
+import { validateUpdateGateSuggestions } from "./checks/update-gate-suggestion-checks.js";
 import { validateEventChannelAmbiguous, validateWorkflows } from "./checks/workflow-checks.js";
 
 // Public surface kept stable: LoomDiagnostic (now defined in checks/diagnostic)
@@ -233,6 +234,13 @@ export function validateLoomModel(loom: EnrichedLoomModel): LoomDiagnostic[] {
     // the normal IR-warning channel (api → LSP / playground / `parse --json`).
     // Warning-only, so it can't flip `ok` or block generation (both error-gated).
     validateIndexSuggestions(sys, diags);
+    // Advisory update-gate lint (audit D3) — WARNING-severity
+    // `loom.update-gate-suggestion` for a field that a `requires`-gated
+    // operation assigns AND `crudish`'s generic `update` mass-assigns, so the
+    // gate is bypassable through `update`.  Points at `immutable`, which
+    // removes the field from the update input while leaving the operation free
+    // to assign it.  Same advisory channel as the index lint above.
+    validateUpdateGateSuggestions(sys, diags);
     // Scaffold expansion now runs at the AST level
     // (`src/language/ddd-scaffold-ast-expander.ts`).  Duplicate-page
     // detection happens through Langium's standard scope-walking

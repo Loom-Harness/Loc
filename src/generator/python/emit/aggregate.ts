@@ -516,7 +516,15 @@ function renderEntity(
 
   const fns = e.functions.flatMap((fn) => {
     const params = ["self", ...fn.params.map((p) => `${snake(p.name)}: ${renderPyType(p.type)}`)];
-    const head = `    def _${snake(fn.name)}(${params.join(", ")}) -> ${renderPyType(fn.returnType)}:`;
+    // PUBLIC (no `_` prefix), like the operations below.  Python's underscore
+    // is a convention, not access control, so the route's hoisted `when` gate
+    // (`found._is_open()`) happened to work — but a WORKFLOW calling the same
+    // function across aggregates lowers to a plain `method-call`, which the
+    // expression renderer spells without the prefix (`t.has_skill(…)`).  The
+    // two halves disagreed on the NAME, so that path raised `AttributeError`
+    // at request time on a model that validated `0 error(s)`.  One spelling
+    // closes it, and matches what the other four backends now emit.
+    const head = `    def ${snake(fn.name)}(${params.join(", ")}) -> ${renderPyType(fn.returnType)}:`;
     // Expression form keeps the single `return expr` line (byte-identical);
     // block form (domain-services.md rev. 4) emits its lowered statements.
     const body =

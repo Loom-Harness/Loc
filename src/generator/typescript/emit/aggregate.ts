@@ -486,7 +486,16 @@ function renderEntity(
 
   const fns = e.functions.flatMap((fn) => {
     const params = fn.params.map((p) => `${p.name}: ${renderTsType(p.type)}`).join(", ");
-    const head = `  private ${lowerFirst(fn.name)}(${params}): ${renderTsType(fn.returnType)}`;
+    // PUBLIC, like the operations below.  A `function` is not an internal
+    // helper the class keeps to itself: the generated code calls it from
+    // OUTSIDE the class in three places the model itself asks for — the
+    // hoisted `when` gate in `<agg>.routes.ts`, the `GET /{id}/can_<op>`
+    // companion that exists precisely to evaluate that gate for a UI, and a
+    // workflow body reusing a named rule across aggregates
+    // (`precondition t.hasSkill(…)`).  Emitted `private`, every one of those
+    // was a TS2341 on a model that validated `0 error(s)`.  The generator's
+    // own `.loom/domain.mmd` has always rendered the member as `+<fn>()`.
+    const head = `  public ${lowerFirst(fn.name)}(${params}): ${renderTsType(fn.returnType)}`;
     // Expression form stays the single-line `{ return expr; }` (byte-identical);
     // block form (domain-services.md rev. 4) emits its lowered statements.
     if ("expr" in fn.body) {

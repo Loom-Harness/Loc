@@ -425,7 +425,12 @@ export function renderEntity(
     const params = fn.params
       .map((p) => `${renderCsType(p.type)} ${escapeCsharpIdent(p.name)}`)
       .join(", ");
-    const head = `    private ${renderCsType(fn.returnType)} ${upperFirst(fn.name)}(${params})`;
+    // PUBLIC, like the operations below — see the matching note in the node
+    // emitter.  The generated code calls a `function` from outside the class
+    // (`CloseHandler`, `CanCloseHandler`, a workflow handler's hoisted
+    // precondition), so `private` made each of those a CS0122 on a model that
+    // validated `0 error(s)`.
+    const head = `    public ${renderCsType(fn.returnType)} ${upperFirst(fn.name)}(${params})`;
     // Expression form keeps the expression-bodied `=> expr;` shape
     // (byte-identical); block form (domain-services.md rev. 4) emits a
     // statement body whose `return`s carry the value out.
