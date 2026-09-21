@@ -1,0 +1,593 @@
+// The emitted e2e suite's isolation seam (F3 / D-1, `src/util/test-reset.ts`).
+//
+// Measured before this landed, one generated system against one real Postgres,
+// the same suite twice in a row:
+//
+//   run 1 (fresh DB):   Tests  4 passed (4)
+//   run 2 (same DB):    Tests  1 failed | 3 passed (4)   → expected 6 to be 2
+//
+// There was no `beforeEach`, no truncate, no per-test transaction and no reset
+// hook anywhere in the emitted `e2e/` project, and no vocabulary in the DSL to
+// ask for one — so an exact count assertion was green on a fresh database and
+// red on the second run of the same one, and every `it()` was coupled to the
+// blocks before it.  Since the generated compose stack keeps a named `pgdata`
+// volume, the second run is the DOCUMENTED one.
+//
+// The tests below pin the two halves that make the seam safe, because the
+// safety property is the whole design: a suite pointed at staging must never
+// truncate anything.  `loopbackGate` is the one that matters — it is the gate
+// that needs no configuration and therefore cannot be forgotten, so it is
+// exercised as BEHAVIOUR (the emitted predicate is evaluated against a host
+// table) rather than asserted as emitted text.
+
+import ts from "typescript";
+import { describe, expect, it } from "vitest";
+import {
+  RESET_PRESERVED_TABLES,
+  resetTableDiscoverySql,
+  TEST_RESET_ENV,
+  TEST_RESET_PATH,
+} from "../../src/util/test-reset.js";
+import { generateSystemFiles } from "../_helpers/index.js";
+
+const SYS = (extra = "") => `
+  system Shop {
+    subdomain Sales {
+      context Orders {
+        aggregate Order with crudish {
+          code: string
+        }
+        repository Orders for Order {}
+      }
+    }
+    api OrdersApi from Sales
+    storage pg { type: postgres }
+    resource s { for: Orders, kind: state, use: pg }
+    deployable d {
+      platform: node
+      contexts: [Orders]
+      dataSources: [s]
+      serves: OrdersApi
+      port: 4000
+    }
+    ${extra}
+  }
+`;
+
+const WITH_E2E = SYS(`
+    test e2e "an exact count sees only its own rows" against d {
+      api.orders.create({ code: "A" })
+      api.orders.create({ code: "B" })
+      expect(api.orders.all().total).toBe(2)
+    }
+
+    test e2e "a second block is not coupled to the first" against d {
+      api.orders.create({ code: "C" })
+      expect(api.orders.all().total).toBe(1)
+    }
+`);
+
+const files = async (src: string): Promise<Map<string, string>> => generateSystemFiles(src);
+
+/** Lift the emitted loopback predicate out of the generated suite and make it
+ *  callable, so the gate is tested by what it DECIDES rather than by how it is
+ *  spelled.  Pinning the regex as text would pass for a predicate that is
+ *  emitted but never consulted, and would have to be rewritten by anyone who
+ *  refactors the same behaviour — neither is the property worth protecting. */
+function loopbackGate(e2e: string): (base: string) => boolean {
+  const start = e2e.indexOf("function __isLoopbackBase");
+  expect(start, "the emitted suite must define __isLoopbackBase").toBeGreaterThan(-1);
+  const end = e2e.indexOf("\n}", start);
+  // The emitted predicate is TypeScript; strip the annotations rather than
+  // hand-rewriting them, so this keeps working if the emitter's signature
+  // changes.
+  const src = ts.transpileModule(e2e.slice(start, end + 2), {
+    compilerOptions: { target: ts.ScriptTarget.ES2022 },
+  }).outputText;
+  // biome-ignore lint/security/noGlobalEval: the input is this repo's own emitted source, produced in-process two lines above.
+  return eval(`(() => { ${src}; return __isLoopbackBase; })()`) as (base: string) => boolean;
+}
+
+/** Lift the emitted reset helper out of the generated suite and run it against
+ *  a stub `fetch`, so the per-file / per-test contract is tested by what it
+ *  DOES — how many times it actually hits the backend — rather than by the
+ *  shape of the source.  Returns the URLs it requested. */
+interface ResetRun {
+  /** URLs the stub `fetch` was asked for. */
+  readonly hits: string[];
+  /** Whatever the helper wrote to stderr, one entry per write. */
+  readonly stderr: string[];
+  /** The error it threw, if it threw. */
+  readonly thrown?: unknown;
+}
+
+async function driveReset(
+  e2e: string,
+  mode: string | undefined,
+  bases: string[],
+  status = 200,
+): Promise<ResetRun> {
+  // From `__authHeaders` (which the reset forwards) down to the first wire
+  // helper — i.e. the whole isolation section, evaluated as one unit.
+  const start = e2e.indexOf("function __authHeaders");
+  const end = e2e.indexOf("\nasync function __post");
+  expect(start, "the preamble must define the reset helpers").toBeGreaterThan(-1);
+  expect(end).toBeGreaterThan(start);
+  const src = ts.transpileModule(e2e.slice(start, end), {
+    compilerOptions: { target: ts.ScriptTarget.ES2022 },
+  }).outputText;
+
+  const hits: string[] = [];
+  const stderr: string[] = [];
+  let thrown: unknown;
+  const g = globalThis as unknown as { fetch: unknown };
+  const realFetch = g.fetch;
+  const realEnv = process.env.E2E_RESET;
+  // Guarded: one of these cases deliberately removes `process.stderr` to model
+  // a host that has none, so the harness must not assume it either.
+  const realStderr = Object.getOwnPropertyDescriptor(process, "stderr");
+  const realWarn = console.warn;
+  g.fetch = async (url: string) => {
+    hits.push(String(url));
+    return { ok: status < 400, status, text: async () => "stub body" };
+  };
+  // The helper writes to `process.stderr` rather than `console.warn` because
+  // vitest's reporter swallows console output from a PASSING test — which is
+  // exactly when this warning prints. Captured here the same way.
+  if (process.stderr) {
+    (process.stderr as unknown as { write: unknown }).write = (chunk: string) => {
+      stderr.push(String(chunk));
+      return true;
+    };
+  }
+  console.warn = (chunk: string) => {
+    stderr.push(String(chunk));
+  };
+  if (mode === undefined) delete process.env.E2E_RESET;
+  else process.env.E2E_RESET = mode;
+  try {
+    // biome-ignore lint/security/noGlobalEval: this repo's own emitted source, produced in-process.
+    const run = eval(
+      `(async (bases) => { ${src}; for (const b of bases) await __resetState(b); })`,
+    ) as (b: string[]) => Promise<void>;
+    // AWAITED inside the try: restoring `fetch` and the env in a `finally` that
+    // ran while the promise was still pending is exactly how the first version
+    // of this helper measured the real fetch instead of the stub.
+    await run(bases);
+  } catch (err) {
+    thrown = err;
+  } finally {
+    g.fetch = realFetch;
+    if (realStderr) Object.defineProperty(process, "stderr", realStderr);
+    console.warn = realWarn;
+    if (realEnv === undefined) delete process.env.E2E_RESET;
+    else process.env.E2E_RESET = realEnv;
+  }
+  return { hits, stderr, thrown };
+}
+
+describe("when the reset fires", () => {
+  // This is the contract that changed after measuring it against the repo's own
+  // behavioral corpus: per-TEST isolation turned four checked-in cases red —
+  // among them one named "the second TPH concrete round-trips BESIDE THE
+  // FIRST" — because a `test e2e` block is free to build on rows an earlier
+  // block created, and several do deliberately.  Resetting between blocks
+  // changes what those models MEAN.
+  //
+  // So the default is per-FILE, which is what F3 actually asks for (the suite
+  // starts from the same state every run, so a second `npm test` behaves like
+  // the first) and breaks nothing that passed before.  Per-test stays
+  // available for a suite written to it.
+  const drive = async (mode: string | undefined, bases: string[]) => {
+    const e2e = (await files(WITH_E2E)).get("e2e/Shop.e2e.test.ts")!;
+    return (await driveReset(e2e, mode, bases)).hits;
+  };
+  const LOCAL = "http://localhost:4000";
+
+  it("resets once per target by default, however many blocks run", async () => {
+    expect(await drive(undefined, [LOCAL, LOCAL, LOCAL, LOCAL])).toHaveLength(1);
+    expect(await drive("per-file", [LOCAL, LOCAL, LOCAL])).toHaveLength(1);
+  });
+
+  it("resets before every block when asked", async () => {
+    expect(await drive("per-test", [LOCAL, LOCAL, LOCAL, LOCAL])).toHaveLength(4);
+  });
+
+  it("never resets when switched off", async () => {
+    expect(await drive("off", [LOCAL, LOCAL])).toHaveLength(0);
+  });
+
+  it("counts targets separately — a multi-backend replay resets each once", async () => {
+    // One `test e2e` block replays against every compatible deployable, each
+    // with its own database, so 'once per file' means once per TARGET.
+    const hits = await drive(undefined, [
+      LOCAL,
+      "http://localhost:4001",
+      LOCAL,
+      "http://localhost:4001",
+    ]);
+    expect(hits).toHaveLength(2);
+    expect(hits.some((u) => u.includes(":4000"))).toBe(true);
+    expect(hits.some((u) => u.includes(":4001"))).toBe(true);
+  });
+
+  it("degrades to shared state on a 404 instead of failing the suite", async () => {
+    // 404 is the NORMAL answer from a backend that has not been told the reset
+    // is allowed — and python and java REQUIRE `LOOM_TEST_RESET=1`, so they
+    // answer 404 until someone sets it.  Hard-failing here turned "you did not
+    // opt in" into a suite that could not run at all: it took `behavioral-python`
+    // from green to nearly every case red, each with
+    // `E2E state reset failed: POST … → 404`.
+    //
+    // So a 404 warns once and carries on with what the suite did before the
+    // reset existed.  A 500 is still a fault and still throws.
+    const e2e = (await files(WITH_E2E)).get("e2e/Shop.e2e.test.ts")!;
+    const warned = await driveReset(e2e, "per-test", [LOCAL, LOCAL], 404);
+    expect(warned.thrown, "a 404 must not fail the suite").toBeUndefined();
+    expect(warned.stderr, "…and must say so, once").toHaveLength(1);
+    expect(warned.stderr[0]).toContain("LOOM_TEST_RESET=1");
+
+    const failed = await driveReset(e2e, "per-test", [LOCAL], 500);
+    expect(failed.thrown, "a 500 IS a fault and must surface").toBeDefined();
+  });
+
+  it("cannot itself break the suite when the host has no process.stderr", async () => {
+    // A harness that evaluates the emitted suite with a partial `process` shim
+    // leaves `process.stderr` UNDEFINED. Reaching for `.write` on it threw
+    // "Cannot read properties of undefined" out of the reset and took 59 of
+    // the python behavioral cases down — a diagnostic becoming the fault it
+    // was describing.
+    const e2e = (await files(WITH_E2E)).get("e2e/Shop.e2e.test.ts")!;
+    const real = Object.getOwnPropertyDescriptor(process, "stderr");
+    Object.defineProperty(process, "stderr", { value: undefined, configurable: true });
+    try {
+      const run = await driveReset(e2e, "per-test", [LOCAL], 404);
+      expect(run.thrown, "a missing stderr must not fail the suite").toBeUndefined();
+      // …and the message still lands, via console.
+      expect(run.stderr.join("")).toContain("LOOM_TEST_RESET=1");
+    } finally {
+      if (real) Object.defineProperty(process, "stderr", real);
+    }
+  });
+
+  it("sends nothing to a remote target in any mode", async () => {
+    const remote = "https://staging.example.com";
+    for (const mode of [undefined, "per-file", "per-test"]) {
+      expect(await drive(mode, [remote, remote]), String(mode)).toHaveLength(0);
+    }
+  });
+});
+
+describe("the emitted e2e suite resets state between tests", () => {
+  it("calls the reset at the top of EVERY test body", async () => {
+    const e2e = (await files(WITH_E2E)).get("e2e/Shop.e2e.test.ts")!;
+    // The CALL is emitted in every block; `__resetState` decides whether it
+    // fires (per-file by default, per-test on request).  One runtime switch
+    // beats two emission shapes.
+    const its = [...e2e.matchAll(/^ {2}it\(/gm)];
+    const resets = [...e2e.matchAll(/^ {4}await __resetState\(base\);$/gm)];
+    expect(its).toHaveLength(2);
+    expect(resets).toHaveLength(2);
+    // …and it is the FIRST thing each block does, so no statement can observe
+    // the previous block's rows.
+    for (const block of e2e.split(/^ {2}it\(/m).slice(1)) {
+      const body = block.slice(block.indexOf("\n") + 1);
+      expect(body.trimStart().split("\n").slice(0, 2).join("\n")).toContain("__resetState(base)");
+    }
+  });
+
+  it("emits no reset machinery for a system that declares no e2e tests", async () => {
+    // "The feature off pays nothing" — a system with no `test e2e` block gets
+    // no `e2e/` project, so nothing may leak into the rest of its tree either.
+    const out = await files(SYS());
+    expect([...out.keys()].filter((k) => k.startsWith("e2e/"))).toHaveLength(0);
+    expect(out.get("d/docker-compose.yml") ?? "").not.toContain(TEST_RESET_ENV);
+    expect(out.get("docker-compose.yml")!).not.toContain(TEST_RESET_ENV);
+  });
+});
+
+describe("the reset cannot fire against a non-local target", () => {
+  // This is the constraint that shapes the design: `E2E_D_BASE=https://staging…`
+  // must not truncate staging's database, and must not depend on anyone
+  // remembering a flag.  The gate is derived from the target URL itself.
+  it("says yes to loopback and no to everything else", async () => {
+    const e2e = (await files(WITH_E2E)).get("e2e/Shop.e2e.test.ts")!;
+    const isLoopback = loopbackGate(e2e);
+
+    for (const base of [
+      "http://localhost:4000",
+      "http://LOCALHOST:4000",
+      "http://127.0.0.1:4000",
+      "http://127.0.0.2:4000", // the whole 127.0.0.0/8 block, not one literal
+      "http://127.1.2.3:4000",
+      "http://[::1]:4000",
+      "http://api.localhost:4000", // RFC 6761 reserves .localhost for loopback
+      "https://localhost",
+    ]) {
+      expect(isLoopback(base), `${base} is loopback`).toBe(true);
+    }
+
+    for (const base of [
+      "https://staging.example.com",
+      "https://api.internal.corp:4000",
+      "http://10.0.0.5:4000", // private, but NOT this machine
+      "http://192.168.1.10:4000",
+      "http://db:5432", // a compose service name, reachable only in-network
+      // The near-misses.  Each of these READS as loopback and is not; a
+      // substring or `startsWith` test would hand staging a truncate.
+      "http://localhost.example.com",
+      "http://127.0.0.1.example.com",
+      "http://notlocalhost",
+      "http://evil.com/?x=localhost",
+      "http://evil.com#localhost",
+      "http://user@localhost.evil.com",
+      "not a url at all",
+      "",
+    ]) {
+      expect(isLoopback(base), `${base} is NOT loopback`).toBe(false);
+    }
+  });
+});
+
+describe("the backend only registers the reset route when told to", () => {
+  it("gates registration on an explicit switch with a non-production default", async () => {
+    const http = (await files(WITH_E2E)).get("d/http/index.ts")!;
+    expect(http).toContain(`app.post("${TEST_RESET_PATH}"`);
+    // Registration is wrapped in a runtime `if`, not merely checked inside the
+    // handler: outside a dev profile the PATH DOES NOT EXIST, so a production
+    // deploy answers through the ordinary not-found floor having touched
+    // nothing.
+    const gate = http.slice(0, http.indexOf(`app.post("${TEST_RESET_PATH}"`));
+    expect(gate).toContain(`process.env.${TEST_RESET_ENV} === "1"`);
+    expect(gate).toContain(`process.env.${TEST_RESET_ENV} !== "0"`);
+    expect(gate).toContain(`process.env.NODE_ENV !== "production"`);
+    expect(gate).toMatch(/if \(testResetEnabled\) \{\s*$/m);
+  });
+
+  it("truncates with RESTART IDENTITY CASCADE and preserves the bookkeeping", async () => {
+    const http = (await files(WITH_E2E)).get("d/http/index.ts")!;
+    expect(http).toContain("restart identity cascade");
+    // Discovery is at RUNTIME, so the reset reaches tables the model does not
+    // describe but the backend creates (outbox, projections, the seed marker)
+    // and cannot drift from a migration chain that moved on.
+    expect(http).toContain("from pg_tables");
+    // …while the migration ledger and the scheduler watermark survive it.
+    expect(http).toContain("'drizzle'");
+    expect(http).toContain("'loom_timer_runs'");
+  });
+
+  it.each([
+    ["node", "d/auth/middleware.ts"],
+    ["python", "d/app/auth/middleware.py"],
+    ["dotnet", "d/Auth/UserMiddleware.cs"],
+    ["java", "d/src/main/java/com/loom/d/auth/UserFilter.java"],
+  ])("is reachable without a principal on an auth-bearing %s system", async (platform, path) => {
+    // The reset is infra, the same class as `/health` — an auth-bearing
+    // system's suite must not have to mint a principal just to empty a table.
+    // Bypassing costs nothing: where the route is not registered there is no
+    // handler behind the bypassed path.
+    const out = await files(`
+      system Shop {
+        user { id: string  role: string }
+        subdomain Sales {
+          context Orders {
+            aggregate Order with crudish { code: string }
+            repository Orders for Order {}
+          }
+        }
+        api OrdersApi from Sales
+        storage pg { type: postgres }
+        resource s { for: Orders, kind: state, use: pg }
+        deployable d {
+          platform: ${platform}
+          contexts: [Orders]
+          dataSources: [s]
+          serves: OrdersApi
+          port: 4000
+          auth: required
+        }
+        test e2e "counts only its own rows" against d {
+          api.orders.create({ code: "A" })
+          expect(api.orders.all().total).toBe(1)
+        }
+      }
+    `);
+    const mw = out.get(path)!;
+    // The three spell the list differently (a TS array, a python tuple, a C#
+    // `new[]` initializer over several lines), so the assertion is on the
+    // list REGION rather than one line of it.
+    const start = mw.search(/BYPASS_PREFIXES|BypassPrefixes/);
+    expect(start, `${platform} declares a bypass list`).toBeGreaterThan(-1);
+    // A fixed window, because the three close the list differently (`] as
+    // const;`, `)`, `};`) and there is no one terminator to search for.
+    const region = mw.slice(start, start + 900);
+    expect(region, `${platform} bypasses the reset`).toContain(TEST_RESET_PATH);
+  });
+});
+
+describe("the reset preserves every backend's migration ledger", () => {
+  // Found by running the seam on a SECOND backend, not by reading it.  The
+  // node backend keeps its ledger in a schema of its own
+  // (`drizzle.__drizzle_migrations`), so a schema-level exclusion covered it
+  // and the node runs were all green.  The python backend keeps its in
+  // `public.__loom_migrations`, beside the domain tables — the first python
+  // reset reported `tables: 2` and took the ledger with it.
+  //
+  // Truncating a ledger does not break the RUNNING process, which is what
+  // makes it dangerous: the damage lands on the NEXT boot, as the whole
+  // migration chain replaying against a database that already has it.  So the
+  // exclusion list is shared across backends, and this pins it — naming a
+  // table a given backend does not have costs nothing, forgetting one costs a
+  // corrupted database one restart later.
+  it("excludes the ledger table of all five backends", () => {
+    const sql = resetTableDiscoverySql();
+    for (const ledger of [
+      "__loom_migrations", // python
+      "__EFMigrationsHistory", // .NET / EF Core
+      "schema_migrations", // elixir / Ecto
+      "flyway_schema_history", // java / Flyway
+    ]) {
+      expect(RESET_PRESERVED_TABLES).toContain(ledger);
+      expect(sql).toContain(`'${ledger}'`);
+    }
+    // node / drizzle is the one that IS covered by a schema exclusion.
+    expect(sql).toContain("'drizzle'");
+  });
+
+  it("emits those exclusions into every backend that carries the route", async () => {
+    // `gate` is the line that must WRAP the route, asserted separately from
+    // the route itself: the emitters build the handler unconditionally and
+    // decide only how it is guarded, so a mutation that neuters the guard
+    // leaves the path string in place and an assertion on the path alone
+    // stays green. (Measured — that is exactly what the first version of this
+    // test did.)
+    const backends: Array<{ platform: string; path: string; gate: RegExp }> = [
+      {
+        platform: "node",
+        path: "d/http/index.ts",
+        gate: /if \(testResetEnabled\) \{/,
+      },
+      {
+        platform: "python",
+        path: "d/app/main.py",
+        gate: /^if _TEST_RESET_ENABLED:$/m,
+      },
+      {
+        platform: "dotnet",
+        path: "d/Program.cs",
+        gate: /if \(loomTestReset == "1" \|\| \(loomTestReset != "0" && !app\.Environment\.IsProduction\(\)\)\)/,
+      },
+      {
+        // Phoenix is the one backend whose route is registered
+        // unconditionally — a router is COMPILED, so a `scope` cannot be added
+        // or dropped by an environment variable read at boot.  The refusal
+        // lives in the action instead, and the fallback default is compiled in
+        // (config/prod.exs bakes `false`).  Verified: a `MIX_ENV=prod` build
+        // reports `Application.get_env(:api, :loom_test_reset_default) =>
+        // false`, a dev build `true`.
+        platform: "elixir",
+        path: "d/lib/d_web/controllers/test_reset_controller.ex",
+        gate: /defp enabled\? do/,
+      },
+      {
+        // Java gates in the handler for the same reason as Phoenix — Spring
+        // builds its mappings from the beans present at context refresh, so a
+        // conditional MAPPING means carrying this rule as a SpEL string.  And
+        // like python it has no profile marker the generated app sets, so the
+        // switch is required outright: strictly tighter, never looser.
+        platform: "java",
+        path: "d/src/main/java/com/loom/d/api/TestResetController.java",
+        gate: /if \(!"1"\.equals\(System\.getenv\("LOOM_TEST_RESET"\)\)\) \{/,
+      },
+    ];
+    for (const { platform, path, gate } of backends) {
+      const out = await files(WITH_E2E.replace("platform: node", `platform: ${platform}`));
+      const src = out.get(path)!;
+      expect(src, `${platform} emits the reset`).toContain(TEST_RESET_PATH);
+      expect(src, `${platform} preserves the ledgers`).toContain(resetTableDiscoverySql());
+      expect(src, `${platform} guards the route`).toMatch(gate);
+      // …and the guard reads the shared switch, so the contract is one rule
+      // rather than five spellings that drift apart.
+      expect(src, `${platform} reads ${TEST_RESET_ENV}`).toContain(TEST_RESET_ENV);
+    }
+  });
+});
+
+describe("the reset re-applies seed data", () => {
+  // A reset restores the just-migrated-AND-seeded state, not an empty
+  // database: the truncate takes the seed marker with it, so a suite whose
+  // fixtures assume seeded rows must still find them.
+  //
+  // The java arm of this is pinned by comparing two EMITTED artifacts rather
+  // than a hardcoded string, because that is precisely where it broke: the
+  // controller's import was rebuilt as `<basePkg>.infra.persistence`, while
+  // the runner is actually emitted into `pkgFor("infra-persistence")` —
+  // `infrastructure.persistence` under byLayer, and per-context under
+  // byFeature. A system with NO seeds compiled fine (there was no import to
+  // be wrong); one with seeds failed to compile. Only `gradle compileJava`
+  // caught it, so the property gets a test that cannot drift.
+  const SEEDED = (platform: string) => `
+    system Shop {
+      subdomain Sales {
+        context Orders {
+          aggregate Order with crudish { code: string }
+          repository Orders for Order {}
+          seed default {
+            Order { code: "SEEDED-1" }
+          }
+        }
+      }
+      api OrdersApi from Sales
+      storage pg { type: postgres }
+      resource s { for: Orders, kind: state, use: pg }
+      deployable d {
+        platform: ${platform}
+        contexts: [Orders]
+        dataSources: [s]
+        serves: OrdersApi
+        port: 4000
+      }
+      test e2e "counts only its own rows" against d {
+        api.orders.create({ code: "A" })
+        expect(api.orders.all().total).toBe(2)
+      }
+    }
+  `;
+
+  it.each([
+    ["java"],
+    ["java { directoryLayout: byFeature }"],
+  ])("imports the seed runner from the package it was actually emitted into (%s)", async (platform) => {
+    const out = await files(SEEDED(platform));
+    const runnerPath = [...out.keys()].find((k) => k.endsWith("OrdersSeedRunner.java"));
+    expect(runnerPath, "a seeded java context emits a seed runner").toBeDefined();
+    const declared = /^package (.+);$/m.exec(out.get(runnerPath!)!)?.[1];
+    expect(declared, "the runner declares a package").toBeDefined();
+
+    const ctrl = out.get("d/src/main/java/com/loom/d/api/TestResetController.java")!;
+    expect(ctrl).toContain(`import ${declared}.OrdersSeedRunner;`);
+    expect(ctrl).toContain("this.ordersSeedRunner.run(null);");
+  });
+
+  it.each([
+    ["node", "d/http/index.ts", "await runSeeds(db);"],
+    ["python", "d/app/main.py", "await run_seeds()"],
+  ])("re-applies seeds after truncating on %s", async (platform, path, call) => {
+    const out = await files(SEEDED(platform));
+    expect(out.get(path)!).toContain(call);
+  });
+});
+
+describe("the elixir release bakes its default closed", () => {
+  // Phoenix cannot gate the ROUTE (a router is compiled), so everything rests
+  // on the fallback the build bakes in: `config/prod.exs` must say `false`, or
+  // a `MIX_ENV=prod` release ships a reachable truncate to anyone who can
+  // reach the port. This is the one exclusion no runtime probe of a DEV build
+  // would ever catch, which is why it is pinned here.
+  //
+  // Verified against the real toolchain: `Application.get_env(:api,
+  // :loom_test_reset_default)` reads `false` in a MIX_ENV=prod build and
+  // `true` in a dev build.
+  it.each([
+    ["prod", false],
+    ["dev", true],
+    ["test", true],
+  ])("config/%s.exs bakes loom_test_reset_default: %s", async (env, expected) => {
+    const out = await files(WITH_E2E.replace("platform: node", "platform: elixir"));
+    const cfg = out.get(`d/config/${env}.exs`)!;
+    expect(cfg).toContain(`config :d, loom_test_reset_default: ${expected}`);
+  });
+});
+
+describe("the documented compose recipe opts in by name", () => {
+  it("sets the switch on the backend service, so `npm test` is green twice", async () => {
+    // The generated container image correctly pins NODE_ENV=production — it is
+    // a production image — so without this line the compose stack, which is
+    // the LOCAL dev stack built from it, would have no reset route and the
+    // documented `docker compose up -d && cd e2e && npm test` would be red on
+    // its second run.  That is the whole of F3.
+    const compose = (await files(WITH_E2E)).get("docker-compose.yml")!;
+    const api = compose.slice(compose.indexOf("\n  d:"));
+    expect(api.slice(0, api.indexOf("\n  volumes:"))).toContain(`${TEST_RESET_ENV}: "1"`);
+  });
+});

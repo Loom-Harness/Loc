@@ -255,6 +255,17 @@ modifier matrix in [`language.md`](language.md)):
   `auditable`, `isDeleted` from `softDeletable`, …) are excluded
   regardless of access modifier.
 
+`update` mass-assigns **every** field left after those rules, which is
+worth a moment's thought once the aggregate grows a guarded state-machine
+operation: a `requires`-gated `approve()` that writes `status` guards only
+`POST /{id}/approve`, while `POST /{id}/update {"status":…}` reaches the same
+column at whatever gate the *update* carries.  `immutable` on the field is the
+fix — it drops the field from the update surface while leaving the operation
+free to assign it (see [`auth.md`](auth.md) → "Guarded state transitions").
+Loom raises the advisory `loom.update-gate-suggestion` when it sees the shape;
+it is a `Suggestions:` hint, not an error, because some models really do want
+the field editable both ways.
+
 Pass `with crudish(updateOnly: true)` to emit only `update` — no
 canonical `create`/`destroy`.  Use it when another macro owns the
 create/delete lifecycle, e.g. `with crudish(updateOnly: true),

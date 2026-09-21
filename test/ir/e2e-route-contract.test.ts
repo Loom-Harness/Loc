@@ -40,7 +40,11 @@ import { toLoomModel } from "../_helpers/ir.js";
 import { parseString } from "../_helpers/parse.js";
 
 /** A system whose `Order` carries whatever `orderDecl` spells, plus an e2e
- *  body.  `Order` deliberately has an operation so the non-`create` verbs have
+ *  body.  Every `create({…})` below supplies BOTH `code` and `qty`: they are
+ *  required create input, and a NON-VACUITY control that asserts "zero
+ *  diagnostics" over a body the route would answer 422 to is not proving what
+ *  it says — it was proving the route exists while sending a payload the route
+ *  rejects.  The payload half of `e2e-route-checks.ts` is what surfaced it.  `Order` deliberately has an operation so the non-`create` verbs have
  *  something real to resolve against; `repo` supplies the repository (and any
  *  declared finds) the find/list verbs need. */
 const sys = (orderDecl: string, body: string, opts: { extra?: string; repo?: string } = {}) => `
@@ -114,7 +118,7 @@ describe("e2e route contract — `create`", () => {
 
   it("NON-VACUITY: the same model `with crudish` produces zero diagnostics", async () => {
     expect(
-      await codesFor("Order with crudish", `let o = api.orders.create({ code: "c" })`),
+      await codesFor("Order with crudish", `let o = api.orders.create({ code: "c", qty: 1 })`),
     ).toEqual([]);
   });
 
@@ -129,11 +133,10 @@ describe("e2e route contract — `create`", () => {
 
 describe("e2e route contract — `destroy`", () => {
   it("refuses `destroy` when no canonical destroy is declared", async () => {
-    // `test-checks.ts` already flags this as an unknown METHOD; the route gate
-    // must agree rather than contradict it, so both codes are acceptable —
-    // what must not happen is a clean validation.
-    const codes = await codesFor("Order", `api.orders.destroy("x")`);
-    expect(codes.length).toBeGreaterThan(0);
+    // Exactly ONE diagnostic, and it is the ROUTING one.  `test-checks.ts` used
+    // to flag this as an unknown METHOD as well — two errors for one mistake —
+    // and now defers to the answer that names the fix (`routeContractWillReport`).
+    expect(await codesFor("Order", `api.orders.destroy("x")`)).toEqual(["loom.e2e-unrouted-verb"]);
   });
 
   it("NON-VACUITY: `with crudish` gives it a DELETE route", async () => {
@@ -158,7 +161,7 @@ describe("e2e route contract — the rest of the verb table stays reachable", ()
     expect(
       await codesFor(
         "Order with crudish",
-        `api.orders.bump(api.orders.create({ code: "c" }), { by: 1 })`,
+        `api.orders.bump(api.orders.create({ code: "c", qty: 1 }), { by: 1 })`,
       ),
     ).toEqual([]);
   });

@@ -8,6 +8,7 @@
 
 import { diagMessage } from "../../../diagnostics/messages.js";
 import { descriptorFor } from "../../../platform/metadata.js";
+import { isPrincipalIdTarget } from "../../../util/principal.js";
 import type { AggregateIR, SystemIR, TypeIR } from "../../types/loom-ir.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
 
@@ -129,6 +130,20 @@ function checkIdReference(
     return;
   }
   const target = inner.targetName;
+  // 0. `User id` naming the PRINCIPAL is not a picker target at all.
+  //    `auditable` stamps `createdBy`/`updatedBy: User id` from the request
+  //    principal, which has no `aggregate User` declaration and no rows to
+  //    populate a `<Select>` from — the field is a MANAGED, read-only
+  //    stamped identity, excluded from every create/update input by
+  //    `forApiRead`/`forApiWrite` and rendered as plain text.  All three
+  //    invariants below are picker preconditions, so none of them applies:
+  //    demanding an aggregate named `User` (with a `derived display`!) asks
+  //    the author to turn their authentication principal into a CRUD
+  //    aggregate to satisfy a form field that is never rendered as a form
+  //    field.  Guarded on the principal name being UNCLAIMED — a model that
+  //    really declares `aggregate User` gets the ordinary aggregate
+  //    treatment, since lowering resolves the reference to it.
+  if (isPrincipalIdTarget(target, (n) => allAggregates.has(n))) return;
   // 1. Target aggregate must exist somewhere in the system.
   const agg = allAggregates.get(target);
   if (!agg) {

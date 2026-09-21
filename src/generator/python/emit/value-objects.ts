@@ -28,12 +28,12 @@ function collectBlockStmtExprImports(st: StmtIR, into: Set<string>): void {
 // name == wire value, parity with the other backends' string-coded
 // enums) + value objects as plain classes with constructor-enforced
 // invariants, `@property` per derived, and a public method per
-// `function` (VO functions are cross-boundary surface, so no `_`
-// prefix — see render-expr.ts's `fnPrefix`).
+// `function` (VO functions are cross-boundary surface — as aggregate
+// functions now are too, so there is no prefix seam left to cancel).
 // ---------------------------------------------------------------------------
 
-/** Render context for VO bodies: public method spelling for functions. */
-const VO_CTX = { thisName: "self", fnPrefix: "" };
+/** Render context for VO bodies. */
+const VO_CTX = { thisName: "self" };
 
 export function renderPyEnumsAndValueObjects(ctx: BoundedContextIR): string {
   const types = emptyPyTypeImports();

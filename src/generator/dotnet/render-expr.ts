@@ -271,7 +271,7 @@ const CS_TARGET: ExprTarget<CsRenderContext> = {
   unary: (op, operand) => `${op}${operand}`,
   binary: (left, right, e) => renderCsBinary(left, right, e, false),
   ternary: (cond, then, otherwise) => `${cond} ? ${then} : ${otherwise}`,
-  convert: (value, e) => renderCsConvert(e.target, e.from, value),
+  convert: (value, e) => renderCsConvert(e.target, e.from, value, nullableValueOperand(e)),
   // Transparent i18n wrapper (M-T1.11) — drop the format, emit the operand.
   i18nFormat: (inner) => inner,
   // A5 temporal: a Loom ABSOLUTE duration value is a `TimeSpan` on this
@@ -612,7 +612,52 @@ function staticScalarTypeOf(e: ExprIR): string | null {
  *   money(x: int|long)        → `(decimal)x`
  *   money(x: decimal)         → `x`               (no-op)
  */
-function renderCsConvert(target: string, from: string | undefined, v: string): string {
+/** The declared IR type of an access-shaped operand, where the node carries
+ *  one.  Only used to spot a NULLABLE operand below; anything else answers
+ *  `undefined` and the conversion renders exactly as it always has. */
+function operandType(e: ExprIR): TypeIR | undefined {
+  if (e.kind === "ref") return e.type;
+  if (e.kind === "member") return e.memberType;
+  if (e.kind === "paren") return operandType(e.inner);
+  return undefined;
+}
+
+/** Is this `convert` reading an OPTIONAL operand that C# models as
+ *  `Nullable<T>`, on one of the arms below that passes an `IFormatProvider`?
+ *
+ *  `Nullable<T>` forwards `ToString()` but NOT `ToString(IFormatProvider)` —
+ *  that overload lives on the underlying value type, so `someInt.ToString(inv)`
+ *  on an `int?` is **CS1501: No overload for method 'ToString' takes 1
+ *  arguments** and the project does not build.  Unwrapping with `.Value` is
+ *  sound because every emitter that converts an optional to a string does it
+ *  inside a presence guard (the synthesized `inspect` ternary is the first);
+ *  reaching it with a null means the guard is broken, which should throw rather
+ *  than print an empty string.
+ *
+ *  Reference-typed arms (`string`, id records, enums) are excluded: they take
+ *  the bare `ToString()` path, which `Nullable<T>` does forward, and `string?`
+ *  has no `.Value` at all. */
+function nullableValueOperand(e: Extract<ExprIR, { kind: "convert" }>): boolean {
+  if (e.target !== "string") return false;
+  if (
+    e.from !== "decimal" &&
+    e.from !== "money" &&
+    e.from !== "int" &&
+    e.from !== "long" &&
+    e.from !== "datetime"
+  ) {
+    return false;
+  }
+  return operandType(e.value)?.kind === "optional";
+}
+
+function renderCsConvert(
+  target: string,
+  from: string | undefined,
+  v: string,
+  nullableValue = false,
+): string {
+  if (nullableValue) v = `${v}.Value`;
   if (target === "string") {
     // CA1305: numeric / decimal / datetime ToString needs an IFormatProvider
     // so generated code doesn't drift on a non-en-US machine.  Other types

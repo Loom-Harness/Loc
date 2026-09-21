@@ -265,7 +265,7 @@ export function makeWireGate(backend, workDir) {
  *  dispatch chokepoint so request N is captured on every backend identically;
  *  the ordinal is the alignment key (ids are not — they differ per run). */
 export function recorderPreamble() {
-  return `import { toWireEntry as __toWireEntry } from ${JSON.stringify(join(REPO, "test/_helpers/wire-record.ts"))};
+  return `import { toWireEntry as __toWireEntry, isInfraRequest as __isInfraRequest } from ${JSON.stringify(join(REPO, "test/_helpers/wire-record.ts"))};
 const __wire = [];
 // The raw URLs, kept beside the recording rather than derived from it: the
 // recorded \`path\` is TEMPLATED (\`/api/x/{id}\`), which is right for aligning
@@ -283,7 +283,10 @@ const __record = (dispatch) => {
     const out = await dispatch(req);
     try {
       const r = out?.response;
-      if (r) {
+      // The emitted suite calls the dev-only state reset before every test.
+      // It is infra, not the domain wire, and recording it would put an extra
+      // entry in front of every block and shift every seq after it.
+      if (r && !__isInfraRequest(req.url)) {
         __urls.push(req.url);
         for (const [k, v] of Object.entries(req.headers ?? {})) {
           if (!/^content-(type|length)$/i.test(k)) __authHeaders[k] = v;

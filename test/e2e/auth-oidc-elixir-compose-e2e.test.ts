@@ -4,6 +4,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { declareRunPrecondition } from "./support/run-precondition.js";
 
 // ---------------------------------------------------------------------------
 // FULL-COMPOSE OIDC runtime e2e on the Phoenix backend (D-AUTH-OIDC).  The
@@ -43,7 +44,12 @@ function hasComposeDocker(): boolean {
   }
 }
 
-const RUN = ENABLED && hasComposeDocker();
+const RUN = declareRunPrecondition({
+  suite: "auth OIDC e2e (elixir, compose)",
+  gate: "LOOM_AUTH_E2E_PHOENIX=1",
+  enabled: ENABLED,
+  requirements: [{ name: "a reachable docker daemon with compose", ok: hasComposeDocker() }],
+});
 
 // The generated compose pins host ports (the turnkey defaults): the Phoenix
 // backend on 4000, Keycloak on 8081 with issuer host.docker.internal:8081.

@@ -7,6 +7,7 @@ import type {
   FieldIR,
   TestIR,
   TestStmtIR,
+  TypeIR,
   ValueObjectIR,
 } from "../../../ir/types/loom-ir.js";
 import { operationBodyUsesCurrentUser } from "../../../ir/util/op-gates.js";
@@ -14,6 +15,8 @@ import { lines } from "../../../util/code-builder.js";
 import { intrinsicMatcherSig } from "../../../util/intrinsic-matchers.js";
 import { escapeJavaIdent, upperFirst } from "../../../util/naming.js";
 import { isServerSourcedDefault } from "../../_frontend/server-default.js";
+import { coerceTestLiteral, type TestLiteralTarget } from "../../_test/arg-coercion.js";
+import { THROW_KIND_PREFIX } from "../../_test/throw-kind.js";
 import { jid } from "../java-ident.js";
 import { collectJavaExprImports, collectJavaTypeImports, renderJavaExpr } from "../render-expr.js";
 import { stubUserValue } from "./auth.js";
@@ -144,7 +147,7 @@ function renderTest(
       .replace(/[^A-Za-z0-9]+/g, "_")
       .replace(/^_+|_+$/g, "")
       .replace(/^([0-9])/, "_$1") || "test";
-  const body = t.statements.flatMap((s) => renderTestStmt(s, ctx, imports, state));
+  const body = t.statements.flatMap((s, i) => renderTestStmt(s, ctx, imports, state, i));
   return [
     `    @Test`,
     `    @DisplayName(${JSON.stringify(t.name)})`,
@@ -163,28 +166,31 @@ function renderTest(
  *  `UUID.fromString` first, since `record CustomerId(UUID value)`) and
  *  `datetime` (`Instant.parse`).  Mirrors wire.ts's `wireToDomain`, but from a
  *  raw literal rather than a wire value. */
+/** Java leaves for the shared rule.  Closes over the file's import set so an
+ *  emitted `UUID` / `Instant` brings its import with it. */
+function javaTestLiteral(imports: Set<string>): TestLiteralTarget {
+  return {
+    id: (rendered, targetName, valueType) => {
+      if (valueType === "guid") {
+        imports.add("java.util.UUID");
+        return `new ${targetName}Id(UUID.fromString(${rendered}))`;
+      }
+      return `new ${targetName}Id(${rendered})`;
+    },
+    datetime: (rendered) => {
+      imports.add("java.time.Instant");
+      return `Instant.parse(${rendered})`;
+    },
+  };
+}
+
 function coerceLiteralToJavaType(
-  type: { kind: string; name?: string; targetName?: string; valueType?: string },
+  type: TypeIR | undefined,
   v: ExprIR,
   rendered: string,
   imports: Set<string>,
 ): string {
-  // Only a raw STRING literal needs coercion — `now` renders as `Instant.now()`
-  // (already the target type), a ref is already typed, etc.  Wrapping those in
-  // `Instant.parse(...)` / an Id ctor would break them.
-  if (v.kind !== "literal" || v.lit !== "string") return rendered;
-  if (type.kind === "id" && type.targetName) {
-    if (type.valueType === "guid") {
-      imports.add("java.util.UUID");
-      return `new ${type.targetName}Id(UUID.fromString(${rendered}))`;
-    }
-    return `new ${type.targetName}Id(${rendered})`;
-  }
-  if (type.kind === "primitive" && type.name === "datetime") {
-    imports.add("java.time.Instant");
-    return `Instant.parse(${rendered})`;
-  }
-  return rendered;
+  return coerceTestLiteral(type, v, rendered, javaTestLiteral(imports));
 }
 
 /** `x.op(args)` on an aggregate receiver → the same call with each arg coerced
@@ -318,6 +324,9 @@ function renderTestStmt(
   ctx: BoundedContextIR,
   imports: Set<string>,
   state: TestEmitState,
+  /** Position in the enclosing test body — only used to mint a collision-free
+   *  local for a `toThrow(<kind>)` assertion's bound exception. */
+  index = 0,
 ): string[] {
   // Only expect / expect-throws / let / expression / call survive the IR
   // validator (validateAggregateTestBodies).
@@ -335,6 +344,26 @@ function renderTestStmt(
         renderOperationCall(s.expr, ctx, imports) ?? render(s.expr, imports),
         state,
       );
+    // `toThrow(<kind>)` — bind the thrown `DomainException` and assert the
+    // rung's derived message prefix on it.  `assertThrows` already RETURNS the
+    // exception, so the rung costs one local and one assertion; the local is
+    // suffixed with the statement index so several throw assertions in one
+    // test body don't collide.
+    if (s.throwKind) {
+      // `assertTrue` needs no import bookkeeping — the module shell already
+      // emits `import static org.junit.jupiter.api.Assertions.*;`.
+      const local = `__thrown${index}`;
+      return [
+        `        DomainException ${local} = assertThrows(DomainException.class, () -> ${expr});`,
+        `        assertTrue(${local}.getMessage().startsWith(${JSON.stringify(
+          THROW_KIND_PREFIX[s.throwKind],
+        )}),`,
+        `            ${JSON.stringify(
+          `expected ${s.throwKind === "invariant" ? "an" : "a"} ${s.throwKind} to reject ` +
+            "this call, but it threw: ",
+        )} + ${local}.getMessage());`,
+      ];
+    }
     return [`        assertThrows(DomainException.class, () -> ${expr});`];
   }
   if (s.kind === "let") {

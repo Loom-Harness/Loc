@@ -333,6 +333,56 @@ lifecycleLog.LogInformation("{Event} port={Port} env={Env}", "server_starting", 
         lifecycleLog.LogInformation("{Event}", "server_drained"));
 }
 
+// Dev-only state reset for the emitted e2e suite.  Mapped ONLY outside a
+// production profile (or with LOOM_TEST_RESET=1), so this surface does not
+// exist in a real deployment.  See docs/tools.md.
+var loomTestReset = System.Environment.GetEnvironmentVariable("LOOM_TEST_RESET");
+if (loomTestReset == "1" || (loomTestReset != "0" && !app.Environment.IsProduction()))
+{
+    app.MapPost("/__loom/test-reset", async (AppDbContext db, IServiceProvider sp, CancellationToken cancellationToken) =>
+    {
+        var conn = db.Database.GetDbConnection();
+        if (conn.State != System.Data.ConnectionState.Open)
+        {
+            await conn.OpenAsync(cancellationToken);
+        }
+        // Tables are discovered at runtime, so the reset also reaches what the
+        // model does not describe but the backend creates (the outbox,
+        // materialized projections, the seed marker) and cannot drift from a
+        // migration chain that has moved on.  Every backend's migration ledger
+        // is excluded — losing one replays the whole chain on the next boot.
+        var targets = new System.Collections.Generic.List<string>();
+        await using (var find = conn.CreateCommand())
+        {
+            find.CommandText = "select schemaname, tablename from pg_tables where schemaname not in ('pg_catalog', 'information_schema', 'pgboss', 'drizzle') and tablename not in ('loom_timer_runs', '__loom_migrations', '__EFMigrationsHistory', 'schema_migrations', 'flyway_schema_history')";
+            await using var reader = await find.ExecuteReaderAsync(cancellationToken);
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                targets.Add($"\"{reader.GetString(0)}\".\"{reader.GetString(1)}\"");
+            }
+        }
+        if (targets.Count > 0)
+        {
+            // One statement for the whole set: CASCADE must see every table at
+            // once or a foreign key makes the order significant, and RESTART
+            // IDENTITY puts sequences back so a generated id is stable across
+            // runs.
+            await using var truncate = conn.CreateCommand();
+            truncate.CommandText =
+                $"truncate table {string.Join(", ", targets)} restart identity cascade";
+            await truncate.ExecuteNonQueryAsync(cancellationToken);
+        }
+        _ = sp;
+        return Results.Ok(new { status = "reset", tables = targets.Count });
+    // ExcludeFromDescription() keeps this out of the OpenAPI contract.  ASP.NET
+    // documents a MapPost by default, and that document is what the 5-way
+    // parity cross-check compares — so without this the reset shows up as an
+    // operation only .NET has, which is exactly how it was caught.  The other
+    // backends spell the same exclusion their own way (FastAPI
+    // include_in_schema=False, springdoc @Hidden); node and elixir derive their
+    // documents from the model, so neither ever sees this route.
+    }).ExcludeFromDescription();
+}
 // Liveness probe — cheap, no I/O.  K8s livenessProbe / docker-compose
 // healthcheck use this to decide "is the process alive?".  A DB blip
 // must NOT mark the pod not-alive (that restarts the container and

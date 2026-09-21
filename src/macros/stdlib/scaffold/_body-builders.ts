@@ -29,6 +29,7 @@ import type {
 import { aggregateServesHistory } from "../../../util/audit-ast.js";
 import { AUDIT_HISTORY_FIND } from "../../../util/audit-names.js";
 import { plural, snake, upperFirst } from "../../../util/naming.js";
+import { PRINCIPAL_TYPE_NAME } from "../../../util/principal.js";
 import { PROVENANCE_VALUE_FIELD } from "../../../util/provenance-carrier.js";
 import {
   binaryExpr,
@@ -1024,6 +1025,30 @@ function kindForType(type: TypeRef, voAsText: boolean): ColumnKind | null {
   if (type.array) return null; // arrays have no scalar cell
   const base = type.base;
   if (base.$type === "IdType") {
+    // `User id` naming the PRINCIPAL is not a navigable reference.  An `id`
+    // cell/row renders as `IdLink(of: <Agg>)`, whose markup is a link to the
+    // aggregate's conventional `/<plural-snake>/{id}` detail route — but the
+    // principal has no `aggregate User`, so no `/users` route is ever
+    // registered and `auditable`'s `createdBy`/`updatedBy` link straight into
+    // the router's catch-all.  (Live today on a checked-in model:
+    // `docs/audits/models/claimshub-v3.ddd` emits eight `/users/${…}` links
+    // across its list and detail pages.)  Render it for what it is instead —
+    // a managed, read-only stamped identity — as plain text.
+    //
+    // An UNRESOLVED ref whose text is the principal name is the exact
+    // discriminator lowering itself uses (`lowerBase`'s PRINCIPAL_TYPE_NAME
+    // arm): a model that really declares `aggregate User` resolves `ref` and
+    // keeps the ordinary aggregate treatment, link and all.
+    //
+    // Trade-off, deliberate: `Text` prints the id verbatim where `IdLink`
+    // truncated it through the pack's `IdValue` helper.  A non-navigable
+    // truncated-id primitive would be the nicer rendering, but there is no
+    // such walker primitive today and adding one spans all six frontend
+    // targets plus every design pack — disproportionate here, and tracked
+    // separately.  A verbatim id beats a link to a route nothing serves.
+    if (!base.target.ref && base.target.$refText === PRINCIPAL_TYPE_NAME) {
+      return { tag: "text" };
+    }
     return { tag: "id", targetName: base.target.ref?.name ?? base.target.$refText };
   }
   if (base.$type === "PrimitiveType") {
