@@ -2,7 +2,7 @@
 
 Page bodies are written in a **closed primitive library** — 56 top-level primitives (`Stack`, `Heading`, `Field`, `Table`, `CreateForm`, `QueryView`, `Chart`, `For`, …) plus the two sub-elements `Tab` and `Column`, and the `match` expression. There is no escape hatch to raw markup; every primitive is dispatched by the body walker into the page's active **design pack**, so one `.ddd` body renders as Mantine, shadcn, Vuetify, Angular Material, daisyUI (Feliz), Material 3 (Flutter) or HEEx depending on the hosting frontend. Reach for this chapter to see what each primitive takes, what it emits, and where a target honestly declines.
 
-> **Grammar:** primitives are `BuilderCall`s whose names come from the registry `src/generator/_walker/registry.ts` (`WALKER_PRIMITIVES`), mirrored for the validator by `src/util/walker-primitive-names.ts` (`WALKER_LAYOUT_PRIMITIVES`, `WALKER_SUB_PRIMITIVES`, `WALKER_PRIMITIVE_SLOTS`) and `src/util/walker-primitive-args.ts` (`WALKER_PRIMITIVE_NAMED_ARGS`) · **Validators:** `loom.unknown-page-element` · `loom.unresolved-page-ref` · `loom.page-primitive-unknown-arg` · `loom.page-primitive-extra-children` · `loom.sub-primitive-misplaced` · `loom.slot-outside-component` · `loom.component-prop-type` · `loom.a11y-missing-alt` · `loom.a11y-icon-only-no-name` · `loom.file-upload-not-file-field` · `loom.frontend-collection-op-unsupported` · `loom.user-visible-concat` · `loom.chart-kind-invalid` · `loom.chart-of-not-grouped` · `loom.chart-accessor-not-field` · `loom.datagrid-selection-not-state` · `loom.datagrid-selection-not-array` · `loom.table-filter-server-paged` · `loom.op-form-needs-route-id` · `loom.destroy-form-of-unresolved` · `loom.create-unknown-field` · `loom.create-server-field` · `loom.create-field-type` · per-target: `loom.datagrid-unsupported-target` · `loom.chart-unsupported-target` · `loom.table-filter-unsupported` · `loom.modal-controlled-op-form-unsupported` · `loom.flutter-primitive-unsupported` · **Docs:** [`../page-metamodel.md`](../page-metamodel.md) §9, [`../design-packs.md`](../design-packs.md), [`../actions.md`](../actions.md)
+> **Grammar:** primitives are `BuilderCall`s whose names come from the registry `src/generator/_walker/registry.ts` (`WALKER_PRIMITIVES`), mirrored for the validator by `src/util/walker-primitive-names.ts` (`WALKER_LAYOUT_PRIMITIVES`, `WALKER_SUB_PRIMITIVES`, `WALKER_PRIMITIVE_SLOTS`) and `src/util/walker-primitive-args.ts` (`WALKER_PRIMITIVE_NAMED_ARGS`) / `src/util/walker-primitive-arg-values.ts` (`WALKER_PRIMITIVE_ARG_VALUES`) · **Validators:** `loom.unknown-page-element` · `loom.unresolved-page-ref` · `loom.page-primitive-unknown-arg` · `loom.page-primitive-unknown-arg-value` · `loom.page-primitive-extra-children` · `loom.sub-primitive-misplaced` · `loom.slot-outside-component` · `loom.component-prop-type` · `loom.a11y-missing-alt` · `loom.a11y-icon-only-no-name` · `loom.file-upload-not-file-field` · `loom.frontend-collection-op-unsupported` · `loom.user-visible-concat` · `loom.chart-kind-invalid` · `loom.chart-of-not-grouped` · `loom.chart-accessor-not-field` · `loom.datagrid-selection-not-state` · `loom.datagrid-selection-not-array` · `loom.table-filter-server-paged` · `loom.op-form-needs-route-id` · `loom.destroy-form-of-unresolved` · `loom.create-unknown-field` · `loom.create-server-field` · `loom.create-field-type` · per-target: `loom.datagrid-unsupported-target` · `loom.chart-unsupported-target` · `loom.table-filter-unsupported` · `loom.modal-controlled-op-form-unsupported` · `loom.flutter-primitive-unsupported` · **Docs:** [`../page-metamodel.md`](../page-metamodel.md) §9, [`../design-packs.md`](../design-packs.md), [`../actions.md`](../actions.md)
 
 Every output block below is **real generated output** from one fixture — a `ui Web` with the pages shown, bound to seven deployables: `react` (Mantine v9, the default pack), `vue` (Vuetify), `svelte` (shadcnSvelte), `angular` (Angular Material), `feliz`, `flutter`, and a self-hosting `elixir` deployable (Phoenix LiveView, `coreComponents`). The `frontend` tab group carries the four static-bundle frontends; Feliz, Flutter and HEEx output follows as plain blocks where it diverges. A second `react` deployable pinned `design: shadcn` drives the `pack` tabs.
 
@@ -76,6 +76,7 @@ Because every emitter reads args by name and by slot index, anything outside the
 ```ddd
 Stat { "a", 1, Text { "x" } }        // loom.page-primitive-extra-children — Stat takes 2 (label and value)
 Card { title: "x", Text { "y" } }    // loom.page-primitive-unknown-arg — Card has no `title:`
+Button { "Save", variant: "filled" } // loom.page-primitive-unknown-arg-value — primary | secondary | ghost
 Text { "x", style: "red" }           // loom.page-primitive-unknown-arg#style-not-object — style: takes { … }
 Stack { Tab { "x", Text { "y" } } }  // loom.sub-primitive-misplaced — Tab only inside Tabs
 Stack { Heding { "x" } }             // loom.unknown-page-element (+ loom.unknown-builder-type)
@@ -87,6 +88,22 @@ Heading { "Order " + n }             // loom.user-visible-concat — use `Order 
 Stat { "n", rows.count }             // loom.frontend-collection-op-unsupported — compute it server-side
 Box { title: 3 }                     // loom.component-prop-type — the component's `title: string` prop got an int
 ```
+
+### Closed-vocabulary argument values
+
+A handful of named arguments take a fixed set of strings rather than free text. They are listed in `src/util/walker-primitive-arg-values.ts` and enforced by `loom.page-primitive-unknown-arg-value`:
+
+| Argument | Accepted | What an unrecognised value used to render |
+| --- | --- | --- |
+| `Button { variant: }` | `primary` · `secondary` · `ghost` | `ghost` — a borderless text button |
+| `Button { iconPosition: }` | `left` · `right` | `right` |
+| `Card { variant: }` | `raised` · `flat` · `outline` | `flat` |
+
+The gate matters more than the vocabulary. Every pack template is an `{{#if (eq variant "primary")}}…{{else}}ghost{{/if}}` chain, so an unrecognised value was not dropped — it fell to the last arm and rendered as a deliberate-looking ghost button, on every frontend, with no diagnostic. This page itself carried `Button { "Save", variant: "filled" }` with `<Button variant="subtle">` printed underneath as the expected output.
+
+The vocabularies are pinned against both rendering families by `test/language/type-system/walker-primitive-arg-values.test.ts`: each row must equal the HEEx packs' `attr :<arg>, :string, values: [...]` declaration (a compile-time constraint on that target) and must cover every value the JSX/SFC packs branch on. Arguments with no single agreed vocabulary — `Card { shadow: }`, `size:` — are deliberately left open; the table says why.
+
+Only a string LITERAL is checked. A value computed at runtime (`variant: rank`) is not refused, since this layer cannot evaluate it.
 
 `Form { … }`, `scaffoldList { … }`, `Dashboard`, `Review`, `Select`, `Fieldset` are **not** primitives (`loom.unknown-page-element`) — the form family is the four named leaves below, and list/detail pages come from `scaffold` ([15](15-ui-pages-structure.md)).
 
@@ -206,7 +223,7 @@ The remaining surfaces — `Section`, `Paper`, `Sticky`, `Toolbar`, `Breadcrumbs
 body: Stack {
   Section { Heading { "Typography", level: 2 }, Text { "Plain text" }, id: "typography" },
   Paper { Alert { "Saved.", title: "Done", color: "green" }, padding: "md" },
-  Sticky { Toolbar { Button { "Save", variant: "filled" }, label: "Actions" }, top: 0 },
+  Sticky { Toolbar { Button { "Save", variant: "primary" }, label: "Actions" }, top: 0 },
   Breadcrumbs { Anchor { "Home", to: "/" }, Text { "Display" } },
   Tabs {
     Tab { "Overview", Text { "Overview body" } },
@@ -228,7 +245,7 @@ body: Stack {
 </Paper>
 <Box pos="sticky" top="0" style={{ zIndex: 100 }}>
   <Group justify="space-between" role="toolbar" aria-label={t("page.Display.toolbarAria.rx51qc", "Actions")}>
-    <Button variant="subtle">{t("page.Display.button.lewgh4", "Save")}</Button>
+    <Button variant="filled">{t("page.Display.button.lewgh4", "Save")}</Button>
   </Group>
 </Box>
 <Breadcrumbs>
@@ -256,7 +273,7 @@ body: Stack {
 </v-card>
 <div style="position: sticky; top: 0; z-index: 100">
   <div class="d-flex align-center justify-space-between ga-3" role="toolbar" :aria-label='t("page.Display.toolbarAria.rx51qc", "Actions")'>
-    <v-btn variant="text">{{ t("page.Display.button.lewgh4", "Save") }}</v-btn>
+    <v-btn color="primary" variant="flat">{{ t("page.Display.button.lewgh4", "Save") }}</v-btn>
   </div>
 </div>
 <nav :aria-label='t("pack.vuetify.breadcrumbsLandmark.dfc3fw", "Breadcrumb")' class="loom-breadcrumbs d-flex align-center ga-2 text-body-2 mb-2">
@@ -286,7 +303,7 @@ body: Stack {
 </div>
 <div style="position: sticky; top: 0; z-index: 100">
   <div class="flex flex-row items-center justify-between gap-4" role="toolbar" aria-label={t("page.Display.toolbarAria.rx51qc", "Actions")}>
-    <button type="button" class="loom-btn loom-btn-ghost">{t("page.Display.button.lewgh4", "Save")}</button>
+    <button type="button" class="loom-btn loom-btn-primary">{t("page.Display.button.lewgh4", "Save")}</button>
   </div>
 </div>
 <nav class="flex items-center gap-2 text-sm text-muted-foreground">
@@ -312,7 +329,7 @@ body: Stack {
 </div>
 <div style="position: sticky; top: 0; z-index: 100">
   <div class="loom-toolbar" role="toolbar" [attr.aria-label]='t("page.Display.toolbarAria.rx51qc", "Actions")'>
-    <button mat-button>{{ t("page.Display.button.lewgh4", "Save") }}</button>
+    <button mat-raised-button>{{ t("page.Display.button.lewgh4", "Save") }}</button>
   </div>
 </div>
 <nav class="loom-breadcrumbs">
@@ -340,7 +357,7 @@ Phoenix renders the same page through the app's function components (`<.card>`, 
 </.card>
 <div style="position: sticky; top: 0; z-index: 100">
   <div class="flex flex-row items-center justify-between gap-4" aria-label={pgettext("page.Display.toolbarAria.rx51qc", "Actions")} role="toolbar">
-    <.button variant="filled"><%= pgettext("page.Display.button.lewgh4", "Save") %></.button>
+    <.button variant="primary"><%= pgettext("page.Display.button.lewgh4", "Save") %></.button>
   </div>
 </div>
 <div class="tabs">

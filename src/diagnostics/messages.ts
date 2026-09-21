@@ -2794,6 +2794,20 @@ export const DIAGNOSTIC_MESSAGES = {
     `catalog either, so translators cannot even see it went missing).  On a fixed-slot ` +
     `primitive it also DISPLACES the positional the content was meant to fill ` +
     `(\`Tab { title: "One", … }\` renders as "Tab 1").  ${p.known}`,
+  "loom.page-primitive-unknown-arg-value": (p: {
+    name: unknown;
+    arg: unknown;
+    value: unknown;
+    known: unknown;
+    fallback: unknown;
+  }) =>
+    `\`${p.name}\`'s \`${p.arg}: ${JSON.stringify(p.value)}\` is not one of the values that ` +
+    `argument accepts (${p.known}).  This is a CLOSED vocabulary, and an unrecognised value is ` +
+    `not dropped — every design pack renders its \`${p.fallback}\` default instead, on every ` +
+    `frontend, with nothing to say so.  A primary action written this way ships looking like ` +
+    `plain text.  On Phoenix the same value is a COMPILE error, because the pack's function ` +
+    `component declares the identical list as an \`attr … values:\` constraint — so the value ` +
+    `is wrong on every target; only the JSX packs kept quiet about it.`,
   "loom.page-primitive-unknown-arg#style-not-object": (p: { where: unknown; name: unknown }) =>
     `\`${p.name}\`'s \`style:\` takes an OBJECT LITERAL of CSS declarations ` +
     `(\`style: { padding: "1rem" }\`).  Any other expression is dropped during lowering, so ` +

@@ -1305,6 +1305,26 @@ system S {
   deployable api { platform: node contexts: [C] dataSources: [st] serves: Api port: 3000 }
   deployable web { platform: static targets: api ui: WebApp { C: api } port: 3001 }
 }`,
+  // A closed-vocabulary argument VALUE: `variant:` accepts primary/secondary/
+  // ghost, and every pack's template falls to `ghost` for anything else — so
+  // `"filled"` (the value this repo's own primitive reference used) rendered a
+  // borderless text button where a primary action was written.
+  "loom.page-primitive-unknown-arg-value": `
+system S {
+  subdomain Sub { context C {
+    aggregate Thing with crudish { name: string }
+  } }
+  api Api from Sub
+  ui WebApp {
+    framework: react
+    api C: Api
+    page Home { route: "/"  body: Button { "Save", variant: "filled" } }
+  }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable api { platform: node contexts: [C] dataSources: [st] serves: Api port: 3000 }
+  deployable web { platform: static targets: api ui: WebApp { C: api } port: 3001 }
+}`,
   // The scaffolded list filter bar renders `string`/`guid`/`datetime`/`int`/
   // `long`/`bool`/`<X> id` params; an `enum` one is dropped whole (the FRONTEND
   // state emitters type an enum state as bare `string` while the query param is
