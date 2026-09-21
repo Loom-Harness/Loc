@@ -14,6 +14,11 @@
 import type { UiIR } from "../../../ir/types/loom-ir.js";
 import { AUTH_BASE_PATH } from "../../../util/api-base.js";
 import { lines } from "../../../util/code-builder.js";
+import {
+  resetTableDiscoverySql,
+  TEST_RESET_ENV,
+  TEST_RESET_PATH,
+} from "../../../util/test-reset.js";
 import type { LoadedPack } from "../../_packs/loader.js";
 import { packChromeCatalog } from "../../_packs/pack-chrome.js";
 import type { ApiRoute } from "../api-emit.js";
@@ -288,6 +293,10 @@ export function emitVanillaShellFiles(
   out.set(
     `lib/${appName}_web/controllers/metrics_controller.ex`,
     renderVanillaMetricsController(appModule),
+  );
+  out.set(
+    `lib/${appName}_web/controllers/test_reset_controller.ex`,
+    renderVanillaTestResetController(appName, appModule, seedModules),
   );
   out.set(
     "config/config.exs",
@@ -894,6 +903,13 @@ ${browserPipeline}${spaPipeline}
   scope "/metrics" do
     get "/", ${appModule}Web.MetricsController, :index
   end
+
+  # Dev-only state reset for the emitted e2e suite (src/util/test-reset.ts).
+  # Outside :api on purpose — infra, like the probes above, so an auth-bearing
+  # system's e2e suite need not mint a principal just to empty a table.
+  scope "${TEST_RESET_PATH}" do
+    post "/", ${appModule}Web.TestResetController, :reset
+  end
 ${rootApiScope}${sseBlock}${liveScope}${authScope}${spaScope}
   scope "/api", ${appModule}Web do
     pipe_through :api
@@ -1178,6 +1194,106 @@ end
 `;
 }
 
+/**
+ * The dev-only state reset (`src/util/test-reset.ts`), Phoenix flavour.
+ *
+ * THE ONE PLACE THIS BACKEND DIVERGES FROM THE OTHER FOUR, and deliberately.
+ * There the route is not REGISTERED unless the switch is on, so the path does
+ * not exist at all.  A Phoenix router is COMPILED, and a release is built once
+ * and run in whatever environment it lands in, so a `scope` cannot be added or
+ * dropped by an environment variable read at boot — the route is always
+ * defined and the ACTION refuses instead, answering the same 404 having
+ * touched nothing.
+ *
+ * The property that matters is unchanged: a request against a production
+ * deployment truncates nothing.  And the default it falls back to is compiled
+ * IN — `config/prod.exs` bakes `loom_test_reset_default: false`, so a release
+ * built with `MIX_ENV=prod` cannot reach the truncate at all without someone
+ * setting `LOOM_TEST_RESET=1` on purpose.  What is lost is only that the path
+ * exists to 404 at rather than being absent.
+ */
+function renderVanillaTestResetController(
+  appName: string,
+  appModule: string,
+  seedModules: readonly string[],
+): string {
+  const seedCalls =
+    seedModules.length > 0
+      ? `
+    # The truncate took the seed marker with it, so this re-applies the
+    # declared seed data: a reset restores the just-migrated-AND-seeded
+    # state, not an empty database.
+${seedModules.map((m) => `    ${m}.run()`).join("\n")}
+`
+      : "";
+  return `# Auto-generated.
+defmodule ${appModule}Web.TestResetController do
+  use ${appModule}Web, :controller
+
+  @moduledoc """
+  Dev-only state reset for the generated \`e2e/\` suite.
+
+  The suite calls this before every test so each block sees only the rows it
+  creates; without it an exact count assertion is green on a fresh database
+  and red on the second run of the same one.
+
+  Registered unconditionally because a Phoenix router is compiled, so the
+  refusal lives in the action: outside a dev profile this answers 404 and
+  touches nothing.  The suite for its part only SENDS the request when its
+  target is a loopback address, so pointing it at a deployed environment
+  disables the reset by construction.
+  """
+
+  @doc "POST ${TEST_RESET_PATH} — truncate application tables, re-apply seeds."
+  def reset(conn, _params) do
+    if enabled?() do
+      # Discovered at runtime, so this also reaches what the model does not
+      # describe but the backend creates (the outbox, materialized
+      # projections, the seed marker).  Every backend's migration ledger is
+      # excluded — losing one replays the whole chain on the next boot.
+      %{rows: rows} =
+        Ecto.Adapters.SQL.query!(${appModule}.Repo, ${JSON.stringify(resetTableDiscoverySql())}, [])
+
+      targets = Enum.map(rows, fn [schema, table] -> ~s("#{schema}"."#{table}") end)
+
+      if targets != [] do
+        # One statement for the whole set: CASCADE must see every table at once
+        # or a foreign key makes the order significant, and RESTART IDENTITY
+        # puts sequences back so a generated id is stable across runs.
+        Ecto.Adapters.SQL.query!(
+          ${appModule}.Repo,
+          "truncate table " <> Enum.join(targets, ", ") <> " restart identity cascade",
+          []
+        )
+      end
+${seedCalls}
+      json(conn, %{status: "reset", tables: length(targets)})
+    else
+      conn
+      |> put_status(:not_found)
+      |> json(%{
+        status: "not_found",
+        detail:
+          "state reset is disabled outside a dev profile; set ${TEST_RESET_ENV}=1 to enable it"
+      })
+    end
+  end
+
+  # \`1\`/\`0\` force the switch either way; unset falls back to the profile this
+  # release was BUILT with (config/{dev,test}.exs bake true, config/prod.exs
+  # bakes false), so a production release is closed without anyone setting
+  # anything.
+  defp enabled? do
+    case System.get_env("${TEST_RESET_ENV}") do
+      "1" -> true
+      "0" -> false
+      _ -> Application.get_env(:${appName}, :loom_test_reset_default, false)
+    end
+  end
+end
+`;
+}
+
 function renderVanillaHealthController(appModule: string): string {
   return `# Auto-generated.
 defmodule ${appModule}Web.HealthController do
@@ -1434,6 +1550,11 @@ import_config "#{config_env()}.exs"
 function renderVanillaDev(appName: string, appModule: string): string {
   return `import Config
 
+# Whether the dev-only state reset (src/util/test-reset.ts) may run when
+# LOOM_TEST_RESET is unset.  Baked in at BUILD time, which is the right notion
+# for a release: a dev build is a dev machine.
+config :${appName}, loom_test_reset_default: true
+
 # Honor DATABASE_URL when set (containerized dev + e2e harnesses point
 # the app at a provisioned database / port), otherwise fall back to the
 # local default.  Ecto rejects mixing \`url:\` with discrete host/database
@@ -1465,6 +1586,13 @@ config :${appName}, ${appModule}Web.Endpoint,
 
 function renderVanillaProd(appName: string, appModule: string): string {
   return `import Config
+
+# Whether the dev-only state reset (src/util/test-reset.ts) may run when
+# LOOM_TEST_RESET is unset.  Baked in at BUILD time, which is the right notion
+# for a release: a MIX_ENV=prod release is a
+# deployment, and must not carry a reachable truncate.  Only an explicit
+# LOOM_TEST_RESET=1 can override this.
+config :${appName}, loom_test_reset_default: false
 
 # Start the Phoenix endpoint's HTTP server in a release (a \`mix release\`
 # doesn't run \`mix phx.server\`, so without this the released container boots
@@ -1526,6 +1654,11 @@ end
 
 function renderVanillaTest(appName: string, appModule: string): string {
   return `import Config
+
+# Whether the dev-only state reset (src/util/test-reset.ts) may run when
+# LOOM_TEST_RESET is unset.  Baked in at BUILD time, which is the right notion
+# for a release: a test build is a test run.
+config :${appName}, loom_test_reset_default: true
 
 config :${appName}, ${appModule}.Repo,
   username: "postgres",

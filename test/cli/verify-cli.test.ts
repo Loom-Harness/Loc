@@ -171,9 +171,68 @@ describe("ddd verify — missing evidence fails the gate", () => {
     // The diagnosis, not just the symptom: the same run reports the test both
     // missing AND unknown, which is the fingerprint of a suite mismatch.
     expect(r.stderr).toMatch(/matched no declared test/);
-    expect(r.stderr).toMatch(/mismatch/);
-    expect(r.stderr).toMatch(/AGGREGATE name/);
-    expect(r.stderr).toContain('"A.test.ts"');
+    // …and it names the field that ACTUALLY differs, plus the suite the join
+    // wanted.  It used to assert "likely a `suite` mismatch (… the join wants
+    // … \"<System> e2e\" for an e2e test)" for every such failure and quote
+    // the REPORTED suite back — so on an api-e2e result, whose suite is
+    // correct and whose NAME carries the ` against <deployable>` replay
+    // suffix, it named the right suite as the wrong thing.
+    expect(r.stderr).toMatch(/SUITE does not match/);
+    expect(r.stderr).toContain('"A.test.ts"'); // what the runner reported
+    expect(r.stderr).toMatch(/declared with suite "A"/); // what the join wanted
+  });
+
+  it("joins an api-e2e result carrying the ` against <deployable>` replay suffix", () => {
+    // F8, end to end through the real CLI.  `src/system/e2e-render.ts`
+    // suffixes every api-e2e vitest title with ` against <serviceSlug>`, so
+    // the declared name never appears verbatim in a report — and `verify`
+    // used to match the declared name exactly.  Result: the test passed, the
+    // requirement stayed UNVERIFIED, and the gate exited 1 on "no matching
+    // result", making every `verifies` on a `test e2e` block inert.
+    const src = path.join(tmp, "e2e.ddd");
+    fs.writeFileSync(
+      src,
+      `
+      requirement R-001 { type: UserStory  title: "A widget can be created" }
+      system VerifyProbe {
+        subdomain Core { context Core {
+          aggregate Widget { operation touch() {} }
+        } }
+        storage pg { type: postgres }
+        resource coreState { for: Core, kind: state, use: pg }
+        deployable api {
+          platform: node  contexts: [Core]  dataSources: [coreState]
+        }
+        test e2e "creates a widget" against api verifies TC-001 {}
+      }
+      testCase TC-001 verifies R-001 { covers [ Core.Core.Widget.touch ] }
+      `,
+      "utf8",
+    );
+    const suffixed = writeDoc("e2e-suffixed.json", {
+      version: 1,
+      results: [{ name: "creates a widget against api", suite: "VerifyProbe e2e", status: "pass" }],
+    });
+    const r = run(["verify", src, "--results", suffixed, "--out", path.join(tmp, "e2e")]);
+    expect(r.status).toBe(0);
+    expect(r.stdout).toMatch(/Verified 1\/1 requirements/);
+
+    // And the negative: a suffix whose slug is not a deployable of THIS model
+    // is not stripped, so the result stays unmatched and the gate still fails
+    // — naming the slug rather than blaming the (correct) suite.
+    const bogus = writeDoc("e2e-bogus.json", {
+      version: 1,
+      results: [
+        {
+          name: "creates a widget against nosuchbackend",
+          suite: "VerifyProbe e2e",
+          status: "pass",
+        },
+      ],
+    });
+    const bad = run(["verify", src, "--results", bogus, "--out", path.join(tmp, "e2e-bad")]);
+    expect(bad.status).toBe(1);
+    expect(bad.stderr).toMatch(/"nosuchbackend" is not a deployable of this model/);
   });
 
   it("surfaces both evidence counts in the SUMMARY line, not only in the JSON", () => {

@@ -2451,8 +2451,30 @@ CondPrimaryExpr infers Expression:
 
 PostfixSuffix:
       {infer MemberSuffix} '.' member=MemberName
-        ( call?='(' (args+=CallArg (',' args+=CallArg)*)? ')' )?
+        ( call?='(' ( throwKind=ThrowKind | (args+=CallArg (',' args+=CallArg)*)? ) ')' )?
     | {infer CallSuffix}   '(' (args+=CallArg (',' args+=CallArg)*)? ')';
+
+// The failure RUNG a unit-tier `expect(<call>).toThrow(<kind>)` pins —
+// `precondition` (a domain validity check the operation body declares) or
+// `invariant` (a whole-state rule the aggregate declares).  Without the
+// discrimination both rungs are one undifferentiated "it threw": the audit
+// deleted a `precondition` from a generated aggregate and the test stayed
+// GREEN, because the invariant threw instead and the assertion could not tell
+// them apart (2026-09-13 testability audit, F11).
+//
+// It is a SLOT on the suffix rather than an ordinary `CallArg`, because both
+// words are HARD keywords (`PreconditionStmt` / `InvariantDecl` own them) and
+// so cannot reach an argument position as a `NameRef`.  Admitting them to
+// `NameRefIdent` instead would put `precondition` at the head of an
+// expression — exactly where `Statement` must still read it as the start of a
+// `PreconditionStmt`, including inside a `test` body (`TestStatement` lists
+// `PreconditionStmt`).  Confining the words to the inside of a `.member(...)`
+// call keeps that decision untouched: the slot is unreachable until the parser
+// has already committed to a member call.  A kind word in any OTHER call is a
+// parse success and a validator refusal (`loom.throw-kind-outside-tothrow`) —
+// the catalogue stays closed and compiler-known.
+ThrowKind returns string:
+    'precondition' | 'invariant';
 
 // Call arguments admit an optional `name:` prefix.
 // Positional usage (`Money(10.5, "USD")`) keeps working; named usage

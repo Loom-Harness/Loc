@@ -325,6 +325,45 @@ declared `function`.  `requires` is admissible in workflow
 bodies too; the workflow handler / route handler maps it to 403
 the same way as the operation route does.
 
+#### Guarded state transitions — close the generic-update side door
+
+A `requires` gate guards **its own route**.  It does not make the field the
+operation writes unwritable through some *other* route — and on an aggregate
+carrying `crudish`, there is another route: the synthesised generic
+`update(...)`, which assigns every writable update field.
+
+```ddd
+aggregate Claim with crudish {
+  status: ClaimStatus                    // ← editable by default
+  operation approve() {
+    requires currentUser.permissions.contains(permissions.claimsApprove)
+    precondition status == UnderReview
+    status := Approved
+  }
+}
+```
+
+`POST /claims/{id}/approve` is gated.  `POST /claims/{id}/update
+{"status":"Approved"}` reaches the same column at whatever gate the *update*
+carries, skipping the `requires` **and** the `precondition` — a state-machine
+bypass, not only an authorization one.  `with crudish(requires: <Policy>)` does
+not close it either: that gate is per-member and identical across
+create/update/destroy, while the update still writes every field.
+
+**The fix is on the field, not the gate** — mark it `immutable`:
+
+```ddd
+  status: ClaimStatus immutable
+```
+
+`immutable` is a *wire* constraint (read ✓ / create ✓ / update ✗), so the
+generic update loses the field while `approve()` keeps assigning it; see
+[`language.md`](language.md#field-access-modifiers) → "Field access modifiers".
+Loom flags the shape for you: a field that a `requires`-gated operation assigns
+AND `crudish`'s update mass-assigns raises the advisory
+`loom.update-gate-suggestion` (a `ddd parse` `Suggestions:` hint — advice, not
+an error, since some models genuinely want the field editable both ways).
+
 #### Header `requires` clause (authorization.md §11.3)
 
 The gate can also ride the **declaration header** — the write-side twin of the
@@ -1049,7 +1088,12 @@ Every backend mounts its auth routes under the shared API base, i.e.
   behavioural wire goldens).
 - `/api/auth/login`, `/api/auth/callback`, `/api/auth/logout` — the OIDC
   authorization-code redirect handshake, emitted only under an
-  `auth { oidc { … } }` block.
+  `auth { oidc { … } }` block.  The block's fields are documented in
+  [`language-reference/17-auth.md`](language-reference/17-auth.md#auth-----oidc-config);
+  the one worth reading before you ship is **`audience:`, which is optional and
+  whose absence turns the `aud` check off** — the verifier then accepts any
+  token from the configured issuer, including one minted for a different client
+  in the same realm.
 - `POST /api/auth/refresh` — silent renewal: exchanges the stored refresh
   token for a fresh access token (no IdP round-trip) and **rotates** it, so a
   SPA can extend a session on a 401 without bouncing the user back to login.

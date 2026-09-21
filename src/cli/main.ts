@@ -7,10 +7,11 @@ import { URI } from "langium";
 import { NodeFileSystem } from "langium/node";
 import { generate as generateModel, LOOM_VERSION, validate } from "../api/index.js";
 import { translateBreakpoint } from "../dap/index.js";
+import { isAdvisoryCode } from "../diagnostics/advisory.js";
 import { generateDotnet } from "../generator/dotnet/index.js";
 import { enrichLoomModel } from "../ir/enrich/enrichments.js";
 import { lowerModel, lowerProject } from "../ir/lower/lower.js";
-import type { EnrichedLoomModel, TestOutcome } from "../ir/types/loom-ir.js";
+import type { EnrichedLoomModel, ExecTestRef, TestOutcome } from "../ir/types/loom-ir.js";
 import { type LoomDiagnostic, validateLoomModel } from "../ir/validate/validate.js";
 import { createDddServices } from "../language/ddd-module.js";
 import type { Model } from "../language/generated/ast.js";
@@ -22,7 +23,7 @@ import { generateTypeScript } from "../platform/hono/v4/emit.js";
 // backend; the CLI (an entrypoint) supplies that package's pins to
 // the version-agnostic shared emitter.
 import { BACKEND_PINS as HONO_V4_PINS } from "../platform/hono/v4/pins.js";
-import { generateSystemsFromLoom } from "../system/index.js";
+import { generateSystemsFromLoom, serviceSlug } from "../system/index.js";
 import { captureSnapshots } from "../system/loomsnap.js";
 import {
   buildManifest,
@@ -280,16 +281,18 @@ function printIrDiagnostics(diagnostics: readonly LoomDiagnostic[]): {
 
   // Phase ⑦ computes 18 warning codes (datasource-knob-unwired, findall-no-page,
   // cross-tenant-without-tenancy, …).  A warning never affects the exit code;
-  // it just has to be VISIBLE.  (`loom.index-suggestion` is excluded here — it
-  // keeps its own `Suggestions:` footer below, and would otherwise print twice.)
-  const warnings = diagnostics.filter(
-    (d) => d.severity === "warning" && d.code !== "loom.index-suggestion",
-  );
+  // it just has to be VISIBLE.  (The ADVISORY codes are excluded here — they
+  // keep their own `Suggestions:` footer below, and would otherwise print
+  // twice.  The set lives in `src/diagnostics/advisory.ts`, not as a literal
+  // here: with a literal, the second advisory code to arrive silently came out
+  // labelled `warning` and inflated the count.)
+  const warnings = diagnostics.filter((d) => d.severity === "warning" && !isAdvisoryCode(d.code));
   for (const d of warnings) console.error(`${d.code} ${d.source} warning: ${d.message}`);
 
   // Advisory only — the index-suggestion lint (uniqueness-and-indexes.md §11)
-  // keeps its own footer and never fails the command.
-  const hints = diagnostics.filter((d) => d.code === "loom.index-suggestion");
+  // and the update-gate lint (audit D3) keep their own footer and never fail
+  // the command.
+  const hints = diagnostics.filter((d) => isAdvisoryCode(d.code));
   if (hints.length > 0) {
     console.error(`\nSuggestions (${hints.length}):`);
     for (const d of hints) console.error(`  ${d.source}: ${d.message}`);
@@ -1097,6 +1100,77 @@ interface Vitestish {
   testResults?: unknown;
 }
 
+/** Name the field that ACTUALLY differs when a result matched no declared
+ *  test, for the gate-failure message.
+ *
+ *  The previous wording asserted a `suite` mismatch unconditionally and then
+ *  printed the reported suite — so the case it was most likely to be read on
+ *  was the case it got wrong: an api-e2e result, whose suite is correct and
+ *  whose NAME carries the ` against <slug>` suffix `e2e-render.ts` appends.
+ *  It said "likely a `suite` mismatch … got \"<System> e2e\"" while quoting
+ *  the suite the join wanted.  So classify: compare the reported pair
+ *  against the declared pairs and report the side that does not line up. */
+function describeJoinMismatch(
+  execTests: readonly ExecTestRef[],
+  unknown: readonly TestOutcome[],
+  serviceSlugs: readonly string[],
+): string {
+  const first = unknown[0];
+  if (!first) return "";
+  const got = `{name: ${JSON.stringify(first.name)}, suite: ${JSON.stringify(first.suite ?? null)}}`;
+  const quoted = (xs: string[]): string =>
+    xs
+      .slice(0, 3)
+      .map((x) => JSON.stringify(x))
+      .join(", ") + (xs.length > 3 ? ", …" : "");
+
+  // Undo the ` against <slug>` replay suffix the way the join does, so the
+  // rest of the classification compares the same name the join compared.
+  let effective = first.name;
+  const at = first.name.lastIndexOf(" against ");
+  if (at > 0) {
+    const stem = first.name.slice(0, at);
+    const slug = first.name.slice(at + " against ".length);
+    if (execTests.some((t) => t.name === stem)) {
+      // The stem IS declared.  Either the slug names a real deployable (so
+      // the suffix resolves and any remaining mismatch is the suite), or it
+      // does not — which is its own, very specific, breakage.
+      if (serviceSlugs.includes(slug)) {
+        effective = stem;
+      } else {
+        return (
+          ` — reported ${got}: ${JSON.stringify(stem)} IS declared, but ${JSON.stringify(slug)}` +
+          ` is not a deployable of this model, so the \` against <deployable>\` replay suffix` +
+          ` could not be resolved`
+        );
+      }
+    }
+  }
+
+  const byName = execTests.filter((t) => t.name === effective);
+  const bySuite = execTests.filter((t) => t.suite === first.suite);
+  if (byName.length > 0) {
+    const behind =
+      effective === first.name ? "" : ` (whose declared name is ${JSON.stringify(effective)})`;
+    return (
+      ` — the SUITE does not match: reported ${got}${behind}, but that test is declared with` +
+      ` suite ${quoted([...new Set(byName.map((t) => t.suite))])}`
+    );
+  }
+  if (bySuite.length > 0) {
+    return (
+      ` — the NAME does not match: reported ${got}; suite` +
+      ` ${JSON.stringify(first.suite ?? null)} is correct, but no declared test in it is called` +
+      ` that (declared there: ${quoted([...new Set(bySuite.map((t) => t.name))])})`
+    );
+  }
+  return (
+    ` — neither field matches a declared test: reported ${got}` +
+    ` (the join wants the AGGREGATE name as the suite for a unit test,` +
+    ` "<System> e2e" for an e2e test)`
+  );
+}
+
 /** `ddd verify` — join a test-results file onto the requirements graph,
  *  emit the verification artifacts, and gate the exit code.
  *
@@ -1180,10 +1254,17 @@ async function runVerify(file: string, options: VerifyOptions): Promise<void> {
     process.exit(2);
   }
 
+  // Every deployable slug in the model — the closed set of ` against <slug>`
+  // suffixes an api-e2e title can carry (`src/system/e2e-render.ts` replays
+  // one `test e2e` block per compatible backend).  Passing it lets the join
+  // undo the suffix exactly instead of pattern-matching it.
+  const serviceSlugs = loom.systems.flatMap((s) => s.deployables.map((d) => serviceSlug(d.name)));
+
   const verification = computeVerification(
     loom.traceability!,
     loom.requirements.map((r) => r.id),
     outcomes,
+    { serviceSlugs },
   );
 
   // Emit artifacts.
@@ -1255,9 +1336,8 @@ async function runVerify(file: string, options: VerifyOptions): Promise<void> {
       `${missing.length} declared test(s) had no matching result (${sample}` +
       `${missing.length > 3 ? ", …" : ""})` +
       (unknown.length > 0
-        ? ` while ${unknown.length} result(s) matched no declared test — likely a ` +
-          `\`suite\` mismatch (the join wants the AGGREGATE name for a unit test, ` +
-          `"<System> e2e" for an e2e test; got ${JSON.stringify(unknown[0]!.suite ?? null)})`
+        ? ` while ${unknown.length} result(s) matched no declared test` +
+          describeJoinMismatch(loom.traceability!.execTests, unknown, serviceSlugs)
         : "") +
       `; pass --allow-missing to accept a partial run`;
   }
@@ -1454,7 +1534,7 @@ program
   .description("Parse and validate a .ddd file")
   .option(
     "--json",
-    "emit structured diagnostics + outline as JSON (also runs IR validation); see docs/old/proposals/ai-diagnostics-contract.md",
+    "emit structured diagnostics + outline as JSON (also runs IR validation); see docs/api-toolkit.md",
   )
   .action(async (file: string, options: { json?: boolean }) => {
     if (options.json) await runParseJson(file);
@@ -1464,7 +1544,7 @@ program
 program
   .command("patch <file>")
   .description(
-    "Apply node-addressed model patches (JSON) to a .ddd file; prints the patched source, or --json for the structured PatchResult. See docs/old/proposals/ai-authoring-loop.md.",
+    "Apply node-addressed model patches (JSON) to a .ddd file; prints the patched source, or --json for the structured PatchResult. See docs/api-toolkit.md.",
   )
   .requiredOption(
     "--patches <file>",
@@ -1484,7 +1564,7 @@ generate
   .option("--dry-run", "list paths that would be written / skipped, write nothing")
   .option(
     "--trace",
-    "emit trace-level domain instrumentation (value_computed, precondition_evaluated, …) — off by default; see docs/old/proposals/observability.md",
+    "emit trace-level domain instrumentation (value_computed, precondition_evaluated, …) — off by default; see docs/observability.md",
   )
   .action(
     async (
@@ -1507,7 +1587,7 @@ generate
   .option("--dry-run", "list paths that would be written / skipped, write nothing")
   .option(
     "--trace",
-    "emit trace-level seam instrumentation (tx_begin/commit/rollback around SaveChangesAsync) — off by default; see docs/old/proposals/observability.md",
+    "emit trace-level seam instrumentation (tx_begin/commit/rollback around SaveChangesAsync) — off by default; see docs/observability.md",
   )
   .action(
     async (
@@ -1532,11 +1612,11 @@ generate
   .option("--dry-run", "list paths that would be written / skipped, write nothing")
   .option(
     "--json",
-    "validate and print the deployable manifest as JSON (GenerateReport); writes no files. See docs/old/proposals/ai-diagnostics-contract.md.",
+    "validate and print the deployable manifest as JSON (GenerateReport); writes no files. See docs/api-toolkit.md.",
   )
   .option(
     "--trace",
-    "emit trace-level domain instrumentation (value_computed, precondition_evaluated, …) — off by default; see docs/old/proposals/observability.md",
+    "emit trace-level domain instrumentation (value_computed, precondition_evaluated, …) — off by default; see docs/observability.md",
   )
   .option(
     "--k8s",
@@ -1552,7 +1632,7 @@ generate
   )
   .option(
     "--sourcemap",
-    "emit .loom/sourcemap.json mapping generated code back to .ddd spans; off by default. See docs/old/plans/source-map-debug-kickoff.md.",
+    "emit .loom/sourcemap.json mapping generated code back to .ddd spans; off by default. See docs/debugging.md.",
   )
   .option(
     "--inline-sources",
@@ -1639,7 +1719,7 @@ program
   .command("trace <logfile>")
   .description(
     "Annotate a crash log / stack trace with the .ddd construct + source location each " +
-      "frame maps to, via .loom/sourcemap.json. See docs/old/proposals/source-map-and-debugging.md §6B.",
+      "frame maps to, via .loom/sourcemap.json. See docs/debugging.md.",
   )
   .option(
     "--map <path>",
@@ -1657,7 +1737,7 @@ program
   .command("breakpoints <file>")
   .description(
     "Resolve a .ddd source line to the generated file:line(s) it produced, via " +
-      ".loom/sourcemap.json — the reverse of `ddd trace`. See docs/old/proposals/source-map-and-debugging.md §6E.",
+      ".loom/sourcemap.json — the reverse of `ddd trace`. See docs/debugging.md.",
   )
   .requiredOption("--line <n>", "1-based .ddd source line to resolve")
   .option(

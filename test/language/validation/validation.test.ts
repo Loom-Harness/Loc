@@ -1510,11 +1510,19 @@ describe("Loom IR validation (post-lowering)", async () => {
       }
     `);
     const diags = validateLoomModel(loom);
+    // The verb is still rejected — by the ROUTING answer, which is the one that
+    // names the fix.  It used to be rejected TWICE (`loom.e2e-unknown-method`
+    // from `test-checks.ts` as well), one mistake described twice with two
+    // near-identical "available" lists; `test-checks.ts` now defers to this.
     expect(
       diags.some(
-        (d) => d.severity === "error" && /unknown method 'api\.orders\.frobnicate'/.test(d.message),
+        (d) =>
+          d.severity === "error" &&
+          d.code === "loom.e2e-unrouted-verb" &&
+          d.message.includes("api.orders.frobnicate"),
       ),
     ).toBe(true);
+    expect(diags.filter((d) => d.code === "loom.e2e-unknown-method")).toEqual([]);
   });
 
   it("accepts well-formed api e2e tests with no diagnostics", async () => {
