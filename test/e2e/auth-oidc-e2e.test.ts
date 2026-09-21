@@ -5,6 +5,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { expectAudienceEnforced } from "./support/audience-probe.js";
 import { hasDocker } from "./support/docker-probe.js";
 import { installGeneratedProject } from "./support/npm-install.js";
 
@@ -71,6 +72,9 @@ async function pollUntil(
 describe.skipIf(!RUN)("auth OIDC e2e: real Keycloak token flow (LOOM_AUTH_E2E=1)", () => {
   let outDir = "";
   let backend: ChildProcess | undefined;
+  let startBackend: (port: number, extraEnv: Record<string, string>) => ChildProcess = () => {
+    throw new Error("startBackend used before beforeAll");
+  };
   let backendLog = "";
   const pgName = `loom-auth-pg-${process.pid}`;
   const kcName = `loom-auth-kc-${process.pid}`;
@@ -123,17 +127,24 @@ describe.skipIf(!RUN)("auth OIDC e2e: real Keycloak token flow (LOOM_AUTH_E2E=1)
       "keycloak discovery",
     );
 
-    backend = spawn("npx", ["tsx", "index.ts"], {
-      cwd: apiDir,
-      env: {
-        ...process.env,
-        PORT: String(apiPort),
-        DATABASE_URL: `postgres://postgres:postgres@localhost:${pgPort}/api`,
-        OIDC_ISSUER: `${kcBase}/realms/helpdesk`,
-        OIDC_CLIENT_ID: "helpdesk-app",
-      },
-      stdio: ["ignore", "pipe", "pipe"],
-    });
+    // Hoisted so the audience row can boot a SECOND instance of the same
+    // project with one env var changed (CR1-b / P0-4) — env is fixed at boot,
+    // so the check cannot be exercised against the primary.
+    startBackend = (port, extraEnv) =>
+      spawn("npx", ["tsx", "index.ts"], {
+        cwd: apiDir,
+        env: {
+          ...process.env,
+          PORT: String(port),
+          DATABASE_URL: `postgres://postgres:postgres@localhost:${pgPort}/api`,
+          OIDC_ISSUER: `${kcBase}/realms/helpdesk`,
+          OIDC_CLIENT_ID: "helpdesk-app",
+          ...extraEnv,
+        },
+        stdio: ["ignore", "pipe", "pipe"],
+        detached: true,
+      });
+    backend = startBackend(apiPort, {});
     backend.stdout?.on("data", (d: Buffer) => {
       backendLog += d.toString();
     });
@@ -271,6 +282,15 @@ describe.skipIf(!RUN)("auth OIDC e2e: real Keycloak token flow (LOOM_AUTH_E2E=1)
       } finally {
         streamAbort.abort();
       }
+
+      // --- Audience enforcement (CR1-b / P0-4).  The primary backend above ran
+      // with no OIDC_AUDIENCE, so it accepted this token (the 200s above).  node
+      // used to emit `{ issuer: ISSUER }` with NO audience term and no env path
+      // whenever the `.ddd` declared no `audience:` — so an operator who set
+      // OIDC_AUDIENCE in compose got audience isolation on the other four
+      // backends and silently none here.  One more instance of the SAME build,
+      // one env var changed, and the SAME token must now be rejected.
+      await expectAudienceEnforced({ start: startBackend, token, readyTimeoutMs: 60_000 });
     } catch (err) {
       console.error(`\n===== backend log =====\n${backendLog}\n=======================\n`);
       throw err;
