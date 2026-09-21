@@ -141,20 +141,20 @@ gate already encodes the row's claim, run the gate.
 
 | metric | value |
 |---|---|
-| open rows | **122** |
+| open rows | **119** |
 | P0 | 0 |
-| P1 | 1 |
-| P2 | 5 |
+| P1 | 0 |
+| P2 | 3 |
 | P3 | 31 |
 | P4 | 77 |
 | P5 | 8 |
-| kind: silent / honest / breadth / mission / stale-prose | 6 / 31 / 20 / 57 / 8 |
-| confidence: proven / likely / suspected | 21 / 100 / 1 |
+| kind: silent / honest / breadth / mission / stale-prose | 3 / 31 / 20 / 57 / 8 |
+| confidence: proven / likely / suspected | 20 / 98 / 1 |
 | class: faulty-fix / regression | 1 / 0 |
-| size S / M / L | 31 / 50 / 41 |
-| provenance: fleet1-only / fleet2-only / corroborated by both | 111 / 10 / 1 |
+| size S / M / L | 31 / 47 / 41 |
+| provenance: fleet1-only / fleet2-only / corroborated by both | 109 / 9 / 1 |
 | claimed by an open PR | 60 |
-| done / merged | 167 |
+| done / merged | 170 |
 | declined (not a gap: stale / breadth / duplicate / decided) | 7 |
 | conflicts | 10 |
 | checkedOk entries | 146 |
@@ -168,10 +168,7 @@ Sorted P0 (security / data-integrity, silent, proven) → P1 (other silent prove
 
 | P | id | kind/class | conf | targets | size | title |
 |---|---|---|---|---|---|---|
-| P1 | `F2-MT640-SORT-DEAD` | silent | prov | elixir | M | HEEx wires a Table's `sortKey`/`sortDir`/`page` ONLY when `serverPaged`, so a NON-paged scaffolded list silently loses the client-side sort + pagination all four JSX frontends render from the same `.ddd` — the dead `sort_key`/`sort_dir`/`page_num` assigns are the residue, not the defect |
 | P2 | `F2-W-06` | silent | like | elixir | S | elixir persists `datetime` at SECOND precision (`:utc_datetime`) where the other four use TIMESTAMPTZ(µs) |
-| P2 | `G2646-open-heex-layout-inert` | silent | like | elixir | M | #2646 documented, NOT fixed: on HEEx a non-server-paged Table gets no pager and the `i18nFormat` wrapper is dropped (the Grid arm of this row was stale and is retired) |
-| P2 | `schemathesis-F11-int32-range` | silent | like | elixir | M | F11 — ELIXIR publishes a bare `%OpenApiSpex.Schema{type: :integer}` for an `int` body field against an int4 column, so a contract-conforming value 500s (node and python now publish the bound; dotnet and java always did) |
 | P2 | `M-T1.11-domain-floor-message-code` | silent | like | node, dotnet, java, python | L | M-T1.11 item (c) — `DomainError` carries no `code` on node, dotnet, java and python, so a rule enforced only at the domain floor is unlocalizable (elixir partly fixed: preconditions and invariants, not the value-object floor) |
 | P3 | `F2-CFE-11` | honest | prov | angular, flutter | S | `testid:` on `CreateForm` is silently dropped on Angular and Flutter (honoured on react/vue/svelte/feliz) |
 | P3 | `F2-W-09` | honest | prov | node, elixir, dotnet, java, python | S | A `File` field is an inline anonymous object on node/elixir and a named `FileRef` component on dotnet/java/python |

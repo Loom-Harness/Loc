@@ -396,7 +396,7 @@ const REGISTER_FILE = path.join(srcRoot, "diagnostics", "unsupported-register.ts
  *  is BUILT, and two members of the closed branch vocabulary are cross-backend
  *  (`opHasProvSite` is target-neutral; a conditional `emit` is an ordering
  *  question, not a detection one).  `gap` said "a sweep can close this". */
-const MAX_OPEN_GAPS = 19;
+const MAX_OPEN_GAPS = 18;
 
 /** Exact count of `seam` rows.  Changes only for a reviewed reason: a gate
  *  deleted (down), a new target registered that turns a seam back into a live

@@ -4092,3 +4092,138 @@ M-T3.8 stays open and commissioned.
 [`T3-security-governance.md`](new-plan/T3-security-governance.md) M-T3.8;
 [`sensitivity-and-compliance.md`](old/proposals/sensitivity-and-compliance.md);
 [`auth.md`](auth.md) (`mask unless`).
+
+---
+
+## D-ELIXIR-IF-BRANCH — the four refused `if`-branch shapes on Phoenix are a declared limit of the linear body renderer, not a per-target gap
+
+**Status:** proposed (default applies 48 h after merge unless overridden).
+Raised by wave C2 packet 2m, which was asked to build the four sub-shapes
+`loom.elixir-if-stmt-unsupported` still refuses or re-class them.
+
+**Question.** Wave C2 packet 2a made the `if` STATEMENT render on the vanilla
+Phoenix backend (`src/generator/elixir/vanilla/if-stmt-emit.ts`, M-T6.59) and
+narrowed the gate to four `#slug` sub-shapes: `#return-in-branch`,
+`#guard-in-branch`, `#event-sourced` and `#branch-statement`. Are those four a
+residue a sweep can drain, or the shape of the surface?
+
+**Options.** (a) build all four; (b) re-class the code `scope` with the owning
+mission named; (c) leave it a `gap` row and let the next packet re-measure.
+
+**Decision.** (b). The code KEEPS its name, its four messages and every arm that
+fires. What changes is the claim about who closes it: the register row becomes
+`scope` and stays pointed at **M-T6.59**, which is the mission that owns the
+Phoenix body renderer. Each surviving sub-shape needs a change to HOW a Phoenix
+operation body is built, not another emitter arm — and three of the four are not
+even elixir-local.
+
+**Rationale, one sub-shape at a time.** Each was re-derived on this head, not
+inherited from 2a's note.
+
+- **`#return-in-branch` is a list-level transform.** Elixir has no early exit, so
+  a `return` inside a branch means restructuring every statement that FOLLOWS
+  the `if` into the other arm of a `case` — the linear renderers emit one Elixir
+  expression per `StmtIR`, in order, and the sourcemap collector
+  (`statementSubRegions`) zips that same-length, same-order list. It is already
+  ALLOWED where it is expressible: `elixirIfRefusal(stmts, "value")` admits it
+  in a tail-value body (a `domainService` operation, a pure `function`) via
+  `returnsAreTailOnly`, which is the half that renders today.
+- **`#guard-in-branch` would change a status code.** The op path HOISTS top-level
+  `requires`/`precondition` into a leading `with :ok <- ensure(…)` chain that
+  answers 403/422. A nested guard has nothing to hoist into, so it would have to
+  `raise` — a 500 where the other four backends answer 403/422. A wire
+  divergence is strictly worse than the refusal, and fixing it properly means
+  giving the Phoenix op path a non-hoisted guard form: a body-renderer change.
+- **`#event-sourced` is a different body model.** An ES command body is not
+  rendered as a statement sequence at all: `eventsourced-emit.ts` sorts it into
+  `with`-clauses, `let`s and one `events = […]` list. A conditional `emit` has
+  no position in that shape. Rendering it means giving ES commands a statement
+  spine — the same body-renderer change, on the other body kind.
+- **`#branch-statement` is a CLOSED branch vocabulary, and its two sharpest
+  members live OUTSIDE `src/generator/elixir/**`.** The emitters decide an
+  operation's supporting machinery by scanning its TOP-LEVEL statements, and two
+  of those scans cannot simply "walk deeper":
+  - a conditional `emit` renders, but the host module's `require Logger` comes
+    from `contextEmitsEvent` (`vanilla/context-emit.ts:857`), and — the part a
+    deeper walk does not fix — the S5a persist-then-dispatch restructure cannot
+    hoist a CONDITIONAL emit past the commit, so a phantom event would fire on a
+    failed write. Ordering, not detection.
+  - a PROVENANCED write in a branch is decided by `opHasProvSite`
+    (`src/ir/util/prov-id.ts:49`), which is TARGET-NEUTRAL and scans
+    `op.statements` one level deep for every backend. Deepening it changes what
+    node / .NET / java / python put in provenance-flush mode too, so it is a
+    cross-backend change that a packet fenced to `src/generator/elixir/**` must
+    not make unilaterally (hand-off, §6b of this packet's note).
+
+  The vocabulary is closed (fail-closed) deliberately: a NEW `StmtIR` kind is
+  refused in a branch rather than silently admitted by an allowlist nobody
+  updated.
+
+**Consequences.** `loom.elixir-if-stmt-unsupported` becomes `kind: "scope"` in
+`src/diagnostics/unsupported-register.ts` and keeps `mission: "M-T6.59"`;
+`MAX_OPEN_GAPS` drops by one. No emitter change, no message change, no arm
+removed — every one of the four keeps firing with the advice it carries today.
+The `opHasProvSite` deepening is recorded as a cross-backend hand-off rather
+than done here.
+
+**Unblocks.** `loom.elixir-if-stmt-unsupported` → `scope` (wave **C2 packet
+2m**); M-T6.59 stays open and owns the body-renderer question.
+
+**Sources.** `src/ir/validate/checks/if-stmt-checks.ts` (`elixirIfRefusal`,
+`BRANCH_VOCABULARY`); `src/generator/elixir/vanilla/if-stmt-emit.ts`;
+`src/generator/elixir/vanilla/eventsourced-emit.ts`; `src/ir/util/prov-id.ts`;
+[`T6-backend-parity.md`](new-plan/T6-backend-parity.md) M-T6.59.
+
+---
+
+## D-HEEX-I18N-FORMAT — `i18nFormat` is a documented permanent LiveView divergence, not a gap
+
+**Status:** proposed (default applies 48 h after merge unless overridden).
+Raised by wave C2 packet 2a (§7.1 of its hand-off), which found the ledger's own
+proposed disposition unavailable, and taken by packet 2m.
+
+**Question.** `G2646-open-heex-layout-inert` carries two live arms. One is the
+missing pager on a non-server-paged `Table` — built in packet 2m. The other is
+the `i18nFormat` wrapper, which `heex-walker-core.ts`'s arm drops by design ("the
+format is dropped: render the wrapped operand"). The ledger's fix line says
+"honour it or pin it in the heex-parity freeze list with a reason" — but that
+freeze list is over walker PRIMITIVES, and `i18nFormat` is an `ExprIR` kind, so
+the pin it proposes does not exist.
+
+**Options.** (a) add a CLDR-shaped number/date formatter dependency to every
+generated Phoenix app and honour the wrapper; (b) ratify the drop as a permanent,
+documented LiveView divergence and retire the arm from the ledger row; (c) mint
+a `loom.*` code so the author is told their format is ignored.
+
+**Decision.** (b), with the operand's rendering unchanged. The value still
+renders — what is dropped is the LOCALE-AWARE FORMATTING of it.
+
+**Rationale.**
+
+- **(a) is a dependency decision wearing a gap's clothes.** The four JSX targets
+  format through `Intl`, which is in every browser at zero cost. Phoenix renders
+  on the server, where the equivalent is a CLDR library compiled into the app
+  (`ex_cldr` and friends) — a new hex dependency, a compile-time locale set, and
+  a per-app configuration surface, added to EVERY generated Phoenix app for a
+  wrapper most models never use. That is a feature with a dependency ruling in
+  it, not a drain.
+- **(c) would fire on a model that is otherwise fully supported.** The i18n
+  layer itself ships on this target — `pgettext` keys every user-visible slot,
+  and packet-era work added the ICU engine for INTERPOLATION
+  (`D-I18N-HEEX-ICU`). Only the number/date FORMAT wrapper is dropped. An error
+  there would refuse a page whose text is already translated.
+- **The drop is already local and documented at the emission site**, which is
+  where a reader meets it.
+
+**Consequences.** The `i18nFormat` arm is retired from
+`G2646-open-heex-layout-inert`; with its pager arm built in packet 2m and its
+Grid arm already retired as stale, the ledger row closes. The emission-site
+comment in `src/generator/elixir/heex-walker-core.ts` is the record. If a
+generated Phoenix app ever gains a CLDR dependency for another reason, this
+ruling should be re-opened — the cost argument is the whole argument.
+
+**Unblocks.** `G2646-open-heex-layout-inert` → `done` (wave **C2 packet 2m**).
+
+**Sources.** `src/generator/elixir/heex-walker-core.ts` (the `i18nFormat` arm);
+[`targets-completeness-2026-08-30.md`](audits/targets-completeness-2026-08-30.md);
+`D-I18N-HEEX-ICU` above (the interpolation half, which DID get an engine).

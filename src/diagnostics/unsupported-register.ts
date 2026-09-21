@@ -239,10 +239,17 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   },
   {
     code: "loom.elixir-if-stmt-unsupported",
-    kind: "gap",
+    kind: "scope",
     site: "src/ir/validate/checks/if-stmt-checks.ts:265",
     what:
       "FOUR narrow sub-shapes of the `if` STATEMENT in a domain body an elixir deployable emits.  " +
+      "RE-CLASSED `scope` in wave C2 packet 2m under **D-ELIXIR-IF-BRANCH**: each survivor needs a " +
+      "change to HOW a Phoenix body is BUILT (a list-level restructure for the early exit, a " +
+      "non-hoisted guard form, a statement spine for ES commands), and two members of the closed " +
+      "branch vocabulary are not even elixir-local — the conditional `emit` is an event-ORDERING " +
+      "question the S5a persist-then-dispatch restructure cannot answer, and the PROVENANCED " +
+      "write is decided by the TARGET-NEUTRAL `opHasProvSite` (`src/ir/util/prov-id.ts:49`), so " +
+      "deepening it changes all five backends.  M-T6.59 owns that body renderer.  " +
       "The statement ITSELF now renders (M-T6.59, wave C2 2a): `vanilla/if-stmt-emit.ts` makes it " +
       "value-producing (`record = if … do … record else record end`) and `opBodyStmtsDeep` makes " +
       "every persist/containment probe deep-walk the branches, so a branch assignment survives " +
