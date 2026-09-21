@@ -127,8 +127,28 @@ describe("embedded value-object decimal reads (F-029)", () => {
     // The `_ ->` arm returns the uncoerced read unchanged: `Decimal.cast(nil)`
     // answers `:error`, so an absent field stays nil rather than becoming 0.
     expect(serializer).toMatch(
-      /case Decimal\.cast\(Map\.get\(.*?do \{:ok, __d\} -> __d; _ -> Map\.get\(/,
+      /case Decimal\.cast\(Map\.get\(.*?do \{:ok, dec\} -> dec; _ -> Map\.get\(/,
     );
+  });
+
+  it("never binds an underscore-prefixed variable it then reads", () => {
+    // The emitted coercion originally spelled its binding `__d`, to match the
+    // `__`-prefixed generated HELPERS this backend emits (`__decimal_num`,
+    // `__money_round`).  On a VARIABLE that prefix means "ignore this value",
+    // so reading it is a warning — and every elixir build gate runs
+    // `mix compile --warnings-as-errors`, which turns it into a compile
+    // failure.  It shipped green through the whole unit tier and through a
+    // booted `MIX_ENV=dev` run, because neither passes that flag.
+    //
+    // The invariant is the class, not the one binding: a pattern-bound name
+    // starting with `_` that the clause body returns is always this warning.
+    const offenders: string[] = [];
+    for (const [path, content] of elixir) {
+      for (const m of content.matchAll(/\b(_\w+)\}?\s*->\s*\1\b/g)) {
+        offenders.push(`${path}: ${m[0]}`);
+      }
+    }
+    expect(offenders).toEqual([]);
   });
 
   it("leaves a plain column-backed decimal read alone (it is already %Decimal{})", () => {

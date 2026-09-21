@@ -125,7 +125,7 @@ defmodule Api.Domain.Services.FeeQuote do
 
   @spec for_amount(map()) :: map()
   def for_amount(amount) do
-    %{amount: (case Decimal.cast(Map.get(amount, :amount, Map.get(amount, "amount"))) do {:ok, __d} -> __d; _ -> Map.get(amount, :amount, Map.get(amount, "amount")) end), currency: Map.get(amount, :currency, Map.get(amount, "currency"))}
+    %{amount: (case Decimal.cast(Map.get(amount, :amount, Map.get(amount, "amount"))) do {:ok, dec} -> dec; _ -> Map.get(amount, :amount, Map.get(amount, "amount")) end), currency: Map.get(amount, :currency, Map.get(amount, "currency"))}
   end
 end
 `);
