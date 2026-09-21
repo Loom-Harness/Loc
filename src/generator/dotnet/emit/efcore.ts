@@ -455,10 +455,22 @@ export function renderConfiguration(
   // The TPH base maps the hierarchy: a `kind` discriminator column whose value
   // for each concrete is that concrete's name (the cross-backend contract —
   // see Hono's `emitTphTable` / `discriminatorValue`).
+  //
+  // The `;` terminates the CHAIN, so it belongs to whichever line ends it —
+  // the last `.HasValue<…>` when the base has concretes, and the
+  // `HasDiscriminator` opener itself when it has NONE.  A childless
+  // `sharedTable` base is reachable and legitimate: `loom.es-tph-forced-own-table`
+  // forces a `shape: document` / `shape: embedded` / `persistedAs: eventLog`
+  // concrete to `inheritanceUsing: ownTable`, so a hierarchy whose only concrete
+  // takes that path leaves the base still owning the shared table with nothing
+  // sharing it.  Hanging the `;` off the `.HasValue` map alone emitted the
+  // opener unterminated → CS1002, and the project did not build at all.  The
+  // discriminator COLUMN still maps (the migration stamps `kind NOT NULL` on the
+  // base table), matching Java's `@DiscriminatorColumn` with no `@DiscriminatorValue`.
   const discriminatorLines =
     tph?.role === "base"
       ? [
-          `        builder.HasDiscriminator<string>("kind")`,
+          `        builder.HasDiscriminator<string>("kind")${tph.concretes.length === 0 ? ";" : ""}`,
           ...tph.concretes.map(
             (c, i) =>
               `            .HasValue<${c.name}>(${JSON.stringify(c.name)})${i === tph.concretes.length - 1 ? ";" : ""}`,
