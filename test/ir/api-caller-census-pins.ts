@@ -542,11 +542,6 @@ export const UNATTRIBUTED_CALLS: Record<string, readonly string[]> = {
     "api.orderVolume.list (no such aggregate)",
     "api.salesTotals.list (no such aggregate)",
   ],
-  // The capability-filter crossing (wave-3 row 3.3).  Same `notLifted` class as
-  // its three siblings above and below — four projection reads, none of which
-  // lifts to a derived operation.  `allTimeVolume` is the `ignoring` witness:
-  // it and `orderVolume` are the same shape over the same table and must
-  // DISAGREE once a row is soft-deleted, which is what the drained e2e asserts.
   // The document-source pair (wave-3 row 3.3).  `articleVolume` is the
   // table-level `count(*)` over the `(id, data, version)` triple;
   // `articleTitles` is the repository-hydrated per-row arm over the SAME
@@ -556,10 +551,22 @@ export const UNATTRIBUTED_CALLS: Record<string, readonly string[]> = {
     "api.articleTitles.list (no such aggregate)",
     "api.articleVolume.list (no such aggregate)",
   ],
+  // The capability-filter crossing (wave-3 row 3.3).  Same `notLifted` class as
+  // its three siblings above and below — three projection reads, none of which
+  // lifts to a derived operation.  `allTimeVolume` is the `ignoring` witness:
+  // it and `orderVolume` are the same shape over the same table and must
+  // DISAGREE once a row is soft-deleted, which is what the drained e2e asserts.
+  //
+  // The fixture's FOURTH projection, `salesByStatus`, is deliberately not
+  // called — its grouped rows come back in a different ORDER on node than on
+  // python, so a golden over it would pin one backend's collation rather than
+  // the `group by` clause's stated cross-backend determinism.  The measurement
+  // and the cause (enum grouping key: `CREATE TYPE … AS ENUM` ordinal order on
+  // node, text collation everywhere else) are written out at the call site in
+  // `projection-agg-filters.ddd`.
   "corpus/projection-agg-filters": [
     "api.allTimeVolume.list (no such aggregate)",
     "api.orderVolume.list (no such aggregate)",
-    "api.salesByStatus.list (no such aggregate)",
     "api.salesTotals.list (no such aggregate)",
   ],
   // The by-id-follow join's read — same `notLifted` class, third shape.

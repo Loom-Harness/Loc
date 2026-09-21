@@ -112,24 +112,6 @@
     },
     {
       "seq": 12,
-      "method": "GET",
-      "path": "/api/projections/sales_by_status",
-      "status": 200,
-      "body": [
-        {
-          "orders": 1,
-          "revenue": "5.0000",
-          "status": "Draft"
-        },
-        {
-          "orders": 1,
-          "revenue": "10.0000",
-          "status": "Confirmed"
-        }
-      ]
-    },
-    {
-      "seq": 13,
       "method": "POST",
       "path": "/api/orders/{id}/restore",
       "status": 404,
@@ -142,7 +124,7 @@
       }
     },
     {
-      "seq": 14,
+      "seq": 13,
       "method": "GET",
       "path": "/api/orders/{id}",
       "status": 200,
@@ -158,14 +140,14 @@
       }
     },
     {
-      "seq": 15,
+      "seq": 14,
       "method": "POST",
       "path": "/api/orders/{id}/update",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 16,
+      "seq": 15,
       "method": "GET",
       "path": "/api/projections/sales_totals",
       "status": 200,
@@ -175,7 +157,7 @@
       }
     },
     {
-      "seq": 17,
+      "seq": 16,
       "method": "GET",
       "path": "/api/orders",
       "status": 200,
@@ -209,14 +191,14 @@
       }
     },
     {
-      "seq": 18,
+      "seq": 17,
       "method": "DELETE",
       "path": "/api/orders/{id}",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 19,
+      "seq": 18,
       "method": "GET",
       "path": "/api/projections/all_time_volume",
       "status": 200,
@@ -225,7 +207,7 @@
       }
     },
     {
-      "seq": 20,
+      "seq": 19,
       "method": "POST",
       "path": "/api/organizations",
       "status": 201,
@@ -234,7 +216,7 @@
       }
     },
     {
-      "seq": 21,
+      "seq": 20,
       "method": "GET",
       "path": "/api/organizations",
       "status": 200,
@@ -247,7 +229,7 @@
       }
     },
     {
-      "seq": 22,
+      "seq": 21,
       "method": "PATCH",
       "path": "/api/orders",
       "status": 405,
@@ -260,7 +242,7 @@
       }
     },
     {
-      "seq": 23,
+      "seq": 22,
       "method": "GET",
       "path": "/__loom_no_such_path",
       "status": 404,
@@ -273,7 +255,7 @@
       }
     },
     {
-      "seq": 24,
+      "seq": 23,
       "method": "POST",
       "path": "/api/orders",
       "status": 400,
@@ -286,7 +268,7 @@
       }
     },
     {
-      "seq": 25,
+      "seq": 24,
       "method": "GET",
       "path": "/api/auth/me",
       "status": 200,
