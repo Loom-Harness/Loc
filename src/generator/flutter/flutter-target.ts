@@ -554,7 +554,9 @@ export const flutterTarget: WalkerTarget = {
     // takes exactly one Widget, so the splice has to become one: the same
     // `Column` the multi-root `Table` reaches for through `joinRoots`, which
     // is where the list literal comes from (ledger F2-CFE-3, flutter half).
-    return slot === "value" ? columnOf([spliced]) : spliced;
+    // Tested against `"children"`, not `"value"`: the seam fails closed, so an
+    // absent flag takes the wrapper rather than the shape that cannot parse.
+    return slot === "children" ? spliced : columnOf([spliced]);
   },
 
   // --- Navigation seam — Navigator.pushNamed -------------------------------
@@ -948,6 +950,10 @@ export const flutterTarget: WalkerTarget = {
       // fold into a min-height Column — the same container the walker gives a
       // `Stack`, sized to its contents so it can sit anywhere the single child
       // could.
+      // Default `ChildSlot` — a VALUE slot: a lone child becomes the
+      // constructor's single `Widget? child`, where a `...` spread does not
+      // parse.  (Several children fold into the `<Widget>[…]` literal below,
+      // but the restrictive answer is valid there too.)
       const walked = children.map((c) => walk(c, ctx, 0).trim());
       const value =
         walked.length === 1

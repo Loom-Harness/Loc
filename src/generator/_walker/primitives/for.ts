@@ -42,8 +42,9 @@ export function emitFor(
   /** The slot this `For` occupies — a children SEQUENCE (splice admissible)
    *  or a single-expression VALUE slot (it is not).  Handed straight to the
    *  target: only the target knows whether ITS children slot is a real list
-   *  literal, and the walker is the only layer that knows WHICH slot this is. */
-  slot: ChildSlot = "children",
+   *  literal, and the walker is the only layer that knows WHICH slot this is.
+   *  Defaults to the restrictive answer, like every other `ChildSlot`. */
+  slot: ChildSlot = "value",
 ): string {
   const positionals = positionalArgs(call);
   // Collection: `each:` named arg, else the first positional non-lambda.

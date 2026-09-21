@@ -106,7 +106,21 @@ export type RenderPosition = "template" | "handler";
  *  own emitters already normalise a spliced child in expression position
  *  (React's `wrapMultiRoot` fragment).  It exists so a target that CANNOT
  *  splice in a value slot can answer per slot instead of guessing from the
- *  shape of a string. */
+ *  shape of a string.
+ *
+ *  **`"value"` is the DEFAULT everywhere this is optional, and `"children"`
+ *  is the opt-in.**  The distinction fails CLOSED on purpose.  Getting it
+ *  wrong is asymmetric: a value slot that splices does not compile (FS0747 /
+ *  a Dart parse error) and `ddd parse` reports nothing, while a children
+ *  sequence that declines to splice emits a redundant `React.fragment` /
+ *  `Column` wrapper around a list that still renders.  One is the silent
+ *  class this discriminator exists to close; the other is a cosmetic wrapper.
+ *  So a site that forgets to say which slot it is gets the answer that is
+ *  always VALID, and `child-slot-ratchet.test.ts` pins the `"children"`
+ *  opt-ins so growing the splice-admissible set stays a reviewed decision.
+ *  An explicit `"value"` argument is therefore never load-bearing — it is
+ *  documentation at a site where the reader would otherwise have to go
+ *  looking. */
 export type ChildSlot = "children" | "value";
 
 /** A state field reference — produced by the walker when it
@@ -802,8 +816,10 @@ export interface WalkerTarget {
    *  or is the whole of a single-expression slot (see `ChildSlot`).  The
    *  splice-based targets MUST honour it: `yield!` (F#) and `...` (Dart)
    *  are only legal inside a list literal, so a `"value"` slot takes a
-   *  single wrapped element instead.  Absent ⇒ `"children"`, which is what
-   *  every caller meant before the distinction existed. */
+   *  single wrapped element instead.  Absent ⇒ `"value"`: the seam fails
+   *  closed like every other `ChildSlot` position, so a future primitive
+   *  that reaches for `renderForEach` directly and forgets the argument
+   *  gets a wrapper rather than an app that will not build. */
   renderForEach(
     coll: string,
     itemVar: string,

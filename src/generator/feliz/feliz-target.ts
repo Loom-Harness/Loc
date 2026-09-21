@@ -437,7 +437,10 @@ export const felizTarget: WalkerTarget = {
   // reaches for.
   renderForEach: (coll, itemVar, _indexVar, _keyExpr, body, _depth, emptyBody, slot) => {
     if (emptyBody === undefined) {
-      if (slot === "value") {
+      // `slot !== "children"`, not `slot === "value"`: the seam fails closed,
+      // so an absent flag takes the wrapper too.  A caller that forgot the
+      // argument would otherwise get the one shape that cannot compile.
+      if (slot !== "children") {
         return `React.fragment (${coll} |> List.map (fun ${itemVar} -> ${oneLine(body)}))`;
       }
       return `yield! ${coll} |> List.map (fun ${itemVar} ->\n  ${body})`;
@@ -864,6 +867,11 @@ export const felizTarget: WalkerTarget = {
     }
     for (const p of params) {
       if (p.type.kind !== "slot") continue;
+      // Default `ChildSlot` — a VALUE slot, and deliberately so: a lone slot
+      // arg becomes `field = <expr>` in the anonymous record just below, where
+      // a `yield!` is FS0747.  (Several args DO land in a `React.fragment [ … ]`
+      // list, but the flag describes the slot, not the arity, and the wrapper
+      // the restrictive answer produces is valid in both.)
       const walked = (slotArgs.get(p.name) ?? []).map((c) => oneLine(walk(c, ctx, 0)));
       // An F# anonymous record is EXACT — an unfilled field is a type error, not
       // an absent prop — so a slot the caller left empty is filled with the

@@ -1112,13 +1112,19 @@ export function walk(
   expr: ExprIR,
   ctx: WalkContext,
   depth: number,
-  /** The KIND of slot this child lands in — a container's children SEQUENCE
-   *  (the default) or a single-expression VALUE slot (a `QueryView` branch, a
-   *  `match` arm, a ternary branch, a table cell, the page body root).  Passed
-   *  as an ARGUMENT rather than carried on `ctx` deliberately: it describes
-   *  THIS position only and must not leak into the walked node's own children
-   *  (a `Stack` inside a value slot still opens a children sequence). */
-  slot: ChildSlot = "children",
+  /** The KIND of slot this child lands in — a single-expression VALUE slot
+   *  (the DEFAULT: a `QueryView` branch, a `match` arm, a ternary branch, a
+   *  table cell, a `Stat`/`KeyValueRow` value, a component's `slot` prop, the
+   *  page body root) or a container's children SEQUENCE, which every caller
+   *  that HAS one opts into explicitly.  The default is the restrictive answer
+   *  because the two mistakes are not symmetric — see `ChildSlot`; the
+   *  `"children"` opt-ins are pinned by `child-slot-ratchet.test.ts`.
+   *
+   *  Passed as an ARGUMENT rather than carried on `ctx` deliberately: it
+   *  describes THIS position only and must not leak into the walked node's own
+   *  children (a `Stack` inside a value slot still opens a children
+   *  sequence). */
+  slot: ChildSlot = "value",
 ): string {
   // Api hook injection (JSX-child position).  Detect
   // `<param>.<aggregate>.<op>` rooted at a UiApiParam; register
@@ -1267,7 +1273,7 @@ function emitComponent(
   call: ExprIR & { kind: "call" },
   ctx: WalkContext,
   depth: number,
-  slot: ChildSlot = "children",
+  slot: ChildSlot = "value",
 ): string {
   // Typed walker-primitive dispatch — the registry at
   // src/generator/_walker/registry.ts owns the per-target renderer
@@ -2822,7 +2828,11 @@ export function positionalChildren(
   ctx: WalkContext,
   depth: number,
 ): string[] {
-  return positionalArgs(call).map((a) => walk(a, ctx, depth));
+  // THE children-sequence helper: `Stack`/`Grid`/`Group`/`Section`/… all
+  // reach it, so one `"children"` opt-in here covers every plain container
+  // primitive.  A `For` among these positionals IS one element of a real
+  // list/array literal on every target, so the splice is legal and wanted.
+  return positionalArgs(call).map((a) => walk(a, ctx, depth, "children"));
 }
 
 /** Return the JSX-render shape of the first
