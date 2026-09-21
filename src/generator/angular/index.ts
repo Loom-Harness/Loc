@@ -64,7 +64,7 @@ import {
 } from "./realtime-handlers-builder.js";
 import { type AngularRouteDesc, renderAngularRoutes, routePath } from "./routes-emitter.js";
 import { renderAngularStoreModule, storeFileSlug } from "./store-builder.js";
-import { angularTarget } from "./walker/angular-target.js";
+import { angularTargetFor } from "./walker/angular-target.js";
 import {
   pageComponentName,
   pageNeedsDeferredFeatures,
@@ -233,8 +233,8 @@ export function generateAngularForContexts(
   // `component <Name>(…) extern from "<path>"` (ui-scope or top-level) gets a
   // typed props interface + a class re-export shim under `src/components/`, and
   // is threaded into the walker's `userComponents` map so a body call renders
-  // through `angularTarget.renderUserComponent` (an `NgComponentOutlet`
-  // container).  A component is `extern`, so it carries no body/state/derived to
+  // through `renderAngularUserComponent` (an `NgComponentOutlet` container —
+  // an extern class's selector is the author's, so Loom cannot spell a tag).  A component is `extern`, so it carries no body/state/derived to
   // walk.  The WALKED (non-extern) flavour emits below, once the aggregate /
   // workflow lookups its body walk needs exist (`components-emit.ts`).
   const externComponents = [
@@ -319,9 +319,11 @@ export function generateAngularForContexts(
       );
     }
   }
-  // The map every page / component call site resolves against: both flavours,
-  // since `angularTarget.renderUserComponent` renders them identically (only the
-  // page shell's IMPORT path differs, resolved from `walkedComponents.params`).
+  // The map every page / component call site resolves against: both flavours.
+  // `walkedComponentNames` below then splits them at render time — a walked
+  // component is addressed by TAG (and can project children), an extern one
+  // through `NgComponentOutlet`; the page shell resolves each one's IMPORT path
+  // from the same set.
   const userComponentParams = new Map<string, readonly ParamIR[]>([
     ...externComponentParams,
     ...walkedComponents.params,
@@ -342,7 +344,11 @@ export function generateAngularForContexts(
     } else {
       const result = walkBody(
         page.body,
-        angularTarget,
+        // Tag-addressable = the components LOOM emitted: those carry a kebab
+        // selector Loom knows, so their call sites become `<app-x …>` tags —
+        // the only Angular form with a content-projection channel.  An extern
+        // component is absent from the set and keeps the outlet.
+        angularTargetFor(walkedComponentNames),
         pack,
         new Set(page.params.map((p) => p.name)),
         new Set(page.state.map((s) => s.name)),

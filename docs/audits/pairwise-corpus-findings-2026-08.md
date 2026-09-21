@@ -632,7 +632,7 @@ oracles are where the axes paid.
 |---|---|---|---|---|---|
 | **F11** | `shape: embedded` × TPH | node (+ python, .NET differently) | drizzle repository targets `schema.things`; the schema module only exports `thingBases` → 19 × TS2339 | compile | **registered** |
 | **F12** | `paged` × `document` / `eventLog` | python **and .NET** | the caller expects the envelope, the non-relational repository builders drop the carrier → mypy `call-arg` + 5 × `attr-defined`; CS0535 | compile | **registered** |
-| **F13** | `shape: embedded` × TPH, and `shape: embedded` × `paged` | python | `ThingBaseRow` and `PagedResult` used but never imported → ruff F821 | compile | **registered** (one-line import gate) |
+| **F13** | `shape: embedded` × TPH, and `shape: embedded` × `paged` | python | `ThingBaseRow` and `PagedResult` used but never imported → ruff F821 | compile | **fixed** — TPH half #2528-era (2e), `PagedResult` half **#2975** |
 | **F14** | `paged` × `document` / `eventLog` | elixir | the context delegate declares arity 5; the document repository defines `by_label/3` and the event-sourced one `by_label/1` | compile | **fixed (#2804)** |
 | **F16** | forced-`ownTable` concrete under a TPH base | java (+ .NET, latently) | the entity minted the base's `<Base>Id` while every service/repository signature named `<Agg>Id` → `incompatible types: ThingBaseId cannot be converted to ThingId` | compile | **fixed (#2804)** |
 | **F15** | `softDeletable` × TPH | python | TPH makes the subtype's `is_deleted` column nullable, so `not_(...)` fails mypy --strict → 4 × `arg-type` | compile | **registered** |
@@ -776,6 +776,24 @@ import gate** — registered rather than fixed only because this slice's tree is
 **Registered in:** `waivers-compile.ts` (`platform: python`, `shape: embedded`,
 `inheritance: tph`).
 
+**Closed (#2975), and the half-fix that kept `main` red for a week.** Wave C2 packet 2e
+deleted this entry on the grounds that D-EMBEDDED-TPH (`loom.es-tph-forced-own-table`,
+packet 2c) had made the crossing unwritable — true of the `ThingBaseRow` half, which is a
+TPH-only shape. The `PagedResult` half is **not** TPH-shaped, exactly as the paragraph above
+already recorded ("independent of inheritance"), so deleting the whole entry left a live
+finding with neither a fix nor a waiver: the cover still emits
+`versioned-embedded-none-tph-paged-default`, whose *concrete* is forced to `ownTable` and so
+reaches the plain `embedded × paged` builder. #2975 adds the missing gate — the embedded
+builder was the only one of python's five repository builders without it (relational,
+document, event-sourced and port all carry the same `refersTo("PagedResult")` line) — and
+pins it with `test/generator/python/python-embedded-paged-import.test.ts`, mutation-proven
+against the reverted emitter.
+
+**The lesson is about the deletion, not the import.** A waiver that covers two findings under
+one row cannot be retired by fixing one of them; the entry has to be *narrowed* to the
+surviving half first, the way 2e narrowed F12's dotnet/python halves separately. The ratchet
+could not catch this, because a deleted entry has nothing left to go stale.
+
 ### F14 — `paged` × a non-relational shape on Phoenix: the delegate and the function disagree on arity — **fixed (#2804)**
 
 Read off the emitted source in this slice; **confirmed by the leg on `main` @ `123d30e7`**
@@ -868,6 +886,59 @@ crossing is unsupportable and says so, another emits code for it that does not b
 
 ---
 
+## Re-run on `main` @ `f90fdd15` (2026-09-20) — F17, and F13's surviving half
+
+Both compile oracles had been failing on **every** nightly since 2026-09-14 (the first was
+[34864619339](https://github.com/Loom-Harness/Loc/actions/runs/34864619339); the run that
+prompted this section is [35499039660](https://github.com/Loom-Harness/Loc/actions/runs/35499039660)),
+on the same cover case — `versioned-embedded-none-tph-paged-default` — with an **empty**
+`waivers-compile.ts`. The generation, schema-load, node, java and elixir legs stayed green
+throughout. One failure was F13's `PagedResult` half (above); the other had never been
+recorded at all.
+
+### F17 — a TPH base with no shared-table concrete emits an unterminated statement (.NET)
+
+```
+Infrastructure/Persistence/Configurations/ThingBaseConfiguration.cs(20,49):
+  error CS1002: ; expected
+```
+
+```csharp
+public void Configure(EntityTypeBuilder<ThingBase> builder)
+{
+    builder.ToTable("thing_bases", "main");
+    builder.HasKey(x => x.Id);
+    builder.Property(x => x.Id)…;
+    builder.Property(x => x.Note).HasColumnName("note");
+    builder.Property(x => x.Version).HasColumnName("version").IsConcurrencyToken();
+    builder.HasDiscriminator<string>("kind")     // ← no `;`, and no `.HasValue` line to carry it
+}
+```
+
+`renderConfiguration` hung the chain's `;` off the **last `.HasValue<T>(…)` line**
+(`i === tph.concretes.length - 1`), so a base with **zero** concretes emitted the opener and
+nothing else. Not a hypothetical: the base is abstract + `sharedTable` + root, so `isTphBase`
+is true, while its only concrete is `shape: embedded` and therefore forced to
+`inheritanceUsing: ownTable` by D-EMBEDDED-TPH — `tphConcretesOf` returns `[]` and the
+hierarchy is childless. The whole project failed to build, so **every** assertion the dotnet
+leg makes about that case was unreachable.
+
+**Fixed in #2975**: the `;` belongs to whichever line ends the chain — the opener when there
+are no concretes. The discriminator *column* still maps (the migration stamps `kind NOT NULL`
+on the base table), which is also what **java** emits for the same crossing
+(`@Inheritance(SINGLE_TABLE)` + `@DiscriminatorColumn`, no `@DiscriminatorValue`) and why the
+java leg was green. Gate: `test/generator/dotnet/dotnet-tph.test.ts` ("a TPH base with no
+shared-table concrete still terminates the discriminator statement"), which asserts the shape
+— no `builder.…` line left dangling — rather than the one known string.
+
+**Still open (design, not a compile break):** whether a childless `sharedTable` base should own
+a table at all. Today it does, on every backend, and the migration creates it with a `kind`
+column no row will ever carry. Ignoring it (`Ignore<Base>()`, the TPC path) would drop the
+orphan table but changes `find all <Base>` to the union-of-own-tables reader on five
+backends — a mission, not a line.
+
+---
+
 ## Follow-up slices
 
 1. ~~**Compile legs for dotnet / java / python / elixir.**~~ **Done** — #2690.
@@ -875,10 +946,10 @@ crossing is unsupportable and says so, another emits code for it that does not b
    (W3). Still open: unions / payload carriers, containment / part-in-part, `ignoring`
    filter-bypass, channels × broker.
 3. ~~**Fix F1 and F2**~~ — closed by #2527 / #2528.
-4. **Drain F11–F15.** ~~F14~~ closed by #2804 (with F16, which the same run turned up). F13
-   is minutes (two import-gate lines). F12 and F15 are one emitter each. F11 is a
-   cross-emitter mission — the embedded jsonb shape and the TPH shared table are not composed
-   anywhere, on any backend.
+4. **Drain F11–F15.** ~~F14~~ closed by #2804 (with F16, which the same run turned up).
+   ~~F13~~ closed — the TPH half by 2e, the `PagedResult` half by #2975 (with ~~F17~~).
+   F12 and F15 are one emitter each. F11 is a cross-emitter mission — the embedded jsonb
+   shape and the TPH shared table are not composed anywhere, on any backend.
 5. ~~**Run the elixir compile leg on the widened cover**~~ — the scheduled run did it (#2797),
    and confirmed F14 exactly as read from source. The lesson kept: a finding recorded from
    source rather than from a compiler gets no waiver, so it is the one that reaches `main`

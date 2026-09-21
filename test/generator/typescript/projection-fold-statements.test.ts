@@ -49,8 +49,10 @@ const FOLD_STATEMENT_DISPOSITION = {
   "variant-match": "reject",
 } satisfies Record<StmtIR["kind"], "emit" | "reject">;
 
-/** A system whose fold body carries `body`, plus a channel so the fold is
- *  actually dispatched (otherwise `loom.projection-event-uncarried` fires). */
+/** A system whose fold body carries `body`, plus a channel.  The channel is no
+ *  longer what makes the fold dispatch (D-PROJECTION-IMPLICIT-SUB — an `on(e: E)`
+ *  subscribes in-process on its own); it is kept so this fixture exercises the
+ *  CARRIED path, whose uncarried twin is `projection-implicit-sub.ddd`. */
 function sys(body: string, stateField = "total: int", resources = ""): string {
   return `
   system Shop {
