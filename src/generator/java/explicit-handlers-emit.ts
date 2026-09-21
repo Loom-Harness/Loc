@@ -48,6 +48,10 @@ import type {
   WorkflowStmtIR,
 } from "../../ir/types/loom-ir.js";
 import { wireTypeInfo } from "../../ir/types/wire-types.js";
+import {
+  domainServicesCalled,
+  isReadingServiceOp,
+} from "../../ir/util/domain-service-read-ports.js";
 import { normalizeHandlerReturn, requestRecordFor } from "../../ir/util/handler-contracts.js";
 import { walkWorkflowStmtsDeep } from "../../ir/util/walk.js";
 import { lines } from "../../util/code-builder.js";
@@ -96,8 +100,6 @@ function reposUsed(h: Handler): string[] {
   return [...aggs].sort();
 }
 
-const baseRenderCtx: JavaRenderContext = { thisName: "this" };
-
 /** A handler's params FLATTENED for the `handle(...)` signature + request body
  *  (M-T5.10 handler-param rewrite): a `command`/`query` RECORD param expands to
  *  its request fields (each a flat domain param named `<field>`, byte-identical
@@ -135,8 +137,23 @@ function handlerRenderCtx(
 ): JavaRenderContext {
   const records = recordParamNames(h, ctx);
   const resources = resourceClasses?.size ? { resourceClasses } : undefined;
-  if (records.size === 0 && !resources) return baseRenderCtx;
-  return { thisName: "this", ...(records.size > 0 ? { recordParams: records } : {}), ...resources };
+  // `serviceReading` is what makes a READING-tier `domain-service` call render
+  // as an instance call against the injected bean (`registration.isHolderFree(x)`)
+  // instead of the static `Registration.isHolderFree(x)` a pure service emits.
+  // The workflow emitter has threaded it since rev. 4; this one did not, so a
+  // handler calling a reading service emitted a static call into a bean with no
+  // static member and no import — "cannot find symbol", twice
+  // (ledger `M-T5.14-reading-service-readport-not-threaded`).  A handler that
+  // calls NO reading service resolves `false` for every ref and keeps the
+  // byte-identical static shape.
+  const serviceReading = (service: string, op: string): boolean =>
+    isReadingServiceOp(ctx.domainServices ?? [], service, op);
+  return {
+    thisName: "this",
+    serviceReading,
+    ...(records.size > 0 ? { recordParams: records } : {}),
+    ...resources,
+  };
 }
 
 // --- Extern handler (bodyless) — port + scaffold-once impl bean -------------
@@ -360,6 +377,11 @@ function renderHandlerClass(
   entityPkgOf: (agg: string) => string,
   repoPkgOf: (agg: string) => string,
   resources?: { classes: Map<string, string>; pkg: string },
+  /** The package the generated `domainService` classes land in — the same
+   *  `pkgFor("domain-service")` the workflow emitter receives as
+   *  `wctx.domainServicePkg`.  Absent (or equal to this package) ⇒ no import
+   *  line, which is the pre-rev.4 shape for a system with no domain service. */
+  domainServicePkg?: string,
 ): string {
   const handlerName = `${h.name}Handler`;
   const imports = new Set<string>();
@@ -398,17 +420,31 @@ function renderHandlerClass(
     })
     .join(", ");
 
+  // Domain services this body calls (domain-services.md rev. 4).  A READING
+  // service is a `@Service` bean, so the handler constructor-injects it exactly
+  // as `<Ctx>Workflows` does; a PURE service is a static utility class, so only
+  // its import is needed.  BOTH were missing before — the pure call had no
+  // import either, so `FeeQuote.forAmount(amount)` was "cannot find symbol" in a
+  // handler while the identical call compiled in a workflow.
+  const calledServices = domainServicesCalled(h.statements, ctx.domainServices ?? [], [
+    h.returnValue,
+  ]);
   const repoAggs = reposUsed(h);
-  const fields = repoAggs.map((a) => `    private final ${a}Repository ${repoField(a)};`);
-  const ctorParams = repoAggs.map((a) => `${a}Repository ${repoField(a)}`).join(", ");
+  const fields = [
+    ...repoAggs.map((a) => `    private final ${a}Repository ${repoField(a)};`),
+    ...calledServices.reading.map((s) => `    private final ${s} ${lowerFirst(s)};`),
+  ];
+  const ctorParams = [
+    ...repoAggs.map((a) => `${a}Repository ${repoField(a)}`),
+    ...calledServices.reading.map((s) => `${s} ${lowerFirst(s)}`),
+  ].join(", ");
+  const ctorAssigns = [
+    ...repoAggs.map((a) => `        this.${repoField(a)} = ${repoField(a)};`),
+    ...calledServices.reading.map((s) => `        this.${lowerFirst(s)} = ${lowerFirst(s)};`),
+  ];
   const ctor =
-    repoAggs.length > 0
-      ? [
-          `    public ${handlerName}(${ctorParams}) {`,
-          ...repoAggs.map((a) => `        this.${repoField(a)} = ${repoField(a)};`),
-          `    }`,
-          ``,
-        ]
+    ctorAssigns.length > 0
+      ? [`    public ${handlerName}(${ctorParams}) {`, ...ctorAssigns, `    }`, ``]
       : [];
 
   // Cross-package imports for each loaded aggregate + its repository interface.
@@ -451,6 +487,14 @@ function renderHandlerClass(
     `import org.springframework.transaction.annotation.Transactional;`,
     ``,
     ...aggImports,
+    // Domain-service classes named in the body — the READING beans this handler
+    // injects and the PURE classes it calls statically.  Sorted and deduped, one
+    // import per class (not a wildcard), matching the workflow emitter.
+    ...(domainServicePkg && domainServicePkg !== appPkg
+      ? [...calledServices.reading, ...calledServices.pure]
+          .sort()
+          .map((svc) => `import ${domainServicePkg}.${svc};`)
+      : []),
     resourceImport,
     `import ${basePkg}.domain.common.*;`,
     `import ${basePkg}.domain.enums.*;`,
@@ -485,6 +529,9 @@ export function emitExplicitHandlers(
   /** Resource-client routing for handler bodies that issue a resource-op — the
    *  same `{classes, pkg}` pair the workflow emitter receives. */
   resources?: { classes: Map<string, string>; pkg: string },
+  /** The generated `domainService` package (`pkgFor("domain-service")`), so a
+   *  handler that calls one imports the class (domain-services.md rev. 4). */
+  domainServicePkg?: string,
 ): { name: string; content: string }[] {
   const files: { name: string; content: string }[] = [];
   const pushHandler = (h: Handler, kind: "command" | "query"): void => {
@@ -517,7 +564,17 @@ export function emitExplicitHandlers(
     }
     files.push({
       name: `${h.name}Handler.java`,
-      content: renderHandlerClass(h, kind, basePkg, appPkg, ctx, entityPkgOf, repoPkgOf, resources),
+      content: renderHandlerClass(
+        h,
+        kind,
+        basePkg,
+        appPkg,
+        ctx,
+        entityPkgOf,
+        repoPkgOf,
+        resources,
+        domainServicePkg,
+      ),
     });
   };
   for (const h of ctx.commandHandlers ?? []) pushHandler(h, "command");

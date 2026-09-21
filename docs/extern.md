@@ -42,12 +42,26 @@ aggregate Order {
 > expressions resolve against the component instance, never a free import), so a
 > body call renders as `{{ initials(name()) }}`. The Angular **component** hook
 > uses `NgComponentOutlet` — the selector-free, class-reference binding — since
-> Angular has no JSX-family `<Name prop={…} />` tag: Loom re-exports the user's
-> **named** component class through `src/components/<Name>.ts`, the page imports
-> it and re-exposes it as a member, and a body call renders
+> Angular has no JSX-family `<Name prop={…} />` tag AND the hand-written class's
+> own `@Component({ selector })` belongs to the author, so Loom has no tag to
+> spell for it: Loom re-exports the user's **named** component class through
+> `src/components/<Name>.ts`, the page imports it and re-exposes it as a member,
+> and a body call renders
 > `<ng-container [ngComponentOutlet]="Chart" [ngComponentOutletInputs]="{ … }">`.
 > The typed `<Name>.props.ts` interface (the user types their `@Input()`s
 > against it) emits identically to the JSX frontends.
+>
+> One consequence is worth knowing before reaching for the hatch: the outlet
+> sets INPUTS and has **no content-projection channel**
+> (`ngComponentOutletContent` takes pre-built DOM nodes, TS-side only), so
+> children passed at an Angular call site — `Chart("a", Text { "child" })` — are
+> dropped, with a comment in the emitted template and a
+> `loom.component-children-unsupported` warning at compile time. A **walked**
+> (non-`extern`) component has no such limit: Loom emits its class and stamps
+> its selector, so its call site is `<app-chart …>children</app-chart>` and the
+> children land in the body's `Slot { }`. To pass children on Angular, write the
+> component in Loom rather than externing it — or see **M-T1.33**, which carries
+> the surface (a selector clause on `extern from`) that would lift the limit.
 >
 > **HEEx (Phoenix LiveView)** carries both hatches too, bound the idiomatic
 > Elixir way — by MODULE, not file path (the module reference *is* the binding,

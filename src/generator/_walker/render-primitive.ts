@@ -148,10 +148,25 @@ export function addImportsForPrimitive(ctx: WalkContext, name: string): void {
  *  template directly (e.g. shadcn's `field-input-id-select`
  *  imports `Select`, `SelectTrigger`, … from
  *  `@/components/ui/select`). */
+/** Row sub-field templates whose PACK MARKUP the `field-input-array` row arm
+ *  actually renders, and which therefore need that template's declared imports.
+ *
+ *  The row arm branches in Handlebars, so the TS import collector cannot see
+ *  which branch a row takes — this set is the seam between the two.  Every
+ *  other row sub-field renders as the row's plain `register`-bound input
+ *  (whatever component that pack uses for text), whose import the array
+ *  template itself already declares; pulling in their templates' imports would
+ *  add components no row ever mounts.  A pack that grows another row branch
+ *  adds the template name here. */
+const ROW_RENDERED_TEMPLATES = new Set(["field-input-id-select"]);
+
 export function registerFormFieldImports(ctx: WalkContext, vm: FormFieldVM): void {
   addImportsForPrimitive(ctx, vm.template);
   if (vm.children) {
     for (const c of vm.children) registerFormFieldImports(ctx, c);
+  }
+  for (const r of vm.rowFields ?? []) {
+    if (ROW_RENDERED_TEMPLATES.has(r.template)) addImportsForPrimitive(ctx, r.template);
   }
 }
 

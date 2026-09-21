@@ -189,6 +189,12 @@ export function renderFlutterStores(
   // actions' money arithmetic both render `LoomMoney.` into these bodies.  Same
   // marker `index.ts` emits `lib/money.dart` on, so neither can dangle.
   const body = bodies.join("\n\n");
+  // A `json` cell in a `url`-tier store round-trips through `jsonEncode` /
+  // `jsonDecode` — the same content-sniff every other on-demand import here
+  // uses, so the import and its use cannot disagree.
+  if (/(?<![A-Za-z0-9_$.])json(Encode|Decode)\(/.test(body)) {
+    header.push("", "import 'dart:convert';");
+  }
   if (usesMoney(body)) header.push("", "import 'money.dart';");
   // A store action that navigates pushes through the out-of-tree bridge — a
   // Riverpod `Notifier` has no `BuildContext` (F2-CFE-1).

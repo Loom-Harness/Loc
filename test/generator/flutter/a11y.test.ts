@@ -134,9 +134,13 @@ describe("flutter a11y — the runtime guideline gate (Phase C)", () => {
     const key = [...files.keys()].find((k) => k.endsWith("test/a11y_test.dart"));
     expect(key, `no test/a11y_test.dart in: ${[...files.keys()].join(", ")}`).toBeDefined();
     const dart = files.get(key!)!;
-    // Enables the semantics tree and boots the real App.
+    // Enables the semantics tree and pumps the page under test.  (It used to
+    // pump `App()` once at its `initialRoute`, which scanned ONLY the boot
+    // frame; the leg now emits one case per page through the `_probe` harness
+    // — see `a11y-per-page.test.ts`, and the seeded-violation proof in its
+    // header.)
     expect(dart).toContain("tester.ensureSemantics()");
-    expect(dart).toContain("await tester.pumpWidget(const App())");
+    expect(dart).toContain("await tester.pumpWidget(_probe(const ScreenPage()))");
     // The four built-in WCAG guidelines — the axe analogue Flutter can carry.
     expect(dart).toContain("meetsGuideline(androidTapTargetGuideline)");
     expect(dart).toContain("meetsGuideline(iOSTapTargetGuideline)");

@@ -45,9 +45,14 @@ describe("walker primitive — For (list comprehension)", () => {
   it("binds the item param inside the body (refs resolve to the loop var)", async () => {
     const tsx = await emit(`Stack { For { each: [1, 2], n => Heading { \`row {n}\` } } }`);
     // The item ref `n` resolves to the emitted iteration variable, threaded
-    // through the ICU t() call the interpolated template lowers to.
+    // through the ICU t() call the interpolated template lowers to.  The hole
+    // is `String(n)`, not a bare `n`, because the item param now carries the
+    // collection's ELEMENT type (`int` here) — a non-string template hole is
+    // stringified at lowering, exactly as a DECLARED `component Row(n: int)`
+    // has always emitted it.  Before the row binding was typed, `n` was the
+    // `string` placeholder and the wrap was skipped.
     expect(tsx).toMatch(
-      /<Title order=\{2\}[^>]*>\{t\("[^"]*", "row \{n\}", \{ n: n \}\)\}<\/Title>/,
+      /<Title order=\{2\}[^>]*>\{t\("[^"]*", "row \{n\}", \{ n: String\(n\) \}\)\}<\/Title>/,
     );
   });
 
