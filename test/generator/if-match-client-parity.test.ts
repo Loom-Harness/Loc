@@ -101,6 +101,43 @@ describe("If-Match: the generated client sends the precondition it promises", ()
     expect(mod).toMatch(/\/update`, input, ifMatch\(/);
   }, 90_000);
 
+  it.each(
+    Object.keys(SENDS),
+  )("%s: the emitted client EXPORTS the helper its api modules import", async (framework) => {
+    // The gate this file was missing, and CI found for me: `ifMatch` was added
+    // to `api/api-client.hbs` — which react, vue and angular render — while
+    // SVELTEKIT KEEPS ITS OWN COPY (`sveltekit/api-client.hbs`).  So svelte
+    // emitted modules importing a symbol its own client did not export, and 12
+    // of 14 `generated-svelte-build` shards failed on
+    // `Module './client' has no exported member 'ifMatch'`.
+    //
+    // Asserting the CALL SITE (above) could never catch that: the call was
+    // emitted correctly.  The defect is the seam between two files, so the
+    // assertion has to span it — per frontend, because which template a host
+    // renders is exactly the fact that varies.
+    const files = await generateSystemFiles(model(framework));
+    const importers = [...files].filter(([, t]) =>
+      /import \{[^}]*\bifMatch\b[^}]*\} from "\.\/client"/.test(t),
+    );
+    expect(
+      importers.map(([p]) => p),
+      `${framework}: nothing imports ifMatch`,
+    ).not.toEqual([]);
+    const client = [...files].find(([p]) => /(^|\/)client\.ts$/.test(p));
+    expect(client, `${framework}: no client module emitted`).toBeDefined();
+    expect(
+      client![1],
+      `${framework}: ${importers.length} module(s) import ifMatch but the emitted ` +
+        `client does not export it — this host renders a DIFFERENT api-client template`,
+    ).toMatch(/export const ifMatch\b/);
+    // The `headers` parameter the call site passes has to exist too: an
+    // exported helper whose value nothing accepts is the same defect one
+    // argument along (`Expected 2 arguments, but got 3`).
+    expect(client![1], `${framework}: api.post takes no headers argument`).toMatch(
+      /post: \(path: string, body: unknown, headers\?: Record<string, string>\)/,
+    );
+  }, 90_000);
+
   it("the entity-tag is quoted, and the helper ships with the shared client", async () => {
     // An unquoted `If-Match: 3` is not an entity-tag, and java now parses the
     // quoted form precisely because this is what the client sends — the two
