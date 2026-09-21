@@ -12,6 +12,7 @@ import type {
 import { hierarchyRegistry } from "../../../ir/util/tenant-stance.js";
 import { AUTH_BASE_PATH } from "../../../util/api-base.js";
 import { lines } from "../../../util/code-builder.js";
+import { TEST_RESET_PATH } from "../../../util/test-reset.js";
 
 // ---------------------------------------------------------------------------
 // Hono-side auth scaffolding emitted per deployable when `auth: required`.
@@ -350,9 +351,16 @@ function rootOrgOf(orgPath: string): string {
   // reachable without a verified principal.  `/api/auth/me` (the session probe
   // the frontend guard reads) is deliberately NOT bypassed, so the
   // middleware populates `currentUser` or rejects with 401.
+  //
+  // The dev-only state reset (`src/util/test-reset.ts`) is bypassed for the
+  // same reason as the probes: it is infra, not domain surface, and an
+  // auth-bearing system's e2e suite would otherwise have to mint a principal
+  // just to empty a table.  It costs nothing to bypass — the route is not
+  // REGISTERED outside a dev profile, so on a real deployment there is no
+  // handler behind the bypassed path.
   const bypass = oidc
-    ? `["/health", "/ready", "/openapi.json", "/swagger", "${AUTH_BASE_PATH}/login", "${AUTH_BASE_PATH}/callback", "${AUTH_BASE_PATH}/logout", "${AUTH_BASE_PATH}/refresh"]`
-    : '["/health", "/ready", "/openapi.json", "/swagger"]';
+    ? `["/health", "/ready", "/openapi.json", "/swagger", "${TEST_RESET_PATH}", "${AUTH_BASE_PATH}/login", "${AUTH_BASE_PATH}/callback", "${AUTH_BASE_PATH}/logout", "${AUTH_BASE_PATH}/refresh"]`
+    : `["/health", "/ready", "/openapi.json", "/swagger", "${TEST_RESET_PATH}"]`;
   return `// Auto-generated.
 import type { Context } from "hono";
 import { createMiddleware } from "hono/factory";

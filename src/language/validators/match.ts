@@ -95,9 +95,15 @@ export function checkMatcherArity(model: Model, accept: ValidationAcceptor): voi
     if (!ms.call) continue;
     const sig = intrinsicMatcherSig(ms.member);
     if (!sig) continue;
-    // `toThrow` has variable arity (0 = any throw, 1 = pinned HTTP status);
-    // `checkExpectMatcher` enforces its argument rules.
+    // `toThrow` has variable arity (0 = any throw, 1 = pinned HTTP status or
+    // failure rung); `checkExpectMatcher` enforces its argument rules.
     if (ms.member === "toThrow") continue;
+    // A throw-KIND word occupies the grammar's `ThrowKind` slot, which is a
+    // SIBLING of `args` — so `toBe(invariant)` reads here as zero arguments and
+    // would draw a second, misleading "takes 1 argument(s), got 0".  The real
+    // complaint is `checkThrowKindPlacement`'s (the word belongs to `toThrow`
+    // and nothing else); let that one speak alone.
+    if (ms.throwKind) continue;
     if (ms.args.length !== sig.arity) {
       accept(
         "error",
@@ -174,6 +180,25 @@ export function checkExpectMatcher(model: Model, accept: ValidationAcceptor): vo
       continue;
     }
     if (matcher.member !== "toThrow") continue;
+    // `toThrow(<kind>)` — the failure RUNG (`precondition` / `invariant`).
+    // UNIT TIER ONLY.  In-process the rung is observable: elixir carries a
+    // structural `:kind` on `GuardError`, the other four a stable message
+    // prefix.  Over HTTP both rungs are a 422 whose only discriminator is the
+    // RFC 7807 `detail` sentence — which an authored `message "..."` on the
+    // rule overwrites.  Allowing both tiers would make ONE matcher mean two
+    // strengths of claim, which is exactly the defect #2959 fixed on the ui
+    // side (`toThrow(422)` silently meaning something weaker there).  The e2e
+    // body keeps the wire-level form, `toThrow(<status>)`.
+    if (matcher.throwKind) {
+      if (isTestE2E(stmt.$container)) {
+        accept("error", diagMessage("loom.e2e-throw-kind-invalid", { kind: matcher.throwKind }), {
+          node: matcher,
+          property: "member",
+          code: "loom.e2e-throw-kind-invalid",
+        });
+      }
+      continue;
+    }
     if (matcher.args.length > 1) {
       accept(
         "error",
@@ -217,6 +242,31 @@ export function checkExpectMatcher(model: Model, accept: ValidationAcceptor): vo
         );
       }
     }
+  }
+}
+
+/** The grammar's `ThrowKind` slot is reachable on ANY member call — it had to
+ *  be, because `precondition` / `invariant` are hard keywords that no ordinary
+ *  argument rule can carry (see `PostfixSuffix` in `ddd.langium`).  The
+ *  matcher catalogue is closed and compiler-known, so the reach that the
+ *  grammar cannot narrow, the validator does: the two words mean the failure
+ *  rung of a `toThrow`, and nothing else.
+ *
+ *  Without this, `wo.complete(precondition)` — or `expect(x).toBe(invariant)` —
+ *  would parse clean and then lower to a call whose argument list silently
+ *  DROPPED the word, since `throwKind` is a sibling of `args`, not a member of
+ *  it.  That is the "validates clean, then means something else" shape this
+ *  repo refuses; name it at the author's own source span instead. */
+export function checkThrowKindPlacement(model: Model, accept: ValidationAcceptor): void {
+  for (const node of AstUtils.streamAllContents(model)) {
+    if (!isMemberSuffix(node)) continue;
+    const ms = node as MemberSuffix;
+    if (!ms.throwKind || ms.member === "toThrow") continue;
+    accept(
+      "error",
+      diagMessage("loom.throw-kind-outside-tothrow", { kind: ms.throwKind, member: ms.member }),
+      { node: ms, property: "member", code: "loom.throw-kind-outside-tothrow" },
+    );
   }
 }
 

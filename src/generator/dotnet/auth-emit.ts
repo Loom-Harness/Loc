@@ -10,6 +10,7 @@ import type {
 import { hierarchyRegistry } from "../../ir/util/tenant-stance.js";
 import { AUTH_BASE_PATH } from "../../util/api-base.js";
 import { plural, snake, upperFirst } from "../../util/naming.js";
+import { TEST_RESET_PATH } from "../../util/test-reset.js";
 import { claimPathFor, claimsReferenceIds } from "../_auth/claim-types.js";
 import { devClaimFields } from "../_auth/dev-claims.js";
 import { devStubIdExpr } from "../_auth/dev-stub-id.js";
@@ -900,7 +901,12 @@ public sealed class UserMiddleware
         "/health",
         "/ready",
         "/openapi.json",
-        "/swagger",${handshakeBypass}
+        "/swagger",
+        // The dev-only state reset (src/util/test-reset.ts) — infra, not
+        // domain surface, so an auth-bearing system's e2e suite need not mint
+        // a principal just to empty a table.  Costs nothing: where the route
+        // is not mapped there is no handler behind the bypassed path.
+        "${TEST_RESET_PATH}",${handshakeBypass}
     };
 
     private readonly RequestDelegate _next;
