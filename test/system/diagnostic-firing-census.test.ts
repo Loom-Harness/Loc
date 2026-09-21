@@ -1638,6 +1638,33 @@ system P {
   deployable app { platform: react targets: api ui: WebApp { C: api } port: 3001 }
 }`,
 
+  // A page `requires` gate outside the closed, client-evaluable subset every
+  // JS/F#/Dart gate renderer implements — a CONVERSION, the same shape that
+  // catches the toast gate above.  Without this gate the model reports
+  // `0 error(s), 0 warning(s)` and then aborts `ddd generate system` with a raw
+  // `Error: UI gate: expression kind 'convert' is not supported in a UI gate`
+  // from `renderGateExpr` / `renderFelizGate` / `renderFlutterGate`.
+  "loom.ui-gate-expr-unsupported": `
+system P {
+  user { id: guid  role: string }
+  subdomain D { context C {
+    aggregate Order with crudish { customerId: string }
+  } }
+  api Api from D
+  ui WebApp {
+    api C: Api
+    page Home {
+      route: "/"
+      requires string(currentUser.role) == "admin"
+      body: Stack { Heading { "home" } }
+    }
+  }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable api { platform: node contexts: [C] dataSources: [st] serves: Api port: 3000 auth: required }
+  deployable app { platform: react targets: api ui: WebApp { C: api } port: 3001 auth: ui }
+}`,
+
   // `display`/`inspect` are reserved derived names that only mean something on
   // an aggregate — on a value object they are rejected.
   "loom.reserved-derived-on-vo": repoOnly(`    valueobject Money {

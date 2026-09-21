@@ -1716,6 +1716,24 @@ export const DIAGNOSTIC_MESSAGES = {
     `conditional VALUE (a ternary, or \`match { cond => …, else => … }\`) and let the ` +
     `backend operation own the \`precondition\` / \`requires\` / \`return\` — or host this ` +
     `ui on Phoenix LiveView, whose handler renderer is the one that has arms for all three.`,
+  "loom.ui-gate-expr-unsupported": (p: {
+    where: unknown;
+    kind: unknown;
+    detail: unknown;
+    fw: unknown;
+  }) =>
+    `${p.where} ${p.detail}. Every closed-table gate renderer implements the SAME ` +
+    `client-evaluable subset — \`currentUser\` and its claim chain, enum members, ` +
+    `string/bool/int/long/decimal literals, \`.contains(…)\` membership, comparisons, ` +
+    `boolean operators, \`!\`, parentheses and a ternary — and THROWS on anything else ` +
+    `(\`expression kind '${p.kind}' is not supported in a UI gate\`): ` +
+    `src/generator/_frontend/gate-expr.ts (React/Vue/Svelte/Angular), ` +
+    `src/generator/feliz/auth-gate.ts (Feliz), src/generator/flutter/auth-gate.ts (Flutter). ` +
+    `So on '${p.fw}' this \`.ddd\` validates and then CRASHES \`ddd generate system\` with a ` +
+    `raw stack trace. Rewrite the gate over the claims themselves ` +
+    `(\`requires currentUser.role == "admin"\`), put the computation on the backend gate ` +
+    `(\`operation … requires\`, which is the enforcing half anyway), or host this ui on ` +
+    `Phoenix LiveView, whose page gate goes through the general HEEx expression renderer.`,
   // ----------------------------------------------------------------------
   // src/ir/validate/checks/ui-framework-checks.ts — the two Flutter
   // action-body gaps (§18 sentinels: the `TODO(flutter full-parity)` arms in

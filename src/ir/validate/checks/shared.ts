@@ -166,9 +166,28 @@ function describeColumnRef(e: ExprIR): string {
 export function firstNonQueryableNode(e: ExprIR): string | null {
   switch (e.kind) {
     case "literal":
-    case "this":
-    case "id":
       return null;
+    // CR1-f (wave CR1, audit row P0-2b).  `this` and `id` used to be admitted
+    // alongside `literal`, and NO query renderer emits either: `find byThis(q:
+    // Customer): Customer[] where this == q` and `find byId2(q: Customer id):
+    // Customer[] where id == q` both reported `0 error(s), 0 warning(s)` and
+    // then aborted `ddd generate system` with a `QueryEmissionRefusal`
+    // (`loom.query-emission-invalid`, whose own contract says reaching it is "a
+    // validator gap or a compiler bug, never a user mistake") — measured on
+    // this HEAD for drizzle, and the same arm is missing from the Dapper, JPQL
+    // and `@SQLRestriction` renderers.  Both are now refused here, where the
+    // author gets a source location and a rewrite.
+    case "this":
+      return (
+        `bare 'this' (the whole row) — a query predicate compares COLUMNS, so ` +
+        `name one ('this.<field>'), not the aggregate itself`
+      );
+    case "id":
+      return (
+        `bare 'id' — no backend's query renderer emits the primary-key column in ` +
+        `a find / criterion predicate; filter on a declared field, or load by ` +
+        `key through '<Repo>.getById(...)'`
+      );
     case "ref":
       // Refs the lowering produces that translate cleanly to SQL —
       // `param`/`let`/`lambda` are bare identifiers, `this-prop`
@@ -376,12 +395,25 @@ export function firstNonQueryableNode(e: ExprIR): string | null {
       // side via a `derived` projection if needed).
       return `conversion to '${e.target}'`;
     case "duration":
-      // A5 temporal: a duration constructor is queryable when its amount
-      // is (a literal / param binds; a column interpolates) — the Drizzle
-      // lowerer renders it (ms on the value side, `make_interval` on the
-      // column side).  Every duration unit is absolute (fixed width), so
-      // there is no calendar-relative carve-out here.
-      return firstNonQueryableNode(e.amount);
+      // A5 temporal: a duration constructor is queryable ONLY in the
+      // `datetime ± days/hours/minutes(n)` position, and that position is
+      // destructured by the `binary` arm above — which recurses into the
+      // duration's AMOUNT (`firstNonQueryableNode(dur.amount)`), never into
+      // the duration NODE.  So this arm is reached only by a duration
+      // STANDING ALONE in predicate position, which no query renderer emits.
+      //
+      // CR1-f (wave CR1, audit row P0-2b): it used to `return
+      // firstNonQueryableNode(e.amount)` — admitting exactly that shape.
+      // `find byDur(): Customer[] where days(7) == days(3)` reported `0
+      // error(s), 0 warning(s)` and then aborted `ddd generate system` with a
+      // `QueryEmissionRefusal` (`loom.query-emission-invalid`, the code whose
+      // own contract says reaching it is a validator gap).  Measured on this
+      // HEAD for drizzle; the Dapper / JPQL / `@SQLRestriction` renderers
+      // have no `duration` arm either.
+      return (
+        `duration constructor '${e.unit}(…)' outside a 'datetime ± ${e.unit}(n)' ` +
+        `comparison — a bare duration is not a column or a bindable value`
+      );
     case "i18nFormat":
       // Transparent i18n wrapper (M-T1.11) — a display-formatting node that
       // only rides user-visible templates, never a find `where`; queryability

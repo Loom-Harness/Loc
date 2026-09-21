@@ -378,8 +378,23 @@ const REGISTER_FILE = path.join(srcRoot, "diagnostics", "unsupported-register.ts
  *  sink census with no chokepoint, and four fifths of that is indistinguishable
  *  from success in any test that asserts by shape.  `scope` says "declared limit,
  *  named successor"; `gap` said "a sweep can close this", which for a
- *  security-shaped feature is how it ends up half-ported. */
-const MAX_OPEN_GAPS = 20;
+ *  security-shaped feature is how it ends up half-ported.
+ *
+ *  20 -> 21 (wave CR1 packet CR1-f, audit row P0-2b): `loom.ui-gate-expr-unsupported`.
+ *  The same trade this register exists to record, and the closest twin it has —
+ *  `loom.toast-message-unsupported`, found by the identical method two rows
+ *  above.  The gap is not new: the three closed page-gate renderers
+ *  (`_frontend/gate-expr.ts`, `feliz/auth-gate.ts`, `flutter/auth-gate.ts`) have
+ *  always implemented one narrow currentUser-only subset and THROWN on the rest,
+ *  while `RequiresProp: 'requires' expr=Expression` admits any bool expression.
+ *  What is new is that `page X { requires string(currentUser.role) == "admin" }`
+ *  stopped printing `0 error(s), 0 warning(s)` and then aborting `ddd generate
+ *  system` with `Error: UI gate: expression kind 'convert' is not supported in a
+ *  UI gate` and a bare stack trace.  Drained by the same work that drains
+ *  M-T1.10 — routing the gate through each frontend's own expression emitter
+ *  rather than three hand-written subsets — which deletes the row and lowers
+ *  this back to 20. */
+const MAX_OPEN_GAPS = 21;
 
 /** Exact count of `seam` rows.  Changes only for a reviewed reason: a gate
  *  deleted (down), a new target registered that turns a seam back into a live

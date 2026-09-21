@@ -568,5 +568,13 @@ function renderStatement(
         cond: renderExpr(s.cond, rc),
         renderInner: (stmts) => stmts.map((st) => renderStatement(st, ctx, rc, isUnion)),
       });
+    default: {
+      // CR1-f (wave CR1, audit row P0-2b): the switch already listed all 12
+      // `StmtIR` kinds, so `tsc` caught a new one only as "function lacks
+      // ending return" — a message that names neither this file nor the
+      // union.  The never-check states the invariant where it lives.
+      const _exhaustive: never = s;
+      return `    # unreachable: ${JSON.stringify(_exhaustive)}`;
+    }
   }
 }

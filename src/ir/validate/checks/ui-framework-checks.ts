@@ -991,3 +991,140 @@ export function validateUiBodyStatementKinds(sys: SystemIR, diags: LoomDiagnosti
     }
   }
 }
+
+// -------------------------------------------------------------------------
+// `loom.ui-gate-expr-unsupported` — a page `requires <expr>` outside the
+// closed, client-evaluable subset every JS/F#/Dart gate renderer implements
+// (CR1-f, wave CR1, audit row P0-2b).
+//
+// THE SILENT CRASH.  The grammar's `RequiresProp: 'requires' expr=Expression`
+// admits any expression, the gate type-check only demands `bool`, and the
+// three renderers then implement ONE narrow subset and THROW on anything else:
+//
+//   src/generator/_frontend/gate-expr.ts   `renderGateExpr`     (React/Vue/Svelte/Angular)
+//   src/generator/feliz/auth-gate.ts       `renderFelizGate`    (Feliz)
+//   src/generator/flutter/auth-gate.ts     `renderFlutterGate`  (Flutter)
+//
+// Measured on the pre-gate HEAD: a page carrying
+// `requires string(currentUser.role) == "admin"` on an `auth: ui` svelte
+// deployable printed `0 error(s), 0 warning(s)` from `ddd parse` and then
+// aborted `ddd generate system` with
+//
+//   Error: UI gate: expression kind 'convert' is not supported in a UI gate.
+//       at renderGateExpr (out/generator/_frontend/gate-expr.js:63:19)
+//
+// — a raw stack trace, no `loom.*` code, no source location.  The OPERATION
+// gate path is unaffected (`tryRenderGate` / `opActionGate` catch the throw and
+// leave the button ungated), so this gate bounds the PAGE gate only, which is
+// the one that renders through the throwing entry.
+//
+// THE SUBSET is the intersection of the three renderers, which is also their
+// union — they are arm-for-arm identical, so one target-agnostic rule covers
+// every frontend rather than three per-framework arms.  It is keyed on the
+// rendering framework for one reason only: `phoenixLiveView` renders a page
+// gate through the GENERAL HEEx expression renderer
+// (`heex-walker-core.ts#renderRequiresGuardAt`), not a closed gate table, so
+// it is genuinely broader and must not be refused here.
+// -------------------------------------------------------------------------
+
+/** Literal kinds all three gate renderers spell.  `null` is deliberately OUT:
+ *  `_frontend/gate-expr.ts` renders it, the Feliz and Flutter siblings throw on
+ *  it, so the intersection — the only thing every mounted frontend can render
+ *  — excludes it. */
+const GATE_LITERAL_KINDS: ReadonlySet<string> = new Set([
+  "string",
+  "bool",
+  "int",
+  "long",
+  "decimal",
+]);
+
+/** Frameworks whose page-gate renderer is the CLOSED table this rule mirrors.
+ *  Spelled as the membership set rather than `fw !== "phoenixLiveView"` so a
+ *  new frontend joins ONE list — the same shape `BACKEND_BODY_STMT_FRAMEWORKS`
+ *  above uses for its own inverse. */
+const CLOSED_GATE_FRAMEWORKS: ReadonlySet<string> = new Set([
+  "react",
+  "vue",
+  "svelte",
+  "angular",
+  "feliz",
+  "flutter",
+]);
+
+/** Why `e` is outside the page-gate subset, or `undefined` when it is inside.
+ *  Mirrors the three renderers' `switch` arms exactly — including the two
+ *  INNER refusals (a non-`currentUser`/enum ref, and any method other than
+ *  collection `contains`), which throw from inside an arm the switch does
+ *  list. */
+function pageGateProblem(e: ExprIR): { kind: string; detail: string } | undefined {
+  switch (e.kind) {
+    case "literal":
+      return GATE_LITERAL_KINDS.has(e.lit)
+        ? undefined
+        : {
+            kind: `${e.lit} literal`,
+            detail: `uses a \`${e.lit}\` literal, which has no client-side gate form`,
+          };
+    case "ref":
+      if (e.refKind === "current-user" || e.refKind === "enum-value") return undefined;
+      return {
+        kind: "ref",
+        detail:
+          `reads '${e.name}' (${e.refKind}), which is not evaluable client-side — ` +
+          `a gate may only touch \`currentUser\` and constants`,
+      };
+    case "member":
+      return pageGateProblem(e.receiver);
+    case "method-call":
+      if (e.isCollectionOp && e.member === "contains" && e.args.length === 1) {
+        return pageGateProblem(e.receiver) ?? pageGateProblem(e.args[0]!);
+      }
+      return {
+        kind: "method-call",
+        detail:
+          `calls '.${e.member}(…)' — the only method a gate admits is ` +
+          `collection membership (\`currentUser.<claim>.contains(x)\`)`,
+      };
+    case "paren":
+      return pageGateProblem(e.inner);
+    case "unary":
+      return pageGateProblem(e.operand);
+    case "binary":
+      return pageGateProblem(e.left) ?? pageGateProblem(e.right);
+    case "ternary":
+      return pageGateProblem(e.cond) ?? pageGateProblem(e.then) ?? pageGateProblem(e.otherwise);
+    default:
+      return { kind: e.kind, detail: `uses a \`${e.kind}\` expression` };
+  }
+}
+
+export function validatePageGateExprs(sys: SystemIR, diags: LoomDiagnostic[]): void {
+  const seen = new Set<string>();
+  for (const d of sys.deployables) {
+    for (const { ui, fw } of mountedUis(sys, d)) {
+      if (!CLOSED_GATE_FRAMEWORKS.has(fw)) continue;
+      for (const page of ui.pages) {
+        if (!page.requires) continue;
+        const problem = pageGateProblem(page.requires);
+        if (!problem) continue;
+        // One ui can be mounted by several deployables on the same framework
+        // family; the refusal is a property of the PAGE, so report it once.
+        const key = `${ui.name}/${page.name}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        diags.push({
+          severity: "error",
+          code: "loom.ui-gate-expr-unsupported",
+          message: diagMessage("loom.ui-gate-expr-unsupported", {
+            where: `ui '${ui.name}': page '${page.name}' \`requires\` gate`,
+            kind: problem.kind,
+            detail: problem.detail,
+            fw,
+          }),
+          source: `${ui.name}/${page.name}`,
+        });
+      }
+    }
+  }
+}
