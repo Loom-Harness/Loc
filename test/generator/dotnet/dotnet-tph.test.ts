@@ -120,4 +120,66 @@ describe(".NET TPH emission", () => {
     expect(db).not.toContain("modelBuilder.Ignore<Party>()");
     expect(db).toContain("new Configurations.PartyConfiguration()");
   });
+
+  // A `sharedTable` base with ZERO shared-table concretes.  Reachable and
+  // legitimate: `loom.es-tph-forced-own-table` forces a `shape: embedded` /
+  // `shape: document` / `persistedAs: eventLog` concrete to
+  // `inheritanceUsing: ownTable`, so a hierarchy whose only concrete takes that
+  // path leaves the base owning the shared table with nothing sharing it.  The
+  // `;` used to hang off the last `.HasValue<…>` line ALONE, so the map emitted
+  // nothing and the `HasDiscriminator` opener was left unterminated —
+  // `CS1002: ; expected`, and the whole project failed to build.  Found by the
+  // pairwise compile oracle (`versioned-embedded-none-tph-paged-default`), which
+  // was red on `main` for a week.
+  it("a TPH base with no shared-table concrete still terminates the discriminator statement", async () => {
+    const services = createDddServices(NodeFileSystem);
+    const helper = parseHelper(services.Ddd);
+    const doc = await helper(
+      `
+        system Acme {
+          subdomain Registry {
+            context Parties {
+              abstract aggregate Party inheritanceUsing: sharedTable {
+                name: string
+              }
+              aggregate Customer extends Party shape: embedded, inheritanceUsing: ownTable {
+                creditLimit: int
+              }
+              repository Customers for Customer { }
+            }
+          }
+          deployable api {
+            platform: dotnet
+            contexts: [Parties]
+            port: 8080
+          }
+        }
+      `,
+      { validation: true },
+    );
+    const loom = enrichLoomModel(lowerModel(doc.parseResult.value as Model));
+    const sys = loom.systems[0]!;
+    const dep = sys.deployables.find((d) => d.platform === "dotnet")!;
+    const out = generateDotnetForContexts(
+      sys.subdomains.flatMap((m) => m.contexts),
+      "Api",
+      {
+        deployable: dep,
+        sys,
+      },
+    );
+    const cfg = [...out].find(([p]) => p.endsWith("PartyConfiguration.cs"))?.[1] ?? "";
+    // The discriminator COLUMN still maps (the migration stamps `kind NOT NULL`
+    // on the base table) — it is the statement that has to close.
+    expect(cfg).toContain('builder.HasDiscriminator<string>("kind");');
+    expect(cfg).not.toContain(".HasValue<");
+    // Nothing in the configuration body may be left dangling: every statement
+    // line ends in `;`, `{` or `}`.  Asserting the shape rather than the one
+    // known line keeps the gate honest if another chain grows the same bug.
+    const body = cfg.split("\n").map((l) => l.trim());
+    const dangling = body.filter(
+      (l) => l.startsWith("builder.") && !l.endsWith(";") && !l.endsWith("("),
+    );
+    expect(dangling).toEqual([]);
+  });
 });

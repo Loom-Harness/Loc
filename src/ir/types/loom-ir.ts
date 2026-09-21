@@ -2096,16 +2096,22 @@ export type EnrichedValueObjectIR = ValueObjectIR;
  *  against the channels that `carries:` that event (channels.md; the
  *  in-process dispatch slice).  Computed per context by `enrichContext`; the
  *  Hono backend reads it to wire the in-process `DomainEventDispatcher` to the
- *  reactor/starter handlers.  Only events a channel in this context carries
- *  appear — the "channel-routed" rule.  Empty for channel-less contexts, so
- *  their generated output stays byte-identical (Noop dispatcher). */
+ *  reactor/starter handlers.
+ *
+ *  EVERY in-process consumer appears, carried or not (**D-PROJECTION-IMPLICIT-SUB**):
+ *  `on(e: E)` IS the subscription, and a `channel` is what makes delivery
+ *  cross-deployable or durable — not what makes a handler run.  The derivation
+ *  used to drop an uncarried consumer on the floor, which left a fold that no
+ *  backend ever ran. */
 export interface EventSubscriptionIR {
   /** The carried event type the consumer subscribes to. */
   event: string;
-  /** The channel (in this context) that carries `event` and routes it.  When
-   *  more than one carries it, the first by declaration order — disambiguation
-   *  is a deferred validation rule (`reactor-channel-ambiguous`). */
-  channel: string;
+  /** The channel (in this context) that carries `event` and routes it, or
+   *  `undefined` when no declared channel does — an IMPLICIT in-process
+   *  subscription (D-PROJECTION-IMPLICIT-SUB), which dispatches all the same.
+   *  When more than one channel carries it, the first by declaration order —
+   *  disambiguation is a deferred validation rule (`reactor-channel-ambiguous`). */
+  channel?: string;
   /** Owning workflow name. */
   workflow: string;
   /** `"on"` reactor or event-triggered `"create"` starter. */

@@ -11,7 +11,7 @@
 // Measured against booted backends (a minimal `aggregate Order with crudish`
 // over postgres, curl `GET /api/orders/not-a-uuid`):
 //
-//   node   — 422 ✓  `z.string().uuid()` on the param → the shared `defaultHook`.
+//   node   — 422 ✓  the shared `UuidString` on the param → the `defaultHook`.
 //   .NET   — 422 ✓  `[FromRoute] Guid id` → ModelState → the emitted
 //                   `ApiBehaviorOptions.InvalidModelStateResponseFactory`
 //                   (`Api/ValidationProblem.cs`).  ALREADY correct on `main`.
@@ -154,7 +154,7 @@ describe("a malformed path {id} answers the DECLARED 422, not a framework defaul
 
   it("node / .NET: the two that already answered 422 keep their mechanism", async () => {
     const hono = fileEndingWith(await generateSystemFiles(src("node")), "http/order.routes.ts");
-    expect(hono).toContain("params: z.object({ id: z.string().uuid() })");
+    expect(hono).toContain("params: z.object({ id: UuidString })");
 
     const dotnet = await generateSystemFiles(src("dotnet"));
     // MVC's own ValidationProblemDetails is 400; the emitted factory replaces

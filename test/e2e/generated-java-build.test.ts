@@ -162,7 +162,7 @@ const FIXTURES: Array<[string, string]> = [
   // relational-principal path: the OrderJpaRepository gets scoped
   // findAll/findById overrides carrying a @Query with the SpEL clause
   // (`:#{@currentUserAccessor.user()?.tenantId()}`), under `auth: required`.
-  // Previously gated by `loom.context-filter-unsupported`.
+  // Previously gated by `loom.context-filter-no-principal`.
   ["test/e2e/fixtures/java-build/embedded-tenancy.ddd", "emb_api"],
   // DEBT-02 Slice B: a PRINCIPAL-referencing capability filter on a DOCUMENT
   // aggregate — the whole aggregate is one jsonb column, so the principal can't
@@ -170,7 +170,7 @@ const FIXTURES: Array<[string, string]> = [
   // binds `var currentUser = currentUserAccessor.user();`, and applies the
   // fail-closed `currentUser != null && Objects.equals(...)` in-app predicate to
   // findById/findAll (custom finds inherit via findAll().stream()), under
-  // `auth: required`.  Previously gated by `loom.context-filter-unsupported`.
+  // `auth: required`.  Previously gated by `loom.context-filter-no-principal`.
   ["test/e2e/fixtures/java-build/document-tenancy.ddd", "api1"],
   // Lifecycle stamps (audit / softDelete): _stampOnCreate/_stampOnUpdate
   // entity methods the service calls before save (now() over a field).

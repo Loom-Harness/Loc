@@ -10,7 +10,7 @@
 // `document` was the ONE unwired (family, shape) cell in
 // `supportsNonRelationalFilter`'s whole inventory: the emitter routed document
 // aggregates to a filter-less `renderDocRepository`, so the validator refused
-// the crossing (`loom.context-filter-unsupported`).
+// the crossing (`loom.context-filter-no-principal`).
 //
 // The four things this pins, each of which was a distinct way to get it wrong:
 //

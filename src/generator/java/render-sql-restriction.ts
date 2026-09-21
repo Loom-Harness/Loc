@@ -10,7 +10,7 @@ import { sqlRestrictionIdent } from "./sql-ident.js";
 // analog: appended to every SELECT for the entity).  Only the
 // non-principal, relational subset reaches this renderer — the
 // validator gates currentUser-referencing filters and non-relational
-// shapes (loom.context-filter-unsupported), so values here are
+// shapes (loom.context-filter-no-principal), so values here are
 // literals / enum values / candidate paths only.
 //
 // Column naming mirrors the migrations builder: `snake(field)`, with
@@ -138,6 +138,6 @@ function sqlString(s: string): string {
 function unsupported(what: string): Error {
   return new Error(
     `@SQLRestriction renderer: ${what} is outside the static-filter subset — ` +
-      `the IR validator (loom.context-filter-unsupported) should have rejected this filter.`,
+      `the IR validator (loom.context-filter-no-principal) should have rejected this filter.`,
   );
 }

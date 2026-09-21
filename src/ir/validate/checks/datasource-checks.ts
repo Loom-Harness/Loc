@@ -75,8 +75,8 @@ export function validateDataSourceCoverage(sys: SystemIR, diags: LoomDiagnostic[
         if (covered.has(key)) continue;
         diags.push({
           severity: "error",
-          code: "loom.persistence-mode-unsupported",
-          message: diagMessage("loom.persistence-mode-unsupported", {
+          code: "loom.datasource-binding-missing",
+          message: diagMessage("loom.datasource-binding-missing", {
             name: dep.name,
             ctxName,
             aggName: agg.name,
