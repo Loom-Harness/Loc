@@ -175,7 +175,7 @@ system FieldOps {
 }`);
     const realm = JSON.parse(files.get("keycloak/realm.json")!) as {
       clients: { protocolMappers?: { name: string; config: Record<string, string> }[] }[];
-      users: { attributes?: Record<string, string[]> }[];
+      users: { attributes?: Record<string, string[]>; realmRoles?: string[] }[];
     };
     const byClaim = new Map(
       (realm.clients[0]!.protocolMappers ?? []).map((m) => [m.config["claim.name"], m.config]),
