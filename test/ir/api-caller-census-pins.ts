@@ -112,15 +112,23 @@
 //      declared rule, so FIXED (`emit/common.ts` → `JAVA_FIND_ABSENCE_THROW`);
 //      one java generator test had pinned the bare 404 AS INTENT and is
 //      inverted, with the old contract left visible.
-//   6. An ENUM column has two different types depending on which schema source
-//      is read, so `ORDER BY` over it disagrees.  The emitted migration chain
-//      says `TEXT` (lexicographic); the emitted Drizzle schema says `pgEnum`, a
-//      native pg type (declaration order); the node behavioural leg uses the
-//      latter and every other leg the former — so the node COMPOSE stack sorts
-//      like python, not like its own behavioural leg.  Same root as (4): one
-//      backend, two schema sources, no gate between them.  Reported, not fixed
-//      (a representation decision); the two sorted reads that hit it now sort by
-//      a timestamp instead, with the finding written down at both sites.
+//   6. An ENUM column had two different types depending on which schema source
+//      was read, so `ORDER BY` over it disagreed.  The emitted migration chain
+//      says `TEXT` (lexicographic); the emitted Drizzle schema said `pgEnum`, a
+//      native pg type (declaration order); the node behavioural leg builds its
+//      database from the latter and every other leg from the former — so the
+//      node COMPOSE stack sorted like python, not like its own behavioural leg.
+//      Same root as (4): one backend, two schema sources, no gate between them.
+//      NOW FIXED, and the representation decision it was waiting on is made:
+//      TEXT wins, because it is what all five migration chains already emit and
+//      the only half that disagreed was node's ORM declaration.  The schema
+//      emitter now says `text(col, { enum: [...] })` — type-identical in TS,
+//      TEXT in SQL — and `corpus/projection-groupby` grew the gate that reaches
+//      it (`OrdersByStatus`, the unfiltered enum grouping whose read returns TWO
+//      groups; the filtered `SalesByStatus` returns one, which is why nothing
+//      saw this for so long).  `ddd.langium` now states WHICH order `group by`
+//      promises.  FOLLOW-UP: the two sorted reads that worked around this by
+//      sorting on a timestamp instead can go back to the enum key.
 //
 // WHAT IS LEFT, by class: see `PIN_CLASS_CENSUS` (gated; counts are not repeated in prose).
 
@@ -534,9 +542,13 @@ export const UNATTRIBUTED_CALLS: Record<string, readonly string[]> = {
   // The by-id-follow join's read — same `notLifted` class, third shape.
   "corpus/projection-join": ["api.orderWithCustomer.list (no such aggregate)"],
   "corpus/projection-groupby": [
-    // All four are projection READS — the not-yet-lifted route class this map
+    // All five are projection READS — the not-yet-lifted route class this map
     // exists for, not a call that fails to find its operation.  `ordersByTotal`
-    // joined them with the money-grouping-key witness (#2549 follow-up).
+    // joined them with the money-grouping-key witness (#2549 follow-up), and
+    // `ordersByStatus` with the enum-key ORDER witness: it is the unfiltered
+    // twin of `salesByStatus`, so its read returns TWO groups and the order
+    // between them is observable at all.
+    "api.ordersByStatus.list (no such aggregate)",
     "api.ordersByTotal.list (no such aggregate)",
     "api.revenueByDay.list (no such aggregate)",
     "api.salesByStatus.list (no such aggregate)",

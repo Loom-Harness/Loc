@@ -76,7 +76,8 @@ export interface GroupKeySelect {
  *  select, every per-row select structurally matching a `group by` column, and
  *  every `group by` column a bare source column.  The response is the LIST
  *  shape — one row per distinct key combination, ordered by the grouping
- *  columns (deterministic across backends). */
+ *  columns ASCENDING and by their STORED COLUMN VALUE (deterministic across
+ *  backends; an enum key orders by member NAME, not declaration position). */
 export interface GroupedSelects {
   /** Per-row grouping-key selects, in declaration order. */
   keys: GroupKeySelect[];
