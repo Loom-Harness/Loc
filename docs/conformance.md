@@ -312,7 +312,7 @@ actual runtime behaviour. Things that slip through:
   said `204 No Content`. Both were invisible here, and to every
   spec-derived client.
 
-  Caught instead by **`test/ir/api-surface-parity.test.ts`**, which
+  Caught instead by **`test/generator/<backend>/api-surface-render.test.ts`**, which
   compares `deriveContextOperations` against what each backend's
   **router / controller source actually declares** — the bytes a
   request is matched against, plus the success body resolved
@@ -330,7 +330,7 @@ actual runtime behaviour. Things that slip through:
   `when`-gated operation anywhere (every op there uses `requires` +
   `precondition`). Adding a dimension is only half the work; something has
   to exercise the feature it compares. The per-PR
-  `test/ir/api-surface-parity.test.ts` now covers the aggregate route
+  `test/generator/<backend>/api-surface-render.test.ts` now covers the aggregate route
   surface (paths, success-body shapes, error statuses) on a fixture built to
   carry the gaps — `when` gate included.
 

@@ -23,7 +23,7 @@ playground imports. Vite's bundler handles the `.js`-extension import
 specifiers used throughout `src/`.
 
 One module needs a swap. The React generator's design-pack loader has a
-Node variant (`src/generator/_packs/loader-fs.js`) that reads `.hbs`
+Node variant (`src/generator/_packs/loader-fs.ts`) that reads `.hbs`
 templates off disk via `node:fs`. A small Vite plugin
 (`loomLoaderShim` in `web/vite.config.ts`) resolves any import ending in
 `/_packs/loader-fs.js` to `web/src/build/loader-vfs.ts` instead — a

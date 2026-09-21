@@ -61,6 +61,7 @@ These cover a single language feature each.  Each one is self-contained.
 | --- | --- |
 | [`technical.md`](technical.md) | The canonical pipeline reference — the ten phases from `.ddd` to disk.  Read this before extending the language or adding a backend. |
 | [`testing.md`](testing.md) | The test-tier placement guide — given a change, which tier proves it and where a new test belongs (fast vitest vs behavioral api/unit/ui vs per-backend build vs conformance vs playground e2e). |
+| [`ci-gating.md`](ci-gating.md) | The CI gating model — the per-PR / draft-gated / post-merge / nightly tiers, the `pr-gate` aggregate check, and the merge-queue runbook.  Read this before assuming a green PR means a green `main`. |
 | [`macro-api.md`](macro-api.md) | You're authoring a macro (stdlib or project-local).  Covers `defineMacro`, parameter types, the factory surface, composability rules. |
 | [`loom-artifacts.md`](loom-artifacts.md) | The `.loom/` output directory — wire-spec, mermaid + C4 diagrams, traceability files, verification, snapshots, and the opt-in `sourcemap.json` (`ddd trace`).  What each artefact is and which CLI command produces it. |
 | [`api-toolkit.md`](api-toolkit.md) | The transport-neutral `src/api/` toolkit (`validate` / `generate` / `outline` / `applyPatches` + nav/refactor) and the `src/diagnostics/contract.ts` wire shapes — one browser-safe core behind the CLI, MCP, LSP, and playground. |

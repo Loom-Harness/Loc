@@ -12,7 +12,16 @@ import type {
   SystemIR,
   TestE2EIR,
   TestStmtIR,
+  WorkflowIR,
 } from "../ir/types/loom-ir.js";
+import {
+  E2E_WORKFLOW_VERBS,
+  findWorkflowBySlug,
+  workflowRouteSlug,
+  workflowSlugHints,
+} from "../ir/util/e2e-workflow-accessor.js";
+import { emitsCommandRoute } from "../ir/util/workflow-command-route.js";
+import { emitsInstanceRoutes } from "../ir/util/workflow-instances.js";
 import { platformFor } from "../platform/registry.js";
 import { API_BASE_PATH } from "../util/api-base.js";
 import { lowerFirst, plural, snake } from "../util/naming.js";
@@ -56,6 +65,17 @@ import { renderExpectStmt } from "./expect-stmt.js";
 //
 //   api.orderBoard.byKey(key)        → GET  /projections/<proj_snake>/{key}
 //   api.orderBoard.list()            → GET  /projections/<proj_snake>
+//
+// …and so is a WORKFLOW's, which is the orchestration tier the DSL could not
+// reach at all before M-T5.36 (finding F5) — three verbs onto the three routes
+// every backend already mounts:
+//
+//   api.scheduleVisit.run({…})       → POST /workflows/<wf_snake>
+//   api.scheduleVisit.instances()    → GET  /workflows/<wf_snake>/instances
+//   api.scheduleVisit.instance(key)  → GET  /workflows/<wf_snake>/instances/{key}
+//
+// `.instance(key)` takes the CORRELATION key, and like every other accessor a
+// `let`-bound argument gets `.id` appended.
 //
 // Each call awaits, parses JSON, and returns the response.  An `expect`
 // statement maps directly to vitest `expect(<expr>).toBe(true)`.
@@ -311,6 +331,14 @@ function findContextForSlug(
       // body still resolves to its owning context for backend compatibility.
       for (const p of c.projections) {
         if (lowerFirst(p.name) === slug || snake(p.name) === slug) return c.name;
+      }
+      // …and a workflow's three verbs reference it by the same pair of
+      // spellings.  Without this arm a body that only drove workflows required
+      // NO context, so the replay offered it to every backend in the system —
+      // including ones that host none of the contexts the workflow lives in,
+      // whose `/api/workflows/<slug>` is a 404.
+      for (const w of c.workflows) {
+        if (lowerFirst(w.name) === slug || snake(w.name) === slug) return c.name;
       }
     }
   }
@@ -741,13 +769,21 @@ function renderApiCall(call: ApiCallShape, ctx: RenderCtx): string {
 
   const agg = findAggregateBySlug(call.aggregateSlug, ctx.contexts);
   if (!agg) {
+    // The workflow accessor (M-T5.36 F5) — `api.<wf>.run(…)` / `.instances()` /
+    // `.instance(key)`.  Tried once the aggregate lookup has failed, the same
+    // precedence the two validate-time checks use, so a workflow whose slug
+    // collides with an aggregate's plural changes no existing call.
+    const wf = findWorkflowBySlug(call.aggregateSlug, ctx.contexts);
+    if (wf) return renderWorkflowCall(wf, call, ctx);
     const known = ctx.contexts
       .flatMap((c) => c.aggregates.map((a) => snake(plural(a.name))))
       .sort()
       .join(", ");
+    const knownWorkflows = workflowSlugHints(ctx.contexts).join(", ");
     throw new Error(
       `e2e: unknown aggregate 'api.${call.aggregateSlug}' on this deployable. ` +
-        `Available aggregates: ${known || "(none)"}.`,
+        `Available aggregates: ${known || "(none)"}. ` +
+        `Workflows: ${knownWorkflows || "(none)"}.`,
     );
   }
   const slug = snake(plural(agg.name));
@@ -865,6 +901,70 @@ function renderIdArg(arg: ExprIR, ctx: RenderCtx): string {
     return `${rendered}.id`;
   }
   return rendered;
+}
+
+/**
+ * Render a workflow accessor call — the three verbs of M-T5.36 §1.
+ *
+ *   api.<wf>.run({…})        → POST /api/workflows/<snake>
+ *   api.<wf>.instances()     → GET  /api/workflows/<snake>/instances
+ *   api.<wf>.instance(key)   → GET  /api/workflows/<snake>/instances/{key}
+ *
+ * All three paths are already mounted by every backend — hono's
+ * `workflowsRoutes` under `app.route("/api/workflows", …)`, python's
+ * `APIRouter(prefix="/workflows")`, java's `@RequestMapping("/api/workflows")`,
+ * elixir's `workflow_instances_controller`, and .NET's workflow controller —
+ * so this arm adds no wire surface, it only lets a `test e2e` body reach one.
+ *
+ * `.run()` answers 204 with an empty body, which `__post` already returns as
+ * `{}`; the instance reads answer the persisted correlation row's
+ * `instanceWireShape`, which is what makes a folded saga's scalars assertable
+ * (the verb M-T9.12's follow-up said the DSL did not have).
+ *
+ * The two route-existence conditions are re-checked here rather than assumed:
+ * `generate system` can run on IR that never passed the validator (the
+ * `api.workflows` split brain is the cautionary case — a validator arm with no
+ * renderer arm crashed generation with a bare stack trace), so the emitter
+ * refuses in its own words instead of emitting a request nothing answers.
+ */
+function renderWorkflowCall(wf: WorkflowIR, call: ApiCallShape, ctx: RenderCtx): string {
+  const slug = workflowRouteSlug(wf);
+  const prefix = ctx.apiBasePath;
+  if (call.method === "run") {
+    if (!emitsCommandRoute(wf)) {
+      throw new Error(
+        `e2e: api.${call.aggregateSlug}.run(…) has no route — workflow '${wf.name}' is ` +
+          `event-triggered, so no backend mounts POST ${prefix}/workflows/${slug}.`,
+      );
+    }
+    // One argument, and it IS the body: the facade's `create` params by name,
+    // exactly like `api.<aggs>.create({…})`.
+    const body = call.args[0] ? renderE2EExpr(call.args[0], ctx) : "{}";
+    return `await __post(\`\${base}${prefix}/workflows/${slug}\`, ${body})`;
+  }
+  if (call.method === "instances" || call.method === "instance") {
+    if (!emitsInstanceRoutes(wf)) {
+      throw new Error(
+        `e2e: api.${call.aggregateSlug}.${call.method}(…) has no route — workflow ` +
+          `'${wf.name}' declares no correlation field, so it persists no instance row.`,
+      );
+    }
+    if (call.method === "instances") {
+      return `await __get(\`\${base}${prefix}/workflows/${slug}/instances\`)`;
+    }
+    if (call.args.length < 1) {
+      throw new Error(`e2e: api.${call.aggregateSlug}.instance(key) requires a key argument`);
+    }
+    // The CORRELATION key, through the same `renderIdArg` every other accessor
+    // uses — so a `let` bound to a create gets `.id` appended automatically and
+    // `api.<wf>.instance(ord)` reads the row the saga keyed on that order.
+    const keyExpr = renderIdArg(call.args[0], ctx);
+    return `await __get(\`\${base}${prefix}/workflows/${slug}/instances/\${${keyExpr}}\`)`;
+  }
+  throw new Error(
+    `e2e: unknown workflow verb 'api.${call.aggregateSlug}.${call.method}'. ` +
+      `Available: ${E2E_WORKFLOW_VERBS.join(", ")}.`,
+  );
 }
 
 /** Render a folded-projection read (`api.<proj>.byKey(k)` / `.list()`).  The
