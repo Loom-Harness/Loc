@@ -14,17 +14,14 @@ CR1-c's `--error-on-warnings` ratchet is live, so that is enforced rather than t
 `docker://rhysd/actionlint:latest -pyflakes=` with `SHELLCHECK_OPTS=--severity=warning` clean
 over every workflow (exit 0), which is `workflow-lint.yml`'s exact invocation.
 
-`npx vitest run test/system` was run in full **twice** and came back green both times —
-`102 passed | 1 skipped`, **2262** then **2267** assertions, 0 failed — the second covering
-every substantive change here. The box was then saturated by parallel agents' suites (load 11+
-on 4 cores) and a third full run had not returned, so the final confirmation on the exact
-committed tree is the exhaustive set of `test/system` suites that read `.github/workflows/**`
-— all **10** of them: `draft-gate`, `flake-budget`, `local-run-mapping`,
+`npx vitest run test/system` was run in full **three times** and came back green every time —
+`102 passed | 1 skipped`, **2262 / 2267 / 2267** assertions, 0 failed. The third ran on the
+committed tree; the box was saturated by parallel agents' suites (load 11+ on 4 cores), so it
+took ~10 min to return. Independently, the exhaustive set of `test/system` suites that read
+`.github/workflows/**` — all **10**: `draft-gate`, `flake-budget`, `local-run-mapping`,
 `main-red-alarm-coverage`, `merge-queue-readiness`, `pr-gate`, `skip-gate-reachability`,
 `workflow-artifact-uploads`, `workflow-npm-scripts`, `workflow-path-coverage` →
-**769 passed, 18 skipped, 0 failed** (115 of them in `workflow-path-coverage.test.ts`). The
-only delta between the second full green run and the committed tree is two `expect` failure
-MESSAGES and this hand-off file.
+**769 passed, 18 skipped, 0 failed**, of which **115** are in `workflow-path-coverage.test.ts`.
 
 > **Note for the coordinator.** The worktree was handed to me on plain `origin/main`, *not* on
 > the batch-1 tree, so CR1-a's derived seam requirement was **absent**. I merged
