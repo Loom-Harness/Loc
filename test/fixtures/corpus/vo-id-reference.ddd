@@ -1,0 +1,72 @@
+// A VALUE OBJECT holding a CROSS-AGGREGATE REFERENCE — `ship: Ship id` inside
+// `valueobject Berth`.
+//
+// Why this fixture exists: across the whole corpus there was no value object
+// holding an id.  Every one was scalar-only (`Money { amount, currency }`,
+// `Rank { tier, points }`), so nothing anywhere compiled the one type spelling
+// a VO field can name that lives in ANOTHER emitted file — and the node
+// emitter shipped `domain/value-objects.ts` with ZERO import statements and
+// `readonly ship: Ids.ShipId` in it (`TS2503: Cannot find namespace 'Ids'`,
+// twice: the field declaration and the constructor parameter).  Freight audit
+// D3 / M-T6.64.  The other four backends were already correct here — python
+// `from app.domain.ids import ShipId`, .NET `using D.Domain.Ids;`, java
+// `import …domain.ids.*;`, elixir untyped — which is exactly why a node-only
+// blind spot could survive: the cross-backend corpus had no cell to fail.
+//
+// The id appears in all THREE type positions the file renders, because the
+// import header used to be derived from the fields alone:
+//   - a FIELD          (`ship: Ship id`)      → declaration + ctor parameter
+//   - a `derived` TYPE (`assignedShip`)       → the getter's return annotation
+//   - a `function` PARAM (`servesShip`)       → the method signature
+// A scan that sees only the first leaves the other two naming an unimported
+// symbol.
+//
+// This is a COMPILE-tier fixture: the defect is a missing import, so it is
+// invisible to the generation gate (the file emits fine) and fully visible to
+// `tsc --noEmit` / `mypy --strict` / `javac` / `dotnet build /warnaserror`.
+// There is deliberately no `test e2e` block — the runtime behaviour of an
+// embedded VO and of a `<VO>[]` collection is already covered by `embedded`
+// and `value-collections`; the new axis here is purely what the VO's fields
+// are TYPED as.
+system Ports {
+  subdomain Harbour {
+    context Docking {
+      aggregate Ship {
+        name: string
+      }
+
+      valueobject Berth {
+        // The subject of the fixture.
+        ship: Ship id
+        position: int
+        derived assignedShip: Ship id = ship
+        function servesShip(other: Ship id): bool = ship == other
+        invariant position > 0
+      }
+
+      aggregate Dock with crudish {
+        name: string
+        // A required embedded VO — the flattened-column path.
+        berth: Berth
+        // …and the same VO in a collection, so the id-typed column is proven
+        // on the child-table path too.
+        berths: Berth[]
+      }
+
+      repository Ships for Ship { }
+      repository Docks for Dock { }
+    }
+  }
+
+  api DockingApi from Harbour
+  storage primary { type: postgres }
+  resource dockingState { for: Docking, kind: state, use: primary }
+
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Docking]
+    dataSources: [dockingState]
+    serves: DockingApi
+    port: 4000
+  }
+}

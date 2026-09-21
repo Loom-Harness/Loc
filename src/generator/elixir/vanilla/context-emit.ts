@@ -244,7 +244,17 @@ function coerceOpParam(varName: string, type: TypeIR | undefined): string {
       return `(if is_nil(${varName}), do: nil, else: ${numericEncode(ELIXIR_NUMERIC, "decimal", "find-param", varName)})`;
     case "datetime":
       // `:utc_datetime` wants a DateTime struct; the wire is ISO-8601 text.
-      return `(case ${varName} do\n      nil -> nil\n      %DateTime{} = __dt -> __dt\n      __s when is_binary(__s) -> (case DateTime.from_iso8601(__s) do\n        {:ok, __d, _} -> DateTime.truncate(__d, :second)\n        _ -> __s\n      end)\n      __other -> __other\n    end)`;
+      //
+      // The clause bindings carry the `loom_` prefix used for every other
+      // emitted variable (`loom_code` / `loom_state` / `loom_current_user`),
+      // NOT a leading underscore: each one is READ in its clause body, and
+      // Elixir rejects an underscored variable that is used after being set
+      // ("the underscored variable ... is used after being set") — which
+      // `mix compile --warnings-as-errors` turns into a failed build.  That
+      // reached nothing until an op assigned a `datetime` field FROM A
+      // PARAMETER; `now()` renders `DateTime.utc_now()` and never takes this
+      // branch, so no fixture had ever compiled this emission.
+      return `(case ${varName} do\n      nil -> nil\n      %DateTime{} = loom_dt -> loom_dt\n      loom_s when is_binary(loom_s) -> (case DateTime.from_iso8601(loom_s) do\n        {:ok, loom_d, _} -> DateTime.truncate(loom_d, :second)\n        _ -> loom_s\n      end)\n      loom_other -> loom_other\n    end)`;
     default:
       return varName;
   }

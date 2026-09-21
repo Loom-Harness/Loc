@@ -105,9 +105,16 @@ test("editing the source surfaces a migration diff against a pinned baseline", a
 
   // Add a `phone` field to the Customer aggregate (which has `email: string`)
   // → a new column + wire field.
+  //
+  // OPTIONAL (`phone: string?`) for the same reason as `brand` in
+  // `loom-views.spec.ts`: a required field is new create input, and this
+  // model's `test e2e` bodies already create a Customer without it, so the
+  // edit would raise `loom.e2e-missing-required-field`.  The assertion below
+  // only needs the column to REACH the migration SQL, which an optional one
+  // does (`ADD COLUMN phone …`).  Do not drop the `?`.
   await page.evaluate(() => {
     const w = window as unknown as { __loomSetSource: (t: string) => void; __loomGetSource: () => string };
-    w.__loomSetSource(w.__loomGetSource().replace("email: string", "email: string\n        phone: string"));
+    w.__loomSetSource(w.__loomGetSource().replace("email: string", "email: string\n        phone: string?"));
   });
   // Let the edit autosave-commit: HEAD now == live (both carry `phone`), so a
   // live-vs-HEAD diff would be empty — the diff must be pinned to the earlier
