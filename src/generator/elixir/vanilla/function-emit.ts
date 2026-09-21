@@ -152,6 +152,10 @@ export function renderAggregateFunctions(
   facadeMod: string,
   agg: AggregateIR,
   doc = false,
+  /** Function keys (see {@link contextFunctionKey}) this aggregate must NOT
+   *  emit here — the ones another aggregate in the same context also declares,
+   *  which {@link renderSharedFunctionClauses} emits grouped instead. */
+  hoisted: ReadonlySet<string> = new Set(),
 ): string[] {
   if (!aggHasFunctions(agg)) return [];
   const aggModule = `${facadeMod}.${upperFirst(agg.name)}`;
@@ -162,7 +166,94 @@ export function renderAggregateFunctions(
   };
   const out: string[] = [];
   for (const fn of agg.functions) {
+    if (hoisted.has(contextFunctionKey(fn))) continue;
     out.push("", ...renderFunction(facadeMod, aggModule, fn, rc, doc));
+  }
+  return out;
+}
+
+/** The identity a pure aggregate `function` takes IN THE CONTEXT MODULE: its
+ *  snake name and its arity, receiver included.  Two aggregates declaring
+ *  `function isDraft()` collapse onto the same `is_draft/1`. */
+export function contextFunctionKey(fn: FunctionIR): string {
+  return `${snake(fn.name)}/${fn.params.length + 1}`;
+}
+
+/** Function keys declared by MORE THAN ONE aggregate in a context.
+ *
+ *  Elixir requires clauses of one name/arity to be ADJACENT, and every
+ *  aggregate's functions are emitted inside its own section of the flat
+ *  context module — so two aggregates declaring `function isDraft()` produced
+ *  two `def is_draft/1` clauses hundreds of lines apart, plus a second `@doc`
+ *  for the same function.  `mix compile --warnings-as-errors` — the repo's own
+ *  `test:phoenix` tier — fails on both ("clauses with the same name and arity
+ *  should be grouped together", "redefining @doc attribute previously set at
+ *  line N"), and the duplicate `@doc` silently DISCARDS the first aggregate's
+ *  documentation even when warnings are tolerated.  From a model that
+ *  validated `0 error(s), 0 warning(s)`. */
+export function sharedFunctionKeys(aggregates: readonly AggregateIR[]): Set<string> {
+  const seen = new Map<string, number>();
+  for (const agg of aggregates) {
+    for (const fn of agg.functions ?? []) {
+      const k = contextFunctionKey(fn);
+      seen.set(k, (seen.get(k) ?? 0) + 1);
+    }
+  }
+  return new Set([...seen].filter(([, n]) => n > 1).map(([k]) => k));
+}
+
+/** The GROUPED block for every shared key: one `@doc` naming each owner, then
+ *  every clause's `@spec` (Elixir accumulates them for the next definition),
+ *  then the `def` clauses back to back.
+ *
+ *  Only shared keys move.  A context whose function names are all distinct
+ *  emits nothing here and keeps its per-aggregate sections byte-identical. */
+export function renderSharedFunctionClauses(
+  facadeMod: string,
+  aggregates: readonly AggregateIR[],
+  shared: ReadonlySet<string>,
+  /** Per-aggregate document-layout predicate — the same `isDoc` the caller's
+   *  own loop computes, since the receiver struct differs (`<Agg>.Data` vs
+   *  `<Agg>`) and two owners of one function name need not share a layout. */
+  isDoc: (agg: AggregateIR) => boolean = () => false,
+): string[] {
+  if (shared.size === 0) return [];
+  // Deterministic: keys in declaration order of first appearance, owners in
+  // the context's own aggregate order.
+  const byKey = new Map<string, { agg: AggregateIR; fn: FunctionIR }[]>();
+  for (const agg of aggregates) {
+    for (const fn of agg.functions ?? []) {
+      const k = contextFunctionKey(fn);
+      if (!shared.has(k)) continue;
+      const list = byKey.get(k) ?? [];
+      list.push({ agg, fn });
+      byKey.set(k, list);
+    }
+  }
+  const out: string[] = [];
+  for (const [, owners] of byKey) {
+    const first = owners[0] as { agg: AggregateIR; fn: FunctionIR };
+    const fnSnake = snake(first.fn.name);
+    const names = owners.map((o) => upperFirst(o.agg.name)).join("`, `");
+    out.push(
+      "",
+      `  @doc "Pure domain function \`${first.fn.name}\` on \`${names}\`."`,
+      ...owners.map(({ agg, fn }) =>
+        functionSpecLine(facadeMod, `${facadeMod}.${upperFirst(agg.name)}`, fn, isDoc(agg)),
+      ),
+      ...owners.flatMap(({ agg, fn }) =>
+        functionClauseLines(
+          `${facadeMod}.${upperFirst(agg.name)}`,
+          fn,
+          {
+            thisName: "record",
+            contextModule: facadeMod,
+            ...(isDoc(agg) ? { docStruct: true } : {}),
+          },
+          isDoc(agg),
+        ),
+      ),
+    );
   }
   return out;
 }
@@ -174,37 +265,46 @@ function renderFunction(
   rc: RenderCtx,
   doc = false,
 ): string[] {
-  const fnSnake = snake(fn.name);
-  // The call site renders `passed(record, arg1, …)` — positional args after the
-  // struct.  Underscore-prefix a param the body never reads so an unused binding
-  // never trips `mix compile --warnings-as-errors`.
-  const params = fn.params.map((p) =>
-    bodyUsesParam(fn.body, p.name) ? snake(p.name) : `_${snake(p.name)}`,
-  );
-  // Underscore-prefix the receiver when the body never reads it (e.g.
-  // `function noop()`), else the struct-guarded clause head trips
-  // `mix compile --warnings-as-errors` on an unused receiver binding.  On the
-  // document path the receiver is the `%<Agg>.Data{}` embed; the relational path
-  // guards the aggregate struct.  Either way it's a struct-guarded `record`.
-  const used = bodyUsesReceiver(fn.body);
-  const recv = used ? "record" : "_record";
+  const aggLeaf = aggModule.split(".").pop() ?? aggModule;
+  // The attributes and the clause are rendered by the same two helpers the
+  // GROUPED path uses, so a hoisted shared function and a solitary one cannot
+  // diverge in signature, receiver-underscoring or typespec.
+  return [
+    `  @doc "Pure domain function \`${fn.name}\` on \`${aggLeaf}\`."`,
+    functionSpecLine(facadeMod, aggModule, fn, doc),
+    ...functionClauseLines(aggModule, fn, rc, doc),
+  ];
+}
+
+/** The `@spec` line for one clause — split out so the grouped renderer can
+ *  stack one per owner ahead of the shared `def`s. */
+function functionSpecLine(
+  facadeMod: string,
+  aggModule: string,
+  fn: FunctionIR,
+  doc: boolean,
+): string {
   const structMod = doc ? `${aggModule}.Data` : aggModule;
-  const recvHead = `%${structMod}{} = ${recv}`;
-  const sig = params.length > 0 ? `${recvHead}, ${params.join(", ")}` : recvHead;
-  const ret = renderTypespec(fn.returnType, facadeMod);
   const specArgs = [
     `${structMod}.t()`,
     ...fn.params.map((p) => renderTypespec(p.type, facadeMod)),
   ].join(", ");
-  const aggLeaf = aggModule.split(".").pop() ?? aggModule;
-  // Expression form keeps its single trailing-value line (byte-identical);
-  // block form (rev. 4) renders its pure statements.
-  const bodyLines = renderFunctionBodyLines(fn.body, rc);
-  return [
-    `  @doc "Pure domain function \`${fn.name}\` on \`${aggLeaf}\`."`,
-    `  @spec ${fnSnake}(${specArgs}) :: ${ret}`,
-    `  def ${fnSnake}(${sig}) do`,
-    ...bodyLines,
-    "  end",
-  ];
+  return `  @spec ${snake(fn.name)}(${specArgs}) :: ${renderTypespec(fn.returnType, facadeMod)}`;
+}
+
+/** The `def … do … end` clause for one owner, with no attributes attached. */
+function functionClauseLines(
+  aggModule: string,
+  fn: FunctionIR,
+  rc: RenderCtx,
+  doc: boolean,
+): string[] {
+  const params = fn.params.map((p) =>
+    bodyUsesParam(fn.body, p.name) ? snake(p.name) : `_${snake(p.name)}`,
+  );
+  const recv = bodyUsesReceiver(fn.body) ? "record" : "_record";
+  const structMod = doc ? `${aggModule}.Data` : aggModule;
+  const recvHead = `%${structMod}{} = ${recv}`;
+  const sig = params.length > 0 ? `${recvHead}, ${params.join(", ")}` : recvHead;
+  return [`  def ${snake(fn.name)}(${sig}) do`, ...renderFunctionBodyLines(fn.body, rc), "  end"];
 }

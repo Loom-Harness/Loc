@@ -35,6 +35,7 @@ system Catalog {
         status: OrderStatus
         total: Money
         tags: string[]
+        labels: OrderStatus[]
         notes: string?
       }
       repository Orders for Order { }
@@ -81,6 +82,22 @@ describe("vanilla — Slice 3 enums + VOs + relationships in schema-emit", () =>
     const files = await generateSystemFiles(RICH_SOURCE);
     const schema = files.get([...files.keys()].find((k) => k.endsWith("/storefront/order.ex"))!)!;
     expect(schema).toContain("field :notes, :string");
+  });
+
+  // An ARRAY of a declared enum cannot be built by wrapping the enum's own
+  // fragment: the enum arm returns `Ecto.Enum, values: [...]`, which is the
+  // `field` macro's ARG LIST, not a type.  Wrapping it yielded
+  // `{:array, Ecto.Enum, values: [...]}` and Ecto refused it at COMPILE time
+  // ("invalid type ... for field"), from a model that validated `0 error(s)`.
+  // Ecto spells it with the values as a field OPTION beside the type.
+  it("emits an enum[] array field as `{:array, Ecto.Enum}, values: [...]`", async () => {
+    const files = await generateSystemFiles(RICH_SOURCE);
+    const schema = files.get([...files.keys()].find((k) => k.endsWith("/storefront/order.ex"))!)!;
+    expect(schema).toContain(
+      "field :labels, {:array, Ecto.Enum}, values: [:Pending, :Confirmed, :Shipped, :Cancelled]",
+    );
+    // The shape Ecto rejects must not survive anywhere in the schema.
+    expect(schema).not.toMatch(/\{:array, Ecto\.Enum, values:/);
   });
 
   it("emits a string[] array field as `{:array, :string}`", async () => {

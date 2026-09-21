@@ -1,4 +1,5 @@
-import type { AggregateIR, ExprIR, TypeIR } from "../../ir/types/loom-ir.js";
+import type { ExprIR, FieldIR, TypeIR } from "../../ir/types/loom-ir.js";
+import { rowRecordFields } from "../_walker/shared/row-field-type.js";
 import { tryDetectApiHook } from "../_walker/api-hook-detector.js";
 import type { MemberReadSpec } from "../_walker/target.js";
 import type { WalkContext } from "../_walker/walker-core.js";
@@ -68,17 +69,25 @@ function apiReadFieldType(spec: MemberReadSpec): TypeIR | undefined {
  *  an optional `Location id?` and a required one both arrive as `string`. */
 export function apiReadMemberType(expr: ExprIR, ctx: WalkContext): TypeIR | undefined {
   if (expr.kind !== "member") return undefined;
-  const agg = recordAggregate(expr.receiver, ctx);
-  return agg?.fields.find((f) => f.name === expr.member)?.type;
+  const fields = recordFields(expr.receiver, ctx);
+  return fields?.find((f) => f.name === expr.member)?.type;
 }
 
-/** The aggregate an expression evaluates to ONE RECORD of, or undefined. */
-function recordAggregate(expr: ExprIR, ctx: WalkContext): AggregateIR | undefined {
-  const named = (name: string | undefined): AggregateIR | undefined =>
-    name === undefined ? undefined : ctx.aggregatesByName.get(name);
+/** The declared fields of the record an expression evaluates to ONE of, or
+ *  undefined.
+ *
+ *  Resolved through `rowRecordFields` rather than `ctx.aggregatesByName`
+ *  directly, because a row binding is not always an aggregate: a scaffolded
+ *  detail page's containment table (`Table(rows: wo.lines)`) binds an entity
+ *  PART, whose fields carry `?` exactly as an aggregate's do but which no
+ *  aggregate map holds. */
+function recordFields(expr: ExprIR, ctx: WalkContext): readonly FieldIR[] | undefined {
   if (expr.kind === "ref") {
-    return named(ctx.paramTypes?.get(expr.name)) ?? named(ctx.listRowAggregates?.get(expr.name));
+    return (
+      rowRecordFields(ctx.paramTypes?.get(expr.name), ctx) ??
+      rowRecordFields(ctx.listRowAggregates?.get(expr.name), ctx)
+    );
   }
   const detected = tryDetectApiHook(expr, ctx);
-  return detected?.kind === "aggregate" ? named(detected.aggregateName) : undefined;
+  return detected?.kind === "aggregate" ? rowRecordFields(detected.aggregateName, ctx) : undefined;
 }
