@@ -49,8 +49,16 @@ the `push:` and `pull_request:` triggers where both exist — 34 insertions). No
 but it is red in CR1-f's tree, and the coordinator will hit it again at the fold of any packet
 that merges batch-1. Nothing else about the two trees conflicts.
 
-**One merge-interaction failure I did NOT fix, because it is not mine to resolve.**
-`test/generator/auth-verifier-doc-honesty.test.ts` fails 2/2 on the merged tree:
+**A second merge, after CR1-e reported.** The coordinator relayed CR1-e's depth finding
+mid-packet (see §2) and asked for a re-merge; `claude/loom-code-review-audit-790gec` had gained
+one commit, `fba42f82 test(auth): re-pin the verifier doc-honesty gate on the runtime options`,
+which **resolves the auth failure recorded just below** — that suite is now 3/3 green. CR1-e's
+own `CLOSED_PREDICATE` drain was not yet on the branch at that point, so the surrounding
+register entries this packet sees are still the pre-CR1-e ones; CR1-f's 32 rows are disjoint
+from theirs, so the compose is additive.
+
+**The merge-interaction failure that is now fixed upstream (kept for the record).**
+`test/generator/auth-verifier-doc-honesty.test.ts` failed 2/2 on the first merge:
 
 ```
 × says `aud` is NOT verified when the model declares no audience
@@ -63,9 +71,10 @@ is `main`'s honesty-fix version, which expects the inline options object and the
 conditional-audience arms. **Both sides answered the audit's P0-4 and the compose kept one of
 each.** Proved not to be CR1-f's: every one of my `src/` edits was reverted to its `4b4b76ec`
 content by file copy and the test **still failed 2/2**; restored by file copy afterwards, and my
-own three suites re-run green (24/24). CR1-b owns the composition — the two arms of
-`renderOidcVerifier` and the two `it(...)` bodies have to agree on one shape, and picking it is
-an auth decision, not a census one.
+own three suites re-run green (24/24). CR1-b owned the composition and has since landed it
+(`fba42f82`): after the second merge the suite is 3/3 green. Kept here because the diagnosis —
+identical inputs, red only when the two trees are combined — is the shape the coordinator will
+meet again at other folds.
 
 ---
 
@@ -134,13 +143,13 @@ ratchet took their entries.
 | `sql-pg-expr.ts#renderSqlScalarExpr` | this, id, member, method-call, call, new, object, list, lambda, authz-filter, duration, i18nFormat, match, action-ref | `loom.migration-expr-unsupported` (`migration-checks.ts`) bounds a backfill expression at phase ⑦; the default routes through `refuseOutOfVocabulary` → `loom.query-emission-invalid` |
 | `feliz/update-emit.ts#renderUpdateStmt` | precondition, requires, return, emit, if | `loom.ui-body-statement-kind` (return/precondition/requires, every non-LiveView frontend), `loom.if-stmt-page-body-unsupported` (`if` anywhere in a ui body, **every** frontend), phase-③ scope resolution (`emit` has no aggregate in ui scope) |
 | `flutter/riverpod-emit.ts#renderNotifierStmt` | precondition, requires, return, emit, variant-match, if | (same) + `loom.flutter-async-effect-unsupported` for `variant-match` on the component path — the site's own comment already cited each one and was re-checked against them |
-| `elixir/vanilla/fold-stmt-emit.ts#renderFoldStatement` | precondition, requires, return, emit, call, variant-match, if | `loom.applier-emits` / `loom.applier-impure-call` / `loom.applier-guard` (`structural-checks.ts`, "Rule 4 — applier bodies are pure folds") + `loom.elixir-if-stmt-unsupported` |
+| `elixir/vanilla/fold-stmt-emit.ts#renderFoldStatement` | precondition, requires, return, emit, call, variant-match, if | `loom.applier-emits` / `-impure-call` / `-guard` + `loom.elixir-if-stmt-unsupported` — **but only after CR1-f fixed both of them**; the first was top-level only and the second did not cover appliers at all. See §2 |
 | `elixir/vanilla/tests-emit.ts#vtExpr` | this, id, action-ref, lambda, list, authz-filter, ternary, convert, duration, i18nFormat, match | **not a codegen abort at all** — the typed `UnsupportedTestShapeError` is *caught* by `renderTest` (same file, ~219) and degrades the case to `@tag :skip`; only a non-`UnsupportedTestShapeError` propagates |
 
 (That table is 15 rows because three of them — `gate-expr` and its two siblings — are listed
 here as *now* unreachable and again under §Converted as *what made them so*.)
 
-### C. Converted — a reachable crash became an honest refusal (2 fixes, 4 sites)
+### C. Converted — a reachable crash became an honest refusal (3 fixes, 5 sites)
 
 See §Diagnostics below for the before/after and the mutation proof.
 
@@ -175,7 +184,7 @@ whose silent default is *correct by design* is `{ standing }`.
 
 ---
 
-## The two diagnostics, with crash-before / refusal-after
+## The three fixes, with crash-before / refusal-after
 
 ### 1. `loom.ui-gate-expr-unsupported` — the page `requires` gate
 
@@ -244,7 +253,78 @@ Restored **by file copy** (`cp .scratch/validate.ts.keep src/ir/validate/validat
 The three control cases are half the point: an in-subset gate stays accepted on all six
 frontends, a ternary/`!`/parens gate stays accepted, and `phoenixLiveView` stays **ungated**.
 
-### 2. Three leaves the queryable oracle admitted that no query renderer emits
+### 2. The applier gates did not reach the depth the fold renderer does
+
+Raised by the coordinator relaying CR1-e's finding: *when you establish "unreachable — a
+validator refuses it upstream", check that the validator reaches the same depth as the
+dispatcher.* CR1-f's first pass had cited the applier discipline for
+`fold-stmt-emit.ts#renderFoldStatement` and stopped there. Checking it found **two** holes, and
+the second made this packet's own `standing` claim false.
+
+**(a) `structural-checks.ts` rule 4 was top-level only.** `for (const stmt of ap.statements)`:
+
+| `.ddd` | before |
+|---|---|
+| `apply(e: Deposited) { emit Withdrawn { … } }` | `1 error(s)` — `loom.applier-emits` |
+| `apply(e: Deposited) { if e.amount > 0 { emit Withdrawn { … } } }` | **`0 error(s), 0 warning(s)`** |
+
+The gate never entered the branch, so four of five backends went on to emit exactly the shape
+the rule exists to refuse — the failure mode that is worse than a crash, because a crash at
+least stops. Now a `walkStmtsDeep`, the census-sanctioned traversal; after the fix the nested
+case reports `loom.applier-emits` like its twin.
+
+**(b) The Elixir `if` gate did not list applier bodies at all.** `validateElixirIfStatements`
+covered `agg.operations`, `agg.functions` and `svc.operations`. `fold-stmt-emit.ts` renders
+appliers and has arms for `assign` / `add` / `remove` / `let` / `expression` only:
+
+```
+$ node bin/cli.js parse  .scratch/probe/applier-if.ddd
+0 error(s), 0 warning(s).
+
+$ node bin/cli.js generate system .scratch/probe/applier-if.ddd -o out
+0 error(s), 0 warning(s).
+Error: elixir vanilla fold: unsupported applier statement 'if' — an applier folds pure
+assignments / collection mutations / let bindings only; the event-sourcing discipline validator
+should have rejected this.
+```
+
+— the emitter naming a gate that did not exist. Measured across all five backends on the same
+`.ddd`: `node` 43 files, `java` 65, `python` 49, `dotnet` 67, **`elixir` crash**. That is
+precisely the contract `loom.elixir-if-stmt-unsupported` carries ("the statement ships on the
+other four backends; refusing it on the fifth is the honest half"), so appliers now `flag` with
+kind `"event-sourced"` — which refuses ANY `if`, matching the fold renderer's real vocabulary.
+No new code, no new register row, no `MAX_OPEN_GAPS` change. The `#event-sourced` message was
+widened to describe the fold arm honestly (an Elixir `if` block's bindings do not escape it, so
+a conditional write compiles clean and silently does nothing) rather than talking only about
+command bodies.
+
+**Mutation proof**, both, each reverted by file copy and restored the same way:
+
+```
+# (a) restore `for (const stmt of ap.statements)`
+× NESTED `emit` in an applier is refused too
+× NESTED impure call in an applier is refused too
+AssertionError: expected [] to include 'loom.applier-emits'
+AssertionError: expected [] to include 'loom.applier-impure-call'
+
+# (b) delete the `for (const ap of agg.appliers ?? [])` loop
+× an `if` in an applier is refused on elixir
+AssertionError: expected [] to include 'loom.elixir-if-stmt-unsupported'
+```
+
+11/11 green after restore. Test: `test/ir/applier-discipline-nested.test.ts` — every refusal
+paired with its **top-level twin as a control**, plus the four backends that must keep emitting
+the `if` and a pure applier that must stay legal.
+
+**The other `standing` citations were re-checked for depth and hold**: `checkToastMessages` and
+`pageGateProblem` recurse over exactly the arms their renderers recurse over;
+`firstNonQueryableNode` and `sqlRenderableExpr` are whole-expression recursions with refusing /
+`never`-checked defaults (and `sql-renderable-expr.ts`'s header states the lockstep contract
+with the renderer in so many words); `loom.ui-body-statement-kind` rides `walkStmtDeep` and
+`containsIf` rides it too; `loom.function-block-impure` was already deepened by CR1-e, which
+strengthens the `renderPureBlock` row rather than changing it.
+
+### 3. Three leaves the queryable oracle admitted that no query renderer emits
 
 `firstNonQueryableNode` (`src/ir/validate/checks/shared.ts`) is the oracle every find /
 criterion / projection predicate passes before a backend renders it. It listed `this` and `id`
@@ -415,18 +495,28 @@ signal either way.
 
 The audit called it 31; the register held 32.
 
-Two new tests, one new diagnostic, one existing diagnostic reaching three more shapes, one
+Three new tests, one new diagnostic, two existing diagnostics reaching shapes they could not
+reach before (three queryable leaves; an applier's nested statements and its `if`), one
 `MAX_OPEN_GAPS` raise (20 → 21, documented), three parity rows handed off.
+
+One `standing` claim in this hand-off was **wrong when first written** and is corrected above —
+`fold-stmt-emit.ts#renderFoldStatement`. It is worth saying plainly, because the correction came
+from applying CR1-e's rule rather than from re-reading my own note: naming a gate is cheap, and
+the gate that exists at the right *place* can still stop at the wrong *depth*.
 
 ## Gates
 
 `npx tsc -b` clean · `npm run lint` clean **with `--error-on-warnings`** (CR1-c's ratchet, live
-after the merge) · `npx vitest run test/system` 2245 passed / 0 failed · `test/ir` 3282 passed /
-0 failed · `test/generator test/platform test/language` 12388 passed, **2 failed — both in
-`auth-verifier-doc-honesty.test.ts`, proved above to be CR1-b's merge composition, not CR1-f's**
-· `diagnostic-catalog` / `diagnostic-docs-anchors` / `diagnostic-firing-census` /
-`unsupported-register` / `ir-walk-census` / `workflow-path-coverage` all green · both new guards
-mutation-proved above, each restored by file copy.
+after the merge) · `npx vitest run test/system test/ir test/generator test/platform test/language`
+green · `diagnostic-catalog` / `diagnostic-docs-anchors` / `diagnostic-firing-census` /
+`unsupported-register` / `ir-walk-census` / `workflow-path-coverage` all green · **all four**
+new guards mutation-proved above (the page gate; the three queryable leaves; the deep applier
+walk; the applier `if` gate), each reverted and restored by file copy, never by checkout.
+
+Per the coordinator's contention note: no failure in this hand-off is recorded from a rollup
+alone. Each was re-run as a single file in isolation before being written down, and the two that
+survived that check (the auth pair) were then proved independent of CR1-f by reverting every
+CR1-f `src/` edit.
 
 Pre-merge, on `main` @ `4b4b76ec`, the same four suites were **fully** green: `test/system` +
 `test/ir` 5471 passed / 0 failed, `test/generator test/platform test/language` 12380 passed / 0

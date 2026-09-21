@@ -1685,13 +1685,16 @@ export const DIAGNOSTIC_MESSAGES = {
     `the statement out of the branch (compute a value inside the \`if\`, act on it after), or ` +
     `host this context on a node / dotnet / java / python backend.`,
   "loom.elixir-if-stmt-unsupported#event-sourced": (p: { where: unknown; name: unknown }) =>
-    `An \`if\` statement is used in ${p.where} — an EVENT-SOURCED command body — whose ` +
-    `context is hosted by the Phoenix/Elixir deployable '${p.name}'.  An event-sourced ` +
-    `command is not rendered as a statement sequence on Phoenix: its guards become ` +
-    `\`with :ok <- ensure(…)\` clauses and its \`emit\`s become one \`events = […]\` list, ` +
-    `so a conditional \`emit\` has nowhere to render.  Express the choice as a conditional ` +
-    `VALUE inside the emitted event's fields (\`amount: over ? a : b\`), or host this ` +
-    `context on a node / dotnet / java / python backend.`,
+    `An \`if\` statement is used in ${p.where} — an EVENT-SOURCED body — whose ` +
+    `context is hosted by the Phoenix/Elixir deployable '${p.name}'.  Neither half of the ` +
+    `event-sourced pair is rendered as a statement sequence on Phoenix: a COMMAND body's ` +
+    `guards become \`with :ok <- ensure(…)\` clauses and its \`emit\`s one \`events = […]\` ` +
+    `list, so a conditional \`emit\` has nowhere to render; an APPLIER is a pure fold that ` +
+    `threads a rebound record through assignments, and an Elixir \`if\` block's bindings do ` +
+    `not escape it, so a conditional write compiles clean and silently does nothing.  ` +
+    `Express the choice as a conditional VALUE — inside the emitted event's fields, or on ` +
+    `the right of the assignment (\`amount: over ? a : b\`) — or host this context on a ` +
+    `node / dotnet / java / python backend.`,
   "loom.if-stmt-page-body-unsupported": (p: { where: unknown; uiName: unknown }) =>
     `An \`if\` statement is used in ${p.where} on ui '${p.uiName}'.  The \`if\` ` +
     `STATEMENT is a backend-body form (aggregate / domain-service operations); no frontend ` +

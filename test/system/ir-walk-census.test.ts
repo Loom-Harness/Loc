@@ -435,6 +435,18 @@ const CLOSED_PREDICATE = {
  *      that keeps a valid `.ddd` off its path, because "a validator probably
  *      catches it" is exactly the unverified reasoning this wave corrects.
  *
+ *  A CITED GATE IS NOT A PROOF UNTIL ITS DEPTH IS CHECKED.  The first pass of
+ *  this drain cited `loom.applier-emits` and friends for
+ *  `fold-stmt-emit.ts#renderFoldStatement` and moved on.  Re-reading the gate
+ *  (the shape CR1-e found five times in the sibling bucket) showed it iterated
+ *  `ap.statements` TOP-LEVEL, so a nested `emit` sailed through — and that the
+ *  Elixir `if` gate did not list applier bodies AT ALL, which made this arm's
+ *  throw reachable from `apply(e) { if c { … } }` on a model `ddd parse` called
+ *  clean.  Both are fixed in this packet, with top-level controls, because a
+ *  waiver whose cited gate does not reach the dispatcher is not a waiver.  When
+ *  resolving one of the remaining `deferred` rows: check that the gate you cite
+ *  visits the same nesting the emitter does, not merely that it exists.
+ *
  *  The per-site entries below replace the blanket constant, which is GONE: no
  *  waiver in this register uses `THROWING_DISPATCHER` any more.  Note which
  *  ones are `standing` and which are `deferred`: a site is only `standing`
@@ -694,14 +706,12 @@ const WAIVERS: Record<string, Waiver> = {
   "src/generator/flutter/riverpod-emit.ts#renderNotifierStmt": STANDING_UI_BODY_VOCAB,
 
   // -- unreachable: the aggregate applier / pure-function discipline ---------
-  // `loom.applier-emits` / `-impure-call` / `-guard` (structural-checks.ts,
-  // "Rule 4 — applier bodies are pure folds") refuse `emit` / `call` /
-  // `precondition` / `requires`; the `if` sub-shapes are refused by
-  // `loom.elixir-if-stmt-unsupported`, re-asserted by this file's caller with
-  // the SAME predicate (`elixirIfRefusal`).
+  // CORRECTED AFTER A DEPTH CHECK.  The first pass cited the applier discipline
+  // and stopped there; checking whether the gate reaches the same DEPTH as the
+  // dispatcher (the CR1-e shape) found it did not, twice over — see the entry.
   "src/generator/elixir/vanilla/fold-stmt-emit.ts#renderFoldStatement": {
     standing:
-      "unreachable — `loom.applier-emits` / `loom.applier-impure-call` / `loom.applier-guard` (src/ir/validate/checks/structural-checks.ts, applier rule 4) refuse emit/call/precondition/requires in an applier body, and `loom.elixir-if-stmt-unsupported` refuses the `if` shapes this fold cannot thread",
+      "unreachable ONLY AFTER CR1-f closed two holes in the gates this reason cites. (a) `loom.applier-emits` / `loom.applier-impure-call` / `loom.applier-guard` (structural-checks.ts rule 4) iterated `ap.statements` TOP-LEVEL, so `apply(e) { if c { emit X {…} } }` reported `0 error(s), 0 warning(s)` while its top-level twin was refused — now a `walkStmtsDeep`. (b) The Elixir `if` gate listed operations / functions / domainService operations and NOT appliers, so an `if` in an applier crashed this very arm (`Error: elixir vanilla fold: unsupported applier statement 'if' … the event-sourcing discipline validator should have rejected this`) on a model `ddd parse` called clean, while node/java/python/dotnet all emitted it — appliers now flag with kind `event-sourced`, which refuses ANY `if`, matching this switch's real vocabulary. Both pinned, with top-level controls, by test/ir/applier-discipline-nested.test.ts",
   },
   // The throw is CAUGHT: `renderTest` rescues `UnsupportedTestShapeError` and
   // degrades the case to `@tag :skip`, so this is not a codegen abort at all.

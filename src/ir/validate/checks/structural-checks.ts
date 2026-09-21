@@ -901,8 +901,20 @@ export function validateEventSourcedDiscipline(
     }
 
     // Rule 4 — applier bodies are pure folds.
+    //
+    // DEEP, not top-level.  CR1-f (wave CR1, audit row P0-2b): this loop used to
+    // read `ap.statements` directly, so `apply(e) { emit X { … } }` was refused
+    // and `apply(e) { if c { emit X { … } } }` reported `0 error(s), 0
+    // warning(s)` — the gate never entered the branch, which is the failure
+    // shape CR1-e found five times over and the one that is WORSE than a crash,
+    // because the backend then emits exactly the shape the rule exists to
+    // refuse.  `walkStmtsDeep` is the census-sanctioned traversal; the
+    // nested-vs-top-level pair is pinned by
+    // `test/ir/applier-discipline-nested.test.ts`.
     for (const ap of appliers) {
-      for (const stmt of ap.statements) {
+      const applierStmts: StmtIR[] = [];
+      for (const top of ap.statements) walkStmtsDeep(top, (n) => applierStmts.push(n));
+      for (const stmt of applierStmts) {
         if (stmt.kind === "emit") {
           diags.push({
             severity: "error",
