@@ -202,10 +202,21 @@ const TRACKING_TABLES = [
 /**
  * A normalized, ORDER-INDEPENDENT fingerprint of a database's domain schema:
  * one sorted line per column (`schema.table | column | type | nullable |
- * default`) and one per primary key.  Columns are sorted by NAME, not physical
- * ordinal — a rename leaves a column in place while an add appends, so the
- * physical order legitimately differs between the chain and a fresh create; the
- * SET of columns and their types/nullability/PKs must not.
+ * default`), one per primary key, and one per CHECK constraint.  Columns are
+ * sorted by NAME, not physical ordinal — a rename leaves a column in place
+ * while an add appends, so the physical order legitimately differs between the
+ * chain and a fresh create; the SET of columns and their types/nullability/PKs
+ * must not.
+ *
+ * CHECK constraints joined the fingerprint with the `enumValues` constraint
+ * (see `CheckKind`), and they are the half most likely to diverge: a fresh
+ * create inlines them in the CREATE TABLE while the chain adds them as an
+ * ALTER, and on Phoenix those are two different renderers — exactly the
+ * fresh-vs-chain split that once lost this fixture's INDEXES.  `NOT VALID` is
+ * deliberately NOT part of the line: an inlined constraint is validated and an
+ * ALTER-added one is not, which is a correct difference (there is nothing to
+ * validate on an empty table), not a schema divergence.  Postgres's own
+ * generated NOT NULL checks are excluded — `is_nullable` already carries that.
  */
 export function fingerprintSchema(s: PgServer, db: string): string {
   const notSchemas = TRACKING_SCHEMAS.map((x) => `'${x}'`).join(",");
@@ -234,6 +245,20 @@ SELECT string_agg(line, E'\\n' ORDER BY line) FROM (
   WHERE tc.constraint_type='PRIMARY KEY'
     AND tc.table_schema NOT IN (${notSchemas}) AND lower(tc.table_name) NOT IN (${notTables})
   GROUP BY tc.table_schema, tc.table_name
+  UNION ALL
+  SELECT format('CHK %s.%s | %s | %s',
+                n.nspname, cl.relname, con.conname,
+                -- ' NOT VALID' stripped: see the doc comment.
+                replace(pg_get_constraintdef(con.oid, true), ' NOT VALID', ''))
+  FROM pg_constraint con
+  JOIN pg_class cl ON cl.oid = con.conrelid
+  JOIN pg_namespace n ON n.oid = cl.relnamespace
+  WHERE con.contype = 'c'
+    -- Postgres 17+ materialises NOT NULL as a CHECK row; 'is_nullable' on the
+    -- column line already carries that, and counting it twice would make the
+    -- fingerprint server-version dependent.
+    AND pg_get_constraintdef(con.oid, true) NOT LIKE '%IS NOT NULL%'
+    AND n.nspname NOT IN (${notSchemas}) AND lower(cl.relname) NOT IN (${notTables})
 ) s`;
   return psql(s, db, q);
 }
@@ -301,14 +326,14 @@ function rows<T>(body: unknown): T[] {
 }
 
 /** The seeded v1 row's value fingerprint — asserted to survive forward-migration. */
-export const SEED = { name: "Widget", price: 9.99 } as const;
+export const SEED = { name: "Widget", price: 9.99, status: "draft" } as const;
 
 /** POST a v1 Product `{name, price}` and return its id. */
 export async function seedV1Product(base: string): Promise<string> {
   const r = await fetch(`${base}/api/products`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ name: SEED.name, price: String(SEED.price) }),
+    body: JSON.stringify({ name: SEED.name, price: String(SEED.price), status: SEED.status }),
   });
   expect(r.status, `seed create: ${await r.clone().text()}`).toBe(201);
   const { id } = (await r.json()) as { id: string };
@@ -322,6 +347,7 @@ interface V2Product {
   unitPrice: string | number;
   sku: string;
   description: string | null;
+  status: string;
 }
 
 /**
@@ -341,6 +367,10 @@ export async function assertForwardMigrated(base: string, id: string): Promise<v
   );
   expect(p.sku, "NOT-NULL add back-filled").toBe("SEED");
   expect(p.description, "nullable add is NULL").toBeNull();
+  // The enum narrowing (`status: string` → `status: Status`) did not touch the
+  // stored value: the CHECK the migration adds is `NOT VALID`, so the seeded
+  // row rides through untouched.
+  expect(p.status, "value preserved across the string → enum narrowing").toBe(SEED.status);
 
   // The row must still be the ONLY row (no phantom/duplicate from the migration).
   const list = rows<V2Product>(await (await fetch(`${base}/api/products`)).json());
@@ -569,11 +599,15 @@ export async function runMoneyBoundsCatchUpGate(): Promise<void> {
     const qualifiedTable = moneySchema ? `"${moneySchema}"."${moneyTable}"` : `"${moneyTable}"`;
 
     // A row only the unbounded column can hold: 6 fractional digits.
+    // `status` is NOT NULL with no default (it carries the base fixture's
+    // string → enum narrowing), so a raw INSERT has to supply it.  Any value
+    // does here — this gate is about the money column's BOUNDS, and the row is
+    // written before the v2 enum constraint exists.
     psql(
       server,
       "catchup",
-      `INSERT INTO ${qualifiedTable} ("id", "name", "${moneyColumn}") ` +
-        `VALUES (gen_random_uuid(), 'pre-2575 row', 9.999995)`,
+      `INSERT INTO ${qualifiedTable} ("id", "name", "status", "${moneyColumn}") ` +
+        `VALUES (gen_random_uuid(), 'pre-2575 row', 'draft', 9.999995)`,
     );
 
     // (a) The catch-up is diffed out but GATED: regeneration without the flag
