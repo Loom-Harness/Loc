@@ -365,6 +365,21 @@ const DELEGATES_TO_SANCTIONED_WALKER =
   "already rides walkWorkflowStmtChildren/walkExprDeep for recursion (migrated this packet); the flagged if/`||` guard is a narrow kind-membership test layered on top, not a dispatch needing full-kind coverage";
 
 const WAIVERS: Record<string, string> = {
+  // A TYPE claim, not a traversal.  `firstNonBooleanPredicate` answers "can I
+  // PROVE this predicate operand is not a boolean", and its `default` arm is
+  // the deliberate conservative answer for every kind that carries no type to
+  // read (`this`, `id`, `authz-filter`, `duration`) — including kinds added
+  // later.  A `never`-check here would invert the asymmetry the function is
+  // built on: a false negative leaves today's behaviour untouched, a false
+  // POSITIVE rejects a working model.  It does not visit children looking for
+  // something, so `walk.ts` is not the shape either — the &&/||/! recursion is
+  // the predicate position propagating, not a search.
+  "src/ir/validate/checks/shared.ts#firstNonBooleanPredicate":
+    "a conservative TYPE claim over predicate position, not a traversal: the " +
+    "`default` arm is the documented answer for every kind with no type to " +
+    "read, and a never-check would turn a harmless false negative into a " +
+    "false positive that rejects a working model",
+
   // --- 2.6 hotspot-split fence: system-checks.ts / ui-checks.ts / mikroorm.ts
   // were mechanically split into per-theme leaves by packet 2.6
   // (docs/new-plan/waves/handoffs/wave-2-hotspot-splits.md).  These eleven

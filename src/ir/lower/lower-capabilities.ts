@@ -41,37 +41,42 @@ function filterEntry(m: FilterDeclLike, env: Env): FilterEntry {
 // ---------------------------------------------------------------------------
 
 export interface ContextLevelCapabilities {
-  /** Context-level filters — propagate to every aggregate in the context. */
-  unqualifiedFilters: FilterEntry[];
-  /** Context-level stamps — propagate to every aggregate in the context. */
-  unqualifiedStamps: ContextStampIR[];
+  /** Context-level filter DECLARATIONS — propagate to every aggregate in the
+   *  context, and are lowered ONCE PER AGGREGATE (see below). */
+  filterDecls: FilterDeclLike[];
+  /** Context-level stamp DECLARATIONS — same, for stamps. */
+  stampDecls: StampDeclLike[];
 }
 
 export const EMPTY_CONTEXT_CAPABILITIES: ContextLevelCapabilities = Object.freeze({
-  unqualifiedFilters: [],
-  unqualifiedStamps: [],
+  filterDecls: [],
+  stampDecls: [],
 }) as ContextLevelCapabilities;
 
-/** Scan a BoundedContext's members for FilterDecl/StampDecl nodes and lower
- * them in the context's env.  Context-level filters/stamps apply to every
- * aggregate inside (there is no capability-scoped
- * `for "<name>"` qualifier — a capability co-locates its own filter/stamp).
- * Context-level `implements <Cap>` is applied by the expander (it splices the
- * capability into each aggregate), so there is nothing to lower here. */
-export function collectContextLevelCapabilities(
-  ctx: BoundedContext,
-  env: Env,
-): ContextLevelCapabilities {
-  const unqualifiedFilters: FilterEntry[] = [];
-  const unqualifiedStamps: ContextStampIR[] = [];
+/** Scan a BoundedContext's members for FilterDecl/StampDecl nodes.  Context-
+ * level filters/stamps apply to every aggregate inside (there is no
+ * capability-scoped `for "<name>"` qualifier — a capability co-locates its own
+ * filter/stamp).  Context-level `implements <Cap>` is applied by the expander
+ * (it splices the capability into each aggregate), so there is nothing to
+ * lower here.
+ *
+ * The AST nodes are carried UNLOWERED on purpose.  A context's env binds no
+ * `this`, so lowering here typed `this.<field>` against nothing: `context Sales
+ * { filter !this.isDeleted }` reached every aggregate with the ref's `type`
+ * defaulted rather than resolved, on an `isDeleted: bool` column.  Nothing read
+ * the type, so the emitters were right and the defect was invisible — until a
+ * validator read it and reported "'this.isDeleted' (string) has no truth
+ * value", naming a type the field never had.  `LoomModel` promises every ref
+ * arrives resolved (`docs/technical.md`), so the lowering moves to
+ * `collectFilters` / `collectStamps`, which run in the AGGREGATE's env. */
+export function collectContextLevelCapabilities(ctx: BoundedContext): ContextLevelCapabilities {
+  const filterDecls: FilterDeclLike[] = [];
+  const stampDecls: StampDeclLike[] = [];
   for (const m of ctx.members ?? []) {
-    if (m.$type === "FilterDecl") {
-      unqualifiedFilters.push(filterEntry(m as unknown as FilterDeclLike, env));
-    } else if (m.$type === "StampDecl") {
-      unqualifiedStamps.push(lowerStampDecl(m as unknown as StampDeclLike, env));
-    }
+    if (m.$type === "FilterDecl") filterDecls.push(m as unknown as FilterDeclLike);
+    else if (m.$type === "StampDecl") stampDecls.push(m as unknown as StampDeclLike);
   }
-  return { unqualifiedFilters, unqualifiedStamps };
+  return { filterDecls, stampDecls };
 }
 
 export function collectFilters(
@@ -82,7 +87,11 @@ export function collectFilters(
   const own = (agg.members ?? [])
     .filter((m) => m.$type === "FilterDecl")
     .map((m) => filterEntry(m as unknown as FilterDeclLike, env));
-  return [...ctxCaps.unqualifiedFilters, ...own];
+  // The context-level decls lower HERE, in this aggregate's env, so their
+  // `this.<field>` refs resolve against the columns they will actually run
+  // against — see `collectContextLevelCapabilities`.
+  const inherited = ctxCaps.filterDecls.map((m) => filterEntry(m, env));
+  return [...inherited, ...own];
 }
 
 export function collectStamps(
@@ -93,7 +102,8 @@ export function collectStamps(
   const own = (agg.members ?? [])
     .filter((m) => m.$type === "StampDecl")
     .map((m) => lowerStampDecl(m as unknown as StampDeclLike, env));
-  return [...ctxCaps.unqualifiedStamps, ...own];
+  const inherited = ctxCaps.stampDecls.map((m) => lowerStampDecl(m, env));
+  return [...inherited, ...own];
 }
 
 /** The typed capabilities an aggregate implements — read from the transient

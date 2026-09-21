@@ -85,5 +85,14 @@ system CritCurrentUser {
     expect(listed.total).toBe(1)
     let visible = api.docs.visible()
     expect(visible.length).toBe(0)
+    // The two remaining derived commands, so the api-caller census has a real
+    // caller for each rather than a pin.  Both run under the same filter: the
+    // update reads back, the destroy empties the list it was the only row of.
+    api.docs.update(theirs, { ownerUserId: "someone-else", title: "Renamed" })
+    let renamed = api.docs.getById(theirs)
+    expect(renamed.title).toBe("Renamed")
+    api.docs.destroy(theirs)
+    let afterDestroy = api.docs.all()
+    expect(afterDestroy.total).toBe(0)
   }
 }

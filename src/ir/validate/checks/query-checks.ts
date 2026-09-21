@@ -56,23 +56,16 @@ export function validateQueryableWheres(ctx: BoundedContextIR, diags: LoomDiagno
       // validated clean and then killed `ddd generate system` with the uncaught
       // `QueryEmissionRefusal` whose own message blames the validator.  This is
       // that missing diagnostic.
-      const notBool = firstNonBooleanPredicate(find.filter);
-      if (notBool) {
-        diags.push({
-          severity: "error",
-          code: "loom.where-not-boolean",
-          message: diagMessage("loom.where-not-boolean", {
-            what: `repository '${repo.name}' find '${find.name}'`,
-            offending: notBool,
-          }),
-          source: `${ctx.name}/${repo.name}.${find.name}`,
-        });
-        continue;
-      }
       // Beyond grammar-level queryability: each `this.<X>` reference
       // must resolve to a real aggregate field.  Without this check
       // the generator emits SQL against a non-existent column and
       // the runtime fails (or silently returns nothing).
+      // ORDER: the unknown-column check runs BEFORE the not-boolean one.
+      // `firstNonBooleanPredicate` is a TYPE claim, and a field that does not
+      // exist has no type to claim — `filter !this.isDeleted` on an aggregate
+      // with no `isDeleted` reported "'this.isDeleted' (string) has no truth
+      // value", naming a type the field never had and sending the author to
+      // fix the wrong thing.  Resolve the columns first, then judge the shape.
       if (agg) {
         const unknown = firstUnknownColumnRef(find.filter, agg, ctx);
         if (unknown) {
@@ -87,7 +80,21 @@ export function validateQueryableWheres(ctx: BoundedContextIR, diags: LoomDiagno
             }),
             source: `${ctx.name}/${repo.name}.${find.name}`,
           });
+          continue;
         }
+      }
+      const notBool = firstNonBooleanPredicate(find.filter);
+      if (notBool) {
+        diags.push({
+          severity: "error",
+          code: "loom.where-not-boolean",
+          message: diagMessage("loom.where-not-boolean", {
+            what: `repository '${repo.name}' find '${find.name}'`,
+            offending: notBool,
+          }),
+          source: `${ctx.name}/${repo.name}.${find.name}`,
+        });
+        continue;
       }
       // And: every binary comparison must compare ONE column against
       // ONE value (parameter, literal, enum-value).  Drizzle's
@@ -136,23 +143,16 @@ export function validateQueryableWheres(ctx: BoundedContextIR, diags: LoomDiagno
         });
         continue;
       }
-      const notBool = firstNonBooleanPredicate(predicate);
-      if (notBool) {
-        diags.push({
-          severity: "error",
-          code: "loom.where-not-boolean",
-          message: diagMessage("loom.where-not-boolean", {
-            what: `aggregate '${agg.name}' capability filter`,
-            offending: notBool,
-          }),
-          source: `${ctx.name}/${agg.name}`,
-        });
-        continue;
-      }
       // `this.id` is admitted: a capability filter is aggregate-rooted, and
       // the key is a real stored column on every backend — the derived
       // tenancy registry self-scope (`this.id == currentUser.<claim>`,
       // is exactly this shape.
+      // ORDER: the unknown-column check runs BEFORE the not-boolean one.
+      // `firstNonBooleanPredicate` is a TYPE claim, and a field that does not
+      // exist has no type to claim — `filter !this.isDeleted` on an aggregate
+      // with no `isDeleted` reported "'this.isDeleted' (string) has no truth
+      // value", naming a type the field never had and sending the author to
+      // fix the wrong thing.  Resolve the columns first, then judge the shape.
       const unknown = firstUnknownColumnRef(predicate, agg, ctx, { allowSelfId: true });
       if (unknown) {
         diags.push({
@@ -163,6 +163,19 @@ export function validateQueryableWheres(ctx: BoundedContextIR, diags: LoomDiagno
           }),
           source: `${ctx.name}/${agg.name}`,
           code: "loom.criterion-not-selectable",
+        });
+        continue;
+      }
+      const notBool = firstNonBooleanPredicate(predicate);
+      if (notBool) {
+        diags.push({
+          severity: "error",
+          code: "loom.where-not-boolean",
+          message: diagMessage("loom.where-not-boolean", {
+            what: `aggregate '${agg.name}' capability filter`,
+            offending: notBool,
+          }),
+          source: `${ctx.name}/${agg.name}`,
         });
       }
     }
@@ -265,6 +278,28 @@ export function validateRetrievals(ctx: BoundedContextIR, diags: LoomDiagnostic[
       });
       continue;
     }
+    // ORDER: the unknown-column check runs BEFORE the not-boolean one.
+    // `firstNonBooleanPredicate` is a TYPE claim, and a field that does not
+    // exist has no type to claim — `filter !this.isDeleted` on an aggregate
+    // with no `isDeleted` reported "'this.isDeleted' (string) has no truth
+    // value", naming a type the field never had and sending the author to
+    // fix the wrong thing.  Resolve the columns first, then judge the shape.
+    if (agg) {
+      const unknown = firstUnknownColumnRef(r.where, agg, ctx);
+      if (unknown) {
+        diags.push({
+          severity: "error",
+          code: "loom.retrieval-where-unknown-field",
+          message: diagMessage("loom.retrieval-where-unknown-field", {
+            name: r.name,
+            unknown,
+            aggName: agg.name,
+          }),
+          source: src,
+        });
+        continue;
+      }
+    }
     const notBool = firstNonBooleanPredicate(r.where);
     if (notBool) {
       diags.push({
@@ -279,19 +314,6 @@ export function validateRetrievals(ctx: BoundedContextIR, diags: LoomDiagnostic[
       continue;
     }
     if (agg) {
-      const unknown = firstUnknownColumnRef(r.where, agg, ctx);
-      if (unknown) {
-        diags.push({
-          severity: "error",
-          code: "loom.retrieval-where-unknown-field",
-          message: diagMessage("loom.retrieval-where-unknown-field", {
-            name: r.name,
-            unknown,
-            aggName: agg.name,
-          }),
-          source: src,
-        });
-      }
       const bothCols = firstColumnVsColumn(r.where);
       if (bothCols) {
         diags.push({

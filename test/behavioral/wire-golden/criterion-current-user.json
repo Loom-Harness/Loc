@@ -52,6 +52,45 @@
     },
     {
       "seq": 4,
+      "method": "POST",
+      "path": "/api/docs/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 5,
+      "method": "GET",
+      "path": "/api/docs/{id}",
+      "status": 200,
+      "body": {
+        "id": "<volatile:key>",
+        "ownerUserId": "<volatile:key>",
+        "title": "Renamed",
+        "version": 2
+      }
+    },
+    {
+      "seq": 6,
+      "method": "DELETE",
+      "path": "/api/docs/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 7,
+      "method": "GET",
+      "path": "/api/docs",
+      "status": 200,
+      "body": {
+        "items": [],
+        "page": 1,
+        "pageSize": 20,
+        "total": 0,
+        "totalPages": 0
+      }
+    },
+    {
+      "seq": 8,
       "method": "PATCH",
       "path": "/api/docs",
       "status": 405,
@@ -64,7 +103,7 @@
       }
     },
     {
-      "seq": 5,
+      "seq": 9,
       "method": "GET",
       "path": "/__loom_no_such_path",
       "status": 404,
@@ -77,7 +116,7 @@
       }
     },
     {
-      "seq": 6,
+      "seq": 10,
       "method": "POST",
       "path": "/api/docs",
       "status": 400,
@@ -90,7 +129,7 @@
       }
     },
     {
-      "seq": 7,
+      "seq": 11,
       "method": "GET",
       "path": "/api/auth/me",
       "status": 200,
