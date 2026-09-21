@@ -1223,11 +1223,11 @@ layout mirrors the pipeline:
 
 | Suite (current path) | Phase(s) covered |
 | --- | --- |
-| `test/language/parsing.test.ts` | ① parse |
+| `test/language/parsing/parsing.test.ts` | ① parse |
 | `test/macro/expansion.test.ts`, `test/macro/scaffold-equivalence.test.ts` | ② AST macro expansion |
-| `test/language/validation.test.ts` (and the sensitivity / money / type-system tests) | ③ link + ④ AST validation |
+| `test/language/validation/validation.test.ts` (and the sensitivity / money / type-system tests) | ③ link + ④ AST validation |
 | `test/ir/lower.test.ts`, `test/ir/page-ir.test.ts`, `test/ir/properties.test.ts`, … | ⑤ lowering |
-| `test/ir/enrichments.test.ts`, `test/ir/wire-shape.test.ts`, `test/ir/wire-spec.test.ts` | ⑥ enrichment |
+| `test/ir/enrichments.test.ts`, `test/ir/wire/wire-shape.test.ts`, `test/ir/wire/wire-spec.test.ts` | ⑥ enrichment |
 | `test/ir/multifile-validate.test.ts`, `test/ir/invariant-classify.test.ts` | ⑦ IR validation |
 | `test/system/architecture-*.test.ts`, `test/system/deployable-composition.test.ts`, `test/system/traceability.test.ts` | ⑨ system orchestration |
 | `test/generator/*` (per backend, ~409 files) | ⑧ per-platform output |

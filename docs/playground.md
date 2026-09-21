@@ -23,7 +23,7 @@ playground imports. Vite's bundler handles the `.js`-extension import
 specifiers used throughout `src/`.
 
 One module needs a swap. The React generator's design-pack loader has a
-Node variant (`src/generator/_packs/loader-fs.js`) that reads `.hbs`
+Node variant (`src/generator/_packs/loader-fs.ts`) that reads `.hbs`
 templates off disk via `node:fs`. A small Vite plugin
 (`loomLoaderShim` in `web/vite.config.ts`) resolves any import ending in
 `/_packs/loader-fs.js` to `web/src/build/loader-vfs.ts` instead — a
@@ -249,7 +249,7 @@ stack resolvable (rebuild that commit).
 fallbacks, on the "crashed last session" notice, and in the Diagnostics
 stream. Copy puts the complete markdown report on the clipboard **and renders
 it on screen** so you can read exactly what you are about to share. *Report on
-GitHub* opens the [crash-report issue form](https://github.com/lemmit/Loc/issues/new?template=crash-report.yml)
+GitHub* opens the [crash-report issue form](https://github.com/Loom-Harness/Loc/issues/new?template=crash-report.yml)
 with the report prefilled (abridged to fit the URL — the clipboard copy is
 always complete); it is an ordinary link, nothing is sent until you submit.
 

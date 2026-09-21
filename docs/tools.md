@@ -449,7 +449,7 @@ pipelines (image build/push remains a project-init concern).
 
 ## End-to-end test
 
-Loom ships an opt-in vitest e2e (`test/e2e.test.ts`) that exercises
+Loom ships an opt-in vitest e2e (`test/e2e/e2e.test.ts`) that exercises
 the whole pipeline against a real Docker daemon:
 
 1. Generates the `examples/acme.ddd` system to a temp directory.
@@ -857,7 +857,7 @@ by `test/system/generation-defaults.test.ts`, which walks each emitted
 Dockerfile stage by stage.
 
 The opt-in `LOOM_E2E_CA_DIR` environment variable (used by
-`test/e2e.test.ts`) just copies the host's CAs into each deployable's
+`test/e2e/e2e.test.ts`) just copies the host's CAs into each deployable's
 `certs/` for you; no Dockerfile rewriting.
 
 ### Cross-platform OpenAPI parity check
