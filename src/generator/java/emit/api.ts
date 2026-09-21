@@ -101,10 +101,21 @@ export function renderJavaController(
   // expected version in the `If-Match` header (think-time CAS), forwarded to the
   // service.  Non-versioned aggregates thread nothing → byte-identical routes.
   const versioned = aggregateIsVersioned(agg);
+  //
+  // The header binds as a STRING and is parsed by the shared `IfMatch` helper,
+  // not as a `@RequestHeader … Integer`.  An entity-tag is a QUOTED string
+  // (RFC 9110 §8.8.3), so a client echoing back the ETag it was given sends
+  // `If-Match: "3"` — and Spring's default String→Integer converter throws on
+  // that, answering **400 for a spec-correct request**.  The other four
+  // backends all strip the quotes before converting (hono `parseIfMatch`,
+  // .NET `Trim('"')`, python `.strip(chr(34))`, elixir `String.trim("\"")`),
+  // so java binding the raw value to a number was the one backend that could
+  // not accept what the others do — invisible because no generated client has
+  // ever sent the header.
   const ifMatchHeaderParam = versioned
-    ? `, @RequestHeader(value = "If-Match", required = false) Integer ifMatch`
+    ? `, @RequestHeader(value = "If-Match", required = false) String ifMatch`
     : "";
-  const ifMatchServiceArg = versioned ? ", ifMatch" : "";
+  const ifMatchServiceArg = versioned ? ", IfMatch.expectedVersion(ifMatch)" : "";
   const idJava = javaValueTypeForId(agg.idValueType);
   const imports = new Set<string>(["java.util.List"]);
   if (idJava === "UUID") imports.add("java.util.UUID");
@@ -521,6 +532,10 @@ export function renderJavaController(
     // No `Paged;` import: since F2-W-07 the controller never names the generic
     // — both paged arms (declared find + auto-findAll) return `<Agg>Paged` and
     // bind the service's `Paged<T>` through `var`.
+    // Optimistic concurrency: the shared `If-Match` entity-tag parser.  Guarded
+    // on the package so a byLayer layout (controller already in `<base>.api`)
+    // does not import from its own package.
+    versioned && ctx.pkg !== `${ctx.basePkg}.api` ? `import ${ctx.basePkg}.api.IfMatch;` : null,
     anyFindGate ? `import ${ctx.basePkg}.domain.common.ForbiddenException;` : null,
     anyFindAbsenceThrow ? `import ${ctx.basePkg}.domain.common.AggregateNotFoundException;` : null,
     anyFindGateUsesUser ? `import ${ctx.basePkg}.auth.CurrentUserAccessor;` : null,
@@ -594,6 +609,53 @@ function initBinderLines(
 /** RFC 7807 problem+json advice — the DomainExceptionFilter / Hono
  *  onError analog: same statuses, same envelope, same 422 `errors[]`
  *  extension shape, so the frontend ACL works against any backend. */
+/** `api/IfMatch.java` — the optimistic-concurrency precondition parser.
+ *
+ *  Emitted only when some in-scope aggregate is `versioned`.
+ *
+ *  The header cannot bind straight to an `Integer`: an entity-tag is a QUOTED
+ *  string (RFC 9110 §8.8.3), so a client that echoes back the `ETag` it was
+ *  given sends `If-Match: "3"` and Spring's default String→Integer converter
+ *  throws — a **400 for a spec-correct request**.  Every other Loom backend
+ *  strips the quotes first, so this brings java onto the same grammar:
+ *
+ *    `3`      — bare integer (what the generated clients and the other four
+ *               backends have always accepted)
+ *    `"3"`    — strong entity-tag, the spelling `ETag` hands the client
+ *    `*`      — RFC "any current representation": no precondition
+ *
+ *  Anything else (including a weak `W/"3"`, which is not a usable concurrency
+ *  validator) yields `null`, which the service treats as "no client
+ *  precondition" and falls back to write-time CAS — the same stance the other
+ *  backends take on an unparseable value. */
+export function renderIfMatchHeaderParser(basePkg: string): string {
+  return lines(
+    `package ${basePkg}.api;`,
+    ``,
+    `/** Parses the \`If-Match\` optimistic-concurrency precondition. */`,
+    `public final class IfMatch {`,
+    `    private IfMatch() {}`,
+    ``,
+    `    /** The client's expected version, or {@code null} when the header is`,
+    `     *  absent, {@code *}, or not a form this API accepts. */`,
+    `    public static Integer expectedVersion(String header) {`,
+    `        if (header == null) return null;`,
+    `        var raw = header.trim();`,
+    `        if (raw.isEmpty() || "*".equals(raw)) return null;`,
+    `        if (raw.length() >= 2 && raw.charAt(0) == '"' && raw.charAt(raw.length() - 1) == '"') {`,
+    `            raw = raw.substring(1, raw.length() - 1);`,
+    `        }`,
+    `        try {`,
+    `            return Integer.valueOf(raw);`,
+    `        } catch (NumberFormatException e) {`,
+    `            return null;`,
+    `        }`,
+    `    }`,
+    `}`,
+    ``,
+  );
+}
+
 /** `api/NoNulChar.java` — the NUL guard every request STRING carries.
  *
  *  A declared `string` lands in a Postgres `text` column, which cannot hold
