@@ -1004,7 +1004,7 @@ the conforming backends, and the fix that established it.
   > answered locally instead of reaching the producer.
   >
   > **And a fifth discovery, at the two read sites nobody had counted
-  > (2026-08-11, M-T6.31 / [#2520](https://github.com/lemmit/Loc/pull/2520)).**
+  > (2026-08-11, M-T6.31 / [#2520](https://github.com/Loom-Harness/Loc/pull/2520)).**
   > The four corrections above all concern the aggregate's own routes. Two more
   > by-KEY reads exist — the **projection show**
   > (`GET /api/projections/<p>/{key}`) and the **workflow-instance show**
@@ -1024,7 +1024,7 @@ the conforming backends, and the fix that established it.
   > the URLs each tier already requested.
   >
   > **And a sixth, at the last by-key read of all (2026-08-23, M-T6.39 /
-  > [#2645](https://github.com/lemmit/Loc/pull/2645)).** `GET /files/{key}` —
+  > [#2645](https://github.com/Loom-Harness/Loc/pull/2645)).** `GET /files/{key}` —
   > the root file-download route over a bound `objectStore` — was the one
   > absent-read site outside all five discoveries above, and it was wrong on
   > **all five backends at once**: node/python/elixir answered

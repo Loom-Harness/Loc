@@ -67,19 +67,39 @@ describe("migrationFileVersion — filename → version extraction", () => {
 });
 
 describe("checkMigrationBaseline — guard (a) missing snapshot over existing files", () => {
+  // Guard (a) is the only check that needs per-module ATTRIBUTION, and the
+  // only attribution a flat migrations directory supports is the version
+  // BLOCK (`BASE_TIMESTAMP + block * MODULE_VERSION_STRIDE`).  So its fixtures
+  // use versions the allocator can actually produce: a file inside this
+  // module's own block.  Guards (b)/(c) ask about a version NUMBER rather than
+  // about ownership, so they read the whole directory and their fixtures do
+  // not have to sit in any block.
+  const inOwnBlock = "20260101000005";
+
   it("refuses Initial when files exist but the snapshot is missing", () => {
     const migrations = [migrationsIR({ module: "Sales", baseline: null })];
-    const index = memoryMigrationArtifactIndex({ Sales: ["20250101000000"] });
+    const index = memoryMigrationArtifactIndex({ Sales: [inOwnBlock] });
     expect(() => checkMigrationBaseline(migrations, index)).toThrow(MigrationBaselineError);
     expect(() => checkMigrationBaseline(migrations, index)).toThrow(/re-baseline module 'Sales'/);
   });
 
   it("allows the re-baseline under the override flag", () => {
     const migrations = [migrationsIR({ module: "Sales", baseline: null })];
-    const index = memoryMigrationArtifactIndex({ Sales: ["20250101000000"] });
+    const index = memoryMigrationArtifactIndex({ Sales: [inOwnBlock] });
     expect(() =>
       checkMigrationBaseline(migrations, index, { allowRebaseline: true }),
     ).not.toThrow();
+  });
+
+  it("does NOT refuse for a file outside every module block", () => {
+    // The far-future `2999…` audit/provenance migrations every backend emits
+    // belong to no module's version chain.  Reading them as "this module has
+    // history" is the false positive that used to refuse a brand-new module
+    // added to an existing deployable — and prescribe `--allow-rebaseline`,
+    // which would have discarded a SIBLING module's history.
+    const migrations = [migrationsIR({ module: "Sales", baseline: null })];
+    const index = memoryMigrationArtifactIndex({ Sales: ["29991231235959"] });
+    expect(() => checkMigrationBaseline(migrations, index)).not.toThrow();
   });
 
   it("is a no-op on a genuine first run (no snapshot, no files)", () => {

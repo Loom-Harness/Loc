@@ -2,6 +2,11 @@ import type { EventIR, SystemIR, TypeIR } from "../../../ir/types/loom-ir.js";
 import { lines } from "../../../util/code-builder.js";
 import { lowerFirst } from "../../../util/naming.js";
 import type { BrokerBinding } from "../../_channels/bindings.js";
+import {
+  decodeField,
+  type WireDecodeLeaf,
+  type WireDecodeTarget,
+} from "../../_channels/wire-codec.js";
 import { numericEncode } from "../../_numeric/target.js";
 import { javaLogEvent } from "../../_obs/render-java.js";
 import { jid } from "../java-ident.js";
@@ -120,6 +125,67 @@ function toDataExpr(access: string, t: TypeIR): string {
   return t.kind === "optional" ? `${access} == null ? null : ${converted}` : converted;
 }
 
+/** Java's `WireDecodeTarget` — the leaf half of the shared channel wire codec
+ *  (`src/generator/_channels/wire-codec.ts`).  Built per emission: the leaves
+ *  record the `java.*` imports their expressions need, and the `id` leaf needs
+ *  the system's id-value-type lookup.
+ *
+ *  Behaviour is unchanged from the private `fromDataExpr` this replaces (the
+ *  port is byte-identical); what moved out is the `TypeIR.kind` DISPATCH,
+ *  which now lives once, is exhaustive, and `never`-checks — so a new IR type
+ *  kind can no longer land silently in the `(String) ...` arm.
+ *
+ *  Of the five backends this is the codec that was already MOST complete: it
+ *  is the only pre-port one with a real optional null-guard. */
+function javaWireDecode(
+  idValueTypeOf: (target: string) => string,
+  imports: Set<string>,
+): WireDecodeTarget {
+  const asString: WireDecodeLeaf = (e) => `(String) ${e}`;
+  return {
+    lang: "java",
+    read: (payload, field) => `${payload}.get(${JSON.stringify(field)})`,
+    primitive: {
+      int: (e) => numericEncode(JAVA_NUMERIC, "int", "find-param", e),
+      long: (e) => numericEncode(JAVA_NUMERIC, "long", "find-param", e),
+      bool: (e) => `(Boolean) ${e}`,
+      decimal: (e) => {
+        imports.add("java.math.BigDecimal");
+        return numericEncode(JAVA_NUMERIC, "decimal", "find-param", e);
+      },
+      money: (e) => {
+        imports.add("java.math.BigDecimal");
+        return numericEncode(JAVA_NUMERIC, "money", "find-param", `(String) ${e}`);
+      },
+      datetime: (e) => {
+        imports.add("java.time.Instant");
+        return `Instant.parse((String) ${e})`;
+      },
+      string: asString,
+      guid: asString,
+      json: asString,
+      File: asString,
+      duration: asString,
+    },
+    id: (e, targetName) => {
+      const vt = idValueTypeOf(targetName);
+      if (vt === "string") return `new ${targetName}Id((String) ${e})`;
+      // Through the numeric seam like the scalar arms above (M-T5.23): an
+      // int-keyed id decoded with a bare `intValue()` wrapped an envelope
+      // value that does not fit into a DIFFERENT id, silently.
+      if (vt === "int")
+        return `new ${targetName}Id(${numericEncode(JAVA_NUMERIC, "int", "find-param", e)})`;
+      if (vt === "long")
+        return `new ${targetName}Id(${numericEncode(JAVA_NUMERIC, "long", "find-param", e)})`;
+      imports.add("java.util.UUID");
+      return `new ${targetName}Id(UUID.fromString((String) ${e}))`;
+    },
+    enumValue: (e, name) => `${name}.valueOf((String) ${e})`,
+    optional: (e, decoded) => `${e} == null ? null : ${decoded}`,
+    passthrough: asString,
+  };
+}
+
 /** Java expression reconstructing one event record component from the
  *  envelope's `data` map. */
 function fromDataExpr(
@@ -128,50 +194,11 @@ function fromDataExpr(
   idValueTypeOf: (target: string) => string,
   imports: Set<string>,
 ): string {
-  const get = `data.get(${JSON.stringify(name)})`;
-  const inner = t.kind === "optional" ? t.inner : t;
-  const conv = (): string => {
-    switch (inner.kind) {
-      case "primitive":
-        switch (inner.name) {
-          case "int":
-            return numericEncode(JAVA_NUMERIC, "int", "find-param", get);
-          case "long":
-            return numericEncode(JAVA_NUMERIC, "long", "find-param", get);
-          case "bool":
-            return `(Boolean) ${get}`;
-          case "decimal":
-            imports.add("java.math.BigDecimal");
-            return numericEncode(JAVA_NUMERIC, "decimal", "find-param", get);
-          case "money":
-            imports.add("java.math.BigDecimal");
-            return numericEncode(JAVA_NUMERIC, "money", "find-param", `(String) ${get}`);
-          case "datetime":
-            imports.add("java.time.Instant");
-            return `Instant.parse((String) ${get})`;
-          default:
-            return `(String) ${get}`;
-        }
-      case "id": {
-        const vt = idValueTypeOf(inner.targetName);
-        if (vt === "string") return `new ${inner.targetName}Id((String) ${get})`;
-        // Through the numeric seam like the scalar arms above (M-T5.23): an
-        // int-keyed id decoded with a bare `intValue()` wrapped an envelope
-        // value that does not fit into a DIFFERENT id, silently.
-        if (vt === "int")
-          return `new ${inner.targetName}Id(${numericEncode(JAVA_NUMERIC, "int", "find-param", get)})`;
-        if (vt === "long")
-          return `new ${inner.targetName}Id(${numericEncode(JAVA_NUMERIC, "long", "find-param", get)})`;
-        imports.add("java.util.UUID");
-        return `new ${inner.targetName}Id(UUID.fromString((String) ${get}))`;
-      }
-      case "enum":
-        return `${inner.name}.valueOf((String) ${get})`;
-      default:
-        return `(String) ${get}`;
-    }
-  };
-  return t.kind === "optional" ? `${get} == null ? null : ${conv()}` : conv();
+  return decodeField(
+    "data",
+    { name, type: t, optional: t.kind === "optional" },
+    javaWireDecode(idValueTypeOf, imports),
+  );
 }
 
 /** All broker transport files for the deployable, keyed by file name (placed

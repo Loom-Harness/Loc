@@ -54,13 +54,17 @@ import type {
   TestE2EIR,
   TestStmtIR,
   TypeIR,
+  WorkflowIR,
 } from "../../types/loom-ir.js";
 import {
   type ApiOperationIR,
   apiStatusContext,
   deriveAggregateOperations,
 } from "../../util/api-surface.js";
+import { findWorkflowBySlug } from "../../util/e2e-workflow-accessor.js";
 import { walkExprDeep, walkStmtExprsDeep } from "../../util/walk.js";
+import { emitsCommandRoute } from "../../util/workflow-command-route.js";
+import { emitsInstanceRoutes } from "../../util/workflow-instances.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
 
 /** One `<magicId>.<slug>.<verb>(…)` call found in an e2e body. */
@@ -136,6 +140,8 @@ type VerbVerdict =
   | { readonly tag: "history"; readonly aggregate: string }
   | { readonly tag: "find"; readonly aggregate: string }
   | { readonly tag: "verb"; readonly aggregate: string; readonly routed: string }
+  | { readonly tag: "workflow-run"; readonly workflow: string }
+  | { readonly tag: "workflow-instance"; readonly workflow: string }
   | { readonly tag: "ui-create"; readonly aggregate: string }
   | { readonly tag: "ui-verb"; readonly known: string };
 
@@ -149,9 +155,24 @@ function apiVerbVerdict(call: MagicCall, contexts: BoundedContextIR[]): VerbVerd
   if (call.slug === "workflows") return null;
   if (findProjectionBySlug(call.slug, contexts)) return null;
   const resolved = resolveAggregate(call.slug, contexts);
-  // An unresolved slug already raises `loom.e2e-unknown-aggregate`; a second
-  // diagnostic for the same call would just be noise.
-  if (!resolved) return null;
+  if (!resolved) {
+    // The WORKFLOW accessor — `api.<wf>.run(…)` / `.instances()` /
+    // `.instance(key)`.  Consulted AFTER the aggregate, the same precedence
+    // `test-checks.ts` and `renderApiCall` use, because what matters here is
+    // the route the RENDERER will emit.
+    //
+    // A projection read is skipped above because BOTH its verbs are
+    // unconditional once the projection exists.  A workflow's three routes are
+    // not: the command POST rides the facade's trigger kind and the two
+    // instance reads ride the correlation field, so the route-contract question
+    // is real here and is answered against the same two predicates every
+    // backend gates its own emission on.
+    const wf = findWorkflowBySlug(call.slug, contexts);
+    if (wf) return workflowVerbVerdict(call, wf);
+    // Otherwise an unresolved slug already raises `loom.e2e-unknown-aggregate`;
+    // a second diagnostic for the same call would just be noise.
+    return null;
+  }
   const { agg, repo, ctx } = resolved;
   const ops = deriveAggregateOperations(agg, repo, apiStatusContext(ctx));
   if (apiRouteExists(call.verb, agg, repo, ops)) return null;
@@ -169,6 +190,24 @@ function apiVerbVerdict(call: MagicCall, contexts: BoundedContextIR[]): VerbVerd
     aggregate: agg.name,
     routed: routedVerbs(agg, repo, ops).join(", ") || "(none)",
   };
+}
+
+/** The three workflow verbs against the two conditions the backends mount a
+ *  workflow's routes on.  An UNKNOWN verb answers `null` on purpose:
+ *  `test-checks.ts` owns that complaint (`loom.e2e-unknown-method#workflow`),
+ *  and the one-mistake-one-diagnostic rule below reads this verdict to decide
+ *  whether to stay out of the way. */
+function workflowVerbVerdict(call: MagicCall, wf: WorkflowIR): VerbVerdict | null {
+  // An EVENT-triggered facade is a reactor the in-process dispatcher starts;
+  // every backend's workflow emitter skips the POST for it, so `.run()` would
+  // emit a request nothing answers.
+  if (call.verb === "run") {
+    return emitsCommandRoute(wf) ? null : { tag: "workflow-run", workflow: wf.name };
+  }
+  if (call.verb === "instances" || call.verb === "instance") {
+    return emitsInstanceRoutes(wf) ? null : { tag: "workflow-instance", workflow: wf.name };
+  }
+  return null;
 }
 
 /** Does `ui.<slug>.<verb>(…)` drive a page object the harness emits? */
@@ -309,6 +348,31 @@ function checkApiVerb(
     });
     return false;
   }
+  if (verdict.tag === "workflow-run") {
+    diags.push({
+      severity: "error",
+      code: "loom.e2e-unrouted-verb",
+      source,
+      message: diagMessage("loom.e2e-unrouted-verb#workflow-run", {
+        slug: call.slug,
+        workflow: verdict.workflow,
+      }),
+    });
+    return false;
+  }
+  if (verdict.tag === "workflow-instance") {
+    diags.push({
+      severity: "error",
+      code: "loom.e2e-unrouted-verb",
+      source,
+      message: diagMessage("loom.e2e-unrouted-verb#workflow-instance", {
+        slug: call.slug,
+        verb: call.verb,
+        workflow: verdict.workflow,
+      }),
+    });
+    return false;
+  }
   if (verdict.tag === "verb") {
     diags.push({
       severity: "error",
@@ -323,6 +387,48 @@ function checkApiVerb(
     });
   }
   return false;
+}
+
+/** The three workflow verbs against the two conditions the backends mount their
+ *  workflow routes on.  An unknown verb is NOT diagnosed here — `test-checks.ts`
+ *  already raised `loom.e2e-unknown-method#workflow` for it, and a second
+ *  diagnostic for one call is noise (the same division the aggregate arms keep).
+ */
+function checkWorkflowVerb(
+  call: MagicCall,
+  wf: WorkflowIR,
+  source: string,
+  diags: LoomDiagnostic[],
+): void {
+  if (call.verb === "run") {
+    // An EVENT-triggered facade is a reactor the in-process dispatcher starts;
+    // every backend's workflow emitter skips the POST for it, so calling
+    // `.run()` would emit a request nothing answers (405).
+    if (emitsCommandRoute(wf)) return;
+    diags.push({
+      severity: "error",
+      code: "loom.e2e-unrouted-verb",
+      source,
+      message: diagMessage("loom.e2e-unrouted-verb#workflow-run", {
+        slug: call.slug,
+        workflow: wf.name,
+      }),
+    });
+    return;
+  }
+  if (call.verb === "instances" || call.verb === "instance") {
+    if (emitsInstanceRoutes(wf)) return;
+    diags.push({
+      severity: "error",
+      code: "loom.e2e-unrouted-verb",
+      source,
+      message: diagMessage("loom.e2e-unrouted-verb#workflow-instance", {
+        slug: call.slug,
+        verb: call.verb,
+        workflow: wf.name,
+      }),
+    });
+  }
 }
 
 /** Does the route `renderApiCall` will emit for `verb` exist in the derivation?

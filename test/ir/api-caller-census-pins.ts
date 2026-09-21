@@ -550,6 +550,23 @@ export const UNATTRIBUTED_CALLS: Record<string, readonly string[]> = {
     "api.openOrders.list (no such aggregate)",
     "api.orderBook.byKey (no such aggregate)",
   ],
+  // The WORKFLOW accessor (M-T5.36 P9 / F5) — the fourth `notLifted` class to
+  // reach a test body, and the first that is not a read model.
+  // `deriveContextOperations` derives AGGREGATE routes; a workflow's command
+  // POST and its two instance reads are mounted by every backend's workflow
+  // emitter instead, off `emitsCommandRoute` / `correlationField`, so they
+  // credit no derived operation even though driving them is the whole point of
+  // this fixture.  Their route-contract gate is `e2e-route-checks.ts`'s
+  // `checkWorkflowVerb`, not this census.  Lifting workflow routes into the
+  // derivation would make these attributable — and this entry stale.
+  "corpus/workflow-create-state": [
+    "api.escalation.instance (no such aggregate)",
+    "api.escalation.instances (no such aggregate)",
+    "api.escalation.run (no such aggregate)",
+    "api.fulfillment.instance (no such aggregate)",
+    "api.fulfillment.instances (no such aggregate)",
+    "api.fulfillment.run (no such aggregate)",
+  ],
 };
 
 /**
@@ -663,16 +680,6 @@ export const E2E_LESS_CORPUS_FIXTURES: readonly string[] = [
   // cross-backend decimal-arithmetic divergence (F11 / M-T5.22) — that golden
   // waits for the owner ruling, not for this fixture.
   "numeric-operands",
-  // COMPILE + UNIT-TIER WITNESS (verification fleet F58 / M-T6.62) — a COMMAND
-  // `create(params)` on a workflow that carries `Property` state.  The defect
-  // it exists for is a TYPE ERROR in four of the five emitted projects (an
-  // unbound `this`/`state` receiver), so the per-backend compile legs are the
-  // oracle; the pure-domain `test` block rides every backend's unit tier.  The
-  // runtime half — POST the command, emit the event, read the saga row back
-  // through `/workflows/fulfillment/instances/{id}` — is expressible, but it
-  // mints a five-way wire golden for a cascade no golden covers yet, and
-  // capturing that needs the behavioural legs rather than this fixture's PR.
-  "workflow-create-state",
   // COMPILE-TIER WITNESS (generator review A1) — a projection aggregation over
   // a `tenantOwned` + `softDeletable` source; pins that the emitted aggregation
   // read carries the capability predicates.  The runtime half needs the
