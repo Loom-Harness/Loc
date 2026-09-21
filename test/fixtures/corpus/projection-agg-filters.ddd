@@ -224,6 +224,15 @@ system ProjectionAggFilters {
     // as text, so the same clause is LEXICOGRAPHIC (`Confirmed` first).  The
     // promise is false for every enum grouping key, on every grouped read.
     //
+    //
+    // Worth recording, because it is the reason this went unnoticed: the
+    // corpus's DEDICATED grouped-read fixture, `projection-groupby.ddd`,
+    // groups by this same enum and its golden is green on every leg — because
+    // every read it records returns at most ONE group, and with one row the
+    // order is unobservable.  Its header claims it covers "the deterministic
+    // ORDER BY over the grouping columns"; it does not, and could not.  This
+    // block was the first to put TWO groups on the wire, which is the only
+    // reason the divergence surfaced at all.
     // A golden over this read would therefore pin one backend's collation
     // rather than a contract, so the call stays out until the divergence is
     // settled.  Putting it back is the check that the fix worked: this block
