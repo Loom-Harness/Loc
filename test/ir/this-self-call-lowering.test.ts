@@ -98,17 +98,25 @@ describe("`this.<member>(…)` self-calls lower to the bare-call IR", () => {
       name: "half",
       args: [],
       // Carried so python renders `self._half` (the private def-site name).
+      // (A `function` needs no such flag — it is public on both sides.)
       targetPrivate: true,
     } satisfies Partial<ExprIR>);
   });
 
-  it("python renders the def-site (underscore) name for the explicit self-call", async () => {
+  it("python renders the def-site name for the explicit self-call", async () => {
     const files = await generateSystemFiles(SYSTEM("python"));
     const src = files.get("d/app/domain/ticket.py")!;
     expect(src).toBeDefined();
-    expect(src).toContain("def _bump(self, by: int) -> int:");
-    expect(src).toContain("self._total = self._bump(by)");
-    expect(src).not.toContain("self.bump(by)");
+    // A `function` is PUBLIC — the routes and a workflow body call it from
+    // outside the instance, and those call sites always spelt it unprefixed
+    // (`test/generator/aggregate-function-visibility.test.ts`).  What this
+    // suite pins is that the self-call agrees with whatever the def site
+    // emits, which is the defect it was minted for.
+    expect(src).toContain("def bump(self, by: int) -> int:");
+    expect(src).toContain("self._total = self.bump(by)");
+    expect(src).not.toContain("def _bump(self");
+    // A `private operation` still carries the underscore on BOTH sides.
+    expect(src).toContain("def _half(self)");
     expect(src).toContain("self._total = self._half()");
     expect(src).not.toContain("self.half()");
   });

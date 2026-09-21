@@ -34,6 +34,7 @@ import { platformFor } from "../platform/registry.js";
 import { hasAdapters, resolveLayout, resolveStyle } from "../platform/resolve-adapters.js";
 import { AUTH_BASE_PATH } from "../util/api-base.js";
 import { resourceEnvUrlVar } from "../util/resource-env.js";
+import { TEST_RESET_ENV } from "../util/test-reset.js";
 import { renderAsyncApi } from "./asyncapi.js";
 import { renderDataSourcesMd } from "./datasources.js";
 import { renderE2EFile } from "./e2e-render.js";
@@ -56,6 +57,7 @@ import {
 } from "./migration-artifacts.js";
 import { buildMigrationLedger, type MigrationHistoryLedger } from "./migration-ledger.js";
 import { buildMigrations } from "./migrations-builder.js";
+import { renderSystemReadme } from "./readme.js";
 import { renderSmap } from "./smap.js";
 import {
   memorySnapshotStore,
@@ -260,6 +262,25 @@ export function generateSystemsFromLoom(
       if (!rendered) continue;
       out.set(`${path}.smap`, rendered);
     }
+  }
+  // `README.md` — the orientation page for the generated tree (finding F12).
+  // LAST of everything, because it is DERIVED from the finished output map:
+  // which test projects exist, how each deployable's own project boots, which
+  // `.loom/` artifacts this model produced (traceability is emitted above,
+  // after `emitSystem`, so an earlier call would under-report it).  Written at
+  // the output root beside `docker-compose.yml`, and like that file the last
+  // system wins when a source declares several.  Scaffold-once, so it never
+  // overwrites `ddd new`'s README at this same path nor a reader's own edits
+  // — see the header of `readme.ts`.
+  for (const sys of loom.systems) {
+    out.set(
+      "README.md",
+      renderSystemReadme(sys, {
+        slugOf: serviceSlug,
+        emitted: out,
+        dbImage: POSTGRES_IMAGE,
+      }),
+    );
   }
   return {
     files: out,
@@ -697,13 +718,26 @@ function frontendOrigins(sys: SystemIR): string[] {
     .map((f) => `http://localhost:${f.port}`);
 }
 
-function serviceSlug(name: string): string {
+/** The compose-safe service slug of a deployable name.  Exported because it
+ *  is also the exact suffix set an api-e2e vitest title can carry
+ *  (` against <serviceSlug>`, appended by `e2e-render.ts`), which `ddd verify`
+ *  needs to undo the suffix when joining results onto the requirements graph
+ *  — see `src/verify/verification.ts`.  Note it is NOT `naming.snake`: that
+ *  splits consecutive capitals too (`APIGateway` → `api_gateway`, where this
+ *  gives `apigateway`). */
+export function serviceSlug(name: string): string {
   return name.replace(/([a-z0-9])([A-Z])/g, "$1_$2").toLowerCase();
 }
 
 // ---------------------------------------------------------------------------
 // docker-compose.yml
 // ---------------------------------------------------------------------------
+
+/** The Postgres image the compose stack runs.  Named because the generated
+ *  README hands the reader a `docker run` of the SAME image for a host-side
+ *  run (compose deliberately does not publish the database port), and the two
+ *  must not drift. */
+export const POSTGRES_IMAGE = "postgres:18-alpine";
 
 /** The Prometheus scrape targets — every BACKEND deployable exposes
  *  `GET /metrics` (M-T7.1); pure static frontends do not.  Each target is
@@ -801,7 +835,7 @@ function renderDockerCompose(sys: SystemIR): string {
   }
   lines.push("services:");
   lines.push("  db:");
-  lines.push("    image: postgres:18-alpine");
+  lines.push(`    image: ${POSTGRES_IMAGE}`);
   lines.push("    environment:");
   lines.push("      POSTGRES_DB: postgres");
   lines.push("      POSTGRES_USER: postgres");
@@ -1225,6 +1259,20 @@ function renderDeployableService(d: DeployableIR, sys: SystemIR): string[] {
   }
   lines.push(`  environment:`);
   for (const [k, v] of shape.env) lines.push(`    ${k}: ${JSON.stringify(v)}`);
+  // The dev-only state reset the emitted `e2e/` suite calls between tests
+  // (`src/util/test-reset.ts`).  Opted into BY NAME here rather than inferred,
+  // because each backend's container image correctly pins a PRODUCTION
+  // profile — and this compose file is the LOCAL dev stack built from that
+  // image, the one the run recipe in `docs/tools.md` starts.  Without this
+  // line the documented recipe would be red on its second run, which is the
+  // whole of F3.  A reader who does not want the surface deletes the line.
+  //
+  // Emitted only when the system declares `test e2e` api blocks — i.e. exactly
+  // when the `e2e/` project that calls it is emitted — so a system without one
+  // is byte-identical to before.
+  if (!platform.isFrontend && sys.e2eTests.some((t) => t.kind === "api")) {
+    lines.push(`    ${TEST_RESET_ENV}: "1"`);
+  }
   for (const b of brokerBindings) {
     // Credentialed URL (§7): the deployable's own broker
     // identity rides the URL — the one seam every driver already consumes,
