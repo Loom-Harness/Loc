@@ -4440,5 +4440,19 @@ export function uiUsesMoney(ui: UiIR): boolean {
     state.some((f) => typeUsesMoney(f.type));
   if (ui.pages.some((p) => stateHasMoney(p.state))) return true;
   if (ui.components.some((c) => stateHasMoney(c.state))) return true;
+  // A DECLARED money param is the other producer of a `Decimal` binding in a
+  // generated frontend file, and it only became one in wave C2: before the
+  // shared prop layer learned to spell `money`, `component PriceTag(amount:
+  // money)` was refused outright by phase (7).  Now it emits `amount: Decimal`
+  // — so the same detect-once conditional-dep gate has to see it, or the file
+  // imports decimal.js and package.json never declares it.  Extern-function
+  // signatures produce the identical binding for the identical reason.
+  const paramsHaveMoney = (params: readonly ParamIR[]) => params.some((p) => typeUsesMoney(p.type));
+  if (ui.components.some((c) => paramsHaveMoney(c.params))) return true;
+  if (
+    (ui.functions ?? []).some((fn) => paramsHaveMoney(fn.params) || typeUsesMoney(fn.returnType))
+  ) {
+    return true;
+  }
   return false;
 }

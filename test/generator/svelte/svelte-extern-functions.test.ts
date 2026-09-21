@@ -61,11 +61,11 @@ describe("extern frontend functions — SvelteKit", () => {
   it("a component-body call imports the shim too", async () => {
     const src = SRC.replace(
       'page Home { route: "/" body: Heading { initials("Ada Lovelace") } }',
-      `component Badge(name: string) { body: Text { initials(name) } }
-      page Home { route: "/" body: Badge { "Ada" } }`,
+      `component TierBadge(name: string) { body: Text { initials(name) } }
+      page Home { route: "/" body: TierBadge { "Ada" } }`,
     );
     const files = await generateSystemFiles(src);
-    const badge = files.get("web/src/lib/components/Badge.svelte")!;
+    const badge = files.get("web/src/lib/components/TierBadge.svelte")!;
     expect(badge).toContain('import { initials } from "$lib/initials";');
     expect(badge).toContain("{initials(name)}");
   });

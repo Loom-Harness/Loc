@@ -19,8 +19,9 @@
 // (`angularTarget.renderUserComponent`); the page shell imports the class from
 // this shim, re-exposes it as a member, and registers the directive.
 
-import type { AggregateIR, ParamIR, TypeIR } from "../../ir/types/loom-ir.js";
+import type { AggregateIR, ParamIR, TypeIR, ValueObjectIR } from "../../ir/types/loom-ir.js";
 import { lowerFirst } from "../../util/naming.js";
+import { FILE_REF_TS, MONEY_IMPORT_SENTINEL } from "../_frontend/component-prop-type.js";
 
 /** Map a Loom param type to its wire-side TS spelling for the props interface —
  *  and, for a WALKED component, for its generated `@Input()` fields
@@ -32,7 +33,14 @@ import { lowerFirst } from "../../util/naming.js";
  *  `action` maps to a void callback.  Anything unrecognised falls back to
  *  `unknown` rather than throwing — the props file is a contract the user types
  *  against, so it must always emit. */
-export function angularWireType(t: TypeIR, dtoImports: Map<string, string>): string {
+export function angularWireType(
+  t: TypeIR,
+  dtoImports: Map<string, string>,
+  /** Declared value objects by name — `valueObjectIndex(bcByAggregate)` from the
+   *  shared prop layer.  A `valueobject` param spells its fields structurally;
+   *  with no index in reach it falls back to `unknown` exactly as before. */
+  valueObjects: ReadonlyMap<string, ValueObjectIR> = new Map(),
+): string {
   switch (t.kind) {
     case "primitive":
       switch (t.name) {
@@ -46,6 +54,19 @@ export function angularWireType(t: TypeIR, dtoImports: Map<string, string>): str
         case "datetime":
         case "guid":
           return "string";
+        // The three shapes phase (7) used to refuse for the whole TS prop family
+        // (`loom.frontend-prop-type-unsupported`).  Angular never reached the
+        // shared layer's throw — its own copy answered `unknown` — so the gate
+        // was refusing a declaration that on THIS frontend would have emitted
+        // silently-wrong types rather than crashing.  Same spellings as
+        // `component-prop-type.ts`, which is the point: the props interface an
+        // author types their `@Input()`s against has to agree with the one
+        // react/vue/svelte emit for the same `.ddd`.
+        case "money":
+          dtoImports.set(MONEY_IMPORT_SENTINEL, MONEY_IMPORT_SENTINEL);
+          return "Decimal";
+        case "File":
+          return FILE_REF_TS;
         default:
           return "unknown";
       }
@@ -56,15 +77,42 @@ export function angularWireType(t: TypeIR, dtoImports: Map<string, string>): str
       return "string";
     case "enum":
       return "string";
+    case "valueobject": {
+      const vo = valueObjects.get(t.name);
+      if (!vo) return "unknown";
+      const fields = vo.fields.map(
+        (f) => `${f.name}: ${angularWireType(f.type, dtoImports, valueObjects)}`,
+      );
+      return fields.length > 0 ? `{ ${fields.join("; ")} }` : "Record<string, never>";
+    }
     case "array":
-      return `${angularWireType(t.element, dtoImports)}[]`;
+      return `${angularWireType(t.element, dtoImports, valueObjects)}[]`;
     case "optional":
-      return `${angularWireType(t.inner, dtoImports)} | undefined`;
+      return `${angularWireType(t.inner, dtoImports, valueObjects)} | undefined`;
     case "action":
-      return t.arg ? `(arg: ${angularWireType(t.arg, dtoImports)}) => void` : "() => void";
+      return t.arg
+        ? `(arg: ${angularWireType(t.arg, dtoImports, valueObjects)}) => void`
+        : "() => void";
     default:
       return "unknown";
   }
+}
+
+/** Serialize a prop-type walk's import sink into Angular import lines.
+ *
+ *  Shared by the props FILE and the walked-component class, so the decimal.js
+ *  sentinel (see `MONEY_IMPORT_SENTINEL`) is drained in exactly one place —
+ *  leaving it in the map would emit `import type { <NUL>decimal } from ...`. */
+export function angularDtoImportLines(dtoImports: Map<string, string>): string {
+  const money = dtoImports.delete(MONEY_IMPORT_SENTINEL)
+    ? `import type Decimal from "decimal.js";\n`
+    : "";
+  return (
+    money +
+    [...dtoImports.entries()]
+      .map(([type, mod]) => `import type { ${type} } from "${mod}";\n`)
+      .join("")
+  );
 }
 
 /** ① The machine-owned typed props interface at
@@ -73,6 +121,10 @@ export function renderAngularExternComponentProps(
   name: string,
   params: ParamIR[],
   _aggregatesByName: ReadonlyMap<string, AggregateIR> = new Map(),
+  /** Declared value objects by name — `valueObjectIndex(...)`.  A
+   *  `valueobject`-typed prop spells its fields structurally; without the index
+   *  it stays `unknown`, which is what every non-entity compound used to be. */
+  valueObjects: ReadonlyMap<string, ValueObjectIR> = new Map(),
 ): string {
   const dtoImports = new Map<string, string>();
   const propLines = params.map((p) => {
@@ -80,11 +132,9 @@ export function renderAngularExternComponentProps(
     const optional =
       p.type.kind === "optional" &&
       (p.type.inner.kind === "slot" || p.type.inner.kind === "action");
-    return `  ${p.name}${optional ? "?:" : ":"} ${angularWireType(p.type, dtoImports)};`;
+    return `  ${p.name}${optional ? "?:" : ":"} ${angularWireType(p.type, dtoImports, valueObjects)};`;
   });
-  const dtoImportLines = [...dtoImports.entries()]
-    .map(([type, mod]) => `import type { ${type} } from "${mod}";\n`)
-    .join("");
+  const dtoImportLines = angularDtoImportLines(dtoImports);
   const body =
     propLines.length > 0
       ? `export interface ${name}Props {\n${propLines.join("\n")}\n}\n`

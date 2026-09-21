@@ -206,6 +206,17 @@ describe("loom.ui-body-statement-kind", () => {
 // Before: `Error: component prop: unsupported primitive 'money'.` /
 // `Error: extern function: unsupported primitive 'money' in signature.`, both
 // raw, both from `.ddd` that had just validated clean.
+//
+// Wave C2 (packet 2k) taught the prop layer to spell all three shapes the gate
+// was opened for — `money` (`Decimal`), `File` and a `valueobject` (both
+// structural) — so the cases below flipped from "refuses" to "admits".  That is
+// the ratchet working: a gate that stops refusing has to say so here, or the
+// suite keeps asserting a limit that no longer exists.
+//
+// What the gate still refuses is the CARRIER kinds, and the one that is even
+// writable in a param position (`A or B`) is independently refused by
+// `loom.union-position` — which is why the register row is a `seam` rather than
+// a drained gap.
 // ---------------------------------------------------------------------------
 
 const propSys = (decls: string, body: string, framework: string) => `
@@ -235,37 +246,50 @@ ${decls}
 describe("loom.frontend-prop-type-unsupported", () => {
   const CODE = "loom.frontend-prop-type-unsupported";
 
-  it("refuses a `money` component param", async () => {
+  it("ADMITS a `money` component param — it spells `Decimal`", async () => {
     const src = propSys(
       `    component Price(amount: money) { body: Text { "p" } }`,
       "Price(amount: total)",
       "react",
     );
-    expect(await codes(src)).toContain(CODE);
+    expect(await codes(src)).not.toContain(CODE);
   });
 
-  it("refuses a `File` component param", async () => {
+  it("ADMITS a `File` component param — it spells the four-field ref", async () => {
     const src = propSys(
       `    component Doc(f: File) { body: Text { "d" } }`,
       "Text { label }",
       "react",
     );
-    expect(await codes(src)).toContain(CODE);
+    expect(await codes(src)).not.toContain(CODE);
   });
 
-  it("refuses a `valueobject` component param", async () => {
+  it("ADMITS a `valueobject` component param — it spells the VO's fields", async () => {
     const src = propSys(
       `    component Ship(at: Address) { body: Text { "s" } }`,
       "Text { label }",
       "react",
     );
-    expect(await codes(src)).toContain(CODE);
+    expect(await codes(src)).not.toContain(CODE);
   });
 
-  it("refuses a `money` parameter on an `extern` function signature", async () => {
+  it("ADMITS a `money` parameter on an `extern` function signature", async () => {
     const src = propSys(
       `    function fmt(m: money): string extern from "./lib/fmt"`,
       "Text { fmt(total) }",
+      "react",
+    );
+    expect(await codes(src)).not.toContain(CODE);
+  });
+
+  it("still refuses a CARRIER kind — the seam the gate is kept for", async () => {
+    // `A or B` is the one carrier shape a param position can even spell, and
+    // the prop layer has no TypeScript for a tagged union.  It is ALSO refused
+    // by `loom.union-position`, which is the reason this row is latent rather
+    // than drained: no shape a `.ddd` can legally write reaches it alone.
+    const src = propSys(
+      `    component U(x: Address or Address) { body: Text { "u" } }`,
+      "Text { label }",
       "react",
     );
     expect(await codes(src)).toContain(CODE);
@@ -273,8 +297,8 @@ describe("loom.frontend-prop-type-unsupported", () => {
 
   it("admits the types the prop layer CAN spell", async () => {
     const src = propSys(
-      `    component Badge(level: int, tag: string?, tags: string[]) { body: Text { tag } }`,
-      `Badge(level: 2, tag: label, tags: [ ])`,
+      `    component TierBadge(level: int, tag: string?, tags: string[]) { body: Text { tag } }`,
+      `TierBadge(level: 2, tag: label, tags: [ ])`,
       "react",
     );
     expect(await codes(src)).not.toContain(CODE);

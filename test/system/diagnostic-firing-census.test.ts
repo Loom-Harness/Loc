@@ -1731,17 +1731,35 @@ system P {
       body: Stack { Heading { "Edit", level: 1 }, Button { "go", onClick: go } }
     }`),
 
-  // A `component` param whose declared type the shared TypeScript prop layer
-  // has no spelling for.  `money` rides the wire as a decimal string re-parsed
-  // to a `Decimal`, so this is portable work — until it lands it was a raw
-  // `Error: component prop: unsupported primitive 'money'.` mid-generate.
-  "loom.frontend-prop-type-unsupported": uiPages(
+  // A `component` whose NAME is a walker primitive.  The page-body dispatcher
+  // resolves a call by name, primitives first, so the component is emitted to
+  // `src/components/<Name>.tsx` and the PACK's primitive renders at the call
+  // site — the author's body appears nowhere, at `0 error(s), 0 warning(s)`.
+  // The `extern function` twin (`loom.extern-function-shadows-stdlib`) has
+  // always been refused; this arm was missing.  See D-PAGE-PRIMITIVE-SHADOW.
+  "loom.component-shadows-stdlib": uiPages(
     "",
-    `    component Price(amount: money) { body: Text { "price" } }
+    `    component Alert(msg: string) { body: Heading { msg, level: 3 } }
     page Home {
       route: "/"
-      state { total: money = 0.00 }
-      body: Stack { Heading { "Home", level: 1 }, Price(amount: total) }
+      body: Stack { Heading { "Home", level: 1 }, Alert("hi") }
+    }`,
+  ),
+
+  // A `component` param whose declared type the shared TypeScript prop layer
+  // has no spelling for.  This USED to be `amount: money` — wave C2 packet 2k
+  // taught the layer `money` (`Decimal`), `File` and a `valueobject` (both
+  // structural) on all four TS-prop frontends, so those three no longer fire
+  // and the fixture moves to what still does: a CARRIER kind.  `A or B` is the
+  // only one a param position can even spell, and it is also refused by
+  // `loom.union-position` — which is exactly why the register row is now a
+  // latent `seam` rather than a drained gap.
+  "loom.frontend-prop-type-unsupported": uiPages(
+    "",
+    `    component Picker(x: Order or Order) { body: Text { "pick" } }
+    page Home {
+      route: "/"
+      body: Stack { Heading { "Home", level: 1 } }
     }`,
   ),
 

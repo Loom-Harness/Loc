@@ -394,15 +394,23 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   },
   {
     code: "loom.frontend-prop-type-unsupported",
-    kind: "gap",
+    kind: "seam",
     site: "src/ir/validate/checks/ui-framework-checks.ts:160",
     what:
       "a declared `component` param / `extern` function signature type the shared TypeScript " +
-      "prop layer has no spelling for — `money`, `File` and a `valueobject`, each of which " +
-      "HAS a wire shape (a decimal string re-parsed to Decimal, a fixed FileRef object, a " +
-      "VO DTO) and is therefore portable work rather than an impossibility. Before Wave C1 " +
-      "1d-ii these were the `default: throw` arms in `_frontend/component-prop-type.ts` / " +
-      "`extern-functions.ts`: a raw stack trace on `.ddd` that validated clean",
+      "prop layer has no spelling for. The three shapes this row was opened for — `money`, " +
+      "`File`, a `valueobject` — LANDED in wave C2 (packet 2k) on all four TS-prop " +
+      "frontends: `money` spells `Decimal` (decimal.js, requested through a sentinel so the " +
+      "file keeps its single default import), `File` and a `valueobject` spell their wire " +
+      "shape STRUCTURALLY (there is no emitted `FileRef` alias, and a `<VO>Schema` lives " +
+      "inside whichever aggregate's api module reaches it, so neither has an import path a " +
+      "prop could name). Angular's private `angularWireType` copy, which answered `unknown` " +
+      "for all three instead of throwing, spells the same three now. What is left is the " +
+      "CARRIER kinds — `union`, `genericInstance`, `none` — whose emission is already " +
+      "blocked one layer up by `loom.generic-carrier-unsupported` and the P4a union gate, so " +
+      "the reachable set is EMPTY on every shipping frontend and this is latent: a seam for " +
+      "the next type kind, which is what this kind is for. `FRONTEND_PROP_PRIMITIVES` now holds every member of `PrimitiveName`, " +
+      "pinned by test/ir/frontend-prop-type-support.test.ts against the emitters themselves",
     mission: "M-T1.20",
   },
   {

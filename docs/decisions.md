@@ -4227,3 +4227,128 @@ ruling should be re-opened — the cost argument is the whole argument.
 **Sources.** `src/generator/elixir/heex-walker-core.ts` (the `i18nFormat` arm);
 [`targets-completeness-2026-08-30.md`](audits/targets-completeness-2026-08-30.md);
 `D-I18N-HEEX-ICU` above (the interpolation half, which DID get an engine).
+
+---
+
+## D-PAGE-PRIMITIVE-SHADOW — a `component` may not take a walker-primitive name; a `valueobject` may
+
+**Status:** proposed (default applies 48 h after merge unless overridden).
+Raised by wave C2 packet 2g (§7.1, "does a user declaration shadow a page
+primitive in a ui body?") and settled by packet 2k on measurement.
+
+**Question.** The page-body vocabulary (`Text`, `Card`, `Alert`, `Table`,
+`Money`, `Badge`, …) is a closed set of ~55 names, and nothing stopped a user
+declaration from taking one. Which wins — the primitive or the declaration —
+and should the collision be refused?
+
+**What was actually measured**, on `main` at `5049b6fea`, one generation per
+case:
+
+| collision | what happens |
+|---|---|
+| `component Alert(msg: string) { body: Heading { msg, level: 3 } }` + `body: Stack { Alert("hi") } }` | `0 error(s), 0 warning(s)`. `src/components/Alert.tsx` is written, AND the call site emits the PACK's primitive — `import { Alert, … } from "@mantine/core"` / `<Alert color="red" variant="light">{t("page.Home.alert.sx4lga", "hi")}</Alert>`. The author's `Heading` appears nowhere in the project. |
+| `valueobject Money { amount: decimal  currency: string }` + `body: … Money { 10, "dropped" }` | the PRIMITIVE wins and its own arity gate fires — `loom.page-primitive-extra-children`. The value object does not capture the name. |
+
+So the two halves are not the same problem, and the blanket rule ("no user
+declaration may share a primitive name") is wrong in one direction.
+
+**Decision.** **Refuse the COMPONENT collision; admit the value-object /
+enum / domain-service one.**
+
+* A `component` (walked or `extern`) is reached by the page-body dispatcher
+  under exactly the name the primitive is, and the primitive wins. The
+  declaration is therefore dead on arrival: emitted, never rendered, with no
+  diagnostic. That is a silent-codegen defect, and it is the SAME defect
+  `loom.extern-function-shadows-stdlib` has refused since it was written —
+  its own comment gives the reason ("the body dispatcher would route the call
+  to the primitive, silently ignoring the user's module"). The component arm
+  was simply missing. New code: **`loom.component-shadows-stdlib`**, an error
+  at phase ④ (`src/language/validators/ui.ts`, `checkComponent`).
+* A `valueobject` / `enum` / `domainService` is not reached by the dispatcher
+  at all, so it shadows nothing — and refusing it would reject
+  `web/src/examples/sales-system.ddd`, which declares `valueobject Money`
+  beside pages that use the `Money` primitive. A gate there would be a
+  regression dressed as a fix. (Corpus scan at decision time: zero `.ddd` in
+  `examples/`, `web/src/examples/`, `journey/` or `test/` declares a
+  *component* named after a primitive, so the new gate breaks nothing.)
+
+**Consequence for the ambient decl index.** 2g narrowed `indexAggregatesDeep`
+(`src/ir/lower/lower.ts`) to aggregates ONLY, explicitly deferring the
+value-object / enum / domain-service halves to this decision because widening
+them looked like it would shadow the primitives. The measurement above says it
+does not: the primitive still wins the call and its arity gate still fires, on
+the un-narrowed `indexMembers` path that already indexes value objects and
+enums through `contexts`. The halves may therefore be widened when a row needs
+them; this decision removes the blocker, and packet 2k did not widen them
+because no row on its tree needed it.
+
+**Affects.** `src/language/validators/ui.ts` (`checkComponent`);
+`src/diagnostics/messages.ts` + `code-docs.ts`;
+`test/language/validation/component-shadows-primitive.test.ts` (mutation-proved:
+removing the gate fails 4 of 7 with `expected [] to include
+'loom.component-shadows-stdlib'`); `docs/new-plan/T1-ui-frontend.md` M-T1.20.
+
+---
+
+## D-MODAL-CONTROLLED-OP-FORM — `Modal { open:, OperationForm }` is a supported shape and `open:` must be honoured
+
+**Status:** proposed (default applies 48 h after merge unless overridden).
+Raised by wave C2 packet 2g (§1), which measured the row and asked for a ruling
+before building; re-measured and ruled by packet 2k.
+
+**Question.** `loom.modal-controlled-op-form-unsupported` refuses
+`Modal { open: <stateBool>, OperationForm { … }, trigger: … }` on
+react / vue / svelte / flutter. Its `CONTROLLED_MODAL_OP_FORM_FRAMEWORKS` set —
+angular, feliz, phoenixLiveView — names the three that do NOT refuse it. But
+read what those three do: each forks the primitive, renders the operation form,
+and **drops the `open:` binding**, driving the dialog from its own trigger
+(Angular: `renderAngularModal` builds its own `<opKey>Open` signal and never
+looks at `open:`). So the "supported" behaviour is itself a degradation, and
+the register's drain condition for the other four ("render the controlled shell
+around the recorded `OperationFormState`") is a strictly higher bar. Which bar
+is right?
+
+**Options.** (a) match the degradation — let react/vue/svelte fall through to
+the trigger-driven op-form modal with a synthesised trigger, ~20 lines in
+`emitModal`, gate deleted, `MAX_OPEN_GAPS` −1; (b) honour `open:` everywhere,
+and fix the three "supported" targets too.
+
+**Decision.** **(b).** (a) would ship a silent drop of an authored binding on
+seven targets instead of four, which is precisely the class this wave exists to
+remove — and it would do it by DELETING the diagnostic that currently names it,
+so the degradation would become unfindable. A `state` field bound to `open:` is
+the author saying "I own this dialog's visibility"; a generated trigger button
+they did not write is not that.
+
+**Why it is not built here, and what it costs.** Measured on `main` at
+`5049b6fea`:
+
+* an `OperationForm` child emits NO inline markup (`walk(formChild, …)` returns
+  `""`). The packs render it from `ctx.formOfs` through their own module
+  component, and **that component owns its trigger**: shadcn wraps
+  `<DialogTrigger asChild><Button …>`, mui/chakra emit `<Button onClick={() =>
+  setOpen(true)}>` beside the dialog, and the Svelte packs open a
+  `{{opCamel}}ModalOpen` local from their own button. A controlled shape needs
+  a second template per pack — the op-form module rendered WITHOUT its trigger,
+  driven by the page's state — across the JSX/Vue/Svelte packs;
+* `designs/shadcnVue/v1/form-op-module.hbs` is currently
+  `// TODO(vue-forms): operation modal/form module (v-dialog) lands in the
+  forms slice`, so on Vue the uncontrolled shape is not built either: that pack
+  needs the module before it can need a controlled variant;
+* the three "supported" targets each need their fork taught to read `open:`,
+  which is 2m's tree (HEEx) and 2l's (feliz) plus Angular's `modal.ts`.
+
+That is a pack-layer packet, not a walker row, and it is HANDED OFF rather than
+part-landed: a fix on react alone would re-introduce the per-target carve-out
+the register records as the thing to remove.
+
+**Register.** The row stays `kind: "gap"` under M-T1.6 with its membership set
+unchanged. It is not re-classed `scope`, because this decision says the shape
+IS supported — it is unbuilt work with a known shape and a measured cost, which
+is what `gap` means.
+
+**Affects.** `src/generator/_walker/primitives/forms.ts` (`emitModal` /
+`emitControlledModal`); `designs/*/v*/form-op-module.hbs` +
+`primitive-modal.hbs` across the JSX/Vue/Svelte packs;
+`src/generator/angular/modal.ts`; `src/ir/validate/checks/ui-collection-display-checks.ts`
+(`CONTROLLED_MODAL_OP_FORM_FRAMEWORKS`); mission M-T1.6.
