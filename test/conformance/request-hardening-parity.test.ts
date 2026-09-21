@@ -14,6 +14,17 @@
 // pins all five in one place rather than five per-backend spot checks.  A
 // backend that quietly drops the uuid refinement or the declared bounds fails
 // HERE, not in a nightly fuzz run.
+//
+// WHAT "uuid-validated" MEANS — the dashed-hex shape, which is the shape
+// Postgres itself accepts and therefore the whole of what F2/F3 needs.  Hono
+// spelled it `z.string().uuid()`, which ALSO enforced RFC 4122's version and
+// variant nibbles; no sibling backend does (`Guid.TryParse`, `UUID.fromString`,
+// `Ecto.UUID.cast` and python's `UuidStr` pattern all accept the shape and
+// nothing more), so that made a placeholder id answer 422 on node and 404
+// everywhere else — the `toThrow(404)` parity defect.  Hono now carries the
+// same shape through a shared `UuidString`, the exact analogue of python's
+// `UuidStr` asserted below.  The F2/F3 rule is unchanged and still pinned: a
+// bare `z.string()` on the request side still fails here.
 
 import { describe, expect, it } from "vitest";
 import { PAGED_MAX_PAGE, PAGED_MAX_PAGE_SIZE } from "../../src/ir/stdlib/generics.js";
@@ -63,11 +74,9 @@ async function fileMatching(re: RegExp): Promise<string> {
 }
 
 describe("request hardening — reference fields are uuid-validated (F2/F3)", () => {
-  it("node: the request body's reference field is z.string().uuid()", async () => {
+  it("node: the request body's reference field is the shared UuidString", async () => {
     const routes = await fileMatching(/shipment\.routes\.ts$/);
-    expect(routes).toMatch(
-      /const CreateShipmentRequest = z\.object\(\{\s*orderRef: z\.string\(\)\.uuid\(\)/,
-    );
+    expect(routes).toMatch(/const CreateShipmentRequest = z\.object\(\{\s*orderRef: UuidString/);
     // Regression guard for the exact defect: a bare z.string() on the REQUEST
     // side.  (The RESPONSE DTO keeps `orderRef: z.string()` — the constraint is
     // an input gate, and the server only ever serves stored uuids.)
@@ -79,7 +88,7 @@ describe("request hardening — reference fields are uuid-validated (F2/F3)", ()
 
   it("node: the find's reference QUERY parameter is uuid-validated too (F3)", async () => {
     const routes = await fileMatching(/shipment\.routes\.ts$/);
-    expect(routes).toMatch(/const ByOrderQuery = z\.object\(\{\s*order: z\.string\(\)\.uuid\(\)/);
+    expect(routes).toMatch(/const ByOrderQuery = z\.object\(\{\s*order: UuidString/);
   });
 
   it("python: reference fields annotate the shared UuidStr, which publishes format: uuid", async () => {

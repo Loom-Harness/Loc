@@ -3,7 +3,7 @@
 //
 // Flutter had NO realtime path at all: `SSE_REALTIME_FRONTENDS` excluded it, so
 // `on <channel>.<Event>` handlers on a Flutter-hosted ui compiled clean, emitted
-// nothing, and warned (`loom.ui-realtime-unsupported#frontend-has-no-consumer`).
+// nothing, and warned (`loom.ui-realtime-unsupported`).
 // The port emits one subscription against `/realtime/events`, a transient
 // `SnackBar` per `toast(…)`, and a `ref.invalidate(<var>Provider)` per
 // `refetch(<Agg>)`.
@@ -131,7 +131,14 @@ describe("flutter realtime — the transport", () => {
   it("web uses the browser's own EventSource", async () => {
     const dart = (await gen()).get("web_app/lib/realtime_source_web.dart")!;
     expect(dart).toContain("import 'package:web/web.dart' as web;");
-    expect(dart).toContain("final es = web.EventSource(uri.toString());");
+    // Both arms of the credential branch (D-FLUTTER-BEARER): the bare
+    // `EventSource` an `auth: none` app builds, and the credentialed one that
+    // carries the HttpOnly `session` cookie.  The IO half takes a `bearer`
+    // instead, since a cookie cannot exist natively.
+    expect(dart).toContain(": web.EventSource(uri.toString());");
+    expect(dart).toContain(
+      "web.EventSource(uri.toString(), web.EventSourceInit(withCredentials: true))",
+    );
     expect(dart).toContain("es.addEventListener(");
     expect(dart).toContain("source?.close();");
   });

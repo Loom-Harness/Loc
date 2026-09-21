@@ -98,15 +98,42 @@ describe("python event dispatch (sagas)", () => {
     expect(routes).not.toContain("NoopDomainEventDispatcher");
   });
 
-  it("channel-less projects keep the Noop wiring and emit no dispatch module", async () => {
+  // **D-PROJECTION-IMPLICIT-SUB** flipped this case.  It used to assert that
+  // deleting the `channel` block left the project with NO `dispatch.py` and the
+  // Noop wiring — which is exactly the defect the decision closed: a `create(e)
+  // by …` / `on(e) by …` IS the subscription, so the saga still has handlers to
+  // run and dropping them left a workflow that never fires (ledger
+  // `G2646-open-projection-on-event-no-channel`; the decision's own
+  // "Consequences" names python's missing `dispatch.py` as the thing to fix).
+  // A channel decides cross-deployable delivery and durability, not whether a
+  // handler runs, so the two emissions are now IDENTICAL — which is what this
+  // asserts, because a per-field check would not notice a partial regression.
+  it("a channel-less project emits the SAME dispatch module and live wiring", async () => {
     const source = FIXTURE.replace(/channel Lifecycle \{[\s\S]*?\n {6}\}\n/, "");
     expect(source).not.toContain("channel Lifecycle");
     const { model, errors } = await parseString(source);
     if (errors.length) throw new Error(`fixture has validation errors:\n${errors.join("\n")}`);
     const files = generateSystems(model).files;
-    expect(files.get("api/app/dispatch.py")).toBeUndefined();
+    const dispatch = files.get("api/app/dispatch.py");
+    expect(dispatch, "no dispatch module for an uncarried saga").toBeDefined();
+    expect(dispatch).toContain("async def _order_fulfillment_create_order_placed(");
+    expect(dispatch).toContain("async def _order_fulfillment_on_shipment_requested(");
     const routes = files.get("api/app/http/order_routes.py")!;
-    expect(routes).toContain("NoopDomainEventDispatcher()");
-    expect(routes).not.toContain("make_dispatcher");
+    expect(routes).toContain("from app.dispatch import make_dispatcher");
+    expect(routes).not.toContain("NoopDomainEventDispatcher");
+  });
+
+  // The one thing the channel DOES decide here: `delivery: broadcast` wraps the
+  // dispatcher in the realtime SSE tee.  Without a channel there is no wire to
+  // broadcast on, so the tee is absent and `make_dispatcher` returns the plain
+  // in-process dispatcher — the honest residue of the deleted block.
+  it("the channel still decides the realtime tee, and only that", async () => {
+    const source = FIXTURE.replace(/channel Lifecycle \{[\s\S]*?\n {6}\}\n/, "");
+    const { model } = await parseString(source);
+    const dispatch = generateSystems(model).files.get("api/app/dispatch.py")!;
+    expect(dispatch).toContain(
+      "def make_dispatcher(session: AsyncSession) -> InProcessDispatcher:",
+    );
+    expect(dispatch).not.toContain("RealtimeDispatcher");
   });
 });

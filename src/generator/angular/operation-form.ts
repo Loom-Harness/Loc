@@ -13,7 +13,7 @@ import {
   formButton,
   partitionAngularFields,
 } from "./form-fields.js";
-import { applyAngularValidators } from "./form-validators.js";
+import { angularValidatorMap, applyAngularValidators } from "./form-validators.js";
 import { angularSink } from "./walker/sink.js";
 
 // ---------------------------------------------------------------------------
@@ -128,8 +128,18 @@ export function renderAngularOperationForm(
   addNg(ctx, "@angular/forms", "FormControl", "FormGroup", "ReactiveFormsModule");
   addNg(ctx, importFrom, mutationFn);
 
+  // Same constraint source as the zod `<Op>Request`: the aggregate's invariants
+  // plus this op's `precondition`s, gated to the op's own params — an invariant
+  // over a field the op doesn't take drops out (its field isn't `available`).
+  // Resolved BEFORE the markup is built so each constrained control can carry
+  // the `aria-invalid` / `aria-describedby` matching its inline error.
+  const agg = ctx.aggregatesByName.get(aggName);
+  const opInvariants = [...(agg?.invariants ?? []), ...preconditionsAsInvariants(op)];
+  const available = new Set(op.params.map((p) => p.name));
+  const errorFields = new Set(angularValidatorMap(opInvariants, available).keys());
+
   const parts = bc
-    ? partitionAngularFields(op.params, bc, ns, ctx, formVar)
+    ? partitionAngularFields(op.params, bc, ns, ctx, formVar, errorFields)
     : {
         flatControls: [],
         flatMarkup: [],
@@ -141,12 +151,6 @@ export function renderAngularOperationForm(
         groupMarkup: [],
         hasFileField: false,
       };
-  // Same constraint source as the zod `<Op>Request`: the aggregate's invariants
-  // plus this op's `precondition`s, gated to the op's own params — an invariant
-  // over a field the op doesn't take drops out (its field isn't `available`).
-  const agg = ctx.aggregatesByName.get(aggName);
-  const opInvariants = [...(agg?.invariants ?? []), ...preconditionsAsInvariants(op)];
-  const available = new Set(op.params.map((p) => p.name));
   const fieldMarkup = applyAngularValidators(parts, opInvariants, available, formVar, ns, ctx);
 
   ctx.collectedTestids.add(ns);

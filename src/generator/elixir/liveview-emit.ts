@@ -897,7 +897,16 @@ function renderLiveView(a: RenderArgs): { source: string; usesChart: boolean } {
   // (`/customers/new` → `/customers`).
   const createSuccessRoute = page.route ? page.route.replace(/\/new$/, "") : null;
   const handleEventClauses =
-    renderHandleEventClauses([...handlers, ...actionHandlers, ...componentHandlers]) +
+    renderHandleEventClauses([
+      ...withQueryReload(
+        handlers,
+        walked.queryBindings,
+        contextModuleByAggName,
+        a.listReadGateByAggName,
+      ),
+      ...actionHandlers,
+      ...componentHandlers,
+    ]) +
     renderCreateEventClauses(
       walked.formBindings,
       contextModuleByAggName,
@@ -972,6 +981,76 @@ ${h.body.join("\n")}
       )
       .join("\n")
   );
+}
+
+/** Does this read depend on the page-state assign `field`?  True when the field
+ *  appears in the read's `match`-arm gate or in the arguments the `of:` call
+ *  passes — the two places a state assign can reach a query. */
+function readDependsOnState(qb: QueryBinding, field: string): boolean {
+  const re = new RegExp(`\\bsocket\\.assigns\\.${field}\\b`);
+  return re.test(qb.gate ?? "") || (qb.listArgs ?? []).some((a) => re.test(a));
+}
+
+/** Make a state-bound input's write-back clause RE-RUN the list reads that
+ *  depend on the assign it just wrote.
+ *
+ *  `controlledInput` hoists `update_<field>` / `toggle_<field>` clauses that do
+ *  one thing: `assign(socket, :<field>, value)`.  That is enough for a field
+ *  only the MARKUP reads, and not enough for one a QUERY reads — typing in the
+ *  scaffolded list page's filter box flips the render `cond` into the filtered
+ *  arm, but `@items` still holds whatever `handle_params/3` last loaded, because
+ *  a LiveView has no `useQuery` to invalidate and `handle_params/3` does not
+ *  re-run on an assign.  The refetch is a statement the handler must carry,
+ *  exactly as the sort/page control clauses beside it already do.
+ *
+ *  Every list read is re-run, not just the dependent one: the reads share an
+ *  assign and their `match`-arm gates decide which one actually executes, so
+ *  emitting the same block `handle_params/3` does is what keeps the two paths
+ *  from diverging.
+ *
+ *  Only clauses whose field some read actually depends on are rewritten; every
+ *  other handler is returned untouched (byte-identical output). */
+function withQueryReload(
+  handlers: readonly HandleEventClause[],
+  queryBindings: readonly QueryBinding[],
+  contextModuleByAggName: ReadonlyMap<string, string>,
+  listReadGateByAggName: ReadonlyMap<string, ListReadGate>,
+): HandleEventClause[] {
+  // Aggregate list reads only — the same set the sort/page reload re-runs; a
+  // query-time projection takes no arguments and has no state to depend on.
+  const listBindings = queryBindings.filter(
+    (qb) => qb.kind === "list" && qb.source !== "projection",
+  );
+  if (listBindings.length === 0) return [...handlers];
+  return handlers.map((h) => {
+    const field = /^(?:update|toggle)_(.+)$/.exec(h.name)?.[1];
+    if (!field) return h;
+    if (!listBindings.some((qb) => readDependsOnState(qb, field))) return h;
+    // Data reload only — operation forms are left untouched, so a half-typed
+    // form beside the filter box survives the refetch (same call the sort/page
+    // and realtime paths make).
+    const reload = listBindings
+      .map((qb) => {
+        const ctxModule = contextModuleByAggName.get(qb.aggregate);
+        return ctxModule
+          ? renderQueryLoadBlock(qb, ctxModule, [], listReadGateByAggName.get(qb.aggregate))
+          : null;
+      })
+      .filter((b): b is string => b !== null)
+      .join("\n\n");
+    if (reload === "") return h;
+    // The write first, so the reload's gates and arguments read the NEW value.
+    return {
+      ...h,
+      body: [
+        ...h.body.map((l) => l.replace(/^(\s*)\{:noreply, (.+)\}$/, "$1socket = $2")),
+        "",
+        reload,
+        "",
+        "    {:noreply, socket}",
+      ],
+    };
+  });
 }
 
 /** Sort / pagination `handle_event` clauses for a page whose `Table(...)` asked

@@ -83,7 +83,7 @@ describe("user components — Angular", () => {
     const comp = files.get("src/app/components/TierBadge.ts")!;
     expect(comp).toBeDefined();
     // The class is named EXACTLY the component — a call site imports `{ Name }`
-    // and hands the class to `[ngComponentOutlet]`.
+    // and registers it in its own standalone `imports: []`.
     expect(comp).toContain("export class TierBadge {");
     expect(comp).toContain('selector: "app-tier-badge"');
     // Params are decorated fields, not signal inputs: the walked template reads
@@ -101,7 +101,7 @@ describe("user components — Angular", () => {
     expect(comp).not.toContain("unknown layout component");
   });
 
-  it("a page invoking it imports the sibling class and binds inputs through the outlet", async () => {
+  it("a page invoking it imports the sibling class and binds inputs on its own tag", async () => {
     const files = await angularFiles(
       sys(`
       component TierBadge(label: string, level: int) { body: Text { label } }
@@ -114,11 +114,14 @@ describe("user components — Angular", () => {
     const home = files.get("src/app/pages/home.component.ts")!;
     // ONE hop: pages and components are siblings under `src/app/`.
     expect(home).toContain('import { TierBadge } from "../components/TierBadge";');
-    expect(home).toContain('import { NgComponentOutlet } from "@angular/common";');
-    expect(home).toContain("protected readonly TierBadge = TierBadge;");
-    expect(home).toContain(
-      `<ng-container [ngComponentOutlet]="TierBadge" [ngComponentOutletInputs]='{ label: tier(), level: 3 }'></ng-container>`,
-    );
+    // A WALKED component is addressed by the selector Loom itself stamped, so
+    // the CLASS is what the standalone page registers — no `NgComponentOutlet`,
+    // and no instance member (an element tag is resolved by Angular's compiler,
+    // not against `this`).
+    expect(home).not.toContain("NgComponentOutlet");
+    expect(home).not.toContain("protected readonly TierBadge = TierBadge;");
+    expect(home).toMatch(/imports: \[[^\]]*\bTierBadge\b/);
+    expect(home).toContain(`<app-tier-badge [label]='tier()' [level]='3'></app-tier-badge>`);
     expect(home).not.toContain("unknown layout component");
   });
 
@@ -133,7 +136,8 @@ describe("user components — Angular", () => {
     // From `src/app/components/TierBadge.ts` the sibling is `./Ribbon`, not
     // `../components/Ribbon` (which the page uses).
     expect(comp).toContain('import { Ribbon } from "./Ribbon";');
-    expect(comp).toContain("protected readonly Ribbon = Ribbon;");
+    expect(comp).toMatch(/imports: \[[^\]]*\bRibbon\b/);
+    expect(comp).toContain("<app-ribbon></app-ribbon>");
     expect(files.has("src/app/components/Ribbon.ts")).toBe(true);
   });
 
@@ -254,12 +258,18 @@ describe("user components — Angular", () => {
       }`),
     );
     const home = files.get("src/app/pages/home.component.ts")!;
-    // Extern: the re-export shim at `src/components/` (two hops).  Walked: the
-    // emitted class at `src/app/components/` (one hop).  Same call form.
+    // Extern: the re-export shim at `src/components/` (two hops), addressed
+    // through the outlet — its `@Component({ selector })` is the author's, so
+    // Loom has no tag to spell.  Walked: the emitted class at
+    // `src/app/components/` (one hop), addressed by the selector Loom stamped.
+    // ONE page, BOTH call forms — which is the point of this case.
     expect(home).toContain('import { Banner } from "../../components/Banner";');
     expect(home).toContain('import { TierBadge } from "../components/TierBadge";');
     expect(home).toContain(`[ngComponentOutlet]="Banner"`);
-    expect(home).toContain(`[ngComponentOutlet]="TierBadge"`);
+    expect(home).toContain("protected readonly Banner = Banner;");
+    expect(home).toContain('import { NgComponentOutlet } from "@angular/common";');
+    expect(home).toContain(`<app-tier-badge [label]='"gold"'></app-tier-badge>`);
+    expect(home).not.toContain(`[ngComponentOutlet]="TierBadge"`);
     expect(files.has("src/components/Banner.props.ts")).toBe(true);
     expect(files.has("src/app/components/Banner.ts")).toBe(false);
   });
@@ -284,15 +294,15 @@ describe("user components — Angular", () => {
     );
   });
 
-  // F2-CFE-8 — `Slot {}` content the caller passes is unprojectable through
-  // `ngComponentOutlet` (it sets INPUTS; there is no content channel).  The
-  // drop stays, but it is no longer INVISIBLE: every other frontend emits the
-  // child (`<Panel item={r}><Text>…</Text></Panel>` on React), so a marker
-  // scan needs something to find on Angular.
-  it("a dropped Slot child leaves a degradation comment at the call site", async () => {
+  // F2-CFE-8 / wave C2 packet 2h.  The drop is now EXTERN-ONLY: an extern
+  // component's `@Component({ selector })` is the author's, so Loom has no tag
+  // to spell and has to keep `ngComponentOutlet`, which sets INPUTS and has no
+  // content channel.  The comment is the whole record of the loss in the
+  // output; `loom.component-children-unsupported` is its compile-time half.
+  it("a dropped child leaves a degradation comment at an EXTERN call site", async () => {
     const files = await angularFiles(
       sys(`
-      component Panel(label: string) { body: Card { Text { label }, Slot {} } }
+      component Panel(label: string) extern from "widgets/panel"
       page Home {
         route: "/"
         body: Stack { Panel("hi", Text { "inner-content" }) }
@@ -310,7 +320,7 @@ describe("user components — Angular", () => {
   it("the dropped-children comment counts and pluralises", async () => {
     const files = await angularFiles(
       sys(`
-      component Panel(label: string) { body: Card { Text { label }, Slot {} } }
+      component Panel(label: string) extern from "widgets/panel"
       page Home {
         route: "/"
         body: Stack { Panel("hi", Text { "a" }, Text { "b" }) }
@@ -318,6 +328,31 @@ describe("user components — Angular", () => {
     );
     const page = files.get("src/app/pages/home.component.ts")!;
     expect(page).toContain("<!-- Panel: 2 projected children dropped");
+  });
+
+  // The other half of the same pair: a WALKED component PROJECTS its children.
+  // This is the case the degradation comment used to cover, and it is now the
+  // supported one — the Angular twin of React's
+  // `<Panel label="hi"><Text>inner-content</Text></Panel>`.
+  it("a WALKED component projects its children into <ng-content>", async () => {
+    const files = await angularFiles(
+      sys(`
+      component Panel(label: string) { body: Card { Text { label }, Slot {} } }
+      page Home {
+        route: "/"
+        body: Stack { Panel("hi", Text { "inner-content" }) }
+      }`),
+    );
+    const comp = files.get("src/app/components/Panel.ts")!;
+    // The receiving end already existed — `renderChildrenSlot`.
+    expect(comp).toContain("<ng-content></ng-content>");
+    const page = files.get("src/app/pages/home.component.ts")!;
+    expect(page).toContain(`<app-panel [label]='"hi"'>`);
+    expect(page).toContain("</app-panel>");
+    // The child markup is IN the page — the whole point.
+    expect(page).toContain("inner-content");
+    expect(page).not.toContain("projected child");
+    expect(page).not.toContain("ngComponentOutlet");
   });
 
   it("a component call with no extra child emits no degradation comment", async () => {
