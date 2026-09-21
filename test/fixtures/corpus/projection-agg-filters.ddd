@@ -218,11 +218,26 @@ system ProjectionAggFilters {
     // `ddd.langium` states the contract on the `group by` clause — "rows come
     // back ordered by the grouping columns so the read is deterministic across
     // backends" — and every backend does emit `ORDER BY <grouping columns>`.
-    // The order still diverges because the GROUPING COLUMN's SQL type does:
-    // node declares the enum as a real Postgres `CREATE TYPE … AS ENUM`, so
-    // `ORDER BY status` is DECLARATION order (`Draft` first); python stores it
-    // as text, so the same clause is LEXICOGRAPHIC (`Confirmed` first).  The
-    // promise is false for every enum grouping key, on every grouped read.
+    //
+    // The first reading of this divergence was that node declares the enum as
+    // a real Postgres `CREATE TYPE … AS ENUM` (declaration order) while the
+    // others store text (lexicographic).  **That was wrong**, and the correct
+    // account is worse.  `mapTypeToColumn` (`src/system/migrations-builder.ts`)
+    // maps `enum -> text` for EVERY backend, so all five migration chains emit
+    // `TEXT` and all five DEPLOYED apps sort lexicographically.  Verified in
+    // the emitted node project: `db/migrations/*.sql` says
+    // `"visibility" TEXT NOT NULL` with no `CREATE TYPE` anywhere, while
+    // `db/schema.ts` beside it says `pgEnum("visibility", …)`.
+    //
+    // The behavioural harness builds its PGlite schema from the drizzle SCHEMA
+    // OBJECT (`web/src/runtime/ddl.ts`), not from the migration chain — so it
+    // created the enum TYPE that no deployed node app has, and the oracle every
+    // wire golden is captured on sorted by declaration order while all five
+    // real backends, node included, sorted lexicographically.  The backends
+    // agreed with each other and disagreed with the ORACLE.
+    //
+    // Same `ddl.ts` seam, third blind spot: no FKs, enum-as-pgEnum vs TEXT
+    // ordering, no array columns.
     //
     //
     // Worth recording, because it is the reason this went unnoticed: the
@@ -233,7 +248,7 @@ system ProjectionAggFilters {
     // ORDER BY over the grouping columns"; it does not, and could not.  This
     // block was the first to put TWO groups on the wire, which is the only
     // reason the divergence surfaced at all.
-    // A golden over this read would therefore pin one backend's collation
+    // A golden over this read would therefore pin the HARNESS's collation
     // rather than a contract, so the call stays out until the divergence is
     // settled.  Putting it back is the check that the fix worked: this block
     // is where the grouped read's runtime oracle belongs, and the only reason
