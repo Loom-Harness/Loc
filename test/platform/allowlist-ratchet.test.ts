@@ -75,7 +75,18 @@ const REGISTERED: Ratchet[] = [
     // found by the new "allowlisted kinds are genuinely absent" ratchet in
     // `showcase-completeness.test.ts` — a per-ENTRY ratchet, where this one is
     // a per-COUNT ratchet; they backstop different failures.
-    max: 14,
+    //
+    // 14 -> 15 (M-T5.34, audit #2864 D5): +HandleDecl.  Unlike every entry
+    // above, this one is not "the showcase declines to exercise a kind" — it is
+    // "no VALID `.ddd` may exercise it any more".  `handle name(…) { … }` is now
+    // refused by `loom.workflow-handle-unsupported` because no backend has ever
+    // emitted a route, a handler or a method for it, and showcase.ddd's own
+    // contract is "parses + validates with zero errors", so the two
+    // requirements became mutually exclusive and the showcase gave up its
+    // `handle reset()`.  Draining this entry does NOT mean adding the kind back
+    // to showcase.ddd — it means landing the EMITTER (mission M-T6.58), which
+    // makes the declaration legal again; the entry cites it.
+    max: 15,
   },
   // Walker primitives with a TSX renderer but no HEEx one.  Empty: the last
   // entry — `ProvenanceInfo`, the provenance "?" disclosure — landed its HEEx
@@ -178,8 +189,13 @@ const REGISTERED: Ratchet[] = [
     // kinds here rather than losing the find gate and the folded-projection
     // gate as per-fixture collateral.
     //
-    // 1 = `tenancy-hierarchy`, the one boundary left with a real witness.
-    max: 1,
+    // 1 -> 0 (wave C2 packet 2b).  The last entry, `tenancy-hierarchy`, was the
+    // `#deep-scope` sub-code: the materialized-path subtree sentinel "cannot
+    // bind the principal claims" on raw SQL.  It can — `authzFilterToSql` now
+    // renders it, and the collector that could not see it rides `walkExprDeep`.
+    // The validator arm, this entry and the register's `#deep-scope` clause all
+    // went in the same commit, per the ratchet contract.
+    max: 0,
   },
   // Primitives exempt from the pack testid contract.
   {
@@ -315,6 +331,29 @@ const REGISTERED: Ratchet[] = [
     kind: "record",
     max: 0,
   },
+  // The Flutter parity freeze's pinned-gap allowlist — the sibling of
+  // `KNOWN_HEEX_GAPS` above, and the one suppression construct the 2026-07-13
+  // sweep that built this register MISSED (M-T1.18 recorded the omission in
+  // prose and nothing acted on it; wave C2 packet 2j is that action).
+  //
+  // EMPTY, and the emptiness is the point: `analyzeFlutterParity` reports a
+  // finding for every form-field shape the Dart emitter degrades to a comment,
+  // and all four that were pinned here — nested-VO sub-field, value-object
+  // array with a non-scalar sub-field, bool element array, enum element array
+  // — were closed with real widgets by wave C1 packet 1e-ii.  Verified empty
+  // on this tree before registering, which is what "drain, then pin at the
+  // drained count" means.
+  //
+  // The freeze test already fails on a re-added entry that matches no finding;
+  // this ratchet is the other direction — a NEW pin quietly added next to a new
+  // degradation.  Belt and braces on the same construct, which is exactly the
+  // arrangement `KNOWN_HEEX_GAPS` has.
+  {
+    file: "test/generator/flutter/parity-freeze.test.ts",
+    name: "KNOWN_FLUTTER_GAPS",
+    kind: "record",
+    max: 0,
+  },
   // The corpus features whose cells stop at the COMPILE tier — nothing boots
   // them, so no gate observes their runtime behaviour.  Signed with a reason
   // each; M-T9.13 owns the drain.  Unlike the skip maps above this register is
@@ -435,7 +474,37 @@ const REGISTERED: Ratchet[] = [
     //
     // 19 -> 20 (#2864 D4/T3, M-T6.65 — `workflow-enum-state`), reasoned about
     // in the block above.
-    max: 20,
+    //
+    // 20 -> 21 (`auth-id-claim-stub`).  Another RAISE, and the same shape as
+    // `auth-id-claim` above: the NON-optional twin of that claim — the spelling that takes
+    // no `?`, and the only one that ever reaches the `id` arm of the five
+    // dev-stub principal VALUE tables (an optional claim short-circuits to
+    // null/None/nil before the type is consulted, and on node/python/elixir the
+    // OIDC verifier replaces the dev stub, so the sibling fixture structurally
+    // cannot cover it).  Four of five tables wrote a raw scalar against a
+    // nominal id type; two of those are hard compile errors on the leg that
+    // already gates the cell (`TS2322` against the `__brand`, CS0029 against
+    // `readonly record struct CustomerId(Guid)`).  Also NOT a drain candidate:
+    // the harness cannot even set an id claim — `devClaimKind` carries `string`
+    // and `string[]` only — so a booted leg would assert the same built-in stub
+    // value the compile tier reads straight off the emitted source.
+    //
+    // 21 -> 22 (`projection-implicit-sub`, wave C2 packet 2f).  A RAISE, and
+    // the one shape on this list whose runtime half was ACTUALLY BOOTED before
+    // the entry was written — which is why it is an entry rather than a block.
+    // The fixture's subject is D-PROJECTION-IMPLICIT-SUB: a `projection … on(e:
+    // E)` over an event NO `channel` carries must still fold.  The proof is a
+    // `test/behavioral/run.mjs` run on the generated node backend (`place` ->
+    // `event_dispatched OrderPlaced` -> `GET /api/projections/order_board/<id>`
+    // 200 `"Placed"`, then `ship` -> `"Shipped"`; with the enrich early-return
+    // restored the same run fails 404 `OrderBoard <id> not found`).  That block
+    // is deliberately NOT committed: `corpus.json`'s behavioural leg drives
+    // ONE backend, and committing a block here would freeze a node-only golden
+    // for a contract whose whole point is that all five dispatch — while the
+    // five COMPILE legs, which this fixture does carry, see each backend's
+    // fold/reactor symbols.  Drain (M-T9.13): when the behavioural tier gains
+    // a per-backend projection read, move the block in and lower this by one.
+    max: 22,
   },
 ];
 

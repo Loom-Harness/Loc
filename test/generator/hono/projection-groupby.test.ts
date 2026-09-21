@@ -77,7 +77,10 @@ describe("hono grouped aggregation (group by)", () => {
     const p = await routes();
     expect(p).toContain("const projected = rows.map((r) => ({");
     expect(p).toContain("      status: r.status,");
-    expect(p).toContain("      orders: Number(r.orders ?? 0),");
+    // Integral aggregates are range-checked on the grouped arm too (M-T5.23).
+    expect(p).toContain(
+      '      orders: __intWire(r.orders ?? 0, -2147483648, 2147483647, "orders"),',
+    );
     // money pins the fixed wire scale (RS-12 / #2549); `String()` shipped
     // whatever scale the driver returned.
     expect(p).toContain("      revenue: new Decimal(r.revenue ?? 0).toFixed(4),");

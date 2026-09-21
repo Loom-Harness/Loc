@@ -40,6 +40,7 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.multiple-systems": "02-systems-and-topology.md#system",
   "loom.duplicate-theme-block": "02-systems-and-topology.md#theme",
   "loom.entity-field-modifier": "03-domain-modeling.md#entity-parts--contains",
+  "loom.entity-part-param-unsupported": "03-domain-modeling.md#entity-parts--contains",
   "loom.entity-field-optional-collection": "04-type-system.md#collections--t",
   "loom.generic-arg-not-carrier": "04-type-system.md#generic-carriers--paged-envelope-option",
   "loom.generic-position": "04-type-system.md#generic-carriers--paged-envelope-option",
@@ -47,6 +48,7 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.bare-aggregate-in-type": "04-type-system.md#x-id--cross-aggregate-references",
   "loom.money-literal-malformed": "05-expressions.md#money-literals-vs-moneyx-conversion",
   "loom.unknown-name": "05-expressions.md#member-access--calls",
+  "loom.unknown-user-claim": "05-expressions.md#member-access--calls",
   "loom.emit-unknown-field": "06-behavior-and-statements.md#let--emit",
   "loom.applier-on-non-event-sourced":
     "06-behavior-and-statements.md#applye-event--the-event-sourcing-fold",
@@ -59,6 +61,8 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.for-placement": "06-behavior-and-statements.md#for--if-let--workflow-bodies-only",
   "loom.if-let-placement": "06-behavior-and-statements.md#for--if-let--workflow-bodies-only",
   "loom.vanilla-op-call-actor": "06-behavior-and-statements.md#operation--a-mutating-method",
+  "loom.repository-access-outside-workflow":
+    "06-behavior-and-statements.md#operation--a-mutating-method",
   "loom.abstract-aggregate-behavior":
     "08-inheritance-and-polymorphism.md#abstract-aggregate--the-base",
   "loom.abstract-repository": "08-inheritance-and-polymorphism.md#abstract-aggregate--the-base",
@@ -76,7 +80,9 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.unmapped-error-status":
     "09-payloads-and-unions.md#error--httpstatus--exception-less-problemdetails",
   "loom.criterion-impure": "10-repositories-and-queries.md#criterion",
+  "loom.integer-literal-imprecise": "04-type-system.md#numeric-representation-rules",
   "loom.projection-aggregate-arg-not-columnar": "10-repositories-and-queries.md#grouped--group-by",
+  "loom.projection-aggregate-type-mismatch": "10-repositories-and-queries.md#grouped--group-by",
   "loom.projection-groupby-join-invalid": "10-repositories-and-queries.md#grouped--group-by",
   "loom.projection-groupby-key-not-columnar": "10-repositories-and-queries.md#grouped--group-by",
   "loom.projection-groupby-keyed-invalid": "10-repositories-and-queries.md#grouped--group-by",
@@ -102,21 +108,28 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
     "10-repositories-and-queries.md#the-source-has-to-have-columns",
   "loom.ignoring-clause-placement":
     "10-repositories-and-queries.md#ignoring--capability-filter-bypass",
-  "loom.context-filter-unsupported":
+  "loom.context-filter-no-principal":
     "11-capabilities-filters-stamps.md#filter-expr--a-predicate-and-ed-into-every-read",
   "loom.self-outside-capability":
     "11-capabilities-filters-stamps.md#self-id--self-reference-inside-a-capability",
   "loom.workflow-load-array-unsupported": "13-workflows.md#body-vocabulary",
+  "loom.workflow-cross-context-repository": "13-workflows.md#body-vocabulary",
   "loom.workflow-private-operation": "13-workflows.md#body-vocabulary",
   "loom.workflow-unrecognised-statement": "13-workflows.md#body-vocabulary",
+  "loom.workflow-inline-repository-call": "13-workflows.md#body-vocabulary",
   "loom.canonical-create-duplicate-workflow":
     "13-workflows.md#create--handle--starters--continuations",
   "loom.create-name-conflict-workflow": "13-workflows.md#create--handle--starters--continuations",
+  "loom.workflow-handle-unsupported": "13-workflows.md#create--handle--starters--continuations",
   "loom.workflow-applier-on-non-event-sourced":
     "13-workflows.md#create--handle--starters--continuations",
   "loom.correlation-type-mismatch": "13-workflows.md#one-event--the-event-reactor",
+  // M-T5.34.  The missing-starter ruling documents against the reactor section
+  // (that is the member whose behaviour is inert without a starter); the
+  // command-side correlation ruling and the `handle` refusal both belong to the
+  // starters-and-continuations section that declares those two members.
+  "loom.reactor-without-starter": "13-workflows.md#one-event--the-event-reactor",
   "loom.correlation-uninferrable": "13-workflows.md#one-event--the-event-reactor",
-  "loom.reactor-event-uncarried": "13-workflows.md#one-event--the-event-reactor",
   "loom.resource-op-in-transaction": "13-workflows.md#resource-consumption",
   "loom.resource-verb-invalid": "13-workflows.md#resource-consumption",
   "loom.isolation-requires-transactional": "13-workflows.md#transactional--isolation",
@@ -146,6 +159,7 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.react-deployable-missing-ui": "15-ui-pages-structure.md#ui-block--deployable-binding",
   "loom.svelte-deployable-missing-ui": "15-ui-pages-structure.md#ui-block--deployable-binding",
   "loom.ui-framework-unhostable": "15-ui-pages-structure.md#ui-block--deployable-binding",
+  "loom.ui-read-unresolved": "16-ui-walker-primitives.md#queryview--async-data-branching",
   "loom.vue-deployable-missing-ui": "15-ui-pages-structure.md#ui-block--deployable-binding",
   "loom.chart-accessor-not-field":
     "16-ui-walker-primitives.md#chart--grouped-projection-series-every-frontend",
@@ -184,12 +198,18 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.sensitive-wire-unsupported": "17-auth.md#sensitive--field-tagging",
   "loom.duplicate-user-block": "17-auth.md#user--the-principal-claim-shape",
   "loom.user-duplicate-field": "17-auth.md#user--the-principal-claim-shape",
+  // The target-agnostic `match await` subject gate (audit F66) — the reference
+  // section that spells the one supported shape.
+  "loom.async-effect-subject-unsupported":
+    "15-ui-pages-structure.md#effect-markers-and-match-await",
   "loom.aggregate-test-context": "18-testing.md#test---an-in-process-unit-test",
   "loom.test-redundant-for": "18-testing.md#test---an-in-process-unit-test",
   "loom.e2e-unsupported-statement":
     "18-testing.md#test-e2e--against-deployable--a-live-end-to-end-test",
+  "loom.e2e-unrouted-verb": "18-testing.md#test-e2e--against-deployable--a-live-end-to-end-test",
   "loom.locator-matcher-receiver":
     "18-testing.md#test-e2e--against-deployable--a-live-end-to-end-test",
+  "loom.e2e-ui-throw-invalid": "18-testing.md#tothrow--the-throw-assertion",
   "loom.extern-component-has-body": "21-externs.md#extern-component",
   "loom.extern-function-shadows-stdlib": "21-externs.md#extern-function",
   "loom.seed-duplicate-field": "23-domain-services-and-seeds.md#seed--declarative-first-boot-data",

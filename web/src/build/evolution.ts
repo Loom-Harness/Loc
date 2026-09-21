@@ -260,6 +260,8 @@ export function stepTable(step: MigrationStep): string | undefined {
       return step.to;
     case "addIndex":
       return step.index.table;
+    case "addCheck":
+      return step.check.table;
     case "addColumn":
     case "dropColumn":
     case "renameColumn":
@@ -267,12 +269,21 @@ export function stepTable(step: MigrationStep): string | undefined {
     case "alterColumnType":
     case "alterColumnDefault":
     case "dropIndex":
+    case "dropCheck":
     case "backfillColumn":
       return step.table;
     case "renameIndex":
     case "sqlComment":
     case "sqlExec":
       return undefined;
+    default: {
+      // Exhaustive: a new `MigrationStep.op` fails HERE with the missing kind
+      // named, instead of as a bare "not all code paths return a value" on the
+      // signature (this file is typechecked only by `web/`'s tsc, so the root
+      // build never sees it).
+      const _exhaustive: never = step;
+      return undefined;
+    }
   }
 }
 

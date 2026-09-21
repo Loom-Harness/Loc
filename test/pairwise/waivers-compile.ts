@@ -15,152 +15,60 @@
 
 import type { Waiver } from "./waivers.js";
 
+// F11 (node × `shape: embedded` × TPH) lived at the head of this list and is
+// GONE — drained by wave C2 packet 2c, not by a compile fix.  The crossing it
+// waived cannot be written any more: `loom.es-tph-forced-own-table` now covers
+// `shape: embedded` alongside `document` / `eventLog` (D-EMBEDDED-TPH), so the
+// composer writes the forced `inheritanceUsing: ownTable` and the case the cover
+// generates is `embedded × ownTable`, which compiles on both node adapters.
+// That also removes the python twin's source (F13), whose own entry is 2e's.
+//
+// CORRECTION (#2975) — it removed only HALF of F13's source, and the half it
+// left ran `main` red on the python leg for a week.  F13 was recorded as TWO
+// missing imports: `ThingBaseRow` (TPH-shaped, and genuinely unwritable after
+// 2c) and `PagedResult` (`shape: embedded` × `paged`, which the register itself
+// called "independent of inheritance").  Forcing the concrete to `ownTable`
+// routes it to the plain embedded builder — where the `PagedResult` import gate
+// was still missing — so the crossing kept failing with no entry here to say so.
+// The rule this cost us: a waiver covering two findings is NARROWED to the
+// surviving one when half is fixed, never deleted whole.  The ratchet cannot
+// help — a deleted entry has nothing left to go stale.
 export const COMPILE_WAIVERS: readonly Waiver[] = [
-  {
-    // ---- F11 (W3) ------------------------------------------------------
-    // `shape: embedded` × TPH (`inheritanceUsing: sharedTable`).  The drizzle
-    // repository builder for the EMBEDDED shape names the aggregate's own
-    // pluralised table (`schema.things`); under TPH the row lives in the
-    // abstract base's shared table and the only export the schema module emits
-    // is `thingBases`.  19 × TS2339 per case.
-    //
-    // The relational builder already gets this right, through
-    // `tableOwnerName(agg, ctx.aggregates)` from `src/ir/util/inheritance.ts`,
-    // and even carries the comment naming the trap ("not the subtype's own
-    // pluralised name, which has no `schema` export").  The embedded builder
-    // was cloned before that fix and never picked it up — the same
-    // clone-and-diverge shape as F3/F5 (drizzle → MikroORM) one slice earlier.
-    //
-    // NOT fixed here, and the reason is that the repository is only half of it:
-    // the schema emitter does not put the embedded jsonb containment column on
-    // the TPH owner table either (it emits a relational `lines` child table
-    // instead), so re-pointing the repository would move the error rather than
-    // remove it.  Both halves, plus the phase-⑨ migration DDL, plus the same
-    // crossing on python (which emits BOTH tables) and .NET (which maps no
-    // containment at all) — a cross-emitter mission, not a harness slice.
-    // See docs/audits/pairwise-corpus-findings-2026-08.md § F11.
-    //
-    // SCOPE — deliberately narrow, and each `*` MEASURED rather than assumed.
-    // 50 of the 600 node/default source crossings hit this, and they are
-    // exactly `embedded × tph`: every capability, every authz, both reads, and
-    // NOT `tpc`.  So the entry pins shape+inheritance and stars the rest,
-    // rather than waiving `embedded` on node wholesale (which would hide the
-    // next embedded bug).
-    //
-    // `persistence: "*"` is checked, not lazy: MikroORM has the same defect one
-    // name over — `db/entities.ts` exports `ThingBaseRow` and `LineRow`, and
-    // the repository imports `ThingRow`.  A starred axis that turned out to be
-    // clean would fire the STALE arm on the day the cover sampled it, which is
-    // the register's own way of catching a waiver written wider than the bug.
-    platform: "node",
-    persistence: "*",
-    capability: "*",
-    shape: "embedded",
-    authz: "*",
-    inheritance: "tph",
-    read: "*",
-    reason:
-      "F11 — shape: embedded × TPH: the drizzle embedded repository targets " +
-      "schema.<own plural>, but a TPH concrete's row lives in the base's " +
-      "shared table and no such export exists (TS2339)",
-  },
-  {
-    // ---- F12 (W3) ------------------------------------------------------
-    // `paged` × a NON-RELATIONAL saving shape.  The CALLER honours the carrier
-    // (five query params in, `.items` / `.page` / `.page_size` / `.total` /
-    // `.total_pages` out); the document and event-sourced repository builders
-    // DROP it.  Two backends, one defect, two ways of showing it:
-    //
-    //   python  `async def by_label(self, l: str) -> Thing` — not even a list.
-    //           mypy `Too many arguments for "by_label"` + 5 × `attr-defined`.
-    //   dotnet  the repository PORT declares the paged signature and the
-    //           implementation emits the plain one:
-    //           CS0535 'ThingRepository' does not implement interface member
-    //           'IThingRepository.ByLabel(string, int, int, string, string,
-    //           CancellationToken)'.  ALL FIVE of the .NET cover's
-    //           document/eventLog × paged rows, both adapters (efcore + dapper).
-    //
-    // MEASURED across the shapes, because "python's paging is broken" would
-    // have been the wrong summary: relational × paged is CORRECT (imports
-    // `PagedResult`, returns the envelope), embedded × paged emits the envelope
-    // but forgets the import (F13 below), document / eventLog drop the carrier
-    // entirely.  One construct, three behaviours, one backend — the pairwise
-    // thesis stated as a bug.
-    //
-    // Node and Java both get every shape right; Phoenix got it wrong a THIRD
-    // way (F14: the document-shape repository defined `by_label/3` while the
-    // context delegate declared arity 5, and the event-sourced one dropped the
-    // carrier entirely) — recorded from source here because the elixir leg was
-    // not run, confirmed red on `main` by the first scheduled run (#2797), and
-    // FIXED rather than waived.  `test/generator/elixir/paged-find-arity.test.ts`
-    // is the per-PR oracle that now stands in for the 78-minute leg.
-    platform: "python|dotnet",
-    persistence: "*",
-    capability: "*",
-    shape: "document|eventLog",
-    authz: "*",
-    inheritance: "*",
-    read: "paged",
-    reason:
-      "F12 — paged × document/eventLog on python + dotnet: the caller expects the " +
-      "envelope, the non-relational repository builders drop the carrier " +
-      "(mypy call-arg/attr-defined; CS0535)",
-  },
-  {
-    // ---- F13 (W3) ------------------------------------------------------
-    // Two IMPORT GATES the python embedded repository builder never grew, both
-    // ruff F821 (undefined name) in the same generated file:
-    //
-    //   * `ThingBaseRow` — the find body correctly resolves the TPH owner
-    //     table (unlike node, see F11), but the schema import still names only
-    //     `ThingRow`;
-    //   * `PagedResult` — a `paged` find's return annotation and its
-    //     constructor call, with no `from app.domain.paging import PagedResult`.
-    //     Independent of inheritance: MEASURED on a flat `shape: embedded` ×
-    //     `paged` system too, which this cover does not currently sample.
-    //
-    // Both are one-line additions to the builder's import gate — the same
-    // class as the duplicate `authUserImport(...)` the register's postscript
-    // records, and typecheck-invisible for the same reason (the emitter builds
-    // strings).  Registered rather than fixed only because this slice's tree is
-    // the harness; the fix is minutes of work for whoever picks it up.
-    platform: "python",
-    persistence: "*",
-    capability: "*",
-    shape: "embedded",
-    authz: "*",
-    inheritance: "tph",
-    read: "*",
-    reason:
-      "F13 — python embedded repository: ThingBaseRow (TPH owner table) and " +
-      "PagedResult are used but never imported (ruff F821)",
-  },
-  {
-    // ---- F15 (W3) ------------------------------------------------------
-    // `softDeletable` × TPH, on python.  TPH makes every SUBTYPE column
-    // nullable on the shared table — that is what sharing a table means — so
-    // the capability's own `is_deleted` column types as
-    // `Mapped[bool | None]`, and `not_(ThingBaseRow.is_deleted)` no longer
-    // satisfies mypy --strict's `ColumnElement[bool]`.  Four `[arg-type]`.
-    //
-    // This is the exact class the inheritance axis was added for: the
-    // capability is correct, the layout is correct, and the INTERACTION —
-    // inheritance changing the nullability of a column the capability filter
-    // reads — is what breaks.  .NET refuses the same crossing by name
-    // (`loom.tph-filter-unsupported`, for a different EF-shaped reason);
-    // python neither refuses it nor compiles it.
-    platform: "python",
-    persistence: "*",
-    capability: "softDeletable",
-    shape: "relational",
-    authz: "*",
-    inheritance: "tph",
-    read: "*",
-    reason:
-      "F15 — softDeletable × TPH on python: the TPH-nullable is_deleted column " +
-      "makes not_(...) fail mypy --strict (arg-type)",
-  },
-  // Above are the register's W3 entries.  Empty remains the target state —
+  // ---- F12 (W3) — DELETED at the wave C2 fold --------------------------
+  // `paged` × document/eventLog on dotnet + python (the caller expects the
+  // envelope, the non-relational repository builders dropped the carrier:
+  // CS0535 / mypy call-arg).  Both halves were fixed by wave C1 packet 1e
+  // (ledger row `F2-CB-C1-paged-nonrelational`) and each was then MEASURED
+  // drained by its own packet in wave C2 — 2e narrowed the entry to dotnet
+  // after compiling all five python cover cells it covered; 2b dropped the
+  // dotnet half after `LOOM_PAIRWISE=1 LOOM_DOTNET_BUILD=1` failed this
+  // entry's REVERSE ratchet on all five matching dotnet cases.  The two
+  // narrowings met at the fold as an empty entry, so the entry is gone.
+  // F13 and F15 were the register's other two python entries and are DELETED
+  // here — both fixed in wave C2 packet 2e, both re-measured over every cell of
+  // the python cover they covered (`uv sync` + `ruff check` + `mypy --strict` +
+  // `pytest`, all green):
+  //
+  //   F13 — `shape: embedded` × TPH.  Recorded as two missing imports
+  //         (`ThingBaseRow`, `PagedResult`; ruff F821), which was the SYMPTOM.
+  //         The defect was that python's schema emitter tested the saving shape
+  //         BEFORE the TPH arms, so it emitted a second table with a jsonb
+  //         containment column that the phase-⑨ DDL never creates while the
+  //         shared base table already carried the same columns — and the
+  //         repository straddled both.  Fixed by ordering the TPH arms first
+  //         (matching the migration builder and the drizzle emitter) and
+  //         routing a TPH concrete to the relational repository builder.
+  //         The crossing itself was then refused at phase ④ by D-EMBEDDED-TPH
+  //         (2c), so the ordering is a floor and its python gate was retired.
+  //
+  //   F15 — `softDeletable` × TPH.  A TPH-nullable bool column in boolean
+  //         position now renders `.is_(True)` / `.is_(False)` instead of a bare
+  //         column / `not_(col)` — same SQL truth in a WHERE, and a
+  //         `ColumnElement[bool]`.  Gate:
+  //         `test/generator/python/tph-nullable-bool-filter.test.ts`; the shape
+  //         also entered the curated corpus as `tph-crossings.ddd`.
+  //
+  // Above is the register's surviving W3 entry.  Empty remains the target state —
   // same rule as the wire-differential register: a new divergence is a BUG to
   // fix on the emitter first, and a waiver only when fixing it is a mission of
   // its own with a named exit.

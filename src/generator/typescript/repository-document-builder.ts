@@ -16,6 +16,7 @@ import {
   exprUsesCurrentUser,
   findUsesCurrentUser,
 } from "../../ir/types/loom-ir.js";
+import { findValueObjectInScope, valueObjectPool } from "../../ir/util/reachable-types.js";
 import { sortableFields } from "../../ir/util/sortable-fields.js";
 import { aggregateIsVersioned } from "../../ir/util/versioned-capability.js";
 import { lines } from "../../util/code-builder.js";
@@ -254,7 +255,7 @@ export function buildDocumentRepositoryFile(
 
   return lines(
     "// Auto-generated.  Do not edit by hand.",
-    aggregateUsesMoneyDeep(agg, ctx.valueObjects) && `import Decimal from "decimal.js";`,
+    aggregateUsesMoneyDeep(agg, valueObjectPool(ctx)) && `import Decimal from "decimal.js";`,
     // Domain-side repository PORT this concrete implements (audit S7).
     repoPortImportLine(agg.name),
     `import type { NodePgDatabase } from "drizzle-orm/node-postgres";`,
@@ -653,7 +654,7 @@ export function serializeField(t: TypeIR, accessor: string, ctx: EnrichedBounded
   if (t.kind === "id") return `${accessor} as string`;
   if (t.kind === "enum") return accessor;
   if (t.kind === "valueobject") {
-    const vo = ctx.valueObjects.find((v) => v.name === t.name);
+    const vo = findValueObjectInScope(ctx, t.name);
     if (!vo) return accessor;
     return `{ ${vo.fields.map((vf) => `${vf.name}: ${serializeField(vf.type, `${accessor}.${vf.name}`, ctx)}`).join(", ")} }`;
   }
@@ -696,7 +697,7 @@ export function deserializeField(
   if (t.kind === "id") return `Ids.${t.targetName}Id(${accessor})`;
   if (t.kind === "enum") return `${accessor} as ${t.name}`;
   if (t.kind === "valueobject") {
-    const vo = ctx.valueObjects.find((v) => v.name === t.name);
+    const vo = findValueObjectInScope(ctx, t.name);
     if (!vo) return accessor;
     return `new ${vo.name}(${vo.fields.map((vf) => deserializeField(vf.type, `${accessor}.${vf.name}`, ctx)).join(", ")})`;
   }
@@ -728,7 +729,7 @@ export function docFieldType(t: TypeIR, ctx: EnrichedBoundedContextIR): string {
   }
   if (t.kind === "id" || t.kind === "enum") return "string";
   if (t.kind === "valueobject") {
-    const vo = ctx.valueObjects.find((v) => v.name === t.name);
+    const vo = findValueObjectInScope(ctx, t.name);
     if (!vo) return "unknown";
     return `{ ${vo.fields.map((vf) => `${vf.name}: ${docFieldType(vf.type, ctx)}`).join("; ")} }`;
   }

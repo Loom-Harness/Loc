@@ -1,0 +1,44 @@
+// F-006 minimal repro: under `enforcement: denyByDefault`, the auto-injected
+// `find all` list route is NOT gated, so every aggregate without an explicit
+// `find all(): T[] requires <expr>` is readable by any authenticated caller.
+// This file distils the shape. It PARSES WITH 0 ERRORS under denyByDefault,
+// which is the static half of the finding: nothing warns that `Open`'s list
+// read is ungated.
+//
+// The RUNTIME half was measured on the full Commons stack (eval/commons/s4.ddd,
+// booted against Postgres + the generated Keycloak realm), with a token for a
+// user carrying NO role claim and NO permissions:
+//     GET /api/members 200   /api/posts   200   /api/comments 200
+//     GET /api/groups  200   /api/follows 200   /api/reactions 200
+//     GET /api/medias  200   /api/notifications 200
+//     GET /api/reports 403   /api/bans    403   <- the only two with a
+//                                                  declared `find all() requires`
+// I did not re-boot this distilled file end-to-end (sandbox DNS flake); the
+// 200/403 figures above are from the real stack, not from this file.
+// Declaring the gate with a permission CALL instead of a comparison crashes
+// the generator when a UI is mounted -- see F-005.
+system Repro {
+  subdomain S {
+    permissions { manage }
+    context C {
+      aggregate Open   with crudish(requires: Gate) { secret: string  derived display: string = secret }
+      aggregate Closed with crudish(requires: Gate) { secret: string  derived display: string = secret }
+      policy Gate(): bool = currentUser.permissions.contains(permissions.manage)
+      repository Opens for Open { }
+      repository Closeds for Closed {
+        find all(): Closed[] requires currentUser.role == "admin"
+      }
+    }
+  }
+  user { id: string  role: string  permissions: string[] }
+  auth {
+    provider: keycloak
+    oidc { issuer: env("OIDC_ISSUER")  clientId: "x" }
+    enforcement: denyByDefault
+    sessions: cookie
+    claims: { role: "role", permissions: "roles" }
+  }
+  storage primary { type: postgres }
+  resource cState { for: C, kind: state, use: primary }
+  deployable api { platform: node, contexts: [C], dataSources: [cState], auth: required, port: 3000 }
+}

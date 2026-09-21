@@ -530,7 +530,7 @@ end
 /** The controller-edge guard for a MALFORMED path `{id}`.
  *
  *  `GET /api/orders/not-a-uuid` is a WIRE-VALIDATION failure on every backend:
- *  Hono's `z.string().uuid()` param → `defaultHook`, .NET's `[FromRoute] Guid`
+ *  Hono's `UuidString` param → `defaultHook`, .NET's `[FromRoute] Guid`
  *  → `InvalidModelStateResponseFactory`, java's
  *  `MethodArgumentTypeMismatchException` arm, python's `Path(pattern=…)`.  All
  *  four answer the declared 422.  Phoenix bound the raw string and handed it to

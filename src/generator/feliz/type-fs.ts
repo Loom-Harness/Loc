@@ -55,7 +55,16 @@ export function typeToFs(t: TypeIR): string {
       return fsPrimitive(t.name);
     case "id":
       return "string";
+    // An enum is a STRING everywhere else in the Feliz frontend — the wire
+    // spelling (`wire.ts` `wireFieldType`), the decoder (`Decode.string`), the
+    // query-param encoder and the claims record (`auth-gate.ts` `claimFsType`)
+    // all say `string`, and NO `type <Enum>` is ever emitted into `App.fs`.
+    // Spelling it `t.name` here made a `state { mode: Status }` field declare
+    // `FiltersMode: Status` (FS0039, undefined type) and its action's Msg case
+    // `of Status`, from a `.ddd` reporting `0 error(s), 0 warning(s)` — the
+    // app could not Fable-compile at all.
     case "enum":
+      return "string";
     case "valueobject":
     case "entity":
       return t.name;
@@ -88,6 +97,15 @@ export function fsZeroValue(t: TypeIR): string {
           // Pairs with `typeToFs`'s `System.TimeSpan` — the fallthrough `""`
           // would not typecheck against it.
           return "System.TimeSpan.Zero";
+        // Same reason as `duration`: `typeToFs` spells these `System.DateTime`
+        // / `System.Guid`, so the `""` fallthrough declared a string zero
+        // against a .NET-typed field (`FiltersAt = ""`) and the app did not
+        // compile.  `MinValue` / `Empty` are the types' own zeros, and Fable
+        // supports both.
+        case "datetime":
+          return "System.DateTime.MinValue";
+        case "guid":
+          return "System.Guid.Empty";
         default:
           return '""';
       }

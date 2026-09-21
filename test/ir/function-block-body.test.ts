@@ -80,6 +80,85 @@ describe("block-body function — purity gate (loom.function-block-impure)", () 
     );
     expect(codes).not.toContain("loom.function-block-impure");
   });
+
+  // ---------------------------------------------------------------------
+  // Impurity NESTED IN A BRANCH (wave C2, packet 2f).
+  //
+  // The purity sweep walked `fn.body.stmts` one level deep on the STATEMENT
+  // channel, which was harmless only for as long as a function block could
+  // not contain an `if` at all — the AST gate
+  // (`loom.function-block-no-return`) refused every branching body because it
+  // counted top-level `return`s only.  Unlocking that shape unlocked the
+  // hole with it: each mutation below was ACCEPTED in a branch while its
+  // top-level twin (the three cases above) was refused, which is the
+  // silent-gap trade this repo's rules exist to prevent.  The sweep now rides
+  // `walkStmtsDeep`, so the branch and the top level answer identically.
+  // ---------------------------------------------------------------------
+  it("rejects a `this`-write nested in an `if` branch", async () => {
+    const codes = await irCodes(
+      wrap(`
+        function bad(): int {
+          if weight > 10 { n := 5  return n } else { return n }
+        }
+      `),
+    );
+    expect(codes).toContain("loom.function-block-impure");
+  });
+
+  it("rejects an `emit` nested in an `if` branch", async () => {
+    const codes = await irCodes(
+      wrap(`
+        function bad(): int {
+          if weight > 10 { emit E { at: now() }  return n } else { return n }
+        }
+      `),
+    );
+    expect(codes).toContain("loom.function-block-impure");
+  });
+
+  it("rejects a mutating operation call nested in an `if` branch", async () => {
+    const codes = await irCodes(
+      wrap(`
+        operation bump() { n := n + 1 }
+        function bad(): int {
+          if weight > 10 { bump()  return n } else { return n }
+        }
+      `),
+    );
+    expect(codes).toContain("loom.function-block-impure");
+  });
+
+  it("still accepts a PURE branching body", async () => {
+    const codes = await irCodes(
+      wrap(`
+        function tier(): int {
+          if weight > 10 { let x = n + 1  return x } else { return n }
+        }
+      `),
+    );
+    expect(codes).not.toContain("loom.function-block-impure");
+  });
+
+  // The expression sweep was ALREADY deep, so it must not start double-
+  // reporting now that the statement sweep is too: exactly one diagnostic per
+  // offending call, not one per enclosing `if`.
+  it("reports an impure call nested two `if`s deep exactly once", async () => {
+    const { model } = await parseString(
+      wrap(`
+        operation bump() { n := n + 1 }
+        function bad(): int {
+          if weight > 10 {
+            if surcharge > 1 { bump()  return n } else { return n }
+          } else { return n }
+        }
+      `),
+      { validate: false },
+    );
+    const impure = validateLoomModel(enrichLoomModel(lowerModel(model))).filter(
+      (d) => d.code === "loom.function-block-impure",
+    );
+    expect(impure.length).toBe(1);
+  });
 });
 
 describe("block-body function — non-queryable", () => {

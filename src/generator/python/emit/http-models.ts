@@ -1,5 +1,6 @@
 import type { BoundedContextIR, TypeIR } from "../../../ir/types/loom-ir.js";
 import { lines } from "../../../util/code-builder.js";
+import { UUID_WIRE_PATTERN } from "../../../util/uuid-wire.js";
 import { provenancedTypeMembers } from "../../_payload/provenanced-wire.js";
 import {
   MONEY_INTEGER_DIGITS,
@@ -38,7 +39,7 @@ export const PY_UUID_STR = "UuidStr";
 const PY_UUID_STR_DEF = [
   `${PY_UUID_STR} = Annotated[`,
   "    str,",
-  '    StringConstraints(pattern=r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"),',
+  `    StringConstraints(pattern=r"${UUID_WIRE_PATTERN}"),`,
   '    WithJsonSchema({"type": "string", "format": "uuid"}),',
   "]",
 ];
@@ -483,13 +484,25 @@ export function renderPyWireModels(ctx: BoundedContextIR): string {
       "",
       "",
       `class ${vo.name}(BaseModel):`,
-      vo.fields.map((f) =>
-        withFieldConstraint(
-          f.name,
-          wireFieldType(f.type, ctx, "request", ""),
-          constraints.get(f.name),
-        ),
-      ),
+      vo.fields.map((f) => {
+        // A VO subfield declared optional (`line2: string?`) must be OMISSIBLE
+        // on the wire.  Pydantic reads `X | None` with NO DEFAULT as
+        // required-but-nullable, so without the `= None` a body that simply
+        // leaves the subfield out is rejected with
+        // `422 … {"pointer": "/home/line2", "message": "Field required"}` —
+        // while the aggregate's own optional fields, emitted by
+        // `routes-builder`, always carried the default.  Same rule, applied to
+        // the nested VO model.  `withFieldConstraint` folds the default into
+        // `Field(default=None, …)` when the subfield also carries an invariant.
+        const optional = f.optional || f.type.kind === "optional";
+        const base = wireFieldType(f.type, ctx, "request", "");
+        const decl = !optional
+          ? base
+          : base.endsWith("| None")
+            ? `${base} = None`
+            : `${base} | None = None`;
+        return withFieldConstraint(f.name, decl, constraints.get(f.name));
+      }),
       validator,
     );
   });

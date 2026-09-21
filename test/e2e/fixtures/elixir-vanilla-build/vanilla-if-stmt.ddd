@@ -1,0 +1,117 @@
+// M-T6.59 — the `if` STATEMENT on the vanilla Phoenix backend.
+//
+// Elixir is immutable: every Phoenix body threads its result through a rebound
+// `record`, and a binding made inside an `if` block does NOT escape the block.
+// The naive rendering compiles clean and then silently does nothing, which is
+// why `loom.elixir-if-stmt-unsupported` used to refuse the statement outright.
+// It now renders as a value-producing `record = if … do … record else … record
+// end` (`vanilla/if-stmt-emit.ts`), and every "does this body write a column"
+// probe deep-walks the branches (`opBodyStmtsDeep`) so the persist tail carries
+// the columns a BRANCH assigned — without that half the body renders and the
+// write is dropped at `Repo.update`.
+//
+// The shapes this fixture compiles:
+//   * `grade`     — an `if`/`else` assigning in BOTH branches (named op).
+//   * `bump`      — an `if` with NO `else` (the synthesised `else record` arm).
+//   * `nest`      — a nested `if` inside a branch.
+//   * `promote`   — an `if` in a RETURNING op (union return, no `return` in a
+//                   branch: the branches assign, the tail returns).
+//   * `Pricing.quote` — a TAIL `if` whose branches `return`, in a
+//                   `domainService` (tail-value) body: the `if` expression IS
+//                   the function's result.  The same shape in an aggregate
+//                   `function` block used to be refused one layer earlier by
+//                   `loom.function-block-no-return` (phase 4, every backend);
+//                   wave C2 taught that gate to see a `return` inside an `if`,
+//                   so both spellings now render — the aggregate-`function`
+//                   witness lives in the shared corpus
+//                   (`test/fixtures/corpus/domain-services.ddd`, `Account.tier`).
+//   * `collect`   — a containment `+=` inside a branch, so the persist tail's
+//                   `put_embed` arm is reached from a branch too.
+system Grading {
+  subdomain Learning {
+    context Tracker {
+      aggregate Task with crudish {
+        title: string
+        score: int = 0
+        tier: string = "none"
+        attempts: int = 0
+        contains notes: Note[]
+
+        entity Note {
+          text: string
+        }
+
+        operation grade(bonus: int) {
+          if score + bonus > 10 {
+            tier := "gold"
+            score := score + bonus
+          } else {
+            tier := "bronze"
+          }
+        }
+
+        operation bump(delta: int) {
+          if delta > 0 {
+            attempts := attempts + delta
+          }
+        }
+
+        operation nest(bonus: int) {
+          if bonus > 0 {
+            if bonus > 100 {
+              tier := "platinum"
+            } else {
+              tier := "silver"
+            }
+            score := score + bonus
+          } else {
+            tier := "none"
+          }
+        }
+
+        operation promote(bonus: int): Task or TooLow {
+          if score + bonus > 10 {
+            score := score + bonus
+            tier := "gold"
+          } else {
+            attempts := attempts + 1
+          }
+          return this
+        }
+
+        operation collect(text: string) {
+          if text.length > 0 {
+            notes += Note { text: text }
+          }
+        }
+      }
+      error TooLow {
+        reason: string
+      }
+      repository Tasks for Task { }
+
+      domainService Pricing {
+        operation quote(points: int): string {
+          let doubled = points + points
+          if doubled > 20 {
+            return "premium"
+          } else {
+            return "standard"
+          }
+        }
+      }
+    }
+  }
+  api TrackerApi from Learning {
+    httpStatus TooLow -> 422
+  }
+  storage primary { type: postgres }
+  resource trackerState { for: Tracker, kind: state, use: primary }
+  deployable api {
+    platform: elixir
+    contexts: [Tracker]
+    dataSources: [trackerState]
+    serves: TrackerApi
+    port: 4000
+  }
+}

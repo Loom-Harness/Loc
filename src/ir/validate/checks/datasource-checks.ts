@@ -75,8 +75,8 @@ export function validateDataSourceCoverage(sys: SystemIR, diags: LoomDiagnostic[
         if (covered.has(key)) continue;
         diags.push({
           severity: "error",
-          code: "loom.persistence-mode-unsupported",
-          message: diagMessage("loom.persistence-mode-unsupported", {
+          code: "loom.datasource-binding-missing",
+          message: diagMessage("loom.datasource-binding-missing", {
             name: dep.name,
             ctxName,
             aggName: agg.name,
@@ -302,14 +302,33 @@ function docInMemoryList(e: ExprIR, agg: AggregateIR): boolean {
  *  that calls a sibling function stays admissible (the sibling is verified too —
  *  the whole call graph is checked, no recursion needed here). */
 
-function docExprUnsupported(e: ExprIR, allowFnCall: boolean, agg: AggregateIR): boolean {
-  const bad = (x: ExprIR): boolean => docExprUnsupported(x, allowFnCall, agg);
+function docExprUnsupported(
+  e: ExprIR,
+  allowFnCall: boolean,
+  agg: AggregateIR,
+  /** `this-derived` names already being resolved — breaks a (validator-
+   *  prevented) derived cycle instead of recursing forever. */
+  derivedStack: ReadonlySet<string> = new Set(),
+): boolean {
+  const bad = (x: ExprIR): boolean => docExprUnsupported(x, allowFnCall, agg, derivedStack);
   switch (e.kind) {
     case "ref":
-      // A `this-derived` read has no stored `data` key (derived aren't
-      // persisted); every other ref (this-prop / this-vo-prop whole read / param
-      // / let / enum-value / current-user / a lambda binding) is a plain read.
-      return e.refKind === "this-derived";
+      // A `this-derived` read has no stored `data` key — a derived is not
+      // persisted — but it does not need one: `render-expr.ts`'s `this-derived`
+      // arm INLINES the derived's defining expression (an Elixir struct carries
+      // no computed field either, so this is the same inline the relational path
+      // already relies on, #1765).  So the read is emittable exactly when the
+      // referenced derived's OWN expression is — which is what the document
+      // residue's "derived read" clause was actually about (M-T6.35 / M-T6.2
+      // §12).  Every other ref (this-prop / this-vo-prop whole read / param /
+      // let / enum-value / current-user / a lambda binding) is a plain read.
+      if (e.refKind === "this-derived") {
+        if (derivedStack.has(e.name)) return true;
+        const d = (agg.derived ?? []).find((x) => x.name === e.name);
+        if (!d) return true;
+        return docExprUnsupported(d.expr, allowFnCall, agg, new Set([...derivedStack, e.name]));
+      }
+      return false;
     case "member":
       // Supported: `this.<scalar>` (receiver `this`, entity type → `data[k]`), a
       // value-object SUB-field (`this.money.amount` → `data["money"]["amount"]`),

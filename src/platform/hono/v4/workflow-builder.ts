@@ -54,7 +54,7 @@ import {
   opWorkflowInstances,
 } from "../../../ir/util/openapi-ids.js";
 import { opHasProvSite } from "../../../ir/util/prov-id.js";
-import { collectReachableTypes } from "../../../ir/util/reachable-types.js";
+import { collectReachableTypes, valueObjectPool } from "../../../ir/util/reachable-types.js";
 import { walkWorkflowStmtExprsDeep } from "../../../ir/util/walk.js";
 import { emitsCommandRoute } from "../../../ir/util/workflow-command-route.js";
 import { workflowCorrIdValueType } from "../../../ir/util/workflow-instances.js";
@@ -133,7 +133,7 @@ export function buildWorkflowsFile(
   // import list is still the intersection with the emitted text below, so a
   // candidate that isn't actually referenced is dropped — keeping a
   // subscription-free project byte-identical.
-  const usedVOs = ctx.valueObjects.map((v) => v.name);
+  const usedVOs = valueObjectPool(ctx).map((v) => v.name);
   const usedEnums = ctx.enums.map((e) => e.name);
   const valueObjectImport = [...usedVOs, ...usedEnums];
 
@@ -503,6 +503,7 @@ export function buildWorkflowsFile(
   const problemNamed = [
     /\bframeworkProblemBody\b/.test(bodyStr) ? "frameworkProblemBody" : null,
     /(?<!\.)\bProblemDetails\b/.test(bodyStr) ? "ProblemDetails" : null,
+    /\bUuidString\b/.test(bodyStr) ? "UuidString" : null,
     "newApp",
     /\brequireJsonContentType\(/.test(bodyStr) ? "requireJsonContentType" : null,
   ].filter((n): n is string => n !== null);
@@ -1142,7 +1143,7 @@ function emitInstanceRoutes(
   const corrVt = workflowCorrIdValueType(wf);
   const idParamZod =
     corrVt === "guid"
-      ? "z.string().uuid()"
+      ? "UuidString"
       : corrVt === "string"
         ? "z.string()"
         : "z.coerce.number().int()";
@@ -2493,11 +2494,12 @@ function* workflowSchemaSeeds(ctx: BoundedContextIR): Generator<TypeIR> {
 }
 
 function collectUsedValueObjects(ctx: BoundedContextIR) {
-  const { valueObjects } = collectReachableTypes(workflowSchemaSeeds(ctx), ctx.valueObjects);
-  return ctx.valueObjects.filter((v) => valueObjects.has(v.name));
+  const pool = valueObjectPool(ctx);
+  const { valueObjects } = collectReachableTypes(workflowSchemaSeeds(ctx), pool);
+  return pool.filter((v) => valueObjects.has(v.name));
 }
 
 function collectUsedEnums(ctx: BoundedContextIR) {
-  const { enums } = collectReachableTypes(workflowSchemaSeeds(ctx), ctx.valueObjects);
+  const { enums } = collectReachableTypes(workflowSchemaSeeds(ctx), valueObjectPool(ctx));
   return ctx.enums.filter((e) => enums.has(e.name));
 }

@@ -30,6 +30,7 @@ import {
 import type { UnionMember } from "../_payload/union-wire.js";
 import { renderTypeWith, type TypeTarget } from "../_type/target.js";
 import { joinDbSetName, joinFkPropName } from "./emit/join-entities.js";
+import { csStateHolderOf } from "./emit/state-holder.js";
 
 // ---------------------------------------------------------------------------
 // Expression renderer for the .NET / C# backend.
@@ -1211,7 +1212,7 @@ function renderNew(
     ...(e.nested ? [] : [`ParentId = ${ctx.thisName}.Id`]),
     ...fields.map((f) => `${upperFirst(f.name)} = ${f.value}`),
   ];
-  return `${e.partName}._Create(new ${e.partName}.State { ${inits.join(", ")} })`;
+  return `${e.partName}._Create(new ${csStateHolderOf(e.partName)} { ${inits.join(", ")} })`;
 }
 
 // ---------------------------------------------------------------------------

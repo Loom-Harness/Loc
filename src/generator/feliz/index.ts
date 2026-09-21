@@ -27,7 +27,7 @@ import { backendServesRealtime } from "../../ir/util/channels.js";
 import { uiUsesChart } from "../../ir/util/chart.js";
 import { uiUsesDataGrid } from "../../ir/util/data-grid.js";
 import { typeIsFile } from "../../ir/util/file-field.js";
-import { type PageNameCtx, pageEmitName } from "../../ir/util/page-kind.js";
+import { type PageNameCtx, pageConstructId, pageEmitName } from "../../ir/util/page-kind.js";
 import { readableProjectionNames } from "../../ir/util/projection-read.js";
 import {
   type RealtimeStreamCredential,
@@ -43,6 +43,7 @@ import {
   PLAYWRIGHT_CONFIG_TS,
 } from "../_frontend/e2e-harness.js";
 import { smokeSpec } from "../_frontend/smoke-spec.js";
+import type { SourceMapRecorder } from "../_trace/sourcemap.js";
 import { APP_SHELL_CHROME, chromeKey } from "../_walker/i18n-chrome.js";
 import { storeMemberLocal } from "../_walker/js-target-helpers.js";
 import { bcByAggregateOf } from "../_walker/paged-query.js";
@@ -73,6 +74,7 @@ import {
   storeMsgCase,
   usesRouteIdFn,
 } from "./fs-expr.js";
+import { fsIdent } from "./fs-ident.js";
 import { FELIZ_INTL_MESSAGEFORMAT, felizI18nEnabled, renderFelizI18nModule } from "./i18n.js";
 import { felizPack } from "./pack.js";
 import { felizRealtimeRefetchAggregates, renderFelizRealtime } from "./realtime.js";
@@ -193,6 +195,12 @@ export interface GenerateFelizOptions {
    *  into vite's `base` so asset URLs + the SPA fallback resolve under the
    *  prefix; unset (root-served hosts) keeps vite's default `/`. */
   basePath?: string;
+  /** Generate-time source-map recorder (`--sourcemap`, off by default).  A
+   *  Feliz app is ONE `src/App.fs` holding every page's view function, so —
+   *  unlike the file-per-page frontends, which call `recorder.file(…)` — the
+   *  pages are recorded as `fragment()` REGIONS inside that file, anchored by
+   *  each view function's own text.  See `_trace/sourcemap.ts`. */
+  sourcemap?: SourceMapRecorder;
 }
 
 /** Indent every line of `block` by `n` spaces. */
@@ -225,15 +233,15 @@ function dispatchWrappers(
       const effect = asyncEffectActions.get(a.name);
       if (effect) {
         if (effect.params.length === 0) {
-          return `    let ${a.name} () = dispatch (${msgCase(a.name)} id)`;
+          return `    let ${fsIdent(a.name)} () = dispatch (${msgCase(a.name)} id)`;
         }
         const args = effect.params.map((p) => renderFsExpr(p.argExpr, argCtx)).join(", ");
-        return `    let ${a.name} () = dispatch (${msgCase(a.name)} (id, ${args}))`;
+        return `    let ${fsIdent(a.name)} () = dispatch (${msgCase(a.name)} (id, ${args}))`;
       }
       const p = a.params[0]?.name;
       return p
-        ? `    let ${a.name} ${p} = dispatch (${msgCase(a.name)} ${p})`
-        : `    let ${a.name} () = dispatch ${msgCase(a.name)}`;
+        ? `    let ${fsIdent(a.name)} ${fsIdent(p)} = dispatch (${msgCase(a.name)} ${fsIdent(p)})`
+        : `    let ${fsIdent(a.name)} () = dispatch ${msgCase(a.name)}`;
     });
 }
 
@@ -347,7 +355,7 @@ function pageDerivedBinds(page: PageIR): { binds: string[]; names: Set<string> }
     }
     // Visible to the NEXT derived — as a bare local, which is what a `let` is.
     locals.add(d.name);
-    binds.push(`    let ${d.name} = ${fs}`);
+    binds.push(`    let ${fsIdent(d.name)} = ${fs}`);
   }
   return { binds, names: locals };
 }
@@ -698,15 +706,36 @@ function humanizeLabel(name: string): string {
 /** The persistent daisyUI `navbar` above the routed content — a brand link plus
  *  one menu item per TOP-LEVEL page (a static route, no `:param`; detail pages
  *  are reached from their list, not the nav).  Returns "" when there are fewer
- *  than two top-level pages (a lone nav item isn't worth a bar). */
-function renderNavbar(pages: readonly PageIR[], brand: string, i18nEnabled = false): string {
+ *  than two top-level pages (a lone nav item isn't worth a bar).
+ *
+ *  Under the UI-gate machinery (`pageGate`) an entry whose page carries
+ *  `requires <currentUser gate>` is wrapped in the SAME claims guard the page
+ *  view itself uses (`index.ts` `renderPageView`, `feliz-target.ts`'s action
+ *  button) — otherwise the bar advertises a route whose own view immediately
+ *  renders `forbiddenView` and whose backend answers 403.  This is the Feliz
+ *  half of the per-link auth the JS frontends get from
+ *  `_frontend/menu-emitter.ts` (`requiresJs`). */
+function renderNavbar(
+  pages: readonly PageIR[],
+  brand: string,
+  i18nEnabled = false,
+  pageGate = false,
+): string {
   const navPages = pages.filter((p) => !hasRouteParam(p));
   if (navPages.length < 2) return "";
   const items = navPages
     .map((p) => {
       // PATH href (History API routing), not a `#/…` hash link.
       const href = p.route ?? "/";
-      return `          Html.li [ prop.children [ Html.a [ prop.href "${href}"; prop.text "${humanizeLabel(p.name)}" ] ] ]`;
+      const li = `Html.li [ prop.children [ Html.a [ prop.href "${href}"; prop.text "${humanizeLabel(p.name)}" ] ] ]`;
+      // ONE line per entry, guard included: F# keys a newline-separated list
+      // element by its first-token column, so a multi-line guard here would
+      // have to re-indent with the surrounding `prop.children [` block.
+      const gated =
+        pageGate && p.requires
+          ? `(match model.CurrentUser with Some currentUser when ${renderFelizGate(p.requires, "currentUser")} -> ${li} | _ -> Html.none)`
+          : li;
+      return `          ${gated}`;
     })
     .join("\n");
   // The bar is a real <nav> landmark (a11y contract) — a screen reader
@@ -746,13 +775,14 @@ function renderRootView(
   fnName = "view",
   brand = "",
   i18nEnabled = false,
+  pageGate = false,
 ): string {
   const arms = pages.map((p) => {
     const names = routeParamNames(p);
     const args = names.length > 0 ? ` ${names.join(" ")}` : "";
     return `        | ${pageCase(p, nameCtx)}${caseArgs(names)} -> ${pageViewFn(p, nameCtx)} model dispatch${args}`;
   });
-  const navbar = renderNavbar(pages, brand, i18nEnabled);
+  const navbar = renderNavbar(pages, brand, i18nEnabled, pageGate);
   const router = [
     "    React.router [",
     // PATH-based routing (History API), NOT hash (`#/…`) — the generated SPA
@@ -827,6 +857,12 @@ function readsForUi(ui: UiIR, contexts: EnrichedBoundedContextIR[]): FelizRead[]
   const projectionIRs = new Map(
     contexts.flatMap((c) => (c.projections ?? []).map((p) => [p.name, p] as const)),
   );
+  // The WORKFLOWS, by name — arms the detector's workflow-instance patterns, so
+  // the scaffold's `<Wf>InstancesList` / `<Wf>InstanceDetail` pages contribute
+  // the Model fields their bodies read (F-023).
+  const workflowIRs = new Map(
+    contexts.flatMap((c) => c.workflows.map((w) => [w.name, w] as const)),
+  );
   for (const page of ui.pages) {
     for (const r of collectPageReads(
       page,
@@ -836,6 +872,7 @@ function readsForUi(ui: UiIR, contexts: EnrichedBoundedContextIR[]): FelizRead[]
       bcByAggregate,
       projectionNames,
       projectionIRs,
+      workflowIRs,
     )) {
       if (seen.has(r.field)) continue;
       seen.add(r.field);
@@ -856,6 +893,7 @@ function readsForUi(ui: UiIR, contexts: EnrichedBoundedContextIR[]): FelizRead[]
       bcByAggregate,
       projectionNames,
       projectionIRs,
+      workflowIRs,
     )) {
       if (seen.has(r.field)) continue;
       seen.add(r.field);
@@ -1126,6 +1164,12 @@ function renderAppFs(
    *  the subscription states the credential explicitly so the contract holds if
    *  the base ever moves cross-origin. */
   realtimeCredential: RealtimeStreamCredential = "none",
+  /** Called with each page's rendered view-function TEXT as it is produced.
+   *  `App.fs` is assembled by one `lines(…)` at the end of this function, so a
+   *  caller that wants per-page regions inside it (the `--sourcemap` recorder)
+   *  cannot recover them from the finished string — it collects them here and
+   *  anchors each one afterwards. */
+  onPageView?: (page: PageIR, viewText: string) => void,
 ): string {
   const pages = ui.pages;
   if (pages.length === 0) {
@@ -1462,8 +1506,8 @@ function renderAppFs(
   const rootFn = authUi ? "appView" : "view";
   const rootViews = routed
     ? [
-        ...pages.map((p) =>
-          renderPageView(
+        ...pages.map((p) => {
+          const text = renderPageView(
             p,
             ui,
             aggregatesByName,
@@ -1479,29 +1523,35 @@ function renderAppFs(
             pageGate,
             authUi,
             i18nEnabled,
-          ),
-        ),
+          );
+          onPageView?.(p, text);
+          return text;
+        }),
         "",
-        renderRootView(pages, nameCtx, rootFn, ui.name, i18nEnabled),
+        renderRootView(pages, nameCtx, rootFn, ui.name, i18nEnabled, pageGate),
       ]
     : [
-        renderPageView(
-          pages[0]!,
-          ui,
-          aggregatesByName,
-          workflowsByName,
-          rootFn,
-          [], // single-page (non-routed) branch: no route params
-          bcByAggregate,
-          bcByWorkflow,
-          userComponents,
-          externFunctionNames,
-          used,
-          asyncEffectActions,
-          pageGate,
-          authUi,
-          i18nEnabled,
-        ),
+        ((): string => {
+          const text = renderPageView(
+            pages[0]!,
+            ui,
+            aggregatesByName,
+            workflowsByName,
+            rootFn,
+            [], // single-page (non-routed) branch: no route params
+            bcByAggregate,
+            bcByWorkflow,
+            userComponents,
+            externFunctionNames,
+            used,
+            asyncEffectActions,
+            pageGate,
+            authUi,
+            i18nEnabled,
+          );
+          onPageView?.(pages[0]!, text);
+          return text;
+        })(),
       ];
   // A gated app defines `forbiddenView` ahead of the page views that render it
   // (the claims-fallback element).
@@ -2002,6 +2052,10 @@ export function generateFelizForContexts(
     hasEffects ||
     hasFileUploads;
   const backendRealtime = backendServesRealtime(target?.platform);
+  // `--sourcemap` (M-T8.1 / `ddd trace`): collected while `App.fs` is built,
+  // anchored once it exists.  Feliz emits ONE file for the whole ui, so a page
+  // is a REGION of `src/App.fs` rather than a file of its own.
+  const pageViews: { page: PageIR; text: string }[] = [];
   const appFs = renderAppFs(
     ui,
     contexts,
@@ -2011,8 +2065,24 @@ export function generateFelizForContexts(
     // Stream credential from the shared realtime plan (M-T4.12 RULE 2) — the
     // SAME gate the app's other authenticated traffic rides.
     realtimeStreamCredential(deployable, target, sys.user),
+    options.sourcemap ? (page, text) => pageViews.push({ page, text }) : undefined,
   );
   out.set("src/App.fs", appFs);
+  if (options.sourcemap) {
+    const appPath = `${options.pathPrefix ?? ""}src/App.fs`;
+    for (const { page, text } of pageViews) {
+      // `fragment` is the honest-anchor API: a view text that is absent from
+      // `App.fs`, or present more than once, records NOTHING rather than
+      // guessing a line range.
+      options.sourcemap.fragment(appPath, appFs, text, [
+        {
+          rel: [1, (text.match(/\n/g)?.length ?? 0) + 1],
+          origin: page.origin,
+          construct: pageConstructId(ui.name, page),
+        },
+      ]);
+    }
+  }
   // The emitted source is the authority for its own package refs — see above.
   out.set("App.fsproj", fsproj(hasHttp, appFs.includes(ROUTER_OPEN), authUi, hasFileUploads));
   out.set(".config/dotnet-tools.json", DOTNET_TOOLS);

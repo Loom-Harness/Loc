@@ -20,6 +20,7 @@ import {
   lowerExprInContext,
   pathType,
   provSiteFor,
+  thisTypeOf,
 } from "./lower-expr.js";
 import {
   cstText,
@@ -180,6 +181,79 @@ function lowerStatementInner(stmt: Statement, env: Env): { stmt: StmtIR; envAfte
   }
   if (isAssignOrCallStmt(stmt)) {
     const lv: LValue = stmt.target;
+    if (!stmt.op && lv.thisRef) {
+      // `this.<…>` with no mutation suffix — an explicitly this-rooted CALL.
+      //
+      // This branch exists to be the ONLY one a this-rooted lvalue can reach.
+      // Every arm below resolves `lv.head` as a FREE name — a sibling action, a
+      // store, a domain service, an ambient resource handle — and `this.` is
+      // precisely the spelling that says the head is not free.  Letting
+      // `this.files.put(k, v)` fall through to the resource arm because some
+      // `resource files` is in scope would lower a member call on the enclosing
+      // aggregate into an infrastructure call, silently.
+      const args = (lv.args ?? []).map((a) => lowerExpr(a, env));
+      if (lv.call && lv.tail.length === 0) {
+        // `this.recalc()` — a self-call on the enclosing aggregate.  Same IR as
+        // the bare `recalc()` spelling, minus the free-name arms.
+        const fn = findFunctionInEnv(env, lv.head);
+        const target: "function" | "private-operation" = fn ? "function" : "private-operation";
+        const targetPrivate =
+          target === "private-operation"
+            ? (findOperationInEnv(env, lv.head)?.private ?? false)
+            : undefined;
+        return {
+          stmt: {
+            kind: "call",
+            target,
+            name: lv.head,
+            args,
+            ...(targetPrivate ? { targetPrivate } : {}),
+          },
+          envAfter: env,
+        };
+      }
+      if (lv.call) {
+        // `this.<prop>.<verb>(args)` — a call whose receiver is a this-prop.
+        // Built as `member(this, prop)`, the same IR the EXPRESSION path
+        // produces for `this.prop.verb(...)`, so the two spellings agree.
+        const segs = [lv.head, ...lv.tail];
+        let recv: ExprIR = { kind: "this" };
+        let recvType: TypeIR = thisTypeOf(env);
+        for (let i = 0; i < segs.length - 1; i++) {
+          const memberType = pathType({ segments: segs.slice(0, i + 1) }, env, true);
+          recv = {
+            kind: "member",
+            receiver: recv,
+            member: segs[i]!,
+            receiverType: recvType,
+            memberType,
+          };
+          recvType = memberType;
+        }
+        return {
+          stmt: {
+            kind: "expression",
+            expr: {
+              kind: "method-call",
+              receiver: recv,
+              member: segs[segs.length - 1]!,
+              args,
+              receiverType: recvType,
+              isCollectionOp: false,
+            },
+          },
+          envAfter: env,
+        };
+      }
+      // `this.x` alone — not a call and not an assignment.  Mirrors the
+      // fallback the un-prefixed form takes; the AST validator rejects it
+      // ("Bare statement must be an assignment, collection mutation, or
+      // function/operation call.").
+      return {
+        stmt: { kind: "call", target: "function", name: lv.head, args: [] },
+        envAfter: env,
+      };
+    }
     if (!stmt.op) {
       // `name(args)` — sibling action, local function, or private operation.
       if (lv.call && lv.tail.length === 0) {
@@ -339,7 +413,7 @@ function lowerStatementInner(stmt: Statement, env: Env): { stmt: StmtIR; envAfte
       // money-typed target lowers as money — `subtotal := 0.50`
       // becomes `lit("money", "0.50")` so the backend emits the
       // precise constructor.
-      const targetType = pathType(path, env);
+      const targetType = pathType(path, env, lv.thisRef);
       const value = lowerExprInContext(stmt.value, targetType, env);
       return {
         stmt: { kind: "assign", target: path, value, targetType, prov },
@@ -347,7 +421,7 @@ function lowerStatementInner(stmt: Statement, env: Env): { stmt: StmtIR; envAfte
       };
     }
     if (stmt.op === "+=" || stmt.op === "-=") {
-      const targetType = pathType(path, env);
+      const targetType = pathType(path, env, lv.thisRef);
       const collection = targetType.kind === "array";
       const elementType = collection ? targetType.element : targetType;
       // Element-type context applies for both array push (`+=`) and

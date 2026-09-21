@@ -15,6 +15,7 @@ import {
   storeModelField,
   storeMsgCase,
 } from "./fs-expr.js";
+import { fsIdent } from "./fs-ident.js";
 import { fsZeroValue, typeToFs } from "./type-fs.js";
 import type {
   FelizAction,
@@ -600,7 +601,7 @@ function renderUpdateStmt(stmt: ActionIR["body"][number], ctx: FsExprCtx): Updat
       return { line: `      let model = ${nestedFsWith(seg, value, ctx)}` };
     }
     case "let":
-      return { line: `      let ${stmt.name} = ${renderFsExpr(stmt.expr, ctx)}` };
+      return { line: `      let ${fsIdent(stmt.name)} = ${renderFsExpr(stmt.expr, ctx)}` };
     case "expression":
       // Bare expression statement (`name(args)` for effect).  A bare value in a
       // pure MVU arm must be discarded — `<expr> |> ignore` keeps the arm
@@ -789,7 +790,7 @@ export function renderUpdate(
       pageRoutes,
       ...armRouteId,
     };
-    const head = p ? `  | ${msgCase(a.name)} ${p.name} ->` : `  | ${msgCase(a.name)} ->`;
+    const head = p ? `  | ${msgCase(a.name)} ${fsIdent(p.name)} ->` : `  | ${msgCase(a.name)} ->`;
     return assembleArm(head, a.body, ctx);
   });
   // Store action arms — one Msg case per `<Store>.<action>`, rendered with a
@@ -807,7 +808,7 @@ export function renderUpdate(
         ...armRouteId,
       };
       const msg = storeMsgCase(store.name, a.name);
-      const head = p ? `  | ${msg} ${p.name} ->` : `  | ${msg} ->`;
+      const head = p ? `  | ${msg} ${fsIdent(p.name)} ->` : `  | ${msg} ->`;
       return assembleArm(head, a.body, ctx);
     });
   });

@@ -361,7 +361,8 @@ export function countWireWaivers(src) {
 }
 
 /** Open `gap` rows in the unsupported register — the parity sprint backlog
- *  (`openGaps()`).  `scope` rows are permanent-by-design and not debt. */
+ *  (`openGaps()`).  `seam` rows are latent gates whose set names every shipping
+ *  target; `scope` rows are permanent-by-design.  Neither is debt. */
 export function countOpenGaps(src) {
   const block = literalBlock(src, "export const UNSUPPORTED_REGISTER");
   if (block === undefined)
@@ -370,6 +371,7 @@ export function countOpenGaps(src) {
   if (rows === 0) throw new Error("unsupported-register.ts: no rows read — the format moved");
   return {
     gaps: (block.match(/^ {4}kind: "gap",$/gm) ?? []).length,
+    seam: (block.match(/^ {4}kind: "seam",$/gm) ?? []).length,
     scope: (block.match(/^ {4}kind: "scope",$/gm) ?? []).length,
     rows,
   };
@@ -702,7 +704,7 @@ export function renderReport({ now, days, registers, prev, prevStats, stats, prs
     `| wire-golden waivers | ${registers.wireWaivers} | ${was(prevWaivers)} | ${arrow(registers.wireWaivers, prevWaivers)} |`,
   );
   lines.push(
-    `| unsupported-register open gaps | ${registers.register.gaps} | ${was(prev?.register?.gaps)} | ${arrow(registers.register.gaps, prev?.register?.gaps ?? null)} · ${registers.register.scope} \`scope\` rows (by design) |`,
+    `| unsupported-register open gaps | ${registers.register.gaps} | ${was(prev?.register?.gaps)} | ${arrow(registers.register.gaps, prev?.register?.gaps ?? null)} · ${registers.register.seam} \`seam\` (latent) · ${registers.register.scope} \`scope\` rows (by design) |`,
   );
   lines.push(
     `| HEEx parity pins | ${registers.heexPins.length} | ${was(prevPins)} | ${arrow(registers.heexPins.length, prevPins)} |`,

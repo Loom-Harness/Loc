@@ -40,8 +40,9 @@ import type {
   VariantMatchSpec,
   WalkerTarget,
 } from "../../_walker/target.js";
-import { emitExpr, type WalkContext } from "../../_walker/walker-core.js";
+import { emitExpr, type WalkContext, walk } from "../../_walker/walker-core.js";
 import { renderAngularAction } from "../action.js";
+import { angularComponentSelector } from "../component-selector.js";
 import { renderAngularCreateForm } from "../create-form.js";
 import { renderAngularDestroyForm } from "../destroy-form.js";
 import { renderAngularModal } from "../modal.js";
@@ -368,61 +369,16 @@ export const angularTarget: WalkerTarget = {
     return call.kind === "call" ? renderAngularWorkflowForm(call, ctx, depth) : null;
   },
 
-  /** Invoke an `extern` component via Angular's `NgComponentOutlet` — the
-   *  clean, selector-free binding: render `<ng-container
-   *  [ngComponentOutlet]="<Name>" [ngComponentOutletInputs]="{ … }">`, passing
-   *  each declared param as an input keyed by param name.  Angular has no
-   *  PascalCase component tag (the JSX-family `<Name prop={…} />` shape), so
-   *  the shared `emitUserComponent` is bypassed; the page shell imports the
-   *  component class from its re-export shim, re-exposes it as a member (the
-   *  outlet reads it against the instance), and registers `NgComponentOutlet`.
-   *  Positional + named args map to param names exactly as `emitUserComponent`
-   *  does; an extra positional arg (a JSX child on the other frontends) has no
-   *  `ngComponentOutlet` analogue in v0 — `ngComponentOutletInputs` sets
-   *  INPUTS, and the outlet has no content-projection channel, so a
-   *  `Slot {}` the component declares has nowhere to land.  Such an arg is
-   *  still dropped, but NOT silently: each one leaves a degradation comment
-   *  next to the outlet, so the drop is visible in the emitted template and to
-   *  a marker-scanning parity gate (F2-CFE-8).  Every other frontend projects
-   *  the child (`<Panel item={r}><Text>…</Text></Panel>` on React). */
-  renderUserComponent(call: ExprIR, ctx: WalkContext, _depth: number): string | null {
-    if (call.kind !== "call") return null;
-    const params = ctx.userComponents.get(call.name) ?? [];
-    ctx.usedUserComponents.add(call.name);
-    const argNames = call.argNames ?? [];
-    const filledByName = new Set(argNames.filter((n): n is string => n !== undefined));
-    const entries: string[] = [];
-    let droppedChildren = 0;
-    let cursor = 0;
-    for (let i = 0; i < call.args.length; i++) {
-      const arg = call.args[i]!;
-      const named = argNames[i];
-      let paramName: string | undefined;
-      if (named !== undefined) {
-        paramName = named;
-      } else {
-        while (cursor < params.length && filledByName.has(params[cursor]!.name)) cursor += 1;
-        paramName = params[cursor]?.name;
-        if (paramName !== undefined) cursor += 1;
-      }
-      if (paramName === undefined) {
-        droppedChildren += 1;
-        continue;
-      }
-      entries.push(`${paramName}: ${emitExpr(arg, ctx)}`);
-    }
-    const outlet = ` [ngComponentOutlet]="${call.name}"`;
-    // Rendered value expressions use double-quoted JS string literals, so the
-    // inputs object binds as a single-quoted attribute; `emitExpr` never emits
-    // a bare single quote (string literals go through JSON.stringify), so this
-    // quote choice is always safe.
-    const inputs =
-      entries.length > 0 ? ` [ngComponentOutletInputs]='{ ${entries.join(", ")} }'` : "";
-    const dropped =
-      droppedChildren > 0
-        ? `<!-- ${call.name}: ${droppedChildren} projected child${droppedChildren === 1 ? "" : "ren"} dropped — ngComponentOutlet has no content-projection channel -->`
-        : "";
-    return `<ng-container${outlet}${inputs}></ng-container>${dropped}`;
+  /** Invoke a user component.  Angular has no PascalCase component tag (the
+   *  JSX-family `<Name prop={…} />` shape), so the shared `emitUserComponent`
+   *  is bypassed and the call site takes one of two forms — see
+   *  `renderAngularUserComponent` below, which this seam delegates to with an
+   *  EMPTY tag-addressable set (every component through the outlet).  The two
+   *  real callers — `index.ts` (pages) and `components-emit.ts` (component
+   *  bodies) — walk with `angularTargetFor(<walked names>)` instead, so a
+   *  component Loom itself emitted is addressed by its own selector. */
+  renderUserComponent(call: ExprIR, ctx: WalkContext, depth: number): string | null {
+    return renderAngularUserComponent(call, ctx, depth, EMPTY_TAG_COMPONENTS);
   },
 
   /** `Button(to:)` → `router.navigateByUrl(<to>)` (bound as a statement by
@@ -733,3 +689,104 @@ export const angularTarget: WalkerTarget = {
   // target dependency one-directional (the builder imports the target for its
   // action-body sub-target; the target never imports the builder).
 };
+
+// ---------------------------------------------------------------------------
+// User-component call sites — the two addressing forms.
+// ---------------------------------------------------------------------------
+
+/** The tag-addressable set for the bare `angularTarget` const: empty, so a
+ *  caller that walks with the shared target keeps the selector-free outlet for
+ *  every component.  Only `angularTargetFor` narrows it. */
+const EMPTY_TAG_COMPONENTS: ReadonlySet<string> = new Set<string>();
+
+/** Render a user-component invocation, in whichever of the two Angular
+ *  addressing forms the component supports.
+ *
+ *  TAG (`tagAddressable.has(name)`) — a component LOOM emitted
+ *  (`components-emit.ts`), so its `@Component({ selector })` is a kebab tag
+ *  Loom knows: `<app-panel [label]='"a"'>…children…</app-panel>`.  This is the
+ *  form that PROJECTS CHILDREN: an extra positional argument (a JSX child on
+ *  every other frontend) walks as content between the tags and lands in the
+ *  component body's `Slot { }`, which `renderChildrenSlot` already emits as
+ *  `<ng-content></ng-content>`.  The page shell registers the component CLASS
+ *  in the standalone `imports: []`.
+ *
+ *  OUTLET — an `extern` component, whose class is hand-written and whose
+ *  selector Loom therefore does not know: `<ng-container
+ *  [ngComponentOutlet]="Panel" [ngComponentOutletInputs]='{ label: "a" }'>`.
+ *  The shell re-exposes the class as a component member (the outlet reads it
+ *  against the instance) and registers `NgComponentOutlet`.  This form has NO
+ *  content-projection channel — `ngComponentOutletInputs` sets INPUTS, and
+ *  `ngComponentOutletContent` takes pre-built DOM nodes (TS-side only) — so an
+ *  extra positional argument is still dropped here, with a degradation comment
+ *  next to the outlet and the compile-time
+ *  `loom.component-children-unsupported` warning beside it. */
+export function renderAngularUserComponent(
+  call: ExprIR,
+  ctx: WalkContext,
+  depth: number,
+  tagAddressable: ReadonlySet<string>,
+): string | null {
+  if (call.kind !== "call") return null;
+  const params = ctx.userComponents.get(call.name) ?? [];
+  ctx.usedUserComponents.add(call.name);
+  const argNames = call.argNames ?? [];
+  const filledByName = new Set(argNames.filter((n): n is string => n !== undefined));
+  // `name: <rendered expr>` per bound param, and the overflow positional args
+  // (the children) in source order.  Both halves are collected the same way in
+  // either form; only the assembly below diverges.
+  const bound: { name: string; value: string }[] = [];
+  const children: ExprIR[] = [];
+  let cursor = 0;
+  for (let i = 0; i < call.args.length; i++) {
+    const arg = call.args[i]!;
+    const named = argNames[i];
+    let paramName: string | undefined;
+    if (named !== undefined) {
+      paramName = named;
+    } else {
+      while (cursor < params.length && filledByName.has(params[cursor]!.name)) cursor += 1;
+      paramName = params[cursor]?.name;
+      if (paramName !== undefined) cursor += 1;
+    }
+    if (paramName === undefined) {
+      children.push(arg);
+      continue;
+    }
+    bound.push({ name: paramName, value: emitExpr(arg, ctx) });
+  }
+  // Rendered value expressions use double-quoted JS string literals, so every
+  // binding below is a SINGLE-quoted attribute; `emitExpr` never emits a bare
+  // single quote (string literals go through JSON.stringify), so this quote
+  // choice is always safe — in both forms.
+  if (tagAddressable.has(call.name)) {
+    const tag = angularComponentSelector(call.name);
+    const attrs = bound.map((b) => ` [${b.name}]='${b.value}'`).join("");
+    if (children.length === 0) return `<${tag}${attrs}></${tag}>`;
+    const inner = "  ".repeat(depth + 1);
+    const close = "  ".repeat(depth);
+    const projected = children.map((c) => walk(c, ctx, depth + 1)).join(`\n${inner}`);
+    return `<${tag}${attrs}>\n${inner}${projected}\n${close}</${tag}>`;
+  }
+  const entries = bound.map((b) => `${b.name}: ${b.value}`);
+  const outlet = ` [ngComponentOutlet]="${call.name}"`;
+  const inputs = entries.length > 0 ? ` [ngComponentOutletInputs]='{ ${entries.join(", ")} }'` : "";
+  const dropped =
+    children.length > 0
+      ? `<!-- ${call.name}: ${children.length} projected child${children.length === 1 ? "" : "ren"} dropped — ngComponentOutlet has no content-projection channel -->`
+      : "";
+  return `<ng-container${outlet}${inputs}></ng-container>${dropped}`;
+}
+
+/** The Angular target for one walk, told which user components Loom EMITTED —
+ *  i.e. which ones carry a Loom-known kebab selector and can therefore be
+ *  addressed by tag (and project children).  Everything else on the target is
+ *  shared by spread, so the two forms cannot drift apart. */
+export function angularTargetFor(tagAddressable: ReadonlySet<string>): WalkerTarget {
+  return {
+    ...angularTarget,
+    renderUserComponent(call: ExprIR, ctx: WalkContext, depth: number): string | null {
+      return renderAngularUserComponent(call, ctx, depth, tagAddressable);
+    },
+  };
+}
