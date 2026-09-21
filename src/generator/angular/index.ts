@@ -757,7 +757,9 @@ export class NotFoundComponent {}
 function renderAngularErrorBanner(errorTitleText: string): string {
   return [
     "    @if (errors.lastError(); as err) {",
-    '      <div role="alert" data-testid="root-error" style="padding:16px;font-family:system-ui,sans-serif">',
+    // `app-error`, not `root-error`: the same concept had two names, so any
+    // gate keyed on the React/Vue spelling passed Angular by default.
+    '      <div role="alert" data-testid="app-error" style="padding:16px;font-family:system-ui,sans-serif">',
     `        <h2 style="white-space:pre-wrap;color:#b91c1c">${errorTitleText}</h2>`,
     '        <pre style="white-space:pre-wrap;color:#b91c1c">{{ err.message }}</pre>',
     '        <button type="button" (click)="errors.reset()">Dismiss</button>',
