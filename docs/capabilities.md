@@ -44,6 +44,25 @@ aggregate Order with versioned { subject: string }
 The predicate `aggregateIsVersioned()` (`src/ir/util/versioned-capability.ts`) is
 the shared gate the five backend repositories and the migrations builder read.
 
+**Two guards, not one.** The `UPDATE … WHERE version = $2` above is *write-time*
+CAS: it catches an interleave between the load and the save **inside one
+request**. The guard that catches the user-visible lost update — two people open
+the same record, both save, the second overwrites — needs the version the client
+was *looking at*, and the client sends that as an `If-Match` entity-tag. The tag
+is **quoted** (RFC 9110 §8.8.3): `If-Match: "3"`, byte-identical to the `ETag`
+the read answered with. All five backends parse it; with the header absent each
+falls back to the version it just loaded, so the write-time guard still runs and
+the think-time one silently does not.
+
+The generated **React, Vue, Svelte and Angular** clients send it on the `update`
+operation, reading the version out of the by-id query cache — the row the user is
+looking at, under the key the mutation already invalidates on success. **Feliz
+and Flutter do not yet**: neither keeps the loaded record where the mutation can
+reach it, so a hand-written client on those targets should send the header
+itself. Which frontends send it is pinned by
+`test/generator/if-match-client-parity.test.ts`, and that the five backends
+accept the same grammar by `test/generator/if-match-grammar-parity.test.ts`.
+
 ## Surface
 
 `filter` / `stamp` are also usable directly (the building blocks a

@@ -1060,6 +1060,47 @@ field-service product with concurrent dispatchers this is a correctness bug in t
 nothing in the model can express "require the precondition".
 Time lost: 20 min.
 
+**FIXED (wave 5) — and verifying it found a second defect the finding does not mention.**
+Before writing the client half I checked what the backends would do *if* a client sent the
+header, since a precondition nobody accepts is worse than none. An entity-tag is a QUOTED
+string (RFC 9110 §8.8.3), and hono and Phoenix already answer a read with `ETag: "3"` — so
+`If-Match: "3"` is what a spec-correct client echoes back. Four backends strip the quotes
+(`node` regex, `.NET` `Trim('"')`, `python` `.strip(chr(34))`, `elixir` `String.trim("\"")`).
+**java bound the raw header to `@RequestHeader(…) Integer`**, so Spring's default
+String→Integer converter ran `Integer.valueOf("\"3\"")`. Measured on a real JDK 21 by
+compiling and running the emitted class, before and after:
+
+```
+BEFORE  Integer.valueOf(<3>) = 3   Integer.valueOf(<"3">) THROWS   Integer.valueOf(<*>) THROWS
+AFTER   expectedVersion(<3>) = 3   expectedVersion(<"3">) = 3      expectedVersion(<*>) = null
+```
+
+java also refused `*`, which RFC 9110 defines as *no* precondition rather than a malformed one.
+It survived for the same reason F-012's slugs and F-050's claim paths did: **the header is never
+on the wire, so the one backend that could not parse it was never asked to.** A cross-backend
+contract nothing exercises is one five implementations can disagree about in silence.
+
+The client half now sends `If-Match: "<version>"` on the guarded write from **react, vue, svelte
+and angular**, reading the version out of the by-id query cache — the row the user is looking at,
+under the key the mutation already invalidates. One shared `sendsIfMatchPrecondition`
+(`src/generator/_frontend/occ.ts`) rather than four copies, mirroring the backends' own
+`isVersionedUpdate`; a client that preconditioned every operation would change .NET's behaviour
+(it reads the header in request-context middleware), so the predicate is deliberately the
+intersection the five agree on.
+
+**Residual, stated rather than glossed: feliz and flutter do not send it.** Neither keeps the
+loaded record where the mutation can reach it — the Elmish `update` loop and Flutter's
+`http.post(apiUri(…))` call sites take the route `id` and nothing else — so wiring it there means
+threading the loaded record through the form seam. Both are listed by name and reason in
+`test/generator/if-match-client-parity.test.ts`, so the gap is a tracked number rather than a
+silent skip. Also not verified locally: `ng build` (node v22.22.2 vs the Angular CLI's v22.22.3
+floor), same limit as F-033's.
+
+**One correction to my own gate, recorded because it is the §59 shape.** The backend parity
+table's java row first pointed at `IfMatch.java` — and under mutation it kept passing while the
+controller bound an `Integer` and never called the helper at all. A row aimed at a file that is
+merely *present* is not aimed at the seam. It now reads the controller.
+
 ### F-024 — The generated OIDC login flow fails against the generated Keycloak realm (`offline_access` not granted), and then redirects to a 404
 Severity: **S1** (the advertised auth flow does not work out of the box)   Class: **SILENT** — nothing warns; the browser just shows `{"error":"token_exchange_failed"}`
 Area: system / OIDC handshake × generated realm import
