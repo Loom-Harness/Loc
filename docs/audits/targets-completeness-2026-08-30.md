@@ -141,20 +141,20 @@ gate already encodes the row's claim, run the gate.
 
 | metric | value |
 |---|---|
-| open rows | **122** |
+| open rows | **121** |
 | P0 | 0 |
 | P1 | 1 |
 | P2 | 5 |
-| P3 | 31 |
+| P3 | 30 |
 | P4 | 77 |
 | P5 | 8 |
-| kind: silent / honest / breadth / mission / stale-prose | 6 / 31 / 20 / 57 / 8 |
-| confidence: proven / likely / suspected | 21 / 100 / 1 |
+| kind: silent / honest / breadth / mission / stale-prose | 6 / 30 / 20 / 57 / 8 |
+| confidence: proven / likely / suspected | 21 / 99 / 1 |
 | class: faulty-fix / regression | 1 / 0 |
-| size S / M / L | 31 / 50 / 41 |
-| provenance: fleet1-only / fleet2-only / corroborated by both | 111 / 10 / 1 |
+| size S / M / L | 31 / 49 / 41 |
+| provenance: fleet1-only / fleet2-only / corroborated by both | 111 / 9 / 1 |
 | claimed by an open PR | 60 |
-| done / merged | 167 |
+| done / merged | 168 |
 | declined (not a gap: stale / breadth / duplicate / decided) | 7 |
 | conflicts | 10 |
 | checkedOk entries | 146 |
@@ -180,7 +180,6 @@ Sorted P0 (security / data-integrity, silent, proven) → P1 (other silent prove
 | P3 | `M-T5.19-a-workflow-test-anchor` | honest | like | language, node, dotnet, java, python, elixir | S | `WorkflowMember` still has no `TestBlock` arm |
 | P3 | `M-T5.5-stdlib-tail` | honest | like | language, node, dotnet, java, python, elixir | S | Stdlib tail — block-form top-level functions honestly refused; storable `duration` and the `std/*.ddd` prelude unbuilt |
 | P3 | `F2-CFE-10` | honest | prov | react, vue, svelte, angular, feliz, flutter, heex | M | String literals inside a `match` in a user-visible slot are silently untranslatable, while string `+` in the SAME slot is a hard validator error — `ddd i18n check --strict` passes on a page shipping hardcoded English |
-| P3 | `F2-EXPR-7` | honest | like | node, elixir, java, dotnet, python | M | `.first` on an empty collection has no cross-backend contract — 3 backends throw, node and elixir return an undefined/nil typed as non-optional |
 | P3 | `F2-W-08` | honest | prov | dotnet, java, node, python, elixir | M | A `valueobject` aggregate field publishes ONE shared component on node/python/elixir and TWO (`<VO>Request` + `<VO>Response`) on dotnet/java |
 | P3 | `F2-W-14` | honest | susp | dotnet | M | dotnet likely publishes an EMPTY schema for a union-returning operation's 200 body (no `UseOneOfForPolymorphism`) |
 | P3 | `M-T1.10-handler-vocabulary` | honest | like | react, vue, svelte, angular, feliz, flutter, phoenixLiveView | M | M-T1.10 — `on <channel>.<Event>` handler bodies remain a closed two-verb vocabulary (`toast` + `refetch`) |

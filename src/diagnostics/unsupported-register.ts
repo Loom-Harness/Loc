@@ -320,26 +320,6 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
     mission: "M-T6.32",
   },
   {
-    code: "loom.find-predicate-unsupported",
-    kind: "gap",
-    site: "src/ir/validate/checks/orm-adapter-checks.ts:284",
-    what:
-      "NO NAMED SHAPE is left on any adapter.  EF Core + Drizzle were always the full-subset " +
-      "baseline; `DAPPER_SUBSET = FULL_SUBSET` (wave C2 packet 2b); and mikroorm's last " +
-      "narrowing — a reference-collection membership whose ARGUMENT is a column rather than a " +
-      "bindable value — was never adapter-specific: the join-table subquery binds its target as " +
-      "a parameter on EVERY adapter, so packet 2f moved the refusal to a target-neutral rule in " +
-      "`firstNonQueryableNode` and deleted the descriptor arm (which is also what stopped the " +
-      "identical shape CRASHING drizzle codegen: the adapter gate keys on `dep.persistence`, " +
-      "which a DEFAULT-adapter deployable does not carry).  The row is KEPT rather than drained " +
-      "because the descriptors still carry fall-through arms and nobody has PROVED them " +
-      "unreachable — a spot probe (arithmetic in a predicate position) was preempted by " +
-      "`loom.find-where-not-queryable` upstream, which is suggestive, not a proof over the whole " +
-      "queryable subset.  Drain condition for M-T6.35: show the descriptors cannot fire, or " +
-      "delete them",
-    mission: "M-T6.35",
-  },
-  {
     code: "loom.flutter-async-effect-unsupported",
     kind: "scope",
     site: "src/ir/validate/checks/store-checks.ts:590",
@@ -501,7 +481,20 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
     site: "src/language/validators/inheritance.ts:275",
     what:
       "a `<Base> id` reference to a TPC (`ownTable`) abstract base — no single table to key the " +
-      "FK against; an all-shared TPH base IS allowed (mixed strategy has its own code)",
+      "FK against; an all-shared TPH base IS allowed (mixed strategy has its own code).  The " +
+      "REPRESENTATION is now ruled (**D-POLYMORPHIC-ID-REPRESENTATION**, wave C2 packet 2n): a " +
+      "plain id column, NO foreign key and NO discriminator, read through the delegating " +
+      "polymorphic base reader M-T5.7 already ships.  Measured with the gate bypassed, the " +
+      "SCHEMA needs no change at all — `migrations-builder`'s M-T4.4 filter already drops an FK " +
+      "whose target table does not exist, and a TPC base owns none, so node emits " +
+      "`payment_id UUID NOT NULL` + its index and nothing else.  What is left is TWO IDENTITY " +
+      "TYPES: java (`src/generator/java/index.ts`) and dotnet " +
+      "(`src/generator/dotnet/context-scaffolding-emit.ts`) both skip `<Base>Id` for an abstract " +
+      "TPC base while their entity/configuration emitters REFERENCE it, so both fail to compile; " +
+      "node / python / elixir are already correct.  Drain condition: emit those two, narrow the " +
+      "sibling `loom.polymorphic-id-ref-mixed-strategy` predicate to a `sharedTable` base (it " +
+      "fires on a PURE TPC hierarchy once this arm goes), and settle the id-FOLLOW path " +
+      "(`id-follow.ts` bulk load, a query-time `join <Base>`), which packet 2n did not exercise",
     mission: "M-T5.7",
   },
   {

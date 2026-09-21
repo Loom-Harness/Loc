@@ -14,6 +14,21 @@ export interface CollectionOpSignature {
   signature: string;
 }
 
+// Cross-backend semantics contract for the EDGE cases (the collection-op twin
+// of `src/util/intrinsics.ts`'s per-op edge notes — each op must behave the same
+// from `.ddd` source on every target, and the edge is pinned HERE rather than
+// rediscovered per backend):
+//
+//   - `first` is PARTIAL (**D-FIRST-ON-EMPTY**, RS-36): its declared type is a
+//     non-optional `T`, so an EMPTY receiver FAILS on every target rather than
+//     yielding a null typed as non-null.  The failure is the sanitized 500 RS-28
+//     governs — the request was valid and the model's assumption was not — and
+//     its message names `firstOrNull`.  node raises through an explicit guard
+//     (`_expr/js-collection-ops.ts`) and elixir through `hd/1`; dotnet `.First()`,
+//     java `.get(0)` and python `[0]` already raise natively.
+//   - `firstOrNull` is the TOTAL form: `T?`, null/nil on empty, never raises.
+//   - `min` / `max` / `avg` are likewise declared optional (`T?` / `decimal?`)
+//     and yield the empty value rather than raising.
 export const COLLECTION_OP_SIGNATURES: ReadonlyArray<CollectionOpSignature> = [
   { name: "count", signature: "int" },
   { name: "sum", signature: "(λ): decimal" },

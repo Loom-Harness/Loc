@@ -385,8 +385,18 @@ const REGISTER_FILE = path.join(srcRoot, "diagnostics", "unsupported-register.ts
  *  `valueobject` component parameter or extern signature type — are spelled on
  *  all four TS-prop frontends, so nothing a `.ddd` can currently declare
  *  reaches the gate: what remains is the carrier kinds, whose emission is
- *  blocked a layer up by their own gates. */
-const MAX_OPEN_GAPS = 19;
+ *  blocked a layer up by their own gates.
+ *
+ *  19 -> 18 (wave C2 packet 2n): `loom.find-predicate-unsupported` DRAINED.  It
+ *  was never an adapter narrowing: `firstNonQueryableNode` was position-blind,
+ *  so a predicate with no column in it (`where true`, a bool parameter, a
+ *  `currentUser` claim, `1 == 1`) was admitted and went four different ways
+ *  across the five backends.  Closed target-neutrally by
+ *  `firstNonQueryablePredicate`, plus the emitter arms the census found missing
+ *  (drizzle and MikroORM reach a value object's flattened bool column; Dapper
+ *  gained the VO-flattened arm it never had).  The descriptor module, its gate,
+ *  message and row are gone; a 17-shape x 4-adapter census replaces them. */
+const MAX_OPEN_GAPS = 18;
 
 /** Exact count of `seam` rows.  Changes only for a reviewed reason: a gate
  *  deleted (down), a new target registered that turns a seam back into a live

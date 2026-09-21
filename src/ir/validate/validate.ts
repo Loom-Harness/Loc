@@ -75,7 +75,6 @@ import {
   validateFieldMask,
   validateFileFieldObjectStorage,
   validateFilterBypassSupport,
-  validateFindPredicateAdapterSupport,
   validateFlutterActionBodies,
   validateFlutterPrimitiveSupport,
   validateFormLocalCollisions,
@@ -178,7 +177,6 @@ export function validateLoomModel(loom: EnrichedLoomModel): LoomDiagnostic[] {
     validateGuardPrincipalWithoutAuth(sys, diags);
     validateDapperSupport(sys, diags);
     validateTphFilterExpressibility(sys, diags);
-    validateFindPredicateAdapterSupport(sys, diags);
     validateNeedCapabilities(sys, diags);
     validateResourceConfig(sys, diags);
     validateApiResourceBindings(sys, diags);

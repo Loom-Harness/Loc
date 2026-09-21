@@ -581,54 +581,6 @@
       }
     },
     {
-      "id": "F2-EXPR-7",
-      "title": "`.first` on an empty collection has no cross-backend contract — 3 backends throw, node and elixir return an undefined/nil typed as non-optional",
-      "kind": "honest",
-      "class": null,
-      "confidence": "likely",
-      "targets": [
-        "node",
-        "elixir",
-        "java",
-        "dotnet",
-        "python"
-      ],
-      "fileTrees": [
-        "src/generator/dotnet/render-expr.ts",
-        "src/generator/java/render-expr.ts",
-        "src/generator/python/render-expr.ts",
-        "src/generator/typescript/render-expr.ts",
-        "src/generator/elixir/render-expr.ts",
-        "src/util/collection-ops.ts",
-        "src/util/intrinsics.ts"
-      ],
-      "evidence": [
-        {
-          "fleet": 2,
-          "id": "F2-EXPR-7",
-          "bucket": "probe-expr-stmt",
-          "text": "The five leaf tables disagree with nothing pinning them: src/generator/dotnet/render-expr.ts:899 `${recv}.First()` (InvalidOperationException on empty); src/generator/java/render-expr.ts:700 `${recv}.get(0)` (IndexOutOfBoundsException); src/generator/python/render-expr.ts:583 `${recv}[0]` (IndexError); src/generator/typescript/render-expr.ts:413 `${recv}[0]` (undefined); src/generator/elixir/render-expr.ts:882 `List.first(${recv})` (nil). Elixir's `first` and `firstOrNull` are literally the SAME snippet (:882 vs :883), so the non-optional form silently degrades. src/util/collection-ops.ts:23 declares `first` as returning `T` (non-optional) and the cross-backend semantics contract in src/util/intrinsics.ts pins edge behaviour for every scalar intrinsic but says nothing about `first`.\nEMITTED (node) /tmp/claude-0/-home-user-Loc/51e0d493-39ca-59a9-9783-d320c97c6f95/scratchpad/expr/out-node/d/domain/order.ts:120 — `get firstSku(): string { return (this._lines)[0].sku; }` — a `string`-typed getter that throws on an empty collection but returns `undefined` for a bare `lines.first`."
-        }
-      ],
-      "repro": "`derived firstSku: string = lines.first.sku` and `derived f: LineItem = lines.first` on an aggregate with an empty containment; generate for all five and compare. Fixture /tmp/claude-0/-home-user-Loc/51e0d493-39ca-59a9-9783-d320c97c6f95/scratchpad/expr/probe.ddd.",
-      "impact": "The same .ddd yields a 500 on java/.NET/python and a null/undefined that flows onto the wire (or a later NPE-equivalent) on node/elixir. A behavioral wire-golden captured on one backend cannot be trusted for another.",
-      "fix": "Pin the contract in src/util/collection-ops.ts the way src/util/intrinsics.ts pins scalar edge behaviour (either \"throws\" everywhere or \"first is optional\"), then align the five leaves and add a per-backend arm test. If \"throws\" wins, elixir needs `hd/1` and node an explicit guard.",
-      "size": "M",
-      "sources": [
-        "fleet2:probe-expr-stmt"
-      ],
-      "related_to": [],
-      "securityClass": false,
-      "P": 3,
-      "reverified": {
-        "date": "2026-09-10",
-        "against": "bc7ed8f8",
-        "method": "reconciliation 3 (packet C0.5) — repro re-run on this head, emitted output read",
-        "verdict": "reproduces",
-        "note": "RE-DERIVED across all five leaf tables, unchanged: dotnet `render-expr.ts:948 ${recv}.First()` (throws), java `:634 ${recv}.get(0)` (throws), python `:577 ${recv}[0]` (throws), elixir `:905 List.first(${recv})` (nil), TS `_expr/js-collection-ops.ts:67 ${recv}[0]` (undefined).  Three throw, two return an absent value typed non-optional; nothing pins the contract."
-      }
-    },
-    {
       "id": "F2-W-08",
       "title": "A `valueobject` aggregate field publishes ONE shared component on node/python/elixir and TWO (`<VO>Request` + `<VO>Response`) on dotnet/java",
       "kind": "honest",
@@ -6368,6 +6320,60 @@
         "remainingTargets": []
       },
       "note": "C2 (the elixir 403-vs-422 golden) is NOT closed and is handed off: its own fix field requires moving elixir's controller gate relative to the changeset cast (2a's fence) plus a five-backend wire-golden capture, which belongs with the coordinated C5 re-capture rather than an elixir gate move alone."
+    },
+    {
+      "id": "F2-EXPR-7",
+      "title": "CLOSED (wave C2, packet 2n) — D-FIRST-ON-EMPTY applied: `first` is PARTIAL on all five (node grew an explicit guard, elixir moved to `hd/1`), `firstOrNull` stays total, and the contract is pinned as RS-36 + `src/util/collection-ops.ts` prose.",
+      "kind": "honest",
+      "class": null,
+      "confidence": "proven",
+      "targets": [
+        "node",
+        "elixir",
+        "java",
+        "dotnet",
+        "python"
+      ],
+      "fileTrees": [
+        "src/generator/dotnet/render-expr.ts",
+        "src/generator/java/render-expr.ts",
+        "src/generator/python/render-expr.ts",
+        "src/generator/typescript/render-expr.ts",
+        "src/generator/elixir/render-expr.ts",
+        "src/util/collection-ops.ts",
+        "src/util/intrinsics.ts"
+      ],
+      "evidence": [
+        {
+          "fleet": 2,
+          "id": "F2-EXPR-7",
+          "bucket": "probe-expr-stmt",
+          "text": "The five leaf tables disagree with nothing pinning them: src/generator/dotnet/render-expr.ts:899 `${recv}.First()` (InvalidOperationException on empty); src/generator/java/render-expr.ts:700 `${recv}.get(0)` (IndexOutOfBoundsException); src/generator/python/render-expr.ts:583 `${recv}[0]` (IndexError); src/generator/typescript/render-expr.ts:413 `${recv}[0]` (undefined); src/generator/elixir/render-expr.ts:882 `List.first(${recv})` (nil). Elixir's `first` and `firstOrNull` are literally the SAME snippet (:882 vs :883), so the non-optional form silently degrades. src/util/collection-ops.ts:23 declares `first` as returning `T` (non-optional) and the cross-backend semantics contract in src/util/intrinsics.ts pins edge behaviour for every scalar intrinsic but says nothing about `first`.\nEMITTED (node) /tmp/claude-0/-home-user-Loc/51e0d493-39ca-59a9-9783-d320c97c6f95/scratchpad/expr/out-node/d/domain/order.ts:120 — `get firstSku(): string { return (this._lines)[0].sku; }` — a `string`-typed getter that throws on an empty collection but returns `undefined` for a bare `lines.first`."
+        },
+        {
+          "fleet": 0,
+          "id": "F2-EXPR-7",
+          "bucket": "wave-c2:2n-backends",
+          "text": "Two targets violated their own declared type and are fixed: node rendered a bare `${recv}[0]` (`undefined`) and elixir rendered `List.first/1` for BOTH `first` and `firstOrNull` — literally the same snippet, so the non-optional form had no distinct meaning.  node now emits an arrow-IIFE guard that throws and NAMES `firstOrNull` (`src/generator/_expr/js-collection-ops.ts`, receiver evaluated once — a ternary would emit the whole receiver chain twice); elixir emits `hd/1` (`src/generator/elixir/render-expr.ts`).  dotnet `.First()`, java `.get(0)` and python `[0]` already raised and are unchanged.  Pinned by `test/generator/collection-op-first-partial.test.ts` (18 cases: each backend's `first` matches a raising form named in the decision, `first` != `firstOrNull` per backend — which is the assertion that catches the elixir shape, since `List.first` reads as a plausible implementation of EITHER op — `firstOrNull` never raises, node names the receiver exactly once, and the catalogue still declares `first: T`).  Mutation-proved: reverting either emitter (file copy) fails 4 named assertions, incl. 'elixir renders `first` and `firstOrNull` identically'.  The FRONTEND half is vacuous today — `loom.frontend-collection-op-unsupported` refuses every stdlib collection op in a page body — so the shared JS table's guard is backend-reachable only."
+        }
+      ],
+      "repro": "`derived firstSku: string = lines.first.sku` and `derived f: LineItem = lines.first` on an aggregate with an empty containment; generate for all five and compare. Fixture /tmp/claude-0/-home-user-Loc/51e0d493-39ca-59a9-9783-d320c97c6f95/scratchpad/expr/probe.ddd.",
+      "impact": "The same .ddd yields a 500 on java/.NET/python and a null/undefined that flows onto the wire (or a later NPE-equivalent) on node/elixir. A behavioral wire-golden captured on one backend cannot be trusted for another.",
+      "fix": "Pin the contract in src/util/collection-ops.ts the way src/util/intrinsics.ts pins scalar edge behaviour (either \"throws\" everywhere or \"first is optional\"), then align the five leaves and add a per-backend arm test. If \"throws\" wins, elixir needs `hd/1` and node an explicit guard.",
+      "size": "M",
+      "sources": [
+        "fleet2:probe-expr-stmt"
+      ],
+      "related_to": [],
+      "securityClass": false,
+      "P": 3,
+      "reverified": {
+        "date": "2026-09-10",
+        "against": "bc7ed8f8",
+        "method": "reconciliation 3 (packet C0.5) — repro re-run on this head, emitted output read",
+        "verdict": "reproduces",
+        "note": "RE-DERIVED across all five leaf tables, unchanged: dotnet `render-expr.ts:948 ${recv}.First()` (throws), java `:634 ${recv}.get(0)` (throws), python `:577 ${recv}[0]` (throws), elixir `:905 List.first(${recv})` (nil), TS `_expr/js-collection-ops.ts:67 ${recv}[0]` (undefined).  Three throw, two return an absent value typed non-optional; nothing pins the contract."
+      }
     },
     {
       "id": "feliz-flutter-persist-codec-asymmetry",
