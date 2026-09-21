@@ -149,3 +149,78 @@ system DeclaredAllActor {
     expect(hit, `no emitted ${platform} file carries the declared \`all\` predicate`).toBe(true);
   });
 });
+
+// ---------------------------------------------------------------------------
+// A `bool` PARAMETER compared against a `bool` column (python).
+//
+// The request-constant fold that lets `currentUser.role == "admin"` lower to a
+// host-language boolean is keyed on the shape "row-free and boolean" — and a
+// bare `bool` find parameter is exactly that.  Folded in VALUE position it
+// replaced the right-hand side of an ordinary comparison with the always-term:
+//
+//   SELECT … WHERE tickets.note = (tickets.id IS NOT NULL)      -- wrong rows
+//
+// emitted under `0 error(s)`.  The same re-entry crashed outright where the
+// operand was the whole predicate — `RangeError: Maximum call stack size
+// exceeded` out of `ddd generate system` (`pipeline-fuzz`, seeds 1 and 11) —
+// so one defect had a loud half and a silent half.  The fold now happens only
+// where a boolean is what the position wants.
+// ---------------------------------------------------------------------------
+
+const BOOL_PARAM_SRC = `
+system BoolParam {
+  subdomain S {
+    context C {
+      aggregate Ticket with crudish {
+        note: bool
+        title: string
+      }
+      repository Tickets for Ticket {
+        find byNote(v: bool): Ticket[] where this.note == v
+      }
+    }
+  }
+  storage primary { type: postgres }
+  resource st { for: C, kind: state, use: primary }
+  deployable api { platform: python contexts: [C] dataSources: [st] port: 3000 }
+}`;
+
+const BOOL_CONST_SRC = `
+system BoolConst {
+  subdomain S {
+    context C {
+      aggregate Doc with crudish {
+        title: string
+      }
+      repository Docs for Doc {
+        find visible(flag: bool): Doc[] where flag == true
+      }
+    }
+  }
+  storage primary { type: postgres }
+  resource st { for: C, kind: state, use: primary }
+  deployable api { platform: python contexts: [C] dataSources: [st] port: 3000 }
+}`;
+
+describe("a `bool` parameter in value position is the parameter, not an always-term", () => {
+  it("python compares the column against the parameter", async () => {
+    const files = await generateSystemFiles(BOOL_PARAM_SRC);
+    const repo = file(files, "db/repositories/ticket_repository.py");
+    expect(repo).toContain("TicketRow.note == v");
+    // The always-term's signature — `id IS NOT NULL` chosen because it is true
+    // for every row.  Spliced HERE it is the folded parameter, and the read
+    // answers for rows the `.ddd` excluded.
+    expect(repo).not.toContain("TicketRow.id.isnot(None) if v");
+  });
+
+  // The OTHER side of the same seam: a comparison that genuinely IS a request
+  // constant (`flag == true` — no column on either side) still folds, and its
+  // operands are rendered by the ordinary arms.  Lowering an operand through
+  // the fold again would not terminate: `flag` is itself a request constant,
+  // so `lower` -> `requestConstantHost` -> `val` -> `lower` cycles on it.
+  it("python folds a genuinely request-constant comparison, operands and all", async () => {
+    const files = await generateSystemFiles(BOOL_CONST_SRC);
+    const repo = file(files, "db/repositories/doc_repository.py");
+    expect(repo).toContain("DocRow.id.isnot(None) if flag == True");
+  });
+});

@@ -216,7 +216,7 @@ function lowerOver(
   nullBools: ReadonlySet<string>,
 ): PyPredicate | null {
   const ops = new Set<string>();
-  const expr = lower(e, row, associations, ops, principalAccessor, nullBools);
+  const expr = lower(e, row, associations, ops, principalAccessor, nullBools, true);
   if (expr == null) return null;
   // Top-level boolean position: a filter that IS a bare boolean column
   // (`filter this.active`) lands straight in `.where(...)`, which wants the same
@@ -269,9 +269,15 @@ function alwaysTerm(host: string, row: string, ops: Set<string>): string {
  *  operand has no rendering — in which case the caller falls through to the
  *  ordinary arms and, failing those, to the coded refusal.
  *
- *  The operands are lowered through `lower` itself: a request constant is
- *  row-free by construction, so every arm `lower` can take on one renders the
- *  HOST value (a principal claim, a param, a literal) and no column can appear. */
+ *  The operands are lowered through `lower`'s ORDINARY arms — `foldRequestConstants: false`.
+ *  A request constant is row-free by construction, so every arm `lower` can take on one
+ *  renders the HOST value (a principal claim, a param, a literal) and no column can appear.
+ *  Re-entering the fold here would not terminate: a bare `bool` operand (a `bool` find
+ *  parameter, a `bool` claim) IS itself a `{ kind: "value" }` request constant, so
+ *  `lower` → `requestConstantHost` → `val` → `lower` would cycle on the same node until
+ *  the stack ran out — `RangeError: Maximum call stack size exceeded` out of
+ *  `ddd generate system`, on a model as ordinary as `find byNote(v: bool) where this.note == v`
+ *  (found by `pipeline-fuzz`, seeds 1 and 11). */
 function requestConstantHost(
   rc: RequestConstant,
   row: string,
@@ -281,7 +287,7 @@ function requestConstantHost(
   nullBools: ReadonlySet<string>,
 ): string | null {
   const val = (e: ExprIR): string | null =>
-    lower(e, row, associations, ops, principalAccessor, nullBools);
+    lower(e, row, associations, ops, principalAccessor, nullBools, false);
   if (rc.kind === "literal") return rc.value ? "True" : "False";
   if (rc.kind === "value") return val(rc.expr);
   const l = val(rc.left);
@@ -299,6 +305,27 @@ function lower(
   ops: Set<string>,
   principalAccessor: string,
   nullBools: ReadonlySet<string>,
+  /** Whether a request constant standing HERE should be folded into an
+   *  always-term.  A request constant is a BOOLEAN, so it folds only where a
+   *  boolean is what the position wants: the top level (`lowerOver`) and the
+   *  `&&` / `||` / `!` operands, which pass `true` explicitly; `paren`
+   *  propagates its caller's position.
+   *
+   *  Everywhere else is VALUE position and must not fold, which is why the
+   *  default is `false`.  Folding a value operand is wrong twice over:
+   *
+   *   - silently, on `find byNote(v: bool) where this.note == v` — the bare
+   *     `bool` parameter `v` is itself a `{ kind: "value" }` request constant,
+   *     so the comparison's RIGHT side became an always-term and the emitted
+   *     SQLAlchemy read `TicketRow.note == (TicketRow.id.isnot(None) if v else …)`,
+   *     comparing the column against a column expression instead of against
+   *     the parameter;
+   *   - and fatally, on the operands of a request constant already being
+   *     folded — `lower` → `requestConstantHost` → `val` → `lower` cycles on
+   *     the same node until the stack runs out (`RangeError: Maximum call
+   *     stack size exceeded` out of `ddd generate system`, `pipeline-fuzz`
+   *     seeds 1 and 11). */
+  foldRequestConstants = false,
 ): string | null {
   // A REQUEST CONSTANT standing in boolean position (`currentUser.role ==
   // "admin"`, a bare `true`) — every operand is fixed for the whole request, so
@@ -318,7 +345,7 @@ function lower(
   // == "admin" || ownerUserId == currentUser.id` keeps its column half as real
   // SQL.  That is what makes "a technician sees only their own, an admin sees
   // all" expressible.
-  {
+  if (foldRequestConstants) {
     const rc = asRequestConstant(e);
     if (rc !== null) {
       const host = requestConstantHost(rc, row, associations, ops, principalAccessor, nullBools);
@@ -418,8 +445,12 @@ function lower(
         );
         if (temporal != null) return temporal;
       }
-      const l = lower(e.left, row, associations, ops, principalAccessor, nullBools);
-      const r = lower(e.right, row, associations, ops, principalAccessor, nullBools);
+      // `&&`/`||` put their operands in BOOLEAN position, so a request
+      // constant there folds; every other operator compares VALUES, where a
+      // bare `bool` operand is the parameter itself and must stay one.
+      const boolPos = e.op === "&&" || e.op === "||";
+      const l = lower(e.left, row, associations, ops, principalAccessor, nullBools, boolPos);
+      const r = lower(e.right, row, associations, ops, principalAccessor, nullBools, boolPos);
       if (l == null || r == null) return null;
       if (e.op === "&&") {
         ops.add("and_");
@@ -432,7 +463,15 @@ function lower(
       return `(${l} ${e.op} ${r})`;
     }
     case "unary": {
-      const inner = lower(e.operand, row, associations, ops, principalAccessor, nullBools);
+      const inner = lower(
+        e.operand,
+        row,
+        associations,
+        ops,
+        principalAccessor,
+        nullBools,
+        e.op === "!",
+      );
       if (inner == null) return null;
       if (e.op === "!") {
         // A bare TPH-nullable bool column negates as `.is_(False)` rather than
@@ -446,7 +485,15 @@ function lower(
       return `${e.op}${inner}`;
     }
     case "paren":
-      return lower(e.inner, row, associations, ops, principalAccessor, nullBools);
+      return lower(
+        e.inner,
+        row,
+        associations,
+        ops,
+        principalAccessor,
+        nullBools,
+        foldRequestConstants,
+      );
     case "ref":
       // `this.<col>` → the row column; everything else (params, lets,
       // enum values, currentUser) renders as a plain bind value.
