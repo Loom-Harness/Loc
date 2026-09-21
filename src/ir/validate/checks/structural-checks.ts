@@ -872,66 +872,121 @@ export function validateEventSourcedDiscipline(
         statements: d.statements,
       })),
     ];
+    // DEEP, not one level.  A command body may branch (`if` / effect-form
+    // `match`), and a direct mutation or an unhandled `emit` inside a BRANCH
+    // breaks the event-sourcing discipline exactly as much as the same
+    // statement at the top of the body — yet the top-level-only scan accepted
+    // it silently.  This is the same hole `loom.function-block-impure` closed
+    // one screen up (see `check`'s "DEEP, not one level" note); it was left
+    // open here.  `walkStmtsDeep` is the census-sanctioned traversal.
+    const deepStmts = (stmts: StmtIR[]): StmtIR[] => {
+      const out: StmtIR[] = [];
+      for (const top of stmts) walkStmtsDeep(top, (n) => out.push(n));
+      return out;
+    };
     for (const cmd of commands) {
-      for (const stmt of cmd.statements) {
-        if (stmt.kind === "assign" || stmt.kind === "add" || stmt.kind === "remove") {
-          diags.push({
-            severity: "error",
-            code: "loom.event-sourced-direct-mutation",
-            message: diagMessage("loom.event-sourced-direct-mutation", {
-              name: agg.name,
-              label: cmd.label,
-            }),
-            source: `${ctx.name}/${agg.name}`,
-          });
-        }
-        if (stmt.kind === "emit" && !appliedEvents.has(stmt.eventName)) {
-          diags.push({
-            severity: "error",
-            code: "loom.emitted-event-unhandled",
-            message: diagMessage("loom.emitted-event-unhandled", {
-              name: agg.name,
-              label: cmd.label,
-              eventName: stmt.eventName,
-            }),
-            source: `${ctx.name}/${agg.name}`,
-          });
+      for (const stmt of deepStmts(cmd.statements)) {
+        switch (stmt.kind) {
+          case "assign":
+          case "add":
+          case "remove":
+            diags.push({
+              severity: "error",
+              code: "loom.event-sourced-direct-mutation",
+              message: diagMessage("loom.event-sourced-direct-mutation", {
+                name: agg.name,
+                label: cmd.label,
+              }),
+              source: `${ctx.name}/${agg.name}`,
+            });
+            break;
+          case "emit":
+            if (!appliedEvents.has(stmt.eventName)) {
+              diags.push({
+                severity: "error",
+                code: "loom.emitted-event-unhandled",
+                message: diagMessage("loom.emitted-event-unhandled", {
+                  name: agg.name,
+                  label: cmd.label,
+                  eventName: stmt.eventName,
+                }),
+                source: `${ctx.name}/${agg.name}`,
+              });
+            }
+            break;
+          // Discipline-neutral: guards, bindings, self-calls, the trailing
+          // expression, and the two branch statements whose bodies `deepStmts`
+          // already flattened into this list.
+          case "call":
+          case "expression":
+          case "if":
+          case "let":
+          case "precondition":
+          case "requires":
+          case "return":
+          case "variant-match":
+            break;
+          default: {
+            const _exhaustive: never = stmt;
+            void _exhaustive;
+          }
         }
       }
     }
 
-    // Rule 4 — applier bodies are pure folds.
+    // Rule 4 — applier bodies are pure folds.  Deep, for the same reason.
     for (const ap of appliers) {
-      for (const stmt of ap.statements) {
-        if (stmt.kind === "emit") {
-          diags.push({
-            severity: "error",
-            code: "loom.applier-emits",
-            message: diagMessage("loom.applier-emits", { name: agg.name, event: ap.event }),
-            source: `${ctx.name}/${agg.name}`,
-          });
-        } else if (stmt.kind === "call") {
-          diags.push({
-            severity: "error",
-            code: "loom.applier-impure-call",
-            message: diagMessage("loom.applier-impure-call", {
-              name: agg.name,
-              event: ap.event,
-              stmtName: stmt.name,
-            }),
-            source: `${ctx.name}/${agg.name}`,
-          });
-        } else if (stmt.kind === "precondition" || stmt.kind === "requires") {
-          diags.push({
-            severity: "error",
-            code: "loom.applier-guard",
-            message: diagMessage("loom.applier-guard", {
-              name: agg.name,
-              event: ap.event,
-              kind: stmt.kind,
-            }),
-            source: `${ctx.name}/${agg.name}`,
-          });
+      for (const stmt of deepStmts(ap.statements)) {
+        switch (stmt.kind) {
+          case "emit":
+            diags.push({
+              severity: "error",
+              code: "loom.applier-emits",
+              message: diagMessage("loom.applier-emits", { name: agg.name, event: ap.event }),
+              source: `${ctx.name}/${agg.name}`,
+            });
+            break;
+          case "call":
+            diags.push({
+              severity: "error",
+              code: "loom.applier-impure-call",
+              message: diagMessage("loom.applier-impure-call", {
+                name: agg.name,
+                event: ap.event,
+                stmtName: stmt.name,
+              }),
+              source: `${ctx.name}/${agg.name}`,
+            });
+            break;
+          case "precondition":
+          case "requires":
+            diags.push({
+              severity: "error",
+              code: "loom.applier-guard",
+              message: diagMessage("loom.applier-guard", {
+                name: agg.name,
+                event: ap.event,
+                kind: stmt.kind,
+              }),
+              source: `${ctx.name}/${agg.name}`,
+            });
+            break;
+          // A fold's legitimate vocabulary: state writes, bindings, the
+          // trailing expression, `return`, and the branch statements whose
+          // bodies `deepStmts` already flattened into this list.
+          case "assign":
+          case "add":
+          case "remove":
+          case "expression":
+          case "if":
+          case "let":
+          case "return":
+          case "variant-match":
+            break;
+          default: {
+            const _exhaustive: never = stmt;
+            void _exhaustive;
+          }
         }
       }
     }
@@ -1228,6 +1283,23 @@ export function validateFunctionBlockBodies(ctx: BoundedContextIR, diags: LoomDi
             );
           }
           break;
+        // The PURE half, named: a `let` binding, a trailing `expression`, a
+        // `return`, the two guard forms, and the two branch statements whose
+        // own bodies `walkStmtsDeep` already flattened into this list.  Spelled
+        // out rather than left to a fall-through so a new `StmtIR` kind is a
+        // `tsc` error and someone rules on which side of "pure" it lands.
+        case "precondition":
+        case "requires":
+        case "let":
+        case "expression":
+        case "return":
+        case "if":
+        case "variant-match":
+          break;
+        default: {
+          const _exhaustive: never = stmt;
+          void _exhaustive;
+        }
       }
     }
     // Expression-level impurity — any call that is not to a pure function or a
@@ -1900,8 +1972,35 @@ function lifecycleGuardIllegalReads(expr: ExprIR, label: "create" | "destroy"): 
         return;
       case "ref":
         break;
-      default:
+      // Every other kind carries no receiver of its own — `walkExprDeep` has
+      // already delivered (or will deliver) its children to this same visitor,
+      // so an instance-rooted read nested inside one is still seen through its
+      // own `this` / `call` / `ref` node.  Named rather than left to a
+      // `default:` so a new kind is a `tsc` error here.
+      case "action-ref":
+      case "authz-filter":
+      case "binary":
+      case "convert":
+      case "duration":
+      case "i18nFormat":
+      case "id":
+      case "lambda":
+      case "list":
+      case "literal":
+      case "match":
+      case "member":
+      case "method-call":
+      case "new":
+      case "object":
+      case "paren":
+      case "ternary":
+      case "unary":
         return;
+      default: {
+        const _exhaustive: never = node;
+        void _exhaustive;
+        return;
+      }
     }
     switch (node.refKind) {
       case "current-user":

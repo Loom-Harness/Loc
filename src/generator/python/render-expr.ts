@@ -251,8 +251,33 @@ export function addPyExprImport(x: ExprIR, into: Set<string>): void {
       // A5 temporal — an absolute constructor renders `timedelta(...)`.
       into.add("timedelta");
       break;
-    default:
+    // No import needed for the node ITSELF.  This is a PER-NODE callback, not a
+    // traversal: every call site drives it with `walkExprDeep` /
+    // `walkStmtExprsDeep`, so a money literal or an intrinsic nested inside any
+    // kind below is delivered here in its own right.  Named rather than left to
+    // a `default:` so a new `ExprIR` kind that DOES need an import is a `tsc`
+    // error here.
+    case "action-ref":
+    case "authz-filter":
+    case "call":
+    case "i18nFormat":
+    case "id":
+    case "lambda":
+    case "list":
+    case "match":
+    case "member":
+    case "new":
+    case "object":
+    case "paren":
+    case "ref":
+    case "ternary":
+    case "this":
+    case "unary":
       break;
+    default: {
+      const _exhaustive: never = x;
+      void _exhaustive;
+    }
   }
 }
 

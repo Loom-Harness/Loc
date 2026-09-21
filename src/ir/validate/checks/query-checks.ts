@@ -201,8 +201,31 @@ function describeSeedValue(e: ExprIR): string {
       return `'new ${e.partName}'`;
     case "object":
       return "object literal";
-    default:
+    // Everything else is described by its bare kind — this function only builds
+    // the human half of a diagnostic that has ALREADY been decided, so a kind
+    // with no prettier spelling degrades to a correct-but-terse one.  Named
+    // rather than left to a `default:` so a new `ExprIR` kind prompts the
+    // author to add a phrase for it.
+    case "action-ref":
+    case "authz-filter":
+    case "convert":
+    case "duration":
+    case "i18nFormat":
+    case "id":
+    case "lambda":
+    case "list":
+    case "literal":
+    case "match":
+    case "paren":
+    case "ternary":
+    case "this":
+    case "unary":
       return e.kind;
+    default: {
+      const _exhaustive: never = e;
+      void _exhaustive;
+      return (e as { kind: string }).kind;
+    }
   }
 }
 

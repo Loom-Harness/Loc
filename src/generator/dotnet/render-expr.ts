@@ -192,8 +192,36 @@ export function addCsExprUsing(x: ExprIR, into: Set<string>, ns: string): void {
         into.add(`${ns}.Domain.Services`);
       }
       break;
-    default:
+    // No using needed for the node ITSELF.  This is a PER-NODE callback, not a
+    // traversal: both call sites drive it with `walkExprDeep` /
+    // `walkStmtExprsDeep`, so every sub-expression of every kind below is
+    // delivered here in its own right and a nested `matches` / domain-service
+    // call is still seen.  Named rather than left to a `default:` so a new
+    // `ExprIR` kind that DOES need a namespace is a `tsc` error here.
+    case "action-ref":
+    case "authz-filter":
+    case "binary":
+    case "convert":
+    case "duration":
+    case "i18nFormat":
+    case "id":
+    case "lambda":
+    case "list":
+    case "literal":
+    case "match":
+    case "member":
+    case "new":
+    case "object":
+    case "paren":
+    case "ref":
+    case "ternary":
+    case "this":
+    case "unary":
       break;
+    default: {
+      const _exhaustive: never = x;
+      void _exhaustive;
+    }
   }
 }
 

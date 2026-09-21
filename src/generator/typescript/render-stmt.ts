@@ -108,8 +108,22 @@ function markableExprsOf(s: StmtIR): ExprIR[] {
       return s.args;
     case "emit":
       return s.fields.map((f) => f.value);
-    default:
+    case "if":
+      // The branch CONDITION.  The branch bodies are statements of their own and
+      // get their own chunks, so only the condition is markable here.  It was
+      // missing while `if` was still refused in an operation body; wave C2 made
+      // the shape legal on all five backends and the mark list was not widened
+      // with it, so a breakpoint on an `if` condition resolved to nothing.
+      return [s.cond];
+    // `variant-match` is frontend-only — it never reaches the TS backend (the
+    // shared spine's guard throws), so it carries no markable expression here.
+    case "variant-match":
       return [];
+    default: {
+      const _exhaustive: never = s;
+      void _exhaustive;
+      return [];
+    }
   }
 }
 

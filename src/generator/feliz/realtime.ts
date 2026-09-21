@@ -184,8 +184,37 @@ function exprReadsBinding(e: ExprIR, bind: string): boolean {
       return exprReadsBinding(e.inner, bind);
     case "binary":
       return exprReadsBinding(e.left, bind) || exprReadsBinding(e.right, bind);
-    default:
+    // Outside the v1 toast subset, so unreachable rather than merely safe: this
+    // predicate mirrors `renderFsToastMessage`'s supported vocabulary (literal /
+    // ref / member / paren / binary) arm for arm, and
+    // `loom.toast-message-unsupported`
+    // (`src/ir/validate/checks/ui-action-body-checks.ts#toastMessageProblem`)
+    // refuses every kind below at phase ⑦ — the renderer would `throw` on one.
+    // Named rather than left to a `default:` so the three vocabularies (gate,
+    // renderer, this predicate) have to move together.
+    case "action-ref":
+    case "authz-filter":
+    case "call":
+    case "convert":
+    case "duration":
+    case "i18nFormat":
+    case "id":
+    case "lambda":
+    case "list":
+    case "literal":
+    case "match":
+    case "method-call":
+    case "new":
+    case "object":
+    case "ternary":
+    case "this":
+    case "unary":
       return false;
+    default: {
+      const _exhaustive: never = e;
+      void _exhaustive;
+      return false;
+    }
   }
 }
 
@@ -201,8 +230,35 @@ function felizNeedsToastField(ui: UiIR): boolean {
         return reads(e.inner, bind);
       case "binary":
         return reads(e.left, bind) || reads(e.right, bind);
-      default:
+      // `ref` and `literal` are IN the toast subset but read no FIELD, so they
+      // answer false here too; every other kind is outside the subset entirely
+      // (see `exprReadsBinding` above for the three-way vocabulary argument).
+      // Named rather than left to a `default:` so a widened subset has to be
+      // ruled on here.
+      case "action-ref":
+      case "authz-filter":
+      case "call":
+      case "convert":
+      case "duration":
+      case "i18nFormat":
+      case "id":
+      case "lambda":
+      case "list":
+      case "literal":
+      case "match":
+      case "method-call":
+      case "new":
+      case "object":
+      case "ref":
+      case "ternary":
+      case "this":
+      case "unary":
         return false;
+      default: {
+        const _exhaustive: never = e;
+        void _exhaustive;
+        return false;
+      }
     }
   };
   return (ui.notifications ?? []).some((n) => n.toasts.some((t) => reads(t, n.bind)));

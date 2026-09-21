@@ -8,7 +8,7 @@ import type {
   ExprIR,
   FieldIR,
 } from "../../../ir/types/loom-ir.js";
-import { isMaterializedProjection } from "../../../ir/types/loom-ir.js";
+import { exprUsesCurrentUser, isMaterializedProjection } from "../../../ir/types/loom-ir.js";
 import { directParentName } from "../../../ir/util/containment-parent.js";
 import { aggregateHasFileField } from "../../../ir/util/file-field.js";
 import {
@@ -22,6 +22,7 @@ import { valueObjectPool } from "../../../ir/util/reachable-types.js";
 import { isDenyFilter } from "../../../ir/util/tenant-stance.js";
 import { isValueCollectionType, valueCollectionsFor } from "../../../ir/util/value-collections.js";
 import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
+import { walkExprDeep } from "../../../ir/util/walk.js";
 import { lines } from "../../../util/code-builder.js";
 import { plural, snake, upperFirst } from "../../../util/naming.js";
 import { projectionRowClass, projectionRowDbSet } from "../projection-state-emit.js";
@@ -826,41 +827,21 @@ function queryFilterName(
  *  (`softDelete`) don't.  Drives the conditional `Domain.Common` using for the
  *  ambient accessor.  Walks only the expr shapes a capability filter can take. */
 function exprRefsCurrentUser(e: ExprIR): boolean {
-  switch (e.kind) {
-    case "ref":
-      return e.refKind === "current-user" || e.name === "currentUser";
-    case "member":
-      return exprRefsCurrentUser(e.receiver);
-    case "binary":
-      return exprRefsCurrentUser(e.left) || exprRefsCurrentUser(e.right);
-    case "paren":
-      return exprRefsCurrentUser(e.inner);
-    case "unary":
-      return exprRefsCurrentUser(e.operand);
-    case "method-call":
-      return exprRefsCurrentUser(e.receiver) || e.args.some(exprRefsCurrentUser);
-    case "authz-filter":
-      // M-T9.9: the `scope` sentinel (deep/global read levels) references the
-      // principal through its claim sub-expressions, so it MUST route to the
-      // per-request `_currentUser` DbContext-field filter path (not the static
-      // per-entity config, where no `currentUser` is in scope).  `deny` is
-      // principal-free.  This hand-rolled walker has to mirror the shared
-      // `exprUsesCurrentUser`; before the sentinel got its own kind it was a
-      // `method-call` caught by the arm above.
-      return e.filter.kind === "scope"
-        ? exprRefsCurrentUser(e.filter.anchorClaim) || exprRefsCurrentUser(e.filter.tenantClaim)
-        : false;
-    case "call":
-      return e.args.some(exprRefsCurrentUser);
-    case "ternary":
-      return (
-        exprRefsCurrentUser(e.cond) ||
-        exprRefsCurrentUser(e.then) ||
-        exprRefsCurrentUser(e.otherwise)
-      );
-    default:
-      return false;
-  }
+  // Delegates to the shared derivation instead of mirroring it.  The
+  // hand-rolled twin this replaces SAID it had to mirror `exprUsesCurrentUser`
+  // and did not: it had no arm for `convert` / `match` / `list` / `new` /
+  // `object` / `duration` / `i18nFormat` / `lambda`, so a principal read in
+  // any of those routed the filter to the STATIC per-entity config path, where
+  // no `currentUser` is in scope.  One extra behaviour is deliberately kept
+  // below: this predicate also answers true for a principal spelled as a bare
+  // `ref` NAMED `currentUser` whose `refKind` did not resolve, which the
+  // shared helper (refKind-only) does not.
+  if (exprUsesCurrentUser(e)) return true;
+  let byName = false;
+  walkExprDeep(e, (n) => {
+    if (n.kind === "ref" && n.name === "currentUser") byName = true;
+  });
+  return byName;
 }
 
 function collectColumnRefs(e: ExprIR, out: Set<string>): void {
@@ -885,8 +866,34 @@ function collectColumnRefs(e: ExprIR, out: Set<string>): void {
         out.add(e.member);
       }
       return;
-    default:
+    // Contribute no column.  Narrowing this set can only lose an INDEX HINT or
+    // fall a filter's derived NAME back to the positional `Filter<n>` — both
+    // callers (`indexedColumnsFor`, `queryFilterName`) are advisory, and
+    // neither changes what the query DOES.  Named rather than left to a
+    // `default:` so a new `ExprIR` kind is a decision rather than a silent
+    // omission.
+    case "action-ref":
+    case "authz-filter":
+    case "call":
+    case "convert":
+    case "duration":
+    case "i18nFormat":
+    case "id":
+    case "lambda":
+    case "list":
+    case "literal":
+    case "match":
+    case "method-call":
+    case "new":
+    case "object":
+    case "ternary":
+    case "this":
       return;
+    default: {
+      const _exhaustive: never = e;
+      void _exhaustive;
+      return;
+    }
   }
 }
 

@@ -460,8 +460,31 @@ function lower(
     }
     case "literal":
       return renderPyExpr(e);
-    default:
+    // NOT lowerable to a SQLAlchemy column expression.  `null` is the
+    // caller's "this predicate is not queryable" signal — it is the SAFE
+    // direction (the read falls back / is refused), never a silently wrong
+    // WHERE.  `firstNonQueryableNode` (phase ⑦) already refuses every kind
+    // below, so reaching one is defensive.  Named rather than left to a
+    // `default:` so a new `ExprIR` kind is a decision taken against that gate.
+    case "action-ref":
+    case "call":
+    case "convert":
+    case "duration":
+    case "i18nFormat":
+    case "id":
+    case "lambda":
+    case "list":
+    case "match":
+    case "new":
+    case "object":
+    case "ternary":
+    case "this":
       return null;
+    default: {
+      const _exhaustive: never = e;
+      void _exhaustive;
+      return null;
+    }
   }
 }
 
@@ -526,8 +549,34 @@ function isColumnRooted(e: ExprIR): boolean {
       );
     case "method-call":
       return isColumnRooted(e.receiver);
-    default:
+    // Not rooted at a column of the row under query.  `false` routes the
+    // caller to the host-value path (`literal(...)` binding / the in-memory
+    // renderer) rather than interpolating a column that is not there, so a
+    // missing arm narrows a lowering, never widens one.  Named rather than
+    // left to a `default:` so a new `ExprIR` kind is a decision.
+    case "action-ref":
+    case "authz-filter":
+    case "binary":
+    case "call":
+    case "convert":
+    case "duration":
+    case "i18nFormat":
+    case "id":
+    case "lambda":
+    case "list":
+    case "literal":
+    case "match":
+    case "new":
+    case "object":
+    case "ternary":
+    case "this":
+    case "unary":
       return false;
+    default: {
+      const _exhaustive: never = e;
+      void _exhaustive;
+      return false;
+    }
   }
 }
 

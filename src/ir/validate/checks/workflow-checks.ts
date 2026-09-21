@@ -1459,29 +1459,61 @@ function validateWorkflowStatements(
           // without it the validator refused a form every backend emits.
           const branchLocal: string[] = [];
           for (const inner of body) {
-            if (inner.kind === "op-call") {
-              markMutated();
-              // Same suppression as the `for-each` arm above.
-              if (!bindingAgg.get(inner.target) && !crossContextBindings.has(inner.target)) {
-                diags.push({
-                  severity: "error",
-                  code: "loom.workflow-foreach-unknown-binding",
-                  message: diagMessage(
-                    "loom.workflow-foreach-unknown-binding#workflow-in-if-let-references",
-                    { name: wf.name, var: st.var, target: inner.target, op: inner.op },
-                  ),
-                  source: `${ctx.name}/${wf.name}`,
-                });
+            // One level, deliberately: this walk exists to resolve BRANCH-LOCAL
+            // `let` bindings, and a nested `for-each`/`if-let` opens a scope of
+            // its own that the arms above own.  Exhaustive all the same — a new
+            // `WorkflowStmtIR` kind that mutates or binds must be ruled on here,
+            // not silently ignored.
+            switch (inner.kind) {
+              case "op-call":
+                markMutated();
+                // Same suppression as the `for-each` arm above.
+                if (!bindingAgg.get(inner.target) && !crossContextBindings.has(inner.target)) {
+                  diags.push({
+                    severity: "error",
+                    code: "loom.workflow-foreach-unknown-binding",
+                    message: diagMessage(
+                      "loom.workflow-foreach-unknown-binding#workflow-in-if-let-references",
+                      { name: wf.name, var: st.var, target: inner.target, op: inner.op },
+                    ),
+                    source: `${ctx.name}/${wf.name}`,
+                  });
+                }
+                break;
+              case "emit":
+                markMutated();
+                break;
+              case "factory-let":
+                markMutated();
+                if (!bindingAgg.has(inner.name)) {
+                  bindingAgg.set(inner.name, inner.aggName);
+                  branchLocal.push(inner.name);
+                }
+                break;
+              case "repo-let":
+                if (!bindingAgg.has(inner.name)) {
+                  bindingAgg.set(inner.name, inner.aggName);
+                  branchLocal.push(inner.name);
+                }
+                break;
+              // Neither mutating nor aggregate-binding: the two guards, a pure
+              // `let`, an own-state write, a delete/read/resource/service call,
+              // and the two nesting kinds this walk deliberately does not enter.
+              case "precondition":
+              case "requires":
+              case "expr-let":
+              case "assign":
+              case "repo-delete":
+              case "repo-run":
+              case "resource-call":
+              case "domain-service-call":
+              case "for-each":
+              case "if-let":
+                break;
+              default: {
+                const _exhaustive: never = inner;
+                void _exhaustive;
               }
-            } else if (inner.kind === "emit" || inner.kind === "factory-let") {
-              markMutated();
-            }
-            if (
-              (inner.kind === "repo-let" || inner.kind === "factory-let") &&
-              !bindingAgg.has(inner.name)
-            ) {
-              bindingAgg.set(inner.name, inner.aggName);
-              branchLocal.push(inner.name);
             }
           }
           for (const n of branchLocal) bindingAgg.delete(n);
