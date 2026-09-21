@@ -11,6 +11,7 @@ import type {
 import { operationBodyUsesCurrentUser } from "../../../ir/util/op-gates.js";
 import { intrinsicMatcherSig } from "../../../util/intrinsic-matchers.js";
 import { escapeCsharpIdent, upperFirst } from "../../../util/naming.js";
+import { THROW_KIND_PREFIX } from "../../_test/throw-kind.js";
 import { renderCsExpr } from "../render-expr.js";
 
 // A currentUser-gated operation's method signature picks up a trailing
@@ -136,8 +137,8 @@ function renderTest(t: TestIR, ctx: BoundedContextIR): string[] {
   out.push(`[Fact(DisplayName = ${JSON.stringify(t.name)})]`);
   out.push(`public void ${methodName}()`);
   out.push(`{`);
-  for (const s of t.statements) {
-    const rendered = renderTestStmt(s, ctx);
+  for (const [i, s] of t.statements.entries()) {
+    const rendered = renderTestStmt(s, ctx, i);
     if (rendered) out.push(...rendered.split("\n"));
   }
   out.push(`}`);
@@ -248,7 +249,13 @@ export function renderExplicitMatcherToAwesome(expr: ExprIR): string | null {
   return `${actual}.Should().${method}(${arg});`;
 }
 
-function renderTestStmt(s: TestStmtIR, ctx: BoundedContextIR): string {
+function renderTestStmt(
+  s: TestStmtIR,
+  ctx: BoundedContextIR,
+  /** Position in the enclosing test body — only used to mint a collision-free
+   *  local for a `toThrow(<kind>)` assertion's bound exception. */
+  index = 0,
+): string {
   // See `validateAggregateTestBodies` in src/ir/validate/validate.ts — by the
   // time we reach the generator, only `expect` / `expect-throws` /
   // `let` / `expression` / pure-function `call` survive.
@@ -267,7 +274,21 @@ function renderTestStmt(s: TestStmtIR, ctx: BoundedContextIR): string {
     // binding a void call to `var` is a CS0815 error, so never do it for calls.
     const isInvocation = s.expr.kind === "method-call" || s.expr.kind === "call";
     const body = isInvocation ? `${expr};` : `var __ = ${expr};`;
-    return `    Assert.Throws<DomainException>(() => { ${body} });`;
+    const thrown = `Assert.Throws<DomainException>(() => { ${body} })`;
+    // `toThrow(<kind>)` — pin WHICH rung rejected.  `Assert.Throws` returns the
+    // caught exception, so the rung is one local plus `Assert.StartsWith` over
+    // the derived message prefix.  The local carries the statement index so
+    // two throw assertions in one `[Fact]` don't collide.
+    if (s.throwKind) {
+      const local = `__thrown${index}`;
+      return [
+        `    var ${local} = ${thrown};`,
+        `    Assert.StartsWith(${JSON.stringify(
+          THROW_KIND_PREFIX[s.throwKind],
+        )}, ${local}.Message);`,
+      ].join("\n");
+    }
+    return `    ${thrown};`;
   }
   if (s.kind === "let") {
     const expr = renderTestExpr(s.expr, ctx);

@@ -13,6 +13,7 @@ import type {
 import { operationBodyUsesCurrentUser } from "../../../ir/util/op-gates.js";
 import { findValueObjectInScope, valueObjectPool } from "../../../ir/util/reachable-types.js";
 import { escapeTsIdent, lowerFirst } from "../../../util/naming.js";
+import { throwKindPatternSource } from "../../_test/throw-kind.js";
 import { renderTsExpr } from "../render-expr.js";
 
 // A currentUser-gated operation's method signature picks up a trailing
@@ -290,7 +291,15 @@ function renderTestStmt(s: TestStmtIR, ctx: BoundedContextIR): string {
     throw new Error("expect requires a matcher (e.g. expect(x).toBe(y)); got a bare expression.");
   }
   if (s.kind === "expect-throws") {
-    return `  expect(() => { ${renderTestExpr(s.expr, ctx)}; }).toThrow();`;
+    const call = `() => { ${renderTestExpr(s.expr, ctx)}; }`;
+    // `toThrow(<kind>)` — pin WHICH rung rejected, not merely that something
+    // did.  vitest's `toThrow` takes a RegExp, so the rung's derived message
+    // prefix becomes an anchored pattern; without it a deleted `precondition`
+    // reads as green the moment an `invariant` throws in its place (F11).
+    if (s.throwKind) {
+      return `  expect(${call}).toThrow(/${throwKindPatternSource(s.throwKind)}/);`;
+    }
+    return `  expect(${call}).toThrow();`;
   }
   if (s.kind === "let") {
     return `  const ${escapeTsIdent(s.name)} = ${renderTestExpr(s.expr, ctx)};`;
