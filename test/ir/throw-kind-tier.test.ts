@@ -33,7 +33,10 @@ async function codesFor(src: string): Promise<string[]> {
   const services = createDddServices(NodeFileSystem);
   const doc = await parseHelper<Model>(services.Ddd)(src, { validation: true });
   const diags = validateLoomModel(enrichLoomModel(lowerModel(doc.parseResult.value)));
-  return diags.map((d) => d.code);
+  // `LoomDiagnostic.code` is optional, so narrow rather than declaring
+  // `string[]` over a `(string | undefined)[]` — the `test/` typecheck ratchet
+  // counts that as a new type error, and it only ever shrinks.
+  return diags.flatMap((d) => (d.code === undefined ? [] : [d.code]));
 }
 
 /** The audit's probe shape: ONE operation carrying BOTH rungs, so that deleting
