@@ -168,7 +168,7 @@ criterion as a first-class, reusable predicate.
 ### Deferred cases
 
 One narrow case remains gated by the IR validator
-(`validateContextFilterSupport`, code `loom.context-filter-unsupported`):
+(`validateContextFilterSupport`, code `loom.context-filter-no-principal`):
 
 - **A capability filter on a `shape: document` aggregate hosted on
   Python.**  Python wires relational + `shape: embedded` filters

@@ -494,7 +494,7 @@ describe.skipIf(!ENABLED)(
     // real columns, so it reuses the relational-principal path — the embedded
     // repository weaves `requireCurrentUser().tenantId` into every embedded
     // root read and imports `requireCurrentUser` from `../../auth/middleware`.
-    // Previously gated by `loom.context-filter-unsupported`.  Generated via
+    // Previously gated by `loom.context-filter-no-principal`.  Generated via
     // `generate system` (the user block + auth/middleware.ts are system-level);
     // this gate compiles the emitted embedded repository + the import.
     it("system embedded tenancy filter (principal filter on shape: embedded) — generated project type-checks", () => {
@@ -530,7 +530,7 @@ describe.skipIf(!ENABLED)(
     // binds `const currentUser = requireCurrentUser();` (fail-closed) and AND-s
     // the principal predicate over the rehydrated aggregate, importing
     // `requireCurrentUser` from `../../auth/middleware`.  Previously gated by
-    // `loom.context-filter-unsupported`.  Generated via `generate system` (the
+    // `loom.context-filter-no-principal`.  Generated via `generate system` (the
     // user block + auth/middleware.ts are system-level); this gate compiles the
     // emitted document repository + the import.
     it("system document tenancy filter (principal filter on shape: document) — generated project type-checks", () => {

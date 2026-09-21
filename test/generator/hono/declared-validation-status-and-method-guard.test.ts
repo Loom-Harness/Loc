@@ -88,7 +88,7 @@ describe("hono declared responses — 422 rides every parsed request part (F6)",
       const block = routeBlock(order, method, path);
       // The validator that PRODUCES the 422 …
       expect(block, `${method} ${path} parses {id}`).toContain(
-        "request: { params: z.object({ id: z.string().uuid() }) },",
+        "request: { params: z.object({ id: UuidString }) },",
       );
       // … and the declaration that admits it.
       expect(block, `${method} ${path} declares 422`).toContain(
