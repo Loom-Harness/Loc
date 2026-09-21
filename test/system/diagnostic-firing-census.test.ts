@@ -217,6 +217,82 @@ ${uiBody}
   deployable app { platform: flutter, targets: api, ui: App { Shop: api }, port: 3006 }
 }`;
 
+/** The `toThrow(<kind>)` probe (audit F11 / design M-T5.36 § 2a): one operation
+ *  carrying BOTH a `precondition` and a guarded collection `invariant`, with
+ *  the assertion spliced into whichever tier the fixture is about. */
+function throwKindProbe(opts: {
+  unitBody?: string;
+  contextTest?: string;
+  e2eTest?: string;
+  precondMessage?: string;
+}): string {
+  return `
+system Probe {
+  subdomain Ops {
+    context Work {
+      enum WorkStatus { Draft, InProgress, Completed }
+
+      aggregate WorkOrder {
+        reference: string
+        status: WorkStatus = Draft
+        contains tasks: Task[]
+        entity Task { label: string }
+
+        invariant tasks.count > 0 when status == Completed
+
+        create(reference: string, status: WorkStatus) { }
+
+        operation complete() {
+          precondition status == InProgress${opts.precondMessage ?? ""}
+          status := Completed
+        }
+${
+  opts.unitBody
+    ? `
+        test "probe" {
+          let wo = WorkOrder.create({ reference: "WO-1", status: Draft })
+${opts.unitBody}
+        }`
+    : ""
+}
+      }
+
+      repository WorkOrders for WorkOrder { }
+${
+  opts.contextTest
+    ? `
+      test "integration" {
+        let wo = WorkOrder.create({ reference: "WO-1", status: Draft })
+${opts.contextTest}
+      }`
+    : ""
+}
+    }
+  }
+${
+  opts.e2eTest
+    ? `
+  test e2e "wire" against d {
+    let wo = api.workOrders.create({ reference: "WO-1", status: Draft })
+${opts.e2eTest}
+  }`
+    : ""
+}
+
+  api WorkApi from Ops
+  storage primary { type: postgres }
+  resource workState { for: Work, kind: state, use: primary }
+
+  deployable d {
+    platform: node
+    contexts: [Work]
+    dataSources: [workState]
+    serves: WorkApi
+    port: 4000
+  }
+}`;
+}
+
 const FIRING_FIXTURES: Record<string, string> = {
   // A canonical `create` whose parameter list OMITS a required create-input
   // field.  `POST /things` still demands `secret` (no emitter reads
@@ -1930,6 +2006,27 @@ system S {
     expect(ui.technicians.create({ name: "" })).toThrow(422)
   }
 }`,
+  // --- P11a / audit F11: `toThrow(<kind>)`, the discriminating throw ---------
+  //
+  // Each fixture is minimal and ISOLATING — it raises its own code and no
+  // sibling from the packet, so a future regression names one gate.  All four
+  // share the audit's probe shape: ONE operation carrying BOTH rungs, a
+  // `precondition` and a guarded collection `invariant`, so that deleting the
+  // precondition leaves the invariant to throw in its place.  That substitution
+  // is what `toThrow()` could not see and what the kind form exists to name.
+  "loom.e2e-throw-kind-invalid": throwKindProbe({
+    e2eTest: `    expect(api.workOrders.complete(wo, { })).toThrow(precondition)`,
+  }),
+  "loom.throw-kind-integration-unsupported": throwKindProbe({
+    contextTest: `        expect(wo.complete()).toThrow(precondition)`,
+  }),
+  "loom.throw-kind-custom-message": throwKindProbe({
+    unitBody: `          expect(wo.complete()).toThrow(precondition)`,
+    precondMessage: ` message "finish the work first"`,
+  }),
+  "loom.throw-kind-outside-tothrow": throwKindProbe({
+    unitBody: `          expect(wo.reference).toBe(invariant)`,
+  }),
   "loom.seed-abstract-aggregate": repoOnly(`    abstract aggregate Base { name: string }
     aggregate Child extends Base with crudish { extra: int }
     repository Children for Child { }
