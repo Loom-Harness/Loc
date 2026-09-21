@@ -58,7 +58,11 @@ type Shape = {
 // PREDICATE POSITION, which is the axis the adapter descriptors lived on.
 const SHAPES: readonly Shape[] = [
   // ---- admitted: a comparison with a column on one side -------------------
-  { name: "compare: column vs literal", find: "find a1(): Order[] where this.qty > 3", admitted: true },
+  {
+    name: "compare: column vs literal",
+    find: "find a1(): Order[] where this.qty > 3",
+    admitted: true,
+  },
   {
     name: "compare: column vs param",
     find: "find a2(q: int): Order[] where this.qty == q",
