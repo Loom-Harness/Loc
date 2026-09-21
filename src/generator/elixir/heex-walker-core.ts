@@ -1632,9 +1632,13 @@ function renderNavigate(navArgs: readonly ExprIR[], ctx: WalkContext): string {
   return heexTarget.renderNavigate(routePath, args);
 }
 
-function renderToast(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkContext): string {
-  const msg = expr.args[0] ? renderExpr(expr.args[0], ctx) : `""`;
+function renderToastArgs(args: readonly ExprIR[], ctx: WalkContext): string {
+  const msg = args[0] ? renderExpr(args[0], ctx) : `""`;
   return `put_flash(socket, :info, ${msg})`;
+}
+
+function renderToast(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkContext): string {
+  return renderToastArgs(expr.args, ctx);
 }
 
 export interface PrimitiveSpec {
@@ -2277,6 +2281,17 @@ function renderStmt(stmt: StmtIR, ctx: WalkContext): string {
       // the mid-pipe socket the `push_navigate(socket, …)` shape needs.
       if (stmt.name === "navigate" && stmt.target === "private-operation") {
         return `|> then(fn socket -> ${renderNavigate(stmt.args, ctx)} end)`;
+      }
+      // `toast(<msg>)` is the exact twin of the `navigate` case above, and was
+      // missed when that one was fixed: also a `private-operation` call, so it
+      // also fell through to the bare-call line and emitted
+      // `|> tap(fn _ -> toast("Saved") end)` — an undefined function, i.e. an
+      // Elixir CompileError on a page whose only sin is a documented effect.
+      // `then/2` for the same reason: `put_flash/3` RETURNS the new socket, so
+      // `tap` would evaluate it and throw the result away even if the function
+      // existed.
+      if (stmt.name === "toast" && stmt.target === "private-operation") {
+        return `|> then(fn socket -> ${renderToastArgs(stmt.args, ctx)} end)`;
       }
       // Bare function / private-operation call statement.  Evaluated for
       // its effect; the socket flows through unchanged via `tap`.
