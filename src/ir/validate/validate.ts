@@ -2,6 +2,7 @@ import type { EnrichedLoomModel } from "../types/loom-ir.js";
 import { allContexts } from "../types/loom-ir.js";
 import { validateApplicationHandlers, validateRoutes } from "./checks/api-checks.js";
 import { validateStampReadsBeforeFlush } from "./checks/capability-checks.js";
+import { validateServerInitialisedFields } from "./checks/constructibility-checks.js";
 import type { LoomDiagnostic } from "./checks/diagnostic.js";
 import { validateDomainServices } from "./checks/domain-service-checks.js";
 import { validateEntityPartParams } from "./checks/entity-part-param-checks.js";
@@ -267,6 +268,7 @@ export function validateLoomModel(loom: EnrichedLoomModel): LoomDiagnostic[] {
     validateFunctionBlockBodies(c, diags);
     validateExternOperations(c, diags);
     validateStampReadsBeforeFlush(c, diags);
+    validateServerInitialisedFields(c, diags);
     validateEventSourcedDiscipline(c, diags);
     validateProjections(c, diags);
     validateWorkflows(

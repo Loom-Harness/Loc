@@ -1,4 +1,4 @@
-import type { AggregateIR, ExprIR, TypeIR } from "../../ir/types/loom-ir.js";
+import type { AggregateIR, ExprIR, FieldIR, TypeIR } from "../../ir/types/loom-ir.js";
 import { tryDetectApiHook } from "../_walker/api-hook-detector.js";
 import type { MemberReadSpec } from "../_walker/target.js";
 import type { WalkContext } from "../_walker/walker-core.js";
@@ -68,11 +68,72 @@ function apiReadFieldType(spec: MemberReadSpec): TypeIR | undefined {
  *  an optional `Location id?` and a required one both arrive as `string`. */
 export function apiReadMemberType(expr: ExprIR, ctx: WalkContext): TypeIR | undefined {
   if (expr.kind !== "member") return undefined;
-  const agg = recordAggregate(expr.receiver, ctx);
-  return agg?.fields.find((f) => f.name === expr.member)?.type;
+  const shape = recordShape(expr.receiver, ctx);
+  return shape?.fields.find((f) => f.name === expr.member)?.type;
 }
 
-/** The aggregate an expression evaluates to ONE RECORD of, or undefined. */
+/** The declared field list a record-valued page-body expression reads off —
+ *  an AGGREGATE's, or a contained entity PART's.
+ *
+ *  The part half is F-021.  A detail page's containment table walks
+ *  `Table(rows: noteById.data.lines, …)`, so every cell's row binding holds a
+ *  `NoteLine`, not a `Note` — and a part is not in `ctx.aggregatesByName` at
+ *  all (that registry is aggregates only, and widening it would change what
+ *  `CreateForm(of:)` / `IdLink(of:)` resolve).  Resolving nothing reads as
+ *  "required" downstream, which is how an OPTIONAL `tag: Tag id?` in a
+ *  containment row reached the pack as an unguarded `IdLink`: react, svelte and
+ *  angular linked to `/tags/null`, and Vue failed `vue-tsc` outright on
+ *  `:title="row.tag"` (`string | null | undefined` vs `RouterLinkProps`) — the
+ *  six-way split `_walker/primitives/id-link.ts`'s own header documents, for a
+ *  guard that simply never fired.
+ *
+ *  Parts are addressed by the QUALIFIED key `"<Aggregate>.<Part>"` rather than
+ *  a bare part name: part types are aggregate-scoped in the language (the scope
+ *  provider restricts a containment's partType to the declaring aggregate), so
+ *  two aggregates may each own a `Line`, and a bare name would silently resolve
+ *  to whichever was found first. */
+export type RowShape = { readonly name: string; readonly fields: readonly FieldIR[] };
+
+/** Resolve a row key — `"Note"` or the qualified `"Note.NoteLine"` — to the
+ *  shape whose fields the row's cells read. */
+export function rowShapeByKey(key: string | undefined, ctx: WalkContext): RowShape | undefined {
+  if (key === undefined) return undefined;
+  const dot = key.indexOf(".");
+  if (dot === -1) {
+    const agg = ctx.aggregatesByName.get(key);
+    return agg ? { name: agg.name, fields: agg.fields } : undefined;
+  }
+  const agg = ctx.aggregatesByName.get(key.slice(0, dot));
+  const part = agg?.parts.find((p) => p.name === key.slice(dot + 1));
+  return part ? { name: part.name, fields: part.fields } : undefined;
+}
+
+/** The row key a CONTAINMENT read yields rows of — `noteById.data.lines` →
+ *  `"Note.NoteLine"` — or undefined when the receiver is not a record of a
+ *  known aggregate or the member is not one of its containments. */
+export function containmentRowKey(expr: ExprIR, ctx: WalkContext): string | undefined {
+  if (expr.kind !== "member") return undefined;
+  const owner = recordAggregate(expr.receiver, ctx);
+  const contained = owner?.contains.find((c) => c.name === expr.member);
+  return owner && contained ? `${owner.name}.${contained.partName}` : undefined;
+}
+
+/** The shape an expression evaluates to ONE RECORD of, or undefined. */
+function recordShape(expr: ExprIR, ctx: WalkContext): RowShape | undefined {
+  if (expr.kind === "ref") {
+    return (
+      rowShapeByKey(ctx.paramTypes?.get(expr.name), ctx) ??
+      rowShapeByKey(ctx.listRowAggregates?.get(expr.name), ctx)
+    );
+  }
+  const agg = recordAggregate(expr, ctx);
+  return agg ? { name: agg.name, fields: agg.fields } : undefined;
+}
+
+/** The AGGREGATE an expression evaluates to one record of, or undefined.
+ *  Narrower than {@link recordShape} on purpose: a containment's OWNER has to
+ *  be a real aggregate (a part cannot be the root of an api hook), and the
+ *  `contains` list only exists there. */
 function recordAggregate(expr: ExprIR, ctx: WalkContext): AggregateIR | undefined {
   const named = (name: string | undefined): AggregateIR | undefined =>
     name === undefined ? undefined : ctx.aggregatesByName.get(name);
