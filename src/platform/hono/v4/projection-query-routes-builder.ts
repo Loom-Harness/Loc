@@ -37,14 +37,14 @@ import {
   groupKeyOf,
   wholeTableAggregates,
 } from "../../../ir/util/projection-aggregate.js";
-import { valueObjectPool } from "../../../ir/util/reachable-types.js";
-import { resolveErrorStatus } from "../../../util/error-defaults.js";
 import type { ProjectionColumn } from "../../../ir/util/projection-column.js";
 import {
   aggregateArgColumn,
   flatColumnKey,
   sqlColumnName,
 } from "../../../ir/util/projection-column.js";
+import { valueObjectPool } from "../../../ir/util/reachable-types.js";
+import { resolveErrorStatus } from "../../../util/error-defaults.js";
 import { lowerFirst, plural, snake, upperFirst } from "../../../util/naming.js";
 import { wireToDomainExpr, zodFor } from "./routes-builder.js";
 
@@ -586,7 +586,9 @@ function emitQueryProjectionRoute(
     const groupCols = grouped.groupBy.map((e) => groupKeyExpr(e, sourceTable)).join(", ");
     const cols = [
       ...grouped.keys.map((k) => `${k.field}: ${groupKeyExpr(k.expr, sourceTable, true)}`),
-      ...grouped.aggregates.map((s) => `${s.field}: ${drizzleAggregate(s.aggregate, sourceTable, colOf)}`),
+      ...grouped.aggregates.map(
+        (s) => `${s.field}: ${drizzleAggregate(s.aggregate, sourceTable, colOf)}`,
+      ),
     ].join(", ");
     out.push(
       `    const rows = await db.select({ ${cols} }).from(${sourceTable})${
@@ -939,11 +941,7 @@ const MIKRO_GROUP_KEY_TRANSFORM_SQL: Record<
  *  column); the rest take the aggregated column, which is source-row-rooted so
  *  it renders as the plain `schema.<table>.<field>` ref every other predicate
  *  in this file uses. */
-function drizzleAggregate(
-  agg: ProjectionAggregateIR,
-  sourceTable: string,
-  col: ColumnOf,
-): string {
+function drizzleAggregate(agg: ProjectionAggregateIR, sourceTable: string, col: ColumnOf): string {
   if (agg.op === "count" || !agg.arg) return "count()";
   return `${agg.op}(${aggregateColumn(agg.arg, sourceTable, col)})`;
 }

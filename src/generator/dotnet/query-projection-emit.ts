@@ -758,7 +758,9 @@ function renderAggregateHandler(
     // `QuerySingleAsync`, not `…OrDefault`.  Each aggregate is aliased to its
     // wire field's snake name, which is also the row property name, so Dapper's
     // column→property match is exact.
-    const cols = aggregates.map((s) => `${sqlAggregate(s, ctx, srcAgg)} AS ${sqlIdent(snake(s.field))}`);
+    const cols = aggregates.map(
+      (s) => `${sqlAggregate(s, ctx, srcAgg)} AS ${sqlIdent(snake(s.field))}`,
+    );
     members = aggregates
       .map(
         (s) =>
@@ -945,7 +947,9 @@ function renderGroupedHandler(
   // named after its wire field.
   const members = [
     ...cols.map((c) => `g.Key.${c.member}`),
-    ...grouped.aggregates.map((s) => `${upperFirst(s.field)} = ${csAggregate(s.aggregate, srcAgg, ctx)}`),
+    ...grouped.aggregates.map(
+      (s) => `${upperFirst(s.field)} = ${csAggregate(s.aggregate, srcAgg, ctx)}`,
+    ),
   ].join(", ");
   const orderBy = cols
     .map((c, i) => `.${i === 0 ? "OrderBy" : "ThenBy"}(x => x.${c.member})`)
@@ -999,7 +1003,9 @@ function renderGroupedHandler(
       const expr = sqlGroupKeyExpr(k.expr, proj.name);
       return expr === alias ? alias : `${expr} AS ${alias}`;
     }),
-    ...grouped.aggregates.map((s) => `${sqlAggregate(s, ctx, srcAgg)} AS ${sqlIdent(snake(s.field))}`),
+    ...grouped.aggregates.map(
+      (s) => `${sqlAggregate(s, ctx, srcAgg)} AS ${sqlIdent(snake(s.field))}`,
+    ),
   ].join(", ");
   const groupSql =
     `SELECT ${selectSql} FROM ${sqlIdent(dapperAggregateTable(source))}` +
@@ -1073,9 +1079,7 @@ function csAggregate(
   // A VALUE OBJECT is an EF OWNED type, so its leaf keeps the OBJECT PATH —
   // `o.Amount.Amount`, which EF translates to the `amount_amount` column.
   // Emitting the outermost member was `CS1061` on the owned property.
-  const col = `o.${aggregateArgColumn(agg.arg, src, ctx)
-    .path.map(upperFirst)
-    .join(".")}`;
+  const col = `o.${aggregateArgColumn(agg.arg, src, ctx).path.map(upperFirst).join(".")}`;
   // LINQ spells the extremes `Max`/`Min` and the rest `Sum`/`Average`.
   const fn = agg.op === "avg" ? "Average" : upperFirst(agg.op);
   return `g.${fn}(o => ${col})`;

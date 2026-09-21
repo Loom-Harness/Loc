@@ -8,7 +8,6 @@ import type {
 } from "../../ir/types/loom-ir.js";
 import { isQueryTimeProjection, queryProjectionUsesCurrentUser } from "../../ir/types/loom-ir.js";
 import { tableOwnerName } from "../../ir/util/inheritance.js";
-import { aggregateArgColumn, sqlColumnName } from "../../ir/util/projection-column.js";
 import {
   type AggregateSelect,
   aggregateCoercion,
@@ -19,6 +18,7 @@ import {
   groupKeyOf,
   wholeTableAggregates,
 } from "../../ir/util/projection-aggregate.js";
+import { aggregateArgColumn, sqlColumnName } from "../../ir/util/projection-column.js";
 import { valueObjectPool } from "../../ir/util/reachable-types.js";
 import { lines } from "../../util/code-builder.js";
 import { snake } from "../../util/naming.js";
