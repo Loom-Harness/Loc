@@ -1,6 +1,6 @@
 // Auto-generated.  Do not edit by hand.
 import { OpenAPIHono, createRoute, z } from "@hono/zod-openapi";
-import { ProblemDetails, frameworkProblemBody, newApp, parseIfMatch, requireJsonContentType, versionETag } from "./problem-details";
+import { ProblemDetails, UuidString, frameworkProblemBody, newApp, parseIfMatch, requireJsonContentType, versionETag } from "./problem-details";
 import { HTTPException } from "hono/http-exception";
 import { recordDomainFault, recordDomainOperation } from "../obs/metrics";
 import { Customer } from "../domain/customer";
@@ -129,7 +129,7 @@ export function customerRoutes(repo: CustomerRepository): OpenAPIHono {
       path: "/{id}",
       tags: ["customers"],
       operationId: "getCustomerById",
-      request: { params: z.object({ id: z.string().uuid() }) },
+      request: { params: z.object({ id: UuidString }) },
       responses: {
         200: { description: "OK", content: { "application/json": { schema: CustomerResponse } } },
         404: { description: "Not Found", content: { "application/problem+json": { schema: ProblemDetails } } },
@@ -151,7 +151,7 @@ export function customerRoutes(repo: CustomerRepository): OpenAPIHono {
       path: "/{id}",
       tags: ["customers"],
       operationId: "destroyCustomer",
-      request: { params: z.object({ id: z.string().uuid() }) },
+      request: { params: z.object({ id: UuidString }) },
       responses: {
         204: { description: "No Content" },
         404: { description: "Not Found", content: { "application/problem+json": { schema: ProblemDetails } } },
@@ -181,7 +181,7 @@ export function customerRoutes(repo: CustomerRepository): OpenAPIHono {
       tags: ["customers"],
       operationId: "updateCustomer",
       request: {
-        params: z.object({ id: z.string().uuid() }),
+        params: z.object({ id: UuidString }),
         body: { content: { "application/json": { schema: UpdateCustomerRequest } } },
       },
       responses: {

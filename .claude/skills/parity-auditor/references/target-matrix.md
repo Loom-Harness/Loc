@@ -163,7 +163,7 @@ snapshot that will drift.** The membership column is a 2026-09-10 reading.
 | Generic carriers (`paged<T>`, `envelope<T>`) | `SUPPORTED_PAGED_BACKENDS` | `structural-checks.ts` | all 5 |
 | `when` canCommand gate + `can_<op>` query | `SUPPORTED_WHEN_BACKENDS` | `structural-checks.ts` | all 5 |
 | Exception-less returns (`op(): X or NotFound`) | `SUPPORTED_RETURN_BACKENDS` | `structural-checks.ts` | all 5 |
-| Capability `filter` (relational / principal / non-relational) | `DOMAIN_FAMILIES` → `validateContextFilterSupport` | `system-checks.ts` | all 5 (`loom.context-filter-unsupported`) |
+| Capability `filter` (relational / principal / non-relational) | `DOMAIN_FAMILIES` → `validateContextFilterSupport` | `system-checks.ts` | all 5 (`loom.context-filter-no-principal`) |
 | Provenanced fields | `PROVENANCE_BACKENDS` | `system-checks.ts` | all 5 |
 | Per-operation `audited` | `AUDIT_OP_BACKENDS` | `system-checks.ts` | all 5 |
 | Audited **lifecycle** (`audited create`/`destroy`) | `AUDIT_LIFECYCLE_BACKENDS` | `system-checks.ts` | all 5 |

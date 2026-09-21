@@ -45,7 +45,21 @@ jobs:
       matrix:
         # The pack name selects the framework (packFormatForBuiltin): the React
         # packs scan showcase.ddd; the Vue/Svelte/Angular packs scan the shared
-        # scaffold system.  All four JSX/markup frontends are covered.
+        # scaffold system.  All four JSX/markup frontends are covered, plus
+        # Feliz.
+        #
+        # FLUTTER IS COVERED, BUT NOT HERE, AND CANNOT BE.  axe-core reads a
+        # DOM; Flutter web renders to CANVAS and publishes no element tree for
+        # it to walk (the HTML renderer is gone as of Flutter 3.29, and the
+        # semantics DOM only materialises after a user activates the a11y
+        # placeholder).  Flutter's a11y leg is therefore the emitted
+        # `test/a11y_test.dart` — Flutter's own four WCAG `meetsGuideline`
+        # matchers (android/iOS tap-target size, tap-target labelling, text
+        # contrast) over the real semantics tree — run by
+        # `generated-flutter-build.yml`'s `flutter test` step, ONE CASE PER
+        # PAGE since wave C2 (it scanned only the boot frame before).  Adding a
+        # `flutter` row here would scan an empty `<flt-glass-pane>` and report
+        # zero violations forever, which is worse than no row.
         pack:
           - 'mantine@v9'        # react
           - 'shadcn@v4'         # react

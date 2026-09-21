@@ -89,7 +89,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.workflow-handle-unsupported",
     kind: "gap",
-    site: "src/ir/validate/checks/workflow-checks.ts:437",
+    site: "src/ir/validate/checks/workflow-checks.ts:388",
     what:
       "`handle name(…) { … }`, the multi-command saga continuation, is emitted by NO backend — " +
       "not a route, not a handler, not a method.  It was silent before M-T5.34 (audit #2864 D5): " +
@@ -125,16 +125,6 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
     mission: "M-T1.3",
   },
   {
-    code: "loom.context-filter-unsupported",
-    kind: "gap",
-    site: "src/ir/validate/checks/context-filter-checks.ts:93",
-    what:
-      "a `currentUser`-referencing `filter` capability on a deployable with no `auth: required` " +
-      "+ system `user {}` — there is no principal to scope by.  The backend×shape half is gone: " +
-      "every family now wires capability filters (elixir document evaluates them in-app)",
-    mission: "M-T6.32",
-  },
-  {
     code: "loom.context-test-unsupported",
     kind: "seam",
     site: "src/language/validators/test-placement.ts:104",
@@ -163,21 +153,25 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   },
   {
     code: "loom.component-children-unsupported",
-    kind: "gap",
-    site: "src/ir/validate/checks/ui-framework-checks.ts:690",
+    kind: "scope",
+    site: "src/ir/validate/checks/ui-framework-checks.ts:695",
     what:
-      "a user component invoked WITH CHILDREN on angular.  Angular has no PascalCase component " +
-      "tag, so a call site is `<ng-container [ngComponentOutlet]=…>`, and `ngComponentOutlet` " +
-      "cannot project content from a template — the extra positional arg was dropped and the " +
-      "child markup appeared NOWHERE in the emitted project.  Every other JS frontend renders it " +
-      "into the component's `Slot { }`.  Raised as a WARNING, not an error: #2734 made the same " +
-      "drop visible at the call site with a degradation comment in the emitted Angular, so the " +
-      "comment documents the loss in the output while this diagnostic tells the author at compile " +
-      "time — between them the drop is no longer silent anywhere, and neither half refuses a " +
-      "model that has always generated.  Drained by switching a WALKED component's call site to " +
-      "its own kebab selector (`<app-x …>children</app-x>`; the selector and the `<ng-content>` " +
-      "both already exist), which narrows this to `extern` components or deletes it.",
-    mission: "M-T1.1",
+      "an EXTERN user component invoked WITH CHILDREN on angular.  The WALKED half DRAINED in " +
+      "wave C2 packet 2h: Loom emits that class and stamps its selector, so its call site is " +
+      "`<app-x [p]='…'>children</app-x>` with the class in the page's standalone `imports: []`, " +
+      "and the children land in the body's `Slot { }` (`<ng-content>`).  What is left is the " +
+      "`extern` flavour, and it is a LANGUAGE limit rather than an Angular TODO: an extern " +
+      "component is a hand-written Angular class whose `@Component({ selector })` is the " +
+      "author's, so Loom cannot spell a tag for it and must invoke it through `<ng-container " +
+      "[ngComponentOutlet]=…>`, which has no content-projection channel (`ngComponentOutletContent` " +
+      "takes pre-built DOM nodes, TS-side only).  Addressing it by tag needs a SURFACE — a " +
+      "selector clause on `extern from` — which is D-ANGULAR-EXTERN-CHILDREN's successor, " +
+      "M-T1.33.  Raised as a WARNING, not an error: #2734 made the same drop visible at the call " +
+      "site with a degradation comment in the emitted Angular, so the comment documents the loss " +
+      "in the output while this diagnostic tells the author at compile time — and neither half " +
+      "refuses a model that has always generated.",
+    mission: "M-T1.33",
+    verified: true,
   },
   {
     code: "loom.page-form-locals-unsupported",
@@ -270,12 +264,33 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
     verified: true,
   },
   {
+    // The TARGET-AGNOSTIC half, promoted out of the Feliz row below in wave C2
+    // packet 2i (audit F66).  Every frontend resolves a `match await` subject to
+    // an aggregate instance op and renders nothing else — the four JS walkers
+    // emitted `await Promise.reject(…)` from a clean `.ddd`, LiveView threw at
+    // codegen, and only Feliz / Flutter said so, behind a platform check.
+    code: "loom.async-effect-subject-unsupported",
+    kind: "gap",
+    site: "src/ir/validate/checks/store-checks.ts:527",
+    what:
+      "`match await <subject>` whose subject is not an aggregate INSTANCE operation — a " +
+      "workflow, a collection read or a plain state field.  Awaiting a WORKFLOW is the real " +
+      "work behind this row (a different route shape, `POST /workflows/<wf>`, and its own " +
+      "result projection on each of the seven frontend emitters); the other subjects are " +
+      "nonsense the statement form could not otherwise refuse, because a " +
+      "`StmtIR.variant-match`'s `subjectType` comes from `inferExprType` (catch-all `string`) " +
+      "and so cannot reach `loom.match-non-union-subject`",
+    mission: "M-T1.20",
+  },
+  {
     code: "loom.feliz-async-effect-unsupported",
     kind: "gap",
-    site: "src/ir/validate/checks/store-checks.ts:449",
+    site: "src/ir/validate/checks/store-checks.ts:462",
     what:
-      "`match await` on Feliz in a COMPONENT host, or whose awaited subject is not an aggregate " +
-      "INSTANCE op — a page-hosted instance-op effect renders (MVU trigger/result pair)",
+      "`match await` on Feliz in a COMPONENT host — the Feliz generator projects async effects " +
+      "only on pages (the trigger id comes from the host page's route `:id`), so a component " +
+      "action's effect would be silently dropped.  The SUBJECT half moved to the " +
+      "target-agnostic `loom.async-effect-subject-unsupported` (F66)",
     mission: "M-T1.20",
   },
   {
@@ -301,25 +316,39 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
     kind: "gap",
     site: "src/ir/validate/checks/orm-adapter-checks.ts:284",
     what:
-      "ONE shape is left on the opt-in `persistence: mikroorm` FilterQuery subset (EF Core + " +
-      "Drizzle are the full-subset baseline; the DAPPER arm drained before this row was last " +
-      "reviewed and is not work: `find-predicate-capability.ts` sets `DAPPER_SUBSET = FULL_SUBSET`, " +
-      "so `whereToSql` lowers the whole queryable subset, membership subquery included): a " +
-      "reference-collection membership whose ARGUMENT is a column rather than a bindable value " +
-      "(`this.<refColl>.contains(<column>)`), which only a query-time projection `where` " +
-      "can produce since it has no parameters.  mikroorm's remaining narrowings drained in " +
-      "wave C2 (the queryable intrinsics and `currentUser` arms, then general membership — an " +
-      "uncorrelated `id in (select <ownerFk> from <joinTable> where <targetFk> = ?)` raw " +
-      "fragment, the FilterQuery mirror of Dapper's EXISTS subquery and of drizzle's own " +
-      "`inArray` subselect)",
+      "NO NAMED SHAPE is left on any adapter.  EF Core + Drizzle were always the full-subset " +
+      "baseline; `DAPPER_SUBSET = FULL_SUBSET` (wave C2 packet 2b); and mikroorm's last " +
+      "narrowing — a reference-collection membership whose ARGUMENT is a column rather than a " +
+      "bindable value — was never adapter-specific: the join-table subquery binds its target as " +
+      "a parameter on EVERY adapter, so packet 2f moved the refusal to a target-neutral rule in " +
+      "`firstNonQueryableNode` and deleted the descriptor arm (which is also what stopped the " +
+      "identical shape CRASHING drizzle codegen: the adapter gate keys on `dep.persistence`, " +
+      "which a DEFAULT-adapter deployable does not carry).  The row is KEPT rather than drained " +
+      "because the descriptors still carry fall-through arms and nobody has PROVED them " +
+      "unreachable — a spot probe (arithmetic in a predicate position) was preempted by " +
+      "`loom.find-where-not-queryable` upstream, which is suggestive, not a proof over the whole " +
+      "queryable subset.  Drain condition for M-T6.35: show the descriptors cannot fire, or " +
+      "delete them",
     mission: "M-T6.35",
   },
   {
     code: "loom.flutter-async-effect-unsupported",
-    kind: "gap",
-    site: "src/ir/validate/checks/store-checks.ts:500",
-    what: "`match await` in a COMPONENT action silently drops the whole widget on Flutter",
-    mission: "M-T1.20",
+    kind: "scope",
+    site: "src/ir/validate/checks/store-checks.ts:590",
+    what:
+      "`match await` in a COMPONENT action.  RE-CLASSED `gap` -> `scope` under " +
+      "**D-FLUTTER-COMPONENT-BINDINGS**: `match await <api>.<Agg>.<op>()` on an INSTANCE " +
+      "operation posts to `/<coll>/$id/<op>`, so it needs the ROUTE `id` — and a component " +
+      "has no route by construction.  The only candidate binding (a component param spelled " +
+      "`id` inherits its caller's route arg) makes `id` a magic parameter NAME whose meaning " +
+      "depends on where the caller happens to sit, so the decision refuses it.  Measured on " +
+      "this tree by bypassing the filter: the component path has no `variant-match` arm at " +
+      "all and reaches `renderNotifierStmt`'s internal floor THROW (the page path intercepts " +
+      "the kind one level up), so this row guards a codegen crash rather than a degradation.  " +
+      "M-T1.34 closes the `ref`-backed half of the same family (a component holding a " +
+      "Riverpod `WidgetRef` — stores, `currentUser`, reads) and re-narrows this gate's " +
+      "message to name the `id` as the only remaining cause",
+    mission: "M-T1.34",
   },
   {
     code: "loom.flutter-primitive-unsupported",
@@ -387,13 +416,21 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.if-stmt-page-body-unsupported",
     kind: "scope",
+    // Owner: **D-PAGE-BODY-EXPRESSION** ruled the limit permanent in substance —
+    // a page body is an expression tree on all six frontends and the ternary /
+    // value-`match` spellings already render everywhere — and pointed the row at
+    // M-T1.20, which already IS the register of frontend refusals accepted in
+    // `.ddd`.  Unlike its neighbours there, this one is not per-target: all six
+    // refuse it, which is what makes it a surface decision rather than a port.
     site: "src/ir/validate/checks/if-stmt-checks.ts:333",
     what:
       "the `if` STATEMENT in a `ui` page / component / store body, on EVERY frontend.  A page body " +
       "is an expression tree — a condition is a VALUE there (`cond ? a : b`, `match`) — and no " +
       "frontend emitter (JS walker / Feliz update / Flutter notifier / HEEx handler) has a " +
       "statement-position conditional.  A declared limit of the page surface, not a per-target gap: " +
-      "it would be lifted by a decision to give page bodies statement-form control flow",
+      "it would be lifted by a decision to give page bodies statement-form control flow " +
+      "(**D-PAGE-BODY-EXPRESSION** declined to)",
+    mission: "M-T1.20",
     verified: true,
   },
   {
@@ -438,18 +475,6 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
       "a `paged` queryHandler return ships on all five backends (PAGED_QH_SUPPORTED) — latent " +
       "seam for a NEW backend",
     mission: "M-T2.6",
-  },
-  {
-    code: "loom.persistence-mode-unsupported",
-    kind: "gap",
-    site: "src/ir/validate/checks/datasource-checks.ts:78",
-    what:
-      "NOT a backend gap: a hosted aggregate whose deployable binds no matching `dataSource` " +
-      "(`kind: state` for stateBased, `kind: eventLog` for eventSourced) — a missing binding. " +
-      "Re-owned off the persistence-ADAPTER axis (M-T6.35, which this row never fit — no " +
-      "adapter capability is in question, only whether a `dataSource` was declared at all) onto " +
-      "the dataSource-BINDING axis, M-T2.9's storage-config tail",
-    mission: "M-T2.9",
   },
   {
     code: "loom.polymorphic-id-ref-unsupported",
@@ -553,8 +578,16 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.store-lifetime-target-unsupported",
     kind: "gap",
-    site: "src/ir/validate/checks/store-checks.ts:327",
-    what: "a persisted store field with no total F# (feliz) or Dart (flutter) codec",
+    site: "src/ir/validate/checks/store-checks.ts:364",
+    what:
+      "a persisted store field with no total F# (feliz) or Dart (flutter) codec.  BOTH halves " +
+      "narrowed in wave C2 (feliz in packet 2i, flutter in packet 2j) to exactly the cells that " +
+      "would need a RECORD codec the store path does not emit — `File`, `valueobject`, `entity` " +
+      "and arrays of them.  Feliz: `datetime`/`guid` grew `System.DateTime.TryParse`/`System.Guid.TryParse` " +
+      "arms, an enum rides F# as `string`, list elements cover every scalar.  Flutter: a nullable " +
+      "scalar and a `json` cell now persist; a nullable cell is still refused at the `url` tier for " +
+      "a measured reason (no null-distinguishing `copyWith` sentinel in the shared state class).  " +
+      "The two codec tables' remaining divergences are pinned by test/ir/util/persist-codec-divergence.test.ts",
     mission: "M-T1.20",
   },
   {
@@ -645,10 +678,18 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   },
   {
     code: "loom.ui-realtime-unsupported",
-    kind: "gap",
-    site: "src/ir/validate/checks/ui-framework-checks.ts:564",
-    what: "`on <channel>.<Event>` handlers vs. a backend that serves no SSE wire",
+    kind: "seam",
+    site: "src/ir/validate/checks/ui-framework-checks.ts:577",
+    what:
+      "an `on <channel>.<Event>` handler on a ui whose FRAMEWORK has no realtime consumption — " +
+      "latent: `SSE_REALTIME_FRONTENDS` names react/vue/svelte/angular/feliz/flutter/static and " +
+      "`NATIVE_REALTIME_FRONTENDS` the two Phoenix spellings, i.e. every shipping frontend, so " +
+      "this fires only for a frontend that does not exist yet.  Its former second arm " +
+      "(`#backend-serves-no-sse`) was deleted in wave C2 packet 2f as unreachable: every " +
+      "shipping backend serves realtime, and the two ways to reach a non-serving target are " +
+      "already phase-④ errors in `validators/deployable.ts` (no `targets:`, or a frontend target)",
     mission: "M-T1.20",
+    verified: true,
   },
   {
     code: "loom.union-unsupported",
@@ -754,13 +795,15 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
     kind: "scope",
     site: "src/ir/validate/checks/api-checks.ts:116",
     what: "command/query handler load of a nullable result — v1 is single non-nullable",
+    mission: "M-T5.36",
     verified: true,
   },
   {
     code: "loom.workflow-load-array-unsupported",
     kind: "scope",
-    site: "src/ir/validate/checks/workflow-checks.ts:1229",
+    site: "src/ir/validate/checks/workflow-checks.ts:1180",
     what: "workflow load of an array result — v1 is single non-nullable",
+    mission: "M-T5.36",
     verified: true,
   },
   {
@@ -776,25 +819,33 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
     kind: "scope",
     site: "src/ir/validate/checks/domain-service-checks.ts:233",
     what: "a repository read used as a MEMBER RECEIVER in a domainService body — v1 binds it first",
+    mission: "M-T5.14",
     verified: true,
   },
   {
     code: "loom.workflow-load-nullable-unsupported",
     kind: "scope",
-    site: "src/ir/validate/checks/workflow-checks.ts:1242",
+    site: "src/ir/validate/checks/workflow-checks.ts:1193",
     what: "workflow load of a nullable result — v1 is single non-nullable",
+    mission: "M-T5.36",
     verified: true,
   },
   {
     code: "loom.sensitive-wire-unsupported",
-    kind: "gap",
+    // `scope`, not `gap`, since **D-SENSITIVE-INSPECT-ONLY** (wave C2 packet 2f).
+    // Live and true on every backend — NO backend masks on the wire.
+    // `sensitive(...)` reaches exactly one consequence, the synthesized `inspect`
+    // printing `<redacted>` (enrichments.ts), while the response DTO carries the
+    // value in cleartext on all five.  What the re-class says is that this is a
+    // DECLARED limit with a named successor rather than a row a drain sprint can
+    // close: M-T3.8's three phases are a type-system change, a masking arm in
+    // five DTO emitters, and a sink census with no chokepoint — and the failure
+    // mode of doing four fifths of that is indistinguishable from success in any
+    // test that asserts by shape.  The warning already names the surface that
+    // redacts TODAY (`mask unless`), so the author is not surprised.  Drains when
+    // M-T3.8 lands; delete this row and the check module in that PR.
+    kind: "scope",
     site: "src/ir/validate/checks/sensitivity-checks.ts:86",
-    // Live, not latent: NO backend masks on the wire.  `sensitive(...)` reaches
-    // exactly one consequence — the synthesized `inspect` prints `<redacted>`
-    // (enrichments.ts) — and the response DTO carries the value in cleartext on
-    // all five.  Drains when the tags route through the same response-boundary
-    // seam `mask unless` already uses; delete this row and the check module in
-    // that PR.
     what:
       "a `sensitive(...)` field that a caller actually receives — no backend masks it on the " +
       "wire, and none classifies it at a log / event / resource sink; only the debug " +
