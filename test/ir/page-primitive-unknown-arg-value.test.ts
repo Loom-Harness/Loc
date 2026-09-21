@@ -61,7 +61,11 @@ async function diagnostics(uiBody: string) {
   return validateLoomModel(enrichLoomModel(lowerModel(model)));
 }
 
-const codes = async (uiBody: string): Promise<string[]> =>
+// `LoomDiagnostic.code` is optional, so the mapped list carries `undefined`.
+// Kept in the type rather than filtered out: `toContain` / `toEqual([])` read
+// the same either way, and dropping the code-less diagnostics would quietly
+// narrow what these assertions are looking at.
+const codes = async (uiBody: string): Promise<(string | undefined)[]> =>
   (await diagnostics(uiBody)).map((d) => d.code);
 
 const page = (body: string) => `page X { route: "/x"  body: ${body} }`;
