@@ -299,6 +299,31 @@ system VanillaActor {
   resource st { for: Billing, kind: state, use: pg }
   deployable d { platform: elixir, contexts: [Billing], dataSources: [st], serves: BillingApi, port: 4000, auth: required }
 }`,
+  // A `crudish` aggregate whose `status` field is BOTH mass-assigned by the
+  // macro's generic `update` and written by a `requires`-gated `approve()` —
+  // audit D3.  `POST /invoices/{id}/update {"status":…}` skips the gate.  The
+  // advisory points at `immutable`, which removes the field from the update
+  // input while leaving the operation free to assign it.
+  "loom.update-gate-suggestion": `
+system UpdateGate {
+  user { id: guid  role: string }
+  subdomain Core { context Billing {
+    enum InvoiceStatus { Draft, Approved }
+    aggregate Invoice with crudish {
+      total: int
+      status: InvoiceStatus
+      operation approve() {
+        requires currentUser.role == "admin"
+        status := Approved
+      }
+    }
+    repository Invoices for Invoice { }
+  } }
+  api BillingApi from Core
+  storage pg { type: postgres }
+  resource st { for: Billing, kind: state, use: pg }
+  deployable d { platform: node, contexts: [Billing], dataSources: [st], serves: BillingApi, port: 3000, auth: required }
+}`,
   // --- phase ④ AST validate -----------------------------------------------
   // Two complete `system { }` blocks and NO top-level members — the shape that
   // slipped past the fold-triggered composition check, because with nothing to
@@ -1468,6 +1493,63 @@ system S {
   test e2e "t" against d {
     let p = api.products.create({ sku: "W-1" })
     expect(p.sku).toBe("W-1")
+  }
+}`,
+
+  // The PAYLOAD half of the same file (F4).  Each body drives a verb that DOES
+  // route — `Widget with crudish` — so the only defect left is the one under
+  // test, and the diagnostic cannot be the routing one wearing a new code.
+  "loom.e2e-unknown-body-key": `
+system S {
+  subdomain D { context C {
+    aggregate Widget with crudish { code: string }
+  } }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable d { platform: node, contexts: [C], dataSources: [st], port: 4101 }
+  test e2e "t" against d {
+    let w = api.widgets.create({ kode: "W-1" })
+  }
+}`,
+
+  "loom.e2e-missing-required-field": `
+system S {
+  subdomain D { context C {
+    aggregate Widget with crudish { code: string  qty: int }
+  } }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable d { platform: node, contexts: [C], dataSources: [st], port: 4102 }
+  test e2e "t" against d {
+    let w = api.widgets.create({ code: "W-1" })
+  }
+}`,
+
+  "loom.e2e-body-type-mismatch": `
+system S {
+  subdomain D { context C {
+    aggregate Widget with crudish { code: string  qty: int }
+  } }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable d { platform: node, contexts: [C], dataSources: [st], port: 4103 }
+  test e2e "t" against d {
+    let w = api.widgets.create({ code: "W-1", qty: "not-a-number" })
+  }
+}`,
+
+  "loom.e2e-unknown-response-field": `
+system S {
+  subdomain D { context C {
+    aggregate Widget with crudish { code: string }
+  } }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable d { platform: node, contexts: [C], dataSources: [st], port: 4104 }
+  test e2e "t" against d {
+    let w = api.widgets.create({ code: "W-1" })
+    let g = api.widgets.getById(w)
+    expect(g.nonesuch).toBe("x")
   }
 }`,
 

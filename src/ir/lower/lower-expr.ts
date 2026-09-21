@@ -109,7 +109,7 @@ import {
   withLocal,
 } from "./lower-types.js";
 import { originFor } from "./origin.js";
-import { matchRepoRead, runCriterionMatcher } from "./repo-read.js";
+import { matchRepoRead, repoReadResultType, runCriterionMatcher } from "./repo-read.js";
 
 /** No-arg collection ops that are call-style on every backend (`lines.first()`)
  *  and are NOT special-cased as property-style member access (unlike
@@ -2314,26 +2314,20 @@ export function inferExprType(expr: Expression | undefined, env: Env): TypeIR {
     //
     // `env.serviceRepos` is set only while lowering a domain-service operation,
     // so nothing else changes shape.
+    //
+    // The read-shape → type mapping itself lives in `repo-read.ts` beside the
+    // detector, as ONE rule shared with the workflow let-lowerer — see
+    // `repoReadResultType` for why the two must not be spelled twice.  Reading
+    // it off `repo.finds` here instead is what made `getById` (a BUILT-IN
+    // loader, absent from `finds`, so no declared `returnType` to find) fall
+    // into the collection branch and bind `array<Owner>` for a single row.
+    //
+    // No trailing-suffix walk, unlike the probes below: every `matchRepoRead`
+    // matcher requires `suffixes.length === 1`, so a recognised read IS the
+    // whole chain.
     if (env.serviceRepos) {
       const read = matchRepoRead(expr, env.serviceRepos, runCriterionMatcher(env.ctx));
-      if (read) {
-        const aggName = read.repo.aggregate?.ref?.name;
-        // A declared `find` states its own return type (`Order[]`, `Order?`, a
-        // union…).  The criterion / retrieval shapes (`find`/`findAll`/`run`)
-        // have no declaration to read, and all three yield a collection of the
-        // repository's aggregate — matching `readKind` in the emitted call.
-        const declared = read.repo.finds?.find((f) => f.name === read.method)?.returnType;
-        let readType: TypeIR = declared
-          ? lowerType(declared, env)
-          : aggName
-            ? { kind: "array", element: { kind: "entity", name: aggName } }
-            : { kind: "primitive", name: "string" };
-        // `Repo.find(<Criterion>)` is the SINGLE-row shape of the same read.
-        if (!declared && read.kind === "find" && aggName) {
-          readType = { kind: "optional", inner: { kind: "entity", name: aggName } };
-        }
-        return readType;
-      }
+      if (read) return repoReadResultType(read, env);
     }
     // Probe: `permissions.<name>` always types as string.
     const first = expr.suffixes[0];

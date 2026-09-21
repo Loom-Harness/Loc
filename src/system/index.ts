@@ -54,6 +54,7 @@ import {
 } from "./mermaid.js";
 import { checkMigrationBaseline, type MigrationArtifactIndex } from "./migration-artifacts.js";
 import { buildMigrations } from "./migrations-builder.js";
+import { renderSystemReadme } from "./readme.js";
 import { renderSmap } from "./smap.js";
 import {
   memorySnapshotStore,
@@ -244,6 +245,27 @@ export function generateSystemsFromLoom(
       out.set(`${path}.smap`, rendered);
     }
   }
+  // `README.md` — the orientation page for the generated tree (finding F12).
+  // LAST of everything, because it is DERIVED from the finished output map:
+  // which test projects exist, how each deployable's own project boots, which
+  // `.loom/` artifacts this model produced (traceability is emitted above,
+  // after `emitSystem`, so an earlier call would under-report it).  Written at
+  // the output root beside `docker-compose.yml`, and like that file the last
+  // system wins when a source declares several.  Scaffold-once, so it never
+  // overwrites `ddd new`'s README at this same path nor a reader's own edits
+  // — see the header of `readme.ts`.
+  for (const sys of loom.systems) {
+    out.set(
+      "README.md",
+      renderSystemReadme(sys, {
+        slugOf: serviceSlug,
+        emitted: out,
+        dbImage: POSTGRES_IMAGE,
+      }),
+    );
+  }
+  // Give-up surfacing (F-019) runs LAST, over the finished map, so a fragment
+  // written by any emitter above — README included — is in scope.
   return { files: out, giveUps: collectGiveUps(out) };
 }
 
@@ -659,13 +681,26 @@ function frontendOrigins(sys: SystemIR): string[] {
     .map((f) => `http://localhost:${f.port}`);
 }
 
-function serviceSlug(name: string): string {
+/** The compose-safe service slug of a deployable name.  Exported because it
+ *  is also the exact suffix set an api-e2e vitest title can carry
+ *  (` against <serviceSlug>`, appended by `e2e-render.ts`), which `ddd verify`
+ *  needs to undo the suffix when joining results onto the requirements graph
+ *  — see `src/verify/verification.ts`.  Note it is NOT `naming.snake`: that
+ *  splits consecutive capitals too (`APIGateway` → `api_gateway`, where this
+ *  gives `apigateway`). */
+export function serviceSlug(name: string): string {
   return name.replace(/([a-z0-9])([A-Z])/g, "$1_$2").toLowerCase();
 }
 
 // ---------------------------------------------------------------------------
 // docker-compose.yml
 // ---------------------------------------------------------------------------
+
+/** The Postgres image the compose stack runs.  Named because the generated
+ *  README hands the reader a `docker run` of the SAME image for a host-side
+ *  run (compose deliberately does not publish the database port), and the two
+ *  must not drift. */
+export const POSTGRES_IMAGE = "postgres:18-alpine";
 
 /** The Prometheus scrape targets — every BACKEND deployable exposes
  *  `GET /metrics` (M-T7.1); pure static frontends do not.  Each target is
@@ -763,7 +798,7 @@ function renderDockerCompose(sys: SystemIR): string {
   }
   lines.push("services:");
   lines.push("  db:");
-  lines.push("    image: postgres:18-alpine");
+  lines.push(`    image: ${POSTGRES_IMAGE}`);
   lines.push("    environment:");
   lines.push("      POSTGRES_DB: postgres");
   lines.push("      POSTGRES_USER: postgres");

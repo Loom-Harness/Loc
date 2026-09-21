@@ -44,6 +44,7 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
     "02-systems-and-topology.md#tenancy-by-userclaim-of-registry",
   "loom.entity-field-modifier": "03-domain-modeling.md#entity-parts--contains",
   "loom.entity-part-param-unsupported": "03-domain-modeling.md#entity-parts--contains",
+  "loom.update-gate-suggestion": "03-domain-modeling.md#access-modifiers",
   "loom.entity-field-optional-collection": "04-type-system.md#collections--t",
   "loom.generic-arg-not-carrier": "04-type-system.md#generic-carriers--paged-envelope-option",
   "loom.generic-position": "04-type-system.md#generic-carriers--paged-envelope-option",
@@ -210,6 +211,13 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.e2e-unsupported-statement":
     "18-testing.md#test-e2e--against-deployable--a-live-end-to-end-test",
   "loom.e2e-unrouted-verb": "18-testing.md#test-e2e--against-deployable--a-live-end-to-end-test",
+  "loom.e2e-unknown-body-key": "18-testing.md#test-e2e--against-deployable--a-live-end-to-end-test",
+  "loom.e2e-missing-required-field":
+    "18-testing.md#test-e2e--against-deployable--a-live-end-to-end-test",
+  "loom.e2e-body-type-mismatch":
+    "18-testing.md#test-e2e--against-deployable--a-live-end-to-end-test",
+  "loom.e2e-unknown-response-field":
+    "18-testing.md#test-e2e--against-deployable--a-live-end-to-end-test",
   "loom.locator-matcher-receiver":
     "18-testing.md#test-e2e--against-deployable--a-live-end-to-end-test",
   "loom.e2e-ui-throw-invalid": "18-testing.md#tothrow--the-throw-assertion",

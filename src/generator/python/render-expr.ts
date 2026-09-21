@@ -51,13 +51,13 @@ export interface PyRenderContext {
    *  Pydantic `@model_validator` for cross-field invariants), whose fields
    *  keep the wire casing. */
   wireField?: boolean;
-  /** Method-name prefix for `function` / `private-operation` call
-   *  targets and `helper-fn` refs.  Defaults to `_` (aggregate
-   *  functions are private).  Value-object emission passes `""` —
-   *  VO functions are public surface, invoked across aggregate
-   *  boundaries (`probability.as_fraction()`), so their internal
-   *  spelling must match the public method name. */
-  fnPrefix?: string;
+  /* (There is no `fnPrefix` seam any more.  It existed because aggregate
+   *  `function`s were emitted `def _<name>` while VO functions were public,
+   *  so the VO emitter had to pass `""` to cancel it.  Aggregate functions
+   *  are public too now — the same members the routes and workflows already
+   *  called by their unprefixed name — so both sides spell one name and the
+   *  only remaining `_` is a genuinely `private` OPERATION, keyed off
+   *  `targetPrivate` at the one call site that needs it.) */
   /** Handler record-param names (M-T5.10 handler-param rewrite): a
    *  `command`/`query` request RECORD param is FLATTENED into its fields as
    *  local `def` params, so a `cmd.<field>` member access in the handler body
@@ -337,7 +337,7 @@ function renderRef(e: RefExpr, ctx: PyRenderContext): string {
       if (ctx.wireField) return `${ctx.thisName}.${e.name}`;
       return `${ctx.thisName}.${snake(e.name)}`;
     case "helper-fn":
-      return `${ctx.thisName}.${ctx.fnPrefix ?? "_"}${snake(e.name)}`;
+      return `${ctx.thisName}.${snake(e.name)}`;
     case "workflow-fn":
       // Bare reference to a workflow helper — the module-scoped `def` name.
       return workflowFnSnake(e.wfScope!, e.name);
@@ -602,8 +602,8 @@ function renderCall(args: string[], e: CallExpr, ctx: PyRenderContext): string {
     case "value-object-ctor":
       return `${e.name}(${argList})`;
     case "function":
-      // Helper functions are always emitted as private methods (`def _is_draft`).
-      return `${ctx.thisName}.${ctx.fnPrefix ?? "_"}${snake(e.name)}(${argList})`;
+      // Public, like the `def` site (`def is_draft`) and like a VO function.
+      return `${ctx.thisName}.${snake(e.name)}(${argList})`;
     case "workflow-fn":
       // A workflow's own `function` — a module-scoped `def`, namespaced by its
       // workflow (workflows share the generated file).  Same derivation as the
@@ -613,7 +613,7 @@ function renderCall(args: string[], e: CallExpr, ctx: PyRenderContext): string {
       // Operations are emitted as PUBLIC methods (`def reserve`) unless declared
       // `private` (`def _reserve`) — so a sibling-operation self-call only gets
       // the `_` prefix when the target is actually private.
-      const prefix = e.targetPrivate ? (ctx.fnPrefix ?? "_") : "";
+      const prefix = e.targetPrivate ? "_" : "";
       return `${ctx.thisName}.${prefix}${snake(e.name)}(${argList})`;
     }
     case "remote-api-op": {
