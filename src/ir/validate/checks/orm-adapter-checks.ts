@@ -6,11 +6,7 @@
 // -------------------------------------------------------------------------
 
 import { diagMessage } from "../../../diagnostics/messages.js";
-import type {
-  BoundedContextIR,
-  EnrichedAggregateIR,
-  SystemIR,
-} from "../../types/loom-ir.js";
+import type { BoundedContextIR, EnrichedAggregateIR, SystemIR } from "../../types/loom-ir.js";
 import { effectiveSavingShape, resolveDataSourceConfig } from "../../util/resolve-datasource.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
 

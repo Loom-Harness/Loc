@@ -13,6 +13,7 @@ import type {
 import type { LoomDiagnostic } from "./diagnostic.js";
 import {
   aggregateHasMember,
+  bareColumnPredicateLeaf,
   firstColumnVsColumn,
   firstNonQueryablePredicate,
   firstUnknownColumnRef,
@@ -35,16 +36,27 @@ export function validateQueryableWheres(ctx: BoundedContextIR, diags: LoomDiagno
     const agg = ctx.aggregates.find((a) => a.name === repo.aggregateName);
     for (const find of repo.finds) {
       if (!find.filter) continue;
+      const refuse = (offending: string): void => {
+        diags.push({
+          severity: "error",
+          code: "loom.find-where-not-queryable",
+          message: diagMessage("loom.find-where-not-queryable", {
+            name: repo.name,
+            findName: find.name,
+            offending,
+          }),
+          source: `${ctx.name}/${repo.name}.${find.name}`,
+        });
+      };
+      const offending = firstNonQueryablePredicate(find.filter);
+      if (offending) {
+        refuse(offending);
+        continue;
+      }
       // Beyond grammar-level queryability: each `this.<X>` reference
       // must resolve to a real aggregate field.  Without this check
       // the generator emits SQL against a non-existent column and
       // the runtime fails (or silently returns nothing).
-      //
-      // Runs BEFORE the predicate-shape gate: an unresolved column has no
-      // type, so `where !this.isDeleted` over a field that does not exist
-      // reads to the shape gate as "a non-boolean leaf".  Naming the
-      // missing field is both the more specific answer and the one that
-      // survives fixing it.
       if (agg) {
         const unknown = firstUnknownColumnRef(find.filter, agg, ctx);
         if (unknown) {
@@ -62,18 +74,14 @@ export function validateQueryableWheres(ctx: BoundedContextIR, diags: LoomDiagno
           continue;
         }
       }
-      const offending = firstNonQueryablePredicate(find.filter);
-      if (offending) {
-        diags.push({
-          severity: "error",
-          code: "loom.find-where-not-queryable",
-          message: diagMessage("loom.find-where-not-queryable", {
-            name: repo.name,
-            findName: find.name,
-            offending,
-          }),
-          source: `${ctx.name}/${repo.name}.${find.name}`,
-        });
+      // The ONE refusal the shape gate DEFERS (`bareColumnPredicateLeaf`): a
+      // non-boolean `this`-rooted column standing alone.  Reported only once
+      // the column is known to EXIST, because an undeclared `this.x` lowers
+      // with the same `primitive string` type a real string field does
+      // (measured) — and "unknown field" is the better answer for that one.
+      const bareLeaf = bareColumnPredicateLeaf(find.filter);
+      if (bareLeaf) {
+        refuse(bareLeaf);
         continue;
       }
       // And: every binary comparison must compare ONE column against
@@ -110,27 +118,6 @@ export function validateQueryableWheres(ctx: BoundedContextIR, diags: LoomDiagno
   for (const agg of ctx.aggregates) {
     const filters = (agg as EnrichedAggregateIR).contextFilters ?? [];
     for (const predicate of filters) {
-      // `this.id` is admitted: a capability filter is aggregate-rooted, and
-      // the key is a real stored column on every backend — the derived
-      // tenancy registry self-scope (`this.id == currentUser.<claim>`,
-      // is exactly this shape.
-      //
-      // Runs BEFORE the predicate-shape gate, for the reason given at the
-      // find site: an unresolved column carries no type, so naming it beats
-      // reporting the shape it therefore fails.
-      const unknown = firstUnknownColumnRef(predicate, agg, ctx, { allowSelfId: true });
-      if (unknown) {
-        diags.push({
-          severity: "error",
-          message: diagMessage("loom.criterion-not-selectable#unknown-field", {
-            name: agg.name,
-            unknown,
-          }),
-          source: `${ctx.name}/${agg.name}`,
-          code: "loom.criterion-not-selectable",
-        });
-        continue;
-      }
       const offending = firstNonQueryablePredicate(predicate, { thisTypesUnresolved: true });
       if (offending) {
         diags.push({
@@ -138,6 +125,27 @@ export function validateQueryableWheres(ctx: BoundedContextIR, diags: LoomDiagno
           message: diagMessage("loom.criterion-not-selectable#not-selectable", {
             name: agg.name,
             offending,
+          }),
+          source: `${ctx.name}/${agg.name}`,
+          code: "loom.criterion-not-selectable",
+        });
+        continue;
+      }
+      // `this.id` is admitted: a capability filter is aggregate-rooted, and
+      // the key is a real stored column on every backend — the derived
+      // tenancy registry self-scope (`this.id == currentUser.<claim>`,
+      // is exactly this shape.
+      //
+      // A context-level filter carries `thisTypesUnresolved`, so the shape
+      // gate accepted every column leaf above and this is what catches a
+      // column that does not exist.
+      const unknown = firstUnknownColumnRef(predicate, agg, ctx, { allowSelfId: true });
+      if (unknown) {
+        diags.push({
+          severity: "error",
+          message: diagMessage("loom.criterion-not-selectable#unknown-field", {
+            name: agg.name,
+            unknown,
           }),
           source: `${ctx.name}/${agg.name}`,
           code: "loom.criterion-not-selectable",

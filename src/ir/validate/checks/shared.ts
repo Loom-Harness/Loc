@@ -208,14 +208,7 @@ export type PredicateGateOptions = {
   readonly thisTypesUnresolved?: boolean;
 };
 
-const PREDICATE_COMPARE_OPS: ReadonlySet<string> = new Set([
-  "==",
-  "!=",
-  "<",
-  "<=",
-  ">",
-  ">=",
-]);
+const PREDICATE_COMPARE_OPS: ReadonlySet<string> = new Set(["==", "!=", "<", "<=", ">", ">="]);
 
 /** Returns null if `e` is a queryable expression IN PREDICATE POSITION;
  *  otherwise a short label describing the first offending node.
@@ -309,6 +302,48 @@ export function firstNonQueryablePredicate(
   }
   const bad = firstNonQueryableNode(inner);
   if (bad) return bad;
+  // A `this`-rooted COLUMN standing alone is the one refusal this gate cannot
+  // tell apart from a MISSING column: the lowerer types an undeclared
+  // `this.isDeleted` as `primitive string`, byte-identical to a real `string`
+  // field (measured).  So DEFER it — the caller runs `firstUnknownColumnRef`
+  // first, whose "unknown field" is the better answer when the column does not
+  // exist, and falls back to {@link bareColumnPredicateLeaf} when it does.
+  // Deferring only this ONE shape is what keeps the gate's own verdicts
+  // (`collection op '.any'`, `lambda`, arithmetic, a comparison with no column)
+  // authoritative: those are never a missing-column report.
+  if (isBareColumnLeaf(inner)) return null;
+  return notAPredicate(inner);
+}
+
+/** A `this`-rooted column reached as a plain member / bare `this-prop` ref —
+ *  NOT a method-call over one.  `this.code.startsWith(p)` is column-rooted too,
+ *  but it is a bool-returning intrinsic and therefore a whole predicate, so it
+ *  must never reach the deferral. */
+function isBareColumnLeaf(e: ExprIR): boolean {
+  const inner = e.kind === "paren" ? e.inner : e;
+  if (inner.kind !== "member" && inner.kind !== "ref") return false;
+  return isColumnRef(inner);
+}
+
+/** The refusal {@link firstNonQueryablePredicate} defers: a `this`-rooted
+ *  column standing alone in predicate position that is NOT a boolean
+ *  (`where this.code`).  Call it after `firstUnknownColumnRef` has declined —
+ *  at that point the column exists, so the shape really is the problem. */
+export function bareColumnPredicateLeaf(e: ExprIR): string | null {
+  const inner = e.kind === "paren" ? e.inner : e;
+  if (inner.kind === "binary") {
+    if (inner.op === "&&" || inner.op === "||") {
+      return bareColumnPredicateLeaf(inner.left) ?? bareColumnPredicateLeaf(inner.right);
+    }
+    return null;
+  }
+  if (inner.kind === "unary" && inner.op === "!") return bareColumnPredicateLeaf(inner.operand);
+  if (isColumnRootedBool(inner)) return null;
+  if (isBareColumnLeaf(inner)) return notAPredicate(inner);
+  return null;
+}
+
+function notAPredicate(inner: ExprIR): string {
   return (
     `${describePredicateLeaf(inner)} is not a predicate — a query filter must TEST a column ` +
     `(a comparison, a boolean column, a '.contains(...)' membership, or a combination of them ` +
