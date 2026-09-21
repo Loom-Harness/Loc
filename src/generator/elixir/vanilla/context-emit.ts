@@ -64,7 +64,11 @@ import {
   renderEsContextBlock,
 } from "./eventsourced-emit.js";
 import { externImplModule, externPersistForceChanges, isExternOp } from "./extern-emit.js";
-import { renderAggregateFunctions } from "./function-emit.js";
+import {
+  renderAggregateFunctions,
+  renderSharedFunctionClauses,
+  sharedFunctionKeys,
+} from "./function-emit.js";
 import { isAbstractBase } from "./inheritance-emit.js";
 import { ELIXIR_NUMERIC } from "./numeric-codec.js";
 import {
@@ -367,6 +371,12 @@ function renderContextModule(
   extraChannels: ChannelIR[] = [],
 ): string {
   const facadeMod = `${appModule}.${ctxModule}`;
+  // Pure `function` members two aggregates in this context spell the same way
+  // collapse onto one `<name>/<arity>` in this FLAT module, and Elixir wants
+  // such clauses adjacent with a single `@doc` — see `sharedFunctionKeys`.
+  // Only the shared ones are hoisted, so a context with no clash keeps its
+  // per-aggregate sections byte-identical.
+  const sharedFnKeys = sharedFunctionKeys(ctx.aggregates);
   const blocks = ctx.aggregates.map((agg) => {
     // Event-sourced aggregates expose create/get/list + per-op command
     // runners (emit→append→fold) instead of the CRUD defdelegates.
@@ -642,7 +652,7 @@ ${body}
     // op / precondition / derived bodies emitted above.  Each renders as a
     // struct-guarded `def <fn>(%Agg{} = record, …)` so the lowered call site
     // (`<fn>(record, …)`) resolves in THIS module.
-    const fnLines = renderAggregateFunctions(facadeMod, agg, isDoc);
+    const fnLines = renderAggregateFunctions(facadeMod, agg, isDoc, sharedFnKeys);
     const functionBlock = fnLines.length > 0 ? `${fnLines.join("\n")}\n` : "";
     // The CRUD `delete_<agg>` defdelegate is emitted only when the aggregate
     // exposes a REST delete surface (a reachable `destroy`).  Without it the
@@ -793,8 +803,19 @@ ${findBlock}${opBlocks.length > 0 ? `\n${opBlocks.join("\n\n")}\n` : ""}${privat
       ? `\n  # Reading-tier domain services (ambient Repo) — domain-services.md rev. 4\n${readingServiceFns.join("\n\n")}\n`
       : "";
 
+  // The grouped clauses for every shared function key, emitted ONCE after the
+  // per-aggregate sections (empty for every context without a clash).
+  const sharedFnLines = renderSharedFunctionClauses(
+    facadeMod,
+    ctx.aggregates,
+    sharedFnKeys,
+    (agg) => isVanillaDocAgg(agg, ctx, sys),
+  );
+  const sharedFnBlock = sharedFnLines.length > 0 ? `${sharedFnLines.join("\n")}\n` : "";
+
   const truncateDtBody = [
     blocks.join("\n"),
+    sharedFnBlock,
     retrievalBlock,
     readingServiceBlock,
     ensureBlock,
@@ -808,7 +829,7 @@ ${findBlock}${opBlocks.length > 0 ? `\n${opBlocks.join("\n\n")}\n` : ""}${privat
   // as `__truncate_dt` above: read off the ASSEMBLED body, so a context whose
   // ops take no `money`/`decimal`/`int` param emits none of it and stays
   // byte-identical.
-  const assembledBody = [blocks.join("\n"), ensureBlock].join("\n");
+  const assembledBody = [blocks.join("\n"), sharedFnBlock, ensureBlock].join("\n");
   const needsDecimalParam = assembledBody.includes("__loom_decimal_param(");
   const needsIntParam = assembledBody.includes("__loom_int_param(");
   const numericParamHelpers =
@@ -826,7 +847,7 @@ defmodule ${facadeMod} do
   workflow body).  Plain Elixir context module.
   """${requireLogger}${mutatesRefColl ? "\n  import Ecto.Query" : ""}
 
-${blocks.join("\n")}${retrievalBlock}${readingServiceBlock}${ensureBlock}${refCollHelpers}${putAssocPartsHelper}${truncateDtBody}${numericParamHelpers}end
+${blocks.join("\n")}${sharedFnBlock}${retrievalBlock}${readingServiceBlock}${ensureBlock}${refCollHelpers}${putAssocPartsHelper}${truncateDtBody}${numericParamHelpers}end
 `;
 }
 
