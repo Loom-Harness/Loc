@@ -37,6 +37,7 @@ export interface AggregateReadShape {
 
 import { aggHasAuditedTarget } from "../../ir/util/audit-capability.js";
 import { directParentName } from "../../ir/util/containment-parent.js";
+import { fieldIdTargets, valueObjectIdTargets } from "../../ir/util/id-targets.js";
 import {
   baseOf,
   discriminatorValue,
@@ -355,12 +356,27 @@ export function buildPyRepositoryFile(
         ...agg.parts.map((p) => `${p.name}Id`),
         // Every id-typed field (own or part, singular or collection)
         // brands on hydrate — `order_ref=OrderId(row.order_ref)`.
-        ...[agg, ...agg.parts].flatMap((holder) =>
-          holder.fields
-            .map(idFieldTarget)
-            .filter((n): n is string => n != null)
-            .map((n) => `${n}Id`),
-        ),
+        ...[agg, ...agg.parts]
+          .flatMap((holder) => fieldIdTargets(holder.fields))
+          .map((n) => `${n}Id`),
+        // …and every id a VALUE OBJECT holds, which brands on hydrate through
+        // the VO constructor rather than through a field of this aggregate:
+        // `berth=Berth(ShipId(row.berth_ship), row.berth_position)`.  The
+        // aggregate's own field is typed `Berth`, so the scan above never sees
+        // `ShipId` and the module named it without importing it (`F821
+        // Undefined name`, and mypy the same) — freight audit D3 / M-T6.64.
+        // Over-generating candidates is free: every name here is dropped again
+        // by the `refersTo` body scan unless the module actually spells it.
+        // Sourced from `valueObjectPool`, not `ctx.valueObjects`, to match the
+        // `voEnumNames` line below: a VO declared in a SIBLING context is a legal
+        // reference whose declaration never enters this context's own list.  That
+        // branch is currently unobservable — the cross-context hydrate emits
+        // `berth=row.berth` against flattened `berth_ship`/`berth_position`
+        // columns, so it never reaches the brand at all (a separate, upstream
+        // defect; reported on #2864, not fixed here) — but the pool is the right
+        // source the moment it is, and costs nothing meanwhile since `refersTo`
+        // filters every candidate.
+        ...valueObjectIdTargets(valueObjectPool(ctx)).map((n) => `${n}Id`),
       ].filter(refersTo),
     ),
   ].sort();
@@ -461,15 +477,6 @@ export function buildPyRepositoryFile(
     body,
     "",
   );
-}
-
-/** Target aggregate of an id-typed field — `Order id`, `Order id?`,
- *  or `Order id[]` — else `null`. */
-function idFieldTarget(f: FieldIR): string | null {
-  const t = f.type.kind === "optional" ? f.type.inner : f.type;
-  if (t.kind === "id") return t.targetName;
-  if (t.kind === "array" && t.element.kind === "id") return t.element.targetName;
-  return null;
 }
 
 // --- finds -------------------------------------------------------------------
