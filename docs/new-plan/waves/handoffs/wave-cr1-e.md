@@ -476,3 +476,64 @@ docs/new-plan/waves/handoffs/wave-cr1-e.md          (this note)
 4. **A validator's byte-identical gate is the DIAGNOSTIC set**, and it is cheap: `validateLoomModel`
    over the same corpus in the same pass as the emission hash, ~2 minutes for both. There is no
    reason for a future packet to run only one of them.
+
+---
+
+## 10. Three things the full rollup surfaced that are NOT this packet's
+
+Running `test/system test/ir test/generator test/platform test/language` on the merged
+(batch-1 ∪ `main`) tree produced 26 failures. Two were mine and are fixed (§8's second commit);
+the rest split three ways, and the middle one is a finding in its own right.
+
+### (a) `workflow-path-coverage` ×17 — a semantic merge conflict, FIXED here
+
+`src/generator/_test/` is a genuine shared emission seam — all five backends' `emit/tests.ts`
+import `arg-coercion.ts` — added on `main` by **#2957**. CR1-a's new gate, which *derives* the
+requirement that a workflow claiming `src/generator/<plat>/**` watches every `src/generator/_*` dir
+in that tree's import closure, landed in **batch 1**. Neither side was wrong; neither could see the
+other. They met for the first time when this branch merged them, and the gate fired.
+
+Fixed by adding `src/generator/_test/**` next to `_stmt/**` in the 18 workflows carrying the seam
+block → 90/90 green. **This is CR1-a's gate doing exactly the job the audit row opened it for**, on
+its first combined run, and it is the clearest evidence in the wave that the gate was worth building.
+
+### (b) `auth-verifier-doc-honesty` ×2 — INHERITED, left for CR1-b
+
+**Not fixed, deliberately — it is not mine to decide.** `test/generator/auth-verifier-doc-honesty.test.ts`
+comes from `main` (`08c52c1b`) and asserts the verifier emits the options inline:
+
+```
+jwtVerify(token, await getJwks(), { issuer: ISSUER, audience: A… })
+```
+
+while CR1-b's own fix (`5636c7ce`, batch 1) hoisted them into a `VERIFY_OPTIONS` const, which is
+what the emitter now produces. Same shape as (a) — a semantic merge conflict inside batch 1's own
+fold — but here the resolution is a real question (is the hoisted const the intended emission? then
+re-point the assertion), so it belongs to whoever owns the OIDC row.
+
+Proved to predate CR1-e mechanically, not by inspection:
+
+```
+git diff be2e3349 HEAD -- test/generator/auth-verifier-doc-honesty.test.ts \
+                          src/platform/hono/v4/auth-emit.ts src/platform/hono/v5/auth-emit.ts
+```
+
+returns **empty** — every input to that test is byte-identical to the batch-1 tip. (And
+independently: the emission differential in §6 covers `auth-oidc.ddd` on node and came back with
+zero differences, so nothing this packet did could have changed that output.)
+
+### (c) `packaging-split-*` ×3 — environmental
+
+`fs-discovery` finds 0 backends because this worktree has no `node_modules/@loom` workspace
+symlinks (`npm install` was never run inside it; the parent checkout has them). This packet touches
+no file under `src/platform/**` or `packages/**`. Passes wherever the branch is folded.
+
+### (d) `walker-declines-with-a-code` ×1 — a CONTENTION artifact, not a failure
+
+Timed out at 180,000 ms inside the parallel rollup (load average ~19 on 4 cores, two sibling packets
+running their own suites). **Run alone: 140.6 s, 9/9 green.** Recorded as a flake.
+
+> Worth carrying forward, because it is easy to misread: under load this box turns a slow-but-fine
+> test into an ordinary-looking red. The tell is the duration — a test whose reported time is the
+> timeout itself. **Re-run any failure in isolation before recording it.** The coordinator
+> independently hit the same artifact three times the same day, once on a test that passes in 1.6 s.

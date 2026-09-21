@@ -337,3 +337,18 @@ Two things worth carrying forward:
 One observation handed to **CR1-f**: `_frontend/default-seed.ts#renderDefaultSeed` is waived as
 `THROWING_DISPATCHER` but its default **returns `null`**. At least one row of that bucket is
 mis-classified; re-derive the classification from the arm rather than trusting it.
+
+#### Two things CR1-e's rollup found that belong to other rows
+
+**`auth-verifier-doc-honesty` ×2 is INHERITED and still open.** `main`'s test (`08c52c1b`) asserts
+the OIDC verifier emits its options inline; CR1-b's own fix (`5636c7ce`) hoisted them into a
+`VERIFY_OPTIONS` const. The merge composed both and nobody re-pointed the assertion. CR1-e left it
+alone on purpose — which shape is intended is CR1-b's call, not a drain packet's. Proved to predate
+CR1-e: `git diff be2e3349 HEAD` over that test plus both `auth-emit.ts` files is **empty**.
+
+**`workflow-path-coverage` ×17 was the same class and IS fixed.** `src/generator/_test/` (a real
+shared seam, imported by all five backends' `emit/tests.ts`) arrived from `main` via #2957 while
+CR1-a's derive-the-requirement gate arrived in batch 1. They met for the first time in the merged
+tree and the gate fired — correctly. `src/generator/_test/**` added to the 18 workflows carrying the
+seam block. **This is CR1-a's gate earning its keep on its first combined run**, and it is the
+wave's best argument that deriving the requirement beat maintaining a list.
