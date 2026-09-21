@@ -726,7 +726,9 @@ export function emitUserComponent(
   const closeIndent = "  ".repeat(depth);
   // Extra positionals became JSX CHILDREN of the user component — a real
   // children sequence, so a `For` among them splices.
-  const childTsx = childrenExprs.map((c) => walk(c, ctx, depth + 1, "children")).join(`\n${indent}`);
+  const childTsx = childrenExprs
+    .map((c) => walk(c, ctx, depth + 1, "children"))
+    .join(`\n${indent}`);
   return `${open}>\n${indent}${childTsx}\n${closeIndent}</${call.name}>`;
 }
 

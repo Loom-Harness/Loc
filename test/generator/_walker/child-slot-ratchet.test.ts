@@ -46,6 +46,7 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import ts from "typescript";
 import { describe, expect, it } from "vitest";
+import { felizTarget } from "../../../src/generator/feliz/feliz-target.js";
 import { generateSystemFiles } from "../../_helpers/index.js";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
@@ -186,22 +187,49 @@ function spliceOptInSites(): Site[] {
 }
 
 describe("ChildSlot fails closed", () => {
-  it("no `ChildSlot` parameter defaults to the splice-admissible `\"children\"`", () => {
+  it('no `ChildSlot` parameter defaults to the splice-admissible `"children"`', () => {
     const defaults = childSlotDefaults();
     // If this is empty the census stopped reaching its population — the gate
     // would then pass by never looking, which is the failure shape §59/§63
     // warns about.
-    expect(defaults.length, "no `ChildSlot` defaults found at all — the census is broken").
-      toBeGreaterThan(0);
+    expect(
+      defaults.length,
+      "no `ChildSlot` defaults found at all — the census is broken",
+    ).toBeGreaterThan(0);
     const openDefaults = defaults.filter((d) => d.initializer !== '"value"');
     expect(
       openDefaults,
-      "a `ChildSlot` parameter defaults to something other than `\"value\"`.  The default is " +
+      'a `ChildSlot` parameter defaults to something other than `"value"`.  The default is ' +
         "the restrictive answer ON PURPOSE: a forgotten flag then emits a redundant wrapper " +
         "instead of an app that will not build (F# FS0747 / a Dart parse error).  Pass " +
         '`"children"` at the call sites that are genuinely a sequence and register them in ' +
         "SPLICE_OPT_INS below.",
     ).toEqual([]);
+  });
+});
+
+describe("the renderForEach seam fails closed on an absent flag", () => {
+  // `emitFor` always passes the flag, so this is about the NEXT caller: a
+  // primitive that reaches the seam directly and forgets it must get the
+  // wrapper, not the shape that will not build.  (Flutter's half lives with
+  // the rest of its target contract in `flutter/flutter-target.test.ts`.)
+  it("feliz: absent ⇒ a `React.fragment`, not a bare `yield!`", () => {
+    const absent = felizTarget.renderForEach("rows", "o", "i", "o.id", "Html.text o.code", 0);
+    expect(absent).toBe("React.fragment (rows |> List.map (fun o -> Html.text o.code))");
+    expect(absent).not.toContain("yield!");
+    // …and the opt-in still splices, so the wrapper is not simply always on.
+    expect(
+      felizTarget.renderForEach(
+        "rows",
+        "o",
+        "i",
+        "o.id",
+        "Html.text o.code",
+        0,
+        undefined,
+        "children",
+      ),
+    ).toContain("yield! rows |> List.map");
   });
 });
 
@@ -273,11 +301,13 @@ describe("every splice opt-in is a registered decision", () => {
   const sites = spliceOptInSites();
 
   it("finds the opt-in sites at all", () => {
-    expect(sites.length, "the `\"children\"` census found nothing — it is not reaching src/").
-      toBeGreaterThan(0);
+    expect(
+      sites.length,
+      'the `"children"` census found nothing — it is not reaching src/',
+    ).toBeGreaterThan(0);
   });
 
-  it("no unregistered `\"children\"` argument", () => {
+  it('no unregistered `"children"` argument', () => {
     const unregistered = sites
       .filter((s) => !SPLICE_OPT_INS.has(s.key))
       .map((s) => `${s.key}  (${s.rel}:${s.line})  ${s.snippet}`);
@@ -295,7 +325,7 @@ describe("every splice opt-in is a registered decision", () => {
     const stale = [...SPLICE_OPT_INS.keys()].filter((k) => !live.has(k));
     expect(
       stale,
-      "a SPLICE_OPT_INS row names a call site that no longer passes `\"children\"`.  Waivers " +
+      'a SPLICE_OPT_INS row names a call site that no longer passes `"children"`.  Waivers ' +
         "ratchet: delete the row in the same change that removed (or renamed) the site.",
     ).toEqual([]);
   });
