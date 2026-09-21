@@ -414,6 +414,16 @@ needed one.**
 
 ## 10. Local gates on the merged tree
 
+**A note for the fold: these commits are NOT SIGNED, and it is not for want of the flag.**
+Every commit was made with `git -c commit.gpgsign=true`, and the repo config is right
+(`gpg.format=ssh`, `user.signingkey=/home/claude/.ssh/commit_signing_key.pub`,
+`commit.gpgsign=true`) — but **that key file is 0 bytes and the private half is absent in this
+container**, so signing produces nothing and exits 0. `git log --format='%G?'` reads `N` for
+all of them (and `E` for the upstream merges, whose signatures this container cannot verify
+either — no `gpg.ssh.allowedSignersFile`). Verified with an empty probe commit, which was also
+unsigned and has been removed. Nothing in the packet can fix this; the coordinator should
+re-sign at the fold if the wave PR needs signed commits.
+
 | gate | result |
 |---|---|
 | `npx tsc -b` | clean |
