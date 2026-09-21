@@ -29,6 +29,7 @@ import { baseOf, ownFieldsOf } from "../../../ir/util/inheritance.js";
 import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { singleFieldConstraints } from "../../../ir/validate/invariant-classify.js";
 import { plural, snake, upperFirst } from "../../../util/naming.js";
+import { INT32_MAX, INT32_MIN } from "../../../util/numeric-range.js";
 import { isServerSourcedDefault } from "../../_frontend/server-default.js";
 import {
   MONEY_MAX_EXCLUSIVE,
@@ -43,6 +44,7 @@ import {
   renderInvariantValidatorFn,
 } from "./changeset-invariant-emit.js";
 import { ectoValidator, voHasConstraints } from "./changeset-validators.js";
+import { INT32_RANGE_MESSAGE } from "./context-emit.js";
 import { isVanillaDocAgg, renderDocChangeset } from "./document-emit.js";
 import { isEventSourced } from "./eventsourced-emit.js";
 import { isAbstractBase } from "./inheritance-emit.js";
@@ -297,9 +299,30 @@ function renderChangeset(
 
   defp __loom_money_range(_field, _value), do: []`
       : "";
+  // Int32 RANGE (Schemathesis F11) — the integral twin of the money guard
+  // above, and the same failure: an `int` field is a Postgres `integer`
+  // COLUMN, `Ecto.Type.cast(:integer, 9543751572142)` succeeds, and the
+  // DATABASE is what refuses the write — a 500 for a client fault.  The
+  // published schema now declares the bound (`openapi-emit.ts`), so a request
+  // that CONFORMS to the contract can no longer 500.  `validate_number/3`
+  // rather than a hand-rolled `validate_change`: it already skips an absent
+  // change and renders through the same 422 responder.  A `long` is a `bigint`
+  // and is left alone — its declared ceiling is the cross-backend
+  // `D-LONG-AVG-DEFAULTS` one, not int64.
+  const int32Columns = allFields
+    .filter((f) => {
+      const t = f.type.kind === "optional" ? f.type.inner : f.type;
+      return t.kind === "primitive" && t.name === "int";
+    })
+    .map((f) => snake(f.name));
+  const int32RangeLines = int32Columns.map(
+    (f) =>
+      `    |> validate_number(:${f}, greater_than_or_equal_to: ${INT32_MIN}, ` +
+      `less_than_or_equal_to: ${INT32_MAX}, message: ${JSON.stringify(INT32_RANGE_MESSAGE)})`,
+  );
   const validatorBlock =
-    validatorLines.length > 0 || moneyRangeLines.length > 0
-      ? `\n${[...validatorLines, ...moneyRangeLines].join("\n")}`
+    validatorLines.length > 0 || moneyRangeLines.length > 0 || int32RangeLines.length > 0
+      ? `\n${[...validatorLines, ...moneyRangeLines, ...int32RangeLines].join("\n")}`
       : "";
 
   // Containments round-trip via `cast_embed` (embedded jsonb) or `cast_assoc`
