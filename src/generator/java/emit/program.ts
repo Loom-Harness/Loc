@@ -440,6 +440,7 @@ export function renderTestResetController(
     `import java.util.Map;`,
     `import javax.sql.DataSource;`,
     `import org.springframework.http.ResponseEntity;`,
+    `import io.swagger.v3.oas.annotations.Hidden;`,
     `import org.springframework.web.bind.annotation.PostMapping;`,
     `import org.springframework.web.bind.annotation.RestController;`,
     ...seedRunners.map((r) => `import ${r.fqn};`),
@@ -453,6 +454,11 @@ export function renderTestResetController(
     ` *  Answers 404 unless ${TEST_RESET_ENV}=1, so it does nothing in a`,
     ` *  deployment.  The suite for its part only SENDS the request when its`,
     ` *  target is a loopback address. */`,
+    // springdoc documents every @RestController it scans, and that document is
+    // what the 5-way OpenAPI parity cross-check compares — so without @Hidden
+    // the reset shows up as an operation only java has.  (Caught on .NET first,
+    // which needed the same exclusion spelled ExcludeFromDescription().)
+    `@Hidden`,
     `@RestController`,
     `public class TestResetController {`,
     `    private final DataSource dataSource;`,
